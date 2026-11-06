@@ -78,6 +78,22 @@ func buildLangData() string {
 			regions = append(regions, s)
 		}
 	}
+	// Three letter regions (ISO 3166 alpha-3) are the region of their two letter code.
+	var alpha3 []string
+	for _, s := range letters(3, 'A', 'Z') {
+		if len(s) == 3 {
+			if r, err := language.ParseRegion(s); err == nil {
+				alpha3 = append(alpha3, s+":"+r.String())
+			}
+		}
+	}
+	// A language the package reads as another (chi as zh, iw as he) is that language.
+	var canonical []string
+	for _, l := range langs {
+		if base, conf := language.MustParse(l).Base(); conf == language.Exact && base.String() != l {
+			canonical = append(canonical, l+":"+base.String())
+		}
+	}
 	// The languages the matcher answers for, with the answer for every script and region.
 	var rows []string
 	for _, l := range langs {
@@ -118,6 +134,8 @@ func buildLangData() string {
 	for _, m := range regexp.MustCompile(`"([a-z0-9]+)":`).FindAllStringSubmatch(block, -1) {
 		variants = append(variants, m[1])
 	}
+	fmt.Fprintf(&b, "// regionAlpha3 maps a three letter region to the region it is.\nexport const regionAlpha3 = new Map<string, string>('%s'.split(' ').map((e) => e.split(':') as [string, string]))\n\n", strings.Join(alpha3, " "))
+	fmt.Fprintf(&b, "// langCanonical maps a language the package reads as another to that one.\nexport const langCanonical = new Map<string, string>('%s'.split(' ').map((e) => e.split(':') as [string, string]))\n\n", strings.Join(canonical, " "))
 	for _, kv := range []struct {
 		name string
 		list []string

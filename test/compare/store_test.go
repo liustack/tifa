@@ -100,6 +100,21 @@ func TestStoreDomainMatchesGo(t *testing.T) {
 		t.Errorf("the scenarios reached %d pages and %d placed orders", pages, placed)
 	}
 
+	// The generated values of Accept-Language must ask for both languages in numbers worth the name,
+	// or the comparison of them says little.
+	for i, sc := range scenarios {
+		if sc.Name != "language redirect" {
+			continue
+		}
+		counts := map[string]int{}
+		for _, r := range want[i] {
+			counts[r.Location]++
+		}
+		t.Logf("%d values of Accept-Language: %d to zh-CN and %d to en-US", len(want[i]), counts["/store/zh-CN"], counts["/store/en-US"])
+		if counts["/store/en-US"] < len(want[i])/10 || counts["/store/zh-CN"] < len(want[i])/10 {
+			t.Errorf("the values of Accept-Language ask for one language far more than the other: %v", counts)
+		}
+	}
 	compare.NormalizeStore(want)
 	compare.NormalizeStore(got)
 	diffs := compare.DiffStore(scenarios, want, got, 25)

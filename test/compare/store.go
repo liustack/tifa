@@ -378,7 +378,7 @@ func StoreScenarios() []StoreScenario {
 		)
 	}
 	var redirects []StoreStep
-	for _, accept := range StoreAcceptLanguages() {
+	for _, accept := range append(StoreAcceptLanguages(), generatedAcceptLanguages(8000)...) {
 		redirects = append(redirects, StoreStep{Name: "Accept-Language " + accept, Method: "GET", URL: "/store", AcceptLanguage: accept})
 	}
 	out = append(out, StoreScenario{Name: "language redirect", Steps: redirects})
@@ -721,6 +721,7 @@ func StoreAcceptLanguages() []string {
 		"no", "nb", "nn", "iw", "he", "in", "id", "ji", "mo", "ro", "sh", "tl", "fil", "zu", "zul", "af", "xx", "zz", "qaa", "aaa", "eng", "zho", "chi", "en-ZZ", "en-XX", "en-QO",
 		"en-US-u-ca-gregory", "en-u-ca", "en-a-b", "en-a-bb", "en-valencia", "ca-valencia", "en-posix", "en-1994", "zh-x-private", "en-t-zh", "en-US-x-a", "en-US-x",
 		"en-GB-oed", "i-klingon", "i-default", "art-lojban", "zh-min-nan", "zh-guoyu", "en-419", "es-419", "en-001", "en-150", "zh-CN-u-nu-hanidec", "en-840", "en-USA",
+		"en-Latn-USA", "en-t-xx", "en;q=1e999", "en;q=+nan", "en;q=-nan", "en;q=0x1__0p0", "en;q=0x1p1_",
 		"1", "123", "abcdefghi", "abcdefgh", "en-abcdefghi", "en\ttab", "en-US,", "en;q=0.5,", "ZH-HANS", "ZH-HANT-HK", "zH_hAnS_cN",
 	}
 	vocabulary := []string{"en", "en-US", "en-GB", "en-AU", "zh", "zh-CN", "zh-TW", "zh-HK", "zh-Hans", "zh-Hant", "zh-Hant-TW", "yue", "fr", "fr-CA", "de", "ja", "ko", "es-MX", "pt-BR", "ru", "ar", "hi", "zu", "af", "und", "*", "no", "sr-Latn", "ja-Latn", "en-Cyrl", "xx", "yue-HK", "cmn", "zh-cmn", "zh-Hant-HK", "zh-Latn", "en-Latn-US", "en-Hans", "nb-NO", "iw", "en-GB-x-a", "pt-PT", "en-SG", "zh-Hans-SG"}
@@ -737,6 +738,102 @@ func StoreAcceptLanguages() []string {
 			parts = append(parts, vocabulary[next(len(vocabulary))]+weights[next(len(weights))])
 		}
 		out = append(out, strings.Join(parts, ","))
+	}
+	return out
+}
+
+// generatedAcceptLanguages are n values of Accept-Language built from the grammar of a language
+// tag and of a weight, with parts that are right, parts that are almost right and characters put
+// in or taken out at random, from a fixed seed. Go reads each of them, so the port is held to what
+// Go does with all of them, which a list of words chosen by hand cannot ask for.
+func generatedAcceptLanguages(n int) []string {
+	seed := uint64(0x9e3779b97f4a7c15)
+	next := func(k int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(k))
+	}
+	pick := func(list ...string) string { return list[next(len(list))] }
+	letters := func(k int, alphabet string) string {
+		out := make([]byte, k)
+		for i := range out {
+			out[i] = alphabet[next(len(alphabet))]
+		}
+		return string(out)
+	}
+	languages := []string{"en", "zh", "yue", "cmn", "wuu", "gan", "hak", "nan", "hsn", "lzh", "fr", "de", "ja", "ko", "es", "pt", "ru", "ar", "hi", "zu", "af", "no", "nb", "iw", "he", "in", "id", "ji", "und", "sr", "ca", "eng", "zho", "chi", "mo", "sh", "tl"}
+	scripts := []string{"Latn", "Hans", "Hant", "Cyrl", "Arab", "Hani", "Zzzz", "Qaaa"}
+	regions := []string{"US", "GB", "CN", "TW", "HK", "SG", "MO", "AU", "CA", "FR", "DE", "JP", "419", "001", "150", "840", "USA", "GBR", "CHN", "TWN", "UK", "ZZ", "XX", "QO", "AA"}
+	variants := []string{"valencia", "posix", "1994", "1996", "pinyin", "wadegile", "oxendict", "fonipa", "abcde", "nedis"}
+	extensions := []string{"u-ca-gregory", "u-nu-latn-ca-buddhist", "u-ca", "u-ca-gregory-ca-buddhist", "u-ca-gregory-ca-gregory", "u-attr1-ca-iso8601", "t-zh", "t-zh-hans", "t-xx", "t-en-us-h0-hybrid", "t-h0-hybrid", "t", "a-bb", "a-b", "x-private", "x-a-b", "x", "u", "z-abc-de", "b-cd-ef-g"}
+	separator := func() string { return pick("-", "-", "-", "_") }
+	tag := func() string {
+		var b strings.Builder
+		lang := pick(append([]string{"en", "en", "en", "zh"}, languages...)...)
+		if next(8) == 0 {
+			lang = letters(2+next(2), "abcdefghijklmnopqrstuvwxyz")
+		}
+		b.WriteString(lang)
+		if next(10) == 0 {
+			b.WriteString(separator() + pick(languages...)) // an extlang
+		}
+		if next(3) == 0 {
+			b.WriteString(separator() + pick(scripts...))
+		}
+		if next(3) == 0 {
+			b.WriteString(separator() + pick(regions...))
+		}
+		if next(8) == 0 {
+			b.WriteString(separator() + pick(variants...))
+		}
+		if next(6) == 0 {
+			b.WriteString(separator() + pick(extensions...))
+		}
+		s := b.String()
+		switch next(6) {
+		case 0:
+			s = strings.ToUpper(s)
+		case 1:
+			s = strings.ToLower(s)
+		}
+		return s
+	}
+	weight := func() string {
+		numbers := []string{"1", "0.9", "0.5", "0.1", "0", "0.0", "1.0", ".5", "5.", "1e0", "1E-1", "1e999", "1e-999", "2", "-1", "+1", "+.5", "00.5", "0.5e1", "1_0", "1__0", "_1", "1_", "0.1_5", "1e1_0", "1e_1", "0x1p0", "0X1P-1", "0x.8p1", "0x1.8p0", "0x1p", "0x1", "0x1__0p0", "0x_1p0", "0x1p1_", "0x1_p1", "0xffffffp100", "0x1p128", "3.5e38", "3.4e38", "inf", "-inf", "+Inf", "infinity", "Infinity", "infin", "nan", "NaN", "+nan", "-nan", "bad", "", "1,5", "0,5", "0b1", "0o7"}
+		prefix := pick("q=", "q=", "q=", "q =", "Q=", "q", "=", "q=", "level=", "")
+		return ";" + pick("", " ", "  ") + prefix + pick("", " ") + pick(numbers...)
+	}
+	mutate := func(s string) string {
+		for k := next(3); k > 0 && s != ""; k-- {
+			at := next(len(s))
+			switch next(3) {
+			case 0:
+				s = s[:at] + s[at+1:]
+			case 1:
+				s = s[:at] + letters(1, "abcxyz019-_;,= .+*") + s[at:]
+			default:
+				s = s[:at] + letters(1, "abcxyz019-_;,= .+*") + s[at+1:]
+			}
+		}
+		return s
+	}
+	var out []string
+	for len(out) < n {
+		var entries []string
+		for k := 1 + next(3); k > 0; k-- {
+			e := tag()
+			if next(3) == 0 {
+				e += weight()
+			}
+			if next(12) == 0 {
+				e = mutate(e)
+			}
+			entries = append(entries, e)
+		}
+		header := strings.Join(entries, pick(",", ",", ", ", " , "))
+		if next(30) == 0 {
+			header = mutate(header)
+		}
+		out = append(out, header)
 	}
 	return out
 }
