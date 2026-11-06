@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Every post has a Markdown body in each language, newest first in the list.
 func TestEveryPostHasBothLanguages(t *testing.T) {
 	for _, code := range []string{"zh-CN", "en-US"} {
-		l, _ := store.FindLocale(code)
+		l, _ := storekit.FindLocale(code)
 		list := List(l)
 		if len(list) != 3 {
 			t.Fatalf("%s: %d posts", code, len(list))
@@ -27,7 +27,7 @@ func TestEveryPostHasBothLanguages(t *testing.T) {
 			}
 		}
 	}
-	zh, _ := store.FindLocale("zh-CN")
+	zh, _ := storekit.FindLocale("zh-CN")
 	if _, err := GetPost("nope", zh); !errors.Is(err, tifa.ErrNotFound) {
 		t.Errorf("unknown post: %v", err)
 	}

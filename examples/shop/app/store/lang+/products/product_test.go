@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 var (
-	zh, _ = store.FindLocale("zh-CN")
-	en, _ = store.FindLocale("en-US")
+	zh, _ = storekit.FindLocale("zh-CN")
+	en, _ = storekit.FindLocale("en-US")
 )
 
 func TestSearchFiltersSortsAndPages(t *testing.T) {
@@ -140,7 +140,7 @@ func TestSearchFiltersByMaterialRatingAndBadge(t *testing.T) {
 }
 
 func TestSearchCountsPriceBands(t *testing.T) {
-	for _, l := range []store.Locale{zh, en} {
+	for _, l := range []storekit.Locale{zh, en} {
 		r := Search(Filter{InStock: true}, l)
 		if len(r.Bands) != 4 {
 			t.Fatalf("%s: %d bands", l.Code, len(r.Bands))

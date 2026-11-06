@@ -5,9 +5,9 @@ package mine
 
 import (
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Mine is the visitor's cart and the products they looked at last, newest first.
@@ -18,7 +18,7 @@ type Mine struct {
 
 // GET answers for the visitor of the cookies it is sent with.
 func GET(c *tifa.Ctx) (Mine, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return Mine{}, err
 	}

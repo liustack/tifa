@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // CookieName is the cookie that holds the ID of the visitor's cart.
@@ -97,7 +97,7 @@ func ID(c *tifa.Ctx) string {
 }
 
 // Get returns the cart id in the language of l: the demonstration cart for an ID that has none.
-func Get(id string, l store.Locale) Cart {
+func Get(id string, l storekit.Locale) Cart {
 	carts.mu.Lock()
 	rec, ok := carts.get(id, time.Now())
 	lines, coupon := demoLines, ""
@@ -109,7 +109,7 @@ func Get(id string, l store.Locale) Cart {
 }
 
 // price returns the cart of lines and a coupon, with its totals in the language of l.
-func price(lines []lineRecord, coupon string, l store.Locale) Cart {
+func price(lines []lineRecord, coupon string, l storekit.Locale) Cart {
 	cart := Cart{Lines: []Line{}, Coupon: coupon, FreeShippingCents: FreeShipping(l)}
 	for _, r := range lines {
 		p, err := products.GetProduct(r.slug, l)
@@ -272,7 +272,7 @@ func lineID(slug, color, size string) string {
 const freeShippingFen = 29900
 
 // FreeShipping returns the subtotal from which standard delivery is free, in the locale's currency.
-func FreeShipping(l store.Locale) int { return store.Price(freeShippingFen, l) }
+func FreeShipping(l storekit.Locale) int { return storekit.Price(freeShippingFen, l) }
 
 // coupons are the codes the shop gives out: a share off, or an amount off from a subtotal.
 var coupons = map[string]struct {
@@ -283,38 +283,38 @@ var coupons = map[string]struct {
 	"WELCOME30": {offFen: 3000, minimumFen: 20000},
 }
 
-func discount(code string, subtotal int, l store.Locale) int {
+func discount(code string, subtotal int, l storekit.Locale) int {
 	c, ok := coupons[code]
 	switch {
 	case !ok:
 		return 0
 	case c.percent > 0:
 		return subtotal * c.percent / 100
-	case subtotal >= store.Price(c.minimumFen, l):
-		return store.Price(c.offFen, l)
+	case subtotal >= storekit.Price(c.minimumFen, l):
+		return storekit.Price(c.offFen, l)
 	}
 	return 0
 }
 
 type deliveryRecord struct {
 	id                       string
-	name                     store.Text
+	name                     storekit.Text
 	priceFen                 int
 	earliestDays, latestDays int
 }
 
 var deliveries = []deliveryRecord{
-	{"standard", store.Text{"标准快递", "Standard"}, 1500, 3, 5},
-	{"express", store.Text{"次日达", "Next day"}, 2500, 1, 1},
-	{"pickup", store.Text{"门店自提", "Pick up in store"}, 0, 0, 1},
+	{"standard", storekit.Text{"标准快递", "Standard"}, 1500, 3, 5},
+	{"express", storekit.Text{"次日达", "Next day"}, 2500, 1, 1},
+	{"pickup", storekit.Text{"门店自提", "Pick up in store"}, 0, 0, 1},
 }
 
 // Deliveries returns the ways the cart can be delivered from now, with their prices for the
 // subtotal: standard delivery is free from FreeShippingCents.
-func Deliveries(cart Cart, now time.Time, l store.Locale) []Delivery {
+func Deliveries(cart Cart, now time.Time, l storekit.Locale) []Delivery {
 	var out []Delivery
 	for _, d := range deliveries {
-		price := store.Price(d.priceFen, l)
+		price := storekit.Price(d.priceFen, l)
 		if d.id == "standard" && cart.SubtotalCents-cart.DiscountCents >= cart.FreeShippingCents {
 			price = 0
 		}
@@ -337,7 +337,7 @@ type Offer struct {
 }
 
 // Offers returns the coupons the shop gives out, for a cart with subtotalCents.
-func Offers(subtotalCents int, l store.Locale) []Offer {
+func Offers(subtotalCents int, l storekit.Locale) []Offer {
 	var out []Offer
 	for _, code := range []string{"SHANHAI10", "WELCOME30"} {
 		c := coupons[code]
@@ -348,7 +348,7 @@ func Offers(subtotalCents int, l store.Locale) []Offer {
 		case c.percent > 0:
 			o.Detail = fmt.Sprintf("全场 %g 折", float64(100-c.percent)/10)
 		case l.Code == "en-US":
-			o.Detail = fmt.Sprintf("$%.2f off orders over $%.2f", float64(store.Price(c.offFen, l))/100, float64(store.Price(c.minimumFen, l))/100)
+			o.Detail = fmt.Sprintf("$%.2f off orders over $%.2f", float64(storekit.Price(c.offFen, l))/100, float64(storekit.Price(c.minimumFen, l))/100)
 		default:
 			o.Detail = fmt.Sprintf("满 %d 元减 %d 元", c.minimumFen/100, c.offFen/100)
 		}

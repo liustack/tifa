@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/journal"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Article is a post with the products it shows and the others to read next.
@@ -28,7 +28,7 @@ var shown = map[string][]string{
 const Cache = time.Hour
 
 func Load(c *tifa.Ctx) (Article, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return Article{}, err
 	}

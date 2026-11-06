@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Detail is the product page.
@@ -31,7 +31,7 @@ type Detail struct {
 const Cache = 10 * time.Minute
 
 func Load(c *tifa.Ctx) (Detail, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return Detail{}, err
 	}

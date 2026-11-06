@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 	"github.com/liustack/tifa/tifatest"
 )
 
 var (
-	zh, _ = store.FindLocale("zh-CN")
-	en, _ = store.FindLocale("en-US")
+	zh, _ = storekit.FindLocale("zh-CN")
+	en, _ = storekit.FindLocale("en-US")
 )
 
 // visit returns the Ctx of a request that carries the cart cookie id, or none for "".
@@ -93,7 +93,7 @@ func TestCouponsAndDelivery(t *testing.T) {
 	if err := ApplyCoupon(c, "WELCOME30"); err != nil {
 		t.Fatal(err)
 	}
-	if cart := Get(id, en); cart.DiscountCents != store.Price(3000, en) {
+	if cart := Get(id, en); cart.DiscountCents != storekit.Price(3000, en) {
 		t.Errorf("30 yuan off in dollars: %d", cart.DiscountCents)
 	}
 	// Standard delivery is free from the threshold, after the discount.
@@ -359,7 +359,7 @@ func TestAnOrderIsTotalledInTheCurrencyOfItsStorefront(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The order keeps its currency when the confirmation is read in the other language.
-	for _, l := range []store.Locale{en, zh} {
+	for _, l := range []storekit.Locale{en, zh} {
 		p, err := GetPlaced(order, id, l)
 		if err != nil || p.TotalCents != want || p.Currency != "USD" {
 			t.Errorf("in %s: %d %s, want %d USD (%v)", l.Code, p.TotalCents, p.Currency, want, err)

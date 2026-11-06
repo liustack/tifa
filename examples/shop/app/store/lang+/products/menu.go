@@ -3,7 +3,7 @@ package products
 import (
 	"slices"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // MenuGroup is one category of the store's category menu: its kinds of products, how many
@@ -25,7 +25,7 @@ var kinds = map[string][]T{
 }
 
 // Menu returns the category menu: each category with its kinds and its two best rated products.
-func Menu(l store.Locale) []MenuGroup {
+func Menu(l storekit.Locale) []MenuGroup {
 	var out []MenuGroup
 	for _, c := range categories {
 		g := MenuGroup{Category: Category{ID: c.id, Name: c.name.In(l)}}
@@ -60,7 +60,7 @@ func compareRating(a, b productRecord) int {
 
 // Bundle returns up to n products to buy together with slug: others of its category that come in
 // one size, best rated first, so each goes into the cart in its first colour.
-func Bundle(slug string, n int, l store.Locale) []Card {
+func Bundle(slug string, n int, l storekit.Locale) []Card {
 	var self productRecord
 	for _, p := range catalogue {
 		if p.slug == slug {

@@ -1,7 +1,7 @@
-// Package store holds what every page of the storefront shares: the languages it is offered in,
+// Package storekit holds what every page of the storefront shares: the languages it is offered in,
 // the currency and time zone of each, and text kept in both languages. The storefront is the
 // customer side of the shop studio, at /store/{lang}.
-package store
+package storekit
 
 import (
 	"math"

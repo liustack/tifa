@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // The demonstration catalogue of the studio shop, kept in memory in place of a product table.
 // Prices are in fen.
 
-type T = store.Text
+type T = storekit.Text
 
 type productRecord struct {
 	slug        string
