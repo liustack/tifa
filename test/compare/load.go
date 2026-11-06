@@ -51,6 +51,7 @@ type Round struct {
 	Bytes        int64   `json:"bytes"`
 	N304         int     `json:"notModified"`
 
+	Attempt  int    `json:"attempt,omitempty"`
 	Failures int    `json:"failures"`
 	FirstErr string `json:"firstError,omitempty"`
 	TimedOut bool   `json:"timedOut,omitempty"`
@@ -212,12 +213,12 @@ func BlocksFor(rate float64, target time.Duration, planBlocks int) int {
 }
 
 // RunOpen starts visits at rate a second, on schedule whether or not the earlier ones are done,
-// for duration. The actions of a visit are planned ActionSpacing apart, and latency is counted from
+// n visits in all (a whole number of blocks, so that the mix comes out exact). The actions of a visit are planned ActionSpacing apart, and latency is counted from
 // the planned time. It ends when the last visit has finished, or drain after the last planned
 // action. The visits are the global sequence from seq0.
-func (r *runner) RunOpen(ctx context.Context, rate float64, duration, drain time.Duration, seq0 int) *Round {
+func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int) *Round {
 	a := newAcc()
-	n := int(math.Floor(rate * duration.Seconds()))
+	duration := time.Duration(float64(n) / rate * float64(time.Second))
 	tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 4096, MaxConnsPerHost: 0, IdleConnTimeout: 30 * time.Second}
 	defer tr.CloseIdleConnections()
 	last := 0 // the longest plan, in actions, for the drain deadline
