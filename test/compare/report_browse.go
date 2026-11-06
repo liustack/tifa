@@ -206,7 +206,7 @@ func (r *Record) browseMarkdown() string {
 			}
 			fmt.Fprintf(&b, "%s: %s", k, strings.Join(sources[k], ", "))
 		}
-		b.WriteString(". A rerun keeps the curve and the first chosen step of the run it follows, runs the rounds again with fresh servers and the same rotation of the order, and the failed rounds are kept in the JSON under `rejected`.\n")
+		b.WriteString(". A rerun of a framework runs its search and its rounds again with fresh servers, and its rows replace the old ones in the record. Rounds that fail the rule are kept in the JSON under `rejected`.\n")
 	}
 	if len(bd.TraceCheck) > 0 {
 		b.WriteString("\n#### Do the traces replay on this machine\n\nThe traces were recorded on another machine. One round of each framework at the users of the baseline, counted by request type, status and content type:\n\n")
