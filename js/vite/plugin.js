@@ -1403,7 +1403,7 @@ function prefixLinks() {
       if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//')) return
       const cut = href.search(/[?#]/)
       const pathPart = cut < 0 ? href : href.slice(0, cut)
-      const segments = pathPart.split('/').slice(1)
+      const segments = pathPart === '/' ? [] : pathPart.split('/').slice(1)
       if (segments.length > 1 && segments[segments.length - 1] === '') segments.pop()
       if (links.languages.includes(segments[0])) return
       let decoded
@@ -1417,7 +1417,8 @@ function prefixLinks() {
         const score = routeScore(route.path, decoded)
         if (score && (!best || moreSpecific(score, best.score))) best = { route, score }
       }
-      if (best?.route.languages.includes(lang)) node.properties.href = '/' + lang + href
+      // The home of a language is /en-US, not /en-US/.
+      if (best?.route.languages.includes(lang)) node.properties.href = '/' + lang + (pathPart === '/' ? href.slice(1) : href)
     })
   }
 }

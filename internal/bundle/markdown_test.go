@@ -540,3 +540,24 @@ func TestMarkdownLeavesLinksAloneWithoutLanguages(t *testing.T) {
 		t.Errorf("a site without languages changed:\n%s", html)
 	}
 }
+
+// A link to the home of a site whose root is an area gets the bare prefix, /en-US, with the query
+// and hash kept. Other paths keep their trailing slash.
+func TestMarkdownPrefixesTheHomeWithoutASlash(t *testing.T) {
+	root := markdownApp(t, nil)
+	both := []string{"zh-CN", "en-US"}
+	links := &content.Links{Default: "zh-CN", Languages: both, Routes: []content.LinkRoute{
+		{Path: "/", Languages: both}, {Path: "/cart", Languages: both},
+	}}
+	body := "[home](/) [q](/?a=1#top) [cart](/cart/)\n"
+	c := convertWith(t, root, []content.Markdown{markdownEntry("en-US", "a", "content/blog/en-US/a.md", "", body)}, links, "")
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	html := c.HTML["content/blog/en-US/a.html"]
+	for _, want := range []string{`href="/en-US"`, `href="/en-US?a=1#top"`, `href="/en-US/cart/"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the HTML lacks %s:\n%s", want, html)
+		}
+	}
+}
