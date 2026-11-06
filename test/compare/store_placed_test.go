@@ -1,11 +1,14 @@
 package compare_test
 
 import (
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/test/compare"
 )
 
 // The confirmation of an order says when it was placed. The page writes it with the message of the
@@ -62,6 +65,28 @@ func placedLine(text []string, wanted []string) int {
 	return found
 }
 
+// normalizePlaced checks the confirmation page in view for an order placed between sent and done
+// (the times of the request that placed it): exactly one line must be the text the page writes for
+// one of those times, in the language and time zone of the page. That line is then replaced by
+// "PLACED", so that the rest of the page can be compared as it is. checkPlacedTime of the storefront
+// test calls it for both servers.
+func normalizePlaced(t testing.TB, lang string, sent, done time.Time, view *compare.View) error {
+	t.Helper()
+	wanted := placedTexts(t, lang, sent, done)
+	at := placedLine(view.Text, wanted)
+	if at < 0 {
+		var near []string
+		for _, line := range view.Text {
+			if strings.Contains(line, "Placed on") || strings.Contains(line, "下单时间") {
+				near = append(near, line)
+			}
+		}
+		return fmt.Errorf("no single line says %q, the order was placed at %s. Lines about it: %q", wanted, sent.Format(time.RFC3339Nano), near)
+	}
+	view.Text[at] = "PLACED"
+	return nil
+}
+
 func TestPlacedTimeIsCheckedAsThePageWritesIt(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not installed")
@@ -77,25 +102,37 @@ func TestPlacedTimeIsCheckedAsThePageWritesIt(t *testing.T) {
 	if !strings.HasPrefix(zh[0], "下单时间：2026年11月7日 23:59") {
 		t.Fatalf("the text of the Chinese page is %q", zh[0])
 	}
-	page := func(line string) []string { return []string{"Thank you", line, "Back to the shop"} }
-	if placedLine(page(en[0]), en) != 1 || placedLine(page(zh[0]), zh) != 1 {
-		t.Fatal("the text the page writes was not found")
+	page := func(line string) *compare.View {
+		return &compare.View{Text: []string{"Thank you", line, "Back to the shop"}}
+	}
+	for lang, c := range map[string]struct {
+		line string
+		at   time.Time
+	}{"en-US": {en[0], la}, "zh-CN": {zh[0], sh}} {
+		v := page(c.line)
+		if err := normalizePlaced(t, lang, c.at, c.at.Add(time.Second), v); err != nil || v.Text[1] != "PLACED" {
+			t.Errorf("%s: the text the page writes was not accepted: %v, %q", lang, err, v.Text)
+		}
 	}
 	for name, c := range map[string]struct {
-		line   string
-		wanted []string
+		lang string
+		line string
+		at   time.Time
 	}{
-		"missing AM":           {"Placed on November 6, 2026 at 10:30", en},
-		"24 hour in English":   {"Placed on November 6, 2026 at 18:30", en},
-		"PM for AM":            {"Placed on November 6, 2026 at 10:30 PM", en},
-		"UTC and not Pacific":  {placedTexts(t, "en-US", la.Add(8*time.Hour))[0], en},
-		"8 hours off, Chinese": {placedTexts(t, "zh-CN", sh.Add(8*time.Hour))[0], zh},
-		"the next day":         {placedTexts(t, "zh-CN", sh.Add(time.Minute))[0], zh},
-		"without the message":  {"November 6, 2026 at 10:30 AM", en},
-		"the other language":   {zh[0], en},
+		"missing AM":           {"en-US", "Placed on November 6, 2026 at 10:30", la},
+		"24 hour in English":   {"en-US", "Placed on November 6, 2026 at 18:30", la},
+		"PM for AM":            {"en-US", "Placed on November 6, 2026 at 10:30 PM", la},
+		"UTC and not Pacific":  {"en-US", placedTexts(t, "en-US", la.Add(8*time.Hour))[0], la},
+		"8 hours off, Chinese": {"zh-CN", placedTexts(t, "zh-CN", sh.Add(8*time.Hour))[0], sh},
+		"the next day":         {"zh-CN", placedTexts(t, "zh-CN", sh.Add(time.Minute))[0], sh},
+		"without the message":  {"en-US", "November 6, 2026 at 10:30 AM", la},
+		"the other language":   {"en-US", zh[0], la},
 	} {
-		if i := placedLine(page(c.line), c.wanted); i >= 0 {
+		v := page(c.line)
+		if err := normalizePlaced(t, c.lang, c.at, c.at, v); err == nil {
 			t.Errorf("%s: %q was taken for the time the order was placed", name, c.line)
+		} else if v.Text[1] != c.line {
+			t.Errorf("%s: a line that was refused was changed to %q", name, v.Text[1])
 		}
 	}
 }

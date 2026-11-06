@@ -876,18 +876,8 @@ func (p *pair) checkPlacedTime(name, path string, views [2]*compare.View, orders
 		lang = "en-US"
 	}
 	for i, v := range views {
-		wanted := placedTexts(p.t, lang, p.placed[i][0], p.placed[i][1])
-		at := placedLine(v.Text, wanted)
-		if at < 0 {
-			var near []string
-			for _, line := range v.Text {
-				if strings.Contains(line, "Placed on") || strings.Contains(line, "下单时间") {
-					near = append(near, line)
-				}
-			}
-			p.t.Errorf("%s: the confirmation of %s has no single line that says %q, the order was placed at %s. Lines about it: %q", name, orders[i], wanted, p.placed[i][0].Format(time.RFC3339Nano), near)
-			continue
+		if err := normalizePlaced(p.t, lang, p.placed[i][0], p.placed[i][1], v); err != nil {
+			p.t.Errorf("%s: the confirmation of %s: %v", name, orders[i], err)
 		}
-		v.Text[at] = "PLACED"
 	}
 }
