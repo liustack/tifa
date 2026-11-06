@@ -11,6 +11,9 @@ import (
 // Ctx wraps one request and its response. Load, the method handlers and OnRequest receive it.
 type Ctx = core.Ctx
 
+// Alternate is one version of a page in a language, see Ctx.SetAlternates.
+type Alternate = core.Alternate
+
 // Error is a failure that is safe to show to the client. Returned from Load, a method handler or OnRequest,
 // it is answered with its own status and message without calling OnError. OnError also returns it.
 type Error = core.Error
