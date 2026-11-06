@@ -15,11 +15,8 @@ func main() {
 	if cwd, cwdErr := os.Getwd(); exeErr == nil && cwdErr == nil && !runByGoCommand(exe, os.Getenv) {
 		info, _ := debug.ReadBuildInfo()
 		if root, ok := forwardTarget(os.Args[1:], cwd, info, os.Getenv); ok {
-			code, err := forward(root, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "tifa:", err)
-			}
-			os.Exit(code)
+			fmt.Fprintln(os.Stderr, "tifa:", forward(root, os.Args[1:]))
+			os.Exit(1)
 		}
 	}
 	err := newRootCmd().Execute()

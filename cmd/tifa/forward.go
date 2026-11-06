@@ -1,16 +1,11 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-	"syscall"
 
 	"golang.org/x/mod/modfile"
 )
@@ -135,45 +130,8 @@ func workspaceInUse(root string, getenv func(string) string) bool {
 	}
 }
 
-// forward runs go tool tifa with args in root, wired to the given streams, and returns its exit
-// status. The terminal sends Ctrl-C to the whole process group, so the child gets it without
-// help: this process ignores SIGINT, to stay alive until the child has stopped and to report
-// its status. SIGTERM, which reaches only this process, is passed on.
-func forward(root string, args []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
-	cmd := exec.Command("go", append([]string{"tool", "tifa"}, args...)...)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), forwardedEnv+"=1")
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
-	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-	if err := cmd.Start(); err != nil {
-		return 1, fmt.Errorf("the app in %s pins its own tifa, but starting go tool tifa failed: %w\nrun it yourself: cd %s && go tool tifa %s",
-			root, err, cdOperand(root), strings.Join(args, " "))
-	}
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case s := <-sigs:
-				if s == syscall.SIGTERM {
-					_ = cmd.Process.Signal(s)
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
-	err := cmd.Wait()
-	close(done)
-	var exit *exec.ExitError
-	switch {
-	case err == nil:
-		return 0, nil
-	case errors.As(err, &exit) && exit.ExitCode() >= 0:
-		return exit.ExitCode(), nil
-	case errors.As(err, &exit):
-		return 1, nil
-	}
-	return 1, err
+// forwardFailed is the error when go tool tifa cannot start for the app at root.
+func forwardFailed(root string, args []string, err error) error {
+	return fmt.Errorf("the app in %s pins its own tifa, but starting go tool tifa failed: %w\nrun it yourself: cd %s && go tool tifa %s",
+		root, err, cdOperand(root), strings.Join(args, " "))
 }

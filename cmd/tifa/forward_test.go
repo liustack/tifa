@@ -1,12 +1,17 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const toolLine = "tool github.com/liustack/tifa/cmd/tifa\n"
@@ -97,26 +102,49 @@ func TestForwardTargetGoWorkFile(t *testing.T) {
 	}
 }
 
-// TestForwardRuns puts a fake go on PATH that records its arguments, folder and environment.
+// forwardHelperEnv makes the test binary run forward with the folder in the variable and the
+// arguments after "--", as main does, since forward does not return when it works.
+const forwardHelperEnv = "TIFA_TEST_FORWARD_ROOT"
+
+func TestMain(m *testing.M) {
+	if root := os.Getenv(forwardHelperEnv); root != "" {
+		args := os.Args[slices.Index(os.Args, "--")+1:]
+		if err := forward(root, args); err != nil {
+			fmt.Fprintln(os.Stderr, "tifa:", err)
+		}
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
+// forwardHelper starts this test binary forwarding args to the app at root, with a fake go first
+// on PATH that runs script.
+func forwardHelper(t *testing.T, root, script string, args ...string) *exec.Cmd {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], append([]string{"-test.run=^$", "--"}, args...)...)
+	cmd.Env = append(os.Environ(), forwardHelperEnv+"="+root, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return cmd
+}
+
+// The forwarded command gets the arguments, the folder of the app and the marker, and its output
+// and exit status are those of tifa.
 func TestForwardRuns(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake go is a shell script")
 	}
 	app := writeMod(t, "v0.3.0", toolLine)
-	bin := t.TempDir()
 	log := filepath.Join(t.TempDir(), "log")
-	script := "#!/bin/sh\necho \"$PWD|$*|$" + forwardedEnv + "\" > '" + log + "'\necho out\necho err >&2\nexit 7\n"
-	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd := forwardHelper(t, app, "echo \"$PWD|$*|$"+forwardedEnv+"\" > '"+log+"'\necho out\necho err >&2\nexit 7\n", "build", "-o", "x y")
 	var out, errOut strings.Builder
-	code, err := forward(app, []string{"build", "-o", "x y"}, nil, &out, &errOut)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if code != 7 {
-		t.Fatalf("exit status = %d, want 7", code)
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 7 {
+		t.Fatalf("exit = %v, want status 7\nstderr: %s", err, errOut.String())
 	}
 	if out.String() != "out\n" || errOut.String() != "err\n" {
 		t.Fatalf("output = %q, %q", out.String(), errOut.String())
@@ -129,10 +157,51 @@ func TestForwardRuns(t *testing.T) {
 	}
 }
 
+// A SIGINT sent to tifa alone, not to its process group, as a test or a supervisor sends it,
+// reaches the forwarded command.
+func TestForwardPassesSIGINT(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGINT on Windows")
+	}
+	app := writeMod(t, "v0.3.0", toolLine)
+	ready := filepath.Join(t.TempDir(), "ready")
+	cmd := forwardHelper(t, app, "trap 'echo got-int; exit 3' INT\ntouch '"+ready+"'\nwhile :; do sleep 0.05; done\n", "dev")
+	var out strings.Builder
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; ; i++ {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if i == 200 {
+			cmd.Process.Kill()
+			t.Fatal("the fake go did not start")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 3 || out.String() != "got-int\n" {
+			t.Fatalf("exit = %v, output %q, want the forwarded command to stop on the SIGINT with 3", err, out.String())
+		}
+	case <-time.After(5 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("tifa did not stop after SIGINT")
+	}
+}
+
 func TestForwardCannotStart(t *testing.T) {
 	app := writeMod(t, "v0.3.0", toolLine)
 	t.Setenv("PATH", t.TempDir())
-	_, err := forward(app, []string{"dev"}, nil, nil, nil)
+	err := forward(app, []string{"dev"})
 	if err == nil || !strings.Contains(err.Error(), "go tool tifa dev") {
 		t.Fatalf("err = %v, want it to name the command to run", err)
 	}

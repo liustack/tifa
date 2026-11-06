@@ -36,6 +36,10 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// The tests run the tifa built from this checkout, in apps that replace tifa with it. Such a
+	// tifa would hand every command to go tool tifa, a second build of the same code, so the
+	// marker of a forwarded command keeps it running the commands itself.
+	os.Setenv("TIFA_FORWARDED", "1")
 	code := m.Run()
 	if left := leftDaemons(); len(left) > 0 {
 		fmt.Fprintf(os.Stderr, "playwright-cli daemons of this run still running: %v\n", left)
