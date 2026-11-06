@@ -189,7 +189,7 @@ export function placeOrder(c: Ctx, l: Locale, o: Order, now: number): string {
     // The cart was forgotten, or never made here. The checkout showed that cart, so placing the
     // demonstration cart in its place would charge another amount. Drop the cookie, so the page
     // shows the demonstration cart when it loads again.
-    c.setCookie({ name: cookieName, value: '', path: '/store', maxAge: -1 })
+    c.setCookie({ name: cookieName, value: '', path: '/', maxAge: -1 })
     throw new HttpError(409, 'cartExpired')
   }
   const ok = rec !== undefined

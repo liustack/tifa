@@ -119,7 +119,7 @@ async function write(request: Request, run: (c: Ctx) => Promise<Omit<Outcome, 'c
   }
 }
 
-// productOutcome is POST /store/{lang}/products/{product}: put the product in the cart.
+// productOutcome is POST /store/products/{product}: put the product in the cart.
 export function productOutcome(request: Request, params: { lang: string; product: string }): Promise<Outcome> {
   return write(request, async (c) => {
     const input = await decodeBody<{ color: string; size: string; quantity: number }>(request, { color: 'string', size: 'string', quantity: 'int' })
@@ -127,7 +127,7 @@ export function productOutcome(request: Request, params: { lang: string; product
   })
 }
 
-// quantityOutcome is PATCH /store/{lang}/cart: change the quantity of a line, answering with the cart.
+// quantityOutcome is PATCH /store/cart: change the quantity of a line, answering with the cart.
 export function quantityOutcome(request: Request, params: { lang: string }): Promise<Outcome> {
   return write(request, async (c) => {
     const input = await decodeBody<{ line: string; quantity: number }>(request, { line: 'string', quantity: 'int' })
@@ -135,7 +135,7 @@ export function quantityOutcome(request: Request, params: { lang: string }): Pro
   })
 }
 
-// couponOutcome is POST /store/{lang}/cart: put a coupon on the cart, or take it off.
+// couponOutcome is POST /store/cart: put a coupon on the cart, or take it off.
 export function couponOutcome(request: Request, params: { lang: string }): Promise<Outcome> {
   return write(request, async (c) => {
     const input = await decodeBody<{ code: string }>(request, { code: 'string' })
@@ -144,7 +144,7 @@ export function couponOutcome(request: Request, params: { lang: string }): Promi
   })
 }
 
-// checkoutOutcome is POST /store/{lang}/checkout: check the order, place it and redirect to its
+// checkoutOutcome is POST /store/checkout: check the order, place it and redirect to its
 // confirmation.
 export function checkoutOutcome(request: Request, params: { lang: string }): Promise<Outcome> {
   return write(request, async (c) => {
@@ -154,7 +154,7 @@ export function checkoutOutcome(request: Request, params: { lang: string }): Pro
   })
 }
 
-// seenOutcome is POST /store/{lang}/mine: remember a product the visitor looked at.
+// seenOutcome is POST /store/mine: remember a product the visitor looked at.
 export function seenOutcome(request: Request, params: { lang: string }): Promise<Outcome> {
   return write(request, async (c) => {
     const input = await decodeBody<{ slug: string }>(request, { slug: 'string' })

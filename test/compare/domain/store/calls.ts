@@ -16,7 +16,6 @@
 import { Ctx } from './ctx.ts'
 import { NotFound } from './errors.ts'
 import { getMine } from './mine.ts'
-import { getStore } from './store.ts'
 import { checkoutOutcome, couponOutcome, productOutcome, quantityOutcome, respond, seenOutcome } from './writes.ts'
 import type { Outcome } from './writes.ts'
 
@@ -62,7 +61,7 @@ export const callCoupon = async (request: Request, params: Lang) => answer(reque
 export const callCheckout = async (request: Request, params: Lang) => answer(request, await checkoutOutcome(request, params))
 export const callSeen = async (request: Request, params: Lang) => answer(request, await seenOutcome(request, params))
 
-// callMine is GET /store/{lang}/mine: the cart and the products the visitor looked at last, for
+// callMine is GET /store/mine: the cart and the products the visitor looked at last, for
 // the visitor of the cookies it is sent with.
 export async function callMine(request: Request, params: Lang): Promise<Response> {
   const c = new Ctx(request.headers.get('cookie'))
@@ -81,16 +80,6 @@ export function methodNotAllowed(allow: string): Response {
     status: 405,
     headers: { 'Content-Type': 'application/json', Allow: allow, 'Cache-Control': 'no-store' },
   })
-}
-
-// redirectToPreferred is GET /store: the redirect to the language the browser asks for. It
-// depends on Accept-Language and says so. Like every route of tifa it answers a call (X-Tifa-Call)
-// with a 200 that carries the redirect. The body is the one of Go's http.Redirect.
-export function redirectToPreferred(request: Request): Response {
-  const r = getStore(request.headers.get('accept-language') ?? '')
-  const res = answer(request, { status: r.status, location: r.location, text: `<a href="${escapeHTML(r.location)}">Found</a>.\n\n`, cookies: [] })
-  res.headers.set('Vary', r.vary + ', ' + callHeader)
-  return res
 }
 
 // escapeHTML is the escape Go's http.Redirect puts on the URL in the body of its answer.

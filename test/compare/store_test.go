@@ -20,12 +20,12 @@ func TestStorePagesAreAPlainList(t *testing.T) {
 			t.Errorf("%s twice", p.URL)
 		}
 		seen[p.URL] = true
-		if !strings.HasPrefix(p.URL, "/store/") || !strings.HasPrefix(p.Routes, "app/store/lang+/layout,") {
+		if !strings.HasPrefix(p.URL, "/store") && !strings.HasPrefix(p.URL, "/en-US/store") || !strings.HasPrefix(p.Routes, "app/store/layout,") {
 			t.Errorf("page %+v", p)
 		}
 	}
 	for _, l := range compare.StoreLangs {
-		for _, url := range []string{"/store/" + l, "/store/" + l + "/cart", "/store/" + l + "/checkout", "/store/" + l + "/journal", "/store/" + l + "/products?page=2"} {
+		for _, url := range []string{compare.StoreBase(l), compare.StoreBase(l) + "/cart", compare.StoreBase(l) + "/checkout", compare.StoreBase(l) + "/journal", compare.StoreBase(l) + "/products?page=2"} {
 			if !seen[url] {
 				t.Errorf("no page %s", url)
 			}
@@ -100,21 +100,6 @@ func TestStoreDomainMatchesGo(t *testing.T) {
 		t.Errorf("the scenarios reached %d pages and %d placed orders", pages, placed)
 	}
 
-	// The generated values of Accept-Language must ask for both languages in numbers worth the name,
-	// or the comparison of them says little.
-	for i, sc := range scenarios {
-		if sc.Name != "language redirect" {
-			continue
-		}
-		counts := map[string]int{}
-		for _, r := range want[i] {
-			counts[r.Location]++
-		}
-		t.Logf("%d values of Accept-Language: %d to zh-CN and %d to en-US", len(want[i]), counts["/store/zh-CN"], counts["/store/en-US"])
-		if counts["/store/en-US"] < len(want[i])/10 || counts["/store/zh-CN"] < len(want[i])/10 {
-			t.Errorf("the values of Accept-Language ask for one language far more than the other: %v", counts)
-		}
-	}
 	compare.NormalizeStore(want)
 	compare.NormalizeStore(got)
 	diffs := compare.DiffStore(scenarios, want, got, 25)
@@ -170,8 +155,8 @@ func TestStoreWritesEncodeOnce(t *testing.T) {
 		t.Errorf("the reader built %d arrays and objects for a body with a member it does not know, want 1", c)
 	}
 	delete(counts, "unknown")
-	if len(counts) != 16 {
-		t.Errorf("%d requests counted, want 16", len(counts))
+	if len(counts) != 14 {
+		t.Errorf("%d requests counted, want 14", len(counts))
 	}
 	for name, c := range counts {
 		// Answers without a body (204, a redirect with the plain form) are not encoded at all.

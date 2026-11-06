@@ -7,7 +7,6 @@
 import { readFileSync } from 'node:fs'
 import { Ctx } from './ctx.ts'
 import { NotFound } from './errors.ts'
-import { getStore } from './store.ts'
 import { getMine } from './mine.ts'
 import { loadRoute } from './routes.ts'
 import type { Params } from './routes.ts'
@@ -20,7 +19,6 @@ interface Step {
   body?: string
   contentType?: string
   cookie?: string
-  acceptLanguage?: string
 }
 
 interface Result {
@@ -35,9 +33,14 @@ async function run(step: Step, jar: Map<string, string>, order: string): Promise
   const at = Date.now()
   const url = new URL(step.url.replaceAll('{order}', order), 'http://shop.test')
   const cookie = step.cookie || [...jar].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('; ')
-  const parts = url.pathname.split('/').filter(Boolean) // store, lang, ...
-  if (parts[0] !== 'store') return { status: 404, at }
-  const params: Params = { lang: parts[1] }
+  // The language is the first segment when it is not the default: /en-US/store/cart. What follows
+  // is store, then the page. A prefix that is not a language of the store is no page.
+  const segments = url.pathname.split('/').filter(Boolean)
+  let lang = 'zh-CN'
+  if (segments[0] === 'en-US') lang = segments.shift()!
+  const parts = ['', ...segments] // parts[1] is store, as it was when the language stood after it
+  if (parts[1] !== 'store') return { status: 404, at }
+  const params: Params = { lang }
   const rest = parts.slice(2).join('/')
 
   if (step.method === 'GET' && step.routes) {
@@ -57,10 +60,6 @@ async function run(step: Step, jar: Map<string, string>, order: string): Promise
     }
     return { status: 200, at, body: { routes } }
   }
-  if (step.method === 'GET' && parts.length === 1) {
-    const r = getStore(step.acceptLanguage ?? '')
-    return { status: r.status, at, location: r.location }
-  }
   if (step.method === 'GET' && rest === 'mine') {
     try {
       return { status: 200, at, body: getMine(new Ctx(cookie), params) }
@@ -74,7 +73,7 @@ async function run(step: Step, jar: Map<string, string>, order: string): Promise
   if (step.method !== 'GET') headers['content-type'] = step.contentType || 'application/json'
   const request = new Request(url, { method: step.method, headers, body: step.method === 'GET' ? undefined : step.body })
   let response: Response | undefined
-  if (step.method === 'POST' && parts[2] === 'products' && parts.length === 4) response = await postProductRoute(request, { lang: parts[1], product: parts[3] })
+  if (step.method === 'POST' && parts[2] === 'products' && parts.length === 4) response = await postProductRoute(request, { lang, product: parts[3] })
   else if (step.method === 'PATCH' && rest === 'cart') response = await patchCartRoute(request, params)
   else if (step.method === 'POST' && rest === 'cart') response = await postCartRoute(request, params)
   else if (step.method === 'POST' && rest === 'checkout') response = await postCheckoutRoute(request, params)

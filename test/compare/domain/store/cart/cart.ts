@@ -165,7 +165,7 @@ export function newCartId(): string {
 export function setCartCookie(c: Ctx, id: string): void {
   // The cookie lives as long as an unused cart, and only the server reads it. It has no Secure
   // flag because the example runs on http://127.0.0.1.
-  c.setCookie({ name: cookieName, value: id, path: '/store', maxAge: cartIdle / 1000, httpOnly: true, sameSite: 'Lax' })
+  c.setCookie({ name: cookieName, value: id, path: '/', maxAge: cartIdle / 1000, httpOnly: true, sameSite: 'Lax' })
 }
 
 // add puts quantity of a product in a colour and size into the cart of the request, and returns

@@ -17,24 +17,33 @@ import (
 	"time"
 )
 
-// The storefront of examples/shop, at /store/{lang}. Its data is computed in Node by
+// The storefront of examples/shop, at /store and, in English, at /en-US/store. Its data is computed in Node by
 // domain/store, a port of the Go code that TestStoreDomainMatchesGo keeps equal to the Go code.
 
 // The route ids of the storefront's Layout and Load functions, as tifa names them.
 const (
-	storeLayout   = "app/store/lang+/layout"
-	storeHome     = "app/store/lang+/route"
-	storeList     = "app/store/lang+/products/route"
-	storeProduct  = "app/store/lang+/products/product+/route"
-	storeCart     = "app/store/lang+/cart/route"
-	storeCheckout = "app/store/lang+/checkout/route"
-	storeJournal  = "app/store/lang+/journal/route"
-	storePost     = "app/store/lang+/journal/post+/route"
-	storeMine     = "app/store/lang+/mine/route"
+	storeLayout   = "app/store/layout"
+	storeHome     = "app/store/route"
+	storeList     = "app/store/products/route"
+	storeProduct  = "app/store/products/product+/route"
+	storeCart     = "app/store/cart/route"
+	storeCheckout = "app/store/checkout/route"
+	storeJournal  = "app/store/journal/route"
+	storePost     = "app/store/journal/post+/route"
+	storeMine     = "app/store/mine/route"
 )
 
 // StoreLangs are the two languages of the storefront.
 var StoreLangs = []string{"zh-CN", "en-US"}
+
+// StoreBase is where the storefront starts in a language: /store for the default language, zh-CN,
+// and /en-US/store for the other.
+func StoreBase(l string) string {
+	if l == "zh-CN" {
+		return "/store"
+	}
+	return "/" + l + "/store"
+}
 
 // StoreProducts are every product of the catalogue, in its order. TestStoreDomainMatchesGo checks
 // that the list is the catalogue.
@@ -76,7 +85,7 @@ var StoreListQueries = []string{
 func StorePages() []Page {
 	var out []Page
 	for _, l := range StoreLangs {
-		base := "/store/" + l
+		base := StoreBase(l)
 		add := func(name, path, page string) {
 			out = append(out, Page{Name: "store " + l + " " + name, URL: base + path, Routes: storeLayout + "," + page})
 		}
@@ -102,13 +111,10 @@ func StorePages() []Page {
 	return out
 }
 
-// StoreMissing are pages of the storefront that answer 404: a language, a product and a post that
-// do not exist. A data request answers 200 with the status of each route in it.
+// StoreMissing are pages of the storefront that answer 404: a product and a post that do not exist. A data request answers 200 with the status of each route in it.
 var StoreMissing = []Page{
-	{Name: "language", URL: "/store/fr-FR", Routes: storeLayout + "," + storeHome},
-	{Name: "language products", URL: "/store/fr-FR/products", Routes: storeLayout + "," + storeList},
-	{Name: "product", URL: "/store/zh-CN/products/no-such-product", Routes: storeLayout + "," + storeProduct},
-	{Name: "post", URL: "/store/en-US/journal/no-such-post", Routes: storeLayout + "," + storePost},
+	{Name: "product", URL: "/store/products/no-such-product", Routes: storeLayout + "," + storeProduct},
+	{Name: "post", URL: "/en-US/store/journal/no-such-post", Routes: storeLayout + "," + storePost},
 }
 
 // StoreStep is one request of a storefront scenario. The same steps run against the shop and against
@@ -126,8 +132,7 @@ type StoreStep struct {
 	Body        string `json:"body,omitempty"`
 	ContentType string `json:"contentType,omitempty"`
 	// Cookie, when set, is the whole Cookie header, in place of the cookies the scenario holds.
-	Cookie         string `json:"cookie,omitempty"`
-	AcceptLanguage string `json:"acceptLanguage,omitempty"`
+	Cookie string `json:"cookie,omitempty"`
 }
 
 // StoreScenario is a visitor: steps that run in order with one set of cookies.
@@ -176,11 +181,11 @@ func storeOrder(l string, mutate ...func(m map[string]any)) string {
 }
 
 func storeGET(l, path, page string) StoreStep {
-	return StoreStep{Method: "GET", URL: "/store/" + l + path, Routes: storeLayout + "," + page}
+	return StoreStep{Method: "GET", URL: StoreBase(l) + path, Routes: storeLayout + "," + page}
 }
 
 func storeWrite(method, l, path string, body any) StoreStep {
-	s := StoreStep{Method: method, URL: "/store/" + l + path}
+	s := StoreStep{Method: method, URL: StoreBase(l) + path}
 	switch b := body.(type) {
 	case nil:
 	case string:
@@ -191,7 +196,7 @@ func storeWrite(method, l, path string, body any) StoreStep {
 	return s
 }
 
-func storeMineGET(l string) StoreStep { return StoreStep{Method: "GET", URL: "/store/" + l + "/mine"} }
+func storeMineGET(l string) StoreStep { return StoreStep{Method: "GET", URL: StoreBase(l) + "/mine"} }
 
 // StoreAddToCart is the POST that puts a product in the cart.
 func StoreAddToCart(l, slug, color, size string, quantity int) StoreStep {
@@ -206,7 +211,7 @@ func StoreScenarios() []StoreScenario {
 		// The pages with no cookies.
 		var pages []StoreStep
 		for _, p := range StorePages() {
-			if strings.HasPrefix(p.URL, "/store/"+l) {
+			if strings.HasPrefix(p.URL, StoreBase(l)) {
 				pages = append(pages, StoreStep{Name: p.Name, Method: "GET", URL: p.URL, Routes: p.Routes})
 			}
 		}
@@ -292,19 +297,19 @@ func StoreScenarios() []StoreScenario {
 			StoreScenario{Name: "check out " + l, Steps: []StoreStep{
 				storeWrite("POST", l, "/cart", map[string]any{"code": "SHANHAI10"}),
 				storeWrite("POST", l, "/checkout", orderOK),
-				{Method: "GET", URL: "/store/" + l + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout},
+				{Method: "GET", URL: StoreBase(l) + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout},
 				storeGET(l, "/cart", storeCart),
 				storeWrite("POST", l, "/checkout", orderOK),
-				{Method: "GET", URL: "/store/" + l + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout, Cookie: "store_cart=SOMEONEELSE"},
-				{Method: "GET", URL: "/store/" + l + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout, Cookie: "unrelated=1"},
+				{Method: "GET", URL: StoreBase(l) + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout, Cookie: "store_cart=SOMEONEELSE"},
+				{Method: "GET", URL: StoreBase(l) + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout, Cookie: "unrelated=1"},
 			}},
 			StoreScenario{Name: "check out express " + l, Steps: []StoreStep{
 				StoreAddToCart(l, "walnut-pen", "brass", "", 1),
 				storeWrite("POST", l, "/checkout", storeOrder(l, func(m map[string]any) { m["delivery"] = "express"; m["payment"] = "alipay"; m["cardNumber"] = "" })),
-				{Method: "GET", URL: "/store/" + l + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout},
+				{Method: "GET", URL: StoreBase(l) + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout},
 				StoreAddToCart(l, "walnut-pen", "charcoal", "", 3),
 				storeWrite("POST", l, "/checkout", storeOrder(l, func(m map[string]any) { m["delivery"] = "pickup"; m["payment"] = "wechat" })),
-				{Method: "GET", URL: "/store/" + l + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout},
+				{Method: "GET", URL: StoreBase(l) + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout},
 			}},
 			StoreScenario{Name: "check out refused " + l, Steps: []StoreStep{
 				storeWrite("POST", l, "/checkout", `{}`),
@@ -336,8 +341,7 @@ func StoreScenarios() []StoreScenario {
 					a["postalCode"] = "K1A 0B1"
 					m["email"] = strings.Repeat("a", 250) + "@example.com"
 				})),
-				{Method: "POST", URL: "/store/" + l + "/checkout", Body: orderOK, Cookie: "store_cart=NOSUCHCART"},
-				{Method: "POST", URL: "/store/xx-XX/checkout", Body: orderOK},
+				{Method: "POST", URL: StoreBase(l) + "/checkout", Body: orderOK, Cookie: "store_cart=NOSUCHCART"},
 				storeGET(l, "/cart", storeCart),
 			}},
 			StoreScenario{Name: "seen products " + l, Steps: []StoreStep{
@@ -355,38 +359,32 @@ func StoreScenarios() []StoreScenario {
 				storeWrite("POST", l, "/mine", map[string]any{"slug": "copper-cups"}),
 				storeWrite("POST", l, "/mine", map[string]any{"slug": "camp-lantern"}),
 				storeMineGET(l),
-				{Method: "GET", URL: "/store/" + l + "/mine", Cookie: "shop_seen=ceramic-cup.nope.ceramic-cup..oak-tray.x.y"},
-				{Method: "GET", URL: "/store/" + l + "/cart", Routes: storeLayout + "," + storeCart, Cookie: "shop_seen=ceramic-cup.oak-tray; store_cart=NOSUCHCART"},
-				{Method: "POST", URL: "/store/" + l + "/mine", Body: `{"slug":"wool-throw"}`, Cookie: "shop_seen=a.b.ceramic-cup"},
+				{Method: "GET", URL: StoreBase(l) + "/mine", Cookie: "shop_seen=ceramic-cup.nope.ceramic-cup..oak-tray.x.y"},
+				{Method: "GET", URL: StoreBase(l) + "/cart", Routes: storeLayout + "," + storeCart, Cookie: "shop_seen=ceramic-cup.oak-tray; store_cart=NOSUCHCART"},
+				{Method: "POST", URL: StoreBase(l) + "/mine", Body: `{"slug":"wool-throw"}`, Cookie: "shop_seen=a.b.ceramic-cup"},
 			}},
 			StoreScenario{Name: "bad bodies " + l, Steps: []StoreStep{
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `{"color":`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: ``},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `{"color":"moss","size":"","quantity":"1"}`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `{"color":"moss","size":"","quantity":1.5}`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `[1]`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `null`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `{"color":"moss","size":"","quantity":1} x`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `{"color":"moss","size":null,"quantity":1,"extra":true}`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `{"color":"moss","quantity":2}`},
-				{Method: "POST", URL: "/store/" + l + "/products/ceramic-cup", Body: `color=moss&quantity=1`, ContentType: "text/plain"},
-				{Method: "PATCH", URL: "/store/" + l + "/cart", Body: `{"line":1,"quantity":1}`},
-				{Method: "POST", URL: "/store/" + l + "/cart", Body: `{"code":["a"]}`},
-				{Method: "POST", URL: "/store/" + l + "/mine", Body: `{"slug":true}`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `{"color":`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: ``},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `{"color":"moss","size":"","quantity":"1"}`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `{"color":"moss","size":"","quantity":1.5}`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `[1]`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `null`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `{"color":"moss","size":"","quantity":1} x`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `{"color":"moss","size":null,"quantity":1,"extra":true}`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `{"color":"moss","quantity":2}`},
+				{Method: "POST", URL: StoreBase(l) + "/products/ceramic-cup", Body: `color=moss&quantity=1`, ContentType: "text/plain"},
+				{Method: "PATCH", URL: StoreBase(l) + "/cart", Body: `{"line":1,"quantity":1}`},
+				{Method: "POST", URL: StoreBase(l) + "/cart", Body: `{"code":["a"]}`},
+				{Method: "POST", URL: StoreBase(l) + "/mine", Body: `{"slug":true}`},
 				storeMineGET(l),
 			}},
 		)
 	}
-	var redirects []StoreStep
-	for _, accept := range append(append(StoreAcceptLanguages(), generatedAcceptLanguages(8000)...), tieAcceptLanguages()...) {
-		redirects = append(redirects, StoreStep{Name: "Accept-Language " + accept, Method: "GET", URL: "/store", AcceptLanguage: accept})
-	}
-	out = append(out, StoreScenario{Name: "language redirect", Steps: redirects})
 	var missing []StoreStep
 	for _, p := range StoreMissing {
 		missing = append(missing, StoreStep{Name: p.Name, Method: "GET", URL: p.URL, Routes: p.Routes})
 	}
-	missing = append(missing, StoreStep{Method: "GET", URL: "/store/fr-FR/mine"})
 	out = append(out, StoreScenario{Name: "missing", Steps: missing})
 	return out
 }
@@ -398,8 +396,8 @@ func StoreStates() []StoreState {
 	for _, l := range StoreLangs {
 		pages := func(prefix string) []Page {
 			return []Page{
-				{Name: prefix + " cart", URL: "/store/" + l + "/cart", Routes: storeLayout + "," + storeCart},
-				{Name: prefix + " checkout", URL: "/store/" + l + "/checkout", Routes: storeLayout + "," + storeCheckout},
+				{Name: prefix + " cart", URL: StoreBase(l) + "/cart", Routes: storeLayout + "," + storeCart},
+				{Name: prefix + " checkout", URL: StoreBase(l) + "/checkout", Routes: storeLayout + "," + storeCheckout},
 			}
 		}
 		out = append(out,
@@ -422,7 +420,7 @@ func StoreStates() []StoreState {
 				storeWrite("PATCH", l, "/cart", map[string]any{"line": "reading-candle.charcoal", "quantity": 0}),
 			}, Pages: pages("empty")},
 			StoreState{Name: "placed order " + l, Steps: []StoreStep{storeWrite("POST", l, "/checkout", storeOrder(l))},
-				Pages: []Page{{Name: "placed checkout", URL: "/store/" + l + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout}}},
+				Pages: []Page{{Name: "placed checkout", URL: StoreBase(l) + "/checkout?placed={order}", Routes: storeLayout + "," + storeCheckout}}},
 		)
 	}
 	return out
@@ -465,9 +463,6 @@ func RunStoreOnShop(ctx context.Context, base, buildID string, scenarios []Store
 					ct = "application/json"
 				}
 				req.Header.Set("Content-Type", ct)
-			}
-			if st.AcceptLanguage != "" {
-				req.Header.Set("Accept-Language", st.AcceptLanguage)
 			}
 			req.Header.Set("Accept-Encoding", "identity")
 			if st.Cookie != "" {
@@ -703,213 +698,4 @@ func (e Env) ShopBuildID() (string, error) {
 		return "", err
 	}
 	return built.BuildID, nil
-}
-
-// StoreAcceptLanguages are values of Accept-Language that the storefront answers with the language
-// golang.org/x/text/language picks: the common ones, the ones it refuses as a whole (a weight
-// that does not parse, a tag it does not know), the spellings it takes (en_US, upper case, spaces,
-// a weight in any float form) and pairs of tags in both orders and with weights, made the same
-// way on every run.
-func StoreAcceptLanguages() []string {
-	out := []string{
-		"", "zh-CN", "zh", "zh-TW", "zh-Hant", "en", "en-US", "en-GB", "en-AU,en;q=0.9", "fr", "fr-FR,fr;q=0.9", "ja,en;q=0.5",
-		"de;q=0.9,en;q=0.8,zh;q=0.7", "zh;q=0.3,en;q=0.8", "en;q=0, zh", "*", "xx-invalid", "en-US,zh-CN;q=0.9", "es-419,es;q=0.9,en;q=0.5",
-		"en;q=bad", "en,invalid_tag", "en_US", "zh_CN", "zh_Hant_TW", "EN-us", "ZH-cn", " en ; q = 0.5 ", "en;q=0.5;x=1", "en;level=1",
-		"en;Q=0.5", "en;q=1e-1", "en;q=.5", "en;q=+1", "en;q=inf", "en;q=-inf", "en;q=nan", "en;q=0x1p-1", "en;q=1_0", "en;q=-1", "en;q=0", "en;q=5",
-		"en;q=0.0000001", "en;q=1e-50", "en;q=1e50", "zh;q=0,en", "zh;q=0", "en;q=", "en;q", "en;", "en;=0.5", "zh,en;q=0.5;", "english", "Deutsch", "french", "Italian",
-		"*;q=0.5,en", "en,*", ",,en,,", "en,", ",en", ",", "-", "en-", "-en", "en--US", "en-US-", "x-foo", "x", "und", "und-US", "und-Latn", "und-Hans",
-		"zh-yue", "yue", "cmn", "zh-cmn-Hans", "zh-Hans-CN", "zh-Hant-TW", "zh-HK", "zh-SG", "zh-MO", "en-Latn-GB", "en-Cyrl", "en-Latn", "ja-Latn", "sr-Latn", "sr-Cyrl",
-		"no", "nb", "nn", "iw", "he", "in", "id", "ji", "mo", "ro", "sh", "tl", "fil", "zu", "zul", "af", "xx", "zz", "qaa", "aaa", "eng", "zho", "chi", "en-ZZ", "en-XX", "en-QO",
-		"en-US-u-ca-gregory", "en-u-ca", "en-a-b", "en-a-bb", "en-valencia", "ca-valencia", "en-posix", "en-1994", "zh-x-private", "en-t-zh", "en-US-x-a", "en-US-x",
-		"en-GB-oed", "i-klingon", "i-default", "art-lojban", "zh-min-nan", "zh-guoyu", "en-419", "es-419", "en-001", "en-150", "zh-CN-u-nu-hanidec", "en-840", "en-USA",
-		"en-Latn-USA", "en-t-xx", "en;q=1e999", "en;q=+nan", "en;q=-nan", "en;q=0x1__0p0", "en;q=0x1p1_",
-		"en,zh;q=0x0p1024", "en;q=0x1" + strings.Repeat("0", 256) + "p-1024", "en,zh;q=0x0p99999", "en,zh;q=0x0.0p1", "zh,en;q=0x0p-99999",
-		"en,zh;q=0x" + strings.Repeat("f", 40) + "p-160", "en,zh;q=0x" + strings.Repeat("0", 300) + "1p0", "en,zh;q=0x1" + strings.Repeat("0", 300) + "p-1200",
-		"1", "123", "abcdefghi", "abcdefgh", "en-abcdefghi", "en\ttab", "en-US,", "en;q=0.5,", "ZH-HANS", "ZH-HANT-HK", "zH_hAnS_cN",
-	}
-	// Hexadecimal and decimal weights at the edges of a float32: the largest, the smallest, a tie that
-	// rounds to even, one past the largest, and a mantissa and an exponent that are out of range alone but not together.
-	for _, w := range []string{
-		"0x1p127", "0x1p128", "0x1.fffffep127", "0x1.ffffffp127", "0x1.fffff8p127", "0x1.fffffe0000001p127", "0x1p-126", "0x1p-149", "0x1p-150", "0x1.8p-150", "0x1.0000001p-150", "0x1p-151", "0x1p-1074", "0x1p-1075",
-		"0x.8p1", "0x8p-3", "0x8.p-3", "0x.p1", "0x1P+1", "0X1p1", "0x1p+", "0x1p", "0x_1p0", "0x1_0p0", "0x1p_1", "0x1p1_0", "0x1__0p0", "0x1p1_",
-		"3.4028235e38", "3.4028236e38", "3.40282356779733661637539395458142568447e38", "3.4028235677973366e38", "1e38", "1e39", "1e-45", "1e-46", "7e-46", "1.4e-45", "0e999999", "1e99999999999", "0.000000000000000000000000000000000000000000001",
-		"inf", "Infinity", "-Infinity", "infinit", "+inf", "nan", "NAN", "-nan", "+nan",
-	} {
-		out = append(out, "en;q="+w+",zh;q=0.5", "zh,en;q="+w)
-	}
-	vocabulary := []string{"en", "en-US", "en-GB", "en-AU", "zh", "zh-CN", "zh-TW", "zh-HK", "zh-Hans", "zh-Hant", "zh-Hant-TW", "yue", "fr", "fr-CA", "de", "ja", "ko", "es-MX", "pt-BR", "ru", "ar", "hi", "zu", "af", "und", "*", "no", "sr-Latn", "ja-Latn", "en-Cyrl", "xx", "yue-HK", "cmn", "zh-cmn", "zh-Hant-HK", "zh-Latn", "en-Latn-US", "en-Hans", "nb-NO", "iw", "en-GB-x-a", "pt-PT", "en-SG", "zh-Hans-SG"}
-	weights := []string{"", ";q=1", ";q=0.9", ";q=0.5", ";q=0.1", ";q=0", ";q=0.9999", ";q=2"}
-	seed := uint32(12345)
-	next := func(n int) int {
-		seed = seed*1664525 + 1013904223
-		return int(seed>>8) % n
-	}
-	for i := 0; i < 2500; i++ {
-		n := 2 + next(2)
-		var parts []string
-		for j := 0; j < n; j++ {
-			parts = append(parts, vocabulary[next(len(vocabulary))]+weights[next(len(weights))])
-		}
-		out = append(out, strings.Join(parts, ","))
-	}
-	return out
-}
-
-// generatedAcceptLanguages are n values of Accept-Language built from the grammar of a language
-// tag and of a weight, with parts that are right, parts that are almost right and characters put
-// in or taken out at random, from a fixed seed. Go reads each of them, so the port is held to what
-// Go does with all of them, which a list of words chosen by hand cannot ask for.
-func generatedAcceptLanguages(n int) []string {
-	seed := uint64(0x9e3779b97f4a7c15)
-	next := func(k int) int {
-		seed = seed*6364136223846793005 + 1442695040888963407
-		return int((seed >> 33) % uint64(k))
-	}
-	pick := func(list ...string) string { return list[next(len(list))] }
-	letters := func(k int, alphabet string) string {
-		out := make([]byte, k)
-		for i := range out {
-			out[i] = alphabet[next(len(alphabet))]
-		}
-		return string(out)
-	}
-	languages := []string{"en", "zh", "yue", "cmn", "wuu", "gan", "hak", "nan", "hsn", "lzh", "fr", "de", "ja", "ko", "es", "pt", "ru", "ar", "hi", "zu", "af", "no", "nb", "iw", "he", "in", "id", "ji", "und", "sr", "ca", "eng", "zho", "chi", "mo", "sh", "tl"}
-	scripts := []string{"Latn", "Hans", "Hant", "Cyrl", "Arab", "Hani", "Zzzz", "Qaaa"}
-	regions := []string{"US", "GB", "CN", "TW", "HK", "SG", "MO", "AU", "CA", "FR", "DE", "JP", "419", "001", "150", "840", "USA", "GBR", "CHN", "TWN", "UK", "ZZ", "XX", "QO", "AA"}
-	variants := []string{"valencia", "posix", "1994", "1996", "pinyin", "wadegile", "oxendict", "fonipa", "abcde", "nedis"}
-	extensions := []string{"u-ca-gregory", "u-nu-latn-ca-buddhist", "u-ca", "u-ca-gregory-ca-buddhist", "u-ca-gregory-ca-gregory", "u-attr1-ca-iso8601", "t-zh", "t-zh-hans", "t-xx", "t-en-us-h0-hybrid", "t-h0-hybrid", "t", "a-bb", "a-b", "x-private", "x-a-b", "x", "u", "z-abc-de", "b-cd-ef-g"}
-	separator := func() string { return pick("-", "-", "-", "_") }
-	tag := func() string {
-		var b strings.Builder
-		lang := pick(append([]string{"en", "en", "en", "zh"}, languages...)...)
-		if next(8) == 0 {
-			lang = letters(2+next(2), "abcdefghijklmnopqrstuvwxyz")
-		}
-		b.WriteString(lang)
-		if next(10) == 0 {
-			b.WriteString(separator() + pick(languages...)) // an extlang
-		}
-		if next(3) == 0 {
-			b.WriteString(separator() + pick(scripts...))
-		}
-		if next(3) == 0 {
-			b.WriteString(separator() + pick(regions...))
-		}
-		if next(8) == 0 {
-			b.WriteString(separator() + pick(variants...))
-		}
-		if next(6) == 0 {
-			b.WriteString(separator() + pick(extensions...))
-		}
-		s := b.String()
-		switch next(6) {
-		case 0:
-			s = strings.ToUpper(s)
-		case 1:
-			s = strings.ToLower(s)
-		}
-		return s
-	}
-	weight := func() string {
-		numbers := []string{"1", "0.9", "0.5", "0.1", "0", "0.0", "1.0", ".5", "5.", "1e0", "1E-1", "1e999", "1e-999", "2", "-1", "+1", "+.5", "00.5", "0.5e1", "1_0", "1__0", "_1", "1_", "0.1_5", "1e1_0", "1e_1", "0x1p0", "0X1P-1", "0x.8p1", "0x1.8p0", "0x1p", "0x1", "0x1__0p0", "0x_1p0", "0x1p1_", "0x1_p1", "0xffffffp100", "0x1p128", "3.5e38", "3.4e38", "inf", "-inf", "+Inf", "infinity", "Infinity", "infin", "nan", "NaN", "+nan", "-nan", "bad", "", "1,5", "0,5", "0b1", "0o7"}
-		prefix := pick("q=", "q=", "q=", "q =", "Q=", "q", "=", "q=", "level=", "")
-		return ";" + pick("", " ", "  ") + prefix + pick("", " ") + pick(numbers...)
-	}
-	mutate := func(s string) string {
-		for k := next(3); k > 0 && s != ""; k-- {
-			at := next(len(s))
-			switch next(3) {
-			case 0:
-				s = s[:at] + s[at+1:]
-			case 1:
-				s = s[:at] + letters(1, "abcxyz019-_;,= .+*") + s[at:]
-			default:
-				s = s[:at] + letters(1, "abcxyz019-_;,= .+*") + s[at+1:]
-			}
-		}
-		return s
-	}
-	var out []string
-	for len(out) < n {
-		var entries []string
-		for k := 1 + next(3); k > 0; k-- {
-			e := tag()
-			if next(3) == 0 {
-				e += weight()
-			}
-			if next(12) == 0 {
-				e = mutate(e)
-			}
-			entries = append(entries, e)
-		}
-		header := strings.Join(entries, pick(",", ",", ", ", " , "))
-		if next(30) == 0 {
-			header = mutate(header)
-		}
-		out = append(out, header)
-	}
-	return out
-}
-
-// tieAcceptLanguages are headers made to reach the last rules of the matcher, which only decide
-// between tags that the earlier rules rank alike: tags of one language written with other regions
-// and scripts, with another language between them or not (so that the first is not pinned), in
-// both orders and with weights that put them in another order. They are every ordered pair of a
-// small set of tags, and pairs and triples of a larger set from a fixed seed with a language
-// repeated.
-func tieAcceptLanguages() []string {
-	var out []string
-	var small []string
-	for _, l := range []string{"en", "zh"} {
-		for _, s := range []string{"", "Hans", "Hant"} {
-			for _, r := range []string{"", "US", "CN", "SG", "HK", "TW", "GB", "AU", "CA", "001", "150", "419"} {
-				small = append(small, strings.Join(filterEmpty(l, s, r), "-"))
-			}
-		}
-	}
-	for _, a := range small {
-		for _, b := range small {
-			out = append(out, a+","+b)
-		}
-	}
-	var universe []string
-	for _, l := range []string{"en", "zh", "yue", "cmn", "und", "eng", "zho"} {
-		for _, s := range []string{"", "Latn", "Hans", "Hant", "Cyrl"} {
-			for _, r := range []string{"", "US", "CN", "SG", "HK", "TW", "GB", "AU", "CA", "NZ", "MO", "IN", "FR", "001", "150", "419", "UK"} {
-				universe = append(universe, strings.Join(filterEmpty(l, s, r), "-"))
-			}
-		}
-	}
-	seed := uint64(0x2545f4914f6cdd1d)
-	next := func(k int) int {
-		seed = seed*6364136223846793005 + 1442695040888963407
-		return int((seed >> 33) % uint64(k))
-	}
-	weights := []string{"", "", ";q=0.9", ";q=0.8", ";q=0.5", ";q=1"}
-	tag := func() string { return universe[next(len(universe))] + weights[next(len(weights))] }
-	for i := 0; i < 20000; i++ {
-		a, b, c := tag(), tag(), tag()
-		if next(2) == 0 {
-			// The first and the last of one language, with another between them.
-			lang, _, _ := strings.Cut(a, "-")
-			lang, _, _ = strings.Cut(lang, ";")
-			c = lang + c[strings.IndexAny(c+"-", "-;"):]
-		}
-		if next(3) == 0 {
-			out = append(out, a+","+b)
-		} else {
-			out = append(out, a+","+b+","+c)
-		}
-	}
-	return out
-}
-
-func filterEmpty(parts ...string) []string {
-	var out []string
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

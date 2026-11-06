@@ -51,7 +51,7 @@ export interface Shell {
   freeShippingCents: number
 }
 
-// layoutLang is the Layout of /store/{lang} and every page below it.
+// layoutLang is the Layout of /store and every page below it.
 export function layoutLang(params: { lang: string }): Shell {
   counts.shell++
   const l = findLocale(params.lang)
