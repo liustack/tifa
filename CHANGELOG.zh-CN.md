@@ -10,7 +10,7 @@
 - 客户端同时接受 gzip 和 zstd 时（浏览器发 `Accept-Encoding: gzip, deflate, br, zstd`），现在得到 gzip。只有客户端不接受 gzip，或者用 `q` 给 zstd 更高优先级时才发 zstd。页面、缓存的页面、导航数据和 `server.compress` 压缩的其他回答都一样。
 - 渲染缓存和整页缓存对每个页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。以前一个页面存 HTML 加 gzip 和 zstd 两份压缩，而且每次没命中都压两次，占一次没命中约 8% 的时间。现在只压一次，页面在缓存里大约只占 HTML 的五分之一，接受 gzip 的客户端命中时直接发存好的字节。不接受压缩的客户端得到边写边解压的 HTML，带 `Content-Length`。不接受 gzip 只接受 zstd、或给 zstd 更高 `q` 的客户端，得到边写边做出的 zstd。
 - 服务端渲染改用 `github.com/liustack/quickjs` v0.30.1，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。从 v0.30.1 起，渲染超时（`ssr.timeout`）也能停下正在展平很长字符串、执行 `String.prototype.repeat`、编译很长的正则或很大的字符类的页面。以前在超时下编译特别长的正则可能让 VM 崩溃。
-- `tifa new` 固定 `github.com/liustack/sqlite` v0.1.3。它修了一次提交合并超过 64 条不同 SQL 时的空指针崩溃，把值直接拼进 SQL 文本时很常见。已有应用执行 `go get github.com/liustack/sqlite@v0.1.3`。
+- `tifa new` 固定 `github.com/liustack/sqlite` v0.1.4。v0.1.3 修了一次提交合并超过 64 条不同 SQL 时的空指针崩溃，把值直接拼进 SQL 文本时很常见。v0.1.4 带来分组提交，以及一次全面审查和 Windows 上的修复，还改了一条规则：用命名参数时，从 1 到最大编号的每个参数都要有值，和位置参数一样（`SELECT ?2, :x` 也要给 `?1`）。已有应用执行 `go get github.com/liustack/sqlite@v0.1.4`。
 
 ### 修复
 
