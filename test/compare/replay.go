@@ -16,22 +16,25 @@ import (
 	"time"
 )
 
-// BrowseScenario is one run of the browse comparison: how long a visit is (the mean number of page
-// views, 2 or 4), how often a page view is followed by a write, and what the write changes.
+// BrowseScenario is one run of the browse comparison: a mix of reads and writes. Reads 95% / writes
+// 5% means that of 100 user actions (a page view or a write) 5 are writes, so a write follows a page
+// view with probability w/(1-w): 1/19, 1/4 and 1. These are the shares of the TPC-W mixes
+// (https://www.tpc.org/tpcw/). Every write changes the customer name of an order, which the lists,
+// the stats and the other orders of that customer show: the harder case for a cache.
 type BrowseScenario struct {
-	Name      string
-	Mean      int
-	WriteRate float64
-	FanOut    bool
+	Name      string  `json:"name"`
+	Title     string  `json:"title"`
+	Mean      int     `json:"mean"` // page views of a visit, on average
+	WriteRate float64 `json:"writeRate"`
+	FanOut    bool    `json:"fanOut"`
 }
 
-// BrowseScenarios are the runs, in the order they are measured. The page views of a visit are
-// assumptions, not measured values: 4 views a visit is 75% soft navigations, 2 is 50%.
+// BrowseScenarios are the runs, in the order they are measured. A visit is 4 page views on average
+// (one full load in four, 75% soft navigations), an assumption and not a measurement.
 var BrowseScenarios = []BrowseScenario{
-	{"baseline", 4, 1.0 / 500, false},
-	{"mean2", 2, 1.0 / 500, false},
-	{"writes", 4, 1.0 / 20, false},
-	{"fanout", 4, 1.0 / 20, true},
+	{"r95w5", "reads 95% / writes 5%", 4, 1.0 / 19, true},
+	{"r80w20", "reads 80% / writes 20%", 4, 1.0 / 4, true},
+	{"r50w50", "reads 50% / writes 50%", 4, 1, true},
 }
 
 // maxConns is how many connections a browser opens to one host (HTTP/1.1): a user never has more
