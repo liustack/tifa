@@ -53,6 +53,23 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
     attach(r) {
       router = r
       attached.set(r, this)
+      // navigate({ href }) and preloadRoute({ href }) read the prefix of an href, then input takes
+      // it off: a URL of another language would land in this one. Such an href loads its document
+      // (a preload of it does nothing). Every other navigation, a Link's included, goes through.
+      const other = (opts: { href?: unknown }) =>
+        typeof window !== 'undefined' &&
+        typeof opts.href === 'string' &&
+        opts.href.startsWith('/') &&
+        !opts.href.startsWith('//') &&
+        !this.reaches(opts.href)
+      const { navigate, preloadRoute } = r
+      r.navigate = ((opts: Parameters<typeof navigate>[0]) => {
+        if (!other(opts)) return navigate(opts)
+        window.location.assign(opts.href!)
+        return Promise.resolve()
+      }) as typeof navigate
+      r.preloadRoute = ((opts: Parameters<typeof preloadRoute>[0]) =>
+        other(opts) ? Promise.resolve(undefined) : preloadRoute(opts)) as typeof preloadRoute
     },
     holds,
     reaches(href) {

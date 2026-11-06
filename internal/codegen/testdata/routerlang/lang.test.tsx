@@ -129,6 +129,42 @@ test('a redirect of a Load to another language loads the document, to the same l
   assert(isRedirect(await redirectTo(zh, '/projects')) && zh.assigned.length === 0, 'projects from zh-CN')
 })
 
+test('navigate and preload with an href of another language load that document', async () => {
+  const { router, calls, assigned } = await client('/en-US/store', 'en-US')
+  for (const href of ['/store/cart', '/zh-CN/store/cart', '/projects']) {
+    await router.navigate({ href } as never)
+    await router.preloadRoute({ href } as never)
+  }
+  assert(assigned.join() === '/store/cart,/zh-CN/store/cart,/projects', assigned.join())
+  assert(calls.length === 0, JSON.stringify(calls))
+  assert(router.history.location.href === '/en-US/store', router.history.location.href)
+  assigned.length = 0
+  // Node's TanStack does not commit a navigation by href (test/e2e checks the browser): here only
+  // the decision is checked, a URL of this language is not sent to a document load.
+  await router.navigate({ href: '/en-US/store/cart' } as never)
+  assert(assigned.length === 0, assigned.join())
+  const zh = await client('/store', 'zh-CN')
+  await zh.router.navigate({ href: '/en-US/store/cart' } as never)
+  assert(zh.assigned.join() === '/en-US/store/cart', zh.assigned.join())
+})
+
+test('the home URL of a language has no trailing slash, and a trailing slash is redirected away', async () => {
+  // The fixture has no area at the root. With every route in the area, the home URL is /en-US.
+  const all = Object.fromEntries(Object.keys((await client('/en-US/store', 'en-US')).router.routesById).map((id) => [id, ['zh-CN', 'en-US']]))
+  const home = createAppRouter(routeTree, async (): Promise<RouteResult> => ({ status: 200, data: null }), {
+    history: createMemoryHistory({ initialEntries: ['/en-US/store'] }),
+    rewrite: makeRewrite({ ...languages, routes: all }, 'en-US'),
+  })
+  assert(href(home, '/') === '/en-US', href(home, '/'))
+  for (const [url, language, location] of [['/en-US/store/', 'en-US', '/en-US/store'], ['/store/', 'zh-CN', '/store'], ['/en-US/', 'en-US', '/']]) {
+    globalThis.renderResult = undefined
+    globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: {}, language }))
+    for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    const result = globalThis.renderResult ?? ''
+    assert(result.includes(`"location":"${location}"`), `${url}: ${result.slice(0, 200)}`)
+  }
+})
+
 test('reaches tells which URLs the document can show', async () => {
   const { router } = await client('/en-US/store', 'en-US')
   const want: Array<[string, boolean]> = [
