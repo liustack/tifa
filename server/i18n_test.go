@@ -137,14 +137,14 @@ func TestOnRequestSeesThePublicURLAndLanguage(t *testing.T) {
 // languages has one.
 func TestBootDataCarriesTheLanguage(t *testing.T) {
 	f := &front{build: frontBuild{ID: "b1"}}
-	doc, err := dataOnlyDocument(f, nil, "app/page/route", "/en-US/store", "en-US", pageSession{})
+	doc, err := dataOnlyDocument(f, nil, "app/page/route", "/en-US/store", "en-US", nil, pageSession{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(doc, `"language":"en-US"`) || !strings.Contains(doc, `"url":"/en-US/store"`) {
 		t.Errorf("boot data of a page in en-US: %s", doc)
 	}
-	doc, err = dataOnlyDocument(f, nil, "app/page/route", "/store", "", pageSession{})
+	doc, err = dataOnlyDocument(f, nil, "app/page/route", "/store", "", nil, pageSession{})
 	if err != nil {
 		t.Fatal(err)
 	}

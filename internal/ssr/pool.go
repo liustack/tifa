@@ -28,8 +28,12 @@ type Input struct {
 	BuildID string `json:"buildId"`
 	// Language is the language of the page, empty on a site without languages. The page hands it to
 	// the browser and to useLanguage.
-	Language string         `json:"language,omitempty"`
-	URL      string         `json:"url"`
+	Language string `json:"language,omitempty"`
+	// Alternates is the versions of the page in other languages as JSON (alternatesOf in the
+	// server package), unset for a page with one version. The page writes its hreflang links from
+	// it and hands it to the browser.
+	Alternates jsontext.Value `json:"alternates,omitzero"`
+	URL        string         `json:"url"`
 	Data     jsontext.Value `json:"data"` // the results of the Loads, already JSON, without the data of the successful ones
 	// Texts are the JSON texts of the data of the successful Loads, which Data refers to by
 	// their number. Each goes to startRender as an argument of its own, as it is, so that neither

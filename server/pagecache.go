@@ -43,6 +43,9 @@ type wholePage struct {
 	etag string
 	// routes holds the data of every Load of the page as JSON text, in the order of the chain.
 	routes []wholeRoute
+	// alternates is the list a data request answers with (navigationJSON), nil on a site without
+	// languages.
+	alternates jsontext.Value
 	// headers are the response headers the Load and Layout functions set, except those the
 	// framework writes itself (ownedHeader). Cache-Control and Vary are here only when they make the
 	// answer not for everyone, and then the page is not kept and these headers go out with it.
@@ -58,7 +61,7 @@ type wholePage struct {
 type wholeRoute struct{ id, text string }
 
 func (w *wholePage) size() int64 {
-	n := int64(len(w.location) + len(w.etag) + 128)
+	n := int64(len(w.location) + len(w.etag) + len(w.alternates) + 128)
 	for _, r := range w.routes {
 		n += int64(len(r.id) + len(r.text) + 32)
 	}
@@ -425,7 +428,7 @@ func (s *server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 	for i, l := range out.chain {
 		items[l.id] = routeResult{Status: http.StatusOK, Data: out.values[i]}
 	}
-	return s.writeDataAnswer(c, items)
+	return s.writeDataAnswer(c, items, nil)
 }
 
 // generate makes the entry of key: it runs the Loads of the whole chain, renders the page and
@@ -467,6 +470,18 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		entry.routes = append(entry.routes, wholeRoute{id: l.id, text: text})
 	}
 
+	alternates, err := s.alternatesOf(c)
+	if err != nil {
+		return s.madeFailed(err, headers, effects{})
+	}
+	if entry.alternates, err = s.navigationJSON(alternates); err != nil {
+		return s.madeFailed(err, headers, effects{})
+	}
+	pageAlternates, err := alternatesJSON(alternates)
+	if err != nil {
+		return s.madeFailed(err, headers, effects{})
+	}
+
 	var page cachedPage
 	var held bool
 	sess := pageSession{}
@@ -475,7 +490,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		sess = pageSession{key: k, head: sessionHead(k)}
 	}
 	if !route.SSR {
-		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), language, sess)
+		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), language, pageAlternates, sess)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
@@ -488,7 +503,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		}
 		s.rendering.RLock()
 		defer s.rendering.RUnlock()
-		in := ssr.Input{BuildID: f.build.ID, Language: language, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
+		in := ssr.Input{BuildID: f.build.ID, Language: language, Alternates: pageAlternates, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
 			SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
 		page, held, err = s.renderEntry(ctx, rq, f, in, route)
@@ -584,7 +599,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 			}
 			items[l.id] = result
 		}
-		return s.writeDataAnswer(c, items)
+		return s.writeDataAnswer(c, items, entry.alternates)
 	}
 	now := cacheNow()
 	if got.held {
@@ -613,7 +628,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 }
 
 // writeDataAnswer writes the answer of a navigation: the results given, and the session of the browser.
-func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) error {
+func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult, alternates jsontext.Value) error {
 	session, err := s.browserSession(c)
 	if err != nil {
 		return err
@@ -623,7 +638,7 @@ func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) erro
 			return err
 		}
 	}
-	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session})
+	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session, Alternates: alternates})
 }
 
 // setCacheHeaders says how long the entry may be kept by a shared cache in front of tifa. The
