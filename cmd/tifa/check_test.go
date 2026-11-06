@@ -9,7 +9,8 @@ import (
 )
 
 // apiApp copies test/apps/api, an app without pages, into a temporary module that points at this
-// checkout, and returns its folder.
+// checkout, and returns its folder. It leaves out .tifa/ and bin/, which earlier runs in the
+// checkout leave behind, so a test sees only what its own run writes.
 func apiApp(t *testing.T) string {
 	t.Helper()
 	src, dst := filepath.Join("..", "..", "test", "apps", "api"), t.TempDir()
@@ -20,6 +21,9 @@ func apiApp(t *testing.T) string {
 		rel, err := filepath.Rel(src, p)
 		if err != nil {
 			return err
+		}
+		if d.IsDir() && (rel == ".tifa" || rel == "bin") {
+			return filepath.SkipDir
 		}
 		if d.IsDir() {
 			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
