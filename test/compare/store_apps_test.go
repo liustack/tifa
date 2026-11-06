@@ -13,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,6 @@ var (
 	orderNumber     = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
 	cartCookie      = regexp.MustCompile(`store_cart=[^;]+`)
 	isoTime         = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
-	clockTime       = regexp.MustCompile(`\d{1,2}:\d{2}( [AP]M)?`)
 	placedLocation  = regexp.MustCompile(`/store/[a-zA-Z-]+/checkout\?placed=SS-[A-Z0-9]{10}`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
@@ -103,7 +103,7 @@ func maskCookie(s string) string {
 func maskView(v compare.View) compare.View {
 	text := make([]string, len(v.Text))
 	for i, s := range v.Text {
-		text[i] = clockTime.ReplaceAllString(mask(s), "HH:MM")
+		text[i] = mask(s)
 	}
 	v.Text = text
 	v.Title = mask(v.Title)
@@ -334,6 +334,8 @@ type pair struct {
 	tifa *visitor
 	app  *visitor
 	spec storeApp
+	// placed is when each server was asked to place the order that orders names.
+	placed [2]time.Time
 }
 
 func (p *pair) fresh() *pair {
@@ -370,6 +372,9 @@ func (p *pair) views(name, path string, orders [2]string, want int) {
 	if ts != want || as != want {
 		p.t.Errorf("%s: %s answered %d in Tifa and %d in %s, want %d", name, path, ts, as, p.spec.label, want)
 		return
+	}
+	if strings.Contains(path, "placed={order}") {
+		p.checkPlacedTime(name, path, [2]*compare.View{&tv, &av}, [2]string{orders[0], orders[1]})
 	}
 	if want == 404 {
 		if why, ok := p.spec.except["404 page"]; ok {
@@ -487,9 +492,11 @@ func (p *pair) states(t *testing.T) {
 			}
 			if id := placedOrder(a); id != "" {
 				orders[0] = id
+				q.placed[0] = a.at
 			}
 			if id := placedOrder(b); id != "" {
 				orders[1] = id
+				q.placed[1] = b.at
 			}
 		}
 		for _, page := range state.Pages {
@@ -522,9 +529,11 @@ func (p *pair) scenarios(t *testing.T) {
 			b := q.app.do(r)
 			if id := placedOrder(a); id != "" {
 				orders[0] = id
+				q.placed[0] = a.at
 			}
 			if id := placedOrder(b); id != "" {
 				orders[1] = id
+				q.placed[1] = b.at
 			}
 			if x, y := a.describe(), b.describe(); x != y {
 				t.Errorf("%s: %s differs.\nTifa:\n%s\n\n%s:\n%s", sc.Name, st, x, p.spec.label, y)
@@ -693,9 +702,11 @@ func (p *pair) writes(t *testing.T, call bool) {
 		a, b := q.both(s.name, r)
 		if id := placedOrder(a); id != "" {
 			orders[0] = id
+			q.placed[0] = a.at
 		}
 		if id := placedOrder(b); id != "" {
 			orders[1] = id
+			q.placed[1] = b.at
 		}
 		pages := s.pages
 		if isWrite {
@@ -858,4 +869,55 @@ func (p *pair) deep(t *testing.T) {
 		}
 	}
 	q.both("a cart that is still empty", request{method: "GET", path: zh + "/mine"})
+}
+
+var timeOfDay = regexp.MustCompile(`(\d{1,2}):(\d{2})( [AP]M)?`)
+
+// checkPlacedTime checks the time the confirmation page of an order shows. It is the time the
+// order was placed, in the time zone of the language of the page, to the minute: the request that
+// placed it is the reference, and the page may be a minute or two off it. The time is then
+// replaced by "HH:MM" in both views, so that the rest of the page is compared as it is. Other text
+// is not touched, so a time of day anywhere else on a page has to be the same.
+func (p *pair) checkPlacedTime(name, path string, views [2]*compare.View, orders [2]string) {
+	p.t.Helper()
+	zone := "Asia/Shanghai"
+	if strings.Contains(path, "/en-US/") {
+		zone = "America/Los_Angeles"
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	for i, v := range views {
+		found := 0
+		for k, text := range v.Text {
+			m := timeOfDay.FindStringSubmatch(text)
+			if m == nil || !strings.Contains(text, "20") {
+				continue
+			}
+			found++
+			hour, _ := strconv.Atoi(m[1])
+			minute, _ := strconv.Atoi(m[2])
+			if m[3] != "" {
+				hour %= 12
+				if m[3] == " PM" {
+					hour += 12
+				}
+			}
+			at := p.placed[i].In(loc)
+			diff := (hour*60 + minute) - (at.Hour()*60 + at.Minute())
+			if diff > 720 {
+				diff -= 1440
+			} else if diff < -720 {
+				diff += 1440
+			}
+			if diff < -2 || diff > 2 {
+				p.t.Errorf("%s: the confirmation of %s shows %s, the order was placed at %s in %s", name, orders[i], m[0], at.Format("15:04"), zone)
+			}
+			v.Text[k] = timeOfDay.ReplaceAllString(text, "HH:MM")
+		}
+		if found != 1 {
+			p.t.Errorf("%s: the confirmation of %s has %d lines with the time the order was placed, want 1: %q", name, orders[i], found, v.Text)
+		}
+	}
 }
