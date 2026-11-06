@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { loadCartPage } from '../../../../compare/store/data'
 import { CartPage, CartProvider } from '../../../../compare/store/entries'
 import { alternates, message, storeTitle } from '../../../../compare/store/head'
-import { orNotFound } from '../../../../compare/load'
+import { orNotFoundAsync } from '../../../../compare/load'
 
 type Props = { params: Promise<{ lang: string }> }
 
@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function Page({ params }: Props) {
   const { lang } = await params
   return (
-    <CartProvider value={orNotFound(() => loadCartPage(lang))}>
+    <CartProvider value={await orNotFoundAsync(() => loadCartPage(lang))}>
       <CartPage />
     </CartProvider>
   )

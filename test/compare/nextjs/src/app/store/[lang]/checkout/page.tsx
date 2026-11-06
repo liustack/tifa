@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { loadCheckoutPage, query } from '../../../../compare/store/data'
 import { CheckoutPage, CheckoutProvider } from '../../../../compare/store/entries'
 import { alternates, message, storeTitle } from '../../../../compare/store/head'
-import { orNotFound } from '../../../../compare/load'
+import { orNotFoundAsync } from '../../../../compare/load'
 
 type Props = { params: Promise<{ lang: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }
 
@@ -15,7 +15,7 @@ export default async function Page({ params, searchParams }: Props) {
   const { lang } = await params
   const q = query(await searchParams)
   return (
-    <CheckoutProvider value={orNotFound(() => loadCheckoutPage(lang, q))}>
+    <CheckoutProvider value={await orNotFoundAsync(() => loadCheckoutPage(lang, q))}>
       <CheckoutPage />
     </CheckoutProvider>
   )

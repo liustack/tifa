@@ -43,7 +43,10 @@ type LinkProps = Omit<ComponentProps<typeof NextLink>, 'href'> & {
 
 export function Link({ to, params, search, activeOptions, activeProps, className, ...rest }: LinkProps) {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
+  // Only a link that names a query reads the current one. Whether it does never changes for a link,
+  // and a page that is built ahead of time (the 404) has links without one.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const searchParams = search ? useSearchParams() : null
   const path = buildPath(to, params)
   const href = path + queryOf(search)
   let active = isActive(pathname, path, activeOptions?.exact)
@@ -52,7 +55,7 @@ export function Link({ to, params, search, activeOptions, activeProps, className
   if (active && activeOptions?.includeSearch !== false && search) {
     active = Object.entries(search).every(([key, value]) => {
       const wanted = Array.isArray(value) ? value.map(String) : [String(value)]
-      return wanted.join(',') === searchParams.getAll(key).join(',')
+      return wanted.join(',') === searchParams!.getAll(key).join(',')
     })
   }
   return active ? (

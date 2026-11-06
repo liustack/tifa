@@ -11,3 +11,13 @@ export function orNotFound<T>(load: () => T): T {
     throw e
   }
 }
+
+// orNotFoundAsync is orNotFound for a loader that reads the cookies of the request.
+export async function orNotFoundAsync<T>(load: () => Promise<T>): Promise<T> {
+  try {
+    return await load()
+  } catch (e) {
+    if (e instanceof NotFound) notFound()
+    throw e
+  }
+}
