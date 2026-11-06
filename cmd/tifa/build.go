@@ -57,6 +57,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err != nil {
 				return err
 			}
+			if err := checkLangAttribute(root, m, node.LangKeys); err != nil {
+				return err
+			}
 			// 3. Bundles: the browser and SSR bundles and the public files, into .tifa/dist.
 			settings, err := codegen.BuildSettings(root)
 			if err != nil {

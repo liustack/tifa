@@ -327,6 +327,36 @@ func (n *Node) close() error {
 	return n.exitErr()
 }
 
+// LangKey is where a file writes a lang key in an htmlAttributes object.
+type LangKey struct {
+	Line   int `json:"line"`
+	Column int `json:"column"`
+}
+
+// LangKeys returns, by file, where each sets lang in an htmlAttributes object it writes out: the
+// exported htmlAttributes, or the htmlAttributes a head returns. The files are read like those of
+// Exports. An object that is not written out in the file, such as a name, is not seen.
+func (n *Node) LangKeys(files []string) (map[string][]LangKey, error) {
+	abs := make([]string, len(files))
+	for i, f := range files {
+		var err error
+		if abs[i], err = filepath.Abs(f); err != nil {
+			return nil, err
+		}
+	}
+	var result struct {
+		Found map[string][]LangKey `json:"found"`
+	}
+	if err := n.call("htmlLang", map[string]any{"files": abs}, &result); err != nil {
+		return nil, err
+	}
+	out := make(map[string][]LangKey, len(files))
+	for i, f := range files {
+		out[f] = result.Found[abs[i]]
+	}
+	return out, nil
+}
+
 // Exports returns the names each file exports, sorted, by file. The files are TypeScript or
 // JavaScript, with or without JSX, and are parsed alone: nothing runs and imports stay unresolved.
 // Types are left out, and so are the names re-exported with export * from another module.

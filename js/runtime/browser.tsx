@@ -7,6 +7,7 @@ import { bootElementId, collector, injected, RouteError, rootElementId, sameURL,
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 import { LanguageContext } from './language'
+import { pageLinks, startAlternates, type I18nTable } from './alternates'
 import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
@@ -42,7 +43,7 @@ export const rootOptions = {
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
 // way the head and the attributes of <html> follow the matched routes from then on.
-export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes, i18n?: I18nTable) {
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
@@ -58,12 +59,13 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
         language = dehydrated.language ?? ''
+        startAlternates(dehydrated.alternates, router.state.location.pathname, i18n)
         if (dehydrated.sessionKey !== undefined)
           shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
       },
     })
     setRouter(router, () => buildId)
-    const hydrated = takeOver(router, htmlAttributes)
+    const hydrated = takeOver(router, htmlAttributes, () => language)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
     hydrateRoot(
       root,
@@ -85,10 +87,10 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here: those
   // of the root Layout at once, and those of the routes once they have loaded.
-  syncHTMLAttributes([], htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
   language = input.language ?? ''
+  syncHTMLAttributes([], htmlAttributes, language)
   if (input.sessionKey !== undefined)
     shown = startSession({ key: input.sessionKey, injected: input.session, buildId: () => buildId })
   const live = collector(() => buildId)
@@ -98,12 +100,14 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const source: Source = (url, id, slot) =>
     first && id in input.data && sameURL(url, input.url) ? local(url, id, slot) : live(url, id, slot)
   const router = createAppRouter(routeTree, source, { buildId: input.buildId })
+  startAlternates(input.alternates, router.state.location.pathname, i18n)
+  const links = pageLinks(router, () => language)
   void router.load().then(() => {
     first = false
-    followHead(router, htmlAttributes)
+    followHead(router, htmlAttributes, () => language, links)
     setRouter(router, () => buildId)
-    syncHead(router.stores.matches.get())
-    syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
+    syncHead(router.stores.matches.get(), links)
+    syncHTMLAttributes(router.stores.matches.get(), htmlAttributes, language)
     createRoot(root, rootOptions).render(
       <LanguageContext.Provider value={language}>
         <SessionContext.Provider value={shown}>
@@ -174,14 +178,15 @@ function dateBeforeLoads(router: AnyRouter) {
 // notes which attributes of <html> the server wrote without writing them again, so that the
 // first navigation takes away those the next page does not give, and what scripts of the page
 // set on <html> stays. It does not wait for the store of the matches to report the hydration.
-export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes): Promise<void> {
+export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes, language: () => string = () => ''): Promise<void> {
   return hydrateRouter(router)
     .finally(() => window.$_TSR!.h())
     .then(() => {
       const matches = router.stores.matches.get()
+      const links = pageLinks(router, language)
       dateBeforeLoads(router)
-      syncHead(matches)
-      noteHTMLAttributes(matches, htmlAttributes)
-      followHead(router, htmlAttributes)
+      syncHead(matches, links)
+      noteHTMLAttributes(matches, htmlAttributes, language())
+      followHead(router, htmlAttributes, language, links)
     })
 }

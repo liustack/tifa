@@ -78,6 +78,9 @@ func NewDev(root string, port int, output io.Writer, notices Notices) (*Dev, err
 	}, nil
 }
 
+// LangKeys reads lang keys like Node.LangKeys.
+func (d *Dev) LangKeys(files []string) (map[string][]LangKey, error) { return d.node.LangKeys(files) }
+
 // Exports reads exports like Node.Exports.
 func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.node.Exports(files) }
 

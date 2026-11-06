@@ -181,11 +181,16 @@ serve(routeTree, htmlAttributes)
 	client := tsHeader + `import { hydrate } from "./runtime/browser"
 import { htmlAttributes, routeTree } from "./routes"
 `
+	hydrate := "hydrate(routeTree, htmlAttributes)"
+	if m.I18n != nil {
+		client += `import { i18n } from "./i18n.gen"` + "\n"
+		hydrate = "hydrate(routeTree, htmlAttributes, i18n)"
+	}
 	if dev {
 		client += `import "./runtime/dev-client.js"` + "\n"
 		files["runtime/dev-client.js"] = []byte(js.DevClient)
 	}
-	files["client.ts"] = []byte(client + "\nhydrate(routeTree, htmlAttributes)\n")
+	files["client.ts"] = []byte(client + "\n" + hydrate + "\n")
 	files["tsconfig.json"] = []byte(tsconfig)
 	if err := viteFiles(files, vite); err != nil {
 		return nil, err
@@ -268,6 +273,29 @@ const tsconfig = `{
   }
 }
 `
+
+// ComponentFiles lists the component files the route tree of the app uses, as buildTree reads
+// them: page.tsx of each page and layout.tsx or layout_.tsx of each Layout that has a page in
+// scope, under root. It is empty for an app without pages.
+func ComponentFiles(root string, m *analyze.Manifest) []string {
+	_, nodes, err := buildTree(root, m, func(files []string) (map[string][]string, error) {
+		out := make(map[string][]string, len(files))
+		for _, f := range files {
+			out[f] = []string{"default"}
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, n := range nodes {
+		if n.tsx {
+			files = append(files, filepath.Join(root, filepath.FromSlash(n.dir), n.tsxFile()))
+		}
+	}
+	return files
+}
 
 // buildTree places pages and the Layouts that have pages in scope under the framework's root, a
 // Layout under its nearest ancestor Layout in the tree and a page under its nearest Layout. A

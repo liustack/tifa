@@ -112,3 +112,25 @@ export interface I18n {
 		t.Errorf("an app without languages:\n%s", got)
 	}
 }
+
+// The browser entry gets the language table only for an app with languages, so the entry of any
+// other app is the one it always was.
+func TestBrowserEntryGetsTheLanguageTable(t *testing.T) {
+	m := i18nManifest()
+	files, err := Generate(writeI18nApp(t), m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := string(files["client.ts"])
+	if !strings.Contains(client, `import { i18n } from "./i18n.gen"`) || !strings.Contains(client, "hydrate(routeTree, htmlAttributes, i18n)") {
+		t.Errorf("client.ts:\n%s", client)
+	}
+	m.I18n = nil
+	files, err = Generate(writeI18nApp(t), m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client := string(files["client.ts"]); strings.Contains(client, "i18n") || !strings.Contains(client, "hydrate(routeTree, htmlAttributes)") {
+		t.Errorf("client.ts of an app without languages:\n%s", client)
+	}
+}

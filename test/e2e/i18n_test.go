@@ -155,7 +155,8 @@ func TestI18nApp(t *testing.T) {
 			}
 		}
 		// The page of the cache carries the language of its own entry.
-		if !strings.Contains(zhBody, `language:"zh-CN"`) || strings.Contains(zhBody, `language:"en-US"`) {
+		// (The list of versions names en-US too, so the language of the page is the one in front of it.)
+		if !regexp.MustCompile(`dehydratedData:\$R\[\d+\]=\{buildId:"[^"]*",language:"zh-CN"`).MatchString(zhBody) {
 			t.Errorf("the hydration data of the zh-CN page: %.200s", zhBody)
 		}
 	})
@@ -164,6 +165,110 @@ func TestI18nApp(t *testing.T) {
 		_, _, body := cacheSend(t, "GET", data("/en-US/store?q=a", "1"), "")
 		if !strings.Contains(body, `"q":"a"`) || !strings.Contains(body, `"language":"en-US"`) {
 			t.Errorf("%s", body)
+		}
+	})
+
+	// headOf returns what is between <head> and </head> of the page at path, and the start of the page.
+	headOf := func(t *testing.T, path string, want int) (head, start string) {
+		t.Helper()
+		status, _, body := cacheSend(t, "GET", base+path, "")
+		if status != want {
+			t.Fatalf("GET %s: %d, want %d: %.300s", path, status, want, body)
+		}
+		i, j := strings.Index(body, "<head>"), strings.Index(body, "</head>")
+		if i < 0 || j < i {
+			t.Fatalf("GET %s has no head: %.300s", path, body)
+		}
+		return body[i:j], body[:i]
+	}
+	const site = "https://i18n.example.com"
+
+	t.Run("the language of the page is the lang of <html>", func(t *testing.T) {
+		for _, tc := range []struct {
+			path   string
+			status int
+			lang   string
+		}{
+			{"/store?q=a", 200, "zh-CN"},
+			// A route outside every area has the default language, and so does a page that is not found.
+			{"/projects", 200, "zh-CN"},
+			{"/store/zzz", 404, "zh-CN"},
+			{"/en-US/zzz", 404, "en-US"},
+		} {
+			if _, start := headOf(t, tc.path, tc.status); start != `<!DOCTYPE html><html lang="`+tc.lang+`">` {
+				t.Errorf("GET %s starts with %s, want lang %s", tc.path, start, tc.lang)
+			}
+		}
+	})
+
+	t.Run("a page with more than one version links to each of them", func(t *testing.T) {
+		head, _ := headOf(t, "/store?q=a", 200)
+		// The links come in the order of the languages, x-default after them and the page itself last,
+		// as full URLs from site.url and without the query.
+		want := `<link rel="alternate" hreflang="zh-CN" href="` + site + `/store">` +
+			`<link rel="alternate" hreflang="en-US" href="` + site + `/en-US/store">` +
+			`<link rel="alternate" hreflang="x-default" href="` + site + `/store">` +
+			`<link rel="canonical" href="` + site + `/store">`
+		if !strings.Contains(head, want) {
+			t.Errorf("the head of /store lacks the links:\n%s", head)
+		}
+		// The links of a translated slug and of a missing translation come from SetAlternates.
+		head, _ = headOf(t, "/store/journal/ni-hao", 200)
+		for _, link := range []string{
+			`<link rel="alternate" hreflang="zh-CN" href="` + site + `/store/journal/ni-hao">`,
+			`<link rel="alternate" hreflang="en-US" href="` + site + `/en-US/store/journal/hello">`,
+			`<link rel="alternate" hreflang="x-default" href="` + site + `/store/journal/ni-hao">`,
+			`<link rel="canonical" href="` + site + `/store/journal/ni-hao">`,
+		} {
+			if !strings.Contains(head, link) {
+				t.Errorf("the head of /store/journal/ni-hao lacks %s:\n%s", link, head)
+			}
+		}
+		// The language switch reads the same list.
+		if _, _, body := cacheSend(t, "GET", base+"/store/journal/ni-hao", ""); !strings.Contains(plain(body), `<a href="/en-US/store/journal/hello">en-US</a>`) {
+			t.Errorf("the switch of /store/journal/ni-hao: %.600s", body)
+		}
+		// An entry in one language has one version, and a page outside every area, a page that is not
+		// found and one that is not an entry have none.
+		for path, status := range map[string]int{"/store/journal/only-zh": 200, "/projects": 200, "/store/zzz": 404, "/store/journal/nope": 404} {
+			if head, _ := headOf(t, path, status); strings.Contains(head, "hreflang") || strings.Contains(head, `rel="canonical"`) {
+				t.Errorf("the head of %s has links:\n%s", path, head)
+			}
+		}
+		// A canonical the app writes wins, the links of the versions stay.
+		head, _ = headOf(t, "/store/news", 200)
+		if strings.Count(head, `rel="canonical"`) != 1 || !strings.Contains(head, `<link rel="canonical" href="`+site+`/store/news-own">`) || !strings.Contains(head, `hreflang="en-US" href="`+site+`/en-US/store/news"`) {
+			t.Errorf("the head of /store/news:\n%s", head)
+		}
+	})
+
+	t.Run("the data of a navigation carries only the lists the app set", func(t *testing.T) {
+		_, _, body := cacheSend(t, "GET", data("/en-US/store/journal/hello", "1"), "")
+		want := `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
+		if !strings.Contains(body, want) {
+			t.Errorf("%s", body)
+		}
+		// An entry in one language has a list of one. The other pages say nothing: the browser
+		// works out their versions from the table of the build.
+		_, _, body = cacheSend(t, "GET", data("/store/journal/only-zh", "1"), "")
+		if !strings.Contains(body, `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/only-zh"}]}`) {
+			t.Errorf("%s", body)
+		}
+		for _, path := range []string{"/store?q=a", "/en-US/store/news", "/projects"} {
+			if _, _, body := cacheSend(t, "GET", data(path, "1"), ""); strings.Contains(body, "alternates") {
+				t.Errorf("%s: %s", path, body)
+			}
+		}
+	})
+
+	t.Run("the page carries the site and the default language, and the list only when the app set it", func(t *testing.T) {
+		_, _, body := cacheSend(t, "GET", base+"/store", "")
+		if !strings.Contains(body, `alternates:$R[`) || !strings.Contains(body, `site:"`+site+`"`) || strings.Contains(body, "canonical:") {
+			t.Errorf("/store: %.1500s", body)
+		}
+		_, _, body = cacheSend(t, "GET", base+"/store/journal/ni-hao", "")
+		if !strings.Contains(body, `url:"/en-US/store/journal/hello"`) {
+			t.Errorf("/store/journal/ni-hao: %.1500s", body)
 		}
 	})
 
@@ -280,6 +385,12 @@ func TestI18nPrefixAlways(t *testing.T) {
 	}) {
 		t.Errorf("zh-CN journal links: %q", got)
 	}
+	// The versions of a page have the prefix of the default language, and x-default is that one.
+	id := buildID(t, dir)
+	_, _, answer := cacheSend(t, "GET", base+"/zh-CN/store/journal/ni-hao?_tifa="+id+".1", "")
+	if want := `"alternates":{"list":[{"language":"zh-CN","url":"/zh-CN/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`; !strings.Contains(answer, want) {
+		t.Errorf("the versions of /zh-CN/store/journal/ni-hao: %s", answer)
+	}
 	// Routes outside every area stay as they are.
 	for path, want := range map[string]int{"/projects": 200, "/api/hook": 200, "/favicon.svg": 200, "/zh-CN/projects": 404, "/zh-CN/api/hook": 404} {
 		if status, _, _ := cacheSend(t, "GET", base+path, ""); status != want {
@@ -298,12 +409,14 @@ func TestI18nBuildFailures(t *testing.T) {
 		files map[string]string
 		want  string
 	}{
-		"several languages and no default": {"site:\n  url: https://i18n.example.com\n", nil, "i18n.default must name the default one"},
-		"no site url":                      {"i18n:\n  default: zh-CN\n", nil, "site.url must name the scheme and host"},
-		"default no area has":              {"i18n:\n  default: fr\nsite:\n  url: https://i18n.example.com\n", nil, `i18n.default is "fr"`},
-		"area without the default":         {ok, map[string]string{"app/admin/_locales/en-US.json": "{}", "app/admin/page.tsx": "export default function A() { return null }\n"}, "app/admin/_locales: the default language zh-CN has no file here"},
-		"invalid tag":                      {ok, map[string]string{"app/store/_locales/en_US.json": "{}"}, "app/store/_locales/en_US.json"},
-		"top level folder like a language": {ok, map[string]string{"app/en-US/page.tsx": "export default function A() { return null }\n"}, "app/en-US: the folder is named like the language en-US"},
+		"several languages and no default":              {"site:\n  url: https://i18n.example.com\n", nil, "i18n.default must name the default one"},
+		"no site url":                                   {"i18n:\n  default: zh-CN\n", nil, "site.url must name the scheme and host"},
+		"default no area has":                           {"i18n:\n  default: fr\nsite:\n  url: https://i18n.example.com\n", nil, `i18n.default is "fr"`},
+		"area without the default":                      {ok, map[string]string{"app/admin/_locales/en-US.json": "{}", "app/admin/page.tsx": "export default function A() { return null }\n"}, "app/admin/_locales: the default language zh-CN has no file here"},
+		"invalid tag":                                   {ok, map[string]string{"app/store/_locales/en_US.json": "{}"}, "app/store/_locales/en_US.json"},
+		"lang in the htmlAttributes of the root Layout": {ok, map[string]string{"app/layout.tsx": "import { Outlet } from '@tanstack/react-router'\nexport const htmlAttributes = { lang: 'zh-CN' }\nexport default function Shell() { return <Outlet /> }\n"}, "app/layout.tsx:2:"},
+		"lang in the htmlAttributes of a head":          {ok, map[string]string{"app/projects/page.tsx": "export const head = () => ({ htmlAttributes: { lang: 'en' } })\nexport default function P() { return null }\n"}, "app/projects/page.tsx:1:"},
+		"top level folder like a language":              {ok, map[string]string{"app/en-US/page.tsx": "export default function A() { return null }\n"}, "app/en-US: the folder is named like the language en-US"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := copyApp(t, "i18n")

@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-router'
 import { goJSON, RouteError, type Source } from './data'
 import type { SessionEnvelope } from './session'
+import type { PageAlternates } from './head'
 
 // RouterContext is the context of the root route. Loaders read their data through source, and
 // chain says which Loads a path has: the IDs of the routes with a Go Load that the router matches
@@ -29,6 +30,7 @@ export interface Dehydrated {
   sessionKey?: string
   session?: SessionEnvelope
   language?: string
+  alternates?: PageAlternates
 }
 
 export interface RouterOptions {
@@ -42,6 +44,8 @@ export interface RouterOptions {
   session?: SessionEnvelope
   // The language of the page a server render makes, which the page carries to the browser.
   language?: string
+  // The versions of that page in other languages, which the page carries to the browser too.
+  alternates?: PageAlternates
   // The nonce of a server render under a Content-Security-Policy, which the router writes on its
   // hydration scripts and its scroll restoration script (see RenderInput in server.tsx).
   nonce?: string
@@ -56,7 +60,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   source: Source,
   options: RouterOptions,
 ) {
-  const { buildId, serverURL, onHydrate, sessionKey, session, language, nonce } = options
+  const { buildId, serverURL, onHydrate, sessionKey, session, language, alternates, nonce } = options
   const context: RouterContext = {
     browser: serverURL === undefined,
     source,
@@ -84,6 +88,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
       if (sessionKey !== undefined) out.sessionKey = sessionKey
       if (session !== undefined) out.session = session
       if (language) out.language = language
+      if (alternates) out.alternates = alternates
       return out
     },
     hydrate: (dehydrated: Dehydrated) => {
