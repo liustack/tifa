@@ -23,7 +23,8 @@ const limit = Number(arg('limit', String(plans.length)))
 if (!base) throw new Error('--base is required')
 
 const keepHeader = /^(accept|rsc|next-router-.*|next-url|x-tsr-.*|x-react-router.*|purpose|sec-purpose|content-type)$/i
-const QUIET_MS = 700
+const within = (ms, p) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))])
+const QUIET_MS = 450
 const CAP_MS = 6000
 
 const wanted = (req) => {
@@ -42,31 +43,41 @@ async function visit(browser, plan) {
   const pending = []
   page.on('request', (req) => {
     if (!wanted(req) || !cur) return
-    inflight++
+    // Prefetches do not hold the page back: the browser may keep one open for a long time.
+    const ahead = Boolean(req.headers()['next-router-prefetch'])
+    if (!ahead) inflight++
     lastActivity = Date.now()
     const rec = { method: req.method(), url: req.url().replace(new URL(req.url()).origin, ''), s: Date.now() - cur.t0, type: req.resourceType() }
+    const early = req.headers()
+    rec.headers = Object.fromEntries(Object.entries(early).filter(([k]) => keepHeader.test(k)))
+    rec.inm = false
+    rec.class = rec.type === 'document' ? 'doc' : ahead ? 'prefetch' : 'nav'
     cur.reqs.push(rec)
     const done = (status) => {
-      inflight--
+      if (!ahead) inflight--
       lastActivity = Date.now()
       rec.e = Date.now() - cur.t0
       rec.status = status
     }
     const p = (async () => {
-      const finish = req.response().then(
-        async (res) => {
-          await res?.finished().catch(() => {})
-          done(res ? res.status() : 0)
-          return res
-        },
-        () => (done(0), null),
+      const finish = within(
+        8000,
+        req.response().then(
+          async (res) => {
+            await within(8000, res?.finished().catch(() => {}))
+            done(res ? res.status() : 0)
+            return res
+          },
+          () => (done(0), null),
+        ),
       )
       const res = await finish
-      const all = await req.allHeaders().catch(() => ({}))
+      if (rec.e === undefined) done(0) // the browser never finished it (cancelled)
+      const all = (await within(3000, req.allHeaders().catch(() => ({})))) ?? {}
       rec.headers = Object.fromEntries(Object.entries(all).filter(([k]) => keepHeader.test(k)))
       rec.inm = 'if-none-match' in all
       if (res && res.status() === 0) rec.failed = true
-      rec.class = rec.type === 'document' ? 'doc' : all['next-router-prefetch'] || /prefetch/i.test(all['sec-purpose'] ?? '') ? 'prefetch' : 'nav'
+      if (all['next-router-prefetch'] || /prefetch/i.test(all['sec-purpose'] ?? '')) rec.class = 'prefetch'
     })()
     pending.push(p)
   })
@@ -79,7 +90,9 @@ async function visit(browser, plan) {
       await page.waitForTimeout(100)
       if (inflight === 0 && Date.now() - lastActivity >= QUIET_MS) break
     }
-    await Promise.allSettled(pending.splice(0))
+    await within(2000, Promise.allSettled(pending.splice(0)))
+    // A request the browser has not finished by now (a prefetch it left open) ends with the step.
+    for (const r of cur.reqs) if (r.e === undefined) ((r.e = Date.now() - cur.t0), (r.status = r.status ?? 0))
   }
   const begin = (kind, target) => {
     cur = { kind, page: target, t0: Date.now(), reqs: [] }
@@ -120,7 +133,7 @@ await Promise.all(
     for (;;) {
       const i = next++
       if (i >= limit) return
-      const v = await visit(browser, plans[i])
+      const v = (await within(120000, visit(browser, plans[i]))) ?? { plan: plans[i].id, error: 'timeout' }
       if (v.error) {
         bad++
         console.error(`plan ${v.plan}: ${v.error}`)

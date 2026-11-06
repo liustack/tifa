@@ -52,13 +52,17 @@ func PageKind(url string) (kind, project, order string) {
 
 // Link is a link on a page that a visitor can click, with how likely the visitor is to pick it among
 // those of the kind. The links are those every page has whatever the data: the lists link to their
-// orders, an order and a stats page to their list, and every page to the stats of its shop and the
+// newest 25 orders, an order and a stats page to their list, and every page to the stats of its shop and the
 // list of the other shop. Links that depend on the data (other orders of the same customer) are left
 // out, so that writes do not change what can be clicked.
 type Link struct {
 	To     string
 	Weight float64
 }
+
+// listPageSize is how many orders the first page of a list shows (the newest). The links to the
+// older ones are on pages the plans do not visit.
+const listPageSize = 25
 
 var otherProject = map[string]string{"studio": "weekend", "weekend": "studio"}
 
@@ -69,9 +73,9 @@ func Links(url string) []Link {
 	switch kind {
 	case "list":
 		r := OrderIDs[project]
-		n := r[1] - r[0] + 1
+		n := min(r[1]-r[0]+1, listPageSize)
 		out := []Link{{stats, 0.2}, {other, 0.2}}
-		for id := r[1]; id >= r[0]; id-- {
+		for id := r[1]; id > r[1]-n; id-- {
 			out = append(out, Link{fmt.Sprintf("%s/orders/%s%04d", list, orderPrefix[project], id), 0.6 / float64(n)})
 		}
 		return out
