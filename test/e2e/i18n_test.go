@@ -135,26 +135,23 @@ func TestI18nApp(t *testing.T) {
 		if status, _, _ := cacheSend(t, "GET", base+"/store/news", "", "If-None-Match", zhTag); status != 304 {
 			t.Errorf("the ETag of zh-CN answered %d for zh-CN", status)
 		}
-		// What each entry holds: the data its own Load made, for its own language.
-		type answer struct {
-			Routes map[string]struct {
-				Data struct {
-					N        int64
-					Language string
-				}
-			}
-		}
-		var zh, en answer
+		// The data is the same in both languages, and each language still made its own page: two
+		// Loads ran, and neither render was answered by the render cache.
 		_, _, zhData := cacheSend(t, "GET", data("/store/news", "1"), "")
 		_, _, enData := cacheSend(t, "GET", data("/en-US/store/news", "1"), "")
-		if err := json.Unmarshal([]byte(zhData), &zh); err != nil {
-			t.Fatalf("%v: %s", err, zhData)
-		}
-		if err := json.Unmarshal([]byte(enData), &en); err != nil {
-			t.Fatalf("%v: %s", err, enData)
-		}
-		if zh.Routes["app/store/news/route"].Data.Language != "zh-CN" || en.Routes["app/store/news/route"].Data.Language != "en-US" || zh.Routes["app/store/news/route"].Data.N == en.Routes["app/store/news/route"].Data.N {
+		const same = `"data":{"body":"the same in every language"}`
+		if !strings.Contains(zhData, same) || !strings.Contains(enData, same) {
 			t.Errorf("data of zh-CN %s and of en-US %s", zhData, enData)
+		}
+		var loads struct{ News int64 }
+		_, _, body := cacheSend(t, "GET", base+"/api/loads", "")
+		if err := json.Unmarshal([]byte(body), &loads); err != nil || loads.News != 2 {
+			t.Errorf("Loads of the page: %s, want 2, one for each language", body)
+		}
+		for _, path := range []string{"/store/news", "/en-US/store/news"} {
+			if _, h, _ := cacheSend(t, "GET", base+path, ""); h.Get("Cache-Status") != "tifa; hit" {
+				t.Errorf("GET %s: %v", path, h)
+			}
 		}
 		// The page of the cache carries the language of its own entry.
 		if !strings.Contains(zhBody, `language:"zh-CN"`) || strings.Contains(zhBody, `language:"en-US"`) {
@@ -191,12 +188,23 @@ func TestI18nLanguagesWithOtherLinkerFlags(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir := copyApp(t, "i18n")
 	write(t, filepath.Join(dir, "tifa.yaml"), "i18n:\n  default: en-US\nsite:\n  url: https://i18n.example.com\nbuild:\n  debug_info: true\n")
-	t.Setenv("GOFLAGS", strings.TrimSpace(os.Getenv("GOFLAGS")+" -ldflags=-X=main.unused=1"))
+	const version = "example.com/i18ntest/app/api/languages.Version"
+	for _, flag := range []string{"-ldflags=-X=" + version + "=v1", "-ldflags=all=-X=" + version + "=v2"} {
+		t.Run(flag, func(t *testing.T) { checkLinkerFlags(t, dir, flag, strings.HasSuffix(flag, "=v1")) })
+	}
+}
+
+func checkLinkerFlags(t *testing.T, dir, flag string, v1 bool) {
+	t.Setenv("GOFLAGS", strings.TrimSpace(os.Getenv("GOFLAGS")+" "+flag))
+	want := `"version":"v2"`
+	if v1 {
+		want = `"version":"v1"`
+	}
 	exe := buildAt(t, dir)
 	base, _, _ := start(t, exe)
 	// The default language comes first.
 	_, _, body := cacheSend(t, "GET", base+"/api/languages", "")
-	if !strings.Contains(body, `"atInit":["en-US","zh-CN"]`) || !strings.Contains(body, `"now":["en-US","zh-CN"]`) {
+	if !strings.Contains(body, `"atInit":["en-US","zh-CN"]`) || !strings.Contains(body, `"now":["en-US","zh-CN"]`) || !strings.Contains(body, want) {
 		t.Errorf("%s", body)
 	}
 	// en-US is now the default language, so its prefix is a 308.

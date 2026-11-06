@@ -1,5 +1,5 @@
-// Package news is a page of the area app/store with the whole-page cache. The same page body is
-// made for each language, and the entries must never cross.
+// Package news is a page of the area app/store with the whole-page cache. Its data is the same in
+// every language, so only the language of the URL keeps the entries apart.
 package news
 
 import (
@@ -11,13 +11,14 @@ import (
 
 const Cache = time.Minute
 
-var loads atomic.Int64
+// Loads counts the runs of Load, see app/api/loads.
+var Loads atomic.Int64
 
 type Data struct {
-	N        int64  `json:"n"`
-	Language string `json:"language"`
+	Body string `json:"body"`
 }
 
 func Load(c *tifa.Ctx) (Data, error) {
-	return Data{N: loads.Add(1), Language: c.Language()}, nil
+	Loads.Add(1)
+	return Data{Body: "the same in every language"}, nil
 }

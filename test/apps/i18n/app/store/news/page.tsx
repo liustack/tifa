@@ -5,7 +5,7 @@ export default function News() {
   const data = page.useLoaderData()
   return (
     <main id="news">
-      news n={data.n} go={data.language} react={useLanguage()}
+      news {data.body} react={useLanguage()}
     </main>
   )
 }
