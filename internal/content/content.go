@@ -87,6 +87,26 @@ const (
 // Entries is the content of EntriesFile.
 type Entries struct {
 	Entries []Markdown `json:"entries"`
+	// Links is what the plugin needs to give the root-relative links of an entry the prefix of its
+	// language. Nil on a site without languages.
+	Links *Links `json:"links,omitempty"`
+}
+
+// Links are the languages of the site and of each route, for the links in Markdown.
+type Links struct {
+	// Default is the default language, Always is i18n.prefix: always, and Languages are the
+	// languages of the site.
+	Default   string   `json:"default"`
+	Always    bool     `json:"always"`
+	Languages []string `json:"languages"`
+	// Routes are all the routes of the app, pages and API routes, by their ServeMux paths.
+	Routes []LinkRoute `json:"routes"`
+}
+
+// LinkRoute is a route with its languages: none when it is outside every area.
+type LinkRoute struct {
+	Path      string   `json:"path"`
+	Languages []string `json:"languages"`
 }
 
 // AddHeadings puts the headings the Vite plugin found, by the Out of each entry, into the records

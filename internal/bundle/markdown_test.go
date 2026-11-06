@@ -29,12 +29,13 @@ import path from 'node:path'
 import { convertContent } from './plugin.mjs'
 const root = process.cwd()
 const real = fs.realpathSync(root)
-const { entries } = JSON.parse(fs.readFileSync('.tifa/content/entries.json', 'utf8'))
+const { entries, links } = JSON.parse(fs.readFileSync('.tifa/content/entries.json', 'utf8'))
 let markdown
 %s
 try {
   const result = await convertContent(root, entries, {
     markdown,
+    links,
     command: 'tifa build',
     asset: (file) => 'asset:' + path.relative(real, file).split(path.sep).join('/'),
   })
@@ -58,7 +59,13 @@ func markdownApp(t *testing.T, files map[string]string) string {
 // convert runs convertContent on entries in the app at root, see convertScript.
 func convert(t *testing.T, root string, entries []content.Markdown, setup string) converted {
 	t.Helper()
-	list, err := json.Marshal(content.Entries{Entries: entries})
+	return convertWith(t, root, entries, nil, setup)
+}
+
+// convertWith is convert with the route languages that decide which links get a language prefix.
+func convertWith(t *testing.T, root string, entries []content.Markdown, links *content.Links, setup string) converted {
+	t.Helper()
+	list, err := json.Marshal(content.Entries{Entries: entries, Links: links})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,5 +449,94 @@ func TestMarkdownAssetNamesSuitGoEmbed(t *testing.T) {
 		if got != want {
 			t.Errorf("assetName(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// linksTable is the route languages of a shop whose area /store has en-US next to the default
+// zh-CN, with a route outside every area.
+func linksTable(always bool) *content.Links {
+	both := []string{"zh-CN", "en-US"}
+	return &content.Links{
+		Default: "zh-CN", Always: always, Languages: both,
+		Routes: []content.LinkRoute{
+			{Path: "/", Languages: []string{}},
+			{Path: "/store", Languages: both},
+			{Path: "/store/cart", Languages: both},
+			{Path: "/store/products/{id}", Languages: both},
+			{Path: "/store/files/{path...}", Languages: both},
+			{Path: "/projects", Languages: []string{}},
+			{Path: "/{rest...}", Languages: []string{}},
+		},
+	}
+}
+
+// Root-relative links of an entry get the prefix of its language when the route they lead to has
+// that language and the language is not the default (or always). Everything else stays as written.
+func TestMarkdownPrefixesLinksToRoutesOfTheLanguage(t *testing.T) {
+	root := markdownApp(t, map[string]string{"content/blog/en/a/index.md": "x"})
+	body := strings.Join([]string{
+		"[cart](/store/cart) [item](/store/products/42?x=1#top) [deep](/store/files/a/b.txt) [slash](/store/cart/)",
+		"",
+		"[outside](/projects) [other](/nowhere/page) [done](/en-US/store/cart) [zh](/zh-CN/store/cart)",
+		"",
+		"[ext](https://example.org/store/cart) [proto](//cdn.example.org/store/cart) [hash](#top) [mail](mailto:a@b.c)",
+		"",
+		`<a href="/store">html</a> ![img](/store/cart.png)`,
+		"",
+	}, "\n")
+	run := func(lang string, always bool) string {
+		t.Helper()
+		c := convertWith(t, root, []content.Markdown{markdownEntry(lang, "a", "content/blog/en/a/index.md", "", body)}, linksTable(always), "")
+		if c.Error != "" {
+			t.Fatal(c.Error)
+		}
+		return c.HTML["content/blog/"+lang+"/a.html"]
+	}
+	same := []string{
+		`href="/projects"`, `href="/nowhere/page"`, `href="/en-US/store/cart"`, `href="/zh-CN/store/cart"`,
+		`href="https://example.org/store/cart"`, `href="//cdn.example.org/store/cart"`, `href="#top"`, `href="mailto:a@b.c"`,
+		`src="/store/cart.png"`,
+	}
+	en := run("en-US", false)
+	for _, want := range append([]string{
+		`href="/en-US/store/cart"`, `href="/en-US/store/products/42?x=1#top"`, `href="/en-US/store/files/a/b.txt"`,
+		`href="/en-US/store/cart/"`, `href="/en-US/store"`,
+	}, same...) {
+		if !strings.Contains(en, want) {
+			t.Errorf("en-US: the HTML lacks %s:\n%s", want, en)
+		}
+	}
+	zh := run("zh-CN", false)
+	for _, want := range append([]string{`href="/store/cart"`, `href="/store/products/42?x=1#top"`, `href="/store"`}, same...) {
+		if !strings.Contains(zh, want) {
+			t.Errorf("zh-CN: the HTML lacks %s:\n%s", want, zh)
+		}
+	}
+	always := run("zh-CN", true)
+	for _, want := range append([]string{`href="/zh-CN/store/cart"`, `href="/zh-CN/store/products/42?x=1#top"`}, same...) {
+		if !strings.Contains(always, want) {
+			t.Errorf("always: the HTML lacks %s:\n%s", want, always)
+		}
+	}
+}
+
+// An entry of a collection without languages, and a site without a table, convert as before.
+func TestMarkdownLeavesLinksAloneWithoutLanguages(t *testing.T) {
+	root := markdownApp(t, nil)
+	body := "[cart](/store/cart)\n"
+	plain := markdownEntry("", "a", "content/blog/a.md", "", body)
+	c := convertWith(t, root, []content.Markdown{plain}, linksTable(true), "")
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	if html := c.HTML[plain.Out]; !strings.Contains(html, `href="/store/cart"`) {
+		t.Errorf("an entry without a language changed:\n%s", html)
+	}
+	c = convertWith(t, root, []content.Markdown{markdownEntry("en-US", "a", "content/blog/en-US/a.md", "", body)}, nil, "")
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	if html := c.HTML["content/blog/en-US/a.html"]; !strings.Contains(html, `href="/store/cart"`) {
+		t.Errorf("a site without languages changed:\n%s", html)
 	}
 }

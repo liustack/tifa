@@ -17,6 +17,7 @@ import (
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/content"
 	"github.com/spf13/cobra"
 )
 
@@ -68,7 +69,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m.Content))
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m, m.Content))
 			if err != nil {
 				return err
 			}
@@ -147,11 +148,24 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 }
 
 // contentOf returns the content collections of an analysis for the build, nil without any.
-func contentOf(c *analyze.Content) *bundle.Content {
+func contentOf(m *analyze.Manifest, c *analyze.Content) *bundle.Content {
 	if c == nil {
 		return nil
 	}
-	return &bundle.Content{File: c.File, Markdown: c.Markdown}
+	return &bundle.Content{File: c.File, Markdown: c.Markdown, Links: linksOf(m)}
+}
+
+// linksOf returns the languages of the routes of m for the links in Markdown, nil for an app
+// without languages.
+func linksOf(m *analyze.Manifest) *content.Links {
+	if m.I18n == nil {
+		return nil
+	}
+	l := &content.Links{Default: m.I18n.Default, Always: m.I18n.Always, Languages: m.I18n.Languages}
+	for _, r := range m.Routes {
+		l.Routes = append(l.Routes, content.LinkRoute{Path: r.Path, Languages: append([]string{}, r.Languages...)})
+	}
+	return l
 }
 
 // goBuild compiles the generated main of the application at root into output with
