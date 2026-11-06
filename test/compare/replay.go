@@ -162,10 +162,6 @@ var errNotSent = errors.New("cancelled before it was sent")
 func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if !cancelAt.IsZero() {
-		t := time.AfterFunc(time.Until(cancelAt), cancel)
-		defer t.Stop()
-	}
 	cancelled := func(err error) outcome {
 		// Our own timer cancelled it, and the visit itself is still going.
 		if ctx.Err() == nil && rctx.Err() != nil && !cancelAt.IsZero() {
@@ -199,7 +195,17 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	}
 	defer func() { <-v.sem }()
 	if rctx.Err() != nil {
-		return cancelled(errNotSent) // cancelled before it was sent: the server did no work
+		return cancelled(errNotSent)
+	}
+	if !cancelAt.IsZero() {
+		// The cancel comes at the recorded offset from the start of the page view, but never sooner
+		// than the request lived in the browser after it was sent: a replay that is late (a slow
+		// server) still sends what the browser sent, and so does the work.
+		if least := time.Now().Add(time.Duration((q.End - q.Start) * float64(time.Millisecond))); cancelAt.Before(least) {
+			cancelAt = least
+		}
+		t := time.AfterFunc(time.Until(cancelAt), cancel)
+		defer t.Stop()
 	}
 	start := time.Now()
 	res, err := v.client.Do(req)

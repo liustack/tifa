@@ -268,3 +268,28 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 		t.Error("an open round is at least a block")
 	}
 }
+
+func TestACancelledRequestIsSentEvenWhenItsOffsetHasPassedAndLivesItsRecordedTime(t *testing.T) {
+	srv, held := fakeServer(t)
+	// The prefetch lived 40 ms in the browser, and its cancel is at 50 ms into the page view. The
+	// document is slow (30 ms), so the prefetch, which starts after it, is sent at about 30 ms; and
+	// its recorded 40 ms of life means it is cancelled at about 70 ms, not at 50.
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{
+		req("/slow-doc", "doc", 0, 10), cancelled("/hold-1", "prefetch", 15, 55),
+	}})
+	r := testRunner(srv, plans, traces, nil)
+	start := time.Now()
+	round := r.RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if d := time.Since(start); d < 65*time.Millisecond || d > time.Second {
+		t.Errorf("visit took %v, want its prefetch to live its recorded 40 ms after being sent at 30 ms", d)
+	}
+	if round.Visits != 1 || round.Failures != 0 {
+		t.Errorf("%+v", round)
+	}
+	for i := 0; i < 50 && held.Load() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if held.Load() != 0 {
+		t.Error("the prefetch was not released")
+	}
+}
