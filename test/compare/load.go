@@ -74,6 +74,11 @@ type Round struct {
 	Why  string `json:"why,omitempty"`
 }
 
+// idleConn is how long the load generator keeps an idle connection. It is shorter than the 5 seconds
+// after which Node closes a connection nobody uses, so that it does not send a request on one that is
+// being closed (the server resets it) and count a failure that no browser would see.
+const idleConn = 3 * time.Second
+
 // LatencyLimit is the P99 that full loads, clicks and writes must meet.
 const LatencyLimit = 1000.0
 
@@ -160,7 +165,7 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns}
+			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns, IdleConnTimeout: idleConn}
 			defer tr.CloseIdleConnections()
 			for ctx.Err() == nil {
 				s := int(next.Add(1)) - 1
@@ -192,7 +197,7 @@ func (r *runner) Warm(ctx context.Context, users int, d time.Duration) float64 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns}
+			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns, IdleConnTimeout: idleConn}
 			defer tr.CloseIdleConnections()
 			for wctx.Err() == nil {
 				r.runVisit(wctx, tr, a, int(next.Add(1))-1, pacer{})
@@ -219,7 +224,7 @@ func BlocksFor(rate float64, target time.Duration, planBlocks int) int {
 func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int) *Round {
 	a := newAcc()
 	duration := time.Duration(float64(n) / rate * float64(time.Second))
-	tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 4096, MaxConnsPerHost: 0, IdleConnTimeout: 30 * time.Second}
+	tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 4096, MaxConnsPerHost: 0, IdleConnTimeout: idleConn}
 	defer tr.CloseIdleConnections()
 	last := 0 // the longest plan, in actions, for the drain deadline
 	for i := range min(n, len(r.wl.Plans)) {
