@@ -852,3 +852,29 @@ func TestAppFingerprint(t *testing.T) {
 		t.Errorf("a changed route keeps the fingerprint %s, %v", other, err)
 	}
 }
+
+// tifa/i18n imports i18next and react-i18next, and TypeScript checks all of .tifa, so the runtime
+// of an app has the adapter only when it has languages: a folder of app/ has a _locales folder.
+func TestRuntimeHasTheI18nAdapterOnlyWithLocales(t *testing.T) {
+	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/route", Dir: "app", Path: "/", Page: true, SSR: true}}}
+	for _, nested := range []bool{false, true} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "app/page.tsx"), "export default function Page() { return null }\n")
+		if nested {
+			writeFile(t, filepath.Join(root, "app/store/_locales/en-US.json"), "{}\n")
+			m.I18n = &analyze.I18n{Default: "en-US", Languages: []string{"en-US"}}
+		}
+		files, err := Generate(root, m, false, fakeExports)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"runtime/i18n.tsx", "runtime/locales.d.ts"} {
+			if _, ok := files[name]; ok != nested {
+				t.Errorf("with a _locales folder %v: %s is written %v", nested, name, ok)
+			}
+		}
+		if len(files["runtime/client.ts"]) == 0 {
+			t.Error("the rest of the runtime is missing")
+		}
+	}
+}

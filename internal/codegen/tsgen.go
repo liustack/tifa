@@ -190,9 +190,13 @@ import { htmlAttributes, routeTree } from "./routes"
 	if err := viteFiles(files, vite); err != nil {
 		return nil, err
 	}
+	locales := m.I18n != nil
 	err = fs.WalkDir(js.Runtime, "runtime", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
+		}
+		if !locales && slices.Contains(i18nRuntime, name) {
+			return nil
 		}
 		data, err := fs.ReadFile(js.Runtime, name)
 		files[name] = data
@@ -1201,3 +1205,8 @@ export interface I18n {
 `)
 	return []byte(b.String())
 }
+
+// i18nRuntime are the files of the runtime that belong to tifa/i18n. They import i18next and
+// react-i18next, which only an app with translations installs, and TypeScript checks all of
+// .tifa, so an app without languages (no _locales folder) does not get them.
+var i18nRuntime = []string{"runtime/i18n.tsx", "runtime/locales.d.ts"}
