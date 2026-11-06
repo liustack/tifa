@@ -278,17 +278,23 @@ func BlockWrites(seed uint64, plans []Plan, share float64) ([]PlannedWrite, erro
 	return out, nil
 }
 
-// fanOutNames are the customers a fan-out write gives an order, in turn. A customer's name is on
-// the lists, in the customers of the stats page and on the other orders of that customer.
+// fanOutNames are the surnames a write's customer names start with. A customer's name is on the
+// lists, in the customers of the stats page and on the other orders of that customer.
 var fanOutNames = []string{"周川", "吴桐", "郑和", "冯雨", "褚然", "卫宁"}
 
+// CustomerName is the customer name that the n-th write gives. It is different for every n, so that
+// no write returns the lists, the stats or the pages of the customer's other orders to a state they
+// had before: a render cache that keeps old versions would otherwise hit again, which no real write
+// to a customer name does.
+func CustomerName(n int) string { return fmt.Sprintf("%s %08d", fanOutNames[n%len(fanOutNames)], n) }
+
 // WriteStep is the PATCH for the n-th write to an order. It gives the order a new address. With
-// fanOut it also gives it a new customer name, so the lists, the stats of the shop and the pages of
-// the other orders of that customer change too. The phone number stays.
+// fanOut it also gives it a new customer name (CustomerName), so the lists, the stats of the shop
+// and the pages of the other orders of that customer change too. The phone number stays.
 func WriteStep(w Writer, o WriteOrder, n int, fanOut bool) Step {
 	r := Recipient{Project: o.Project, Order: o.Order, Customer: o.Customer, Phone: o.Phone, Address: Address(n)}
 	if fanOut {
-		r.Customer = fanOutNames[n%len(fanOutNames)]
+		r.Customer = CustomerName(n)
 	}
 	body := mustJSON(r)
 	return Step{Method: "PATCH", Path: w(r.Project, r.Order), Body: body, Write: &r}

@@ -38,6 +38,8 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"Every framework gets 8.00 visits/s",
 		"| Tifa | 400.00 | 1600 |",
 		"What one visit costs the server",
+		"What the server did a second:",
+		"| Tifa | 100.0 | 300.0 |",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)

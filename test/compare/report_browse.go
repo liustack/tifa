@@ -153,6 +153,23 @@ func (r *BrowseResult) Markdown() string {
 				typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"),
 				fmtCell(each(rs, func(x *Round) float64 { return x.ClientCPU / x.Seconds }), "%.2f"))
 		}
+		b.WriteString("\nWhat the server did a second:\n\n| | full loads/s | clicks/s | writes/s | renders/s | cache hits/s | shared renders/s |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+		for _, f := range fw {
+			rs := r.cellRounds(f, c.mix.Name, c.users)
+			if len(rs) == 0 {
+				continue
+			}
+			rate := func(get func(*Round) int) string {
+				return fmtCell(each(rs, func(x *Round) float64 { return float64(get(x)) / x.Seconds }), "%.1f")
+			}
+			tifa := func(kind string) string {
+				if f != "tifa" {
+					return "-"
+				}
+				return rate(func(x *Round) int { return x.Renders[kind] })
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), rate(func(x *Round) int { return x.FullLoads }), rate(func(x *Round) int { return x.Clicks }), rate(func(x *Round) int { return x.Writes }), tifa("vm"), tifa("cache"), tifa("shared"))
+		}
 		b.WriteString("\nWhat one visit costs the server, as requests per visit (and, for Tifa, what it did with the documents):\n\n| | documents 200 (full pages) | documents 304 | client navigation requests | prefetches | writes | renders | cache hits | shared renders |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 		for _, f := range fw {
 			rs := r.cellRounds(f, c.mix.Name, c.users)

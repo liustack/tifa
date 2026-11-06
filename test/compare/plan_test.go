@@ -2,6 +2,7 @@ package compare
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,24 @@ func TestBlockWritesGiveExactlyTheShareOfTheMix(t *testing.T) {
 	}
 	if _, err := BlockWrites(3, set.Plans[:BlockVisits], 0.3); err == nil {
 		t.Error("a share that needs a fraction of a write was accepted")
+	}
+}
+
+func TestEveryWriteGivesANewCustomerName(t *testing.T) {
+	seen := map[string]int{}
+	for n := 0; n < 20000; n++ {
+		name := CustomerName(n)
+		if prev, ok := seen[name]; ok {
+			t.Fatalf("writes %d and %d give the same customer name %q", prev, n, name)
+		}
+		seen[name] = n
+		if strings.TrimSpace(name) == "" || len([]rune(name)) > 40 {
+			t.Fatalf("name %q", name)
+		}
+	}
+	// The write step carries it, for every order, so a name never comes back after other writes.
+	a, b := WriteStep(nodePath, WritableOrders[0], 1, true), WriteStep(nodePath, WritableOrders[0], 7, true)
+	if string(a.Body) == string(b.Body) || a.Write.Customer == b.Write.Customer {
+		t.Errorf("writes 1 and 7 (the same surname before) give the same body: %s %s", a.Body, b.Body)
 	}
 }
