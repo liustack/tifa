@@ -37,10 +37,6 @@ func (r *Record) Markdown() string {
 		b.WriteString(", " + strings.Join(extra, ", "))
 	}
 	fmt.Fprintf(&b, ". %s, %s.\n", r.Machine.CPU, r.Machine.Kernel)
-	if r.Browse != nil {
-		b.WriteString(r.browseMarkdown())
-		return b.String()
-	}
 	fmt.Fprintf(&b, "Placement: %s", r.Placement.Note)
 	if r.Placement.Server != "" {
 		fmt.Fprintf(&b, " (server cpus %s, load cpus %s)", r.Placement.Server, r.Placement.Load)

@@ -2,6 +2,7 @@ package compare
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -16,134 +17,120 @@ import (
 	"time"
 )
 
-// BrowseScenario is one run of the browse comparison: a mix of reads and writes. Reads 95% / writes
-// 5% means that of 100 user actions (a page view or a write) 5 are writes, so a write follows a page
-// view with probability w/(1-w): 1/19, 1/4 and 1. These are the shares of the TPC-W mixes
-// (https://www.tpc.org/tpcw/). Every write changes the customer name of an order, which the lists,
-// the stats and the other orders of that customer show: the harder case for a cache.
-type BrowseScenario struct {
-	Name      string  `json:"name"`
-	Title     string  `json:"title"`
-	Mean      int     `json:"mean"` // page views of a visit, on average
-	WriteRate float64 `json:"writeRate"`
-	FanOut    bool    `json:"fanOut"`
+// A Mix is a share of the user actions (a page view or a write) that are writes, as in the TPC-W
+// mixes (https://www.tpc.org/tpcw/): browsing 5%, shopping 20% and ordering 50% of the actions are
+// writes. Every write gives one of the three orders that can still change a new customer name,
+// which the lists, the stats and the other orders of that customer show: the harder case for a cache.
+type Mix struct {
+	Name  string  `json:"name"`
+	Title string  `json:"title"`
+	Share float64 `json:"writeShare"`
 }
 
-// BrowseScenarios are the runs, in the order they are measured. A visit is 4 page views on average
-// (one full load in four, 75% soft navigations), an assumption and not a measurement.
-var BrowseScenarios = []BrowseScenario{
-	{"r95w5", "reads 95% / writes 5%", 4, 1.0 / 19, true},
-	{"r80w20", "reads 80% / writes 20%", 4, 1.0 / 4, true},
-	{"r50w50", "reads 50% / writes 50%", 4, 1, true},
+// Mixes are the mixes, in the order they are measured.
+var Mixes = []Mix{
+	{"r95w5", "reads 95% / writes 5%", 0.05},
+	{"r80w20", "reads 80% / writes 20%", 0.20},
+	{"r50w50", "reads 50% / writes 50%", 0.50},
 }
 
-// maxConns is how many connections a browser opens to one host (HTTP/1.1): a user never has more
-// requests in flight than this.
+// MixByName finds a mix.
+func MixByName(name string) (Mix, bool) {
+	for _, m := range Mixes {
+		if m.Name == name {
+			return m, true
+		}
+	}
+	return Mix{}, false
+}
+
+// maxConns is how many connections a browser opens to one host (HTTP/1.1): a visit never has more
+// requests in flight than this, whatever the framework.
 const maxConns = 6
 
-// replayer plays traces against one server for a number of users.
-type replayer struct {
+// ActionSpacing is the time between the planned actions of a visit in the open model.
+const ActionSpacing = time.Second
+
+// A Workload is what is replayed for one framework and one mix: the plans and their traces, and
+// the writes that the mix puts after some page views. A run plays visits in the order of a global
+// sequence: visit s is plan s mod len(Plans), so a whole block is played before the next.
+type Workload struct {
+	Plans  []Plan
+	Traces map[int]Trace // by plan ID
+	Writes map[[2]int]WriteOrder
+	Mix    Mix
+}
+
+// NewWorkload puts the writes of a mix into the plans, block by block, and fails if a plan has no
+// trace.
+func NewWorkload(set *PlanSet, traces map[int]Trace, mix Mix, seed uint64) (*Workload, error) {
+	w := &Workload{Plans: set.Plans, Traces: traces, Writes: map[[2]int]WriteOrder{}, Mix: mix}
+	for _, p := range set.Plans {
+		if _, ok := traces[p.ID]; !ok {
+			return nil, fmt.Errorf("plan %d has no trace", p.ID)
+		}
+	}
+	for b := range set.Blocks {
+		ws, err := BlockWrites(seed, set.Plans[b*BlockVisits:(b+1)*BlockVisits], mix.Share)
+		if err != nil {
+			return nil, err
+		}
+		for _, x := range ws {
+			w.Writes[[2]int{x.Plan, x.After}] = x.Order
+		}
+	}
+	return w, nil
+}
+
+// runner plays a workload against one server.
+type runner struct {
 	base    string
 	write   Writer
 	buildID string // of Tifa, put into the navigation requests it recorded
-	traces  map[int]Trace
-	plans   []Plan
-	sc      BrowseScenario
-	seed    uint64
+	wl      *Workload
 	cpu     func() float64 // processor seconds of the server so far
 	rss     func() int64   // its peak resident size in bytes
 	writes  atomic.Int64   // the number of writes made, which gives each its address
-
-	t0, t1 atomic.Int64 // the measuring window, unix nanoseconds, 0 until set
-	openMu sync.Mutex
-	open   map[uint64]time.Time // requests sent and not yet answered, by when they were sent
-	openID uint64
-	mu     sync.Mutex
-	res    LoadResult
-}
-
-// LoadResult is what a step of users saw in the measuring window.
-type LoadResult struct {
-	Users    int     `json:"users"`
-	Seconds  float64 `json:"seconds"`
-	Visits   int     `json:"visits"`
-	Views    int     `json:"views"`
-	Errors   int     `json:"errors"`
-	Requests int     `json:"requests"`
-	Bytes    int64   `json:"bytes"`
-	Reloads  int     `json:"reloads"`
-	CPU      float64 `json:"cpuSeconds"`
-	// OpenRequests are the requests still waiting for an answer when the window ended, and
-	// OpenOldestMs is how long the oldest had waited. A server that hangs shows here and nowhere else.
-	OpenRequests int     `json:"openRequestsAtEnd"`
-	OpenOldestMs float64 `json:"openOldestMs"`
-	PeakRSS      float64 `json:"peakRssMiB"`
-	// ClientCPU is the processor time of the load generator itself in the window, in seconds. When it
-	// is close to the cpus given to the client, the client is what limits the visits a second.
-	ClientCPU float64 `json:"clientCpuSeconds"`
-	N304      int     `json:"notModified"`
-	// Renders counts the answers to documents by X-Tifa-Render (Tifa only).
-	Renders  map[string]int `json:"renders,omitempty"`
-	FirstErr string         `json:"firstError,omitempty"`
-	// Responses counts the answers in the window by "<type> <status> <content type>", and the
-	// answers that carry a header asking for a reload of the document.
-	Responses map[string]int `json:"responses,omitempty"`
-	// Times are by request type; a navigation is all the requests of one click.
-	Types map[string]TypeStat `json:"types"`
-
-	lat map[string][]float64
-}
-
-// TypeStat is the latencies of one type of request, in milliseconds.
-type TypeStat struct {
-	N   int     `json:"n"`
-	P50 float64 `json:"p50Ms"`
-	P99 float64 `json:"p99Ms"`
 }
 
 var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)
 
-func (r *replayer) inWindow(t time.Time) bool {
-	a, b := r.t0.Load(), r.t1.Load()
-	n := t.UnixNano()
-	return a != 0 && n >= a && (b == 0 || n < b)
+// acc collects what a run saw, as it happens: a page view when it completes, a request when it
+// completes, a write when it is answered.
+type acc struct {
+	mu                                  sync.Mutex
+	visits, views, loads, clicks, wrote int
+	failures, requests, cancelled, n304 int
+	bytes                               int64
+	firstErr                            string
+	pages                               map[string]int
+	renders, responses                  map[string]int
+	lat                                 map[string][]float64
+	lastAction                          time.Time
 }
 
-func (r *replayer) addLatency(kind string, t time.Time, ms float64) {
-	if !r.inWindow(t) {
-		return
+func newAcc() *acc {
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}}
+}
+
+func (a *acc) fail(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failures++
+	if a.firstErr == "" {
+		a.firstErr = err.Error()
 	}
-	r.mu.Lock()
-	r.res.lat[kind] = append(r.res.lat[kind], ms)
-	r.mu.Unlock()
 }
 
-func (r *replayer) fail(err error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.res.FirstErr == "" {
-		r.res.FirstErr = err.Error()
-	}
-	if r.inWindow(time.Now()) {
-		r.res.Errors++
-	}
-}
+func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
-// outcome of one request.
-type outcome struct {
-	start, end time.Time
-	err        error
-}
-
-// visitState is what one visit keeps: cookies, the ETags of the documents it got, and the
-// prefetches still running.
+// visitState is what one visit keeps: cookies, the connections it may use and its background work.
 type visitState struct {
 	client *http.Client
-	etags  map[string]string
 	sem    chan struct{}
 	bg     sync.WaitGroup
 	errMu  sync.Mutex
-	err    error // the first prefetch that failed
+	err    error // the first background request that failed
 }
 
 func (v *visitState) fail(err error) {
@@ -160,14 +147,39 @@ func (v *visitState) failure() error {
 	return v.err
 }
 
-func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome {
+// outcome of one request.
+type outcome struct {
+	end       time.Time
+	cancelled bool // the browser cancelled it, and the replay did at the same offset
+	err       error
+}
+
+var errNotSent = errors.New("cancelled before it was sent")
+
+// send plays one recorded request. A request the browser cancelled is cancelled at the recorded
+// offset from the start of its step: the connection is released and the rest of the answer is not
+// read. cancelAt is that time (zero for a request the browser let finish).
+func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, cancelAt time.Time) outcome {
+	rctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if !cancelAt.IsZero() {
+		t := time.AfterFunc(time.Until(cancelAt), cancel)
+		defer t.Stop()
+	}
+	cancelled := func(err error) outcome {
+		// Our own timer cancelled it, and the visit itself is still going.
+		if ctx.Err() == nil && rctx.Err() != nil && !cancelAt.IsZero() {
+			return outcome{end: time.Now(), cancelled: true}
+		}
+		return outcome{end: time.Now(), err: err}
+	}
 	url := q.URL
 	if r.buildID != "" {
 		url = tifaBuild.ReplaceAllString(url, "_tifa="+r.buildID+".")
 	}
-	req, err := http.NewRequestWithContext(ctx, q.Method, r.base+url, nil)
+	req, err := http.NewRequestWithContext(rctx, q.Method, r.base+url, nil)
 	if err != nil {
-		return outcome{err: err}
+		return outcome{end: time.Now(), err: err}
 	}
 	for k, val := range q.Headers {
 		req.Header.Set(k, val)
@@ -180,64 +192,59 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 		req.Header.Set("Sec-Fetch-Mode", "cors")
 		req.Header.Set("Sec-Fetch-Dest", "empty")
 	}
-	path, _, _ := strings.Cut(q.URL, "?")
-	if q.INM {
-		if e := v.etags[path]; e != "" {
-			req.Header.Set("If-None-Match", e)
-		}
+	select {
+	case v.sem <- struct{}{}:
+	case <-rctx.Done():
+		return cancelled(errNotSent)
 	}
-	v.sem <- struct{}{}
 	defer func() { <-v.sem }()
+	if rctx.Err() != nil {
+		return cancelled(errNotSent) // cancelled before it was sent: the server did no work
+	}
 	start := time.Now()
-	defer r.track()()
 	res, err := v.client.Do(req)
 	if err != nil {
-		return outcome{err: err}
+		return cancelled(err)
 	}
 	n, err := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	end := time.Now()
 	if err != nil {
-		return outcome{err: err}
+		return cancelled(err)
 	}
 	if res.StatusCode != 200 && res.StatusCode != 304 {
-		return outcome{err: fmt.Errorf("%s %s: status %d", q.Method, q.URL, res.StatusCode)}
+		return outcome{end: end, err: fmt.Errorf("%s %s: status %d", q.Method, q.URL, res.StatusCode)}
+	}
+	a.mu.Lock()
+	a.requests++
+	a.bytes += n
+	if res.StatusCode == 304 {
+		a.n304++
+	}
+	a.responses[q.Class+" "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
+	if rd := res.Header.Get("X-Remix-Reload-Document"); rd != "" {
+		a.responses["reload-document header"]++
 	}
 	if q.Class == "doc" {
-		if e := res.Header.Get("ETag"); e != "" {
-			v.etags[path] = e
+		if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
+			a.renders[rd]++
 		}
-	}
-	if r.inWindow(end) {
-		r.mu.Lock()
-		r.res.Requests++
-		r.res.Bytes += n
-		if res.StatusCode == 304 {
-			r.res.N304++
-		}
-		r.res.Responses[q.Class+" "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
-		if res.Header.Get("X-Remix-Reload-Document") != "" {
-			r.res.Responses["reload-document header"]++
-		}
-		if q.Class == "doc" {
-			if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
-				r.res.Renders[rd]++
-			}
-		}
-		r.mu.Unlock()
 	}
 	if q.Class == "prefetch" {
-		r.addLatency("prefetch", end, float64(end.Sub(start))/float64(time.Millisecond))
+		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))
 	}
-	return outcome{start: start, end: end}
+	a.mu.Unlock()
+	return outcome{end: end}
 }
 
-// runStep plays the requests of one page view with the order and the parallelism the browser had:
-// a request starts when every request that had finished before it started in the browser is done (a request that started in the same millisecond is no one's dependency, so that two quick requests cannot wait for each other).
-// The page view ends when its documents and navigation requests are done. Prefetches go on in the
-// background until the end of the visit.
-func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) error {
-	stepStart := time.Now() // the click or the load: a wait for a connection counts
+// runStep plays the requests of one page view with the order and the parallelism the browser had: a
+// request starts when every request that had finished (or had been cancelled) before it started in
+// the browser is done. It returns when the foreground requests are done; prefetches go on in the
+// background until the end of the visit. scheduled is when the action was meant to start, and the
+// latency is counted from it. It returns the time of the end of the page view, and whether it was
+// successful: no foreground request failed and at least one finished.
+func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep, scheduled time.Time) (time.Time, error) {
+	stepStart := time.Now()
 	n := len(s.Reqs)
 	done := make([]chan struct{}, n)
 	for i := range done {
@@ -246,14 +253,21 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 	outs := make([]outcome, n)
 	var main sync.WaitGroup
 	for j := range s.Reqs {
+		q := s.Reqs[j]
 		var deps []chan struct{}
 		for i := range s.Reqs {
-			if i != j && s.Reqs[i].End > 0 && s.Reqs[i].End <= s.Reqs[j].Start && s.Reqs[i].Start < s.Reqs[j].Start {
+			// A request that started in the same millisecond is no one's dependency, so that two quick
+			// requests cannot wait for each other.
+			if i != j && s.Reqs[i].End <= q.Start && s.Reqs[i].Start < q.Start {
 				deps = append(deps, done[i])
 			}
 		}
+		var cancelAt time.Time
+		if q.Cancel != "" {
+			cancelAt = stepStart.Add(time.Duration(q.End * float64(time.Millisecond)))
+		}
 		wg := &main
-		if s.Reqs[j].Class == "prefetch" {
+		if q.Class == "prefetch" {
 			wg = &v.bg
 		}
 		wg.Add(1)
@@ -267,51 +281,74 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 					return
 				}
 			}
-			outs[j] = r.send(ctx, v, s.Reqs[j])
-			if s.Reqs[j].Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
+			outs[j] = r.send(ctx, v, a, q, cancelAt)
+			if q.Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
 				v.fail(outs[j].err) // a prefetch that fails is a failure of the visit
 			}
 		}()
 	}
 	main.Wait()
+	if ctx.Err() != nil {
+		return time.Time{}, ctx.Err()
+	}
 	var last time.Time
+	finished := 0
 	for j := range outs {
 		if s.Reqs[j].Class == "prefetch" {
-			continue // awaited at the end of the visit, and its outcome is not read here
+			continue
 		}
 		o := outs[j]
 		if o.err != nil {
-			return o.err
+			return time.Time{}, o.err
+		}
+		if !o.cancelled {
+			finished++
+		} else {
+			a.mu.Lock()
+			a.cancelled++
+			a.mu.Unlock()
 		}
 		if o.end.After(last) {
 			last = o.end
 		}
-		if s.Reqs[j].Class == "doc" {
-			kind := "doc"
-			if s.Kind == StepReload {
-				kind = "reload"
-			}
-			r.addLatency(kind, o.end, float64(o.end.Sub(stepStart))/float64(time.Millisecond))
-		}
 	}
-	if s.Kind == StepClick && !last.IsZero() {
-		r.addLatency("nav", last, float64(last.Sub(stepStart))/float64(time.Millisecond))
+	if finished == 0 {
+		return time.Time{}, fmt.Errorf("the page view of %s has no foreground request that finished", s.Page)
 	}
-	return nil
+	kind := "click"
+	if s.Kind == StepLoad {
+		kind = "load"
+	}
+	class, _, _ := PageKind(s.Page)
+	a.mu.Lock()
+	a.lat[kind] = append(a.lat[kind], ms(last.Sub(scheduled)))
+	a.views++
+	if kind == "load" {
+		a.loads++
+	} else {
+		a.clicks++
+	}
+	a.pages[class]++
+	a.mu.Unlock()
+	return last, nil
 }
 
-// write sends the n-th write and times it.
-func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) error {
+// doWrite sends the n-th write, scored from when it was scheduled.
+func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w WriteOrder, scheduled time.Time) error {
 	n := int(r.writes.Add(1))
-	st := WriteStep(r.write, w.Order, n, r.sc.FanOut)
+	st := WriteStep(r.write, w, n, true)
 	req, err := http.NewRequestWithContext(ctx, st.Method, r.base+st.Path, strings.NewReader(string(st.Body)))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept-Encoding", "gzip")
-	start := time.Now()
-	defer r.track()()
+	select {
+	case v.sem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-v.sem }()
 	res, err := v.client.Do(req)
 	if err != nil {
 		return err
@@ -325,126 +362,89 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 	if res.StatusCode != 200 {
 		return fmt.Errorf("write %s: status %d", st.Path, res.StatusCode)
 	}
-	if r.inWindow(end) {
-		r.mu.Lock()
-		r.res.Requests++
-		r.res.Bytes += b
-		r.res.Responses["write "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
-		r.mu.Unlock()
-		r.addLatency("write", end, float64(end.Sub(start))/float64(time.Millisecond))
-	}
+	a.mu.Lock()
+	a.requests++
+	a.bytes += b
+	a.wrote++
+	a.responses["write "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
+	a.lat["write"] = append(a.lat["write"], ms(end.Sub(scheduled)))
+	a.mu.Unlock()
 	return nil
 }
 
-// visit plays one trace: its page views in turn, the writes of the plan after the page views the
-// plan puts them after, and at the end the prefetches still running.
-func (r *replayer) visit(ctx context.Context, tr *http.Transport, t Trace, plan Plan) error {
+// pacer says when each action of a visit is meant to start. In the closed model an action starts
+// when the one before it is done, so it is scheduled when it starts. In the open model action j of a
+// visit that starts at t is scheduled at t + j * ActionSpacing, whatever happened before.
+type pacer struct {
+	open  bool
+	start time.Time
+}
+
+func (p pacer) at(j int) time.Time {
+	if p.open {
+		return p.start.Add(time.Duration(j) * ActionSpacing)
+	}
+	return time.Now()
+}
+
+// runVisit plays plan number seq of the global sequence: its page views in turn, the writes of the
+// mix after the page views the plan puts them after, and at the end the background requests the
+// browser still had. It reports whether the visit completed.
+func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq int, p pacer) bool {
+	plan := r.wl.Plans[seq%len(r.wl.Plans)]
+	trace := r.wl.Traces[plan.ID]
 	jar, _ := cookiejar.New(nil)
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, etags: map[string]string{}, sem: make(chan struct{}, maxConns)}
-	writes := PlanWrites(r.seed, plan, r.sc.WriteRate)
-	reloads := 0
-	for i, s := range t.Steps {
-		if err := r.runStep(ctx, v, s); err != nil {
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns)}
+	action := 0
+	wait := func() time.Time {
+		sched := p.at(action)
+		action++
+		if d := time.Until(sched); d > 0 && p.open {
+			select {
+			case <-time.After(d):
+			case <-ctx.Done():
+			}
+		}
+		a.mu.Lock()
+		a.lastAction = time.Now()
+		a.mu.Unlock()
+		return sched
+	}
+	for i, s := range trace.Steps {
+		sched := wait()
+		if ctx.Err() != nil {
+			return false
+		}
+		if _, err := r.runStep(ctx, v, a, s, sched); err != nil {
+			if ctx.Err() == nil {
+				a.fail(err)
+			}
 			v.bg.Wait()
-			return err
+			return false
 		}
-		if s.Kind == StepReload {
-			reloads++
-		}
-		for _, w := range writes {
-			if w.After == i {
-				if err := r.doWrite(ctx, v, w); err != nil {
-					v.bg.Wait()
-					return err
+		if w, ok := r.wl.Writes[[2]int{plan.ID, i}]; ok {
+			sched := wait()
+			if err := r.doWrite(ctx, v, a, w, sched); err != nil {
+				if ctx.Err() == nil {
+					a.fail(err)
 				}
+				v.bg.Wait()
+				return false
 			}
 		}
 	}
 	v.bg.Wait()
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return false
 	}
 	if err := v.failure(); err != nil {
-		return err
+		a.fail(err)
+		return false
 	}
-	if end := time.Now(); r.inWindow(end) {
-		r.mu.Lock()
-		r.res.Visits++
-		r.res.Views += len(t.Steps)
-		r.res.Reloads += reloads
-		r.mu.Unlock()
-	}
-	return nil
-}
-
-// user plays visits one after another until ctx ends. User u takes plan (u*7919 + i) mod the number
-// of plans for its i-th visit, so the sequence of a user is the same for every framework, and
-// skips the plans whose trace the browser could not record.
-func (r *replayer) user(ctx context.Context, u int) {
-	tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns}
-	defer tr.CloseIdleConnections()
-	for i := 0; ctx.Err() == nil; i++ {
-		id := (u*7919 + i) % len(r.plans)
-		t, ok := r.traces[id]
-		if !ok {
-			continue
-		}
-		if err := r.visit(ctx, tr, t, r.plans[id]); err != nil && ctx.Err() == nil {
-			r.fail(err)
-		}
-	}
-}
-
-// RunLoad plays the traces with the given number of users: warm of lead-in that is not counted,
-// then one common window for all users.
-func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Duration) (*LoadResult, error) {
-	r.res = LoadResult{Users: users, Renders: map[string]int{}, Responses: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
-	r.t0.Store(0)
-	r.t1.Store(0)
-	uctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var wg sync.WaitGroup
-	for u := range users {
-		wg.Add(1)
-		go func() { defer wg.Done(); r.user(uctx, u) }()
-	}
-	if err := sleep(ctx, warm); err != nil {
-		return nil, err
-	}
-	cpu0, client0 := r.cpu(), selfCPU()
-	start := time.Now()
-	r.t0.Store(start.UnixNano())
-	if err := sleep(ctx, window); err != nil {
-		return nil, err
-	}
-	end := time.Now()
-	r.t1.Store(end.UnixNano())
-	cpu1, client1 := r.cpu(), selfCPU()
-	openN, openOldest := r.openAt(end)
-	cancel()
-	wg.Wait()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	res := &r.res
-	res.Seconds = end.Sub(start).Seconds()
-	res.CPU = cpu1 - cpu0
-	res.OpenRequests, res.OpenOldestMs = openN, openOldest
-	res.ClientCPU = client1 - client0
-	res.PeakRSS = float64(r.rss()) / (1 << 20)
-	for kind, l := range res.lat {
-		sorted := sortedCopy(l)
-		res.Types[kind] = TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
-	}
-	return res, nil
-}
-
-// selfCPU is the processor time this process has used, in seconds.
-func selfCPU() float64 {
-	var ru syscall.Rusage
-	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) != nil {
-		return 0
-	}
-	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
+	a.mu.Lock()
+	a.visits++
+	a.mu.Unlock()
+	return true
 }
 
 // mediaType is a content type without its parameters.
@@ -458,30 +458,11 @@ func mediaType(v string) string {
 	return v
 }
 
-// track notes a request as sent and returns the function that notes its answer.
-func (r *replayer) track() func() {
-	r.openMu.Lock()
-	defer r.openMu.Unlock()
-	if r.open == nil {
-		r.open = map[uint64]time.Time{}
+// selfCPU is the processor time this process has used, in seconds.
+func selfCPU() float64 {
+	var ru syscall.Rusage
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) != nil {
+		return 0
 	}
-	r.openID++
-	id := r.openID
-	r.open[id] = time.Now()
-	return func() {
-		r.openMu.Lock()
-		delete(r.open, id)
-		r.openMu.Unlock()
-	}
-}
-
-// openAt counts the requests still open at t and how long the oldest has waited, in ms.
-func (r *replayer) openAt(t time.Time) (n int, oldest float64) {
-	r.openMu.Lock()
-	defer r.openMu.Unlock()
-	for _, sent := range r.open {
-		n++
-		oldest = max(oldest, float64(t.Sub(sent))/float64(time.Millisecond))
-	}
-	return n, oldest
+	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
 }

@@ -13,15 +13,25 @@ import (
 // start of its step. Class is "doc" (a document), "nav" (the data a client navigation fetches, and
 // route discovery) or "prefetch" (what the framework fetches ahead of a click). INM says that the
 // browser sent If-None-Match, whose value the replay takes from the answers of its own visit.
+//
+// A request that the browser did not let finish has Cancel set to why (the network error the
+// browser reported, such as net::ERR_ABORTED, or "open-at-end" for one still open when the page
+// view was over), and End is when it was cancelled. AfterNav says that a navigation of the page
+// was committed within 200 ms before. Responded is when the headers of the answer arrived, if they
+// did. The replay cancels such a request at that offset from the start of its step, releasing the
+// connection without reading the rest of the answer.
 type TraceReq struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	INM     bool              `json:"inm"`
-	Start   float64           `json:"s"`
-	End     float64           `json:"e"`
-	Status  int               `json:"status"`
-	Class   string            `json:"class"`
+	Method    string            `json:"method"`
+	URL       string            `json:"url"`
+	Headers   map[string]string `json:"headers"`
+	INM       bool              `json:"inm"`
+	Start     float64           `json:"s"`
+	End       float64           `json:"e"`
+	Status    int               `json:"status"`
+	Class     string            `json:"class"`
+	Cancel    string            `json:"cancel,omitempty"`
+	AfterNav  bool              `json:"afterNav,omitempty"`
+	Responded float64           `json:"responded,omitempty"`
 }
 
 // TraceStep is one page view of a visit and the requests it made.
@@ -58,13 +68,8 @@ func ReadTraces(path string) (traces []Trace, dropped int, err error) {
 			continue
 		}
 		for _, s := range t.Steps {
-			for _, r := range s.Reqs {
-				if err := checkRouterHeaders(r); err != nil {
-					return nil, 0, fmt.Errorf("%s: plan %d: %w", path, t.Plan, err)
-				}
-				if r.Status >= 400 { // status 0 is a request the browser cancelled before it had an answer: it was sent, so it is replayed
-					return nil, 0, fmt.Errorf("%s: plan %d: %s %s answered %d", path, t.Plan, r.Method, r.URL, r.Status)
-				}
+			if err := checkStep(s); err != nil {
+				return nil, 0, fmt.Errorf("%s: plan %d: %w", path, t.Plan, err)
 			}
 		}
 		traces = append(traces, t)
@@ -72,20 +77,35 @@ func ReadTraces(path string) (traces []Trace, dropped int, err error) {
 	return traces, dropped, sc.Err()
 }
 
-// TracePath is the file of the traces of one framework for plans of a mean length.
-func TracePath(dir, framework string, mean int) string {
-	return fmt.Sprintf("%s/%s-m%d.jsonl", strings.TrimRight(dir, "/"), framework, mean)
-}
-
-// PlansPath is the file of the plans of a mean length.
-func PlansPath(dir string, mean int) string {
-	return fmt.Sprintf("%s/plans-m%d.json", strings.TrimRight(dir, "/"), mean)
+func checkStep(s TraceStep) error {
+	foreground := 0
+	for _, r := range s.Reqs {
+		if err := checkRouterHeaders(r); err != nil {
+			return err
+		}
+		if r.Status >= 400 {
+			return fmt.Errorf("%s %s answered %d", r.Method, r.URL, r.Status)
+		}
+		if r.Status == 0 && r.Cancel == "" {
+			return fmt.Errorf("%s %s has no status and was not cancelled", r.Method, r.URL)
+		}
+		if r.End < r.Start {
+			return fmt.Errorf("%s %s ends before it starts", r.Method, r.URL)
+		}
+		if r.Class != "prefetch" && r.Cancel == "" {
+			foreground++
+		}
+	}
+	if foreground == 0 {
+		return fmt.Errorf("the page view of %s has no foreground request that finished", s.Page)
+	}
+	return nil
 }
 
 // checkRouterHeaders fails a request that the router of a framework made with a header that the
 // recorded request lacks. Without it the server answers with a whole page, which a browser never
-// gets: Next.js asks for RSC with `rsc: 1` on a URL with `_rsc=`, Start calls a server function with
-// `x-tsr-serverfn`.
+// gets: Next.js asks for RSC with `rsc: 1` on a URL with `_rsc=`, Start calls a server function
+// with `x-tsr-serverfn`.
 func checkRouterHeaders(r TraceReq) error {
 	switch {
 	case strings.Contains(r.URL, "_rsc=") && r.Headers["rsc"] == "":
@@ -94,4 +114,14 @@ func checkRouterHeaders(r TraceReq) error {
 		return fmt.Errorf("%s %s lost its x-tsr-serverfn header", r.Method, r.URL)
 	}
 	return nil
+}
+
+// TracePath is the file of the traces of one framework.
+func TracePath(dir, framework string) string {
+	return fmt.Sprintf("%s/%s.jsonl", strings.TrimRight(dir, "/"), framework)
+}
+
+// PlansPath is the file of the plans.
+func PlansPath(dir string) string {
+	return fmt.Sprintf("%s/plans.json", strings.TrimRight(dir, "/"))
 }

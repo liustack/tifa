@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -159,35 +157,20 @@ func measure(cmd string, args []string) {
 }
 
 // browseCmd is plans, record and browse: the comparison of whole visits. plans writes the visit
-// plans, record plays them in a browser against each framework and keeps what the browser sent,
-// and browse replays those traces at load and measures how many visits a second each carries.
+// plans, record plays them in a browser against each framework and keeps what the browser sent, and
+// browse replays those traces at load and measures them.
 func browseCmd(cmd string, args []string) {
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	var (
-		dir        = flags.String("dir", "traces", "the folder of the plans and traces")
-		seed       = flags.Uint64("seed", 1, "the seed of the plans and their writes")
-		visits     = flags.Int("visits", 400, "plans: visits of each length. record: see -limit")
-		servers    = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter)")
-		workers    = flags.Int("workers", 4, "record: browser contexts at once")
-		limit      = flags.Int("limit", 0, "record: play only the first plans")
-		means      = flags.String("means", "4", "record: comma separated visit lengths to record (the browse runs use 4)")
-		skipBuild  = flags.Bool("skip-build", false, "record, browse: use the last build")
-		scenarios  = flags.String("scenarios", "r95w5,r80w20,r50w50", "browse: comma separated scenarios")
-		serverCPUs = flags.String("server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
-		loadCPUs   = flags.String("load-cpus", "", "browse: cpus for the client")
-		rounds     = flags.Int("rounds", 3, "browse: rounds at the chosen users, with fresh servers in a rotating order")
-		warm       = flags.Duration("warm", 10*time.Second, "browse: lead-in of a round that is not counted")
-		window     = flags.Duration("window", 30*time.Second, "browse: measuring window of a round")
-		searchWarm = flags.Duration("search-warm", 3*time.Second, "browse: lead-in of a step of the search")
-		searchWin  = flags.Duration("search-window", 10*time.Second, "browse: window of a step of the search")
-		maxUsers   = flags.Int("max-users", 128, "browse: the search stops here")
-		jsonPath   = flags.String("json", "", "browse: write the record as JSON to this file")
-		from       = flags.String("from", "", "browse: a record to continue: its curves and runs are kept")
-		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as r95w5/nextjs")
-		source     = flags.String("source", "run 1", "browse: names this run in the rows it adds")
-		mergeInto  = flags.String("merge-into", "", "browse: put the runs of -servers into this record, replacing what it held for those servers, and write the result to -json")
-		check      = flags.Bool("check", false, "browse: also count what each server answers in one round of the baseline")
+		dir       = flags.String("dir", "traces", "the folder of the plans and traces")
+		seed      = flags.Uint64("seed", 1, "the seed of the plans")
+		blocks    = flags.Int("blocks", 4, "plans: blocks of 95 visits")
+		servers   = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter)")
+		workers   = flags.Int("workers", 4, "record: browser contexts at once")
+		limit     = flags.Int("limit", 0, "record: play only the first plans")
+		skipBuild = flags.Bool("skip-build", false, "record, browse: use the last build")
 	)
+	browseFlags(flags)
 	flags.Parse(args)
 	env, err := compare.NewEnv()
 	if err != nil {
@@ -200,7 +183,7 @@ func browseCmd(cmd string, args []string) {
 		list = strings.Split(*servers, ",")
 	}
 	if cmd == "plans" {
-		if err := compare.WritePlans(*dir, *seed, *visits); err != nil {
+		if err := compare.WritePlans(*dir, *seed, *blocks); err != nil {
 			fatal(err)
 		}
 		return
@@ -214,79 +197,15 @@ func browseCmd(cmd string, args []string) {
 		}
 	}
 	if cmd == "record" {
-		if err := env.Record(ctx, os.Stderr, *dir, list, parseMeans(*means), *workers, *limit); err != nil {
+		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit); err != nil {
 			fatal(err)
 		}
 		return
 	}
-	o := compare.BrowseOptions{TraceDir: *dir, Seed: *seed, Servers: list, ServerCPUs: *serverCPUs, LoadCPUs: *loadCPUs, Rounds: *rounds,
-		SearchWarm: *searchWarm, SearchWindow: *searchWin, Warm: *warm, Window: *window, MaxUsers: *maxUsers, Log: os.Stderr}
-	o.Source, o.Check = *source, *check
-	if *only != "" {
-		o.Only = strings.Split(*only, ",")
-	}
-	if *from != "" {
-		data, err := os.ReadFile(*from)
-		if err != nil {
-			fatal(err)
-		}
-		if o.From, err = compare.ReadRecord(data); err != nil {
-			fatal(err)
-		}
-		if o.From.Browse == nil {
-			fatal(fmt.Errorf("%s holds no browse record", *from))
-		}
-	}
-	for _, name := range strings.Split(*scenarios, ",") {
-		i := slices.IndexFunc(compare.BrowseScenarios, func(s compare.BrowseScenario) bool { return s.Name == name })
-		if i < 0 {
-			fatal(fmt.Errorf("no scenario %q", name))
-		}
-		o.Scenarios = append(o.Scenarios, compare.BrowseScenarios[i])
-	}
-	rec, err := env.Browse(ctx, o)
-	if err != nil {
-		fatal(err)
-	}
-	if *mergeInto != "" {
-		data, err := os.ReadFile(*mergeInto)
-		if err != nil {
-			fatal(err)
-		}
-		base, err := compare.ReadRecord(data)
-		if err != nil {
-			fatal(err)
-		}
-		if err := compare.MergeBrowse(base, rec, list); err != nil {
-			fatal(err)
-		}
-		rec = base
-	}
-	if *jsonPath != "" {
-		data, err := rec.JSON()
-		if err == nil {
-			err = os.WriteFile(*jsonPath, data, 0o644)
-		}
-		if err != nil {
-			fatal(err)
-		}
-	}
-	fmt.Println(rec.Markdown())
+	browseRun(ctx, env, *dir, list)
 }
 
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
-}
-
-func parseMeans(s string) []int {
-	var out []int
-	for _, f := range strings.Split(s, ",") {
-		n, err := strconv.Atoi(strings.TrimSpace(f))
-		if err != nil {
-			fatal(fmt.Errorf("-means: %w", err))
-		}
-		out = append(out, n)
-	}
-	return out
 }

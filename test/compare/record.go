@@ -24,8 +24,6 @@ type Record struct {
 	AA map[string]float64 `json:"aa,omitempty"`
 	// Render is the render of each page in a warm VM without HTTP, when measured with -render.
 	Render []RenderResult `json:"render,omitempty"`
-	// Browse is the browse comparison (`compare browse`), when this record holds it.
-	Browse *BrowseData `json:"browse,omitempty"`
 }
 
 // Machine is where it ran.
