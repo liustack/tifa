@@ -3,6 +3,9 @@ package compare_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -182,6 +185,8 @@ type visitor struct {
 	base  string
 	write func(string) string
 	http  *http.Client
+	// assets are the names assetID found, by URL.
+	assets map[string]string
 }
 
 func newVisitor(t *testing.T, base string, write func(string) string) *visitor {
@@ -251,8 +256,73 @@ func (v *visitor) do(r request) reply {
 func (v *visitor) get(path string) reply { return v.do(request{method: "GET", path: path}) }
 
 func (v *visitor) view(path string) (int, compare.View) {
+	status, view, _ := v.page(path)
+	return status, view
+}
+
+// page is view with the attributes of the page as well (see compare.ParseAttrs): the target of
+// every link, the language, the values of the form. An image is named by what it is, the hash of its
+// file, since Tifa serves the photos from /assets with a hash in the name and the apps from
+// /images.
+func (v *visitor) page(path string) (int, compare.View, []string) {
 	r := v.get(path)
-	return r.status, maskView(compare.ParseView(r.body))
+	var attrs []string
+	for _, a := range compare.ParseAttrs(r.body) {
+		// Tifa keeps one tag of a name in the head, the last, where the others write them all, so the
+		// two theme colours (light and dark) are one tag in Tifa and two elsewhere. Not compared.
+		if a == "meta name=theme-color" || strings.HasPrefix(a, "meta content=#") || strings.HasPrefix(a, "meta media=") {
+			continue
+		}
+		attrs = append(attrs, a)
+	}
+	for i, a := range attrs {
+		element, rest, _ := strings.Cut(a, " ")
+		name, val, _ := strings.Cut(rest, "=")
+		switch {
+		case name == "src" && element == "img":
+			attrs[i] = element + " src=" + v.assetID(val)
+		case name == "srcset":
+			var set []string
+			for _, entry := range strings.Split(val, ", ") {
+				fields := strings.Fields(entry)
+				if len(fields) > 0 {
+					fields[0] = v.assetID(fields[0])
+				}
+				set = append(set, strings.Join(fields, " "))
+			}
+			attrs[i] = element + " srcset=" + strings.Join(set, ", ")
+		}
+	}
+	return r.status, maskView(compare.ParseView(r.body)), attrs
+}
+
+// assetID names a file of the server by its contents. A file the server does not have is named by its status.
+func (v *visitor) assetID(url string) string {
+	if id, ok := v.assets[url]; ok {
+		return id
+	}
+	id := ""
+	if _, data, ok := strings.Cut(url, ";base64,"); ok && strings.HasPrefix(url, "data:") {
+		// A small file the build put into the page.
+		raw, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			v.t.Fatalf("an image of the page: %v", err)
+		}
+		sum := sha256.Sum256(raw)
+		id = "file " + hex.EncodeToString(sum[:6])
+	} else {
+		r := v.get(url)
+		id = fmt.Sprintf("missing %d", r.status)
+		if r.status == 200 {
+			sum := sha256.Sum256(r.body)
+			id = "file " + hex.EncodeToString(sum[:6])
+		}
+	}
+	if v.assets == nil {
+		v.assets = map[string]string{}
+	}
+	v.assets[url] = id
+	return id
 }
 
 // pair is a visitor on Tifa and one on the app, who get the same requests.
@@ -281,8 +351,8 @@ func (p *pair) both(name string, r request) (tifa, app reply) {
 // {order} is asked for by the number each server made.
 func (p *pair) views(name, path string, orders [2]string, want int) {
 	p.t.Helper()
-	ts, tv := p.tifa.view(strings.ReplaceAll(path, "{order}", orders[0]))
-	as, av := p.app.view(strings.ReplaceAll(path, "{order}", orders[1]))
+	ts, tv, ta := p.tifa.page(strings.ReplaceAll(path, "{order}", orders[0]))
+	as, av, aa := p.app.page(strings.ReplaceAll(path, "{order}", orders[1]))
 	if ts != want || as != want {
 		p.t.Errorf("%s: %s answered %d in Tifa and %d in %s, want %d", name, path, ts, as, p.spec.label, want)
 		return
@@ -300,6 +370,33 @@ func (p *pair) views(name, path string, orders [2]string, want int) {
 	if d := compare.Diff(tv, av); d != "" {
 		p.t.Errorf("%s: %s differs from Tifa:\n%s", name, path, d)
 	}
+	if d := diffAttrs(ta, aa); d != "" {
+		p.t.Errorf("%s: %s has other attributes than Tifa's:\n%s", name, path, d)
+	}
+}
+
+// diffAttrs says where two lists of attributes differ: the first places, and the lengths.
+func diffAttrs(a, b []string) string {
+	var out []string
+	for i := 0; i < len(a) || i < len(b); i++ {
+		var x, y string
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			out = append(out, fmt.Sprintf("  #%d Tifa %q, app %q", i, x, y))
+			if len(out) == 8 {
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d attributes in Tifa, %d in the app\n%s", len(a), len(b), strings.Join(out, "\n"))
 }
 
 // placedOrder finds the number of the order a checkout placed in its answer.
