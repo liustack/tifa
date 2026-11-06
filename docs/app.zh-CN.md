@@ -510,7 +510,7 @@ Tifa 没有语言设置：语言是 URL 的一部分，由应用在 Go 里检查
 ```go
 // app/store/lang+/route.go
 func Layout(c *tifa.Ctx) (Shell, error) {
-	l, err := store.FindLocale(c.Param("lang")) // 店面没有的语言返回 tifa.ErrNotFound
+	l, err := storekit.FindLocale(c.Param("lang")) // 店面没有的语言返回 tifa.ErrNotFound
 	if err != nil {
 		return Shell{}, err
 	}

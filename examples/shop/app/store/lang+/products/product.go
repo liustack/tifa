@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Color is a colour a product comes in. Hex is the swatch the pages draw.
@@ -72,7 +72,7 @@ type Product struct {
 }
 
 // GetProduct returns the product slug in the language of l, or tifa.ErrNotFound.
-func GetProduct(slug string, l store.Locale) (Product, error) {
+func GetProduct(slug string, l storekit.Locale) (Product, error) {
 	for _, p := range catalogue {
 		if p.slug == slug {
 			return p.product(l), nil
@@ -82,7 +82,7 @@ func GetProduct(slug string, l store.Locale) (Product, error) {
 }
 
 // Related returns up to n other products of the same category, then of others, best rated first.
-func Related(slug string, n int, l store.Locale) []Card {
+func Related(slug string, n int, l storekit.Locale) []Card {
 	var self productRecord
 	for _, p := range catalogue {
 		if p.slug == slug {
@@ -107,7 +107,7 @@ func Related(slug string, n int, l store.Locale) []Card {
 }
 
 // Featured returns the n products the home page shows: the newest first.
-func Featured(n int, l store.Locale) []Card {
+func Featured(n int, l storekit.Locale) []Card {
 	list := slices.Clone(catalogue)
 	slices.SortStableFunc(list, func(a, b productRecord) int { return b.added.Compare(a.added) })
 	var out []Card
@@ -118,7 +118,7 @@ func Featured(n int, l store.Locale) []Card {
 }
 
 // Categories returns every category in the language of l.
-func Categories(l store.Locale) []Category {
+func Categories(l storekit.Locale) []Category {
 	var out []Category
 	for _, c := range categories {
 		out = append(out, Category{ID: c.id, Name: c.name.In(l)})
@@ -190,7 +190,7 @@ type Results struct {
 }
 
 // Search returns the page of the list the filter asks for, in the language of l.
-func Search(f Filter, l store.Locale) Results {
+func Search(f Filter, l storekit.Locale) Results {
 	if !slices.Contains(Sorts, f.Sort) {
 		f.Sort = "featured"
 	}
@@ -219,7 +219,7 @@ func Search(f Filter, l store.Locale) Results {
 			return false
 		}
 		if skip != "price" {
-			price := store.Price(p.priceFen, l) / 100
+			price := storekit.Price(p.priceFen, l) / 100
 			if (f.Min > 0 && price < f.Min) || (f.Max > 0 && price > f.Max) {
 				return false
 			}
@@ -228,7 +228,7 @@ func Search(f Filter, l store.Locale) Results {
 	}
 	var found []productRecord
 	for _, p := range catalogue {
-		r.PriceMax = max(r.PriceMax, (store.Price(p.priceFen, l)+99)/100)
+		r.PriceMax = max(r.PriceMax, (storekit.Price(p.priceFen, l)+99)/100)
 		if match(p, "") {
 			found = append(found, p)
 		}
@@ -268,7 +268,7 @@ func Search(f Filter, l store.Locale) Results {
 			b.Max = edges[i] - 1
 		}
 		b.Count = count("price", func(p productRecord) bool {
-			price := store.Price(p.priceFen, l) / 100
+			price := storekit.Price(p.priceFen, l) / 100
 			return price >= b.Min && (b.Max == 0 || price <= b.Max)
 		})
 		r.Bands = append(r.Bands, b)
@@ -308,7 +308,7 @@ func HasVariant(slug, color, size string) (stock int, ok bool) {
 }
 
 // ColorName returns the name of a colour in the language of l.
-func ColorName(id string, l store.Locale) string {
+func ColorName(id string, l storekit.Locale) string {
 	for _, c := range colors {
 		if c.id == id {
 			return c.name.In(l)
@@ -317,14 +317,14 @@ func ColorName(id string, l store.Locale) string {
 	return id
 }
 
-func (p productRecord) card(l store.Locale) Card {
+func (p productRecord) card(l storekit.Locale) Card {
 	c := Card{
 		Slug: p.slug, Name: p.name.In(l), Rating: p.rating, Reviews: reviewCount(p),
-		PriceCents: store.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Stock: p.stock, Summary: p.summary.In(l), Sized: len(p.sizes) > 0,
+		PriceCents: storekit.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Stock: p.stock, Summary: p.summary.In(l), Sized: len(p.sizes) > 0,
 		Number: slices.IndexFunc(catalogue, func(r productRecord) bool { return r.slug == p.slug }) + 1,
 	}
 	if p.compareFen > 0 {
-		c.CompareAtCents = store.Price(p.compareFen, l)
+		c.CompareAtCents = storekit.Price(p.compareFen, l)
 	}
 	for _, cat := range categories {
 		if cat.id == p.category {
@@ -344,7 +344,7 @@ func (p productRecord) card(l store.Locale) Card {
 	return c
 }
 
-func (p productRecord) product(l store.Locale) Product {
+func (p productRecord) product(l storekit.Locale) Product {
 	out := Product{
 		Card: p.card(l), CategoryID: p.category, Summary: p.summary.In(l), Description: p.description.In(l),
 		Sizes: p.sizes, Stock: p.stock, AddedAt: p.added,
@@ -363,7 +363,7 @@ func (p productRecord) product(l store.Locale) Product {
 }
 
 // TopRated returns the n best rated products, the cheaper first among equals.
-func TopRated(n int, l store.Locale) []Card {
+func TopRated(n int, l storekit.Locale) []Card {
 	list := slices.Clone(catalogue)
 	slices.SortStableFunc(list, func(a, b productRecord) int {
 		return cmp.Or(compareRating(b, a), cmp.Compare(a.priceFen, b.priceFen))
@@ -376,7 +376,7 @@ func TopRated(n int, l store.Locale) []Card {
 }
 
 // BestInCategory returns the n best rated products of the category of slug, leaving slug out.
-func BestInCategory(slug string, n int, l store.Locale) []Card {
+func BestInCategory(slug string, n int, l storekit.Locale) []Card {
 	self := productBySlug(slug)
 	var in []productRecord
 	for _, p := range catalogue {

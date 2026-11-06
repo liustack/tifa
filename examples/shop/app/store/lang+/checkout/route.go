@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // View is the checkout: the cart and what the form offers, or the order just placed.
@@ -27,7 +27,7 @@ type View struct {
 }
 
 func Load(c *tifa.Ctx) (View, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return View{}, err
 	}
@@ -51,7 +51,7 @@ func Load(c *tifa.Ctx) (View, error) {
 
 // POST places the order and sends the visitor to its confirmation.
 func POST(c *tifa.Ctx, in cart.Order) error {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return err
 	}

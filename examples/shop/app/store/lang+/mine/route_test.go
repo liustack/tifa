@@ -5,13 +5,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 	"github.com/liustack/tifa/tifatest"
 )
 
-var zh, _ = store.FindLocale("zh-CN")
+var zh, _ = storekit.FindLocale("zh-CN")
 
 func request(method, seen string) *http.Request {
 	r := httptest.NewRequest(method, "/store/zh-CN/mine", nil)

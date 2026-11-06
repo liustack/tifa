@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // View is the cart page: the cart, how it can be delivered, and products to add.
@@ -19,7 +19,7 @@ type View struct {
 }
 
 func Load(c *tifa.Ctx) (View, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return View{}, err
 	}
@@ -39,7 +39,7 @@ type QuantityInput struct {
 
 // PATCH changes the quantity of a line, 0 to remove it, and answers with the cart.
 func PATCH(c *tifa.Ctx, in QuantityInput) (Cart, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return Cart{}, err
 	}

@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Address is where an order goes.
@@ -49,25 +49,25 @@ type Country struct {
 
 type countryRecord struct {
 	code string
-	name store.Text
+	name storekit.Text
 }
 
 var countries = []countryRecord{
-	{"CN", store.Text{"中国大陆", "Mainland China"}},
-	{"HK", store.Text{"中国香港", "Hong Kong"}},
-	{"TW", store.Text{"中国台湾", "Taiwan"}},
-	{"SG", store.Text{"新加坡", "Singapore"}},
-	{"JP", store.Text{"日本", "Japan"}},
-	{"US", store.Text{"美国", "United States"}},
-	{"CA", store.Text{"加拿大", "Canada"}},
-	{"GB", store.Text{"英国", "United Kingdom"}},
-	{"DE", store.Text{"德国", "Germany"}},
-	{"FR", store.Text{"法国", "France"}},
-	{"AU", store.Text{"澳大利亚", "Australia"}},
+	{"CN", storekit.Text{"中国大陆", "Mainland China"}},
+	{"HK", storekit.Text{"中国香港", "Hong Kong"}},
+	{"TW", storekit.Text{"中国台湾", "Taiwan"}},
+	{"SG", storekit.Text{"新加坡", "Singapore"}},
+	{"JP", storekit.Text{"日本", "Japan"}},
+	{"US", storekit.Text{"美国", "United States"}},
+	{"CA", storekit.Text{"加拿大", "Canada"}},
+	{"GB", storekit.Text{"英国", "United Kingdom"}},
+	{"DE", storekit.Text{"德国", "Germany"}},
+	{"FR", storekit.Text{"法国", "France"}},
+	{"AU", storekit.Text{"澳大利亚", "Australia"}},
 }
 
 // Countries returns the countries the shop delivers to, in the language of l.
-func Countries(l store.Locale) []Country {
+func Countries(l storekit.Locale) []Country {
 	var out []Country
 	for _, c := range countries {
 		out = append(out, Country{Code: c.code, Name: c.name.In(l)})
@@ -77,7 +77,7 @@ func Countries(l store.Locale) []Country {
 
 // SavedAddresses returns the addresses the visitor used before, for the checkout to offer. The
 // second lacks a postal code, which the checkout asks to fill in.
-func SavedAddresses(l store.Locale) []Address {
+func SavedAddresses(l storekit.Locale) []Address {
 	if l.Code == "en-US" {
 		return []Address{
 			{Name: "Emma Walker", Phone: "+1 415 555 0134", Country: "US", Region: "CA", City: "San Francisco", Line1: "1 Market Street", Line2: "Suite 300", PostalCode: "94105"},
@@ -251,7 +251,7 @@ type placedRecord struct {
 // l, the storefront it was placed from, from the prices that storefront shows. It holds the lock
 // of the carts from reading the cart to emptying it, so two requests with one cart place one
 // order.
-func PlaceOrder(c *tifa.Ctx, l store.Locale, o Order, now time.Time) (string, error) {
+func PlaceOrder(c *tifa.Ctx, l storekit.Locale, o Order, now time.Time) (string, error) {
 	carts.mu.Lock()
 	defer carts.mu.Unlock()
 	cartID := ID(c)
@@ -305,7 +305,7 @@ func newOrderNumber() string {
 
 // GetPlaced returns an order placed from the cart cartID in the language of l, or
 // tifa.ErrNotFound, also when another cart placed it.
-func GetPlaced(id, cartID string, l store.Locale) (Placed, error) {
+func GetPlaced(id, cartID string, l storekit.Locale) (Placed, error) {
 	placed.mu.Lock()
 	r, ok := placed.get(id, time.Now())
 	placed.mu.Unlock()

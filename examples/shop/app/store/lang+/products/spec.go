@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // SpecGroup is a titled list of facts about a product, as the specification tab shows them.
@@ -32,7 +32,7 @@ var warranty = map[string]T{
 }
 
 // specGroups arranges what is known of a product into the three groups of the specification tab.
-func (p productRecord) specGroups(l store.Locale) []SpecGroup {
+func (p productRecord) specGroups(l storekit.Locale) []SpecGroup {
 	sep := "、"
 	if l.Code == "en-US" {
 		sep = ", "

@@ -3,7 +3,7 @@ package products
 import (
 	"time"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Question is a question a customer asked on a product page, with the answer.
@@ -65,7 +65,7 @@ var questions = map[string][][2]T{
 }
 
 // Questions returns the questions asked about a product, newest first.
-func Questions(slug string, l store.Locale) []Question {
+func Questions(slug string, l storekit.Locale) []Question {
 	var p productRecord
 	for _, r := range catalogue {
 		if r.slug == slug {

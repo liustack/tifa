@@ -3,13 +3,13 @@ package post
 import (
 	"testing"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/journal"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 func TestEveryPostShowsProductsOfTheCatalogue(t *testing.T) {
-	l, _ := store.FindLocale("zh-CN")
+	l, _ := storekit.FindLocale("zh-CN")
 	for _, p := range journal.List(l) {
 		if len(shown[p.Slug]) == 0 {
 			t.Errorf("%s shows no products", p.Slug)

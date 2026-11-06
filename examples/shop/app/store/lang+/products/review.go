@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Review is what a customer wrote about a product. PostedAt is an instant that pages format in
@@ -60,7 +60,7 @@ func productBySlug(slug string) productRecord {
 }
 
 // ReviewPage returns page of the reviews of a product, from 1. A page past the last shows the last.
-func ReviewPage(slug string, page int, l store.Locale) ReviewsPage {
+func ReviewPage(slug string, page int, l storekit.Locale) ReviewsPage {
 	p := productBySlug(slug)
 	total := reviewCount(p)
 	out := ReviewsPage{Total: total, Pages: (total + ReviewsPerPage - 1) / ReviewsPerPage}
@@ -80,7 +80,7 @@ func ReviewPage(slug string, page int, l store.Locale) ReviewsPage {
 }
 
 // Reviews returns the n newest reviews of a product.
-func Reviews(slug string, n int, l store.Locale) []Review {
+func Reviews(slug string, n int, l storekit.Locale) []Review {
 	p := productBySlug(slug)
 	var list []Review
 	for i := range min(n, reviewCount(p)) {
@@ -91,7 +91,7 @@ func Reviews(slug string, n int, l store.Locale) []Review {
 
 // reviewAt writes the ith newest review of a product. Reviews follow the days since it was added
 // at a steady pace, the newest 75 days after it went on sale.
-func reviewAt(p productRecord, i int, l store.Locale) Review {
+func reviewAt(p productRecord, i int, l storekit.Locale) Review {
 	t := reviewTexts[(i+len(p.slug))%len(reviewTexts)]
 	stars := 5 - (i*7+len(p.slug))%3/2
 	if p.rating < 4.5 && i%3 == 2 {
@@ -111,7 +111,7 @@ func reviewAt(p productRecord, i int, l store.Locale) Review {
 }
 
 // shopReply is what the shop wrote back to a review: to every fifth, and to a thank you.
-func shopReply(i int, l store.Locale) string {
+func shopReply(i int, l storekit.Locale) string {
 	if i%5 != 1 {
 		return ""
 	}
@@ -142,7 +142,7 @@ type ReviewCard struct {
 }
 
 // LatestReviews returns the newest review with pictures of each of the n newest products.
-func LatestReviews(n int, l store.Locale) []ReviewCard {
+func LatestReviews(n int, l storekit.Locale) []ReviewCard {
 	list := slices.Clone(catalogue)
 	slices.SortStableFunc(list, func(a, b productRecord) int { return b.added.Compare(a.added) })
 	var out []ReviewCard

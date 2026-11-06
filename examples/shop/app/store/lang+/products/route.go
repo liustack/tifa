@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // List is the product list page: one page of the search, and a row below it with the best rated
@@ -23,7 +23,7 @@ const Cache = 5 * time.Minute
 // Load searches the catalogue with the filters in the query string. A filter that does not parse
 // is left out, as if it were not there.
 func Load(c *tifa.Ctx) (List, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return List{}, err
 	}

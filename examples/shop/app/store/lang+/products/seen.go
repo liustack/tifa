@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // SeenCookie holds the slugs of the products a visitor looked at last, newest first, joined by
@@ -60,7 +60,7 @@ func MarkSeen(c *tifa.Ctx, slug string) {
 }
 
 // Seen returns the products the visitor looked at last, newest first, leaving out except.
-func Seen(c *tifa.Ctx, except string, l store.Locale) []Card {
+func Seen(c *tifa.Ctx, except string, l storekit.Locale) []Card {
 	var out []Card
 	for _, slug := range seenSlugs(c) {
 		if slug == except {

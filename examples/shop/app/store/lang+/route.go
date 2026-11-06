@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/journal"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Home is the storefront's home: new products, what the shop uses itself, the best of each
@@ -37,7 +37,7 @@ var picks = []string{"pour-over-kettle", "ceramic-cup", "oak-tray"}
 const Cache = 10 * time.Minute
 
 func Load(c *tifa.Ctx) (Home, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return Home{}, err
 	}
@@ -66,13 +66,13 @@ func Load(c *tifa.Ctx) (Home, error) {
 // pages can be cached. The cart in the header and the products a visitor looked at come from
 // the mine route after the page has loaded.
 type Shell struct {
-	Locale            store.Locale         `json:"locale"`
+	Locale            storekit.Locale      `json:"locale"`
 	Menu              []products.MenuGroup `json:"menu"`
 	FreeShippingCents int                  `json:"freeShippingCents"`
 }
 
 func Layout(c *tifa.Ctx) (Shell, error) {
-	l, err := store.FindLocale(c.Param("lang"))
+	l, err := storekit.FindLocale(c.Param("lang"))
 	if err != nil {
 		return Shell{}, err
 	}
