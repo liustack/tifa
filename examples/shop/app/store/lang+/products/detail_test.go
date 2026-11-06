@@ -47,6 +47,15 @@ func TestReviewPagesHoldTenAndRunOutOldest(t *testing.T) {
 	}
 }
 
+// A 4.8 rating gives eight tenths of the reviews five stars on every machine. arm64 fuses
+// rating*10-40 into one instruction, which made it 7.99... and seven tenths there.
+func TestFiveStarShareIsTheSameOnEveryMachine(t *testing.T) {
+	page := ReviewPage("pour-over-kettle", 1, zh)
+	if five := page.Ratings[0]; five.Stars != 5 || five.Count != page.Total*8/10 {
+		t.Errorf("five stars: %+v of %d reviews, want %d", five, page.Total, page.Total*8/10)
+	}
+}
+
 func TestEveryCategoryHasSevenQuestions(t *testing.T) {
 	for _, c := range categories {
 		if n := len(questions[c.id]); n != 7 {
