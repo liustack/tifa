@@ -34,7 +34,7 @@ type Input struct {
 	// it and hands it to the browser.
 	Alternates jsontext.Value `json:"alternates,omitzero"`
 	URL        string         `json:"url"`
-	Data     jsontext.Value `json:"data"` // the results of the Loads, already JSON, without the data of the successful ones
+	Data       jsontext.Value `json:"data"` // the results of the Loads, already JSON, without the data of the successful ones
 	// Texts are the JSON texts of the data of the successful Loads, which Data refers to by
 	// their number. Each goes to startRender as an argument of its own, as it is, so that neither
 	// Go escapes it into the JSON of the input nor the VM parses it out of that JSON. The VM
