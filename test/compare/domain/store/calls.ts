@@ -71,11 +71,14 @@ export function methodNotAllowed(allow: string): Response {
 // with a 200 that carries the redirect. The body is the one of Go's http.Redirect.
 export function redirectToPreferred(request: Request): Promise<Response> {
   const r = getStore(request.headers.get('accept-language') ?? '')
-  return forCall(request, new Response(`<a href="${r.location}">Found</a>.\n\n`, {
+  return forCall(request, new Response(`<a href="${escapeHTML(r.location)}">Found</a>.\n\n`, {
     status: r.status,
     headers: { Location: r.location, Vary: r.vary, 'Content-Type': 'text/html; charset=utf-8' },
   }))
 }
+
+// escapeHTML is the escape Go's http.Redirect puts on the URL in the body of its answer.
+const escapeHTML = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&#34;', "'": '&#39;' })[c] as string)
 
 // withoutSlash is tifa's answer to a URL with a trailing slash: a 308 to the URL without it. It
 // is undefined for any other URL.
@@ -83,7 +86,7 @@ export function withoutSlash(url: URL): Response | undefined {
   if (url.pathname.length <= 1 || !url.pathname.endsWith('/')) return undefined
   const location = url.pathname.replace(/\/+$/, '') + url.search
   // The body is the one of Go's http.Redirect.
-  return new Response(`<a href="${location}">Permanent Redirect</a>.\n\n`, {
+  return new Response(`<a href="${escapeHTML(location)}">Permanent Redirect</a>.\n\n`, {
     status: 308,
     headers: { Location: location, 'Content-Type': 'text/html; charset=utf-8' },
   })

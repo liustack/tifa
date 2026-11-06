@@ -549,6 +549,8 @@ func (p *pair) redirects(t *testing.T) {
 	}
 	slash("slash", "/store/")
 	slash("slash with a query", "/store/?x=1")
+	slash("slash with two parameters", "/store/?a=1&b=2")
+	slash("slash with characters of HTML", "/store/zh-CN/?q=<a>")
 	slash("slash below a page", "/store/zh-CN/cart/")
 	slash("slash below a language", "/store/en-US/")
 	// The workbench shares the app, so what the apps do for a trailing slash is checked there too.
