@@ -3,6 +3,9 @@ package compare_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -124,4 +127,35 @@ func mustMarshal(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// TestStoreWritesEncodeOnce checks that an answer of a write of the storefront is encoded as JSON
+// once, as Tifa encodes the answer of a handler, whether it is a call from the browser (the result in
+// an envelope) or a plain request. A layer that encodes the result, reads it back and encodes the
+// envelope does work the frameworks do not.
+func TestStoreWritesEncodeOnce(t *testing.T) {
+	if why := compare.NodeRunsTypeScript(); why != "" {
+		t.Skip(why)
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("node", filepath.Join(root, "domain", "store", "encodes.ts")).Output()
+	if err != nil {
+		t.Fatalf("node encodes.ts: %v", err)
+	}
+	var counts map[string]struct{ Stringify, JSON, Status int }
+	if err := json.Unmarshal(out, &counts); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if len(counts) != 16 {
+		t.Errorf("%d requests counted, want 16", len(counts))
+	}
+	for name, c := range counts {
+		// Answers without a body (204, a redirect with the plain form) are not encoded at all.
+		if c.Stringify+c.JSON > 1 {
+			t.Errorf("%s (status %d): encoded %d times with JSON.stringify and %d with Response.json, want once", name, c.Status, c.Stringify, c.JSON)
+		}
+	}
 }
