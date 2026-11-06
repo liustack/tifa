@@ -8,6 +8,8 @@ const config: NextConfig = {
   turbopack: { root },
   outputFileTracingRoot: root,
   poweredByHeader: false,
+  // The 404 of a storefront language that does not exist, see src/app/global-not-found.tsx.
+  experimental: { globalNotFound: true },
   // GET / goes to the first shop, as app/route.go of the shop does.
   async redirects() {
     return [{ source: '/', destination: '/projects/studio', permanent: false }]

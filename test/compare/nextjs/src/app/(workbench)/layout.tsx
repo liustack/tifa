@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
-import { loadShell } from '../compare/data'
-import { AppLayout, OutletProvider, ShellProvider } from '../compare/entries'
+import { loadShell } from '../../compare/data'
+import { AppLayout, OutletProvider, ShellProvider } from '../../compare/entries'
 
 export const metadata: Metadata = {
   title: '山海工作台',

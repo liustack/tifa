@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-import { loadProject } from '../../../compare/data'
-import { OutletProvider, ProjectLayout, ProjectProvider } from '../../../compare/entries'
-import { orNotFound } from '../../../compare/load'
+import { loadProject } from '../../../../compare/data'
+import { OutletProvider, ProjectLayout, ProjectProvider } from '../../../../compare/entries'
+import { orNotFound } from '../../../../compare/load'
 
 type Props = { params: Promise<{ project: string }> }
 
