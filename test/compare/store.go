@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -545,29 +544,48 @@ func (e Env) RunStoreOnNode(ctx context.Context, scenarios []StoreScenario) ([][
 	return results, nil
 }
 
+// instantTolerance is how far two answers may be apart in an instant they count from their own
+// request: the time the two servers take to answer, and the clocks of the two runs read in
+// milliseconds. A delivery that is off by a second is not within it.
+const instantTolerance = 250 * time.Millisecond
+
+const instantPrefix = "@instant "
+
 // NormalizeStore removes what differs between two runs of the same scenario: the random cart
-// id and order number, and the instants counted from the time of the request. An instant becomes its
-// distance from the request that made it, in whole seconds, so that a run an hour later is the same
-// and a delivery that is off by an hour is not. It is applied to the answers of the shop and of the
-// port alike.
+// id and order number, and the instants counted from the time of the request. An instant becomes
+// its distance in milliseconds from the request that made it, written "@instant <ms>", for
+// DiffStore to compare within instantTolerance: a run an hour later is the same and a delivery that
+// is off by an hour is not. The time an order was placed is counted from the request that placed it
+// (the 303 of the checkout), not from the request that reads it later. It is applied to the answers
+// of the shop and of the port alike.
 func NormalizeStore(results [][]StoreResult) {
-	var instant func(time.Time) string
-	var walk func(v any) any
-	walk = func(v any) any {
+	var from time.Time
+	instant := func(t time.Time) string {
+		if t.Year() <= 1 {
+			return "@instant none" // the zero time of an order without a delivery
+		}
+		return fmt.Sprintf("%s%d", instantPrefix, t.Sub(from).Milliseconds())
+	}
+	var walk func(v any, orderAt, at time.Time) any
+	walk = func(v any, orderAt, at time.Time) any {
 		switch x := v.(type) {
 		case map[string]any:
 			for k, e := range x {
 				if s, ok := e.(string); ok && (k == "earliest" || k == "latest" || k == "placedAt") {
 					if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+						from = at
+						if k == "placedAt" && !orderAt.IsZero() {
+							from = orderAt
+						}
 						x[k] = instant(t)
 						continue
 					}
 				}
-				x[k] = walk(e)
+				x[k] = walk(e, orderAt, at)
 			}
 		case []any:
 			for i := range x {
-				x[i] = walk(x[i])
+				x[i] = walk(x[i], orderAt, at)
 			}
 		case string:
 			return orderNumber.ReplaceAllString(x, "SS-<order>")
@@ -575,18 +593,64 @@ func NormalizeStore(results [][]StoreResult) {
 		return v
 	}
 	for _, rs := range results {
+		var orderAt time.Time
 		for i := range rs {
 			at := time.UnixMilli(rs[i].At)
-			instant = func(t time.Time) string {
-				return fmt.Sprintf("%+d s from the request", int64(math.Round(t.Sub(at).Seconds())))
+			if rs[i].Status == 303 && strings.Contains(rs[i].Location, "placed=") {
+				orderAt = at
 			}
-			rs[i].Body = walk(rs[i].Body)
+			rs[i].Body = walk(rs[i].Body, orderAt, at)
 			rs[i].Location = orderNumber.ReplaceAllString(rs[i].Location, "SS-<order>")
 			for j, c := range rs[i].SetCookies {
 				rs[i].SetCookies[j] = cartIDValue.ReplaceAllString(c, "store_cart=<cart>;")
 			}
 		}
 	}
+}
+
+// matchInstants makes the instants of two answers that are the same within instantTolerance the
+// same text, and leaves the others to be reported.
+func matchInstants(a, b any) {
+	switch x := a.(type) {
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok {
+			return
+		}
+		for k, e := range x {
+			f, ok := y[k]
+			if !ok {
+				continue
+			}
+			s, sok := e.(string)
+			u, uok := f.(string)
+			if sok && uok && strings.HasPrefix(s, instantPrefix) && strings.HasPrefix(u, instantPrefix) {
+				var p, q int64
+				_, err1 := fmt.Sscan(s[len(instantPrefix):], &p)
+				_, err2 := fmt.Sscan(u[len(instantPrefix):], &q)
+				if err1 == nil && err2 == nil && absDuration(time.Duration(p-q)*time.Millisecond) <= instantTolerance {
+					y[k] = s
+				}
+				continue
+			}
+			matchInstants(e, f)
+		}
+	case []any:
+		if y, ok := b.([]any); ok {
+			for i := range x {
+				if i < len(y) {
+					matchInstants(x[i], y[i])
+				}
+			}
+		}
+	}
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 // DiffStore lists where two sets of answers differ, naming the scenario and the step.
@@ -613,6 +677,7 @@ func DiffStore(scenarios []StoreScenario, want, got [][]StoreResult, max int) []
 			if strings.Join(w.SetCookies, "\n") != strings.Join(g.SetCookies, "\n") {
 				out = append(out, fmt.Sprintf("%s: Set-Cookie Go %q, Node %q", where, w.SetCookies, g.SetCookies))
 			}
+			matchInstants(w.Body, g.Body)
 			for _, d := range DiffData(w.Body, g.Body, 5) {
 				out = append(out, where+": "+d)
 			}

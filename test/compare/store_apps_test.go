@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
@@ -119,17 +118,20 @@ type reply struct {
 	at     time.Time // when the request was sent
 }
 
-// instants writes the instants in a body as their distance from the request, in whole seconds: a
-// delivery two days away is the same on two servers that answered at different times, and one that
-// is off by hours is not.
-func (r reply) instants(s string) string {
-	return isoTime.ReplaceAllStringFunc(s, func(m string) string {
+// instants writes the instants in a body as "@instant", and returns how far each is from the
+// request, in milliseconds, for the caller to compare within a tolerance: a delivery two days away
+// is the same on two servers that answered at different times, and one that is off by hours is not.
+func (r reply) instants(s string) (string, []int64) {
+	var offsets []int64
+	s = isoTime.ReplaceAllStringFunc(s, func(m string) string {
 		t, err := time.Parse(time.RFC3339Nano, m)
 		if err != nil {
 			return m
 		}
-		return fmt.Sprintf("%+ds from the request", int64(math.Round(t.Sub(r.at).Seconds())))
+		offsets = append(offsets, t.Sub(r.at).Milliseconds())
+		return "@instant"
 	})
+	return s, offsets
 }
 
 // describe writes what matters of an answer in a form that is the same for two servers that
@@ -174,7 +176,8 @@ func (r reply) describe() string {
 	if json.Compact(&compact, body) == nil && compact.Len() > 0 {
 		body = compact.Bytes()
 	}
-	b.WriteString(mask(r.instants(string(body))))
+	text, _ := r.instants(string(body))
+	b.WriteString(mask(text))
 	return b.String()
 }
 
@@ -343,6 +346,17 @@ func (p *pair) both(name string, r request) (tifa, app reply) {
 	tifa, app = p.tifa.do(r), p.app.do(r)
 	if a, b := tifa.describe(), app.describe(); a != b {
 		p.t.Errorf("%s: %s %s differs.\nTifa:\n%s\n\n%s:\n%s", name, r.method, r.path, a, p.spec.label, b)
+	}
+	// The instants of the bodies are the same within a tolerance, counted from each request.
+	_, x := tifa.instants(string(tifa.body))
+	_, y := app.instants(string(app.body))
+	if len(x) != len(y) {
+		p.t.Errorf("%s: %d instants in Tifa's answer, %d in %s's", name, len(x), len(y), p.spec.label)
+	}
+	for k := 0; k < len(x) && k < len(y); k++ {
+		if d := time.Duration(x[k]-y[k]) * time.Millisecond; d > 250*time.Millisecond || d < -250*time.Millisecond {
+			p.t.Errorf("%s: an instant is %d ms from the request in Tifa's answer and %d ms in %s's", name, x[k], y[k], p.spec.label)
+		}
 	}
 	return tifa, app
 }
