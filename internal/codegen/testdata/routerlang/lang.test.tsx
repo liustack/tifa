@@ -11,6 +11,7 @@ import { routerHref, type Click } from './.tifa/runtime/html'
 import { serve } from './.tifa/runtime/server'
 import { setRouter } from './.tifa/runtime/call'
 import { POST } from './app/store/mine/route.gen'
+import { noteAlternates, pageLinks, startAlternates } from './.tifa/runtime/alternates'
 import type { RouteResult } from './.tifa/runtime/data'
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -246,6 +247,20 @@ test('a handler function calls the URL with the prefix of the page', async () =>
   requests.length = 0
   await POST()
   assert(requests.join() === '/store/mine', requests.join())
+})
+
+test('a page of another language gets the versions its Load set, from the document and from a data request', async () => {
+  const { router } = await client('/en-US/store', 'en-US')
+  const tags = () =>
+    pageLinks(router, () => 'en-US')([])
+      .map((t) => `${t.attrs.hreflang ?? t.attrs.rel} ${t.attrs.href}`)
+      .join('|')
+  startAlternates({ site: 'https://s.test', default: 'zh-CN', list: [{ language: 'zh-CN', url: '/store/laden' }, { language: 'en-US', url: '/en-US/store' }] }, router, i18n)
+  assert(tags().includes('zh-CN https://s.test/store/laden'), `the document's list: ${tags()}`)
+  noteAlternates('/en-US/store/cart?x=1', { list: [{ language: 'zh-CN', url: '/store/korb' }, { language: 'en-US', url: '/en-US/store/cart' }] })
+  router.history.push('/en-US/store/cart?x=1#top')
+  await router.load()
+  assert(tags().includes('zh-CN https://s.test/store/korb') && tags().includes('canonical https://s.test/en-US/store/cart'), `the list of a data request: ${tags()}`)
 })
 
 // One VM renders one language after another: the prefix of a render is never the one before.

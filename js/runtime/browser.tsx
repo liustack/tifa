@@ -63,7 +63,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
         language = dehydrated.language ?? ''
-        startAlternates(dehydrated.alternates, router.state.location.pathname, i18n)
+        startAlternates(dehydrated.alternates, router, i18n)
         if (dehydrated.sessionKey !== undefined)
           shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
       },
@@ -107,7 +107,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     buildId: input.buildId,
     rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
   })
-  startAlternates(input.alternates, router.state.location.pathname, i18n)
+  startAlternates(input.alternates, router, i18n)
   const links = pageLinks(router, () => language)
   void router.load().then(() => {
     first = false

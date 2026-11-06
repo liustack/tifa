@@ -34,18 +34,18 @@ const none: readonly Alternate[] = []
 let site = ''
 let defaultLanguage = ''
 let table: I18nTable | undefined
-// The lists of their own, by path.
+// The lists of their own, by public path: the one with the language prefix that data requests ask for.
 const own = new Map<string, readonly Alternate[]>()
 
-const pathOf = (url: string) => url.split('?', 1)[0]!
+const pathOf = (url: string) => url.split(/[?#]/, 1)[0]!
 
-// startAlternates keeps what the page of the document carries, for the path the router is at.
-export function startAlternates(info: PageAlternates | undefined, pathname: string, i18n?: I18nTable) {
+// startAlternates keeps what the page of the document carries, for the URL the router is at.
+export function startAlternates(info: PageAlternates | undefined, router: Located, i18n?: I18nTable) {
   if (i18n) table = i18n
   if (!info) return
   if (info.site) site = info.site
   if (info.default) defaultLanguage = info.default
-  if (info.list) own.set(pathname, info.list)
+  if (info.list) own.set(pathOf(router.state.location.publicHref), info.list)
 }
 
 // noteAlternates keeps the list of its own that the data request for url answered with. An answer
@@ -56,7 +56,9 @@ export function noteAlternates(url: string, info: PageAlternates | undefined) {
 
 interface Located {
   state: {
-    location: { pathname: string }
+    // pathname is the path the routes match, without the language prefix when the router has a
+    // rewrite. publicHref is the URL of the page, with it.
+    location: { pathname: string; publicHref: string }
     matches: ReadonlyArray<{ routeId: string; status: string; _notFound?: unknown }>
   }
 }
@@ -75,7 +77,7 @@ function versionsOf(router: Located, language: string): { list: readonly Alterna
   const prefix = '/' + language
   if (rest === prefix || rest.startsWith(prefix + '/')) rest = rest.slice(prefix.length) || '/'
   const pathIn = (l: string) => (l === table!.default && !table!.always ? rest : rest === '/' ? '/' + l : '/' + l + rest)
-  const listed = own.get(location.pathname)
+  const listed = own.get(pathOf(location.publicHref))
   return { list: listed ?? languages.map((l) => ({ language: l, url: pathIn(l) })), canonical: pathIn(language) }
 }
 

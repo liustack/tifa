@@ -438,7 +438,7 @@ test('the links of the versions follow the page the router shows, computed in th
     }
     const { router } = await client('/langs', (_, id) => ok(id))
     // The page of the document carries no list of its own: only the site and the default language.
-    startAlternates({ site: 'https://a.example.com', default: 'zh-CN' }, '/langs', table)
+    startAlternates({ site: 'https://a.example.com', default: 'zh-CN' }, router, table)
     const links = pageLinks(router, () => 'en-US')
     followHead(router, defaultHTMLAttributes, () => 'en-US', links)
     syncHead(router.stores.matches.get(), links)
