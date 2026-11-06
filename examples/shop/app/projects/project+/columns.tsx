@@ -242,7 +242,7 @@ function RowActions({ row }: { row: Row }) {
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <a href={`/store/zh-CN/products/${row.slug}`}>在店面查看商品</a>
+          <a href={`/store/products/${row.slug}`}>在店面查看商品</a>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

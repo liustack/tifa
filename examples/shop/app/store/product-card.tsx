@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useHydrated } from '../use-hydrated'
 import { useStore } from './i18n'
 import { photo, photoSet, picture, type View, type Width } from './images'
-import { POST } from './lang+/products/product+/route.gen'
+import { POST } from './products/product+/route.gen'
 import { refreshMine } from './mine'
 
 export type Card = {
@@ -162,19 +162,17 @@ export function ProductGrid({ className, children }: { className?: string; child
 // stands left of the text, which adds the summary and the materials.
 export function ProductCard({
   product,
-  lang,
   sizes = '(min-width: 768px) 25vw, 50vw',
   layout = 'grid',
 }: {
   product: Card
-  lang: string
   sizes?: string
   layout?: 'grid' | 'list' | 'tile'
 }) {
   const { t, locale } = useStore()
   const colors = product.colors
   const list = layout === 'list'
-  if (layout === 'tile') return <ProductTile product={product} lang={lang} sizes={sizes} />
+  if (layout === 'tile') return <ProductTile product={product} sizes={sizes} />
   return (
     <article
       className={cn(
@@ -184,8 +182,8 @@ export function ProductCard({
     >
       <div className={cn('relative', list && 'sm:w-44 sm:shrink-0 md:w-56')}>
         <Link
-          to="/store/$lang/products/$product"
-          params={{ lang, product: product.slug }}
+          to="/store/products/$product"
+          params={{ product: product.slug }}
           className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t('card.quickAdd', { name: product.name })}
         >
@@ -199,7 +197,7 @@ export function ProductCard({
           />
           <CardBadges product={product} />
         </Link>
-        <QuickView product={product} lang={lang} />
+        <QuickView product={product} />
       </div>
       <Wish name={product.name} />
       <div className={cn('flex flex-col gap-1.5', list && 'flex-1')}>
@@ -207,7 +205,7 @@ export function ProductCard({
           {catalogueNo(product.number)} · {product.category}
         </span>
         <h3 className="font-heading text-base leading-snug md:text-lg">
-          <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="hover:underline">
+          <Link to="/store/products/$product" params={{ product: product.slug }} className="hover:underline">
             {product.name}
           </Link>
         </h3>
@@ -222,7 +220,7 @@ export function ProductCard({
         <Availability product={product} />
       </div>
       <div className={cn(list ? 'flex flex-col justify-end gap-2 sm:w-44' : 'mt-auto flex flex-col')}>
-        <QuickAdd product={product} lang={lang} />
+        <QuickAdd product={product} />
       </div>
     </article>
   )
@@ -230,11 +228,11 @@ export function ProductCard({
 
 // ProductTile is a product in a short row, such as the best sellers of a category: its photo, number,
 // name, rating and price, and nothing to press but the link.
-function ProductTile({ product, lang, sizes }: { product: Card; lang: string; sizes: string }) {
+function ProductTile({ product, sizes }: { product: Card; sizes: string }) {
   const { t } = useStore()
   return (
     <article className="group relative flex flex-col gap-3 border-r border-b bg-card p-3 md:p-4">
-      <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t('card.quickAdd', { name: product.name })}>
+      <Link to="/store/products/$product" params={{ product: product.slug }} className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t('card.quickAdd', { name: product.name })}>
         <ProductImage slug={product.slug} alt={product.name} sizes={sizes} />
         <CardBadges product={product} />
       </Link>
@@ -243,7 +241,7 @@ function ProductTile({ product, lang, sizes }: { product: Card; lang: string; si
           {catalogueNo(product.number)} · {product.category}
         </span>
         <h3 className="font-heading text-base leading-snug md:text-lg">
-          <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="hover:underline">
+          <Link to="/store/products/$product" params={{ product: product.slug }} className="hover:underline">
             {product.name}
           </Link>
         </h3>
@@ -270,7 +268,7 @@ function Availability({ product }: { product: Pick<Card, 'inStock' | 'stock'> })
 }
 
 // QuickView opens the product in a dialog over the list, with a button to the whole page.
-function QuickView({ product, lang }: { product: Card; lang: string }) {
+function QuickView({ product }: { product: Card }) {
   const { t, locale } = useStore()
   return (
     <Dialog>
@@ -299,9 +297,9 @@ function QuickView({ product, lang }: { product: Card; lang: string }) {
             <Swatches colors={product.colors} />
             <p className="text-xs text-muted-foreground">{product.materials.join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
             <div className="mt-auto flex flex-col gap-2">
-              <QuickAdd product={product} lang={lang} />
+              <QuickAdd product={product} />
               <Button variant="ghost" size="sm" asChild>
-                <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }}>
+                <Link to="/store/products/$product" params={{ product: product.slug }}>
                   {t('card.viewDetails')}
                 </Link>
               </Button>
@@ -337,7 +335,7 @@ function Wish({ name }: { name: string }) {
 
 // QuickAdd puts one of the product in its first colour into the cart, or sends to the product
 // page to pick a size.
-function QuickAdd({ product, lang }: { product: Card; lang: string }) {
+function QuickAdd({ product }: { product: Card }) {
   const { t } = useStore()
   const hydrated = useHydrated()
   const [state, setState] = useState<'idle' | 'adding' | 'added' | 'failed'>('idle')
@@ -345,7 +343,7 @@ function QuickAdd({ product, lang }: { product: Card; lang: string }) {
   if (product.sized) {
     return (
       <Button variant="outline" size="sm" asChild className="mt-auto w-full">
-        <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }}>
+        <Link to="/store/products/$product" params={{ product: product.slug }}>
           {t('card.chooseSize')}
         </Link>
       </Button>
@@ -354,8 +352,8 @@ function QuickAdd({ product, lang }: { product: Card; lang: string }) {
   async function add() {
     setState('adding')
     try {
-      await POST({ params: { lang, product: product.slug }, input: { color: product.colors?.[0]?.id ?? '', size: '', quantity: 1 } })
-      void refreshMine(lang)
+      await POST({ params: { product: product.slug }, input: { color: product.colors?.[0]?.id ?? '', size: '', quantity: 1 } })
+      void refreshMine()
       setState('added')
     } catch {
       setState('failed')
