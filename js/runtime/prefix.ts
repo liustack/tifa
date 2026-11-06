@@ -53,6 +53,10 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
     attach(r) {
       router = r
       attached.set(r, this)
+      // The router parsed its first location before it had routes, so input could not look at
+      // them. Parse it again.
+      r.updateLatestLocation()
+      r.stores.location.set(r.latestLocation)
       // navigate({ href }) and preloadRoute({ href }) read the prefix of an href, then input takes
       // it off: a URL of another language would land in this one. Such an href loads its document
       // (a preload of it does nothing). Every other navigation, a Link's included, goes through.
@@ -80,7 +84,13 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
     },
     input: ({ url }) => {
       const prefix = prefixOf(i18n, url.pathname)
-      if (prefix !== undefined) url.pathname = strip(url.pathname, prefix)
+      if (prefix === undefined) return url
+      const rest = strip(url.pathname, prefix)
+      // A prefix that the route has no language for is a 404, as it is in Go: the URL stays whole,
+      // so that no route matches it. (The router has no routes yet while it parses its first
+      // location, attach parses it again.)
+      if (router && !languagesAt(rest)?.includes(prefix)) return url
+      url.pathname = rest
       return url
     },
     output: ({ url }) => {

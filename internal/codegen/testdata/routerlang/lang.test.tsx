@@ -156,12 +156,24 @@ test('the home URL of a language has no trailing slash, and a trailing slash is 
     rewrite: makeRewrite({ ...languages, routes: all }, 'en-US'),
   })
   assert(href(home, '/') === '/en-US', href(home, '/'))
-  for (const [url, language, location] of [['/en-US/store/', 'en-US', '/en-US/store'], ['/store/', 'zh-CN', '/store'], ['/en-US/', 'en-US', '/']]) {
+  for (const [url, language, location] of [['/en-US/store/', 'en-US', '/en-US/store'], ['/store/', 'zh-CN', '/store'], ['/en-US/', 'en-US', '/en-US']]) {
     globalThis.renderResult = undefined
     globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: {}, language }))
     for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
     const result = globalThis.renderResult ?? ''
     assert(result.includes(`"location":"${location}"`), `${url}: ${result.slice(0, 200)}`)
+  }
+})
+
+test('a prefix the route has no language for matches no route', async () => {
+  const { router } = await client('/en-US/projects', 'en-US')
+  assert(router.state.location.pathname === '/en-US/projects', router.state.location.pathname)
+  for (const url of ['/en-US/projects', '/zh-CN/projects']) {
+    globalThis.renderResult = undefined
+    globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: {}, language: 'en-US', error: { status: 404, message: 'Not Found' } }))
+    for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    const result = globalThis.renderResult ?? ''
+    assert(result.startsWith('<') && !result.includes('PAGE_PROJECTS'), `${url}: ${result.slice(0, 200)}`)
   }
 })
 

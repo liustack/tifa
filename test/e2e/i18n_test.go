@@ -120,7 +120,7 @@ func TestI18nApp(t *testing.T) {
 		// The page is the news page of its own language, not a 404 with a status of 200.
 		for body, language := range map[string]string{zhBody: "zh-CN", enBody: "en-US"} {
 			if text := plain(body); !strings.Contains(text, "go="+language+" react="+language) || strings.Contains(text, "Page not found") {
-				t.Errorf("the first %s page: %.400s", language, text)
+				t.Errorf("the first %s page: %.1500s", language, text)
 			}
 		}
 		if zhStatus != "tifa; fwd=miss" || enStatus != "tifa; fwd=miss" {
