@@ -13,11 +13,11 @@ require (
 	golang.org/x/mod v0.41.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.49.0
+	golang.org/x/text v0.43.0
 	golang.org/x/tools v0.51.0
 )
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
 )
