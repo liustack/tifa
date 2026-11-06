@@ -47,7 +47,7 @@ var storeApps = []storeApp{
 		name: "nextjs", label: "Next.js", write: nextWrite,
 		except: map[string]string{
 			"slash body": "Next.js sends a URL with a trailing slash away with its own 308, which has the target as its body and no type, so only the status and Location are compared",
-			"404 page":   "Next.js does not write the not-found page of a layout with a dynamic segment (/store/[lang]) into the HTML: it answers 404 with its error document and draws the page in the browser, so only the status and the title are compared (a confirmation that is not found, raised by the page itself, gets the title of the root, so only its status)",
+			"404 page":   "In Next.js 16.4.2, with the route tree under /store/[lang], a 404 raised below the layout of a language is answered with Next.js's error document (an empty #__next_error__ and the payload), and the browser draws the page. The status and title are compared here (a confirmation that is not found has the title of the root), and TestStorefrontErrorPagesInTheBrowser compares what the browser ends up showing",
 		},
 	},
 	{name: "reactrouter", label: "React Router", write: reactRouterWrite},
