@@ -106,6 +106,28 @@ func (r *Record) browseMarkdown() string {
 			}
 		}
 		b.WriteString("\n\nP99 is printed where a type has at least 100 samples in every round. The client-cores column is the processor time of the load generator over the window: the client has two cpus, so a value near 2 means the client limits the visits a second.\n")
+		b.WriteString("\nWhat one visit costs the server, as requests per visit:\n\n| | documents answered 200 (full page, HTML) | documents answered 304 | navigation requests (data of a click) | prefetches | writes | all |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+		for _, spec := range specs {
+			runs := by[spec]
+			count := func(prefix string) []float64 {
+				var out []float64
+				for _, run := range runs {
+					n := 0
+					for k, v := range run.Load.Responses {
+						if strings.HasPrefix(k, prefix) {
+							n += v
+						}
+					}
+					out = append(out, float64(n)/max(1, float64(run.Load.Visits)))
+				}
+				return out
+			}
+			var all []float64
+			for _, run := range runs {
+				all = append(all, float64(run.Load.Requests)/max(1, float64(run.Load.Visits)))
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n", runs[0].Label, fmtCell(count("doc 200 "), "%.2f"), fmtCell(count("doc 304 "), "%.2f"), fmtCell(count("nav "), "%.2f"), fmtCell(count("prefetch "), "%.2f"), fmtCell(count("write "), "%.3f"), fmtCell(all, "%.2f"))
+		}
 		if tifa, ok := by["tifa"]; ok {
 			var rows []string
 			for _, kind := range []string{"vm", "cache", "shared"} {

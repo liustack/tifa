@@ -183,6 +183,7 @@ func browseCmd(cmd string, args []string) {
 		from       = flags.String("from", "", "browse: a record to continue: its curves and runs are kept")
 		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as baseline/nextjs")
 		source     = flags.String("source", "run 1", "browse: names this run in the rows it adds")
+		mergeInto  = flags.String("merge-into", "", "browse: put the runs of -servers into this record, replacing what it held for those servers, and write the result to -json")
 		check      = flags.Bool("check", false, "browse: also count what each server answers in one round of the baseline")
 	)
 	flags.Parse(args)
@@ -244,6 +245,20 @@ func browseCmd(cmd string, args []string) {
 	rec, err := env.Browse(ctx, o)
 	if err != nil {
 		fatal(err)
+	}
+	if *mergeInto != "" {
+		data, err := os.ReadFile(*mergeInto)
+		if err != nil {
+			fatal(err)
+		}
+		base, err := compare.ReadRecord(data)
+		if err != nil {
+			fatal(err)
+		}
+		if err := compare.MergeBrowse(base, rec, list); err != nil {
+			fatal(err)
+		}
+		rec = base
 	}
 	if *jsonPath != "" {
 		data, err := rec.JSON()

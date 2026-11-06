@@ -394,3 +394,44 @@ func TestBrowseP99NeedsEnoughSamplesInEveryRound(t *testing.T) {
 		t.Errorf("a P99 over rounds with no samples:\n%s", md)
 	}
 }
+
+func TestMergeBrowseReplacesOnlyTheSpecsOfTheNewRun(t *testing.T) {
+	run := func(spec string, round int, source string) BrowseRun {
+		return BrowseRun{Scenario: "baseline", Spec: spec, Round: round, Source: source, Load: &LoadResult{Visits: 1}}
+	}
+	base := &Record{Browse: &BrowseData{Traces: map[string]int{}, Dropped: map[string]int{}, Common: map[string]int{"mean 4": 100},
+		Curves: map[string][]CurvePoint{"baseline/tifa": {{Users: 8}}, "baseline/nextjs": {{Users: 4}}}, Chosen: map[string]int{"baseline/tifa": 8, "baseline/nextjs": 4},
+		Runs: []BrowseRun{run("tifa", 1, "run 3"), run("nextjs", 1, "run 3")}}}
+	part := &Record{Browse: &BrowseData{Traces: map[string]int{"nextjs-m4.jsonl": 100}, Dropped: map[string]int{}, Common: map[string]int{"mean 4": 100},
+		Curves: map[string][]CurvePoint{"baseline/nextjs": {{Users: 2}}}, Chosen: map[string]int{"baseline/nextjs": 2},
+		Runs: []BrowseRun{run("nextjs", 1, "run 4"), run("nextjs", 2, "run 4")}}}
+	if err := MergeBrowse(base, part, []string{"nextjs"}); err != nil {
+		t.Fatal(err)
+	}
+	b := base.Browse
+	if b.Chosen["baseline/nextjs"] != 2 || b.Chosen["baseline/tifa"] != 8 || len(b.Runs) != 3 {
+		t.Errorf("chosen %v, %d runs", b.Chosen, len(b.Runs))
+	}
+	for _, r := range b.Runs {
+		if r.Spec == "tifa" && r.Source != "run 3" || r.Spec == "nextjs" && r.Source != "run 4" {
+			t.Errorf("run %+v", r)
+		}
+	}
+	part.Browse.Common["mean 4"] = 99
+	if err := MergeBrowse(base, part, []string{"nextjs"}); err == nil {
+		t.Error("a run that replays other plans was merged")
+	}
+}
+
+func TestBrowseReportSplitsWhatAVisitCostsTheServer(t *testing.T) {
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+		Runs: []BrowseRun{{Scenario: "baseline", Spec: "nextjs", Label: "Next.js", Round: 1, Load: &LoadResult{Users: 2, Seconds: 30, Visits: 100, Views: 400, Requests: 2000, Types: map[string]TypeStat{},
+			Responses: map[string]int{"doc 200 text/html": 130, "doc 304 -": 0, "nav 200 text/x-component": 260, "prefetch 200 text/x-component": 1600, "write 200 application/json": 10}}}}}
+	md := r.Markdown()
+	for _, want := range []string{"What one visit costs the server", "| Next.js | 1.30 | 0.00 | 2.60 | 16.00 | 0.100 | 20.00 |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+}
