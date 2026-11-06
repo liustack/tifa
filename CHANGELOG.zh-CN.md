@@ -6,6 +6,7 @@
 
 ### 新增
 
+- 用 `go install github.com/liustack/tifa/cmd/tifa@latest` 装的 `tifa`，在应用里运行时会把命令交给应用锁定的版本，效果和 `go tool tifa` 一样，不会按别的 Tifa 版本生成代码。`go tool tifa` 仍是主要方式（见[全局安装命令](docs/build.zh-CN.md#全局安装命令)）。
 - `tifa gen` 把生成的代码写进 `.tifa/`，不做构建，新克隆的项目在编辑器和 `tsc` 里就能看到类型。`tifa new` 写出的 `package.json` 在 `prepare` 脚本里跑它，所以 `pnpm install` 或 `npm install` 之后就有了。已有的应用：在 `package.json` 的 `scripts` 里加上 `"prepare": "go tool tifa gen"`（见 [`tifa gen`](docs/build.zh-CN.md#tifa-gen)）。
 
 ### 变更

@@ -47,6 +47,24 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 - `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:9527.
 - It looks for `pnpm` on PATH, without running it. When pnpm is there, the install step and the commands in `README.md` and `AGENTS.md` use pnpm (`pnpm install`, and `pnpm typecheck` in `README.md`). Otherwise they use npm (`npm install`, and `npm run typecheck` in `README.md`). `package.json` has no `packageManager` field, so both work on the same app.
 
+## Installing the command globally
+
+`go tool tifa` is the main way to run Tifa, and it needs nothing installed. If you would rather type `tifa dev`, install the command once:
+
+```sh
+go install github.com/liustack/tifa/cmd/tifa@latest
+```
+
+Inside an app, the installed `tifa` hands the command to the version the app pins, as if you had typed `go tool tifa ...`, so it never generates code for another version of Tifa than the app uses. The rule:
+
+- The app is the folder of `--dir` when the command has it, else the current folder, or the nearest folder above it with a `go.mod`. Outside an app, `tifa` runs the command itself.
+- It forwards when that `go.mod` requires `github.com/liustack/tifa` and has the `tool github.com/liustack/tifa/cmd/tifa` line.
+- It does not forward when it already is the version of the app: a release build of the same version that `go.mod` requires, with no `replace` for Tifa. A binary built in a checkout, another version, or a `replace` always forwards.
+- A `go.work` file that is in use (`GOWORK`, or one above the app) always forwards, since it can change which Tifa the app gets, and `go tool` follows the workspace.
+- `tifa new` never forwards. It writes a new app, so there is none to ask.
+- A `tifa` that the go command runs, `go tool tifa` or `go run`, never forwards: it lives in the build cache of the go command (`GOCACHE`) and is the version `go.mod` picks already.
+- The forwarded command runs in the root of the app with the same input, output, exit status and Ctrl-C. It prints nothing of its own, and sets `TIFA_FORWARDED=1` so it never forwards twice. If `go tool tifa` cannot start, `tifa` says what to run instead.
+
 ## `tifa build`
 
 ```sh

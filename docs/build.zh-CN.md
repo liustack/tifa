@@ -47,6 +47,24 @@ tifa new <目录> [--module 模块路径]
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
 - 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`，`README.md` 里还有 `pnpm typecheck`），找不到就用 npm（`npm install`，`README.md` 里还有 `npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
 
+## 全局安装命令
+
+运行 Tifa 的主要方式是 `go tool tifa`，不需要装任何东西。想直接敲 `tifa dev` 的话，装一次命令即可：
+
+```sh
+go install github.com/liustack/tifa/cmd/tifa@latest
+```
+
+在应用里，装好的 `tifa` 会把命令交给应用锁定的版本，效果和敲 `go tool tifa ...` 一样，所以它不会按别的 Tifa 版本生成代码。规则如下：
+
+- 应用是 `--dir` 指定的文件夹（命令带 `--dir` 时），否则是当前文件夹，或向上最近一个有 `go.mod` 的文件夹。不在应用里时，`tifa` 自己执行命令。
+- 该 `go.mod` 要求了 `github.com/liustack/tifa`，并且有 `tool github.com/liustack/tifa/cmd/tifa` 这一行，才转交。
+- 它本身已经是应用的版本时不转交：发布版构建，版本与 `go.mod` 要求的相同，且 `go.mod` 没有给 Tifa 写 `replace`。在源码目录里构建的、版本不同的、有 `replace` 的，一律转交。
+- 正在使用 `go.work`（`GOWORK`，或应用上层有一个）时一律转交，因为它可能改变应用用到的 Tifa，而 `go tool` 会遵循工作区。
+- `tifa new` 从不转交。它写的是新应用，没有可问的版本。
+- 由 go 命令运行的 `tifa`（`go tool tifa` 或 `go run`）从不转交：它放在 go 命令的构建缓存（`GOCACHE`）里，本来就是 `go.mod` 选定的版本。
+- 转交的命令在应用根目录运行，输入、输出、退出状态和 Ctrl-C 都和直接运行一样。它自己不打印任何内容，并设置 `TIFA_FORWARDED=1` 防止再次转交。`go tool tifa` 启动不了时，`tifa` 会说明该改运行什么。
+
 ## `tifa build`
 
 ```sh

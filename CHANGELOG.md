@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
+- A `tifa` installed with `go install github.com/liustack/tifa/cmd/tifa@latest` hands the command to the version an app pins when run inside the app, like `go tool tifa`, so it never generates code for another Tifa version. `go tool tifa` stays the main way (see [Installing the command globally](docs/build.md#installing-the-command-globally)).
 - `tifa gen` writes the generated code into `.tifa/` and builds nothing, so editors and `tsc` see the types of a fresh clone. The `package.json` of `tifa new` runs it from its `prepare` script, so `pnpm install` or `npm install` is enough. Existing apps: add `"prepare": "go tool tifa gen"` to the `scripts` of `package.json` (see [`tifa gen`](docs/build.md#tifa-gen)).
 
 ### Changed

@@ -5,11 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
 
 func main() {
+	exe, exeErr := os.Executable()
+	if cwd, cwdErr := os.Getwd(); exeErr == nil && cwdErr == nil && !runByGoCommand(exe, os.Getenv) {
+		info, _ := debug.ReadBuildInfo()
+		if root, ok := forwardTarget(os.Args[1:], cwd, info, os.Getenv); ok {
+			code, err := forward(root, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "tifa:", err)
+			}
+			os.Exit(code)
+		}
+	}
 	err := newRootCmd().Execute()
 	if err == nil {
 		return
