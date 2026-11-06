@@ -242,19 +242,33 @@ func TestI18nApp(t *testing.T) {
 		}
 	})
 
-	t.Run("the data of a navigation carries the versions, without the site", func(t *testing.T) {
+	t.Run("the data of a navigation carries only the lists the app set", func(t *testing.T) {
 		_, _, body := cacheSend(t, "GET", data("/en-US/store/journal/hello", "1"), "")
-		want := `"alternates":{"default":"zh-CN","canonical":"/en-US/store/journal/hello","list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
+		want := `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
 		if !strings.Contains(body, want) {
 			t.Errorf("%s", body)
 		}
-		// A page with one version says so, to drop the list the browser holds.
-		if _, _, body := cacheSend(t, "GET", data("/store/journal/only-zh", "1"), ""); !strings.Contains(body, `"alternates":{"list":[]}`) {
+		// An entry in one language has a list of one. The other pages say nothing: the browser
+		// works out their versions from the table of the build.
+		_, _, body = cacheSend(t, "GET", data("/store/journal/only-zh", "1"), "")
+		if !strings.Contains(body, `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/only-zh"}]}`) {
 			t.Errorf("%s", body)
 		}
-		// A page outside every area has none to drop.
-		if _, _, body := cacheSend(t, "GET", data("/projects", "1"), ""); !strings.Contains(body, `"alternates":{"list":[]}`) {
-			t.Errorf("%s", body)
+		for _, path := range []string{"/store?q=a", "/en-US/store/news", "/projects"} {
+			if _, _, body := cacheSend(t, "GET", data(path, "1"), ""); strings.Contains(body, "alternates") {
+				t.Errorf("%s: %s", path, body)
+			}
+		}
+	})
+
+	t.Run("the page carries the site and the default language, and the list only when the app set it", func(t *testing.T) {
+		_, _, body := cacheSend(t, "GET", base+"/store", "")
+		if !strings.Contains(body, `alternates:$R[`) || !strings.Contains(body, `site:"`+site+`"`) || strings.Contains(body, "canonical:") {
+			t.Errorf("/store: %.1500s", body)
+		}
+		_, _, body = cacheSend(t, "GET", base+"/store/journal/ni-hao", "")
+		if !strings.Contains(body, `url:"/en-US/store/journal/hello"`) {
+			t.Errorf("/store/journal/ni-hao: %.1500s", body)
 		}
 	})
 
@@ -374,7 +388,7 @@ func TestI18nPrefixAlways(t *testing.T) {
 	// The versions of a page have the prefix of the default language, and x-default is that one.
 	id := buildID(t, dir)
 	_, _, answer := cacheSend(t, "GET", base+"/zh-CN/store/journal/ni-hao?_tifa="+id+".1", "")
-	if want := `"alternates":{"default":"zh-CN","canonical":"/zh-CN/store/journal/ni-hao","list":[{"language":"zh-CN","url":"/zh-CN/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`; !strings.Contains(answer, want) {
+	if want := `"alternates":{"list":[{"language":"zh-CN","url":"/zh-CN/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`; !strings.Contains(answer, want) {
 		t.Errorf("the versions of /zh-CN/store/journal/ni-hao: %s", answer)
 	}
 	// Routes outside every area stay as they are.
