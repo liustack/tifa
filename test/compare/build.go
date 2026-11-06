@@ -154,6 +154,10 @@ func (e Env) Sync(dir, kind string) error {
 		if err := e.syncNextStore(dir); err != nil {
 			return err
 		}
+	case "reactrouter":
+		if err := e.syncStoreReactRouter(dir); err != nil {
+			return err
+		}
 	}
 	for _, overlay := range []string{filepath.Join(e.Root, "test", "compare", "overlay"), filepath.Join(dir, "overlay")} {
 		if _, err := os.Stat(overlay); os.IsNotExist(err) {

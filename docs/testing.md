@@ -329,6 +329,23 @@ TIFA_COMPARE=1 go test -count=1 -v -run TestStore ./test/compare
 
 Not equal: Next.js answers a 404 below `/store/<lang>` with its error document and draws the not-found page in the browser (Next.js does not write it into the HTML under a root layout with a dynamic segment), and the writes take JSON only, where Tifa also reads forms.
 
+### The storefront in the React Router app
+
+The React Router app also serves the storefront of `examples/shop` (`/store/zh-CN` and `/store/en-US`: home, products with filters, product, cart, checkout, journal and posts) and its writes. The route modules are in `test/compare/reactrouter/app/routes/store-*`, the loaders and the write handlers call `test/compare/domain/store`, and `build.go` copies the storefront components, translations, photos and generated `route.gen` modules from the shop (`store_reactrouter.go`). The photos are the shop's own, found with `import.meta.glob`, which Vite has in both.
+
+The handlers are resource routes under `/store/<lang>/_write/...`, not on the URLs the shop uses (`mine` has no page and keeps its URL). They stay under `/store` because the cookies of the storefront have that path. A route of React Router that has a page answers a POST or a PATCH to its URL with the page, so `PATCH /store/zh-CN/cart` in Tifa is `PATCH /store/zh-CN/_write/cart` here. `reactrouter/overlay/runtime/call.ts` makes that change in the browser. The answers are Tifa's: `{"result": ...}` for a call with `X-Tifa-Call`, 204, `{"redirect", "status"}` with `X-Tifa-Redirect` for a redirect, `{"error", "fields"}` for a failure.
+
+```sh
+TIFA_COMPARE=1 go test -count=1 -v -run ReactRouterStore ./test/compare
+```
+
+- `TestReactRouterStorePagesShowTheSameText`: every URL of `StorePages` shows the same title, text and element counts as Tifa, and every URL of `StoreMissing` answers 404 with the same error page.
+- `TestReactRouterStoreRedirectsByLanguage`: `GET /store` goes to the same language for each `Accept-Language`.
+- `TestReactRouterStoreScenariosBehaveLikeTifa` and `TestReactRouterStoreStatesShowTheSameText`: the shared `StoreScenarios` run on both servers with an equal answer for every step, and each cart state of `StoreStates` is built on both servers and its pages compared.
+- `TestReactRouterStoreWritesBehaveLikeTifa`: a visitor with a cookie jar on each server sends the same writes (add to the cart, change a quantity, coupons, checkout, mark seen, and bad bodies, unknown products and languages). Each answer must have the same status, headers a client acts on, cookies (without the random cart id) and body (without the random order number), and then the cart, the checkout and the confirmation pages and `mine` must show the same.
+
+What differs from Tifa: the URLs of the handlers (above), and that Tifa keeps the product, list and journal pages for minutes (`const Cache` in their Go files) where the React Router app builds each page again, as the others do.
+
 ### Measure whole requests
 
 ```sh
