@@ -142,6 +142,13 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 		req.Header.Set(k, val)
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
+	if q.Class != "doc" {
+		// What a browser adds to a fetch of its own page. TanStack Start refuses a server function
+		// call without it (403).
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		req.Header.Set("Sec-Fetch-Mode", "cors")
+		req.Header.Set("Sec-Fetch-Dest", "empty")
+	}
 	path, _, _ := strings.Cut(q.URL, "?")
 	if q.INM {
 		if e := v.etags[path]; e != "" {
@@ -190,7 +197,7 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 }
 
 // runStep plays the requests of one page view with the order and the parallelism the browser had:
-// a request starts when every request that had finished before it started in the browser is done.
+// a request starts when every request that had finished before it started in the browser is done (a request that started in the same millisecond is no one's dependency, so that two quick requests cannot wait for each other).
 // The page view ends when its documents and navigation requests are done. Prefetches go on in the
 // background until the end of the visit.
 func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) error {
@@ -204,7 +211,7 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 	for j := range s.Reqs {
 		var deps []chan struct{}
 		for i := range s.Reqs {
-			if i != j && s.Reqs[i].End > 0 && s.Reqs[i].End <= s.Reqs[j].Start {
+			if i != j && s.Reqs[i].End > 0 && s.Reqs[i].End <= s.Reqs[j].Start && s.Reqs[i].Start < s.Reqs[j].Start {
 				deps = append(deps, done[i])
 			}
 		}

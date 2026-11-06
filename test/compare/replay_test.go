@@ -170,3 +170,24 @@ func TestSearchStopsAtAPlateauAndKeepsTheHighestStepThatPasses(t *testing.T) {
 		t.Errorf("chose %d out of %+v", chosen, curve)
 	}
 }
+
+func TestReplayDoesNotDeadlockOnRequestsOfTheSameMillisecond(t *testing.T) {
+	srv, _ := fakeApp(t)
+	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{
+		{Method: "GET", URL: "/a", Class: "nav", Start: 5, End: 5, Headers: map[string]string{"rsc": "1"}},
+		{Method: "GET", URL: "/b", Class: "prefetch", Start: 5, End: 5, Headers: map[string]string{"rsc": "1"}},
+		{Method: "GET", URL: "/c", Class: "nav", Start: 5, End: 9, Headers: map[string]string{"rsc": "1"}},
+	}}
+	tr := Trace{Steps: []TraceStep{step}}
+	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
+	done := make(chan error, 1)
+	go func() { done <- r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the visit never ended: requests of the same millisecond wait for each other")
+	}
+}

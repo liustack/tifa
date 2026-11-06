@@ -285,6 +285,9 @@ func (r *replayer) verifyWrites(ctx context.Context) error {
 			req.Header.Set(k, v)
 		}
 		req.Header.Set("Accept-Encoding", "identity")
+		if headers != nil {
+			req.Header.Set("Sec-Fetch-Site", "same-origin")
+		}
 		res, err := client.Do(req)
 		if err != nil {
 			return "", err
