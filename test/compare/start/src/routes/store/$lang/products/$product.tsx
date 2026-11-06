@@ -10,7 +10,8 @@ import { addToCart, refusing } from '../../../../compare/store-handlers'
 // app/store/lang+/products/product+/route.go does.
 export const Route = createFileRoute('/store/$lang/products/$product')({
   component: ProductPage,
-  head,
+  // A function of its own that names the params of the route: the shop's head declares only the language, and that would hide the others from the types of the route.
+  head: (match: Parameters<typeof head>[0] & { params: { lang: string; product: string } }) => head(match),
   errorComponent: Error,
   notFoundComponent: notFoundWith(Error),
   wrapInSuspense: false,

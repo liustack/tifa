@@ -36,13 +36,18 @@ func (e Env) BuildShop(ctx context.Context, log io.Writer) error {
 	return run(ctx, log, e.Shop, nil, "go", "tool", "tifa", "build")
 }
 
-// BuildApp installs the packages of a Node app from its lockfile and builds it.
+// BuildApp installs the packages of a Node app from its lockfile, builds it and type checks it, with
+// the port in domain/ and the pages copied from the shop. The build writes the route types of Start
+// and React Router, so the check comes after it.
 func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 	env := []string{"NEXT_TELEMETRY_DISABLED=1"}
 	if err := run(ctx, log, dir, env, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
 	}
-	return run(ctx, log, dir, env, "pnpm", "build")
+	if err := run(ctx, log, dir, env, "pnpm", "build"); err != nil {
+		return err
+	}
+	return run(ctx, log, dir, env, "pnpm", "exec", "tsc", "--noEmit")
 }
 
 // Sync copies what the workbench pages are made of from the shop into dir/shop, where the app
