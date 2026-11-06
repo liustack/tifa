@@ -37,7 +37,7 @@ var crawlSeeds = []string{"/", "/projects/studio", "/projects/weekend", "/projec
 const crawlLimit = 160
 
 var (
-	crawlHref = regexp.MustCompile(`href="(/(?:store|projects)[^"#]*)"`)
+	crawlHref = regexp.MustCompile(`href="(/(?:en-US/store|store|projects)[^"#]*)"`)
 	// crawlStamp matches the times that differ between two runs of the same program: RFC 3339 text
 	// from the Go loaders, which is data of the app.
 	crawlStamp = regexp.MustCompile(`20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
