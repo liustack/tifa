@@ -4,10 +4,15 @@ import type { ReactNode } from 'react'
 import { Error, documentHead, htmlAttributes } from '@/app/layout'
 import { notFoundWith } from '../compare/not-found'
 
+// The metas that name the same thing twice (the theme colour for a light and for a dark scheme).
+// HeadContent keeps one meta of a name, the last of them, where Tifa writes every meta of a name
+// that a route gives, so they are written by RootDocument and not through head.
+const themeColors = documentHead.meta.filter((m) => 'name' in m && m.name === 'theme-color')
+
 export const Route = createRootRoute({
   head: () => ({
     ...documentHead,
-    meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, ...documentHead.meta],
+    meta: documentHead.meta.filter((m) => !('name' in m && m.name === 'theme-color')),
   }),
   shellComponent: RootDocument,
   notFoundComponent: notFoundWith(Error),
@@ -23,6 +28,10 @@ function RootDocument({ children }: { children: ReactNode }) {
   return (
     <html {...htmlAttributes} lang={lang ?? htmlAttributes.lang}>
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {themeColors.map((m) => (
+          <meta key={m.media} name="theme-color" content={m.content} media={m.media} />
+        ))}
         <HeadContent />
       </head>
       <body>

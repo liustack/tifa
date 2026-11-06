@@ -339,7 +339,7 @@ TIFA_COMPARE=1 go test -count=1 -v -run TestStorefront ./test/compare
 - Next.js 16.4.2 with this route tree (`/store/[lang]`): a 404 raised below the layout of a language is answered with Next.js's error document, and the browser draws the not-found page from the payload. The test compares the status and the title, and the browser test compares what the visitor reads. These 404 pages are not the same work as Tifa's (no server render of the page), so **they must stay out of any set of pages that a benchmark compares**.
 - Next.js sends a trailing slash away with its own 308, which has the path as its body and no type, so only the status and `Location` are compared. Start and React Router answer with Tifa's 308 and body: Start through a request middleware (`start/src/start.ts`, which runs for every request of the app), React Router through the loader of its root.
 - The apps read JSON bodies only, where Tifa also reads forms.
-- Tifa keeps one tag of a name in the head, so its two `theme-color` tags (light and dark) are one, where the apps write both. Not compared.
+- TanStack Start's `HeadContent` keeps one meta of a name (the last), where Tifa keeps every meta of a name that a route writes. The two `theme-color` tags (light and dark) of the root are written by `RootDocument` of the Start app itself, and the test compares every meta by name, content and media.
 
 The carts and placed orders of the port live on `globalThis`, since Next.js loads the module twice.
 

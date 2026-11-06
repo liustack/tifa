@@ -269,15 +269,7 @@ func (v *visitor) view(path string) (int, compare.View) {
 // /images.
 func (v *visitor) page(path string) (int, compare.View, []string) {
 	r := v.get(path)
-	var attrs []string
-	for _, a := range compare.ParseAttrs(r.body) {
-		// Tifa keeps one tag of a name in the head, the last, where the others write them all, so the
-		// two theme colours (light and dark) are one tag in Tifa and two elsewhere. Not compared.
-		if a == "meta name=theme-color" || strings.HasPrefix(a, "meta content=#") || strings.HasPrefix(a, "meta media=") {
-			continue
-		}
-		attrs = append(attrs, a)
-	}
+	attrs := compare.ParseAttrs(r.body)
 	for i, a := range attrs {
 		element, rest, _ := strings.Cut(a, " ")
 		name, val, _ := strings.Cut(rest, "=")

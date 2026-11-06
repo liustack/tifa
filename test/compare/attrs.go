@@ -19,14 +19,14 @@ var attrNames = map[string][]string{
 	"textarea": {"name", "placeholder"},
 	"button":   {"type", "disabled"},
 	"form":     {"action", "method"},
-	"meta":     {"name", "content"},
+	"meta":     {"name", "property", "content", "media"},
 	"link":     {"rel", "href"},
 }
 
 // ParseAttrs lists the attributes of a page that ParseView does not see, in document order, as
 // "element attribute=value". A boolean attribute is "attribute=true" when it is there. Script,
 // style and template elements are left out like ParseView leaves them, and so are the stylesheet
-// and icon links, whose files are named by a hash. Only a meta tag with a name is kept.
+// and icon links, whose files are named by a hash. A meta tag is kept with its name or property, content and media.
 func ParseAttrs(page []byte) []string {
 	var out []string
 	z := html.NewTokenizer(strings.NewReader(string(page)))
@@ -56,7 +56,7 @@ func ParseAttrs(page []byte) []string {
 			for _, a := range tok.Attr {
 				have[a.Key] = a.Val
 			}
-			if tok.Data == "meta" && have["name"] == "" || tok.Data == "link" && have["rel"] != "canonical" {
+			if tok.Data == "meta" && have["name"] == "" && have["property"] == "" || tok.Data == "link" && have["rel"] != "canonical" {
 				continue
 			}
 			for _, name := range names {
