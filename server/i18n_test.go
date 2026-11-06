@@ -54,8 +54,8 @@ func TestLanguageSegmentIsTakenOffBeforeMatching(t *testing.T) {
 		{"/zh-CN/store/mine?x=1", 308, "", map[string]string{"Location": "/store/mine?x=1"}},
 		// A language no area has is a path like any other.
 		{"/fr/store/mine", 404, "", nil},
-		// Only the literal spelling of the segment is a language.
-		{"/en%2DUS/store/mine", 404, "", nil},
+		// An escaped spelling of a language is the language, in its plain spelling.
+		{"/en%2DUS/store/mine", 308, "", map[string]string{"Location": "/en-US/store/mine"}},
 		{"/EN-US/store/mine", 404, "", nil},
 		// ServeMux's own redirects keep the prefix and the query.
 		{"/en-US//store/mine?x=1", 308, "", map[string]string{"Location": "/en-US/store/mine?x=1"}},
@@ -150,5 +150,31 @@ func TestBootDataCarriesTheLanguage(t *testing.T) {
 	}
 	if strings.Contains(doc, "language") {
 		t.Errorf("boot data of a page on a site without languages: %s", doc)
+	}
+}
+
+// A top-level parameter route never sees a language as its value, in either spelling of it.
+func TestEscapedLanguageIsTheLanguage(t *testing.T) {
+	for _, always := range []bool{false, true} {
+		app := i18nTestApp(always)
+		app.Routes = append(app.Routes, Route{ID: "app/id+/route", Path: "/{id}", GET: func(c *tifa.Ctx) error { return c.Text(200, "id="+c.Param("id")) }})
+		s := newAppServer(t, app)
+		s.setI18n(app.I18n)
+		for _, tc := range []struct{ target, location string }{
+			{"/en%2DUS", "/en-US"},
+			{"/en%2DUS/store/mine?x=1", "/en-US/store/mine?x=1"},
+			{"/zh%2DCN/store/mine", "/zh-CN/store/mine"},
+		} {
+			w := send(s, "GET", tc.target, "")
+			if w.Code != 308 || w.Header().Get("Location") != tc.location {
+				t.Errorf("always %v GET %s: %d Location %q, want 308 %q", always, tc.target, w.Code, w.Header().Get("Location"), tc.location)
+			}
+		}
+		if w := send(s, "GET", "/en-US", ""); w.Code != 404 || strings.Contains(w.Body.String(), "id=") {
+			t.Errorf("always %v GET /en-US: %d %q", always, w.Code, w.Body.String())
+		}
+		if w := send(s, "GET", "/hello", ""); w.Code != 200 || w.Body.String() != "id=hello" {
+			t.Errorf("always %v GET /hello: %d %q", always, w.Code, w.Body.String())
+		}
 	}
 }

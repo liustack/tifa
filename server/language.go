@@ -31,6 +31,8 @@ type langInfo struct {
 	// as it is escaped, "/" for the prefix alone.
 	prefixed bool
 	rest     string
+	// spelled is true when the prefix is written with escapes, which answers a 308 to the plain one.
+	spelled bool
 	// public is the URL as it came, with the query of the data request taken off.
 	public *url.URL
 }
@@ -63,8 +65,10 @@ func (s *server) splitLanguage(r *http.Request) *http.Request {
 	}
 	info := &langInfo{lang: s.i18n.Default, public: r.URL}
 	escaped := r.URL.EscapedPath()
-	if seg, after, ok := strings.Cut(strings.TrimPrefix(escaped, "/"), "/"); strings.HasPrefix(escaped, "/") && s.known[seg] {
-		info.lang, info.prefixed, info.rest = seg, true, "/"
+	if seg, after, ok := strings.Cut(strings.TrimPrefix(escaped, "/"), "/"); strings.HasPrefix(escaped, "/") && s.known[unescapedSegment(seg)] {
+		// ServeMux decodes a parameter segment, so the spelling en%2DUS names the language too.
+		info.lang, info.prefixed, info.rest = unescapedSegment(seg), true, "/"
+		info.spelled = seg != info.lang
 		if ok {
 			info.rest += after
 		}
@@ -146,4 +150,14 @@ func (s *server) answerLanguage(w http.ResponseWriter, r *http.Request, langs []
 // prefix needs a Layout of that language.
 func (s *server) hasLanguage(layout string, info *langInfo) bool {
 	return !info.prefixed || slices.Contains(s.layoutLangs[layout], info.lang)
+}
+
+// unescapedSegment decodes one segment of an escaped path. A segment that does not decode, or that
+// decodes to something with a slash, is no language and comes back with a NUL, which none is.
+func unescapedSegment(seg string) string {
+	v, err := url.PathUnescape(seg)
+	if err != nil || strings.ContainsAny(v, "/\x00") {
+		return "\x00"
+	}
+	return v
 }

@@ -195,6 +195,13 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = s.splitLanguage(r)
+	if info := langInfoOf(r); info != nil && info.spelled {
+		// The same language in its plain spelling.
+		redirect := &core.RedirectError{URL: withQuery("/"+info.lang+strings.TrimSuffix(info.rest, "/"), info.public.RawQuery), Status: http.StatusPermanentRedirect}
+		restorePublic(r)
+		s.serve(w, r, "", false, func(*tifa.Ctx) error { return redirect })
+		return
+	}
 	h, _ := s.mux.Handler(r)
 	if _, ok := h.(routeHandler); ok {
 		s.mux.ServeHTTP(w, r)
