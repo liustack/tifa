@@ -1,4 +1,5 @@
 // Ported from products/route.go: the product list page.
+import { counts } from '../../counts.ts'
 import { findLocale } from '../store.ts'
 import { newFilter, search, topRated } from './product.ts'
 import type { Card, Results } from './product.ts'
@@ -20,6 +21,7 @@ export function atoi(s: string): { n: number; ok: boolean } {
 // loadList searches the catalogue with the filters in the query string. A filter that does not
 // parse is left out, as if it were not there. Go calls it Load of the products package.
 export function loadList(params: { lang: string }, query: URLSearchParams): List {
+  counts.page++
   const l = findLocale(params.lang)
   const number = (s: string): number => {
     const { n, ok } = atoi(s)

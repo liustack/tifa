@@ -1,4 +1,5 @@
 // Ported from lang+/route.go: the Layout of the storefront in one language, and its home page.
+import { counts } from '../counts.ts'
 import { freeShipping } from './cart/index.ts'
 import { featured, getProductCard, latestReviews, listCategories, menu, newFilter, search } from './products/index.ts'
 import type { Card, MenuGroup, ReviewCard } from './products/index.ts'
@@ -28,6 +29,7 @@ const picks = ['pour-over-kettle', 'ceramic-cup', 'oak-tray']
 
 // loadHome is the Load of the storefront's home.
 export function loadHome(params: { lang: string }): Home {
+  counts.page++
   const l = findLocale(params.lang)
   const h: Home = {
     featured: featured(8, l), picks: picks.map((slug) => getProductCard(slug, l)), byCategory: [], sale: [],
@@ -51,6 +53,7 @@ export interface Shell {
 
 // layoutLang is the Layout of /store/{lang} and every page below it.
 export function layoutLang(params: { lang: string }): Shell {
+  counts.shell++
   const l = findLocale(params.lang)
   return { locale: l, menu: menu(l), freeShippingCents: freeShipping(l) }
 }

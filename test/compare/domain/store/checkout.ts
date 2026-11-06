@@ -1,4 +1,5 @@
 // Ported from checkout/route.go: the checkout page, and the order it places.
+import { counts } from '../counts.ts'
 import { cartId, getCart, validate, getDeliveries, getPlaced, getCountries, placeOrder, savedAddresses } from './cart/index.ts'
 import type { Address, Cart, Country, Delivery, Order, Placed } from './cart/index.ts'
 import type { Ctx } from './ctx.ts'
@@ -23,6 +24,7 @@ export interface CheckoutView {
 
 // loadCheckout is the Load of the checkout page. now is in milliseconds.
 export function loadCheckout(c: Ctx, params: { lang: string }, query: URLSearchParams, now = Date.now()): CheckoutView {
+  counts.page++
   const l = findLocale(params.lang)
   const id = query.get('placed') ?? ''
   if (id !== '') {

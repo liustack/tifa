@@ -20,8 +20,11 @@ import { page as journal } from '@/app/store/lang+/journal/route.gen'
 import { page as post } from '@/app/store/lang+/journal/post+/route.gen'
 import { OutletProvider as OutletProviderComponent } from '@/runtime/router'
 import { RouteError } from 'tifa/client'
+import { counts } from '../../../../domain/counts.ts'
 
 export function StoreLayout() {
+  // One render of the page on the server. The browser has its own copy of the counters.
+  if (typeof window === 'undefined') counts.renders++
   return <StoreLayoutComponent />
 }
 // StoreNotFound is what the storefront shows inside its layout for a page that does not exist.

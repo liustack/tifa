@@ -1,5 +1,6 @@
 // Ported from store.go and route.go: the languages of the storefront, the text kept in both,
 // and the price in each currency.
+import { counts } from '../counts.ts'
 import { NotFound } from './errors.ts'
 
 export interface Locale {
@@ -17,6 +18,7 @@ const locales: Locale[] = [
 
 // findLocale returns the locale of a code from the URL, or throws NotFound.
 export function findLocale(code: string): Locale {
+  counts.findLocale++
   const l = locales.find((l) => l.code === code)
   if (!l) throw new NotFound()
   return l

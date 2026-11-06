@@ -1,5 +1,6 @@
 // Ported from products/product+/route.go: the product page, and the POST that puts the product
 // into the cart.
+import { counts } from '../counts.ts'
 import { addToCart, count, getDeliveries } from './cart/index.ts'
 import type { Delivery } from './cart/index.ts'
 import type { Ctx } from './ctx.ts'
@@ -24,6 +25,7 @@ export interface Detail {
 
 // loadProduct is the Load of the product page. now is in milliseconds.
 export function loadProduct(params: { lang: string; product: string }, query: URLSearchParams, now = Date.now()): Detail {
+  counts.page++
   const l = findLocale(params.lang)
   const p = getProduct(params.product, l)
   const page = atoi(query.get('reviews') ?? '').n

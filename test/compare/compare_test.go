@@ -201,6 +201,9 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 	tifa.Prog = exe
 	countsAddr := freeAddr(t)
 	tifa.Env = append(tifa.Env, "COMPARE_COUNTS_ADDR="+countsAddr)
+	storeCountsAddr := freeAddr(t)
+	tifa.Env = append(tifa.Env, compare.StoreCountsEnv+"="+storeCountsAddr)
+	perStore := map[string]map[string]int64{} // server -> storefront request -> calls of FindLocale
 
 	perPage := map[string]map[string]int64{} // server -> page -> calls of ordersOf for one request
 	for _, target := range []compare.Target{tifa, mustTarget(t, env, "nextjs"), mustTarget(t, env, "start"), mustTarget(t, env, "reactrouter")} {
@@ -245,6 +248,12 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 				}
 			}
 		}
+		// The storefront: the same, for the pages of storeFairPages and a write.
+		countBases := []string{counts}
+		if !node {
+			countBases = []string{counts, "http://" + storeCountsAddr}
+		}
+		perStore[target.Name] = storeComputes(t, target.Name, server.Base, countBases, node, storeWriteOf(target.Name))
 		server.Stop()
 	}
 	for _, page := range compare.AllPages() {
@@ -253,6 +262,13 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d, React Router %d", page.Name, a, b, c, d)
 		}
 		t.Logf("%-14s %d calls of ordersOf for a request in tifa, %d in Next.js, %d in Start, %d in React Router", page.Name, a, b, c, d)
+	}
+	for label, a := range perStore["tifa-nocache"] {
+		b, c, d := perStore["nextjs"][label], perStore["start"][label], perStore["reactrouter"][label]
+		if a != b || a != c || a != d {
+			t.Errorf("%s: calls of FindLocale for one request: tifa %d, Next.js %d, Start %d, React Router %d", label, a, b, c, d)
+		}
+		t.Logf("%-52s %d calls of FindLocale in tifa, %d in Next.js, %d in Start, %d in React Router", label, a, b, c, d)
 	}
 }
 
@@ -275,6 +291,7 @@ func TestNoCachingBetweenRequests(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		storeNoCache(t, target.Name, server.Base, storeWriteOf(target.Name))
 		_, header, err := compare.FetchWithHeader(server.Base, compare.Pages[2])
 		server.Stop()
 		if err != nil {

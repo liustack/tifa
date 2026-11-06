@@ -1,4 +1,5 @@
 // Ported from cart/route.go: the cart page and its writes.
+import { counts } from '../../counts.ts'
 import type { Ctx } from '../ctx.ts'
 import { related, seen } from '../products/index.ts'
 import type { Card } from '../products/index.ts'
@@ -18,6 +19,7 @@ export interface CartView {
 
 // loadCart is the Load of the cart page. now is in milliseconds.
 export function loadCart(c: Ctx, params: { lang: string }, now = Date.now()): CartView {
+  counts.page++
   const l = findLocale(params.lang)
   const cart = getCart(cartId(c), l, now)
   const slug = cart.lines.length > 0 ? cart.lines[0].slug : 'ceramic-cup'

@@ -1,4 +1,5 @@
 // Ported from journal/route.go and journal/post+/route.go: the journal list and the page of a post.
+import { counts } from '../../counts.ts'
 import { getProductCard } from '../products/index.ts'
 import type { Card } from '../products/index.ts'
 import { findLocale } from '../store.ts'
@@ -7,6 +8,7 @@ import type { Post, Summary } from './post.ts'
 
 // loadJournal is the Load of the journal list.
 export function loadJournal(params: { lang: string }): Summary[] {
+  counts.page++
   return list(findLocale(params.lang))
 }
 
@@ -26,6 +28,7 @@ const shown: Record<string, string[]> = {
 
 // loadPost is the Load of the page of one post.
 export function loadPost(params: { lang: string; post: string }): Article {
+  counts.page++
   const l = findLocale(params.lang)
   const post = getPost(params.post, l)
   return {
