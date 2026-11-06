@@ -67,7 +67,11 @@ function failure(c: Ctx, e: unknown): Response {
   const send = (status: number, body: unknown) => answer(c, { status, body })
   if (e instanceof BadBody) return send(400, { error: 'invalid JSON body' })
   if (e instanceof NotFound) return send(404, { error: 'Not Found' })
-  if (e instanceof Fields) return send(422, { error: 'Unprocessable Entity', fields: e.fields })
+  // Go writes the keys of a map in order.
+  if (e instanceof Fields) {
+    const fields = Object.fromEntries(Object.entries(e.fields).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    return send(422, { error: 'Unprocessable Entity', fields })
+  }
   if (e instanceof HttpError) return send(e.status, { error: e.message })
   throw e
 }
