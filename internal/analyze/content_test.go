@@ -143,7 +143,7 @@ func TestContentDeclarationsBreakingTheRules(t *testing.T) {
 		`content.go:15:54: Dir must be a string literal, such as "blog"`,
 		`content.go:16:54: Dir "blog/posts" must be the name of one folder under content/: letters, digits, - and _`,
 		"content.go:17:54: content/nothere does not exist: create it, or fix Dir",
-		`content.go:18:70: Languages must be a []string literal of string literals, such as []string{"zh-CN", "en"}`,
+		`content.go:18:70: Languages must be tifa.Languages() or a []string literal of string literals, such as []string{"zh-CN", "en"}`,
 		`content.go:19:70: Languages has "en" twice`,
 		"content.go:20:29: *contentbad.Doc must be a struct type of this module that embeds content.Entry, not a pointer to it",
 		"content.go:21:29: contentbad.Plain must be a struct type of this module that embeds content.Entry, not a pointer to it",

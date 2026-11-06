@@ -203,3 +203,64 @@ func TestI18nBuildFailures(t *testing.T) {
 		})
 	}
 }
+
+const journalGo = `package site
+
+import (
+	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/content"
+)
+
+var Journal = content.Define[Post](content.Source{Dir: "journal", Languages: tifa.Languages()})
+
+type Post struct {
+	content.Entry
+	Title string ` + "`json:\"title\"`" + `
+}
+`
+
+func TestContentTakesTheLanguagesOfTheSite(t *testing.T) {
+	root := i18nApp(t, map[string]string{
+		"tifa.yaml":                        "i18n:\n  default: zh-CN\nsite:\n  url: https://a.example.com\n",
+		"content.go":                       journalGo,
+		"app/store/_locales/zh-CN.json":    "{}",
+		"app/store/_locales/en-US.json":    "{}",
+		"app/store/page.tsx":               page,
+		"content/journal/zh-CN/hello.md":   "---\ntitle: 你好\n---\n",
+		"content/journal/en-US/hello.md":   "---\ntitle: Hello\n---\n",
+		"content/journal/zh-CN/only-zh.md": "---\ntitle: 只有中文\n---\n",
+	})
+	m, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Content == nil || len(m.Content.Collections) != 1 {
+		t.Fatalf("Content = %+v", m.Content)
+	}
+	if got, want := m.Content.Collections[0].Languages, []string{"zh-CN", "en-US"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Languages = %v, want %v", got, want)
+	}
+	var langs []string
+	for _, r := range m.Content.File["journal"] {
+		langs = append(langs, r.Lang+"/"+r.ID)
+	}
+	if want := []string{"zh-CN/hello", "en-US/hello", "zh-CN/only-zh"}; !reflect.DeepEqual(langs, want) {
+		t.Errorf("entries = %v, want %v", langs, want)
+	}
+}
+
+// Without languages the collection is one without them, as if the field were left out.
+func TestContentWithoutLanguagesOnASiteWithout(t *testing.T) {
+	root := i18nApp(t, map[string]string{
+		"content.go":               journalGo,
+		"app/page.tsx":             page,
+		"content/journal/hello.md": "---\ntitle: Hello\n---\n",
+	})
+	m, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Content.Collections[0].Languages; len(got) != 0 {
+		t.Errorf("Languages = %v", got)
+	}
+}

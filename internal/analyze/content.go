@@ -355,8 +355,26 @@ func (a *analyzer) declaration(d declaration, byDir map[string]*ast.Ident) (coll
 	return coll, schema, languagesAt, ok
 }
 
-// languages reads a []string literal of string literals, each the name of a language folder.
+// isLanguagesCall reports whether e is the call tifa.Languages().
+func isLanguagesCall(info *types.Info, e ast.Expr) bool {
+	call, ok := ast.Unparen(e).(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return false
+	}
+	id := calleeIdent(call)
+	if id == nil {
+		return false
+	}
+	fn, ok := info.Uses[id].(*types.Func)
+	return ok && fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Name() == "Languages"
+}
+
+// languages reads tifa.Languages(), or a []string literal of string literals, each the name of a language folder.
 func (a *analyzer) languages(e ast.Expr, info *types.Info) ([]string, bool) {
+	if isLanguagesCall(info, e) {
+		// The languages of the site, which the analysis worked out before it read the content.
+		return slices.Clone(a.site), true
+	}
 	lit, ok := ast.Unparen(e).(*ast.CompositeLit)
 	var langs []string
 	if ok && lit.Type != nil {
@@ -376,7 +394,7 @@ func (a *analyzer) languages(e ast.Expr, info *types.Info) ([]string, bool) {
 		ok = false
 	}
 	if !ok {
-		a.errorAt(e.Pos(), "Languages must be a []string literal of string literals, such as []string{\"zh-CN\", \"en\"}")
+		a.errorAt(e.Pos(), "Languages must be tifa.Languages() or a []string literal of string literals, such as []string{\"zh-CN\", \"en\"}")
 		return nil, false
 	}
 	for i, l := range langs {
