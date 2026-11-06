@@ -15,6 +15,7 @@ import (
 var browseOpts struct {
 	out, mixes, phases, extra, stamp, serverCPUs, loadCPUs string
 	users, rounds                                          int
+	maxRate                                                float64
 	warm, target, trial, final                             time.Duration
 }
 
@@ -27,6 +28,7 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 	flags.StringVar(&o.loadCPUs, "load-cpus", "", "browse: cpus for the load generator")
+	flags.Float64Var(&o.maxRate, "max-rate", 16384, "browse: the search for the sustainable rate stops here, visits a second")
 	flags.IntVar(&o.users, "users", 32, "browse: users of every mix")
 	flags.IntVar(&o.rounds, "rounds", 3, "browse: rounds of every cell, in a rotating order with fresh servers")
 	flags.DurationVar(&o.warm, "warm", 15*time.Second, "browse: warm-up of a closed round, apart from it")
@@ -55,7 +57,7 @@ func countCPUs(list string) int {
 func browseRun(ctx context.Context, env compare.Env, dir string, servers []string) {
 	o := &browseOpts
 	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: 1, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs),
-		Phases: strings.Split(o.phases, ","), Users: o.users, Rounds: o.rounds, Warm: o.warm, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, Log: os.Stderr}
+		Phases: strings.Split(o.phases, ","), Users: o.users, Rounds: o.rounds, Warm: o.warm, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, MaxRate: o.maxRate, Log: os.Stderr}
 	for _, name := range strings.Split(o.mixes, ",") {
 		m, ok := compare.MixByName(strings.TrimSpace(name))
 		if !ok {

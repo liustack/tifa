@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"fmt"
@@ -36,6 +37,7 @@ type BrowseOptions struct {
 	Target       time.Duration // how long a closed round should take, about
 	TrialWindow  time.Duration // an open trial of the search for the sustainable rate
 	FinalWindow  time.Duration // an open round of the latency table, at least
+	MaxRate      float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
 	Stamp        string        // what the traces and the builds belong to, kept in the result
 	Log          io.Writer
 }
@@ -65,8 +67,6 @@ type BrowseResult struct {
 	LatencyRate float64 `json:"latencyRate"`
 	LatencyBase string  `json:"latencyBase"`
 	Latency     []Round `json:"latency"`
-	// Checks come from the answers of one round of each framework (the first of the first mix).
-	Checks map[string]*TraceCheck `json:"traceCheck,omitempty"`
 }
 
 // Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
@@ -408,7 +408,7 @@ func (b *browse) sustain(ctx context.Context) error {
 		}
 		// Double from 4 visits a second while the rule holds. If 4 fails, halve until one holds.
 		lo, hi, rate := 0.0, 0.0, 4.0
-		for rate <= 16384 {
+		for rate <= cmp.Or(b.o.MaxRate, 16384) {
 			ok, err := trial(rate)
 			if err != nil {
 				return err
@@ -613,4 +613,13 @@ func (r *runner) navRequest(page string) (TraceReq, bool) {
 		}
 	}
 	return TraceReq{}, false
+}
+
+// ReadBrowseResult parses a result written by `compare browse`.
+func ReadBrowseResult(data []byte) (*BrowseResult, error) {
+	var r BrowseResult
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }

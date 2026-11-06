@@ -31,6 +31,7 @@ const usage = `usage:
   compare record [flags]
   compare browse [flags]
   compare report out.json
+  compare browse-report browse.json
   compare diff old.json new.json`
 
 func main() {
@@ -43,6 +44,19 @@ func main() {
 		measure(os.Args[1], os.Args[2:])
 	case "plans", "record", "browse":
 		browseCmd(os.Args[1], os.Args[2:])
+	case "browse-report":
+		if len(os.Args) != 3 {
+			fatal(fmt.Errorf("%s", usage))
+		}
+		data, err := os.ReadFile(os.Args[2])
+		if err != nil {
+			fatal(err)
+		}
+		res, err := compare.ReadBrowseResult(data)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Println(res.Markdown())
 	case "report":
 		if len(os.Args) != 3 {
 			fatal(fmt.Errorf("%s", usage))

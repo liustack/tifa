@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -72,6 +75,9 @@ func TestCancelledRequestsAreCancelledAtTheirOffsetAndTheirAnswerIsNotRead(t *te
 	}
 	if round.Visits != 1 || round.Failures != 0 || round.PageViews != 1 {
 		t.Fatalf("%+v", round)
+	}
+	for i := 0; i < 50 && held.Load() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
 	}
 	if held.Load() != 0 {
 		t.Errorf("%d requests still held at the server: the connection was not released", held.Load())
@@ -201,5 +207,49 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	round.Judge(Mix{Share: 0.05})
 	if round.Pass {
 		t.Error("a hung server passes")
+	}
+}
+
+func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
+	dir := t.TempDir()
+	if err := WritePlans(dir, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	set, err := ReadPlans(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, skip int, bad bool) {
+		var b strings.Builder
+		for _, p := range set.Plans {
+			if p.ID == skip {
+				continue
+			}
+			steps := ""
+			for i, s := range p.Steps {
+				if i > 0 {
+					steps += ","
+				}
+				steps += `{"kind":"` + s.Kind + `","page":"` + s.Page + `","reqs":[{"method":"GET","url":"` + s.Page + `","headers":{},"s":0,"e":1,"status":200,"class":"doc"}]}`
+			}
+			line := `{"plan":` + strconv.Itoa(p.ID) + `,"steps":[` + steps + `]}`
+			if bad && p.ID == 3 {
+				line = `{"plan":3,"error":"timeout"}`
+			}
+			b.WriteString(line + "\n")
+		}
+		os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(b.String()), 0o644)
+	}
+	write("a", -1, false)
+	write("b", 7, false)
+	write("c", -1, true)
+	if _, traces, err := LoadTraces(dir, []string{"a"}); err != nil || len(traces["a"]) != BlockVisits {
+		t.Fatalf("a complete set: %v", err)
+	}
+	if _, _, err := LoadTraces(dir, []string{"a", "b"}); err == nil || !strings.Contains(err.Error(), "b.jsonl") {
+		t.Errorf("a set with a missing plan: %v", err)
+	}
+	if _, _, err := LoadTraces(dir, []string{"c"}); err == nil || !strings.Contains(err.Error(), "failed to record") {
+		t.Errorf("a set with a failed visit: %v", err)
 	}
 }
