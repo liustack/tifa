@@ -376,7 +376,7 @@ func StoreScenarios() []StoreScenario {
 		)
 	}
 	var redirects []StoreStep
-	for _, accept := range []string{"", "zh-CN", "zh", "zh-TW", "zh-Hant", "en", "en-US", "en-GB", "en-AU,en;q=0.9", "fr", "fr-FR,fr;q=0.9", "ja,en;q=0.5", "de;q=0.9,en;q=0.8,zh;q=0.7", "zh;q=0.3,en;q=0.8", "en;q=0, zh", "*", "xx-invalid", "en-US,zh-CN;q=0.9", "es-419,es;q=0.9,en;q=0.5"} {
+	for _, accept := range StoreAcceptLanguages() {
 		redirects = append(redirects, StoreStep{Name: "Accept-Language " + accept, Method: "GET", URL: "/store", AcceptLanguage: accept})
 	}
 	out = append(out, StoreScenario{Name: "language redirect", Steps: redirects})
@@ -626,4 +626,41 @@ func (e Env) ShopBuildID() (string, error) {
 		return "", err
 	}
 	return built.BuildID, nil
+}
+
+// StoreAcceptLanguages are values of Accept-Language that the storefront answers with the language
+// golang.org/x/text/language picks: the common ones, the ones it refuses as a whole (a weight
+// that does not parse, a tag it does not know), the spellings it takes (en_US, upper case, spaces,
+// a weight in any float form) and pairs of tags in both orders and with weights, made the same
+// way on every run.
+func StoreAcceptLanguages() []string {
+	out := []string{
+		"", "zh-CN", "zh", "zh-TW", "zh-Hant", "en", "en-US", "en-GB", "en-AU,en;q=0.9", "fr", "fr-FR,fr;q=0.9", "ja,en;q=0.5",
+		"de;q=0.9,en;q=0.8,zh;q=0.7", "zh;q=0.3,en;q=0.8", "en;q=0, zh", "*", "xx-invalid", "en-US,zh-CN;q=0.9", "es-419,es;q=0.9,en;q=0.5",
+		"en;q=bad", "en,invalid_tag", "en_US", "zh_CN", "zh_Hant_TW", "EN-us", "ZH-cn", " en ; q = 0.5 ", "en;q=0.5;x=1", "en;level=1",
+		"en;Q=0.5", "en;q=1e-1", "en;q=.5", "en;q=+1", "en;q=inf", "en;q=-inf", "en;q=nan", "en;q=0x1p-1", "en;q=1_0", "en;q=-1", "en;q=0", "en;q=5",
+		"en;q=0.0000001", "en;q=1e-50", "en;q=1e50", "zh;q=0,en", "zh;q=0", "en;q=", "en;q", "en;", "en;=0.5", "zh,en;q=0.5;", "english", "Deutsch", "french", "Italian",
+		"*;q=0.5,en", "en,*", ",,en,,", "en,", ",en", ",", "-", "en-", "-en", "en--US", "en-US-", "x-foo", "x", "und", "und-US", "und-Latn", "und-Hans",
+		"zh-yue", "yue", "cmn", "zh-cmn-Hans", "zh-Hans-CN", "zh-Hant-TW", "zh-HK", "zh-SG", "zh-MO", "en-Latn-GB", "en-Cyrl", "en-Latn", "ja-Latn", "sr-Latn", "sr-Cyrl",
+		"no", "nb", "nn", "iw", "he", "in", "id", "ji", "mo", "ro", "sh", "tl", "fil", "zu", "zul", "af", "xx", "zz", "qaa", "aaa", "eng", "zho", "chi", "en-ZZ", "en-XX", "en-QO",
+		"en-US-u-ca-gregory", "en-u-ca", "en-a-b", "en-a-bb", "en-valencia", "ca-valencia", "en-posix", "en-1994", "zh-x-private", "en-t-zh", "en-US-x-a", "en-US-x",
+		"en-GB-oed", "i-klingon", "i-default", "art-lojban", "zh-min-nan", "zh-guoyu", "en-419", "es-419", "en-001", "en-150", "zh-CN-u-nu-hanidec", "en-840", "en-USA",
+		"1", "123", "abcdefghi", "abcdefgh", "en-abcdefghi", "en\ttab", "en-US,", "en;q=0.5,", "ZH-HANS", "ZH-HANT-HK", "zH_hAnS_cN",
+	}
+	vocabulary := []string{"en", "en-US", "en-GB", "en-AU", "zh", "zh-CN", "zh-TW", "zh-HK", "zh-Hans", "zh-Hant", "zh-Hant-TW", "yue", "fr", "fr-CA", "de", "ja", "ko", "es-MX", "pt-BR", "ru", "ar", "hi", "zu", "af", "und", "*", "no", "sr-Latn", "ja-Latn", "en-Cyrl", "xx", "yue-HK", "cmn", "zh-cmn", "zh-Hant-HK", "zh-Latn", "en-Latn-US", "en-Hans", "nb-NO", "iw", "en-GB-x-a", "pt-PT", "en-SG", "zh-Hans-SG"}
+	weights := []string{"", ";q=1", ";q=0.9", ";q=0.5", ";q=0.1", ";q=0", ";q=0.9999", ";q=2"}
+	seed := uint32(12345)
+	next := func(n int) int {
+		seed = seed*1664525 + 1013904223
+		return int(seed>>8) % n
+	}
+	for i := 0; i < 2500; i++ {
+		n := 2 + next(2)
+		var parts []string
+		for j := 0; j < n; j++ {
+			parts = append(parts, vocabulary[next(len(vocabulary))]+weights[next(len(weights))])
+		}
+		out = append(out, strings.Join(parts, ","))
+	}
+	return out
 }

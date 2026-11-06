@@ -1,5 +1,6 @@
 // Ported from store.go and route.go: the languages of the storefront, the text kept in both,
 // and the price in each currency.
+import { preferredIndex } from './acceptlanguage.ts'
 import { counts } from '../counts.ts'
 import { NotFound } from './errors.ts'
 
@@ -42,27 +43,9 @@ export function price(fen: number, l: Locale): number {
 }
 
 // preferred returns the locale closest to the languages of an Accept-Language header, zh-CN for
-// none. Go matches with golang.org/x/text/language. Here the primary language decides: zh is
-// zh-CN, en is en-US, in the order of the header's weights.
+// none. Go matches with golang.org/x/text/language, which acceptlanguage.ts follows.
 export function preferred(acceptLanguage: string): Locale {
-  const entries: { lang: string; q: number; i: number }[] = []
-  acceptLanguage.split(',').forEach((part, i) => {
-    const [tag, ...params] = part.trim().split(';')
-    if (!tag) return
-    let q = 1
-    for (const p of params) {
-      const m = /^\s*q\s*=\s*([0-9.]+)\s*$/.exec(p)
-      if (m) q = Number(m[1])
-    }
-    entries.push({ lang: tag.trim().toLowerCase().split('-')[0], q, i })
-  })
-  entries.sort((a, b) => b.q - a.q || a.i - b.i)
-  for (const e of entries) {
-    if (e.q <= 0) continue
-    if (e.lang === 'zh') return locales[0]
-    if (e.lang === 'en') return locales[1]
-  }
-  return locales[0]
+  return locales[preferredIndex(acceptLanguage)]
 }
 
 export interface LanguageRedirect {
