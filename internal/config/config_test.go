@@ -277,7 +277,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -840,5 +840,43 @@ func TestBadCSPValues(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "env "+name) || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v", tc.env, err)
 		}
+	}
+}
+
+// i18n.default, i18n.prefix and site.url are settings of the project file only, like build.*.
+func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
+	d := Default()
+	if d.I18n.Default != "" || d.I18n.Prefix != "off" || d.Site.URL != "" {
+		t.Fatalf("defaults: %+v %+v", d.I18n, d.Site)
+	}
+	c, settings, err := Project([]byte("i18n:\n  default: zh-CN\n  prefix: always\nsite:\n  url: https://shop.example.com/\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.I18n.Default != "zh-CN" || c.I18n.Prefix != "always" || c.Site.URL != "https://shop.example.com" {
+		t.Errorf("got %+v %+v", c.I18n, c.Site)
+	}
+	if len(settings) != 0 {
+		t.Errorf("the program does not read them, but runtime settings are %v", settings)
+	}
+	// A deployment file or the environment does not set them.
+	if _, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "i18n:\n  default: en-US\n")}, []string{"I18N_DEFAULT=en-US"}, "", ""); err != nil {
+		t.Errorf("in a deployment file: %v", err)
+	}
+	for yaml, want := range map[string]string{
+		"i18n:\n  default: en_us\n":           "i18n.default",
+		"i18n:\n  default: en-us\n":           "i18n.default",
+		"i18n:\n  prefix: sometimes\n":        "i18n.prefix",
+		"i18n:\n  prefix: true\n":             "i18n.prefix",
+		"site:\n  url: shop.example.com\n":    "site.url",
+		"site:\n  url: https://a.com/store\n": "site.url",
+		"site:\n  url: ftp://a.com\n":         "site.url",
+	} {
+		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v", yaml, err)
+		}
+	}
+	if _, _, err := Project([]byte("i18n:\n  prefix: off\n")); err != nil {
+		t.Errorf("off: %v", err)
 	}
 }

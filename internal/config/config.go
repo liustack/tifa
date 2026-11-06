@@ -21,10 +21,25 @@ import (
 
 type Config struct {
 	Build   Build
+	I18n    I18n
+	Site    Site
 	Server  Server
 	SSR     SSR
 	Cache   Cache
 	Session Session
+}
+
+// I18n is read by the tifa CLI only, from the project tifa.yaml. Default names the default language,
+// empty when the app has no more than one. Prefix is "off" or "always", see docs/config.md.
+type I18n struct {
+	Default string
+	Prefix  string
+}
+
+// Site is read by the tifa CLI only, from the project tifa.yaml. URL is the scheme and host the
+// site is served at, without a trailing slash, empty when not set.
+type Site struct {
+	URL string
 }
 
 // Build is read by the tifa CLI only. It may appear in the project tifa.yaml and nowhere else.
@@ -173,6 +188,7 @@ const DefaultAddr = "127.0.0.1:9527"
 func Default() Config {
 	return Config{
 		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
+		I18n:    I18n{Prefix: "off"},
 		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
 		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:   Cache{Size: 64 << 20, IgnoreQuery: slices.Clone(DefaultIgnoreQuery)},
@@ -186,7 +202,11 @@ type field struct {
 	value value
 }
 
-func (f field) build() bool { return strings.HasPrefix(f.key, "build.") }
+// projectOnly reports whether the setting is read by the tifa CLI from the project tifa.yaml and
+// nowhere else: the build settings, the languages of the app and the address of the site.
+func (f field) projectOnly() bool {
+	return strings.HasPrefix(f.key, "build.") || strings.HasPrefix(f.key, "i18n.") || strings.HasPrefix(f.key, "site.")
+}
 
 func fields(c *Config) []field {
 	return []field{
@@ -195,6 +215,9 @@ func fields(c *Config) []field {
 		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
 		{"build.debug_info", "Keep the DWARF debug info in the program, for debuggers such as Delve", boolValue{&c.Build.DebugInfo}},
 		{"build.i18next_cache", "Keep the strings i18next translates in the SSR bundle and give them again for the same call", boolValue{&c.Build.I18nextCache}},
+		{"i18n.default", "Default language of the app, a BCP 47 tag such as zh-CN, needed when the app has several", languageValue{&c.I18n.Default}},
+		{"i18n.prefix", "always puts the language in the URL of every route that has languages, the default one too", prefixValue{&c.I18n.Prefix}},
+		{"site.url", "Scheme and host the site is served at, such as https://shop.example.com", siteURLValue{&c.Site.URL}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.read_timeout", "Time to read a whole request, body included", durationValue{&c.Server.ReadTimeout}},
@@ -229,7 +252,7 @@ func fields(c *Config) []field {
 }
 
 func runtimeFields(c *Config) []field {
-	return slices.DeleteFunc(fields(c), field.build)
+	return slices.DeleteFunc(fields(c), field.projectOnly)
 }
 
 // Keys lists the key of every setting of tifa as files write it, such as server.addr, build keys first.
@@ -285,7 +308,7 @@ func Project(data []byte) (Config, map[string]string, error) {
 			errs = append(errs, fmt.Errorf("config: %s: %s: %w", where, f.key, err))
 			continue
 		}
-		if !f.build() {
+		if !f.projectOnly() {
 			settings[f.key] = e.raw
 		}
 	}
