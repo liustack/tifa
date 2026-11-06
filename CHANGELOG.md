@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa gen` writes the generated code into `.tifa/` and builds nothing, so editors and `tsc` see the types of a fresh clone. The `package.json` of `tifa new` runs it from its `prepare` script, so `pnpm install` or `npm install` is enough. Existing apps: add `"prepare": "go tool tifa gen"` to the `scripts` of `package.json` (see [`tifa gen`](docs/build.md#tifa-gen)).
+
 ### Changed
 
 - The [performance doc](docs/performance.md#against-nextjs-tanstack-start-and-react-router) and the README now compare with React Router as well as Next.js and TanStack Start, and measure with gzip requested, as browsers do. The new [render cache doc](docs/render-cache.md) says what the render cache is, why it is safe on every page, signed-in ones included, and what Tifa does with cookies, the session and `Authorization` for each kind of answer.
