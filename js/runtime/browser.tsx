@@ -7,6 +7,8 @@ import { bootElementId, collector, injected, RouteError, rootElementId, sameURL,
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 import { LanguageContext } from './language'
+import { languageAt, makeRewrite } from './prefix'
+import { i18n } from '../i18n.gen'
 import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
@@ -55,6 +57,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   watchChunks(() => buildId)
   if (!boot) {
     const router = createAppRouter(routeTree, collector(() => buildId), {
+      // The language of the page is in its URL: the page carries it only after the router is made.
+      rewrite: i18n && makeRewrite(i18n, languageAt(i18n, window.location.pathname)),
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
         language = dehydrated.language ?? ''
@@ -97,7 +101,10 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   // The first load reads the injected data. Later loads, invalidations included, ask the server.
   const source: Source = (url, id, slot) =>
     first && id in input.data && sameURL(url, input.url) ? local(url, id, slot) : live(url, id, slot)
-  const router = createAppRouter(routeTree, source, { buildId: input.buildId })
+  const router = createAppRouter(routeTree, source, {
+    buildId: input.buildId,
+    rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
+  })
   void router.load().then(() => {
     first = false
     followHead(router, htmlAttributes)

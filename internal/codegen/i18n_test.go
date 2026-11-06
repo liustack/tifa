@@ -112,3 +112,27 @@ export interface I18n {
 		t.Errorf("an app without languages:\n%s", got)
 	}
 }
+
+func TestHandlerFunctionsOfAnAreaCallThePublicPath(t *testing.T) {
+	m := i18nManifest()
+	both := []string{"zh-CN", "en-US"}
+	m.Routes = append(m.Routes,
+		analyze.Route{ID: "app/store/mine/route", Dir: "app/store/mine", Path: "/store/mine", Handlers: []analyze.Handler{{Method: "POST"}}, Area: "app/store", Languages: both},
+		analyze.Route{ID: "app/api/hook/route", Dir: "app/api/hook", Path: "/api/hook", Handlers: []analyze.Handler{{Method: "POST"}}},
+	)
+	files, err := Generate(writeI18nApp(t), m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine := string(files["app/store/mine/route.gen.ts"])
+	for _, want := range []string{`import { call, publicPath, type CallOptions } from "../../../runtime/call"`, "call(\"POST\", publicPath(`/store/mine`, [\"zh-CN\", \"en-US\"]), options"} {
+		if !strings.Contains(mine, want) {
+			t.Errorf("the handler of an area lacks %s:\n%s", want, mine)
+		}
+	}
+	// A route outside every area is called as before.
+	hook := string(files["app/api/hook/route.gen.ts"])
+	if strings.Contains(hook, "publicPath") || !strings.Contains(hook, "call(\"POST\", `/api/hook`, options") {
+		t.Errorf("the handler outside every area:\n%s", hook)
+	}
+}

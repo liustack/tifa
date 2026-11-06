@@ -5,6 +5,8 @@ import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { askedByLoad, createAppRouter } from './router'
 import { initialSnapshot, SessionContext, type SessionEnvelope } from './session'
 import { LanguageContext } from './language'
+import { makeRewrite } from './prefix'
+import { i18n } from '../i18n.gen'
 import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
@@ -175,6 +177,8 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
       sessionKey: input.sessionKey,
       session: input.session,
       language: input.language,
+      // A router of its own for each render: one VM renders both languages one after another.
+      rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
       nonce,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })

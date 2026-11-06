@@ -14,6 +14,7 @@
 // a hover or a focus preloads it, as a Link does. HTML handles the events on its own element only.
 import { createElement, useId, useRef, type FocusEvent, type HTMLAttributes, type MouseEvent, type SyntheticEvent, type TouchEvent } from 'react'
 import { useRouter, type AnyRouter } from '@tanstack/react-router'
+import { reaches } from './prefix'
 import { isPage } from './router'
 
 declare const htmlBrand: unique symbol
@@ -152,6 +153,10 @@ export function routerHref(router: AnyRouter, container: Element, target: EventT
   }
   if (url.origin !== location.origin) return null
   if (url.hash !== '' && url.pathname === location.pathname && url.search === location.search) return null
-  if (!isPage(router, url.pathname)) return null
+  // isPage matches the plain path the routes see, which the router's input rewrite gives.
+  const plain = router.parseLocation({ href: url.pathname, pathname: url.pathname, search: '', hash: '', state: { __TSR_index: 0 } }).pathname
+  if (!isPage(router, plain)) return null
+  // One document holds one language: the browser follows a link into another one.
+  if (!reaches(router, url.pathname)) return null
   return url.pathname + url.search + url.hash
 }

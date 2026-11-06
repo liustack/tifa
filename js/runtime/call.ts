@@ -3,7 +3,9 @@
 
 import { buildHeader, callHeader, isRedirected, redirectHeader } from './data'
 import { acceptSession, beginSession } from './session'
+import { languageAt, reaches } from './prefix'
 import { reloadForBuild } from './skew'
+import { i18n } from '../i18n.gen'
 
 // TifaError is what a handler function throws when the server answers with an error. message is
 // the public message of the answer, fields the messages per input field of a tifa.Fields.
@@ -52,6 +54,16 @@ let pageBuild: () => string = () => ''
 export function setRouter(r: Router, build: () => string) {
   router = r
   pageBuild = build
+}
+
+// publicPath is the path of a handler of an area as the page calls it: with the prefix of the
+// page's language when the route has that language, so that c.Language() works in the handler.
+// languages are those of the route.
+export function publicPath(path: string, languages: readonly string[]): string {
+  if (!i18n) return path
+  const language = languageAt(i18n, window.location.pathname)
+  if (!languages.includes(language) || (language === i18n.default && !i18n.always)) return path
+  return '/' + language + path
 }
 
 // How the input of a POST, PUT or PATCH handler is sent: as JSON, or as a multipart form for an
@@ -128,11 +140,12 @@ async function follow(location: string, method: string) {
   const target = new URL(location, window.location.href)
   if (target.protocol !== 'http:' && target.protocol !== 'https:')
     throw new Error(`${method} was redirected to ${location}, which is not an http or https URL`)
-  if (!router || target.origin !== window.location.origin) {
+  const href = target.pathname + target.search + target.hash
+  // One document holds one language: a redirect into another one loads that page.
+  if (!router || target.origin !== window.location.origin || !reaches(router, href)) {
     window.location.assign(target.href)
     return
   }
-  const href = target.pathname + target.search + target.hash
   // The router reads the URL, so a query spelled another way, in another order or encoding,
   // is the same page.
   const parsed = router.parseLocation({ href, pathname: target.pathname, search: target.search, hash: target.hash, state: {} })
