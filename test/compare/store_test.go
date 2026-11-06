@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/liustack/tifa/test/compare"
 )
@@ -98,9 +97,8 @@ func TestStoreDomainMatchesGo(t *testing.T) {
 		t.Errorf("the scenarios reached %d pages and %d placed orders", pages, placed)
 	}
 
-	now := time.Now()
-	compare.NormalizeStore(want, now)
-	compare.NormalizeStore(got, now)
+	compare.NormalizeStore(want)
+	compare.NormalizeStore(got)
 	diffs := compare.DiffStore(scenarios, want, got, 25)
 	for _, d := range diffs {
 		t.Error(d)

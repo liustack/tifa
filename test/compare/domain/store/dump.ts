@@ -25,16 +25,18 @@ interface Step {
 
 interface Result {
   status: number
+  at: number // the time of the request, in milliseconds
   body?: unknown
   location?: string
   setCookies?: string[]
 }
 
 async function run(step: Step, jar: Map<string, string>, order: string): Promise<Result> {
+  const at = Date.now()
   const url = new URL(step.url.replaceAll('{order}', order), 'http://shop.test')
   const cookie = step.cookie || [...jar].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('; ')
   const parts = url.pathname.split('/').filter(Boolean) // store, lang, ...
-  if (parts[0] !== 'store') return { status: 404 }
+  if (parts[0] !== 'store') return { status: 404, at }
   const params: Params = { lang: parts[1] }
   const rest = parts.slice(2).join('/')
 
@@ -53,17 +55,17 @@ async function run(step: Step, jar: Map<string, string>, order: string): Promise
         routes[id] = { status: 404, error: 'Not Found' }
       }
     }
-    return { status: 200, body: { routes } }
+    return { status: 200, at, body: { routes } }
   }
   if (step.method === 'GET' && parts.length === 1) {
     const r = getStore(step.acceptLanguage ?? '')
-    return { status: r.status, location: r.location }
+    return { status: r.status, at, location: r.location }
   }
   if (step.method === 'GET' && rest === 'mine') {
     try {
-      return { status: 200, body: getMine(new Ctx(cookie), params) }
+      return { status: 200, at, body: getMine(new Ctx(cookie), params) }
     } catch (e) {
-      if (e instanceof NotFound) return { status: 404, body: { error: 'Not Found' } }
+      if (e instanceof NotFound) return { status: 404, at, body: { error: 'Not Found' } }
       throw e
     }
   }
@@ -77,9 +79,9 @@ async function run(step: Step, jar: Map<string, string>, order: string): Promise
   else if (step.method === 'POST' && rest === 'cart') response = await postCartRoute(request, params)
   else if (step.method === 'POST' && rest === 'checkout') response = await postCheckoutRoute(request, params)
   else if (step.method === 'POST' && rest === 'mine') response = await postMineRoute(request, params)
-  if (!response) return { status: 404 }
+  if (!response) return { status: 404, at }
   const text = await response.text()
-  const out: Result = { status: response.status }
+  const out: Result = { status: response.status, at }
   if (text) out.body = JSON.parse(text)
   const location = response.headers.get('location')
   if (location) out.location = location

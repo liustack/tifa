@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa/test/compare"
 )
@@ -83,7 +85,6 @@ func reactRouterWrite(p string) string {
 // are random, and times, which come from the clock.
 func mask(s string) string {
 	s = orderNumber.ReplaceAllString(s, "SS-ORDER")
-	s = isoTime.ReplaceAllString(s, "TIME")
 	return s
 }
 
@@ -112,6 +113,20 @@ type reply struct {
 	status int
 	header http.Header
 	body   []byte
+	at     time.Time // when the request was sent
+}
+
+// instants writes the instants in a body as their distance from the request, in whole seconds: a
+// delivery two days away is the same on two servers that answered at different times, and one that
+// is off by hours is not.
+func (r reply) instants(s string) string {
+	return isoTime.ReplaceAllStringFunc(s, func(m string) string {
+		t, err := time.Parse(time.RFC3339Nano, m)
+		if err != nil {
+			return m
+		}
+		return fmt.Sprintf("%+ds from the request", int64(math.Round(t.Sub(r.at).Seconds())))
+	})
 }
 
 // describe writes what matters of an answer in a form that is the same for two servers that
@@ -156,7 +171,7 @@ func (r reply) describe() string {
 	if json.Compact(&compact, body) == nil && compact.Len() > 0 {
 		body = compact.Bytes()
 	}
-	b.WriteString(mask(string(body)))
+	b.WriteString(mask(r.instants(string(body))))
 	return b.String()
 }
 
@@ -220,6 +235,7 @@ func (v *visitor) do(r request) reply {
 	if r.noJar {
 		client = &http.Client{CheckRedirect: v.http.CheckRedirect}
 	}
+	sent := time.Now()
 	res, err := client.Do(req)
 	if err != nil {
 		v.t.Fatalf("%s %s: %v", r.method, path, err)
@@ -229,7 +245,7 @@ func (v *visitor) do(r request) reply {
 	if err != nil {
 		v.t.Fatal(err)
 	}
-	return reply{res.StatusCode, res.Header, data}
+	return reply{res.StatusCode, res.Header, data, sent}
 }
 
 func (v *visitor) get(path string) reply { return v.do(request{method: "GET", path: path}) }

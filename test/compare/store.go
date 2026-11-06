@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -138,7 +139,9 @@ type StoreScenario struct {
 
 // StoreResult is what a step answered.
 type StoreResult struct {
-	Status     int      `json:"status"`
+	Status int `json:"status"`
+	// At is the time the request was sent, in milliseconds since the epoch.
+	At         int64    `json:"at"`
 	Body       any      `json:"body,omitempty"`
 	Location   string   `json:"location,omitempty"`
 	SetCookies []string `json:"setCookies,omitempty"`
@@ -473,6 +476,7 @@ func RunStoreOnShop(ctx context.Context, base, buildID string, scenarios []Store
 			} else if h := cookieHeader(jar); h != "" {
 				req.Header.Set("Cookie", h)
 			}
+			sent := time.Now()
 			res, err := client.Do(req)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", st, err)
@@ -482,7 +486,7 @@ func RunStoreOnShop(ctx context.Context, base, buildID string, scenarios []Store
 			if err != nil {
 				return nil, err
 			}
-			r := StoreResult{Status: res.StatusCode, Location: res.Header.Get("Location")}
+			r := StoreResult{Status: res.StatusCode, At: sent.UnixMilli(), Location: res.Header.Get("Location")}
 			if len(data) > 0 && strings.HasPrefix(res.Header.Get("Content-Type"), "application/json") {
 				if err := json.Unmarshal(data, &r.Body); err != nil {
 					return nil, fmt.Errorf("%s answered %d with %q: %w", st, res.StatusCode, data, err)
@@ -542,9 +546,12 @@ func (e Env) RunStoreOnNode(ctx context.Context, scenarios []StoreScenario) ([][
 }
 
 // NormalizeStore removes what differs between two runs of the same scenario: the random cart
-// id and order number, and the instants counted from the time of the request, which become the
-// number of days from now. It is applied to the answers of the shop and of the port alike.
-func NormalizeStore(results [][]StoreResult, now time.Time) {
+// id and order number, and the instants counted from the time of the request. An instant becomes its
+// distance from the request that made it, in whole seconds, so that a run an hour later is the same
+// and a delivery that is off by an hour is not. It is applied to the answers of the shop and of the
+// port alike.
+func NormalizeStore(results [][]StoreResult) {
+	var instant func(time.Time) string
 	var walk func(v any) any
 	walk = func(v any) any {
 		switch x := v.(type) {
@@ -552,7 +559,7 @@ func NormalizeStore(results [][]StoreResult, now time.Time) {
 			for k, e := range x {
 				if s, ok := e.(string); ok && (k == "earliest" || k == "latest" || k == "placedAt") {
 					if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-						x[k] = fmt.Sprintf("%+d days from now", int(t.Sub(now).Round(24*time.Hour)/(24*time.Hour)))
+						x[k] = instant(t)
 						continue
 					}
 				}
@@ -569,6 +576,10 @@ func NormalizeStore(results [][]StoreResult, now time.Time) {
 	}
 	for _, rs := range results {
 		for i := range rs {
+			at := time.UnixMilli(rs[i].At)
+			instant = func(t time.Time) string {
+				return fmt.Sprintf("%+d s from the request", int64(math.Round(t.Sub(at).Seconds())))
+			}
 			rs[i].Body = walk(rs[i].Body)
 			rs[i].Location = orderNumber.ReplaceAllString(rs[i].Location, "SS-<order>")
 			for j, c := range rs[i].SetCookies {
