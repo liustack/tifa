@@ -309,8 +309,9 @@ Each entry goes through these steps in this order:
 6. Each `h1` to `h6` without an `id` gets the one GitHub gives it, the same as `rehype-slug`: the text in lower case without punctuation, spaces become `-`, and a repeat gets `-1`, `-2` and so on. An `id` written in the HTML stays.
 7. The `rehypePlugins` of the app. They run after the ids, so a plugin such as `rehype-autolink-headings` can use them.
 8. Relative URLs are rewritten, see [Images and links](#images-and-links).
-9. The headings are collected for `Headings()`, with the ids they end up with.
-10. `rehype-stringify`.
+9. Root-relative links get a language prefix, see [Links between languages](#links-between-languages).
+10. The headings are collected for `Headings()`, with the ids they end up with.
+11. `rehype-stringify`.
 
 The plugins of the app go into `tifa()` in `vite.config.ts`, each written as unified takes it, a plugin or `[plugin, options]`. The test app adds a rehype plugin of its own (`markdown.ts`) that makes images load when they come into view:
 
@@ -353,7 +354,12 @@ The relative URLs of a body (not starting with `/`, `#` or a scheme such as `htt
 - The file must be inside the folder of the collection: a URL with `..` or a symbolic link that leads out of it fails the build.
 - A query or a `#fragment` stays on the new URL.
 - A relative link to a `.md` file fails the build. A Markdown file has no URL of its own: the app's routes give the page its URL, so link to that, such as `/zh-CN/docs/install`.
+- A root-relative link (`/store/cart`) is left alone, except on a site with languages (see below).
 - Local images get no `width`, `height` or `srcset`. Add them with a rehype plugin of your own when you need them.
+
+### Links between languages
+
+On a site with languages, a root-relative link in an entry that has a language, such as `[cart](/store/cart)`, gets the prefix of that language when the page it leads to has that language: `/en-US/store/cart` in the `en-US` entry. The default language gets no prefix, unless `i18n.prefix` is `always`. A link that already starts with a language, a link to a page outside every area, to a public file or to another site, and a relative link or an anchor stay as written. The query and the `#fragment` are kept. Only the Markdown is rewritten: the HTML your Go code builds is not. A collection without `Languages` is converted as before.
 
 ## Drafts and dates
 

@@ -309,8 +309,9 @@ pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@
 6. 没有 `id` 的 `h1` 到 `h6` 按 GitHub 的规则生成 `id`，和 `rehype-slug` 一样：文字转小写，去掉标点，空格换成 `-`，重复的加 `-1`、`-2` 等。HTML 里写了 `id` 的不动。
 7. 应用的 `rehypePlugins`。它们在 id 之后运行，所以 `rehype-autolink-headings` 这类插件能直接用。
 8. 改写相对 URL，见[图片和链接](#图片和链接)。
-9. 收集标题给 `Headings()`，用的是最终的 id。
-10. `rehype-stringify`。
+9. 以 `/` 开头的链接加语言前缀，见[语言之间的链接](#语言之间的链接)。
+10. 收集标题给 `Headings()`，用的是最终的 id。
+11. `rehype-stringify`。
 
 应用的插件写在 `vite.config.ts` 的 `tifa()` 里，写法和 unified 一样，一个插件或者 `[插件, 选项]`。测试应用加了一个自己的 rehype 插件（`markdown.ts`），让图片滚动到眼前才加载：
 
@@ -353,7 +354,12 @@ export function rehypeLazyImages() {
 - 文件必须在集合的文件夹里：带 `..` 的 URL 或符号链接指到外面时，构建失败。
 - 查询串和 `#片段` 留在新 URL 上。
 - 指向 `.md` 文件的相对链接让构建失败。Markdown 文件没有自己的 URL，页面的 URL 由应用的路由决定，所以链接写页面的地址，比如 `/zh-CN/docs/install`。
+- 以 `/` 开头的链接（`/store/cart`）不动，有多种语言的站点除外（见下）。
 - 本地图片不加 `width`、`height`、`srcset`，需要时用自己的 rehype 插件加。
+
+### 语言之间的链接
+
+站点有多种语言时，带语言的条目里以 `/` 开头的链接，比如 `[购物车](/store/cart)`，在它指向的页面有这种语言时会加上这种语言的前缀：`en-US` 的条目里是 `/en-US/store/cart`。默认语言不加前缀，除非 `i18n.prefix` 是 `always`。已经以语言开头的链接、指向不属于任何区域的页面、公开文件或其他网站的链接，以及相对链接和锚点，都保持原样。查询串和 `#片段` 保留。只改 Markdown：你的 Go 代码拼出来的 HTML 不动。没有 `Languages` 的集合照旧转换。
 
 ## 草稿和日期
 
