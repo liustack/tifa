@@ -55,10 +55,13 @@ build_tool() { go build -o "$compare" ./test/compare/cmd/compare; }
 # "dirty" when any of it has uncommitted changes), the framework versions that were installed, the
 # recorder's browser, and the plans.
 trace_stamp() {
-  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go go.mod go.sum"
+  # The shop, the three apps and everything that builds or serves the shop: Tifa's runtime, server,
+  # command and the Go and JavaScript the build is made from.
+  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go js internal server cmd go.mod go.sum"
   local p
   for p in $paths; do echo "tree $p $(git rev-parse HEAD:"$p")"; done
-  if [ -n "$(git status --porcelain --untracked-files=no -- $paths)" ]; then echo "dirty"; fi
+  echo "tree root-go $(git ls-tree HEAD | awk '$4 ~ /\.go$/' | sha)"
+  if [ -n "$(git status --porcelain --untracked-files=no -- $paths ':(glob)*.go')" ]; then echo "dirty"; fi
   echo "next $(pkgver test/compare/nextjs next)"
   echo "start $(pkgver test/compare/start @tanstack/react-start)"
   echo "reactrouter $(pkgver test/compare/reactrouter react-router)"
@@ -70,6 +73,10 @@ trace_stamp() {
 # started and the settings.
 run_stamp() {
   echo "traces $(trace_stamp | sha)"
+  # What is replayed: the contents of the trace files, and the replayer, the report and this script.
+  echo "trace-files $(cat "$traces"/*.jsonl 2>/dev/null | sha)"
+  echo "replayer $(git ls-tree HEAD test/compare/ | awk '$4 ~ /\.go$|browse\.sh$/' | sha)"
+  if [ -n "$(git status --porcelain --untracked-files=no -- test/compare/*.go test/compare/cmd test/compare/browse.sh)" ]; then echo "replayer-dirty"; fi
   echo "go $(go version | cut -d' ' -f3)"
   echo "node $(node --version)"
   echo "pnpm $(pnpm --version 2>/dev/null || echo none)"

@@ -41,3 +41,31 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		}
 	}
 }
+
+func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
+	mix := Mixes[0]
+	r := &BrowseResult{Mixes: []Mix{mix}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, LatencyRate: 8, LatencyBase: "nextjs",
+		Sustain: map[string]*Sustain{"nextjs": {Rate: 16, Done: true}, "tifa": {Done: true, Note: "no rate passed"}}}
+	for round := 1; round <= 3; round++ {
+		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
+		a.Model = "open"
+		if round == 2 {
+			a.TimedOut = true
+			a.Why = "the workload did not finish in time: a backlog was left"
+			a.Types["load"] = TypeStat{N: 5, P50: 3000, P99: 3000}
+		}
+		r.Latency = append(r.Latency, a)
+		b := closedRound("tifa", mix.Name, 0, round, 1000, 100, false)
+		b.Model, b.Framework = "open", "tifa"
+		r.Latency = append(r.Latency, b)
+	}
+	md := r.Markdown()
+	for _, want := range []string{"| Next.js | 4.0 / 30 (200)", "2 of 3 rounds, the failed ones left out: round 2 failed: the workload did not finish in time", "| Tifa | failed | failed | failed |", "| Tifa | none in range | - | no rate passed |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "3000") {
+		t.Error("a failed round's percentiles are in the table")
+	}
+}

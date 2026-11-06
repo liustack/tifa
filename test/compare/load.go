@@ -58,6 +58,12 @@ type Round struct {
 	// Lag is the largest time a visit started after it was scheduled (open model): the generator
 	// itself falling behind.
 	LagMs float64 `json:"maxStartLagMs,omitempty"`
+	// Backlog says that the visits or the requests in flight kept growing while visits were being
+	// offered (open model): the server was not keeping up, even if it caught up after the end.
+	Backlog bool `json:"backlogGrowing,omitempty"`
+	// GeneratorLimited says that the load generator, not the server, ended the round: it started
+	// visits late or used most of its cpus.
+	GeneratorLimited bool `json:"generatorLimited,omitempty"`
 
 	Renders   map[string]int      `json:"renders,omitempty"`
 	Responses map[string]int      `json:"responses,omitempty"`
@@ -138,6 +144,9 @@ func (r *Round) Judge(mix Mix) {
 	}
 	if r.Failures > 0 {
 		fail(fmt.Sprintf("%d failures (%s)", r.Failures, r.FirstErr))
+	}
+	if r.Backlog {
+		fail("visits or requests in flight kept growing while visits were offered: a backlog")
 	}
 	for _, kind := range []string{"load", "click", "write"} {
 		t := r.Types[kind]
@@ -228,7 +237,7 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	defer tr.CloseIdleConnections()
 	last := 0 // the longest plan, in actions, for the drain deadline
 	for i := range min(n, len(r.wl.Plans)) {
-		p := r.wl.Plans[(seq0+i)%len(r.wl.Plans)]
+		p := r.wl.planFor(seq0 + i)
 		acts := len(p.Steps)
 		for j := range p.Steps {
 			if _, ok := r.wl.Writes[[2]int{p.ID, j}]; ok {
@@ -240,13 +249,34 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	cpu0, client0 := r.cpu(), selfCPU()
 	start := time.Now()
 	var wg sync.WaitGroup
-	var lag atomic.Int64
+	var lag, started, finished atomic.Int64
 	vctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	deadline := start.Add(duration + time.Duration(last)*ActionSpacing + drain)
 	var timedOut atomic.Bool
 	timer := time.AfterFunc(time.Until(deadline), func() { timedOut.Store(true); cancel() })
 	defer timer.Stop()
+	// While visits are offered, sample how many visits and requests are in flight. In a steady state
+	// the numbers level off; a server that falls behind makes them grow.
+	var visitsIn, requestsIn []float64
+	offering := make(chan struct{})
+	sampled := make(chan struct{})
+	go func() {
+		defer close(sampled)
+		tick := time.NewTicker(500 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				visitsIn = append(visitsIn, float64(started.Load()-finished.Load()))
+				requestsIn = append(requestsIn, float64(r.inflight.Load()))
+			case <-offering:
+				return
+			case <-vctx.Done():
+				return
+			}
+		}
+	}()
 	for k := 0; k < n && vctx.Err() == nil; k++ {
 		at := start.Add(time.Duration(float64(k) / rate * float64(time.Second)))
 		if d := time.Until(at); d > 0 {
@@ -255,20 +285,47 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 			case <-vctx.Done():
 			}
 		}
-		if l := time.Since(at); l > 0 {
-			for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
-			}
-		}
+		started.Add(1)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer finished.Add(1)
+			// Lateness is measured when the visit actually starts to run, not when it was spawned.
+			if l := time.Since(at); l > 0 {
+				for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
+				}
+			}
 			r.runVisit(vctx, tr, a, seq0+k, pacer{open: true, start: at})
 		}()
 	}
+	close(offering)
+	<-sampled
 	wg.Wait()
 	end := time.Now()
-	round := &Round{Model: "open", Rate: rate, TimedOut: timedOut.Load()}
+	round := &Round{Model: "open", Rate: rate, TimedOut: timedOut.Load(), Backlog: Growing(visitsIn) || Growing(requestsIn)}
 	round.LagMs = ms(time.Duration(lag.Load()))
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	return round
+}
+
+// Growing says whether a series sampled at equal intervals kept growing: the mean of its last 30%
+// is well above the mean of its middle (35% to 65%), by more than 30% and 8 units. A series that
+// has levelled off, even after a climb, is not growing.
+func Growing(series []float64) bool {
+	n := len(series)
+	if n < 8 {
+		return false
+	}
+	mean := func(v []float64) float64 {
+		if len(v) == 0 {
+			return 0
+		}
+		var sum float64
+		for _, x := range v {
+			sum += x
+		}
+		return sum / float64(len(v))
+	}
+	mid, last := mean(series[n*35/100:n*65/100]), mean(series[n*70/100:])
+	return last > 1.3*mid+8
 }

@@ -189,6 +189,10 @@ func (r *BrowseResult) Markdown() string {
 			fmt.Fprintf(&b, "| %s | - | - | not measured |\n", BrowseLabel(f))
 			continue
 		}
+		if s.Rate == 0 {
+			fmt.Fprintf(&b, "| %s | none in range | - | %s |\n", BrowseLabel(f), s.Note)
+			continue
+		}
 		note := s.Note
 		if s.Limited {
 			note = strings.TrimSpace(note + " the load generator ended the search: the rate is a lower bound")
@@ -197,23 +201,44 @@ func (r *BrowseResult) Markdown() string {
 	}
 
 	if len(r.Latency) > 0 {
-		fmt.Fprintf(&b, "\n### Latency at the same arrival rate\n\nOne rate that every framework can sustain is needed, otherwise the slowest one's queue grows without end and its latency depends on how long the test runs. The slowest framework (%s) therefore sets the rate, and half of its limit leaves room, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every framework gets %.2f visits/s (%.0f page views/s planned). Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over three rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view |\n| --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase), r.LatencyRate, 4*r.LatencyRate)
+		fmt.Fprintf(&b, "\n### Latency at the same arrival rate\n\nOne rate that every framework can sustain is needed, otherwise the slowest one's queue grows without end and its latency depends on how long the test runs. The slowest framework (%s) therefore sets the rate, and half of its limit leaves room, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every framework gets %.2f visits/s (%.0f page views/s planned). Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over three rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase), r.LatencyRate, 4*r.LatencyRate)
 		for _, f := range fw {
-			var rs []Round
+			var good, bad []Round
 			for _, x := range r.Latency {
-				if x.Framework == f {
-					rs = append(rs, x)
+				if x.Framework != f {
+					continue
+				}
+				if x.Pass && x.Valid {
+					good = append(good, x)
+				} else {
+					bad = append(bad, x)
 				}
 			}
-			if len(rs) == 0 {
+			if len(good)+len(bad) == 0 {
+				continue
+			}
+			var notes []string
+			for _, x := range bad {
+				why := x.Why
+				if why == "" {
+					why = x.WhyInvalid
+				}
+				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, why))
+			}
+			if len(good) == 0 {
+				fmt.Fprintf(&b, "| %s | failed | failed | failed | - | - | %s |\n", BrowseLabel(f), strings.Join(notes, "; "))
 				continue
 			}
 			fails := 0
-			for _, x := range rs {
+			for _, x := range good {
 				fails += x.Failures
 			}
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %d | %s |\n", BrowseLabel(f), typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"), fails,
-				fmtCell(each(rs, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"))
+			note := fmt.Sprintf("%d of %d rounds", len(good), len(good)+len(bad))
+			if len(notes) > 0 {
+				note += ", the failed ones left out: " + strings.Join(notes, "; ")
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %d | %s | %s |\n", BrowseLabel(f), typeCell(good, "load"), typeCell(good, "click"), typeCell(good, "write"), fails,
+				fmtCell(each(good, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
 		}
 	}
 

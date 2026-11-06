@@ -59,6 +59,21 @@ type Workload struct {
 	Traces map[int]Trace // by plan ID
 	Writes map[[2]int]WriteOrder
 	Mix    Mix
+	// Interleave plays the plans of the blocks in turn (visit 0 of block 0, visit 0 of block 1, ...)
+	// instead of one block after another, so that any prefix of the sequence has the page mix of all
+	// the blocks. The open trials use it, as they may play fewer visits than the plans.
+	Interleave bool
+}
+
+// planFor is the plan that visit seq of the global sequence plays.
+func (w *Workload) planFor(seq int) Plan {
+	n := len(w.Plans)
+	seq %= n
+	if !w.Interleave {
+		return w.Plans[seq]
+	}
+	blocks := n / BlockVisits
+	return w.Plans[seq%blocks*BlockVisits+seq/blocks]
 }
 
 // NewWorkload puts the writes of a mix into the plans, block by block, and fails if a plan has no
@@ -88,9 +103,11 @@ type runner struct {
 	write   Writer
 	buildID string // of Tifa, put into the navigation requests it recorded
 	wl      *Workload
-	cpu     func() float64 // processor seconds of the server so far
-	rss     func() int64   // its peak resident size in bytes
-	writes  atomic.Int64   // the number of writes made, which gives each its address
+	// inflight counts the requests sent and not yet answered, for the check that no backlog grows.
+	inflight atomic.Int64
+	cpu      func() float64 // processor seconds of the server so far
+	rss      func() int64   // its peak resident size in bytes
+	writes   atomic.Int64   // the number of writes made, which gives each its address
 }
 
 var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)
@@ -222,11 +239,19 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	}
 	start := time.Now()
 	sent = true
+	r.inflight.Add(1)
+	defer r.inflight.Add(-1)
 	res, err := v.client.Do(req)
 	if err != nil {
 		return cancelled(err)
 	}
 	responded = true
+	// The answer is judged by its status as soon as its headers arrive, whether or not the request is
+	// cancelled later: a 500 whose body the cancel cuts off is still a failure.
+	if res.StatusCode != 200 && res.StatusCode != 304 {
+		res.Body.Close()
+		return outcome{end: time.Now(), err: fmt.Errorf("%s %s: status %d", q.Method, q.URL, res.StatusCode)}
+	}
 	if afterAnswer {
 		t := time.AfterFunc(time.Duration((q.End-q.Responded)*float64(time.Millisecond)), cancel)
 		defer t.Stop()
@@ -236,9 +261,6 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	end := time.Now()
 	if err != nil {
 		return cancelled(err)
-	}
-	if res.StatusCode != 200 && res.StatusCode != 304 {
-		return outcome{end: end, err: fmt.Errorf("%s %s: status %d", q.Method, q.URL, res.StatusCode)}
 	}
 	a.mu.Lock()
 	a.requests++
@@ -417,7 +439,7 @@ func (p pacer) at(j int) time.Time {
 // mix after the page views the plan puts them after, and at the end the background requests the
 // browser still had. It reports whether the visit completed.
 func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq int, p pacer) bool {
-	plan := r.wl.Plans[seq%len(r.wl.Plans)]
+	plan := r.wl.planFor(seq)
 	trace := r.wl.Traces[plan.ID]
 	jar, _ := cookiejar.New(nil)
 	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns)}

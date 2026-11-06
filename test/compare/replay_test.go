@@ -272,11 +272,93 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 	if got := BlocksFor(0.5, 75*time.Second, 4); got != 4 {
 		t.Errorf("a slow framework still plays whole passes of the plans: %d", got)
 	}
-	if n := visitsFor(8, 30*time.Second); n%BlockVisits != 0 || n < 240 {
+	// A round that counts plays whole cycles of all 380 plans; a trial any number, at least a block.
+	if n := visitsFor(8, 30*time.Second, 380, true); n%380 != 0 || n < 240 {
 		t.Errorf("visits for 8 visits/s: %d", n)
 	}
-	if visitsFor(0.1, time.Second) != BlockVisits {
-		t.Error("an open round is at least a block")
+	if n := visitsFor(8, 30*time.Second, 380, false); n != 240 {
+		t.Errorf("a trial at 8 visits/s plays %d visits", n)
+	}
+	if visitsFor(0.1, time.Second, 380, true) != 380 || visitsFor(0.1, time.Second, 380, false) != BlockVisits {
+		t.Error("a short round is a whole cycle, a short trial a block")
+	}
+}
+
+func TestInterleavedPrefixesHaveThePageMixOfAllTheBlocks(t *testing.T) {
+	set := GeneratePlanSet(1, 4)
+	w := &Workload{Plans: set.Plans, Interleave: true}
+	blocks := map[int]int{}
+	seen := map[int]bool{}
+	for s := 0; s < 100; s++ {
+		p := w.planFor(s)
+		blocks[p.Block]++
+		seen[p.ID] = true
+	}
+	for b := 0; b < 4; b++ {
+		if blocks[b] != 25 {
+			t.Errorf("block %d has %d of the first 100 visits", b, blocks[b])
+		}
+	}
+	for s := 0; s < 380; s++ {
+		seen[w.planFor(s).ID] = true
+	}
+	if len(seen) != 380 {
+		t.Errorf("a cycle plays %d plans", len(seen))
+	}
+	if w.planFor(380).ID != w.planFor(0).ID {
+		t.Error("the sequence does not wrap")
+	}
+}
+
+func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t *testing.T) {
+	var ran []float64
+	run := func(passAt func(rate float64, round int) bool) func(float64, int) (*Round, error) {
+		ran = nil
+		return func(rate float64, round int) (*Round, error) {
+			ran = append(ran, rate)
+			return &Round{Rate: rate, Pass: passAt(rate, round)}, nil
+		}
+	}
+	// 100 fails, 90 fails in its second round, 81 passes all three.
+	rate, rounds, err := ConfirmRate(100, 4, 3, run(func(r float64, round int) bool {
+		if r == 90 {
+			return round == 1
+		}
+		return r < 85
+	}))
+	if err != nil || rate != 81 {
+		t.Fatalf("rate %v, %v", rate, err)
+	}
+	if len(rounds) != 1+2+3 || rounds[0].Attempt != 1 || rounds[5].Attempt != 3 || rounds[5].Round != 3 {
+		t.Errorf("%d rounds kept: %+v", len(rounds), rounds)
+	}
+	// Four tries that all fail: no rate, and no untested rate is made up.
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }))
+	if rate != 0 || len(rounds) != 4 {
+		t.Errorf("rate %v after %d rounds", rate, len(rounds))
+	}
+	for _, r := range ran {
+		if r == 65.61 {
+			t.Error("the rate after the last try was run or published")
+		}
+	}
+}
+
+func TestGrowingTellsALevelSeriesFromARunawayOne(t *testing.T) {
+	level, climb, runaway := []float64{}, []float64{}, []float64{}
+	for i := 0; i < 40; i++ {
+		level = append(level, 100)
+		climb = append(climb, min(100, float64(i)*10))
+		runaway = append(runaway, 50+float64(i)*10)
+	}
+	if Growing(level) || Growing(climb) {
+		t.Error("a series that levels off is growing")
+	}
+	if !Growing(runaway) {
+		t.Error("a series that keeps growing is not")
+	}
+	if Growing([]float64{1, 2, 3}) {
+		t.Error("too few samples")
 	}
 }
 
@@ -328,4 +410,23 @@ func cancelledAfterAnswer(url, class string, s, responded, e float64) TraceReq {
 	r := cancelled(url, class, s, e)
 	r.Responded = responded
 	return r
+}
+
+func TestAnErrorStatusFailsEvenWhenTheRequestIsCancelledLater(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+	// The browser cancelled it 4 ms after its answer began; the answer is a 500.
+	plans, traces := onePlan(TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/x", "nav", 0, 10, 14), req("/ok", "nav", 0, 5)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.PageViews != 0 || round.Failures != 1 || !strings.Contains(round.FirstErr, "status 500") {
+		t.Fatalf("a cancelled 500 counted as a good page view: %+v", round)
+	}
 }
