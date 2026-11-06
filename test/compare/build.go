@@ -145,8 +145,13 @@ func (e Env) Sync(dir, kind string) error {
 	if err := writeImages(filepath.Join(dst, "app", "store", "images.ts"), photos); err != nil {
 		return err
 	}
-	if kind == "start" {
+	switch kind {
+	case "start":
 		if err := e.syncStoreStart(dst); err != nil {
+			return err
+		}
+	case "next":
+		if err := e.syncNextStore(dir); err != nil {
 			return err
 		}
 	}

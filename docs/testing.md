@@ -284,7 +284,7 @@ go tool pprof -top -cum ssr.test mutex.out
 
 **Where the work is done.** In Tifa, every request runs the Go `Layout` and `Load` functions, which read the orders from memory, copy and sort them and work out the list, the order or the stats. In the three apps, every request runs the same functions in TypeScript on orders that the process builds in memory when it starts, from the same seed code. Nothing is kept from one request to the next. The components, the stylesheet, the root Layout, everything TypeScript under `app/projects`, the 160 pixel photos and the `+layout` and `+route` modules that `tifa build` generates from the Go types are copied from `examples/shop` into `shop/` and `public/images/` when the apps are built, so a change to a page of the shop reaches all four. A change to the Go code that loads the data does not reach the port by itself. The check below fails and names the fields, and you port the change.
 
-The handlers (`POST`, `PUT`, `PATCH`) are not ported: the apps show pages. The forms render, but their calls fail. The one exception is a write endpoint for the measuring (below): `PATCH /compare-write/<project>/<order>`, which takes the body of the shop's `PATCH` on the order route and calls `updateRecipient` of the port, a copy of `UpdateRecipient` and `CheckRecipient`. It is one path in the three apps, since Next.js cannot put a route handler beside a page.
+The handlers (`POST`, `PUT`, `PATCH`) of the workbench are not ported: the apps show pages. The storefront (`/store`) is in the Next.js app with all its writes, see [The storefront in Next.js](#the-storefront-in-nextjs). The forms render, but their calls fail. The one exception is a write endpoint for the measuring (below): `PATCH /compare-write/<project>/<order>`, which takes the body of the shop's `PATCH` on the order route and calls `updateRecipient` of the port, a copy of `UpdateRecipient` and `CheckRecipient`. It is one path in the three apps, since Next.js cannot put a route handler beside a page.
 
 ### Check that the pages are the same
 
@@ -313,6 +313,21 @@ They work on macOS and Linux and skip when `go`, `node` or `pnpm` is missing. `T
 When a page check fails after a change to the shop, read the difference it prints. A new page needs a route in all three apps. A new package the shop's workbench imports needs a line in the `package.json` of all three apps, and `pnpm install` in each folder to update the lockfiles.
 
 **What the count test shows.** It builds a second Tifa program with `go build -overlay`, which adds a counter to `ordersOf` (the filter, copy and sort that every query of the orders starts with) and a path `/compare-counts`, without changing a file of the shop. The Node apps count the same calls in the port (React Router shares the project between its parallel loaders per request, through the Request object), and also the runs of the root Layout, the project Layout and the page's `Load`, and the renders of the page on the server, and answer with them at `/compare-counts`. For each page the test asks once and reads what the counters gained, then asks five times more and checks that they gained five times as much. A render in Tifa is read from the header `X-Tifa-Render`, which says `vm` for a page rendered in a VM and `cache` or `shared` for one that was not. Then the calls of `ordersOf` for one request must be the same in all four: 4 for an order list, 6 for an order and 5 for the stats. `TestNoCachingBetweenRequests` adds what the code and the answers say. None of the three has `cacheComponents`, `use cache`, `unstable_cache`, a `revalidate` setting or a `QueryClient` in its sources or its package lists, and the React Router app has no `clientLoader`, `shouldRevalidate` or `headers` export. Next.js answers a page with `Cache-Control: no-store`, and Start and React Router answer with no `Cache-Control`, `ETag`, `Last-Modified`, `Expires` or `Age`.
+
+### The storefront in Next.js
+
+The Next.js app also serves the storefront of the shop, in both languages, from the same copied components (`shop/app/store`, written by `syncNextStore` in `build_store_next.go`) and the port in `test/compare/domain/store`. The pages are `src/app/store/[lang]/(site)`, the root layout of the storefront is `src/app/store/[lang]/layout.tsx` (the workbench has its own in `src/app/(workbench)`), and `GET /store` is `src/app/store/route.ts`. `GET` and `POST /store/<lang>/mine` are at the URL Tifa has them. Next.js cannot put a route handler beside a page, so the writes of the cart, the product page and the checkout are at `/store/compare-write/<lang>/...` (under `/store`, so the cookies with `Path=/store` reach them), and `nextjs/overlay/runtime/call.ts`, which the generated handler functions call through, sends them there. A write answers a call from the browser (`X-Tifa-Call`) as Tifa does: the result in `{"result": ...}`, a redirect as a 200 with `X-Tifa-Redirect`.
+
+```sh
+TIFA_COMPARE=1 go test -count=1 -v -run TestStore ./test/compare
+```
+
+- `TestStorePagesShowTheSameText`: every page of `StorePages` shows the same title, text and element counts in Tifa and in Next.js.
+- `TestStoreStatesShowTheSameText`: the same for the cart and checkout pages in each cart state of `StoreStates`, built on each server by its own writes.
+- `TestStoreWritesMatchTifa`: the same writes in the same order to both, each with a visitor that keeps cookies: status, `Location`, cookies, type and body of each answer (with and without `X-Tifa-Call`), and the cart and checkout pages after each.
+- `TestStoreMissingPagesAnswer404`, `TestStoreRedirectsToTheLanguage` and `TestStoreAnswersWhatTifaAnswersToOtherRequests`: the 404 status and title, `GET /store` with several `Accept-Language` values, `GET /store/` (308) and the 405 with `Allow` for a method that `/store` and `/store/<lang>/mine` do not take.
+
+Not equal: Next.js answers a 404 below `/store/<lang>` with its error document and draws the not-found page in the browser (Next.js does not write it into the HTML under a root layout with a dynamic segment), and the writes take JSON only, where Tifa also reads forms.
 
 ### Measure whole requests
 

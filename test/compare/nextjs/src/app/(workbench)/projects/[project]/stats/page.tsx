@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
-import { loadProject, loadStats } from '../../../../compare/data'
-import { StatsPage, StatsProvider } from '../../../../compare/entries'
-import { orNotFound } from '../../../../compare/load'
+import { loadProject, loadStats } from '../../../../../compare/data'
+import { StatsPage, StatsProvider } from '../../../../../compare/entries'
+import { orNotFound } from '../../../../../compare/load'
 
 type Props = { params: Promise<{ project: string }> }
 

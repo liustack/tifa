@@ -71,7 +71,10 @@ const maxCarts = 10_000
 const cartIdle = 30 * DAY
 
 // carts are the carts by ID. Only IDs this module made are keys.
-export const carts = new Recent<CartRecord>(maxCarts, cartIdle)
+// They live on globalThis, since Next.js loads this module once for its pages and once for the write
+// routes, and both must see the same carts.
+const g = globalThis as typeof globalThis & { __compareCarts?: Recent<CartRecord> }
+export const carts = (g.__compareCarts ??= new Recent<CartRecord>(maxCarts, cartIdle))
 
 // A visitor without a cart sees this one, so the demonstration has something to check out. It
 // becomes the visitor's own cart at the first change.
