@@ -98,9 +98,9 @@ func (v *storeVisitor) do(method, path string, call bool, body any, headers map[
 func (r storeReply) describe(cartIDs ...string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "status %d\n", r.status)
-	for _, name := range []string{"Location", "X-Tifa-Redirect", "Cache-Control", "Vary", "Allow"} {
-		if v := r.header.Values(name); len(v) > 0 {
-			fmt.Fprintf(&b, "%s: %s\n", name, strings.Join(v, ", "))
+	for _, name := range []string{"Location", "X-Tifa-Redirect", "Cache-Control"} {
+		if v := r.header.Values(name); len(v) > 0 && (name != "Cache-Control" || v[0] == "no-store") {
+			fmt.Fprintf(&b, "%s: %s\n", name, orderNumber.ReplaceAllString(strings.Join(v, ", "), "SS-<order>"))
 		}
 	}
 	if ct, _, _ := strings.Cut(r.header.Get("Content-Type"), ";"); ct != "" {

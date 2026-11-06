@@ -44,8 +44,10 @@ async function forCall(plain: Response): Promise<Response> {
 
 async function answer(methods: Record<string, Method>, request: Request, params: Params): Promise<Response> {
   const method = methods[request.method]
-  if (!method) return json(405, { error: statusText[405] }, { Allow: Object.keys(methods).join(', ') })
+  if (!method) return json(405, { error: statusText[405] }, { Allow: Object.keys(methods).join(', '), 'Cache-Control': 'no-store' })
   const plain = await method(request, params as { lang: string })
+  // Tifa keeps a cache from storing an error.
+  if (plain.status >= 400) plain.headers.set('Cache-Control', 'no-store')
   if (!request.headers.has('x-tifa-call')) {
     plain.headers.append('Vary', 'X-Tifa-Call')
     return plain
