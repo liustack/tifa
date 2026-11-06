@@ -31,8 +31,8 @@ export default [
   route('compare-write/:project/:order', 'routes/compare-write.ts'),
   // The handlers of the storefront (see compare/store-wire.ts for why they are not on the URLs
   // of the pages).
-  route('compare-store/:lang/mine', 'routes/store-mine.ts'),
-  route('compare-store/:lang/cart', 'routes/store-cart-write.ts'),
-  route('compare-store/:lang/checkout', 'routes/store-checkout-write.ts'),
-  route('compare-store/:lang/products/:product', 'routes/store-product-write.ts'),
+  route('store/:lang/mine', 'routes/store-mine.ts'),
+  route('store/:lang/_write/cart', 'routes/store-cart-write.ts'),
+  route('store/:lang/_write/checkout', 'routes/store-checkout-write.ts'),
+  route('store/:lang/_write/products/:product', 'routes/store-product-write.ts'),
 ] satisfies RouteConfig

@@ -10,9 +10,9 @@
 // The ported handlers (test/compare/domain/store/writes.ts) answer in the plain form, and this
 // file writes the other from it.
 //
-// The handlers are resource routes under /compare-store, since a route of React Router that has a
+// The handlers are resource routes under /store/<lang>/_write (under /store so that the cookies, whose path is /store, reach them), since a route of React Router that has a
 // page answers a POST or a PATCH to its URL with the page. The shop's URL /store/zh-CN/cart for the
-// PATCH of the cart becomes /compare-store/zh-CN/cart here (see overlay/runtime/call.ts).
+// PATCH of the cart becomes /store/zh-CN/_write/cart here (see overlay/runtime/call.ts).
 
 import { Ctx, NotFound, getMine } from '../../../domain/store/index.ts'
 

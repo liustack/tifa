@@ -1,7 +1,7 @@
 // The module the generated route.gen modules send their requests through: the browser's side of
 // tifa's runtime/call.ts for the storefront. A call sends the JSON of the input with the header
 // X-Tifa-Call and reads the answer the way tifa's does (see app/compare/store-wire.ts for the
-// server). The handlers are on /compare-store, since React Router answers a POST or a PATCH to the
+// server). The handlers are on /store/<lang>/_write (mine stays where it is), under /store so the cookies of the storefront reach them, since React Router answers a POST or a PATCH to the
 // URL of a page with the page. A redirect goes through React Router, as tifa's goes through its
 // router.
 
@@ -33,7 +33,7 @@ export async function call(method: string, path: string, options: CallOptions & 
     headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(options.input)
   }
-  const response = await fetch(path.replace(/^\/store\//, '/compare-store/'), init)
+  const response = await fetch(path.replace(/^(\/store\/[^/]+)\/(?!mine\b)/, '$1/_write/'), init)
   if (response.headers.has('X-Tifa-Redirect')) {
     const body = (await response.json()) as { redirect: string }
     const target = new URL(body.redirect, window.location.href)

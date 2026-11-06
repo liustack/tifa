@@ -69,7 +69,11 @@ func (v *storeVisitor) do(method, path string, call bool, body any, headers map[
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	// The cookies of the storefront have the path /store, so a browser sends them to no other URL.
 	for _, name := range names {
+		if !strings.HasPrefix(path, "/store") {
+			break
+		}
 		req.AddCookie(&http.Cookie{Name: name, Value: v.jar[name]})
 	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -349,7 +353,7 @@ func TestReactRouterStoreUnknownCartIsRefused(t *testing.T) {
 		v := &storeVisitor{base: base, jar: map[string]string{"store_cart": "forgotten"}}
 		path := "/store/zh-CN/checkout"
 		if i == 1 {
-			path = "/compare-store/zh-CN/checkout"
+			path = "/store/zh-CN/_write/checkout"
 		}
 		r, err := v.do("POST", path, true, map[string]any{
 			"email": "linxia@example.com", "delivery": "standard", "payment": "alipay", "billingSame": true, "terms": true,
@@ -400,7 +404,7 @@ func (v *storeVisitor) runStep(st compare.StoreStep, order string) (storeReply, 
 func storeVisitors(tifa, react *compare.Server) [2]*storeVisitor {
 	return [2]*storeVisitor{
 		{base: tifa.Base, write: func(p string) string { return p }, jar: map[string]string{}},
-		{base: react.Base, write: func(p string) string { return strings.Replace(p, "/store/", "/compare-store/", 1) }, jar: map[string]string{}},
+		{base: react.Base, write: reactRouterWrite, jar: map[string]string{}},
 	}
 }
 
@@ -472,4 +476,15 @@ func TestReactRouterStoreStatesShowTheSameText(t *testing.T) {
 			}
 		}
 	}
+}
+
+var writeURL = regexp.MustCompile(`^(/store/[^/]+)/`)
+
+// reactRouterWrite turns the URL of a handler of the shop into the one of the React Router app:
+// the same, with _write after the language, but for mine, which has no page on its URL.
+func reactRouterWrite(p string) string {
+	if regexp.MustCompile(`^/store/[^/]+/mine`).MatchString(p) {
+		return p
+	}
+	return writeURL.ReplaceAllString(p, "$1/_write/")
 }
