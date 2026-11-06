@@ -321,6 +321,7 @@ func TestStorefront(t *testing.T) {
 			t.Run("other requests", p.otherRequests)
 			t.Run("forms", p.forms)
 			t.Run("refused bodies", p.refused)
+			t.Run("cookies", p.cookies)
 			t.Run("writes with a call", func(t *testing.T) { p.writes(t, true) })
 			t.Run("writes without a call", func(t *testing.T) { p.writes(t, false) })
 		})
@@ -660,5 +661,42 @@ func (p *pair) refused(t *testing.T) {
 				t.Fatalf("%s: a refused write changed the cart.\nTifa before:\n%s\nafter:\n%s\n%s before:\n%s\nafter:\n%s", s.name, before[0], after[0], p.spec.label, before[1], after[1])
 			}
 		}
+	}
+}
+
+// cookieHeaders are Cookie headers that net/http reads in its own way: a name with spaces around
+// it, a value with a character it refuses, one in quotes, a bad cookie before a good one of the
+// same name, and more cookies than it reads.
+var cookieHeaders = []string{
+	"shop_seen =oak-tray",
+	"shop_seen= oak-tray",
+	"shop_seen=oak-tray.\\.ceramic-cup",
+	"shop_seen=oak-tray.\"ceramic-cup",
+	"shop_seen=\"oak-tray.ceramic-cup\"",
+	"shop_seen=\"oak-tray\\\"",
+	"shop_seen=\"\"oak-tray\"\"",
+	"shop_seen=\\; shop_seen=ceramic-cup",
+	"shop_seen=oak-tray; shop_seen=ceramic-cup",
+	"shop seen=oak-tray; shop_seen=ceramic-cup",
+	"shop_seen==oak-tray",
+	"shop_seen",
+	"=shop_seen=oak-tray",
+	";;shop_seen=oak-tray;;",
+	"\tshop_seen\t=\toak-tray\t",
+	"shop_seen=oak-tray;shop_seen=ceramic-cup",
+	"shop_seen=café",
+	"store_cart=nothing; shop_seen=oak-tray",
+	"store_cart =nothing; shop_seen=oak-tray",
+	strings.Repeat("a=1;", 3000) + "shop_seen=oak-tray",
+	strings.Repeat("a=1;", 2999) + "shop_seen=oak-tray",
+}
+
+// cookies: the products a visitor looked at come from the cookie shop_seen, read the way net/http
+// reads a Cookie header.
+func (p *pair) cookies(t *testing.T) {
+	q := p.fresh()
+	q.t = t
+	for _, h := range cookieHeaders {
+		q.both(fmt.Sprintf("cookie %q", h[:min(len(h), 60)]), request{method: "GET", path: zh + "/mine", noJar: true, header: http.Header{"Cookie": {h}}})
 	}
 }

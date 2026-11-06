@@ -12,20 +12,38 @@ export interface CookieSpec {
   sameSite?: 'Lax'
 }
 
+const maxCookies = 3000
+const space = /^[ \t\n\r]+|[ \t\n\r]+$/g
+const token = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+// readCookies reads a Cookie header as net/http's readCookies does. Pairs are split at ";" and
+// trimmed of spaces. The name, trimmed again, must be a token. A value may be in double quotes,
+// which are dropped, and every byte of it must be printable ASCII but not a quote, ";" or a
+// backslash. A pair that fails either is skipped, so the first valid cookie of a name wins. A
+// header of more than 3000 pairs is read as no cookies at all.
+export function readCookies(header: string): Array<[string, string]> {
+  if (header.split(';').length > maxCookies) return []
+  const out: Array<[string, string]> = []
+  for (const raw of header.replace(space, '').split(';')) {
+    const part = raw.replace(space, '')
+    if (part === '') continue
+    const eq = part.indexOf('=')
+    const name = (eq < 0 ? part : part.slice(0, eq)).replace(space, '')
+    if (!token.test(name)) continue
+    let value = eq < 0 ? '' : part.slice(eq + 1)
+    if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1)
+    if (![...value].every((ch) => ch >= ' ' && ch < '\x7f' && ch !== '"' && ch !== ';' && ch !== '\\')) continue
+    out.push([name, value])
+  }
+  return out
+}
+
 export class Ctx {
   private cookies = new Map<string, string>()
   setCookies: string[] = []
 
   constructor(cookieHeader?: string | null) {
-    // As net/http reads a Cookie header: pairs split at ";", the first of a name wins, a value
-    // in double quotes loses them.
-    for (const part of (cookieHeader ?? '').split(';')) {
-      const pair = part.trim()
-      const eq = pair.indexOf('=')
-      if (eq <= 0) continue
-      const name = pair.slice(0, eq)
-      let value = pair.slice(eq + 1)
-      if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1)
+    for (const [name, value] of readCookies(cookieHeader ?? '')) {
       if (!this.cookies.has(name)) this.cookies.set(name, value)
     }
   }
