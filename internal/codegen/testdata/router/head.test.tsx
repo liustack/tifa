@@ -10,7 +10,7 @@ import { setRouter } from './.tifa/runtime/call'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { POST } from './app/api/notes/note+/route.gen'
 import { browserErrorEvent, hydrate, rootOptions, takeOver } from './.tifa/runtime/browser'
-import { attributes, followHead, headHTML, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
+import { attributes, followHead, headHTML, headTags, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -138,6 +138,24 @@ const managed = () => fakeDocument.head.childNodes.filter((node): node is FakeEl
 const describe = (element: FakeElement) =>
   element.localName + element.attributes.map((a) => ` ${a.name}=${a.value}`).join('') + (element.textContent ? ` [${element.textContent}]` : '')
 const page = (head: { meta?: object[]; links?: object[]; styles?: object[]; headScripts?: object[] }) => [{ status: 'success', ...head }]
+
+test('a route keeps every meta of a name it writes, and a deeper route replaces them all', async () => {
+  const themes = [
+    { name: 'theme-color', content: '#fff', media: '(prefers-color-scheme: light)' },
+    { name: 'theme-color', content: '#000', media: '(prefers-color-scheme: dark)' },
+  ]
+  const images = [{ property: 'og:image', content: '/a.png' }, { property: 'og:image', content: '/b.png' }]
+  const meta = (matches: object[]) =>
+    headTags(matches as Parameters<typeof headTags>[0])
+      .filter((t) => t.tag === 'meta')
+      .map((t) => `${t.attrs.name ?? t.attrs.property}=${t.attrs.content}`)
+      .join(' ')
+  const kept = meta([...page({ meta: themes }), ...page({ meta: images })])
+  const want = 'viewport=width=device-width, initial-scale=1 theme-color=#fff theme-color=#000 og:image=/a.png og:image=/b.png'
+  assert(kept === want, `kept ${kept}\nwant ${want}`)
+  const replaced = meta([...page({ meta: themes }), ...page({ meta: [{ name: 'theme-color', content: '#123' }] })])
+  assert(replaced === 'viewport=width=device-width, initial-scale=1 theme-color=#123', `replaced ${replaced}`)
+})
 
 test('head attributes are the ones React DOM writes', async () => {
   const tags: Tag[] = [
