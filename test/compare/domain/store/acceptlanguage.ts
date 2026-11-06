@@ -13,11 +13,12 @@
 // written as the locale's (zh for zh-CN), then its region, then the first of the header (the entries
 // are sorted by weight, the first of equal weights first). A tag that matches exactly but for its
 // region stops tags of another language after it from taking the answer. TestStoreDomainMatchesGo
-// runs about 2,500 headers through both to keep this equal.
+// compares them with Go on many headers.
 //
-// What is not the same as in the package: a tag with several extensions or variants is read for
-// its validity but its extensions are not checked one by one, and a three letter region after a
-// script is not read.
+// Not ported: the matcher itself, whose answer for a single tag is read from the table, and its
+// last tie-breakers (the distance between region groups), which no header of the comparisons has
+// needed. About 10,000 headers, most of them generated from the grammar of a tag and of a weight with
+// parts cut and put in at random, keep the port equal to the package (TestStoreDomainMatchesGo).
 import { langCanonical, languages, matchClasses, matching, regionAlpha3, regions, scripts, variants } from './langdata.gen.ts'
 
 // grandfathered are the old tags that the package reads as a tag of today: the language and the region.
