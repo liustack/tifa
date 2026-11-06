@@ -264,6 +264,30 @@ func TestI18nApp(t *testing.T) {
 		if _, _, body := cacheSend(t, "GET", base+"/store/journal/ni-hao", ""); !strings.Contains(plain(body), `<a href="/en-US/store/journal/hello">en-US</a>`) {
 			t.Errorf("the switch of /store/journal/ni-hao: %.600s", body)
 		}
+		// A page with a prefix has the same links, and is its own canonical URL.
+		for path, links := range map[string][]string{
+			"/en-US/store?q=a": {
+				`<link rel="alternate" hreflang="zh-CN" href="` + site + `/store">` +
+					`<link rel="alternate" hreflang="en-US" href="` + site + `/en-US/store">` +
+					`<link rel="alternate" hreflang="x-default" href="` + site + `/store">` +
+					`<link rel="canonical" href="` + site + `/en-US/store">`,
+			},
+			"/en-US/store/journal/hello": {
+				`<link rel="alternate" hreflang="zh-CN" href="` + site + `/store/journal/ni-hao">`,
+				`<link rel="alternate" hreflang="en-US" href="` + site + `/en-US/store/journal/hello">`,
+				`<link rel="canonical" href="` + site + `/en-US/store/journal/hello">`,
+			},
+		} {
+			head, _ := headOf(t, path, 200)
+			for _, link := range links {
+				if !strings.Contains(head, link) {
+					t.Errorf("the head of %s lacks %s:\n%s", path, link, head)
+				}
+			}
+		}
+		if _, _, body := cacheSend(t, "GET", base+"/en-US/store/journal/hello", ""); !strings.Contains(plain(body), `<a href="/store/journal/ni-hao">zh-CN</a>`) {
+			t.Errorf("the switch of /en-US/store/journal/hello: %.600s", body)
+		}
 		// An entry in one language has one version, and a page outside every area, a page that is not
 		// found and one that is not an entry have none.
 		for path, status := range map[string]int{"/store/journal/only-zh": 200, "/projects": 200, "/store/zzz": 404, "/store/journal/nope": 404} {
@@ -630,6 +654,17 @@ func TestI18nInBrowser(t *testing.T) {
 	if out := network(); strings.Contains(out, "/projects?_tifa=") {
 		t.Errorf("a preload of a page outside the language:\n%s", out)
 	}
+
+	// The versions a Load set reach the head and the language switch after a navigation in en-US.
+	click("to-entry")
+	shows("/en-US/store/journal/hello", "entry hello", true)
+	versions := `() => [...document.querySelectorAll('head link[hreflang], main nav a')].map((e) => (e.getAttribute('hreflang') ?? e.textContent) + ' ' + e.getAttribute('href')).join('|')`
+	waitFor(t, "the versions of the entry", func() bool { return strings.Contains(eval(versions).(string), "/store/journal/ni-hao") })
+	if got := eval(versions).(string); got != "zh-CN https://i18n.example.com/store/journal/ni-hao|en-US https://i18n.example.com/en-US/store/journal/hello|x-default https://i18n.example.com/store/journal/ni-hao|zh-CN /store/journal/ni-hao|en-US /en-US/store/journal/hello" {
+		t.Errorf("the versions of /en-US/store/journal/hello: %s", got)
+	}
+	pw("go-back")
+	shows("/en-US/store", "store go=en-US", true)
 
 	// A link to a page outside every area loads a document, without a prefix.
 	click("to-projects")
