@@ -166,6 +166,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := checkLangAttribute(p.root, m, p.front.LangKeys); err != nil {
+		return "", err
+	}
 	settings, err := codegen.BuildSettings(p.root)
 	if err != nil {
 		return "", err
@@ -238,6 +241,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	}
 	files, err := codegen.Generate(p.root, p.m, true, p.front.Exports)
 	if err != nil {
+		return "", err
+	}
+	if err := checkLangAttribute(p.root, p.m, p.front.LangKeys); err != nil {
 		return "", err
 	}
 	if !maps.EqualFunc(files, p.files, bytes.Equal) {
