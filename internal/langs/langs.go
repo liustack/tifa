@@ -91,7 +91,7 @@ func Site(root string) []string {
 				}
 			}
 			return filepath.SkipDir
-		case d.Name() == "node_modules" || strings.HasPrefix(d.Name(), ".") && path != root:
+		case path != filepath.Join(root, "app") && SkippedName(d.Name()):
 			return filepath.SkipDir
 		}
 		return nil
@@ -110,4 +110,23 @@ func Site(root string) []string {
 		}
 	}
 	return Order(all, def)
+}
+
+// SkippedName reports whether a folder of app/ with this name holds no area: the go command skips
+// folders that start with . or _ (the _locales folder itself is looked at before this), and
+// node_modules is not the app's. tifa build and tifa.Languages both use it, so they find the
+// same _locales folders.
+func SkippedName(name string) bool {
+	return name == "node_modules" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
+}
+
+// Hidden reports whether any folder in the path rel, the folders between app/ and a _locales
+// folder with forward slashes, is skipped.
+func Hidden(rel string) bool {
+	for _, name := range strings.Split(rel, "/") {
+		if name != "" && name != "." && SkippedName(name) {
+			return true
+		}
+	}
+	return false
 }

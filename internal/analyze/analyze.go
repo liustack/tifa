@@ -176,8 +176,15 @@ func (a *analyzer) scan() error {
 		}
 		name := d.Name()
 		if d.IsDir() && name == langs.Dir {
-			if err := a.readLocales(path, a.id(path)); err != nil {
+			parent, err := filepath.Rel(appDir, filepath.Dir(path))
+			if err != nil {
 				return err
+			}
+			// The folders the go command skips hold no area, as for tifa.Languages.
+			if !langs.Hidden(filepath.ToSlash(parent)) {
+				if err := a.readLocales(path, a.id(path)); err != nil {
+					return err
+				}
 			}
 			return filepath.SkipDir
 		}

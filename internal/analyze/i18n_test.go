@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"github.com/liustack/tifa/internal/langs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -262,5 +263,27 @@ func TestContentWithoutLanguagesOnASiteWithout(t *testing.T) {
 	}
 	if got := m.Content.Collections[0].Languages; len(got) != 0 {
 		t.Errorf("Languages = %v", got)
+	}
+}
+
+// Folders the go command skips hold no area, for tifa build and for tifa.Languages alike.
+func TestHiddenLocalesAreNoArea(t *testing.T) {
+	root := i18nApp(t, map[string]string{
+		"app/_locales/zh-CN.json":               "{}",
+		"app/page.tsx":                          page,
+		"app/.archive/_locales/zh-CN.json":      "{}",
+		"app/.archive/_locales/fr.json":         "{}",
+		"app/_old/x/_locales/de.json":           "{}",
+		"app/node_modules/pkg/_locales/ja.json": "{}",
+	})
+	m, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"zh-CN"}; !reflect.DeepEqual(m.I18n.Languages, want) || len(m.I18n.Areas) != 1 {
+		t.Errorf("I18n = %+v, want only zh-CN", m.I18n)
+	}
+	if got := langs.Site(root); !reflect.DeepEqual(got, m.I18n.Languages) {
+		t.Errorf("tifa.Languages reads %v, tifa build %v", got, m.I18n.Languages)
 	}
 }
