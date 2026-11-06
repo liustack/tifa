@@ -262,7 +262,7 @@ go tool tifa build
 | `server.ts`, `client.ts` | The SSR entry and the browser entry. Under `tifa dev`, the browser entry also imports `runtime/dev-client.js` |
 | `tsconfig.json` | See below |
 | `vite.js`, `vite.d.ts`, `vite/plugin.js` | The Vite plugins of Tifa for `vite.config.ts`, see below. `vite/plugin.js` is a copy of the repository's `js/vite/plugin.js` |
-| `runtime/` | An exact copy of the repository's `js/runtime/` |
+| `runtime/` | A copy of the repository's `js/runtime/`. `i18n.tsx` and `locales.d.ts`, the [i18next adapter](#the-i18next-adapter), are there only for an app with a `_locales` folder |
 | `content/` | For an app with content collections: `entries.json`, the entries `tifa build` hands the Vite plugin to turn into HTML (the Markdown with the front matter left as empty lines, where the body goes, and the folder of the version in the default language), and `headings.json`, the headings the plugin found in each body, which go into `dist/content.json`. See [Content](content.md#markdown-to-html) |
 | `dist/` | Frontend output, see below |
 
@@ -279,7 +279,7 @@ An app without pages (no `page.tsx` at all) generates only Go files, and `dist/`
 | `dist/content.json` | For an app with content collections: the entries of every collection that are not drafts, with the fields of `content.Entry`, the translation key, the file of the body and its headings, and the front matter as JSON. The program reads it before `OnStart`, see [Content](content.md) |
 | `dist/content/` | The body of each entry as HTML, `<collection>/<lang>/<ID>.html` (without the language folder for a collection without languages). `entry.Body()` reads the file. The server does not serve it, and the build writes no `.gz` for it. The files a body refers to are in `dist/assets/` |
 | `dist/build.json` | `{buildId, head, preload, public}`. `head` is the HTML that loads the browser bundle, taken from Vite's manifest: the stylesheet, a `modulepreload` link for each chunk the entry imports, and the entry script. `preload` lists the files each route module needs beyond `head`, see [Preloading the chunks of a page](#preloading-the-chunks-of-a-page). The build ID is a hash of every other file in `dist/` but `inputs.json` (names included). File names and contents each carry a length prefix, so different file trees cannot produce the same bytes. The same input gives the same ID. `public` is the content hash of each file of `dist/public/` by its path there, the first 16 bytes of its SHA-256 in hex, absent without public files and under `tifa dev` |
-| `dist/inputs.json` | What the build was made from: the first 16 bytes of the SHA-256 of each file, in hex, by its path relative to the application root. The files are the modules of the SSR bundle and of the browser bundle outside `node_modules` (pages, Layouts, components, also those that render only in the browser, stylesheets and the generated modules in `.tifa/`), and the files a Vite plugin says the build depends on, such as a stylesheet that another one imports and the files Tailwind scans for class names, and the local files the Vite config imports. When the build cannot read that list from Rolldown, it still succeeds with a warning, and `inputs.json` says the list is incomplete and why (`incomplete`, with the Rolldown version), so `tifatest.StartPages` fails with that reason until Tifa is upgraded. Under `tifa dev` the browser gets its modules from Vite, so only those of the SSR bundle are listed, `package.json`, the lock file, the Vite config, `tsconfig.json`, `tifa.yaml`, the public files and the files of `content/`. It also lists the public directory and `content/`, so a file added to either since the build counts as changed, as does a project file that appears. `tifa build` and `tifa dev` write it, the build ID leaves it out, and `tifatest.StartPages` compares it with the files as they are to fail a test whose front end is older than its sources (see [Testing](app.md#testing)) |
+| `dist/inputs.json` | What the build was made from: the first 16 bytes of the SHA-256 of each file, in hex, by its path relative to the application root. The files are the modules of the SSR bundle and of the browser bundle outside `node_modules` (pages, Layouts, components, also those that render only in the browser, stylesheets and the generated modules in `.tifa/`), and the files a Vite plugin says the build depends on, such as a stylesheet that another one imports and the files Tailwind scans for class names, and the local files the Vite config imports. When the build cannot read that list from Rolldown, it still succeeds with a warning, and `inputs.json` says the list is incomplete and why (`incomplete`, with the Rolldown version), so `tifatest.StartPages` fails with that reason until Tifa is upgraded. Under `tifa dev` the browser gets its modules from Vite, so only those of the SSR bundle are listed, `package.json`, the lock file, the Vite config, `tsconfig.json`, `tifa.yaml`, the public files and the files of `content/`. It also lists the public directory and `content/`, so a file added to either since the build counts as changed, as does a project file that appears. The same holds for the files of every `_locales` folder of `app/`, also in a folder that is new since the build, and `inputs.json` lists the ones the build read. `tifa build` and `tifa dev` write it, the build ID leaves it out, and `tifatest.StartPages` compares it with the files as they are to fail a test whose front end is older than its sources (see [Testing](app.md#testing)) |
 
 The SSR bundle starts by importing `runtime/host.js`, which adds what QuickJS lacks: `URL`, `TextEncoder`/`TextDecoder`, `AbortController`, `Headers`, `Response`, `queueMicrotask`, `atob`, `btoa`, `DOMException`, `structuredClone`, `crypto.getRandomValues`, `crypto.randomUUID`, `AsyncLocalStorage` and a `console` that prints nothing and throws on `error`. Before running bundle modules, the SSR loader registers Go functions for fresh random bytes and for the async context of the engine, an object that promise jobs carry, in which `AsyncLocalStorage` keeps its stores. `crypto` and `AsyncLocalStorage` are therefore ready for dependencies that use them at module load time. Cloning runs entirely in JS, using intrinsic brand checks and `Error.isError`, without reading private engine fields. It does not provide `crypto.subtle`, `fetch` or `Request`. [What the server render has](app.md#what-the-server-render-has) lists everything a page finds there. This script is prebundled from `js/host/host.ts` by `go generate ./js` and checked in. Its dependency versions are locked in `js/host/package.json` and `pnpm-lock.yaml`. To upgrade, run `pnpm install --frozen-lockfile` in `js/host` (or `pnpm install` after changing versions), then `go generate ./js`. `TestHostScriptIsUpToDate` in `internal/bundle` checks that the regenerated result matches the checked-in file, and skips when `js/host/node_modules` does not exist. So apps do not need to install these polyfill packages. `abort-controller` and its dependency `event-target-shim` are patched (`js/host/patches`, registered in `js/host/pnpm-workspace.yaml`): each object keeps its internal state in a symbol property on the object itself instead of a WeakMap. The property is defined once when the object is created and never redefined, so cancellation still works when the app seals or freezes a signal (`TestHostScriptAbortsFrozenSignals`). The only state that changes later, the signal's aborted flag, lives in a box, and only the value in the box changes. The rest of the state is not boxed: boxing every piece of state adds about 1.5 ms to P99. QuickJS needs several GC rounds to collect dead cycles that pass through WeakMap values, and some cycles are never collected. So the routes, AbortControllers and listeners left by each render waited several GC rounds, and the VM heap grew. With properties, one GC collects them all at once, and `TestHostScriptFreesDeadAbortSignalsInOneCollection` guards this.
 
@@ -436,7 +436,8 @@ An app with pages has these two files in its root. `tifa new` writes them:
   "compilerOptions": {
     "paths": {
       "@/*": ["./*"],
-      "tifa/client": ["./.tifa/runtime/client.ts"]
+      "tifa/client": ["./.tifa/runtime/client.ts"],
+      "tifa/i18n": ["./.tifa/runtime/i18n.tsx"]
     }
   },
   "include": ["**/*", ".tifa/**/*"]
@@ -466,6 +467,49 @@ The app's `package.json` needs React, React DOM and TanStack Router, and as dev 
 TanStack Router must be the version this Tifa is tested with: the `@tanstack/react-router` that `tifa new` writes into `package.json`, with the `@tanstack/router-core` it installs. Tifa hands page data to the browser through an option of TanStack Router that is not documented outside TanStack Start (see [Data protocol](#data-protocol)), and another version may stop reading it in the browser. Then every page with object data stays blank. So `tifa build` and `tifa dev` read the installed versions of both packages, the way Node resolves them, and stop with an error that names the installed and the tested versions. To move to a newer TanStack Router, upgrade Tifa. To build with another version anyway, at your own risk, set `build.skip_tanstack_check: true` in `tifa.yaml` (see [config.md](config.md)). An app without pages is not checked.
 
 React and React DOM must be 19.3.0 or later. The Vite plugin rewrites the string renderer of React DOM as 19.3 writes it (see [Frontend output](#frontend-output)), so `tifa build` and `tifa dev` read the installed versions of `react` and `react-dom` the same way and stop with an error that names the version to install. A prerelease of 19.3.0, such as a canary, counts as older. An app without pages is not checked.
+
+## The i18next adapter
+
+`tifa/i18n` is the official i18next adapter. It bundles the translation files of the app, makes one i18next instance for each language and gives pages the usual react-i18next hooks. The app installs `i18next` and `react-i18next` itself, and its tsconfig has `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]` in `paths`. Tifa writes `runtime/i18n.tsx` only for an app with a `_locales` folder, because TypeScript checks all of `.tifa/` and an app without translations has no i18next to import.
+
+Strings live in `_locales/<language>.json` in the folders of `app/`. A `<language>.draft.json` is not published, and no other file in the folder counts. The namespace of a folder is its path relative to `app/`: `app/store/_locales` is `store`, `app/admin/store/_locales` is `admin/store`, and `app/_locales` is the default namespace. The Vite plugin turns the files into one module, so the server render and the browser have every string and nothing is fetched.
+
+```tsx
+// app/store/cart/page.tsx
+import { useTranslation } from 'tifa/i18n'
+
+export default function Page() {
+  const { t } = useTranslation('store')
+  return <h1>{t('cart.title')}</h1>
+}
+```
+
+```tsx
+// app/layout.tsx: the provider reads the language of the page from useLanguage() of tifa/client
+import { I18nProvider, setupI18n } from 'tifa/i18n'
+
+setupI18n((i18n, language) => {
+  i18n.services.formatter?.addCached('currency', (lng, options) => {
+    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+    return (value) => f.format(value)
+  })
+})
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  return <I18nProvider>{children}</I18nProvider>
+}
+```
+
+| Export | What it does |
+| --- | --- |
+| `I18nProvider` | Gives its children the instance of `useLanguage()` |
+| `useTranslation`, `Trans` | The ones of react-i18next, unchanged |
+| `i18nFor(language)` | The instance of a language, for code outside components such as a page title. Made on first use and kept, so every render in the process shares it |
+| `setupI18n(fn)` | Sets `fn(i18n, language)`, which runs once for each instance right after `init`, for formatters. It must run before the first instance exists and throws after that |
+
+An instance has only the strings of its language, `fallbackLng: false`, `load: 'currentOnly'`, `initAsync: false` (it is ready when `init` returns, so the first render has every string) and `interpolation.escapeValue: false` (React escapes). A key with no string gives the key, as i18next does. An area with no strings in a language has none in it.
+
+The adapter works with [`build.i18next_cache`](#i18next-cache). A formatter added with `addCached` or `add` in `setupI18n` runs app code, so the cache does not keep the calls that use it. Use the formatters i18next has built in (`number`, `currency`, `datetime`, `relativetime`, `list`) with the options in the string or the call where a result can be kept.
 
 ## Data protocol
 

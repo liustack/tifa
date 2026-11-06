@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/liustack/tifa/internal/langs"
 	"io"
 	"io/fs"
 	"os"
@@ -122,13 +123,38 @@ func under(dir, file string) (string, bool) {
 }
 
 // scanInputs returns the inputs of the app at root that are not modules: the files of
-// projectFiles that exist and every file under dirs, which are relative to root.
+// projectFiles that exist, the files of the _locales folders of app/ and every file under dirs, which are relative to root.
 func scanInputs(root string, dirs []string) ([]string, error) {
 	var paths []string
 	for _, name := range projectFiles {
 		if info, err := os.Stat(filepath.Join(root, name)); err == nil && info.Mode().IsRegular() {
 			paths = append(paths, name)
 		}
+	}
+	// The files of every _locales folder of app/, a folder that appeared since the build too.
+	locales := filepath.Join(root, "app")
+	err := filepath.WalkDir(locales, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) && path == locales {
+				return fs.SkipDir
+			}
+			return err
+		}
+		// The folders that hold no area for tifa build hold none here either.
+		if d.IsDir() && path != locales && d.Name() != "_locales" && langs.SkippedName(d.Name()) {
+			return fs.SkipDir
+		}
+		if d.Type().IsRegular() && filepath.Base(filepath.Dir(path)) == "_locales" {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			paths = append(paths, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	for _, rel := range dirs {
 		dir := filepath.Join(root, filepath.FromSlash(rel))

@@ -367,7 +367,7 @@ const ops = {
   },
 
   async script({ dir, file, plugin, format }) {
-    const { ssrEnvironment, ssrPlugin } = await import(pathToFileURL(plugin).href)
+    const { localesPlugin, ssrEnvironment, ssrPlugin } = await import(pathToFileURL(plugin).href)
     const env = ssrEnvironment(path.resolve(dir, file), path.join(dir, 'out'))
     if (format) env.build.rolldownOptions.output.format = format
     const builder = await vite.createBuilder({
@@ -375,7 +375,7 @@ const ops = {
       configFile: false,
       logLevel: 'warn',
       customLogger: logger,
-      plugins: [ssrPlugin(() => fs.realpathSync(dir), async () => vite)],
+      plugins: [ssrPlugin(() => fs.realpathSync(dir), async () => vite), localesPlugin(() => fs.realpathSync(dir))],
       environments: {
         ssr: {
           ...env,
