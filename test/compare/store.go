@@ -723,7 +723,19 @@ func StoreAcceptLanguages() []string {
 		"en-US-u-ca-gregory", "en-u-ca", "en-a-b", "en-a-bb", "en-valencia", "ca-valencia", "en-posix", "en-1994", "zh-x-private", "en-t-zh", "en-US-x-a", "en-US-x",
 		"en-GB-oed", "i-klingon", "i-default", "art-lojban", "zh-min-nan", "zh-guoyu", "en-419", "es-419", "en-001", "en-150", "zh-CN-u-nu-hanidec", "en-840", "en-USA",
 		"en-Latn-USA", "en-t-xx", "en;q=1e999", "en;q=+nan", "en;q=-nan", "en;q=0x1__0p0", "en;q=0x1p1_",
+		"en,zh;q=0x0p1024", "en;q=0x1" + strings.Repeat("0", 256) + "p-1024", "en,zh;q=0x0p99999", "en,zh;q=0x0.0p1", "zh,en;q=0x0p-99999",
+		"en,zh;q=0x" + strings.Repeat("f", 40) + "p-160", "en,zh;q=0x" + strings.Repeat("0", 300) + "1p0", "en,zh;q=0x1" + strings.Repeat("0", 300) + "p-1200",
 		"1", "123", "abcdefghi", "abcdefgh", "en-abcdefghi", "en\ttab", "en-US,", "en;q=0.5,", "ZH-HANS", "ZH-HANT-HK", "zH_hAnS_cN",
+	}
+	// Hexadecimal and decimal weights at the edges of a float32: the largest, the smallest, a tie that
+	// rounds to even, one past the largest, and a mantissa and an exponent that are out of range alone but not together.
+	for _, w := range []string{
+		"0x1p127", "0x1p128", "0x1.fffffep127", "0x1.ffffffp127", "0x1.fffff8p127", "0x1.fffffe0000001p127", "0x1p-126", "0x1p-149", "0x1p-150", "0x1.8p-150", "0x1.0000001p-150", "0x1p-151", "0x1p-1074", "0x1p-1075",
+		"0x.8p1", "0x8p-3", "0x8.p-3", "0x.p1", "0x1P+1", "0X1p1", "0x1p+", "0x1p", "0x_1p0", "0x1_0p0", "0x1p_1", "0x1p1_0", "0x1__0p0", "0x1p1_",
+		"3.4028235e38", "3.4028236e38", "3.40282356779733661637539395458142568447e38", "3.4028235677973366e38", "1e38", "1e39", "1e-45", "1e-46", "7e-46", "1.4e-45", "0e999999", "1e99999999999", "0.000000000000000000000000000000000000000000001",
+		"inf", "Infinity", "-Infinity", "infinit", "+inf", "nan", "NAN", "-nan", "+nan",
+	} {
+		out = append(out, "en;q="+w+",zh;q=0.5", "zh,en;q="+w)
 	}
 	vocabulary := []string{"en", "en-US", "en-GB", "en-AU", "zh", "zh-CN", "zh-TW", "zh-HK", "zh-Hans", "zh-Hant", "zh-Hant-TW", "yue", "fr", "fr-CA", "de", "ja", "ko", "es-MX", "pt-BR", "ru", "ar", "hi", "zu", "af", "und", "*", "no", "sr-Latn", "ja-Latn", "en-Cyrl", "xx", "yue-HK", "cmn", "zh-cmn", "zh-Hant-HK", "zh-Latn", "en-Latn-US", "en-Hans", "nb-NO", "iw", "en-GB-x-a", "pt-PT", "en-SG", "zh-Hans-SG"}
 	weights := []string{"", ";q=1", ";q=0.9", ";q=0.5", ";q=0.1", ";q=0", ";q=0.9999", ";q=2"}

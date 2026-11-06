@@ -231,18 +231,70 @@ function parseFloat32(s: string): number | undefined {
   if (i !== s.length) return undefined
   if (hex && !sawExponent) return undefined
   if (underscores && !underscoreOK(s)) return undefined
-  let value: number
-  if (hex) {
-    const all = mantissa + fraction
-    value = (all === '' ? 0 : parseInt(all, 16)) * 2 ** (exponent - 4 * fraction.length)
-  } else {
-    value = Number(`${mantissa || '0'}.${fraction || '0'}e${exponent}`)
-  }
-  if (negative) value = -value
-  const f = Math.fround(value)
+  let value: number | undefined
+  if (hex) value = hexToFloat32(mantissa + fraction, exponent - 4 * fraction.length)
+  else value = decimalToFloat32(mantissa + fraction, exponent - fraction.length)
   // A number that is not zero or infinite in the text and is infinite as a float32 is out of range.
-  if (!Number.isFinite(f)) return undefined
-  return f
+  if (value === undefined || !Number.isFinite(value)) return undefined
+  return negative ? -value : value
+}
+
+/**
+ * hexToFloat32 is the float32 nearest to digits (hexadecimal, a mantissa) times 2 to the power
+ * exponent, ties to even, or undefined where it is too large for a float32. The mantissa and the
+ * exponent are joined in a BigInt and rounded once, so that neither one alone being out of the range
+ * of a double matters: 0x0p1024 is 0, and 0x1 followed by 256 zeros and p-1024 is 1.
+ */
+function hexToFloat32(digits: string, exponent: number): number | undefined {
+  return roundFloat32(digits === '' ? 0n : BigInt('0x' + digits), exponent)
+}
+
+/**
+ * decimalToFloat32 is the float32 nearest to digits (decimal) times 10 to the power exponent, or
+ * undefined where it is too large. It is not Math.fround(Number(text)), which rounds twice and
+ * turns a number just below the middle of two float32 into the middle of them, and then up.
+ */
+function decimalToFloat32(digits: string, exponent: number): number | undefined {
+  const trimmed = digits.replace(/^0+/, '')
+  if (trimmed === '') return 0
+  // Far above the largest float32 (3.4e38) or far below half the smallest (7e-46).
+  const magnitude = trimmed.length + exponent
+  if (magnitude > 40) return undefined
+  if (magnitude < -50) return 0
+  const n = BigInt(trimmed)
+  if (exponent >= 0) return roundFloat32(n * 10n ** BigInt(exponent), 0)
+  // n over 10^k, as a binary number with 30 bits at least and one more bit that says the rest is not zero.
+  const divisor = 10n ** BigInt(-exponent)
+  const shift = Math.max(0, divisor.toString(2).length + 30 - n.toString(2).length)
+  const scaled = n << BigInt(shift)
+  const quotient = scaled / divisor
+  const sticky = scaled % divisor === 0n ? 0n : 1n
+  return roundFloat32((quotient << 1n) | sticky, -shift - 1)
+}
+
+/** roundFloat32 is the float32 nearest to mantissa times 2 to the power exponent, ties to even, or undefined where it is too large. */
+function roundFloat32(mantissa: bigint, exponent: number): number | undefined {
+  if (mantissa === 0n) return 0
+  const length = mantissa.toString(2).length
+  // The value is below 2 to the power top. A float32 keeps 24 bits from 2^-126 up, fewer below it
+  // (the subnormals, down to 2^-149).
+  const top = length + exponent
+  if (top > 128) return undefined
+  const bits = top - 1 >= -126 ? 24 : top + 149
+  if (bits < 0) return 0
+  const shift = length - bits
+  let kept = mantissa
+  let scale = exponent
+  if (shift > 0) {
+    const s = BigInt(shift)
+    kept = mantissa >> s
+    const rest = mantissa & ((1n << s) - 1n)
+    const half = 1n << (s - 1n)
+    if (rest > half || (rest === half && (kept & 1n) === 1n)) kept += 1n
+    scale += shift
+  }
+  const result = Number(kept) * 2 ** scale
+  return result >= 2 ** 128 ? undefined : result
 }
 
 /** underscoreOK is the check of strconv: an underscore sits between digits, or after a base prefix. */
