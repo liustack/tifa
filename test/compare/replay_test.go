@@ -2,9 +2,13 @@ package compare
 
 import (
 	"context"
+	"encoding/json/v2"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,7 +59,7 @@ func newTestReplayer(base string, sc BrowseScenario, traces ...Trace) *replayer 
 		r.traces[i] = tr
 		r.plans = append(r.plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}}})
 	}
-	r.res = LoadResult{Renders: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
+	r.res = LoadResult{Renders: map[string]int{}, Responses: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
 	r.t0.Store(1)
 	return r
 }
@@ -189,5 +193,151 @@ func TestReplayDoesNotDeadlockOnRequestsOfTheSameMillisecond(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("the visit never ended: requests of the same millisecond wait for each other")
+	}
+}
+
+func TestRoundsFailByTheRuleOfTheSearchAndStepDownToTheNextPassingStep(t *testing.T) {
+	run := func(doc, nav float64, errs int) BrowseRun {
+		return BrowseRun{Load: &LoadResult{Visits: 1, Errors: errs, Types: map[string]TypeStat{"doc": {P99: doc}, "nav": {P99: nav}}}}
+	}
+	if got := RoundsFail([]BrowseRun{run(900, 950, 0), run(100, 100, 0)}); got != "" {
+		t.Errorf("passing rounds fail: %q", got)
+	}
+	got := RoundsFail([]BrowseRun{run(900, 1079, 0), run(1006, 951, 0), run(1, 1, 2)})
+	for _, want := range []string{"2 errors", "full load P99 up to 1006", "navigation P99 up to 1079"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q lacks %q", got, want)
+		}
+	}
+	curve := []CurvePoint{{Users: 1, Pass: true}, {Users: 2, Pass: true}, {Users: 4, Pass: false}, {Users: 8, Pass: true}, {Users: 16, Pass: true}}
+	if StepDown(curve, 16) != 8 || StepDown(curve, 8) != 2 || StepDown(curve, 1) != 0 {
+		t.Errorf("step down: %d %d %d", StepDown(curve, 16), StepDown(curve, 8), StepDown(curve, 1))
+	}
+}
+
+func TestCurveEndSaysCapDropOrPlateau(t *testing.T) {
+	up := []CurvePoint{{Users: 32, VisitsPerS: 100, Pass: true}, {Users: 64, VisitsPerS: 150, Pass: true}}
+	if got := CurveEnd(up, 64); !strings.Contains(got, "cap reached") {
+		t.Errorf("%q", got)
+	}
+	down := []CurvePoint{{Users: 32, VisitsPerS: 1066, Pass: true}, {Users: 64, VisitsPerS: 1052, Pass: true}}
+	if got := CurveEnd(down, 64); !strings.Contains(got, "fell") || strings.Contains(got, "cap") {
+		t.Errorf("%q", got)
+	}
+	if got := CurveEnd([]CurvePoint{{Users: 4, VisitsPerS: 1, Pass: true}, {Users: 8, VisitsPerS: 1.01, Pass: true}}, 64); !strings.Contains(got, "plateau at 8") {
+		t.Errorf("%q", got)
+	}
+}
+
+func TestTraceCheckCountsHTMLToDataRequestsAndReloadHeaders(t *testing.T) {
+	c := NewTraceCheck("Next.js", "baseline", &LoadResult{Users: 8, Requests: 10, Responses: map[string]int{
+		"doc 200 text/html": 3, "nav 200 text/x-component": 5, "prefetch 200 text/html": 1, "nav 307 -": 1, "reload-document header": 2,
+	}})
+	if c.HTMLToData != 1 || c.NotOK != 1 || c.ReloadHeaders != 2 {
+		t.Errorf("%+v", c)
+	}
+	if s := c.Summary(); !strings.Contains(s, "nav 200 text/x-component x5") || !strings.Contains(s, "HTML answers to data requests: 1") {
+		t.Errorf("%s", s)
+	}
+}
+
+func TestAServerThatHangsFailsTheStepInsteadOfPassingWithNothing(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{{Method: "GET", URL: "/p", Class: "doc", End: 1}}}}}
+	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr, tr)
+	res, err := r.RunLoad(context.Background(), 2, 50*time.Millisecond, 1200*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Visits != 0 || res.Errors != 0 || res.OpenRequests != 2 || res.OpenOldestMs < 1000 {
+		t.Fatalf("visits %d, errors %d, %d requests open for %.0f ms", res.Visits, res.Errors, res.OpenRequests, res.OpenOldestMs)
+	}
+	p := CurvePoint{Users: 2, Visits: res.Visits, OpenOldest: res.OpenOldestMs}
+	if p.why() == "" {
+		t.Error("a step in which nothing completed passes")
+	}
+	if got := RoundsFail([]BrowseRun{{Load: res}}); !strings.Contains(got, "no visit") || !strings.Contains(got, "waited") {
+		t.Errorf("rounds: %q", got)
+	}
+	// Open requests alone fail a step too: visits completed, but one has waited over a second.
+	if (CurvePoint{Visits: 5, OpenOldest: 1500}).why() == "" {
+		t.Error("a request open for 1.5 s passes")
+	}
+}
+
+func TestAFailedPrefetchFailsTheVisit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/pf") {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{
+		{Method: "GET", URL: "/p", Class: "doc", Start: 0, End: 2},
+		{Method: "GET", URL: "/pf", Class: "prefetch", Start: 3, End: 5, Headers: map[string]string{"rsc": "1"}},
+	}}}}
+	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
+	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("a visit whose prefetch answered 500 ended with %v", err)
+	}
+	if r.res.Visits != 0 {
+		t.Error("the visit counted")
+	}
+}
+
+func TestNavigationTimeIncludesTheWaitBeforeItsFirstRequest(t *testing.T) {
+	srv, _ := fakeApp(t)
+	// The navigation request starts in the browser after a slow prefetch has finished, so it waits for it.
+	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{
+		{Method: "GET", URL: "/slow-pf", Class: "prefetch", Start: 0, End: 10, Headers: map[string]string{"rsc": "1"}},
+		{Method: "GET", URL: "/n", Class: "nav", Start: 20, End: 25, Headers: map[string]string{"rsc": "1"}},
+	}}
+	tr := Trace{Steps: []TraceStep{step}}
+	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
+	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
+		t.Fatal(err)
+	}
+	if nav := r.res.lat["nav"]; len(nav) != 1 || nav[0] < 30 {
+		t.Errorf("navigation latencies %v: the 30 ms wait for the prefetch is missing", nav)
+	}
+}
+
+func TestOnlyPlansWithATraceForEveryServerAreReplayed(t *testing.T) {
+	dir := t.TempDir()
+	var plans []Plan
+	for i := range 150 {
+		plans = append(plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}}})
+	}
+	data, _ := json.Marshal(plans)
+	os.WriteFile(PlansPath(dir, 4), data, 0o644)
+	write := func(spec string, skip map[int]bool) {
+		var b strings.Builder
+		for i := range 150 {
+			if skip[i] {
+				continue
+			}
+			fmt.Fprintf(&b, `{"plan":%d,"steps":[{"kind":"load","page":"/projects/studio","reqs":[{"method":"GET","url":"/projects/studio","s":0,"e":1,"status":200,"class":"doc"}]}]}`+"\n", i)
+		}
+		os.WriteFile(filepath.Join(dir, spec+"-m4.jsonl"), []byte(b.String()), 0o644)
+	}
+	write("a", map[int]bool{3: true})
+	write("b", map[int]bool{7: true, 9: true})
+	specs := []Spec{{Target: Target{Name: "a"}}, {Target: Target{Name: "b"}}}
+	sets, common, err := loadSets(dir, specs, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if common != 147 || len(sets["a"].traces) != 147 || len(sets["b"].traces) != 147 {
+		t.Errorf("common %d, a %d, b %d", common, len(sets["a"].traces), len(sets["b"].traces))
+	}
+	for _, id := range []int{3, 7, 9} {
+		if _, ok := sets["a"].traces[id]; ok {
+			t.Errorf("a still replays plan %d, which b has no trace for", id)
+		}
 	}
 }

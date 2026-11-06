@@ -66,8 +66,10 @@ func (r *Record) browseMarkdown() string {
 				return total
 			}
 			p99 := func(kind string) string {
-				if n(kind) < minP99*len(runs) {
-					return "-"
+				for _, run := range runs {
+					if run.Load.Types[kind].N < minP99 {
+						return "-" // a round with too few samples has no P99, and a median over it would mislead
+					}
 				}
 				return fmtCell(typ(kind, func(t TypeStat) float64 { return t.P99 }), "%.0f")
 			}
@@ -89,7 +91,21 @@ func (r *Record) browseMarkdown() string {
 				fmtCell(per(func(l *LoadResult) float64 { return l.PeakRSS }), "%.0f"),
 				fmtCell(per(func(l *LoadResult) float64 { return l.ClientCPU / l.Seconds }), "%.2f"))
 		}
-		b.WriteString("\nP99 is printed where a type has at least 100 samples in each round. The client-cores column is the processor time of the load generator over the window: the client has two cpus, so a value near 2 means the client limits the visits a second.\n")
+		for _, spec := range specs {
+			key := sc.Name + "/" + spec
+			var parts []string
+			for _, a := range bd.Attempts[key] {
+				if a.Failed {
+					parts = append(parts, fmt.Sprintf("%d users failed the rule in the rounds (%s, %s)", a.Users, a.Reason, a.Source))
+				} else {
+					parts = append(parts, fmt.Sprintf("%d users passed (%s)", a.Users, a.Source))
+				}
+			}
+			if len(parts) > 0 {
+				fmt.Fprintf(&b, "\nUsers used, %s: %s.", by[spec][0].Label, strings.Join(parts, "; then "))
+			}
+		}
+		b.WriteString("\n\nP99 is printed where a type has at least 100 samples in every round. The client-cores column is the processor time of the load generator over the window: the client has two cpus, so a value near 2 means the client limits the visits a second.\n")
 		if tifa, ok := by["tifa"]; ok {
 			var rows []string
 			for _, kind := range []string{"vm", "cache", "shared"} {
@@ -100,8 +116,23 @@ func (r *Record) browseMarkdown() string {
 		}
 		b.WriteString("\n")
 	}
+	var lens []string
+	for k := range bd.Common {
+		lens = append(lens, k)
+	}
+	slices.Sort(lens)
+	if len(lens) > 0 {
+		b.WriteString("Visits replayed: ")
+		for i, k := range lens {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%d of %d plans for %s (the plans that have a trace for every server)", bd.Common[k], bd.Plans, k)
+		}
+		b.WriteString(".\n\n")
+	}
 	b.WriteString("#### The search for the users\n\nUsers go 1, 2, 4, ... until visits/s rises by under 3% for two steps in a row, or a step has errors, or the P99 of a full load or of a whole navigation passes 1 s. The highest step that passes is used for the rounds (marked with *).\n\n")
-	b.WriteString("| scenario / server | steps: users: visits/s (full load P99 ms, navigation P99 ms) |\n| --- | --- |\n")
+	b.WriteString("| scenario / server | steps: users: visits/s (full load P99 ms, navigation P99 ms) | why it stopped |\n| --- | --- | --- |\n")
 	var keys []string
 	for k := range bd.Curves {
 		keys = append(keys, k)
@@ -116,7 +147,7 @@ func (r *Record) browseMarkdown() string {
 			}
 			parts = append(parts, fmt.Sprintf("%d%s: %.2f (%.0f, %.0f)%s", p.Users, mark, p.VisitsPerS, p.DocP99, p.NavP99, map[bool]string{true: "", false: " fails"}[p.Pass]))
 		}
-		fmt.Fprintf(&b, "| %s | %s |\n", k, strings.Join(parts, "; "))
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", k, strings.Join(parts, "; "), CurveEnd(bd.Curves[k], bd.MaxUsers))
 	}
 	fmt.Fprintf(&b, "\nTraces: ")
 	var files []string
@@ -134,6 +165,39 @@ func (r *Record) browseMarkdown() string {
 		}
 	}
 	b.WriteString(".\n")
+	sources := map[string][]string{}
+	for _, run := range bd.Runs {
+		if run.Round == 1 {
+			sources[run.Source] = append(sources[run.Source], run.Scenario+"/"+run.Spec)
+		}
+	}
+	if len(sources) > 1 {
+		var names []string
+		for k := range sources {
+			names = append(names, k)
+		}
+		slices.Sort(names)
+		b.WriteString("\nWhich run each row comes from: ")
+		for i, k := range names {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			fmt.Fprintf(&b, "%s: %s", k, strings.Join(sources[k], ", "))
+		}
+		b.WriteString(". A rerun keeps the curve and the first chosen step of the run it follows, runs the rounds again with fresh servers and the same rotation of the order, and the failed rounds are kept in the JSON under `rejected`.\n")
+	}
+	if len(bd.TraceCheck) > 0 {
+		b.WriteString("\n#### Do the traces replay on this machine\n\nThe traces were recorded on another machine. One round of each framework at the users of the baseline, counted by request type, status and content type:\n\n")
+		var ids []string
+		for id := range bd.TraceCheck {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+		for _, id := range ids {
+			c := bd.TraceCheck[id]
+			fmt.Fprintf(&b, "- %s (%d users): %s\n", c.Label, c.Users, c.Summary())
+		}
+	}
 	return b.String()
 }
 

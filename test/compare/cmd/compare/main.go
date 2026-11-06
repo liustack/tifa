@@ -180,6 +180,10 @@ func browseCmd(cmd string, args []string) {
 		searchWin  = flags.Duration("search-window", 10*time.Second, "browse: window of a step of the search")
 		maxUsers   = flags.Int("max-users", 64, "browse: the search stops here")
 		jsonPath   = flags.String("json", "", "browse: write the record as JSON to this file")
+		from       = flags.String("from", "", "browse: a record to continue: its curves and runs are kept")
+		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as baseline/nextjs")
+		source     = flags.String("source", "run 1", "browse: names this run in the rows it adds")
+		check      = flags.Bool("check", false, "browse: also count what each server answers in one round of the baseline")
 	)
 	flags.Parse(args)
 	env, err := compare.NewEnv()
@@ -214,6 +218,22 @@ func browseCmd(cmd string, args []string) {
 	}
 	o := compare.BrowseOptions{TraceDir: *dir, Seed: *seed, Servers: list, ServerCPUs: *serverCPUs, LoadCPUs: *loadCPUs, Rounds: *rounds,
 		SearchWarm: *searchWarm, SearchWindow: *searchWin, Warm: *warm, Window: *window, MaxUsers: *maxUsers, Log: os.Stderr}
+	o.Source, o.Check = *source, *check
+	if *only != "" {
+		o.Only = strings.Split(*only, ",")
+	}
+	if *from != "" {
+		data, err := os.ReadFile(*from)
+		if err != nil {
+			fatal(err)
+		}
+		if o.From, err = compare.ReadRecord(data); err != nil {
+			fatal(err)
+		}
+		if o.From.Browse == nil {
+			fatal(fmt.Errorf("%s holds no browse record", *from))
+		}
+	}
 	for _, name := range strings.Split(*scenarios, ",") {
 		i := slices.IndexFunc(compare.BrowseScenarios, func(s compare.BrowseScenario) bool { return s.Name == name })
 		if i < 0 {

@@ -28,7 +28,11 @@ type BrowseOptions struct {
 	SearchWindow time.Duration
 	Warm         time.Duration
 	Window       time.Duration
-	MaxUsers     int // the search stops here
+	MaxUsers     int      // the search stops here
+	From         *Record  // a record whose runs are kept, to rerun some of its rounds
+	Only         []string // scenario/spec keys to run: with From, the ones whose rounds run again
+	Source       string   // names this run in the runs it adds
+	Check        bool     // also count what each server answered in one round of the baseline
 	Log          io.Writer
 }
 
@@ -43,6 +47,11 @@ type CurvePoint struct {
 	DocP99     float64 `json:"fullLoadP99Ms"`
 	NavP99     float64 `json:"navigationP99Ms"`
 	Pass       bool    `json:"pass"`
+	// Visits is how many visits the step completed, OpenOldest how long the oldest request still
+	// open at the end of the window had waited (ms), and Why what failed the step.
+	Visits     int     `json:"visits"`
+	OpenOldest float64 `json:"openOldestMs"`
+	Why        string  `json:"why,omitempty"`
 }
 
 // BrowseRun is one framework in one round of one scenario, at the users the search chose.
@@ -52,26 +61,56 @@ type BrowseRun struct {
 	Framework string      `json:"framework"`
 	Label     string      `json:"label"`
 	Round     int         `json:"round"`
+	Source    string      `json:"source,omitempty"`
 	Load      *LoadResult `json:"load"`
 }
 
 // BrowseData is what `compare browse` adds to the record.
 type BrowseData struct {
-	Seed         uint64                  `json:"seed"`
-	Traces       map[string]int          `json:"traces"` // by file name: the visits recorded
-	Dropped      map[string]int          `json:"dropped,omitempty"`
-	Curves       map[string][]CurvePoint `json:"curves"` // by scenario/spec
-	Chosen       map[string]int          `json:"chosen"`
-	Scenarios    []BrowseScenario        `json:"scenarios"`
-	Runs         []BrowseRun             `json:"runs"`
-	Warm         string                  `json:"warm"`
-	Window       string                  `json:"window"`
-	SearchWindow string                  `json:"searchWindow"`
+	Seed      uint64                  `json:"seed"`
+	Traces    map[string]int          `json:"traces"` // by file name: the visits recorded
+	Dropped   map[string]int          `json:"dropped,omitempty"`
+	Curves    map[string][]CurvePoint `json:"curves"` // by scenario/spec
+	Chosen    map[string]int          `json:"chosen"`
+	Scenarios []BrowseScenario        `json:"scenarios"`
+	Runs      []BrowseRun             `json:"runs"`
+	// Rejected are the rounds that failed the rule of the search, kept for the record.
+	Rejected []BrowseRun `json:"rejected,omitempty"`
+	// Attempts say, per scenario/spec, which step the rounds were run at and whether they passed.
+	Attempts   map[string][]Attempt   `json:"attempts,omitempty"`
+	MaxUsers   int                    `json:"maxUsers,omitempty"`
+	TraceCheck map[string]*TraceCheck `json:"traceCheck,omitempty"`
+	// Common is, per visit length, how many plans have a trace for every server: those are the
+	// visits that are replayed. Plans is how many plans there are.
+	Common       map[string]int `json:"commonPlans,omitempty"`
+	Plans        int            `json:"plans,omitempty"`
+	Warm         string         `json:"warm"`
+	Window       string         `json:"window"`
+	SearchWindow string         `json:"searchWindow"`
 }
 
 // pass is the rule for a step of the search: no errors, and the P99 of a full load and of a whole
 // navigation under a second.
-func (c CurvePoint) passes() bool { return c.Errors == 0 && c.DocP99 <= 1000 && c.NavP99 <= 1000 }
+func (c CurvePoint) passes() bool { return c.why() == "" }
+
+// why says what fails a step: no visit completed (a server that hangs completes none and has no
+// errors), a request still waiting for longer than a second when the window ended, errors, or a
+// P99 of a full load or of a whole navigation over a second.
+func (c CurvePoint) why() string {
+	switch {
+	case c.Visits == 0:
+		return "no visit completed"
+	case c.OpenOldest > 1000:
+		return fmt.Sprintf("a request had waited %.0f ms at the end of the window", c.OpenOldest)
+	case c.Errors > 0:
+		return fmt.Sprintf("%d errors", c.Errors)
+	case c.DocP99 > 1000:
+		return fmt.Sprintf("full load P99 %.0f ms", c.DocP99)
+	case c.NavP99 > 1000:
+		return fmt.Sprintf("navigation P99 %.0f ms", c.NavP99)
+	}
+	return ""
+}
 
 type browseSet struct {
 	plans  []Plan
@@ -99,10 +138,45 @@ func loadBrowseSet(dir, spec string, mean int) (*browseSet, error) {
 	for _, t := range traces {
 		set.traces[t.Plan] = t
 	}
-	if len(set.traces) < 100 {
-		return nil, fmt.Errorf("%s holds %d visits, too few for a replay that does not loop over the same few", file, len(set.traces))
-	}
 	return set, nil
+}
+
+// loadSets loads the traces of every spec for a visit length and keeps, in each, only the plans
+// that all of them have a trace for, so that every server replays the same visits. It returns how
+// many plans that is.
+func loadSets(dir string, specs []Spec, mean int) (map[string]*browseSet, int, error) {
+	sets := map[string]*browseSet{}
+	var common map[int]bool
+	for _, s := range specs {
+		set, err := loadBrowseSet(dir, s.Name, mean)
+		if err != nil {
+			return nil, 0, err
+		}
+		sets[s.Name] = set
+		if common == nil {
+			common = map[int]bool{}
+			for id := range set.traces {
+				common[id] = true
+			}
+			continue
+		}
+		for id := range common {
+			if _, ok := set.traces[id]; !ok {
+				delete(common, id)
+			}
+		}
+	}
+	if len(common) < 100 {
+		return nil, 0, fmt.Errorf("only %d plans have a trace for all of %d servers (mean %d), too few for a replay that does not loop over the same few", len(common), len(specs), mean)
+	}
+	for _, set := range sets {
+		for id := range set.traces {
+			if !common[id] {
+				delete(set.traces, id)
+			}
+		}
+	}
+	return sets, len(common), nil
 }
 
 // Browse runs the browse comparison and returns a record that holds it. Prepare must have run, and
@@ -135,26 +209,43 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	rec := &Record{
-		Date: time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), Versions: e.versions(specs), Machine: machine(), Placement: placement,
-		Settings: Settings{Rounds: o.Rounds, Steady: o.Window.String(), AcceptEncoding: "gzip"},
-		Browse: &BrowseData{Seed: o.Seed, Traces: map[string]int{}, Dropped: map[string]int{}, Curves: map[string][]CurvePoint{}, Chosen: map[string]int{},
-			Scenarios: o.Scenarios, Warm: o.Warm.String(), Window: o.Window.String(), SearchWindow: o.SearchWindow.String()},
+	rec := o.From
+	if rec == nil {
+		rec = &Record{
+			Date: time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), Versions: e.versions(specs), Machine: machine(), Placement: placement,
+			Settings: Settings{Rounds: o.Rounds, Steady: o.Window.String(), AcceptEncoding: "gzip"},
+			Browse: &BrowseData{Seed: o.Seed, Traces: map[string]int{}, Dropped: map[string]int{}, Curves: map[string][]CurvePoint{}, Chosen: map[string]int{},
+				Scenarios: o.Scenarios, Warm: o.Warm.String(), Window: o.Window.String(), SearchWindow: o.SearchWindow.String(), MaxUsers: o.MaxUsers},
+		}
 	}
+	bd := rec.Browse
+	if bd.Attempts == nil {
+		bd.Attempts = map[string][]Attempt{}
+	}
+	if bd.Common == nil {
+		bd.Common = map[string]int{}
+	}
+	if bd.TraceCheck == nil {
+		bd.TraceCheck = map[string]*TraceCheck{}
+	}
+	if o.From != nil {
+		backfillAttempts(bd)
+	}
+	only := func(key string) bool { return len(o.Only) == 0 || slices.Contains(o.Only, key) }
 	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
 	for _, sc := range o.Scenarios {
-		sets := map[string]*browseSet{}
-		for _, s := range specs {
-			set, err := loadBrowseSet(o.TraceDir, s.Name, sc.Mean)
-			if err != nil {
-				return nil, err
-			}
-			sets[s.Name] = set
-			rec.Browse.Traces[set.file] = set.count
+		sets, common, err := loadSets(o.TraceDir, specs, sc.Mean)
+		if err != nil {
+			return nil, err
+		}
+		for _, set := range sets {
+			bd.Traces[set.file] = set.count
 			if set.drop > 0 {
-				rec.Browse.Dropped[set.file] = set.drop
+				bd.Dropped[set.file] = set.drop
 			}
 		}
+		bd.Common[fmt.Sprintf("mean %d", sc.Mean)] = common
+		bd.Plans = len(sets[specs[0].Name].plans)
 		newReplayer := func(s Spec, server *Server) *replayer {
 			r := &replayer{base: server.Base, write: s.Write, traces: sets[s.Name].traces, plans: sets[s.Name].plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
 			if s.Framework == "tifa" {
@@ -162,17 +253,37 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 			}
 			return r
 		}
-		for _, s := range specs {
-			key := sc.Name + "/" + s.Name
+		start := func(s Spec) (*Server, *replayer, error) {
 			server, err := s.Launch(o.ServerCPUs)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if err := server.WaitListening(ctx); err != nil {
 				server.Stop()
+				return nil, nil, err
+			}
+			return server, newReplayer(s, server), nil
+		}
+		var active []Spec
+		for _, s := range specs {
+			key := sc.Name + "/" + s.Name
+			if !only(key) {
+				continue
+			}
+			if o.From != nil {
+				// A rerun: the curve and the chosen step of the run it continues are kept. The rounds
+				// of that run are what gets checked again, and they stay as rejected if they fail.
+				if len(bd.Curves[key]) == 0 {
+					return nil, fmt.Errorf("%s: the record to continue has no curve for it", key)
+				}
+				bd.Runs, bd.Rejected = moveRuns(bd.Runs, bd.Rejected, sc.Name, s.Name)
+				active = append(active, s)
+				continue
+			}
+			server, r, err := start(s)
+			if err != nil {
 				return nil, err
 			}
-			r := newReplayer(s, server)
 			if err := r.verifyWrites(ctx); err != nil {
 				server.Stop()
 				return nil, fmt.Errorf("%s: %w", key, err)
@@ -182,42 +293,97 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", key, err)
 			}
-			rec.Browse.Curves[key] = curve
-			rec.Browse.Chosen[key] = chosen
+			bd.Curves[key] = curve
+			bd.Chosen[key] = chosen
 			fmt.Fprintf(o.Log, "%s: chose %d users\n", key, chosen)
+			active = append(active, s)
 		}
-		for round := 1; round <= o.Rounds; round++ {
-			for _, s := range Rotate(specs, round-1) {
-				key := sc.Name + "/" + s.Name
-				if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
-					return nil, err
-				}
-				server, err := s.Launch(o.ServerCPUs)
-				if err != nil {
-					return nil, err
-				}
-				if err := server.WaitListening(ctx); err != nil {
+		// The rounds are checked against the rule of the search. A framework with a failing round steps
+		// down to the next lower step that passes and all its rounds run again, with fresh servers.
+		for attempt := 0; len(active) > 0; attempt++ {
+			results := map[string][]BrowseRun{}
+			for round := 1; round <= o.Rounds; round++ {
+				for _, s := range Rotate(active, round-1) {
+					key := sc.Name + "/" + s.Name
+					if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
+						return nil, err
+					}
+					server, r, err := start(s)
+					if err != nil {
+						return nil, err
+					}
+					res, err := r.RunLoad(ctx, bd.Chosen[key], o.Warm, o.Window)
+					if err == nil && round == o.Rounds {
+						err = r.verifyWrites(ctx)
+					}
 					server.Stop()
-					return nil, err
+					if err != nil {
+						return nil, fmt.Errorf("%s round %d: %w", key, round, err)
+					}
+					results[key] = append(results[key], BrowseRun{Scenario: sc.Name, Spec: s.Name, Framework: s.Framework, Label: s.Label, Round: round, Source: o.Source, Load: res})
+					fmt.Fprintf(o.Log, "round %d %-9s %-12s %2d users %7.2f visits/s %6.1f ms CPU/visit, %d errors %s\n", round, sc.Name, s.Name, res.Users, float64(res.Visits)/res.Seconds, 1000*res.CPU/max(1, float64(res.Visits)), res.Errors, res.FirstErr)
 				}
-				r := newReplayer(s, server)
-				res, err := r.RunLoad(ctx, rec.Browse.Chosen[key], o.Warm, o.Window)
-				if err == nil && round == o.Rounds {
-					err = r.verifyWrites(ctx)
-				}
-				server.Stop()
-				if err != nil {
-					return nil, fmt.Errorf("%s round %d: %w", key, round, err)
-				}
-				rec.Browse.Runs = append(rec.Browse.Runs, BrowseRun{Scenario: sc.Name, Spec: s.Name, Framework: s.Framework, Label: s.Label, Round: round, Load: res})
-				fmt.Fprintf(o.Log, "round %d %-9s %-12s %2d users %7.2f visits/s %6.1f ms CPU/visit, %d errors %s\n", round, sc.Name, s.Name, res.Users, float64(res.Visits)/res.Seconds, 1000*res.CPU/max(1, float64(res.Visits)), res.Errors, res.FirstErr)
 			}
+			var again []Spec
+			for _, s := range active {
+				key := sc.Name + "/" + s.Name
+				users := bd.Chosen[key]
+				reason := RoundsFail(results[key])
+				bd.Attempts[key] = append(bd.Attempts[key], Attempt{Users: users, Failed: reason != "", Reason: reason, Source: o.Source})
+				if reason == "" {
+					bd.Runs = append(bd.Runs, results[key]...)
+					continue
+				}
+				bd.Rejected = append(bd.Rejected, results[key]...)
+				lower := StepDown(bd.Curves[key], users)
+				if lower == 0 {
+					return nil, fmt.Errorf("%s: the rounds at %d users fail (%s) and no lower step passes", key, users, reason)
+				}
+				fmt.Fprintf(o.Log, "%s: the rounds at %d users fail (%s), stepping down to %d\n", key, users, reason, lower)
+				bd.Chosen[key] = lower
+				again = append(again, s)
+			}
+			active = again
+		}
+	}
+	if o.Check {
+		// One round of each framework at its users of the baseline, to count what the servers answered.
+		sc := BrowseScenarios[0]
+		for _, s := range Rotate(specs, 0) {
+			key := sc.Name + "/" + s.Name
+			if bd.Chosen[key] == 0 {
+				continue
+			}
+			checkSets, _, err := loadSets(o.TraceDir, specs, sc.Mean)
+			if err != nil {
+				return nil, err
+			}
+			set := checkSets[s.Name]
+			server, err := s.Launch(o.ServerCPUs)
+			if err != nil {
+				return nil, err
+			}
+			if err := server.WaitListening(ctx); err != nil {
+				server.Stop()
+				return nil, err
+			}
+			r := &replayer{base: server.Base, write: s.Write, traces: set.traces, plans: set.plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+			if s.Framework == "tifa" {
+				r.buildID = buildID
+			}
+			res, err := r.RunLoad(ctx, bd.Chosen[key], o.Warm, o.Window)
+			server.Stop()
+			if err != nil {
+				return nil, err
+			}
+			bd.TraceCheck[s.Name] = NewTraceCheck(s.Label, sc.Name, res)
+			fmt.Fprintf(o.Log, "check %-12s %s\n", s.Name, bd.TraceCheck[s.Name].Summary())
 		}
 	}
 	return rec, nil
 }
 
-// search raises the users 1, 2, 4, ... until visits/s rises by under 3% twice in a row (a plateau, confirmed by one more step),
+// search raises the users 1, 2, 4, ... until visits/s rises by under 3% twice in a row (a plateau, confirmed by one more step) or falls,
 // or a step has errors or a P99 over a second, or o.MaxUsers is reached. It returns the whole curve
 // and the highest step that passes.
 func (r *replayer) search(ctx context.Context, o BrowseOptions) ([]CurvePoint, int, error) {
@@ -228,14 +394,17 @@ func (r *replayer) search(ctx context.Context, o BrowseOptions) ([]CurvePoint, i
 		if err != nil {
 			return nil, 0, err
 		}
-		p := CurvePoint{Users: users, VisitsPerS: float64(res.Visits) / res.Seconds, Errors: res.Errors, DocP99: res.Types["doc"].P99, NavP99: res.Types["nav"].P99}
-		p.Pass = p.passes()
+		p := CurvePoint{Users: users, VisitsPerS: float64(res.Visits) / res.Seconds, Errors: res.Errors, DocP99: res.Types["doc"].P99, NavP99: res.Types["nav"].P99, Visits: res.Visits, OpenOldest: res.OpenOldestMs}
+		p.Why = p.why()
+		p.Pass = p.Why == ""
 		curve = append(curve, p)
 		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, res.FirstErr)
 		if !p.Pass {
 			break
 		}
-		if prev > 0 && p.VisitsPerS < prev*1.03 {
+		if prev > 0 && p.VisitsPerS < prev {
+			flat = 2 // a drop is a plateau: more users did not bring more visits
+		} else if prev > 0 && p.VisitsPerS < prev*1.03 {
 			flat++
 		} else {
 			flat = 0
@@ -353,4 +522,111 @@ func (r *replayer) navRequest(page string) (TraceReq, bool) {
 		}
 	}
 	return TraceReq{}, false
+}
+
+// Attempt is the rounds of a framework at one step.
+type Attempt struct {
+	Users  int    `json:"users"`
+	Failed bool   `json:"failed"`
+	Reason string `json:"reason,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+// RoundsFail applies the rule of the search to the rounds of one framework at one step and says
+// what failed ("" when every round passes): an error, or the P99 of a full load or of a whole
+// navigation over a second.
+func RoundsFail(runs []BrowseRun) string {
+	var errs int
+	var doc, nav, open float64
+	var none int
+	for _, r := range runs {
+		errs += r.Load.Errors
+		if r.Load.Visits == 0 {
+			none++
+		}
+		open = max(open, r.Load.OpenOldestMs)
+		doc = max(doc, r.Load.Types["doc"].P99)
+		nav = max(nav, r.Load.Types["nav"].P99)
+	}
+	var out []string
+	if none > 0 {
+		out = append(out, fmt.Sprintf("%d rounds completed no visit", none))
+	}
+	if open > 1000 {
+		out = append(out, fmt.Sprintf("a request had waited up to %.0f ms at the end of a window", open))
+	}
+	if errs > 0 {
+		out = append(out, fmt.Sprintf("%d errors", errs))
+	}
+	if doc > 1000 {
+		out = append(out, fmt.Sprintf("full load P99 up to %.0f ms", doc))
+	}
+	if nav > 1000 {
+		out = append(out, fmt.Sprintf("navigation P99 up to %.0f ms", nav))
+	}
+	return strings.Join(out, ", ")
+}
+
+// StepDown is the highest step of the curve below users that passed the search, 0 for none.
+func StepDown(curve []CurvePoint, users int) int {
+	lower := 0
+	for _, p := range curve {
+		if p.Pass && p.Users < users {
+			lower = max(lower, p.Users)
+		}
+	}
+	return lower
+}
+
+// moveRuns takes the runs of a scenario and spec out of runs and puts them with the rejected ones,
+// as the attempt that is run again.
+func moveRuns(runs, rejected []BrowseRun, scenario, spec string) (keep, rej []BrowseRun) {
+	for _, r := range runs {
+		if r.Scenario == scenario && r.Spec == spec {
+			rejected = append(rejected, r)
+		} else {
+			keep = append(keep, r)
+		}
+	}
+	return keep, rejected
+}
+
+// CurveEnd says why the search stopped.
+func CurveEnd(curve []CurvePoint, maxUsers int) string {
+	if len(curve) == 0 {
+		return ""
+	}
+	last := curve[len(curve)-1]
+	if maxUsers == 0 {
+		maxUsers = 64
+	}
+	switch {
+	case !last.Pass:
+		return fmt.Sprintf("stopped at %d users: %s", last.Users, last.Why)
+	case len(curve) > 1 && last.VisitsPerS < curve[len(curve)-2].VisitsPerS:
+		return fmt.Sprintf("plateau: visits/s fell from %.0f to %.0f at %d users", curve[len(curve)-2].VisitsPerS, last.VisitsPerS, last.Users)
+	case last.Users >= maxUsers:
+		return fmt.Sprintf("cap reached at %d users", last.Users)
+	}
+	return fmt.Sprintf("plateau at %d users", last.Users)
+}
+
+// backfillAttempts gives the runs and the keys of a record that was made before attempts were kept
+// a source and an attempt each, from the rule applied to their rounds.
+func backfillAttempts(bd *BrowseData) {
+	by := map[string][]BrowseRun{}
+	for i := range bd.Runs {
+		if bd.Runs[i].Source == "" {
+			bd.Runs[i].Source = "run 1"
+		}
+		key := bd.Runs[i].Scenario + "/" + bd.Runs[i].Spec
+		by[key] = append(by[key], bd.Runs[i])
+	}
+	for key, runs := range by {
+		if len(bd.Attempts[key]) > 0 {
+			continue
+		}
+		reason := RoundsFail(runs)
+		bd.Attempts[key] = []Attempt{{Users: runs[0].Load.Users, Failed: reason != "", Reason: reason, Source: "run 1"}}
+	}
 }

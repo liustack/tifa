@@ -381,3 +381,16 @@ func TestMarkdownBrowse(t *testing.T) {
 		t.Error("a browse record prints the tables of the read comparison")
 	}
 }
+
+func TestBrowseP99NeedsEnoughSamplesInEveryRound(t *testing.T) {
+	mk := func(n int) *LoadResult {
+		return &LoadResult{Users: 4, Seconds: 30, Visits: 100, Views: 400, Types: map[string]TypeStat{"doc": {N: n, P50: 4, P99: 30}, "nav": {N: 900, P50: 2, P99: 15}}}
+	}
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+		Runs: []BrowseRun{{Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 1, Load: mk(300)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 2, Load: mk(0)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 3, Load: mk(0)}}}
+	md := r.Markdown()
+	if strings.Contains(md, "| 4.0 / 30 (300)") || !strings.Contains(md, "4.0 / - (300)") {
+		t.Errorf("a P99 over rounds with no samples:\n%s", md)
+	}
+}

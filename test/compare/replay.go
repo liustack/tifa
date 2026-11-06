@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,6 +52,9 @@ type replayer struct {
 	writes  atomic.Int64   // the number of writes made, which gives each its address
 
 	t0, t1 atomic.Int64 // the measuring window, unix nanoseconds, 0 until set
+	openMu sync.Mutex
+	open   map[uint64]time.Time // requests sent and not yet answered, by when they were sent
+	openID uint64
 	mu     sync.Mutex
 	res    LoadResult
 }
@@ -65,7 +70,11 @@ type LoadResult struct {
 	Bytes    int64   `json:"bytes"`
 	Reloads  int     `json:"reloads"`
 	CPU      float64 `json:"cpuSeconds"`
-	PeakRSS  float64 `json:"peakRssMiB"`
+	// OpenRequests are the requests still waiting for an answer when the window ended, and
+	// OpenOldestMs is how long the oldest had waited. A server that hangs shows here and nowhere else.
+	OpenRequests int     `json:"openRequestsAtEnd"`
+	OpenOldestMs float64 `json:"openOldestMs"`
+	PeakRSS      float64 `json:"peakRssMiB"`
 	// ClientCPU is the processor time of the load generator itself in the window, in seconds. When it
 	// is close to the cpus given to the client, the client is what limits the visits a second.
 	ClientCPU float64 `json:"clientCpuSeconds"`
@@ -73,6 +82,9 @@ type LoadResult struct {
 	// Renders counts the answers to documents by X-Tifa-Render (Tifa only).
 	Renders  map[string]int `json:"renders,omitempty"`
 	FirstErr string         `json:"firstError,omitempty"`
+	// Responses counts the answers in the window by "<type> <status> <content type>", and the
+	// answers that carry a header asking for a reload of the document.
+	Responses map[string]int `json:"responses,omitempty"`
 	// Times are by request type; a navigation is all the requests of one click.
 	Types map[string]TypeStat `json:"types"`
 
@@ -127,6 +139,22 @@ type visitState struct {
 	etags  map[string]string
 	sem    chan struct{}
 	bg     sync.WaitGroup
+	errMu  sync.Mutex
+	err    error // the first prefetch that failed
+}
+
+func (v *visitState) fail(err error) {
+	v.errMu.Lock()
+	defer v.errMu.Unlock()
+	if v.err == nil {
+		v.err = err
+	}
+}
+
+func (v *visitState) failure() error {
+	v.errMu.Lock()
+	defer v.errMu.Unlock()
+	return v.err
 }
 
 func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome {
@@ -158,6 +186,7 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 	v.sem <- struct{}{}
 	defer func() { <-v.sem }()
 	start := time.Now()
+	defer r.track()()
 	res, err := v.client.Do(req)
 	if err != nil {
 		return outcome{err: err}
@@ -183,6 +212,10 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 		if res.StatusCode == 304 {
 			r.res.N304++
 		}
+		r.res.Responses[q.Class+" "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
+		if res.Header.Get("X-Remix-Reload-Document") != "" {
+			r.res.Responses["reload-document header"]++
+		}
 		if q.Class == "doc" {
 			if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
 				r.res.Renders[rd]++
@@ -201,6 +234,7 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 // The page view ends when its documents and navigation requests are done. Prefetches go on in the
 // background until the end of the visit.
 func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) error {
+	stepStart := time.Now() // the click or the load: a wait for a connection counts
 	n := len(s.Reqs)
 	done := make([]chan struct{}, n)
 	for i := range done {
@@ -231,10 +265,13 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 				}
 			}
 			outs[j] = r.send(ctx, v, s.Reqs[j])
+			if s.Reqs[j].Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
+				v.fail(outs[j].err) // a prefetch that fails is a failure of the visit
+			}
 		}()
 	}
 	main.Wait()
-	var first, last time.Time
+	var last time.Time
 	for j := range outs {
 		if s.Reqs[j].Class == "prefetch" {
 			continue // awaited at the end of the visit, and its outcome is not read here
@@ -242,9 +279,6 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 		o := outs[j]
 		if o.err != nil {
 			return o.err
-		}
-		if first.IsZero() || o.start.Before(first) {
-			first = o.start
 		}
 		if o.end.After(last) {
 			last = o.end
@@ -254,11 +288,11 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 			if s.Kind == StepReload {
 				kind = "reload"
 			}
-			r.addLatency(kind, o.end, float64(o.end.Sub(o.start))/float64(time.Millisecond))
+			r.addLatency(kind, o.end, float64(o.end.Sub(stepStart))/float64(time.Millisecond))
 		}
 	}
-	if s.Kind == StepClick && !first.IsZero() {
-		r.addLatency("nav", last, float64(last.Sub(first))/float64(time.Millisecond))
+	if s.Kind == StepClick && !last.IsZero() {
+		r.addLatency("nav", last, float64(last.Sub(stepStart))/float64(time.Millisecond))
 	}
 	return nil
 }
@@ -274,6 +308,7 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept-Encoding", "gzip")
 	start := time.Now()
+	defer r.track()()
 	res, err := v.client.Do(req)
 	if err != nil {
 		return err
@@ -291,6 +326,7 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 		r.mu.Lock()
 		r.res.Requests++
 		r.res.Bytes += b
+		r.res.Responses["write "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
 		r.mu.Unlock()
 		r.addLatency("write", end, float64(end.Sub(start))/float64(time.Millisecond))
 	}
@@ -301,7 +337,7 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 // plan puts them after, and at the end the prefetches still running.
 func (r *replayer) visit(ctx context.Context, tr *http.Transport, t Trace, plan Plan) error {
 	jar, _ := cookiejar.New(nil)
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar}, etags: map[string]string{}, sem: make(chan struct{}, maxConns)}
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, etags: map[string]string{}, sem: make(chan struct{}, maxConns)}
 	writes := PlanWrites(r.seed, plan, r.sc.WriteRate)
 	reloads := 0
 	for i, s := range t.Steps {
@@ -324,6 +360,9 @@ func (r *replayer) visit(ctx context.Context, tr *http.Transport, t Trace, plan 
 	v.bg.Wait()
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if err := v.failure(); err != nil {
+		return err
 	}
 	if end := time.Now(); r.inWindow(end) {
 		r.mu.Lock()
@@ -356,7 +395,7 @@ func (r *replayer) user(ctx context.Context, u int) {
 // RunLoad plays the traces with the given number of users: warm of lead-in that is not counted,
 // then one common window for all users.
 func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Duration) (*LoadResult, error) {
-	r.res = LoadResult{Users: users, Renders: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
+	r.res = LoadResult{Users: users, Renders: map[string]int{}, Responses: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
 	r.t0.Store(0)
 	r.t1.Store(0)
 	uctx, cancel := context.WithCancel(ctx)
@@ -378,6 +417,7 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	end := time.Now()
 	r.t1.Store(end.UnixNano())
 	cpu1, client1 := r.cpu(), selfCPU()
+	openN, openOldest := r.openAt(end)
 	cancel()
 	wg.Wait()
 	r.mu.Lock()
@@ -385,6 +425,7 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	res := &r.res
 	res.Seconds = end.Sub(start).Seconds()
 	res.CPU = cpu1 - cpu0
+	res.OpenRequests, res.OpenOldestMs = openN, openOldest
 	res.ClientCPU = client1 - client0
 	res.PeakRSS = float64(r.rss()) / (1 << 20)
 	for kind, l := range res.lat {
@@ -401,4 +442,43 @@ func selfCPU() float64 {
 		return 0
 	}
 	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
+}
+
+// mediaType is a content type without its parameters.
+func mediaType(v string) string {
+	if v == "" {
+		return "-"
+	}
+	if m, _, err := mime.ParseMediaType(v); err == nil {
+		return m
+	}
+	return v
+}
+
+// track notes a request as sent and returns the function that notes its answer.
+func (r *replayer) track() func() {
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	if r.open == nil {
+		r.open = map[uint64]time.Time{}
+	}
+	r.openID++
+	id := r.openID
+	r.open[id] = time.Now()
+	return func() {
+		r.openMu.Lock()
+		delete(r.open, id)
+		r.openMu.Unlock()
+	}
+}
+
+// openAt counts the requests still open at t and how long the oldest has waited, in ms.
+func (r *replayer) openAt(t time.Time) (n int, oldest float64) {
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	for _, sent := range r.open {
+		n++
+		oldest = max(oldest, float64(t.Sub(sent))/float64(time.Millisecond))
+	}
+	return n, oldest
 }

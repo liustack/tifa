@@ -53,10 +53,15 @@ async function visit(browser, plan) {
     rec.inm = false
     rec.class = rec.type === 'document' ? 'doc' : ahead ? 'prefetch' : 'nav'
     cur.reqs.push(rec)
+    // The step this request belongs to, not the one that is current when the browser ends it.
+    const step = cur
+    let finished = false
     const done = (status) => {
+      if (finished) return // a request ends once, whether the browser or the time limit says so first
+      finished = true
       if (!ahead) inflight--
       lastActivity = Date.now()
-      rec.e = Date.now() - cur.t0
+      rec.e = Date.now() - step.t0
       rec.status = status
     }
     const p = (async () => {
@@ -72,7 +77,7 @@ async function visit(browser, plan) {
         ),
       )
       const res = await finish
-      if (rec.e === undefined) done(0) // the browser never finished it (cancelled)
+      done(0) // does nothing when the browser has finished it; else it was cancelled
       const all = (await within(3000, req.allHeaders().catch(() => ({})))) ?? {}
       rec.headers = Object.fromEntries(Object.entries(all).filter(([k]) => keepHeader.test(k)))
       rec.inm = 'if-none-match' in all
