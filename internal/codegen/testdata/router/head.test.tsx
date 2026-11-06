@@ -10,7 +10,8 @@ import { setRouter } from './.tifa/runtime/call'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { POST } from './app/api/notes/note+/route.gen'
 import { browserErrorEvent, hydrate, rootOptions, takeOver } from './.tifa/runtime/browser'
-import { attributes, followHead, headHTML, headTags, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
+import { attributes, defaultHTMLAttributes, followHead, headHTML, headTags, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
+import { noteAlternates, pageLinks, startAlternates } from './.tifa/runtime/alternates'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -418,6 +419,71 @@ test('what scripts of the page set on <html> stays until a route changes that at
     assert(describe(html) === 'html lang=app/intl/lang+/layout data-theme=a"b class=outer dir=ltr', `on /intl/fr ${describe(html)}`)
     await navigateTo(router, { to: '/hello' })
     assert(describe(html) === 'html lang=xx data-theme=a"b class=h-full', `back on /hello ${describe(html)}`)
+  })
+})
+
+const versionsOf = (path: string) => ({
+  site: 'https://a.example.com',
+  default: 'zh-CN',
+  canonical: '/en-US' + path,
+  list: [
+    { language: 'zh-CN', url: path },
+    { language: 'en-US', url: '/en-US' + path },
+  ],
+})
+
+test('the links of the versions follow the page the router shows', async () => {
+  await withDocument(async () => {
+    const { router } = await client('/langs', (_, id) => ok(id))
+    startAlternates(versionsOf('/langs'), '/langs')
+    // The data request of a navigation answers without the site, and its URL has a query.
+    const { site: _, ...hello } = versionsOf('/hello')
+    noteAlternates('/hello?x=1', hello)
+    const links = pageLinks(router)
+    followHead(router, defaultHTMLAttributes, () => 'en-US', links)
+    syncHead(router.stores.matches.get(), links)
+    syncHTMLAttributes(router.stores.matches.get(), defaultHTMLAttributes, 'en-US')
+    const hreflangs = () => managed().filter((e) => e.getAttribute('rel') === 'alternate' || e.getAttribute('rel') === 'canonical').map(describe).join('|')
+    assert(
+      hreflangs() ===
+        'link rel=alternate hreflang=zh-CN href=https://a.example.com/langs|link rel=alternate hreflang=en-US href=https://a.example.com/en-US/langs|link rel=alternate hreflang=x-default href=https://a.example.com/langs|link rel=canonical href=https://a.example.com/en-US/langs',
+      `links ${hreflangs()}`,
+    )
+    assert(describe(fakeDocument.documentElement) === 'html lang=en-US', `html ${describe(fakeDocument.documentElement)}`)
+    const wait = async (done: () => boolean) => {
+      for (let i = 0; i < 100 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await router.navigate({ to: '/hello' })
+    await wait(() => hreflangs().includes('/hello'))
+    assert(hreflangs().includes('href=https://a.example.com/hello|') && hreflangs().endsWith('rel=canonical href=https://a.example.com/en-US/hello'), `after navigating ${hreflangs()}`)
+    // A page the browser knows no list for has none, and a list with no versions drops the one held.
+    await router.navigate({ to: '/a/one' })
+    await wait(() => hreflangs() === '')
+    assert(hreflangs() === '', `a page without a list: ${hreflangs()}`)
+    noteAlternates('/hello', { list: [] })
+    await router.navigate({ to: '/hello' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(hreflangs() === '', `a page whose list was dropped: ${hreflangs()}`)
+    assert(describe(fakeDocument.documentElement) === 'html lang=en-US', `html after navigating ${describe(fakeDocument.documentElement)}`)
+  })
+})
+
+test('a hydrated page keeps the lang the server wrote for its language', async () => {
+  await withDocument(async () => {
+    const { router } = await client('/hello', (_, id) => ok(id))
+    const base = defaultHTMLAttributes
+    fakeDocument.documentElement.setAttribute('lang', 'en-US')
+    fakeDocument.documentElement.setAttribute('class', 'dark')
+    followHead(router, base, () => 'en-US')
+    syncHTMLAttributes(router.stores.matches.get(), base, 'en-US')
+    assert(describe(fakeDocument.documentElement) === 'html lang=en-US class=dark', `html ${describe(fakeDocument.documentElement)}`)
+    let message = ''
+    try {
+      syncHTMLAttributes(router.stores.matches.get(), { lang: 'fr' }, 'en-US')
+    } catch (error) {
+      message = (error as Error).message
+    }
+    assert(message.includes('cannot set lang'), `message ${message}`)
   })
 })
 

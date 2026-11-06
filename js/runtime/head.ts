@@ -80,20 +80,31 @@ function withHTMLAttributes(head: HeadResult): unknown {
 
 // data-session is kept on <html> by tifa, from the session of the request (session.tsx).
 const reservedAttribute = 'htmlAttributes cannot set data-session on <html>: tifa keeps it, from the session of the request'
+// On a site with languages, lang is the language of the page, which tifa writes.
+const reservedLanguage =
+  'htmlAttributes cannot set lang on <html>: this site has languages, and tifa writes the language of the page (useLanguage in tifa/client gives it)'
 
 // htmlAttributesOf merges the htmlAttributes of the matches over base, attribute by attribute,
 // the deepest route that gives an attribute winning, as the title does. Only the matches the
 // page shows count, the first one that did not load included. Attributes are one when React DOM
 // writes them under the same HTML name, so className and class are one, and Lang and lang. Only
-// own keys count, and __proto__ is none.
-export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttributes): HTMLAttributes {
+// own keys count, and __proto__ is none. On a site with languages, language is the language of
+// the page: lang is then that, and an app that sets lang itself fails, apart from the lang of
+// defaultHTMLAttributes, which only stands in for an app that exports no htmlAttributes.
+export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttributes, language = ''): HTMLAttributes {
   // The key and the value of each attribute, by its HTML name in lower case.
   const merged = new Map<string, [string, unknown]>()
+  if (language !== '') merged.set('lang', ['lang', language])
   const add = (attrs: HTMLAttributes) => {
     for (const key of Object.keys(attrs)) {
       const value = attrs[key]
       if (value === undefined || key === '__proto__') continue
-      if (key.toLowerCase() === 'data-session') throw new Error(reservedAttribute)
+      const name = key.toLowerCase()
+      if (name === 'data-session') throw new Error(reservedAttribute)
+      if (name === 'lang' && language !== '') {
+        if (attrs === defaultHTMLAttributes) continue
+        throw new Error(reservedLanguage)
+      }
       merged.set((aliases.get(key) ?? key).toLowerCase(), [key, value])
     }
   }
@@ -390,11 +401,11 @@ export const headEnd = '<!--/tifa-head-->'
 // not free: a style element builds its style sheet again from its text, dropping rules added
 // with insertRule, and a stylesheet link is processed again. New elements go in in document
 // order, so new inline scripts run in the order of the tags.
-export function syncHead(matches: ReadonlyArray<HeadMatch>) {
+export function syncHead(matches: ReadonlyArray<HeadMatch>, links?: PageLinks) {
   const [start, end] = markers()
   const tags: Tag[] = []
   const keys: string[] = []
-  for (const tag of headTags(matches)) {
+  for (const tag of withLinks(headTags(matches), links)) {
     const key = tagKey(tag)
     if (keys.includes(key)) continue
     tags.push(tag)
@@ -451,6 +462,48 @@ function markers(): [Comment, Comment] {
   return [start, end]
 }
 
+// The page's versions in other languages: the list the server worked out (alternatesOf in
+// server/alternates.go) and the paths of its versions, as the language switch reads them.
+export interface Alternate {
+  language: string
+  url: string
+}
+
+export interface PageAlternates {
+  // site.url without a trailing slash. A navigation leaves it out: the page knows it already.
+  site?: string
+  // The language of x-default, the default language of the site.
+  default?: string
+  // The path of the page itself, without the query.
+  canonical?: string
+  list: Alternate[]
+}
+
+// PageLinks gives the tags a page adds after its own head, given those: the links of its versions.
+export type PageLinks = (own: ReadonlyArray<Tag>) => Tag[]
+
+function withLinks(tags: Tag[], links?: PageLinks): Tag[] {
+  return links ? tags.concat(links(tags)) : tags
+}
+
+function isCanonical(tag: Tag) {
+  return tag.tag === 'link' && typeof tag.attrs.rel === 'string' && tag.attrs.rel.toLowerCase().split(/\s+/).includes('canonical')
+}
+
+// alternateTags writes the links of a page that has more than one version: a link for each
+// version with its language, x-default, which is the version in the default language, and the page
+// itself as its canonical URL, unless the page's own head has a canonical link, which wins. URLs
+// are full, from site. A page with one version, or a site that does not say where it is served,
+// has none.
+export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | undefined, site: string): Tag[] {
+  if (!page || !site || page.list.length < 2) return []
+  const tags: Tag[] = page.list.map((a) => ({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.language, href: site + a.url } }))
+  const fallback = page.list.find((a) => a.language === page.default)
+  if (fallback) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: site + fallback.url } })
+  if (page.canonical && !own.some(isCanonical)) tags.push({ tag: 'link', attrs: { rel: 'canonical', href: site + page.canonical } })
+  return tags
+}
+
 // The attributes of <html> tifa wrote last, by their names in lower case with the values it
 // wrote, and the element it wrote them on. tifa compares what it wants with these, not with the
 // page: what a script of the page set, such as a theme class or a translated lang, stays until a
@@ -459,9 +512,9 @@ let managed: { element: Element; values: Map<string, string> } | undefined
 
 // wanted gives the attributes of <html> htmlAttributesOf gives for the matches, written by the
 // rules of attribute: by their names in lower case, the name to write and the value.
-function wanted(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes): Map<string, [string, string]> {
+function wanted(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes, language: string): Map<string, [string, string]> {
   const out = new Map<string, [string, string]>()
-  const attrs = htmlAttributesOf(matches, base)
+  const attrs = htmlAttributesOf(matches, base, language)
   for (const key in attrs) {
     const written = attribute(key, attrs[key])
     if (written) out.set(written[0].toLowerCase(), written)
@@ -472,11 +525,11 @@ function wanted(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes): Map<st
 // syncHTMLAttributes writes the attributes of <html> htmlAttributesOf gives for the matches. It
 // sets those whose value is not the one tifa wrote last, and takes away those tifa wrote and no
 // longer gives. It leaves the rest alone, even when a script of the page changed them.
-export function syncHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes) {
+export function syncHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes, language = '') {
   const element = document.documentElement
   const before = managed?.element === element ? managed.values : new Map<string, string>()
   const values = new Map<string, string>()
-  for (const [name, [written, value]] of wanted(matches, base)) {
+  for (const [name, [written, value]] of wanted(matches, base, language)) {
     values.set(name, value)
     if (before.get(name) !== value) element.setAttribute(written, value)
   }
@@ -487,9 +540,9 @@ export function syncHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTML
 // noteHTMLAttributes notes the attributes of <html> htmlAttributesOf gives for the matches as
 // written, without touching the page: those the server wrote for the matches it rendered. A
 // script of the page may have changed them since, and the hydration keeps that.
-export function noteHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes) {
+export function noteHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes, language = '') {
   const values = new Map<string, string>()
-  for (const [name, [, value]] of wanted(matches, base)) values.set(name, value)
+  for (const [name, [, value]] of wanted(matches, base, language)) values.set(name, value)
   managed = { element: document.documentElement, values }
 }
 
@@ -497,13 +550,19 @@ export function noteHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTML
 // matches: after a navigation, and whenever the data of a match changes, such as when
 // router.invalidate() refetches in the background. This is what TanStack's HeadContent reads
 // too. In the browser build TanStack makes the matches a store one can subscribe to, on the
-// server a plain value. base is the htmlAttributes of the root Layout.
-export function followHead(router: { stores: { matches: { get: () => ReadonlyArray<HeadMatch> } } }, base: HTMLAttributes) {
+// server a plain value. base is the htmlAttributes of the root Layout, language gives the language
+// of the page ("" on a site without languages) and links the tags of its versions.
+export function followHead(
+  router: { stores: { matches: { get: () => ReadonlyArray<HeadMatch> } } },
+  base: HTMLAttributes,
+  language: () => string = () => '',
+  links?: PageLinks,
+) {
   const matches = router.stores.matches as { get: () => ReadonlyArray<HeadMatch>; subscribe?: (listener: () => void) => unknown }
   if (typeof matches.subscribe !== 'function') throw new Error('head: the router has no store of matches to follow, it is not a browser router')
   matches.subscribe(() => {
     const current = matches.get()
-    syncHead(current)
-    syncHTMLAttributes(current, base)
+    syncHead(current, links)
+    syncHTMLAttributes(current, base, language())
   })
 }

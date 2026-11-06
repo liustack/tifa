@@ -11,6 +11,8 @@
 
 import { acceptSession, beginSession, type SessionEnvelope } from './session'
 import { reloadForBuild } from './skew'
+import { noteAlternates } from './alternates'
+import type { PageAlternates } from './head'
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
 // tifa.ErrNotFound, a redirect status with location when it returned tifa.Redirect, or the status
@@ -52,6 +54,8 @@ export interface Injected {
   session?: SessionEnvelope
   // The language of the page, left out on a site without languages.
   language?: string
+  // The versions of the page in other languages, left out for a page with one version.
+  alternates?: PageAlternates
 }
 
 // Boot is what a page rendered without SSR carries in <script id="tifa-data">: the results of
@@ -192,6 +196,7 @@ export function collector(buildId: () => string): Source {
       }
       if (!isEnvelope(body)) throw new RouteError(response.status, errorMessage(response, body))
       acceptSession(seq, body.session)
+      noteAlternates(url, body.alternates)
       // Each route gets its own result, whatever the HTTP status of the whole answer.
       for (const [id, list] of waiters) {
         const result = body.routes[id]
@@ -245,6 +250,7 @@ export function isRedirected(body: unknown): body is Redirected {
 interface DataAnswer {
   routes: Record<string, RouteResult>
   session?: unknown
+  alternates?: PageAlternates
 }
 
 // isEnvelope reports whether body is the answer to a data request: RouteResult by route ID, and
