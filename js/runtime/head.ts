@@ -109,18 +109,23 @@ export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttrib
 }
 
 // headTags collects the head of the matches the way TanStack's HeadContent does: the matches
-// up to the first one that did not load, the title and each named meta of the deepest route
-// that has it, then links, styles and head scripts in route order. Writing them leaves out
+// up to the first one that did not load, the title and the named metas of the deepest route
+// that has the name, then links, styles and head scripts in route order. Unlike HeadContent it
+// keeps all the metas of one name a route writes (TanStack/router#5146). Writing them leaves out
 // repeated tags, see headHTML and syncHead.
 export function headTags(all: ReadonlyArray<HeadMatch>): Tag[] {
   const matches = presented(all)
   const metas: Array<ReadonlyArray<Meta | undefined>> = [baseMeta]
   for (const match of matches) if (match.meta) metas.push(match.meta as ReadonlyArray<Meta | undefined>)
   const meta: Tag[] = []
+  // The names of the deeper routes. A route keeps every meta of a name it writes, such as a
+  // theme-color for each color scheme or several og:image, and they replace those of the outer
+  // routes.
   const named = new Set<string>()
   let title: Tag | undefined
   for (let i = metas.length - 1; i >= 0; i--) {
     const list = metas[i]!
+    const own = new Set<string>()
     for (let j = list.length - 1; j >= 0; j--) {
       const m = list[j]
       if (!m || htmlKey in m) continue
@@ -138,11 +143,12 @@ export function headTags(all: ReadonlyArray<HeadMatch>): Tag[] {
         const name = m.name ?? m.property
         if (name) {
           if (named.has(name)) continue
-          named.add(name)
+          own.add(name)
         }
         meta.push({ tag: 'meta', attrs: m })
       }
     }
+    for (const name of own) named.add(name)
   }
   if (title) meta.push(title)
   meta.reverse()
