@@ -1,5 +1,5 @@
 ---
-summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what Tifa docs prints and the managed block of AGENTS.md, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints and the managed block of AGENTS.md, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Changing `tifa check`, or finding out which steps it runs and what it needs
@@ -150,6 +150,24 @@ tifa: check failed at go vet ./...: exit status 1
 ```
 
 `tifa new` writes `go tool tifa check` into the `AGENTS.md` of a new app as the one command to run before finishing a change.
+
+## `tifa gen`
+
+```sh
+tifa gen [--dir app-root]
+```
+
+Runs the analysis and writes `.tifa/`, the first two steps of `tifa check`, and builds nothing. `tifa dev`, `tifa build` and `tifa check` write the same files, so you need it only where none of them has run yet, such as a fresh clone: the tsconfig of the app extends `.tifa/tsconfig.json`, and the types of the routes are in `.tifa/`. A convention violation fails it as it fails the build. It starts Node only for an app with pages.
+
+The `package.json` that `tifa new` writes runs it on install:
+
+```json
+"scripts": {
+  "prepare": "go tool tifa gen"
+}
+```
+
+pnpm and npm run the `prepare` script of the project after `pnpm install` and `npm install`, so installing the npm packages of a clone also writes `.tifa/`. Run `go mod download` (or `go mod tidy`) before, as `go tool tifa` needs the modules.
 
 ## Tifa docs
 

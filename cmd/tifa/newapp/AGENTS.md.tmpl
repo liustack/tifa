@@ -13,7 +13,8 @@ Run `go tool tifa docs`. It prints the folder with the docs of the tifa version 
 
 | Command | What it does |
 | --- | --- |
-| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite). Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another one, since tifa is tested with that version only |
+| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite). Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another one, since tifa is tested with that version only. It also runs `go tool tifa gen` |
+| `go tool tifa gen` | Write the generated code into `.tifa/` and build nothing, so editors and `tsc` see its types. `tifa dev`, `tifa build` and `tifa check` write the same files |
 | `go tool tifa dev` | Run at http://127.0.0.1:9527. A TSX or CSS edit updates the open page in place through Vite, a Go or `tifa.yaml` edit rebuilds and reloads it |
 | `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors, errors of the browser (hydration mismatches, uncaught errors, unhandled rejections) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. It exits with 1 when there are errors, 2 when no `tifa dev` runs. `--json` prints JSON |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |

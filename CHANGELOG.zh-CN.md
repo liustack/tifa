@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa gen` 把生成的代码写进 `.tifa/`，不做构建，新克隆的项目在编辑器和 `tsc` 里就能看到类型。`tifa new` 写出的 `package.json` 在 `prepare` 脚本里跑它，所以 `pnpm install` 或 `npm install` 之后就有了。已有的应用：在 `package.json` 的 `scripts` 里加上 `"prepare": "go tool tifa gen"`（见 [`tifa gen`](docs/build.zh-CN.md#tifa-gen)）。
+
 ### 变更
 
 - [性能文档](docs/performance.zh-CN.md#和三个-node-框架比)和 README 现在除了 Next.js 和 TanStack Start，也和 React Router 比，并且像浏览器那样带上 gzip 来测。新的[渲染缓存文档](docs/render-cache.zh-CN.md)讲清渲染缓存是什么，为什么对所有页面（包括登录后的页面）都安全，以及每类响应里 Tifa 怎么处理 Cookie、会话和 `Authorization`。

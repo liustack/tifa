@@ -128,6 +128,10 @@ func TestNewWritesAnApp(t *testing.T) {
 	if !strings.Contains(read("app/layout.tsx"), "{ title: 'My-App' }") || !strings.Contains(read("package.json"), `"name": "myapp"`) {
 		t.Errorf("the page does not show the app name:\n%s", read("app/layout.tsx"))
 	}
+	// Installing the npm packages of a fresh clone writes .tifa/, so editors see its types.
+	if want := `"prepare": "go tool tifa gen"`; !strings.Contains(read("package.json"), want) {
+		t.Errorf("package.json does not have %s:\n%s", want, read("package.json"))
+	}
 	// The database the app opens by default stays out of version control.
 	for _, pattern := range []string{"*.db\n", "*.db-wal\n", "*.db-shm\n"} {
 		if !strings.Contains(read(".gitignore"), pattern) {

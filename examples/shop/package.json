@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.33.0",
   "type": "module",
   "scripts": {
+    "prepare": "go tool tifa gen",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

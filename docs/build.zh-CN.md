@@ -1,5 +1,5 @@
 ---
-summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、Tifa docs 打印什么和 AGENTS.md 里 Tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
+summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、`tifa gen` 写出什么、Tifa docs 打印什么和 AGENTS.md 里 Tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 改 `tifa check`，或想知道它跑哪些步骤、需要什么
@@ -150,6 +150,24 @@ tifa: check failed at go vet ./...: exit status 1
 ```
 
 `tifa new` 把 `go tool tifa check` 写进新应用的 `AGENTS.md`，作为改完之后要跑的唯一检查命令。
+
+## `tifa gen`
+
+```sh
+tifa gen [--dir 应用根目录]
+```
+
+跑静态分析并写出 `.tifa/`，也就是 `tifa check` 的前两步，不做构建。`tifa dev`、`tifa build` 和 `tifa check` 写的是同样的文件，所以只有在它们都还没跑过的地方才需要它，比如新克隆的项目：应用的 tsconfig 继承 `.tifa/tsconfig.json`，路由的类型也在 `.tifa/` 里。违反约定时它和构建一样失败。只有带页面的应用才会启动 Node。
+
+`tifa new` 写出的 `package.json` 在安装时跑它：
+
+```json
+"scripts": {
+  "prepare": "go tool tifa gen"
+}
+```
+
+pnpm 和 npm 在 `pnpm install`、`npm install` 之后会跑项目的 `prepare` 脚本，所以装好克隆项目的 npm 包时 `.tifa/` 也写好了。在这之前先跑 `go mod download`（或 `go mod tidy`），`go tool tifa` 需要这些模块。
 
 ## Tifa docs
 
