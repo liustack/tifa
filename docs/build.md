@@ -62,6 +62,7 @@ Inside an app, the installed `tifa` hands the command to the version the app pin
 - It does not forward when it already is the version of the app: a release build of the same version that `go.mod` requires, with no `replace` for Tifa. A binary built in a checkout, another version, or a `replace` always forwards.
 - A `go.work` file that is in use (`GOWORK`, or one above the app) always forwards, since it can change which Tifa the app gets, and `go tool` follows the workspace.
 - `tifa new` never forwards. It writes a new app, so there is none to ask.
+- A `tifa` that the go command runs, `go tool tifa` or `go run`, never forwards: it lives in the build cache of the go command (`GOCACHE`) and is the version `go.mod` picks already.
 - The forwarded command runs in the root of the app with the same input, output, exit status and Ctrl-C. It prints nothing of its own, and sets `TIFA_FORWARDED=1` so it never forwards twice. If `go tool tifa` cannot start, `tifa` says what to run instead.
 
 ## `tifa build`

@@ -74,6 +74,23 @@ func forwardTarget(args []string, cwd string, info *debug.BuildInfo, getenv func
 	return root, true
 }
 
+// runByGoCommand reports whether exe, the path of this program, is in the build cache of the go
+// command, where go tool and go run keep the programs they build. Such a tifa is the one the app
+// pins already, so it never forwards: without this check, go tool tifa in an app that replaces
+// tifa would start a second go tool tifa. A GOCACHE set only with go env -w is not seen, and such
+// a tifa forwards once.
+func runByGoCommand(exe string, getenv func(string) string) bool {
+	cache := getenv("GOCACHE")
+	if cache == "" {
+		dir, err := os.UserCacheDir()
+		if err != nil {
+			return false
+		}
+		cache = filepath.Join(dir, "go-build")
+	}
+	return strings.HasPrefix(exe, cache+string(filepath.Separator))
+}
+
 // dirFlag finds --dir in args: "--dir x" or "--dir=x", before any "--".
 func dirFlag(args []string) (string, bool) {
 	for i, a := range args {

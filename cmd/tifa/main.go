@@ -11,7 +11,8 @@ import (
 )
 
 func main() {
-	if cwd, err := os.Getwd(); err == nil {
+	exe, exeErr := os.Executable()
+	if cwd, cwdErr := os.Getwd(); exeErr == nil && cwdErr == nil && !runByGoCommand(exe, os.Getenv) {
 		info, _ := debug.ReadBuildInfo()
 		if root, ok := forwardTarget(os.Args[1:], cwd, info, os.Getenv); ok {
 			code, err := forward(root, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)

@@ -137,3 +137,27 @@ func TestForwardCannotStart(t *testing.T) {
 		t.Fatalf("err = %v, want it to name the command to run", err)
 	}
 }
+
+// A tifa that the go command runs, go tool tifa or go run, lives in the build cache and is the
+// version the app pins already, so it never forwards.
+func TestRunByGoCommand(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "go-build")
+	env := func(k string) string {
+		if k == "GOCACHE" {
+			return cache
+		}
+		return ""
+	}
+	for _, tc := range []struct {
+		exe  string
+		want bool
+	}{
+		{filepath.Join(cache, "d0", "d063eb-d", "tifa"), true},
+		{filepath.Join(filepath.Dir(cache), "bin", "tifa"), false},
+		{cache + "-other" + string(filepath.Separator) + "tifa", false},
+	} {
+		if got := runByGoCommand(tc.exe, env); got != tc.want {
+			t.Errorf("runByGoCommand(%s) = %v, want %v", tc.exe, got, tc.want)
+		}
+	}
+}
