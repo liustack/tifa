@@ -48,8 +48,8 @@ myapp/
           route.go  page.tsx        page /projects/{project}/stats
     store/
       layout_.tsx                   wraps /store and every page below it without the root Layout around them, and shows their errors
-      lang+/
-        route.go  layout.tsx  page.tsx   Layout of /store/{lang} and every page below it, and the page /store/{lang}
+      _locales/                     zh-CN.json and en-US.json: the storefront is in these two languages, at /store and /en-US/store
+      route.go  page.tsx            page /store
 ```
 
 - Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
@@ -396,19 +396,18 @@ export const documentHead = {
 ```
 
 - A page's head comes from the `head` return values of the matched routes: `title` and meta tags with the same name come from the deepest route that has them, which keeps every one of them it writes (a `theme-color` for each `media`, several `og:image`), and link, style and script tags are deduplicated in route order. The framework always adds `<meta charset="utf-8">` and a viewport meta, and a route's `name: 'viewport'` meta replaces the latter. Tag attributes are written the way React DOM writes them on the server: `className`, `htmlFor`, `httpEquiv`, `crossOrigin` and so on become their HTML names. Event attributes starting with `on`, invalid attribute names, `null`, `undefined` and functions are not written. Boolean attributes such as `async` and `defer` are written with an empty value when true. For other attributes, boolean values are written as strings only on `data-` and `aria-` attributes. `javascript:` links are replaced. Head tags do not support the `style` attribute, and using it makes rendering fail. `htmlAttributes` follows the same rules. The content of style and script tags is written as is. Only the `<script` and `</script` (in style, `<style` and `</style`) that would end the element are escaped, the way React DOM does it. After browser navigation and after `router.invalidate()`, the head updates to match the new routes.
-- A `head` can also return `htmlAttributes`, the attributes of `<html>` for its pages, such as the language of a site in several languages. Search engines, screen readers and the translation of browsers read the language from `lang`. They are merged over the root Layout's `htmlAttributes` one attribute at a time: the deepest route that gives an attribute wins, `undefined` leaves it to the routes above, and `null` takes it away. Attributes are matched by the name React DOM writes, so `className` in one route and `class` in another are the same attribute. `class` is replaced as a whole, never merged with a value from elsewhere. `style` is not supported, as on the tags of the head. They are written by the same rules as the tags of the head. After browser navigation and after `router.invalidate()` they follow the new routes too. In the browser Tifa writes an attribute of `<html>` only when the value it wants for it changes, and takes away only attributes it wrote. So what a script of the page sets, such as the `dark` class of a dark mode script or the `lang` a translation tool changes, stays through hydration and navigation while the routes want the same value of that attribute. When that value changes, because a route sets another `class` or a navigation leaves it and the root Layout's `class` comes back, Tifa writes it and the class the script added is gone. Keep such a theme in an attribute no route sets, such as `data-theme`, or have the script add it again. A page without SSR gets these attributes in the browser.
+- A `head` can also return `htmlAttributes`, the attributes of `<html>` for its pages, such as a theme class or a `data-` attribute. They are merged over the root Layout's `htmlAttributes` one attribute at a time: the deepest route that gives an attribute wins, `undefined` leaves it to the routes above, and `null` takes it away. Attributes are matched by the name React DOM writes, so `className` in one route and `class` in another are the same attribute. `class` is replaced as a whole, never merged with a value from elsewhere. `style` is not supported, as on the tags of the head. They are written by the same rules as the tags of the head. After browser navigation and after `router.invalidate()` they follow the new routes too. In the browser Tifa writes an attribute of `<html>` only when the value it wants for it changes, and takes away only attributes it wrote. So what a script of the page sets, such as the `dark` class of a dark mode script or the `lang` a translation tool changes, stays through hydration and navigation while the routes want the same value of that attribute. When that value changes, because a route sets another `class` or a navigation leaves it and the root Layout's `class` comes back, Tifa writes it and the class the script added is gone. Keep such a theme in an attribute no route sets, such as `data-theme`, or have the script add it again. A page without SSR gets these attributes in the browser.
 
 ```tsx
-// app/guide/lang+/layout.tsx. Layout in route.go checks the language of the URL and returns it,
-// or tifa.ErrNotFound for a language the site does not have.
+// app/guide/layout.tsx. Layout in route.go returns the theme of the guide.
 export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
-  htmlAttributes: { lang: loaderData?.lang },
+  htmlAttributes: { 'data-theme': loaderData?.theme },
 })
 ```
 
-- The routes that count are those whose head is on the page. A 404 or an error below the Layout keeps the Layout's language, also for a URL below the Layout that no page has, since its 404 shows inside the Layout (see [404](#404)). When the Layout itself fails, its `head` runs without data, so the example above leaves the root Layout's `lang`. See [A site in several languages](#a-site-in-several-languages) for the rest of such a site.
+- The routes that count are those whose head is on the page. A 404 or an error below the Layout keeps the Layout's attributes, also for a URL below the Layout that no page has, since its 404 shows inside the Layout (see [404](#404)). When the Layout itself fails, its `head` runs without data, so the example above leaves the root Layout's `data-theme`.
+- On a site with languages Tifa writes `lang` itself, the language of the page. A `lang` in `htmlAttributes` fails the build there (see [A site in several languages](#a-site-in-several-languages)).
 - `htmlAttributes` must be an object, and `pnpm typecheck` reports any other value. At run time such a value fails like an error the `head` throws: the server render fails as an unexpected error (`OnError`, or a 500), with the message in the log, and on the page under `tifa dev`. In the browser, after a navigation or on a page without SSR, the router writes the error to the console and drops the whole head of that route.
-- Take the language from the Layout's data, as above, rather than from `params`: the Go function checks it, so whatever someone types into the URL does not end up as the language of the page.
 
 ### A Layout without the Layouts above
 
@@ -422,10 +421,10 @@ app/
       route.go  layout.tsx  page.tsx  inside the workbench
   store/
     layout_.tsx                       the storefront starts here, without the workbench
-    lang+/
-      route.go  layout.tsx  page.tsx  the storefront in one language
-      cart/
-        route.go  page.tsx            inside the storefront
+    _locales/                         zh-CN.json and en-US.json
+    route.go  page.tsx                the storefront
+    cart/
+      route.go  page.tsx              inside the storefront
 ```
 
 - The pages below it, also those further down, do not render the Layouts above it, and their `Layout` functions do not run for them: not for a page, not for the navigation data request of the browser, not for the 404 of a URL below it that no page has. So their data never reaches these pages.
@@ -502,72 +501,25 @@ export function Error({ error }: { error: unknown }) {
 
 ## A site in several languages
 
-Tifa has no language settings: the language is a part of the URL, and the app checks it in Go. The storefront of [examples/shop](../examples/shop) under `/store` works this way.
+Put a `_locales` folder in a folder of `app/`, with one `<language>.json` file per language, and the pages and API routes in that folder and below it are offered in those languages. The storefront of [examples/shop](../examples/shop) is `app/store/` with `_locales/zh-CN.json` and `_locales/en-US.json`.
 
-- Put the language in a parameter folder at the start of the URLs, such as `app/store/lang+`. Every URL names its language, the default one too: `/store/zh-CN/products` and `/store/en-US/products`.
-- The `Layout` of that folder checks the language and returns it with its data. A language the site does not have returns `tifa.ErrNotFound`, which shows the 404 of the Layout above, in its language:
-
-```go
-// app/store/lang+/route.go
-func Layout(c *tifa.Ctx) (Shell, error) {
-	l, err := storekit.FindLocale(c.Param("lang")) // tifa.ErrNotFound for a language the store does not have
-	if err != nil {
-		return Shell{}, err
-	}
-	return Shell{Locale: l, Menu: products.Menu(l)}, nil
-}
+```yaml
+# tifa.yaml
+i18n:
+  default: zh-CN
+site:
+  url: https://shop.example.com
 ```
 
-- The shop puts a `layout_.tsx` in `app/store`, the folder above, so the storefront shows without the workbench around it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)). It renders only an `<Outlet />`, and its `Error` shows the 404 of a language the store does not have in both languages, with a link to the storefront in each, since the visitor's language is not known.
-- Pages and components take the language from that data, through `layout.useLoaderData()` or a context the Layout component provides, not from `params`: the Go function checked it, so whatever someone types into the URL does not end up as the language of the page. A `Load` below the Layout checks it the same way, or reads the Layout's result with `tifa.Use`.
-- The `head` of the Layout writes `lang` on `<html>` and links to the same page in each language, which search engines read: one per language, the page's own included, and `x-default` for a browser that asks for none of them, here the default language. Search engines want these URLs in full. `matches` holds the routes of the page, the page last. When any of them has a `status` other than `success` (a `Load` failed, or a component threw while the page rendered on the server), or is marked `_notFound` (no page has the URL, and the deepest Layout it matches shows the 404), the page shows an error and the head leaves the links out: a URL that answers 404 is no page to point search engines to, in any language. The `lang` stays. The head:
+- The default language has no prefix, any other is the first segment of the URL: `/store/cart` is in `zh-CN` and `/en-US/store/cart` in `en-US`. `/zh-CN/store/cart` answers 308 to `/store/cart`. A route outside every folder with `_locales`, such as `/projects`, has one URL, and a language in front of it is a 404. `i18n.prefix: always` puts the default language in the URL too.
+- A route does not name its language in its folder: no `lang+` folder, no list of languages and no Layout that checks one. `c.Language()` gives the language in Go, in a `Load`, a `Layout` or a handler, and `useLanguage()` from `tifa/client` gives it in React.
+- `<html lang>`, the `hreflang` links, `x-default` and a canonical link are written by Tifa. A site with several languages needs `site.url` for them.
+- Links stay as you write them: `<Link to="/store/cart">` becomes `/en-US/store/cart` in an `en-US` page. A link to another language, or to a route outside the folder, loads a new page, since one page holds one language.
+- Translate with the i18next adapter `tifa/i18n`, or any library that takes its language from `useLanguage()`. Load the translations synchronously: bundle them with the app and set the library up without waiting. The server render waits for nothing and reads no files, so messages that arrive later are missing from the HTML, and the browser would hydrate with other text. Format numbers and dates with the language too (see [Formatting so hydration matches](#formatting-so-hydration-matches)).
+- A whole-page cache keeps each language under its own URL.
+- Tifa does not pick a language for a visitor and has no fallback language.
 
-```tsx
-// app/store/lang+/layout.tsx
-const site = 'https://shop.example.com' // where the store is served
-const languages = ['zh-CN', 'en-US'] // the languages of the store, the default one first
-
-export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string; status: string; _notFound?: unknown }> }) => {
-  if (!loaderData) return {}
-  const { code } = loaderData.locale
-  const common = { htmlAttributes: { lang: code } }
-  if (matches.some((match) => match.status !== 'success' || match._notFound)) return common
-  const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
-  const url = (lang: string) => `${site}/store/${lang}${page}`
-  return {
-    ...common,
-    links: [
-      ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
-      { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },
-    ],
-  }
-}
-```
-
-- A URL below the language folder that no page has shows its 404 inside the language Layout, in the language of the URL (see [404](#404)). No page for the rest of the path is needed.
-- The URL without a language, such as `/store`, sends the visitor on with a method handler: to the language they picked before, kept in a cookie the app sets when they pick one, or else to the best match for `Accept-Language`. Match with `Matcher` of `golang.org/x/text/language`, which knows that `en-GB` is closer to `en-US` than to `zh-CN`. The answer depends on the request, so redirect with 302 and add `Vary`:
-
-```go
-// app/store/route.go
-var codes = []string{"zh-CN", "en-US"} // the default language first
-
-var matcher = language.NewMatcher([]language.Tag{language.MustParse(codes[0]), language.MustParse(codes[1])})
-
-func GET(c *tifa.Ctx) error {
-	c.Writer().Header().Add("Vary", "Cookie, Accept-Language")
-	if picked, err := c.Cookie("lang"); err == nil && slices.Contains(codes, picked.Value) {
-		return tifa.Redirect("/store/"+picked.Value, http.StatusFound) // the language the visitor picked
-	}
-	tags, _, _ := language.ParseAcceptLanguage(c.Header("Accept-Language"))
-	_, i, confidence := matcher.Match(tags...)
-	if confidence == language.No {
-		i = 0 // none of the languages is close: the default one
-	}
-	return tifa.Redirect("/store/"+codes[i], http.StatusFound)
-}
-```
-
-- Load the translations synchronously: bundle the messages of every language with the app and set up the library without waiting, such as i18next with `initAsync: false` and its `resources`. The server render waits for nothing and reads no files, so messages that arrive later are missing from the HTML, and the browser would hydrate with other text. Both sides take the language from the Layout's data, so they show the same text. Format numbers and dates with the locale and time zone from the data as well (see [Formatting so hydration matches](#formatting-so-hydration-matches)).
+The [guide](guides/i18n.md) goes through all of it: translating, the language switch, translated slugs, Markdown in each language and what fails the build.
 
 ## SSR and cache
 
@@ -603,7 +555,7 @@ A page with `Cache` is answered to everyone alike for that long, from memory, wi
 - **The edge of anonymous.** What Tifa guarantees is the request headers: on a page with `Cache`, `OnRequest`, `Load` and `Layout` see a request with only the headers of the list, and `tifa.Session` is nil. A `net/http` middleware set with `tifa.SetHTTPHandler` runs outside Tifa and gets the request as it came, and what it puts into the context of the request reaches `OnRequest` and the `Load` unchanged. Do not recognize visitors there: do it in `OnRequest` on routes without `Cache`. The address of the connection and the TLS state also remain, and values an outer middleware puts into the context and headers on the list (such as `Origin`) can still tell requests apart. None of them may be used to build personalized shared content.
 - **The build checks it.** When the `Load` of such a page, the `Layout` function of a Layout around it, or a function they call reads `c.Cookie`, `c.Header` or `tifa.Session`, the build fails with the line, since the read can only see an anonymous request. For `c.Header` the message says which few headers are there. A page that needs to know who is signed in does not use `Cache`. Put what depends on the visitor into the browser, which can read it after the page has loaded (see [In the browser](sessions.md#in-the-browser)). Keep the Layouts around a page with `Cache` to data that is the same for everyone.
 - **What `OnRequest` can do.** It runs for every request, hits included, and sees the anonymous request. Use it for what depends on the path: redirects, security headers, logging, counting, rate limits by address. It cannot see who is signed in, so an `OnRequest` that redirects by login state belongs to routes without `Cache`, and one that sets a cookie when it does not see one would set it on every navigation. Cookies it sets on the HTML are removed.
-- **Languages.** A page in several languages is cached by URL, one entry for each language folder. The entry point that picks the language from a cookie or from `Accept-Language` and redirects is a GET handler on a route without `Cache` (a page with `Cache` cannot read either), and the pages it leads to carry the language in their URL (see [A site in several languages](#a-site-in-several-languages)).
+- **Languages.** A page in several languages is cached by URL, so each language has its own entry. An entry point that picks the language from a cookie or from `Accept-Language` and redirects is a GET handler on a route without `Cache` (a page with `Cache` cannot read either), and the pages it leads to carry the language in their URL (see [A site in several languages](#a-site-in-several-languages)).
 - **The key** is the scheme, the `Host` header (`X-Forwarded-Host` is not trusted), the path and the query without tracking parameters, the rest sorted by name. `cache.ignore_query` lists the tracking parameters (`utm_*`, `gclid`, `fbclid` and the like, see [config.md](config.md)). A parameter that a `Load` on the page's chain reads is always kept. The page is rendered for the same cleaned URL, so what the visitor sees does not depend on a parameter the key ignored.
 - **What is kept.** GET and HEAD share one entry. Only answers with status 200, 301, 302 and 308 are kept. An answer is not kept, and the requests for that URL skip the cache for two minutes so they do not queue, when `Cache-Control` has `private`, `no-store` or `no-cache` (set by `OnRequest` or a `Load`), when `Vary` has anything but `Accept-Encoding`, and for any other status, a 404 included. A forced refresh (`Cache-Control: no-cache` or `Pragma` in the request) does not bypass the cache.
 - **When the time is over** nobody gets the old page. The next request makes a new one and the others wait for it. If the data did not change, the render cache answers and nothing is rendered again.

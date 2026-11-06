@@ -66,13 +66,13 @@ type Doc struct {
 | `Source` field | Meaning |
 | --- | --- |
 | `Dir` | Required. The folder under `content/` that holds the collection, also its name in errors and in the build. Letters, digits, `-` and `_` only, no `/`. |
-| `Languages` | Optional. The languages of the collection, the default first. With it, the first level under `content/<Dir>/` is one folder per language. |
+| `Languages` | Optional. The languages of the collection, the default first: `tifa.Languages()` for the languages of the site, or a list of string literals. With it, the first level under `content/<Dir>/` is one folder per language. |
 | `Match` | Optional. A pattern that keeps only some of the files, see [Which files are entries](#which-files-are-entries). |
 
 The build reads `content.go` without running it, so:
 
 - `content.Define` is written only as the value of a package-level `var` in `content.go`. Anywhere else (another file, a function, `init()`, an assignment) fails the build.
-- The argument is a `content.Source{...}` literal written in place, with its fields named. `Dir` and `Match` are string literals and `Languages` is a `[]string{...}` of string literals, not constants or variables.
+- The argument is a `content.Source{...}` literal written in place, with its fields named. `Dir` and `Match` are string literals and `Languages` is `tifa.Languages()` or a `[]string{...}` of string literals, not constants or variables.
 - The type is a named struct of the app's module that embeds `content.Entry` (not a pointer to it).
 - Two collections cannot read the same `Dir`.
 - Every folder under `content/` needs a collection, also in an app without `content.go`. A folder that no collection reads fails the build, which catches a typo in a folder name. Folders whose names start with `.` or `_` are left alone.
@@ -121,6 +121,8 @@ For the front page of a group of docs, write a file named like the folder (`guid
 With `Languages`, every entry is in a language folder, the default language too. A first-level folder that is not a language, or a `.md` file right in the collection folder, fails the build. A language without a folder has no entries. Without `Languages` there is no language level and `Entry.Lang` is `""`.
 
 The versions of one entry in different languages share a translation key: the `translationKey` of the front matter, or the ID. So files with the same path are translations of each other, and `translationKey` links files with different paths, such as `launch` in the test app. One language has each key once. `Entry.Translations` lists the versions that can be seen now, in the order of `Languages`, the entry itself included, each as `{Lang, ID, Slug, Path}`. Links between languages and `hreflang` come from there.
+
+On a site with languages (see [A site in several languages](guides/i18n.md)), write `Languages: tifa.Languages()` and the collection has the languages of the site, the default first. The folders under `content/<Dir>/` are named after them. An entry with no version in some language has no page in it: `Get` returns `tifa.ErrNotFound` for that language, so a `Load` that returns the error shows a 404, and nothing falls back to another language. A page of an entry passes `entry.Translations` to `c.SetAlternates` so that the `hreflang` links list only the versions that exist.
 
 An entry with no version in some language is fine. The build prints one line per collection and missing language:
 
