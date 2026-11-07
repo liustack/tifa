@@ -179,6 +179,7 @@ func TestSSRSpeedsUpI18nextTheSameWay(t *testing.T) {
 	cases := []struct{ name, old, new string }{
 		{"fixedT", "const selectorOpts = {", "const selectorOpts = /* changed */ {"},
 		{"looksLikeObjectPath", "const possibleChars = chars.filter(", "const possibleChars = /* changed */ chars.filter("},
+		{"createCachedFormatter", "    const key = l + JSON.stringify(optForCache);", "    const key = l + /* changed */ JSON.stringify(optForCache);"},
 	}
 	for _, c := range cases {
 		root := withChangedPackage(t, "i18next", filepath.Join("dist", "esm", "i18next.js"), func(source string) string {

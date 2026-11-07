@@ -369,12 +369,12 @@ function tifaWrapperKeep(original, descriptors) {
 }
 `
 // i18next translates with code that copies and searches more than a translation needs, which takes
-// long in QuickJS. The tifa plugin changes two of its functions in dist/esm/i18next.js and
+// long in QuickJS, or keeps more than it needs. The tifa plugin changes three of its functions in dist/esm/i18next.js and
 // dist/cjs/i18next.js, see i18nextFaster, and leaves the rest. i18nextFixedT is the end of the
 // function getFixedT returns, which copies all options of i18next into selectorOpts on every call,
 // though only a key or key prefix that is a function reads them. i18nextObjectPath is RegExpCache
 // and the start of looksLikeObjectPath, which builds the source of the same regexp from the
-// separators on every call.
+// separators on every call. i18nextCachedFormatter is below.
 const i18nextModule = /[/\\]i18next[/\\]dist[/\\](?:esm|cjs)[/\\]i18next\.js$/
 const i18nextFixedT = `      const selectorOpts = {
         ...this.options,
@@ -395,6 +395,53 @@ const i18nextFixedT = `      const selectorOpts = {
       }
       return this.t(resultKey, o);
 `
+// i18nextCachedFormatter is the function that addCached, and every format of i18next's own, keep
+// their formatters in: one for each language and options of a call, the value included, which it
+// never lets go (i18next/i18next#2227). i18nextCachedFormatters is how many it keeps with the
+// plugin's change.
+const i18nextCachedFormatter = `const createCachedFormatter = fn => {
+  const cache = {};
+  return (v, l, o) => {
+    let optForCache = o;
+    if (o && o.interpolationkey && o.formatParams && o.formatParams[o.interpolationkey] && o[o.interpolationkey]) {
+      optForCache = {
+        ...optForCache,
+        [o.interpolationkey]: undefined
+      };
+    }
+    const key = l + JSON.stringify(optForCache);
+    let frm = cache[key];
+    if (!frm) {
+      frm = fn(getCleanedCode(l), o);
+      cache[key] = frm;
+    }
+    return frm(v);
+  };
+};
+`
+// i18nextCachedFormatterNames is the same function as i18next 23.12.7 to 25.1 write it, with longer
+// names.
+const i18nextCachedFormatterNames = `const createCachedFormatter = fn => {
+  const cache = {};
+  return (val, lng, options) => {
+    let optForCache = options;
+    if (options && options.interpolationkey && options.formatParams && options.formatParams[options.interpolationkey] && options[options.interpolationkey]) {
+      optForCache = {
+        ...optForCache,
+        [options.interpolationkey]: undefined
+      };
+    }
+    const key = lng + JSON.stringify(optForCache);
+    let formatter = cache[key];
+    if (!formatter) {
+      formatter = fn(getCleanedCode(lng), options);
+      cache[key] = formatter;
+    }
+    return formatter(val);
+  };
+};
+`
+const i18nextCachedFormatters = 1024
 const i18nextObjectPath = `class RegExpCache {
   constructor(capacity) {
     this.capacity = capacity;
@@ -2005,7 +2052,14 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
               'call. Pages render the same, but translations take longer',
           )
         }
-        const faster = unknown.length === 2 ? null : source
+        if (unknown.includes('createCachedFormatter')) {
+          this.warn(
+            notRecognized +
+            `${i18next} has no createCachedFormatter the tifa plugin knows, so it keeps a formatter for each new ` +
+              'value it formats, and the VMs of the server grow until they are replaced. Pages render the same',
+          )
+        }
+        const faster = unknown.length === 3 ? null : source
         if (!settings.i18nextCache) return faster
         const cached = i18nextCache(faster ?? original)
         if (cached === undefined) {
@@ -2911,6 +2965,10 @@ function lucideCache(file, source) {
 // keeps no state between tests. While a page has replaced a built-in that making the pattern calls
 // (filter, map and join of arrays, includes or indexOf of strings, get of maps), it makes the
 // pattern as before.
+//
+// createCachedFormatter keeps at most i18nextCachedFormatters formatters for each format, and
+// starts over empty when the next would not fit. A formatter it made again is made from the same
+// language and options, so it formats as the one it forgot did.
 function i18nextFaster(source) {
   const unknown = []
   const scoped = '      if (Array.isArray(scopeNs) && !explicitCallNs) selectorOpts.ns = scopeNs;\n'
@@ -2956,6 +3014,16 @@ function i18nextFaster(source) {
     source = source.replace(known, () => lines.join('\n'))
   } else {
     unknown.push('looksLikeObjectPath')
+  }
+  const cachedFormatter = [i18nextCachedFormatter, i18nextCachedFormatterNames].find((known) => source.split(known).length === 2)
+  if (cachedFormatter) {
+    const lines = cachedFormatter.split('\n')
+    const kept = lines.findIndex((line) => line.startsWith('      cache[key] = '))
+    lines[1] = '  let cache = {}, tifaKept = 0;'
+    lines[kept] = `      if (tifaKept === ${i18nextCachedFormatters}) { cache = {}; tifaKept = 0; } tifaKept++;` + lines[kept].slice(5)
+    source = source.replace(cachedFormatter, () => lines.join('\n'))
+  } else {
+    unknown.push('createCachedFormatter')
   }
   return { source, unknown }
 }
