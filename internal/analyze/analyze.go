@@ -1392,7 +1392,7 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 
 // routeLimits reads BodyLimit and ReadTimeout of route.go, which set the body limit and the read
 // timeout of the requests its method handlers answer, in place of server.body_limit and
-// server.read_timeout. Each may be a constant or a package-level variable, such as one set from a
+// server.read_timeout. Each may be a constant or a package-level variable, such as one set from an
 // option of the app: the generated code refers to it, and the program reads it when it starts.
 // handlers reports whether route.go declares a method handler. Each result reports a name that is
 // declared and valid.
