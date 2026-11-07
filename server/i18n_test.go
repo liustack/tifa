@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -88,7 +89,8 @@ func TestPrefixAlwaysPrefixesTheDefaultLanguageToo(t *testing.T) {
 		// Routes outside every area stay as they are.
 		{"/api/hook", 200, "[zh-CN] /api/hook /api/hook", nil},
 		{"/zh-CN/api/hook", 404, "", nil},
-		{"//store/mine", 308, "", map[string]string{"Location": "/store/mine"}},
+		// The redirect of a spelling goes to the URL with the prefix at once.
+		{"//store/mine", 308, "", map[string]string{"Location": "/zh-CN/store/mine"}},
 	} {
 		w := send(s, "GET", tc.target, "")
 		if w.Code != tc.code || tc.body != "" && w.Body.String() != tc.body {
@@ -175,6 +177,44 @@ func TestEscapedLanguageIsTheLanguage(t *testing.T) {
 		}
 		if w := send(s, "GET", "/hello", ""); w.Code != 200 || w.Body.String() != "id=hello" {
 			t.Errorf("always %v GET /hello: %d %q", always, w.Code, w.Body.String())
+		}
+	}
+}
+
+// A redirect of the app to a path of a route that has the language of the request gets its prefix,
+// as a link does in the browser. A path that starts with a language, a route without the language
+// and a URL of another site stay as written.
+func TestRedirectGetsThePrefixOfTheRequest(t *testing.T) {
+	for _, always := range []bool{false, true} {
+		app := i18nTestApp(always)
+		app.Routes = append(app.Routes, Route{ID: "app/store/go/route", Path: "/store/go", GET: func(c *tifa.Ctx) error {
+			return tifa.Redirect(c.Query("to"), 303)
+		}, Languages: storeLanguages})
+		s := newAppServer(t, app)
+		s.setI18n(app.I18n)
+		zh := "/store/mine"
+		if always {
+			zh = "/zh-CN/store/mine"
+		}
+		for _, tc := range []struct{ from, to, want string }{
+			{"/en-US/store/go", "/store/mine", "/en-US/store/mine"},
+			{"/en-US/store/go", "/store/mine?x=1#top", "/en-US/store/mine?x=1#top"},
+			{"/en-US/store/go", "/store/items/a%2Fb", "/en-US/store/items/a%2Fb"},
+			{"/en-US/store/go", "mine", "/en-US/store/mine"},
+			{"/en-US/store/go", "/api/hook", "/api/hook"},
+			{"/en-US/store/go", "/admin", "/admin"},
+			{"/en-US/store/go", "/de/admin", "/de/admin"},
+			{"/en-US/store/go", "/zh-CN/store/mine", "/zh-CN/store/mine"},
+			{"/en-US/store/go", "/store/none", "/store/none"},
+			{"/en-US/store/go", "https://b.example.com/store/mine", "https://b.example.com/store/mine"},
+			{"/en-US/store/go", "//b.example.com/store/mine", "//b.example.com/store/mine"},
+			{strings.TrimSuffix(zh, "/mine") + "/go", "/store/mine", zh},
+		} {
+			target := tc.from + "?to=" + url.QueryEscape(tc.to)
+			w := send(s, "GET", target, "")
+			if got := w.Header().Get("Location"); w.Code != 303 || got != tc.want {
+				t.Errorf("always %v: GET %s: %d Location %q, want 303 %q", always, target, w.Code, got, tc.want)
+			}
 		}
 	}
 }

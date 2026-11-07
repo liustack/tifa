@@ -243,10 +243,10 @@ func (p *redirectProbe) Write(b []byte) (int, error) { return len(b), nil }
 
 // redirectLocation is the Location http.Redirect writes for url: a relative URL resolved against
 // the path of r, with its dot segments removed and its non-ASCII bytes escaped.
-func redirectLocation(r *http.Request, url string, code int) string {
+func (s *server) redirectLocation(r *http.Request, url string, code int) string {
 	probe := &redirectProbe{header: http.Header{}}
 	http.Redirect(probe, r, url, code)
-	return probe.header.Get("Location")
+	return s.withLanguage(r, probe.header.Get("Location"))
 }
 
 // routeLimits are the BodyLimit and ReadTimeout of a route, zero for the settings.
@@ -436,7 +436,7 @@ func (s *server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 	var e tifa.Error
 	switch {
 	case errors.As(err, &redirect):
-		return &core.RedirectError{URL: redirectLocation(c.Request(), redirect.URL, redirect.Status), Status: redirect.Status}, e
+		return &core.RedirectError{URL: s.redirectLocation(c.Request(), redirect.URL, redirect.Status), Status: redirect.Status}, e
 	case errors.Is(err, tifa.ErrSSRBusy):
 		c.SetHeader("Retry-After", "1")
 		c.SetHeader("Cache-Control", "no-store")
