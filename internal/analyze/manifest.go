@@ -23,6 +23,8 @@ type Manifest struct {
 	// Settings lists the keys of the settings the app defines in config.go with tifa.String and
 	// the like, in the order of the file.
 	Settings []string `json:"settings"`
+	// I18n is the languages of the app, nil without a _locales folder.
+	I18n *I18n `json:"i18n,omitempty"`
 	// Embedded is what the go:embed lines of the module's packages bring in. It is not part of the
 	// route manifest, so it is not written out.
 	Embedded *Embedded `json:"-"`
@@ -61,6 +63,10 @@ type Layout struct {
 	SSR bool `json:"ssr"`
 	// Routes lists the IDs of the routes in Dir and below it, API routes included, sorted.
 	Routes []string `json:"routes"`
+	// Area is the folder of the _locales folder that gives the Layout its languages, empty outside
+	// every area. Languages are those of the area, the default language first.
+	Area      string   `json:"area,omitempty"`
+	Languages []string `json:"languages,omitempty"`
 }
 
 // Route is a directory under app/ that holds page.tsx, or whose route.go declares a method handler, or both.
@@ -93,7 +99,12 @@ type Route struct {
 	BodyLimit   bool `json:"bodyLimit"`
 	ReadTimeout bool `json:"readTimeout"`
 	// Layouts lists the IDs of the Layouts in Dir and above it, outermost first.
-	Layouts []string `json:"layouts"`
+	// Area is the folder of the _locales folder that gives the route its languages, empty for a
+	// route outside every area, which has none and is never prefixed. Languages are those of the
+	// area, the default language first.
+	Area      string   `json:"area,omitempty"`
+	Languages []string `json:"languages,omitempty"`
+	Layouts   []string `json:"layouts"`
 }
 
 // Load describes the function that loads the data of a route (Load) or a Layout (Layout).

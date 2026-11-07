@@ -7,7 +7,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
-import { headHTML, headTags, htmlAttributesOf } from './.tifa/runtime/head'
+import { alternateTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { SessionContext } from './.tifa/runtime/session'
@@ -943,7 +943,7 @@ test('a redirect of the server reaches every route as a redirect', async () => {
     assert(result.status === 302 && result.location === '/login', `result ${JSON.stringify(result)}`)
   assert(requests.options[0]?.redirect === 'manual', `fetch follows redirects: ${JSON.stringify(requests.options[0])}`)
   // The loader turns it into a router redirect to the target.
-  const thrown = await load({ browser: true, source: async () => results[0], chain: () => [] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '' }, false).then(
+  const thrown = await load({ browser: true, source: async () => results[0], chain: () => [] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '', publicHref: '/teams/x/one' }, false).then(
     () => undefined,
     (error) => error,
   )
@@ -1383,6 +1383,91 @@ test('a route remounts when a path parameter it reads changes, not a query param
   router.history.push('/teams/y/one?tab=b')
   await router.load()
   assert(remountKey(router, team) !== first, `a path parameter kept the Layout: ${first}`)
+})
+
+// A site with languages: the server gets the language of the page in its input.
+const versions = {
+  site: 'https://a.example.com',
+  default: 'zh-CN',
+  canonical: '/en-US/langs',
+  list: [
+    { language: 'zh-CN', url: '/langs' },
+    { language: 'en-US', url: '/en-US/langs' },
+  ],
+}
+
+// withoutHTMLAttributes renders as an app does that exports no htmlAttributes, then as the app of
+// this test again.
+async function withoutHTMLAttributes<T>(fn: () => Promise<T>): Promise<T> {
+  serve(routeTree, defaultHTMLAttributes)
+  try {
+    return await fn()
+  } finally {
+    serve(routeTree, htmlAttributes)
+  }
+}
+
+test('a site with languages writes the language of the page as the lang of <html>', async () => {
+  await withoutHTMLAttributes(async () => {
+    const html = await render('/hello', appData, undefined, undefined, undefined, { language: 'en-US' })
+    contains(html, '<!DOCTYPE html><html lang="en-US"><head>')
+    lacks(html, 'lang="en"')
+    // The session attribute comes first, as before, and lang stays the first of the rest.
+    contains(await render('/hello', appData, undefined, undefined, undefined, { language: 'zh-CN', session: { signedIn: true }, sessionKey: 'k' }), '<html data-session="in" lang="zh-CN">')
+    // A site without languages keeps the lang of the app, or "en".
+    contains(await render('/hello', appData), '<!DOCTYPE html><html lang="en"><head>')
+  })
+})
+
+test('a site with languages refuses a lang of the app on <html>', async () => {
+  // The root Layout of this app exports htmlAttributes with a lang.
+  const root = await renderResult('/hello', appData, undefined, undefined, undefined, { language: 'en-US' })
+  assert(root.error?.includes('htmlAttributes cannot set lang on <html>'), `the root Layout sets lang: ${JSON.stringify(root)}`)
+  // A head of a route that returns one fails the same way, in the render that reaches it.
+  await withoutHTMLAttributes(async () => {
+    const result = await renderResult('/intl/fr', { ...appData, 'app/intl/lang+/layout': ok('fr') }, undefined, undefined, undefined, { language: 'en-US' })
+    assert(result.error?.includes('htmlAttributes cannot set lang on <html>'), `a head sets lang: ${JSON.stringify(result)}`)
+    // Without a language the same page renders.
+    contains(await render('/intl/fr', { ...appData, 'app/intl/lang+/layout': ok('fr') }), 'lang="')
+  })
+})
+
+test('a page with more than one version links to each, to x-default and to itself', async () => {
+  await withoutHTMLAttributes(async () => {
+    const html = await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: versions })
+    const links = [
+      '<link rel="alternate" hreflang="zh-CN" href="https://a.example.com/langs">',
+      '<link rel="alternate" hreflang="en-US" href="https://a.example.com/en-US/langs">',
+      '<link rel="alternate" hreflang="x-default" href="https://a.example.com/langs">',
+      '<link rel="canonical" href="https://a.example.com/en-US/langs">',
+    ]
+    contains(html, ...links)
+    const head = html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
+    assert(head.indexOf(links[0]!) < head.indexOf(links[1]!) && head.indexOf(links[2]!) < head.indexOf(links[3]!), `order in ${head}`)
+    // The page and the switch read the same list, and the page carries it to the browser.
+    contains(html, 'PAGE_LANGS', 'en-US=/en-US/langs', 'alternates:$R')
+    // One version, or no site to name in full URLs: no links, but the switch still has its list.
+    for (const alternates of [undefined, { ...versions, list: versions.list.slice(0, 1) }]) {
+      lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates }), 'hreflang', 'rel="canonical"')
+    }
+    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, site: undefined } }), 'hreflang', 'rel="canonical"')
+  })
+})
+
+test('a canonical link the app writes wins over the one of the page', async () => {
+  const own: Tag[] = [{ tag: 'link', attrs: { rel: 'canonical', href: 'https://a.example.com/the-one' } }]
+  const tags = alternateTags(own, versions, versions.site)
+  assert(tags.length === 3 && !tags.some((tag) => tag.attrs.rel === 'canonical'), `tags ${JSON.stringify(tags)}`)
+  // Without x-default when the list has no version in the default language.
+  const noDefault = alternateTags([], { ...versions, list: [{ language: 'en-US', url: '/en-US/a' }, { language: 'de', url: '/de/a' }] }, versions.site)
+  assert(!noDefault.some((tag) => tag.attrs.hreflang === 'x-default') && noDefault.length === 3, `tags ${JSON.stringify(noDefault)}`)
+})
+
+test('a page without a list has an empty switch', async () => {
+  await withoutHTMLAttributes(async () => {
+    const html = await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' })
+    contains(html, 'PAGE_LANGS <!-- -->en-US<!-- --> </p>')
+  })
 })
 
 let failed = 0

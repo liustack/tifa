@@ -30,14 +30,14 @@ import (
 // and the ones that name a language or a project it does not have. The crawl follows the links of
 // every page it gets.
 var crawlSeeds = []string{"/", "/projects/studio", "/projects/weekend", "/projects/studio/orders/SH-1042", "/projects/weekend/orders/WK-0201",
-	"/projects/studio/stats", "/projects/weekend/stats", "/projects/nope", "/nothing-here", "/store/en-US", "/store/zh-CN", "/store/xx", "/store/en-US/journal", "/store/zh-CN/journal/stock-sync-api",
-	"/store/en-US/products?page=2", "/store/en-US/products?color=moss&sort=price-asc", "/store/zh-CN/products", "/store/en-US/products/pour-over-kettle", "/store/zh-CN/products/pour-over-kettle", "/store/en-US/cart", "/store/en-US/checkout", "/store/zh-CN/cart", "/store/en-US/anything/deep",
-	"/store/zh-CN/products/nope", "/store/en-US/journal/nope", "/store/en-US/%70roducts", "/projects/%73tudio"}
+	"/projects/studio/stats", "/projects/weekend/stats", "/projects/nope", "/nothing-here", "/store", "/zh-CN/store", "/zh-CN/store/xx", "/store/journal", "/zh-CN/store/journal/stock-sync-api",
+	"/store/products?page=2", "/store/products?color=moss&sort=price-asc", "/zh-CN/store/products", "/store/products/pour-over-kettle", "/zh-CN/store/products/pour-over-kettle", "/store/cart", "/store/checkout", "/zh-CN/store/cart", "/store/anything/deep",
+	"/zh-CN/store/products/nope", "/store/journal/nope", "/store/%70roducts", "/projects/%73tudio"}
 
 const crawlLimit = 160
 
 var (
-	crawlHref = regexp.MustCompile(`href="(/(?:store|projects)[^"#]*)"`)
+	crawlHref = regexp.MustCompile(`href="(/(?:en-US/store|store|projects)[^"#]*)"`)
 	// crawlStamp matches the times that differ between two runs of the same program: RFC 3339 text
 	// from the Go loaders, which is data of the app.
 	crawlStamp = regexp.MustCompile(`20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
@@ -68,9 +68,9 @@ func crawlSame(a, b []byte) (verdict string, stamps int) {
 }
 
 func TestCrawlHelpers(t *testing.T) {
-	page := []byte(`<a href="/store/en-US/products?color=moss&amp;sort=price-asc">x</a><a href="/other">y</a><a href="/projects/studio">z</a>`)
+	page := []byte(`<a href="/store/products?color=moss&amp;sort=price-asc">x</a><a href="/other">y</a><a href="/projects/studio">z</a>`)
 	got := crawlLinks(page)
-	if len(got) != 2 || got[0] != "/store/en-US/products?color=moss&sort=price-asc" || got[1] != "/projects/studio" {
+	if len(got) != 2 || got[0] != "/store/products?color=moss&sort=price-asc" || got[1] != "/projects/studio" {
 		t.Errorf("links = %q", got)
 	}
 	a := []byte("<p>2026-06-01T08:00:00Z and 2026-06-02T09:10:11.123+08:00</p>{i:\"__root__#\",u:0,s:1}")

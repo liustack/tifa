@@ -13,10 +13,10 @@ import (
 // Shipping an order and changing where it goes, with the rules for both.
 
 // ErrShipped is answered when an order that has already shipped is shipped again.
-var ErrShipped = tifa.Error{Status: 409, Message: "订单已发货，请刷新页面"}
+var ErrShipped = tifa.Error{Status: 409, Message: "The order has shipped. Refresh the page"}
 
 // ErrRecipientLocked is answered when the recipient of an order that has shipped is changed.
-var ErrRecipientLocked = tifa.Error{Status: 409, Message: "订单已发货，收货信息不能再修改"}
+var ErrRecipientLocked = tifa.Error{Status: 409, Message: "The order has shipped, so the delivery details can no longer be changed"}
 
 // A Carrier is a delivery company the shops ship with.
 type Carrier struct {
@@ -30,11 +30,11 @@ type Carrier struct {
 
 // Carriers are the delivery companies to pick from when shipping.
 var Carriers = []Carrier{
-	{Code: "SF", Name: "顺丰速运", Days: "1 到 2 天", FeeCents: 1200},
-	{Code: "JD", Name: "京东物流", Days: "1 到 2 天", FeeCents: 1000},
-	{Code: "ZTO", Name: "中通快递", Days: "2 到 3 天", FeeCents: 600},
-	{Code: "YTO", Name: "圆通速递", Days: "2 到 3 天", FeeCents: 550},
-	{Code: "EMS", Name: "中国邮政 EMS", Days: "3 到 5 天", FeeCents: 1000},
+	{Code: "SF", Name: "SF Express", Days: "1 to 2 days", FeeCents: 1200},
+	{Code: "JD", Name: "JD Logistics", Days: "1 to 2 days", FeeCents: 1000},
+	{Code: "ZTO", Name: "ZTO Express", Days: "2 to 3 days", FeeCents: 600},
+	{Code: "YTO", Name: "YTO Express", Days: "2 to 3 days", FeeCents: 550},
+	{Code: "EMS", Name: "China Post EMS", Days: "3 to 5 days", FeeCents: 1000},
 }
 
 // Shipment is how and when an order left, as the detail page shows it.
@@ -67,10 +67,10 @@ var trackingNo = regexp.MustCompile(`^[A-Za-z0-9]{8,20}$`)
 func CheckShipment(carrier, tracking string) error {
 	fields := tifa.Fields{}
 	if carrierName(carrier) == "" {
-		fields["carrier"] = "请选择快递公司"
+		fields["carrier"] = "Pick a carrier"
 	}
 	if !trackingNo.MatchString(strings.TrimSpace(tracking)) {
-		fields["trackingNo"] = "运单号是 8 到 20 位字母或数字"
+		fields["trackingNo"] = "The tracking number is 8 to 20 letters or digits"
 	}
 	return fields.Err()
 }
@@ -89,7 +89,7 @@ func ShipOrder(projectID, id, carrier, tracking string, at time.Time) error {
 	}
 	orders[i].Shipment = &shipmentRecord{
 		Carrier: carrier, TrackingNo: strings.TrimSpace(tracking), ShippedAt: at,
-		Events: []TrackEvent{{At: at, Place: warehouse, Note: "快递员已揽收"}},
+		Events: []TrackEvent{{At: at, Place: warehouse, Note: "Courier collected the parcel"}},
 	}
 	return nil
 }
@@ -110,16 +110,16 @@ func normalPhone(phone string) string {
 func CheckRecipient(customer, phone, address string) error {
 	fields := tifa.Fields{}
 	if strings.TrimSpace(customer) == "" {
-		fields["customer"] = "请填写收件人"
+		fields["customer"] = "Enter the recipient"
 	}
 	if !mobile.MatchString(normalPhone(phone)) {
-		fields["phone"] = "请填写 11 位手机号"
+		fields["phone"] = "Enter an 11-digit phone number"
 	}
 	switch address = strings.TrimSpace(address); {
 	case address == "":
-		fields["address"] = "请填写收货地址"
+		fields["address"] = "Enter the delivery address"
 	case utf8.RuneCountInString(address) > 100:
-		fields["address"] = "收货地址最多 100 个字"
+		fields["address"] = "The address is at most 100 characters"
 	}
 	return fields.Err()
 }

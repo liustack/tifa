@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
 )
@@ -124,15 +125,13 @@ func TestLdflagsAddWToThoseOfGOFLAGS(t *testing.T) {
 		{"'-ldflags=-X main.version=v1 --s=true'", nil},
 		{"-ldflags=-w=0", nil},
 		{"-ldflags=-w=false", nil},
-		{"-ldflags=all=-X=main.version=v1", nil},
-		{"-ldflags=-X=main.version=v1 -ldflags=example.com/...=-X=main.version=v2", nil},
 	} {
-		got, err := ldflags(tc.goflags)
+		got, err := ldflags(tc.goflags, true, "")
 		if err != nil || !slices.Equal(got, tc.want) {
 			t.Errorf("GOFLAGS %s: %q, %v, want %q", tc.goflags, got, err, tc.want)
 		}
 	}
-	if _, err := ldflags("'-ldflags=-w"); err == nil || !strings.Contains(err.Error(), "GOFLAGS") {
+	if _, err := ldflags("'-ldflags=-w", true, ""); err == nil || !strings.Contains(err.Error(), "GOFLAGS") {
 		t.Errorf("an unterminated quote: %v", err)
 	}
 }
@@ -145,18 +144,18 @@ func TestBuildFlagsReadTheGoEnvFile(t *testing.T) {
 	}
 	t.Setenv("GOENV", goenv)
 	t.Setenv("GOFLAGS", "")
-	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{})
+	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{}, "")
 	if want := []string{"-ldflags=-X=main.version=v1 -w"}; err != nil || !slices.Equal(got, want) {
 		t.Errorf("%q, %v, want %q", got, err, want)
 	}
 }
 
-// With build.debug_info on, tifa build passes no flags and does not run go env: it gets there with
-// no go command on PATH. tifa dev never runs it.
-func TestBuildFlagsWithDebugInfoRunNoGoEnv(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true}); err != nil || got != nil {
-		t.Errorf("%q, %v, want none", got, err)
+// With build.debug_info on, tifa build leaves out -w and keeps the flags of GOFLAGS and its own.
+func TestBuildFlagsWithDebugInfoKeepTheDebugInfo(t *testing.T) {
+	t.Setenv("GOFLAGS", "-ldflags=-X=main.version=v1")
+	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true}, "-X a.b=c")
+	if want := []string{"-ldflags=-X=main.version=v1 -X a.b=c"}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("%q, %v, want %q", got, err, want)
 	}
 }
 
@@ -188,7 +187,7 @@ func main() {
 		var flags []string
 		if !tc.dev {
 			var err error
-			if flags, err = buildFlags(t.Context(), root, config.Build{DebugInfo: tc.debugInfo}); err != nil {
+			if flags, err = buildFlags(t.Context(), root, config.Build{DebugInfo: tc.debugInfo}, ""); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -246,4 +245,49 @@ func hasDWARF(t *testing.T, path string) bool {
 		}
 	}
 	return false
+}
+
+// The -X flag of the languages reaches the program whatever GOFLAGS say about -w, -s and
+// package patterns, and the flags of GOFLAGS stay.
+func TestLdflagsAlwaysCarryTheExtraFlag(t *testing.T) {
+	const x = "-X github.com/liustack/tifa.languagesFlag=list:zh-CN,en-US"
+	for _, tc := range []struct {
+		goflags string
+		drop    bool
+		want    string
+	}{
+		{"", true, "-ldflags=-w " + x},
+		{"", false, "-ldflags=" + x},
+		{"-ldflags=-X=main.version=v1", true, "-ldflags=-X=main.version=v1 -w " + x},
+		{"-ldflags=-X=main.version=v1", false, "-ldflags=-X=main.version=v1 " + x},
+		{"-ldflags=-w", true, "-ldflags=-w " + x},
+		{"-ldflags=-s", true, "-ldflags=-s " + x},
+		{"-ldflags=all=-X=main.version=v1", true, "-ldflags=-X=main.version=v1 -w " + x},
+		{"-ldflags=-s -ldflags=all=-X=main.version=v1", true, "-ldflags=-X=main.version=v1 -w " + x},
+	} {
+		got, err := ldflags(tc.goflags, tc.drop, x)
+		if err != nil || len(got) != 1 || got[0] != tc.want {
+			t.Errorf("GOFLAGS %s, drop %t: %q, %v, want %q", tc.goflags, tc.drop, got, err, tc.want)
+		}
+	}
+}
+
+func TestLanguagesLDFlag(t *testing.T) {
+	if got, want := languagesLDFlag(&analyze.Manifest{}), "-X github.com/liustack/tifa.languagesFlag=list:"; got != want {
+		t.Errorf("no languages: %q, want %q", got, want)
+	}
+	m := &analyze.Manifest{I18n: &analyze.I18n{Languages: []string{"zh-CN", "de", "en-US"}}}
+	if got, want := languagesLDFlag(m), "-X github.com/liustack/tifa.languagesFlag=list:zh-CN,de,en-US"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A pattern other than all cannot be told to match the main package, so it is an error and not
+// a flag that is dropped.
+func TestLdflagsRefuseAPackagePattern(t *testing.T) {
+	for _, goflags := range []string{"-ldflags=example.com/...=-s", "-ldflags=-X=main.version=v1 -ldflags=./...=-X=main.version=v2"} {
+		if _, err := ldflags(goflags, true, "-X a.b=c"); err == nil || !strings.Contains(err.Error(), "package pattern") {
+			t.Errorf("GOFLAGS %s: %v", goflags, err)
+		}
+	}
 }

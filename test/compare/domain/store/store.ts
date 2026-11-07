@@ -1,6 +1,5 @@
 // Ported from store.go and route.go: the languages of the storefront, the text kept in both,
 // and the price in each currency.
-import { preferredIndex } from './acceptlanguage.ts'
 import { counts } from '../counts.ts'
 import { NotFound } from './errors.ts'
 
@@ -42,21 +41,8 @@ export function price(fen: number, l: Locale): number {
   return Math.ceil(fen / yuanPerDollar / 10) * 10
 }
 
-// preferred returns the locale closest to the languages of an Accept-Language header, zh-CN for
-// none. Go matches with golang.org/x/text/language, which acceptlanguage.ts follows.
-export function preferred(acceptLanguage: string): Locale {
-  return locales[preferredIndex(acceptLanguage)]
-}
-
-export interface LanguageRedirect {
-  status: number
-  location: string
-  // vary is the header the answer depends on.
-  vary: string
-}
-
-// getStore is the GET of /store: it sends a visitor to the storefront in the language their
-// browser prefers.
-export function getStore(acceptLanguage: string): LanguageRedirect {
-  return { status: 302, location: '/store/' + preferred(acceptLanguage).code, vary: 'Accept-Language' }
+// languagePrefix is what the public URL of a page in a language starts with: nothing for the default
+// language, en-US, and the language for the other, as Tifa writes them.
+export function languagePrefix(code: string): string {
+  return code === 'en-US' ? '' : '/' + code
 }

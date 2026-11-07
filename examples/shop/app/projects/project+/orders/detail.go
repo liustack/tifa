@@ -47,7 +47,7 @@ type PackLine struct {
 	Quantity int    `json:"quantity"`
 }
 
-var payMethods = []string{"微信支付", "支付宝", "银行卡"}
+var payMethods = []string{"WeChat Pay", "Alipay", "Bank card"}
 
 func hashOf(s string) uint32 {
 	h := fnv.New32a()
@@ -86,31 +86,31 @@ func packing(o orderRecord) []PackLine {
 func logOf(o orderRecord) []LogEntry {
 	p := payment(o)
 	log := []LogEntry{
-		{o.PlacedAt, "顾客", "下单", o.Customer + " 提交了订单"},
-		{p.PaidAt, "系统", "付款成功", p.Method + "，交易号 " + p.TransactionNo},
-		{o.PlacedAt.Add(3 * time.Minute), "系统", "风控通过", "收货地址和手机号核验一致"},
-		{o.PlacedAt.Add(4 * time.Minute), "系统", "进入待发货", "已同步到杭州仓的拣货队列"},
-		{o.PlacedAt.Add(4*time.Minute + 20*time.Second), "系统", "锁定库存", fmt.Sprintf("%d 件商品已从可售库存里扣出", itemCount(o))},
-		{o.PlacedAt.Add(6 * time.Minute), "系统", "发送确认", "订单确认短信和邮件已发给 " + o.Customer},
+		{o.PlacedAt, "Customer", "Order placed", o.Customer + " placed the order"},
+		{p.PaidAt, "System", "Payment received", p.Method + ", transaction " + p.TransactionNo},
+		{o.PlacedAt.Add(3 * time.Minute), "System", "Risk check passed", "The delivery address and phone number match"},
+		{o.PlacedAt.Add(4 * time.Minute), "System", "Ready to ship", "Added to the Hangzhou warehouse picking queue"},
+		{o.PlacedAt.Add(4*time.Minute + 20*time.Second), "System", "Stock reserved", fmt.Sprintf("%d pieces taken out of sellable stock", itemCount(o))},
+		{o.PlacedAt.Add(6 * time.Minute), "System", "Confirmation sent", "Order confirmation SMS and email sent to " + o.Customer},
 	}
 	if s := o.Shipment; s != nil {
 		carrier := carrierName(s.Carrier)
 		log = append(log,
-			LogEntry{s.ShippedAt.Add(-95 * time.Minute), "仓库", "开始拣货", fmt.Sprintf("%d 件商品，%d 个货位", itemCount(o), len(o.Items))},
-			LogEntry{s.ShippedAt.Add(-50 * time.Minute), "仓库", "打包完成", "封箱称重，贴好面单"},
-			LogEntry{s.ShippedAt.Add(-20 * time.Minute), "仓库", "打印面单", carrier + "电子面单"},
-			LogEntry{s.ShippedAt, "店员", "发货", carrier + "，运单号 " + s.TrackingNo},
-			LogEntry{s.ShippedAt.Add(time.Minute), "系统", "发送通知", "发货短信和邮件已发给 " + o.Customer},
+			LogEntry{s.ShippedAt.Add(-95 * time.Minute), "Warehouse", "Picking started", fmt.Sprintf("%d pieces, %d bins", itemCount(o), len(o.Items))},
+			LogEntry{s.ShippedAt.Add(-50 * time.Minute), "Warehouse", "Packing done", "Boxed, weighed, waybill attached"},
+			LogEntry{s.ShippedAt.Add(-20 * time.Minute), "Warehouse", "Label printed", carrier + " e-waybill"},
+			LogEntry{s.ShippedAt, "Staff", "Shipped", carrier + ", tracking number " + s.TrackingNo},
+			LogEntry{s.ShippedAt.Add(time.Minute), "System", "Notification sent", "Shipping SMS and email sent to " + o.Customer},
 		)
-		if n := len(s.Events); n > 0 && strings.HasPrefix(s.Events[n-1].Note, "已签收") {
+		if n := len(s.Events); n > 0 && strings.HasPrefix(s.Events[n-1].Note, "Delivered") {
 			log = append(log,
-				LogEntry{s.Events[0].At, "快递", "揽收", carrier + "已从仓库取走包裹"},
-				LogEntry{s.Events[n-1].At, "快递", "已签收", s.Events[n-1].Note},
+				LogEntry{s.Events[0].At, "Courier", "Picked up", carrier + " collected the parcel from the warehouse"},
+				LogEntry{s.Events[n-1].At, "Courier", "Delivered", s.Events[n-1].Note},
 			)
 		}
 	}
 	for _, n := range o.Notes {
-		log = append(log, LogEntry{n.At, n.Author, "添加备注", n.Text})
+		log = append(log, LogEntry{n.At, n.Author, "Note added", n.Text})
 	}
 	slices.SortStableFunc(log, func(a, b LogEntry) int { return a.At.Compare(b.At) })
 	return log
@@ -128,9 +128,9 @@ func itemCount(o orderRecord) int {
 func CheckNote(text string) error {
 	switch text = strings.TrimSpace(text); {
 	case text == "":
-		return tifa.Fields{"text": "请写点内容"}
+		return tifa.Fields{"text": "Write something"}
 	case utf8.RuneCountInString(text) > 200:
-		return tifa.Fields{"text": "备注最多 200 个字"}
+		return tifa.Fields{"text": "A note is at most 200 characters"}
 	}
 	return nil
 }

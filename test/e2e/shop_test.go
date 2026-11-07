@@ -28,7 +28,7 @@ func shopDir(t *testing.T) string {
 }
 
 // sidebar is in the root Layout of the shop, so its presence tells which level a 404 rendered at.
-const sidebar = `aria-label="工作区导航"`
+const sidebar = `aria-label="Workspace navigation"`
 
 func TestShopApp(t *testing.T) {
 	skipUnlessEnabled(t)
@@ -70,17 +70,17 @@ func TestShopApp(t *testing.T) {
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" {
 		t.Errorf("order page: %d %v", status, header)
 	}
-	for _, want := range []string{"<title>SH-1042 · 山海工作台</title>", "林夏", "晨间手冲壶", "¥428.00", ">山海工作室</h1>", "2</span> 单待发货", sidebar, "确认发货", "选择快递公司"} {
+	for _, want := range []string{"<title>SH-1042 · Shanhai Workbench</title>", "林夏", "晨间手冲壶", "¥428.00", ">山海工作室</h1>", "2</span> to ship", sidebar, "Confirm shipment", "Pick a carrier"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("order page lacks %s", want)
 		}
 	}
 	// The list is a table that pages in the browser: the rendered page holds the 25 newest
-	// orders and the totals, with money and times in Chinese. The data written into the page
+	// orders and the totals, with money and times in English. The data written into the page
 	// after it holds all 42.
 	_, _, list := get(t, base+"/projects/studio")
 	rendered, _, _ := strings.Cut(list[strings.Index(list, `id="tifa-root"`):], "<script")
-	for _, want := range []string{">SH-1042</a>", ">SH-1018</a>", "¥14,134.00", "10月13日 14:32"} {
+	for _, want := range []string{">SH-1042</a>", ">SH-1018</a>", "¥14,134.00", "October 13 at 14:32"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("order list lacks %s", want)
 		}
@@ -92,7 +92,7 @@ func TestShopApp(t *testing.T) {
 	// has a placeholder of a fixed height for each, and recharts is in none of the scripts the
 	// head loads: the entry and the chunks it preloads.
 	status, _, stats := get(t, base+"/projects/studio/stats")
-	for _, want := range []string{"<title>销售统计 · 山海工作室 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品"} {
+	for _, want := range []string{"<title>Sales stats · 山海工作室 · Shanhai Workbench</title>", "Sales", "¥14,134.00", "95.2%", "Best sellers"} {
 		if status != 200 || !strings.Contains(stats, want) {
 			t.Errorf("stats page: %d lacks %s", status, want)
 		}
@@ -115,7 +115,7 @@ func TestShopApp(t *testing.T) {
 		if !strings.HasSuffix(m[1], ".js") {
 			continue
 		}
-		for _, text := range []string{"recharts-wrapper", "没有找到这个订单", "销售统计", "订单都已发出"} {
+		for _, text := range []string{"recharts-wrapper", "Order not found", "Sales stats", "All orders shipped"} {
 			if strings.Contains(script, text) {
 				t.Errorf("%s, which every page loads, holds %s", m[1], text)
 			}
@@ -138,7 +138,7 @@ func TestShopApp(t *testing.T) {
 		}
 		chunks.WriteString(script)
 	}
-	if !ok || !strings.Contains(chunks.String(), "没有找到这个订单") {
+	if !ok || !strings.Contains(chunks.String(), "Order not found") {
 		t.Errorf("the order page does not preload its route:\n%s", preloads)
 	}
 	// An unknown project is a 404 of the project Layout, which the root Layout shows, so that page
@@ -169,15 +169,15 @@ func TestShopApp(t *testing.T) {
 		path, want  string
 		withSidebar bool
 	}{
-		{"/projects/studio/orders/WK-0201", ">没有找到这个订单</div>", true},
-		{"/projects/nope", "没有找到这个页面", true},
-		{"/projects/nope/stats", "没有找到这个页面", true},
-		{"/nowhere", "没有找到这个页面", true},
+		{"/projects/studio/orders/WK-0201", ">Order not found</div>", true},
+		{"/projects/nope", "Page not found", true},
+		{"/projects/nope/stats", "Page not found", true},
+		{"/nowhere", "Page not found", true},
 	} {
 		status, _, body := get(t, base+tc.path)
 		// The project Layout shows the project name in its heading.
 		project := strings.Contains(body, ">山海工作室</h1>")
-		if status != 404 || !strings.Contains(body, tc.want) || !strings.Contains(body, "山海工作台</title>") || strings.Contains(body, sidebar) != tc.withSidebar || project != (tc.path == "/projects/studio/orders/WK-0201") {
+		if status != 404 || !strings.Contains(body, tc.want) || !strings.Contains(body, "Shanhai Workbench</title>") || strings.Contains(body, sidebar) != tc.withSidebar || project != (tc.path == "/projects/studio/orders/WK-0201") {
 			t.Errorf("%s: %d, want 404 with %q, sidebar %v\n%s", tc.path, status, tc.want, tc.withSidebar, body)
 		}
 	}
@@ -196,14 +196,14 @@ func TestShopApp(t *testing.T) {
 	if status, _ := send(t, "POST", order, "", `{"carrier":"","trackingNo":"SF12"}`); status != 422 {
 		t.Errorf("POST without browser headers: %d", status)
 	}
-	if status, body := send(t, "POST", order, "same-origin", `{"carrier":"","trackingNo":"SF12"}`); status != 422 || !strings.Contains(body, `"carrier":"请选择快递公司"`) || !strings.Contains(body, `"trackingNo":"运单号是 8 到 20 位字母或数字"`) {
+	if status, body := send(t, "POST", order, "same-origin", `{"carrier":"","trackingNo":"SF12"}`); status != 422 || !strings.Contains(body, `"carrier":"Pick a carrier"`) || !strings.Contains(body, `"trackingNo":"The tracking number is 8 to 20 letters or digits"`) {
 		t.Errorf("ship without a carrier: %d %s", status, body)
 	}
 	// The recipient can change until the order ships.
 	if status, body := send(t, "PATCH", order, "same-origin", `{"customer":"林夏","phone":"138 0013 8000","address":"上海市徐汇区武康路 99 号"}`); status != 200 || !strings.Contains(body, `"phone":"13800138000"`) {
 		t.Errorf("change the recipient: %d %s", status, body)
 	}
-	if status, body := send(t, "POST", order, "same-origin", ship); status != 200 || !strings.Contains(body, `"carrierName":"顺丰速运"`) {
+	if status, body := send(t, "POST", order, "same-origin", ship); status != 200 || !strings.Contains(body, `"carrierName":"SF Express"`) {
 		t.Errorf("ship: %d %s", status, body)
 	}
 	if status, _ := send(t, "POST", order, "same-origin", ship); status != 409 {
@@ -267,7 +267,7 @@ func rendered(page string) string {
 	return html
 }
 
-// checkStorefront checks the customer side of the shop at /store/{lang}: pages in both
+// checkStorefront checks the customer side of the shop at /zh-CN/store and /store: pages in both
 // languages with their money and dates, search and filters in the query string, Markdown with
 // highlighted code, and a cart kept in the server's memory, with its ID in a cookie, through to
 // a placed order. buildID is the build of the running program.
@@ -277,11 +277,11 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		path  string
 		wants []string
 	}{
-		{"/store/zh-CN", []string{"<title>山海 · 日常器物</title>", "秋天的第一壶茶"}},
-		{"/store/en-US/products?color=moss&sort=price-asc", []string{"<title>All products · Shanhai</title>", "11 products", `products/dot-notebook">Dot Grid Notebook</a>`}},
-		{"/store/en-US/products/pour-over-kettle", []string{"Morning Pour-Over Kettle", "$46.20", "63 reviews", "Order now and get it between"}},
-		{"/store/zh-CN/products/pour-over-kettle", []string{"晨间手冲壶", "¥328.00"}},
-		{"/store/zh-CN/journal/stock-sync-api", []string{"用开放接口同步库存", "<table", `hljs language-go`, `class="hljs-keyword"`}},
+		{"/zh-CN/store", []string{"<title>山海 · 日常器物</title>", "秋天的第一壶茶"}},
+		{"/store/products?color=moss&sort=price-asc", []string{"<title>All products · Shanhai</title>", "11 products", `products/dot-notebook">Dot Grid Notebook</a>`}},
+		{"/store/products/pour-over-kettle", []string{"Morning Pour-Over Kettle", "$46.20", "63 reviews", "Order now and get it between"}},
+		{"/zh-CN/store/products/pour-over-kettle", []string{"晨间手冲壶", "¥328.00"}},
+		{"/zh-CN/store/journal/stock-sync-api", []string{"用开放接口同步库存", "<table", `hljs language-go`, `class="hljs-keyword"`}},
 	} {
 		// The title is in the head, the rest in what React rendered.
 		status, _, page := get(t, base+tc.path)
@@ -297,7 +297,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}
 	// Product photos and the fonts of the stylesheet are files under /assets/ whose names carry a
 	// hash of their content, so they are cached for good.
-	_, _, home := get(t, base+"/store/zh-CN")
+	_, _, home := get(t, base+"/zh-CN/store")
 	photo := regexp.MustCompile(`src="(/assets/[^"]+\.avif)"`).FindStringSubmatch(home)
 	css := regexp.MustCompile(`href="(/assets/[^"]+\.css)"`).FindStringSubmatch(home)
 	if photo == nil || css == nil {
@@ -319,21 +319,21 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		}
 	}
 	// Prices are in the rendered order the filters ask for: the cheapest moss product first.
-	_, _, list := get(t, base+"/store/en-US/products?color=moss&sort=price-asc")
+	_, _, list := get(t, base+"/store/products?color=moss&sort=price-asc")
 	if a, b := strings.Index(rendered(list), "Dot Grid Notebook"), strings.Index(rendered(list), "Beeswax Wraps"); a < 0 || b < a {
 		t.Errorf("moss products by price: notebook at %d, wraps at %d", a, b)
 	}
-	// The head of the language Layout links each page to itself in both languages, and names
-	// the default language for a browser that asks for neither.
-	for path, rest := range map[string]string{"/store/en-US": "", "/store/en-US/products/pour-over-kettle": "/products/pour-over-kettle", "/store/zh-CN/journal": "/journal"} {
+	// Tifa links each page to itself in both languages, and names the default language for a
+	// browser that asks for neither.
+	for path, versions := range map[string][2]string{
+		"/store":                           {"/zh-CN/store", "/store"},
+		"/store/products/pour-over-kettle": {"/zh-CN/store/products/pour-over-kettle", "/store/products/pour-over-kettle"},
+		"/zh-CN/store/journal":             {"/zh-CN/store/journal", "/store/journal"},
+	} {
 		_, _, page := get(t, base+path)
 		head := page[:strings.Index(page, "</head>")]
-		for _, lang := range []string{"zh-CN", "en-US", "x-default"} {
-			to := "zh-CN"
-			if lang == "en-US" {
-				to = lang
-			}
-			if want := `<link rel="alternate" hrefLang="` + lang + `" href="https://shop.example.com/store/` + to + rest + `">`; !strings.Contains(head, want) {
+		for lang, to := range map[string]string{"zh-CN": versions[0], "en-US": versions[1], "x-default": versions[1]} {
+			if want := `<link rel="alternate" hreflang="` + lang + `" href="https://shop.example.com` + to + `">`; !strings.Contains(head, want) {
 				t.Errorf("%s: the head lacks %s", path, want)
 			}
 		}
@@ -341,19 +341,17 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	// A page that shows an error is no page to link in other languages: a 404 would send search
 	// engines to a URL that does not exist, in each language. Its head keeps the language and the
 	// title and has no alternates.
-	for _, path := range []string{"/store/en-US/products/does-not-exist", "/store/zh-CN/journal/nope", "/store/en-US/nope", "/store/en-US/nope/deeper"} {
+	for _, path := range []string{"/store/products/does-not-exist", "/zh-CN/store/journal/nope", "/store/nope", "/store/nope/deeper"} {
 		status, _, page := get(t, base+path)
 		head := page[:strings.Index(page, "</head>")]
-		if status != 404 || strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hrefLang") || !strings.Contains(head, "<title>") {
+		if status != 404 || strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hreflang") || !strings.Contains(head, "<title>") {
 			t.Errorf("%s: %d, the head of a 404 must have a title and no alternate links:\n%.600s", path, status, head)
 		}
 	}
-	// The head of the language Layout sets the language of <html> from the locale its Go
-	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
-	// page of the store has is a 404 inside it too, with no page of its own for it. The store
-	// Layout in app/store is in layout_.tsx, so a language the store does not have is its 404,
-	// written in both languages, in the language of the root Layout's htmlAttributes, without the
-	// workbench.
+	// Tifa writes the language of <html> from the language of the route, also on the 404 pages
+	// inside the store Layout. A path no page of the store has is a 404 inside it too, with no page
+	// of its own for it. The store Layout in app/store is in layout_.tsx, so the workbench of the
+	// root Layout is not around it.
 	for _, tc := range []struct {
 		path   string
 		status int
@@ -363,15 +361,14 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		// carries no data-session. The other 404s are made for the visitor.
 		cached bool
 	}{
-		{"/store/en-US", 200, "en-US", "Free delivery", true},
-		{"/store/zh-CN", 200, "zh-CN", "秋天的第一壶茶", true},
-		{"/store/xx", 404, "zh-CN", "We could not find this page", true},
-		{"/store/xx/products", 404, "zh-CN", "没有找到这个页面", true},
-		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面", true},
-		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page", true},
-		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page", false},
-		{"/store/en-US/nope", 404, "en-US", "We could not find this page", false},
-		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面", false},
+		{"/store", 200, "en-US", "Free delivery", true},
+		{"/zh-CN/store", 200, "zh-CN", "秋天的第一壶茶", true},
+		{"/zh-CN/store/products/nope", 404, "zh-CN", "没有找到这个页面", true},
+		{"/store/journal/nope", 404, "en-US", "We could not find this page", true},
+		{"/store/nope/deeper", 404, "en-US", "We could not find this page", false},
+		{"/store/nope", 404, "en-US", "We could not find this page", false},
+		{"/zh-CN/store/journal/x/y", 404, "zh-CN", "没有找到这个页面", false},
+		{"/zh-CN/store/xx", 404, "zh-CN", "没有找到这个页面", false},
 	} {
 		status, _, page := get(t, base+tc.path)
 		attr := ` data-session="out"`
@@ -382,41 +379,40 @@ func checkStorefront(t *testing.T, base, buildID string) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
 	}
-	// The 404 of a language the store does not have names both languages and links to both
-	// storefronts, since the visitor's language is not known.
-	if _, _, page := get(t, base+"/store/xx"); !strings.Contains(rendered(page), "没有找到这个页面") ||
-		!strings.Contains(page, `href="/store/zh-CN"`) || !strings.Contains(page, `href="/store/en-US"`) || strings.Contains(page, "Page not found") {
-		t.Errorf("/store/xx is not the 404 of the store in both languages:\n%s", rendered(page))
-	}
-	// /store sends the visitor to the language their browser prefers.
-	for accept, want := range map[string]string{"en-GB,en;q=0.9": "/store/en-US", "zh-CN": "/store/zh-CN", "": "/store/zh-CN"} {
-		req, err := http.NewRequest("GET", base+"/store", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if accept != "" {
-			req.Header.Set("Accept-Language", accept)
-		}
-		res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+	// The default language with a prefix goes to the URL without it, with its query.
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if res, err := noFollow.Get(base + "/en-US/store/products?x=1"); err != nil {
+		t.Fatal(err)
+	} else {
 		res.Body.Close()
-		if res.StatusCode != 302 || res.Header.Get("Location") != want || !slices.Contains(res.Header.Values("Vary"), "Accept-Language") {
-			t.Errorf("/store with Accept-Language %q: %d %v, want %s", accept, res.StatusCode, res.Header, want)
+		if res.StatusCode != 308 || res.Header.Get("Location") != "/store/products?x=1" {
+			t.Errorf("/en-US/store/products?x=1: %d %s, want 308 to /store/products?x=1", res.StatusCode, res.Header.Get("Location"))
 		}
 	}
-	// A link from /store/en-US to /store/zh-CN loads the language Layout again, its Go function
-	// reads the language: the browser's request gets the zh-CN locale, from which the head sets
-	// lang="zh-CN" on <html> (the runtime's head tests check that it does).
-	status, _, data := get(t, dataURL(base+"/store/zh-CN", buildID, "11"))
-	if want := `"app/store/lang+/layout":{"status":200,"data":{"locale":{"code":"zh-CN"`; status != 200 || !strings.Contains(data, want) {
-		t.Errorf("navigation data of /store/zh-CN: %d, want %s:\n%.300s", status, want, data)
+	// A language the store does not have is a 404 before any page is looked for.
+	for _, path := range []string{"/xx/store", "/fr/store/products"} {
+		if status, _, _ := get(t, base+path); status != 404 {
+			t.Errorf("%s: %d, want 404", path, status)
+		}
+	}
+	// /store is the storefront in the default language and answers the same to every browser:
+	// nothing in the answer depends on Accept-Language.
+	for _, accept := range []string{"en-GB,en;q=0.9", "zh-CN", ""} {
+		_, header, page := get(t, base+"/store", "Accept-Language", accept)
+		if !strings.Contains(rendered(page), "Free delivery") || slices.Contains(header.Values("Vary"), "Accept-Language") {
+			t.Errorf("/store with Accept-Language %q is not the English storefront for everyone: %v", accept, header)
+		}
+	}
+	// A link from /store to /zh-CN/store loads the Layout again, whose Go function reads the
+	// language of the route: the browser's request gets the zh-CN locale.
+	status, _, data := get(t, dataURL(base+"/zh-CN/store", buildID, "11"))
+	if want := `"app/store/layout":{"status":200,"data":{"locale":{"code":"zh-CN"`; status != 200 || !strings.Contains(data, want) {
+		t.Errorf("navigation data of /zh-CN/store: %d, want %s:\n%.300s", status, want, data)
 	}
 	// The root Layout does not wrap the store, so the store has no data of it: the chain of a page
 	// of the store has two Loads and that of a URL of the store that no page has one, and a request
 	// that counts the root Layout in has one digit too many.
-	for path, layers := range map[string]string{"/store/zh-CN": "111", "/store/zh-CN/nope": "11"} {
+	for path, layers := range map[string]string{"/zh-CN/store": "111", "/zh-CN/store/nope": "11"} {
 		if status, _, data := get(t, dataURL(base+path, buildID, layers)); status != 400 {
 			t.Errorf("navigation data of the root Layout at %s: %d, want 400:\n%.300s", path, status, data)
 		}
@@ -450,7 +446,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		}
 		return res.StatusCode, res.Header, string(b)
 	}
-	kettle := "/store/en-US/products/pour-over-kettle"
+	kettle := "/store/products/pour-over-kettle"
 	if status, body := send(t, "POST", base+kettle, "same-origin", `{"color":"pink","size":"","quantity":1}`); status != 422 || !strings.Contains(body, `"color":"variant"`) {
 		t.Errorf("add a colour the kettle lacks: %d %s", status, body)
 	}
@@ -458,40 +454,40 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if status != 200 || !strings.Contains(header.Get("Set-Cookie"), "store_cart=") || body != `{"count":7}` {
 		t.Errorf("add to cart: %d %s %v", status, body, header)
 	}
-	if status, _, body := do("PATCH", "/store/en-US/cart", `{"line":"pour-over-kettle.charcoal","quantity":3}`); status != 200 || !strings.Contains(body, `"id":"pour-over-kettle.charcoal","slug":"pour-over-kettle","name":"Morning Pour-Over Kettle","color":"charcoal","colorName":"Charcoal"`) || !strings.Contains(body, `"count":8,`) {
+	if status, _, body := do("PATCH", "/store/cart", `{"line":"pour-over-kettle.charcoal","quantity":3}`); status != 200 || !strings.Contains(body, `"id":"pour-over-kettle.charcoal","slug":"pour-over-kettle","name":"Morning Pour-Over Kettle","color":"charcoal","colorName":"Charcoal"`) || !strings.Contains(body, `"count":8,`) {
 		t.Errorf("change a quantity: %d %s", status, body)
 	}
-	if status, _, body := do("POST", "/store/en-US/cart", `{"code":"NOPE"}`); status != 422 || !strings.Contains(body, `"code":"coupon"`) {
+	if status, _, body := do("POST", "/store/cart", `{"code":"NOPE"}`); status != 422 || !strings.Contains(body, `"code":"coupon"`) {
 		t.Errorf("unknown coupon: %d %s", status, body)
 	}
-	if status, _, _ := do("POST", "/store/zh-CN/cart", `{"code":"welcome30"}`); status != 204 {
+	if status, _, _ := do("POST", "/zh-CN/store/cart", `{"code":"welcome30"}`); status != 204 {
 		t.Errorf("apply a coupon: %d", status)
 	}
-	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "WELCOME30") || !strings.Contains(rendered(page), "−<!-- -->¥30.00") {
+	if _, _, page := do("GET", "/zh-CN/store/cart", ""); !strings.Contains(rendered(page), "WELCOME30") || !strings.Contains(rendered(page), "−<!-- -->¥30.00") {
 		t.Errorf("cart after the coupon lacks the discount\n%s", rendered(page))
 	}
 	// The order is checked on the server too, and placing it empties the cart.
-	if status, _, body := do("POST", "/store/zh-CN/checkout", `{"email":"x","address":{"name":"","phone":"1","country":"CN","region":"","city":"","line1":"","line2":"","postalCode":"abc"},"delivery":"express","payment":"card","cardNumber":"4242424242424241","cardExpiry":"13/20","cardCvc":"1","billingSame":true,"notes":"","newsletter":false,"terms":false}`); status != 422 ||
+	if status, _, body := do("POST", "/zh-CN/store/checkout", `{"email":"x","address":{"name":"","phone":"1","country":"CN","region":"","city":"","line1":"","line2":"","postalCode":"abc"},"delivery":"express","payment":"card","cardNumber":"4242424242424241","cardExpiry":"13/20","cardCvc":"1","billingSame":true,"notes":"","newsletter":false,"terms":false}`); status != 422 ||
 		!strings.Contains(body, `"address.postalCode":"postalCode"`) || !strings.Contains(body, `"cardNumber":"card"`) || !strings.Contains(body, `"terms":"terms"`) {
 		t.Errorf("checkout with errors: %d %s", status, body)
 	}
-	status, header, _ = do("POST", "/store/zh-CN/checkout", `{"email":"lin@example.com","address":{"name":"林夏","phone":"138 0013 8000","country":"CN","region":"上海市","city":"上海市","line1":"武康路 99 号","line2":"","postalCode":"200031"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
+	status, header, _ = do("POST", "/zh-CN/store/checkout", `{"email":"lin@example.com","address":{"name":"林夏","phone":"138 0013 8000","country":"CN","region":"上海市","city":"上海市","line1":"武康路 99 号","line2":"","postalCode":"200031"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
 	placed := header.Get("Location")
-	if status != 303 || !strings.HasPrefix(placed, "/store/zh-CN/checkout?placed=SS-") {
+	if status != 303 || !strings.HasPrefix(placed, "/zh-CN/store/checkout?placed=SS-") {
 		t.Fatalf("place the order: %d %s", status, placed)
 	}
 	if _, _, page := do("GET", placed, ""); !strings.Contains(rendered(page), "已提交，确认邮件已发往 lin@example.com") {
 		t.Errorf("order confirmation:\n%s", rendered(page))
 	}
-	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "购物车是空的") {
+	if _, _, page := do("GET", "/zh-CN/store/cart", ""); !strings.Contains(rendered(page), "购物车是空的") {
 		t.Errorf("cart after the order:\n%s", rendered(page))
 	}
 	// A small cart pays for delivery: the summary gives the cheapest delivery with a price, not
 	// the free pickup in store.
-	if status, _, _ := do("POST", "/store/zh-CN/products/ceramic-cup", `{"color":"moss","size":"","quantity":1}`); status != 200 {
+	if status, _, _ := do("POST", "/zh-CN/store/products/ceramic-cup", `{"color":"moss","size":"","quantity":1}`); status != 200 {
 		t.Errorf("add a cup to the empty cart: %d", status)
 	}
-	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "最低 ¥15.00") {
+	if _, _, page := do("GET", "/zh-CN/store/cart", ""); !strings.Contains(rendered(page), "最低 ¥15.00") {
 		t.Errorf("delivery of a small cart:\n%s", rendered(page))
 	}
 }
@@ -548,7 +544,7 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	t.Helper()
 	// The page data of the storefront has none of the root Layout's workbench data, which the
 	// workbench's pages have, as JSON in a script string.
-	_, _, home := get(t, base+"/store/zh-CN")
+	_, _, home := get(t, base+"/zh-CN/store")
 	_, _, workbench := get(t, base+"/projects/studio")
 	for _, owner := range []string{`\"sidebarOpen\":`, "周末小店", `\"pending\":`} {
 		if strings.Contains(home, owner) || !strings.Contains(workbench, owner) {
@@ -556,17 +552,17 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 		}
 	}
 	// A page past the last shows the last, from the 25th product on.
-	if status, _, list := get(t, base+"/store/zh-CN/products?page=9223372036854775807"); status != 200 || !strings.Contains(rendered(list), "第 25 到") {
+	if status, _, list := get(t, base+"/zh-CN/store/products?page=9223372036854775807"); status != 200 || !strings.Contains(rendered(list), "第 25 到") {
 		t.Errorf("a page past the last of the list: %d", status)
 	}
 
 	// A request that fails makes no cart, and a cart ID the server did not make is not kept.
 	lin := newShopper(t, base)
-	if status, header, _ := lin.do("PATCH", "/store/zh-CN/cart", `{"line":"nope.mist","quantity":1}`); status != 404 || header.Get("Set-Cookie") != "" {
+	if status, header, _ := lin.do("PATCH", "/zh-CN/store/cart", `{"line":"nope.mist","quantity":1}`); status != 404 || header.Get("Set-Cookie") != "" {
 		t.Errorf("change a line not in the cart: %d %s", status, header.Get("Set-Cookie"))
 	}
 	forged := &http.Cookie{Name: "store_cart", Value: strings.Repeat("f", 3000)}
-	if status, header, _ := lin.do("POST", "/store/zh-CN/products/ceramic-cup", `{"color":"moss","size":"","quantity":1}`, forged); status != 200 ||
+	if status, header, _ := lin.do("POST", "/zh-CN/store/products/ceramic-cup", `{"color":"moss","size":"","quantity":1}`, forged); status != 200 ||
 		!strings.Contains(header.Get("Set-Cookie"), "store_cart=") || strings.Contains(header.Get("Set-Cookie"), forged.Value) {
 		t.Errorf("add with a cart ID the server did not make: %d %.80s", status, header.Get("Set-Cookie"))
 	}
@@ -575,18 +571,18 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	// demonstration cart with 10% off and next-day delivery, which is ¥25 at 7.1 yuan a dollar,
 	// rounded up to 10 cents.
 	emma := newShopper(t, base)
-	if status, _, _ := emma.do("POST", "/store/en-US/cart", `{"code":"SHANHAI10"}`); status != 204 {
+	if status, _, _ := emma.do("POST", "/store/cart", `{"code":"SHANHAI10"}`); status != 204 {
 		t.Fatalf("apply a coupon: %d", status)
 	}
-	_, _, body := emma.do("PATCH", "/store/en-US/cart", `{"line":"ceramic-cup.moss","quantity":2}`)
+	_, _, body := emma.do("PATCH", "/store/cart", `{"line":"ceramic-cup.moss","quantity":2}`)
 	var cart struct{ SubtotalCents, DiscountCents int }
 	if err := json.Unmarshal([]byte(body), &cart); err != nil {
 		t.Fatalf("cart %s: %v", body, err)
 	}
 	total := cart.SubtotalCents - cart.DiscountCents + 360
-	status, header, _ := emma.do("POST", "/store/en-US/checkout", `{"email":"emma@example.com","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
+	status, header, _ := emma.do("POST", "/store/checkout", `{"email":"emma@example.com","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
 	placed := header.Get("Location")
-	if status != 303 || !strings.HasPrefix(placed, "/store/en-US/checkout?placed=SS-") {
+	if status != 303 || !strings.HasPrefix(placed, "/store/checkout?placed=SS-") {
 		t.Fatalf("place the order: %d %s", status, placed)
 	}
 	want := fmt.Sprintf("$%d.%02d", total/100, total%100)
@@ -595,7 +591,7 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	}
 	// The order keeps the email address, so a long one is refused rather than kept.
 	long := strings.Repeat("a", 243) + "@example.com"
-	if status, _, body := emma.do("POST", "/store/en-US/checkout", `{"email":"`+long+`","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`); status != 422 || !strings.Contains(body, `"email":"email"`) {
+	if status, _, body := emma.do("POST", "/store/checkout", `{"email":"`+long+`","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`); status != 422 || !strings.Contains(body, `"email":"email"`) {
 		t.Errorf("an email address of 255 characters: %d %s", status, body)
 	}
 	// Only the cart that placed the order sees it. Its email address is on the page.
@@ -678,21 +674,21 @@ func init() { os.WriteFile(`+"`"+marker+"`"+`, []byte("init ran"), 0o644) }
 func TestShopStorefrontErrorPageHasNoAlternates(t *testing.T) {
 	skipUnlessEnabled(t)
 	app := copyShop(t)
-	write(t, filepath.Join(app, "app", "store", "lang+", "crash", "page.tsx"), `export default function Crash(): never {
+	write(t, filepath.Join(app, "app", "store", "crash", "page.tsx"), `export default function Crash(): never {
   throw new Error('the page cannot render')
 }
 `)
 	base, _, _ := start(t, buildAt(t, app))
-	for _, lang := range []string{"en-US", "zh-CN"} {
-		status, _, page := get(t, base+"/store/"+lang+"/crash")
+	for lang, prefix := range map[string]string{"en-US": "", "zh-CN": "/zh-CN"} {
+		status, _, page := get(t, base+prefix+"/store/crash")
 		head := page[:strings.Index(page, "</head>")]
 		if status != 500 || !strings.Contains(page, `<html data-session="out" lang="`+lang+`"`) || !strings.Contains(head, "<title>") ||
-			strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hrefLang") {
-			t.Errorf("/store/%s/crash: %d, the head of the 500 must have the language and a title and no alternate links:\n%.600s", lang, status, head)
+			strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hreflang") {
+			t.Errorf("%s/store/crash: %d, the head of the 500 must have the language and a title and no alternate links:\n%.600s", prefix, status, head)
 		}
 		// The store still renders its own pages beside it.
-		if status, _, _ := get(t, base+"/store/"+lang); status != 200 {
-			t.Errorf("/store/%s: %d after the crash", lang, status)
+		if status, _, _ := get(t, base+prefix+"/store"); status != 200 {
+			t.Errorf("%s/store: %d after the crash", prefix, status)
 		}
 	}
 }

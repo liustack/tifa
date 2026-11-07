@@ -10,7 +10,9 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router'
 import { goJSON, RouteError, type Source } from './data'
+import type { PrefixRewrite } from './prefix'
 import type { SessionEnvelope } from './session'
+import type { PageAlternates } from './head'
 
 // RouterContext is the context of the root route. Loaders read their data through source, and
 // chain says which Loads a path has: the IDs of the routes with a Go Load that the router matches
@@ -20,6 +22,8 @@ export interface RouterContext {
   browser: boolean
   source: Source
   chain: (pathname: string) => string[]
+  // The language prefix of the document, left out on a site without languages.
+  prefix?: PrefixRewrite
 }
 
 // Dehydrated is what the page carries from the server render to the browser besides the data:
@@ -28,6 +32,8 @@ export interface Dehydrated {
   buildId: string
   sessionKey?: string
   session?: SessionEnvelope
+  language?: string
+  alternates?: PageAlternates
 }
 
 export interface RouterOptions {
@@ -39,6 +45,10 @@ export interface RouterOptions {
   // carries to the browser. An app without sessions has neither.
   sessionKey?: string
   session?: SessionEnvelope
+  // The language of the page a server render makes, which the page carries to the browser.
+  language?: string
+  // The versions of that page in other languages, which the page carries to the browser too.
+  alternates?: PageAlternates
   // The nonce of a server render under a Content-Security-Policy, which the router writes on its
   // hydration scripts and its scroll restoration script (see RenderInput in server.tsx).
   nonce?: string
@@ -46,6 +56,9 @@ export interface RouterOptions {
   onHydrate?: (dehydrated: Dehydrated) => void
   // The history of a browser router, the browser's own by default. Tests pass a memory history.
   history?: RouterHistory
+  // The language prefix of the document, made for its language. Left out on a site without
+  // languages.
+  rewrite?: PrefixRewrite
 }
 
 export function createAppRouter<TRouteTree extends AnyRoute>(
@@ -53,17 +66,19 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   source: Source,
   options: RouterOptions,
 ) {
-  const { buildId, serverURL, onHydrate, sessionKey, session, nonce } = options
+  const { buildId, serverURL, onHydrate, sessionKey, session, language, alternates, nonce } = options
   const context: RouterContext = {
     browser: serverURL === undefined,
     source,
     chain: (pathname) => loadsAt(router, pathname),
+    prefix: options.rewrite,
   }
   const router = createRouter({
     routeTree,
     context,
     isServer: serverURL !== undefined,
-    history: serverURL ? createMemoryHistory({ initialEntries: [serverURL] }) : options.history,
+    rewrite: options.rewrite,
+    history: serverURL ? createMemoryHistory({ initialEntries: [options.rewrite ? withRouterQuery(serverURL) : serverURL] }) : options.history,
     // ServeMux matches paths case-sensitively and reads query values as strings.
     caseSensitive: true,
     parseSearch,
@@ -80,6 +95,8 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
       const out: Dehydrated = { buildId }
       if (sessionKey !== undefined) out.sessionKey = sessionKey
       if (session !== undefined) out.session = session
+      if (language) out.language = language
+      if (alternates) out.alternates = alternates
       return out
     },
     hydrate: (dehydrated: Dehydrated) => {
@@ -91,6 +108,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   // is not documented (TanStack/router#7796), so the router tests check that loader data still
   // goes through loaderDataAdapter.
   router.options.serializationAdapters = [loaderDataAdapter, routeErrorAdapter]
+  options.rewrite?.attach(router)
   return router
 }
 
@@ -121,24 +139,27 @@ const routeErrorAdapter = createSerializationAdapter({
 // one the router throws itself for a URL it spells differently (see canonicalStatus in server.tsx).
 export const askedByLoad = 'tifaAskedByLoad'
 
-// loadsAt lists the IDs of the Loads the router runs for pathname, from the root Layout down. A URL
-// the router does not match whole shows a 404 inside one Layout, as it decides in
-// matchRoutesInternal (the deepest matched route with a notFoundComponent, else the deepest with
-// children), and only the Layouts down to that one load. Go finds the same Layout for that URL
-// (notFoundAt in server/notfound.go) and runs the Loads of its chain.
-function loadsAt(router: AnyRouter, pathname: string): string[] {
+// routesAt lists the routes the router matches for pathname, from the root down. A URL the router
+// does not match whole shows a 404 inside one Layout, as it decides in matchRoutesInternal (the
+// deepest matched route with a notFoundComponent, else the deepest with children), and only the
+// Layouts down to that one count.
+export function routesAt(router: AnyRouter, pathname: string): readonly AnyRoute[] {
   const [matched, params, found] = router.getMatchedRoutes(pathname)
   const missing = found ? found.path !== '/' && params['**'] : pathname.replace(/\/+$/, '') !== ''
-  let routes = matched
-  if (missing) {
-    const last = (keep: (route: AnyRoute) => unknown) => {
-      for (let i = matched.length - 1; i >= 0; i--) if (keep(matched[i])) return i
-      return -1
-    }
-    const end = last((route) => route.options.notFoundComponent)
-    routes = matched.slice(0, Math.max(end >= 0 ? end : last((route) => route.children), 0) + 1)
+  if (!missing) return matched
+  const last = (keep: (route: AnyRoute) => unknown) => {
+    for (let i = matched.length - 1; i >= 0; i--) if (keep(matched[i])) return i
+    return -1
   }
-  return routes
+  const end = last((route) => route.options.notFoundComponent)
+  return matched.slice(0, Math.max(end >= 0 ? end : last((route) => route.children), 0) + 1)
+}
+
+// loadsAt lists the IDs of the Loads the router runs for pathname, from the root Layout down. Go
+// finds the same Layout for a URL that shows a 404 (notFoundAt in server/notfound.go) and runs the
+// Loads of its chain.
+function loadsAt(router: AnyRouter, pathname: string): string[] {
+  return routesAt(router, pathname)
     .map((route) => (route.options.staticData as Partial<LoadData> | undefined)?.load)
     .filter((id): id is string => id !== undefined)
 }
@@ -154,19 +175,35 @@ interface LoadData {
 export async function load<T>(
   context: RouterContext,
   id: string,
-  location: { pathname: string; searchStr: string },
+  location: { pathname: string; searchStr: string; publicHref: string },
   preload: boolean,
 ): Promise<T> {
-  const result = await context.source(location.pathname + location.searchStr, id, {
+  // A site with languages sends the public URL, the one with the prefix, which is what Go routes.
+  // The chain is worked out on the plain path the routes see.
+  const url = context.prefix ? withoutHash(location.publicHref) : location.pathname + location.searchStr
+  const result = await context.source(url, id, {
     // Only a request from the browser needs it, a server render has its data injected.
     chain: () => context.chain(location.pathname),
     preload,
   })
   if (result.status === 200) return result.data as T
   if (result.location !== undefined) {
+    // One document holds one language: a redirect to another one loads that document. The loader
+    // stays pending while the browser leaves. A preload goes nowhere: the router drops a
+    // redirect that asks for a document load.
+    if (context.browser && context.prefix && !context.prefix.reaches(result.location)) {
+      if (preload) throw redirect({ href: result.location, reloadDocument: true })
+      window.location.assign(result.location)
+      return new Promise<never>(() => {})
+    }
     throw redirect({ href: result.location, statusCode: result.status, [askedByLoad]: true } as Parameters<typeof redirect>[0])
   }
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
+}
+
+function withoutHash(href: string): string {
+  const hash = href.indexOf('#')
+  return hash < 0 ? href : href.slice(0, hash)
 }
 
 // PageData is the staticData of a route with a page.tsx. Nothing else carries the marker, so a
@@ -200,8 +237,14 @@ function servedByGo(publicPaths: readonly string[], pathname: string) {
 // render does not: Go renders a path under /assets/ or /__tifa/ that no file answers, and a page
 // may live there, so a redirect would send the browser to the same URL again and again.
 export function leave(publicPaths: readonly string[]) {
-  return ({ context, location }: { context: RouterContext; location: { pathname: string; href: string } }) => {
-    if (context.browser && servedByGo(publicPaths, location.pathname)) throw redirect({ href: location.href, reloadDocument: true })
+  return ({ context, location }: { context: RouterContext; location: { pathname: string; href: string; publicHref: string } }) => {
+    if (!context.browser) return
+    // A page that the document's language cannot show is another document: the public URL names
+    // another language, or the route has other languages, or none while the document is in a
+    // language of its own. The public URL decides, whatever started the navigation: a Link, a
+    // `to` or an href with a prefix, or a URL pushed on the history.
+    if (servedByGo(publicPaths, location.pathname) || (context.prefix && !context.prefix.reaches(location.publicHref)))
+      throw redirect({ href: location.publicHref, reloadDocument: true })
   }
 }
 
@@ -279,6 +322,15 @@ export function stringifySearch(search: Record<string, unknown>): string {
       parts.push(encodeQueryPart(key) + '=' + encodeQueryPart(String(item)))
   }
   return parts.length > 0 ? '?' + parts.join('&') : ''
+}
+
+// withRouterQuery is url with its query spelled the way stringifySearch writes it. A server render
+// compares the URL of the request with the one the router builds for it, and redirects to that one
+// when they differ. Without a rewrite the router reads the query of the request in its own spelling
+// first, with one it keeps the URL as given: /store?next=%2Fa would redirect to /store?next=/a.
+function withRouterQuery(url: string) {
+  const at = url.indexOf('?')
+  return at < 0 ? url : url.slice(0, at) + stringifySearch(parseSearch(url.slice(at)))
 }
 
 // The characters encodeURIComponent escapes that browsers send as they are and Go's

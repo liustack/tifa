@@ -1,11 +1,11 @@
 English · [简体中文](README.zh-CN.md)
 
-# Shanhai Workbench (山海工作台): a Tifa example app
+# Shanhai Workbench: a Tifa example app
 
 Two sides of one small shop, in one program.
 
 - **The workbench**, for the shop owner: two shops, an order list of 25 rows a page with product photos, to sort, search and filter by status, date, carrier and amount, with rows to select and export, order details with a log of what happened, internal notes, payment and invoice, a stock check, a packing list, the way of the parcel and how each carrier did, a shipping form and a dialog to change where an order goes, and a sales stats page with charts, a table of every product with sparklines, a heatmap of when orders come, carriers, dispatch times and the best customers. After you ship an order the list and the stats update with it.
-- **The storefront**, for customers, in Chinese and English: a category menu and a cart drawer on every page, a home page with a carousel and tabs of best sellers, a product list with search, facets with counts, quick filters, chosen conditions, a grid and list view and a quick view of each product, product pages with a photo gallery, the whole specification, a comparison with similar products, reviews in pages with photos and replies from the shop, questions and products to buy together, coupons and suggestions around a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
+- **The storefront**, for customers, in English and Chinese: a category menu and a cart drawer on every page, a home page with a carousel and tabs of best sellers, a product list with search, facets with counts, quick filters, chosen conditions, a grid and list view and a quick view of each product, product pages with a photo gallery, the whole specification, a comparison with similar products, reviews in pages with photos and replies from the shop, questions and products to buy together, coupons and suggestions around a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
 
 Pages are rendered to complete HTML on the server. After the browser takes over, it moves between pages on its own. Data lives in process memory and resets on restart.
 
@@ -23,7 +23,7 @@ go tool tifa build
 ./bin/shop
 ```
 
-Open <http://127.0.0.1:9527>. It sends you to the sign-in page, and after you sign in, to the order list of the first shop. The storefront is at <http://127.0.0.1:9527/store/zh-CN> and <http://127.0.0.1:9527/store/en-US>. Use `./bin/shop --server-addr 127.0.0.1:9528` to change the port. `bin/shop` is a single executable with the frontend output embedded, so you can copy it to another machine and run it there.
+Open <http://127.0.0.1:9527>. It sends you to the sign-in page, and after you sign in, to the order list of the first shop. The storefront is at <http://127.0.0.1:9527/store> and, in Chinese, <http://127.0.0.1:9527/zh-CN/store>. Use `./bin/shop --server-addr 127.0.0.1:9528` to change the port. `bin/shop` is a single executable with the frontend output embedded, so you can copy it to another machine and run it there.
 
 Checks and tests, with one command:
 
@@ -55,7 +55,7 @@ app/
   login/                       /login: layout_.tsx without the workbench around it, the form, and the POST that signs in
   logout/                      /logout: the POST that signs out
   styles.css                   Tailwind CSS and the shop's theme
-  format.ts                    money and times in Chinese, in the shop's time zone
+  format.ts                    money and times in English, in the shop's time zone
   animated-number.tsx          numbers that tween when the data changes
   projects/
     project.go                 shop domain: types, the count of orders waiting to ship, storage
@@ -71,49 +71,50 @@ app/
       stats/                   /projects/{project}/stats: sales stats
         revenue-chart.client.tsx  products-chart.client.tsx    the charts, loaded in the browser only
         panels.tsx             the product table, order heatmap, carriers, customers and recent orders
-  store/
-    store.go                   what the storefront shares: its two languages, their currency and time zone, prices
-    route.go                   /store: GET redirects to the language the browser prefers
-    layout_.tsx                the storefront without the workbench around it, and the 404 of a language it does not have, in both languages
-    i18n.ts  locales/          i18next with the texts of both languages, money and dates formatted per language
+  store/                       /store in English and /zh-CN/store in Chinese: the folder has `_locales/`, so it is an area with two languages
+    storekit/                  what the storefront shares: its two languages, their currency and time zone, prices
+    _locales/                  the texts of each language, zh-CN.json and en-US.json
+    layout_.tsx                the storefront Layout (category menu, search, language switch, cart drawer, footer) without the workbench around it
+    route.go  page.tsx         the home page and the Layout function, kept for 10 minutes
+    i18n.ts                    the formatters of money and dates for the texts, page titles
     product-card.tsx           the product card of every list, product photos and prices
     images.ts  images/         the product, home page and journal photos, in AVIF
-    lang+/                     /store/{lang}
-      route.go  layout.tsx  page.tsx   storefront Layout (category menu, search, language switch, cart drawer, footer) and the home page, kept for 10 minutes
-      mine/                    /store/{lang}/mine: GET gives the visitor's cart and recently viewed products, POST remembers a product
-      products/
-        product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews, specifications, recently viewed
-        route.go  page.tsx      product list, filters in the query string, kept for 5 minutes
-        filter-schema.ts       the zod schema of the filter form
-        product+/              /store/{lang}/products/{product}: product page kept for 10 minutes, POST adds to the cart
-      cart/
-        cart.go  checkout.go   cart domain: lines, coupons, delivery, the checks of an order, placing it
-        recent.go              carts and placed orders kept in memory, with a limit and an expiry
-        route.go  page.tsx      /store/{lang}/cart: PATCH changes a quantity, POST applies a coupon
-      checkout/                /store/{lang}/checkout: the order form, POST places the order
-        checkout-schema.ts     the zod schema of the order, with the same rules as Order.Validate
-      journal/
-        post.go  posts/        journal domain: articles in Markdown, one file per language
-        markdown.tsx           Markdown with GitHub tables and highlighted code
-        post+/                 /store/{lang}/journal/{post}, kept for an hour
+    mine/                      /store/mine: GET gives the visitor's cart and recently viewed products, POST remembers a product
+    products/
+      product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews, specifications, recently viewed
+      route.go  page.tsx       product list, filters in the query string, kept for 5 minutes
+      filter-schema.ts         the zod schema of the filter form
+      product+/                /store/products/{product}: product page kept for 10 minutes, POST adds to the cart
+    cart/
+      cart.go  checkout.go     cart domain: lines, coupons, delivery, the checks of an order, placing it
+      recent.go                carts and placed orders kept in memory, with a limit and an expiry
+      route.go  page.tsx       /store/cart: PATCH changes a quantity, POST applies a coupon
+    checkout/                  /store/checkout: the order form, POST places the order
+      checkout-schema.ts       the zod schema of the order, with the same rules as Order.Validate
+    journal/
+      post.go  posts/          journal domain: articles in Markdown, one file per language
+      markdown.tsx             Markdown with GitHub tables and highlighted code
+      post+/                   /store/journal/{post}, kept for an hour
 ```
 
 Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks and the session. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 
-The storefront takes its language from the first segment of the URL. Go loads the texts in that language and the prices in its currency, and the storefront Layout passes the currency and time zone to i18next, which formats money, dates and plurals with `Intl`. The checks of a form live twice with the same rules: a zod schema in the browser and `Validate` in Go. Both give the same message keys, which the page translates. The catalogue domain is `products`, and `cart` imports it to price the lines. Pages under `lang+` find their language with `store.FindLocale`. The `head` of the storefront Layout sets that language on `<html>` with `htmlAttributes`, over the root Layout's `zh-CN`, and the browser changes it when you move to the other language. It also links each page to the same page in both languages, and to the Chinese one as `x-default`. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. `app/store` holds a `layout_.tsx`, so the store shows without the workbench, and the root Layout's `Layout` does not run for it: none of the workbench's data reaches the store's pages. That `layout_.tsx` renders only an `<Outlet />`. Its `Error` shows the 404 of a language the store does not have, such as `/store/xx`, in Chinese and English with a link to the storefront in each, since the visitor's language is not known. `/store` redirects to the language that the browser's `Accept-Language` asks for, matched with `golang.org/x/text/language`, and to Chinese when it asks for neither.
+`app/store` has a `_locales` folder with `zh-CN.json` and `en-US.json`, so every page below it exists in both languages. English is the default (`i18n.default` in `tifa.yaml`) and has no prefix: `/store/cart`. Chinese is under `/zh-CN/store/cart`. The workbench under `/projects` is outside the area, has no `_locales`, and is in English, the default language. Tifa takes the language off the URL before matching, so the pages and links are written without it: `to="/store/cart"` becomes `/zh-CN/store/cart` on a Chinese page. Go reads the language with `c.Language()`, loads the texts in that language and the prices in its currency, and the storefront Layout passes it along with the currency and time zone. React reads it with `useLanguage()`. The texts come from the `tifa/i18n` adapter, in the namespace `store`, and `i18n.ts` adds the money and date formats to it: i18next formats money, dates and plurals with `Intl`. The checks of a form live twice with the same rules: a zod schema in the browser and `Validate` in Go. Both give the same message keys, which the page translates. The catalogue domain is `products`, and `cart` imports it to price the lines.
+
+Tifa writes `<html lang>`, so the root Layout sets no `lang`. It also links each page to the same page in both languages and to the English one as `x-default`, with the host from `site.url` in `tifa.yaml`. The language switch in the header reads the same list with `useAlternates()` and uses a plain `<a href>`, since the other language is another document. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. `app/store` holds a `layout_.tsx`, so the store shows without the workbench, and the root Layout's `Layout` does not run for it: none of the workbench's data reaches the store's pages. `/store` is the English home page for every browser, and `/en-US/store` answers 308 to it. The shop does not guess a language from `Accept-Language`.
 
 ## The storefront cache
 
-The storefront pages are the same for every visitor, so they carry `const Cache` in their `route.go` (see [The whole-page cache](../../docs/app.md#the-whole-page-cache)): the home page, the journal list and a product page 10 minutes, the product list 5 minutes, a journal post an hour. Within that time the program answers from memory, without running a `Load` or rendering, and a CDN in front may keep the page for the same time. The page language comes from the URL (`lang+`), so each language has its own entry. `/store`, which picks a language from `Accept-Language`, is a GET handler and has no `Cache`.
+The storefront pages are the same for every visitor, so they carry `const Cache` in their `route.go` (see [The whole-page cache](../../docs/app.md#the-whole-page-cache)): the home page, the journal list and a product page 10 minutes, the product list 5 minutes, a journal post an hour. Within that time the program answers from memory, without running a `Load` or rendering, and a CDN in front may keep the page for the same time. The page language comes from the URL, so each language has its own entry.
 
-A cached page sees no cookie, so what belongs to one visitor is not in it. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/{lang}/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
+A cached page sees no cookie, so what belongs to one visitor is not in it. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
 
 To see it work, look at the headers of a page twice:
 
 ```sh
-curl -si http://127.0.0.1:9527/store/en-US/journal | grep -i '^cache-status\|^age\|^x-tifa-render'
+curl -si http://127.0.0.1:9527/store/journal | grep -i '^cache-status\|^age\|^x-tifa-render'
 ```
 
 The first answer says `Cache-Status: tifa; fwd=miss` and `X-Tifa-Render: vm`, the second `Cache-Status: tifa; hit` with an `Age` and `X-Tifa-Render: cache`. A cookie in the request changes nothing, and neither does a tracking parameter such as `utm_source`. The workbench pages carry no `Cache` and say `Cache-Control: private, no-cache`.
@@ -122,20 +123,20 @@ The first answer says `Cache-Status: tifa; fwd=miss` and `X-Tifa-Render: vm`, th
 
 - View the page source. The first 25 orders, the totals and the customer details are already in the HTML.
 - Sort, filter and search the order list, select a few rows and export them. It all happens in the browser, with no request.
-- Open "店铺备忘" (shop notes), then go to an order's details. The notes stay open. Switch to the other shop: the shop notes close.
+- Open "Shop notes", then go to an order's details. The notes stay open. Switch to the other shop: the shop notes close.
 - Collapse the sidebar and reload. The server renders it collapsed, because the state is kept in a cookie.
 - Watch the Network tab in the developer tools: taking over the first page makes no extra data request, and each navigation makes at most one data request.
-- Press "确认发货" (ship) with the form empty, or with a tracking number that is too short. The browser shows the errors at once. Go checks the same rules again and returns its errors field by field when a request gets past the browser.
+- Press "Confirm shipment" with the form empty, or with a tracking number that is too short. The browser shows the errors at once. Go checks the same rules again and returns its errors field by field when a request gets past the browser.
 - Ship an order. Its status, the shop's count of orders waiting to ship and the list totals when you go back all update together.
-- Change the recipient of an order waiting to ship with "修改收货信息". Once the order has shipped, the button is disabled and Go refuses the change.
+- Change the recipient of an order waiting to ship with "Edit delivery details". Once the order has shipped, the button is disabled and Go refuses the change.
 - Open the stats page and switch between 7 and 30 days. The key numbers come in the HTML. The charts load and draw only in the browser, and until then the HTML holds a placeholder of the same height. Their code is fetched only when a stats page opens.
 - Open `/projects/studio/orders/SH-0000`, `/projects/nope` and `/nowhere`. The three 404s show at the order level, the root Layout level and the whole page.
-- Switch the storefront between 中文 and English. Prices change between yuan and dollars, and dates, review counts and delivery days follow the language.
+- Switch the storefront between English and 中文. Prices change between yuan and dollars, and dates, review counts and delivery days follow the language.
 - Search and filter the product list. The filters go into the URL, so a filtered list can be shared and the server renders it as it is. Set a minimum price above the maximum: the form refuses before sending anything.
 - Add a product to the cart in a colour, change quantities in the cart and try the codes `SHANHAI10` and `WELCOME30`. The first change gives you a cart of your own. It is kept in the program's memory, and a cookie holds only its ID. When a change fails, for example with the network down, its message shows under the line.
 - Place an order, then open its confirmation in a private window. It answers 404: only the cart that placed an order sees it, since the page shows an email address.
 - Check out with an empty form, a postal code of the wrong shape, or a card number that fails the check digit. The errors show field by field, and Go returns the same ones when a request gets past the browser.
-- Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/en-US/mine` after the page loaded, while the page itself came from the cache.
+- Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the cache.
 - Open a journal article. The code blocks are highlighted in the HTML the server sends.
 
 For more conventions, see [Build and generated code](../../docs/build.md) and [Writing an app](../../docs/app.md).

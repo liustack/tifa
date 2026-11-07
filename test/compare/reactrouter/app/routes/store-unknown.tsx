@@ -1,5 +1,5 @@
 import type { MetaArgs } from 'react-router'
-import { Error } from '@/app/store/lang+/layout'
+import { Error } from '@/app/store/layout_'
 import { storeBoundary } from '../compare/store-boundary'
 import { loadUnknown } from '../compare/store-load'
 import { storeMeta } from '../compare/store-meta'

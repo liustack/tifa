@@ -10,6 +10,7 @@ read_when:
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
   - 设置构建的浏览器目标或静态文件目录
+  - 设置应用的默认语言、URL 里的语言前缀，或站点的地址
   - 程序因为配置错误起不来
   - 页面要放进别的网站的 iframe，或 Referrer-Policy、Content-Security-Policy 这类头要换别的值
   - 要打开 Content-Security-Policy，或页面的脚本、样式被它拦下
@@ -35,7 +36,7 @@ Tifa 应用的默认值按小机器定好了，需要时才改。
 
 每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键和别的环境变量一律不管。既不是 Tifa 的设置、也不是应用设置的参数，比如把 `--server-addr` 写成 `--addr`，程序会报 `unknown flag` 并退出。
 
-`tifa.yaml` 写的是 Tifa 配置的值。`build.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
+`tifa.yaml` 写的是 Tifa 配置的值。`build.*`、`i18n.*` 和 `site.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
 
 ```yaml
 # tifa.yaml
@@ -104,6 +105,9 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 Tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
 | `build.debug_info` | `false` | 只能写在项目文件 | 设为 `true` 时，程序里保留 DWARF 调试信息，给 Delve 这类调试器用。不设的话，`tifa build` 用 `-ldflags=-w` 去掉调试信息，示例商店的程序因此小约 20%。两种情况下 panic 都照样给出每一帧的文件和行号。`tifa dev` 总是保留。见 [build.zh-CN.md](build.zh-CN.md#调试信息) |
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
+| `i18n.default` | 无 | 只能写在项目文件 | 有 `_locales/` 目录的应用的默认语言，写成常见写法的 BCP 47 标签，如 `zh-CN` 或 `en-US`。这种语言的 URL 没有前缀（`i18n.prefix` 为 `always` 时除外），它在 `tifa.Languages()` 里排第一。只有一种语言的应用可以不写。有多种语言时，不写会让 `tifa build` 报错，没有哪个区域有它的文件也会。每个区域都必须有默认语言。见[多语言站点](app.zh-CN.md#多语言网站) |
+| `i18n.prefix` | `off` | 只能写在项目文件 | `always` 让每个有语言的路由的 URL 都带上语言前缀，默认语言也一样：`/store` 会 308 到 `/zh-CN/store`。`off` 让默认语言不带前缀。不在任何区域里的路由两种模式下都没有前缀 |
+| `site.url` | 无 | 只能写在项目文件 | 站点对外的协议和主机，如 `https://shop.example.com`，不带路径。有多种语言的站点必须配，不配 `tifa build` 会报错 |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体上限，超过答 413。`route.go` 可以用 `BodyLimit` 设自己的上限，见 [app.zh-CN.md](app.zh-CN.md#路由自己的请求体上限和读取时间) |
 | `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 从接下连接起，读完整个请求（含请求体）的时间。到时还没传完的请求体读取失败。见[耗时长的请求](#耗时长的请求) |

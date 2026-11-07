@@ -852,3 +852,47 @@ func TestAppFingerprint(t *testing.T) {
 		t.Errorf("a changed route keeps the fingerprint %s, %v", other, err)
 	}
 }
+
+// tifa/i18n imports i18next and react-i18next. TypeScript checks all of .tifa, and the core takes
+// no translation library, so the runtime of an app has the adapter only when the app has languages
+// and its package.json names react-i18next: an app with languages that translates with another
+// library, or not at all, type-checks without it.
+func TestRuntimeHasTheI18nAdapterOnlyWithLanguagesAndI18next(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		languages bool
+		pkg       string
+		want      bool
+	}{
+		{"no languages", false, `{"dependencies": {"react-i18next": "17.1.0"}}`, false},
+		{"languages without react-i18next", true, `{"dependencies": {"react": "19.3.0"}}`, false},
+		{"languages and no package.json", true, "", false},
+		{"languages with react-i18next", true, `{"dependencies": {"i18next": "26.5.3", "react-i18next": "17.1.0"}}`, true},
+		{"languages with react-i18next as a dev dependency", true, `{"devDependencies": {"react-i18next": "17.1.0"}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/route", Dir: "app", Path: "/", Page: true, SSR: true}}}
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, "app/page.tsx"), "export default function Page() { return null }\n")
+			if tc.pkg != "" {
+				writeFile(t, filepath.Join(root, "package.json"), tc.pkg)
+			}
+			if tc.languages {
+				writeFile(t, filepath.Join(root, "app/store/_locales/en-US.json"), "{}\n")
+				m.I18n = &analyze.I18n{Default: "en-US", Languages: []string{"en-US"}}
+			}
+			files, err := Generate(root, m, false, fakeExports)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"runtime/i18n.tsx", "runtime/locales.d.ts"} {
+				if _, ok := files[name]; ok != tc.want {
+					t.Errorf("%s is written %v, want %v", name, ok, tc.want)
+				}
+			}
+			if len(files["runtime/client.ts"]) == 0 {
+				t.Error("the rest of the runtime is missing")
+			}
+		})
+	}
+}

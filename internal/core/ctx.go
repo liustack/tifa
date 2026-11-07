@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -40,6 +41,11 @@ type request struct {
 	// copies made by WithContext. net/http only removes the multipart temp files of the original request.
 	copies []*http.Request
 	sess   sessionState
+	// language is the language of the route the request matched, see Language.
+	language string
+	// alternates is the list SetAlternates gave, set tells it from a page that gave none.
+	alternates []Alternate
+	altSet     bool
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
@@ -189,4 +195,39 @@ type watchedBody struct {
 func (b *watchedBody) Read(p []byte) (int, error) {
 	b.started = true
 	return b.ReadCloser.Read(p)
+}
+
+// Language returns the language of the route the request is for: the language in the URL, the
+// default language when the URL has none, and so for a route outside every area of a site with
+// languages. It is empty on a site without languages.
+func (c *Ctx) Language() string { return c.req.language }
+
+// SetLanguage sets what Language returns. The server sets it before the request reaches OnRequest.
+func SetLanguage(c *Ctx, language string) { c.req.language = language }
+
+// Alternate is one version of a page in a language. Path is the URL path of that version as a
+// visitor sees it, escaped, with no query and no language prefix: tifa adds the prefix of the
+// language.
+type Alternate struct {
+	Language string
+	Path     string
+}
+
+// SetAlternates replaces the versions of the page in other languages. Without it a page exists in
+// every language of its area, at the same path under another prefix. Call it in a Load of a page
+// where that is wrong: a content entry whose slug differs in another language, or that is missing
+// in one. Include the page itself. The last call wins, and an empty list says the page has one
+// version.
+func (c *Ctx) SetAlternates(list []Alternate) {
+	c.req.mu.Lock()
+	c.req.alternates, c.req.altSet = slices.Clone(list), true
+	c.req.mu.Unlock()
+}
+
+// AlternatesOf returns the list SetAlternates gave, and whether it was called. The server reads
+// it once the Loads of a page have returned.
+func AlternatesOf(c *Ctx) ([]Alternate, bool) {
+	c.req.mu.Lock()
+	defer c.req.mu.Unlock()
+	return c.req.alternates, c.req.altSet
 }

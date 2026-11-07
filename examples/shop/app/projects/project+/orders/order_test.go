@@ -94,8 +94,8 @@ func TestShipOnce(t *testing.T) {
 	}
 	o, _ := GetOrder("studio", "SH-1042")
 	want := Shipment{
-		Carrier: "SF", CarrierName: "顺丰速运", TrackingNo: "SF1234567890", ShippedAt: at,
-		Events: []TrackEvent{{At: at, Place: warehouse, Note: "快递员已揽收"}},
+		Carrier: "SF", CarrierName: "SF Express", TrackingNo: "SF1234567890", ShippedAt: at,
+		Events: []TrackEvent{{At: at, Place: warehouse, Note: "Courier collected the parcel"}},
 	}
 	if o.Status != StatusShipped || o.Shipment == nil || !reflect.DeepEqual(*o.Shipment, want) {
 		t.Fatalf("after shipping: %s %+v", o.Status, o.Shipment)
@@ -137,11 +137,11 @@ func TestCheckShipment(t *testing.T) {
 	}{
 		{"SF", "SF1234567890", nil},
 		{"EMS", " 1234abcd ", nil},
-		{"", "SF1234567890", tifa.Fields{"carrier": "请选择快递公司"}},
-		{"DHL", "SF1234567890", tifa.Fields{"carrier": "请选择快递公司"}},
-		{"SF", "SF12", tifa.Fields{"trackingNo": "运单号是 8 到 20 位字母或数字"}},
-		{"SF", "SF-1234-5678", tifa.Fields{"trackingNo": "运单号是 8 到 20 位字母或数字"}},
-		{"", "", tifa.Fields{"carrier": "请选择快递公司", "trackingNo": "运单号是 8 到 20 位字母或数字"}},
+		{"", "SF1234567890", tifa.Fields{"carrier": "Pick a carrier"}},
+		{"DHL", "SF1234567890", tifa.Fields{"carrier": "Pick a carrier"}},
+		{"SF", "SF12", tifa.Fields{"trackingNo": "The tracking number is 8 to 20 letters or digits"}},
+		{"SF", "SF-1234-5678", tifa.Fields{"trackingNo": "The tracking number is 8 to 20 letters or digits"}},
+		{"", "", tifa.Fields{"carrier": "Pick a carrier", "trackingNo": "The tracking number is 8 to 20 letters or digits"}},
 	} {
 		err := CheckShipment(tc.carrier, tc.trackingNo)
 		if tc.fields == nil {
@@ -165,10 +165,10 @@ func TestCheckRecipient(t *testing.T) {
 	}{
 		{"林夏", "13800138000", "上海市徐汇区漕溪北路 88 号", nil},
 		{" 林夏 ", " 138 0013 8000 ", "上海市徐汇区漕溪北路 88 号", nil},
-		{"", "13800138000", "上海市徐汇区漕溪北路 88 号", tifa.Fields{"customer": "请填写收件人"}},
-		{"林夏", "12345", "上海市徐汇区漕溪北路 88 号", tifa.Fields{"phone": "请填写 11 位手机号"}},
-		{"林夏", "13800138000", "  ", tifa.Fields{"address": "请填写收货地址"}},
-		{"林夏", "13800138000", long, tifa.Fields{"address": "收货地址最多 100 个字"}},
+		{"", "13800138000", "上海市徐汇区漕溪北路 88 号", tifa.Fields{"customer": "Enter the recipient"}},
+		{"林夏", "12345", "上海市徐汇区漕溪北路 88 号", tifa.Fields{"phone": "Enter an 11-digit phone number"}},
+		{"林夏", "13800138000", "  ", tifa.Fields{"address": "Enter the delivery address"}},
+		{"林夏", "13800138000", long, tifa.Fields{"address": "The address is at most 100 characters"}},
 	} {
 		err := CheckRecipient(tc.customer, tc.phone, tc.address)
 		if tc.fields == nil {
@@ -233,7 +233,7 @@ func TestListRowsShowTheCarrierOfShippedOrders(t *testing.T) {
 	if rows[0].Carrier != "" || rows[0].TrackingNo != "" {
 		t.Errorf("pending row %+v", rows[0])
 	}
-	if rows[2].ID != "SH-1040" || rows[2].Carrier != "顺丰速运" || rows[2].TrackingNo != "SF1408273615" {
+	if rows[2].ID != "SH-1040" || rows[2].Carrier != "SF Express" || rows[2].TrackingNo != "SF1408273615" {
 		t.Errorf("shipped row %+v", rows[2])
 	}
 }
@@ -245,7 +245,7 @@ func TestDemoParcelsTravelToTheCityOfTheAddress(t *testing.T) {
 	if len(events) != 11 || !events[0].At.Equal(o.Shipment.ShippedAt) || events[0].Place != warehouse {
 		t.Fatalf("events %+v", events)
 	}
-	if last := events[10]; last.Place != "北京市朝阳区" || last.Note != "已签收，签收人：本人" {
+	if last := events[10]; last.Place != "北京市朝阳区" || last.Note != "Delivered, signed by the recipient" {
 		t.Errorf("last event %+v", last)
 	}
 	for i := 1; i < len(events); i++ {

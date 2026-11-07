@@ -52,11 +52,9 @@ import { Account } from './account'
 import { layout, type LayoutData } from './route.gen'
 import './styles.css'
 
-export const htmlAttributes = { lang: 'zh-CN' }
-
 export const documentHead = {
   meta: [
-    { title: '山海工作台' },
+    { title: 'Shanhai Workbench' },
     { name: 'theme-color', content: '#f2f4f5', media: '(prefers-color-scheme: light)' },
     { name: 'theme-color', content: '#0f141b', media: '(prefers-color-scheme: dark)' },
   ],
@@ -91,20 +89,20 @@ export default function AppLayout() {
           href="#main-content"
           className="sr-only z-50 bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
         >
-          跳至主要内容
+          Skip to main content
         </a>
         <Sidebar collapsible="icon">
           <SidebarHeader className="border-b border-sidebar-border">
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton size="lg" asChild tooltip="山海工作台">
+                <SidebarMenuButton size="lg" asChild tooltip="Shanhai Workbench">
                   <Link to="/projects/$project" params={{ project: 'studio' }}>
                     <span className="flex aspect-square size-8 items-center justify-center bg-sidebar-primary font-heading text-lg text-sidebar-primary-foreground">
-                      山
+                      S
                     </span>
                     <span className="grid flex-1 text-left leading-tight">
-                      <span className="font-heading text-base font-medium tracking-[0.06em]">山海</span>
-                      <span className="text-xs text-sidebar-foreground/60">店铺工作台</span>
+                      <span className="font-heading text-base font-medium tracking-[0.06em]">Shanhai</span>
+                      <span className="text-xs text-sidebar-foreground/60">Shop workbench</span>
                     </span>
                   </Link>
                 </SidebarMenuButton>
@@ -113,8 +111,8 @@ export default function AppLayout() {
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
-              <SidebarGroupLabel className="text-sidebar-foreground/50">我的店铺</SidebarGroupLabel>
-              <nav aria-label="工作区导航">
+              <SidebarGroupLabel className="text-sidebar-foreground/50">My shops</SidebarGroupLabel>
+              <nav aria-label="Workspace navigation">
                 <SidebarMenu>
                   {projects.map((project) => (
                     <SidebarMenuItem key={project.id}>
@@ -127,7 +125,7 @@ export default function AppLayout() {
                       {project.pending > 0 && (
                         <SidebarMenuBadge className={pill}>
                           {project.pending}
-                          <span className="sr-only"> 单待发货</span>
+                          <span className="sr-only"> orders to ship</span>
                         </SidebarMenuBadge>
                       )}
                     </SidebarMenuItem>
@@ -138,30 +136,30 @@ export default function AppLayout() {
             {current && (
               <SidebarGroup>
                 <SidebarGroupLabel className="text-sidebar-foreground/50">{current.name}</SidebarGroupLabel>
-                <nav aria-label="店铺页面">
+                <nav aria-label="Shop pages">
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild isActive={at.page !== 'stats'} tooltip="订单" className={active}>
+                      <SidebarMenuButton asChild isActive={at.page !== 'stats'} tooltip="Orders" className={active}>
                         <Link to="/projects/$project" params={{ project: current.id }}>
                           <ReceiptText />
-                          <span>订单</span>
+                          <span>Orders</span>
                         </Link>
                       </SidebarMenuButton>
                       {current.pending > 0 && <SidebarMenuBadge className={pill}>{current.pending}</SidebarMenuBadge>}
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild isActive={at.page === 'stats'} tooltip="统计" className={active}>
+                      <SidebarMenuButton asChild isActive={at.page === 'stats'} tooltip="Stats" className={active}>
                         <Link to="/projects/$project/stats" params={{ project: current.id }}>
                           <ChartColumn />
-                          <span>统计</span>
+                          <span>Stats</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild tooltip="店面">
-                        <Link to="/store/$lang" params={{ lang: 'zh-CN' }}>
+                      <SidebarMenuButton asChild tooltip="Storefront">
+                        <Link to="/store">
                           <ExternalLink />
-                          <span>店面</span>
+                          <span>Storefront</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -174,12 +172,12 @@ export default function AppLayout() {
             <div className="flex items-center gap-2 p-1">
               <Avatar className="size-8 rounded-none">
                 <AvatarFallback className="rounded-none bg-sidebar-primary text-sidebar-primary-foreground">
-                  {me?.initials ?? '店'}
+                  {me?.initials ?? 'O'}
                 </AvatarFallback>
               </Avatar>
               <div className="grid leading-tight group-data-[collapsible=icon]:hidden">
-                <span className="text-sm font-medium">{me?.name ?? '店主'}</span>
-                <span className="text-xs text-sidebar-foreground/60">让小生意，慢慢生长。</span>
+                <span className="text-sm font-medium">{me?.name ?? 'Owner'}</span>
+                <span className="text-xs text-sidebar-foreground/60">Small shops, growing slowly.</span>
               </div>
             </div>
           </SidebarFooter>
@@ -194,15 +192,15 @@ export default function AppLayout() {
               <CommandSearch projects={projects} />
               <Notifications projects={projects} />
               <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
-                <Link to="/store/$lang" params={{ lang: 'zh-CN' }}>
+                <Link to="/store">
                   <ExternalLink />
-                  查看店面
+                  View storefront
                 </Link>
               </Button>
               <Account />
             </div>
             {loading && (
-              <div role="status" aria-label="正在加载页面" className="absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-primary" />
+              <div role="status" aria-label="Loading page" className="absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-primary" />
             )}
           </header>
           <div id="main-content" tabIndex={-1} className="flex-1 px-4 py-6 outline-none md:px-8 md:py-8">
@@ -211,8 +209,8 @@ export default function AppLayout() {
             </div>
           </div>
           <footer className="flex justify-between border-t px-4 py-4 font-mono text-[11px] text-muted-foreground md:px-8">
-            <span>山海工作室</span>
-            <span>这里的订单均为演示数据</span>
+            <span>Shanhai Studio</span>
+            <span>The orders here are demo data</span>
           </footer>
         </SidebarInset>
       </SidebarProvider>
@@ -223,7 +221,7 @@ export default function AppLayout() {
 const active = 'data-[active=true]:shadow-[inset_2px_0_0_var(--sidebar-primary)]'
 const pill = 'rounded-none border border-sidebar-border font-mono text-[11px]'
 
-const pageNames = { orders: '订单', stats: '统计', order: '订单' }
+const pageNames = { orders: 'Orders', stats: 'Stats', order: 'Order' }
 
 function Crumbs({ current, at }: { current?: Project; at: ReturnType<typeof where> }) {
   return (
@@ -232,7 +230,7 @@ function Crumbs({ current, at }: { current?: Project; at: ReturnType<typeof wher
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
             <Link to="/projects/$project" params={{ project: 'studio' }}>
-              工作台
+              Workbench
             </Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
@@ -278,8 +276,8 @@ function CommandSearch({ projects }: { projects: Project[] }) {
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const pages = projects.flatMap((p) => [
-    { key: `${p.id}-orders`, label: `${p.name} · 订单`, to: `/projects/${p.id}` },
-    { key: `${p.id}-stats`, label: `${p.name} · 统计`, to: `/projects/${p.id}/stats` },
+    { key: `${p.id}-orders`, label: `${p.name} · Orders`, to: `/projects/${p.id}` },
+    { key: `${p.id}-stats`, label: `${p.name} · Stats`, to: `/projects/${p.id}/stats` },
   ])
   const q = text.trim().toUpperCase()
   const order = /^(SH-\d{4}|WK-\d{4})$/.test(q) ? q : ''
@@ -289,14 +287,14 @@ function CommandSearch({ projects }: { projects: Project[] }) {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="w-9 justify-start gap-2 px-2.5 text-muted-foreground sm:w-56 lg:w-72">
           <Search />
-          <span className="hidden sm:inline">搜索订单号或页面</span>
+          <span className="hidden sm:inline">Search order numbers or pages</span>
           <kbd className="ml-auto hidden border px-1.5 font-mono text-[10px] lg:inline">⌘K</kbd>
         </Button>
       </DialogTrigger>
       <DialogContent className="gap-3 rounded-none p-0 sm:max-w-lg">
         <DialogHeader className="sr-only">
-          <DialogTitle>搜索工作台</DialogTitle>
-          <DialogDescription>输入订单号，或店铺和页面的名字。</DialogDescription>
+          <DialogTitle>Search the workbench</DialogTitle>
+          <DialogDescription>Enter an order number, or the name of a shop or page.</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 border-b px-3">
           <Search className="size-4 text-muted-foreground" />
@@ -304,8 +302,8 @@ function CommandSearch({ projects }: { projects: Project[] }) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="订单号，如 SH-1041"
-            aria-label="搜索订单号或页面"
+            placeholder="Order number, such as SH-1041"
+            aria-label="Search order numbers or pages"
             className="h-11 border-0 px-0 shadow-none focus-visible:ring-0"
           />
         </div>
@@ -318,7 +316,7 @@ function CommandSearch({ projects }: { projects: Project[] }) {
                 onClick={() => setOpen(false)}
               >
                 <ReceiptText className="size-4 text-muted-foreground" />
-                打开订单 <span className="font-mono">{order}</span>
+                Open order <span className="font-mono">{order}</span>
               </a>
             </li>
           )}
@@ -330,7 +328,7 @@ function CommandSearch({ projects }: { projects: Project[] }) {
               </a>
             </li>
           ))}
-          {!order && shown.length === 0 && <li className="px-2.5 py-6 text-center text-sm text-muted-foreground">没有匹配的页面</li>}
+          {!order && shown.length === 0 && <li className="px-2.5 py-6 text-center text-sm text-muted-foreground">No matching pages</li>}
         </ul>
       </DialogContent>
     </Dialog>
@@ -344,22 +342,22 @@ function Notifications({ projects }: { projects: Project[] }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="relative" aria-label={count > 0 ? `通知，${count} 单待发货` : '通知'}>
+        <Button variant="ghost" size="icon-sm" className="relative" aria-label={count > 0 ? `Notifications, ${count} to ship` : 'Notifications'}>
           <Bell />
           {count > 0 && <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-destructive" aria-hidden />}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 rounded-none">
-        <DropdownMenuLabel>通知</DropdownMenuLabel>
+        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {waiting.length === 0 ? (
-          <p className="px-2 py-3 text-sm text-muted-foreground">没有待发货的订单</p>
+          <p className="px-2 py-3 text-sm text-muted-foreground">No orders waiting to ship</p>
         ) : (
           waiting.map((p) => (
             <DropdownMenuItem key={p.id} asChild>
               <Link to="/projects/$project" params={{ project: p.id }} className="flex justify-between">
                 {p.name}
-                <span className="font-mono text-xs text-muted-foreground">{p.pending} 单待发货</span>
+                <span className="font-mono text-xs text-muted-foreground">{p.pending} to ship</span>
               </Link>
             </DropdownMenuItem>
           ))
@@ -379,14 +377,14 @@ export function Error({ error }: { error: unknown }) {
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle>{missing ? '没有找到这个页面' : '页面出了点问题'}</EmptyTitle>
+        <EmptyTitle>{missing ? 'Page not found' : 'Something went wrong'}</EmptyTitle>
         <EmptyDescription>
-          {missing ? '地址可能有误，或者这家店铺已经不在了。' : error instanceof RouteError ? error.message : '请稍后再试。'}
+          {missing ? 'The address may be wrong, or the shop is gone.' : error instanceof RouteError ? error.message : 'Please try again later.'}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button variant="outline" asChild>
-          <a href="/projects/studio">返回工作台</a>
+          <a href="/projects/studio">Back to the workbench</a>
         </Button>
       </EmptyContent>
     </Empty>

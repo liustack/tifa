@@ -6,6 +6,9 @@
 // Requests:
 //
 //	{op: "exports", files}       the names each TypeScript or JavaScript file exports
+//	{op: "htmlLang", files}      where each file sets lang in an htmlAttributes object it writes out:
+//	                             the exported htmlAttributes of a Layout, or the htmlAttributes a
+//	                             head returns, as {line, column} of the lang key
 //	{op: "client"}               builds the browser bundle, answers with modules, the files
 //	                             the build read outside node_modules, and incomplete, why those
 //	                             are not all of them or '' (see watchedBuilds)
@@ -253,6 +256,41 @@ logger.error = (msg, options) => {
   if (!/Build failed in /.test(msg)) logError(msg, options)
 }
 
+// langKeys returns the offsets of the lang keys of the object literals a program writes out as
+// htmlAttributes: the object that `export const htmlAttributes` is, and the value of a property
+// named htmlAttributes inside the exported head. A name for the object, a spread, a computed key
+// or a head exported under another name is out of reach of a static read, and tifa fails the
+// render that sets lang there. An object of the page's own that has such a property is no head.
+function langKeys(program) {
+  const offsets = []
+  const keyName = (property) => {
+    if (property.type !== 'Property' || property.computed) return undefined
+    return property.key.type === 'Identifier' ? property.key.name : property.key.value
+  }
+  const literal = (node) => {
+    while (node && (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSNonNullExpression' || node.type === 'ParenthesizedExpression'))
+      node = node.expression
+    return node?.type === 'ObjectExpression' ? node : undefined
+  }
+  const check = (node) => {
+    for (const property of literal(node)?.properties ?? [])
+      if (typeof keyName(property) === 'string' && keyName(property).toLowerCase() === 'lang') offsets.push(property.start)
+  }
+  const walk = (node, exported, head) => {
+    if (Array.isArray(node)) return node.forEach((child) => walk(child, exported, head))
+    if (node === null || typeof node !== 'object') return
+    if (node.type === 'ExportNamedDeclaration') exported = true
+    else if (node.type !== 'VariableDeclaration' && node.type !== 'VariableDeclarator' && node.type !== 'FunctionDeclaration') exported = false
+    const named = (name) => exported && node.id?.type === 'Identifier' && node.id.name === name
+    if (node.type === 'VariableDeclarator' && named('htmlAttributes')) check(node.init)
+    if ((node.type === 'VariableDeclarator' || node.type === 'FunctionDeclaration') && named('head')) head = true
+    if (head && node.type === 'Property' && keyName(node) === 'htmlAttributes') check(node.value)
+    for (const key in node) if (key !== 'parent') walk(node[key], exported, head)
+  }
+  walk(program, false, false)
+  return offsets
+}
+
 const ops = {
   async exports({ files }) {
     const exports = {}
@@ -274,6 +312,22 @@ const ops = {
       exports[file] = [...names].sort()
     }
     return { exports }
+  },
+
+  async htmlLang({ files }) {
+    const found = {}
+    for (const file of files) {
+      const code = fs.readFileSync(file, 'utf8')
+      const result = vite.parseSync(file, code, { lang: path.extname(file).slice(1), sourceType: 'module' })
+      if (result.errors.length > 0) {
+        throw new Error(result.errors.map((e) => e.codeframe || e.message).join('\n'))
+      }
+      found[file] = langKeys(result.program).map((offset) => {
+        const before = code.slice(0, offset)
+        return { line: before.split('\n').length, column: offset - before.lastIndexOf('\n') }
+      })
+    }
+    return { found }
   },
 
   async client() {
@@ -367,7 +421,7 @@ const ops = {
   },
 
   async script({ dir, file, plugin, format }) {
-    const { ssrEnvironment, ssrPlugin } = await import(pathToFileURL(plugin).href)
+    const { localesPlugin, ssrEnvironment, ssrPlugin } = await import(pathToFileURL(plugin).href)
     const env = ssrEnvironment(path.resolve(dir, file), path.join(dir, 'out'))
     if (format) env.build.rolldownOptions.output.format = format
     const builder = await vite.createBuilder({
@@ -375,7 +429,7 @@ const ops = {
       configFile: false,
       logLevel: 'warn',
       customLogger: logger,
-      plugins: [ssrPlugin(() => fs.realpathSync(dir), async () => vite)],
+      plugins: [ssrPlugin(() => fs.realpathSync(dir), async () => vite), localesPlugin(() => fs.realpathSync(dir))],
       environments: {
         ssr: {
           ...env,

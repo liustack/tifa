@@ -16,20 +16,20 @@ func checkShopModules(t *testing.T, base string) {
 	}{
 		// The product list: facets with counts, quick filters, the view switch, the buying guide
 		// and the rows under the list.
-		{"/store/en-US/products", []string{
+		{"/store/products", []string{
 			"Quick filters", "Wax and oils", `aria-label="Layout"`, "Buying guide", "Popular searches", "Best rated", "Browse by category",
 			"Under $15", "4.8 and up", "Quick view of Morning Pour-Over Kettle", "Ships within 48 hours",
 		}, []string{"Recently viewed", "Remove "}},
 		// The product page: the whole specification, the comparison, the split of the price, ten
 		// reviews a page with the shop's replies, and seven questions.
-		{"/store/en-US/products/pour-over-kettle", []string{
+		{"/store/products/pour-over-kettle", []string{
 			"Compared with similar products", "Where the price goes", "How soon it arrives", "Often mentioned", "Best rated in Drinkware",
 			"Packing and shipping", "Warranty and returns", "The shop replied:", `aria-label="Page 7 of 7"`, "Showing 10 of 63 reviews", "Official shop",
 		}, nil},
-		{"/store/en-US/products/pour-over-kettle?reviews=7", []string{"Showing 63 of 63 reviews"}, []string{"Showing 10 of 63 reviews"}},
+		{"/store/products/pour-over-kettle?reviews=7", []string{"Showing 63 of 63 reviews"}, []string{"Showing 10 of 63 reviews"}},
 		// Filters by material, badge and rating narrow the list and show as chosen conditions.
-		{"/store/en-US/products?material=glass&badge=sale", []string{"Glass Carafe", `aria-label="Remove Glass"`, `aria-label="Remove On sale"`}, []string{"Quick view of Oak Tray", "Quick view of Linen Coasters"}},
-		{"/store/zh-CN/products?rating=48&category=drinkware", []string{"手作陶瓷杯", `aria-label="移除 4.8 分以上"`}, []string{"玻璃冷水壶"}},
+		{"/store/products?material=glass&badge=sale", []string{"Glass Carafe", `aria-label="Remove Glass"`, `aria-label="Remove On sale"`}, []string{"Quick view of Oak Tray", "Quick view of Linen Coasters"}},
+		{"/zh-CN/store/products?rating=48&category=drinkware", []string{"手作陶瓷杯", `aria-label="移除 4.8 分以上"`}, []string{"玻璃冷水壶"}},
 	} {
 		status, _, page := get(t, base+tc.path)
 		in := rendered(page)
@@ -47,13 +47,13 @@ func checkShopModules(t *testing.T, base string) {
 	// The product page is the same for everyone and sets no cookie. The browser tells the mine route
 	// which product is open, which remembers it in a cookie, and the same route gives the list back.
 	s := newShopper(t, base)
-	if _, header, _ := s.do("GET", "/store/en-US/products/ceramic-cup", ""); len(header.Values("Set-Cookie")) != 0 {
+	if _, header, _ := s.do("GET", "/store/products/ceramic-cup", ""); len(header.Values("Set-Cookie")) != 0 {
 		t.Errorf("the product page sets a cookie: %v", header.Values("Set-Cookie"))
 	}
-	if status, header, _ := s.do("POST", "/store/en-US/mine", `{"slug":"ceramic-cup"}`); status != 204 || !strings.Contains(strings.Join(header.Values("Set-Cookie"), ";"), "shop_seen=ceramic-cup") {
+	if status, header, _ := s.do("POST", "/store/mine", `{"slug":"ceramic-cup"}`); status != 204 || !strings.Contains(strings.Join(header.Values("Set-Cookie"), ";"), "shop_seen=ceramic-cup") {
 		t.Errorf("remember a product: %d %v", status, header.Values("Set-Cookie"))
 	}
-	if _, _, mine := s.do("GET", "/store/en-US/mine", ""); !strings.Contains(mine, `"name":"Handmade Ceramic Cup"`) || !strings.Contains(mine, `"cart":{`) {
+	if _, _, mine := s.do("GET", "/store/mine", ""); !strings.Contains(mine, `"name":"Handmade Ceramic Cup"`) || !strings.Contains(mine, `"cart":{`) {
 		t.Errorf("the visitor's own data lacks the product just seen: %.300s", mine)
 	}
 }
@@ -61,12 +61,12 @@ func checkShopModules(t *testing.T, base string) {
 // checkProductPageCounts checks the product page's questions and the next page of reviews.
 func checkProductPageCounts(t *testing.T, base string) {
 	t.Helper()
-	_, _, page := get(t, base+"/store/en-US/products/pour-over-kettle")
+	_, _, page := get(t, base+"/store/products/pour-over-kettle")
 	if n := strings.Count(rendered(page), `font-mono text-primary">Q</span>`); n != 7 {
 		t.Errorf("%d questions, want 7", n)
 	}
-	_, _, first := get(t, base+"/store/en-US/products/pour-over-kettle")
-	_, _, second := get(t, base+"/store/en-US/products/pour-over-kettle?reviews=2")
+	_, _, first := get(t, base+"/store/products/pour-over-kettle")
+	_, _, second := get(t, base+"/store/products/pour-over-kettle?reviews=2")
 	if reviewsOf(first) == reviewsOf(second) {
 		t.Error("the second page of reviews is the first")
 	}
@@ -94,12 +94,12 @@ func checkOrderPageModules(t *testing.T, base string) {
 		not   []string
 	}{
 		{"/projects/studio/orders/SH-1041", []string{
-			"操作记录", "内部备注", "拣货单", "库存检查", "快递对比", "毛利估算", "地址核验", "付款与发票", "订单标记", "发货前检查", "同款商品的订单",
-			"两只杯子分开包", "打印订单", "进入待发货", "锁定库存", "待发 2 件",
-		}, []string{"物流轨迹", "快递用时对比", "发货后跟进"}},
+			"Activity", "Internal notes", "Picking list", "Stock check", "Carrier comparison", "Gross profit estimate", "Address check", "Payment and invoice", "Order tags", "Before shipping", "Orders with the same product",
+			"两只杯子分开包", "Print order", "Ready to ship", "Stock reserved", "2 to ship",
+		}, []string{"Tracking history", "Carrier times", "After shipping"}},
 		{"/projects/studio/orders/SH-1040", []string{
-			"物流轨迹", "快递用时对比", "发货后跟进", "已签收，签收人：本人", "干线运输途中", "打印面单", "发送通知", "店里已售",
-		}, []string{"拣货单", "库存检查", "发货前检查"}},
+			"Tracking history", "Carrier times", "After shipping", "Delivered, signed by the recipient", "On the trunk line", "Label printed", "Notification sent", "Sold in shop",
+		}, []string{"Picking list", "Stock check", "Before shipping"}},
 	} {
 		status, _, page := get(t, base+tc.path)
 		in := rendered(page)
@@ -120,14 +120,14 @@ func checkOrderPageModules(t *testing.T, base string) {
 		t.Errorf("%d tooltip triggers on a shipped order", n)
 	}
 	url := base + "/projects/studio/orders/SH-1041"
-	if status, body := send(t, "PUT", url, "same-origin", `{"text":"  "}`); status != 422 || !strings.Contains(body, "请写点内容") {
+	if status, body := send(t, "PUT", url, "same-origin", `{"text":"  "}`); status != 422 || !strings.Contains(body, "Write something") {
 		t.Errorf("an empty note: %d %s", status, body)
 	}
 	if status, body := send(t, "PUT", url, "same-origin", `{"text":"顾客改了送货时间，周三前送到。"}`); status != 200 || !strings.Contains(body, "顾客改了送货时间") {
 		t.Errorf("a note: %d %s", status, body)
 	}
 	_, _, page := get(t, url)
-	if !strings.Contains(rendered(page), "顾客改了送货时间，周三前送到。") || !strings.Contains(rendered(page), "添加备注") {
+	if !strings.Contains(rendered(page), "顾客改了送货时间，周三前送到。") || !strings.Contains(rendered(page), "Add note") {
 		t.Error("the note is not on the order page")
 	}
 	if status, _ := send(t, "PUT", url, "cross-site", `{"text":"x"}`); status != 403 {
@@ -142,8 +142,8 @@ func checkStatsPanels(t *testing.T, base string) {
 	_, _, page := get(t, base+"/projects/weekend/stats")
 	in := rendered(page)
 	for _, want := range []string{
-		"售出件数", "每单件数", "待发货金额", "回头客", "商品销售明细", "下单时段", "快递表现", "发货快不快", "常客", "最近的订单",
-		"周一", "周日", "6 小时内", "超过 24 小时", "WK-0201", "野餐垫",
+		"Pieces sold", "Pieces per order", "Amount to ship", "Repeat customers", "Product sales", "Order times", "Carrier performance", "How fast we ship", "Regulars", "Recent orders",
+		"Mon", "Sun", "Within 6 hours", "Over 24 hours", "WK-0201", "野餐垫",
 	} {
 		if !strings.Contains(in, want) {
 			t.Errorf("weekend stats lack %s", want)
@@ -169,9 +169,9 @@ func checkCartAndCheckoutModules(t *testing.T, base string) {
 		path  string
 		wants []string
 	}{
-		{"/store/en-US/cart", []string{"Coupons you can use", "SHANHAI10", "10% off everything", "$4.30 off orders over $28.20", "Seven day returns", "A person answers"}},
-		{"/store/zh-CN/cart", []string{"可用优惠", "全场 9 折", "满 200 元减 30 元", "破损补发"}},
-		{"/store/en-US/checkout", []string{"Before you pay, one more thing?", "Safe to pay", "Ships within 48 hours"}},
+		{"/store/cart", []string{"Coupons you can use", "SHANHAI10", "10% off everything", "$4.30 off orders over $28.20", "Seven day returns", "A person answers"}},
+		{"/zh-CN/store/cart", []string{"可用优惠", "全场 9 折", "满 200 元减 30 元", "破损补发"}},
+		{"/store/checkout", []string{"Before you pay, one more thing?", "Safe to pay", "Ships within 48 hours"}},
 	} {
 		status, _, page := get(t, base+tc.path)
 		for _, want := range tc.wants {
@@ -181,7 +181,7 @@ func checkCartAndCheckoutModules(t *testing.T, base string) {
 		}
 	}
 	// Eight products are suggested under the cart.
-	_, _, cart := get(t, base+"/store/en-US/cart")
+	_, _, cart := get(t, base+"/store/cart")
 	i := strings.Index(rendered(cart), "Goes well with")
 	if i < 0 {
 		t.Fatal("the cart has no suggestions")

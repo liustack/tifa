@@ -46,7 +46,7 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 | Go 代码用 `go:embed` 嵌进程序的文件（不论哪种，比如 Markdown 文章）被编辑 | go build（`.ts`、`.tsx`、`.js`、`.css`、`.json` 文件再加打包） | 刷新 |
 | 被 Go 代码嵌入的文件新增或删除 | 静态分析、go build | 刷新 |
 | 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build | 刷新 |
-| 新增或删除 `page.tsx`、`layout.tsx`、`layout_.tsx`，或改 `tifa.yaml` | 全部步骤 | 刷新 |
+| 新增或删除 `page.tsx`、`layout.tsx`、`layout_.tsx`，新增、删除或改名 `_locales/<language>.json`（草稿也算），或改 `tifa.yaml` | 全部步骤 | 刷新 |
 | `content/` 下集合里的 Markdown 文件，改正文或 front matter，也包括新增、删除，或改了 `slug`、`translationKey` | 内容：Go 扫描 `content/`，转换这一篇 | 刷新 |
 | `content/` 下的其他文件，不论哪种，比如页面包里的图片、`.json` 或 `.css` | 内容：它所在文件夹里的条目，以及回退到这个文件夹的译文 | 刷新 |
 | `content/` 下新增或删除文件夹，空的也算 | 内容：重新扫描 `content/`，没有集合声明的文件夹会报出来 | 刷新 |

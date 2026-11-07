@@ -28,7 +28,7 @@ func (e Env) syncStoreReactRouter(dir string) error {
 	}
 	source := func(rel string) bool {
 		return strings.HasSuffix(rel, ".ts") || strings.HasSuffix(rel, ".tsx") ||
-			strings.HasPrefix(rel, "locales/") && strings.HasSuffix(rel, ".json") ||
+			strings.HasPrefix(rel, "_locales/") && strings.HasSuffix(rel, ".json") ||
 			strings.HasPrefix(rel, "images/") && strings.HasSuffix(rel, ".avif")
 	}
 	if err := copyTree(store, dst, source, nil); err != nil {

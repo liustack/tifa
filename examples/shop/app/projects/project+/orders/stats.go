@@ -222,7 +222,7 @@ func CarrierStats(projectID string) []CarrierSales {
 		}
 		out[i].Orders++
 		dispatch[i] += s.ShippedAt.Sub(o.PlacedAt)
-		if n := len(s.Events); n > 0 && strings.HasPrefix(s.Events[n-1].Note, "已签收") {
+		if n := len(s.Events); n > 0 && strings.HasPrefix(s.Events[n-1].Note, "Delivered") {
 			delivered[i]++
 			transit[i] += s.Events[n-1].At.Sub(s.ShippedAt)
 		}
@@ -242,7 +242,7 @@ func CarrierStats(projectID string) []CarrierSales {
 var dispatchLimits = []time.Duration{6 * time.Hour, 12 * time.Hour, 24 * time.Hour}
 
 func dispatchBands() []DispatchBand {
-	return []DispatchBand{{Label: "6 小时内"}, {Label: "6 到 12 小时"}, {Label: "12 到 24 小时"}, {Label: "超过 24 小时"}}
+	return []DispatchBand{{Label: "Within 6 hours"}, {Label: "6 to 12 hours"}, {Label: "12 to 24 hours"}, {Label: "Over 24 hours"}}
 }
 
 func dispatchBand(d time.Duration) int {

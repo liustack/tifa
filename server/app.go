@@ -24,6 +24,8 @@ type App struct {
 	// Session is set when the app calls tifa.SetSession: it tells the process the session type
 	// (SessionOf), and the pages, navigation answers and calls carry the session to the browser.
 	Session func()
+	// I18n holds the languages of the app, nil for an app without a _locales folder.
+	I18n *I18n
 	// Dist is the .tifa directory's embedded dist/ (the FS holds dist/ at its root): build.json,
 	// the SSR bundle, the browser assets and the public files that tifa build writes.
 	Dist fs.FS
@@ -31,6 +33,20 @@ type App struct {
 	// not read: tifatest compares it with a fresh analysis of the app, to fail a test that would
 	// run routes older than the code. Empty for an App written by hand.
 	Fingerprint string
+}
+
+// I18n is what tifa build found about the languages of the app, see docs/app.md.
+type I18n struct {
+	// Default is the default language, which has no prefix unless Always is set.
+	Default string
+	// Always is i18n.prefix: always, the URLs of every route that has languages start with the
+	// language, the default one too.
+	Always bool
+	// Languages are the languages of the site, the default one first and then the others in byte
+	// order.
+	Languages []string
+	// SiteURL is site.url, the scheme and host the site is served at, empty when not set.
+	SiteURL string
 }
 
 // Layout is one directory whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.
@@ -49,6 +65,9 @@ type Layout struct {
 	// HTML is true when the result of the Layout function may hold a tifa.HTML value: a page the
 	// server renders carries its data with a marker in place of each one (see pageText).
 	HTML bool
+	// Languages are the languages of the area the Layout is in, the default one first, nil for a
+	// Layout outside every area.
+	Languages []string
 }
 
 // Route is one directory holding page.tsx, or a route.go that declares a method handler, or both.
@@ -86,6 +105,9 @@ type Route struct {
 	Layouts []string
 	// HTML is true when the result of Load may hold a tifa.HTML value, as Layout.HTML.
 	HTML bool
+	// Languages are the languages of the area the route is in, the default one first. A route
+	// outside every area has none: it is never prefixed, in both prefix modes.
+	Languages []string
 }
 
 // register adds the Layouts and routes of an application. Like http.ServeMux it panics on an
@@ -100,6 +122,9 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			panic(fmt.Sprintf("tifa: Layout %s has no Path", l.ID))
 		}
 		byID[l.ID] = l
+		if len(l.Languages) > 0 {
+			s.layoutLangs[l.ID] = l.Languages
+		}
 	}
 	paths := map[string]string{}
 	for _, r := range routes {
@@ -107,6 +132,9 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			panic(fmt.Sprintf("tifa: routes %s and %s share Path %s", other, r.ID, r.Path))
 		}
 		paths[r.Path] = r.ID
+		if len(r.Languages) > 0 {
+			s.langs[r.Path] = r.Languages
+		}
 		if r.BodyLimit < 0 || r.ReadTimeout < 0 {
 			panic(fmt.Sprintf("tifa: route %s has a negative BodyLimit or ReadTimeout", r.ID))
 		}

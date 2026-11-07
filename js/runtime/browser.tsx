@@ -6,6 +6,10 @@ import { SessionContext, settleSession, startSession, type Snapshot } from './se
 import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
+import { LanguageContext } from './language'
+import { pageLinks, startAlternates } from './alternates'
+import { languageAt, makeRewrite } from './prefix'
+import { i18n } from '../i18n.gen'
 import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
@@ -47,27 +51,35 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const boot = document.getElementById(bootElementId)
   // The build ID of the page: its dehydrated data has it, or the data of a page without SSR.
   let buildId = ''
+  // The language of the page, from its dehydrated data or its boot data.
+  let language = ''
   // What the session shows before the browser has settled it, and what the hydration renders.
   let shown: Snapshot | undefined
   watchChunks(() => buildId)
   if (!boot) {
     const router = createAppRouter(routeTree, collector(() => buildId), {
+      // The language of the page is in its URL: the page carries it only after the router is made.
+      rewrite: i18n && makeRewrite(i18n, languageAt(i18n, window.location.pathname)),
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
+        language = dehydrated.language ?? ''
+        startAlternates(dehydrated.alternates, router, i18n)
         if (dehydrated.sessionKey !== undefined)
           shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
       },
     })
     setRouter(router, () => buildId)
-    const hydrated = takeOver(router, htmlAttributes)
+    const hydrated = takeOver(router, htmlAttributes, () => language)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
     hydrateRoot(
       root,
       <Await promise={hydrated}>
         {() => (
-          <SessionContext.Provider value={shown}>
-            <RouterProvider router={router} />
-          </SessionContext.Provider>
+          <LanguageContext.Provider value={language}>
+            <SessionContext.Provider value={shown}>
+              <RouterProvider router={router} />
+            </SessionContext.Provider>
+          </LanguageContext.Provider>
         )}
       </Await>,
       rootOptions,
@@ -79,9 +91,10 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here: those
   // of the root Layout at once, and those of the routes once they have loaded.
-  syncHTMLAttributes([], htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
+  language = input.language ?? ''
+  syncHTMLAttributes([], htmlAttributes, language)
   if (input.sessionKey !== undefined)
     shown = startSession({ key: input.sessionKey, injected: input.session, buildId: () => buildId })
   const live = collector(() => buildId)
@@ -90,17 +103,24 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   // The first load reads the injected data. Later loads, invalidations included, ask the server.
   const source: Source = (url, id, slot) =>
     first && id in input.data && sameURL(url, input.url) ? local(url, id, slot) : live(url, id, slot)
-  const router = createAppRouter(routeTree, source, { buildId: input.buildId })
+  const router = createAppRouter(routeTree, source, {
+    buildId: input.buildId,
+    rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
+  })
+  startAlternates(input.alternates, router, i18n)
+  const links = pageLinks(router, () => language)
   void router.load().then(() => {
     first = false
-    followHead(router, htmlAttributes)
+    followHead(router, htmlAttributes, () => language, links)
     setRouter(router, () => buildId)
-    syncHead(router.stores.matches.get())
-    syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
+    syncHead(router.stores.matches.get(), links)
+    syncHTMLAttributes(router.stores.matches.get(), htmlAttributes, language)
     createRoot(root, rootOptions).render(
-      <SessionContext.Provider value={shown}>
-        <RouterProvider router={router} />
-      </SessionContext.Provider>,
+      <LanguageContext.Provider value={language}>
+        <SessionContext.Provider value={shown}>
+          <RouterProvider router={router} />
+        </SessionContext.Provider>
+      </LanguageContext.Provider>,
     )
   })
 }
@@ -165,14 +185,15 @@ function dateBeforeLoads(router: AnyRouter) {
 // notes which attributes of <html> the server wrote without writing them again, so that the
 // first navigation takes away those the next page does not give, and what scripts of the page
 // set on <html> stays. It does not wait for the store of the matches to report the hydration.
-export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes): Promise<void> {
+export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes, language: () => string = () => ''): Promise<void> {
   return hydrateRouter(router)
     .finally(() => window.$_TSR!.h())
     .then(() => {
       const matches = router.stores.matches.get()
+      const links = pageLinks(router, language)
       dateBeforeLoads(router)
-      syncHead(matches)
-      noteHTMLAttributes(matches, htmlAttributes)
-      followHead(router, htmlAttributes)
+      syncHead(matches, links)
+      noteHTMLAttributes(matches, htmlAttributes, language())
+      followHead(router, htmlAttributes, language, links)
     })
 }

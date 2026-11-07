@@ -9,6 +9,7 @@
 // What differs by app is given to makeCall: the URL a write is sent to (Next.js and React Router
 // cannot answer a POST or PATCH at the URL of a page) and how to go to a page.
 import { TifaError } from './client'
+import { inLanguage, languageOf } from './languages'
 
 export interface CallOptions {
   signal?: AbortSignal
@@ -63,4 +64,11 @@ export function makeCall({ writeURL, navigate }: Setup) {
     const body = (await response.json()) as { result?: unknown }
     return answer === 'json' ? body.result : undefined
   }
+}
+
+// publicPath is the URL a call is sent to: the path with the language prefix of the page being
+// shown, when the route has that language, as tifa's does.
+export function publicPath(path: string, languages: readonly string[]): string {
+  const language = typeof window === 'undefined' ? 'en-US' : languageOf(window.location.pathname)
+  return languages.includes(language) ? inLanguage(path, language) : path
 }

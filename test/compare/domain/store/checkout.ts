@@ -5,7 +5,7 @@ import type { Address, Cart, Country, Delivery, Order, Placed } from './cart/ind
 import type { Ctx } from './ctx.ts'
 import { topRated } from './products/index.ts'
 import type { Card } from './products/index.ts'
-import { findLocale } from './store.ts'
+import { findLocale, languagePrefix } from './store.ts'
 
 // View is the checkout: the cart and what the form offers, or the order just placed. In the
 // second case the other fields are what Go leaves for a View it did not fill: empty lists and
@@ -52,5 +52,5 @@ export function postCheckout(c: Ctx, params: { lang: string }, order: Order, now
   validate(order)
   const l = findLocale(params.lang)
   const id = placeOrder(c, l, order, now)
-  return { status: 303, location: '/store/' + params.lang + '/checkout?placed=' + id }
+  return { status: 303, location: languagePrefix(params.lang) + '/store/checkout?placed=' + id }
 }

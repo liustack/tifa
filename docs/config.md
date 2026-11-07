@@ -10,6 +10,7 @@ read_when:
   - The program cannot listen on port 80 or 443, or gets no certificate
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
   - Setting the browser target, or the static files folder of a build
+  - Setting the default language of an app, the language prefix in its URLs, or the address of the site
   - The program refuses to start with a config error
   - A page must be shown in a frame on another site, or a header such as Referrer-Policy or Content-Security-Policy needs another value
   - Turning on a Content-Security-Policy, or a script or style of a page is blocked by one
@@ -35,7 +36,7 @@ From highest to lowest priority:
 
 A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of Tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
-`tifa.yaml` holds values of the settings of Tifa. `build.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
+`tifa.yaml` holds values of the settings of Tifa. `build.*`, `i18n.*` and `site.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
 
 ```yaml
 # tifa.yaml
@@ -104,6 +105,9 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version Tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
 | `build.debug_info` | `false` | project file only | `true` keeps the DWARF debug info in the program, for debuggers such as Delve. Without it, `tifa build` leaves the debug info out with `-ldflags=-w`, which makes the example shop's program about 20% smaller. Panics still give the file and line of each frame either way. `tifa dev` always keeps it. See [build.md](build.md#debug-info) |
 | `build.i18next_cache` | `true` | project file only | The server render keeps the strings i18next translates and gives them again for the same key and options, so pages that translate the same texts on every render take less time: the shop's storefront pages 0.798 of it. `false` turns it off. Turn it off when the app changes i18next's resources or options after the first render without i18next's API, or gives i18next functions other than formatters and post-processors that read something of the request, or pages may show stale translations. See [build.md](build.md#i18next-cache) |
+| `i18n.default` | none | project file only | The default language of an app with `_locales/` folders, a BCP 47 tag in its usual spelling such as `zh-CN` or `en-US`. URLs in this language have no prefix (unless `i18n.prefix` is `always`), and it comes first in `tifa.Languages()`. An app with one language may leave it out. With several, `tifa build` fails without it, and when no area has a file for it. Every area must have the default language. See [A site in several languages](app.md#a-site-in-several-languages) |
+| `i18n.prefix` | `off` | project file only | `always` puts the language in the URL of every route that has languages, the default one too: `/store` answers 308 to `/zh-CN/store`. `off` leaves the default language without a prefix. A route outside every area never has a prefix, in both modes |
+| `site.url` | none | project file only | The scheme and host the site is served at, such as `https://shop.example.com`, with no path. A site with more than one language needs it, and `tifa build` fails without it |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413. A `route.go` can set its own with `BodyLimit`, see [app.md](app.md#body-limit-and-read-time-of-a-route) |
 | `server.read_timeout` | `10s` | `--server-read-timeout`, `SERVER_READ_TIMEOUT` | Time to read a whole request, its body included, from the moment the connection is taken. A body still coming after it fails to read. See [Long requests](#long-requests) |

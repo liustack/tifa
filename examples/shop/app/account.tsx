@@ -16,7 +16,7 @@ export function Account() {
         <Button variant="outline" size="sm" asChild>
           <a href="/login">
             <LogIn />
-            登录
+            Sign in
           </a>
         </Button>
       </SignedOut>
@@ -30,8 +30,8 @@ export function Account() {
           </span>
           <Button variant="ghost" size="sm" onClick={() => void signOut().then(() => router.clearCache())}>
             <LogOut />
-            <span className="hidden sm:inline">退出登录</span>
-            <span className="sr-only sm:hidden">退出登录</span>
+            <span className="hidden sm:inline">Sign out</span>
+            <span className="sr-only sm:hidden">Sign out</span>
           </Button>
         </div>
       </SignedIn>

@@ -8,7 +8,7 @@ type Props = { params: Promise<{ lang: string }>; searchParams: Promise<Record<s
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { lang } = await params
-  return { title: storeTitle(lang, message(lang, 'checkout.title')), alternates: alternates('/checkout') }
+  return { title: storeTitle(lang, message(lang, 'checkout.title')), alternates: alternates(lang, '/checkout') }
 }
 
 export default async function Page({ params, searchParams }: Props) {

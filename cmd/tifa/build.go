@@ -17,6 +17,7 @@ import (
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/content"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +57,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err != nil {
 				return err
 			}
+			if err := checkLangAttribute(root, m, node.LangKeys); err != nil {
+				return err
+			}
 			// 3. Bundles: the browser and SSR bundles and the public files, into .tifa/dist.
 			settings, err := codegen.BuildSettings(root)
 			if err != nil {
@@ -68,7 +72,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m.Content))
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m, m.Content, settings.Public))
 			if err != nil {
 				return err
 			}
@@ -79,7 +83,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if output == "" {
 				output = defaultOutput(root, m.Module)
 			}
-			flags, err := buildFlags(cmd.Context(), root, settings)
+			flags, err := buildFlags(cmd.Context(), root, settings, languagesLDFlag(m))
 			if err != nil {
 				return err
 			}
@@ -146,12 +150,26 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	return m, err
 }
 
-// contentOf returns the content collections of an analysis for the build, nil without any.
-func contentOf(c *analyze.Content) *bundle.Content {
+// contentOf returns the content collections of an analysis for the build, nil without any. public
+// is build.public.
+func contentOf(m *analyze.Manifest, c *analyze.Content, public string) *bundle.Content {
 	if c == nil {
 		return nil
 	}
-	return &bundle.Content{File: c.File, Markdown: c.Markdown}
+	return &bundle.Content{File: c.File, Markdown: c.Markdown, Links: linksOf(m, public)}
+}
+
+// linksOf returns the languages of the routes of m and the public folder for the links in
+// Markdown, nil for an app without languages.
+func linksOf(m *analyze.Manifest, public string) *content.Links {
+	if m.I18n == nil {
+		return nil
+	}
+	l := &content.Links{Default: m.I18n.Default, Always: m.I18n.Always, Languages: m.I18n.Languages, Public: publicDir(public)}
+	for _, r := range m.Routes {
+		l.Routes = append(l.Routes, content.LinkRoute{Path: r.Path, Languages: append([]string{}, r.Languages...)})
+	}
+	return l
 }
 
 // goBuild compiles the generated main of the application at root into output with
@@ -171,17 +189,30 @@ func goBuild(ctx context.Context, root, output string, flags []string, stdout, s
 	return printed.String(), nil
 }
 
-// buildFlags are the flags of go build in tifa build: those of ldflags unless build.debug_info
-// keeps the DWARF debug info. It runs no go env when it keeps it.
-func buildFlags(ctx context.Context, root string, settings config.Build) ([]string, error) {
-	if settings.DebugInfo {
-		return nil, nil
+// languagesVar is the variable of package tifa that tifa.Languages reads, which tifa build and tifa
+// dev set with -X.
+const languagesVar = "github.com/liustack/tifa.languagesFlag"
+
+// languagesLDFlag is the -X flag that gives the program the languages of the manifest. An app
+// without languages sets the variable to the empty list, which tifa.Languages tells from not being
+// set.
+func languagesLDFlag(m *analyze.Manifest) string {
+	list := ""
+	if m.I18n != nil {
+		list = strings.Join(m.I18n.Languages, ",")
 	}
+	return "-X " + languagesVar + "=list:" + list
+}
+
+// buildFlags are the flags of go build in tifa build: the ldflags of GOFLAGS with -w, unless
+// build.debug_info keeps the DWARF debug info, and with x, which the program needs (see
+// languagesLDFlag). tifa dev passes settings with DebugInfo.
+func buildFlags(ctx context.Context, root string, settings config.Build, x string) ([]string, error) {
 	goflags, err := goEnvFlags(ctx, root)
 	if err != nil {
 		return nil, err
 	}
-	return ldflags(goflags)
+	return ldflags(goflags, !settings.DebugInfo, x)
 }
 
 // goEnvFlags returns GOFLAGS as the go command sees it in root: go env also reads it from the
@@ -196,13 +227,15 @@ func goEnvFlags(ctx context.Context, root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// ldflags returns -ldflags with -w, which leaves the DWARF debug info out of the program. The
-// program still has the line table of the Go runtime, which panics, runtime.Caller and pprof read.
-// For each package, go build uses the last -ldflags that matches it, and the command line comes
-// after GOFLAGS, so the flags of the last -ldflags in goflags come before -w. It returns none when
-// those flags already have -w or -s, or when an -ldflags of goflags is for a package pattern, which
-// only the go command can match against the main package.
-func ldflags(goflags string) ([]string, error) {
+// ldflags returns the -ldflags of tifa build: those of goflags, then -w when drop is set, which
+// leaves the DWARF debug info out of the program (it still has the line table of the Go runtime,
+// which panics, runtime.Caller and pprof read), then x, the flags the program needs, such as the
+// -X of the languages. For each package, go build uses the last -ldflags that matches it, and the
+// command line comes after GOFLAGS, so this one replaces those of goflags and holds the last of
+// them. -w is left out when those flags already have -w or -s. A flag for the pattern all counts as
+// a plain one, since it matches the main package. Any other pattern is an error: only the go
+// command can match it against the main package, and dropping its flags would lose them.
+func ldflags(goflags string, drop bool, x string) ([]string, error) {
 	words, err := splitQuoted(goflags)
 	if err != nil {
 		return nil, fmt.Errorf("GOFLAGS: %w", err)
@@ -213,10 +246,16 @@ func ldflags(goflags string) ([]string, error) {
 		if !ok {
 			continue
 		}
-		user = strings.TrimSpace(value)
-		if user != "" && !strings.HasPrefix(user, "-") {
-			return nil, nil // pattern=flags
+		value = strings.TrimSpace(value)
+		if value != "" && !strings.HasPrefix(value, "-") {
+			// pattern=flags. Only "all" is known to match the main package.
+			name, rest, _ := strings.Cut(value, "=")
+			if name != "all" {
+				return nil, fmt.Errorf("GOFLAGS: -ldflags=%s is for a package pattern, and tifa cannot tell whether it matches the main package, whose flags it must merge with its own: use -ldflags=all=... or a plain -ldflags", value)
+			}
+			value = strings.TrimSpace(rest)
 		}
+		user = value
 	}
 	flags, err := splitQuoted(user)
 	if err != nil {
@@ -225,13 +264,26 @@ func ldflags(goflags string) ([]string, error) {
 	for _, flag := range flags {
 		name, _, _ := strings.Cut(trimDashes(flag), "=")
 		if name == "w" || name == "s" {
-			return nil, nil
+			drop = false
 		}
 	}
-	if user == "" {
-		return []string{"-ldflags=-w"}, nil
+	if !drop && x == "" {
+		return nil, nil // nothing to add to the flags of GOFLAGS
 	}
-	return []string{"-ldflags=" + user + " -w"}, nil
+	var parts []string
+	if user != "" {
+		parts = append(parts, user)
+	}
+	if drop {
+		parts = append(parts, "-w")
+	}
+	if x != "" {
+		parts = append(parts, x)
+	}
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	return []string{"-ldflags=" + strings.Join(parts, " ")}, nil
 }
 
 // trimDashes takes the one or two dashes off a flag, as Go's flag package reads -x and --x alike.

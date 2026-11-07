@@ -14,7 +14,7 @@ import (
 // one that Sync wrote for the workbench.
 //
 // The route.gen modules work as they are but for two route IDs. Tifa gives the list of products
-// and the list of journal posts the IDs /store/$lang/products and /store/$lang/journal, with the
+// and the list of journal posts the IDs /store/products and /store/journal, with the
 // product and the post below them as pages of their own. A TanStack file route that has children
 // is a Layout, so the lists are index routes here, with the trailing slash in their ID.
 func (e Env) syncStoreStart(dst string) error {
@@ -46,7 +46,7 @@ func (e Env) syncStoreStart(dst string) error {
 // startRoute edits a generated module of the storefront for the file routes of the Start app.
 func startRoute(src []byte) []byte {
 	s := string(src)
-	for _, id := range []string{"/store/$lang/products", "/store/$lang/journal"} {
+	for _, id := range []string{"/store/products", "/store/journal"} {
 		s = strings.Replace(s, `getRouteApi("`+id+`")`, `getRouteApi("`+id+`/")`, 1)
 	}
 	return []byte(s)

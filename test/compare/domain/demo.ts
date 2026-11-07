@@ -130,7 +130,7 @@ function shipped(o: OrderRecord, carrier: string, tracking: string, hours: numbe
 }
 
 // warehouse is where the shops pack and hand their parcels to the carrier.
-const warehouse = '杭州市余杭区 · 山海仓'
+const warehouse = 'Shanhai Warehouse, Yuhang, Hangzhou'
 
 // journey is the way of a parcel from the warehouse to address, leaving at left.
 function journey(left: number, address: string) {
@@ -140,17 +140,17 @@ function journey(left: number, address: string) {
   const district = cut < 0 ? '' : trimmed.slice(cut + 1)
   city += '市'
   const steps: [number, string, string][] = [
-    [0, warehouse, '快递员已揽收'],
-    [3, '杭州转运中心', '已到达'],
-    [4, '杭州转运中心', '正在分拣'],
-    [5, '杭州转运中心', '已发出，下一站 ' + city + '转运中心'],
-    [12, '干线运输途中', '已离开杭州，运输中'],
-    [19, city + '转运中心', '已到达'],
-    [20, city + '转运中心', '正在分拣'],
-    [22, city + '转运中心', '已发出，下一站 ' + district + '营业部'],
-    [27, city + district + '营业部', '已到达'],
-    [29, city + district + '营业部', '快递员正在派送'],
-    [33, city + district, '已签收，签收人：本人'],
+    [0, warehouse, 'Courier collected the parcel'],
+    [3, 'Hangzhou transfer hub', 'Arrived'],
+    [4, 'Hangzhou transfer hub', 'Sorting'],
+    [5, 'Hangzhou transfer hub', 'Dispatched, next stop ' + city + ' transfer hub'],
+    [12, 'On the trunk line', 'Left Hangzhou, in transit'],
+    [19, city + ' transfer hub', 'Arrived'],
+    [20, city + ' transfer hub', 'Sorting'],
+    [22, city + ' transfer hub', 'Dispatched, next stop ' + district + ' branch'],
+    [27, city + district + ' branch', 'Arrived'],
+    [29, city + district + ' branch', 'Courier is out for delivery'],
+    [33, city + district, 'Delivered, signed by the recipient'],
   ]
   return steps.map(([h, place, note]) => ({ at: left + h * HOUR, place, note }))
 }

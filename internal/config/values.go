@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/text/language"
 )
 
 // value parses one setting from text, whatever layer the text came from.
@@ -548,3 +549,73 @@ type secretValue struct{ p *string }
 func (v secretValue) Set(s string) error { *v.p = s; return nil }
 func (v secretValue) String() string     { return *v.p }
 func (v secretValue) kind() string       { return "string" }
+
+// languageValue is i18n.default: a BCP 47 language tag written the way its canonical form is,
+// since the tag is also a segment of URLs and a file name, which are compared as text. Empty is
+// not set.
+type languageValue struct{ p *string }
+
+func (v languageValue) Set(s string) error {
+	if s == "" {
+		*v.p = "" // not set
+		return nil
+	}
+	if err := CheckLanguage(s); err != nil {
+		return err
+	}
+	*v.p = s
+	return nil
+}
+func (v languageValue) String() string { return *v.p }
+func (v languageValue) kind() string   { return "string" }
+
+// CheckLanguage reports why s cannot name a language of an app: it is no BCP 47 language tag, or
+// it is one in another spelling than its canonical form (en-us for en-US).
+func CheckLanguage(s string) error {
+	tag, err := language.Parse(s)
+	if err != nil || tag == language.Und {
+		return fmt.Errorf("%q is not a BCP 47 language tag, such as zh-CN or en-US", s)
+	}
+	if canonical := tag.String(); canonical != s {
+		return fmt.Errorf("%q is written %q as a language tag: use that spelling", s, canonical)
+	}
+	return nil
+}
+
+// prefixValue is i18n.prefix: off or always.
+type prefixValue struct{ p *string }
+
+func (v prefixValue) Set(s string) error {
+	if s != "off" && s != "always" {
+		return fmt.Errorf("invalid value %q, use off or always", s)
+	}
+	*v.p = s
+	return nil
+}
+func (v prefixValue) String() string { return *v.p }
+func (v prefixValue) kind() string   { return "string" }
+
+// siteURLValue is site.url: the scheme and host a site is served at, such as https://shop.example.com.
+// A trailing slash is dropped. A path, a query or a fragment is refused: the pages of the app
+// are below the host.
+type siteURLValue struct{ p *string }
+
+func (v siteURLValue) Set(s string) error {
+	if s == "" {
+		*v.p = "" // not set
+		return nil
+	}
+	u, err := url.Parse(s)
+	switch {
+	case err != nil:
+		return fmt.Errorf("invalid URL %q: %v", s, err)
+	case u.Scheme != "http" && u.Scheme != "https", u.Host == "", u.Hostname() == "":
+		return fmt.Errorf("invalid URL %q: write the scheme and the host, such as https://shop.example.com", s)
+	case u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "":
+		return fmt.Errorf("invalid URL %q: it is the scheme and the host only, such as https://shop.example.com", s)
+	}
+	*v.p = u.Scheme + "://" + u.Host
+	return nil
+}
+func (v siteURLValue) String() string { return *v.p }
+func (v siteURLValue) kind() string   { return "string" }

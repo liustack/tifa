@@ -25,8 +25,8 @@ const noOrders: Row[] = []
 const pageSize = 25
 const day = 24 * 60 * 60 * 1000
 
-const periods = { all: '全部时间', '7': '近 7 天', '30': '近 30 天' } as const
-const amounts = { all: '全部金额', low: '¥200 以下', mid: '¥200 到 ¥500', high: '¥500 以上' } as const
+const periods = { all: 'All time', '7': 'Last 7 days', '30': 'Last 30 days' } as const
+const amounts = { all: 'Any amount', low: 'Under ¥200', mid: '¥200 to ¥500', high: 'Over ¥500' } as const
 const amountRanges: Record<keyof typeof amounts, [number | undefined, number | undefined] | undefined> = {
   all: undefined,
   low: [undefined, 19999],
@@ -49,14 +49,14 @@ function daily(rows: Row[], timeZone: string, count: number, value: (r: Row) => 
 
 // download writes rows as a spreadsheet file the browser saves.
 function download(rows: Row[], timeZone: string) {
-  const lines = [['订单号', '商品', '件数', '客户', '下单时间', '状态', '快递', '运单号', '金额']]
+  const lines = [['Order', 'Product', 'Pieces', 'Customer', 'Placed', 'Status', 'Carrier', 'Tracking number', 'Amount']]
   for (const r of rows) {
-    lines.push([r.id, r.product, String(r.items), r.customer, orderTime(r.placedAt, timeZone), r.status === 'pending' ? '待发货' : '已发货', r.carrier, r.trackingNo, (r.totalCents / 100).toFixed(2)])
+    lines.push([r.id, r.product, String(r.items), r.customer, orderTime(r.placedAt, timeZone), r.status === 'pending' ? 'To ship' : 'Shipped', r.carrier, r.trackingNo, (r.totalCents / 100).toFixed(2)])
   }
   const text = lines.map((l) => l.map((v) => `"${v.replaceAll('"', '""')}"`).join(',')).join('\n')
   const a = document.createElement('a')
   a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv' }))
-  a.download = '订单.csv'
+  a.download = 'orders.csv'
   a.click()
   URL.revokeObjectURL(a.href)
 }
@@ -109,29 +109,29 @@ export default function OrdersPage() {
         <div role="alert" className="flex flex-wrap items-center gap-3 border border-destructive bg-card px-4 py-3 text-sm">
           <Clock className="size-4 shrink-0 text-destructive" />
           <p className="flex-1">
-            <b className="font-mono font-medium">{oldest.id}</b> 下单于 {orderTime(oldest.placedAt, timeZone)}，仍在等待发货。超过 24 小时未发货会影响店铺评分。
+            <b className="font-mono font-medium">{oldest.id}</b> placed {orderTime(oldest.placedAt, timeZone)} and still waiting to ship. An order unshipped for over 24 hours hurts the shop rating.
           </p>
           <Link
             to="/projects/$project/orders/$order"
             params={{ project: projectId, order: oldest.id }}
             className="font-medium underline underline-offset-4"
           >
-            去发货
+            Ship it
           </Link>
         </div>
       )}
 
       <SummaryRow>
-        <SummaryCard title="订单总额" note={`近 30 天 ${count} 笔`} points={revenueByDay}>
+        <SummaryCard title="Order total" note={`${count} orders in the last 30 days`} points={revenueByDay}>
           <AnimatedNumber value={list.revenueCents} format={yuan} />
         </SummaryCard>
-        <SummaryCard title="待发货" note={oldest ? `最早一单 ${orderTime(oldest.placedAt, timeZone)}` : '订单都已发出'} points={daily(all, timeZone, 14, (r) => (r.status === 'pending' ? 1 : 0))}>
+        <SummaryCard title="To ship" note={oldest ? `Oldest ${orderTime(oldest.placedAt, timeZone)}` : 'All orders shipped'} points={daily(all, timeZone, 14, (r) => (r.status === 'pending' ? 1 : 0))}>
           <AnimatedNumber value={list.pending} />
         </SummaryCard>
-        <SummaryCard title="已发货" note={`占全部订单 ${percent(count ? list.shipped / count : 0)}`} points={daily(all, timeZone, 14, (r) => (r.status === 'shipped' ? 1 : 0))}>
+        <SummaryCard title="Shipped" note={`${percent(count ? list.shipped / count : 0)} of all orders`} points={daily(all, timeZone, 14, (r) => (r.status === 'shipped' ? 1 : 0))}>
           <AnimatedNumber value={list.shipped} />
         </SummaryCard>
-        <SummaryCard title="客单价" note="每笔订单平均" points={revenueByDay.map((cents, i) => (ordersByDay[i] ? cents / ordersByDay[i] : 0))}>
+        <SummaryCard title="Average order" note="Per order" points={revenueByDay.map((cents, i) => (ordersByDay[i] ? cents / ordersByDay[i] : 0))}>
           <AnimatedNumber value={count ? list.revenueCents / count : 0} format={yuan} />
         </SummaryCard>
       </SummaryRow>
@@ -146,17 +146,17 @@ export default function OrdersPage() {
       >
         <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
           <h2 id="orders-title" className="font-heading text-lg font-medium tracking-[0.04em]">
-            订单
+            Orders
           </h2>
           <TabsList className="rounded-none">
             <TabsTrigger value="all" className="rounded-none">
-              全部 <span className="font-mono text-xs text-muted-foreground">{count}</span>
+              All <span className="font-mono text-xs text-muted-foreground">{count}</span>
             </TabsTrigger>
             <TabsTrigger value="pending" className="rounded-none">
-              待发货 <span className="font-mono text-xs text-muted-foreground">{list.pending}</span>
+              To ship <span className="font-mono text-xs text-muted-foreground">{list.pending}</span>
             </TabsTrigger>
             <TabsTrigger value="shipped" className="rounded-none">
-              已发货 <span className="font-mono text-xs text-muted-foreground">{list.shipped}</span>
+              Shipped <span className="font-mono text-xs text-muted-foreground">{list.shipped}</span>
             </TabsTrigger>
           </TabsList>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -164,8 +164,8 @@ export default function OrdersPage() {
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="search"
-                aria-label="搜索订单号或客户"
-                placeholder="搜索订单号或客户"
+                aria-label="Search order numbers or customers"
+                placeholder="Search order numbers or customers"
                 className="h-8 pl-8"
                 value={search}
                 onChange={(e) => {
@@ -175,7 +175,7 @@ export default function OrdersPage() {
               />
             </div>
             <Select value={period} onValueChange={(v) => setPeriod(v as keyof typeof periods)}>
-              <SelectTrigger size="sm" aria-label="下单时间" className="rounded-none">
+              <SelectTrigger size="sm" aria-label="Placed" className="rounded-none">
                 <CalendarDays />
                 <SelectValue>{periods[period]}</SelectValue>
               </SelectTrigger>
@@ -194,12 +194,12 @@ export default function OrdersPage() {
                 table.setPageIndex(0)
               }}
             >
-              <SelectTrigger size="sm" aria-label="快递公司" className="rounded-none">
+              <SelectTrigger size="sm" aria-label="Carrier" className="rounded-none">
                 <Truck />
-                <SelectValue>{carrier === 'all' ? '全部快递' : carrier}</SelectValue>
+                <SelectValue>{carrier === 'all' ? 'All carriers' : carrier}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-none">
-                <SelectItem value="all">全部快递</SelectItem>
+                <SelectItem value="all">All carriers</SelectItem>
                 {carriers.map((c) => (
                   <SelectItem key={c} value={c}>
                     {c}
@@ -208,7 +208,7 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
             <Select value={amount} onValueChange={(v) => setAmount(v as keyof typeof amounts)}>
-              <SelectTrigger size="sm" aria-label="金额" className="rounded-none">
+              <SelectTrigger size="sm" aria-label="Amount" className="rounded-none">
                 <Wallet />
                 <SelectValue>{amounts[amount]}</SelectValue>
               </SelectTrigger>
@@ -222,13 +222,13 @@ export default function OrdersPage() {
             </Select>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" aria-label="显示的列">
+                <Button variant="outline" size="sm" aria-label="Visible columns">
                   <Columns3 />
-                  列
+                  Columns
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-none">
-                <DropdownMenuLabel>显示的列</DropdownMenuLabel>
+                <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {Object.entries(columnNames).map(([id, name]) => (
                   <DropdownMenuCheckboxItem
@@ -244,29 +244,29 @@ export default function OrdersPage() {
             </DropdownMenu>
             <Button variant="outline" size="sm" onClick={() => download(table.getFilteredRowModel().rows.map((r) => r.original), timeZone)}>
               <Download />
-              导出
+              Export
             </Button>
           </div>
         </div>
 
         {selected.length > 0 && (
-          <div role="region" aria-label="批量操作" className="flex flex-wrap items-center gap-3 border-b bg-secondary px-4 py-2 text-sm">
+          <div role="region" aria-label="Bulk actions" className="flex flex-wrap items-center gap-3 border-b bg-secondary px-4 py-2 text-sm">
             <span>
-              已选 <span className="font-mono">{selected.length}</span> 单，合计{' '}
+              <span className="font-mono">{selected.length}</span> selected, total{' '}
               <span className="font-mono">{yuan(selected.reduce((n, r) => n + r.totalCents, 0))}</span>
             </span>
             <div className="ml-auto flex gap-2">
               <Button variant="outline" size="sm" onClick={() => download(selected, timeZone)}>
                 <Download />
-                导出所选
+                Export selected
               </Button>
               <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(selected.map((r) => r.id).join('\n'))}>
                 <Copy />
-                复制订单号
+                Copy order numbers
               </Button>
               <Button variant="ghost" size="sm" onClick={() => table.resetRowSelection()}>
                 <X />
-                取消选择
+                Clear selection
               </Button>
             </div>
           </div>
@@ -314,8 +314,8 @@ export default function OrdersPage() {
                 <EmptyMedia variant="icon">
                   <SearchX />
                 </EmptyMedia>
-                <EmptyTitle>没有找到匹配的订单</EmptyTitle>
-                <EmptyDescription>试试其他关键词，或切换订单状态。</EmptyDescription>
+                <EmptyTitle>No matching orders</EmptyTitle>
+                <EmptyDescription>Try other keywords, or switch the order status.</EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
                 <Button
@@ -325,18 +325,18 @@ export default function OrdersPage() {
                     table.resetColumnFilters()
                   }}
                 >
-                  查看全部订单
+                  View all orders
                 </Button>
               </EmptyContent>
             </Empty>
           )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
             <span>
-              共 {matching} 笔订单{matching > 0 && `，第 ${from} 到 ${to} 笔`}
+              {matching} orders{matching > 0 && `, ${from} to ${to}`}
             </span>
             {table.getPageCount() > 1 && (
-              <nav aria-label="订单分页" className="flex items-center gap-1">
-                <Button variant="outline" size="icon-sm" aria-label="上一页" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
+              <nav aria-label="Order pages" className="flex items-center gap-1">
+                <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
                   <ChevronLeft />
                 </Button>
                 {Array.from({ length: table.getPageCount() }, (_, i) => (
@@ -346,13 +346,13 @@ export default function OrdersPage() {
                     size="icon-sm"
                     className="font-mono"
                     aria-current={i === pageIndex ? 'page' : undefined}
-                    aria-label={`第 ${i + 1} 页`}
+                    aria-label={`Page ${i + 1}`}
                     onClick={() => table.setPageIndex(i)}
                   >
                     {i + 1}
                   </Button>
                 ))}
-                <Button variant="outline" size="icon-sm" aria-label="下一页" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
+                <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
                   <ChevronRight />
                 </Button>
               </nav>

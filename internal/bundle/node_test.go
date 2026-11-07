@@ -96,3 +96,38 @@ func symlinkModules(t *testing.T, root string) error {
 	t.Helper()
 	return os.Symlink(testModules(t), filepath.Join(root, "node_modules"))
 }
+
+func TestNodeFindsTheLangKeysOfHTMLAttributes(t *testing.T) {
+	root := t.TempDir()
+	if err := symlinkModules(t, root); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{
+		// The exported object, with a type assertion around it and a quoted key.
+		"layout.tsx": "export const htmlAttributes = {\n  dir: 'ltr',\n  'lang': 'en',\n} as const\nexport default function L() { return null }\n",
+		// A head that returns htmlAttributes, in an arrow function and in a function.
+		"page.tsx": "export const head = ({ loaderData }) => ({\n  meta: [],\n  htmlAttributes: { Lang: loaderData.lang },\n})\n" +
+			"export function other() { return { htmlAttributes: { dir: 'rtl' } } }\nexport default function P() { return null }\n",
+		// Nothing a static read can see: a name, a spread, a computed key, a local of the same name.
+		"clean.tsx": "const shared = { lang: 'en' }\nexport const htmlAttributes = shared\nexport const head = () => ({ htmlAttributes: { ...shared, ['lang']: 'x' } })\n" +
+			"function f() { const htmlAttributes = { lang: 'x' }; return htmlAttributes }\nexport default function C() { return null }\n" +
+			// An object that only has a property of that name, outside the export and outside head.
+			"const example = { htmlAttributes: { lang: 'fr' } }\nexport function other() { return { htmlAttributes: { lang: 'x' } } }\n",
+	})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	layout, page, clean := filepath.Join(root, "layout.tsx"), filepath.Join(root, "page.tsx"), filepath.Join(root, "clean.tsx")
+	got, err := n.LangKeys([]string{layout, page, clean})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []LangKey{{Line: 3, Column: 3}}; !slices.Equal(got[layout], want) {
+		t.Errorf("layout.tsx: %v, want %v", got[layout], want)
+	}
+	if want := []LangKey{{Line: 3, Column: 21}}; !slices.Equal(got[page], want) {
+		t.Errorf("page.tsx: %v, want %v", got[page], want)
+	}
+	if len(got[clean]) != 0 {
+		t.Errorf("clean.tsx: %v, want none", got[clean])
+	}
+}

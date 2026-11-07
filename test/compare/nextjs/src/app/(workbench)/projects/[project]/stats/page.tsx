@@ -7,7 +7,7 @@ type Props = { params: Promise<{ project: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { project } = await params
-  return { title: `销售统计 · ${orNotFound(() => loadProject(project)).name} · 山海工作台` }
+  return { title: `Sales stats · ${orNotFound(() => loadProject(project)).name} · Shanhai Workbench` }
 }
 
 export default async function Page({ params }: Props) {

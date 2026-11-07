@@ -64,19 +64,19 @@ func checkShopSignIn(t *testing.T, exe, buildID string) {
 			t.Errorf("GET %s signed out: %d %s", path, status, header.Get("Location"))
 		}
 	}
-	for _, path := range []string{"/store/zh-CN", "/store/en-US/products", "/login"} {
+	for _, path := range []string{"/zh-CN/store", "/store/products", "/login"} {
 		if status, _, _ := send("GET", path, "", ""); status != 200 {
 			t.Errorf("GET %s signed out: %d", path, status)
 		}
 	}
 	_, _, login := send("GET", "/login?next=%2Fprojects%2Fstudio", "", "")
-	if !strings.Contains(login, "演示账号") {
+	if !strings.Contains(login, "Demo account") {
 		t.Errorf("sign-in page: %.400s", login)
 	}
 
 	// A wrong password is a 401 and signs nobody in.
 	status, header, body := send("POST", "/login", "", `{"email":"`+demoEmail+`","password":"nope","next":""}`, "X-Tifa-Call", "1")
-	if status != 401 || header.Get("Set-Cookie") != "" || !strings.Contains(body, "邮箱或密码不对") {
+	if status != 401 || header.Get("Set-Cookie") != "" || !strings.Contains(body, "Wrong email or password") {
 		t.Errorf("wrong password: %d %v %s", status, header, body)
 	}
 	// The address to go back to stays on this site.
@@ -102,7 +102,7 @@ func checkShopSignIn(t *testing.T, exe, buildID string) {
 
 	// The page of the signed-in visitor says so, and shows the account in the top bar.
 	status, _, page := send("GET", "/projects/studio", cookie, "")
-	if status != 200 || !strings.Contains(page, `data-session="in"`) || !strings.Contains(rendered(page), demoName) || !strings.Contains(rendered(page), "退出登录") {
+	if status != 200 || !strings.Contains(page, `data-session="in"`) || !strings.Contains(rendered(page), demoName) || !strings.Contains(rendered(page), "Sign out") {
 		t.Errorf("workbench signed in: %d, lacks the account", status)
 	}
 	// The storefront pages are cached for everyone, so the signed-in visitor gets the anonymous HTML
@@ -167,9 +167,9 @@ func shopSignInInBrowser(t *testing.T, base string) {
 	if s["path"] != "/login?next=%2Fprojects%2Fstudio%2Fstats" || s["form"] != true || s["attribute"] != "out" {
 		t.Fatalf("signed out visitor of the workbench: %v", s)
 	}
-	pw("fill", ref(`textbox "邮箱"`), demoEmail)
-	pw("fill", ref(`textbox "密码"`), demoPassword)
-	pw("click", ref(`button "登录"`))
+	pw("fill", ref(`textbox "Email"`), demoEmail)
+	pw("fill", ref(`textbox "Password"`), demoPassword)
+	pw("click", ref(`button "Sign in"`))
 	waitFor(t, "the workbench to show the account", func() bool { s = state(); return s["name"] == demoName })
 	if s["path"] != "/projects/studio/stats" || s["attribute"] != "in" || s["nameShown"] != true {
 		t.Errorf("signed in: %v", s)
@@ -192,22 +192,22 @@ func shopSignInInBrowser(t *testing.T, base string) {
 		return n
 	}
 	text := func() string { return pw("eval", `() => document.body.innerText`) }
-	pw("click", ref(`link "订单"`))
+	pw("click", ref(`link "Orders"`))
 	waitFor(t, "the order list", func() bool { s = state(); return s["path"] == "/projects/studio" })
 	pw("click", ref(`link "SH-1041"`))
 	waitFor(t, "the order page", func() bool { s = state(); return s["path"] == "/projects/studio/orders/SH-1041" })
-	pw("fill", ref(`textbox "写一条备注"`), "e2e-note-from-the-form")
-	pw("click", ref(`button "添加备注"`))
+	pw("fill", ref(`textbox "Write a note"`), "e2e-note-from-the-form")
+	pw("click", ref(`button "Add note"`))
 	waitFor(t, "the note on the order page", func() bool { return strings.Contains(text(), "e2e-note-from-the-form") })
-	pw("click", ref(`link "统计"`))
+	pw("click", ref(`link "Stats"`))
 	waitFor(t, "the stats page", func() bool { s = state(); return s["path"] == "/projects/studio/stats" })
 	time.Sleep(500 * time.Millisecond)
 	before := dataRequests()
-	pw("click", ref(`link "订单"`))
+	pw("click", ref(`link "Orders"`))
 	waitFor(t, "the order list again", func() bool { s = state(); return s["path"] == "/projects/studio" })
 	waitFor(t, "the revalidation of the order list", func() bool { return dataRequests() > before })
 
-	pw("click", ref(`button "退出登录"`))
+	pw("click", ref(`button "Sign out"`))
 	waitFor(t, "the sign-in page", func() bool { s = state(); return s["form"] == true })
 	if s["path"] != "/login" || s["attribute"] != "out" || s["name"] != nil {
 		t.Errorf("signed out: %v", s)

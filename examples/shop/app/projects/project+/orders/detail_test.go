@@ -31,7 +31,7 @@ func TestOrdersCarryTheirPayment(t *testing.T) {
 func TestTheLogTellsWhatHappenedToAnOrderInOrder(t *testing.T) {
 	reset()
 	pending, _ := GetOrder("studio", "SH-1042")
-	if len(pending.Log) < 4 || pending.Log[0].Actor != "顾客" || pending.Log[0].Action != "下单" {
+	if len(pending.Log) < 4 || pending.Log[0].Actor != "Customer" || pending.Log[0].Action != "Order placed" {
 		t.Fatalf("pending log %+v", pending.Log)
 	}
 	shipped, _ := GetOrder("studio", "SH-1040")
@@ -43,14 +43,14 @@ func TestTheLogTellsWhatHappenedToAnOrderInOrder(t *testing.T) {
 		if i > 0 && e.At.Before(shipped.Log[i-1].At) {
 			t.Errorf("entry %d (%s) is before entry %d", i, e.Action, i-1)
 		}
-		if e.Action == "发货" && e.At.Equal(shipped.Shipment.ShippedAt) && strings.Contains(e.Detail, shipped.Shipment.TrackingNo) {
+		if e.Action == "Shipped" && e.At.Equal(shipped.Shipment.ShippedAt) && strings.Contains(e.Detail, shipped.Shipment.TrackingNo) {
 			shipping = true
 		}
 	}
 	if !shipping {
 		t.Errorf("no entry for shipping: %+v", shipped.Log)
 	}
-	if last := shipped.Log[len(shipped.Log)-1]; last.Actor != "快递" || last.Action != "已签收" {
+	if last := shipped.Log[len(shipped.Log)-1]; last.Actor != "Courier" || last.Action != "Delivered" {
 		t.Errorf("last entry %+v", last)
 	}
 }
@@ -70,7 +70,7 @@ func TestStaffPutNotesOnAnOrder(t *testing.T) {
 		t.Fatalf("notes %+v", o.Notes)
 	}
 	// A note is also a line of the log.
-	if last := o.Log[len(o.Log)-1]; last.Action != "添加备注" || last.Actor != "小满" {
+	if last := o.Log[len(o.Log)-1]; last.Action != "Note added" || last.Actor != "小满" {
 		t.Errorf("last log entry %+v", last)
 	}
 	if err := AddNote("studio", "SH-0000", "小满", "x", at); !errors.Is(err, tifa.ErrNotFound) {

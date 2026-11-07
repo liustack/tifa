@@ -285,3 +285,28 @@ func TestDevInputsListTheWatchFiles(t *testing.T) {
 		t.Errorf("inputs.json has no extra/watched.txt, or is incomplete (%q): %v", in.Incomplete, in.Files)
 	}
 }
+
+// A locale file that appears after the build is an input too, in a _locales folder the build
+// already had and in one that is new, and a file of such a folder that is no locale file is not.
+func TestInputsNameTheLocaleFilesAddedSince(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), "{}")
+	writeFile(t, filepath.Join(root, "app/store/_locales/en-US.json"), "{}")
+	dist := filepath.Join(root, ".tifa", "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeInputs(root, dist, filepath.Join(root, "public"), nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := ChangedInputs(root, dist); err != nil || len(changed) != 0 {
+		t.Fatalf("right after the build: %v, %v", changed, err)
+	}
+	writeFile(t, filepath.Join(root, "app/store/_locales/zh-CN.json"), "{}")
+	writeFile(t, filepath.Join(root, "app/admin/_locales/en-US.draft.json"), "{}")
+	writeFile(t, filepath.Join(root, "app/notes/locales/en-US.json"), "{}")
+	changed, err := ChangedInputs(root, dist)
+	if want := []string{"app/admin/_locales/en-US.draft.json", "app/store/_locales/zh-CN.json"}; err != nil || !slices.Equal(changed, want) {
+		t.Fatalf("changed %v, %v, want %v", changed, err, want)
+	}
+}

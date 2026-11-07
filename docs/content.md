@@ -66,13 +66,13 @@ type Doc struct {
 | `Source` field | Meaning |
 | --- | --- |
 | `Dir` | Required. The folder under `content/` that holds the collection, also its name in errors and in the build. Letters, digits, `-` and `_` only, no `/`. |
-| `Languages` | Optional. The languages of the collection, the default first. With it, the first level under `content/<Dir>/` is one folder per language. |
+| `Languages` | Optional. The languages of the collection, the default first: `tifa.Languages()` for the languages of the site, or a list of string literals. With it, the first level under `content/<Dir>/` is one folder per language. |
 | `Match` | Optional. A pattern that keeps only some of the files, see [Which files are entries](#which-files-are-entries). |
 
 The build reads `content.go` without running it, so:
 
 - `content.Define` is written only as the value of a package-level `var` in `content.go`. Anywhere else (another file, a function, `init()`, an assignment) fails the build.
-- The argument is a `content.Source{...}` literal written in place, with its fields named. `Dir` and `Match` are string literals and `Languages` is a `[]string{...}` of string literals, not constants or variables.
+- The argument is a `content.Source{...}` literal written in place, with its fields named. `Dir` and `Match` are string literals and `Languages` is `tifa.Languages()` or a `[]string{...}` of string literals, not constants or variables.
 - The type is a named struct of the app's module that embeds `content.Entry` (not a pointer to it).
 - Two collections cannot read the same `Dir`.
 - Every folder under `content/` needs a collection, also in an app without `content.go`. A folder that no collection reads fails the build, which catches a typo in a folder name. Folders whose names start with `.` or `_` are left alone.
@@ -121,6 +121,8 @@ For the front page of a group of docs, write a file named like the folder (`guid
 With `Languages`, every entry is in a language folder, the default language too. A first-level folder that is not a language, or a `.md` file right in the collection folder, fails the build. A language without a folder has no entries. Without `Languages` there is no language level and `Entry.Lang` is `""`.
 
 The versions of one entry in different languages share a translation key: the `translationKey` of the front matter, or the ID. So files with the same path are translations of each other, and `translationKey` links files with different paths, such as `launch` in the test app. One language has each key once. `Entry.Translations` lists the versions that can be seen now, in the order of `Languages`, the entry itself included, each as `{Lang, ID, Slug, Path}`. Links between languages and `hreflang` come from there.
+
+On a site with languages (see [A site in several languages](guides/i18n.md)), write `Languages: tifa.Languages()` and the collection has the languages of the site, the default first. The folders under `content/<Dir>/` are named after them. An entry with no version in some language has no page in it: `Get` returns `tifa.ErrNotFound` for that language, so a `Load` that returns the error shows a 404, and nothing falls back to another language. A page of an entry passes `entry.Translations` to `c.SetAlternates` so that the `hreflang` links list only the versions that exist.
 
 An entry with no version in some language is fine. The build prints one line per collection and missing language:
 
@@ -309,8 +311,9 @@ Each entry goes through these steps in this order:
 6. Each `h1` to `h6` without an `id` gets the one GitHub gives it, the same as `rehype-slug`: the text in lower case without punctuation, spaces become `-`, and a repeat gets `-1`, `-2` and so on. An `id` written in the HTML stays.
 7. The `rehypePlugins` of the app. They run after the ids, so a plugin such as `rehype-autolink-headings` can use them.
 8. Relative URLs are rewritten, see [Images and links](#images-and-links).
-9. The headings are collected for `Headings()`, with the ids they end up with.
-10. `rehype-stringify`.
+9. Root-relative links get a language prefix, see [Links between languages](#links-between-languages).
+10. The headings are collected for `Headings()`, with the ids they end up with.
+11. `rehype-stringify`.
 
 The plugins of the app go into `tifa()` in `vite.config.ts`, each written as unified takes it, a plugin or `[plugin, options]`. The test app adds a rehype plugin of its own (`markdown.ts`) that makes images load when they come into view:
 
@@ -353,7 +356,12 @@ The relative URLs of a body (not starting with `/`, `#` or a scheme such as `htt
 - The file must be inside the folder of the collection: a URL with `..` or a symbolic link that leads out of it fails the build.
 - A query or a `#fragment` stays on the new URL.
 - A relative link to a `.md` file fails the build. A Markdown file has no URL of its own: the app's routes give the page its URL, so link to that, such as `/zh-CN/docs/install`.
+- A root-relative link (`/store/cart`) is left alone, except on a site with languages (see below).
 - Local images get no `width`, `height` or `srcset`. Add them with a rehype plugin of your own when you need them.
+
+### Links between languages
+
+On a site with languages, a root-relative link in an entry that has a language, such as `[cart](/store/cart)`, gets the prefix of that language when the page it leads to has that language: `/en-US/store/cart` in the `en-US` entry. The default language gets no prefix, unless `i18n.prefix` is `always`. A link that already starts with a language, a link to a page outside every area, to a public file or to another site, and a relative link or an anchor stay as written. The query and the `#fragment` are kept. Only the Markdown is rewritten: the HTML your Go code builds is not. A collection without `Languages` is converted as before.
 
 ## Drafts and dates
 

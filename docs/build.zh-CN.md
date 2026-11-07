@@ -87,6 +87,20 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 - `Load` 或 `Layout` 能走到 `tifa.SetSession` 或 `tifa.ClearSession`，不论是直接调用，还是经过它们传下 Ctx 的函数。
 - 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件。这个路径由 Tifa 自己回答。
 
+### 语言
+
+静态分析会找出应用的区：`app/` 里每个带 `_locales` 目录的目录，区的语言就是它的 `<language>.json` 文件（`<language>.draft.json` 不算）。每个路由属于在它的目录或上层里最近的那个区，或者不属于任何区。下面每一种情况 `tifa build` 和 `tifa check` 都会停下：
+
+- `_locales` 目录里一个语言文件都没有，或者某个 `.json` 文件的名字不是写法规范的语言标签（要写 `en-US`，不是 `en_US`）。
+- 某个区没有默认语言的文件。
+- 有多种语言却没有 `i18n.default`，或者 `i18n.default` 写的语言没有哪个区有文件。
+- 有多种语言却没有 `site.url`。
+- `app/` 里有目录和网站某种语言同名。
+- 有多种语言的网站在 `htmlAttributes` 里写了 `lang`，不管在根 Layout 还是在某个 `head` 里。`<html>` 的 `lang` 由 Tifa 写。
+- 内容集合的 `Languages` 既不是 `tifa.Languages()`，也不是字符串字面量的列表。
+
+`tifa.Languages()` 在 `tifa build`、`tifa dev`、`go test` 和 `go run` 下给出同一个列表。两个 Tifa 命令用 `-ldflags -X` 把它构建进程序，你自己的 `-ldflags` 照常保留。另外两个读模块里的 `_locales` 目录和 `tifa.yaml`。`tifa dev` 下，新增、删除或改名一个 `_locales/<language>.json`（草稿也算）会把所有步骤重跑一遍：静态分析、生成代码、打包、go build 和 Markdown 的转换。见[多语言网站](guides/i18n.zh-CN.md)。
+
 ### 调试信息
 
 `tifa build` 给 `go build` 传 `-ldflags=-w`，程序里不带 DWARF 调试信息。`examples/shop` 在 Apple M4（darwin/arm64）上的程序从 26.4 MB 降到 21.2 MB，小了约 20%。
@@ -257,11 +271,12 @@ go tool tifa build
 | `tifaapp/app.go` | `tifaapp` 包，只有一个变量 `App`：`tifa build` 看到的应用。只填 `hooks.go` 里实际存在的钩子，把 `tifa.yaml` 里的运行时配置写成 Go 代码（`Settings`），根目录的 `config.go` 定义了配置或 `content.go` 声明了集合而没有 `hooks.go` 时导入根包，并注册会话类型。每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 拿它和代码比对。应用的测试用 `<module>/.tifa/tifaapp` 导入它（见[测试](app.zh-CN.md#测试)） |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
 | `session.gen.ts` | `SessionData`：会话类型的 `Exposed` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Exposed` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](sessions.zh-CN.md)） |
+| `i18n.gen.ts` | `i18n`：给浏览器运行时用的应用语言信息，没有任何 `_locales` 目录时是 `undefined`。内容有默认语言、`i18n.prefix` 是否为 `always`、站点的语言列表，以及 `routes`：路由树里每个在区域内的路由的语言，用 TanStack 路由 ID 作键（Layout、页面，和显示某个 Layout 的 404 的那条路由）。不在任何区域里的路由不在 `routes` 里：它没有语言，也没有前缀 |
 | `app/<目录>/route.gen.ts` | 每个有页面、Layout 或方法函数的目录生成一份。有页面就导出 `page`，有 Layout 就导出 `layout`（都是 TanStack 的路由对象），再导出 `PageData`、`LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，并按方法函数各导出一个调用函数和它的 `<METHOD>Input`、`<METHOD>Output` 类型。这些函数调用 `runtime/call.ts` |
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |
 | `vite.js`、`vite.d.ts`、`vite/plugin.js` | 给 `vite.config.ts` 用的 Tifa Vite 插件，见下文。`vite/plugin.js` 是仓库 `js/vite/plugin.js` 的原样拷贝 |
-| `runtime/` | 仓库 `js/runtime/` 的原样副本 |
+| `runtime/` | 仓库 `js/runtime/` 的副本。其中 `i18n.tsx` 和 `locales.d.ts`（[i18next 适配器](#i18next-适配器)）只有带 `_locales` 文件夹的应用才有 |
 | `content/` | 有内容集合的应用才有：`entries.json` 是 `tifa build` 交给 Vite 插件转成 HTML 的条目（front matter 换成空行的 Markdown、正文写到哪里、默认语言版本所在的文件夹），`headings.json` 是插件在每篇正文里找到的标题，会合进 `dist/content.json`。见[内容](content.zh-CN.md#markdown-转-html) |
 | `dist/` | 前端产物，见下文 |
 
@@ -278,7 +293,7 @@ go tool tifa build
 | `dist/content.json` | 有内容集合的应用才有：每个集合里不是草稿的条目，带 `content.Entry` 的字段、译文键、正文文件和它的标题，以及转成 JSON 的 front matter。程序在 `OnStart` 之前读它，见[内容](content.zh-CN.md) |
 | `dist/content/` | 每篇的正文 HTML，`<集合>/<语言>/<ID>.html`（没有语言的集合去掉语言这层）。`entry.Body()` 读这些文件。服务端不经 HTTP 提供它们，构建也不给它们写 `.gz`。正文引用的文件在 `dist/assets/` |
 | `dist/build.json` | `{buildId, head, preload, public}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。`preload` 列出每个路由模块在 `head` 之外还要的文件，见[预加载页面的 chunk](#预加载页面的-chunk)。构建 ID 是 `dist/` 里除 `inputs.json` 外其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID。`public` 是 `dist/public/` 里每个文件按相对路径列出的内容哈希，取 SHA-256 的前 16 字节转十六进制，没有公共文件和在 `tifa dev` 下都没有这一项 |
-| `dist/inputs.json` | 这次构建用到了哪些文件：每个文件内容 SHA-256 的前 16 字节（十六进制），按相对应用根的路径。文件包括 SSR bundle 和浏览器 bundle 里 `node_modules` 之外的模块（页面、Layout、组件，也包括只在浏览器里渲染的组件，样式表和 `.tifa/` 里生成的模块），以及 Vite 插件登记为构建依赖的文件，比如被别的样式表 import 的样式表和 Tailwind 扫描类名的文件，还有 Vite 配置 import 的本地文件。构建从 Rolldown 读不到这份清单时照常成功，打一行警告，`inputs.json` 里写明清单不完整和原因（`incomplete`，带 Rolldown 版本），`tifatest.StartPages` 随后带着这个原因失败，直到升级 Tifa。`tifa dev` 下浏览器从 Vite 拿模块，所以只列 SSR bundle 的模块、`package.json`、锁文件、Vite 配置、`tsconfig.json`、`tifa.yaml`、公共目录的文件和 `content/` 下的文件。它还记下公共目录和 `content/` 这两个目录，所以构建之后往里加的文件也算改过，之后才出现的项目文件也一样。`tifa build` 和 `tifa dev` 都写它，构建 ID 不算它，`tifatest.StartPages` 拿它和当前文件比，前端比源码旧时让测试失败（见[测试](app.zh-CN.md#测试)） |
+| `dist/inputs.json` | 这次构建用到了哪些文件：每个文件内容 SHA-256 的前 16 字节（十六进制），按相对应用根的路径。文件包括 SSR bundle 和浏览器 bundle 里 `node_modules` 之外的模块（页面、Layout、组件，也包括只在浏览器里渲染的组件，样式表和 `.tifa/` 里生成的模块），以及 Vite 插件登记为构建依赖的文件，比如被别的样式表 import 的样式表和 Tailwind 扫描类名的文件，还有 Vite 配置 import 的本地文件。构建从 Rolldown 读不到这份清单时照常成功，打一行警告，`inputs.json` 里写明清单不完整和原因（`incomplete`，带 Rolldown 版本），`tifatest.StartPages` 随后带着这个原因失败，直到升级 Tifa。`tifa dev` 下浏览器从 Vite 拿模块，所以只列 SSR bundle 的模块、`package.json`、锁文件、Vite 配置、`tsconfig.json`、`tifa.yaml`、公共目录的文件和 `content/` 下的文件。它还记下公共目录和 `content/` 这两个目录，所以构建之后往里加的文件也算改过，之后才出现的项目文件也一样。`app/` 下每个 `_locales` 文件夹里的文件同理，构建之后才出现的新文件夹也算，`inputs.json` 会列出构建读过的那些。`tifa build` 和 `tifa dev` 都写它，构建 ID 不算它，`tifatest.StartPages` 拿它和当前文件比，前端比源码旧时让测试失败（见[测试](app.zh-CN.md#测试)） |
 
 SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么也不输出、`error` 时抛错的 `console`，不提供 `crypto.subtle`、`fetch` 与 `Request`。SSR 加载器在执行 bundle 模块前注册两组 Go 函数：一组读取随机字节，一组读写引擎的异步上下文（promise 任务带着走的一个对象，`AsyncLocalStorage` 把 store 放在里面），所以依赖在模块加载时就能用 `crypto` 和 `AsyncLocalStorage`。克隆完全在 JS 内执行，通过内建方法检查类型，用 `Error.isError` 识别错误对象，不读取引擎私有字段。页面在服务端能用到的全部东西见[服务端渲染时有什么](app.zh-CN.md#服务端渲染时有什么)。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。`abort-controller` 与它依赖的 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml`）：每个对象的内部状态改存在对象自己的 symbol 属性上，不用 WeakMap。这个属性在建对象时定义一次，之后不再重新定义，所以应用 seal 或 freeze 了 signal 也照样能取消（`TestHostScriptAbortsFrozenSignals`）。唯一会再变的 signal 取消标记放在一个盒子里，只改盒子里的值。其余状态不装盒子，每个状态都装盒子时 P99 多出约 1.5 ms。QuickJS 回收穿过 WeakMap 值的死环要多轮 GC，有的环一直回收不掉，每次渲染留下的路由、AbortController 与监听器因此要等好几轮 GC，VM 的堆更大。改成属性后一次 GC 就能整体回收，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守住这一点。
 
@@ -435,7 +450,8 @@ shop 给每种语言建一个实例，并给它配上自己的金额和日期格
   "compilerOptions": {
     "paths": {
       "@/*": ["./*"],
-      "tifa/client": ["./.tifa/runtime/client.ts"]
+      "tifa/client": ["./.tifa/runtime/client.ts"],
+      "tifa/i18n": ["./.tifa/runtime/i18n.tsx"]
     }
   },
   "include": ["**/*", ".tifa/**/*"]
@@ -465,6 +481,49 @@ export default defineConfig({
 TanStack Router 必须是这个 Tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。Tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 Tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
 
 React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 React DOM 的字符串渲染器的（见[前端产物](#前端产物)），所以 `tifa build` 和 `tifa dev` 用同样的方式读出装上的 `react` 和 `react-dom` 的版本，低于 19.3.0 就报错停下，错误里写明要装的版本。19.3.0 的预发布版（比如 canary）也算低于 19.3.0。没有页面的应用不检查。
+
+## i18next 适配器
+
+`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打进包里，每种语言做一个 i18next 实例，并给页面常用的 react-i18next hooks。应用自己安装 `i18next` 和 `react-i18next`，tsconfig 的 `paths` 里要有 `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]`。只有带 `_locales` 文件夹的应用才会写出 `runtime/i18n.tsx`，因为 TypeScript 会检查整个 `.tifa/`，没有翻译的应用也没有 i18next 可导入。
+
+字符串放在 `app/` 各文件夹的 `_locales/<语言>.json` 里。`<语言>.draft.json` 不发布，文件夹里其他文件不算。文件夹的命名空间是它相对 `app/` 的路径：`app/store/_locales` 是 `store`，`app/admin/store/_locales` 是 `admin/store`，`app/_locales` 是默认命名空间。Vite 插件把这些文件合成一个模块，所以服务端渲染和浏览器都带着全部字符串，不用再去取。
+
+```tsx
+// app/store/cart/page.tsx
+import { useTranslation } from 'tifa/i18n'
+
+export default function Page() {
+  const { t } = useTranslation('store')
+  return <h1>{t('cart.title')}</h1>
+}
+```
+
+```tsx
+// app/layout.tsx：provider 从 tifa/client 的 useLanguage() 读页面的语言
+import { I18nProvider, setupI18n } from 'tifa/i18n'
+
+setupI18n((i18n, language) => {
+  i18n.services.formatter?.addCached('currency', (lng, options) => {
+    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+    return (value) => f.format(value)
+  })
+})
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  return <I18nProvider>{children}</I18nProvider>
+}
+```
+
+| 导出 | 作用 |
+| --- | --- |
+| `I18nProvider` | 给子组件 `useLanguage()` 那种语言的实例 |
+| `useTranslation`、`Trans` | react-i18next 的原样导出 |
+| `i18nFor(language)` | 某种语言的实例，给组件外的代码用，比如页面标题。第一次用时创建并保留，进程里每次渲染共用 |
+| `setupI18n(fn)` | 设置 `fn(i18n, language)`，每个实例在 `init` 之后运行一次，用来加格式化函数。必须在第一个实例出现前调用，之后调用会抛错 |
+
+一个实例只有自己语言的字符串，`fallbackLng: false`，`load: 'currentOnly'`，`initAsync: false`（`init` 返回时就绪，首次渲染就有全部字符串），`interpolation.escapeValue: false`（转义交给 React）。没有对应字符串的键，结果就是键本身，和 i18next 一样。某个区域在某种语言里没有字符串，那里就是空的。
+
+适配器和 [`build.i18next_cache`](#i18next-缓存) 一起工作。在 `setupI18n` 里用 `addCached` 或 `add` 加的格式化函数会运行应用代码，所以用到它的调用不进缓存。能缓存的结果要用 i18next 自带的格式化函数（`number`、`currency`、`datetime`、`relativetime`、`list`），选项写在字符串或调用里。
 
 ## 数据协议
 

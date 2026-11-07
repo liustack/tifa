@@ -15,7 +15,8 @@
     "paths": {
       "@/*": ["./shop/*"],
       "@tanstack/react-router": ["./shop/runtime/router.tsx"],
-      "tifa/client": ["./shop/runtime/client.tsx"]
+      "tifa/client": ["./shop/runtime/client.tsx"],
+      "tifa/i18n": ["./shop/runtime/i18n.tsx"]
     }
   },
   "include": ["app/**/*.ts", "app/**/*.tsx", "../domain/**/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],

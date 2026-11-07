@@ -66,14 +66,14 @@ func shopPagesInBrowser(t *testing.T, session string, args ...string) {
 		{"/projects/studio", "/projects/studio/orders/SH-1041"},
 		{"/projects/studio/orders/SH-1041", "/projects/studio/stats"},
 		{"/projects/studio/stats", "/projects/studio"},
-		{"/store/en-US", "/store/en-US/products"},
-		{"/store/en-US/products", "/store/en-US/products/pour-over-kettle"},
-		{"/store/en-US/products/pour-over-kettle", "/store/en-US/journal"},
-		{"/store/en-US/cart", "/store/en-US/products"},
-		{"/store/en-US/checkout", "/store/en-US/journal"},
-		{"/store/en-US/journal", "/store/en-US/journal/kettle-photos"},
-		{"/store/en-US/journal/kettle-photos", "/store/en-US/products"},
-		{"/store/zh-CN/products", "/store/zh-CN"},
+		{"/store", "/store/products"},
+		{"/store/products", "/store/products/pour-over-kettle"},
+		{"/store/products/pour-over-kettle", "/store/journal"},
+		{"/store/cart", "/store/products"},
+		{"/store/checkout", "/store/journal"},
+		{"/store/journal", "/store/journal/kettle-photos"},
+		{"/store/journal/kettle-photos", "/store/products"},
+		{"/zh-CN/store/products", "/zh-CN/store"},
 	} {
 		if tc.page == "/login" {
 			pw("open", base+tc.page)

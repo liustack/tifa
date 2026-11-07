@@ -35,7 +35,7 @@ export function markSeen(c: Ctx, slug: string): void {
   for (const s of seenSlugs(c)) {
     if (s !== slug && list.length < seenMax) list.push(s)
   }
-  c.setCookie({ name: seenCookie, value: list.join('.'), path: '/store', maxAge: 30 * 24 * 3600, httpOnly: true, sameSite: 'Lax' })
+  c.setCookie({ name: seenCookie, value: list.join('.'), path: '/', maxAge: 30 * 24 * 3600, httpOnly: true, sameSite: 'Lax' })
 }
 
 // seen returns the products the visitor looked at last, newest first, leaving out except. It is

@@ -6,7 +6,7 @@
 // the page. A redirect goes through React Router, as tifa's goes through its router.
 import { makeCall } from './storecall'
 
-export { segment } from './storecall'
+export { publicPath, segment } from './storecall'
 export type { CallOptions } from './storecall'
 
 let navigateTo: ((href: string) => Promise<void> | void) | undefined
@@ -17,6 +17,9 @@ export function setNavigate(navigate: (href: string) => Promise<void> | void) {
 }
 
 export const call = makeCall({
-  writeURL: (_method, path) => path.replace(/^(\/store\/[^/]+)\/(?!mine\b)/, '$1/_write/'),
+  writeURL: (_method, path) => {
+    const m = /^(?:\/(zh-CN))?\/store\/(?!mine\b)/.exec(path)
+    return m ? path.replace(m[0], `/store/${m[1] ?? 'en-US'}/_write/`) : path
+  },
   navigate: () => navigateTo,
 })

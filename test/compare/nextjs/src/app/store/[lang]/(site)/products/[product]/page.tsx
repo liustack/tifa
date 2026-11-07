@@ -11,7 +11,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const q = query(await searchParams)
   return orNoMetadata(() => {
     const { product: p } = loadProductPage(lang, product, q)
-    return { title: storeTitle(lang, p.name), description: p.summary, alternates: alternates(`/products/${product}`) }
+    return { title: storeTitle(lang, p.name), description: p.summary, alternates: alternates(lang, `/products/${product}`) }
   })
 }
 

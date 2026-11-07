@@ -16,6 +16,9 @@ import (
 type Content struct {
 	File     content.File
 	Markdown []content.Markdown
+	// Links are the languages of the routes, for the links in the Markdown. Nil on a site without
+	// languages.
+	Links *content.Links
 }
 
 // markdownPackages are Vite and the packages of markdownPackages in js/vite/plugin.js, as pnpm
@@ -41,17 +44,17 @@ func prepareContent(root string, c *Content, pages bool) error {
 			return err
 		}
 	}
-	return writeEntries(root, c.Markdown)
+	return writeEntries(root, c.Markdown, c.Links)
 }
 
 // writeEntries lists entries in .tifa/content/entries.json for the tifa Vite plugin to convert,
 // and removes the headings of an earlier conversion.
-func writeEntries(root string, entries []content.Markdown) error {
+func writeEntries(root string, entries []content.Markdown, links *content.Links) error {
 	dir := filepath.Join(root, ".tifa", "content")
 	if err := os.Remove(filepath.Join(root, ".tifa", filepath.FromSlash(content.HeadingsFile))); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	data, err := json.Marshal(content.Entries{Entries: entries})
+	data, err := json.Marshal(content.Entries{Entries: entries, Links: links})
 	if err != nil {
 		return err
 	}

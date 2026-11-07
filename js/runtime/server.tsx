@@ -4,6 +4,10 @@ import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { askedByLoad, createAppRouter } from './router'
 import { initialSnapshot, SessionContext, type SessionEnvelope } from './session'
+import { LanguageContext } from './language'
+import { AlternatesContext } from './alternates'
+import { makeRewrite } from './prefix'
+import { i18n } from '../i18n.gen'
 import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
@@ -11,6 +15,7 @@ import {
   headEnd,
   headHTML,
   headStart,
+  alternateTags,
   headTags,
   htmlAttributesOf,
   type HTMLAttributes,
@@ -127,6 +132,20 @@ function renderSource(input: RenderInput, texts: string[]): Source {
   return injected({ url: input.url, buildId: input.buildId, data })
 }
 
+// carried is what the page hands to the browser of the versions: the site and the default language,
+// and the list only when a Load of the page set it. The browser works the rest out.
+function carried(a: RenderInput['alternates']): RenderInput['alternates'] {
+  if (!a) return undefined
+  return { site: a.site, default: a.default, ...(a.custom ? { list: a.list } : {}) }
+}
+
+// pageHead is the tags of the head: those of the matched routes, then the links of the versions of
+// the page in other languages.
+function pageHead(matches: Parameters<typeof headTags>[0], input: RenderInput) {
+  const own = headTags(matches)
+  return own.concat(alternateTags(own, input.alternates, input.alternates?.site ?? ''))
+}
+
 // canonicalStatus is the status of a redirect the router threw. The router throws one for a URL it
 // spells differently (/%61 for /a, /a/ for /a) with the temporary status 307. That URL is only another
 // spelling of the page, so it answers 308: the permanent redirect that keeps the method and that
@@ -173,6 +192,10 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
       serverURL: input.url,
       sessionKey: input.sessionKey,
       session: input.session,
+      language: input.language,
+      alternates: carried(input.alternates),
+      // A router of its own for each render: one VM renders both languages one after another.
+      rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
       nonce,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })
@@ -198,9 +221,13 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         globalThis.stopRender = () => stop.abort()
         const rendered = input.sessionKey === undefined ? undefined : initialSnapshot(input.session)
         const root = await prerenderToString(
-          <SessionContext.Provider value={rendered}>
-            <RouterProvider router={router} />
-          </SessionContext.Provider>,
+          <LanguageContext.Provider value={input.language ?? ''}>
+            <AlternatesContext.Provider value={input.alternates?.list ?? []}>
+              <SessionContext.Provider value={rendered}>
+                <RouterProvider router={router} />
+              </SessionContext.Provider>
+            </AlternatesContext.Provider>
+          </LanguageContext.Provider>,
           {
             onError: (error) => errors.push(error),
             signal: stop.signal,
@@ -223,11 +250,11 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         router.serverSsr!.setRenderFinished()
         const matches = router.stores.matches.get()
         const html =
-          documentStart(htmlAttributesOf(matches, htmlAttributes), input) +
+          documentStart(htmlAttributesOf(matches, htmlAttributes, input.language), input) +
           assetTags +
           (input.preload ?? '') +
           headStart +
-          headHTML(headTags(matches), nonce) +
+          headHTML(pageHead(matches, input), nonce) +
           bodyStart +
           root +
           '</div>' +

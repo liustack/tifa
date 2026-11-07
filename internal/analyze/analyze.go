@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liustack/tifa/internal/langs"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 )
@@ -130,6 +131,9 @@ type analyzer struct {
 	embed          *Embedded           // what the packages of the module embed with go:embed
 	modulePackages []*packages.Package // every package of the module that type checked, tests left out
 	broken         map[string]bool     // directory IDs of packages skipped because they or their imports do not type check
+	// locales holds the languages of each area, by the folder of its _locales folder. site is the languages of the site once i18n has worked them out.
+	locales map[string][]string
+	site    []string
 	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
 	appPkgs, modulePkgs map[string]bool
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
@@ -171,6 +175,19 @@ func (a *analyzer) scan() error {
 			return err
 		}
 		name := d.Name()
+		if d.IsDir() && name == langs.Dir {
+			parent, err := filepath.Rel(appDir, filepath.Dir(path))
+			if err != nil {
+				return err
+			}
+			// The folders the go command skips hold no area, as for tifa.Languages.
+			if !langs.Hidden(filepath.ToSlash(parent)) {
+				if err := a.readLocales(path, a.id(path)); err != nil {
+					return err
+				}
+			}
+			return filepath.SkipDir
+		}
 		if d.IsDir() || !slices.Contains(conventionFiles, name) {
 			return nil
 		}
@@ -498,7 +515,8 @@ func (a *analyzer) build() *Manifest {
 	a.propagateQuery(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
-	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages), Settings: a.settings(), Content: a.content()}
+	i18n := a.i18n(routes, layouts)
+	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages), Settings: a.settings(), I18n: i18n, Content: a.content()}
 	for _, l := range layouts {
 		m.Layouts = append(m.Layouts, l.Layout)
 	}

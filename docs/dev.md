@@ -46,7 +46,7 @@ A second `tifa dev` in the same app does not start. It prints `tifa: tifa dev is
 | A file the Go code embeds with `go:embed`, of any kind, such as a Markdown post: edited | go build (and the bundle too, for a `.ts`, `.tsx`, `.js`, `.css` or `.json` file) | Reload |
 | A file the Go code embeds, added or removed | static analysis, go build | Reload |
 | As above, and the route manifest changed (routes, the result types of Load and Layout, the input and result types of handlers, hooks, etc.) | static analysis, code generation, bundle, go build | Reload |
-| A `page.tsx`, `layout.tsx` or `layout_.tsx` added or removed, or `tifa.yaml` changed | all steps | Reload |
+| A `page.tsx`, `layout.tsx` or `layout_.tsx` added or removed, a `_locales/<language>.json` added, removed or renamed (a draft too), or `tifa.yaml` changed | all steps | Reload |
 | A Markdown file of a collection under `content/`, its body or its front matter, also one added or removed, or with a new `slug` or `translationKey` | content: the scan of `content/` in Go and the conversion of that entry | Reload |
 | Another file under `content/`, of any kind, such as an image, a `.json` or a `.css` of a page bundle | content: the entries in its folder, and the translations that fall back to that folder | Reload |
 | A folder added to `content/` or removed from it, also an empty one | content: the scan of `content/`, which reports a folder no collection declares | Reload |

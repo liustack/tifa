@@ -8,16 +8,16 @@ import { layout as project } from '../../route.gen'
 import { page } from './route.gen'
 
 const icons = {
-  下单: ShoppingBag,
-  付款成功: CreditCard,
-  风控通过: ShieldCheck,
-  进入待发货: Bot,
-  开始拣货: Boxes,
-  打包完成: PackageCheck,
-  发货: Truck,
-  揽收: Truck,
-  已签收: CircleCheck,
-  添加备注: StickyNote,
+  'Order placed': ShoppingBag,
+  'Payment received': CreditCard,
+  'Risk check passed': ShieldCheck,
+  'Ready to ship': Bot,
+  'Picking started': Boxes,
+  'Packing done': PackageCheck,
+  Shipped: Truck,
+  'Picked up': Truck,
+  Delivered: CircleCheck,
+  'Note added': StickyNote,
 } as const
 
 // Activity is everything that happened to the order, newest first.
@@ -26,14 +26,14 @@ export function Activity() {
   const { timeZone } = project.useLoaderData()
   const [who, setWho] = useState('all')
   const all = [...order.log].reverse()
-  const log = all.filter((e) => who === 'all' || (who === 'system' ? e.actor === '系统' : e.actor !== '系统'))
+  const log = all.filter((e) => who === 'all' || (who === 'system' ? e.actor === 'System' : e.actor !== 'System'))
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">操作记录</CardTitle>
+        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Activity</CardTitle>
         <CardAction>
-          <ToggleGroup type="single" value={who} onValueChange={(v) => v && setWho(v)} aria-label="按来源筛选" className="bg-transparent">
-            {[['all', `全部 ${all.length}`], ['system', '系统'], ['people', '人工']].map(([v, label]) => (
+          <ToggleGroup type="single" value={who} onValueChange={(v) => v && setWho(v)} aria-label="Filter by source" className="bg-transparent">
+            {[['all', `All ${all.length}`], ['system', 'System'], ['people', 'People']].map(([v, label]) => (
               <ToggleGroupItem key={v} value={v} className="h-7 w-auto px-2.5 text-xs">
                 {label}
               </ToggleGroupItem>

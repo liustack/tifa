@@ -8,7 +8,7 @@ type Props = { params: Promise<{ lang: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { lang } = await params
-  return { title: storeTitle(lang, message(lang, 'journal.title')), alternates: alternates('/journal') }
+  return { title: storeTitle(lang, message(lang, 'journal.title')), alternates: alternates(lang, '/journal') }
 }
 
 export default async function Page({ params }: Props) {

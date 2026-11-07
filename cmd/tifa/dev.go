@@ -166,6 +166,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := checkLangAttribute(p.root, m, p.front.LangKeys); err != nil {
+		return "", err
+	}
 	settings, err := codegen.BuildSettings(p.root)
 	if err != nil {
 		return "", err
@@ -202,7 +205,7 @@ func (p *devPipeline) Content(ctx context.Context, all bool, changed []string) (
 	fp := c.Fingerprint()
 	all = all || fp != p.converted
 	_, pages := p.files["client.ts"]
-	n, err := p.front.Content(ctx, pages, contentOf(c), all, changed)
+	n, err := p.front.Content(ctx, pages, contentOf(p.m, c, p.public), all, changed)
 	if err != nil {
 		return "", err
 	}
@@ -240,6 +243,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := checkLangAttribute(p.root, p.m, p.front.LangKeys); err != nil {
+		return "", err
+	}
 	if !maps.EqualFunc(files, p.files, bytes.Equal) {
 		if err := codegen.Write(p.root, files); err != nil {
 			return "", err
@@ -264,7 +270,12 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error, which
 // devserver prints and shows in the page.
 func (p *devPipeline) GoBuild(ctx context.Context) error {
-	printed, err := goBuild(ctx, p.root, p.exe, nil, io.Discard, io.Discard)
+	// The program of tifa dev keeps its debug info, and needs the languages of the last analysis.
+	flags, err := buildFlags(ctx, p.root, config.Build{DebugInfo: true}, languagesLDFlag(p.m))
+	if err != nil {
+		return err
+	}
+	printed, err := goBuild(ctx, p.root, p.exe, flags, io.Discard, io.Discard)
 	if err != nil {
 		return fmt.Errorf("%s\n%w", strings.TrimSpace(printed), err)
 	}

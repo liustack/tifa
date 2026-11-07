@@ -432,3 +432,38 @@ func TestWithContextRacesWithSetBodyLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestLanguageIsWhatTheServerSet(t *testing.T) {
+	c := New(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), "/", 1<<20)
+	if c.Language() != "" {
+		t.Errorf("Language = %q before it is set", c.Language())
+	}
+	SetLanguage(c, "en-US")
+	if got := c.WithContext(c.Context()).Language(); got != "en-US" {
+		t.Errorf("a copy of the Ctx has Language %q", got)
+	}
+}
+
+func TestAlternatesAreWhatTheLastLoadSet(t *testing.T) {
+	c := New(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), "/", 1<<20)
+	if got, set := AlternatesOf(c); set || got != nil {
+		t.Errorf("alternates %v (set %t) before SetAlternates", got, set)
+	}
+	c.SetAlternates([]Alternate{{Language: "zh-CN", Path: "/a"}})
+	list := []Alternate{{Language: "zh-CN", Path: "/a"}, {Language: "en-US", Path: "/b"}}
+	c.WithContext(c.Context()).SetAlternates(list)
+	got, set := AlternatesOf(c)
+	if !set || !slices.Equal(got, list) {
+		t.Errorf("alternates %v (set %t), want the last list %v", got, set, list)
+	}
+	// The list is copied: changing the slice afterwards changes nothing.
+	list[0].Path = "/changed"
+	if got, _ := AlternatesOf(c); got[0].Path != "/a" {
+		t.Errorf("the list of the page follows the slice of the caller: %v", got)
+	}
+	// An empty list is a list: the page has one version.
+	c.SetAlternates(nil)
+	if got, set := AlternatesOf(c); !set || len(got) != 0 {
+		t.Errorf("after SetAlternates(nil): %v (set %t)", got, set)
+	}
+}

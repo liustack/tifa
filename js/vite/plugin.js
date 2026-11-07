@@ -1003,7 +1003,84 @@ export function tifa(settings = {}) {
     lazyRoutes(),
     markdownPlugin(() => root, settings.markdown),
     ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache }),
+    localesPlugin(() => root),
   ]
+}
+
+const localesModule = 'virtual:tifa-locales'
+const localesId = '\0tifa-locales'
+
+/**
+ * localesPlugin makes the module virtual:tifa-locales, which tifa/i18n imports: the strings of
+ * every _locales/<language>.json in app/, as {language: {namespace: strings}}. The namespace of a
+ * folder is its path relative to app/, and app/_locales is "translation", the default namespace
+ * of i18next. <language>.draft.json is not published, and nothing else in the folder counts. An
+ * app without _locales folders gets {}. Each file is an input of the build, so a change to one
+ * makes the build stale.
+ */
+export function localesPlugin(getRoot) {
+  return {
+    name: 'tifa:locales',
+    enforce: 'pre',
+    resolveId: {
+      filter: { id: new RegExp('^' + localesModule + '$') },
+      handler: () => localesId,
+    },
+    load: {
+      filter: { id: new RegExp('^' + localesId + '$') },
+      handler() {
+        const locales = {}
+        for (const { file, language, namespace } of findLocales(path.join(getRoot(), 'app'))) {
+          this.addWatchFile(file)
+          if (namespace.includes(':')) {
+            this.error(
+              `${path.relative(getRoot(), path.dirname(file))}: the namespace "${namespace}" has a ":", which i18next reads as ` +
+                'the end of a namespace in a key. Rename the folder',
+            )
+          }
+          let strings
+          try {
+            strings = JSON.parse(fs.readFileSync(file, 'utf8'))
+          } catch (err) {
+            this.error(`${file}: ${err.message}`)
+          }
+          if (strings === null || typeof strings !== 'object' || Array.isArray(strings)) {
+            this.error(`${file} must hold a JSON object`)
+          }
+          ;(locales[language] ??= {})[namespace] = strings
+        }
+        return `export default ${JSON.stringify(locales)}`
+      },
+    },
+  }
+}
+
+// findLocales lists the published locale files below dir, the app folder, in a fixed order. A
+// file is a language tag and .json, so en-US.draft.json is left out.
+function findLocales(dir, rel = '') {
+  const found = []
+  let entries
+  try {
+    entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true })
+  } catch (err) {
+    if (err.code === 'ENOENT') return found
+    throw err
+  }
+  const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+  for (const entry of entries.sort(byName)) {
+    // The folders the go command skips, and node_modules, hold no area, as in tifa build (internal/langs).
+    if (!entry.isDirectory() || entry.name === 'node_modules' || (entry.name !== '_locales' && /^[._]/.test(entry.name))) continue
+    const name = rel === '' ? entry.name : rel + '/' + entry.name
+    if (entry.name !== '_locales') {
+      found.push(...findLocales(dir, name))
+      continue
+    }
+    for (const file of fs.readdirSync(path.join(dir, name), { withFileTypes: true }).sort(byName)) {
+      const m = /^([A-Za-z0-9-]+)\.json$/.exec(file.name)
+      if (m && file.isFile()) found.push({ file: path.join(dir, name, file.name), language: m[1], namespace: rel === '' ? 'translation' : rel })
+    }
+  }
+  return found
 }
 
 // markdownPackages are the packages the Markdown of content collections turns into HTML with, and
@@ -1046,11 +1123,12 @@ export function markdownPlugin(getRoot, markdown) {
     async generateBundle() {
       if (command !== 'build' || this.environment?.name !== 'client') return
       const root = getRoot()
-      const entries = readContentEntries(root)
-      if (!entries) return
+      const list = readContentEntries(root)
+      if (!list) return
       const urls = new Map() // real path of a file to its URL
-      const result = await convertContent(root, entries, {
+      const result = await convertContent(root, list.entries, {
         markdown,
+        links: list.links,
         command: 'tifa build',
         asset: (file) => {
           let url = urls.get(file)
@@ -1075,8 +1153,8 @@ export function markdownPlugin(getRoot, markdown) {
       // removes the bodies the app no longer reads itself.
       async convert({ alone = false, command: by = 'tifa dev', partial = false } = {}) {
         const root = getRoot()
-        const entries = readContentEntries(root)
-        if (!entries) return []
+        const list = readContentEntries(root)
+        if (!list) return []
         const real = fs.realpathSync(root)
         let asset = (file) => devBase + encodePath(path.relative(real, file).split(path.sep).join('/'))
         const assets = path.join(root, '.tifa', 'dist', 'assets')
@@ -1084,7 +1162,7 @@ export function markdownPlugin(getRoot, markdown) {
           if (!partial) fs.rmSync(assets, { recursive: true, force: true })
           asset = (file) => '/assets/' + encodePath(writeAsset(assets, file))
         }
-        const result = await convertContent(root, entries, { markdown, command: by, asset })
+        const result = await convertContent(root, list.entries, { markdown, links: list.links, command: by, asset })
         writeContent(root, result, partial)
         return result.warnings
       },
@@ -1092,8 +1170,8 @@ export function markdownPlugin(getRoot, markdown) {
   }
 }
 
-// readContentEntries returns the entries tifa lists in .tifa/content/entries.json, null without
-// the file.
+// readContentEntries returns the content of .tifa/content/entries.json: the entries tifa lists and
+// the route languages for their links. Null without the file.
 function readContentEntries(root) {
   let text
   try {
@@ -1102,7 +1180,7 @@ function readContentEntries(root) {
     if (err.code === 'ENOENT') return null
     throw err
   }
-  return JSON.parse(text).entries
+  return JSON.parse(text)
 }
 
 // writeContent writes the HTML of each entry into .tifa/dist, in place of the bodies there, and
@@ -1199,8 +1277,9 @@ const contentFiles = new WeakMap()
  *  5. tifa: h1 to h6 without an id get the id GitHub gives them
  *  6. markdown.rehypePlugins
  *  7. tifa: relative URLs become the URLs of their files, see rewriteURLs
- *  8. tifa: the headings are collected
- *  9. rehype-stringify
+ *  8. tifa: root-relative links get the prefix of the language of the entry, see prefixLinks
+ *  9. tifa: the headings are collected
+ * 10. rehype-stringify
  *
  * A plugin is written as unified takes it: a function, or [function, ...options]. An error a
  * plugin of the app throws names it.
@@ -1222,6 +1301,7 @@ export function markdownProcessor(p, markdown = {}) {
     .use(headingIDs)
     .use(plugins('rehypePlugins'))
     .use(rewriteURLs)
+    .use(prefixLinks)
     .use(collectHeadings)
     .use(p.rehypeStringify)
 }
@@ -1354,6 +1434,83 @@ function rewriteURLs() {
   }
 }
 
+// routeScore says how specific the ServeMux pattern of a route is for a URL path it matches: a
+// number per segment, 2 for a literal, 1 for {name} and 0 for {name...}, compared from the first
+// segment. It returns undefined when the pattern does not match segments.
+function routeScore(pattern, segments) {
+  const parts = pattern === '/' ? [] : pattern.slice(1).split('/')
+  const score = []
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (/^\{[^}]*\.\.\.\}$/.test(part)) {
+      score.push(0)
+      return score // matches the rest, also nothing
+    }
+    if (i >= segments.length) return undefined
+    if (/^\{[^}]*\}$/.test(part)) score.push(1)
+    else if (part === segments[i]) score.push(2)
+    else return undefined
+  }
+  return parts.length === segments.length ? score : undefined
+}
+
+// moreSpecific reports whether score a beats score b, as ServeMux prefers the more specific
+// pattern.
+function moreSpecific(a, b) {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) return a[i] > b[i]
+  }
+  return a.length > b.length
+}
+
+// isFile reports whether file is a regular file.
+function isFile(file) {
+  try {
+    return fs.statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+
+// prefixLinks gives the root-relative links of an entry in a language the prefix of that language,
+// /en-US/store/cart for /store/cart, when the route the link leads to has the language and the
+// language is not the default (or the site prefixes always). It leaves alone a link that starts
+// with a language, a link to a route without the language and to a file of the public folder, and
+// every link that is not root-relative. Without the table of languages, or for an entry without a
+// language, it does nothing.
+function prefixLinks() {
+  return (tree, file) => {
+    const state = contentFiles.get(file.data)
+    const links = state?.links
+    const lang = file.data.tifa?.lang
+    if (!links || !lang || (lang === links.default && !links.always)) return
+    eachElement(tree, (node) => {
+      const href = node.tagName === 'a' ? node.properties?.href : undefined
+      if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//')) return
+      const cut = href.search(/[?#]/)
+      const pathPart = cut < 0 ? href : href.slice(0, cut)
+      const segments = pathPart === '/' ? [] : pathPart.split('/').slice(1)
+      if (segments.length > 1 && segments[segments.length - 1] === '') segments.pop()
+      if (links.languages.includes(segments[0])) return
+      let decoded
+      try {
+        decoded = segments.map(decodeURIComponent)
+      } catch {
+        return
+      }
+      // The server answers the path of a public file with the file, before any route.
+      if (links.public && isFile(path.join(state.root, links.public, ...decoded))) return
+      let best
+      for (const route of links.routes) {
+        const score = routeScore(route.path, decoded)
+        if (score && (!best || moreSpecific(score, best.score))) best = { route, score }
+      }
+      // The home of a language is /en-US, not /en-US/.
+      if (best?.route.languages.includes(lang)) node.properties.href = '/' + lang + (pathPart === '/' ? href.slice(1) : href)
+    })
+  }
+}
+
 // collectHeadings records the depth, the id and the text of each h1 to h6, in order.
 function collectHeadings() {
   return (tree, file) => {
@@ -1386,10 +1543,11 @@ function within(dir, p) {
 /**
  * convertContent turns entries, as tifa lists them in .tifa/content/entries.json, into HTML. It
  * returns the HTML and the headings of each by its out, and the warnings of the plugins. asset
- * returns the URL of a file a relative URL leads to, given its real path. Every problem of every
+ * returns the URL of a file a relative URL leads to, given its real path. links is the route
+ * languages of the site, see prefixLinks. Every problem of every
  * entry fails it at once, one line each, as file:line:col: reason.
  */
-export async function convertContent(root, entries, { markdown, command, asset, packages }) {
+export async function convertContent(root, entries, { markdown, links, command, asset, packages }) {
   const processor = markdownProcessor(packages ?? (await loadMarkdown(root, command)), markdown)
   const realRoot = fs.realpathSync(root)
   const result = { html: {}, headings: {}, warnings: [] }
@@ -1399,6 +1557,8 @@ export async function convertContent(root, entries, { markdown, command, asset, 
     const state = {
       headings: [],
       problems: [],
+      links,
+      root,
       resolve(url, kind, at) {
         const place = at ? `${entry.source}:${at.line}:${at.column}` : entry.source
         const fail = (msg) => {

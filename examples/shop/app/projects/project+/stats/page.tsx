@@ -20,7 +20,7 @@ const chartPlaceholder = <Skeleton className="h-64 w-full" />
 const RevenueChart = clientOnly(() => import('./revenue-chart.client'), chartPlaceholder)
 const ProductsChart = clientOnly(() => import('./products-chart.client'), chartPlaceholder)
 
-const ranges = { '7': '近 7 天', '30': '近 30 天' } as const
+const ranges = { '7': 'Last 7 days', '30': 'Last 30 days' } as const
 type Range = keyof typeof ranges
 
 export default function StatsPage() {
@@ -35,8 +35,8 @@ export default function StatsPage() {
           <EmptyMedia variant="icon">
             <ChartNoAxesColumn />
           </EmptyMedia>
-          <EmptyTitle>还没有销售数据</EmptyTitle>
-          <EmptyDescription>第一笔订单到来后，这里会画出每天的销售额。</EmptyDescription>
+          <EmptyTitle>No sales data yet</EmptyTitle>
+          <EmptyDescription>Once the first order arrives, daily sales are drawn here.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     )
@@ -59,9 +59,9 @@ export default function StatsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 id="stats-title" className="font-heading text-xl font-medium tracking-[0.04em]">
-            销售统计
+            Sales stats
           </h2>
-          <p className="text-sm text-muted-foreground">数据截至 {orderDate(`${last}T00:00:00Z`, 'UTC')}</p>
+          <p className="text-sm text-muted-foreground">Data up to {orderDate(`${last}T00:00:00Z`, 'UTC')}</p>
         </div>
         <Tabs value={range} onValueChange={(value) => setRange(value as Range)}>
           <TabsList className="rounded-none">
@@ -75,31 +75,31 @@ export default function StatsPage() {
       </div>
 
       <SummaryRow>
-        <SummaryCard title="销售额" note={ranges[range]} points={days.map((d) => d.revenueCents)}>
+        <SummaryCard title="Sales" note={ranges[range]} points={days.map((d) => d.revenueCents)}>
           <AnimatedNumber value={revenue} format={yuan} />
         </SummaryCard>
-        <SummaryCard title="订单数" note={ranges[range]} points={days.map((d) => d.orders)}>
+        <SummaryCard title="Orders" note={ranges[range]} points={days.map((d) => d.orders)}>
           <AnimatedNumber value={orders} />
         </SummaryCard>
-        <SummaryCard title="客单价" note="每笔订单平均">
+        <SummaryCard title="Average order" note="Per order">
           <AnimatedNumber value={orders ? revenue / orders : 0} format={yuan} />
         </SummaryCard>
-        <SummaryCard title="发货率" note="已发出的订单占比">
+        <SummaryCard title="Shipping rate" note="Share of orders shipped">
           <AnimatedNumber value={orders ? shipped / orders : 0} format={percent} />
         </SummaryCard>
       </SummaryRow>
 
       <SummaryRow>
-        <SummaryCard title="售出件数" note={ranges[range]} points={days.map((d) => d.pieces)}>
+        <SummaryCard title="Pieces sold" note={ranges[range]} points={days.map((d) => d.pieces)}>
           <AnimatedNumber value={pieces} />
         </SummaryCard>
-        <SummaryCard title="每单件数" note="平均每笔订单">
+        <SummaryCard title="Pieces per order" note="Average per order">
           <AnimatedNumber value={orders ? pieces / orders : 0} format={(n) => n.toFixed(1)} />
         </SummaryCard>
-        <SummaryCard title="待发货金额" note={`${totals.pendingOrders} 单在等`}>
+        <SummaryCard title="Amount to ship" note={`${totals.pendingOrders} orders waiting`}>
           <AnimatedNumber value={totals.pendingCents} format={yuan} />
         </SummaryCard>
-        <SummaryCard title="回头客" note={`${totals.repeat} / ${totals.customers} 位顾客买过不止一次`}>
+        <SummaryCard title="Repeat customers" note={`${totals.repeat} / ${totals.customers} customers bought more than once`}>
           <AnimatedNumber value={totals.customers ? totals.repeat / totals.customers : 0} format={percent} />
         </SummaryCard>
       </SummaryRow>
@@ -107,8 +107,8 @@ export default function StatsPage() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Card>
           <CardHeader>
-            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">每日销售额</CardTitle>
-            <CardDescription>{ranges[range]}，按下单日计算</CardDescription>
+            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Daily sales</CardTitle>
+            <CardDescription>{ranges[range]}, by order day</CardDescription>
           </CardHeader>
           <CardContent>
             <RevenueChart days={days} />
@@ -117,8 +117,8 @@ export default function StatsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">热销商品</CardTitle>
-            <CardDescription>近 30 天销量前 5</CardDescription>
+            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Best sellers</CardTitle>
+            <CardDescription>Top 5 by sales in the last 30 days</CardDescription>
           </CardHeader>
           <CardContent>
             <ProductsChart products={topProducts} />
@@ -129,8 +129,8 @@ export default function StatsPage() {
       <div className="grid items-start gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <Card>
           <CardHeader>
-            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">销量排行</CardTitle>
-            <CardDescription>近 30 天，按件数</CardDescription>
+            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Sales ranking</CardTitle>
+            <CardDescription>Last 30 days, by pieces</CardDescription>
           </CardHeader>
           <CardContent>
             <ol className="divide-y">
@@ -148,7 +148,7 @@ export default function StatsPage() {
                   />
                   <span className="flex-1 truncate text-sm">{p.name}</span>
                   <span className="text-right font-mono text-xs tabular-nums">
-                    {p.quantity} 件
+                    {p.quantity} pieces
                     <br />
                     <span className="text-muted-foreground">{yuan(p.revenueCents)}</span>
                   </span>
@@ -160,19 +160,19 @@ export default function StatsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">每日明细</CardTitle>
-            <CardDescription>{ranges[range]}，有订单的日子</CardDescription>
+            <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Daily detail</CardTitle>
+            <CardDescription>{ranges[range]}, days with orders</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-xs font-normal text-muted-foreground">日期</TableHead>
-                  <TableHead className="text-right text-xs font-normal text-muted-foreground">订单</TableHead>
-                  <TableHead className="text-right text-xs font-normal text-muted-foreground">已发货</TableHead>
-                  <TableHead className="text-right text-xs font-normal text-muted-foreground">销售额</TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">Date</TableHead>
+                  <TableHead className="text-right text-xs font-normal text-muted-foreground">Orders</TableHead>
+                  <TableHead className="text-right text-xs font-normal text-muted-foreground">Shipped</TableHead>
+                  <TableHead className="text-right text-xs font-normal text-muted-foreground">Sales</TableHead>
                   <TableHead className="w-1/3 text-xs font-normal text-muted-foreground">
-                    <span className="sr-only">占比</span>
+                    <span className="sr-only">Share</span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -218,5 +218,5 @@ export default function StatsPage() {
 // The title names the shop, which the project Layout loads.
 export const head = ({ matches }: { matches: Array<{ routeId: string; loaderData?: unknown }> }) => {
   const project = matches.find((m) => m.routeId === projectRoute.id)?.loaderData as Project | undefined
-  return { meta: project ? [{ title: `销售统计 · ${project.name} · 山海工作台` }] : [] }
+  return { meta: project ? [{ title: `Sales stats · ${project.name} · Shanhai Workbench` }] : [] }
 }

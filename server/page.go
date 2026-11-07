@@ -281,6 +281,28 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	return serveFile(w, r, f.public, name, "no-cache", etag, false)
 }
 
+// isFile reports whether serveStatic answers a GET of the path p with a file.
+func (s *server) isFile(p string) bool {
+	f := s.front.Load()
+	if f == nil {
+		return false
+	}
+	name := strings.TrimPrefix(path.Clean(p), "/")
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && isRegular(f.assets, rest) {
+		return true
+	}
+	return isRegular(f.public, name)
+}
+
+// isRegular reports whether name is a regular file of fsys, which may be nil.
+func isRegular(fsys fs.FS, name string) bool {
+	if fsys == nil || name == "" || !fs.ValidPath(name) {
+		return false
+	}
+	info, err := fs.Stat(fsys, name)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // serveFile answers with the regular file name of fsys and reports whether it exists. With
 // gz, a GET that accepts gzip gets the file name.gz that tifa build compressed, when there is
 // one, as nginx's gzip_static and Caddy's precompressed do: with the type of name, and a range
@@ -289,10 +311,7 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 // If-None-Match gets 304. Without one the validator is the modification time of the file, which
 // a file of the directory tifa dev serves has and an embedded file does not.
 func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, etag string, gz bool) bool {
-	if fsys == nil || name == "" || !fs.ValidPath(name) {
-		return false
-	}
-	if info, err := fs.Stat(fsys, name); err != nil || !info.Mode().IsRegular() {
+	if !isRegular(fsys, name) {
 		return false
 	}
 	h := w.Header()
@@ -582,7 +601,11 @@ func (s *server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 			return err
 		}
 	}
-	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session})
+	alternates, err := s.navigationAlternates(c, len(selected) == len(chain))
+	if err != nil {
+		return err
+	}
+	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session, Alternates: alternates})
 }
 
 // buildChanged is the 409 for a request from a page of another build. It names the build the
@@ -616,11 +639,13 @@ func (s *server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
 	return selected, nil
 }
 
-// dataAnswer is the body of a data request: the results of the routes by route ID, and the session
-// of the request when the app has sessions.
+// dataAnswer is the body of a data request: the results of the routes by route ID, the session
+// of the request when the app has sessions, and the versions of the page in other languages when
+// it has some (see alternatesOf).
 type dataAnswer struct {
-	Routes  map[string]routeResult `json:"routes"`
-	Session *core.BrowserSession   `json:"session,omitzero"`
+	Routes     map[string]routeResult `json:"routes"`
+	Session    *core.BrowserSession   `json:"session,omitzero"`
+	Alternates jsontext.Value         `json:"alternates,omitzero"`
 }
 
 // writeData writes the answer of a data request. A Cache-Control of OnRequest or a Load, such
@@ -671,6 +696,8 @@ type dataRedirect struct {
 //   - the session envelope, the data-session attribute of <html> and the script and style that
 //     read the browser's copy: Session, SessionKey and SessionHead, so two visitors share a page
 //     only when the browser gets the same session
+//   - the versions of the page in other languages, which the hreflang links and the language switch
+//     are made from: Alternates
 //   - the head of the matched routes, from their head functions over the data and the URL:
 //     Data, Texts and URL
 //   - the nonce of the slots that stand for long texts: replaced by the texts before the page
@@ -692,6 +719,15 @@ func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
 	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
 		io.WriteString(sum, part)
+		sum.Write([]byte{0})
+	}
+	// A site without languages hashes as it did before they existed.
+	if in.Language != "" {
+		io.WriteString(sum, "language:"+in.Language)
+		sum.Write([]byte{0})
+	}
+	if in.Alternates != nil {
+		io.WriteString(sum, "alternates:"+string(in.Alternates))
 		sum.Write([]byte{0})
 	}
 	// Each text is written with its length, so moving a character from one text to the next
@@ -730,7 +766,15 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	versions, err := s.pageAlternatesFor(c, status)
+	if err != nil {
+		return err
+	}
+	alternates, err := alternatesJSON(versions)
+	if err != nil {
+		return err
+	}
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -1015,7 +1059,15 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 			return err
 		}
 	}
-	doc, err := dataOnlyDocument(f, items, key, s.renderURI(c), sess)
+	versions, err := s.pageAlternatesFor(c, status)
+	if err != nil {
+		return err
+	}
+	alternates, err := carriedJSON(versions)
+	if err != nil {
+		return err
+	}
+	doc, err := dataOnlyDocument(f, items, key, s.renderURI(c), c.Language(), alternates, sess)
 	if err != nil {
 		return err
 	}
@@ -1026,12 +1078,18 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 
 // dataOnlyDocument is the document of a page that skips SSR for the page at uri: it loads the
 // browser bundle and carries the results of the Loads and the session of the request.
-func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, sess pageSession) (string, error) {
+func dataOnlyDocument(f *front, items map[string]routeResult, key, uri, language string, alternates jsontext.Value, sess pageSession) (string, error) {
 	injected, err := injectedResults(items)
 	if err != nil {
 		return "", err
 	}
 	bootData := map[string]any{"url": uri, "buildId": f.build.ID, "data": injected}
+	if language != "" {
+		bootData["language"] = language
+	}
+	if alternates != nil {
+		bootData["alternates"] = alternates
+	}
 	if sess.json != nil {
 		bootData["session"], bootData["sessionKey"] = sess.json, sess.key
 	}
@@ -1190,6 +1248,7 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 	for level := 0; level < levels; level++ {
 		in := failed.in
 		in.Error, in.Deadline = &ssr.PlacedError{Status: e.Status, Message: e.Message, Level: level}, deadline
+		in.Alternates = nil // an error page has one version
 		page, tryErr := failed.f.render(c.Request().Context(), in)
 		if tryErr == nil {
 			if s.dev != nil {
