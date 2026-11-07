@@ -14,6 +14,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +34,9 @@ import (
 // A handler that streams may flush and move its deadlines with http.ResponseController, as on the
 // server.
 //
+// On a site with languages, Ctx.Language is the language the path of r starts with, such as en-US
+// for /en-US/store, and the default language for a path without one.
+//
 // The Ctx has a session store that belongs to the test, in memory, so tifa.SetSession and
 // tifa.ClearSession work and write their Set-Cookie to the recorder. Every Ctx of the same t shares
 // the store, so a cookie from one can sign in the next. If r carries the session cookie, the Ctx
@@ -44,6 +49,7 @@ func NewCtx(t testing.TB, r *http.Request) (*tifa.Ctx, *httptest.ResponseRecorde
 	t.Helper()
 	w := httptest.NewRecorder()
 	c := core.New(&committer{ResponseWriter: w}, r, r.Pattern, config.Default().Server.BodyLimit)
+	core.SetLanguage(c, languageOf(tifa.Languages(), r.URL.Path))
 	if err := core.AttachSession(c, sessionEnv(t)); err != nil {
 		t.Fatalf("tifatest: reading the session: %v", err)
 	}
@@ -58,6 +64,19 @@ func NewCtx(t testing.TB, r *http.Request) (*tifa.Ctx, *httptest.ResponseRecorde
 		}
 	})
 	return c, w
+}
+
+// languageOf is the language of a request to path on a site with languages, the default one
+// first: the language its first segment names, else the default. A site without has none.
+func languageOf(languages []string, path string) string {
+	if len(languages) == 0 {
+		return ""
+	}
+	first, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+	if slices.Contains(languages, first) {
+		return first
+	}
+	return languages[0]
 }
 
 var stores sync.Map // testing.TB to *core.SessionEnv
