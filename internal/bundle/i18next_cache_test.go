@@ -242,8 +242,8 @@ func i18nextCacheRender(t *testing.T, settings string) (i18nextCacheResult, stri
 // With build.i18next_cache the t of getFixedT gives the translation it gave before for the same
 // call, and translates again after any change made through i18next's API. Translations stay
 // those of i18next without the cache, a missing key still reaches missingKeyHandler and the
-// listeners of missingKey every time, an instance with debug on logs as much, and a formatter of
-// the app runs on every call, since the cache keeps no translation that ran one.
+// listeners of missingKey every time, and an instance with debug on logs as much. A formatter of
+// the app runs only for the calls the cache does not have.
 func TestSSRCachesI18nextTranslationsTheSameWay(t *testing.T) {
 	plain, _ := i18nextCacheRender(t, `{ target: ["es2022"] }`)
 	cached, printed := i18nextCacheRender(t, `{ target: ["es2022"], i18nextCache: true }`)
@@ -268,8 +268,8 @@ func TestSSRCachesI18nextTranslationsTheSameWay(t *testing.T) {
 	if cached.Logs != plain.Logs || plain.Logs == 0 {
 		t.Errorf("i18next logged %d times, want %d", cached.Logs, plain.Logs)
 	}
-	if cached.Formats != plain.Formats || plain.Formats == 0 {
-		t.Errorf("the formatter of the app ran %d times with the cache, want %d", cached.Formats, plain.Formats)
+	if cached.Formats >= plain.Formats || cached.Formats == 0 {
+		t.Errorf("the formatter of the app ran %d times with the cache and %d without, want fewer but some", cached.Formats, plain.Formats)
 	}
 }
 
@@ -419,14 +419,16 @@ func TestSSRI18nextCacheKeepsAcrossRequests(t *testing.T) {
 	}
 }
 
-// i18nextAppCodePage translates through code of the app that reads a variable, zone, which
-// changes between requests: formatters added with add and addCached, a post-processor, a
-// missingInterpolationHandler, a formatter module, and defaultVariables the app changes in the
-// options. Each translation must show the zone of its request. An i18nFormat module, as
-// i18next-icu is, gets new formats from addUserDefinedFormats, which replaces its formats object.
+// i18nextAppCodePage translates through code of the app. Formatters added with add and addCached
+// and a post-processor are pure, as the docs ask, and count their calls. A
+// missingInterpolationHandler and a formatter module read a variable, zone, which changes between
+// requests, and so do defaultVariables the app changes in the options. Each translation must show
+// the zone of its request. An i18nFormat module, as i18next-icu is, gets new formats from
+// addUserDefinedFormats, which replaces its formats object.
 const i18nextAppCodePage = `import i18next from 'i18next'
 
 let zone = 'A'
+const calls = { zoned: 0, cached: 0, pp: 0 }
 const messages = {
   en: {
     translation: {
@@ -442,9 +444,9 @@ const init = (i18n, options = {}) => i18n.init({ lng: 'en', resources: messages,
 
 const app = i18next.createInstance()
 init(app, { interpolation: { escapeValue: false, defaultVariables: { user: 'A' } } })
-app.services.formatter.add('zoned', (value) => value + '@' + zone)
-app.services.formatter.addCached('zonedCached', () => (value) => value + '@' + zone)
-app.use({ type: 'postProcessor', name: 'zone', process: (value) => value + '@' + zone })
+app.services.formatter.add('zoned', (value) => (calls.zoned++, value + '@'))
+app.services.formatter.addCached('zonedCached', () => (value) => (calls.cached++, value + '@'))
+app.use({ type: 'postProcessor', name: 'zone', process: (value) => (calls.pp++, value + '@') })
 
 const handler = i18next.createInstance()
 init(handler, { missingInterpolationHandler: () => zone })
@@ -479,22 +481,38 @@ for (const z of ['A', 'B', 'A', 'C', 'C', 'B']) {
     message.getFixedT('en')('pp'),
   ])
 }
-globalThis.result = JSON.stringify(runs)
+globalThis.result = JSON.stringify({ runs, calls })
 `
 
-// The cache keeps no translation that ran code of the app, so code that reads something of the
-// request gives each request its own translation. Nor does it keep one across a change of
-// defaultVariables.
-func TestSSRI18nextCacheLeavesAppCodeUncached(t *testing.T) {
-	code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextAppCodePage, `{ target: ["es2022"] }`)
-	plain := evalWithIntl(t, code)
-	code, _ = i18nextApp(t, copyTestdata(t, "ssr", true), i18nextAppCodePage, `{ target: ["es2022"], i18nextCache: true }`)
-	cached := evalWithIntl(t, code)
-	if cached != plain {
-		t.Errorf("translations differ:\n%s\nwant\n%s", cached, plain)
+// The cache keeps the translations that ran a formatter or a post-processor of the app, as it
+// keeps those of i18next's own formatters. It keeps none that ran a missingInterpolationHandler or
+// a formatter module, and none across a change of defaultVariables, so those give each request its
+// own translation.
+func TestSSRI18nextCacheKeepsAppFormatters(t *testing.T) {
+	type result struct {
+		Runs  [][]string
+		Calls map[string]int
 	}
-	if !strings.Contains(plain, `["At 1@B","At 1@B","Post@B","Hi B","Hi B","At 1@B","Post@B"]`) {
-		t.Errorf("the zone does not reach the translations: %s", plain)
+	run := func(settings string) result {
+		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextAppCodePage, settings)
+		var r result
+		if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	plain, cached := run(`{ target: ["es2022"] }`), run(`{ target: ["es2022"], i18nextCache: true }`)
+	if got, want := mustJSON(t, cached.Runs), mustJSON(t, plain.Runs); string(got) != string(want) {
+		t.Errorf("translations differ:\n%s\nwant\n%s", got, want)
+	}
+	if got := strings.Join(plain.Runs[5], ","); got != "At 1@,At 1@,Post@,Hi B,Hi B,At 1@B,Post@B" {
+		t.Errorf("the zone does not reach the translations: %s", got)
+	}
+	// Six requests in three zones: defaultVariables are part of a call, so each zone translates once.
+	for _, name := range []string{"zoned", "cached", "pp"} {
+		if plain.Calls[name] != 6 || cached.Calls[name] != 3 {
+			t.Errorf("%s ran %d times without the cache and %d with it, want 6 and 3", name, plain.Calls[name], cached.Calls[name])
+		}
 	}
 }
 
