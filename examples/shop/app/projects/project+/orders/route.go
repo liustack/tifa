@@ -18,3 +18,13 @@ func POST(c *tifa.Ctx, in NewOrder) (Order, error) {
 	}
 	return GetOrder(c.Param("project"), id)
 }
+
+// PageInput is the page of the order list to read: 0 is the first, which the list page comes with.
+type PageInput struct {
+	Page int `json:"page"`
+}
+
+// GET answers with one page of the order list, newest first, for the pages after the first.
+func GET(c *tifa.Ctx, in PageInput) ([]OrderRow, error) {
+	return ListPage(c.Param("project"), in.Page)
+}

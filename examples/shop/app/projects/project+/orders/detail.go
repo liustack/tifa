@@ -150,15 +150,11 @@ func AddNote(projectID, id, author, text string, at time.Time) error {
 // OrdersWith returns up to n other orders of a project that hold the product slug, newest first.
 func OrdersWith(projectID, slug, exceptID string, n int) []OrderRow {
 	var rows []OrderRow
-	for _, row := range ListOrders(projectID).Orders {
-		if row.ID == exceptID {
+	for _, o := range ordersOf(projectID) {
+		if o.ID == exceptID || !slices.ContainsFunc(o.Items, func(i itemRecord) bool { return i.Slug == slug }) {
 			continue
 		}
-		o, err := GetOrder(projectID, row.ID)
-		if err != nil || !slices.ContainsFunc(o.Items, func(i LineItem) bool { return i.Slug == slug }) {
-			continue
-		}
-		rows = append(rows, row)
+		rows = append(rows, orderRow(o))
 		if len(rows) == n {
 			break
 		}

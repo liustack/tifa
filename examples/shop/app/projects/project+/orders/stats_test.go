@@ -76,22 +76,22 @@ func TestSalesStatsKeepADayThatStartsAfterMidnight(t *testing.T) {
 
 func TestSalesStatsAddUpToTheOrderList(t *testing.T) {
 	for _, id := range []string{"studio", "weekend"} {
-		s, l := SalesStats(id, shanghai), ListOrders(id)
+		s, l := SalesStats(id, shanghai), ListOrders(id, shanghai)
 		var orders, revenue, shipped int
 		for _, d := range s.Days {
 			orders += d.Orders
 			revenue += d.RevenueCents
 			shipped += d.Shipped
 		}
-		if orders != len(l.Orders) || revenue != l.RevenueCents || shipped != l.Shipped {
-			t.Errorf("%s: %d orders, %d cents, %d shipped, want %d, %d, %d", id, orders, revenue, shipped, len(l.Orders), l.RevenueCents, l.Shipped)
+		if orders != l.Total || revenue != l.RevenueCents || shipped != l.Shipped {
+			t.Errorf("%s: %d orders, %d cents, %d shipped, want %d, %d, %d", id, orders, revenue, shipped, l.Total, l.RevenueCents, l.Shipped)
 		}
 	}
 }
 
 func TestTopProductsAreTheBestSellersOfTheShop(t *testing.T) {
 	sold := map[string]ProductSales{}
-	for _, row := range ListOrders("studio").Orders {
+	for _, row := range allRows("studio") {
 		o, err := GetOrder("studio", row.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -231,7 +231,7 @@ func TestSalesStatsListCustomersRecentOrdersAndTotals(t *testing.T) {
 }
 
 func firstOrderOf(projectID, customer string) string {
-	for _, r := range ListOrders(projectID).Orders {
+	for _, r := range allRows(projectID) {
 		if r.Customer == customer {
 			return r.ID
 		}

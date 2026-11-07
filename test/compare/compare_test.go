@@ -102,12 +102,14 @@ func TestDomainMatchesGo(t *testing.T) {
 	if len(want) != len(compare.AllPages()) || len(got) != len(want) {
 		t.Errorf("AllPages lists %d pages, Go answered %d, Node %d", len(compare.AllPages()), len(want), len(got))
 	}
-	// The orders AllPages assumes are the orders the shop has: every row of the lists has a page.
+	// The orders AllPages assumes are the orders the shop has: every order counted by the lists has a page.
 	for _, project := range []string{"studio", "weekend"} {
 		list, _ := want["/projects/"+project]["app/projects/project+/route"].(map[string]any)
 		rows, _ := list["orders"].([]any)
-		if r := compare.OrderIDs[project]; len(rows) != r[1]-r[0]+1 {
-			t.Errorf("%s: the shop has %d orders, AllPages assumes %d", project, len(rows), r[1]-r[0]+1)
+		total, _ := list["total"].(float64)
+		r := compare.OrderIDs[project]
+		if int(total) != r[1]-r[0]+1 || len(rows) != min(int(total), 25) {
+			t.Errorf("%s: the shop has %v orders and sends %d, AllPages assumes %d and the first page holds 25", project, total, len(rows), r[1]-r[0]+1)
 		}
 	}
 }

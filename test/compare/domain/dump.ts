@@ -2,7 +2,7 @@
 //   node test/compare/domain/dump.ts [writes]
 // Node 22.18 and later run TypeScript as it is, by removing its types, so this needs no build.
 import { loadOrder, loadOrderList, loadProject, loadShell, loadStats } from './loaders.ts'
-import { addNote, createOrder, listOrders, shipOrder, updateRecipient } from './orders.ts'
+import { addNote, allRows, createOrder, shipOrder, updateRecipient } from './orders.ts'
 
 // With a JSON list of writes as the argument, each write is made first, so that the data can be
 // compared with the shop after the same writes: [{kind, project, order, body}], where kind is
@@ -30,7 +30,7 @@ const out: Record<string, Record<string, unknown>> = {}
 const pages: [string, string, string, string][] = []
 for (const project of ['studio', 'weekend']) {
   pages.push([`/projects/${project}`, project, '', 'list'])
-  for (const o of listOrders(project).orders) pages.push([`/projects/${project}/orders/${o.id}`, project, o.id, 'order'])
+  for (const o of allRows(project)) pages.push([`/projects/${project}/orders/${o.id}`, project, o.id, 'order'])
   pages.push([`/projects/${project}/stats`, project, '', 'stats'])
 }
 for (const [url, project, order, page] of pages) {

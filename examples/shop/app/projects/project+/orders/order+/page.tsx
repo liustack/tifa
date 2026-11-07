@@ -228,6 +228,7 @@ function Others() {
             ))}
           </ul>
         )}
+        {count - 1 > others.length && <p className="mt-3 text-xs text-muted-foreground">and {count - 1 - others.length} earlier orders</p>}
       </CardContent>
     </Card>
   )

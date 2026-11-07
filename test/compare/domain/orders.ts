@@ -11,7 +11,7 @@ import { initials, itemCount, status, total } from './records.ts'
 import type { ItemRecord, OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
-import { rfc3339 } from './time.ts'
+import { DAY, local, rfc3339 } from './time.ts'
 
 export interface LineItem {
   slug: string
@@ -68,11 +68,29 @@ export interface OrderRow {
   totalCents: number
 }
 
+// A page of the order list holds the newest ListPageSize orders, and another list on a page the
+// newest SideListSize. The numbers over all the orders come with them, as in order.go.
+export const ListPageSize = 25
+export const SideListSize = 10
+const listDays = 14
+
+export interface DailyCards {
+  revenueCents: number[]
+  orders: number[]
+  pending: number[]
+  shipped: number[]
+}
+
 export interface OrderList {
-  orders: OrderRow[]
+  orders: OrderRow[] // the newest ListPageSize, newest first
+  total: number
   revenueCents: number
   pending: number
   shipped: number
+  newestAt: string // when the newest order was placed
+  oldestPending: OrderRow | null // null when every order has shipped
+  carriers: string[] // names, sorted
+  daily: DailyCards
 }
 
 // The orders, made when the process starts. They live on globalThis, like the counters, since Next.js
@@ -108,16 +126,62 @@ export function orderRow(o: OrderRecord): OrderRow {
   return row
 }
 
-// listOrders returns the orders of a project, newest first, with their totals.
-export function listOrders(projectId: string): OrderList {
-  const l: OrderList = { orders: [], revenueCents: 0, pending: 0, shipped: 0 }
-  for (const o of ordersOf(projectId)) {
-    const row = orderRow(o)
-    l.orders.push(row)
-    l.revenueCents += row.totalCents
-    if (o.shipment) l.shipped++
-    else l.pending++
+// allRows are the rows of all the orders of a project, newest first.
+export function allRows(projectId: string): OrderRow[] {
+  return ordersOf(projectId).map(orderRow)
+}
+
+// dateKey is the date of an instant in a time zone, such as 2026-10-13.
+function dateKey(ms: number, timeZone: string): string {
+  const d = local(ms, timeZone)
+  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`
+}
+
+// listOrders returns the first page of the orders of a project, newest first, with the numbers over
+// all of them, as ListOrders does. timeZone is the one of the shop, whose days the cards draw.
+export function listOrders(projectId: string, timeZone: string): OrderList {
+  const l: OrderList = {
+    orders: [], total: 0, revenueCents: 0, pending: 0, shipped: 0, newestAt: '0001-01-01T00:00:00Z', oldestPending: null, carriers: [],
+    daily: { revenueCents: [], orders: [], pending: [], shipped: [] },
   }
+  const list = ordersOf(projectId)
+  if (list.length === 0) return l
+  l.newestAt = rfc3339(list[0].placedAt)
+  // The days, labelled by their date in the time zone, counted back from the newest order in steps
+  // of 24 hours: two steps can land on the same date, and then they share the sums.
+  const keys = Array.from({ length: listDays }, (_, i) => dateKey(list[0].placedAt - (listDays - 1 - i) * DAY, timeZone))
+  const sums = new Map<string, [number, number, number, number]>(keys.map((k) => [k, [0, 0, 0, 0]]))
+  const carriers = new Set<string>()
+  let oldest: OrderRecord | undefined
+  for (const o of list) {
+    const cents = total(o)
+    l.total++
+    l.revenueCents += cents
+    if (o.shipment) {
+      l.shipped++
+      carriers.add(carrierName(o.shipment.carrier))
+    } else {
+      l.pending++
+      if (!oldest || o.placedAt < oldest.placedAt) oldest = o
+    }
+    const s = sums.get(dateKey(o.placedAt, timeZone))
+    if (s) {
+      s[0] += cents
+      s[1]++
+      if (o.shipment) s[3]++
+      else s[2]++
+    }
+  }
+  for (const k of keys) {
+    const s = sums.get(k)!
+    l.daily.revenueCents.push(s[0])
+    l.daily.orders.push(s[1])
+    l.daily.pending.push(s[2])
+    l.daily.shipped.push(s[3])
+  }
+  if (oldest) l.oldestPending = orderRow(oldest)
+  l.carriers = [...carriers].sort()
+  l.orders = list.slice(0, ListPageSize).map(orderRow)
   return l
 }
 
@@ -159,7 +223,7 @@ function view(o: OrderRecord): Order {
   return order
 }
 
-// customerOrders returns the other orders of the customer of order id in a project, newest first,
+// customerOrders returns the newest SideListSize other orders of the customer of order id in a project, newest first,
 // with the number of orders and the cents they spent in all, this one counted.
 export function customerOrders(projectId: string, id: string): { others: OrderRow[]; count: number; spentCents: number } {
   let o: Order
@@ -171,11 +235,11 @@ export function customerOrders(projectId: string, id: string): { others: OrderRo
   const others: OrderRow[] = []
   let count = 0
   let spentCents = 0
-  for (const row of listOrders(projectId).orders) {
+  for (const row of allRows(projectId)) {
     if (row.customer !== o.customer) continue
     count++
     spentCents += row.totalCents
-    if (row.id !== id) others.push(row)
+    if (row.id !== id && others.length < SideListSize) others.push(row)
   }
   return { others, count, spentCents }
 }
@@ -203,16 +267,9 @@ function waitingFor(projectId: string, slug: string): number {
 // ordersWith returns up to n other orders of a project that hold the product slug, newest first.
 export function ordersWith(projectId: string, slug: string, exceptId: string, n: number): OrderRow[] {
   const rows: OrderRow[] = []
-  for (const row of listOrders(projectId).orders) {
-    if (row.id === exceptId) continue
-    let o: Order
-    try {
-      o = getOrder(projectId, row.id)
-    } catch {
-      continue
-    }
-    if (!o.items.some((i) => i.slug === slug)) continue
-    rows.push(row)
+  for (const o of ordersOf(projectId)) {
+    if (o.id === exceptId || !o.items.some((i) => i.slug === slug)) continue
+    rows.push(orderRow(o))
     if (rows.length === n) break
   }
   return rows

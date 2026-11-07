@@ -36,7 +36,7 @@ func TestCreateNumbersTheOrderAfterTheHighestOfItsProject(t *testing.T) {
 
 func TestCreateKeepsWhatWasEnteredAndTakesTheRestFromTheCatalogue(t *testing.T) {
 	reset()
-	before := ListOrders("studio")
+	before := ListOrders("studio", shanghai)
 	seen, _ := GetOrder("studio", "SH-1041")
 	sold, demand := seen.Items[0].Sold, seen.Items[0].Demand
 	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
@@ -55,14 +55,14 @@ func TestCreateKeepsWhatWasEnteredAndTakesTheRestFromTheCatalogue(t *testing.T) 
 		t.Fatalf("items %+v, total %d", o.Items, o.TotalCents)
 	}
 	// It is the newest order: first in the list, in the totals and in what waits to ship.
-	l := ListOrders("studio")
-	if len(l.Orders) != 43 || l.Orders[0].ID != id || l.Pending != before.Pending+1 || l.RevenueCents != before.RevenueCents+o.TotalCents {
-		t.Fatalf("list: %d orders, first %s, %d pending, %d cents", len(l.Orders), l.Orders[0].ID, l.Pending, l.RevenueCents)
+	l := ListOrders("studio", shanghai)
+	if l.Total != 43 || len(l.Orders) != ListPageSize || l.Orders[0].ID != id || l.Pending != before.Pending+1 || l.RevenueCents != before.RevenueCents+o.TotalCents {
+		t.Fatalf("list: %d orders, first %s, %d pending, %d cents", l.Total, l.Orders[0].ID, l.Pending, l.RevenueCents)
 	}
 	if n := CountPending("studio"); n != before.Pending+1 {
 		t.Fatalf("pending %d", n)
 	}
-	if len(ListOrders("weekend").Orders) != 12 {
+	if len(allRows("weekend")) != 12 {
 		t.Fatal("an order of the studio is in the weekend shop")
 	}
 	// The order pages of the project count its pieces in Sold and Demand.
@@ -105,7 +105,7 @@ func TestCreateRules(t *testing.T) {
 	if _, err := CreateOrder("nowhere", newOrder(), time.Now()); !errors.Is(err, tifa.ErrNotFound) {
 		t.Errorf("an unknown project: %v", err)
 	}
-	if n := len(ListOrders("studio").Orders); n != 42 {
+	if n := len(allRows("studio")); n != 42 {
 		t.Errorf("a refused order was kept: %d orders", n)
 	}
 }
