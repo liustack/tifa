@@ -53,6 +53,12 @@ importers:
       i18next:
         specifier: 26.5.3
         version: 26.5.3
+      i18next-27-0-0:
+        specifier: npm:i18next@27.0.0
+        version: i18next@27.0.0
+      i18next-27-0-1:
+        specifier: npm:i18next@27.0.1
+        version: i18next@27.0.1
       lucide-react:
         specifier: 1.58.0
         version: 1.58.0(@types/react@19.3.0)(react@19.3.0)
@@ -747,6 +753,24 @@ packages:
 
   i18next@26.5.3:
     resolution: {integrity: sha512-6pRwOwJ6lBCBB66fqNZaSoUmvsALHMord7FL6GsDhubT1CrPabTMEJIqddm0nn2YEbKofdI/3VAtGrQPuztY1Q==}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  i18next@27.0.0:
+    resolution: {integrity: sha512-lCP39wHw2s0MZLyNXNvVEVhSRx3STHXB7XUbyS5qVabE3b+SSqFM/Ffb6HIygeKjYrMAwRV2qDShBQRba/DvAQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  i18next@27.0.1:
+    resolution: {integrity: sha512-KaE5ozP8UUeVpOJIwMVbbnpRKpyYQuxd9ZbseJoDzezE3nvLnZZQn20pkzyIJwPI2Uet/Qs3WzPTG812f6F/Eg==}
+    engines: {node: '>=22'}
     peerDependencies:
       typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
@@ -1815,6 +1839,10 @@ snapshots:
   html-void-elements@3.0.0: {}
 
   i18next@26.5.3: {}
+
+  i18next@27.0.0: {}
+
+  i18next@27.0.1: {}
 
   import-fresh@3.3.1:
     dependencies:

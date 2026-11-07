@@ -442,6 +442,61 @@ const i18nextCachedFormatterNames = `const createCachedFormatter = fn => {
 };
 `
 const i18nextCachedFormatters = 1024
+// i18nextCachedFormatterTry is the function in i18next 27.0.0: the same cache, with a key that may
+// not serialize. i18nextCachedFormatterBounded is the function in i18next 27.0.1 and later, which
+// keeps at most 1000 formatters in a Map and forgets the oldest, so the plugin leaves it as it is.
+const i18nextCachedFormatterTry = `const createCachedFormatter = fn => {
+  const cache = {};
+  return (v, l, o) => {
+    let optForCache = o;
+    if (o && o.interpolationkey && o.formatParams && o.formatParams[o.interpolationkey] && o[o.interpolationkey]) {
+      optForCache = {
+        ...optForCache,
+        [o.interpolationkey]: undefined
+      };
+    }
+    let key;
+    try {
+      key = l + JSON.stringify(optForCache);
+    } catch (e) {
+      return fn(getCleanedCode(l), o)(v);
+    }
+    let frm = cache[key];
+    if (!frm) {
+      frm = fn(getCleanedCode(l), o);
+      cache[key] = frm;
+    }
+    return frm(v);
+  };
+};
+`
+const i18nextCachedFormatterBounded = `const cachedFormattersLimit = 1000;
+const createCachedFormatter = fn => {
+  const cache = new Map();
+  return (v, l, o) => {
+    let optForCache = o;
+    if (o && o.interpolationkey && o.formatParams && o.formatParams[o.interpolationkey] && o[o.interpolationkey]) {
+      optForCache = {
+        ...optForCache,
+        [o.interpolationkey]: undefined
+      };
+    }
+    let key;
+    try {
+      key = l + JSON.stringify(optForCache);
+    } catch (e) {
+      return fn(getCleanedCode(l), o)(v);
+    }
+    let frm = cache.get(key);
+    if (!frm) {
+      frm = fn(getCleanedCode(l), o);
+      if (cache.size >= cachedFormattersLimit) cache.delete(cache.keys().next().value);
+      cache.set(key, frm);
+    }
+    return frm(v);
+  };
+};
+`
 const i18nextObjectPath = `class RegExpCache {
   constructor(capacity) {
     this.capacity = capacity;
@@ -2946,7 +3001,7 @@ function lucideCache(file, source) {
 
 // i18nextFaster returns the source of dist/esm/i18next.js or dist/cjs/i18next.js of i18next with
 // the changes below, and the names of the functions it does not find in a form it knows and
-// leaves as they are. Each line stays where it was. It knows the forms of i18next 23 to 26.5.
+// leaves as they are. Each line stays where it was. It knows the forms of i18next 23 to 27.0.
 // i18next before 25.9 has no selectorOpts, which fixedT then does not need to leave out.
 //
 // fixedT, the function getFixedT returns, copies the options into selectorOpts only when a key or
@@ -2967,7 +3022,8 @@ function lucideCache(file, source) {
 // pattern as before.
 //
 // createCachedFormatter keeps at most i18nextCachedFormatters formatters for each format, and
-// starts over empty when the next would not fit. A formatter it made again is made from the same
+// starts over empty when the next would not fit, except in i18next 27.0.1 and later, which bound it
+// themselves. A formatter it made again is made from the same
 // language and options, so it formats as the one it forgot did.
 function i18nextFaster(source) {
   const unknown = []
@@ -3015,8 +3071,12 @@ function i18nextFaster(source) {
   } else {
     unknown.push('looksLikeObjectPath')
   }
-  const cachedFormatter = [i18nextCachedFormatter, i18nextCachedFormatterNames].find((known) => source.split(known).length === 2)
-  if (cachedFormatter) {
+  const cachedFormatter = [i18nextCachedFormatter, i18nextCachedFormatterNames, i18nextCachedFormatterTry].find(
+    (known) => source.split(known).length === 2,
+  )
+  if (source.split(i18nextCachedFormatterBounded).length === 2) {
+    // i18next 27.0.1 and later bound it themselves.
+  } else if (cachedFormatter) {
     const lines = cachedFormatter.split('\n')
     const kept = lines.findIndex((line) => line.startsWith('      cache[key] = '))
     lines[1] = '  let cache = {}, tifaKept = 0;'

@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -164,54 +165,98 @@ func i18nextRender(t *testing.T, root string) (i18nextResult, string) {
 	return r, printed
 }
 
+// i18nextVersion is an i18next the tests run against: alias is its folder in testdata's
+// node_modules (i18next is 26.5.3 and the others are npm aliases of the versions of 27), and
+// formatterLine is the line of its createCachedFormatter that a test changes to make the function
+// unknown.
+type i18nextVersion struct{ alias, formatterLine string }
+
+var i18nextVersions = []i18nextVersion{
+	{"i18next", "    const key = l + JSON.stringify(optForCache);"},
+	{"i18next-27-0-0", "      key = l + JSON.stringify(optForCache);"},
+	{"i18next-27-0-1", "      key = l + JSON.stringify(optForCache);"},
+}
+
+// withI18next returns a copy of testdata/ssr whose i18next is a copy of the package alias, with
+// dist/esm/i18next.js changed by change. The other packages are the test's.
+func withI18next(t *testing.T, alias string, change func(string) string) string {
+	t.Helper()
+	file := filepath.Join("dist", "esm", "i18next.js")
+	root := withChangedPackage(t, "i18next", file, func(string) string { return "" })
+	target := filepath.Join(root, "node_modules", "i18next")
+	if err := os.RemoveAll(target); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(filepath.Join(testModules(t), alias))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(target, os.DirFS(real)); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(target, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, file), []byte(change(string(source))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 // The tifa plugin makes the functions getFixedT returns copy the options of i18next only when a
 // key or a key prefix is a function, and looksLikeObjectPath keep the regexp of the last
 // separators. Translations stay the same as with an i18next whose code the plugin does not know,
-// which it leaves alone with a warning.
+// which it leaves alone with a warning. It does so for i18next 26.5.3, 27.0.0 and 27.0.1.
 func TestSSRSpeedsUpI18nextTheSameWay(t *testing.T) {
-	changed, printed := i18nextRender(t, copyTestdata(t, "ssr", true))
-	if strings.Contains(printed, "i18next 26.5.3") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	if changed.ProbeReads != 0 {
-		t.Errorf("fixedT copied the options for %d of 10 plain keys", changed.ProbeReads)
-	}
-	cases := []struct{ name, old, new string }{
-		{"fixedT", "const selectorOpts = {", "const selectorOpts = /* changed */ {"},
-		{"looksLikeObjectPath", "const possibleChars = chars.filter(", "const possibleChars = /* changed */ chars.filter("},
-		{"createCachedFormatter", "    const key = l + JSON.stringify(optForCache);", "    const key = l + /* changed */ JSON.stringify(optForCache);"},
-	}
-	for _, c := range cases {
-		root := withChangedPackage(t, "i18next", filepath.Join("dist", "esm", "i18next.js"), func(source string) string {
-			if strings.Count(source, c.old) != 1 {
-				t.Fatalf("%s: %q is not in i18next once", c.name, c.old)
+	for _, v := range i18nextVersions {
+		t.Run(installedVersion(t, v.alias), func(t *testing.T) {
+			version := "i18next " + installedVersion(t, v.alias)
+			changed, printed := i18nextRender(t, withI18next(t, v.alias, func(s string) string { return s }))
+			if strings.Contains(printed, version) {
+				t.Errorf("the build prints:\n%s", printed)
 			}
-			return strings.Replace(source, c.old, c.new, 1)
-		})
-		plain, printed := i18nextRender(t, root)
-		if strings.Count(printed, "i18next 26.5.3") != 1 || !strings.Contains(printed, "has no "+c.name+" the tifa plugin knows") {
-			t.Errorf("%s changed: the build prints:\n%s", c.name, printed)
-		}
-		if c.name == "fixedT" && plain.ProbeReads != 10 {
-			t.Errorf("%s changed: fixedT copied the options for %d of 10 plain keys, want all", c.name, plain.ProbeReads)
-		}
-		if plain.IsArrayCalls != changed.IsArrayCalls {
-			t.Errorf("%s changed: %d calls of Array.isArray, the plugin's change made %d", c.name, plain.IsArrayCalls, changed.IsArrayCalls)
-		}
-		want, _ := json.Marshal(plain.Runs)
-		got, _ := json.Marshal(changed.Runs)
-		if string(got) != string(want) {
-			for i := range plain.Runs {
-				a, _ := json.Marshal(changed.Runs[i])
-				b, _ := json.Marshal(plain.Runs[i])
-				if string(a) != string(b) {
-					t.Errorf("%s changed: run %d differs:\n%s\nwant\n%s", c.name, i, a, b)
+			if changed.ProbeReads != 0 {
+				t.Errorf("fixedT copied the options for %d of 10 plain keys", changed.ProbeReads)
+			}
+			cases := []struct{ name, old, new string }{
+				{"fixedT", "const selectorOpts = {", "const selectorOpts = /* changed */ {"},
+				{"looksLikeObjectPath", "const possibleChars = chars.filter(", "const possibleChars = /* changed */ chars.filter("},
+				{"createCachedFormatter", v.formatterLine, strings.Replace(v.formatterLine, "JSON.stringify", "/* changed */ JSON.stringify", 1)},
+			}
+			for _, c := range cases {
+				root := withI18next(t, v.alias, func(source string) string {
+					if strings.Count(source, c.old) != 1 {
+						t.Fatalf("%s: %q is not in i18next once", c.name, c.old)
+					}
+					return strings.Replace(source, c.old, c.new, 1)
+				})
+				plain, printed := i18nextRender(t, root)
+				if strings.Count(printed, version) != 1 || !strings.Contains(printed, "has no "+c.name+" the tifa plugin knows") {
+					t.Errorf("%s changed: the build prints:\n%s", c.name, printed)
+				}
+				if c.name == "fixedT" && plain.ProbeReads != 10 {
+					t.Errorf("%s changed: fixedT copied the options for %d of 10 plain keys, want all", c.name, plain.ProbeReads)
+				}
+				if plain.IsArrayCalls != changed.IsArrayCalls {
+					t.Errorf("%s changed: %d calls of Array.isArray, the plugin's change made %d", c.name, plain.IsArrayCalls, changed.IsArrayCalls)
+				}
+				want, _ := json.Marshal(plain.Runs)
+				got, _ := json.Marshal(changed.Runs)
+				if string(got) != string(want) {
+					for i := range plain.Runs {
+						a, _ := json.Marshal(changed.Runs[i])
+						b, _ := json.Marshal(plain.Runs[i])
+						if string(a) != string(b) {
+							t.Errorf("%s changed: run %d differs:\n%s\nwant\n%s", c.name, i, a, b)
+						}
+					}
 				}
 			}
-		}
-	}
-	if !strings.Contains(string(mustJSON(t, changed.Runs[0])), "Hi there") || !strings.Contains(string(mustJSON(t, changed.Runs[0])), "Laden") {
-		t.Errorf("translations missing: %s", mustJSON(t, changed.Runs[0]))
+			if !strings.Contains(string(mustJSON(t, changed.Runs[0])), "Hi there") || !strings.Contains(string(mustJSON(t, changed.Runs[0])), "Laden") {
+				t.Errorf("translations missing: %s", mustJSON(t, changed.Runs[0]))
+			}
+		})
 	}
 }
 
