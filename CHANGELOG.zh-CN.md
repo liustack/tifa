@@ -25,6 +25,7 @@
 
 ### 修复
 
+- 用 i18next 27 的应用，SSR 包不再为 `fixedT`、`looksLikeObjectPath` 和 `createCachedFormatter` 打印 `tifa rewrite not recognized`。前两处和 26 一样提速。i18next 27.0.1 自己限制了格式化函数的数量，插件不再动它，27.0.0 仍用插件的上限。`build.i18next_cache` 还不认识 i18next 27：在 27 上构建会打印它的警告，SSR 包没有翻译缓存，写上 `build.i18next_cache: false` 可去掉警告（[i18next](docs/build.zh-CN.md#前端产物)）。
 - 用 i18next 格式化大量不同金额、日期或名字的服务器，内存不再一直涨。i18next 通过 `number`、`currency`、`datetime` 等格式和 `addCached` 加的格式格式化时，每个值都存一个格式化函数，而且从不释放（i18next/i18next#2227）：一个 VM 里 20,000 个新值占了 28 MB，之后服务器只好换掉这个 VM。现在 SSR 包里每个格式最多存 1,024 个，文字不变（[i18next](docs/build.zh-CN.md#前端产物)）。
 - 一个路由在 `head` 里写了多个同名 meta 时，比如浅色和深色模式各一个 `theme-color`，或者多个 `og:image`，现在页面上全都有。以前只留最后一个，浅色模式的页面用的也是深色的 `theme-color`。更深的路由写了同名 meta 时，仍然整组替换。
 - `server.compress` 开着时，渲染缓存占的内存最多是 `cache.size` 的两倍：它按压缩页面的长度计数，存的却是压缩时用的更大的缓冲区，每个页面的 Content-Security-Policy 也没有计入。现在存大小刚好的副本，按实际存下的字节计数，缓存的活跃堆不再超过 `cache.size`。一直有写入、把缓存填满的程序，内存峰值也随之下降。
