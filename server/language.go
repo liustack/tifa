@@ -146,6 +146,33 @@ func (s *server) answerLanguage(w http.ResponseWriter, r *http.Request, langs []
 	return false
 }
 
+// withLanguage gives location, the URL of a redirect of the app as http.Redirect resolved it, the
+// prefix of the language of r when it is a path of the site whose route has that language, as a
+// link gets it in the browser. A path that starts with a language, one whose route lacks the
+// language or matches none, and a URL of another site stay as written.
+func (s *server) withLanguage(r *http.Request, location string) string {
+	info := langInfoOf(r)
+	if info == nil || info.lang == s.i18n.Default && !s.i18n.Always || !strings.HasPrefix(location, "/") || strings.HasPrefix(location, "//") {
+		return location
+	}
+	u, err := url.Parse(location)
+	if err != nil {
+		return location
+	}
+	if seg, _, _ := strings.Cut(strings.TrimPrefix(u.EscapedPath(), "/"), "/"); s.known[unescapedSegment(seg)] {
+		return location
+	}
+	h, _ := s.mux.Handler(&http.Request{Method: http.MethodGet, Host: r.Host, URL: &url.URL{Path: u.Path, RawPath: u.RawPath}})
+	if route, ok := h.(routeHandler); !ok || !slices.Contains(s.langs[route.pattern], info.lang) {
+		return location
+	}
+	// The home of a language has no trailing slash: / is /en-US.
+	if u.Path == "/" {
+		return "/" + info.lang + location[1:]
+	}
+	return "/" + info.lang + location
+}
+
 // hasLanguage reports whether the 404 of a URL may show inside the Layout: a URL with a language
 // prefix needs a Layout of that language.
 func (s *server) hasLanguage(layout string, info *langInfo) bool {
