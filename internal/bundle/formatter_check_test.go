@@ -9,18 +9,23 @@ import (
 	"github.com/liustack/tifa/js"
 )
 
-// buildFails builds page as the SSR bundle of an app and returns the error of the build.
-func buildFails(t *testing.T, page string) error {
+// buildFails builds page as the SSR bundle of an app, next to the files of more, and returns the
+// error of the build.
+func buildFails(t *testing.T, page string, more ...string) error {
 	t.Helper()
 	root := copyTestdata(t, "ssr", true)
-	writeTree(t, root, map[string]string{
+	files := map[string]string{
 		"package.json":         `{ "type": "module" }` + "\n",
 		"vite.config.ts":       "import tifa from './.tifa/vite.js'\nexport default { plugins: [tifa()] }\n",
 		".tifa/vite/plugin.js": js.VitePlugin,
 		".tifa/vite.js":        "import { tifa } from './vite/plugin.js'\nexport default () => tifa({ target: ['es2022'], i18nextCache: true })\n",
 		".tifa/client.ts":      "export const client = 1\n",
 		".tifa/server.ts":      page,
-	})
+	}
+	for i := 0; i+1 < len(more); i += 2 {
+		files[more[i]] = more[i+1]
+	}
+	writeTree(t, root, files)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
 	_, err := App(n, root, filepath.Join(root, "public"), true, nil)
@@ -80,5 +85,18 @@ i18n.services.formatter?.add('fixed', (value: number) => String(Date.now() + val
 `
 	if err := buildFails(t, shadowed); err != nil {
 		t.Fatalf("a Date of the app's own failed the build: %v", err)
+	}
+	// Only the formatter of an i18next instance counts, not any object with a formatter.
+	other := `const logger = { formatter: { add: (name: string, fn: (v: string) => string) => fn } }
+logger.formatter.add('stamp', (value: string) => value + Date.now())
+`
+	if err := buildFails(t, other); err != nil {
+		t.Fatalf("the formatter of another object failed the build: %v", err)
+	}
+	// A module imported as text runs nothing.
+	raw := "import text from './note.ts?raw'\n;(globalThis as any).result = text\n"
+	note := "i18n.services.formatter.add('ago', (value: number) => String(Date.now() - value))\n"
+	if err := buildFails(t, raw, ".tifa/note.ts", note); err != nil {
+		t.Fatalf("a module imported with ?raw failed the build: %v", err)
 	}
 }

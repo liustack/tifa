@@ -1883,10 +1883,11 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       async handler(code, id) {
         if (code.includes('$$FORM_ACTION') && packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
         // A formatter of the app that reads the clock fails the build. Its source is read again,
-        // as the code here has lost its types and with them its lines.
-        const file = id.split('?')[0]
+        // as the code here has lost its types and with them its lines. An id with a query, such as
+        // ?raw, or one of a virtual module is not that source run as it is.
+        const file = id
         const lang = path.extname(file).slice(1)
-        if (packageName(file) === '' && /\.formatter\b/.test(code) && ['ts', 'tsx', 'js', 'jsx', 'mjs'].includes(lang) && fs.existsSync(file)) {
+        if (!file.includes('?') && !file.startsWith('\0') && packageName(file) === '' && /\.formatter\b/.test(code) && ['ts', 'tsx', 'js', 'jsx', 'mjs'].includes(lang) && fs.existsSync(file)) {
           const source = fs.readFileSync(file, 'utf8')
           const parsed = (await loadVite()).parseSync(file, source, { lang: lang === 'mjs' ? 'js' : lang, sourceType: 'module' })
           const reads = parsed.errors.length > 0 ? [] : clockReads(parsed.program)
@@ -4640,10 +4641,8 @@ function lastAtOrBefore(sorted, value, key) {
   return low - 1
 }
 
-// packageName returns the npm package that file belongs to, by the last node_modules in its
-// path, or '' for a file outside node_modules.
 // clockReads finds the formatters given to i18next in a program, as
-// `<...>.formatter.add(name, fn)` or `.addCached(name, fn)` with a function written in place, that
+// `<...>.services.formatter.add(name, fn)` or `.addCached(name, fn)` with a function written in place, that
 // read the time or randomness themselves: Date.now(), Date(), new Date() without arguments,
 // Math.random(), performance.now(), crypto.randomUUID() and crypto.getRandomValues(). Such a
 // formatter writes another text for the same call, which the server keeps for later requests
@@ -4705,6 +4704,8 @@ function clockReads(program) {
     if (callee?.type !== 'MemberExpression' || callee.computed || !['add', 'addCached'].includes(callee.property.name)) return
     const formatter = bare(callee.object)
     if (formatter?.type !== 'MemberExpression' || formatter.computed || formatter.property.name !== 'formatter') return
+    const services = bare(formatter.object)
+    if (services?.type !== 'MemberExpression' || services.computed || services.property.name !== 'services') return
     const [name, fn] = node.arguments.map(bare)
     if (fn?.type !== 'ArrowFunctionExpression' && fn?.type !== 'FunctionExpression') return
     walk(fn.body, (inner) => {
@@ -4714,6 +4715,8 @@ function clockReads(program) {
   return found
 }
 
+// packageName returns the npm package that file belongs to, by the last node_modules in its
+// path, or '' for a file outside node_modules.
 function packageName(file) {
   const parts = file.split(/[/\\]/)
   const at = parts.lastIndexOf('node_modules')
