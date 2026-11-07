@@ -14,13 +14,10 @@ import (
 // after the other in one VM, as the server does.
 const i18nAdapterPage = `import './host'
 import { renderToString } from 'react-dom/server.edge'
-import { I18nProvider, i18nFor, setupI18n, useTranslation } from './runtime/i18n'
+import { I18nProvider, i18n, useTranslation } from './runtime/i18n'
 
-const setups: string[] = []
-setupI18n((i18n, lang) => {
-  setups.push(lang + ':' + i18n.language)
-  i18n.services.formatter?.addCached('shout', () => (value: string) => value.toUpperCase())
-})
+// As onStart of hooks.ts adds a formatter: once, for every language, which it gets as lng.
+i18n.services.formatter?.addCached('shout', (lng) => (value: string) => value.toUpperCase() + (lng === 'zh-CN' ? '！' : '!'))
 
 function Page() {
   const store = useTranslation('store')
@@ -46,20 +43,12 @@ function render(lang: string) {
 }
 
 const renders = [render('en-US'), render('zh-CN'), render('en-US'), render('zh-CN'), render('zh-CN')]
-let late = ''
-try {
-  setupI18n(() => {})
-} catch (e) {
-  late = String(e)
-}
 globalThis.result = JSON.stringify({
   renders,
-  setups,
-  late,
-  same: i18nFor('en-US') === i18nFor('en-US'),
-  differ: i18nFor('en-US') !== i18nFor('zh-CN'),
-  languages: [i18nFor('en-US').language, i18nFor('zh-CN').language],
-  loads: [i18nFor('zh-CN').options.load, i18nFor('zh-CN').options.fallbackLng],
+  // A head function translates outside the components, in the language of its page.
+  titles: [i18n.getFixedT('zh-CN', 'store')('cart.title'), i18n.getFixedT('en-US', 'store')('cart.title')],
+  language: i18n.language,
+  fallback: i18n.options.fallbackLng,
 })
 `
 
@@ -103,13 +92,10 @@ var i18nAdapterLocales = map[string]string{
 }
 
 type i18nAdapterResult struct {
-	Renders   []string
-	Setups    []string
-	Late      string
-	Same      bool
-	Differ    bool
-	Languages []string
-	Loads     []any
+	Renders  []string
+	Titles   []string
+	Language string
+	Fallback any
 }
 
 func TestI18nAdapterTranslatesEachLanguageFromTheLocalesOfItsFolders(t *testing.T) {
@@ -120,29 +106,40 @@ func TestI18nAdapterTranslatesEachLanguageFromTheLocalesOfItsFolders(t *testing.
 		t.Fatalf("%v\n%s", err, printed)
 	}
 	// The key of a missing string is the string: a draft file is not published, and a namespace no
-	// folder has gives its keys back.
-	en := "<p>Cart|Total AB|Admin store|My site|draftOnly|key</p>"
-	zh := "<p>购物车|合计 AB|后台商店|我的站点|draftOnly|key</p>"
+	// folder has gives its keys back. One instance renders each page in its own language.
+	en := "<p>Cart|Total AB!|Admin store|My site|draftOnly|key</p>"
+	zh := "<p>购物车|合计 AB！|后台商店|我的站点|draftOnly|key</p>"
 	want := []string{en, zh, en, zh, zh}
 	for i, got := range r.Renders {
 		if got != want[i] {
 			t.Errorf("render %d = %s, want %s", i, got, want[i])
 		}
 	}
-	if !r.Same || !r.Differ {
-		t.Errorf("an instance is made for each language and kept: same %v, differ %v", r.Same, r.Differ)
+	if strings.Join(r.Titles, "|") != "购物车|Cart" {
+		t.Errorf("getFixedT gave %v", r.Titles)
 	}
-	if strings.Join(r.Setups, ",") != "en-US:en-US,zh-CN:zh-CN" {
-		t.Errorf("setup ran %v, want once for each language, in order of first use", r.Setups)
+	if r.Language != "zh-CN" {
+		t.Errorf("after a page in zh-CN the instance is in %q", r.Language)
 	}
-	if !strings.Contains(r.Late, "setupI18n") {
-		t.Errorf("setupI18n after the first instance gave %q, want an error that names it", r.Late)
+	if r.Fallback != false {
+		t.Errorf("fallbackLng is %v, want false: a missing string gives its key", r.Fallback)
 	}
-	if r.Languages[0] != "en-US" || r.Languages[1] != "zh-CN" {
-		t.Errorf("languages %v", r.Languages)
+}
+
+// A language of the app is translated by its own file alone: a string missing in en-US.json gives
+// its key, not the string of en.json, which belongs to the language en.
+func TestI18nAdapterDoesNotFallBackToTheLanguageWithoutItsRegion(t *testing.T) {
+	locales := map[string]string{"app/store/_locales/en.json": `{"draftOnly": "text of en", "total": "en"}`}
+	for name, text := range i18nAdapterLocales {
+		locales[name] = text
 	}
-	if r.Loads[0] != "currentOnly" || r.Loads[1] != false {
-		t.Errorf("load and fallbackLng are %v", r.Loads)
+	code, printed := buildPrinting(t, i18nAdapterApp(t, locales), "i18n.tsx")
+	var r i18nAdapterResult
+	if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+		t.Fatalf("%v\n%s", err, printed)
+	}
+	if want := "<p>Cart|Total AB!|Admin store|My site|draftOnly|key</p>"; r.Renders[0] != want {
+		t.Errorf("en-US renders %s, want %s", r.Renders[0], want)
 	}
 	for _, text := range []string{"草稿文字", "draft text", "onlyJapanese"} {
 		if strings.Contains(code, text) {

@@ -530,27 +530,7 @@ function tifaI18nWrap(object, names, clears) {
 }
 tifaI18nWrap(ResourceStore.prototype, ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'], () => true);
 tifaI18nWrap(Formatter.prototype, ['init', 'add', 'addCached'], (formatter) => tifaI18nFormatters.has(formatter));
-var tifaI18nOwn = new WeakSet();
-function tifaI18nCount(formatter) {
-  const formats = formatter.formats;
-  if (typeof formats !== 'object' || formats === null) return;
-  for (const name in formats) {
-    const f = formats[name];
-    if (typeof f !== 'function' || tifaI18nOwn.has(f)) continue;
-    const counted = function (...args) { tifaI18nEffects++; return f.apply(this, args); };
-    tifaI18nOwn.add(counted);
-    formats[name] = counted;
-  }
-}
-var tifaI18nFormatterInit = Formatter.prototype.init, tifaI18nAdd = Formatter.prototype.add, tifaI18nAddCached = Formatter.prototype.addCached;
-Formatter.prototype.init = function (...args) {
-  try { return tifaI18nFormatterInit.apply(this, args); } finally { const formats = this.formats; if (typeof formats === 'object' && formats !== null) for (const name in formats) if (typeof formats[name] === 'function') tifaI18nOwn.add(formats[name]); }
-};
-Formatter.prototype.add = function (...args) { try { return tifaI18nAdd.apply(this, args); } finally { tifaI18nCount(this); } };
-Formatter.prototype.addCached = function (...args) { try { return tifaI18nAddCached.apply(this, args); } finally { tifaI18nCount(this); } };
 tifaI18nWrap(postProcessor, ['addPostProcessor'], () => true);
-var tifaI18nHandle = postProcessor.handle;
-postProcessor.handle = function (...args) { tifaI18nEffects++; return tifaI18nHandle.apply(this, args); };
 tifaI18nWrap(I18n.prototype, ['loadNamespaces'], () => true);
 tifaI18nWrap(I18n.prototype, ['init', 'reloadResources', 'use', 'setDefaultNamespace', 'loadLanguages'], (i18n) => !i18n.options.isClone && tifaI18nCaches.delete(i18n));
 var tifaI18nForward = Logger.prototype.forward;
@@ -567,7 +547,7 @@ const i18nextCacheMethods = {
   'class ResourceStore extends EventEmitter {': ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'],
   'class Translator extends EventEmitter {': ['changeLanguage', 'translate'],
   'class Formatter {': ['init', 'add', 'addCached', 'format'],
-  'var postProcessor = {': ['addPostProcessor', 'handle'],
+  'var postProcessor = {': ['addPostProcessor'],
   'class I18n extends EventEmitter {': ['init', 'loadResources', 'reloadResources', 'use', 'changeLanguage', 'setDefaultNamespace', 'loadNamespaces', 'loadLanguages', 'cloneInstance', 'getFixedT'],
 }
 // createElement and cloneElement of React in its production file, as React 19.3 has them. Each
@@ -1899,9 +1879,30 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       },
     },
     transform: {
-      filter: { code: /\$\$FORM_ACTION/ },
-      handler(_, id) {
-        if (packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
+      filter: { code: /\$\$FORM_ACTION|\.formatter\b/ },
+      async handler(code, id) {
+        if (code.includes('$$FORM_ACTION') && packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
+        // A formatter of the app that reads the clock fails the build. Its source is read again,
+        // as the code here has lost its types and with them its lines. An id with a query, such as
+        // ?raw, or one of a virtual module is not that source run as it is.
+        const file = id
+        const lang = path.extname(file).slice(1)
+        if (!file.includes('?') && !file.startsWith('\0') && packageName(file) === '' && /\.formatter\b/.test(code) && ['ts', 'tsx', 'js', 'jsx', 'mjs'].includes(lang) && fs.existsSync(file)) {
+          const source = fs.readFileSync(file, 'utf8')
+          const parsed = (await loadVite()).parseSync(file, source, { lang: lang === 'mjs' ? 'js' : lang, sourceType: 'module' })
+          const reads = parsed.errors.length > 0 ? [] : clockReads(parsed.program)
+          if (reads.length > 0) {
+            const at = (offset) => {
+              const before = source.slice(0, offset)
+              return `${path.relative(getRoot(), file).split(path.sep).join('/')}:${before.split('\n').length}:${offset - before.lastIndexOf('\n')}`
+            }
+            this.error(
+              reads
+                .map((r) => `${at(r.offset)}: the formatter ${r.name === undefined ? '' : `"${r.name}" `}calls ${r.read}, so it writes another text for the same call. The server keeps the text of the first request for later ones, and the browser writes its own. Pass the time or the value in the options of t instead.`)
+                .join('\n'),
+            )
+          }
+        }
         return null
       },
     },
@@ -2973,8 +2974,9 @@ function i18nextFaster(source) {
 // plain object. A call with another value, such as a function or an object, translates as before
 // and keeps nothing. So does a call during which i18next logs, as it does for each missing key
 // before it calls missingKeyHandler and emits missingKey, so the handler and the listeners hear of
-// every missing key, and a call that runs code of the app, a formatter added with add or addCached
-// or a post-processor, which may read something of the request. Only strings are kept, so a call
+// every missing key. A call that runs a formatter added with add or addCached or a post-processor
+// is kept like any other: such code must give the same text for the same input, as a React
+// component must, and the docs say so. Only strings are kept, so a call
 // with returnObjects or returnDetails translates again too. Instances made by cloneInstance,
 // instances with a missingInterpolationHandler and instances with a formatter module of their own
 // keep nothing.
@@ -4637,6 +4639,80 @@ function lastAtOrBefore(sorted, value, key) {
     else high = middle
   }
   return low - 1
+}
+
+// clockReads finds the formatters given to i18next in a program, as
+// `<...>.services.formatter.add(name, fn)` or `.addCached(name, fn)` with a function written in place, that
+// read the time or randomness themselves: Date.now(), Date(), new Date() without arguments,
+// Math.random(), performance.now(), crypto.randomUUID() and crypto.getRandomValues(). Such a
+// formatter writes another text for the same call, which the server keeps for later requests
+// (build.i18next_cache) and the browser writes differently. It returns where each read is, the
+// name of the formatter and what it reads. It only reports what it is sure of: a name the module
+// declares anywhere, such as its own Date, is never taken for the global one.
+function clockReads(program) {
+  const declared = new Set()
+  const bind = (pattern) => {
+    if (!pattern) return
+    switch (pattern.type) {
+      case 'Identifier': declared.add(pattern.name); break
+      case 'ObjectPattern': for (const p of pattern.properties) bind(p.type === 'RestElement' ? p.argument : p.value); break
+      case 'ArrayPattern': for (const e of pattern.elements) bind(e); break
+      case 'AssignmentPattern': bind(pattern.left); break
+      case 'RestElement': bind(pattern.argument); break
+      case 'TSParameterProperty': bind(pattern.parameter); break
+    }
+  }
+  const walk = (node, visit) => {
+    if (Array.isArray(node)) return node.forEach((child) => walk(child, visit))
+    if (node === null || typeof node !== 'object' || typeof node.type !== 'string') return
+    visit(node)
+    for (const key in node) if (key !== 'parent') walk(node[key], visit)
+  }
+  walk(program, (node) => {
+    if (node.type === 'VariableDeclarator') bind(node.id)
+    else if (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression') {
+      bind(node.id)
+      node.params.forEach(bind)
+    } else if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') bind(node.id)
+    else if (node.type === 'ImportSpecifier' || node.type === 'ImportDefaultSpecifier' || node.type === 'ImportNamespaceSpecifier') bind(node.local)
+    else if (node.type === 'CatchClause') bind(node.param)
+    else if (node.type === 'TSEnumDeclaration' || node.type === 'TSModuleDeclaration') bind(node.id)
+  })
+  const bare = (node) => {
+    while (node && (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSNonNullExpression' || node.type === 'ParenthesizedExpression' || node.type === 'ChainExpression'))
+      node = node.expression
+    return node
+  }
+  const global = (node, name) => (node = bare(node))?.type === 'Identifier' && node.name === name && !declared.has(name)
+  const member = (node, object, property) => {
+    node = bare(node)
+    return node?.type === 'MemberExpression' && !node.computed && node.property.name === property && global(node.object, object)
+  }
+  const reads = {
+    'Date.now()': (n) => n.type === 'CallExpression' && member(n.callee, 'Date', 'now'),
+    'Date()': (n) => n.type === 'CallExpression' && global(n.callee, 'Date'),
+    'new Date()': (n) => n.type === 'NewExpression' && n.arguments.length === 0 && global(n.callee, 'Date'),
+    'Math.random()': (n) => n.type === 'CallExpression' && member(n.callee, 'Math', 'random'),
+    'performance.now()': (n) => n.type === 'CallExpression' && member(n.callee, 'performance', 'now'),
+    'crypto.randomUUID()': (n) => n.type === 'CallExpression' && member(n.callee, 'crypto', 'randomUUID'),
+    'crypto.getRandomValues()': (n) => n.type === 'CallExpression' && member(n.callee, 'crypto', 'getRandomValues'),
+  }
+  const found = []
+  walk(program, (node) => {
+    if (node.type !== 'CallExpression') return
+    const callee = bare(node.callee)
+    if (callee?.type !== 'MemberExpression' || callee.computed || !['add', 'addCached'].includes(callee.property.name)) return
+    const formatter = bare(callee.object)
+    if (formatter?.type !== 'MemberExpression' || formatter.computed || formatter.property.name !== 'formatter') return
+    const services = bare(formatter.object)
+    if (services?.type !== 'MemberExpression' || services.computed || services.property.name !== 'services') return
+    const [name, fn] = node.arguments.map(bare)
+    if (fn?.type !== 'ArrowFunctionExpression' && fn?.type !== 'FunctionExpression') return
+    walk(fn.body, (inner) => {
+      for (const read in reads) if (reads[read](inner)) found.push({ offset: inner.start, name: name?.type === 'Literal' ? String(name.value) : undefined, read })
+    })
+  })
+  return found
 }
 
 // packageName returns the npm package that file belongs to, by the last node_modules in its

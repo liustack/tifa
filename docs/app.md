@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a Tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time) and making such a page again after a write, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code and whole requests with tifatest.Start, how Load may use Ctx, query parameter types for Link and navigate, method handlers with typed input and result, files in the input and the body limit and read time of a route, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a Tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, hooks.ts and the setup it runs before the first render, 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time) and making such a page again after a write, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code and whole requests with tifatest.Start, how Load may use Ctx, query parameter types for Link and navigate, method handlers with typed input and result, files in the input and the body limit and read time of a route, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a Tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -17,6 +17,7 @@ read_when:
   - A visitor keeps a page open while you deploy, and you want to know what the browser does, or a 409 with `X-Tifa-Build` shows up
   - A page fails to render on the server or does not hydrate, and you want to know which browser APIs and library features the server has
   - A component shows nothing until the browser draws it, such as a chart or a map, and you wonder whether to render it on the server
+  - Setting up something once for the whole app on the JavaScript side, such as i18next formatters or dayjs plugins, in hooks.ts
 ---
 
 English · [简体中文](app.zh-CN.md)
@@ -31,6 +32,7 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                          process and request hooks (optional)
+  hooks.ts                          onStart, run before the first render on the server and in the browser (optional)
   options.go                        options of the app, see Configuration (optional)
   db.go                             resources the whole app shares: package-level variables and functions (optional)
   app/
@@ -894,6 +896,32 @@ func OnStart(ctx context.Context) error {
 ```
 
 `tifa.SetHTTPHandler(wrap)` gets Tifa's handler and returns the one to serve. The wrapper is outside everything else: static files, the cross-site check and the routes. It sees every request with the original `http.ResponseWriter`, including the 403 of a refused cross-site write. Once the handler it wraps has returned, `r.Pattern` of that request is the route template, the same as `c.Pattern()` (such as `/projects/{project}`, and empty when no route matched), so a metrics middleware can count by route and not by URL. The browser asks for the data of a navigation with the `_tifa` parameter, and `.p` marks a preload. Do not count page views from these requests: a preload can serve a navigation without another request, and a reload adds one. Count the client navigations the browser finishes, plus the full page requests (see [Page requests](build.md#page-requests)). It is plain `net/http`, so `OnRequest`, `OnError` and the cross-site check do not apply to the paths it serves itself, such as `/debug/pprof/` above. Put such paths behind your own check, or keep them on another listener. A shutdown still waits for the requests it wraps. Call it in `OnStart` only: it panics once the server listens. `tifa.SetHTTPHandler(nil)` removes the wrapper. It runs outside the anonymous request of a page with `Cache` (see [The whole-page cache](#the-whole-page-cache)): the values it puts into the context of the request reach `OnRequest` and `Load` of such a page, so do not recognize visitors in it, do it in `OnRequest`.
+
+## hooks.ts
+
+`hooks.ts` in the project root is the JavaScript side of `hooks.go`. It exports one optional function:
+
+```ts
+// hooks.ts
+import { i18n } from 'tifa/i18n'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+
+export function onStart() {
+  dayjs.extend(relativeTime)
+  i18n.services.formatter?.addCached('currency', (lng, options) => {
+    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+    return (value) => f.format(value)
+  })
+}
+```
+
+- `onStart` runs once in each JavaScript runtime before any page renders, whatever the page: in each VM of the server when the SSR bundle loads, and in the browser before hydration. It is for what the whole app sets up once, such as i18next formatters, dayjs plugins, chart types or an error reporter.
+- It runs on both sides, so the server and the browser render with the same setup. Tifa has no JavaScript that runs only on the server: data and I/O are in Go.
+- It is synchronous. Work it starts and does not wait for, such as a dynamic `import()`, may finish after the first render.
+- If it throws on the server, the program stops before it serves. In the browser the page is not hydrated: it stays the HTML the server sent, links load whole pages, and the error is in the console.
+- `hooks.ts` exports nothing else: another export fails the build, naming it, since Tifa would never run it. An app without pages has no JavaScript, and a `hooks.ts` there fails the build too.
+- `hooks.ts` is in the main bundle of the browser, with what it imports. Keep it small.
 
 ## Sessions
 

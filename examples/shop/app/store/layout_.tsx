@@ -11,7 +11,7 @@ import { LocaleContext, useStore } from './i18n'
 import { refreshMine, useMine } from './mine'
 import { catalogueNo, Price, ProductImage } from './product-card'
 import { RouteError, useAlternates } from 'tifa/client'
-import { I18nProvider, i18nFor } from 'tifa/i18n'
+import { I18nProvider, i18n } from 'tifa/i18n'
 import { layout, type LayoutData } from './route.gen'
 
 // The title of every page of the store, in the language of the page. A page sets its own title
@@ -20,7 +20,7 @@ import { layout, type LayoutData } from './route.gen'
 export const head = ({ loaderData }: { loaderData?: LayoutData }) => {
   if (!loaderData) return {}
   const { code } = loaderData.locale
-  return { meta: [{ title: i18nFor(code).getFixedT(code, 'store')('home.title') }] }
+  return { meta: [{ title: i18n.getFixedT(code, 'store')('home.title') }] }
 }
 
 export default function StoreLayout() {

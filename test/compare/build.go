@@ -54,7 +54,7 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 // imports it as `@/`. kind is "next", "start" or "reactrouter". The folder is made new every time. The data the
 // pages show is not copied: the apps compute it from the domain code in test/compare/domain.
 //
-// Copied as they are: the shadcn components, the helpers, the root Layout and its account, the stylesheet, the
+// Copied as they are: the shadcn components, the helpers, the root Layout and its account, hooks.ts, the stylesheet, the
 // formatting functions and everything under app/projects that is TypeScript. The generated
 // route.gen modules come from .tifa/app, with getRouteApi replaced for Next.js by a
 // context the server component fills. The photos the pages show (their 160 pixel size) go to
@@ -91,7 +91,7 @@ func (e Env) Sync(dir, kind string) error {
 	if err := copyTree(filepath.Join(e.Shop, "components", "ui"), filepath.Join(dst, "components", "ui"), typescript); err != nil {
 		return err
 	}
-	for _, name := range []string{"components/hooks/use-mobile.ts", "app/layout.tsx", "app/account.tsx", "app/animated-number.tsx", "app/use-hydrated.ts", "app/format.ts"} {
+	for _, name := range []string{"components/hooks/use-mobile.ts", "app/layout.tsx", "app/account.tsx", "app/animated-number.tsx", "app/use-hydrated.ts", "app/format.ts", "hooks.ts"} {
 		if err := copyFile(filepath.Join(e.Shop, name), filepath.Join(dst, name), nil); err != nil {
 			return err
 		}

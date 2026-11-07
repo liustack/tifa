@@ -170,7 +170,10 @@ function canonicalStatus(redirect: Response) {
 // and the head from the head functions of the matched routes, the assets and the hydration
 // scripts are written as strings, so a page that failed at any level still comes as a whole
 // document.
-export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
+// onStart is the one of hooks.ts at the app root. It runs once in each VM, when the bundle loads,
+// so an error in it stops the program before it serves.
+export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes, onStart?: () => void) {
+  onStart?.()
   // data-session is "in" or "out" on a page that carries the session, and absent on a page that
   // carries none: only that page lets the head script read the copy in the browser.
   // htmlAttributesOf refuses a data-session of the app.

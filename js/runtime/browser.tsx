@@ -44,8 +44,11 @@ export const rootOptions = {
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
-// way the head and the attributes of <html> follow the matched routes from then on.
-export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
+// way the head and the attributes of <html> follow the matched routes from then on. onStart, the
+// one of hooks.ts at the app root, runs first. When it throws, the page is not hydrated and stays
+// the HTML the server sent.
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes, onStart?: () => void) {
+  onStart?.()
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
