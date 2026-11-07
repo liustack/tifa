@@ -14,7 +14,7 @@ import { useHydrated } from '../../../../use-hydrated'
 import { layout as project } from '../../route.gen'
 import { PUT, page, type PUTInput } from './route.gen'
 
-const noteSchema = z.object({ text: z.string().trim().min(1, '请写点内容').max(200, '备注最多 200 个字') }) satisfies z.ZodType<PUTInput>
+const noteSchema = z.object({ text: z.string().trim().min(1, 'Write something').max(200, 'A note is at most 200 characters') }) satisfies z.ZodType<PUTInput>
 
 // Notes are what the staff wrote on the order, and a form for one more. Customers never see them.
 export function Notes() {
@@ -32,7 +32,7 @@ export function Notes() {
       form.reset()
     } catch (e) {
       if (!(e instanceof TifaError)) {
-        form.setError('root', { message: '网络异常，请重试' })
+        form.setError('root', { message: 'Network error. Please try again.' })
         return
       }
       const fields = Object.entries(e.fields)
@@ -48,13 +48,13 @@ export function Notes() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 font-heading text-lg font-medium tracking-[0.04em]">
           <StickyNote className="size-4 text-primary" />
-          内部备注
+          Internal notes
         </CardTitle>
-        <CardAction className="font-mono text-xs text-muted-foreground">共 {notes.length} 条，顾客看不到</CardAction>
+        <CardAction className="font-mono text-xs text-muted-foreground">{notes.length} in all, hidden from the customer</CardAction>
       </CardHeader>
       <CardContent className="space-y-5">
         {notes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">还没有备注。</p>
+          <p className="text-sm text-muted-foreground">No notes yet.</p>
         ) : (
           <ul className="divide-y">
             {notes.map((n) => (
@@ -77,15 +77,15 @@ export function Notes() {
         )}
         <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
           <Field data-invalid={!!errors.text}>
-            <FieldLabel htmlFor="note-text">写一条备注</FieldLabel>
-            <Textarea id="note-text" rows={2} placeholder="例如：已和顾客确认送达时间" aria-invalid={!!errors.text} {...form.register('text')} />
+            <FieldLabel htmlFor="note-text">Write a note</FieldLabel>
+            <Textarea id="note-text" rows={2} placeholder="For example: delivery time confirmed with the customer" aria-invalid={!!errors.text} {...form.register('text')} />
             <FieldError errors={errors.text ? [{ message: errors.text.message }] : []} />
           </Field>
           <FieldError errors={errors.root ? [{ message: errors.root.message }] : []} />
           <div className="flex items-center justify-between">
             <span className="font-mono text-xs text-muted-foreground">{length} / 200</span>
             <Button type="submit" size="sm" disabled={!hydrated || isSubmitting}>
-              {isSubmitting ? '正在保存…' : '添加备注'}
+              {isSubmitting ? 'Saving…' : 'Add note'}
             </Button>
           </div>
         </form>

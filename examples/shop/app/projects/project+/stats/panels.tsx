@@ -22,21 +22,21 @@ export function ProductTable() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>商品销售明细</CardTitle>
-        <CardDescription>近 30 天，每件商品卖了多少，右边是每天的走势。</CardDescription>
-        <CardAction className="font-mono text-xs text-muted-foreground">{list.length} 件商品</CardAction>
+        <CardTitle className={title}>Product sales</CardTitle>
+        <CardDescription>Last 30 days: how many of each product sold, with the daily trend on the right.</CardDescription>
+        <CardAction className="font-mono text-xs text-muted-foreground">{list.length} products</CardAction>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className={cn(head, 'w-8')}>#</TableHead>
-              <TableHead className={head}>商品</TableHead>
-              <TableHead className={cn(head, 'text-right')}>件数</TableHead>
-              <TableHead className={cn(head, 'text-right')}>订单</TableHead>
-              <TableHead className={cn(head, 'text-right')}>销售额</TableHead>
-              <TableHead className={cn(head, 'w-32')}>占比</TableHead>
-              <TableHead className={cn(head, 'w-28')}>走势</TableHead>
+              <TableHead className={head}>Product</TableHead>
+              <TableHead className={cn(head, 'text-right')}>Pieces</TableHead>
+              <TableHead className={cn(head, 'text-right')}>Orders</TableHead>
+              <TableHead className={cn(head, 'text-right')}>Sales</TableHead>
+              <TableHead className={cn(head, 'w-32')}>Share</TableHead>
+              <TableHead className={cn(head, 'w-28')}>Trend</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -72,7 +72,7 @@ export function ProductTable() {
   )
 }
 
-const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 // Heatmap shows when orders are placed: the day of the week against two-hour blocks.
 export function Heatmap() {
@@ -82,11 +82,11 @@ export function Heatmap() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>下单时段</CardTitle>
-        <CardDescription>颜色越深，这个时段的订单越多。</CardDescription>
+        <CardTitle className={title}>Order times</CardTitle>
+        <CardDescription>The darker the color, the more orders in that time slot.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-[2.5rem_repeat(12,minmax(0,1fr))] gap-1 text-[11px] text-muted-foreground" role="table" aria-label="下单时段">
+        <div className="grid grid-cols-[2.5rem_repeat(12,minmax(0,1fr))] gap-1 text-[11px] text-muted-foreground" role="table" aria-label="Order times">
           <span />
           {Array.from({ length: 12 }, (_, b) => (
             <span key={b} className="text-center font-mono">
@@ -103,7 +103,7 @@ export function Heatmap() {
                       <span role="cell" className="h-6 bg-primary" style={{ opacity: 0.2 + (n / peak) * 0.8 }} />
                     </TooltipTrigger>
                     <TooltipContent>
-                      {weekdays[d]} {b * 2}:00 到 {b * 2 + 2}:00，{n} 单
+                      {weekdays[d]} {b * 2}:00 to {b * 2 + 2}:00, {n} orders
                     </TooltipContent>
                   </Tooltip>
                 ) : (
@@ -114,11 +114,11 @@ export function Heatmap() {
           ))}
         </div>
         <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          少
+          Fewer
           {[0.2, 0.4, 0.6, 0.8, 1].map((o) => (
             <span key={o} className="size-3 bg-primary" style={{ opacity: o }} />
           ))}
-          多，最多一格 {peak} 单
+          More, up to {peak} orders in a cell
         </p>
       </CardContent>
     </Card>
@@ -133,18 +133,18 @@ export function Carriers() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>快递表现</CardTitle>
-        <CardDescription>发出的订单按快递公司分，用时是平均数。</CardDescription>
+        <CardTitle className={title}>Carrier performance</CardTitle>
+        <CardDescription>Shipped orders by carrier, with average times.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className={head}>快递</TableHead>
-              <TableHead className={cn(head, 'text-right')}>订单</TableHead>
-              <TableHead className={cn(head, 'w-24')}>占比</TableHead>
-              <TableHead className={cn(head, 'text-right')}>店里发出</TableHead>
-              <TableHead className={cn(head, 'text-right')}>路上</TableHead>
+              <TableHead className={head}>Carrier</TableHead>
+              <TableHead className={cn(head, 'text-right')}>Orders</TableHead>
+              <TableHead className={cn(head, 'w-24')}>Share</TableHead>
+              <TableHead className={cn(head, 'text-right')}>In the shop</TableHead>
+              <TableHead className={cn(head, 'text-right')}>In transit</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -157,8 +157,8 @@ export function Carriers() {
                     <span className="block h-full bg-primary/70" style={{ width: `${all ? Math.round((c.orders / all) * 100) : 0}%` }} />
                   </span>
                 </TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{c.orders ? `${c.avgDispatchHours.toFixed(1)} 小时` : '无'}</TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{c.avgTransitHours ? `${c.avgTransitHours.toFixed(0)} 小时` : '无'}</TableCell>
+                <TableCell className="text-right font-mono text-xs tabular-nums">{c.orders ? `${c.avgDispatchHours.toFixed(1)} hours` : 'None'}</TableCell>
+                <TableCell className="text-right font-mono text-xs tabular-nums">{c.avgTransitHours ? `${c.avgTransitHours.toFixed(0)} hours` : 'None'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -176,8 +176,8 @@ export function Dispatch() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>发货快不快</CardTitle>
-        <CardDescription>从下单到交给快递，平均 {totals.avgDispatchHours.toFixed(1)} 小时。</CardDescription>
+        <CardTitle className={title}>How fast we ship</CardTitle>
+        <CardDescription>From order to handing it to the carrier, {totals.avgDispatchHours.toFixed(1)} hours on average.</CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="space-y-3">
@@ -188,7 +188,7 @@ export function Dispatch() {
                 <span className="block h-full bg-primary" style={{ width: `${all ? Math.round((b.orders / all) * 100) : 0}%` }} />
               </span>
               <span className="text-right font-mono text-xs text-muted-foreground tabular-nums">
-                {b.orders} 单
+                {b.orders} orders
               </span>
             </li>
           ))}
@@ -204,9 +204,9 @@ export function Customers() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>常客</CardTitle>
+        <CardTitle className={title}>Regulars</CardTitle>
         <CardDescription>
-          {totals.customers} 位顾客，{totals.repeat} 位买过不止一次。
+          {totals.customers} customers, {totals.repeat} bought more than once.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -219,7 +219,7 @@ export function Customers() {
               </Avatar>
               <span className="flex-1 text-sm">{c.name}</span>
               <span className="text-right font-mono text-xs tabular-nums">
-                {c.orders} 单
+                {c.orders} orders
                 <br />
                 <span className="text-muted-foreground">{yuan(c.spentCents)}</span>
               </span>
@@ -238,10 +238,10 @@ export function Recent() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>最近的订单</CardTitle>
+        <CardTitle className={title}>Recent orders</CardTitle>
         <CardAction className="text-xs">
           <Link to="/projects/$project" params={{ project: 'studio' }} className="text-muted-foreground hover:text-foreground">
-            全部订单
+            All orders
           </Link>
         </CardAction>
       </CardHeader>
@@ -249,12 +249,12 @@ export function Recent() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className={head}>订单</TableHead>
-              <TableHead className={head}>顾客</TableHead>
-              <TableHead className={head}>商品</TableHead>
-              <TableHead className={head}>状态</TableHead>
-              <TableHead className={head}>下单</TableHead>
-              <TableHead className={cn(head, 'text-right')}>金额</TableHead>
+              <TableHead className={head}>Order</TableHead>
+              <TableHead className={head}>Customer</TableHead>
+              <TableHead className={head}>Product</TableHead>
+              <TableHead className={head}>Status</TableHead>
+              <TableHead className={head}>Placed</TableHead>
+              <TableHead className={cn(head, 'text-right')}>Amount</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -266,7 +266,7 @@ export function Recent() {
                 <TableCell className="text-sm">{o.customer}</TableCell>
                 <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
                   {o.product}
-                  {o.lines > 1 && ` 等 ${o.lines} 件`}
+                  {o.lines > 1 && ` and ${o.lines - 1} more`}
                 </TableCell>
                 <TableCell>
                   <OrderStatus status={o.status} />

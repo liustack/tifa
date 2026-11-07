@@ -29,7 +29,7 @@ type Credentials struct {
 func POST(c *tifa.Ctx, in Credentials) error {
 	s, ok := shop.CheckPassword(in.Email, in.Password)
 	if !ok {
-		return tifa.Error{Status: 401, Message: "邮箱或密码不对"}
+		return tifa.Error{Status: 401, Message: "Wrong email or password"}
 	}
 	if err := tifa.SetSession(c, &s); err != nil {
 		return err

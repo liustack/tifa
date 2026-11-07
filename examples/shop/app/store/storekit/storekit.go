@@ -1,6 +1,6 @@
 // Package storekit holds what every page of the storefront shares: the languages it is offered in,
 // the currency and time zone of each, and text kept in both languages. The storefront is the
-// customer side of the shop studio, at /store, with the other language under /en-US.
+// customer side of the shop studio, at /store, with the other language under /zh-CN.
 package storekit
 
 import (

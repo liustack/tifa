@@ -24,7 +24,7 @@ var (
 
 // visit returns the Ctx of a request that carries the cart cookie id, or none for "".
 func visit(t *testing.T, id string) (*tifa.Ctx, *httptest.ResponseRecorder) {
-	r := httptest.NewRequest("POST", "/store/cart", nil)
+	r := httptest.NewRequest("POST", "/zh-CN/store/cart", nil)
 	if id != "" {
 		r.AddCookie(&http.Cookie{Name: CookieName, Value: id})
 	}

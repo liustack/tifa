@@ -24,17 +24,17 @@ import { PATCH, page, type PATCHInput } from './route.gen'
 
 // The same rules as orders.CheckRecipient in Go, which checks again on the server.
 const recipientSchema = z.object({
-  customer: z.string().trim().min(1, '请填写收件人'),
+  customer: z.string().trim().min(1, 'Enter the recipient'),
   phone: z
     .string()
     .transform((s) => s.replace(/[ -]/g, ''))
-    .pipe(z.string().regex(/^1[3-9][0-9]{9}$/, '请填写 11 位手机号')),
+    .pipe(z.string().regex(/^1[3-9][0-9]{9}$/, 'Enter an 11-digit phone number')),
   address: z
     .string()
     .trim()
-    .min(1, '请填写收货地址')
+    .min(1, 'Enter the delivery address')
     // Count characters as Go does, not UTF-16 units.
-    .refine((s) => [...s].length <= 100, '收货地址最多 100 个字'),
+    .refine((s) => [...s].length <= 100, 'The address is at most 100 characters'),
 }) satisfies z.ZodType<PATCHInput, PATCHInput>
 
 export function RecipientDialog() {
@@ -58,7 +58,7 @@ export function RecipientDialog() {
       setOpen(false)
     } catch (e) {
       if (!(e instanceof TifaError)) {
-        form.setError('root', { message: '网络异常，请重试' })
+        form.setError('root', { message: 'Network error. Please try again.' })
         return
       }
       const fields = Object.entries(e.fields)
@@ -73,14 +73,14 @@ export function RecipientDialog() {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" disabled={!hydrated || order.status !== 'pending'}>
           <PencilLine />
-          修改收货信息
+          Edit delivery details
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
           <DialogHeader className="mb-4">
-            <DialogTitle>修改收货信息</DialogTitle>
-            <DialogDescription>发货前都可以修改，发货后以运单为准。</DialogDescription>
+            <DialogTitle>Edit delivery details</DialogTitle>
+            <DialogDescription>You can edit them until the order ships. After that the waybill rules.</DialogDescription>
           </DialogHeader>
           <FieldGroup>
             <Controller
@@ -88,7 +88,7 @@ export function RecipientDialog() {
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="recipient-customer">收件人</FieldLabel>
+                  <FieldLabel htmlFor="recipient-customer">Recipient</FieldLabel>
                   <Input {...field} id="recipient-customer" autoComplete="name" aria-invalid={fieldState.invalid} />
                   {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                 </Field>
@@ -99,7 +99,7 @@ export function RecipientDialog() {
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="recipient-phone">手机号</FieldLabel>
+                  <FieldLabel htmlFor="recipient-phone">Phone</FieldLabel>
                   <Input
                     {...field}
                     id="recipient-phone"
@@ -117,7 +117,7 @@ export function RecipientDialog() {
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="recipient-address">收货地址</FieldLabel>
+                  <FieldLabel htmlFor="recipient-address">Delivery address</FieldLabel>
                   <Textarea
                     {...field}
                     id="recipient-address"
@@ -134,11 +134,11 @@ export function RecipientDialog() {
           <DialogFooter className="mt-6">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                取消
+                Cancel
               </Button>
             </DialogClose>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? '正在保存…' : '保存'}
+              {isSubmitting ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </form>

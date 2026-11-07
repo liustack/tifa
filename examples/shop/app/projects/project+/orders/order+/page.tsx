@@ -30,7 +30,7 @@ export default function OrderPage() {
         <Button variant="ghost" size="sm" className="-ml-2 text-muted-foreground" asChild>
           <Link to="/projects/$project" params={{ project: order.projectId }}>
             <ArrowLeft />
-            全部订单
+            All orders
           </Link>
         </Button>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -41,27 +41,27 @@ export default function OrderPage() {
             <OrderStatus status={order.status} />
             {order.note && (
               <Badge variant="outline" className="rounded-none">
-                买家有留言
+                Buyer left a message
               </Badge>
             )}
             {order.notes.length > 0 && (
               <Badge variant="outline" className="rounded-none">
-                {order.notes.length} 条内部备注
+                {order.notes.length} internal notes
               </Badge>
             )}
           </div>
           <Actions />
         </div>
         <p className="text-sm text-muted-foreground">
-          下单于 {orderDate(order.placedAt, timeZone)} · 共 {pieces} 件商品 · {order.payment.method}
+          Placed {orderDate(order.placedAt, timeZone)} · {pieces} pieces · {order.payment.method}
         </p>
       </div>
       <dl className="grid grid-cols-2 divide-x border bg-card md:grid-cols-4">
         {[
-          ['实付', yuan(order.payment.paidCents)],
-          ['商品', `${order.items.length} 种 · ${pieces} 件`],
-          ['付款', order.payment.method],
-          ['顾客累计', `${count} 单`],
+          ['Paid', yuan(order.payment.paidCents)],
+          ['Products', `${order.items.length} kinds · ${pieces} pieces`],
+          ['Payment', order.payment.method],
+          ['Customer total', `${count} orders`],
         ].map(([k, v]) => (
           <div key={k} className="flex flex-col gap-0.5 px-4 py-3">
             <dt className="text-xs text-muted-foreground">{k}</dt>
@@ -78,7 +78,7 @@ export default function OrderPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 font-heading text-lg font-medium tracking-[0.04em]">
                   <MessageSquareText className="size-4 text-primary" />
-                  买家留言
+                  Buyer message
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm">{order.note}</CardContent>
@@ -96,7 +96,7 @@ export default function OrderPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">收货信息</CardTitle>
+              <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Delivery details</CardTitle>
               <CardAction>
                 <RecipientDialog />
               </CardAction>
@@ -127,22 +127,22 @@ export default function OrderPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 font-heading text-lg font-medium tracking-[0.04em]">
                   <PackageCheck className="size-5 text-primary" />
-                  已发货
+                  Shipped
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                  <dt className="text-muted-foreground">快递公司</dt>
+                  <dt className="text-muted-foreground">Carrier</dt>
                   <dd>{order.shipment.carrierName}</dd>
-                  <dt className="text-muted-foreground">运单号</dt>
+                  <dt className="text-muted-foreground">Tracking number</dt>
                   <dd className="font-mono">{order.shipment.trackingNo}</dd>
-                  <dt className="text-muted-foreground">发货时间</dt>
+                  <dt className="text-muted-foreground">Shipped</dt>
                   <dd>
                     <time dateTime={order.shipment.shippedAt}>{orderTime(order.shipment.shippedAt, timeZone)}</time>
                   </dd>
                 </dl>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  下单后 {waited(order.placedAt, order.shipment.shippedAt)} 发出
+                  Shipped {waited(order.placedAt, order.shipment.shippedAt)} after the order
                 </p>
               </CardContent>
             </Card>
@@ -169,16 +169,16 @@ function Progress() {
   const { order } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
   const events = order.shipment?.events ?? []
-  const delivered = events.length > 0 && events[events.length - 1].note.startsWith('已签收') ? events[events.length - 1] : undefined
+  const delivered = events.length > 0 && events[events.length - 1].note.startsWith('Delivered') ? events[events.length - 1] : undefined
   const log = order.log
   const at = (action: string) => log.find((e) => e.action === action)?.at
   const steps = [
-    { label: '下单', at: order.placedAt },
-    { label: '付款', at: at('付款成功') },
-    { label: '审核', at: at('风控通过') },
-    { label: '拣货打包', at: at('打包完成') },
-    { label: '发货', at: order.shipment?.shippedAt },
-    { label: '签收', at: delivered?.at },
+    { label: 'Placed', at: order.placedAt },
+    { label: 'Paid', at: at('Payment received') },
+    { label: 'Checked', at: at('Risk check passed') },
+    { label: 'Picked and packed', at: at('Packing done') },
+    { label: 'Shipped', at: order.shipment?.shippedAt },
+    { label: 'Delivered', at: delivered?.at },
   ]
   return (
     <ol className="grid grid-cols-3 border bg-card md:grid-cols-6">
@@ -200,14 +200,14 @@ function Others() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">{order.customer} 的订单</CardTitle>
+        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">{order.customer}'s orders</CardTitle>
         <CardAction className="font-mono text-xs text-muted-foreground">
-          共 {count} 单 · {yuan(spentCents)}
+          {count} orders · {yuan(spentCents)}
         </CardAction>
       </CardHeader>
       <CardContent>
         {others.length === 0 ? (
-          <p className="text-sm text-muted-foreground">这是这位顾客的第一单。</p>
+          <p className="text-sm text-muted-foreground">This is the customer's first order.</p>
         ) : (
           <ul className="divide-y">
             {others.map((o) => (
@@ -218,7 +218,7 @@ function Others() {
                 </Link>
                 <span className="flex-1 truncate text-sm text-muted-foreground">
                   {o.product}
-                  {o.lines > 1 && ` 等 ${o.lines} 件`}
+                  {o.lines > 1 && ` and ${o.lines - 1} more`}
                 </span>
                 <time dateTime={o.placedAt} className="hidden font-mono text-xs text-muted-foreground sm:block">
                   {orderTime(o.placedAt, timeZone)}
@@ -241,14 +241,14 @@ function Tracking() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">物流轨迹</CardTitle>
+        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Tracking</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         <dl className="grid grid-cols-3 divide-x border text-center">
           {[
-            ["承运", order.shipment?.carrierName ?? ""],
-            ["用时", waited(order.shipment?.shippedAt ?? order.placedAt, events[0]?.at ?? order.placedAt)],
-            ["节点", `${events.length} 个`],
+            ["Carrier", order.shipment?.carrierName ?? ""],
+            ["Time taken", waited(order.shipment?.shippedAt ?? order.placedAt, events[0]?.at ?? order.placedAt)],
+            ["Stops", `${events.length}`],
           ].map(([k, v]) => (
             <div key={k} className="flex flex-col gap-0.5 px-2 py-3">
               <dt className="text-xs text-muted-foreground">{k}</dt>
@@ -256,7 +256,7 @@ function Tracking() {
             </div>
           ))}
         </dl>
-        <ol className="grid grid-cols-5 text-xs" aria-label="路线">
+        <ol className="grid grid-cols-5 text-xs" aria-label="Route">
           {routeStops(events).map((s, i) => (
             <li key={s} className={cn("flex flex-col items-center gap-1.5 text-center", i === 0 && "text-primary")}>
               <span className="h-px w-full bg-border" />
@@ -289,7 +289,7 @@ function Tracking() {
 }
 
 export const head = ({ loaderData }: { loaderData?: PageData }) => ({
-  meta: loaderData ? [{ title: `${loaderData.order.id} · 山海工作台` }] : [],
+  meta: loaderData ? [{ title: `${loaderData.order.id} · Shanhai Workbench` }] : [],
 })
 
 export function Error({ error }: { error: unknown }) {
@@ -300,9 +300,9 @@ export function Error({ error }: { error: unknown }) {
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle>{missing ? '没有找到这个订单' : '订单没能打开'}</EmptyTitle>
+        <EmptyTitle>{missing ? 'Order not found' : 'The order could not be opened'}</EmptyTitle>
         <EmptyDescription>
-          {missing ? '订单号可能有误，或者它属于另一家店铺。' : error instanceof RouteError ? error.message : '请稍后再试。'}
+          {missing ? 'The order number may be wrong, or the order belongs to another shop.' : error instanceof RouteError ? error.message : 'Please try again later.'}
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -317,12 +317,12 @@ function SameProduct() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">同款商品的订单</CardTitle>
+        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Orders with the same product</CardTitle>
         <CardAction className="text-xs text-muted-foreground">{first?.name}</CardAction>
       </CardHeader>
       <CardContent>
         {sameProduct.length === 0 ? (
-          <p className="text-sm text-muted-foreground">这家店里没有别的订单买过它。</p>
+          <p className="text-sm text-muted-foreground">No other order in this shop has this product.</p>
         ) : (
           <ul className="divide-y">
             {sameProduct.map((o) => (
