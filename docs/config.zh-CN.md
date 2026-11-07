@@ -1,7 +1,7 @@
 ---
-summary: 'Tifa 应用的全部配置、应用怎样定义自己的配置和每个回答都带的安全头（包括 server.csp 的 Content-Security-Policy）：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'Tifa 应用的全部配置、应用怎样定义自己的选项和每个回答都带的安全头（包括 server.csp 的 Content-Security-Policy）：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
-  - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
+  - 用 tifa.String 等定义应用的选项，或在 OnStart 里读它
   - 写 .env 文件，或部署到会设 PORT 的平台
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
   - 上传、下载或推流大约 10 秒就被切断，或者处理函数需要的时间超过读写超时
@@ -32,9 +32,9 @@ Tifa 应用的默认值按小机器定好了，需要时才改。
 3. 程序运行目录下的 `.env` 文件。
 4. `-c path.yaml`（或 `--config path.yaml`）指定的部署文件。
 5. 应用根目录的项目文件 `tifa.yaml`。`tifa build` 读它，把里面的值编进程序。
-6. 默认值：Tifa 的配置用下表的默认值，[应用的配置](#应用的配置)用 `config.go` 里写的。
+6. 默认值：Tifa 的配置用下表的默认值，[应用的选项](#应用的选项)用 `options.go` 里写的。
 
-每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键和别的环境变量一律不管。既不是 Tifa 的设置、也不是应用设置的参数，比如把 `--server-addr` 写成 `--addr`，程序会报 `unknown flag` 并退出。
+每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键和别的环境变量一律不管。既不是 Tifa 的设置、也不是应用选项的参数，比如把 `--server-addr` 写成 `--addr`，程序会报 `unknown flag` 并退出。
 
 `tifa.yaml` 写的是 Tifa 配置的值。`build.*`、`i18n.*` 和 `site.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
 
@@ -51,7 +51,7 @@ cache:
   size: 128MiB
 ```
 
-运行 `./bin/app config` 会列出全部配置（Tifa 的和应用的）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。应用的秘密（[`tifa.Secret`](#应用的配置)）只写来源，不写值。
+运行 `./bin/app config` 会列出全部配置和选项（Tifa 的配置和应用的选项）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。应用的秘密（[`tifa.Secret`](#应用的选项)）只写来源，不写值。
 
 ### 名字
 
@@ -138,12 +138,12 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `session.max_age` | `720h` | `--session-max-age`、`SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`SESSION_MEMORY_LIMIT` | 内存会话存储最多放多少字节，`OnStart` 没用 `tifa.SetSessionStore` 设存储时才用。满了先挤掉最早过期的 |
 
-## 应用的配置
+## 应用的选项
 
-应用在根目录的 `config.go` 里用包级变量定义自己的配置：
+应用在根目录的 `options.go` 里用包级变量定义自己的选项：
 
 ```go
-// config.go
+// options.go
 package shop
 
 import (
@@ -164,16 +164,16 @@ var (
 ```
 
 - 参数依次是键、默认值和一行说明。返回的是普通值：读就用 `shop.DBURL`，测试里直接赋值 `shop.DBURL = "test.db"`。
-- 值和 Tifa 的配置来自同样的来源：参数 `--db-url`、环境变量 `DB_URL`、`.env`、`-c` 的文件，最后是默认值。`tifa.yaml` 只写 Tifa 的配置。
+- 选项的值和 Tifa 的配置来自同样的来源：参数 `--db-url`、环境变量 `DB_URL`、`.env`、`-c` 的文件，最后是默认值。`tifa.yaml` 只写 Tifa 的配置。
 - 类型有 `String`（`string`）、`Strings`（`[]string`）、`Int`（`int`）、`Bool`（`bool`）、`Duration`（`time.Duration`）和 `Size`（`int64`，字节数）。值的写法和 Tifa 的配置一样，见[值的写法](#值的写法)。`Strings` 写成逗号分隔的一行，比如 `FEED_HOSTS=a.example,b.example`。
 - `Secret`（`string`）用于密码、token 和密钥。它没有默认值，没有来源设置时为空。它从环境变量、`.env` 或 `-c` 的文件读，不从命令行参数读：参数会出现在进程列表里，这台机器上的每个用户都看得到，所以给了参数程序就报错，并说明该把值放在哪里。`./bin/app config` 只写它的来源，不写值，写成注释 `# api_key: (hidden)`。秘密出错时（比如文件里写了不加引号的数字），错误信息只写键名和来源，不写值。以 `*`、`!`、`&` 等 YAML 符号开头的秘密要加引号。
 - 值只能是单个值。结构化的数据放进应用自己的文件，配置里放它的路径。
-- 值不合法时变量取默认值，程序把它和别的不合法配置一起列出来，在 `OnStart` 之前退出。
+- 值不合法时变量取默认值，程序把它和别的不合法的配置、选项一起列出来，在 `OnStart` 之前退出。
 - `go test` 里配置一律是默认值，不管参数、环境变量和 `.env` 是什么。
 - 根包导入的包读不到这些变量（会成环），由 `OnStart` 把值传进去，比如 `store.Open(DBURL)`。
 - 应用嫌不够，可以在 `OnStart` 里用自己的配置系统。
 
-以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `config.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置（应用的或 Tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 Tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。
+以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `options.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置或选项（应用的或 Tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 Tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。之前叫 `config.go` 的文件也一样：里面还有 `tifa.String` 等调用时构建会失败并指出它，把它改名为 `options.go` 即可。
 
 ## 渲染队列
 
@@ -440,7 +440,7 @@ server:
 
 `tifa.yaml` 里的值类型或格式写错时，`tifa build` 报错并指出行号。把某项配置写成一节或一个列表（比如 `ssr: {vms: {count: 2}}`）也算类型写错。下面几种情况程序拒绝启动，一次列出全部问题，每条都带来源和键：
 
-- Tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
+- Tifa 的某项配置或应用的某个选项的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
 - 应用的秘密（`tifa.Secret`）用命令行参数给了值。
 - `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
 

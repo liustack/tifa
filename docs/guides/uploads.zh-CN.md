@@ -12,7 +12,7 @@ read_when:
 
 一个页面，访客上传带标题的图片，并看到列表。方法函数检查标题、大小和文件类型，把文件存进一个文件夹，再把它提供出去。
 
-代码照原样跑过：它就是 Tifa 仓库里的应用 `test/apps/upload`，端到端测试会构建它，并在浏览器里操作它。用到的调用，参考文档在这里：[入参里的文件](../app.zh-CN.md#入参里的文件)，[路由自己的请求体上限和读取时间](../app.zh-CN.md#路由自己的请求体上限和读取时间)，[应用的配置](../config.zh-CN.md#应用的配置)。
+代码照原样跑过：它就是 Tifa 仓库里的应用 `test/apps/upload`，端到端测试会构建它，并在浏览器里操作它。用到的调用，参考文档在这里：[入参里的文件](../app.zh-CN.md#入参里的文件)，[路由自己的请求体上限和读取时间](../app.zh-CN.md#路由自己的请求体上限和读取时间)，[应用的选项](../config.zh-CN.md#应用的选项)。
 
 ## 文件怎么到方法函数手里
 
@@ -24,10 +24,10 @@ POST、PUT、PATCH 处理函数的入参里，类型为 `*multipart.FileHeader` 
 
 ## 配置和请求体限制
 
-根包里的 `config.go`：
+根包里的 `options.go`：
 
 ```go
-// Package uploads 是应用的根包：它的配置和钩子。
+// Package uploads 是应用的根包：它的选项和钩子。
 package uploads
 
 import "github.com/liustack/tifa"
@@ -40,7 +40,7 @@ var (
 )
 ```
 
-它们同样是参数 `--upload-limit`、环境变量 `UPLOAD_LIMIT` 等等，和所有[应用的配置](../config.zh-CN.md#应用的配置)一样。`4MiB` 和 `4<<20` 是一个意思。`hooks.go` 在应用启动时建好文件夹：
+它们同样是参数 `--upload-limit`、环境变量 `UPLOAD_LIMIT` 等等，和所有[应用的选项](../config.zh-CN.md#应用的选项)一样。`4MiB` 和 `4<<20` 是一个意思。`hooks.go` 在应用启动时建好文件夹：
 
 ```go
 package uploads

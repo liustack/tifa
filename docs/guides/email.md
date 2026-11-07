@@ -29,10 +29,10 @@ The examples use v0.8.1. Check the [documentation](https://pkg.go.dev/github.com
 
 ## Settings
 
-The host, port and password are different on every machine, so they are settings of the app ([Settings of the app](../config.md#settings-of-the-app)):
+The host, port and password are different on every machine, so they are options of the app ([Options of the app](../config.md#options-of-the-app)):
 
 ```go
-// config.go
+// options.go
 var (
 	// SMTPHost is the mail server. Empty means mail is written to the log and not sent.
 	SMTPHost = tifa.String("smtp.host", "", "SMTP server host, empty to log mail instead of sending it")
@@ -141,7 +141,7 @@ func sendSMTP(ctx context.Context, m Mail) error {
 	return c.DialAndSendWithContext(ctx, msg)
 }
 
-// clientOptions turns the settings into the options of the SMTP client. OnStart calls it too, so
+// clientOptions turns the options into the options of the SMTP client. OnStart calls it too, so
 // a wrong value stops the app at start and not at the first mail.
 func clientOptions() ([]mail.Option, error) {
 	opts := []mail.Option{mail.WithPort(SMTPPort), mail.WithTimeout(20 * time.Second)}
@@ -210,7 +210,7 @@ func AddTodo(ctx context.Context, title string) (Todo, error) {
 }
 ```
 
-`MailNotify` is one more setting (`tifa.String("mail.notify", "", ...)`): empty sends none. The handler answers as soon as the transaction commits. Either the todo and its mail are both saved or neither is.
+`MailNotify` is one more option (`tifa.String("mail.notify", "", ...)`): empty sends none. The handler answers as soon as the transaction commits. Either the todo and its mail are both saved or neither is.
 
 A mail to a visitor, such as a receipt, is queued the same way, with the visitor's address in `To`. A mail the visitor asked for (a password reset) is still a job: the page says "we sent it", and the mail arrives a second later.
 

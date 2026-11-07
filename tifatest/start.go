@@ -27,7 +27,7 @@ import (
 // Start runs OnStart with the context of t, and when t ends stops the server: it waits for the
 // requests in flight, then runs OnShutdown. The settings of tifa are the defaults with those of the
 // project tifa.yaml over them, as in the program, except the address and HTTPS: the server listens
-// on HTTPS on this machine with a certificate of its own. The settings of the app keep their
+// on HTTPS on this machine with a certificate of its own. The options of the app keep their
 // defaults in a test binary, so set the variables before Start, such as the path of the database.
 //
 // srv.Client() trusts the certificate, keeps the cookies the answers set and does not follow

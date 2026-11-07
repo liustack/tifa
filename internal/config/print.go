@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Print writes the runtime settings of tifa in c and the settings of the app as a commented
+// Print writes the runtime settings of tifa in c and the options of the app as a commented
 // YAML file, which a deployment can pass with -c. from gives the source of each value of
 // tifa as Load returns it. Each comment names the flag, the environment variable and the
 // source of the value.

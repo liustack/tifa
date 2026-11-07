@@ -28,7 +28,7 @@ tifa new <目录> [--module 模块路径]
 | --- | --- |
 | `go.mod` | Tifa、登记为工具的 Tifa 命令、纯 Go 的 SQLite 驱动 `github.com/liustack/sqlite`，以及 `ignore node_modules` |
 | `db.go`、`schema.sql` | 在根目录：`var DB`、打开 WAL、`busy_timeout` 和外键检查的 `OpenDB`，以及所有领域的表，每次启动都用 `CREATE TABLE IF NOT EXISTS` 建。数据库文件是应用运行目录下的 `app.db`，或者配置 `db.path`（`DB_PATH`、`--db-path`）给的路径 |
-| `config.go` | 在根目录：应用的配置，`var DBPath = tifa.String("db.path", "app.db", ...)`，见[应用的配置](config.zh-CN.md#应用的配置) |
+| `options.go` | 在根目录：应用的选项，`var DBPath = tifa.String("db.path", "app.db", ...)`，见[应用的选项](config.zh-CN.md#应用的选项) |
 | `hooks.go` | `OnStart` 打开数据库，`OnShutdown` 关闭它。`OnRequest` 和 `OnError` 只在注释里说明，因为写了 `OnError` 就会替换默认处理 |
 | `app/layout.tsx` | 带导航的根 Layout，和一个 `Error`，未知地址的 404 也由它显示 |
 | `app/route.go`、`app/page.tsx` | `/`：清单，加一个表单，它的 `POST` 收一个带 `Validate` 方法的输入。页面显示返回的 `tifa.Fields` 里每个字段的提示 |
@@ -268,7 +268,7 @@ go tool tifa build
 | 文件 | 内容 |
 | --- | --- |
 | `main.go` | 用 `go:embed` 嵌入前端产物 `dist/`，设为 `tifaapp.App` 的 `Dist`，调用 `server.Main`（[`tifa dev`](dev.zh-CN.md) 下是 `server.DevMain`） |
-| `tifaapp/app.go` | `tifaapp` 包，只有一个变量 `App`：`tifa build` 看到的应用。只填 `hooks.go` 里实际存在的钩子，把 `tifa.yaml` 里的运行时配置写成 Go 代码（`Settings`），根目录的 `config.go` 定义了配置或 `content.go` 声明了集合而没有 `hooks.go` 时导入根包，并注册会话类型。每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 拿它和代码比对。应用的测试用 `<module>/.tifa/tifaapp` 导入它（见[测试](app.zh-CN.md#测试)） |
+| `tifaapp/app.go` | `tifaapp` 包，只有一个变量 `App`：`tifa build` 看到的应用。只填 `hooks.go` 里实际存在的钩子，把 `tifa.yaml` 里的运行时配置写成 Go 代码（`Settings`），根目录的 `options.go` 定义了选项或 `content.go` 声明了集合而没有 `hooks.go` 时导入根包，并注册会话类型。每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 拿它和代码比对。应用的测试用 `<module>/.tifa/tifaapp` 导入它（见[测试](app.zh-CN.md#测试)） |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
 | `session.gen.ts` | `SessionData`：会话类型的 `Exposed` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Exposed` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](sessions.zh-CN.md)） |
 | `i18n.gen.ts` | `i18n`：给浏览器运行时用的应用语言信息，没有任何 `_locales` 目录时是 `undefined`。内容有默认语言、`i18n.prefix` 是否为 `always`、站点的语言列表，以及 `routes`：路由树里每个在区域内的路由的语言，用 TanStack 路由 ID 作键（Layout、页面，和显示某个 Layout 的 404 的那条路由）。不在任何区域里的路由不在 `routes` 里：它没有语言，也没有前缀 |
@@ -551,7 +551,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 | 命令 | 作用 |
 | --- | --- |
 | `serve`（默认） | 加载配置，开了 [HTTPS](config.zh-CN.md#https) 时先把它准备好，执行 `OnStart`，监听 `server.addr`（开了 HTTPS 时还有 `server.http_addr`），收到 SIGINT 或 SIGTERM 后优雅退出并执行 `OnShutdown`。两个地址一起停止接收新连接，一起把在途请求处理完 |
-| `config` | 列出全部配置（Tifa 的和应用的）、最终值和来源，输出成带注释的 YAML 文件，部署时可以用 `-c` 传进去 |
+| `config` | 列出全部配置和选项（Tifa 的配置和应用的选项）、最终值和来源，输出成带注释的 YAML 文件，部署时可以用 `-c` 传进去 |
 | `version` | 输出应用模块、Tifa 模块与 Go 的版本 |
 
 配置来源从高到低：命令行参数、环境变量、工作目录的 `.env` 文件、`-c`（或 `--config`）指定的文件、编进程序的 `tifa.yaml` 的值、默认值。程序运行时不读 `tifa.yaml`。不认识的参数报错，不是配置的变量和文件键一律不管。见[配置](config.zh-CN.md#配置从哪来)。

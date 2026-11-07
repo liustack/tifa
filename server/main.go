@@ -27,7 +27,7 @@ import (
 //
 // Settings come from flags, environment variables, the .env file of the working directory, the
 // file named by -c, the project tifa.yaml and the defaults, in that order. The settings of the
-// app, which its config.go defines, were read from the same sources when its package started.
+// app, which its options.go defines, were read from the same sources when its package started.
 // Main exits the process with status 1 on any error, after listing every invalid setting.
 func Main(app App) {
 	start(app, nil)
@@ -138,7 +138,7 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 		},
 	}
 	// Every flag of the program is known here: those of tifa, and those of the app, which its
-	// config.go defined when its package started. Cobra refuses any other, as a mistyped one.
+	// options.go defined when its package started. Cobra refuses any other, as a mistyped one.
 	for _, cmd := range []*cobra.Command{root, serveCmd, configCmd} {
 		config.AddFlags(cmd.Flags())
 	}

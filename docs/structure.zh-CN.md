@@ -21,7 +21,7 @@ read_when:
 myapp/
   go.mod
   hooks.go                  OnStart、OnShutdown、OnRequest、OnError
-  config.go                 应用的配置：var DBPath = tifa.String(...)
+  options.go                应用的选项：var DBPath = tifa.String(...)
   db.go                     var DB，在 OnStart 里打开，在 OnShutdown 里关闭
   schema.sql                所有领域的表
   content.go                内容集合：var Blog = content.Define[Post](...)

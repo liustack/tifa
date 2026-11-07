@@ -10,7 +10,7 @@ import (
 	"github.com/liustack/tifa/internal/config"
 )
 
-// settingFuncs are the functions of package tifa that define a setting of the app.
+// settingFuncs are the functions of package tifa that define an option of the app.
 var settingFuncs = map[string]bool{"String": true, "Strings": true, "Int": true, "Bool": true, "Duration": true, "Size": true, "Secret": true}
 
 func isSettingFunc(obj types.Object) bool {
@@ -18,8 +18,8 @@ func isSettingFunc(obj types.Object) bool {
 	return ok && fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Signature().Recv() == nil && settingFuncs[fn.Name()]
 }
 
-// settings checks the settings the app defines and returns their keys in the order of config.go.
-// tifa.String and the like may only be called as the value of a package-level var in config.go
+// settings checks the options the app defines and returns their keys in the order of options.go.
+// tifa.String and the like may only be called as the value of a package-level var in options.go
 // of the root package, which the generated main imports, so that every setting is defined before
 // main runs. The key must be a string literal that is a valid key, and its flag and environment
 // variable must be those of no other setting, of the app or of tifa.
@@ -29,7 +29,7 @@ func (a *analyzer) settings() []string {
 		for _, f := range pkg.Syntax {
 			name := a.fset.Position(f.Pos()).Filename
 			allowed := map[*ast.Ident]*ast.CallExpr{}
-			if filepath.Dir(name) == a.root && filepath.Base(name) == "config.go" {
+			if filepath.Dir(name) == a.root && filepath.Base(name) == "options.go" {
 				for _, decl := range f.Decls {
 					gen, ok := decl.(*ast.GenDecl)
 					if !ok || gen.Tok != token.VAR {
@@ -53,7 +53,11 @@ func (a *analyzer) settings() []string {
 				}
 				call, ok := allowed[id]
 				if !ok {
-					a.errorAt(id.Pos(), "tifa.%s defines a setting of the app, which is written only in a package-level var of config.go in the root of the app, such as var DBURL = tifa.String(\"db.url\", \"app.db\", \"Database file\")", id.Name)
+					if filepath.Dir(name) == a.root && filepath.Base(name) == "config.go" {
+						a.errorAt(id.Pos(), "tifa.%s defines an option of the app, which is written in options.go, no longer in config.go: rename config.go to options.go", id.Name)
+						return true
+					}
+					a.errorAt(id.Pos(), "tifa.%s defines an option of the app, which is written only in a package-level var of options.go in the root of the app, such as var DBURL = tifa.String(\"db.url\", \"app.db\", \"Database file\")", id.Name)
 					return true
 				}
 				if key, ok := a.settingKey(id.Name, call, keys); ok {

@@ -62,7 +62,7 @@ func post(t *testing.T, url, contentType string, body []byte) (int, string) {
 
 // TestUploadApp builds test/apps/upload, a page that uploads pictures through the generated
 // function of a handler whose input holds a *multipart.FileHeader, and whose route.go raises the
-// body limit with BodyLimit = a setting of the app. The server keeps a body limit of 8 KiB and
+// body limit with BodyLimit = an option of the app. The server keeps a body limit of 8 KiB and
 // the upload route gets 64 KiB.
 func TestUploadApp(t *testing.T) {
 	skipUnlessEnabled(t)

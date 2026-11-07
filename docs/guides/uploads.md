@@ -12,7 +12,7 @@ English · [简体中文](uploads.zh-CN.md)
 
 A page where visitors upload pictures with a title, and see them listed. The handler checks the title, the size and the kind of file, keeps the file in a folder and serves it back.
 
-The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../app.md#files-in-the-input), [body limit and read time of a route](../app.md#body-limit-and-read-time-of-a-route), [settings of the app](../config.md#settings-of-the-app).
+The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../app.md#files-in-the-input), [body limit and read time of a route](../app.md#body-limit-and-read-time-of-a-route), [options of the app](../config.md#options-of-the-app).
 
 ## How a file gets to the handler
 
@@ -24,10 +24,10 @@ A field of type `*multipart.FileHeader` in the input of a POST, PUT or PATCH han
 
 ## The settings and the body limit
 
-`config.go` in the root package:
+`options.go` in the root package:
 
 ```go
-// Package uploads is the root package of the app: its settings and hooks.
+// Package uploads is the root package of the app: its options and hooks.
 package uploads
 
 import "github.com/liustack/tifa"
@@ -40,7 +40,7 @@ var (
 )
 ```
 
-They are also the flag `--upload-limit`, the variable `UPLOAD_LIMIT` and so on, like every [setting of the app](../config.md#settings-of-the-app). `4MiB` and `4<<20` mean the same. `hooks.go` makes the folder when the app starts:
+They are also the flag `--upload-limit`, the variable `UPLOAD_LIMIT` and so on, like every [option of the app](../config.md#options-of-the-app). `4MiB` and `4<<20` mean the same. `hooks.go` makes the folder when the app starts:
 
 ```go
 package uploads

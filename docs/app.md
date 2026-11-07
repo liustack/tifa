@@ -31,7 +31,7 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                          process and request hooks (optional)
-  config.go                         settings of the app, see Configuration (optional)
+  options.go                        options of the app, see Configuration (optional)
   db.go                             resources the whole app shares: package-level variables and functions (optional)
   app/
     route.go  layout.tsx            root Layout (Layout in route.go), wraps every page, and / (GET in route.go)
@@ -205,7 +205,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 
 - `BodyLimit` is a number of bytes, of any integer type. A body over it is answered with 413 before the handler runs. The limit counts the whole body: the files, the other fields and the multipart framing.
 - `ReadTimeout` is a `time.Duration`. The time counts from the moment Tifa matches the route, before `OnRequest`, and holds for this request. The answer then gets `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408.
-- Each can be a constant, which must be over 0, or a variable, such as a [setting of the app](config.md#settings-of-the-app): `var BodyLimit = uploads.UploadLimit` with `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`. The variable is read once when the app starts. A variable that is 0 keeps the setting, and a negative one stops the app at start.
+- Each can be a constant, which must be over 0, or a variable, such as a [option of the app](config.md#options-of-the-app): `var BodyLimit = uploads.UploadLimit` with `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`. The variable is read once when the app starts. A variable that is 0 keeps the setting, and a negative one stops the app at start.
 - A `route.go` with no method handler that declares either fails the build. A page's `route.go` with a POST may declare them, and they hold for the POST.
 - `c.SetBodyLimit` in `OnRequest` or a handler still changes the limit of one request, as before.
 
@@ -933,7 +933,7 @@ This tests the function, not the HTTP answer. Check what the function returns: t
 
 ### Testing a whole request
 
-`tifatest.Start(t, tifaapp.App)` runs the app inside the test and returns an `*httptest.Server`. `tifaapp` is the package `.tifa/tifaapp` that `tifa check`, `tifa build` and `tifa dev` generate: the routes, Layouts, hooks and settings of the app, as the program serves them. It imports every route package, so import it from a test in a package of its own, named after the folder with `_test` (`package login_test`). From the shop, `app/login/request_test.go`:
+`tifatest.Start(t, tifaapp.App)` runs the app inside the test and returns an `*httptest.Server`. `tifaapp` is the package `.tifa/tifaapp` that `tifa check`, `tifa build` and `tifa dev` generate: the routes, Layouts, hooks and options of the app, as the program serves them. It imports every route package, so import it from a test in a package of its own, named after the folder with `_test` (`package login_test`). From the shop, `app/login/request_test.go`:
 
 ```go
 package login_test
@@ -965,7 +965,7 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 
 - Everything the program runs takes part: `OnStart` with the context of the test, `OnRequest`, decoding the input, `Validate` and its 422, sessions, redirects and `OnError`. When the test ends, the server waits for the requests in flight and runs `OnShutdown`.
 - `srv.Client()` trusts the certificate of the server, keeps the cookies it sets and does not follow redirects, so the test sees each 3xx with its `Location`.
-- The server listens on HTTPS on this machine. The settings of Tifa are those of the program, from the defaults and `tifa.yaml`, apart from the address and HTTPS. Settings of the app keep their defaults, as flags and environment variables do not reach a test, so set the variable before `Start`: `myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`.
+- The server listens on HTTPS on this machine. The settings of Tifa are those of the program, from the defaults and `tifa.yaml`, apart from the address and HTTPS. Options of the app keep their defaults, as flags and environment variables do not reach a test, so set the variable before `Start`: `myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`.
 - Without a front end, a page answers the results of its `Load` and `Layout` functions as JSON, by route ID: `{"app/layout": …, "app/projects/project+/stats/route": …}`. Method handlers answer as in the program.
 - Each `Start` makes a new server, with sessions of its own unless `OnStart` sets a store. The app is one per test binary at a time, as the session store, `SetHTTPHandler` and the content belong to the process, so a test that calls `Start` cannot call `t.Parallel`.
 - `Start` fails the test when `.tifa/tifaapp` was made from other routes than the code has now. Run `go tool tifa check` again, or keep `tifa dev` running. In a fresh checkout `.tifa` is missing, and `go vet`, `go test` and `go mod tidy` fail on the import until `tifa check` writes it. `tifa check` generates before it runs `go vet` and `go test`, so it needs nothing first.

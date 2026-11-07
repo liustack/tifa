@@ -48,7 +48,7 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
-// Every flag the program takes is known before it parses them, the settings of the app
+// Every flag the program takes is known before it parses them, the options of the app
 // included, so a flag it does not know is a mistake, such as --addr for --server-addr.
 func TestUnknownFlagsFail(t *testing.T) {
 	ran := false

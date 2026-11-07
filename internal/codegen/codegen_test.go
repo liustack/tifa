@@ -746,7 +746,7 @@ func TestCacheQueryCollectsTheLoadsAroundTheRoute(t *testing.T) {
 	}
 }
 
-// The settings of the app are defined when its root package starts, so the main imports the
+// The options of the app are defined when its root package starts, so the main imports the
 // root package also when it has no hooks.
 func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
 	files, err := generateGo(&analyze.Manifest{Module: "example.com/m", Settings: []string{"db.url"}}, nil, false)
