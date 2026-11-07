@@ -8,6 +8,7 @@ import NextLink from 'next/link'
 import { usePathname, useRouter as useNextRouter, useSearchParams } from 'next/navigation'
 import { createContext, useContext, useEffect, useRef, useTransition, type ComponentProps, type ReactNode } from 'react'
 import { setNavigate } from './call'
+import { inLanguage, languageOf } from './languages'
 
 type Params = Record<string, string>
 type Search = Record<string, unknown>
@@ -47,7 +48,8 @@ export function Link({ to, params, search, activeOptions, activeProps, className
   // and a page that is built ahead of time (the 404) has links without one.
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const searchParams = search ? useSearchParams() : null
-  const path = buildPath(to, params)
+  // Tifa writes the language prefix of the page on a link to the storefront.
+  const path = inLanguage(buildPath(to, params), languageOf(pathname))
   const href = path + queryOf(search)
   let active = isActive(pathname, path, activeOptions?.exact)
   // Like TanStack's, the link is active only when the query holds what the link names, unless
@@ -95,12 +97,13 @@ export function useRouterState<T>({ select }: { select: (state: RouterState) => 
 
 export function useMatchRoute() {
   const pathname = usePathname()
-  return ({ to, params }: { to: string; params?: Params }) => (pathname === buildPath(to, params) ? params ?? {} : false)
+  return ({ to, params }: { to: string; params?: Params }) => (pathname === inLanguage(buildPath(to, params), languageOf(pathname)) ? params ?? {} : false)
 }
 
 export function useNavigate() {
   const router = useNextRouter()
-  return ({ to, params, search }: { to: string; params?: Params; search?: Search }) => router.push(buildPath(to, params) + queryOf(search))
+  const pathname = usePathname()
+  return ({ to, params, search }: { to: string; params?: Params; search?: Search }) => router.push(inLanguage(buildPath(to, params), languageOf(pathname)) + queryOf(search))
 }
 
 // The router of the page. invalidate loads the data of the page again with refresh, which Next.js
@@ -131,6 +134,10 @@ export function useRouter() {
     waiting.current = []
   }, [pending])
   return {
+    // buildLocation gives the URL a link to a page has, with the language prefix of this page.
+    buildLocation: ({ to, params, search, hash }: { to: string; params?: Params; search?: Search; hash?: string }) => ({
+      publicHref: inLanguage(buildPath(to, params), languageOf(pathname)) + queryOf(search) + (hash ? '#' + hash : ''),
+    }),
     invalidate: (_options?: { sync?: boolean }) =>
       new Promise<void>((resolve) => {
         waiting.current.push(resolve)

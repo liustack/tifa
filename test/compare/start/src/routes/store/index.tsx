@@ -1,13 +1,16 @@
+import { languageOf } from '@/runtime/languages'
+import { notFoundWith } from '../../compare/not-found'
 import { createFileRoute } from '@tanstack/react-router'
-import { redirectToPreferred, refusing } from '../../compare/store-handlers'
+import StoreHome from '@/app/store/page'
+import { Error } from '@/app/store/layout_'
+import { homeFn } from '../../compare/store-fns'
+import { refusing } from '../../compare/store-handlers'
 
-// GET /store sends a visitor to the storefront in the language their browser prefers, as the GET
-// handler of app/store/route.go does.
 export const Route = createFileRoute('/store/')({
-  server: {
-    handlers: {
-      GET: ({ request }) => redirectToPreferred(request),
-      ...refusing('GET, HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'),
-    },
-  },
+  component: StoreHome,
+  errorComponent: Error,
+  notFoundComponent: notFoundWith(Error),
+  wrapInSuspense: false,
+  server: { handlers: { ...refusing('GET, HEAD', 'POST', 'PUT', 'PATCH', 'DELETE') } },
+  loader: ({ location }) => homeFn({ data: languageOf(location.publicHref) }),
 })

@@ -21,7 +21,7 @@ func checkStorefrontPageCache(t *testing.T, base string) {
 		return n
 	}
 
-	page := base + "/store/zh-CN/journal?e2e=cache"
+	page := base + "/store/journal?e2e=cache"
 	status, h1, body1 := get(t, page)
 	if status != 200 || h1.Get("Cache-Status") != "tifa; fwd=miss" || h1.Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("first request: %d %v", status, h1)
@@ -48,7 +48,7 @@ func checkStorefrontPageCache(t *testing.T, base string) {
 	}
 
 	// Every storefront page that has a Cache answers the same way.
-	for _, path := range []string{"/store/en-US?e2e=cache", "/store/en-US/products?e2e=cache&sort=price-asc", "/store/zh-CN/products/oak-tray?e2e=cache", "/store/en-US/journal/stock-sync-api?e2e=cache"} {
+	for _, path := range []string{"/en-US/store?e2e=cache", "/en-US/store/products?e2e=cache&sort=price-asc", "/store/products/oak-tray?e2e=cache", "/en-US/store/journal/stock-sync-api?e2e=cache"} {
 		_, first, _ := get(t, base+path)
 		_, second, _ := get(t, base+path)
 		if first.Get("Cache-Status") != "tifa; fwd=miss" || second.Get("Cache-Status") != "tifa; hit" || second.Get("Set-Cookie") != "" {
@@ -57,10 +57,10 @@ func checkStorefrontPageCache(t *testing.T, base string) {
 	}
 
 	// A 404 is not kept, and the visitor's own data and the workbench are not pages with a Cache.
-	if _, h, _ := get(t, base+"/store/zh-CN/products/nope"); h.Get("Cache-Status") == "tifa; hit" {
+	if _, h, _ := get(t, base+"/store/products/nope"); h.Get("Cache-Status") == "tifa; hit" {
 		t.Errorf("a 404 came from the cache: %v", h)
 	}
-	status, h, mine := get(t, base+"/store/zh-CN/mine", "Cookie", "shop_seen=oak-tray")
+	status, h, mine := get(t, base+"/store/mine", "Cookie", "shop_seen=oak-tray")
 	if status != 200 || h.Get("Cache-Status") != "" || h.Get("Cache-Control") != "private, no-cache" || !strings.Contains(mine, `"slug":"oak-tray"`) {
 		t.Errorf("the visitor's own data: %d %v %.200s", status, h, mine)
 	}
@@ -74,7 +74,7 @@ func checkStorefrontPageCache(t *testing.T, base string) {
 // HTML and their own session in the navigation data. cookie is the session cookie.
 func checkStorefrontPageCacheSignedIn(t *testing.T, base, buildID, cookie string) {
 	t.Helper()
-	page := base + "/store/en-US/journal?e2e=signed-in"
+	page := base + "/en-US/store/journal?e2e=signed-in"
 	_, _, anonymous := get(t, page)
 	status, h, body := get(t, page, "Cookie", cookie)
 	if status != 200 || h.Get("Cache-Status") != "tifa; hit" || body != anonymous || strings.Contains(body, `<html data-session="in"`) || !strings.HasPrefix(body, `<!DOCTYPE html><html lang="en-US">`) {

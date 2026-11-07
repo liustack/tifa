@@ -1,28 +1,25 @@
 import type { MetaArgs, MetaDescriptor } from 'react-router'
 import { documentHead } from '@/app/layout'
 import { head as storeHead } from '@/app/store/layout_'
-import { head as langHead } from '@/app/store/lang+/layout'
-import type { LayoutData } from '@/app/store/lang+/route.gen'
+import { pageLinks } from '@/runtime/languages'
+import type { LayoutData } from '@/app/store/route.gen'
 
 // React Router takes the meta of the deepest route only, where TanStack Router merges the head of
 // every route on the way. So each route of the storefront writes the whole head: the theme colors
-// of the root, then the title and the language links of the language Layout, and its own tags. A
-// title further down replaces the one above.
-type Head = { meta?: MetaDescriptor[]; links?: Record<string, string>[] }
+// of the root, then the title of the storefront Layout, its own tags and the links tifa adds to a
+// page with two versions. A title further down replaces the one above.
+type Head = { meta?: MetaDescriptor[] }
+
+const isStore = (id: string) => id === '/store' || id === 'en-US:/store'
 
 export function storeMeta(args: MetaArgs, own: { meta?: MetaDescriptor[] } = {}): MetaDescriptor[] {
-  const shell = args.matches.find((m) => m?.id === '/store/$lang')?.loaderData as LayoutData | undefined
-  // A route of the language that has no data failed, such as a product that does not exist.
-  const failed = args.matches.some((m) => m && m.id.startsWith('/store/$lang') && m.loaderData === undefined)
-  const above: Head = shell
-    ? langHead({
-        loaderData: shell,
-        matches: args.matches.map((m) => ({ pathname: m?.pathname ?? '', status: failed ? 'error' : 'success' })),
-      })
-    : storeHead()
+  const shell = args.matches.find((m) => m && isStore(m.id))?.loaderData as LayoutData | undefined
+  // A route of the storefront that has no data failed, such as a product that does not exist.
+  const failed = args.matches.some((m) => m && m.id.includes('/store') && m.loaderData === undefined)
+  const above: Head = shell ? storeHead({ loaderData: shell }) : {}
   const metas = [...(above.meta ?? []), ...(own.meta ?? [])]
   const title = metas.findLast((m) => 'title' in m)
-  const links = above.links ?? []
+  const links = shell && !failed ? pageLinks(args.location.pathname.replace(/\/$/, '')) : []
   return [
     ...documentHead.meta.filter((m) => !('title' in m)),
     ...(title ? [title] : []),

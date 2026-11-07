@@ -6,8 +6,6 @@ import { homeTitle } from '../../../compare/store/head'
 
 type Props = { params: Promise<{ lang: string }> }
 
-const languages = ['zh-CN', 'en-US']
-
 export const viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#f2f4f5' },
@@ -17,7 +15,7 @@ export const viewport = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { lang } = await params
-  return { title: languages.includes(lang) ? homeTitle(lang) : '山海 · Shanhai', icons: { icon: 'data:,' } }
+  return { title: homeTitle(lang), icons: { icon: 'data:,' } }
 }
 
 // The root layout of the storefront, which has none of the workbench around it, so it writes
@@ -28,7 +26,7 @@ export default async function RootLayout({ children, params }: Props & { childre
   await connection()
   const { lang } = await params
   return (
-    <html lang={languages.includes(lang) ? lang : 'zh-CN'}>
+    <html lang={lang}>
       <body>{children}</body>
     </html>
   )

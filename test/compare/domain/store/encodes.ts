@@ -1,7 +1,7 @@
 // Counts how often a write of the storefront encodes JSON, for TestStoreWritesEncodeOnce: Tifa
 // encodes the answer of a handler once, and so must the shared layer that stands in for it. It
 // prints, for each request, the number of calls of JSON.stringify and Response.json.
-import { callCheckout, callCoupon, callMine, callProduct, callQuantity, callSeen, redirectToPreferred } from './calls.ts'
+import { callCheckout, callCoupon, callMine, callProduct, callQuantity, callSeen } from './calls.ts'
 import { parseBody, stats } from './json.ts'
 
 let stringify = 0
@@ -43,7 +43,6 @@ for (const call of [false, true]) {
   await count('seen' + k, () => callSeen(post('{"slug":"oak-tray"}', call), { lang: 'zh-CN' }))
   await count('mine' + k, () => callMine(get(call), { lang: 'zh-CN' }))
   await count('refused' + k, () => callQuantity(post('{"line":"x.y","quantity":99}', call), { lang: 'zh-CN' }))
-  await count('redirect' + k, async () => redirectToPreferred(get(call)))
   await count('checkout' + k, () => callCheckout(post(order, call), { lang: 'zh-CN' }))
 }
 // A body with a member the write does not know: the reader keeps only the object itself and the members it needs.

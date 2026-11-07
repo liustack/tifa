@@ -9,9 +9,9 @@ import (
 )
 
 // syncNextStore copies what the storefront pages are made of into the Next.js app, after Sync has
-// copied the workbench. Under dir/shop/app/store: every TypeScript file and the two message files
+// copied the workbench. Under dir/shop/app/store: every TypeScript file and the two message files (_locales)
 // of examples/shop/app/store, and the route.gen modules tifa generated for the pages below
-// lang+ (with getRouteApi turned into loaderRoute, as for the workbench). All the photos go to
+// app/store (with getRouteApi turned into loaderRoute, as for the workbench). All the photos go to
 // dir/public/images, and images.ts, which the shop writes with Vite's import.meta.glob, is written
 // again for all of them.
 func (e Env) syncNextStore(dir string) error {
@@ -24,7 +24,7 @@ func (e Env) syncNextStore(dir string) error {
 		rel, _ := filepath.Rel(src, path)
 		rel = filepath.ToSlash(rel)
 		keep := (strings.HasSuffix(rel, ".ts") || strings.HasSuffix(rel, ".tsx")) && rel != "images.ts" ||
-			strings.HasPrefix(rel, "locales/") && strings.HasSuffix(rel, ".json")
+			strings.HasPrefix(rel, "_locales/") && strings.HasSuffix(rel, ".json")
 		if !keep {
 			return nil
 		}
@@ -34,7 +34,7 @@ func (e Env) syncNextStore(dir string) error {
 		return err
 	}
 
-	gen := filepath.Join(e.Shop, ".tifa", "app", "store", "lang+")
+	gen := filepath.Join(e.Shop, ".tifa", "app", "store")
 	err = filepath.WalkDir(gen, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || filepath.Base(path) != "route.gen.ts" {
 			return err

@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import { setNavigate } from './call'
+import { inLanguage, languageOf } from './languages'
 import {
   Link as RouterLink,
   useLocation,
@@ -47,7 +48,8 @@ type LinkProps = Omit<RouterLinkProps, 'to'> & {
 
 export function Link({ to, params, search, activeOptions, activeProps, className, ...rest }: LinkProps) {
   const { pathname } = useLocation()
-  const path = buildPath(to, params)
+  // Tifa writes the language prefix of the page on a link to the storefront.
+  const path = inLanguage(buildPath(to, params), languageOf(pathname))
   const href = path + queryOf(search)
   return isActive(pathname, path, activeOptions?.exact) ? (
     <RouterLink
@@ -75,13 +77,14 @@ export function useRouterState<T>({ select }: { select: (state: RouterState) => 
 
 export function useMatchRoute() {
   const { pathname } = useLocation()
-  return ({ to, params }: { to: string; params?: Params }) => (pathname === buildPath(to, params) ? params ?? {} : false)
+  return ({ to, params }: { to: string; params?: Params }) => (pathname === inLanguage(buildPath(to, params), languageOf(pathname)) ? params ?? {} : false)
 }
 
 export function useNavigate() {
   const navigate = useRouterNavigate()
+  const { pathname } = useLocation()
   return (options: { to: string; params?: Params; search?: Search }) =>
-    navigate(buildPath(options.to, options.params) + queryOf(options.search))
+    navigate(inLanguage(buildPath(options.to, options.params), languageOf(pathname)) + queryOf(options.search))
 }
 
 // The router's events the pages subscribe to. TanStack Router tells onResolved after every
@@ -118,10 +121,17 @@ export function useRouter() {
   const revalidator = useRevalidator()
   const latest = useRef(revalidator)
   latest.current = revalidator
+  const { pathname } = useLocation()
+  const here = useRef(pathname)
+  here.current = pathname
   // One object for the life of the component, as TanStack's router is one, since a page puts it
   // in the dependencies of an effect.
   return useMemo(
     () => ({
+      // buildLocation gives the URL a link to a page has, with the language prefix of this page.
+      buildLocation: ({ to, params, search, hash }: { to: string; params?: Params; search?: Search; hash?: string }) => ({
+        publicHref: inLanguage(buildPath(to, params), languageOf(here.current)) + queryOf(search) + (hash ? '#' + hash : ''),
+      }),
       invalidate: async (_options?: { sync?: boolean }) => {
         await latest.current.revalidate()
       },

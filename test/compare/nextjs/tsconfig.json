@@ -31,6 +31,9 @@
       ],
       "tifa/client": [
         "./shop/runtime/client.tsx"
+      ],
+      "tifa/i18n": [
+        "./shop/runtime/i18n.tsx"
       ]
     },
     "allowJs": true

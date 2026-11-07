@@ -5,6 +5,7 @@
 
 import { data } from 'react-router'
 import { Ctx, NotFound, loadRoute } from '../../../domain/store/index.ts'
+import { languageOf } from '@/runtime/languages'
 
 // loader makes the loader of the route with a Tifa route id. A page that has no data answers 404,
 // as tifa does for tifa.ErrNotFound.
@@ -12,23 +13,23 @@ const loader =
   (id: string) =>
   ({ request, params }: { request: Request; params: Record<string, string | undefined> }) => {
     try {
-      return loadRoute(id, new Ctx(request.headers.get('cookie')), params as { lang: string }, new URL(request.url).searchParams) as never
+      return loadRoute(id, new Ctx(request.headers.get('cookie')), { ...params, lang: languageOf(new URL(request.url).pathname) }, new URL(request.url).searchParams) as never
     } catch (e) {
       if (e instanceof NotFound) throw data(null, { status: 404 })
       throw e
     }
   }
 
-export const loadLang = loader('app/store/lang+/layout')
-export const loadHome = loader('app/store/lang+/route')
-export const loadProducts = loader('app/store/lang+/products/route')
-export const loadProduct = loader('app/store/lang+/products/product+/route')
-export const loadCart = loader('app/store/lang+/cart/route')
-export const loadCheckout = loader('app/store/lang+/checkout/route')
-export const loadJournal = loader('app/store/lang+/journal/route')
-export const loadPost = loader('app/store/lang+/journal/post+/route')
+export const loadLayout = loader('app/store/layout')
+export const loadHome = loader('app/store/route')
+export const loadProducts = loader('app/store/products/route')
+export const loadProduct = loader('app/store/products/product+/route')
+export const loadCart = loader('app/store/cart/route')
+export const loadCheckout = loader('app/store/checkout/route')
+export const loadJournal = loader('app/store/journal/route')
+export const loadPost = loader('app/store/journal/post+/route')
 
-// loadUnknown is the loader of the splat: a URL of the language that no page has.
+// loadUnknown is the loader of the splat: a URL of the storefront that no page has.
 export const loadUnknown = () => {
   throw data(null, { status: 404 })
 }

@@ -52,8 +52,6 @@ import { Account } from './account'
 import { layout, type LayoutData } from './route.gen'
 import './styles.css'
 
-export const htmlAttributes = { lang: 'zh-CN' }
-
 export const documentHead = {
   meta: [
     { title: '山海工作台' },
@@ -159,7 +157,7 @@ export default function AppLayout() {
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild tooltip="店面">
-                        <Link to="/store/$lang" params={{ lang: 'zh-CN' }}>
+                        <Link to="/store">
                           <ExternalLink />
                           <span>店面</span>
                         </Link>
@@ -194,7 +192,7 @@ export default function AppLayout() {
               <CommandSearch projects={projects} />
               <Notifications projects={projects} />
               <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
-                <Link to="/store/$lang" params={{ lang: 'zh-CN' }}>
+                <Link to="/store">
                   <ExternalLink />
                   查看店面
                 </Link>

@@ -10,7 +10,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { lang, post } = await params
   return orNoMetadata(() => {
     const { post: p } = loadPostPage(lang, post)
-    return { title: storeTitle(lang, p.title), description: p.excerpt, alternates: alternates(`/journal/${post}`) }
+    return { title: storeTitle(lang, p.title), description: p.excerpt, alternates: alternates(lang, `/journal/${post}`) }
   })
 }
 

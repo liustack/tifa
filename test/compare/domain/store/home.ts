@@ -1,4 +1,4 @@
-// Ported from lang+/route.go: the Layout of the storefront in one language, and its home page.
+// Ported from route.go: the Layout of the storefront in one language, and its home page.
 import { counts } from '../counts.ts'
 import { freeShipping } from './cart/index.ts'
 import { featured, getProductCard, latestReviews, listCategories, menu, newFilter, search } from './products/index.ts'
@@ -51,7 +51,7 @@ export interface Shell {
   freeShippingCents: number
 }
 
-// layoutLang is the Layout of /store/{lang} and every page below it.
+// layoutLang is the Layout of /store and every page below it.
 export function layoutLang(params: { lang: string }): Shell {
   counts.shell++
   const l = findLocale(params.lang)

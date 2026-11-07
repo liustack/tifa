@@ -3,21 +3,20 @@
 // Names are the Go names in camelCase. TestStoreDomainMatchesGo keeps the answers equal to Go's.
 //
 // Pages. Each page's data is its Layout and Load results, by route id (routes.ts has loadRoute(id, ...)).
-// lang is the {lang} of the URL, "zh-CN" or "en-US". An unknown one throws NotFound from every
+// lang is the language of the URL: zh-CN for /store, en-US for /en-US/store. An unknown one throws NotFound from every
 // function that calls findLocale, which a framework turns into a 404. c is a Ctx made from the
 // Cookie header of the request (ctx.ts), query is its URLSearchParams.
 //
 //   URL                                    route id                                   function
-//   /store/{lang}   (Layout, all below)    app/store/lang+/layout                     layoutLang(params)
-//   /store/{lang}                          app/store/lang+/route                      loadHome(params)
-//   /store/{lang}/products                 app/store/lang+/products/route             loadList(params, query)
-//   /store/{lang}/products/{product}       app/store/lang+/products/product+/route    loadProduct(params, query)
-//   /store/{lang}/cart                     app/store/lang+/cart/route                 loadCart(c, params)
-//   /store/{lang}/checkout[?placed=SS-..]  app/store/lang+/checkout/route             loadCheckout(c, params, query)
-//   /store/{lang}/journal                  app/store/lang+/journal/route              loadJournal(params)
-//   /store/{lang}/journal/{post}           app/store/lang+/journal/post+/route        loadPost(params)
-//   GET /store/{lang}/mine  (JSON)         app/store/lang+/mine/route (GET)           getMine(c, params)
-//   GET /store                             app/store/route.go                         getStore(acceptLanguage) -> 302
+//   /store   (Layout, all below)    app/store/layout                     layoutLang(params)
+//   /store                          app/store/route                      loadHome(params)
+//   /store/products                 app/store/products/route             loadList(params, query)
+//   /store/products/{product}       app/store/products/product+/route    loadProduct(params, query)
+//   /store/cart                     app/store/cart/route                 loadCart(c, params)
+//   /store/checkout[?placed=SS-..]  app/store/checkout/route             loadCheckout(c, params, query)
+//   /store/journal                  app/store/journal/route              loadJournal(params)
+//   /store/journal/{post}           app/store/journal/post+/route        loadPost(params)
+//   GET /store/mine  (JSON)         app/store/mine/route (GET)           getMine(c, params)
 //
 // A page that has a Layout above it gets that Layout's data too: every page has layoutLang.
 // The root Layout of the workbench (loadShell) does not run for the storefront.
@@ -26,11 +25,11 @@
 // body, status, Set-Cookie), and the plain function it calls. Use the first to serve the route
 // as it is. All of them need the cookies of the request and add to the cookies of the answer:
 //
-//   POST  /store/{lang}/products/{product}  {color, size, quantity}  postProductRoute -> postProduct  200 {count}
-//   PATCH /store/{lang}/cart                {line, quantity}         patchCartRoute   -> patchCart    200 Cart
-//   POST  /store/{lang}/cart                {code}                   postCartRoute    -> postCoupon   204
-//   POST  /store/{lang}/checkout            Order                    postCheckoutRoute -> postCheckout 303 to /store/{lang}/checkout?placed={id}
-//   POST  /store/{lang}/mine                {slug}                   postMineRoute    -> postMine     204
+//   POST  /store/products/{product}  {color, size, quantity}  postProductRoute -> postProduct  200 {count}
+//   PATCH /store/cart                {line, quantity}         patchCartRoute   -> patchCart    200 Cart
+//   POST  /store/cart                {code}                   postCartRoute    -> postCoupon   204
+//   POST  /store/checkout            Order                    postCheckoutRoute -> postCheckout 303 to /store/checkout?placed={id}
+//   POST  /store/mine                {slug}                   postMineRoute    -> postMine     204
 //
 // Errors: NotFound is 404, Fields is 422 {"error", "fields"}, HttpError is its own status
 // ({"error": message}, 409 for an empty or forgotten cart), a body that is not JSON of the right
@@ -38,7 +37,7 @@
 //
 // Cookies. store_cart (the id of the visitor's cart, in the memory of the process) and shop_seen
 // (the slugs of the products looked at, joined by dots) are written as Go writes them, with
-// Path=/store, Max-Age, HttpOnly and SameSite=Lax. shop_seen works between a Go and a Node
+// Path=/, Max-Age, HttpOnly and SameSite=Lax. shop_seen works between a Go and a Node
 // server. store_cart does not: the carts live in each process, so a cart id the other server
 // made is an unknown id here, which Go treats the same way.
 //

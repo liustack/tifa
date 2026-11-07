@@ -1,13 +1,12 @@
 // Package storekit holds what every page of the storefront shares: the languages it is offered in,
 // the currency and time zone of each, and text kept in both languages. The storefront is the
-// customer side of the shop studio, at /store/{lang}.
+// customer side of the shop studio, at /store, with the other language under /en-US.
 package storekit
 
 import (
 	"math"
 
 	"github.com/liustack/tifa"
-	"golang.org/x/text/language"
 )
 
 // Locale is one language of the storefront. Pages format money in Currency and times in
@@ -25,7 +24,7 @@ var locales = []Locale{
 	{Code: "en-US", Currency: "USD", TimeZone: "America/Los_Angeles", Other: "zh-CN"},
 }
 
-// FindLocale returns the locale of a code from the URL, or tifa.ErrNotFound.
+// FindLocale returns the locale of a language, or tifa.ErrNotFound.
 func FindLocale(code string) (Locale, error) {
 	for _, l := range locales {
 		if l.Code == code {
@@ -33,21 +32,6 @@ func FindLocale(code string) (Locale, error) {
 		}
 	}
 	return Locale{}, tifa.ErrNotFound
-}
-
-// matcher picks the storefront's language for the languages a browser asks for.
-var matcher = language.NewMatcher([]language.Tag{language.MustParse("zh-CN"), language.MustParse("en-US")})
-
-// Preferred returns the locale of the storefront closest to the languages of an Accept-Language
-// header, zh-CN for none.
-func Preferred(acceptLanguage string) Locale {
-	tags, _, _ := language.ParseAcceptLanguage(acceptLanguage)
-	_, i, confidence := matcher.Match(tags...)
-	if confidence == language.No {
-		// The matcher then falls back to English, which a shop in China is not.
-		return locales[0]
-	}
-	return locales[i]
 }
 
 // Text is a text in both languages of the storefront: Chinese, then English.

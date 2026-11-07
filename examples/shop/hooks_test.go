@@ -34,7 +34,7 @@ func TestWorkbenchNeedsSignIn(t *testing.T) {
 		{"/projects/studio", "/login?next=%2Fprojects%2Fstudio", false},
 		{"/projects/studio/orders/SH-1042?tab=items", "/login?next=%2Fprojects%2Fstudio%2Forders%2FSH-1042%3Ftab%3Ditems", false},
 		{"/projects/studio", "", true},
-		{"/store/zh-CN", "", false},
+		{"/store", "", false},
 		{"/login", "", false},
 		{"/projectsx", "", false},
 	} {

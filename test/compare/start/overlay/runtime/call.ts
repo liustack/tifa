@@ -3,7 +3,7 @@
 // Tifa has it at, and follows a redirect through its router.
 import { makeCall } from './storecall'
 
-export { segment } from './storecall'
+export { publicPath, segment } from './storecall'
 export type { CallOptions } from './storecall'
 
 interface Router {

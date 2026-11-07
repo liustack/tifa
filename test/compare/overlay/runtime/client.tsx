@@ -2,7 +2,8 @@
 // shop's generated code), TifaError is what a handler function throws, RouteError what the Error
 // components of the shop's routes receive.
 export { clientOnly } from './client-only'
-import { cloneElement, type ReactElement } from 'react'
+import { cloneElement, createContext, useContext, type ReactElement } from 'react'
+import type { Alternate } from './languages'
 
 export class TifaError extends Error {
   readonly status: number
@@ -36,3 +37,12 @@ const mark = (value: string, child: ReactElement<Record<string, unknown>>) => cl
 
 export const SignedIn = ({ children }: { children: ReactElement<Record<string, unknown>> }) => mark('in', children)
 export const SignedOut = ({ children }: { children: ReactElement<Record<string, unknown>> }) => mark('out', children)
+
+// The language of the page and the versions of it, as tifa/client gives them. The comparison apps
+// are not Tifa, so each fills these contexts in the storefront Layout.
+export { languageOf, versionsOf } from './languages'
+export type { Alternate } from './languages'
+export const LanguageContext = createContext('zh-CN')
+export const AlternatesContext = createContext<Alternate[]>([])
+export const useLanguage = () => useContext(LanguageContext)
+export const useAlternates = () => useContext(AlternatesContext)

@@ -12,7 +12,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   return orNoMetadata(() => {
     const data = loadListPage(lang, q)
     const category = data.categories.find((c) => c.id === data.filter.category)
-    return { title: storeTitle(lang, category?.name ?? message(lang, 'list.title')), alternates: alternates('/products') }
+    return { title: storeTitle(lang, category?.name ?? message(lang, 'list.title')), alternates: alternates(lang, '/products') }
   })
 }
 

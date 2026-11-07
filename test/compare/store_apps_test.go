@@ -36,7 +36,7 @@ type storeApp struct {
 	// write turns the URL of a write in the shop into the URL of the same write in this app.
 	// Next.js and React Router have a page at the URL of the cart, the checkout and the product,
 	// and answer a POST or a PATCH there with the page, so their writes are at a path of their
-	// own, under /store so that the cookies, whose path is /store, reach them. A wrong method is
+	// own, under /store. A wrong method is
 	// sent to the same URL, so the 405 is the one of the write.
 	write func(path string) string
 	// except are the cases the app cannot answer as Tifa does, with the reason.
@@ -54,32 +54,52 @@ var storeApps = []storeApp{
 			"404 page":   "In Next.js 16.4.2, with the route tree under /store/[lang], a 404 raised below the layout of a language is answered with Next.js's error document (an empty #__next_error__ and the payload), and the browser draws the page. The status and title are compared here (a confirmation that is not found has the title of the root), and TestStorefrontErrorPagesInTheBrowser compares what the browser ends up showing",
 		},
 	},
-	{name: "reactrouter", label: "React Router", write: reactRouterWrite},
+	{
+		name: "reactrouter", label: "React Router", write: reactRouterWrite,
+		except: map[string]string{
+			"home methods": "React Router answers a method the home page does not take with its own 405 document, since a page cannot have a resource route at its URL",
+		},
+	},
 }
 
 var (
-	nextPageWrite   = regexp.MustCompile(`^/store/([^/]+)/(cart|checkout|products/)`)
-	reactPageWrite  = regexp.MustCompile(`^/store/([^/]+)/(cart|checkout|products/)`)
-	minePath        = regexp.MustCompile(`^/store/[^/]+/mine`)
+	nextPageWrite   = regexp.MustCompile(`^(?:/(en-US))?/store/(cart|checkout|products/)`)
+	reactPageWrite  = regexp.MustCompile(`^(?:/(en-US))?/store/(cart|checkout|products/)`)
+	minePath        = regexp.MustCompile(`^(?:/en-US)?/store/mine`)
 	orderNumber     = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
 	cartCookie      = regexp.MustCompile(`store_cart=[^;]+`)
 	isoTime         = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
-	placedLocation  = regexp.MustCompile(`/store/[a-zA-Z-]+/checkout\?placed=SS-[A-Z0-9]{10}`)
+	placedLocation  = regexp.MustCompile(`(?:/en-US)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
+
+// writeLanguage is the language of a write: the first group of the patterns above, empty for the
+// default language, which has no prefix.
+func writeLanguage(prefix string) string {
+	if prefix == "" {
+		return "zh-CN"
+	}
+	return prefix
+}
 
 func nextWrite(p string) string {
 	if minePath.MatchString(p) {
 		return p
 	}
-	return nextPageWrite.ReplaceAllString(p, "/store/compare-write/$1/$2")
+	return nextPageWrite.ReplaceAllStringFunc(p, func(m string) string {
+		parts := nextPageWrite.FindStringSubmatch(m)
+		return "/store/compare-write/" + writeLanguage(parts[1]) + "/" + parts[2]
+	})
 }
 
 func reactRouterWrite(p string) string {
 	if minePath.MatchString(p) {
 		return p
 	}
-	return reactPageWrite.ReplaceAllString(p, "/store/$1/_write/$2")
+	return reactPageWrite.ReplaceAllStringFunc(p, func(m string) string {
+		parts := reactPageWrite.FindStringSubmatch(m)
+		return "/store/" + writeLanguage(parts[1]) + "/_write/" + parts[2]
+	})
 }
 
 // mask takes out what differs by the request: the order number and the cart of the visitor, which
@@ -452,7 +472,7 @@ func TestStorefront(t *testing.T) {
 
 // extra404 are pages of the storefront that answer 404 inside it or in the root, besides
 // StoreMissing: a URL no page has, in a language, and one below a page.
-var extra404 = []string{"/store/zh-CN/no-such-page", "/store/en-US/cart/extra", "/store/zh-CN/products/oak-tray/extra", "/store/zh-CN/journal/theme-css/extra", "/store/en-US/products/extra/more", "/store/zh-CN/checkout?placed=SS-NOSUCHORDER"}
+var extra404 = []string{"/store/no-such-page", "/en-US/store/cart/extra", "/store/products/oak-tray/extra", "/store/journal/theme-css/extra", "/en-US/store/products/extra/more", "/store/checkout?placed=SS-NOSUCHORDER"}
 
 // pages: every page of StorePages, StoreMissing and extra404 shows the same in both.
 func (p *pair) pages(t *testing.T) {
@@ -509,9 +529,6 @@ func (p *pair) scenarios(t *testing.T) {
 				continue
 			}
 			r := request{method: st.Method, path: strings.ReplaceAll(st.URL, "{order}", orders[0]), body: st.Body, contentType: st.ContentType, header: http.Header{}}
-			if st.AcceptLanguage != "" {
-				r.header.Set("Accept-Language", st.AcceptLanguage)
-			}
 			if st.Cookie != "" {
 				r.header.Set("Cookie", st.Cookie)
 				r.noJar = true
@@ -534,22 +551,10 @@ func (p *pair) scenarios(t *testing.T) {
 	}
 }
 
-// redirects: GET /store goes to the language the browser asks for, and /store/ goes to /store.
+// redirects: a URL with a trailing slash goes to the URL without it.
 func (p *pair) redirects(t *testing.T) {
 	q := p.fresh()
 	q.t = t
-	for i, accept := range compare.StoreAcceptLanguages() {
-		q.both("redirect by language "+accept, request{method: "GET", path: "/store", header: http.Header{"Accept-Language": {accept}}})
-		if i >= 40 {
-			continue
-		}
-		{
-			a, _ := q.both("redirect by language "+accept+" as a call", request{method: "GET", path: "/store", call: true, header: http.Header{"Accept-Language": {accept}}})
-			if a.status != 200 || a.header.Get("X-Tifa-Redirect") != "302" {
-				t.Errorf("Tifa answered a call for /store with %d and X-Tifa-Redirect %q", a.status, a.header.Get("X-Tifa-Redirect"))
-			}
-		}
-	}
 	slash := func(name, path string) {
 		t.Helper()
 		if why, ok := p.spec.except["slash body"]; ok {
@@ -565,9 +570,9 @@ func (p *pair) redirects(t *testing.T) {
 	slash("slash", "/store/")
 	slash("slash with a query", "/store/?x=1")
 	slash("slash with two parameters", "/store/?a=1&b=2")
-	slash("slash with characters of HTML", "/store/zh-CN/?q=<a>")
-	slash("slash below a page", "/store/zh-CN/cart/")
-	slash("slash below a language", "/store/en-US/")
+	slash("slash with characters of HTML", "/store/?q=<a>")
+	slash("slash below a page", "/store/cart/")
+	slash("slash below a language", "/en-US/store/")
 	// The workbench shares the app, so what the apps do for a trailing slash is checked there too.
 	for _, page := range compare.Pages {
 		slash("slash after the workbench "+page.Name, strings.SplitN(page.URL, "?", 2)[0]+"/")
@@ -581,16 +586,20 @@ func (p *pair) otherRequests(t *testing.T) {
 	q.t = t
 	for _, c := range [][2]string{
 		{"POST", "/store"}, {"PUT", "/store"}, {"PATCH", "/store"}, {"DELETE", "/store"},
-		{"PUT", "/store/zh-CN/mine"}, {"PATCH", "/store/zh-CN/mine"}, {"DELETE", "/store/en-US/mine"},
-		{"PUT", "/store/zh-CN/cart"}, {"DELETE", "/store/zh-CN/cart"},
-		{"PUT", "/store/zh-CN/checkout"}, {"PATCH", "/store/zh-CN/checkout"}, {"DELETE", "/store/en-US/checkout"},
-		{"PATCH", "/store/zh-CN/products/ceramic-cup"}, {"PUT", "/store/zh-CN/products/ceramic-cup"}, {"DELETE", "/store/zh-CN/products/ceramic-cup"},
+		{"PUT", "/store/mine"}, {"PATCH", "/store/mine"}, {"DELETE", "/en-US/store/mine"},
+		{"PUT", "/store/cart"}, {"DELETE", "/store/cart"},
+		{"PUT", "/store/checkout"}, {"PATCH", "/store/checkout"}, {"DELETE", "/en-US/store/checkout"},
+		{"PATCH", "/store/products/ceramic-cup"}, {"PUT", "/store/products/ceramic-cup"}, {"DELETE", "/store/products/ceramic-cup"},
 	} {
 		for _, call := range []bool{false, true} {
+			if why, ok := p.spec.except["home methods"]; ok && c[1] == "/store" {
+				t.Logf("exception, %s %s %s %s", p.spec.label, c[0], c[1], why)
+				continue
+			}
 			q.both(fmt.Sprintf("wrong method, call %v", call), request{method: c[0], path: c[1], call: call})
 		}
 	}
-	q.views("checkout page with an empty order", "/store/zh-CN/checkout?placed=", [2]string{}, 200)
+	q.views("checkout page with an empty order", "/store/checkout?placed=", [2]string{}, 200)
 }
 
 // A valid order for the checkout, as the form sends it.
@@ -615,8 +624,8 @@ func w(name, method, path, body string, pages ...string) step {
 }
 
 const (
-	zh = "/store/zh-CN"
-	en = "/store/en-US"
+	zh = "/store"
+	en = "/en-US/store"
 )
 
 // storeWrites is the visit: every write, the ways each can fail, and the page after the ones that
@@ -624,7 +633,6 @@ const (
 var storeWrites = []step{
 	w("mine of a new visitor", "GET", zh+"/mine", ""),
 	w("mine of another language", "GET", en+"/mine", ""),
-	w("mine in a language the shop lacks", "GET", "/store/xx-XX/mine", ""),
 	w("mark seen", "POST", zh+"/mine", `{"slug":"pour-over-kettle"}`, zh+"/cart"),
 	w("mark seen, unknown", "POST", zh+"/mine", `{"slug":"nothing"}`),
 	w("mark seen again", "POST", zh+"/mine", `{"slug":"oak-tray"}`),

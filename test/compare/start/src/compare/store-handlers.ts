@@ -12,7 +12,6 @@ export {
   callProduct as addToCart,
   callQuantity as changeQuantity,
   callSeen as markSeen,
-  redirectToPreferred,
 } from '../../../domain/store/calls.ts'
 
 // refusing makes the handlers that answer the methods a URL does not take as Tifa does, with a 405

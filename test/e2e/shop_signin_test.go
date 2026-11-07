@@ -64,7 +64,7 @@ func checkShopSignIn(t *testing.T, exe, buildID string) {
 			t.Errorf("GET %s signed out: %d %s", path, status, header.Get("Location"))
 		}
 	}
-	for _, path := range []string{"/store/zh-CN", "/store/en-US/products", "/login"} {
+	for _, path := range []string{"/store", "/en-US/store/products", "/login"} {
 		if status, _, _ := send("GET", path, "", ""); status != 200 {
 			t.Errorf("GET %s signed out: %d", path, status)
 		}
