@@ -60,7 +60,7 @@ app/
   projects/
     project.go                 shop domain: types, the count of orders waiting to ship, storage
     project+/                  /projects/{project}
-      route.go  layout.tsx  page.tsx   shop Layout (shop name, orders waiting to ship, shop notes, links to orders and stats) and the order list
+      route.go  layout.tsx  page.tsx   shop Layout (shop name, orders waiting to ship, shop notes, links to orders and stats) and the order list, whose filters and page are in the query string
       columns.tsx              the columns of the order list
       orders/
         order.go  shipping.go  order domain: list, details, shipping and recipient rules, storage
@@ -122,7 +122,7 @@ The first answer says `Cache-Status: tifa; fwd=miss` and `X-Tifa-Render: vm`, th
 ## Things to try
 
 - View the page source. The first 25 orders, the totals and the customer details are already in the HTML.
-- Sort, filter and search the order list, select a few rows and export them. It all happens in the browser, with no request.
+- Filter and search the order list, and go to page 2. The filters and the page go into the URL, the server filters all the orders of the shop and cuts the page, and the counts on the tabs and under the table are those of what is left. Reload, or send the link: the same rows come back. Sorting a page and selecting rows happen in the browser.
 - Open "Shop notes", then go to an order's details. The notes stay open. Switch to the other shop: the shop notes close.
 - Collapse the sidebar and reload. The server renders it collapsed, because the state is kept in a cookie.
 - Watch the Network tab in the developer tools: taking over the first page makes no extra data request, and each navigation makes at most one data request.

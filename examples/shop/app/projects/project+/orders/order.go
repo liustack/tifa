@@ -6,7 +6,10 @@ package orders
 import (
 	"cmp"
 	"maps"
+	"math"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -85,15 +88,44 @@ const (
 	listDays = 14
 )
 
-// OrderList is the first page of the order list of a project, with numbers over all its orders.
-// Total, the totals, the days and the oldest order waiting to ship are over every order of the
-// project, the carriers are those that took a parcel.
+// ListQuery is what the order list is asked for: the filters and the page. A field left empty is no
+// filter. A page passes what it reads from the URL, and ListOrders gives back the cleaned query in
+// OrderList.Filter.
+type ListQuery struct {
+	Status  string `json:"status"`  // StatusPending or StatusShipped
+	Carrier string `json:"carrier"` // the name of a carrier, as OrderList.Carriers has it
+	Period  string `json:"period"`  // "7" or "30": placed within that many days of the newest order
+	Amount  string `json:"amount"`  // "low" (under 200 yuan), "mid" (200 to 500 yuan) or "high" (over 500 yuan)
+	Search  string `json:"q"`       // part of an order number or of a customer's name, in any case
+	Page    int    `json:"page"`    // from 1
+}
+
+// StatusCounts are how many orders there are in each tab of the list: all, waiting to ship and
+// shipped.
+type StatusCounts struct {
+	All     int `json:"all"`
+	Pending int `json:"pending"`
+	Shipped int `json:"shipped"`
+}
+
+// OrderList is a page of the order list of a project, with numbers over all its orders. Total,
+// the totals, the days and the oldest order waiting to ship are over every order of the project,
+// the carriers are those that took a parcel. Matching and Statuses are over the orders that the
+// filters keep.
 type OrderList struct {
-	Orders       []OrderRow `json:"orders"` // the newest ListPageSize, newest first
-	Total        int        `json:"total"`
-	RevenueCents int        `json:"revenueCents"`
-	Pending      int        `json:"pending"`
-	Shipped      int        `json:"shipped"`
+	Orders []OrderRow `json:"orders"` // the ListPageSize orders of the page, newest first
+	// Filter is the query the page answers: the filters that are choices, and the page it is on.
+	Filter ListQuery `json:"filter"`
+	// Matching is how many orders the filters keep, and Pages how many pages they make.
+	Matching int `json:"matching"`
+	Pages    int `json:"pages"`
+	// Statuses are the tabs of the list, counted over the orders that every filter but the status
+	// keeps, so a tab says what it would show.
+	Statuses     StatusCounts `json:"statuses"`
+	Total        int          `json:"total"`
+	RevenueCents int          `json:"revenueCents"`
+	Pending      int          `json:"pending"`
+	Shipped      int          `json:"shipped"`
 	// NewestAt is when the newest order was placed, which the days end on.
 	NewestAt      time.Time  `json:"newestAt"`
 	OldestPending *OrderRow  `json:"oldestPending"` // nil when every order has shipped
@@ -111,10 +143,13 @@ type DailyCards struct {
 	Shipped      []int `json:"shipped"`
 }
 
-// ListOrders returns the first page of the orders of a project, newest first, with the numbers over
-// all of them. zone is the time zone of the shop, whose days the cards draw.
-func ListOrders(projectID string, zone *time.Location) OrderList {
-	l := OrderList{Orders: []OrderRow{}, Carriers: []string{}, Daily: DailyCards{RevenueCents: []int{}, Orders: []int{}, Pending: []int{}, Shipped: []int{}}}
+// ListOrders returns a page of the orders of a project that the query keeps, newest first, with the
+// numbers over all of them. The query filters all the orders of the project, and the page is cut
+// from what is left. zone is the time zone of the shop, whose days the cards draw.
+func ListOrders(projectID string, zone *time.Location, q ListQuery) OrderList {
+	q = q.clean()
+	l := OrderList{Orders: []OrderRow{}, Filter: q, Carriers: []string{}, Daily: DailyCards{RevenueCents: []int{}, Orders: []int{}, Pending: []int{}, Shipped: []int{}}}
+	l.Filter.Page = 1
 	list := ordersOf(projectID) // newest first
 	if len(list) == 0 {
 		return l
@@ -164,26 +199,74 @@ func ListOrders(projectID string, zone *time.Location) OrderList {
 		l.Daily.Shipped = append(l.Daily.Shipped, s[3])
 	}
 	l.Carriers = slices.Sorted(maps.Keys(carriers))
-	for _, o := range list[:min(ListPageSize, len(list))] {
-		l.Orders = append(l.Orders, orderRow(o))
+	keep := q.keeper(l.NewestAt)
+	var matched []OrderRow
+	for _, o := range list {
+		row := orderRow(o)
+		if !keep(row) {
+			continue
+		}
+		l.Statuses.All++
+		if row.Status == StatusPending {
+			l.Statuses.Pending++
+		} else {
+			l.Statuses.Shipped++
+		}
+		if q.Status == "" || q.Status == row.Status {
+			matched = append(matched, row)
+		}
 	}
+	l.Matching = len(matched)
+	l.Pages = (l.Matching + ListPageSize - 1) / ListPageSize
+	l.Filter.Page = min(q.Page, max(l.Pages, 1))
+	from := (l.Filter.Page - 1) * ListPageSize
+	l.Orders = append(l.Orders, matched[min(from, len(matched)):min(from+ListPageSize, len(matched))]...)
 	return l
 }
 
-// ListPage returns page n (from 0) of the orders of a project, newest first, ListPageSize of them.
-func ListPage(projectID string, n int) ([]OrderRow, error) {
-	if _, ok := shops[projectID]; !ok {
-		return nil, tifa.ErrNotFound
+// clean leaves out what the URL says that is not one of the choices, and trims the search.
+func (q ListQuery) clean() ListQuery {
+	if q.Status != StatusPending && q.Status != StatusShipped {
+		q.Status = ""
 	}
-	rows := []OrderRow{}
-	list := ordersOf(projectID)
-	if n < 0 || n*ListPageSize >= len(list) {
-		return rows, nil
+	if q.Period != "7" && q.Period != "30" {
+		q.Period = ""
 	}
-	for _, o := range list[n*ListPageSize : min((n+1)*ListPageSize, len(list))] {
-		rows = append(rows, orderRow(o))
+	if _, ok := amountRanges[q.Amount]; !ok {
+		q.Amount = ""
 	}
-	return rows, nil
+	q.Search = strings.TrimSpace(q.Search)
+	q.Page = max(q.Page, 1)
+	return q
+}
+
+// amountRanges are the choices of the amount filter, in cents, both ends included.
+var amountRanges = map[string][2]int{
+	"low":  {0, 19999},
+	"mid":  {20000, 50000},
+	"high": {50001, math.MaxInt},
+}
+
+// keeper returns the test for the filters other than the status. newest is when the newest order
+// of the project was placed, which the period counts back from.
+func (q ListQuery) keeper(newest time.Time) func(OrderRow) bool {
+	needle := strings.ToLower(q.Search)
+	var since time.Time
+	if days, err := strconv.Atoi(q.Period); err == nil {
+		since = newest.Add(-time.Duration(days) * 24 * time.Hour)
+	}
+	return func(r OrderRow) bool {
+		if q.Carrier != "" && r.Carrier != q.Carrier {
+			return false
+		}
+		if q.Period != "" && r.PlacedAt.Before(since) {
+			return false
+		}
+		if a, ok := amountRanges[q.Amount]; ok && (r.TotalCents < a[0] || r.TotalCents > a[1]) {
+			return false
+		}
+		return needle == "" || strings.Contains(strings.ToLower(r.ID), needle) || strings.Contains(strings.ToLower(r.Customer), needle)
+	}
 }
 
 // allRows are the rows of all the orders of a project, newest first.
