@@ -78,7 +78,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     context,
     isServer: serverURL !== undefined,
     rewrite: options.rewrite,
-    history: serverURL ? createMemoryHistory({ initialEntries: [serverURL] }) : options.history,
+    history: serverURL ? createMemoryHistory({ initialEntries: [options.rewrite ? withRouterQuery(serverURL) : serverURL] }) : options.history,
     // ServeMux matches paths case-sensitively and reads query values as strings.
     caseSensitive: true,
     parseSearch,
@@ -321,6 +321,15 @@ export function stringifySearch(search: Record<string, unknown>): string {
       parts.push(encodeQueryPart(key) + '=' + encodeQueryPart(String(item)))
   }
   return parts.length > 0 ? '?' + parts.join('&') : ''
+}
+
+// withRouterQuery is url with its query spelled the way stringifySearch writes it. A server render
+// compares the URL of the request with the one the router builds for it, and redirects to that one
+// when they differ. Without a rewrite the router reads the query of the request in its own spelling
+// first, with one it keeps the URL as given: /store?next=%2Fa would redirect to /store?next=/a.
+function withRouterQuery(url: string) {
+  const at = url.indexOf('?')
+  return at < 0 ? url : url.slice(0, at) + stringifySearch(parseSearch(url.slice(at)))
 }
 
 // The characters encodeURIComponent escapes that browsers send as they are and Go's

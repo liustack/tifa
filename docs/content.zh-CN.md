@@ -66,13 +66,13 @@ type Doc struct {
 | `Source` 字段 | 含义 |
 | --- | --- |
 | `Dir` | 必填。`content/` 下放这个集合的文件夹，也是它在报错和构建产物里的名字。只能是字母、数字、`-` 和 `_`，不能含 `/`。 |
-| `Languages` | 可选。集合的语言，默认语言在前。有了它，`content/<Dir>/` 下第一层是每种语言一个文件夹。 |
+| `Languages` | 可选。集合的语言，默认语言在前：`tifa.Languages()` 取网站的所有语言，或者写一个字符串字面量的列表。有了它，`content/<Dir>/` 下第一层是每种语言一个文件夹。 |
 | `Match` | 可选。只留下一部分文件的模式，见[哪些文件是条目](#哪些文件是条目)。 |
 
 构建只读 `content.go`，不运行它，所以：
 
 - `content.Define` 只能写成 `content.go` 里包级 `var` 的值。写在别处（别的文件、函数、`init()`、赋值）构建失败。
-- 参数是就地写的 `content.Source{...}` 字面量，字段带名字。`Dir` 和 `Match` 是字符串字面量，`Languages` 是由字符串字面量组成的 `[]string{...}`，不能用常量或变量。
+- 参数是就地写的 `content.Source{...}` 字面量，字段带名字。`Dir` 和 `Match` 是字符串字面量，`Languages` 是 `tifa.Languages()`，或者由字符串字面量组成的 `[]string{...}`，不能用常量或变量。
 - 类型是应用本模块里的具名 struct，嵌入 `content.Entry`（不是指向它的指针）。
 - 两个集合不能读同一个 `Dir`。
 - `content/` 下的每个文件夹都要有集合，没有 `content.go` 的应用也一样。没有集合读的文件夹让构建失败，用来抓文件夹名的拼写错误。名字以 `.` 或 `_` 开头的文件夹不管。
@@ -121,6 +121,8 @@ content/
 有 `Languages` 时，所有条目都在语言文件夹里，默认语言也一样。第一层出现不是语言的文件夹，或者 `.md` 文件直接放在集合文件夹里，构建失败。某种语言没有文件夹，就是没有条目。没有 `Languages` 就没有语言这一层，`Entry.Lang` 是 `""`。
 
 同一个条目的各语言版本共用一个译文键：front matter 的 `translationKey`，没写就是 ID。所以路径相同的文件自动互为译文，路径不同的用 `translationKey` 连起来，比如测试应用里的 `launch`。一种语言里每个键只有一个。`Entry.Translations` 按 `Languages` 的顺序列出现在能看到的各个版本，包括它自己，每项是 `{Lang, ID, Slug, Path}`。语言切换链接和 `hreflang` 从这里取。
+
+网站有多种语言时（见[多语言网站](guides/i18n.zh-CN.md)），写 `Languages: tifa.Languages()`，集合就有网站的所有语言，默认语言在前，`content/<Dir>/` 下的文件夹按这些语言命名。某个条目缺一种语言的版本，在那种语言里就没有页面：`Get` 对那种语言返回 `tifa.ErrNotFound`，`Load` 原样返回这个错误就是 404，也不会回退到别的语言。条目页把 `entry.Translations` 交给 `c.SetAlternates`，`hreflang` 链接就只列实际存在的版本。
 
 某种语言缺一个版本没关系。构建每个集合、每种缺的语言打一行：
 

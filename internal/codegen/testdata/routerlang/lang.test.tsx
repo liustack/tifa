@@ -291,6 +291,16 @@ test('one VM renders zh-CN, en-US and zh-CN in a row', async () => {
   assert(projects.includes('PAGE_PROJECTS') && projects.includes('href="/store/cart"'), 'projects')
 })
 
+test('a query spelled another way than the router writes it is rendered, not redirected', async () => {
+  // The router writes / and a space as + in a query: a request that escapes them is the same URL.
+  for (const [url, language] of [
+    ['/store?next=%2Fprojects%2Fa&q=a%20b', 'zh-CN'],
+    ['/en-US/store?next=%2Fa', 'en-US'],
+    ['/projects?next=%2Fa', 'zh-CN'],
+  ])
+    await render(url, language)
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try {

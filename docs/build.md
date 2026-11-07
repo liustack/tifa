@@ -87,6 +87,20 @@ The analysis also checks the session of the app (see [Sessions](sessions.md)). `
 - `tifa.SetSession` or `tifa.ClearSession` is reached from `Load` or `Layout`, directly or through the functions they pass the Ctx to.
 - A page or an API route has a path that starts with `/__tifa/`, or `public/__tifa/` holds a file. Tifa answers that path itself.
 
+### Languages
+
+The analysis finds the areas of the app: each folder of `app/` with a `_locales` folder, with the languages of its `<language>.json` files (a `<language>.draft.json` does not count). Every route belongs to the nearest area at or above its folder, or to none. `tifa build` and `tifa check` stop on each of these:
+
+- A `_locales` folder with no language file, or a `.json` file whose name is not a language tag in its usual spelling (`en-US`, not `en_US`).
+- An area without a file for the default language.
+- Several languages and no `i18n.default`, or an `i18n.default` that no area has a file for.
+- Several languages and no `site.url`.
+- A folder of `app/` named like a language of the site.
+- A `lang` in `htmlAttributes`, in the root Layout or in a `head`, on a site with languages. Tifa writes the `lang` of `<html>`.
+- A `Languages` of a content collection that is neither `tifa.Languages()` nor a list of string literals.
+
+`tifa.Languages()` gives the same list under `tifa build`, `tifa dev`, `go test` and `go run`. The two Tifa commands build it into the program with `-ldflags -X`, next to your own `-ldflags`. The other two read the `_locales` folders and `tifa.yaml` of the module. Under `tifa dev`, adding, removing or renaming a `_locales/<language>.json` (a draft too) runs all the steps again: the analysis, the code generation, the bundle, go build and the conversion of the Markdown. See [A site in several languages](guides/i18n.md).
+
 ### Debug info
 
 `tifa build` passes `-ldflags=-w` to `go build`, which leaves the DWARF debug info out of the program. For `examples/shop` on an Apple M4 (darwin/arm64), the program goes from 26.4 MB to 21.2 MB, about 20% smaller.

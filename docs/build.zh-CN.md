@@ -87,6 +87,20 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 - `Load` 或 `Layout` 能走到 `tifa.SetSession` 或 `tifa.ClearSession`，不论是直接调用，还是经过它们传下 Ctx 的函数。
 - 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件。这个路径由 Tifa 自己回答。
 
+### 语言
+
+静态分析会找出应用的区：`app/` 里每个带 `_locales` 目录的目录，区的语言就是它的 `<language>.json` 文件（`<language>.draft.json` 不算）。每个路由属于在它的目录或上层里最近的那个区，或者不属于任何区。下面每一种情况 `tifa build` 和 `tifa check` 都会停下：
+
+- `_locales` 目录里一个语言文件都没有，或者某个 `.json` 文件的名字不是写法规范的语言标签（要写 `en-US`，不是 `en_US`）。
+- 某个区没有默认语言的文件。
+- 有多种语言却没有 `i18n.default`，或者 `i18n.default` 写的语言没有哪个区有文件。
+- 有多种语言却没有 `site.url`。
+- `app/` 里有目录和网站某种语言同名。
+- 有多种语言的网站在 `htmlAttributes` 里写了 `lang`，不管在根 Layout 还是在某个 `head` 里。`<html>` 的 `lang` 由 Tifa 写。
+- 内容集合的 `Languages` 既不是 `tifa.Languages()`，也不是字符串字面量的列表。
+
+`tifa.Languages()` 在 `tifa build`、`tifa dev`、`go test` 和 `go run` 下给出同一个列表。两个 Tifa 命令用 `-ldflags -X` 把它构建进程序，你自己的 `-ldflags` 照常保留。另外两个读模块里的 `_locales` 目录和 `tifa.yaml`。`tifa dev` 下，新增、删除或改名一个 `_locales/<language>.json`（草稿也算）会把所有步骤重跑一遍：静态分析、生成代码、打包、go build 和 Markdown 的转换。见[多语言网站](guides/i18n.zh-CN.md)。
+
 ### 调试信息
 
 `tifa build` 给 `go build` 传 `-ldflags=-w`，程序里不带 DWARF 调试信息。`examples/shop` 在 Apple M4（darwin/arm64）上的程序从 26.4 MB 降到 21.2 MB，小了约 20%。

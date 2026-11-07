@@ -48,8 +48,8 @@ myapp/
           route.go  page.tsx        页面 /projects/{project}/stats
     store/
       layout_.tsx                   套住 /store 及下面所有页面，外面不套根 Layout，并显示它们的错误
-      lang+/
-        route.go  layout.tsx  page.tsx   /store/{lang} 及下面所有页面的 Layout，以及页面 /store/{lang}
+      _locales/                     zh-CN.json 和 en-US.json：店面有这两种语言，URL 是 /store 和 /en-US/store
+      route.go  page.tsx            页面 /store
 ```
 
 - 代码按领域分组，一个领域就是 `app/` 下的一个目录：它的类型、存储和规则和页面放在一起，既有列表又有单条页面时放在列表那一层。页面 import 它要展示的领域包。根包只放钩子和整个应用共享的资源。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
@@ -396,19 +396,18 @@ export const documentHead = {
 ```
 
 - 页面的 head 由匹配到的路由的 `head` 返回值决定：`title` 和同名的 meta 取写了它的最深的路由，这个路由写的同名 meta 全都保留（每个 `media` 一个 `theme-color`，多个 `og:image`），link、style、script 按路由顺序去重。框架默认带 `<meta charset="utf-8">` 和 viewport meta，路由的 `name: 'viewport'` meta 会替换后者。标签的属性按 React DOM 在服务器上的规则写：`className`、`htmlFor`、`httpEquiv`、`crossOrigin` 等改成 HTML 的名字，`on` 开头的事件属性、非法的属性名、`null`、`undefined`、函数不写，`async`、`defer` 这类布尔属性为真时写成空值，其他属性的布尔值只在 `data-`、`aria-` 属性上写成字符串，`javascript:` 链接被替换。head 标签不支持 `style` 属性，写了会让渲染出错。`htmlAttributes` 按同样的规则写。style、script 的内容原样写入，只有其中会结束元素的 `<script`、`</script`（style 里是 `<style`、`</style`）按 React DOM 的方式转义。浏览器里跳转、`router.invalidate()` 之后 head 随新的匹配更新。
-- `head` 还可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站每个页面的语言。搜索引擎、读屏软件和浏览器的翻译都从 `lang` 读语言。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上：同一个属性取给出它的最深的路由，`undefined` 交给上层决定，`null` 去掉这个属性。属性按 React DOM 写出的名字对应，所以一个路由的 `className` 和另一个路由的 `class` 是同一个属性。`class` 按整个属性替换，不和别处的值合并。`style` 和 head 标签一样不支持。写法规则和 head 标签相同。浏览器里跳转、`router.invalidate()` 之后它们也随新的匹配更新。在浏览器里，Tifa 只在它要给 `<html>` 某个属性的值变了时才写这个属性，也只去掉自己写过的属性。所以页面脚本设的值（比如暗色模式脚本加的 `dark` class，翻译插件改的 `lang`）在 hydration 和跳转之后都还在，只要路由要的这个属性的值没变。这个值变了时，比如某个路由设了另一个 `class`，或者跳出这个路由后根 Layout 的 `class` 又回来，Tifa 就会写上新值，脚本加的 class 也就没了。这类主题放在没有路由设的属性上（比如 `data-theme`），或者让脚本再加一次。不走 SSR 的页面在浏览器里得到这些属性。
+- `head` 还可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如主题 class 或 `data-` 属性。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上：同一个属性取给出它的最深的路由，`undefined` 交给上层决定，`null` 去掉这个属性。属性按 React DOM 写出的名字对应，所以一个路由的 `className` 和另一个路由的 `class` 是同一个属性。`class` 按整个属性替换，不和别处的值合并。`style` 和 head 标签一样不支持。写法规则和 head 标签相同。浏览器里跳转、`router.invalidate()` 之后它们也随新的匹配更新。在浏览器里，Tifa 只在它要给 `<html>` 某个属性的值变了时才写这个属性，也只去掉自己写过的属性。所以页面脚本设的值（比如暗色模式脚本加的 `dark` class，翻译插件改的 `lang`）在 hydration 和跳转之后都还在，只要路由要的这个属性的值没变。这个值变了时，比如某个路由设了另一个 `class`，或者跳出这个路由后根 Layout 的 `class` 又回来，Tifa 就会写上新值，脚本加的 class 也就没了。这类主题放在没有路由设的属性上（比如 `data-theme`），或者让脚本再加一次。不走 SSR 的页面在浏览器里得到这些属性。
 
 ```tsx
-// app/guide/lang+/layout.tsx。route.go 里的 Layout 检查 URL 里的语言并返回它，
-// 网站没有的语言返回 tifa.ErrNotFound。
+// app/guide/layout.tsx。route.go 里的 Layout 返回这份指南的主题。
 export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
-  htmlAttributes: { lang: loaderData?.lang },
+  htmlAttributes: { 'data-theme': loaderData?.theme },
 })
 ```
 
-- 算数的路由就是 head 出现在页面上的那些。Layout 下面的 404 或出错保留 Layout 的语言，Layout 下面没有页面的 URL 也一样，因为它的 404 显示在这个 Layout 里（见 [404](#404)）。Layout 自己失败时，它的 `head` 拿不到数据，上面的例子就留下根 Layout 的 `lang`。这类网站的其他部分见[多语言网站](#多语言网站)。
+- 算数的路由就是 head 出现在页面上的那些。Layout 下面的 404 或出错保留 Layout 的属性，Layout 下面没有页面的 URL 也一样，因为它的 404 显示在这个 Layout 里（见 [404](#404)）。Layout 自己失败时，它的 `head` 拿不到数据，上面的例子就留下根 Layout 的 `data-theme`。
+- 有多种语言的网站里，`lang` 由 Tifa 写，就是页面的语言。`htmlAttributes` 里写 `lang` 会让构建失败（见[多语言网站](#多语言网站)）。
 - `htmlAttributes` 必须是对象，别的值 `pnpm typecheck` 会报出来。运行时这样的值和 `head` 抛错一样处理：服务器渲染按意外错误失败（交给 `OnError`，没有就是 500），消息写进日志，`tifa dev` 下也显示在页面上。浏览器里跳转后、或者不走 SSR 的页面上，路由器把错误打到控制台，并丢掉这个路由的整个 head。
-- 语言像上面那样从 Layout 的数据取，不要直接取 `params`：Go 函数会检查它，别人在 URL 里随便写的字不会变成页面的语言。
 
 ### 不套外层的 Layout
 
@@ -422,10 +421,10 @@ app/
       route.go  layout.tsx  page.tsx  在工作台里
   store/
     layout_.tsx                       店面从这里开始，不套工作台
-    lang+/
-      route.go  layout.tsx  page.tsx  某一种语言的店面
-      cart/
-        route.go  page.tsx            在店面里
+    _locales/                         zh-CN.json 和 en-US.json
+    route.go  page.tsx                店面
+    cart/
+      route.go  page.tsx              在店面里
 ```
 
 - 它下面的页面，包括更深的，都不渲染它上面的 Layout，那些 Layout 的 `Layout` 函数也不为它们执行：整页渲染、浏览器导航的数据请求、它下面没有页面的 URL 的 404，都一样。所以那些数据不会出现在这些页面里。
@@ -502,72 +501,25 @@ export function Error({ error }: { error: unknown }) {
 
 ## 多语言网站
 
-Tifa 没有语言设置：语言是 URL 的一部分，由应用在 Go 里检查。[examples/shop](../examples/shop) 在 `/store` 下的店面就是这样写的。
+在 `app/` 的某个目录里放一个 `_locales` 目录，每种语言一个 `<language>.json` 文件，这个目录及下面的页面和 API 路由就有了这些语言。[examples/shop](../examples/shop) 的店面是 `app/store/`，里面有 `_locales/zh-CN.json` 和 `_locales/en-US.json`。
 
-- 把语言放进 URL 开头的参数目录，比如 `app/store/lang+`。每个 URL 都写明语言，默认语言也写：`/store/zh-CN/products` 和 `/store/en-US/products`。
-- 这个目录的 `Layout` 检查语言，把它放进返回的数据。网站没有的语言返回 `tifa.ErrNotFound`，显示上一层 Layout 的 404，用上一层的语言：
-
-```go
-// app/store/lang+/route.go
-func Layout(c *tifa.Ctx) (Shell, error) {
-	l, err := storekit.FindLocale(c.Param("lang")) // 店面没有的语言返回 tifa.ErrNotFound
-	if err != nil {
-		return Shell{}, err
-	}
-	return Shell{Locale: l, Menu: products.Menu(l)}, nil
-}
+```yaml
+# tifa.yaml
+i18n:
+  default: zh-CN
+site:
+  url: https://shop.example.com
 ```
 
-- shop 在上一层的 `app/store` 放了 `layout_.tsx`，店面外面就不套工作台（见[不套外层的 Layout](#不套外层的-layout)）。它只渲染 `<Outlet />`，它的 `Error` 用中英两种语言显示店面没有的语言的 404，并分别链接到两种语言的店面，因为这时不知道访客要哪种语言。
-- 页面和组件从这份数据取语言，经 `layout.useLoaderData()` 或 Layout 组件提供的 context，不从 `params` 取：Go 函数检查过它，别人在 URL 里随便写的字不会变成页面的语言。Layout 下面的 `Load` 也这样检查，或者用 `tifa.Use` 读 Layout 的结果。
-- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后。其中任何一层的 `status` 不是 `success`（`Load` 失败，或组件在服务器渲染页面时抛错），或带 `_notFound` 标记（这个 URL 没有页面，由匹配到的最深 Layout 显示 404）时，页面显示的是错误，head 就不写这些链接：回 404 的 URL 不该让搜索引擎指向它，不论哪种语言。`lang` 照旧写。head 是这样写的：
+- 默认语言的 URL 不带前缀，其他语言把语言写在路径第一段：`/store/cart` 是 `zh-CN`，`/en-US/store/cart` 是 `en-US`。`/zh-CN/store/cart` 用 308 跳到 `/store/cart`。不在任何带 `_locales` 的目录里的路由，比如 `/projects`，只有一个 URL，前面加语言是 404。`i18n.prefix: always` 让默认语言也带前缀。
+- 路由不用在目录名里写语言：没有 `lang+` 目录，没有语言列表，也没有检查语言的 Layout。Go 里用 `c.Language()` 取语言（在 `Load`、`Layout` 和处理函数里都行），React 里用 `tifa/client` 的 `useLanguage()`。
+- `<html lang>`、`hreflang` 链接、`x-default` 和 canonical 链接由 Tifa 写。有多种语言的网站要有 `site.url`。
+- 链接照常写：`<Link to="/store/cart">` 在 `en-US` 页面里变成 `/en-US/store/cart`。去另一种语言或去这个目录之外的路由，会加载一个新页面，因为一个页面只有一种语言。
+- 翻译用 i18next 适配器 `tifa/i18n`，或者任何从 `useLanguage()` 取语言的库。同步加载翻译：把它们和应用一起打包，库不等待就初始化好。服务器渲染什么都不等、也不读文件，晚到的文案不会出现在 HTML 里，浏览器 hydration 时就会是另一段文字。数字和日期也按语言格式化（见[怎么写才能水合一致](#怎么写才能水合一致)）。
+- 整页缓存里每种语言按自己的 URL 各存一份。
+- Tifa 不替访客选语言，也没有回退语言。
 
-```tsx
-// app/store/lang+/layout.tsx
-const site = 'https://shop.example.com' // 店面的网址
-const languages = ['zh-CN', 'en-US'] // 店面的语言，默认语言在前
-
-export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string; status: string; _notFound?: unknown }> }) => {
-  if (!loaderData) return {}
-  const { code } = loaderData.locale
-  const common = { htmlAttributes: { lang: code } }
-  if (matches.some((match) => match.status !== 'success' || match._notFound)) return common
-  const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
-  const url = (lang: string) => `${site}/store/${lang}${page}`
-  return {
-    ...common,
-    links: [
-      ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
-      { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },
-    ],
-  }
-}
-```
-
-- 语言目录下没有页面的 URL，在语言 Layout 里显示 404，用 URL 里的语言（见 [404](#404)），不需要接住剩余路径的页面。
-- 不带语言的 URL（比如 `/store`）用一个方法函数把访客送走：送到他以前选过的语言（他选的时候应用写进 cookie），没有就送到和 `Accept-Language` 最接近的语言。匹配用 `golang.org/x/text/language` 的 `Matcher`，它知道 `en-GB` 离 `en-US` 比离 `zh-CN` 近。回答随请求而变，所以用 302 跳转并加上 `Vary`：
-
-```go
-// app/store/route.go
-var codes = []string{"zh-CN", "en-US"} // 默认语言在前
-
-var matcher = language.NewMatcher([]language.Tag{language.MustParse(codes[0]), language.MustParse(codes[1])})
-
-func GET(c *tifa.Ctx) error {
-	c.Writer().Header().Add("Vary", "Cookie, Accept-Language")
-	if picked, err := c.Cookie("lang"); err == nil && slices.Contains(codes, picked.Value) {
-		return tifa.Redirect("/store/"+picked.Value, http.StatusFound) // 访客自己选过的语言
-	}
-	tags, _, _ := language.ParseAcceptLanguage(c.Header("Accept-Language"))
-	_, i, confidence := matcher.Match(tags...)
-	if confidence == language.No {
-		i = 0 // 没有接近的语言：用默认语言
-	}
-	return tifa.Redirect("/store/"+codes[i], http.StatusFound)
-}
-```
-
-- 翻译同步加载：把每种语言的文案和应用打包在一起，库的初始化不等待，比如 i18next 用 `initAsync: false` 加 `resources`。服务端渲染什么都不等，也不读文件，后到的文案不会出现在 HTML 里，浏览器 hydrate 时就会是另一套文字。两边都从 Layout 的数据取语言，所以显示同样的文字。数字和日期也用数据里的语言和时区格式化（见[怎么写才能水合一致](#怎么写才能水合一致)）。
+[指南](guides/i18n.zh-CN.md)把这些讲完整：翻译、语言切换、翻译过的 slug、每种语言的 Markdown，以及什么会让构建失败。
 
 ## SSR 与缓存
 
@@ -603,7 +555,7 @@ const Cache = 10 * time.Minute
 - **匿名的边界。** Tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 Tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
 - **构建会检查。** 这类页面的 `Load`、外层 `Layout` 的 `Layout` 函数，或它们调用的函数读了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就失败并指出那一行，因为这样的读取只会看到匿名请求。`c.Header` 的报错会写出有哪几个头。需要知道谁登录了的页面不要用 `Cache`。取决于访客的内容放到浏览器里，页面加载后由浏览器去读（见[在浏览器里](sessions.zh-CN.md#在浏览器里)）。开了 `Cache` 的页面外面那几层 Layout，只放对所有人都一样的数据。
 - **`OnRequest` 能做什么。** 每个请求都跑，命中的也跑，看到的是匿名请求。适合按路径做的事：重定向、安全头、日志、计数、按地址限流。它看不到谁登录了，所以按登录状态重定向的 `OnRequest` 要用在不开 `Cache` 的路由上，在没看到 cookie 时就发一个 cookie 的中间件，会在每次导航时都发。它在 HTML 上设的 cookie 会被去掉。
-- **多语言。** 多语言页面按 URL 缓存，每个语言目录一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言网站](#多语言网站)）。
+- **多语言。** 多语言页面按 URL 缓存，每种语言各有一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言网站](#多语言网站)）。
 - **键**是协议、`Host` 请求头（不信 `X-Forwarded-Host`）、路径，以及去掉跟踪参数后的查询串，其余参数按名字排序。`cache.ignore_query` 列出跟踪参数（`utm_*`、`gclid`、`fbclid` 等，见 [config.zh-CN.md](config.zh-CN.md)）。页面链上有 `Load` 读的参数一律保留。页面用同样处理过的 URL 渲染，所以访客看到的内容不会取决于键忽略掉的参数。
 - **存什么。** GET 和 HEAD 共用一份。只存状态码 200、301、302 和 308 的回答。以下情况这次不存，并且这个 URL 的请求两分钟内跳过缓存，免得排队：`Cache-Control` 里有 `private`、`no-store` 或 `no-cache`（由 `OnRequest` 或 `Load` 设的），`Vary` 里有 `Accept-Encoding` 以外的值，以及其他状态码，404 也算。请求里的强制刷新（`Cache-Control: no-cache` 或 `Pragma`）绕不过缓存。
 - **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。
