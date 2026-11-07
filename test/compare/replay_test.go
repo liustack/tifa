@@ -162,10 +162,19 @@ func TestSearchStopsAtAPlateauAndChoosesTheBestStepThatPasses(t *testing.T) {
 	for range 200 {
 		trs = append(trs, tr)
 	}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, trs...)
-	curve, chosen, err := r.search(context.Background(), BrowseOptions{Log: io.Discard, SearchWarm: 50 * time.Millisecond, SearchWindow: 300 * time.Millisecond, MaxUsers: 64})
+	o := BrowseOptions{Log: io.Discard, SearchWarm: 50 * time.Millisecond, SearchWindow: 300 * time.Millisecond, MaxUsers: 64}
+	var replayers []*replayer
+	curve, chosen, err := search(context.Background(), o, func(users int) (*LoadResult, error) {
+		// Every step comes with a replayer of its own, as Browse starts a server for each.
+		step := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, trs...)
+		replayers = append(replayers, step)
+		return step.RunLoad(context.Background(), users, o.SearchWarm, o.SearchWindow)
+	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(replayers) != len(curve) {
+		t.Errorf("%d steps ran on %d replayers", len(curve), len(replayers))
 	}
 	if len(curve) < 3 || len(curve) >= 7 {
 		t.Errorf("%d steps: %+v", len(curve), curve)

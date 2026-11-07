@@ -283,16 +283,28 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 				active = append(active, s)
 				continue
 			}
+			// The writes are checked on a server of their own, then every step of the search runs on a
+			// fresh one, as the rounds do, so the orders placed in a step are not there in the next.
 			server, r, err := start(s)
 			if err != nil {
 				return nil, err
 			}
-			if err := r.verifyWrites(ctx); err != nil {
-				server.Stop()
+			err = r.verifyWrites(ctx)
+			server.Stop()
+			if err != nil {
 				return nil, fmt.Errorf("%s: %w", key, err)
 			}
-			curve, chosen, err := r.search(ctx, o)
-			server.Stop()
+			curve, chosen, err := search(ctx, o, func(users int) (*LoadResult, error) {
+				if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
+					return nil, err
+				}
+				server, r, err := start(s)
+				if err != nil {
+					return nil, err
+				}
+				defer server.Stop()
+				return r.RunLoad(ctx, users, o.SearchWarm, o.SearchWindow)
+			})
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", key, err)
 			}
@@ -388,11 +400,13 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 
 // search raises the users 1, 2, 4, ... until a step fails, or visits/s rose by under 3% in two steps
 // in a row (PlateauAfter: a fall counts as a rise under 3%), or o.MaxUsers is reached. It returns the
-// whole curve and the step the rounds run at (ChooseStep).
-func (r *replayer) search(ctx context.Context, o BrowseOptions) ([]CurvePoint, int, error) {
+// whole curve and the step the rounds run at (ChooseStep). step plays one step with that many users.
+// Browse gives each step a server of its own, started as the servers of the rounds are, so the data
+// is the same in every step and in the rounds.
+func search(ctx context.Context, o BrowseOptions, step func(users int) (*LoadResult, error)) ([]CurvePoint, int, error) {
 	var curve []CurvePoint
 	for users := 1; users <= max(o.MaxUsers, 1); users *= 2 {
-		res, err := r.RunLoad(ctx, users, o.SearchWarm, o.SearchWindow)
+		res, err := step(users)
 		if err != nil {
 			return nil, 0, err
 		}
