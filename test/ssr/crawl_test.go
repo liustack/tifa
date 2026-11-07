@@ -30,9 +30,9 @@ import (
 // and the ones that name a language or a project it does not have. The crawl follows the links of
 // every page it gets.
 var crawlSeeds = []string{"/", "/projects/studio", "/projects/weekend", "/projects/studio/orders/SH-1042", "/projects/weekend/orders/WK-0201",
-	"/projects/studio/stats", "/projects/weekend/stats", "/projects/nope", "/nothing-here", "/en-US/store", "/store", "/store/xx", "/en-US/store/journal", "/store/journal/stock-sync-api",
-	"/en-US/store/products?page=2", "/en-US/store/products?color=moss&sort=price-asc", "/store/products", "/en-US/store/products/pour-over-kettle", "/store/products/pour-over-kettle", "/en-US/store/cart", "/en-US/store/checkout", "/store/cart", "/en-US/store/anything/deep",
-	"/store/products/nope", "/en-US/store/journal/nope", "/en-US/store/%70roducts", "/projects/%73tudio"}
+	"/projects/studio/stats", "/projects/weekend/stats", "/projects/nope", "/nothing-here", "/store", "/zh-CN/store", "/zh-CN/store/xx", "/store/journal", "/zh-CN/store/journal/stock-sync-api",
+	"/store/products?page=2", "/store/products?color=moss&sort=price-asc", "/zh-CN/store/products", "/store/products/pour-over-kettle", "/zh-CN/store/products/pour-over-kettle", "/store/cart", "/store/checkout", "/zh-CN/store/cart", "/store/anything/deep",
+	"/zh-CN/store/products/nope", "/store/journal/nope", "/store/%70roducts", "/projects/%73tudio"}
 
 const crawlLimit = 160
 
@@ -68,9 +68,9 @@ func crawlSame(a, b []byte) (verdict string, stamps int) {
 }
 
 func TestCrawlHelpers(t *testing.T) {
-	page := []byte(`<a href="/en-US/store/products?color=moss&amp;sort=price-asc">x</a><a href="/other">y</a><a href="/projects/studio">z</a>`)
+	page := []byte(`<a href="/store/products?color=moss&amp;sort=price-asc">x</a><a href="/other">y</a><a href="/projects/studio">z</a>`)
 	got := crawlLinks(page)
-	if len(got) != 2 || got[0] != "/en-US/store/products?color=moss&sort=price-asc" || got[1] != "/projects/studio" {
+	if len(got) != 2 || got[0] != "/store/products?color=moss&sort=price-asc" || got[1] != "/projects/studio" {
 		t.Errorf("links = %q", got)
 	}
 	a := []byte("<p>2026-06-01T08:00:00Z and 2026-06-02T09:10:11.123+08:00</p>{i:\"__root__#\",u:0,s:1}")
