@@ -382,7 +382,11 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 				blocks = BlocksFor(rate, b.o.Target, planBlocks)
 				b.res.Blocks[key] = blocks
 			}
-			return r.RunClosed(ctx, users, blocks*BlockVisits, 4*b.o.Target+time.Minute)
+			// The warm-up sends no writes, so a server whose writes make it slower (a cache that they
+			// clear) does more in it than in the round, and the first round of a cell can be sized too
+			// large. It is stopped at twice the target, which is too long to be valid, and resized from
+			// what it did.
+			return r.RunClosed(ctx, users, blocks*BlockVisits, 2*b.o.Target)
 		})
 		if err != nil {
 			return nil, err
