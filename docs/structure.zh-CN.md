@@ -21,6 +21,7 @@ read_when:
 myapp/
   go.mod
   hooks.go                  OnStart、OnShutdown、OnRequest、OnError
+  hooks.ts                  JavaScript 这边的 onStart：i18next 格式化函数和其他准备
   options.go                应用的选项：var DBPath = tifa.String(...)
   db.go                     var DB，在 OnStart 里打开，在 OnShutdown 里关闭
   schema.sql                所有领域的表

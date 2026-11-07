@@ -358,7 +358,6 @@ i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每�
 - 键或选项是函数或对象，比如 `replace`、`formatParams` 或 `Date`
 - 结果不是字符串（`returnObjects`、`returnDetails`）
 - 翻译过程中 i18next 打了日志的调用，每个缺失的键都会打日志。所以缺失的键每次都会传到 `missingKeyHandler`、`missingKey` 的监听者和日志。
-- 运行了应用代码的调用：用 `services.formatter.add` 或 `addCached` 加的格式化函数，或者后处理器（比如 i18next-sprintf-postprocessor）。这些代码可能读到请求里的东西，比如用户的时区，所以它们的结果不记。i18next 自带的格式化函数（`number`、`currency`、`datetime`、`relativetime` 和 `list`）照样记。
 - 用 `cloneInstance` 做出的实例、带 `missingInterpolationHandler` 的实例、自带格式化模块（`use({ type: 'formatter' })`）的实例，它们的调用一概不记
 - 实例自己的 `t`（`i18n.t`），`Trans` 没拿到 `t` 时用的就是它
 
@@ -366,25 +365,28 @@ i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每�
 
 缓存很少答得上的键，比如选项里带着用户名字的键，当它的调用没找到的次数比找到次数的四倍多出 64 次时，就不再用缓存。之后每 33 次调用里有一次再试缓存，试的这些调用找得到字符串时，这个键就重新用上缓存。不用缓存时，它的调用除了查一次键，花的时间和没有缓存时一样。
 
+运行了应用格式化函数（用 `services.formatter.add` 或 `addCached` 加的）或后处理器（比如 i18next-sprintf-postprocessor）的调用，和其他调用一样记下来，i18next 自带的格式化函数也一样。所以这些代码对同样的语言、选项和值必须给出同样的文字，就像 React 组件对同样的 props 必须给出同样的输出：不读当前时间，不读随机数，也不读请求会改动的东西。请求里的值，比如用户的时区或当前时间，放进调用的选项里，选项是每条记录的一部分。交给 `add` 或 `addCached` 的格式化函数如果是就地写的，并且自己调了 `Date.now()`、`Date()`、不带参数的 `new Date()`、`Math.random()`、`performance.now()`、`crypto.randomUUID()` 或 `crypto.getRandomValues()`，构建会失败，并指出文件和行号。格式化函数再调用的函数里有这样的调用，构建看不到。
+
 留给应用的只有一件事：第一次渲染之后，不绕开 i18next 的 API 去改 i18next 会读的东西。应用有下面任何一种做法时，用 `build.i18next_cache: false` 关掉缓存：
 
 - 不通过 i18next 的 API 改资源：交给 `init` 的资源对象（i18next 留着它并从里面读），或者 `getResourceBundle` 和 `getDataByLanguage` 返回的对象
 - 不通过 i18next 的 API 改 `i18n.options`（`interpolation.defaultVariables` 除外）或 `services.formatter.formats` 里的格式化函数，或者就地改 `i18nFormat` 模块的 `formats` 对象。i18next-icu 的 `addUserDefinedFormats` 会给模块换一个新对象，缓存看得到。
-- 交给 i18next 的函数（格式化函数和后处理器以外）对同样的输入给出不同的结果，比如因为它读请求里的东西或当前时间：`overloadTranslationOptionHandler`、`interpolation.escape`、`i18nFormat` 模块，或者调用选项里的 getter
+- 交给 i18next 的其他函数对同样的输入给出不同的结果，比如因为它读请求里的东西或当前时间：`overloadTranslationOptionHandler`、`interpolation.escape`、`i18nFormat` 模块，或者调用选项里的 getter。这样的格式化函数或后处理器关了缓存也不对，因为浏览器写出的文字和服务器的不同，所以它不是关缓存的理由。
 
 这样的应用，页面可能显示改动之前的文字，或者别的请求拿到的文字，直到缓存因为别的原因清空。
 
-shop 给每种语言建一个实例，并给它配上自己的金额和日期格式化函数。它的十个店面页面渲染时间是原来的 0.798（0.786 到 0.804），各页在 0.739 到 0.964 之间，HTML 不变。带金额或日期的调用要运行这些格式化函数，所以每次渲染都重新翻译。同样的页面换成应用使用 i18next 的其他写法：
+shop 用适配器的那一个实例，并在 `hooks.ts` 里给它配上自己的金额和日期格式化函数。它的十个店面页面渲染时间是原来的 0.778（0.774 到 0.783），各页在 0.709 到 0.917 之间，HTML 不变。同样的页面换成应用使用 i18next 的其他写法：
 
 | 应用怎么用 i18next | 十个页面的耗时 |
 | --- | --- |
-| 所有语言共用一个实例，每次渲染调用 `changeLanguage` | 0.803（0.792 到 0.819） |
-| 每个请求 `cloneInstance` 一次，i18next-http-middleware 就是这样 | 0.998（0.987 到 1.010） |
-| 每个请求新建一个实例 | 0.948（0.937 到 0.957） |
-| 每次调用的选项里都带着请求里的值，比如用户名 | 0.956（0.941 到 0.967） |
-| 同上，但这个值有 400 个字符，缓存会存满 1 MB 再清空重来 | 0.953（0.933 到 0.965） |
+| 每种语言一个实例 | 0.765（0.757 到 0.773） |
+| 每个请求 `cloneInstance` 一次，i18next-http-middleware 就是这样 | 1.001（0.997 到 1.004） |
+| 每个请求新建一个实例 | 0.916（0.908 到 0.924） |
+| 每次调用的选项里都带着每次渲染都变的值，比如一个计数 | 0.912（0.904 到 0.921） |
+| 同上，但这个值有 400 个字符，缓存会存满 1 MB 再清空重来 | 0.924（0.918 到 0.930） |
 
-工作台页面不翻译，为 0.997（0.990 到 1.004）。店面页面反复渲染之后，shop 的一个 VM 比没有缓存时多占 127 KB，每次调用都带请求里的值时多占 636 KB。测量方法见[优化记录](studies/optimizations.md#build)。
+工作台页面不翻译，为 1.000（0.997 到 1.003）。店面页面反复渲染之后，shop 的一个 VM 比没有缓存时多占约 0.2 到 0.4 MB，每次调用都带每次渲染都变的值时多占约 2 MB。测量方法见[优化记录](studies/optimizations.md#build)。
+
 
 插件认识 i18next 25.5 到 26.5 的代码。换成别的版本，或者某个版本改了缓存依赖的代码，构建会打印警告，SSR 包和没有缓存时一样。写上 `build.i18next_cache: false`，这样的应用构建时就不再有这条警告。
 
@@ -484,7 +486,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 ## i18next 适配器
 
-`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打进包里，每种语言做一个 i18next 实例，并给页面常用的 react-i18next hooks。应用自己安装 `i18next` 和 `react-i18next`，tsconfig 的 `paths` 里要有 `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]`。只有带 `_locales` 文件夹的应用才会写出 `runtime/i18n.tsx`，因为 TypeScript 会检查整个 `.tifa/`，没有翻译的应用也没有 i18next 可导入。
+`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打进包里，为所有语言做一个 i18next 实例，并给页面常用的 react-i18next hooks。应用自己安装 `i18next` 和 `react-i18next`，tsconfig 的 `paths` 里要有 `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]`。只有带 `_locales` 文件夹的应用才会写出 `runtime/i18n.tsx`，因为 TypeScript 会检查整个 `.tifa/`，没有翻译的应用也没有 i18next 可导入。
 
 字符串放在 `app/` 各文件夹的 `_locales/<语言>.json` 里。`<语言>.draft.json` 不发布，文件夹里其他文件不算。文件夹的命名空间是它相对 `app/` 的路径：`app/store/_locales` 是 `store`，`app/admin/store/_locales` 是 `admin/store`，`app/_locales` 是默认命名空间。Vite 插件把这些文件合成一个模块，所以服务端渲染和浏览器都带着全部字符串，不用再去取。
 
@@ -500,30 +502,36 @@ export default function Page() {
 
 ```tsx
 // app/layout.tsx：provider 从 tifa/client 的 useLanguage() 读页面的语言
-import { I18nProvider, setupI18n } from 'tifa/i18n'
-
-setupI18n((i18n, language) => {
-  i18n.services.formatter?.addCached('currency', (lng, options) => {
-    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
-    return (value) => f.format(value)
-  })
-})
+import { I18nProvider } from 'tifa/i18n'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return <I18nProvider>{children}</I18nProvider>
 }
 ```
 
+格式化函数写在 [hooks.ts](app.zh-CN.md#hooksts) 的 `onStart` 里，它在服务器和浏览器上第一次渲染之前运行。格式化函数通过 `lng` 拿到语言，所以一个就够所有语言用：
+
+```ts
+// hooks.ts
+import { i18n } from 'tifa/i18n'
+
+export function onStart() {
+  i18n.services.formatter?.addCached('currency', (lng, options) => {
+    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+    return (value) => f.format(value)
+  })
+}
+```
+
 | 导出 | 作用 |
 | --- | --- |
-| `I18nProvider` | 给子组件 `useLanguage()` 那种语言的实例 |
+| `I18nProvider` | 把实例交给子组件，语言是 `useLanguage()` 给的那种 |
 | `useTranslation`、`Trans` | react-i18next 的原样导出 |
-| `i18nFor(language)` | 某种语言的实例，给组件外的代码用，比如页面标题。第一次用时创建并保留，进程里每次渲染共用 |
-| `setupI18n(fn)` | 设置 `fn(i18n, language)`，每个实例在 `init` 之后运行一次，用来加格式化函数。必须在第一个实例出现前调用，之后调用会抛错 |
+| `i18n` | 这个实例。在 `onStart` 里加格式化函数，或者给组件外的代码用，比如页面标题：`i18n.getFixedT(language, 'store')('cart.title')` |
 
-一个实例只有自己语言的字符串，`fallbackLng: false`，`load: 'currentOnly'`，`initAsync: false`（`init` 返回时就绪，首次渲染就有全部字符串），`interpolation.escapeValue: false`（转义交给 React）。没有对应字符串的键，结果就是键本身，和 i18next 一样。某个区域在某种语言里没有字符串，那里就是空的。
+实例有所有语言的字符串，`fallbackLng: false`，`load: 'currentOnly'`（en-US 不会拿 en 的字符串），`initAsync: false`（`init` 返回时就绪，首次渲染就有全部字符串），`interpolation.escapeValue: false`（转义交给 React）。没有对应字符串的键，结果就是键本身，和 i18next 一样。某个区域在某种语言里没有字符串，那里就是空的。服务器渲染之前，`I18nProvider` 把实例切到页面的语言。在浏览器里一个文档只有一种语言，换语言的页面就是另一个文档，所以只切一次。
 
-适配器和 [`build.i18next_cache`](#i18next-缓存) 一起工作。在 `setupI18n` 里用 `addCached` 或 `add` 加的格式化函数会运行应用代码，所以用到它的调用不进缓存。能缓存的结果要用 i18next 自带的格式化函数（`number`、`currency`、`datetime`、`relativetime`、`list`），选项写在字符串或调用里。
+适配器和 [`build.i18next_cache`](#i18next-缓存) 一起工作，缓存也会记下用到应用格式化函数的翻译。所以格式化函数对同样的语言、选项和值必须给出同样的文字。
 
 ## 数据协议
 

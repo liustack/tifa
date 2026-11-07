@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、hooks.ts 及其在首次渲染前运行的准备、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 Tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -17,6 +17,7 @@ read_when:
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
   - 页面在服务端渲染失败或水合不一致，想知道服务端有哪些浏览器 API 和库的能力
   - 某个组件要等浏览器画出来才有内容（比如图表、地图），想知道要不要在服务端渲染它
+  - 要在 JavaScript 这边为整个应用准备一次东西，比如 i18next 的格式化函数或 dayjs 插件，写在 hooks.ts 里
 ---
 
 [English](app.md) · 简体中文
@@ -31,6 +32,7 @@ read_when:
 myapp/
   go.mod
   hooks.go                          进程与请求钩子（可选）
+  hooks.ts                          onStart，在服务器和浏览器上第一次渲染前运行（可选）
   options.go                        应用的选项，见配置文档（可选）
   db.go                             整个应用共享的资源：包级变量和函数（可选）
   app/
@@ -896,6 +898,32 @@ func OnStart(ctx context.Context) error {
 ```
 
 `tifa.SetHTTPHandler(wrap)` 拿到 Tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。它包着的 handler 返回之后，这个请求的 `r.Pattern` 就是路由模板，和 `c.Pattern()` 相同（如 `/projects/{project}`，没有路由匹配时为空），所以指标中间件可以按路由而不是按 URL 计数。浏览器用 `_tifa` 参数请求一次导航的数据，`.p` 标记预加载。不要用这些请求统计页面浏览量：预加载的结果可以不再发请求就用于导航，重新加载又会多一次。数浏览器完成的客户端导航，加整页请求（见[页面请求](build.zh-CN.md#页面请求)）。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。它在开了 `Cache` 的页面的匿名请求之外运行（见[整页缓存](#整页缓存)）：它放进请求 context 的值会到达这类页面的 `OnRequest` 和 `Load`，所以不要在这里认人，认人放在 `OnRequest` 里。
+
+## hooks.ts
+
+项目根目录的 `hooks.ts` 是 `hooks.go` 在 JavaScript 这边的对应文件。它导出一个可选的函数：
+
+```ts
+// hooks.ts
+import { i18n } from 'tifa/i18n'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+
+export function onStart() {
+  dayjs.extend(relativeTime)
+  i18n.services.formatter?.addCached('currency', (lng, options) => {
+    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+    return (value) => f.format(value)
+  })
+}
+```
+
+- `onStart` 在每个 JavaScript 运行环境里、任何页面渲染之前运行一次，和打开的是哪个页面无关：服务器上每个 VM 加载 SSR 包时一次，浏览器里水合之前一次。整个应用只需准备一次的东西放这里，比如 i18next 的格式化函数、dayjs 插件、图表类型、错误上报。
+- 它两边都跑，所以服务器和浏览器用同样的准备渲染。Tifa 没有只在服务器上跑的 JavaScript：数据和 I/O 都在 Go 里。
+- 它是同步的。它发起但不等待的工作，比如动态 `import()`，可能在第一次渲染之后才完成。
+- 在服务器上抛错，程序就不启动。在浏览器里抛错，页面不水合：保持服务器发来的 HTML，链接整页跳转，错误在控制台里。
+- `hooks.ts` 不导出别的：多导出一个名字，构建失败并报出这个名字，因为 Tifa 永远不会运行它。没有页面的应用没有 JavaScript，这时有 `hooks.ts` 构建也会失败。
+- `hooks.ts` 和它导入的东西都进浏览器的主包，所以要写得小一点。
 
 ## 会话
 

@@ -358,7 +358,6 @@ A call is looked up by the i18next instance, the language, namespace and key pre
 - a key or option that is a function or an object, such as `replace`, `formatParams` or a `Date`
 - a result that is not a string (`returnObjects`, `returnDetails`)
 - a call during which i18next logs something, as it does for each missing key. So a missing key reaches `missingKeyHandler`, the `missingKey` listeners and the logger on every call.
-- a call that runs code of the app: a formatter added with `services.formatter.add` or `addCached`, or a post-processor such as i18next-sprintf-postprocessor. Such code may read something of the request, such as the user's time zone, so its result is not kept. i18next's own formatters (`number`, `currency`, `datetime`, `relativetime` and `list`) are kept.
 - every call of an instance made with `cloneInstance`, of an instance with a `missingInterpolationHandler`, and of an instance with a formatter module of its own (`use({ type: 'formatter' })`)
 - the `t` of the instance itself (`i18n.t`), which `Trans` uses unless it gets a `t`
 
@@ -366,25 +365,27 @@ The cache empties when the app changes what a translation it holds depends on th
 
 A key whose calls the cache seldom answers, such as one that gets a user's name in its options, stops using the cache once its calls have missed 64 times more than four times they found their string. It then tries the cache again for one call in 33, and uses it again once those calls find their string. Its other calls cost what they cost without the cache, apart from one lookup of the key.
 
+A call that runs a formatter of the app, added with `services.formatter.add` or `addCached`, or a post-processor such as i18next-sprintf-postprocessor, is kept like any other, as are those of i18next's own formatters. Such code must give the same text for the same language, options and value, as a React component must give the same output for the same props: it reads neither the time, nor randomness, nor anything a request changes. A value of the request, such as the user's time zone or the current time, goes in the options of the call, which are part of each entry. The build fails for a formatter written in place in `add` or `addCached` that calls `Date.now()`, `Date()`, `new Date()` without arguments, `Math.random()`, `performance.now()`, `crypto.randomUUID()` or `crypto.getRandomValues()` itself, and names the file and line. It does not see such a call in a function the formatter calls.
+
 What stays with the app is to leave alone, after the first render, what i18next reads without its API. Turn the cache off with `build.i18next_cache: false` when the app does one of these:
 
 - changes resources without i18next's API: the resources object it gave `init`, which i18next keeps and reads, or the objects `getResourceBundle` and `getDataByLanguage` return
 - changes `i18n.options`, other than `interpolation.defaultVariables`, or the formatters in `services.formatter.formats`, without i18next's API, or changes the `formats` object of an `i18nFormat` module in place. `addUserDefinedFormats` of i18next-icu gives the module a new object, which the cache sees.
-- gives i18next functions other than formatters and post-processors whose result changes for the same input, for example because they read something of the request or the time: an `overloadTranslationOptionHandler`, an `interpolation.escape`, an `i18nFormat` module, or getters in the options of a call
+- gives i18next other functions whose result changes for the same input, for example because they read something of the request or the time: an `overloadTranslationOptionHandler`, an `interpolation.escape`, an `i18nFormat` module, or getters in the options of a call. A formatter or post-processor like that is wrong with the cache off too, as the browser writes another text than the server, so it is no reason to turn the cache off.
 
 Pages of such an app may show the text from before a change, or the text another request got, until the cache empties for another reason.
 
-On the shop, which makes one instance for each language and gives it formatters of its own for money and dates, the ten storefront pages take 0.798 of the time to render (0.786 to 0.804), each page 0.739 to 0.964, with the same HTML. Its calls with an amount or a date run those formatters, so they translate on every render. The same pages, with i18next used the other ways apps use it:
+On the shop, which uses the one instance of the adapter and gives it formatters of its own for money and dates in `hooks.ts`, the ten storefront pages take 0.778 of the time to render (0.774 to 0.783), each page 0.709 to 0.917, with the same HTML. The same pages, with i18next used the other ways apps use it:
 
 | How the app uses i18next | Time of the ten pages |
 | --- | --- |
-| One instance for all languages, with `changeLanguage` on each render | 0.803 (0.792 to 0.819) |
-| `cloneInstance` on each request, as i18next-http-middleware does | 0.998 (0.987 to 1.010) |
-| A new instance on each request | 0.948 (0.937 to 0.957) |
-| A value of the request, such as a user's name, in the options of every call | 0.956 (0.941 to 0.967) |
-| The same with a value of 400 characters, so the cache fills its 1 MB and starts over | 0.953 (0.933 to 0.965) |
+| One instance for each language | 0.765 (0.757 to 0.773) |
+| `cloneInstance` on each request, as i18next-http-middleware does | 1.001 (0.997 to 1.004) |
+| A new instance on each request | 0.916 (0.908 to 0.924) |
+| A value that changes on each render, such as a counter, in the options of every call | 0.912 (0.904 to 0.921) |
+| The same with a value of 400 characters, so the cache fills its 1 MB and starts over | 0.924 (0.918 to 0.930) |
 
-The workbench pages, which do not translate, take 0.997 (0.990 to 1.004). After the storefront pages have rendered again and again, a VM of the shop holds 127 KB more than without the cache, and 636 KB more when every call carries a value of the request. [Optimizations](studies/optimizations.md#build) has how these were measured.
+The workbench pages, which do not translate, take 1.000 (0.997 to 1.003). After the storefront pages have rendered again and again, a VM of the shop holds about 0.2 to 0.4 MB more than without the cache, and about 2 MB more when every call carries a value that changes on each render. [Optimizations](studies/optimizations.md#build) has how these were measured.
 
 The plugin knows the code of i18next 25.5 to 26.5. For another version, or when a release changes the code the cache needs, the build prints a warning and the bundle is the one without the cache. `build.i18next_cache: false` builds such an app without the warning.
 
@@ -484,7 +485,7 @@ React and React DOM must be 19.3.0 or later. The Vite plugin rewrites the string
 
 ## The i18next adapter
 
-`tifa/i18n` is the official i18next adapter. It bundles the translation files of the app, makes one i18next instance for each language and gives pages the usual react-i18next hooks. The app installs `i18next` and `react-i18next` itself, and its tsconfig has `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]` in `paths`. Tifa writes `runtime/i18n.tsx` only for an app with a `_locales` folder, because TypeScript checks all of `.tifa/` and an app without translations has no i18next to import.
+`tifa/i18n` is the official i18next adapter. It bundles the translation files of the app, makes one i18next instance for all languages and gives pages the usual react-i18next hooks. The app installs `i18next` and `react-i18next` itself, and its tsconfig has `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]` in `paths`. Tifa writes `runtime/i18n.tsx` only for an app with a `_locales` folder, because TypeScript checks all of `.tifa/` and an app without translations has no i18next to import.
 
 Strings live in `_locales/<language>.json` in the folders of `app/`. A `<language>.draft.json` is not published, and no other file in the folder counts. The namespace of a folder is its path relative to `app/`: `app/store/_locales` is `store`, `app/admin/store/_locales` is `admin/store`, and `app/_locales` is the default namespace. The Vite plugin turns the files into one module, so the server render and the browser have every string and nothing is fetched.
 
@@ -500,30 +501,36 @@ export default function Page() {
 
 ```tsx
 // app/layout.tsx: the provider reads the language of the page from useLanguage() of tifa/client
-import { I18nProvider, setupI18n } from 'tifa/i18n'
-
-setupI18n((i18n, language) => {
-  i18n.services.formatter?.addCached('currency', (lng, options) => {
-    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
-    return (value) => f.format(value)
-  })
-})
+import { I18nProvider } from 'tifa/i18n'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return <I18nProvider>{children}</I18nProvider>
 }
 ```
 
+Formatters go in `onStart` of [hooks.ts](app.md#hooksts), which runs before the first render on the server and in the browser. A formatter gets the language as `lng`, so one is enough for every language:
+
+```ts
+// hooks.ts
+import { i18n } from 'tifa/i18n'
+
+export function onStart() {
+  i18n.services.formatter?.addCached('currency', (lng, options) => {
+    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+    return (value) => f.format(value)
+  })
+}
+```
+
 | Export | What it does |
 | --- | --- |
-| `I18nProvider` | Gives its children the instance of `useLanguage()` |
+| `I18nProvider` | Gives its children the instance, in the language of `useLanguage()` |
 | `useTranslation`, `Trans` | The ones of react-i18next, unchanged |
-| `i18nFor(language)` | The instance of a language, for code outside components such as a page title. Made on first use and kept, so every render in the process shares it |
-| `setupI18n(fn)` | Sets `fn(i18n, language)`, which runs once for each instance right after `init`, for formatters. It must run before the first instance exists and throws after that |
+| `i18n` | The instance. For formatters in `onStart`, and for code outside components such as a page title: `i18n.getFixedT(language, 'store')('cart.title')` |
 
-An instance has only the strings of its language, `fallbackLng: false`, `load: 'currentOnly'`, `initAsync: false` (it is ready when `init` returns, so the first render has every string) and `interpolation.escapeValue: false` (React escapes). A key with no string gives the key, as i18next does. An area with no strings in a language has none in it.
+The instance has the strings of every language, `fallbackLng: false`, `load: 'currentOnly'` (en-US never takes the strings of en), `initAsync: false` (it is ready when `init` returns, so the first render has every string) and `interpolation.escapeValue: false` (React escapes). A key with no string gives the key, as i18next does. An area with no strings in a language has none in it. `I18nProvider` switches the instance to the language of the page before a server render. In the browser a document has one language, since a page in another language is another document, so it switches once.
 
-The adapter works with [`build.i18next_cache`](#i18next-cache). A formatter added with `addCached` or `add` in `setupI18n` runs app code, so the cache does not keep the calls that use it. Use the formatters i18next has built in (`number`, `currency`, `datetime`, `relativetime`, `list`) with the options in the string or the call where a result can be kept.
+The adapter works with [`build.i18next_cache`](#i18next-cache), which keeps the translations that use the app's formatters too. So a formatter must give the same text for the same language, options and value.
 
 ## Data protocol
 
