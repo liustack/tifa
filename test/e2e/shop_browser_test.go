@@ -96,3 +96,75 @@ func shopPagesInBrowser(t *testing.T, session string, args ...string) {
 		check(tc.page + " -> " + tc.link)
 	}
 }
+
+// TestShopOrderListSecondPageInBrowser opens the order list of a project with more than 25 orders,
+// goes to page 2 and back, and checks the rows on each page and that the console and the network
+// stay clean. Page 2 is not in the document: the browser asks the server for it.
+func TestShopOrderListSecondPageInBrowser(t *testing.T) {
+	skipUnlessEnabled(t)
+	if _, err := exec.LookPath("playwright-cli"); err != nil {
+		t.Skip("playwright-cli is not installed")
+	}
+	dir := shopDir(t)
+	exe := buildAt(t, dir)
+	t.Setenv("SHOP_OPEN", "1")
+	base, _, _ := start(t, exe)
+
+	pw, _ := openBrowser(t, "e2e-shop-list")
+	eval := func(fn string) any {
+		t.Helper()
+		out := pw("eval", fn)
+		_, result, ok := strings.Cut(out, "### Result\n")
+		if !ok {
+			t.Fatalf("no result in %s", out)
+		}
+		var v any
+		if err := json.Unmarshal([]byte(strings.SplitN(result, "\n", 2)[0]), &v); err != nil {
+			t.Fatalf("result %q: %v", result, err)
+		}
+		return v
+	}
+	failed := regexp.MustCompile(`=> \[(?:FAILED|[45]\d\d)\]`)
+	check := func(where string) {
+		t.Helper()
+		if out := pw("console", "warning"); !strings.Contains(out, "Total messages: 0 ") {
+			t.Errorf("%s: console:\n%s", where, out)
+		}
+		if out := pw("network"); failed.MatchString(out) {
+			t.Errorf("%s: failed requests:\n%s", where, out)
+		}
+	}
+	// ids are the order numbers of the rows on screen, and counted is the line under the table.
+	ids := `() => [...document.querySelectorAll("tbody tr")].map((r) => r.querySelector('a[href^="/projects/studio/orders/"]')?.textContent).join(",")`
+	counted := `() => [...document.querySelectorAll("span")].map((s) => s.textContent).find((s) => /^\d+ orders/.test(s)) ?? ""`
+	rows := func() []string { return strings.Split(eval(ids).(string), ",") }
+	click := func(name string) {
+		t.Helper()
+		pw("run-code", fmt.Sprintf(`async (page) => { await page.getByRole('button', { name: %q, exact: true }).click() }`, name))
+	}
+
+	pw("open", base+"/projects/studio")
+	waitFor(t, "the list to hydrate", func() bool {
+		return eval(`() => { const root = document.getElementById("tifa-root"); return !!root && Object.keys(root).some((k) => k.startsWith("__reactContainer$")) }`) == true
+	})
+	first := rows()
+	if len(first) != 25 || first[0] != "SH-1042" || first[24] != "SH-1018" || eval(counted) != "42 orders, 1 to 25" {
+		t.Fatalf("page 1: %d rows %v, %v", len(first), first, eval(counted))
+	}
+	check("page 1")
+
+	click("Page 2")
+	waitFor(t, "page 2 to show", func() bool { return eval(counted) == "42 orders, 26 to 42" && rows()[0] == "SH-1017" })
+	second := rows()
+	if len(second) != 17 || second[16] != "SH-1001" {
+		t.Errorf("page 2: %d rows %v", len(second), second)
+	}
+	check("page 2")
+
+	click("Page 1")
+	waitFor(t, "page 1 to show again", func() bool { return rows()[0] == "SH-1042" && eval(counted) == "42 orders, 1 to 25" })
+	if again := rows(); strings.Join(again, ",") != strings.Join(first, ",") {
+		t.Errorf("page 1 again: %v, want %v", again, first)
+	}
+	check("page 1 again")
+}
