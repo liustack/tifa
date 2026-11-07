@@ -16,6 +16,7 @@ export const i18n = i18next.createInstance()
 i18n.init({
   resources: { 'zh-CN': { store: zhCN }, 'en-US': { store: enUS } } as never,
   fallbackLng: false,
+  load: 'currentOnly',
   ns: ['store'],
   defaultNS: 'translation',
   initAsync: false,

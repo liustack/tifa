@@ -28,6 +28,8 @@ export const i18n = i18next.createInstance()
 i18n.init({
   resources: locales,
   fallbackLng: false,
+  // A language is translated by its own file: en-US never takes the strings of en.
+  load: 'currentOnly',
   ns: namespaces,
   defaultNS,
   initAsync: false,

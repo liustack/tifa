@@ -124,6 +124,23 @@ func TestI18nAdapterTranslatesEachLanguageFromTheLocalesOfItsFolders(t *testing.
 	if r.Fallback != false {
 		t.Errorf("fallbackLng is %v, want false: a missing string gives its key", r.Fallback)
 	}
+}
+
+// A language of the app is translated by its own file alone: a string missing in en-US.json gives
+// its key, not the string of en.json, which belongs to the language en.
+func TestI18nAdapterDoesNotFallBackToTheLanguageWithoutItsRegion(t *testing.T) {
+	locales := map[string]string{"app/store/_locales/en.json": `{"draftOnly": "text of en", "total": "en"}`}
+	for name, text := range i18nAdapterLocales {
+		locales[name] = text
+	}
+	code, printed := buildPrinting(t, i18nAdapterApp(t, locales), "i18n.tsx")
+	var r i18nAdapterResult
+	if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+		t.Fatalf("%v\n%s", err, printed)
+	}
+	if want := "<p>Cart|Total AB!|Admin store|My site|draftOnly|key</p>"; r.Renders[0] != want {
+		t.Errorf("en-US renders %s, want %s", r.Renders[0], want)
+	}
 	for _, text := range []string{"草稿文字", "draft text", "onlyJapanese"} {
 		if strings.Contains(code, text) {
 			t.Errorf("the bundle holds %q of a draft file", text)
