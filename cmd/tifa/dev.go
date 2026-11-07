@@ -205,7 +205,7 @@ func (p *devPipeline) Content(ctx context.Context, all bool, changed []string) (
 	fp := c.Fingerprint()
 	all = all || fp != p.converted
 	_, pages := p.files["client.ts"]
-	n, err := p.front.Content(ctx, pages, contentOf(p.m, c), all, changed)
+	n, err := p.front.Content(ctx, pages, contentOf(p.m, c, p.public), all, changed)
 	if err != nil {
 		return "", err
 	}

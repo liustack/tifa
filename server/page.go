@@ -281,6 +281,28 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	return serveFile(w, r, f.public, name, "no-cache", etag, false)
 }
 
+// isFile reports whether serveStatic answers a GET of the path p with a file.
+func (s *server) isFile(p string) bool {
+	f := s.front.Load()
+	if f == nil {
+		return false
+	}
+	name := strings.TrimPrefix(path.Clean(p), "/")
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && isRegular(f.assets, rest) {
+		return true
+	}
+	return isRegular(f.public, name)
+}
+
+// isRegular reports whether name is a regular file of fsys, which may be nil.
+func isRegular(fsys fs.FS, name string) bool {
+	if fsys == nil || name == "" || !fs.ValidPath(name) {
+		return false
+	}
+	info, err := fs.Stat(fsys, name)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // serveFile answers with the regular file name of fsys and reports whether it exists. With
 // gz, a GET that accepts gzip gets the file name.gz that tifa build compressed, when there is
 // one, as nginx's gzip_static and Caddy's precompressed do: with the type of name, and a range
@@ -289,10 +311,7 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 // If-None-Match gets 304. Without one the validator is the modification time of the file, which
 // a file of the directory tifa dev serves has and an embedded file does not.
 func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, etag string, gz bool) bool {
-	if fsys == nil || name == "" || !fs.ValidPath(name) {
-		return false
-	}
-	if info, err := fs.Stat(fsys, name); err != nil || !info.Mode().IsRegular() {
+	if !isRegular(fsys, name) {
 		return false
 	}
 	h := w.Header()

@@ -195,6 +195,12 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = s.splitLanguage(r)
+	if info := langInfoOf(r); info != nil && info.prefixed && (r.Method == "GET" || r.Method == "HEAD") && s.isFile(r.URL.Path) {
+		// A file is served at its own path only, which serveStatic answered above.
+		restorePublic(r)
+		routeHandler{s: s}.ServeHTTP(w, r)
+		return
+	}
 	if info := langInfoOf(r); info != nil && info.spelled {
 		// The same language in its plain spelling.
 		redirect := &core.RedirectError{URL: withQuery("/"+info.lang+strings.TrimSuffix(info.rest, "/"), info.public.RawQuery), Status: http.StatusPermanentRedirect}

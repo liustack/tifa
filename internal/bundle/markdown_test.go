@@ -561,3 +561,24 @@ func TestMarkdownPrefixesTheHomeWithoutASlash(t *testing.T) {
 		}
 	}
 }
+
+// A link to a file of the public directory stays as written, though a route with a parameter
+// would match its path: the server answers that path with the file, in every language.
+func TestMarkdownLeavesLinksToPublicFiles(t *testing.T) {
+	root := markdownApp(t, map[string]string{"static/robots.txt": "User-agent: *", "static/img/a.png": "png"})
+	both := []string{"zh-CN", "en-US"}
+	links := &content.Links{Default: "zh-CN", Languages: both, Public: "static", Routes: []content.LinkRoute{
+		{Path: "/{slug}", Languages: both}, {Path: "/img/{name}", Languages: both},
+	}}
+	body := "[r](/robots.txt) [a](/img/a.png?v=1) [page](/page) [missing](/img/b.png)\n"
+	c := convertWith(t, root, []content.Markdown{markdownEntry("en-US", "a", "content/blog/en-US/a.md", "", body)}, links, "")
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	html := c.HTML["content/blog/en-US/a.html"]
+	for _, want := range []string{`href="/robots.txt"`, `href="/img/a.png?v=1"`, `href="/en-US/page"`, `href="/en-US/img/b.png"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the HTML lacks %s:\n%s", want, html)
+		}
+	}
+}

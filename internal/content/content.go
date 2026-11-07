@@ -101,6 +101,9 @@ type Links struct {
 	Languages []string `json:"languages"`
 	// Routes are all the routes of the app, pages and API routes, by their ServeMux paths.
 	Routes []LinkRoute `json:"routes"`
+	// Public is build.public, the folder of the public files relative to the root. A link to one of
+	// them gets no prefix.
+	Public string `json:"public"`
 }
 
 // LinkRoute is a route with its languages: none when it is outside every area.

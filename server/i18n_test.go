@@ -218,3 +218,46 @@ func TestRedirectGetsThePrefixOfTheRequest(t *testing.T) {
 		}
 	}
 }
+
+// A file of the public directory or of the build is served at its own path only, before any route,
+// as on a site without languages: a route with a parameter that would match its path does not make
+// the path a page. A redirect to it gets no prefix, and the path with a prefix is a 404.
+func TestPublicFilesHaveNoLanguage(t *testing.T) {
+	app := i18nTestApp(false)
+	app.Routes = append(app.Routes,
+		Route{ID: "app/slug+/route", Path: "/{slug}", GET: echo, Languages: storeLanguages},
+		Route{ID: "app/assets/name+/route", Path: "/assets/{name}", GET: echo, Languages: storeLanguages},
+		Route{ID: "app/store/go/route", Path: "/store/go", GET: func(c *tifa.Ctx) error {
+			return tifa.Redirect(c.Query("to"), 303)
+		}, Languages: storeLanguages},
+	)
+	s := newAppServer(t, app)
+	s.setI18n(app.I18n)
+	if err := s.setFront(dist, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		target string
+		code   int
+		body   string
+	}{
+		{"/robots.txt", 200, "User-agent: *"},
+		{"/en-US/robots.txt", 404, ""},
+		{"/en-US/assets/app-1.js", 404, ""},
+		{"/en-US/assets/logo.svg", 404, ""},
+		{"/en-US/other", 200, "[en-US] /en-US/other /{slug}"},
+	} {
+		if w := send(s, "GET", tc.target, ""); w.Code != tc.code || tc.body != "" && w.Body.String() != tc.body {
+			t.Errorf("GET %s: %d %q, want %d %q", tc.target, w.Code, w.Body.String(), tc.code, tc.body)
+		}
+	}
+	for to, want := range map[string]string{
+		"/robots.txt": "/robots.txt", "/robots.txt?x=1": "/robots.txt?x=1", "/assets/app-1.js": "/assets/app-1.js",
+		"/assets/logo.svg": "/assets/logo.svg", "/other": "/en-US/other",
+	} {
+		w := send(s, "GET", "/en-US/store/go?to="+url.QueryEscape(to), "")
+		if got := w.Header().Get("Location"); w.Code != 303 || got != want {
+			t.Errorf("redirect to %s: %d Location %q, want %q", to, w.Code, got, want)
+		}
+	}
+}

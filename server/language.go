@@ -148,8 +148,8 @@ func (s *server) answerLanguage(w http.ResponseWriter, r *http.Request, langs []
 
 // withLanguage gives location, the URL of a redirect of the app as http.Redirect resolved it, the
 // prefix of the language of r when it is a path of the site whose route has that language, as a
-// link gets it in the browser. A path that starts with a language, one whose route lacks the
-// language or matches none, and a URL of another site stay as written.
+// link gets it in the browser. A path that starts with a language, a file serveStatic answers,
+// a path whose route lacks the language or matches none, and a URL of another site stay as written.
 func (s *server) withLanguage(r *http.Request, location string) string {
 	info := langInfoOf(r)
 	if info == nil || info.lang == s.i18n.Default && !s.i18n.Always || !strings.HasPrefix(location, "/") || strings.HasPrefix(location, "//") {
@@ -159,7 +159,7 @@ func (s *server) withLanguage(r *http.Request, location string) string {
 	if err != nil {
 		return location
 	}
-	if seg, _, _ := strings.Cut(strings.TrimPrefix(u.EscapedPath(), "/"), "/"); s.known[unescapedSegment(seg)] {
+	if seg, _, _ := strings.Cut(strings.TrimPrefix(u.EscapedPath(), "/"), "/"); s.known[unescapedSegment(seg)] || s.isFile(u.Path) {
 		return location
 	}
 	h, _ := s.mux.Handler(&http.Request{Method: http.MethodGet, Host: r.Host, URL: &url.URL{Path: u.Path, RawPath: u.RawPath}})

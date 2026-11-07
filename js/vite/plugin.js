@@ -1463,10 +1463,19 @@ function moreSpecific(a, b) {
   return a.length > b.length
 }
 
+// isFile reports whether file is a regular file.
+function isFile(file) {
+  try {
+    return fs.statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+
 // prefixLinks gives the root-relative links of an entry in a language the prefix of that language,
 // /en-US/store/cart for /store/cart, when the route the link leads to has the language and the
 // language is not the default (or the site prefixes always). It leaves alone a link that starts
-// with a language, a link to a route without the language and to a public file (no route), and
+// with a language, a link to a route without the language and to a file of the public folder, and
 // every link that is not root-relative. Without the table of languages, or for an entry without a
 // language, it does nothing.
 function prefixLinks() {
@@ -1489,6 +1498,8 @@ function prefixLinks() {
       } catch {
         return
       }
+      // The server answers the path of a public file with the file, before any route.
+      if (links.public && isFile(path.join(state.root, links.public, ...decoded))) return
       let best
       for (const route of links.routes) {
         const score = routeScore(route.path, decoded)
@@ -1547,6 +1558,7 @@ export async function convertContent(root, entries, { markdown, links, command, 
       headings: [],
       problems: [],
       links,
+      root,
       resolve(url, kind, at) {
         const place = at ? `${entry.source}:${at.line}:${at.column}` : entry.source
         const fail = (msg) => {
