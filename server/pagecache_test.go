@@ -676,6 +676,42 @@ func TestWholePageCacheFollowsCacheSize(t *testing.T) {
 	}
 }
 
+// With cache.whole_page false a page with Cache is a page like any other: each request runs its
+// Load, with the visitor's cookies, and the answer keeps the default Cache-Control. The render
+// cache still keeps its HTML.
+func TestWholePageCacheTurnsOff(t *testing.T) {
+	useCacheClock(t)
+	cfg := config.Default()
+	cfg.Cache.WholePage = false
+	app := wireApp()
+	var loads, cookies atomic.Int64
+	app.Routes = append(app.Routes, Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+		Load: func(c *tifa.Ctx) (any, error) {
+			loads.Add(1)
+			if _, err := c.Cookie("seen"); err == nil {
+				cookies.Add(1)
+			}
+			return 1, nil
+		}})
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	renders := &renders{}
+	if err := s.setFront(dist, renders.render); err != nil {
+		t.Fatal(err)
+	}
+	first, second := get(s, "/news", "Cookie", "seen=1"), get(s, "/news", "Cookie", "seen=1")
+	if first.Code != 200 || second.Code != 200 || loads.Load() != 2 || cookies.Load() != 2 {
+		t.Fatalf("%d %d, %d Loads, %d with the cookie", first.Code, second.Code, loads.Load(), cookies.Load())
+	}
+	if got := second.Header().Get("Cache-Control"); got != "private, no-cache" {
+		t.Errorf("Cache-Control %q", got)
+	}
+	if renders.count() != 1 || second.Header().Get("X-Tifa-Render") != "cache" {
+		t.Errorf("%d renders, the second from %q: the render cache keeps the page", renders.count(), second.Header().Get("X-Tifa-Render"))
+	}
+}
+
 // The render cache and the whole-page cache are one LRU: a page in either counts against the size.
 func TestWholePagesCountAgainstTheCacheSize(t *testing.T) {
 	e := newPageEnv(t)

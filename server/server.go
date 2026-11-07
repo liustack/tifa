@@ -44,8 +44,10 @@ type server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
-	// pageCache holds the whole-page cache time of the pages that have one, by path.
+	// pageCache holds the whole-page cache time of the pages that have one, by path. It stays empty
+	// with cache.whole_page false (wholePage).
 	pageCache map[string]time.Duration
+	wholePage bool
 	// pageQuery holds the query parameters the Loads of a page read, by path: the whole-page
 	// cache keeps them even when cache.ignore_query names them.
 	pageQuery map[string][]string
@@ -90,7 +92,7 @@ type server struct {
 func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery),
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery), wholePage: cfg.Cache.WholePage,
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}

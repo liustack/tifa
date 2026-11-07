@@ -161,7 +161,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			chain = append(chain, load{id: r.ID, run: r.Load, html: r.HTML})
 		}
 		s.path(r.Path)
-		if r.Page && r.Cache > 0 {
+		if r.Page && r.Cache > 0 && s.wholePage {
 			s.pageCache[r.Path] = r.Cache
 			s.pageQuery[r.Path] = r.Query
 		}

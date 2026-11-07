@@ -70,6 +70,7 @@ Common settings (full table in config.md):
 | `ssr.timeout` | `3s` | `SSR_TIMEOUT` | One render. Over it is an unexpected error |
 | `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `1s` | `SSR_QUEUE_LIMIT`, `SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
 | `cache.size` | `64MiB` | `--cache-size`, `CACHE_SIZE` | One size for the render cache and the pages of the whole-page cache (`Cache`), 0 turns both off |
+| `cache.whole_page` | `true` | `--cache-whole-page`, `CACHE_WHOLE_PAGE` | `false` answers the pages with `Cache` like other pages, to measure or debug them. The render cache stays on |
 | `cache.ignore_query` | `utm_*,gclid,fbclid` and the like | `CACHE_IGNORE_QUERY` | Tracking parameters the whole-page cache leaves out of its key. `name` adds, `-name` removes, a trailing `*` is a prefix. A parameter a `Load` reads is always kept |
 | `session.cookie`, `session.max_age`, `session.memory_limit` | `__Host-tifa_session`, `720h`, `64MiB` | `SESSION_COOKIE`, `SESSION_MAX_AGE`, `SESSION_MEMORY_LIMIT` | Name and lifetime of the session cookie, and the memory of the default session store |
 | `build.target` | `es2020` | project file only | Browser bundle target, such as `es2019,chrome90,safari14` |
