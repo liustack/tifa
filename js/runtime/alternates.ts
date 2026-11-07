@@ -49,9 +49,11 @@ export function startAlternates(info: PageAlternates | undefined, router: Locate
 }
 
 // noteAlternates keeps the list of its own that the data request for url answered with. An answer
-// without one says nothing: the page has the list the browser works out, or the one it holds.
+// of every Load of the page that set none carries {}: the page has the list the browser works out
+// from then on. An answer without alternates says nothing, and the list held stays.
 export function noteAlternates(url: string, info: PageAlternates | undefined) {
   if (info?.list) own.set(pathOf(url), info.list)
+  else if (info) own.delete(pathOf(url))
 }
 
 interface Located {

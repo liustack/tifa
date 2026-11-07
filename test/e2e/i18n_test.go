@@ -308,14 +308,15 @@ func TestI18nApp(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("%s", body)
 		}
-		// An entry in one language has a list of one. The other pages say nothing: the browser
-		// works out their versions from the table of the build.
+		// An entry in one language has a list of one. The other pages of the area, asked for every
+		// Load, say {}: the browser works out their versions from the table of the build. A page
+		// outside every area says nothing.
 		_, _, body = cacheSend(t, "GET", data("/store/journal/only-zh", "1"), "")
 		if !strings.Contains(body, `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/only-zh"}]}`) {
 			t.Errorf("%s", body)
 		}
-		for _, path := range []string{"/store?q=a", "/en-US/store/news", "/projects"} {
-			if _, _, body := cacheSend(t, "GET", data(path, "1"), ""); strings.Contains(body, "alternates") {
+		for path, want := range map[string]bool{"/store?q=a": true, "/en-US/store/news": true, "/projects": false} {
+			if _, _, body := cacheSend(t, "GET", data(path, "1"), ""); strings.Contains(body, `"alternates":{}`) != want || !want && strings.Contains(body, "alternates") {
 				t.Errorf("%s: %s", path, body)
 			}
 		}

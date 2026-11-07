@@ -474,7 +474,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 	if err != nil {
 		return s.madeFailed(err, headers, effects{})
 	}
-	if entry.alternates, err = navigationJSON(alternates); err != nil {
+	if entry.alternates, err = navigationJSON(alternates, len(s.langs[c.Pattern()]) > 0); err != nil {
 		return s.madeFailed(err, headers, effects{})
 	}
 	pageAlternates, err := alternatesJSON(alternates)

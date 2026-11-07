@@ -221,9 +221,15 @@ func TestNavigationDataCarriesOnlyTheListsOfTheApp(t *testing.T) {
 	if got := body("/store/journal/only-zh", "01"); !strings.Contains(got, `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/only-zh"}]}`) {
 		t.Errorf("a page with one version: %s", got)
 	}
-	for _, target := range []string{"/en-US/store/items/7", "/outside"} {
-		if got := body(target, onlyOnes(target)); strings.Contains(got, "alternates") {
-			t.Errorf("%s: %s", target, got)
+	// An answer of every Load of a page of an area that set no list says so: the browser drops the
+	// list it held for the path, from a Load that set one before. An answer of some of the Loads
+	// says nothing, nor does one of a page outside every area.
+	if got := body("/en-US/store/items/7", onlyOnes("/en-US/store/items/7")); !strings.Contains(got, `"alternates":{}`) {
+		t.Errorf("every Load of a page without a list: %s", got)
+	}
+	for target, layers := range map[string]string{"/en-US/store/items/7": "01", "/outside": onlyOnes("/outside")} {
+		if got := body(target, layers); strings.Contains(got, "alternates") {
+			t.Errorf("%s with %s: %s", target, layers, got)
 		}
 	}
 }

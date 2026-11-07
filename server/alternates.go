@@ -118,10 +118,17 @@ func carriedJSON(a *pageAlternates) (jsontext.Value, error) {
 	return htmlJSON(&b)
 }
 
-// navigationJSON is the list a data answer carries: the list of a Load that set one, nil for the
-// others, whose list the browser works out.
-func navigationJSON(a *pageAlternates) (jsontext.Value, error) {
-	if a == nil || !a.Custom {
+// navigationJSON is the list a data answer carries: the list of a Load that set one. With clear,
+// for an answer of every Load of a page of an area, a page without a list gets {}: the browser
+// drops a list it holds for the path, from a Load that set one before, and works the list out.
+// Otherwise it is nil, and the browser keeps what it has.
+func navigationJSON(a *pageAlternates, clear bool) (jsontext.Value, error) {
+	switch {
+	case a == nil:
+		return nil, nil
+	case !a.Custom && clear:
+		return jsontext.Value("{}"), nil
+	case !a.Custom:
 		return nil, nil
 	}
 	return htmlJSON(struct {
@@ -143,14 +150,16 @@ func (s *server) pageAlternatesFor(c *tifa.Ctx, status int) (*pageAlternates, er
 
 // navigationAlternates is the list a data request answers with: that of a Load that called
 // c.SetAlternates in this request. A Load the browser still holds the data of may have set one this
-// answer does not know, and the browser keeps the list it has for that path.
-func (s *server) navigationAlternates(c *tifa.Ctx) (jsontext.Value, error) {
-	if _, set := core.AlternatesOf(c); !set {
+// answer does not know, and the browser keeps the list it has for that path. whole says the
+// request ran every Load of the page: then no list is an answer too, see navigationJSON.
+func (s *server) navigationAlternates(c *tifa.Ctx, whole bool) (jsontext.Value, error) {
+	clear := whole && len(s.langs[c.Pattern()]) > 0
+	if _, set := core.AlternatesOf(c); !set && !clear {
 		return nil, nil
 	}
 	a, err := s.alternatesOf(c)
 	if err != nil {
 		return nil, err
 	}
-	return navigationJSON(a)
+	return navigationJSON(a, clear)
 }

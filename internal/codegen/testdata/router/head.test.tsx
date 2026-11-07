@@ -479,6 +479,12 @@ test('the links of the versions follow the page the router shows, computed in th
     await router.navigate({ to: '/hello' })
     await wait(() => hreflangs() === '')
     assert(hreflangs() === '', `a page with one version: ${hreflangs()}`)
+    // An answer of every Load that set no list drops the one held: the page has the list worked out.
+    await router.navigate({ to: '/langs' })
+    noteAlternates('/hello', {})
+    await router.navigate({ to: '/hello' })
+    await wait(() => hreflangs() !== '')
+    assert(hreflangs() === links_('/hello', '/en-US/hello'), `a list taken back: ${hreflangs()}`)
     // Pages the router shows as not found have none, though their Layout is in the area.
     await router.navigate({ to: '/langs' })
     await wait(() => hreflangs() !== '')

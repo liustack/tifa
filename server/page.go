@@ -601,7 +601,7 @@ func (s *server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 			return err
 		}
 	}
-	alternates, err := s.navigationAlternates(c)
+	alternates, err := s.navigationAlternates(c, len(selected) == len(chain))
 	if err != nil {
 		return err
 	}
