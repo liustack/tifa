@@ -98,7 +98,7 @@ type Route struct {
 	// BodyLimit and ReadTimeout are route.go's BodyLimit and ReadTimeout: the body limit and the read
 	// timeout of the requests the method handlers of the route answer, in place of
 	// server.body_limit and server.read_timeout. The answer then gets server.write_timeout after
-	// ReadTimeout. Zero keeps the setting, so a setting of the app that is 0 means the default.
+	// ReadTimeout. Zero keeps the setting, so an option of the app that is 0 means the default.
 	BodyLimit   int64
 	ReadTimeout time.Duration
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.

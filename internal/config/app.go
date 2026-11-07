@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// AppSetting is one setting the app defines in its config.go, such as db.url.
+// AppSetting is one option the app defines in its options.go, such as db.url.
 type AppSetting struct {
 	Key, Help string
 	// Kind is the type of the value: string, strings, int, bool, duration or size.
@@ -22,7 +22,7 @@ type AppSetting struct {
 	Secret bool
 }
 
-// registry holds the settings of the app, in the order they were defined.
+// registry holds the options of the app, in the order they were defined.
 type registry struct {
 	mu       sync.Mutex
 	settings []AppSetting
@@ -31,14 +31,14 @@ type registry struct {
 
 var app registry
 
-// AppSettings returns the settings of the app with their values, in the order of config.go.
+// AppSettings returns the options of the app with their values, in the order of options.go.
 func AppSettings() []AppSetting {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 	return append([]AppSetting(nil), app.settings...)
 }
 
-// AppErr reports the invalid values the settings of the app were given.
+// AppErr reports the invalid values the options of the app were given.
 func AppErr() error {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -85,7 +85,7 @@ func (r *registry) define(s *Sources, key, help string, v value) bool {
 	return ok
 }
 
-// appSources is where the settings of the app come from: nothing in a test binary, whose
+// appSources is where the options of the app come from: nothing in a test binary, whose
 // arguments and working directory are those of go test.
 func appSources() *Sources {
 	if testing.Testing() {

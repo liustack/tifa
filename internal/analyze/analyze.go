@@ -271,7 +271,7 @@ func (a *analyzer) load() error {
 	if _, err := os.Stat(filepath.Join(a.root, "hooks.go")); err == nil {
 		hasHooks = true
 	}
-	if _, err := os.Stat(filepath.Join(a.root, "config.go")); err == nil {
+	if _, err := os.Stat(filepath.Join(a.root, "options.go")); err == nil {
 		hasConfig = true
 	}
 	// content.go declares the content collections, which the generated main imports too.
@@ -301,7 +301,7 @@ func (a *analyzer) load() error {
 			return fmt.Errorf("go list in %s: %v\n%s", a.root, err, strings.TrimSpace(string(out)))
 		}
 	}
-	// The application is the packages under app/ and, with hooks.go or config.go, the root
+	// The application is the packages under app/ and, with hooks.go or options.go, the root
 	// package, which the generated main imports. Other packages of the module matter only
 	// through what the application imports.
 	var roots []*packages.Package
@@ -1393,7 +1393,7 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 // routeLimits reads BodyLimit and ReadTimeout of route.go, which set the body limit and the read
 // timeout of the requests its method handlers answer, in place of server.body_limit and
 // server.read_timeout. Each may be a constant or a package-level variable, such as one set from a
-// setting of the app: the generated code refers to it, and the program reads it when it starts.
+// option of the app: the generated code refers to it, and the program reads it when it starts.
 // handlers reports whether route.go declares a method handler. Each result reports a name that is
 // declared and valid.
 func (a *analyzer) routeLimits(pkg *packages.Package, handlers bool) (bodyLimit, readTimeout bool) {

@@ -20,7 +20,7 @@ type Manifest struct {
 	Hooks []string `json:"hooks"`
 	// Session is the session type of the app, nil when nothing calls tifa.SetSession.
 	Session *Session `json:"session"`
-	// Settings lists the keys of the settings the app defines in config.go with tifa.String and
+	// Settings lists the keys of the options the app defines in options.go with tifa.String and
 	// the like, in the order of the file.
 	Settings []string `json:"settings"`
 	// I18n is the languages of the app, nil without a _locales folder.

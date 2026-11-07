@@ -151,7 +151,7 @@ func (s *Sources) flag(name string, isBool bool) (raw string, ok bool, err error
 
 // apply sets v from each source that names key, the lowest first, so a higher source wins and
 // cache.ignore_query changes the list the sources below left. settings is the project tifa.yaml
-// as text, nil for the settings of the app. It returns the source of the value, empty for the
+// as text, nil for the options of the app. It returns the source of the value, empty for the
 // default, and the errors of the values that are not valid.
 func (s *Sources) apply(key string, v value, settings map[string]string) (from string, errs []error) {
 	// The value of a secret is in no error, since the errors go to the terminal and the log:
@@ -462,7 +462,7 @@ func EnvName(key string) string { return strings.ToUpper(strings.ReplaceAll(key,
 // ReservedFlags are flags of the program that are not settings.
 var ReservedFlags = []string{"config", "dist", "lifeline-fd", "help"}
 
-// Clash reports why key cannot be a setting of the app next to the keys of others: its flag or
+// Clash reports why key cannot be an option of the app next to the keys of others: its flag or
 // environment variable is that of another key, of tifa or of the app, or a flag of the program,
 // or one of the two keys is a section of the other, as db.url is of db.url.timeout.
 func Clash(key string, others []string) error {

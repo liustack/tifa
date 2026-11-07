@@ -182,7 +182,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	if len(m.Hooks) > 0 {
 		fmt.Fprintf(&src, "\nhooks %q\n", m.Module)
 	} else if len(m.Settings) > 0 || m.Content != nil {
-		// config.go defines the settings of the app when the package starts, and content.go
+		// options.go defines the options of the app when the package starts, and content.go
 		// declares its content collections.
 		fmt.Fprintf(&src, "\n_ %q\n", m.Module)
 	}

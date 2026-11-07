@@ -540,7 +540,7 @@ func checkQueryName(name string) error {
 	return nil
 }
 
-// secretValue is a setting of the app that tifa.Secret defines, such as a password: text that
+// secretValue is an option of the app that tifa.Secret defines, such as a password: text that
 // Sources.apply does not take from a flag, which every user of the machine sees in the process
 // list, and that Print does not write.
 type secretValue struct{ p *string }

@@ -1181,12 +1181,12 @@ func TestSettingsOfTheApp(t *testing.T) {
 	}
 }
 
-// config.go is type checked without hooks.go and with no page importing the root package: the
+// options.go is type checked without hooks.go and with no page importing the root package: the
 // generated main imports it to define the settings, so its errors would break the build later.
-func TestTypeErrorOfConfigWithoutHooks(t *testing.T) {
+func TestTypeErrorOfOptionsWithoutHooks(t *testing.T) {
 	_, err := analyzeApp(t, "badconfigtype")
-	if err == nil || !strings.Contains(err.Error(), "config.go:6:") {
-		t.Fatalf("error %v does not name config.go:6", err)
+	if err == nil || !strings.Contains(err.Error(), "options.go:6:") {
+		t.Fatalf("error %v does not name options.go:6", err)
 	}
 }
 
@@ -1196,16 +1196,30 @@ func TestSettingsBreakingTheRules(t *testing.T) {
 		t.Fatal("no error")
 	}
 	for _, want := range []string{
-		"config.go:8:", "key of tifa.String must be a string literal",
-		"config.go:9:", `"name" is not a setting key`,
-		"config.go:10:", "setting server.addr is defined twice, or is a setting of tifa",
-		"config.go:12:", "settings a_b.c and a.b_c both have the flag --a-b-c",
-		"config.go:13:", "setting a.b_c is defined twice",
-		"config.go:14:", "config.go:17:", "config.go:19:",
-		"config.go:21:", "settings a.b_c.d and a.b_c make a.b_c a value and a section",
+		"options.go:8:", "key of tifa.String must be a string literal",
+		"options.go:9:", `"name" is not a setting key`,
+		"options.go:10:", "setting server.addr is defined twice, or is a setting of tifa",
+		"options.go:12:", "settings a_b.c and a.b_c both have the flag --a-b-c",
+		"options.go:13:", "setting a.b_c is defined twice",
+		"options.go:14:", "options.go:17:", "options.go:19:",
+		"options.go:21:", "settings a.b_c.d and a.b_c make a.b_c a value and a section",
 		"other.go:5:", "internal/store/store.go:5:",
-		"only in a package-level var of config.go in the root of the app",
+		"only in a package-level var of options.go in the root of the app",
 	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q:\n%v", want, err)
+		}
+	}
+}
+
+// An app made before the options file was renamed still has tifa.String in config.go. The build
+// fails and says to rename the file, rather than ignoring the options or defining them silently.
+func TestOptionsInOldConfigGoFile(t *testing.T) {
+	_, err := analyzeApp(t, "oldconfigname")
+	if err == nil {
+		t.Fatal("no error")
+	}
+	for _, want := range []string{"config.go:5:", "rename config.go to options.go"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
 		}

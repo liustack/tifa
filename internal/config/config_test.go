@@ -32,7 +32,7 @@ func load(t *testing.T, args, environ []string, name, project string) (Config, e
 	return c, err
 }
 
-// printed prints c with no settings of the app.
+// printed prints c with no options of the app.
 func printed(c Config) []byte { return Print(c, nil, nil) }
 
 func writeFile(t *testing.T, name, content string) string {

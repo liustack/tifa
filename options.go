@@ -6,8 +6,8 @@ import (
 	"github.com/liustack/tifa/internal/config"
 )
 
-// String defines a setting of the app and returns its value. Write it in a package-level var
-// of config.go in the root of the app, where tifa build looks for it:
+// String defines an option of the app and returns its value. Write it in a package-level var
+// of options.go in the root of the app, where tifa build looks for it:
 //
 //	var DBURL = tifa.String("db.url", "app.db", "Database file")
 //
@@ -19,31 +19,31 @@ import (
 // def, and a test sets the variable itself.
 func String(key, def, help string) string { return config.DefineString(key, def, help) }
 
-// Strings defines a setting of the app whose value is a list, written as comma-separated text
+// Strings defines an option of the app whose value is a list, written as comma-separated text
 // such as a.example,b.example, see String. Spaces around each item are dropped, empty text is
 // no items, and an empty item between commas is invalid.
 func Strings(key string, def []string, help string) []string {
 	return config.DefineStrings(key, def, help)
 }
 
-// Int defines a setting of the app that is a whole number, see String.
+// Int defines an option of the app that is a whole number, see String.
 func Int(key string, def int, help string) int { return config.DefineInt(key, def, help) }
 
-// Bool defines a setting of the app that is true or false, see String. Its flag alone, such as
+// Bool defines an option of the app that is true or false, see String. Its flag alone, such as
 // --shop-open, is true, and takes a value only after =: --shop-open=false.
 func Bool(key string, def bool, help string) bool { return config.DefineBool(key, def, help) }
 
-// Duration defines a setting of the app that is a duration in Go's format, such as 3s or 1m30s,
+// Duration defines an option of the app that is a duration in Go's format, such as 3s or 1m30s,
 // see String.
 func Duration(key string, def time.Duration, help string) time.Duration {
 	return config.DefineDuration(key, def, help)
 }
 
-// Size defines a setting of the app that is a number of bytes, see String. It is written as a
+// Size defines an option of the app that is a number of bytes, see String. It is written as a
 // whole number with an optional unit B, KiB, MiB or GiB, such as 512KiB.
 func Size(key string, def int64, help string) int64 { return config.DefineSize(key, def, help) }
 
-// Secret defines a setting of the app that is a secret, such as a password or an API token, and
+// Secret defines an option of the app that is a secret, such as a password or an API token, and
 // returns its value, empty when no source sets it. It comes from the environment variable, the
 // .env file of the working directory or the file of -c, see String. A flag would show it in the
 // process list to every user of the machine, so the program refuses one and says where to put
