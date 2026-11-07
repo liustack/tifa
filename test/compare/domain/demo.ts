@@ -42,7 +42,7 @@ function product(slug: string, name: string, description: string, priceCents: nu
   return { slug, name, description, quantity: 0, priceCents, color, stock }
 }
 
-const studioCatalogue: ItemRecord[] = [
+export const studioCatalogue: ItemRecord[] = [
   product('pour-over-kettle', '晨间手冲壶', '雾白 / 600 ml', 32800, 'sand', 23),
   product('linen-coasters', '亚麻杯垫', '原色 / 两件装', 10000, 'olive', 80),
   product('ceramic-cup', '手作陶瓷杯', '青苔绿 / 280 ml', 13400, 'olive', 58),
@@ -53,7 +53,7 @@ const studioCatalogue: ItemRecord[] = [
   product('linen-apron', '棉麻围裙', '燕麦色 / 均码', 16800, 'olive', 34),
 ]
 
-const weekendCatalogue: ItemRecord[] = [
+export const weekendCatalogue: ItemRecord[] = [
   product('canvas-tote', '周末帆布袋', '深蓝 / 标准款', 15800, 'blue', 45),
   product('folding-stool', '露营折叠凳', '军绿 / 承重 120 kg', 13900, 'olive', 52),
   product('picnic-blanket', '野餐垫', '格纹 / 2 × 2 m', 8900, 'blue', 66),
@@ -130,7 +130,7 @@ function shipped(o: OrderRecord, carrier: string, tracking: string, hours: numbe
 }
 
 // warehouse is where the shops pack and hand their parcels to the carrier.
-const warehouse = 'Shanhai Warehouse, Yuhang, Hangzhou'
+export const warehouse = 'Shanhai Warehouse, Yuhang, Hangzhou'
 
 // journey is the way of a parcel from the warehouse to address, leaving at left.
 function journey(left: number, address: string) {

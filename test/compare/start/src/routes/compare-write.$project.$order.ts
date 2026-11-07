@@ -1,11 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { patchRecipient } from '../../../domain/write.ts'
+import { writeOrder } from '../../../domain/write.ts'
 
-// The write that the measuring sends between reads, on a path of its own like the other apps.
+// The writes that the measuring sends between reads, on a path of their own like the other apps:
+// POST ships the order, PATCH changes the recipient and PUT adds a note.
 export const Route = createFileRoute('/compare-write/$project/$order')({
   server: {
     handlers: {
-      PATCH: ({ request, params }) => patchRecipient(request, params.project, params.order),
+      POST: ({ request, params }) => writeOrder(request, params.project, params.order),
+      PATCH: ({ request, params }) => writeOrder(request, params.project, params.order),
+      PUT: ({ request, params }) => writeOrder(request, params.project, params.order),
     },
   },
 })
