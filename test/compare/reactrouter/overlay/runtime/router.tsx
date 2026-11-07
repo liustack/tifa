@@ -83,8 +83,8 @@ export function useMatchRoute() {
 export function useNavigate() {
   const navigate = useRouterNavigate()
   const { pathname } = useLocation()
-  return (options: { to: string; params?: Params; search?: Search }) =>
-    navigate(inLanguage(buildPath(options.to, options.params), languageOf(pathname)) + queryOf(options.search))
+  return (options: { to: string; params?: Params; search?: Search; replace?: boolean }) =>
+    navigate(inLanguage(buildPath(options.to, options.params), languageOf(pathname)) + queryOf(options.search), { replace: options.replace })
 }
 
 // The router's events the pages subscribe to. TanStack Router tells onResolved after every

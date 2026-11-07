@@ -103,7 +103,11 @@ export function useMatchRoute() {
 export function useNavigate() {
   const router = useNextRouter()
   const pathname = usePathname()
-  return ({ to, params, search }: { to: string; params?: Params; search?: Search }) => router.push(inLanguage(buildPath(to, params), languageOf(pathname)) + queryOf(search))
+  return ({ to, params, search, replace }: { to: string; params?: Params; search?: Search; replace?: boolean }) => {
+    const href = inLanguage(buildPath(to, params), languageOf(pathname)) + queryOf(search)
+    if (replace) router.replace(href)
+    else router.push(href)
+  }
 }
 
 // The router of the page. invalidate loads the data of the page again with refresh, which Next.js

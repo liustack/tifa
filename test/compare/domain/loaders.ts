@@ -12,6 +12,7 @@
 // the caller passes the project it loaded, so no request loads it twice.
 import { counts } from './counts.ts'
 import { customerOrders, getOrder, listOrders, ordersWith } from './orders.ts'
+import type { ListQuery } from './orders.ts'
 import type { Order, OrderList, OrderRow } from './orders.ts'
 import { getProject, listProjects } from './projects.ts'
 import type { Project } from './projects.ts'
@@ -50,9 +51,20 @@ export function loadProject(id: string): Project {
   return getProject(id)
 }
 
-export function loadOrderList(project: Project): OrderList {
+// queryOf reads the filters and the page of the order list from the query string, as Load does with
+// c.Query: the first value of each key. A page that is not a whole number is 0, as strconv.Atoi
+// with its error ignored gives it.
+export function queryOf(params: URLSearchParams): ListQuery {
+  const page = params.get('page') ?? ''
+  return {
+    status: params.get('status') ?? '', carrier: params.get('carrier') ?? '', period: params.get('period') ?? '',
+    amount: params.get('amount') ?? '', q: params.get('q') ?? '', page: /^[+-]?\d+$/.test(page) ? Number(page) : 0,
+  }
+}
+
+export function loadOrderList(project: Project, params: URLSearchParams = new URLSearchParams()): OrderList {
   counts.page++
-  return listOrders(project.id, project.timeZone)
+  return listOrders(project.id, project.timeZone, queryOf(params))
 }
 
 export function loadOrder(project: Project, orderId: string): Detail {

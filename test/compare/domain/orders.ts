@@ -81,8 +81,32 @@ export interface DailyCards {
   shipped: number[]
 }
 
+// ListQuery is what the order list is asked for: the filters and the page. A field left empty is no
+// filter. The page reads it from the URL, and listOrders gives back the cleaned query in
+// OrderList.filter.
+export interface ListQuery {
+  status: string // 'pending' or 'shipped'
+  carrier: string // the name of a carrier
+  period: string // '7' or '30': placed within that many days of the newest order
+  amount: string // 'low' (under 200 yuan), 'mid' (200 to 500 yuan) or 'high' (over 500 yuan)
+  q: string // part of an order number or of a customer's name, in any case
+  page: number // from 1
+}
+
+export const noQuery: ListQuery = { status: '', carrier: '', period: '', amount: '', q: '', page: 0 }
+
+export interface StatusCounts {
+  all: number
+  pending: number
+  shipped: number
+}
+
 export interface OrderList {
-  orders: OrderRow[] // the newest ListPageSize, newest first
+  orders: OrderRow[] // the ListPageSize orders of the page, newest first
+  filter: ListQuery // the query the page answers
+  matching: number // how many orders the filters keep
+  pages: number // how many pages they make
+  statuses: StatusCounts // the tabs, over the orders that every filter but the status keeps
   total: number
   revenueCents: number
   pending: number
@@ -137,11 +161,46 @@ function dateKey(ms: number, timeZone: string): string {
   return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`
 }
 
-// listOrders returns the first page of the orders of a project, newest first, with the numbers over
-// all of them, as ListOrders does. timeZone is the one of the shop, whose days the cards draw.
-export function listOrders(projectId: string, timeZone: string): OrderList {
+// amountRanges are the choices of the amount filter, in cents, both ends included.
+const amountRanges: Record<string, [number, number]> = {
+  low: [0, 19999],
+  mid: [20000, 50000],
+  high: [50001, Infinity],
+}
+
+// cleanQuery leaves out what the URL says that is not one of the choices, and trims the search.
+function cleanQuery(q: ListQuery): ListQuery {
+  return {
+    status: q.status === 'pending' || q.status === 'shipped' ? q.status : '',
+    carrier: q.carrier,
+    period: q.period === '7' || q.period === '30' ? q.period : '',
+    amount: Object.hasOwn(amountRanges, q.amount) ? q.amount : '',
+    q: q.q.trim(),
+    page: Math.max(q.page, 1),
+  }
+}
+
+// keeper returns the test for the filters other than the status. newest is when the newest order
+// of the project was placed, which the period counts back from.
+function keeper(q: ListQuery, newest: number): (r: OrderRow) => boolean {
+  const needle = q.q.toLowerCase()
+  const since = q.period ? newest - Number(q.period) * DAY : 0
+  const range = amountRanges[q.amount]
+  return (r) => {
+    if (q.carrier !== '' && r.carrier !== q.carrier) return false
+    if (q.period !== '' && Date.parse(r.placedAt) < since) return false
+    if (range && (r.totalCents < range[0] || r.totalCents > range[1])) return false
+    return needle === '' || r.id.toLowerCase().includes(needle) || r.customer.toLowerCase().includes(needle)
+  }
+}
+
+// listOrders returns a page of the orders of a project that the query keeps, newest first, with the
+// numbers over all of them, as ListOrders does. The query filters all the orders of the project and
+// the page is cut from what is left. timeZone is the one of the shop, whose days the cards draw.
+export function listOrders(projectId: string, timeZone: string, query: ListQuery = noQuery): OrderList {
+  const q = cleanQuery(query)
   const l: OrderList = {
-    orders: [], total: 0, revenueCents: 0, pending: 0, shipped: 0, newestAt: '0001-01-01T00:00:00Z', oldestPending: null, carriers: [],
+    orders: [], filter: { ...q, page: 1 }, matching: 0, pages: 0, statuses: { all: 0, pending: 0, shipped: 0 }, total: 0, revenueCents: 0, pending: 0, shipped: 0, newestAt: '0001-01-01T00:00:00Z', oldestPending: null, carriers: [],
     daily: { revenueCents: [], orders: [], pending: [], shipped: [] },
   }
   const list = ordersOf(projectId)
@@ -181,7 +240,21 @@ export function listOrders(projectId: string, timeZone: string): OrderList {
   }
   if (oldest) l.oldestPending = orderRow(oldest)
   l.carriers = [...carriers].sort()
-  l.orders = list.slice(0, ListPageSize).map(orderRow)
+  const keep = keeper(q, list[0].placedAt)
+  const matched: OrderRow[] = []
+  for (const o of list) {
+    const row = orderRow(o)
+    if (!keep(row)) continue
+    l.statuses.all++
+    if (row.status === 'pending') l.statuses.pending++
+    else l.statuses.shipped++
+    if (q.status === '' || q.status === row.status) matched.push(row)
+  }
+  l.matching = matched.length
+  l.pages = Math.ceil(l.matching / ListPageSize)
+  l.filter.page = Math.min(q.page, Math.max(l.pages, 1))
+  const from = (l.filter.page - 1) * ListPageSize
+  l.orders = matched.slice(from, from + ListPageSize)
   return l
 }
 
