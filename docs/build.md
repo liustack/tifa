@@ -1,5 +1,5 @@
 ---
-summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints and the managed block of AGENTS.md, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints and the managed block of AGENTS.md, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, why the front end builds with Vite, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Changing `tifa check`, or finding out which steps it runs and what it needs
@@ -483,6 +483,24 @@ The app's `package.json` needs React, React DOM and TanStack Router, and as dev 
 TanStack Router must be the version this Tifa is tested with: the `@tanstack/react-router` that `tifa new` writes into `package.json`, with the `@tanstack/router-core` it installs. Tifa hands page data to the browser through an option of TanStack Router that is not documented outside TanStack Start (see [Data protocol](#data-protocol)), and another version may stop reading it in the browser. Then every page with object data stays blank. So `tifa build` and `tifa dev` read the installed versions of both packages, the way Node resolves them, and stop with an error that names the installed and the tested versions. To move to a newer TanStack Router, upgrade Tifa. To build with another version anyway, at your own risk, set `build.skip_tanstack_check: true` in `tifa.yaml` (see [config.md](config.md)). An app without pages is not checked.
 
 React and React DOM must be 19.3.0 or later. The Vite plugin rewrites the string renderer of React DOM as 19.3 writes it (see [Frontend output](#frontend-output)), so `tifa build` and `tifa dev` read the installed versions of `react` and `react-dom` the same way and stop with an error that names the version to install. A prerelease of 19.3.0, such as a canary, counts as older. An app without pages is not checked.
+
+### Why Vite
+
+Tifa bundles the front end with the app's own Vite because an app with pages is a React app, and a React app has Node for npm anyway. Most of the front end world, such as Tailwind CSS and the shadcn CLI, expects Node at build time. What Tifa keeps from Node is the running program: it never needs Node.
+
+What the app gets:
+
+- **Edits show at once.** Under `tifa dev`, React Fast Refresh swaps the edited components in place and keeps their state, and new CSS replaces the old, without a reload (see [dev.md](dev.md#vite)).
+- **Plugins it already knows.** Tailwind CSS is `@tailwindcss/vite`, and any other Vite plugin goes into `vite.config.ts` the way its own docs say. Tifa does not wrap them.
+- **The setup of any Vite app.** `vite.config.ts`, the `paths` of `tsconfig.json` and the shadcn CLI work as their docs describe, with no Tifa-only form.
+- **Faster renders without changing the packages.** The Tifa plugin rewrites React DOM, i18next and other packages as they are bundled, so the SSR bundle renders faster in QuickJS while the app installs the packages as they are (see [Frontend output](#frontend-output)).
+- **Bundling Tifa does not maintain.** Splitting by route, the manifest, hashed file names and source maps come from Vite and Rolldown, which the React world keeps up to date.
+
+What it costs:
+
+- Building an app with pages needs Node, `vite` and `@vitejs/plugin-react`. An app without pages builds without Node, unless its content collections have entries.
+- `tifa dev` runs one Node process next to the app, with Vite's dev server behind the same address and the SSR bundle built on a worker thread of its own, since Vite picks the build of React once per thread.
+- Some features read what Vite and Rolldown do inside, such as the module list behind `dist/inputs.json`, so a new Vite can need a new Tifa.
 
 ## The i18next adapter
 
