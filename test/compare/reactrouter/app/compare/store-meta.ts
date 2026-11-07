@@ -10,7 +10,7 @@ import type { LayoutData } from '@/app/store/route.gen'
 // page with two versions. A title further down replaces the one above.
 type Head = { meta?: MetaDescriptor[] }
 
-const isStore = (id: string) => id === '/store' || id === 'en-US:/store'
+const isStore = (id: string) => id === '/store' || id === 'zh-CN:/store'
 
 export function storeMeta(args: MetaArgs, own: { meta?: MetaDescriptor[] } = {}): MetaDescriptor[] {
   const shell = args.matches.find((m) => m && isStore(m.id))?.loaderData as LayoutData | undefined

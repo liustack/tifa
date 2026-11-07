@@ -20,7 +20,7 @@ func TestStorePagesAreAPlainList(t *testing.T) {
 			t.Errorf("%s twice", p.URL)
 		}
 		seen[p.URL] = true
-		if !strings.HasPrefix(p.URL, "/store") && !strings.HasPrefix(p.URL, "/en-US/store") || !strings.HasPrefix(p.Routes, "app/store/layout,") {
+		if !strings.HasPrefix(p.URL, "/zh-CN/store") && !strings.HasPrefix(p.URL, "/store") || !strings.HasPrefix(p.Routes, "app/store/layout,") {
 			t.Errorf("page %+v", p)
 		}
 	}

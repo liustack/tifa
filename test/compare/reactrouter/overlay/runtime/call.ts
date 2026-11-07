@@ -18,8 +18,8 @@ export function setNavigate(navigate: (href: string) => Promise<void> | void) {
 
 export const call = makeCall({
   writeURL: (_method, path) => {
-    const m = /^(?:\/(en-US))?\/store\/(?!mine\b)/.exec(path)
-    return m ? path.replace(m[0], `/store/${m[1] ?? 'zh-CN'}/_write/`) : path
+    const m = /^(?:\/(zh-CN))?\/store\/(?!mine\b)/.exec(path)
+    return m ? path.replace(m[0], `/store/${m[1] ?? 'en-US'}/_write/`) : path
   },
   navigate: () => navigateTo,
 })

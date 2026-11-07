@@ -42,7 +42,7 @@ export const SignedOut = ({ children }: { children: ReactElement<Record<string, 
 // are not Tifa, so each fills these contexts in the storefront Layout.
 export { languageOf, versionsOf } from './languages'
 export type { Alternate } from './languages'
-export const LanguageContext = createContext('zh-CN')
+export const LanguageContext = createContext('en-US')
 export const AlternatesContext = createContext<Alternate[]>([])
 export const useLanguage = () => useContext(LanguageContext)
 export const useAlternates = () => useContext(AlternatesContext)

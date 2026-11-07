@@ -42,7 +42,7 @@ export function price(fen: number, l: Locale): number {
 }
 
 // languagePrefix is what the public URL of a page in a language starts with: nothing for the default
-// language, zh-CN, and the language for the other, as Tifa writes them.
+// language, en-US, and the language for the other, as Tifa writes them.
 export function languagePrefix(code: string): string {
-  return code === 'zh-CN' ? '' : '/' + code
+  return code === 'en-US' ? '' : '/' + code
 }

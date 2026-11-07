@@ -23,11 +23,11 @@ export const message = (lang: string, key: 'list.title' | 'cart.title' | 'checko
 // site is where the store is served, for the links to a page in each language, which search
 // engines want in full.
 const site = 'https://shop.example.com'
-const languages: Lang[] = ['zh-CN', 'en-US']
+const languages: Lang[] = ['en-US', 'zh-CN']
 
 // alternates are the links to the same page in each language, the default one for a browser that
 // asks for neither. page is the path below /store, such as /products.
 export function alternates(lang: string, page: string): Metadata['alternates'] {
-  const url = (l: string) => `${site}${l === 'zh-CN' ? '' : '/' + l}/store${page}`
+  const url = (l: string) => `${site}${l === 'en-US' ? '' : '/' + l}/store${page}`
   return { canonical: url(lang), languages: { ...Object.fromEntries(languages.map((l) => [l, url(l)])), 'x-default': url(languages[0]) } }
 }

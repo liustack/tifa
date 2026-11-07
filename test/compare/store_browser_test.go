@@ -16,11 +16,11 @@ import (
 // stateless session) and compares what the visitor ends up reading with Tifa's page.
 
 var errorPages = []string{
-	"/en-US/store/products/nothing",
-	"/store/xx-XX",
-	"/store/checkout?placed=SS-NOSUCHORDER",
-	"/store/journal/nothing",
-	"/en-US/store/no-such-page",
+	"/store/products/nothing",
+	"/zh-CN/store/xx-XX",
+	"/zh-CN/store/checkout?placed=SS-NOSUCHORDER",
+	"/zh-CN/store/journal/nothing",
+	"/store/no-such-page",
 }
 
 // browser drives one playwright-cli session.

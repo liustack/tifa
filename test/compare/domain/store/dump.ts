@@ -33,11 +33,11 @@ async function run(step: Step, jar: Map<string, string>, order: string): Promise
   const at = Date.now()
   const url = new URL(step.url.replaceAll('{order}', order), 'http://shop.test')
   const cookie = step.cookie || [...jar].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('; ')
-  // The language is the first segment when it is not the default: /en-US/store/cart. What follows
+  // The language is the first segment when it is not the default: /zh-CN/store/cart. What follows
   // is store, then the page. A prefix that is not a language of the store is no page.
   const segments = url.pathname.split('/').filter(Boolean)
-  let lang = 'zh-CN'
-  if (segments[0] === 'en-US') lang = segments.shift()!
+  let lang = 'en-US'
+  if (segments[0] === 'zh-CN') lang = segments.shift()!
   const parts = ['', ...segments] // parts[1] is store, as it was when the language stood after it
   if (parts[1] !== 'store') return { status: 404, at }
   const params: Params = { lang }

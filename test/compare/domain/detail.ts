@@ -29,7 +29,7 @@ export interface PackLine {
   quantity: number
 }
 
-const payMethods = ['微信支付', '支付宝', '银行卡']
+const payMethods = ['WeChat Pay', 'Alipay', 'Bank card']
 
 const encoder = new TextEncoder()
 
@@ -77,33 +77,33 @@ export function logOf(o: OrderRecord): LogEntry[] {
   const p = payment(o)
   const entry = (at: number, actor: string, action: string, detail: string) => ({ at, actor, action, detail })
   const log = [
-    entry(o.placedAt, '顾客', '下单', o.customer + ' 提交了订单'),
+    entry(o.placedAt, 'Customer', 'Order placed', o.customer + ' placed the order'),
     // The payment is written as text already, so its instant is placed again here.
-    entry(o.placedAt + 2 * MINUTE, '系统', '付款成功', p.method + '，交易号 ' + p.transactionNo),
-    entry(o.placedAt + 3 * MINUTE, '系统', '风控通过', '收货地址和手机号核验一致'),
-    entry(o.placedAt + 4 * MINUTE, '系统', '进入待发货', '已同步到杭州仓的拣货队列'),
-    entry(o.placedAt + 4 * MINUTE + 20 * SECOND, '系统', '锁定库存', `${itemCount(o)} 件商品已从可售库存里扣出`),
-    entry(o.placedAt + 6 * MINUTE, '系统', '发送确认', '订单确认短信和邮件已发给 ' + o.customer),
+    entry(o.placedAt + 2 * MINUTE, 'System', 'Payment received', p.method + ', transaction ' + p.transactionNo),
+    entry(o.placedAt + 3 * MINUTE, 'System', 'Risk check passed', 'The delivery address and phone number match'),
+    entry(o.placedAt + 4 * MINUTE, 'System', 'Ready to ship', 'Added to the Hangzhou warehouse picking queue'),
+    entry(o.placedAt + 4 * MINUTE + 20 * SECOND, 'System', 'Stock reserved', `${itemCount(o)} pieces taken out of sellable stock`),
+    entry(o.placedAt + 6 * MINUTE, 'System', 'Confirmation sent', 'Order confirmation SMS and email sent to ' + o.customer),
   ]
   const s = o.shipment
   if (s) {
     const carrier = carrierName(s.carrier)
     log.push(
-      entry(s.shippedAt - 95 * MINUTE, '仓库', '开始拣货', `${itemCount(o)} 件商品，${o.items.length} 个货位`),
-      entry(s.shippedAt - 50 * MINUTE, '仓库', '打包完成', '封箱称重，贴好面单'),
-      entry(s.shippedAt - 20 * MINUTE, '仓库', '打印面单', carrier + '电子面单'),
-      entry(s.shippedAt, '店员', '发货', carrier + '，运单号 ' + s.trackingNo),
-      entry(s.shippedAt + MINUTE, '系统', '发送通知', '发货短信和邮件已发给 ' + o.customer),
+      entry(s.shippedAt - 95 * MINUTE, 'Warehouse', 'Picking started', `${itemCount(o)} pieces, ${o.items.length} bins`),
+      entry(s.shippedAt - 50 * MINUTE, 'Warehouse', 'Packing done', 'Boxed, weighed, waybill attached'),
+      entry(s.shippedAt - 20 * MINUTE, 'Warehouse', 'Label printed', carrier + ' e-waybill'),
+      entry(s.shippedAt, 'Staff', 'Shipped', carrier + ', tracking number ' + s.trackingNo),
+      entry(s.shippedAt + MINUTE, 'System', 'Notification sent', 'Shipping SMS and email sent to ' + o.customer),
     )
     const n = s.events.length
-    if (n > 0 && s.events[n - 1].note.startsWith('已签收')) {
+    if (n > 0 && s.events[n - 1].note.startsWith('Delivered')) {
       log.push(
-        entry(s.events[0].at, '快递', '揽收', carrier + '已从仓库取走包裹'),
-        entry(s.events[n - 1].at, '快递', '已签收', s.events[n - 1].note),
+        entry(s.events[0].at, 'Courier', 'Picked up', carrier + ' collected the parcel from the warehouse'),
+        entry(s.events[n - 1].at, 'Courier', 'Delivered', s.events[n - 1].note),
       )
     }
   }
-  for (const n of o.notes ?? []) log.push(entry(n.at, n.author, '添加备注', n.text))
+  for (const n of o.notes ?? []) log.push(entry(n.at, n.author, 'Note added', n.text))
   log.sort((a, b) => a.at - b.at)
   return log.map((e) => ({ at: rfc3339(e.at), actor: e.actor, action: e.action, detail: e.detail }))
 }

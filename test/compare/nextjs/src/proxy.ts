@@ -8,4 +8,4 @@ export function proxy(request: Request) {
   return methodNotAllowed('GET, HEAD')
 }
 
-export const config = { matcher: ['/store', '/en-US/store'] }
+export const config = { matcher: ['/store', '/zh-CN/store'] }

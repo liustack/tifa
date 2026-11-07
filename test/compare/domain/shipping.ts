@@ -9,11 +9,11 @@ export interface Carrier {
 }
 
 export const carriers: Carrier[] = [
-  { code: 'SF', name: '顺丰速运', days: '1 到 2 天', feeCents: 1200 },
-  { code: 'JD', name: '京东物流', days: '1 到 2 天', feeCents: 1000 },
-  { code: 'ZTO', name: '中通快递', days: '2 到 3 天', feeCents: 600 },
-  { code: 'YTO', name: '圆通速递', days: '2 到 3 天', feeCents: 550 },
-  { code: 'EMS', name: '中国邮政 EMS', days: '3 到 5 天', feeCents: 1000 },
+  { code: 'SF', name: 'SF Express', days: '1 to 2 days', feeCents: 1200 },
+  { code: 'JD', name: 'JD Logistics', days: '1 to 2 days', feeCents: 1000 },
+  { code: 'ZTO', name: 'ZTO Express', days: '2 to 3 days', feeCents: 600 },
+  { code: 'YTO', name: 'YTO Express', days: '2 to 3 days', feeCents: 550 },
+  { code: 'EMS', name: 'China Post EMS', days: '3 to 5 days', feeCents: 1000 },
 ]
 
 export function carrierName(code: string): string {

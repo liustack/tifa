@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// The storefront of examples/shop, at /store and, in English, at /en-US/store. Its data is computed in Node by
+// The storefront of examples/shop, at /store and, in Chinese, at /zh-CN/store. Its data is computed in Node by
 // domain/store, a port of the Go code that TestStoreDomainMatchesGo keeps equal to the Go code.
 
 // The route ids of the storefront's Layout and Load functions, as tifa names them.
@@ -36,10 +36,10 @@ const (
 // StoreLangs are the two languages of the storefront.
 var StoreLangs = []string{"zh-CN", "en-US"}
 
-// StoreBase is where the storefront starts in a language: /store for the default language, zh-CN,
-// and /en-US/store for the other.
+// StoreBase is where the storefront starts in a language: /store for the default language, en-US,
+// and /zh-CN/store for the other.
 func StoreBase(l string) string {
-	if l == "zh-CN" {
+	if l == "en-US" {
 		return "/store"
 	}
 	return "/" + l + "/store"
@@ -113,8 +113,8 @@ func StorePages() []Page {
 
 // StoreMissing are pages of the storefront that answer 404: a product and a post that do not exist. A data request answers 200 with the status of each route in it.
 var StoreMissing = []Page{
-	{Name: "product", URL: "/store/products/no-such-product", Routes: storeLayout + "," + storeProduct},
-	{Name: "post", URL: "/en-US/store/journal/no-such-post", Routes: storeLayout + "," + storePost},
+	{Name: "product", URL: "/zh-CN/store/products/no-such-product", Routes: storeLayout + "," + storeProduct},
+	{Name: "post", URL: "/store/journal/no-such-post", Routes: storeLayout + "," + storePost},
 }
 
 // StoreStep is one request of a storefront scenario. The same steps run against the shop and against

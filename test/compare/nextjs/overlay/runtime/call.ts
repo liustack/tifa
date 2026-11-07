@@ -19,8 +19,8 @@ export function setNavigate(fn: (href: string) => void) {
 // writePath is the path a call is sent to.
 export function writePath(method: string, path: string) {
   if (method === 'GET' || path.endsWith('/mine')) return path
-  const english = path.startsWith('/en-US/')
-  return path.replace(/^(\/en-US)?\/store\//, `/store/compare-write/${english ? 'en-US' : 'zh-CN'}/`)
+  const chinese = path.startsWith('/zh-CN/')
+  return path.replace(/^(\/zh-CN)?\/store\//, `/store/compare-write/${chinese ? 'zh-CN' : 'en-US'}/`)
 }
 
 export const call = makeCall({ writeURL: writePath, navigate: () => navigateTo })
