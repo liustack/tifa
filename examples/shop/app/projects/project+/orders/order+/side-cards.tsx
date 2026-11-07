@@ -33,28 +33,28 @@ export function Actions() {
         <TooltipTrigger asChild>
           <Button variant="outline" size="sm" onClick={() => copy('id', order.id)}>
             <Copy />
-            {copied === 'id' ? '已复制' : '复制订单号'}
+            {copied === 'id' ? 'Copied' : 'Copy order number'}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>复制 {order.id}</TooltipContent>
+        <TooltipContent>Copy {order.id}</TooltipContent>
       </Tooltip>
       <Button variant="outline" size="sm" onClick={() => window.print()}>
         <Printer />
-        打印订单
+        Print order
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm">
-            更多
+            More
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuLabel>复制到剪贴板</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => copy('address', `${order.customer} ${order.phone} ${order.address}`)}>收货信息</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => copy('email', order.email)}>顾客邮箱</DropdownMenuItem>
-          {order.shipment && <DropdownMenuItem onSelect={() => copy('tracking', order.shipment!.trackingNo)}>运单号</DropdownMenuItem>}
+          <DropdownMenuLabel>Copy to clipboard</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => copy('address', `${order.customer} ${order.phone} ${order.address}`)}>Delivery details</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => copy('email', order.email)}>Customer email</DropdownMenuItem>
+          {order.shipment && <DropdownMenuItem onSelect={() => copy('tracking', order.shipment!.trackingNo)}>Tracking number</DropdownMenuItem>}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => copy('pay', order.payment.transactionNo)}>交易号</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => copy('pay', order.payment.transactionNo)}>Transaction number</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -70,10 +70,10 @@ export function Packing() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>拣货单</CardTitle>
-        <CardDescription>杭州仓，按货位从近到远拣。</CardDescription>
+        <CardTitle className={title}>Picking list</CardTitle>
+        <CardDescription>Hangzhou warehouse, picked from the nearest bin to the farthest.</CardDescription>
         <CardAction className="font-mono text-xs text-muted-foreground">
-          已拣 {done} / {lines.length}
+          Picked {done} / {lines.length}
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -81,11 +81,11 @@ export function Packing() {
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-10">
-                <span className="sr-only">已拣</span>
+                <span className="sr-only">Picked</span>
               </TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">商品</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">货位</TableHead>
-              <TableHead className="text-right text-xs font-normal text-muted-foreground">数量</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Product</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Bin</TableHead>
+              <TableHead className="text-right text-xs font-normal text-muted-foreground">Quantity</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -94,7 +94,7 @@ export function Packing() {
               .map((l) => (
                 <TableRow key={l.name}>
                   <TableCell>
-                    <Checkbox aria-label={`已拣 ${l.name}`} checked={!!picked[l.name]} onCheckedChange={(on) => setPicked({ ...picked, [l.name]: on === true })} />
+                    <Checkbox aria-label={`Picked ${l.name}`} checked={!!picked[l.name]} onCheckedChange={(on) => setPicked({ ...picked, [l.name]: on === true })} />
                   </TableCell>
                   <TableCell className={cn(picked[l.name] && 'text-muted-foreground line-through')}>{l.name}</TableCell>
                   <TableCell className="font-mono text-xs">{l.bin}</TableCell>
@@ -112,23 +112,23 @@ export function Packing() {
 export function Customer() {
   const { order, count, spentCents } = page.useLoaderData()
   const stats = [
-    ['订单', `${count} 单`],
-    ['累计消费', yuan(spentCents)],
-    ['单均', yuan(Math.round(spentCents / Math.max(count, 1)))],
+    ['Orders', `${count}`],
+    ['Total spent', yuan(spentCents)],
+    ['Per order', yuan(Math.round(spentCents / Math.max(count, 1)))],
   ]
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>顾客</CardTitle>
+        <CardTitle className={title}>Customer</CardTitle>
         <CardAction>
           <Badge variant="outline" className="rounded-none">
             {count > 1 ? (
               <>
                 <Repeat2 />
-                回头客
+                Repeat customer
               </>
             ) : (
-              '新顾客'
+              'New customer'
             )}
           </Badge>
         </CardAction>
@@ -142,7 +142,7 @@ export function Customer() {
             </div>
           ))}
         </dl>
-        <p className="text-xs text-muted-foreground">{order.customer} 的订单都在这家店，没有退款记录。</p>
+        <p className="text-xs text-muted-foreground">All of {order.customer}'s orders are in this shop, with no refunds.</p>
       </CardContent>
     </Card>
   )
@@ -154,22 +154,22 @@ export function PaymentCard() {
   const { timeZone } = project.useLoaderData()
   const pay = order.payment
   const rows: [string, React.ReactNode][] = [
-    ['支付方式', pay.method],
-    ['交易号', <span key="n" className="font-mono text-xs break-all">{pay.transactionNo}</span>],
-    ['付款时间', <time key="t" dateTime={pay.paidAt}>{orderTime(pay.paidAt, timeZone)}</time>],
-    ['实付金额', <span key="a" className="font-mono">{yuan(pay.paidCents)}</span>],
+    ['Payment method', pay.method],
+    ['Transaction number', <span key="n" className="font-mono text-xs break-all">{pay.transactionNo}</span>],
+    ['Paid at', <time key="t" dateTime={pay.paidAt}>{orderTime(pay.paidAt, timeZone)}</time>],
+    ['Amount paid', <span key="a" className="font-mono">{yuan(pay.paidCents)}</span>],
   ]
   const invoice: [string, string][] = [
-    ['类型', '电子发票，个人'],
-    ['抬头', order.customer],
-    ['状态', order.shipment ? '已开具，发到顾客邮箱' : '发货后开具'],
+    ['Type', 'E-invoice, personal'],
+    ['Title', order.customer],
+    ['Status', order.shipment ? 'Issued, sent to the customer email' : 'Issued after shipping'],
   ]
   return (
     <Card>
       <CardHeader>
         <CardTitle className={cn(title, 'flex items-center gap-2')}>
           <CreditCard className="size-4 text-primary" />
-          付款与发票
+          Payment and invoice
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
@@ -184,7 +184,7 @@ export function PaymentCard() {
         <div className="border-t pt-4">
           <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
             <FileText className="size-3.5" />
-            发票
+            Invoice
           </p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
             {invoice.map(([k, v]) => (
@@ -207,22 +207,22 @@ export function AddressCheck() {
   const city = place.split('市')[0] + '市'
   const district = place.slice(city.length)
   const checks: [string, string][] = [
-    ['城市', city],
-    ['区县', district || '未填写'],
-    ['详细地址', detail ?? '未填写'],
-    ['手机号', `${order.phone.slice(0, 3)} **** ${order.phone.slice(7)}`],
+    ['City', city],
+    ['District', district || 'Not filled in'],
+    ['Address', detail ?? 'Not filled in'],
+    ['Phone', `${order.phone.slice(0, 3)} **** ${order.phone.slice(7)}`],
   ]
   return (
     <Card>
       <CardHeader>
         <CardTitle className={cn(title, 'flex items-center gap-2')}>
           <MapPinCheck className="size-4 text-primary" />
-          地址核验
+          Address check
         </CardTitle>
         <CardAction>
           <Badge variant="secondary" className="rounded-none">
             <BadgeCheck />
-            一致
+            Matches
           </Badge>
         </CardAction>
       </CardHeader>
@@ -249,18 +249,18 @@ export function CarrierAdvice() {
       <CardHeader>
         <CardTitle className={cn(title, "flex items-center gap-2")}>
           <PackageSearch className="size-4 text-primary" />
-          快递对比
+          Carrier comparison
         </CardTitle>
-        <CardDescription>同城区内，首重 1 公斤。</CardDescription>
+        <CardDescription>Within the same city, first kilogram.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-normal text-muted-foreground">快递</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">时效</TableHead>
-              <TableHead className="text-right text-xs font-normal text-muted-foreground">首重</TableHead>
-              <TableHead className="text-right text-xs font-normal text-muted-foreground">已发</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Carrier</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Time</TableHead>
+              <TableHead className="text-right text-xs font-normal text-muted-foreground">First kg</TableHead>
+              <TableHead className="text-right text-xs font-normal text-muted-foreground">Shipped</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -270,13 +270,13 @@ export function CarrierAdvice() {
                   {c.name}
                   {i === 0 && (
                     <Badge variant="outline" className="ml-2 rounded-none">
-                      常用
+                      Usual
                     </Badge>
                   )}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{c.days}</TableCell>
                 <TableCell className="text-right font-mono text-xs tabular-nums">{yuan(c.feeCents)}</TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{carrierStats.find((s) => s.code === c.code)?.orders ?? 0} 单</TableCell>
+                <TableCell className="text-right font-mono text-xs tabular-nums">{carrierStats.find((s) => s.code === c.code)?.orders ?? 0} orders</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -292,8 +292,8 @@ export function StockCheck() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>库存检查</CardTitle>
-        <CardDescription>待发货的订单一共需要多少，仓里还有多少。</CardDescription>
+        <CardTitle className={title}>Stock check</CardTitle>
+        <CardDescription>How many the orders to ship need in all, and how many the warehouse has.</CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="divide-y">
@@ -304,15 +304,15 @@ export function StockCheck() {
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span>{item.name}</span>
                   <Badge variant={left < 0 ? "destructive" : "secondary"} className="rounded-none">
-                    {left < 0 ? "缺货" : left <= 10 ? "库存紧张" : "够发"}
+                    {left < 0 ? "Out of stock" : left <= 10 ? "Low stock" : "Enough"}
                   </Badge>
                 </div>
-                <div className="h-1.5 bg-muted" role="img" aria-label={`待发 ${item.demand} 件，库存 ${item.stock} 件`}>
+                <div className="h-1.5 bg-muted" role="img" aria-label={`${item.demand} to ship, ${item.stock} in stock`}>
                   <span className="block h-full bg-primary" style={{ width: `${Math.min(100, Math.round((item.demand / Math.max(item.stock, 1)) * 100))}%` }} />
                 </div>
                 <p className="flex justify-between font-mono text-xs text-muted-foreground">
-                  <span>待发 {item.demand} 件</span>
-                  <span>库存 {item.stock} 件，发完剩 {left}</span>
+                  <span>{item.demand} to ship</span>
+                  <span>{item.stock} in stock, {left} left after shipping</span>
                 </p>
               </li>
             )
@@ -331,8 +331,8 @@ export function CarrierTimes() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>快递用时对比</CardTitle>
-        <CardDescription>这家店所有已发货订单的平均，从下单到送达。</CardDescription>
+        <CardTitle className={title}>Carrier times</CardTitle>
+        <CardDescription>The average over all shipped orders in this shop, from order to delivery.</CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="space-y-3">
@@ -341,7 +341,7 @@ export function CarrierTimes() {
               <p className="flex justify-between text-sm">
                 <span className={cn(c.code === order.shipment?.carrier && "font-medium text-primary")}>{c.name}</span>
                 <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                  {Math.round(c.avgDispatchHours + c.avgTransitHours)} 小时 · {c.orders} 单
+                  {Math.round(c.avgDispatchHours + c.avgTransitHours)} hours · {c.orders} orders
                 </span>
               </p>
               <div className="flex h-1.5 bg-muted" aria-hidden>
@@ -354,11 +354,11 @@ export function CarrierTimes() {
         <p className="mt-4 flex gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <span className="size-2 bg-chart-4" />
-            店里发出
+            In the shop
           </span>
           <span className="flex items-center gap-1.5">
             <span className="size-2 bg-primary" />
-            路上
+            In transit
           </span>
         </p>
       </CardContent>
@@ -372,25 +372,25 @@ export function Checklist() {
   const shipped = !!order.shipment
   const items = shipped
     ? [
-        ['signed', '确认顾客已签收', order.log.some((e) => e.action === '已签收')],
-        ['invoice', '电子发票已发到顾客邮箱', true],
-        ['review', '签收三天后邀请顾客写评价', false],
-        ['window', '七天退换期结束后结算', false],
+        ['signed', 'Confirm the customer received it', order.log.some((e) => e.action === 'Delivered')],
+        ['invoice', 'E-invoice sent to the customer email', true],
+        ['review', 'Invite the customer to review three days after delivery', false],
+        ['window', 'Settle after the seven-day return window', false],
       ]
     : [
-        ['address', '核对收货地址和手机号', false],
-        ['items', '核对商品和数量', false],
-        ['message', '看一遍买家留言和内部备注', false],
-        ['carrier', '选好快递公司', false],
-        ['label', '贴好面单，填运单号', false],
+        ['address', 'Check the delivery address and phone', false],
+        ['items', 'Check the products and quantities', false],
+        ['message', 'Read the buyer message and internal notes', false],
+        ['carrier', 'Pick a carrier', false],
+        ['label', 'Stick on the label and enter the tracking number', false],
       ]
   const [done, setDone] = useState<Record<string, boolean>>(() => Object.fromEntries(items.map(([id, , on]) => [id, on as boolean])))
   const left = items.filter(([id]) => !done[id as string]).length
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>{shipped ? '发货后跟进' : '发货前检查'}</CardTitle>
-        <CardAction className="font-mono text-xs text-muted-foreground">还剩 {left} 项</CardAction>
+        <CardTitle className={title}>{shipped ? 'After shipping' : 'Before shipping'}</CardTitle>
+        <CardAction className="font-mono text-xs text-muted-foreground">{left} left</CardAction>
       </CardHeader>
       <CardContent>
         <ul className="flex flex-col gap-2.5">
@@ -408,28 +408,28 @@ export function Checklist() {
   )
 }
 
-const tags = ['加急', '礼品', '易碎', '手写卡片', '大额订单', '回头客', '需开票', '地址待确认'] as const
+const tags = ['Rush', 'Gift', 'Fragile', 'Handwritten card', 'Large order', 'Repeat customer', 'Invoice needed', 'Address to confirm'] as const
 
 // Tags are what the staff mark an order with, so the warehouse knows how to treat it. The marks
 // start from what the order already says.
 export function Tags() {
   const { order, count } = page.useLoaderData()
   const initial = [
-    ...(order.note.includes('卡片') ? ['手写卡片'] : []),
-    ...(order.note.includes('礼物') ? ['礼品'] : []),
-    ...(order.note.includes('结实') ? ['易碎'] : []),
-    ...(order.totalCents >= 40000 ? ['大额订单'] : []),
-    ...(count > 1 ? ['回头客'] : []),
+    ...(order.note.includes('卡片') ? ['Handwritten card'] : []),
+    ...(order.note.includes('礼物') ? ['Gift'] : []),
+    ...(order.note.includes('结实') ? ['Fragile'] : []),
+    ...(order.totalCents >= 40000 ? ['Large order'] : []),
+    ...(count > 1 ? ['Repeat customer'] : []),
   ]
   const [on, setOn] = useState<string[]>(initial)
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>订单标记</CardTitle>
-        <CardDescription>仓库看得到，顾客看不到。</CardDescription>
+        <CardTitle className={title}>Order tags</CardTitle>
+        <CardDescription>The warehouse sees them, the customer does not.</CardDescription>
       </CardHeader>
       <CardContent>
-        <ToggleGroup type="multiple" value={on} onValueChange={setOn} aria-label="订单标记" className="flex-wrap gap-1.5 border-0 bg-transparent">
+        <ToggleGroup type="multiple" value={on} onValueChange={setOn} aria-label="Order tags" className="flex-wrap gap-1.5 border-0 bg-transparent">
           {tags.map((tag) => (
             <ToggleGroupItem key={tag} value={tag} className="h-7 w-auto border px-2.5 text-xs">
               {tag}
@@ -452,17 +452,17 @@ export function Margin() {
   const shipping = order.shipment ? 600 : 0
   const profit = price - goods - packing - fee - shipping
   const rows: [string, string, boolean?][] = [
-    ['实收', yuan(price)],
-    ['商品成本，按售价 45% 估', `−${yuan(goods)}`],
-    ['包装，每件 ¥4.00', `−${yuan(packing)}`],
-    ['支付手续费 0.6%', `−${yuan(fee)}`],
-    ['运费', order.shipment ? `−${yuan(shipping)}` : '发货后计入'],
-    ['毛利', yuan(profit), true],
+    ['Received', yuan(price)],
+    ['Product cost, estimated at 45% of the price', `−${yuan(goods)}`],
+    ['Packing, ¥4.00 each', `−${yuan(packing)}`],
+    ['Payment fee 0.6%', `−${yuan(fee)}`],
+    ['Shipping', order.shipment ? `−${yuan(shipping)}` : 'Counted after shipping'],
+    ['Gross profit', yuan(profit), true],
   ]
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={title}>毛利估算</CardTitle>
+        <CardTitle className={title}>Gross profit estimate</CardTitle>
         <CardAction className="font-mono text-xs text-muted-foreground">{Math.round((profit / price) * 100)}%</CardAction>
       </CardHeader>
       <CardContent>

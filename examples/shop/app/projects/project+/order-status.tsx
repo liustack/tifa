@@ -3,8 +3,8 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from 'cn'
 
 export const statusLabels: Record<string, string> = {
-  pending: '待发货',
-  shipped: '已发货',
+  pending: 'To ship',
+  shipped: 'Shipped',
 }
 
 const statusStyles: Record<string, string> = {

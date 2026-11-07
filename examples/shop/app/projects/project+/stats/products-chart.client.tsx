@@ -2,7 +2,7 @@ import { Bar, BarChart, LabelList, XAxis, YAxis } from 'recharts'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import type { PageData } from './route.gen'
 
-const config = { quantity: { label: '销量', color: 'var(--chart-2)' } } satisfies ChartConfig
+const config = { quantity: { label: 'Sales', color: 'var(--chart-2)' } } satisfies ChartConfig
 
 export default function ProductsChart({ products }: { products: PageData['topProducts'] }) {
   return (

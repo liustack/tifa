@@ -21,5 +21,5 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 func OnError(c *tifa.Ctx, err error) tifa.Error {
 	slog.ErrorContext(c.Context(), "request failed", "path", c.Request().URL.Path, "err", err)
-	return tifa.Error{Status: 500, Message: "服务暂时不可用，请稍后重试"}
+	return tifa.Error{Status: 500, Message: "The service is unavailable. Please try again later."}
 }

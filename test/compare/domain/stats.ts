@@ -75,7 +75,7 @@ export interface Sales {
 const dispatchLimits = [6 * HOUR, 12 * HOUR, 24 * HOUR]
 
 const dispatchBands = (): DispatchBand[] => [
-  { label: '6 小时内', orders: 0 }, { label: '6 到 12 小时', orders: 0 }, { label: '12 到 24 小时', orders: 0 }, { label: '超过 24 小时', orders: 0 },
+  { label: 'Within 6 hours', orders: 0 }, { label: '6 to 12 hours', orders: 0 }, { label: '12 to 24 hours', orders: 0 }, { label: 'Over 24 hours', orders: 0 },
 ]
 
 function dispatchBand(d: number): number {
@@ -186,7 +186,7 @@ export function carrierStats(projectId: string): CarrierSales[] {
     out[i].orders++
     dispatch[i] += s.shippedAt - o.placedAt
     const n = s.events.length
-    if (n > 0 && s.events[n - 1].note.startsWith('已签收')) {
+    if (n > 0 && s.events[n - 1].note.startsWith('Delivered')) {
       delivered[i]++
       transit[i] += s.events[n - 1].at - s.shippedAt
     }

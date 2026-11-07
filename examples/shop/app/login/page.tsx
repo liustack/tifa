@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input'
 import { useHydrated } from '../use-hydrated'
 import { POST, page } from './route.gen'
 
-export const head = () => ({ meta: [{ title: '登录 · 山海工作台' }] })
+export const head = () => ({ meta: [{ title: 'Sign in · Shanhai Workbench' }] })
 
 const schema = z.object({
-  email: z.string().trim().min(1, '请填写邮箱'),
-  password: z.string().min(1, '请填写密码'),
+  email: z.string().trim().min(1, 'Enter your email'),
+  password: z.string().min(1, 'Enter your password'),
 })
 
 type Form = z.infer<typeof schema>
@@ -28,7 +28,7 @@ export default function LoginPage() {
       // The server answers with a redirect to the page the visitor came from.
       await POST({ input: { ...input, next } })
     } catch (e) {
-      form.setError('root', { message: e instanceof TifaError ? e.message : '网络异常，请重试' })
+      form.setError('root', { message: e instanceof TifaError ? e.message : 'Network error. Please try again.' })
     }
   }
 
@@ -37,16 +37,16 @@ export default function LoginPage() {
     <main className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center bg-primary font-heading text-xl text-primary-foreground">山</span>
+          <span className="flex size-10 items-center justify-center bg-primary font-heading text-xl text-primary-foreground">S</span>
           <div className="grid leading-tight">
-            <span className="font-heading text-lg font-medium tracking-[0.06em]">山海</span>
-            <span className="text-xs text-muted-foreground">店铺工作台</span>
+            <span className="font-heading text-lg font-medium tracking-[0.06em]">Shanhai</span>
+            <span className="text-xs text-muted-foreground">Shop workbench</span>
           </div>
         </div>
         <Card className="rounded-none">
           <CardHeader>
-            <CardTitle>登录</CardTitle>
-            <CardDescription>登录后查看订单和统计。</CardDescription>
+            <CardTitle>Sign in</CardTitle>
+            <CardDescription>Sign in to see orders and stats.</CardDescription>
           </CardHeader>
           <CardContent>
             <form id="login-form" noValidate onSubmit={form.handleSubmit(onSubmit)}>
@@ -56,7 +56,7 @@ export default function LoginPage() {
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="email">邮箱</FieldLabel>
+                      <FieldLabel htmlFor="email">Email</FieldLabel>
                       <Input {...field} id="email" type="email" autoComplete="username" aria-invalid={fieldState.invalid} />
                       {fieldState.error && <FieldError errors={[fieldState.error]} />}
                     </Field>
@@ -67,7 +67,7 @@ export default function LoginPage() {
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="password">密码</FieldLabel>
+                      <FieldLabel htmlFor="password">Password</FieldLabel>
                       <Input {...field} id="password" type="password" autoComplete="current-password" aria-invalid={fieldState.invalid} />
                       {fieldState.error && <FieldError errors={[fieldState.error]} />}
                     </Field>
@@ -75,14 +75,14 @@ export default function LoginPage() {
                 />
                 {errors.root && <FieldError errors={[errors.root]} />}
                 <Button type="submit" disabled={!hydrated || isSubmitting}>
-                  {isSubmitting ? '登录中' : '登录'}
+                  {isSubmitting ? 'Signing in' : 'Sign in'}
                 </Button>
               </FieldGroup>
             </form>
           </CardContent>
           <CardFooter className="grid gap-1 border-t text-xs text-muted-foreground">
-            <span>演示账号 owner@shanhai.example</span>
-            <span>密码 shanhai-demo</span>
+            <span>Demo account owner@shanhai.example</span>
+            <span>Password shanhai-demo</span>
           </CardFooter>
         </Card>
       </div>

@@ -83,7 +83,7 @@ func (in NoteInput) Validate() error { return orders.CheckNote(in.Text) }
 // PUT puts a note on the order, for the staff of the shop, and answers with the order. Notes can
 // be written after the order ships too.
 func PUT(c *tifa.Ctx, in NoteInput) (orders.Order, error) {
-	if err := orders.AddNote(c.Param("project"), c.Param("order"), "店主", in.Text, time.Now()); err != nil {
+	if err := orders.AddNote(c.Param("project"), c.Param("order"), "Owner", in.Text, time.Now()); err != nil {
 		return orders.Order{}, err
 	}
 	return orders.GetOrder(c.Param("project"), c.Param("order"))

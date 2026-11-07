@@ -26,7 +26,7 @@ function RootDocument({ children }: { children: ReactNode }) {
     select: (state) => (state.matches.find((match) => match.routeId === '/store')?.loaderData as { locale: { code: string } } | undefined)?.locale.code,
   })
   return (
-    <html lang={lang ?? 'zh-CN'}>
+    <html lang={lang ?? 'en-US'}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {themeColors.map((m) => (

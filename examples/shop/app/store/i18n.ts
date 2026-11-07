@@ -54,10 +54,10 @@ export function storeTitle(matches: ReadonlyArray<{ loaderData?: unknown }>, tex
 }
 
 export const LocaleContext = createContext<Locale>({
-  code: 'zh-CN',
-  currency: 'CNY',
-  timeZone: 'Asia/Shanghai',
-  other: 'en-US',
+  code: 'en-US',
+  currency: 'USD',
+  timeZone: 'America/Los_Angeles',
+  other: 'zh-CN',
 })
 
 // useStore gives the storefront's components their messages, locale and money format.

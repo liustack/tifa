@@ -10,7 +10,7 @@ import (
 )
 
 func visit(t *testing.T, seen string) (*httptest.ResponseRecorder, func(slug string)) {
-	r := httptest.NewRequest("GET", "/store/products/ceramic-cup", nil)
+	r := httptest.NewRequest("GET", "/zh-CN/store/products/ceramic-cup", nil)
 	if seen != "" {
 		r.AddCookie(&http.Cookie{Name: SeenCookie, Value: seen})
 	}
@@ -35,7 +35,7 @@ func TestSeenKeepsTheLastProductsNewestFirst(t *testing.T) {
 
 func TestSeenKeepsOnlyWhatTheCatalogueHasAndTheLastEight(t *testing.T) {
 	// The cookie is the visitor's to write: unknown slugs and repeats are dropped when it is read.
-	r := httptest.NewRequest("GET", "/store/products", nil)
+	r := httptest.NewRequest("GET", "/zh-CN/store/products", nil)
 	r.AddCookie(&http.Cookie{Name: SeenCookie, Value: "nope.oak-tray.oak-tray..<script>.ceramic-cup"})
 	c, _ := tifatest.NewCtx(t, r)
 	got := Seen(c, "ceramic-cup", zh)

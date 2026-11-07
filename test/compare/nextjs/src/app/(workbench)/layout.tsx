@@ -5,7 +5,7 @@ import { loadShell } from '../../compare/data'
 import { AppLayout, OutletProvider, ShellProvider } from '../../compare/entries'
 
 export const metadata: Metadata = {
-  title: '山海工作台',
+  title: 'Shanhai Workbench',
   icons: { icon: 'data:,' },
 }
 
@@ -19,7 +19,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const shell = loadShell((await cookies()).get('sidebar_state')?.value)
   return (
-    <html lang="zh-CN">
+    <html lang="en-US">
       <body>
         <ShellProvider value={shell}>
           <OutletProvider outlet={children}>

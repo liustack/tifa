@@ -75,7 +75,7 @@ func TestPUTPutsANoteOnTheOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := o.Notes[len(o.Notes)-1]
-	if last.Text != "顾客来电，说已收到。" || last.Author != "店主" || last.At.IsZero() {
+	if last.Text != "顾客来电，说已收到。" || last.Author != "Owner" || last.At.IsZero() {
 		t.Errorf("last note %+v", last)
 	}
 	if _, err := PUT(orderCtx(t, "PUT", "weekend", "SH-1040"), NoteInput{Text: "x"}); !errors.Is(err, tifa.ErrNotFound) {

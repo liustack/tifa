@@ -6,7 +6,7 @@ import { AnimatedNumber } from '../../animated-number'
 import { layout, type LayoutData } from './route.gen'
 
 export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
-  meta: loaderData ? [{ title: `${loaderData.name} · 山海工作台` }] : [],
+  meta: loaderData ? [{ title: `${loaderData.name} · Shanhai Workbench` }] : [],
 })
 
 export default function ProjectLayout() {
@@ -21,17 +21,17 @@ export default function ProjectLayout() {
             <p className="font-mono text-xs">
               {project.pending > 0 ? (
                 <>
-                  <AnimatedNumber value={project.pending} className="tabular-nums" /> 单待发货
+                  <AnimatedNumber value={project.pending} className="tabular-nums" /> to ship
                 </>
               ) : (
-                '订单都已发出'
+                'All orders shipped'
               )}
             </p>
           </div>
           <CollapsibleTrigger asChild>
             <Button variant="outline" className="group">
               <NotebookPen />
-              店铺备忘
+              Shop notes
               <ChevronDown className="transition-transform group-data-[state=open]:rotate-180" />
             </Button>
           </CollapsibleTrigger>
@@ -39,8 +39,8 @@ export default function ProjectLayout() {
         <CollapsibleContent className="flex gap-3 border bg-card p-4 text-sm">
           <NotebookPen className="mt-0.5 size-4 shrink-0 text-primary" />
           <div>
-            <p className="font-medium">发货前的小提醒</p>
-            <p className="text-muted-foreground">检查包装，附上一张手写卡片。每一份心意，都值得好好送达。</p>
+            <p className="font-medium">A reminder before shipping</p>
+            <p className="text-muted-foreground">Check the packing and add a handwritten card. Every gift deserves to arrive well.</p>
           </div>
         </CollapsibleContent>
       </Collapsible>

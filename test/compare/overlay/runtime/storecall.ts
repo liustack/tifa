@@ -69,6 +69,6 @@ export function makeCall({ writeURL, navigate }: Setup) {
 // publicPath is the URL a call is sent to: the path with the language prefix of the page being
 // shown, when the route has that language, as tifa's does.
 export function publicPath(path: string, languages: readonly string[]): string {
-  const language = typeof window === 'undefined' ? 'zh-CN' : languageOf(window.location.pathname)
+  const language = typeof window === 'undefined' ? 'en-US' : languageOf(window.location.pathname)
   return languages.includes(language) ? inLanguage(path, language) : path
 }

@@ -56,11 +56,11 @@ const helper = createColumnHelper<typeof features, Row>()
 
 // columnNames are the names of the columns a shop owner can hide.
 export const columnNames: Record<string, string> = {
-  product: '商品',
-  customer: '客户',
-  placedAt: '下单时间',
-  status: '状态',
-  carrier: '物流',
+  product: 'Product',
+  customer: 'Customer',
+  placedAt: 'Placed',
+  status: 'Status',
+  carrier: 'Carrier',
 }
 
 export const columns = helper.columns([
@@ -68,7 +68,7 @@ export const columns = helper.columns([
     id: 'select',
     header: ({ table }) => (
       <Checkbox
-        aria-label="选择本页订单"
+        aria-label="Select the orders on this page"
         className="rounded-none"
         checked={table.getIsAllPageRowsSelected() ? true : table.getIsSomePageRowsSelected() ? 'indeterminate' : false}
         onCheckedChange={(on) => table.toggleAllPageRowsSelected(on === true)}
@@ -76,7 +76,7 @@ export const columns = helper.columns([
     ),
     cell: ({ row }) => (
       <Checkbox
-        aria-label={`选择 ${row.original.id}`}
+        aria-label={`Select ${row.original.id}`}
         className="rounded-none"
         checked={row.getIsSelected()}
         onCheckedChange={(on) => row.toggleSelected(on === true)}
@@ -84,19 +84,19 @@ export const columns = helper.columns([
     ),
   }),
   helper.accessor('id', {
-    header: '订单号',
+    header: 'Order',
     enableSorting: false,
     enableHiding: false,
     cell: (info) => <OrderLink id={info.getValue()} />,
   }),
   helper.accessor('product', {
-    header: '商品',
+    header: 'Product',
     enableSorting: false,
     enableGlobalFilter: false,
     cell: (info) => <Product row={info.row.original} />,
   }),
   helper.accessor('customer', {
-    header: '客户',
+    header: 'Customer',
     enableSorting: false,
     cell: (info) => (
       <span className="flex items-center gap-2">
@@ -111,21 +111,21 @@ export const columns = helper.columns([
   }),
   helper.accessor((row) => Date.parse(row.placedAt), {
     id: 'placedAt',
-    header: ({ column }) => <SortButton column={column}>下单时间</SortButton>,
+    header: ({ column }) => <SortButton column={column}>Placed</SortButton>,
     sortFn: 'basic',
     filterFn: 'inNumberRange',
     enableGlobalFilter: false,
     cell: (info) => <PlacedAt instant={info.row.original.placedAt} />,
   }),
   helper.accessor('status', {
-    header: '状态',
+    header: 'Status',
     enableSorting: false,
     enableGlobalFilter: false,
     filterFn: 'equals',
     cell: (info) => <OrderStatus status={info.getValue()} />,
   }),
   helper.accessor('carrier', {
-    header: '物流',
+    header: 'Carrier',
     enableSorting: false,
     enableGlobalFilter: false,
     filterFn: 'equals',
@@ -134,7 +134,7 @@ export const columns = helper.columns([
   helper.accessor('totalCents', {
     header: ({ column }) => (
       <div className="text-right">
-        <SortButton column={column}>金额</SortButton>
+        <SortButton column={column}>Amount</SortButton>
       </div>
     ),
     sortFn: 'basic',
@@ -145,7 +145,7 @@ export const columns = helper.columns([
   }),
   helper.display({
     id: 'actions',
-    header: () => <span className="sr-only">操作</span>,
+    header: () => <span className="sr-only">Actions</span>,
     cell: (info) => <RowActions row={info.row.original} />,
   }),
 ])
@@ -178,7 +178,7 @@ function Product({ row }: { row: Row }) {
       <span className="truncate">
         {row.product}
         {row.lines > 1 ? (
-          <small className="ml-1.5 text-xs text-muted-foreground">等 {row.lines} 件</small>
+          <small className="ml-1.5 text-xs text-muted-foreground">and {row.lines - 1} more</small>
         ) : row.items > 1 ? (
           <small className="ml-1.5 font-mono text-xs text-muted-foreground">× {row.items}</small>
         ) : null}
@@ -204,7 +204,7 @@ function Carrier({ row }: { row: Row }) {
         <span className="cursor-default text-muted-foreground underline decoration-dotted underline-offset-4">{row.carrier}</span>
       </TooltipTrigger>
       <TooltipContent>
-        运单号 <span className="font-mono">{row.trackingNo}</span>
+        Tracking number <span className="font-mono">{row.trackingNo}</span>
       </TooltipContent>
     </Tooltip>
   )
@@ -226,23 +226,23 @@ function RowActions({ row }: { row: Row }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`订单 ${row.id} 的操作`}>
+        <Button variant="ghost" size="icon-sm" aria-label={`Actions for order ${row.id}`}>
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="rounded-none">
         <DropdownMenuItem asChild>
           <Link to="/projects/$project/orders/$order" params={{ project: projectId, order: row.id }}>
-            {row.status === 'pending' ? '去发货' : '查看详情'}
+            {row.status === 'pending' ? 'Ship it' : 'View details'}
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(row.id)}>复制订单号</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(row.id)}>Copy order number</DropdownMenuItem>
         {row.trackingNo && (
-          <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(row.trackingNo)}>复制运单号</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(row.trackingNo)}>Copy tracking number</DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <a href={`/store/products/${row.slug}`}>在店面查看商品</a>
+          <a href={`/store/products/${row.slug}`}>View product in the storefront</a>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

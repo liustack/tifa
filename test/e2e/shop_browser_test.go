@@ -66,14 +66,14 @@ func shopPagesInBrowser(t *testing.T, session string, args ...string) {
 		{"/projects/studio", "/projects/studio/orders/SH-1041"},
 		{"/projects/studio/orders/SH-1041", "/projects/studio/stats"},
 		{"/projects/studio/stats", "/projects/studio"},
-		{"/en-US/store", "/en-US/store/products"},
-		{"/en-US/store/products", "/en-US/store/products/pour-over-kettle"},
-		{"/en-US/store/products/pour-over-kettle", "/en-US/store/journal"},
-		{"/en-US/store/cart", "/en-US/store/products"},
-		{"/en-US/store/checkout", "/en-US/store/journal"},
-		{"/en-US/store/journal", "/en-US/store/journal/kettle-photos"},
-		{"/en-US/store/journal/kettle-photos", "/en-US/store/products"},
-		{"/store/products", "/store"},
+		{"/store", "/store/products"},
+		{"/store/products", "/store/products/pour-over-kettle"},
+		{"/store/products/pour-over-kettle", "/store/journal"},
+		{"/store/cart", "/store/products"},
+		{"/store/checkout", "/store/journal"},
+		{"/store/journal", "/store/journal/kettle-photos"},
+		{"/store/journal/kettle-photos", "/store/products"},
+		{"/zh-CN/store/products", "/zh-CN/store"},
 	} {
 		if tc.page == "/login" {
 			pw("open", base+tc.page)

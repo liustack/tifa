@@ -59,6 +59,6 @@ func POST(c *tifa.Ctx, in cart.Order) error {
 	if err != nil {
 		return err
 	}
-	// The checkout page is the URL of this call, in the language of the visitor.
-	return tifa.Redirect(c.Request().URL.Path+"?placed="+id, http.StatusSeeOther)
+	// Tifa puts the language prefix of the request on the path.
+	return tifa.Redirect("/store/checkout?placed="+id, http.StatusSeeOther)
 }

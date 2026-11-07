@@ -63,13 +63,13 @@ var storeApps = []storeApp{
 }
 
 var (
-	nextPageWrite   = regexp.MustCompile(`^(?:/(en-US))?/store/(cart|checkout|products/)`)
-	reactPageWrite  = regexp.MustCompile(`^(?:/(en-US))?/store/(cart|checkout|products/)`)
-	minePath        = regexp.MustCompile(`^(?:/en-US)?/store/mine`)
+	nextPageWrite   = regexp.MustCompile(`^(?:/(zh-CN))?/store/(cart|checkout|products/)`)
+	reactPageWrite  = regexp.MustCompile(`^(?:/(zh-CN))?/store/(cart|checkout|products/)`)
+	minePath        = regexp.MustCompile(`^(?:/zh-CN)?/store/mine`)
 	orderNumber     = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
 	cartCookie      = regexp.MustCompile(`store_cart=[^;]+`)
 	isoTime         = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
-	placedLocation  = regexp.MustCompile(`(?:/en-US)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
+	placedLocation  = regexp.MustCompile(`(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
 
@@ -77,7 +77,7 @@ var (
 // default language, which has no prefix.
 func writeLanguage(prefix string) string {
 	if prefix == "" {
-		return "zh-CN"
+		return "en-US"
 	}
 	return prefix
 }
@@ -472,7 +472,7 @@ func TestStorefront(t *testing.T) {
 
 // extra404 are pages of the storefront that answer 404 inside it or in the root, besides
 // StoreMissing: a URL no page has, in a language, and one below a page.
-var extra404 = []string{"/store/no-such-page", "/en-US/store/cart/extra", "/store/products/oak-tray/extra", "/store/journal/theme-css/extra", "/en-US/store/products/extra/more", "/store/checkout?placed=SS-NOSUCHORDER"}
+var extra404 = []string{"/zh-CN/store/no-such-page", "/store/cart/extra", "/zh-CN/store/products/oak-tray/extra", "/zh-CN/store/journal/theme-css/extra", "/store/products/extra/more", "/zh-CN/store/checkout?placed=SS-NOSUCHORDER"}
 
 // pages: every page of StorePages, StoreMissing and extra404 shows the same in both.
 func (p *pair) pages(t *testing.T) {
@@ -567,12 +567,12 @@ func (p *pair) redirects(t *testing.T) {
 		}
 		q.both(name, request{method: "GET", path: path})
 	}
-	slash("slash", "/store/")
-	slash("slash with a query", "/store/?x=1")
-	slash("slash with two parameters", "/store/?a=1&b=2")
-	slash("slash with characters of HTML", "/store/?q=<a>")
-	slash("slash below a page", "/store/cart/")
-	slash("slash below a language", "/en-US/store/")
+	slash("slash", "/zh-CN/store/")
+	slash("slash with a query", "/zh-CN/store/?x=1")
+	slash("slash with two parameters", "/zh-CN/store/?a=1&b=2")
+	slash("slash with characters of HTML", "/zh-CN/store/?q=<a>")
+	slash("slash below a page", "/zh-CN/store/cart/")
+	slash("slash below a language", "/store/")
 	// The workbench shares the app, so what the apps do for a trailing slash is checked there too.
 	for _, page := range compare.Pages {
 		slash("slash after the workbench "+page.Name, strings.SplitN(page.URL, "?", 2)[0]+"/")
@@ -585,21 +585,21 @@ func (p *pair) otherRequests(t *testing.T) {
 	q := p.fresh()
 	q.t = t
 	for _, c := range [][2]string{
-		{"POST", "/store"}, {"PUT", "/store"}, {"PATCH", "/store"}, {"DELETE", "/store"},
-		{"PUT", "/store/mine"}, {"PATCH", "/store/mine"}, {"DELETE", "/en-US/store/mine"},
-		{"PUT", "/store/cart"}, {"DELETE", "/store/cart"},
-		{"PUT", "/store/checkout"}, {"PATCH", "/store/checkout"}, {"DELETE", "/en-US/store/checkout"},
-		{"PATCH", "/store/products/ceramic-cup"}, {"PUT", "/store/products/ceramic-cup"}, {"DELETE", "/store/products/ceramic-cup"},
+		{"POST", "/zh-CN/store"}, {"PUT", "/zh-CN/store"}, {"PATCH", "/zh-CN/store"}, {"DELETE", "/zh-CN/store"},
+		{"PUT", "/zh-CN/store/mine"}, {"PATCH", "/zh-CN/store/mine"}, {"DELETE", "/store/mine"},
+		{"PUT", "/zh-CN/store/cart"}, {"DELETE", "/zh-CN/store/cart"},
+		{"PUT", "/zh-CN/store/checkout"}, {"PATCH", "/zh-CN/store/checkout"}, {"DELETE", "/store/checkout"},
+		{"PATCH", "/zh-CN/store/products/ceramic-cup"}, {"PUT", "/zh-CN/store/products/ceramic-cup"}, {"DELETE", "/zh-CN/store/products/ceramic-cup"},
 	} {
 		for _, call := range []bool{false, true} {
-			if why, ok := p.spec.except["home methods"]; ok && c[1] == "/store" {
+			if why, ok := p.spec.except["home methods"]; ok && (c[1] == "/store" || c[1] == "/zh-CN/store") {
 				t.Logf("exception, %s %s %s %s", p.spec.label, c[0], c[1], why)
 				continue
 			}
 			q.both(fmt.Sprintf("wrong method, call %v", call), request{method: c[0], path: c[1], call: call})
 		}
 	}
-	q.views("checkout page with an empty order", "/store/checkout?placed=", [2]string{}, 200)
+	q.views("checkout page with an empty order", "/zh-CN/store/checkout?placed=", [2]string{}, 200)
 }
 
 // A valid order for the checkout, as the form sends it.
@@ -624,8 +624,8 @@ func w(name, method, path, body string, pages ...string) step {
 }
 
 const (
-	zh = "/store"
-	en = "/en-US/store"
+	zh = "/zh-CN/store"
+	en = "/store"
 )
 
 // storeWrites is the visit: every write, the ways each can fail, and the page after the ones that
@@ -879,9 +879,9 @@ func (p *pair) deep(t *testing.T) {
 // "PLACED" in both views, and the rest of the page is compared as it is.
 func (p *pair) checkPlacedTime(name, path string, views [2]*compare.View, orders [2]string) {
 	p.t.Helper()
-	lang := "zh-CN"
-	if strings.Contains(path, "/en-US/") {
-		lang = "en-US"
+	lang := "en-US"
+	if strings.Contains(path, "/zh-CN/") {
+		lang = "zh-CN"
 	}
 	for i, v := range views {
 		if err := normalizePlaced(p.t, lang, p.placed[i][0], p.placed[i][1], v); err != nil {

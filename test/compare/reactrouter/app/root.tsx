@@ -15,9 +15,9 @@ export const links = () => documentHead.links
 
 export function Layout({ children }: { children: ReactNode }) {
   // The storefront's pages have the language of their URL, the others the root's.
-  const shell = (useRouteLoaderData('/store') ?? useRouteLoaderData('en-US:/store')) as LayoutData | undefined
+  const shell = (useRouteLoaderData('/store') ?? useRouteLoaderData('zh-CN:/store')) as LayoutData | undefined
   return (
-    <html lang={shell?.locale.code ?? 'zh-CN'}>
+    <html lang={shell?.locale.code ?? 'en-US'}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

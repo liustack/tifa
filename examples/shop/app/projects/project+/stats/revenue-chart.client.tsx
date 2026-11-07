@@ -3,7 +3,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { day, wholeYuan, yuan } from '../../../format'
 import type { PageData } from './route.gen'
 
-const config = { revenueCents: { label: '销售额', color: 'var(--chart-1)' } } satisfies ChartConfig
+const config = { revenueCents: { label: 'Sales', color: 'var(--chart-1)' } } satisfies ChartConfig
 
 export default function RevenueChart({ days }: { days: PageData['days'] }) {
   return (
@@ -26,7 +26,7 @@ export default function RevenueChart({ days }: { days: PageData['days'] }) {
               labelFormatter={(date) => day(String(date))}
               formatter={(value) => (
                 <div className="flex w-full justify-between gap-4">
-                  <span className="text-muted-foreground">销售额</span>
+                  <span className="text-muted-foreground">Sales</span>
                   <span className="font-medium tabular-nums">{yuan(Number(value))}</span>
                 </div>
               )}

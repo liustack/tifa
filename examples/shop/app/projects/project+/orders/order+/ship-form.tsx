@@ -14,11 +14,11 @@ import { POST, page, type POSTInput } from './route.gen'
 // The browser checks what it can before sending. The order page checks again with the same rules
 // in Go, and which carriers exist is up to Go alone.
 const shipSchema = z.object({
-  carrier: z.string().min(1, '请选择快递公司'),
+  carrier: z.string().min(1, 'Pick a carrier'),
   trackingNo: z
     .string()
     .trim()
-    .regex(/^[A-Za-z0-9]{8,20}$/, '运单号是 8 到 20 位字母或数字'),
+    .regex(/^[A-Za-z0-9]{8,20}$/, 'The tracking number is 8 to 20 letters or digits'),
 }) satisfies z.ZodType<POSTInput>
 
 export function ShipForm() {
@@ -37,7 +37,7 @@ export function ShipForm() {
       await router.invalidate({ sync: true })
     } catch (e) {
       if (!(e instanceof TifaError)) {
-        form.setError('root', { message: '网络异常，请重试' })
+        form.setError('root', { message: 'Network error. Please try again.' })
         return
       }
       const fields = Object.entries(e.fields)
@@ -50,8 +50,8 @@ export function ShipForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>发货</CardTitle>
-        <CardDescription>选择快递公司，填写运单号。</CardDescription>
+        <CardTitle>Ship</CardTitle>
+        <CardDescription>Pick a carrier and enter the tracking number.</CardDescription>
       </CardHeader>
       <CardContent>
         <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
@@ -61,7 +61,7 @@ export function ShipForm() {
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="ship-carrier">快递公司</FieldLabel>
+                  <FieldLabel htmlFor="ship-carrier">Carrier</FieldLabel>
                   <Select name={field.name} value={field.value} onValueChange={field.onChange}>
                     <SelectTrigger
                       id="ship-carrier"
@@ -69,7 +69,7 @@ export function ShipForm() {
                       aria-invalid={fieldState.invalid}
                       onBlur={field.onBlur}
                     >
-                      <SelectValue placeholder="选择快递公司" />
+                      <SelectValue placeholder="Pick a carrier" />
                     </SelectTrigger>
                     <SelectContent>
                       {carriers.map((c) => (
@@ -88,12 +88,12 @@ export function ShipForm() {
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="ship-tracking">运单号</FieldLabel>
+                  <FieldLabel htmlFor="ship-tracking">Tracking number</FieldLabel>
                   <Input
                     {...field}
                     id="ship-tracking"
                     autoComplete="off"
-                    placeholder="例如 SF1234567890"
+                    placeholder="For example SF1234567890"
                     aria-invalid={fieldState.invalid}
                   />
                   {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
@@ -102,7 +102,7 @@ export function ShipForm() {
             />
             {errors.root && <FieldError>{errors.root.message}</FieldError>}
             <Button type="submit" disabled={!hydrated || isSubmitting}>
-              {isSubmitting ? '正在发货…' : '确认发货'}
+              {isSubmitting ? 'Shipping…' : 'Confirm shipment'}
             </Button>
           </FieldGroup>
         </form>

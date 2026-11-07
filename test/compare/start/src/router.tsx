@@ -4,7 +4,7 @@ import { parseSearch, stringifySearch } from './compare/search'
 import { routeTree } from './routeTree.gen'
 import { setRouter } from '@/runtime/call'
 
-// The storefront is at /store, and in English at /en-US/store. The router matches the path without
+// The storefront is at /store, and in Chinese at /zh-CN/store. The router matches the path without
 // the prefix, as tifa does, and writes the prefix of the language of the page on the links to the
 // storefront.
 export function getRouter() {

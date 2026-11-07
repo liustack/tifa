@@ -1,10 +1,10 @@
 // What Tifa does for the languages of a site, for the comparison apps that are not Tifa: the
 // language in a public path, the versions of a page and the links to them. The storefront is at
-// /store in Chinese, the default language, and at /en-US/store in English.
+// /store in English, the default language, and at /zh-CN/store in Chinese.
 
 export const site = 'https://shop.example.com'
-export const defaultLanguage = 'zh-CN'
-export const languages = ['zh-CN', 'en-US']
+export const defaultLanguage = 'en-US'
+export const languages = ['en-US', 'zh-CN']
 
 export interface Alternate {
   language: string
@@ -13,18 +13,18 @@ export interface Alternate {
 
 /** languageOf is the language of a public path: the one in its first segment, else the default. */
 export function languageOf(path: string): string {
-  return path === '/en-US' || path.startsWith('/en-US/') ? 'en-US' : defaultLanguage
+  return path === '/zh-CN' || path.startsWith('/zh-CN/') ? 'zh-CN' : defaultLanguage
 }
 
 /** withoutLanguage takes the language prefix off a public path. */
 export function withoutLanguage(path: string): string {
-  return languageOf(path) === 'en-US' ? path.slice('/en-US'.length) || '/' : path
+  return languageOf(path) === 'zh-CN' ? path.slice('/zh-CN'.length) || '/' : path
 }
 
 /** inLanguage puts the prefix of a language on a path that has none, when the path is in the storefront. */
 export function inLanguage(path: string, language: string): string {
   const inStore = path === '/store' || path.startsWith('/store/')
-  return inStore && language === 'en-US' ? '/en-US' + path : path
+  return inStore && language !== defaultLanguage ? '/' + language + path : path
 }
 
 /** versionsOf lists the page at a public path in each language. */

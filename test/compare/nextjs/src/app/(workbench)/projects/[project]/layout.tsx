@@ -8,7 +8,7 @@ type Props = { params: Promise<{ project: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { project } = await params
-  return { title: `${orNotFound(() => loadProject(project)).name} · 山海工作台` }
+  return { title: `${orNotFound(() => loadProject(project)).name} · Shanhai Workbench` }
 }
 
 export default async function Layout({ children, params }: Props & { children: ReactNode }) {

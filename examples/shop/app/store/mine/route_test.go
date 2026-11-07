@@ -17,7 +17,7 @@ var (
 )
 
 func request(method, seen string) *http.Request {
-	r := httptest.NewRequest(method, "/store/mine", nil)
+	r := httptest.NewRequest(method, "/zh-CN/store/mine", nil)
 	if seen != "" {
 		r.AddCookie(&http.Cookie{Name: products.SeenCookie, Value: seen})
 	}
@@ -58,7 +58,7 @@ func TestPOSTRemembersTheProduct(t *testing.T) {
 }
 
 func TestGETAnswersInTheLanguageOfThePrefix(t *testing.T) {
-	r := httptest.NewRequest("GET", "/en-US/store/mine", nil)
+	r := httptest.NewRequest("GET", "/store/mine", nil)
 	c, _ := tifatest.NewCtx(t, r)
 	got, err := GET(c)
 	if err != nil {

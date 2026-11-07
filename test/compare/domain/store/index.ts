@@ -3,7 +3,7 @@
 // Names are the Go names in camelCase. TestStoreDomainMatchesGo keeps the answers equal to Go's.
 //
 // Pages. Each page's data is its Layout and Load results, by route id (routes.ts has loadRoute(id, ...)).
-// lang is the language of the URL: zh-CN for /store, en-US for /en-US/store. An unknown one throws NotFound from every
+// lang is the language of the URL: en-US for /store, zh-CN for /zh-CN/store. An unknown one throws NotFound from every
 // function that calls findLocale, which a framework turns into a 404. c is a Ctx made from the
 // Cookie header of the request (ctx.ts), query is its URLSearchParams.
 //
