@@ -169,12 +169,29 @@ func i18nextRender(t *testing.T, root string) (i18nextResult, string) {
 // node_modules (i18next is 26.5.3 and the others are npm aliases of the versions of 27), and
 // formatterLine is the line of its createCachedFormatter that a test changes to make the function
 // unknown.
-type i18nextVersion struct{ alias, formatterLine string }
+type i18nextVersion struct{ alias, formatterLine, postProcessorLine, hydrateLine string }
+
+// name is how the plugin's warnings call this version.
+func (v i18nextVersion) name(t *testing.T) string { return "i18next " + installedVersion(t, v.alias) }
+
+// forI18nextVersions runs f as a subtest for each version of i18nextVersions.
+func forI18nextVersions(t *testing.T, f func(*testing.T, i18nextVersion)) {
+	t.Helper()
+	for _, v := range i18nextVersions {
+		t.Run(installedVersion(t, v.alias), func(t *testing.T) { f(t, v) })
+	}
+}
+
+// i18nextRoot returns a copy of testdata/ssr whose i18next is the version v.
+func i18nextRoot(t *testing.T, v i18nextVersion) string {
+	t.Helper()
+	return withI18next(t, v.alias, func(s string) string { return s })
+}
 
 var i18nextVersions = []i18nextVersion{
-	{"i18next", "    const key = l + JSON.stringify(optForCache);"},
-	{"i18next-27-0-0", "      key = l + JSON.stringify(optForCache);"},
-	{"i18next-27-0-1", "      key = l + JSON.stringify(optForCache);"},
+	{"i18next", "    const key = l + JSON.stringify(optForCache);", "  addPostProcessor(module) {", ""},
+	{"i18next-27-0-0", "      key = l + JSON.stringify(optForCache);", "      this.services.postProcessors[module.name] = module;", "  hydrate(resources, lng) {"},
+	{"i18next-27-0-1", "      key = l + JSON.stringify(optForCache);", "      this.services.postProcessors[module.name] = module;", "  hydrate(resources, lng) {"},
 }
 
 // withI18next returns a copy of testdata/ssr whose i18next is a copy of the package alias, with
