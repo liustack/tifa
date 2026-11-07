@@ -258,8 +258,9 @@ logger.error = (msg, options) => {
 
 // langKeys returns the offsets of the lang keys of the object literals a program writes out as
 // htmlAttributes: the object that `export const htmlAttributes` is, and the value of a property
-// named htmlAttributes, such as the one a head returns. A name for the object, a spread or a
-// computed key is out of reach of a static read, and tifa fails the render that sets lang there.
+// named htmlAttributes inside the exported head. A name for the object, a spread, a computed key
+// or a head exported under another name is out of reach of a static read, and tifa fails the
+// render that sets lang there. An object of the page's own that has such a property is no head.
 function langKeys(program) {
   const offsets = []
   const keyName = (property) => {
@@ -275,16 +276,18 @@ function langKeys(program) {
     for (const property of literal(node)?.properties ?? [])
       if (typeof keyName(property) === 'string' && keyName(property).toLowerCase() === 'lang') offsets.push(property.start)
   }
-  const walk = (node, exported) => {
-    if (Array.isArray(node)) return node.forEach((child) => walk(child, exported))
+  const walk = (node, exported, head) => {
+    if (Array.isArray(node)) return node.forEach((child) => walk(child, exported, head))
     if (node === null || typeof node !== 'object') return
     if (node.type === 'ExportNamedDeclaration') exported = true
-    else if (node.type !== 'VariableDeclaration' && node.type !== 'VariableDeclarator') exported = false
-    if (node.type === 'VariableDeclarator' && exported && node.id.type === 'Identifier' && node.id.name === 'htmlAttributes') check(node.init)
-    if (node.type === 'Property' && keyName(node) === 'htmlAttributes') check(node.value)
-    for (const key in node) if (key !== 'parent') walk(node[key], exported)
+    else if (node.type !== 'VariableDeclaration' && node.type !== 'VariableDeclarator' && node.type !== 'FunctionDeclaration') exported = false
+    const named = (name) => exported && node.id?.type === 'Identifier' && node.id.name === name
+    if (node.type === 'VariableDeclarator' && named('htmlAttributes')) check(node.init)
+    if ((node.type === 'VariableDeclarator' || node.type === 'FunctionDeclaration') && named('head')) head = true
+    if (head && node.type === 'Property' && keyName(node) === 'htmlAttributes') check(node.value)
+    for (const key in node) if (key !== 'parent') walk(node[key], exported, head)
   }
-  walk(program, false)
+  walk(program, false, false)
   return offsets
 }
 
