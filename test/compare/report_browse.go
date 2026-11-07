@@ -29,7 +29,7 @@ func (r *Record) browseMarkdown() string {
 	fmt.Fprintf(&b, ". %d rounds at the chosen users, fresh servers each in a rotating order, %s of lead-in and then one common window of %s for all users. The search for the users took steps of %s.\n\n", r.Settings.Rounds, bd.Warm, bd.Window, bd.SearchWindow)
 	b.WriteString("### Visits\n\n")
 	b.WriteString("Each user plays recorded visits one after another. A visit is a full load of a page, then clicks on links of the page on screen and reloads of it, as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). The traces hold dynamic traffic only: documents and the data requests of the client router, with no scripts, styles, images or fonts. Cookies are kept within a visit and not across visits, and `If-None-Match` carries only the ETag that the visit got for that document. Back and forward are not modelled, since the browser's back/forward cache cannot be measured here.\n\n")
-	b.WriteString("What a visit is made of is assumed, not measured: its length (4 page views on average, so 75% of the page views are soft navigations), that 10% of the page views after the first are reloads, and the mix of reads and writes. The mixes are the shares of the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, so a write follows a page view with probability 1/19, 1/4 or 1. Every write gives one of the three orders that can still change a new customer name, which the lists, the stats and the other orders of that customer show, the harder case for a cache. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n")
+	b.WriteString("What a visit is made of is assumed, not measured: its length (4 page views on average, so 75% of the page views are soft navigations), that 10% of the page views after the first are reloads, and the mix of reads and writes. The shares of writes are those of the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, so a write follows a page view with probability 1/19, 1/4 or 1. What the writes are is assumed too. In the back office scenarios the staff of the shop work on orders: 40% of the writes place an order, 30% ship one, 20% add a note and 10% change the recipient, and each goes to the studio shop or the weekend shop with the same probability. A place-an-order write adds a new order (the shop gives it the next number) that the lists, the stats and the pages of orders with the same product or customer show. A ship write takes the oldest order that has not shipped, and a note or a recipient write takes one of them at random, among the orders that were not shipped yet when the server started and the ones placed since. A write that finds no such order is sent as a place-an-order write instead, and counted below. In the scenarios named for a customer rename, every write instead gives one of the three orders of the data that can still change a new customer name, which the lists, the stats and the other orders of that customer show, the harder case for a cache. Orders pile up while a server runs, so the lists and stats get heavier the more orders a framework places: the table of writes below says how many orders each server held at the end of a round. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n")
 	for _, sc := range bd.Scenarios {
 		fmt.Fprintf(&b, "#### %s\n\n", sc.Title)
 		b.WriteString("| | users | page views/s | visits/s | CPU ms/page view | CPU ms/visit | peak RSS MiB | full load P50 / P99 ms (n) | navigation P50 / P99 ms (n) | reload P50 ms (n) | prefetch P50 / P99 ms (n) | write P50 ms (n) | body KB/visit | client cores |\n| --- |")
@@ -126,6 +126,9 @@ func (r *Record) browseMarkdown() string {
 				all = append(all, float64(run.Load.Requests)/max(1, float64(run.Load.Visits)))
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n", runs[0].Label, fmtCell(count("doc 200 "), "%.2f"), fmtCell(count("doc 304 "), "%.2f"), fmtCell(count("nav "), "%.2f"), fmtCell(count("prefetch "), "%.2f"), fmtCell(count("write "), "%.3f"), fmtCell(all, "%.2f"))
+		}
+		if sc.mix() == MixOffice {
+			b.WriteString(writesTable(specs, by))
 		}
 		if tifa, ok := by["tifa"]; ok {
 			var rows []string
@@ -228,4 +231,42 @@ func perVisit(runs []BrowseRun, f func(*LoadResult) float64) []float64 {
 		out = append(out, f(run.Load)/max(1, float64(run.Load.Visits)))
 	}
 	return out
+}
+
+// writesTable says, for the back office scenarios, what the writes of a round were: how many of each
+// kind were sent, how many of them were a place-an-order write only because no order was left to go
+// to, how long each kind took, and how many orders each project held at the end of the round.
+func writesTable(specs []string, by map[string][]BrowseRun) string {
+	var b strings.Builder
+	b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | place an order | ship | note | recipient | sent as a place-an-order write for lack of an order | write P50 ms: place / ship / note / recipient | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, spec := range specs {
+		runs := by[spec]
+		per := func(f func(l *LoadResult) float64) []float64 {
+			var out []float64
+			for _, run := range runs {
+				out = append(out, f(run.Load))
+			}
+			return out
+		}
+		sent := func(kind string) string {
+			return fmtCell(per(func(l *LoadResult) float64 { return float64(l.Writes[kind]) }), "%.0f")
+		}
+		p50 := func(kind string) string {
+			var out []float64
+			for _, run := range runs {
+				if t := run.Load.Types["write "+kind]; t.N > 0 {
+					out = append(out, t.P50)
+				}
+			}
+			return fmtCell(out, "%.1f")
+		}
+		orders := func(project string) string {
+			return fmtCell(per(func(l *LoadResult) float64 { return float64(l.Orders[project]) }), "%.0f")
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s / %s / %s / %s | %s / %s |\n", runs[0].Label,
+			sent(WriteCreate), sent(WriteShip), sent(WriteNote), sent(WriteRecipient),
+			fmtCell(per(func(l *LoadResult) float64 { return float64(l.PoolEmpty) }), "%.0f"),
+			p50(WriteCreate), p50(WriteShip), p50(WriteNote), p50(WriteRecipient), orders("studio"), orders("weekend"))
+	}
+	return b.String()
 }

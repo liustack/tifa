@@ -145,29 +145,6 @@ var WritableOrders = []WriteOrder{
 	{"weekend", "WK-0201", "苏禾", "13500135004"},
 }
 
-// PlannedWrite is a write after the page view After of a plan (counted from 0).
-type PlannedWrite struct {
-	After int
-	Order WriteOrder
-}
-
-// PlanWrites puts writes into a plan: after each page view, with probability rate, a write to one
-// of the writable orders. The same seed with a lower rate gives a subset of the writes of a higher
-// rate, at the same page views.
-func PlanWrites(seed uint64, p Plan, rate float64) []PlannedWrite {
-	when := rand.New(rand.NewPCG(seed^0x9e3779b97f4a7c15, uint64(p.ID)))
-	which := rand.New(rand.NewPCG(seed^0xc2b2ae3d27d4eb4f, uint64(p.ID)))
-	var out []PlannedWrite
-	for i := range p.Steps {
-		u := when.Float64()
-		o := WritableOrders[which.IntN(len(WritableOrders))]
-		if u < rate {
-			out = append(out, PlannedWrite{After: i, Order: o})
-		}
-	}
-	return out
-}
-
 // fanOutNames are the customers a fan-out write gives an order, in turn. A customer's name is on
 // the lists, in the customers of the stats page and on the other orders of that customer.
 var fanOutNames = []string{"周川", "吴桐", "郑和", "冯雨", "褚然", "卫宁"}
@@ -182,4 +159,143 @@ func WriteStep(w Writer, o WriteOrder, n int, fanOut bool) Step {
 	}
 	body := mustJSON(r)
 	return Step{Method: "PATCH", Path: w(r.Project, r.Order), Body: body, Write: &r}
+}
+
+// The mixes of writes. In "office" the staff of the shop place, ship and annotate orders and fix a
+// delivery address. In "rename" every write gives one of the three orders that can still change a
+// new customer name, which the lists, the stats and the other orders of that customer show: the
+// harder case for a cache.
+const (
+	MixOffice = "office"
+	MixRename = "rename"
+)
+
+// The kinds of a write.
+const (
+	WriteCreate    = "create"
+	WriteShip      = "ship"
+	WriteNote      = "note"
+	WriteRecipient = "recipient"
+	WriteRename    = "rename"
+)
+
+// OfficeShares are the shares of the kinds of write in the office mix. They are assumptions, not
+// measurements.
+var OfficeShares = []struct {
+	Kind  string
+	Share float64
+}{{WriteCreate, 0.4}, {WriteShip, 0.3}, {WriteNote, 0.2}, {WriteRecipient, 0.1}}
+
+// PlannedWrite is a write after the page view After of a plan (counted from 0). In the office mix it
+// has a kind and a project and no order: the order is taken from the pool of the server when the
+// write is sent. In the rename mix Order is the order and Kind is WriteRename.
+type PlannedWrite struct {
+	After   int
+	Plan    int
+	Kind    string
+	Project string
+	Order   WriteOrder
+}
+
+// PlanWrites puts writes into a plan: after each page view, with probability rate, a write. The same
+// seed with a lower rate gives a subset of the writes of a higher rate, at the same page views, with
+// the same kinds, since each page view draws its own random numbers whether it gets a write or not.
+func PlanWrites(seed uint64, p Plan, rate float64, mix string) []PlannedWrite {
+	when := rand.New(rand.NewPCG(seed^0x9e3779b97f4a7c15, uint64(p.ID)))
+	which := rand.New(rand.NewPCG(seed^0xc2b2ae3d27d4eb4f, uint64(p.ID)))
+	kinds := rand.New(rand.NewPCG(seed^0x165667b19e3779f9, uint64(p.ID)))
+	shops := rand.New(rand.NewPCG(seed^0x27d4eb2f165667c5, uint64(p.ID)))
+	var out []PlannedWrite
+	for i := range p.Steps {
+		u := when.Float64()
+		o := WritableOrders[which.IntN(len(WritableOrders))]
+		kind, k := WriteRename, kinds.Float64()
+		project := []string{"studio", "weekend"}[shops.IntN(2)]
+		if mix == MixOffice {
+			for _, s := range OfficeShares {
+				if k -= s.Share; k < 0 {
+					kind = s.Kind
+					break
+				}
+			}
+			if kind == WriteRename {
+				kind = OfficeShares[len(OfficeShares)-1].Kind
+			}
+		}
+		if u < rate {
+			w := PlannedWrite{After: i, Plan: p.ID, Kind: kind}
+			if mix == MixOffice {
+				w.Project = project
+			} else {
+				w.Order, w.Project = o, o.Project
+			}
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// shopCustomers are the people whose orders a create writes: the first customers of the shop's own
+// data, so a new order can be from a customer who ordered before.
+var shopCustomers = []struct{ Name, Phone, Email, Address string }{
+	{"林夏", "13800138000", "linxia@example.com", "上海市徐汇区 · 演示地址"},
+	{"陈默", "13900139001", "chenmo@example.com", "杭州市西湖区 · 演示地址"},
+	{"周宁", "13700137002", "zhouning@example.com", "北京市朝阳区 · 演示地址"},
+	{"许知", "13600136003", "xuzhi@example.com", "成都市武侯区 · 演示地址"},
+	{"苏禾", "13500135004", "suhe@example.com", "苏州市姑苏区 · 演示地址"},
+	{"何安", "18800188005", "hean@example.com", "广州市天河区 · 演示地址"},
+	{"沈星", "18600186006", "shenxing@example.com", "南京市鼓楼区 · 演示地址"},
+	{"江屿", "15900159007", "jiangyu@example.com", "厦门市思明区 · 演示地址"},
+}
+
+// shopProducts are the slugs of the catalogue of each project.
+var shopProducts = map[string][]string{
+	"studio":  {"pour-over-kettle", "linen-coasters", "ceramic-cup", "oak-tray", "reading-candle", "brass-bookmarks", "stoneware-vase", "linen-apron"},
+	"weekend": {"canvas-tote", "folding-stool", "picnic-blanket", "insulated-bottle", "postcards"},
+}
+
+var carrierCodes = []string{"SF", "JD", "ZTO", "YTO", "EMS"}
+
+// OfficeAddress is the address that the write after view after of plan plan gives an order. It is
+// unique and always as long.
+func OfficeAddress(plan, after int) string { return fmt.Sprintf("演示地址 %05d-%02d", plan, after) }
+
+// OfficeNoteText is the text of the note of a write.
+func OfficeNoteText(plan, after int) string {
+	return fmt.Sprintf("跟进记录 %05d-%02d", plan, after)
+}
+
+// officeLine is a product of a new order.
+type officeLine struct {
+	Slug     string `json:"slug"`
+	Quantity int    `json:"quantity"`
+}
+
+// OfficeBody is the body of a write of the office mix of one kind, for the write after view after of
+// plan plan. It depends on the seed, the plan, the view and the project only, so every framework gets
+// the same. The recipient also needs the name of the order it goes to, which the replayer adds.
+func OfficeBody(seed uint64, plan, after int, kind, project string) any {
+	rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(plan)<<20|uint64(after)))
+	switch kind {
+	case WriteCreate:
+		c := shopCustomers[rng.IntN(len(shopCustomers))]
+		var items []officeLine
+		slugs := shopProducts[project]
+		for _, i := range rng.Perm(len(slugs))[:1+rng.IntN(3)] {
+			items = append(items, officeLine{slugs[i], 1 + rng.IntN(5)})
+		}
+		note := ""
+		if rng.IntN(4) == 0 {
+			note = "请附手写卡片"
+		}
+		return map[string]any{"customer": c.Name, "phone": c.Phone, "email": c.Email, "address": c.Address, "note": note, "items": items}
+	case WriteShip:
+		code := carrierCodes[rng.IntN(len(carrierCodes))]
+		return map[string]any{"carrier": code, "trackingNo": fmt.Sprintf("%s%010d", code, rng.Int64N(1e10))}
+	case WriteNote:
+		return map[string]any{"text": OfficeNoteText(plan, after)}
+	}
+	// recipient: the phone and the address; the name is the order's own.
+	c := shopCustomers[rng.IntN(len(shopCustomers))]
+	return map[string]any{"phone": c.Phone, "address": OfficeAddress(plan, after)}
 }

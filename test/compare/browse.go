@@ -247,7 +247,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 		bd.Common[fmt.Sprintf("mean %d", sc.Mean)] = common
 		bd.Plans = len(sets[specs[0].Name].plans)
 		newReplayer := func(s Spec, server *Server) *replayer {
-			r := &replayer{base: server.Base, write: s.Write, traces: sets[s.Name].traces, plans: sets[s.Name].plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+			r := &replayer{base: server.Base, write: s.Write, create: s.Create, traces: sets[s.Name].traces, plans: sets[s.Name].plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
 			if s.Framework == "tifa" {
 				r.buildID = buildID
 			}
@@ -367,7 +367,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 				server.Stop()
 				return nil, err
 			}
-			r := &replayer{base: server.Base, write: s.Write, traces: set.traces, plans: set.plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+			r := &replayer{base: server.Base, write: s.Write, create: s.Create, traces: set.traces, plans: set.plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
 			if s.Framework == "tifa" {
 				r.buildID = buildID
 			}
@@ -454,34 +454,186 @@ func (e Env) tifaBuildID() (string, error) {
 	return built.BuildID, nil
 }
 
-// verifyWrites makes a write to each writable order, both kinds, and checks that the document of
-// the order shows it and that so does the data a client navigation fetches for it (as the browser
-// asked for it in a trace). It uses the addresses of the run, so the server is not what it was.
+// verifyWrites checks, before the search and after the last round, that what the writes of the
+// scenario change is what the server shows next: in the document of a page and in the data a client
+// navigation fetches for it (as the browser asked for it in a trace). It uses addresses and ids of
+// its own, so the server is not what it was.
 func (r *replayer) verifyWrites(ctx context.Context) error {
-	client := &http.Client{}
-	get := func(url string, headers map[string]string) (string, error) {
-		req, err := http.NewRequestWithContext(ctx, "GET", r.base+url, nil)
-		if err != nil {
-			return "", err
-		}
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-		req.Header.Set("Accept-Encoding", "identity")
-		if headers != nil {
-			req.Header.Set("Sec-Fetch-Site", "same-origin")
-		}
-		res, err := client.Do(req)
-		if err != nil {
-			return "", err
-		}
-		defer res.Body.Close()
-		b, err := io.ReadAll(res.Body)
-		if err != nil || res.StatusCode != 200 {
-			return "", fmt.Errorf("GET %s: %d %v", url, res.StatusCode, err)
-		}
-		return string(b), nil
+	if r.sc.mix() == MixRename {
+		return r.verifyRename(ctx)
 	}
+	return r.verifyOffice(ctx)
+}
+
+// get reads a page or the navigation data of a page.
+func (r *replayer) get(ctx context.Context, url string, headers map[string]string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", r.base+url, nil)
+	if err != nil {
+		return "", err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	if headers != nil {
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	if err != nil || res.StatusCode != 200 {
+		return "", fmt.Errorf("GET %s: %d %v", url, res.StatusCode, err)
+	}
+	return string(b), nil
+}
+
+// nav reads the data a client navigation fetches for a page, as a trace recorded the browser asking
+// for it. ok is false when no trace has a click to that page.
+func (r *replayer) nav(ctx context.Context, page string) (data string, ok bool, err error) {
+	q, ok := r.navRequest(page)
+	if !ok {
+		return "", false, nil
+	}
+	if r.buildID != "" {
+		q.URL = tifaBuild.ReplaceAllString(q.URL, "_tifa="+r.buildID+".")
+	}
+	data, err = r.get(ctx, q.URL, q.Headers)
+	return data, true, err
+}
+
+// shows checks that the document of a page, and the navigation data of it when a trace has them,
+// hold every text.
+func (r *replayer) shows(ctx context.Context, what, page string, texts ...string) error {
+	doc, err := r.get(ctx, page, nil)
+	if err != nil {
+		return err
+	}
+	for _, s := range texts {
+		if !strings.Contains(doc, s) {
+			return fmt.Errorf("%s: the document of %s does not show %q", what, page, s)
+		}
+	}
+	data, ok, err := r.nav(ctx, page)
+	if err != nil || !ok {
+		return err
+	}
+	for _, s := range texts {
+		if !strings.Contains(data, s) {
+			return fmt.Errorf("%s: the navigation data of %s does not show %q", what, page, s)
+		}
+	}
+	return nil
+}
+
+// verifyOffice makes each write of the office mix once and checks what it changes.
+//
+//  1. Place an order with a note of its own: its page, the list of the project and the data of the
+//     list show it.
+//  2. Add a note to SH-1040, which has shipped (a note is allowed after shipping).
+//  3. Change the recipient of SH-1041.
+//  4. Ship the order of step 1: its page and the list show the tracking number, and SH-1039, an
+//     order that shipped long ago, shows something else than before, since it lists the carriers
+//     with their parcels.
+//
+// The data of an order that was placed here has no trace to ask a navigation request from, so it is
+// read as a document. The order of step 1 is shipped in step 4, so the pool of the writes is what it
+// was.
+func (r *replayer) verifyOffice(ctx context.Context) error {
+	v := &visitState{client: &http.Client{}}
+	call := func(method, path string, body any) ([]byte, error) {
+		a, _, _, err := r.request(ctx, v, method, path, mustJSON(body))
+		if err == nil && a.status != 200 {
+			err = fmt.Errorf("%s %s: status %d: %.200s", method, path, a.status, a.body)
+		}
+		return a.body, err
+	}
+	n := int(r.writes.Add(1))
+	digits := fmt.Sprintf("%08d", n)
+
+	note := "核对订单 " + digits
+	placed, err := call(http.MethodPost, r.create("studio"), map[string]any{
+		"customer": "林夏", "phone": "13800138000", "email": "linxia@example.com", "address": "上海市徐汇区 · 演示地址", "note": note,
+		"items": []map[string]any{{"slug": "pour-over-kettle", "quantity": 1}, {"slug": "ceramic-cup", "quantity": 2}},
+	})
+	if err != nil {
+		return err
+	}
+	var order struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(placed, &order); err != nil || order.ID == "" {
+		return fmt.Errorf("the order placed has no id: %v %.200s", err, placed)
+	}
+	r.pool.countCreated(r.seed, "studio")
+	if err := r.shows(ctx, "place an order", "/projects/studio/orders/"+order.ID, note); err != nil {
+		return err
+	}
+	if err := r.shows(ctx, "place an order", "/projects/studio", order.ID); err != nil {
+		return err
+	}
+
+	text := "核对备注 " + digits
+	if _, err := call(http.MethodPut, r.write("studio", "SH-1040"), map[string]any{"text": text}); err != nil {
+		return err
+	}
+	if err := r.shows(ctx, "add a note", "/projects/studio/orders/SH-1040", text); err != nil {
+		return err
+	}
+
+	address := Address(n)
+	if _, err := call(http.MethodPatch, r.write("studio", "SH-1041"), map[string]any{"customer": WritableOrders[1].Customer, "phone": WritableOrders[1].Phone, "address": address}); err != nil {
+		return err
+	}
+	if err := r.shows(ctx, "change the recipient", "/projects/studio/orders/SH-1041", digits); err != nil {
+		return err
+	}
+
+	other := "/projects/studio/orders/SH-1039"
+	beforeDoc, err := r.get(ctx, other, nil)
+	if err != nil {
+		return err
+	}
+	beforeData, haveData, err := r.nav(ctx, other)
+	if err != nil {
+		return err
+	}
+	tracking := "VF" + digits
+	if _, err := call(http.MethodPost, r.write("studio", order.ID), map[string]any{"carrier": "ZTO", "trackingNo": tracking}); err != nil {
+		return err
+	}
+	if err := r.shows(ctx, "ship", "/projects/studio/orders/"+order.ID, tracking); err != nil {
+		return err
+	}
+	if err := r.shows(ctx, "ship", "/projects/studio", tracking); err != nil {
+		return err
+	}
+	afterDoc, err := r.get(ctx, other, nil)
+	if err != nil {
+		return err
+	}
+	if afterDoc == beforeDoc {
+		return fmt.Errorf("ship: the document of %s, which lists the carriers, is the same after a parcel shipped", other)
+	}
+	if haveData {
+		afterData, _, err := r.nav(ctx, other)
+		if err != nil {
+			return err
+		}
+		if afterData == beforeData {
+			return fmt.Errorf("ship: the navigation data of %s, which lists the carriers, is the same after a parcel shipped", other)
+		}
+	}
+	return nil
+}
+
+// verifyRename writes to each writable order, both kinds of the rename mix (the address alone, then
+// the address and the name), and checks that the document of the order shows it and that so does
+// the data a client navigation fetches for it.
+func (r *replayer) verifyRename(ctx context.Context) error {
+	get := func(url string, headers map[string]string) (string, error) { return r.get(ctx, url, headers) }
 	for _, fan := range []bool{false, true} {
 		for _, w := range WritableOrders {
 			n := int(r.writes.Add(1))

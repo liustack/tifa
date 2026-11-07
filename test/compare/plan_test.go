@@ -2,6 +2,8 @@ package compare
 
 import (
 	"math"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -81,7 +83,7 @@ func TestWritesGoToTheThreeOrdersThatAcceptThem(t *testing.T) {
 	views := 0
 	for _, p := range plans {
 		views += len(p.Steps)
-		for _, w := range PlanWrites(5, p, 1.0/20) {
+		for _, w := range PlanWrites(5, p, 1.0/20, MixRename) {
 			often++
 			if w.After < 0 || w.After >= len(p.Steps) {
 				t.Fatalf("write after view %d of %d", w.After, len(p.Steps))
@@ -90,7 +92,7 @@ func TestWritesGoToTheThreeOrdersThatAcceptThem(t *testing.T) {
 				t.Fatalf("write to %s", w.Order.Order)
 			}
 		}
-		for _, w := range PlanWrites(5, p, 1.0/500) {
+		for _, w := range PlanWrites(5, p, 1.0/500, MixRename) {
 			rare[[2]int{p.ID, w.After}] = true
 		}
 	}
@@ -100,10 +102,10 @@ func TestWritesGoToTheThreeOrdersThatAcceptThem(t *testing.T) {
 	// The writes of the lower rate are among those of the higher rate, at the same views.
 	for _, p := range plans {
 		high := map[int]bool{}
-		for _, w := range PlanWrites(5, p, 1.0/20) {
+		for _, w := range PlanWrites(5, p, 1.0/20, MixRename) {
 			high[w.After] = true
 		}
-		for _, w := range PlanWrites(5, p, 1.0/500) {
+		for _, w := range PlanWrites(5, p, 1.0/500, MixRename) {
 			if !high[w.After] {
 				t.Fatalf("plan %d: a write at 1/500 after view %d is not in the writes at 1/20", p.ID, w.After)
 			}
@@ -120,5 +122,90 @@ func TestFanOutWriteChangesTheCustomerAndTheDefaultOnlyTheAddress(t *testing.T) 
 	}
 	if !strings.Contains(string(fan.Body), Address(12)) || fan.Method != "PATCH" || fan.Write == nil {
 		t.Errorf("fan-out step %+v", fan)
+	}
+}
+
+func TestOfficeWritesFollowTheSharesAndTheProjectsAreEven(t *testing.T) {
+	plans := GeneratePlans(7, 20000, 4)
+	kinds, projects, total := map[string]int{}, map[string]int{}, 0
+	for _, p := range plans {
+		for _, w := range PlanWrites(7, p, 1, MixOffice) {
+			kinds[w.Kind]++
+			projects[w.Project]++
+			total++
+			if w.Plan != p.ID {
+				t.Fatalf("write of plan %d says plan %d", p.ID, w.Plan)
+			}
+		}
+	}
+	for _, s := range OfficeShares {
+		if got := float64(kinds[s.Kind]) / float64(total); math.Abs(got-s.Share) > 0.01 {
+			t.Errorf("%s is %.3f of the writes, want %.2f", s.Kind, got, s.Share)
+		}
+	}
+	if kinds[WriteRename] != 0 || len(kinds) != 4 {
+		t.Errorf("kinds %v", kinds)
+	}
+	if got := float64(projects["studio"]) / float64(total); math.Abs(got-0.5) > 0.01 || projects["weekend"]+projects["studio"] != total {
+		t.Errorf("projects %v", projects)
+	}
+}
+
+// A lower rate keeps the writes of a higher rate at the same views, whatever they are.
+func TestOfficeWritesOfALowerRateAreAmongTheHigherRatesWithTheSameKind(t *testing.T) {
+	for _, p := range GeneratePlans(7, 3000, 4) {
+		high := map[int]PlannedWrite{}
+		for _, w := range PlanWrites(7, p, 1.0/4, MixOffice) {
+			high[w.After] = w
+		}
+		for _, w := range PlanWrites(7, p, 1.0/19, MixOffice) {
+			if h, ok := high[w.After]; !ok || h != w {
+				t.Fatalf("plan %d view %d: %+v at 1/19, %+v at 1/4", p.ID, w.After, w, h)
+			}
+		}
+		again := PlanWrites(7, p, 1.0/4, MixOffice)
+		if len(again) != len(high) {
+			t.Fatalf("plan %d: two calls differ", p.ID)
+		}
+	}
+}
+
+func TestOfficeBodiesAreValidAndTheSameEveryTime(t *testing.T) {
+	phone, tracking := regexp.MustCompile(`^1[3-9][0-9]{9}$`), regexp.MustCompile(`^[A-Za-z0-9]{8,20}$`)
+	for plan := range 300 {
+		for after := range 6 {
+			for _, project := range []string{"studio", "weekend"} {
+				c := OfficeBody(7, plan, after, WriteCreate, project).(map[string]any)
+				if !reflect.DeepEqual(c, OfficeBody(7, plan, after, WriteCreate, project)) {
+					t.Fatal("a body changed between two calls")
+				}
+				if !phone.MatchString(c["phone"].(string)) || c["customer"] == "" || c["address"] == "" {
+					t.Fatalf("create %v", c)
+				}
+				items := c["items"].([]officeLine)
+				if len(items) < 1 || len(items) > 3 {
+					t.Fatalf("%d items", len(items))
+				}
+				seen := map[string]bool{}
+				for _, l := range items {
+					if !slices.Contains(shopProducts[project], l.Slug) || seen[l.Slug] || l.Quantity < 1 || l.Quantity > 5 {
+						t.Fatalf("%s item %+v", project, l)
+					}
+					seen[l.Slug] = true
+				}
+				if s := OfficeBody(7, plan, after, WriteShip, project).(map[string]any); !tracking.MatchString(s["trackingNo"].(string)) || !slices.Contains(carrierCodes, s["carrier"].(string)) {
+					t.Fatalf("ship %v", s)
+				}
+				if n := OfficeBody(7, plan, after, WriteNote, project).(map[string]any)["text"].(string); n == "" || len([]rune(n)) > 200 {
+					t.Fatalf("note %q", n)
+				}
+				if r := OfficeBody(7, plan, after, WriteRecipient, project).(map[string]any); !phone.MatchString(r["phone"].(string)) || len([]rune(r["address"].(string))) > 100 {
+					t.Fatalf("recipient %v", r)
+				}
+			}
+		}
+	}
+	if OfficeAddress(1, 2) == OfficeAddress(1, 3) || OfficeAddress(1, 2) == OfficeAddress(2, 2) {
+		t.Error("addresses repeat")
 	}
 }

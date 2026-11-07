@@ -53,13 +53,13 @@ func fakeApp(t *testing.T) (*httptest.Server, func() []seen) {
 }
 
 func newTestReplayer(base string, sc BrowseScenario, traces ...Trace) *replayer {
-	r := &replayer{base: base, write: nodePath, sc: sc, seed: 1, traces: map[int]Trace{}, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
+	r := &replayer{base: base, write: nodePath, create: func(p string) string { return "/compare-write/" + p }, sc: sc, seed: 1, traces: map[int]Trace{}, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
 	for i, tr := range traces {
 		tr.Plan = i
 		r.traces[i] = tr
 		r.plans = append(r.plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}}})
 	}
-	r.res = LoadResult{Renders: map[string]int{}, Responses: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
+	r.res = LoadResult{Renders: map[string]int{}, Responses: map[string]int{}, Writes: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
 	r.t0.Store(1)
 	return r
 }

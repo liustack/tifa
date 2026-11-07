@@ -19,23 +19,46 @@ import (
 // BrowseScenario is one run of the browse comparison: a mix of reads and writes. Reads 95% / writes
 // 5% means that of 100 user actions (a page view or a write) 5 are writes, so a write follows a page
 // view with probability w/(1-w): 1/19, 1/4 and 1. These are the shares of the TPC-W mixes
-// (https://www.tpc.org/tpcw/). Every write changes the customer name of an order, which the lists,
-// the stats and the other orders of that customer show: the harder case for a cache.
+// (https://www.tpc.org/tpcw/). Which writes they are is the Mix: "office" (place, ship, annotate and
+// fix the delivery of orders, MixOffice) or "rename" (every write gives an order a new customer
+// name, which the lists, the stats and the other orders of that customer show: the harder case for
+// a cache, MixRename).
 type BrowseScenario struct {
 	Name      string  `json:"name"`
 	Title     string  `json:"title"`
 	Mean      int     `json:"mean"` // page views of a visit, on average
 	WriteRate float64 `json:"writeRate"`
-	FanOut    bool    `json:"fanOut"`
+	Mix       string  `json:"mix,omitempty"`
+	// FanOut is what records made before the mixes say: true is the rename mix.
+	FanOut bool `json:"fanOut,omitempty"`
+}
+
+// mix is the mix of writes of the scenario.
+func (s BrowseScenario) mix() string {
+	switch {
+	case s.Mix != "":
+		return s.Mix
+	case s.FanOut:
+		return MixRename
+	}
+	return MixOffice
 }
 
 // BrowseScenarios are the runs, in the order they are measured. A visit is 4 page views on average
-// (one full load in four, 75% soft navigations), an assumption and not a measurement.
+// (one full load in four, 75% soft navigations), an assumption and not a measurement. The ids
+// r95w5, r80w20 and r50w50 are those of the older records, which only had the rename mix.
 var BrowseScenarios = []BrowseScenario{
-	{"r95w5", "reads 95% / writes 5%", 4, 1.0 / 19, true},
-	{"r80w20", "reads 80% / writes 20%", 4, 1.0 / 4, true},
-	{"r50w50", "reads 50% / writes 50%", 4, 1, true},
+	{Name: "office-w5", Title: "back office, reads 95% / writes 5%", Mean: 4, WriteRate: 1.0 / 19, Mix: MixOffice},
+	{Name: "office-w20", Title: "back office, reads 80% / writes 20%", Mean: 4, WriteRate: 1.0 / 4, Mix: MixOffice},
+	{Name: "office-w50", Title: "back office, reads 50% / writes 50%", Mean: 4, WriteRate: 1, Mix: MixOffice},
+	{Name: "r95w5", Title: "reads 95% / writes 5%, every write renames a customer", Mean: 4, WriteRate: 1.0 / 19, Mix: MixRename},
+	{Name: "r80w20", Title: "reads 80% / writes 20%, every write renames a customer", Mean: 4, WriteRate: 1.0 / 4, Mix: MixRename},
+	{Name: "r50w50", Title: "reads 50% / writes 50%, every write renames a customer", Mean: 4, WriteRate: 1, Mix: MixRename},
 }
+
+// DefaultScenarios are the scenarios that run when none is asked for: the back office at the three
+// rates, and the rename stress at 20% only.
+const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20"
 
 // maxConns is how many connections a browser opens to one host (HTTP/1.1): a user never has more
 // requests in flight than this.
@@ -45,14 +68,16 @@ const maxConns = 6
 type replayer struct {
 	base    string
 	write   Writer
-	buildID string // of Tifa, put into the navigation requests it recorded
+	create  func(project string) string // the path that places an order in a project
+	buildID string                      // of Tifa, put into the navigation requests it recorded
 	traces  map[int]Trace
 	plans   []Plan
 	sc      BrowseScenario
 	seed    uint64
 	cpu     func() float64 // processor seconds of the server so far
 	rss     func() int64   // its peak resident size in bytes
-	writes  atomic.Int64   // the number of writes made, which gives each its address
+	writes  atomic.Int64   // the number of writes made, which gives each rename its address
+	pool    pool           // the orders that writes go to, kept as long as the server lives
 
 	t0, t1 atomic.Int64 // the measuring window, unix nanoseconds, 0 until set
 	openMu sync.Mutex
@@ -85,6 +110,13 @@ type LoadResult struct {
 	// Renders counts the answers to documents by X-Tifa-Render (Tifa only).
 	Renders  map[string]int `json:"renders,omitempty"`
 	FirstErr string         `json:"firstError,omitempty"`
+	// Writes counts the writes sent in the window by kind. PoolEmpty counts the writes that found no
+	// order to go to and were sent as a create instead (they are in Writes as creates). Orders is, for
+	// each project, how many orders the server held at the end of the round: those of the data and
+	// every order placed since it started.
+	Writes    map[string]int `json:"writes,omitempty"`
+	PoolEmpty int            `json:"poolEmpty,omitempty"`
+	Orders    map[string]int `json:"orders,omitempty"`
 	// Responses counts the answers in the window by "<type> <status> <content type>", and the
 	// answers that carry a header asking for a reload of the document.
 	Responses map[string]int `json:"responses,omitempty"`
@@ -300,48 +332,12 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 	return nil
 }
 
-// write sends the n-th write and times it.
-func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) error {
-	n := int(r.writes.Add(1))
-	st := WriteStep(r.write, w.Order, n, r.sc.FanOut)
-	req, err := http.NewRequestWithContext(ctx, st.Method, r.base+st.Path, strings.NewReader(string(st.Body)))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept-Encoding", "gzip")
-	start := time.Now()
-	defer r.track()()
-	res, err := v.client.Do(req)
-	if err != nil {
-		return err
-	}
-	b, err := io.Copy(io.Discard, res.Body)
-	res.Body.Close()
-	end := time.Now()
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != 200 {
-		return fmt.Errorf("write %s: status %d", st.Path, res.StatusCode)
-	}
-	if r.inWindow(end) {
-		r.mu.Lock()
-		r.res.Requests++
-		r.res.Bytes += b
-		r.res.Responses["write "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
-		r.mu.Unlock()
-		r.addLatency("write", end, float64(end.Sub(start))/float64(time.Millisecond))
-	}
-	return nil
-}
-
 // visit plays one trace: its page views in turn, the writes of the plan after the page views the
 // plan puts them after, and at the end the prefetches still running.
 func (r *replayer) visit(ctx context.Context, tr *http.Transport, t Trace, plan Plan) error {
 	jar, _ := cookiejar.New(nil)
 	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, etags: map[string]string{}, sem: make(chan struct{}, maxConns)}
-	writes := PlanWrites(r.seed, plan, r.sc.WriteRate)
+	writes := PlanWrites(r.seed, plan, r.sc.WriteRate, r.sc.mix())
 	reloads := 0
 	for i, s := range t.Steps {
 		if err := r.runStep(ctx, v, s); err != nil {
@@ -398,7 +394,7 @@ func (r *replayer) user(ctx context.Context, u int) {
 // RunLoad plays the traces with the given number of users: warm of lead-in that is not counted,
 // then one common window for all users.
 func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Duration) (*LoadResult, error) {
-	r.res = LoadResult{Users: users, Renders: map[string]int{}, Responses: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
+	r.res = LoadResult{Users: users, Renders: map[string]int{}, Responses: map[string]int{}, Writes: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
 	r.t0.Store(0)
 	r.t1.Store(0)
 	uctx, cancel := context.WithCancel(ctx)
@@ -426,6 +422,7 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	res := &r.res
+	res.Orders = r.pool.orderCounts()
 	res.Seconds = end.Sub(start).Seconds()
 	res.CPU = cpu1 - cpu0
 	res.OpenRequests, res.OpenOldestMs = openN, openOldest

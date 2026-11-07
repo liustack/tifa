@@ -172,7 +172,7 @@ func browseCmd(cmd string, args []string) {
 		limit      = flags.Int("limit", 0, "record: play only the first plans")
 		means      = flags.String("means", "4", "record: comma separated visit lengths to record (the browse runs use 4)")
 		skipBuild  = flags.Bool("skip-build", false, "record, browse: use the last build")
-		scenarios  = flags.String("scenarios", "r95w5,r80w20,r50w50", "browse: comma separated scenarios")
+		scenarios  = flags.String("scenarios", compare.DefaultScenarios, "browse: comma separated scenarios: office-w5, office-w20, office-w50 (back office writes) and r95w5, r80w20, r50w50 (every write renames a customer)")
 		serverCPUs = flags.String("server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 		loadCPUs   = flags.String("load-cpus", "", "browse: cpus for the client")
 		rounds     = flags.Int("rounds", 3, "browse: rounds at the chosen users, with fresh servers in a rotating order")

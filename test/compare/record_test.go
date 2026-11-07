@@ -368,7 +368,7 @@ func TestMarkdownBrowse(t *testing.T) {
 			Types:   map[string]TypeStat{"doc": {N: 300, P50: 4, P99: 30}, "nav": {N: 900, P50: 2, P99: 15}, "reload": {N: 40, P50: 1}, "write": {N: 3, P50: 5}}}
 	}
 	r := fixture()
-	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{"tifa-m4.jsonl": 400},
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[3:4], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{"tifa-m4.jsonl": 400},
 		Curves: map[string][]CurvePoint{"r95w5/tifa": {{Users: 1, VisitsPerS: 10, Pass: true}, {Users: 2, VisitsPerS: 19, Pass: true}}}, Chosen: map[string]int{"r95w5/tifa": 2},
 		Runs: []BrowseRun{{Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 1, Load: load(600)}, {Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 2, Load: load(660)}}}
 	md := roundTrip(t, r).Markdown()
@@ -387,7 +387,7 @@ func TestBrowseP99NeedsEnoughSamplesInEveryRound(t *testing.T) {
 		return &LoadResult{Users: 4, Seconds: 30, Visits: 100, Views: 400, Types: map[string]TypeStat{"doc": {N: n, P50: 4, P99: 30}, "nav": {N: 900, P50: 2, P99: 15}}}
 	}
 	r := fixture()
-	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[3:4], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
 		Runs: []BrowseRun{{Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 1, Load: mk(300)}, {Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 2, Load: mk(0)}, {Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 3, Load: mk(0)}}}
 	md := r.Markdown()
 	if strings.Contains(md, "| 4.0 / 30 (300)") || !strings.Contains(md, "4.0 / - (300)") {
@@ -425,7 +425,7 @@ func TestMergeBrowseReplacesOnlyTheSpecsOfTheNewRun(t *testing.T) {
 
 func TestBrowseReportSplitsWhatAVisitCostsTheServer(t *testing.T) {
 	r := fixture()
-	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[3:4], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
 		Runs: []BrowseRun{{Scenario: "r95w5", Spec: "nextjs", Label: "Next.js", Round: 1, Load: &LoadResult{Users: 2, Seconds: 30, Visits: 100, Views: 400, Requests: 2000, Types: map[string]TypeStat{},
 			Responses: map[string]int{"doc 200 text/html": 130, "doc 304 -": 0, "nav 200 text/x-component": 260, "prefetch 200 text/x-component": 1600, "write 200 application/json": 10}}}}}
 	md := r.Markdown()
@@ -433,5 +433,40 @@ func TestBrowseReportSplitsWhatAVisitCostsTheServer(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
+	}
+}
+
+func TestOldScenarioRecordsReadAsTheRenameMix(t *testing.T) {
+	var sc BrowseScenario
+	if err := json.Unmarshal([]byte(`{"name":"r95w5","title":"reads 95% / writes 5%","mean":4,"writeRate":0.05,"fanOut":true}`), &sc); err != nil {
+		t.Fatal(err)
+	}
+	if sc.mix() != MixRename || (BrowseScenario{Name: "x"}).mix() != MixOffice {
+		t.Errorf("mix %q", sc.mix())
+	}
+	for _, s := range BrowseScenarios {
+		if (s.mix() == MixRename) != strings.HasPrefix(s.Name, "r") {
+			t.Errorf("%s is the %s mix", s.Name, s.mix())
+		}
+	}
+}
+
+func TestBrowseReportTellsTheWritesOfABackOfficeRound(t *testing.T) {
+	run := func(round, created, empty, studio int) BrowseRun {
+		return BrowseRun{Scenario: "office-w20", Spec: "tifa", Label: "Tifa", Round: round, Load: &LoadResult{Users: 4, Seconds: 30, Visits: 100, Views: 400, Requests: 2000,
+			Writes: map[string]int{WriteCreate: created, WriteShip: 30, WriteNote: 20, WriteRecipient: 10}, PoolEmpty: empty, Orders: map[string]int{"studio": studio, "weekend": 40},
+			Types: map[string]TypeStat{"write create": {N: created, P50: 3.5}, "write ship": {N: 30, P50: 2}}}}
+	}
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[1:2], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+		Runs: []BrowseRun{run(1, 40, 3, 90), run(2, 44, 1, 100), run(3, 42, 2, 110)}}
+	md := r.Markdown()
+	for _, want := range []string{"#### back office, reads 80% / writes 20%", "| Tifa | 42 (40 to 44) | 30 | 20 | 10 | 2 (1 to 3) | 3.5 / 2.0 / - / - | 100 (90 to 110) / 40 |", "40% of the writes place an order, 30% ship one"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "Every write gives one of the three orders that can still change a new customer name, which") && !strings.Contains(md, "every write instead gives") {
+		t.Error("the text of the old mix is still the only one")
 	}
 }
