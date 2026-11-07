@@ -27,6 +27,12 @@ export default function Store() {
         <button id="nav-english" onClick={() => void router.navigate({ href: '/en-US/store/cart' })}>
           english
         </button>
+        <button id="to-english" onClick={() => void router.navigate({ to: '/en-US/store/cart' as never })}>
+          to english
+        </button>
+        <button id="push-default" onClick={() => router.history.push('/store/cart')}>
+          push default
+        </button>
         <button id="call" onClick={() => void GET().then((out) => setMine(out?.language ?? ''))}>
           call
         </button>

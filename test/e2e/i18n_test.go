@@ -694,6 +694,14 @@ func TestI18nInBrowser(t *testing.T) {
 	open("/store", "store go=zh-CN")
 	click("nav-english")
 	shows("/en-US/store/cart", "cart go=en-US react=en-US", false)
+	// So does navigate({ to }) with the prefix of another language, and a URL of another language
+	// pushed on the history.
+	open("/store", "store go=zh-CN")
+	click("to-english")
+	shows("/en-US/store/cart", "cart go=en-US react=en-US", false)
+	open("/en-US/store", "store go=en-US")
+	click("push-default")
+	shows("/store/cart", "cart go=zh-CN react=zh-CN", false)
 
 	// A trailing slash is redirected away, with the prefix kept.
 	pw("goto", base+"/en-US/store/")

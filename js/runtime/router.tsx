@@ -239,10 +239,11 @@ function servedByGo(publicPaths: readonly string[], pathname: string) {
 export function leave(publicPaths: readonly string[]) {
   return ({ context, location }: { context: RouterContext; location: { pathname: string; href: string; publicHref: string } }) => {
     if (!context.browser) return
-    // A page that the document's language cannot show is another document: the route has other
-    // languages, or none while the document is in a language of its own. The router builds the
-    // URL of such a target without a prefix, so the redirect keeps it.
-    if (servedByGo(publicPaths, location.pathname) || (context.prefix && !context.prefix.holds(location.pathname)))
+    // A page that the document's language cannot show is another document: the public URL names
+    // another language, or the route has other languages, or none while the document is in a
+    // language of its own. The public URL decides, whatever started the navigation: a Link, a
+    // `to` or an href with a prefix, or a URL pushed on the history.
+    if (servedByGo(publicPaths, location.pathname) || (context.prefix && !context.prefix.reaches(location.publicHref)))
       throw redirect({ href: location.publicHref, reloadDocument: true })
   }
 }
