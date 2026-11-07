@@ -1,5 +1,5 @@
 ---
-summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、`tifa gen` 写出什么、Tifa docs 打印什么和 AGENTS.md 里 Tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
+summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、`tifa gen` 写出什么、Tifa docs 打印什么和 AGENTS.md 里 Tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、前端为什么用 Vite 打包、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 改 `tifa check`，或想知道它跑哪些步骤、需要什么
@@ -484,6 +484,24 @@ export default defineConfig({
 TanStack Router 必须是这个 Tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。Tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 Tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
 
 React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 React DOM 的字符串渲染器的（见[前端产物](#前端产物)），所以 `tifa build` 和 `tifa dev` 用同样的方式读出装上的 `react` 和 `react-dom` 的版本，低于 19.3.0 就报错停下，错误里写明要装的版本。19.3.0 的预发布版（比如 canary）也算低于 19.3.0。没有页面的应用不检查。
+
+### 为什么用 Vite
+
+Tifa 用应用自己的 Vite 打包前端，因为有页面的应用就是 React 应用，而 React 应用本来就要用 Node 装 npm 包。前端生态的大部分工具（比如 Tailwind CSS 和 shadcn CLI）构建时都要 Node。Tifa 守住的是运行的程序：它永远不需要 Node。
+
+应用得到的：
+
+- **改了马上看到。** 在 `tifa dev` 下，React Fast Refresh 原地替换改过的组件并保留状态，新的 CSS 替换旧的，不刷新页面（见 [dev.zh-CN.md](dev.zh-CN.md#vite)）。
+- **用已经熟悉的插件。** Tailwind CSS 就是 `@tailwindcss/vite`，别的 Vite 插件按它自己的文档加进 `vite.config.ts`。Tifa 不另外包一层。
+- **和任何 Vite 应用一样配。** `vite.config.ts`、`tsconfig.json` 的 `paths` 和 shadcn CLI 都按各自文档的写法，没有只有 Tifa 才有的写法。
+- **不改包也渲染得更快。** Tifa 插件在打包时改写 React DOM、i18next 等包，让 SSR 包在 QuickJS 里渲染得更快，应用装的还是原样的包（见[前端产物](#前端产物)）。
+- **打包的活不用 Tifa 维护。** 按路由拆分、manifest、带哈希的文件名和源码映射都来自 Vite 和 Rolldown，由 React 生态持续更新。
+
+代价：
+
+- 构建有页面的应用需要 Node、`vite` 和 `@vitejs/plugin-react`。没有页面的应用构建不需要 Node，除非它的内容集合里有条目。
+- `tifa dev` 在应用旁边跑一个 Node 进程，Vite 的开发服务器在同一个地址后面，SSR 包在单独的工作线程上构建，因为 Vite 每个线程只选一次 React 的构建版本。
+- 有些功能要读 Vite 和 Rolldown 内部做了什么（比如 `dist/inputs.json` 背后的模块列表），所以新版 Vite 可能要配新版 Tifa。
 
 ## i18next 适配器
 
