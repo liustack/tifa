@@ -241,7 +241,7 @@ function Tracking() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Tracking</CardTitle>
+        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Tracking history</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         <dl className="grid grid-cols-3 divide-x border text-center">
