@@ -1,196 +1,197 @@
 package compare
 
 import (
+	"cmp"
 	"context"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
-
-// BrowseOptions say how to run the browse comparison. Traces are the files `compare record`
-// wrote for each framework, and the plans they were made from.
-type BrowseOptions struct {
-	TraceDir     string
-	Seed         uint64
-	Scenarios    []BrowseScenario
-	Servers      []string // spec ids; the four frameworks when empty
-	ServerCPUs   string
-	LoadCPUs     string
-	Rounds       int
-	SearchWarm   time.Duration
-	SearchWindow time.Duration
-	Warm         time.Duration
-	Window       time.Duration
-	MaxUsers     int      // the search stops here
-	From         *Record  // a record whose runs are kept, to rerun some of its rounds
-	Only         []string // scenario/spec keys to run: with From, the ones whose rounds run again
-	Source       string   // names this run in the runs it adds
-	Check        bool     // also count what each server answered in one round of the baseline
-	Log          io.Writer
-}
 
 // BrowseFrameworks are the specs the browse comparison runs: each framework as shipped.
 var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter"}
 
-// CurvePoint is one step of the search for how many users a framework carries.
-type CurvePoint struct {
-	Users      int     `json:"users"`
-	VisitsPerS float64 `json:"visitsPerSecond"`
-	Errors     int     `json:"errors"`
-	DocP99     float64 `json:"fullLoadP99Ms"`
-	NavP99     float64 `json:"navigationP99Ms"`
-	Pass       bool    `json:"pass"`
-	// Visits is how many visits the step completed, OpenOldest how long the oldest request still
-	// open at the end of the window had waited (ms), and Why what failed the step.
-	Visits     int     `json:"visits"`
-	OpenOldest float64 `json:"openOldestMs"`
-	Why        string  `json:"why,omitempty"`
-	// Orders is how many orders each project held at the end of the step. The steps of a search share
-	// one server, so the orders placed in the steps before count.
-	Orders map[string]int `json:"orders,omitempty"`
+// BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
+// wrote, and the plans they were made from.
+type BrowseOptions struct {
+	TraceDir     string
+	OutJSON      string // written after every round, and read to continue a run that stopped
+	Seed         uint64
+	Servers      []string
+	ServerCPUs   string
+	LoadCPUs     string
+	LoadCPUCount int              // how many cpus the load may use, to tell a saturated generator
+	Scenarios    []BrowseScenario // the default ones when empty
+	Phases       []string         // "closed", "sustain" and "latency"; all of them when empty
+	Users        int              // the users of the throughput table, 32
+	ExtraUsers   []int            // more users, for the scenarios with 5% writes only: 8 and 16
+	Rounds       int
+	Warm         time.Duration // the warm-up of a closed round, apart from it
+	Target       time.Duration // how long a closed round should take, about
+	TrialWindow  time.Duration // an open trial of the search for the sustainable rate
+	FinalWindow  time.Duration // an open round of the latency table, at least
+	MaxRate      float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
+	Stamp        string        // what the traces and the builds belong to, kept in the result
+	Log          io.Writer
 }
 
-// BrowseRun is one framework in one round of one scenario, at the users the search chose.
-type BrowseRun struct {
-	Scenario  string      `json:"scenario"`
-	Spec      string      `json:"spec"`
-	Framework string      `json:"framework"`
-	Label     string      `json:"label"`
-	Round     int         `json:"round"`
-	Source    string      `json:"source,omitempty"`
-	Load      *LoadResult `json:"load"`
+// PlanInfo is what the plans of a site hold.
+type PlanInfo struct {
+	Blocks int `json:"blocks"`
+	PlanCounts
 }
 
-// BrowseData is what `compare browse` adds to the record.
-type BrowseData struct {
-	Seed      uint64                  `json:"seed"`
-	Traces    map[string]int          `json:"traces"` // by file name: the visits recorded
-	Dropped   map[string]int          `json:"dropped,omitempty"`
-	Curves    map[string][]CurvePoint `json:"curves"` // by scenario/spec
-	Chosen    map[string]int          `json:"chosen"`
-	Scenarios []BrowseScenario        `json:"scenarios"`
-	Runs      []BrowseRun             `json:"runs"`
-	// Rejected are the rounds that failed the rule of the search, kept for the record.
-	Rejected []BrowseRun `json:"rejected,omitempty"`
-	// Attempts say, per scenario/spec, which step the rounds were run at and whether they passed.
-	Attempts   map[string][]Attempt   `json:"attempts,omitempty"`
-	MaxUsers   int                    `json:"maxUsers,omitempty"`
-	TraceCheck map[string]*TraceCheck `json:"traceCheck,omitempty"`
-	// Common is, per visit length, how many plans have a trace for every server: those are the
-	// visits that are replayed. Plans is how many plans there are.
-	Common       map[string]int `json:"commonPlans,omitempty"`
-	Plans        int            `json:"plans,omitempty"`
-	Warm         string         `json:"warm"`
-	Window       string         `json:"window"`
-	SearchWindow string         `json:"searchWindow"`
+// BrowseResult is everything the browse comparison measured, round by round.
+type BrowseResult struct {
+	Stamp     string              `json:"stamp"`
+	Date      string              `json:"date"`
+	Seed      uint64              `json:"seed"`
+	Machine   Machine             `json:"machine"`
+	Place     Placement           `json:"placement"`
+	Version   map[string]string   `json:"versions"`
+	Config    map[string]string   `json:"settings"`
+	Plans     map[string]PlanInfo `json:"plans"` // by site: "workbench" or "store"
+	Scenarios []BrowseScenario    `json:"scenarios"`
+	// Servers is, per scenario, the specs it runs, in the order of the tables.
+	Servers map[string][]string `json:"servers"`
+	// Closed holds every round at a fixed number of users, the invalid ones that were run again too.
+	Closed []Round `json:"closed"`
+	// Blocks is the size of the measured workload of each scenario, number of users and spec (whole
+	// blocks), taken from the warm-up of its first round.
+	Blocks map[string]int `json:"blocks"`
+	// Sustain is, per scenario and spec ("office-w5/tifa"), the search for the arrival rate it
+	// sustains in the open model.
+	Sustain map[string]*Sustain `json:"sustain"`
+	// LatencyRate is, per scenario, the rate that all its servers were run at: half of the lowest
+	// sustainable rate, which LatencyBase had.
+	LatencyRate map[string]float64 `json:"latencyRate"`
+	LatencyBase map[string]string  `json:"latencyBase"`
+	Latency     []Round            `json:"latency"`
 }
 
-// pass is the rule for a step of the search: no errors, and the P99 of a full load and of a whole
-// navigation under a second.
-func (c CurvePoint) passes() bool { return c.why() == "" }
+// Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
+// pass rule for every class of action over three rounds. Rate is 0 until the search is done.
+type Sustain struct {
+	Trials  []Round `json:"trials"`
+	Confirm []Round `json:"confirm"`
+	Rate    float64 `json:"rate"`
+	// Limited says that the load generator, not the server, ended the search.
+	Limited bool   `json:"generatorLimited,omitempty"`
+	Done    bool   `json:"done"`
+	Note    string `json:"note,omitempty"`
+}
 
-// why says what fails a step: no visit completed (a server that hangs completes none and has no
-// errors), a request still waiting for longer than a second when the window ended, errors, or a
-// P99 of a full load or of a whole navigation over a second.
-func (c CurvePoint) why() string {
-	switch {
-	case c.Visits == 0:
-		return "no visit completed"
-	case c.OpenOldest > 1000:
-		return fmt.Sprintf("a request had waited %.0f ms at the end of the window", c.OpenOldest)
-	case c.Errors > 0:
-		return fmt.Sprintf("%d errors", c.Errors)
-	case c.DocP99 > 1000:
-		return fmt.Sprintf("full load P99 %.0f ms", c.DocP99)
-	case c.NavP99 > 1000:
-		return fmt.Sprintf("navigation P99 %.0f ms", c.NavP99)
+// siteName is how a site is named in the result.
+func siteName(site string) string {
+	if site == SiteWorkbench {
+		return "workbench"
 	}
-	return ""
+	return site
 }
 
-type browseSet struct {
-	plans  []Plan
-	traces map[int]Trace
-	file   string
-	count  int
-	drop   int
+type browse struct {
+	e     Env
+	o     BrowseOptions
+	res   *BrowseResult
+	specs map[string]Spec
+	// servers are the spec ids of each scenario.
+	servers map[string][]string
+	// sets and traces are by site, and the traces by the name a spec replays (traceName).
+	sets  map[string]*PlanSet
+	trace map[string]map[string]map[int]Trace
+	bid   string
 }
 
-func loadBrowseSet(dir, site string, spec Spec, mean int) (*browseSet, error) {
-	var plans []Plan
-	data, err := os.ReadFile(SitePlansPath(dir, site, mean))
+func (b *browse) logf(format string, a ...any) { fmt.Fprintf(b.o.Log, format, a...) }
+
+func (b *browse) save() error {
+	if b.o.OutJSON == "" {
+		return nil
+	}
+	data, err := json.Marshal(b.res)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := json.Unmarshal(data, &plans); err != nil {
-		return nil, err
-	}
-	file := SiteTracePath(dir, traceName(spec), site, mean)
-	traces, dropped, err := ReadTraces(file)
-	if err != nil {
-		return nil, err
-	}
-	set := &browseSet{plans: plans, traces: map[int]Trace{}, file: filepath.Base(file), count: len(traces), drop: dropped}
-	for _, t := range traces {
-		set.traces[t.Plan] = t
-	}
-	return set, nil
+	return os.WriteFile(b.o.OutJSON+".tmp", data, 0o644)
 }
 
-// loadSets loads the traces of every spec for a site and a visit length and keeps, in each, only the plans
-// that all of them have a trace for, so that every server replays the same visits. It returns how
-// many plans that is.
-func loadSets(dir, site string, specs []Spec, mean int) (map[string]*browseSet, int, error) {
-	sets := map[string]*browseSet{}
-	var common map[int]bool
-	for _, s := range specs {
-		set, err := loadBrowseSet(dir, site, s, mean)
+func (b *browse) commit() error {
+	if err := b.save(); err != nil || b.o.OutJSON == "" {
+		return err
+	}
+	return os.Rename(b.o.OutJSON+".tmp", b.o.OutJSON)
+}
+
+// LoadTraces reads the plans of a site and the traces of the names given, and fails unless every
+// name has a trace for every plan: a replay on an incomplete set would not play the same visits on
+// every server.
+func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
+	set, err := ReadPlans(dir, site)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := map[string]map[int]Trace{}
+	for _, name := range names {
+		path := TracePath(dir, name, site)
+		traces, dropped, err := ReadTraces(path)
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
-		sets[s.Name] = set
-		if common == nil {
-			common = map[int]bool{}
-			for id := range set.traces {
-				common[id] = true
+		m := map[int]Trace{}
+		for _, t := range traces {
+			m[t.Plan] = t
+		}
+		if dropped > 0 || len(m) != len(set.Plans) {
+			return nil, nil, fmt.Errorf("%s holds %d of the %d plans (%d visits failed to record): record again", path, len(m), len(set.Plans), dropped)
+		}
+		for _, p := range set.Plans {
+			t, ok := m[p.ID]
+			if !ok {
+				return nil, nil, fmt.Errorf("%s has no trace for plan %d", path, p.ID)
 			}
-			continue
-		}
-		for id := range common {
-			if _, ok := set.traces[id]; !ok {
-				delete(common, id)
-			}
-		}
-	}
-	if len(common) < 100 {
-		return nil, 0, fmt.Errorf("only %d plans have a trace for all of %d servers (mean %d), too few for a replay that does not loop over the same few", len(common), len(specs), mean)
-	}
-	for _, set := range sets {
-		for id := range set.traces {
-			if !common[id] {
-				delete(set.traces, id)
+			if len(t.Steps) != len(p.Steps) {
+				return nil, nil, fmt.Errorf("%s: plan %d has %d page views, its trace %d", path, p.ID, len(p.Steps), len(t.Steps))
 			}
 		}
+		out[name] = m
 	}
-	return sets, len(common), nil
+	return set, out, nil
 }
 
-// Browse runs the browse comparison and returns a record that holds it. Prepare must have run, and
-// the traces must have been recorded against these builds.
-func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
+// Browse runs the browse comparison and returns what it measured. Prepare must have run.
+func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error) {
 	if o.Log == nil {
 		o.Log = io.Discard
 	}
 	if len(o.Servers) == 0 {
 		o.Servers = BrowseFrameworks
 	}
+	if len(o.Scenarios) == 0 {
+		for _, name := range strings.Split(DefaultScenarios, ",") {
+			sc, _ := BrowseScenarioByName(name)
+			o.Scenarios = append(o.Scenarios, sc)
+		}
+	}
+	if len(o.Phases) == 0 {
+		o.Phases = []string{"closed", "sustain", "latency"}
+	}
+	if o.Users == 0 {
+		o.Users = 32
+	}
+	if o.Rounds == 0 {
+		o.Rounds = 3
+	}
+	raiseFileLimit()
 	placement, err := PlacementFor(runtime.GOOS, SysTopology(), o.ServerCPUs, o.LoadCPUs)
 	if err != nil {
 		return nil, err
@@ -200,283 +201,390 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 			return nil, err
 		}
 	}
-	// The servers of a scenario depend on its site, and the record holds the versions of all of them.
-	specsOf := map[string][]Spec{}
+	b := &browse{e: e, o: o, specs: map[string]Spec{}, servers: map[string][]string{}, sets: map[string]*PlanSet{}, trace: map[string]map[string]map[int]Trace{}}
 	var specs []Spec
+	names := map[string][]string{} // by site: the traces it needs
 	for _, sc := range o.Scenarios {
 		list, err := e.browseSpecs(sc, o.Servers)
 		if err != nil {
 			return nil, err
 		}
-		specsOf[sc.Name] = list
 		for _, s := range list {
-			if !slices.ContainsFunc(specs, func(x Spec) bool { return x.Name == s.Name }) {
+			b.servers[sc.Name] = append(b.servers[sc.Name], s.Name)
+			if _, ok := b.specs[s.Name]; !ok {
+				b.specs[s.Name] = s
 				specs = append(specs, s)
+			}
+			if !slices.Contains(names[sc.site()], traceName(s)) {
+				names[sc.site()] = append(names[sc.site()], traceName(s))
 			}
 		}
 	}
-	buildID, err := e.tifaBuildID()
+	for site, list := range names {
+		if b.sets[site], b.trace[site], err = LoadTraces(o.TraceDir, site, list); err != nil {
+			return nil, err
+		}
+	}
+	if b.bid, err = e.tifaBuildID(); err != nil {
+		return nil, err
+	}
+	b.res = &BrowseResult{}
+	if data, err := os.ReadFile(o.OutJSON); err == nil && o.OutJSON != "" {
+		if err := json.Unmarshal(data, b.res); err != nil {
+			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
+		}
+		if b.res.Stamp != o.Stamp {
+			return nil, fmt.Errorf("%s belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", o.OutJSON, b.res.Stamp, o.Stamp)
+		}
+		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
+	} else {
+		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
+		b.res.Machine, b.res.Place, b.res.Version = machine(), placement, e.versions(specs)
+		b.res.Scenarios, b.res.Servers = o.Scenarios, b.servers
+		b.res.Plans = map[string]PlanInfo{}
+		for site, set := range b.sets {
+			info := PlanInfo{Blocks: set.Blocks}
+			for _, p := range set.Plans {
+				info.PlanCounts.Add(p, 0)
+			}
+			b.res.Plans[siteName(site)] = info
+		}
+		b.res.Config = map[string]string{
+			"users": fmt.Sprint(o.Users), "extraUsers": fmt.Sprint(o.ExtraUsers), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
+			"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
+		}
+		b.res.Blocks = map[string]int{}
+		b.res.Sustain = map[string]*Sustain{}
+		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
+	}
+	b.logf("placement: %s\n", placement.Note)
+	has := func(p string) bool { return slices.Contains(o.Phases, p) }
+	for _, phase := range []struct {
+		name string
+		run  func(context.Context, BrowseScenario) error
+	}{{"closed", b.closed}, {"sustain", b.sustain}, {"latency", b.latency}} {
+		if !has(phase.name) {
+			continue
+		}
+		for _, sc := range o.Scenarios {
+			if err := phase.run(ctx, sc); err != nil {
+				return b.res, err
+			}
+		}
+	}
+	return b.res, b.commit()
+}
+
+// with starts a fresh server of a spec, checks that the writes of the scenario show in its pages,
+// and calls f with a runner for the workload of the scenario. The round f returns is judged, and
+// when it passed the writes are checked again, on the server it ran against. The server is stopped
+// after. Every round starts a fresh server, so the data is the same at the start of every round:
+// the orders placed in one round are not there in the next.
+func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f func(*runner) *Round) (*Round, error) {
+	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
+		return nil, err
+	}
+	spec := b.specs[name]
+	server, err := spec.Launch(b.o.ServerCPUs)
 	if err != nil {
 		return nil, err
 	}
-	rec := o.From
-	if rec == nil {
-		rec = &Record{
-			Date: time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), Versions: e.versions(specs), Machine: machine(), Placement: placement,
-			Settings: Settings{Rounds: o.Rounds, Steady: o.Window.String(), AcceptEncoding: "gzip"},
-			Browse: &BrowseData{Seed: o.Seed, Traces: map[string]int{}, Dropped: map[string]int{}, Curves: map[string][]CurvePoint{}, Chosen: map[string]int{},
-				Scenarios: o.Scenarios, Warm: o.Warm.String(), Window: o.Window.String(), SearchWindow: o.SearchWindow.String(), MaxUsers: o.MaxUsers},
+	defer server.Stop()
+	if err := server.WaitListening(ctx); err != nil {
+		return nil, err
+	}
+	site := sc.site()
+	wl, err := NewWorkload(b.sets[site], b.trace[site][traceName(spec)], sc, b.o.Seed)
+	if err != nil {
+		return nil, err
+	}
+	r := &runner{base: server.Base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, wl: wl, seed: b.o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+	if spec.Framework == "tifa" {
+		r.buildID = b.bid
+	}
+	if err := r.verifyWrites(ctx); err != nil {
+		return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
+	}
+	out := f(r)
+	out.Framework, out.Scenario = name, sc.Name
+	out.Judge(sc)
+	if out.Pass {
+		if err := r.verifyWrites(ctx); err != nil {
+			return nil, fmt.Errorf("%s/%s, after the round: %w", sc.Name, name, err)
 		}
 	}
-	bd := rec.Browse
-	if bd.Attempts == nil {
-		bd.Attempts = map[string][]Attempt{}
+	return out, nil
+}
+
+// usersFor are the numbers of users of the closed rounds of a scenario: o.Users, and o.ExtraUsers
+// too for a scenario with 5% writes.
+func (b *browse) usersFor(sc BrowseScenario) []int {
+	users := []int{b.o.Users}
+	if sc.Share == 0.05 {
+		users = append(slices.Clone(b.o.ExtraUsers), users...)
 	}
-	if bd.Common == nil {
-		bd.Common = map[string]int{}
+	return users
+}
+
+func (b *browse) closedDone(fw, sc string, users, round int) bool {
+	return slices.ContainsFunc(b.res.Closed, func(r Round) bool {
+		return r.Framework == fw && r.Scenario == sc && r.Users == users && r.Round == round && r.Valid
+	})
+}
+
+// closed is the throughput table of a scenario: every server at the same number of users, three
+// rounds in a rotating order with fresh servers.
+func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
+	for _, users := range b.usersFor(sc) {
+		failed := map[string]bool{}
+		for round := 1; round <= b.o.Rounds; round++ {
+			for _, fw := range Rotate(b.servers[sc.Name], round-1) {
+				if b.closedDone(fw, sc.Name, users, round) {
+					continue
+				}
+				if failed[fw] && round > 1 && b.o.Rounds > 1 {
+					// A hung or timed-out round is reported as failed; the other rounds of that cell are skipped.
+					if last := b.lastClosed(fw, sc.Name, users); last != nil && last.TimedOut {
+						continue
+					}
+				}
+				r, err := b.closedRound(ctx, fw, sc, users, round)
+				if err != nil {
+					return err
+				}
+				if !r.Pass {
+					failed[fw] = true
+				}
+			}
+		}
 	}
-	if bd.TraceCheck == nil {
-		bd.TraceCheck = map[string]*TraceCheck{}
+	return nil
+}
+
+func (b *browse) lastClosed(fw, sc string, users int) *Round {
+	for i := len(b.res.Closed) - 1; i >= 0; i-- {
+		r := &b.res.Closed[i]
+		if r.Framework == fw && r.Scenario == sc && r.Users == users {
+			return r
+		}
 	}
-	if o.From != nil {
-		backfillAttempts(bd)
-	}
-	only := func(key string) bool { return len(o.Only) == 0 || slices.Contains(o.Only, key) }
-	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
-	for _, sc := range o.Scenarios {
-		specs := specsOf[sc.Name]
-		sets, common, err := loadSets(o.TraceDir, sc.site(), specs, sc.Mean)
+	return nil
+}
+
+func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, users, round int) (*Round, error) {
+	key := fmt.Sprintf("%s/%d/%s", sc.Name, users, fw)
+	planBlocks := b.sets[sc.site()].Blocks
+	for attempt := 1; ; attempt++ {
+		out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
+			rate := r.Warm(ctx, users, b.o.Warm)
+			blocks, ok := b.res.Blocks[key]
+			if !ok {
+				blocks = BlocksFor(rate, b.o.Target, planBlocks)
+				b.res.Blocks[key] = blocks
+			}
+			return r.RunClosed(ctx, users, blocks*BlockVisits, 4*b.o.Target+time.Minute)
+		})
 		if err != nil {
 			return nil, err
 		}
-		for _, set := range sets {
-			bd.Traces[set.file] = set.count
-			if set.drop > 0 {
-				bd.Dropped[set.file] = set.drop
-			}
+		out.Round, out.Attempt = round, attempt
+		// A round takes 0.8 to 1.6 times the target (60 to 120 seconds by default). Outside that it is
+		// invalid: the workload is resized from what this round did, and the round is run again.
+		if lo, hi := roundLength(b.o.Target); out.Valid && out.Visits > 0 && (out.Seconds < lo || out.Seconds > hi) {
+			out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
+			b.res.Blocks[key] = BlocksFor(float64(out.Visits)/out.Seconds, b.o.Target, planBlocks)
 		}
-		bd.Common[commonKey(sc)] = common
-		bd.Plans = len(sets[specs[0].Name].plans)
-		newReplayer := func(s Spec, server *Server) *replayer {
-			r := &replayer{base: server.Base, write: s.Write, create: s.Create, storeWrite: s.StoreWrite, traces: sets[s.Name].traces, plans: sets[s.Name].plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
-			if s.Framework == "tifa" {
-				r.buildID = buildID
-			}
-			return r
+		b.res.Closed = append(b.res.Closed, *out)
+		if err := b.commit(); err != nil {
+			return nil, err
 		}
-		start := func(s Spec) (*Server, *replayer, error) {
-			server, err := s.Launch(o.ServerCPUs)
-			if err != nil {
-				return nil, nil, err
-			}
-			if err := server.WaitListening(ctx); err != nil {
-				server.Stop()
-				return nil, nil, err
-			}
-			return server, newReplayer(s, server), nil
+		b.logf("closed %-10s %2d users %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
+			sc.Name, users, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
+		if out.Valid || attempt >= 3 {
+			return out, nil
 		}
-		var active []Spec
-		for _, s := range specs {
-			key := sc.Name + "/" + s.Name
-			if !only(key) {
-				continue
-			}
-			if o.From != nil {
-				// A rerun: the curve and the chosen step of the run it continues are kept. The rounds
-				// of that run are what gets checked again, and they stay as rejected if they fail.
-				if len(bd.Curves[key]) == 0 {
-					return nil, fmt.Errorf("%s: the record to continue has no curve for it", key)
-				}
-				bd.Runs, bd.Rejected = moveRuns(bd.Runs, bd.Rejected, sc.Name, s.Name)
-				active = append(active, s)
-				continue
-			}
-			// The writes are checked on a server of their own, then every step of the search runs on a
-			// fresh one, as the rounds do, so the orders placed in a step are not there in the next.
-			server, r, err := start(s)
-			if err != nil {
-				return nil, err
-			}
-			err = r.verifyWrites(ctx)
-			server.Stop()
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", key, err)
-			}
-			curve, chosen, err := search(ctx, o, func(users int) (*LoadResult, error) {
-				if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
-					return nil, err
-				}
-				server, r, err := start(s)
-				if err != nil {
-					return nil, err
-				}
-				defer server.Stop()
-				return r.RunLoad(ctx, users, o.SearchWarm, o.SearchWindow)
-			})
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", key, err)
-			}
-			bd.Curves[key] = curve
-			bd.Chosen[key] = chosen
-			fmt.Fprintf(o.Log, "%s: chose %d users\n", key, chosen)
-			active = append(active, s)
+	}
+}
+
+// roundLength is the shortest and the longest a closed round may take, in seconds, for a target.
+func roundLength(target time.Duration) (lo, hi float64) {
+	return 0.8 * target.Seconds(), 1.6 * target.Seconds()
+}
+
+// visitsFor is the number of visits that last about window at rate visits a second, rounded up to
+// whole cycles of all the plans, so that the page mix and the writes come out as the mix says: a
+// part of a cycle has another number of page views a visit and another share of writes.
+func visitsFor(rate float64, window time.Duration, cycle int) int {
+	n := int(math.Ceil(rate * window.Seconds()))
+	return max(1, int(math.Ceil(float64(n)/float64(cycle)))) * cycle
+}
+
+// openRound runs the open model on a fresh server: a warm-up at the same rate with no writes, apart,
+// then whole cycles of all the plans.
+func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
+	cycle := len(b.sets[sc.site()].Plans)
+	out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
+		r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0, true) // discarded
+		return r.RunOpen(ctx, rate, visitsFor(rate, window, cycle), 30*time.Second, 0, false)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The load generator is checked first, so that a generator that cannot keep up is never reported
+	// as a limit of the server: visits must start on time and it must have processor time to spare.
+	why := ""
+	if out.LagMs > 250 {
+		why = fmt.Sprintf("the load generator started a visit %.0f ms late", out.LagMs)
+	}
+	if b.o.LoadCPUCount > 0 && out.Seconds > 0 && out.ClientCPU/out.Seconds > 0.8*float64(b.o.LoadCPUCount) {
+		why = fmt.Sprintf("the load generator used %.2f cores of %d", out.ClientCPU/out.Seconds, b.o.LoadCPUCount)
+	}
+	if why != "" {
+		out.GeneratorLimited, out.Pass, out.Why = true, false, why
+	}
+	return out, nil
+}
+
+// sustainKey names the search of one spec in one scenario.
+func sustainKey(sc, spec string) string { return sc + "/" + spec }
+
+// sustain finds, for each server of a scenario, the arrival rate it sustains in the open model on
+// that scenario: double the rate while the rule holds, narrow it to within 10%, then require the
+// rule over three rounds, stepping down 10% until it holds.
+func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
+	for _, fw := range b.servers[sc.Name] {
+		key := sustainKey(sc.Name, fw)
+		s := b.res.Sustain[key]
+		if s != nil && s.Done {
+			continue
 		}
-		// The rounds are checked against the rule of the search. A framework with a failing round steps
-		// down to the next lower step that passes and all its rounds run again, with fresh servers.
-		for attempt := 0; len(active) > 0; attempt++ {
-			results := map[string][]BrowseRun{}
-			for round := 1; round <= o.Rounds; round++ {
-				for _, s := range Rotate(active, round-1) {
-					key := sc.Name + "/" + s.Name
-					if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
-						return nil, err
-					}
-					server, r, err := start(s)
-					if err != nil {
-						return nil, err
-					}
-					res, err := r.RunLoad(ctx, bd.Chosen[key], o.Warm, o.Window)
-					if err == nil && round == o.Rounds {
-						err = r.verifyWrites(ctx)
-					}
-					server.Stop()
-					if err != nil {
-						return nil, fmt.Errorf("%s round %d: %w", key, round, err)
-					}
-					results[key] = append(results[key], BrowseRun{Scenario: sc.Name, Spec: s.Name, Framework: s.Framework, Label: s.Label, Round: round, Source: o.Source, Load: res})
-					fmt.Fprintf(o.Log, "round %d %-9s %-12s %2d users %7.2f visits/s %6.1f ms CPU/visit, %d errors %s\n", round, sc.Name, s.Name, res.Users, float64(res.Visits)/res.Seconds, 1000*res.CPU/max(1, float64(res.Visits)), res.Errors, res.FirstErr)
-				}
+		s = &Sustain{}
+		b.res.Sustain[key] = s
+		trial := func(rate float64) (bool, error) {
+			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
+			if err != nil {
+				return false, err
 			}
-			var again []Spec
-			for _, s := range active {
-				key := sc.Name + "/" + s.Name
-				users := bd.Chosen[key]
-				reason := RoundsFail(results[key])
-				bd.Attempts[key] = append(bd.Attempts[key], Attempt{Users: users, Failed: reason != "", Reason: reason, Source: o.Source})
-				if reason == "" {
-					bd.Runs = append(bd.Runs, results[key]...)
+			s.Trials = append(s.Trials, *r)
+			b.logf("sustain %-10s %-12s %8.2f visits/s: pass %v %s (%d visits, load P99 %.0f, click P99 %.0f ms, client %.2f cores)\n", sc.Name, fw, rate, r.Pass, r.Why, r.Visits, r.Types["load"].P99, r.Types["click"].P99, r.ClientCPU/math.Max(r.Seconds, 1))
+			if r.GeneratorLimited {
+				s.Limited = true
+			}
+			return r.Pass, b.commit()
+		}
+		// Double from 4 visits a second while the rule holds. If 4 fails, halve until one holds.
+		lo, hi, rate := 0.0, 0.0, 4.0
+		for rate <= cmp.Or(b.o.MaxRate, 16384) {
+			ok, err := trial(rate)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				hi = rate
+				if lo == 0 && rate > 0.5 {
+					rate /= 2
 					continue
 				}
-				bd.Rejected = append(bd.Rejected, results[key]...)
-				lower := StepDown(bd.Curves[key], users)
-				if lower == 0 {
-					return nil, fmt.Errorf("%s: the rounds at %d users fail (%s) and no lower step passes", key, users, reason)
-				}
-				fmt.Fprintf(o.Log, "%s: the rounds at %d users fail (%s), stepping down to %d\n", key, users, reason, lower)
-				bd.Chosen[key] = lower
-				again = append(again, s)
+				break
 			}
-			active = again
+			if hi > 0 {
+				lo = rate // found going down: the rate that passes, with hi the one above that failed
+				break
+			}
+			lo, rate = rate, rate*2
+		}
+		if lo == 0 {
+			s.Note, s.Done = "it does not sustain even half a visit a second", true
+			if err := b.commit(); err != nil {
+				return err
+			}
+			continue
+		}
+		for hi > 0 && hi-lo > 0.1*lo {
+			mid := math.Round((lo+hi)/2*100) / 100
+			ok, err := trial(mid)
+			if err != nil {
+				return err
+			}
+			if ok {
+				lo = mid
+			} else {
+				hi = mid
+			}
+		}
+		// Only a rate that passed all its confirmation rounds is published. Every round stays in the record.
+		confirmed, rounds, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
+			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow*2, b.o.TrialWindow/3)
+			if err != nil {
+				return nil, err
+			}
+			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why)
+			s.Confirm = append(s.Confirm, *r)
+			return r, b.commit()
+		})
+		if err != nil {
+			return err
+		}
+		s.Confirm = rounds
+		s.Rate, s.Done = confirmed, true
+		if confirmed == 0 {
+			s.Note = "no sustainable rate in range: no rate from " + fmt.Sprintf("%.2f", lo) + " down in four steps of 10% passed three rounds"
+		}
+		if hi == 0 && confirmed > 0 {
+			s.Note = "the search reached its cap without failing"
+		}
+		if err := b.commit(); err != nil {
+			return err
 		}
 	}
-	if o.Check {
-		// One round of each framework at its users of the baseline, to count what the servers answered.
-		sc := BrowseScenarios[0]
-		specs := specsOf[sc.Name]
-		for _, s := range Rotate(specs, 0) {
-			key := sc.Name + "/" + s.Name
-			if bd.Chosen[key] == 0 {
+	return nil
+}
+
+// latency is the latency table of a scenario: all its servers at the same arrival rate, half of the
+// lowest rate any of them sustains on that scenario, three rounds in a rotating order with fresh
+// servers.
+func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
+	if b.res.LatencyRate[sc.Name] == 0 {
+		low, base := 0.0, ""
+		for _, fw := range b.servers[sc.Name] {
+			s := b.res.Sustain[sustainKey(sc.Name, fw)]
+			if s == nil || !s.Done {
+				return fmt.Errorf("%s: no sustainable rate for %s: run the sustain phase first", sc.Name, fw)
+			}
+			if s.Rate == 0 {
+				return fmt.Errorf("%s: %s has no sustainable rate in range (%s): there is no rate that all sustain", sc.Name, fw, s.Note)
+			}
+			if low == 0 || s.Rate < low {
+				low, base = s.Rate, fw
+			}
+		}
+		b.res.LatencyRate[sc.Name], b.res.LatencyBase[sc.Name] = math.Round(low/2*100)/100, base
+		if err := b.commit(); err != nil {
+			return err
+		}
+	}
+	rate := b.res.LatencyRate[sc.Name]
+	b.logf("latency %s: %.2f visits/s, half of %s\n", sc.Name, rate, b.res.LatencyBase[sc.Name])
+	// Long enough for at least 1100 full loads and clicks, and for at least the final window.
+	window := max(b.o.FinalWindow, time.Duration(1100/rate*float64(time.Second)))
+	for round := 1; round <= b.o.Rounds; round++ {
+		for _, fw := range Rotate(b.servers[sc.Name], round-1) {
+			if slices.ContainsFunc(b.res.Latency, func(r Round) bool { return r.Framework == fw && r.Scenario == sc.Name && r.Round == round }) {
 				continue
 			}
-			checkSets, _, err := loadSets(o.TraceDir, sc.site(), specs, sc.Mean)
+			r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			set := checkSets[s.Name]
-			server, err := s.Launch(o.ServerCPUs)
-			if err != nil {
-				return nil, err
+			r.Round = round
+			b.res.Latency = append(b.res.Latency, *r)
+			b.logf("latency %-10s %-12s round %d: %d visits, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s\n", sc.Name, fw, round, r.Visits, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why)
+			if err := b.commit(); err != nil {
+				return err
 			}
-			if err := server.WaitListening(ctx); err != nil {
-				server.Stop()
-				return nil, err
-			}
-			r := &replayer{base: server.Base, write: s.Write, create: s.Create, storeWrite: s.StoreWrite, traces: set.traces, plans: set.plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
-			if s.Framework == "tifa" {
-				r.buildID = buildID
-			}
-			res, err := r.RunLoad(ctx, bd.Chosen[key], o.Warm, o.Window)
-			server.Stop()
-			if err != nil {
-				return nil, err
-			}
-			bd.TraceCheck[s.Name] = NewTraceCheck(s.Label, sc.Name, res)
-			fmt.Fprintf(o.Log, "check %-12s %s\n", s.Name, bd.TraceCheck[s.Name].Summary())
 		}
 	}
-	return rec, nil
-}
-
-// search raises the users 1, 2, 4, ... until a step fails, or visits/s rose by under 3% in two steps
-// in a row (PlateauAfter: a fall counts as a rise under 3%), or o.MaxUsers is reached. It returns the
-// whole curve and the step the rounds run at (ChooseStep). step plays one step with that many users.
-// Browse gives each step a server of its own, started as the servers of the rounds are, so the data
-// is the same in every step and in the rounds.
-func search(ctx context.Context, o BrowseOptions, step func(users int) (*LoadResult, error)) ([]CurvePoint, int, error) {
-	var curve []CurvePoint
-	for users := 1; users <= max(o.MaxUsers, 1); users *= 2 {
-		res, err := step(users)
-		if err != nil {
-			return nil, 0, err
-		}
-		p := CurvePoint{Users: users, VisitsPerS: float64(res.Visits) / res.Seconds, Errors: res.Errors, DocP99: res.Types["doc"].P99, NavP99: res.Types["nav"].P99, Visits: res.Visits, OpenOldest: res.OpenOldestMs, Orders: res.Orders}
-		p.Why = p.why()
-		p.Pass = p.Why == ""
-		curve = append(curve, p)
-		orders := ""
-		if res.Orders != nil {
-			orders = fmt.Sprintf(", %d orders in the shops", res.Orders["studio"]+res.Orders["weekend"])
-		}
-		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms%s %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, orders, res.FirstErr)
-		if !p.Pass || PlateauAfter(curve) {
-			break
-		}
-	}
-	chosen := ChooseStep(curve)
-	if chosen == 0 {
-		return curve, 0, fmt.Errorf("not even one user passes: %+v", curve)
-	}
-	return curve, chosen, nil
-}
-
-// PlateauAfter says whether the last two steps of the curve each brought less than 3% more visits/s
-// than the best step before them. A fall is no more than that, so one dip does not end the search.
-func PlateauAfter(curve []CurvePoint) bool {
-	if len(curve) < 3 {
-		return false
-	}
-	best := 0.0
-	flat := 0
-	for i, p := range curve {
-		if i > 0 && p.VisitsPerS < best*1.03 {
-			flat++
-		} else {
-			flat = 0
-		}
-		best = max(best, p.VisitsPerS)
-	}
-	return flat >= 2
-}
-
-// ChooseStep is the passing step with the most visits/s, the one with fewer users when two are
-// equal. It is 0 when no step passes.
-func ChooseStep(curve []CurvePoint) int {
-	chosen, best := 0, 0.0
-	for _, p := range curve {
-		if p.Pass && p.VisitsPerS > best {
-			chosen, best = p.Users, p.VisitsPerS
-		}
-	}
-	return chosen
-}
-
-// commonKey names, in the record, how many plans a scenario replays: the plans of its site and
-// visit length.
-func commonKey(sc BrowseScenario) string {
-	if sc.site() == SiteStore {
-		return fmt.Sprintf("mean %d, storefront", sc.Mean)
-	}
-	return fmt.Sprintf("mean %d", sc.Mean)
+	return nil
 }
 
 // storeTifas are the Tifa servers the storefront scenarios run in place of "tifa": the shop with
@@ -533,27 +641,27 @@ func (e Env) tifaBuildID() (string, error) {
 	return built.BuildID, nil
 }
 
-// verifyWrites checks, before the search and after the last round, that what the writes of the
-// scenario change is what the server shows next: in the document of a page and in the data a client
-// navigation fetches for it (as the browser asked for it in a trace). It uses addresses and ids of
-// its own, so the server is not what it was.
-func (r *replayer) verifyWrites(ctx context.Context) error {
-	if r.sc.mix() == MixStore {
+// verifyWrites checks, before and after a round, that what the writes of the scenario change is
+// what the server shows next: in the document of a page and in the data a client navigation fetches
+// for it (as the browser asked for it in a trace). It uses addresses and ids of its own, so the
+// server is not what it was, but alike on every server.
+func (r *runner) verifyWrites(ctx context.Context) error {
+	switch r.mix() {
+	case MixStore:
 		return r.verifyStore(ctx)
-	}
-	if r.sc.mix() == MixRename {
+	case MixRename:
 		return r.verifyRename(ctx)
 	}
 	return r.verifyOffice(ctx)
 }
 
 // get reads a page or the navigation data of a page.
-func (r *replayer) get(ctx context.Context, url string, headers map[string]string) (string, error) {
+func (r *runner) get(ctx context.Context, url string, headers map[string]string) (string, error) {
 	return r.getAs(ctx, http.DefaultClient, url, headers)
 }
 
 // getAs reads it with a client of its own, for a page that depends on cookies.
-func (r *replayer) getAs(ctx context.Context, c *http.Client, url string, headers map[string]string) (string, error) {
+func (r *runner) getAs(ctx context.Context, c *http.Client, url string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", r.base+url, nil)
 	if err != nil {
 		return "", err
@@ -579,12 +687,12 @@ func (r *replayer) getAs(ctx context.Context, c *http.Client, url string, header
 
 // nav reads the data a client navigation fetches for a page, as a trace recorded the browser asking
 // for it. ok is false when no trace has a click to that page.
-func (r *replayer) nav(ctx context.Context, page string) (data string, ok bool, err error) {
+func (r *runner) nav(ctx context.Context, page string) (data string, ok bool, err error) {
 	return r.navAs(ctx, http.DefaultClient, page)
 }
 
 // navAs is nav with a client of its own.
-func (r *replayer) navAs(ctx context.Context, c *http.Client, page string) (data string, ok bool, err error) {
+func (r *runner) navAs(ctx context.Context, c *http.Client, page string) (data string, ok bool, err error) {
 	q, ok := r.navRequest(page)
 	if !ok {
 		return "", false, nil
@@ -598,7 +706,7 @@ func (r *replayer) navAs(ctx context.Context, c *http.Client, page string) (data
 
 // shows checks that the document of a page, and the navigation data of it when a trace has them,
 // hold every text.
-func (r *replayer) shows(ctx context.Context, what, page string, texts ...string) error {
+func (r *runner) shows(ctx context.Context, what, page string, texts ...string) error {
 	doc, err := r.get(ctx, page, nil)
 	if err != nil {
 		return err
@@ -633,7 +741,7 @@ func (r *replayer) shows(ctx context.Context, what, page string, texts ...string
 // The data of an order that was placed here has no trace to ask a navigation request from, so it is
 // read as a document. The order of step 1 is shipped in step 4, so the pool of the writes is what it
 // was.
-func (r *replayer) verifyOffice(ctx context.Context) error {
+func (r *runner) verifyOffice(ctx context.Context) error {
 	v := &visitState{client: &http.Client{}}
 	call := func(method, path string, body any) ([]byte, error) {
 		a, _, _, err := r.request(ctx, v, method, path, mustJSON(body))
@@ -726,11 +834,10 @@ func (r *replayer) verifyOffice(ctx context.Context) error {
 	return nil
 }
 
-// verifyRename writes to each writable order, both kinds of the rename mix (the address alone, then
+// verifyRename writes to each writable order, both kinds of the rename PATCH (the address alone, then
 // the address and the name), and checks that the document of the order shows it and that so does
 // the data a client navigation fetches for it.
-func (r *replayer) verifyRename(ctx context.Context) error {
-	get := func(url string, headers map[string]string) (string, error) { return r.get(ctx, url, headers) }
+func (r *runner) verifyRename(ctx context.Context) error {
 	for _, fan := range []bool{false, true} {
 		for _, w := range WritableOrders {
 			n := int(r.writes.Add(1))
@@ -740,45 +847,35 @@ func (r *replayer) verifyRename(ctx context.Context) error {
 			}
 			digits := fmt.Sprintf("%08d", n)
 			url := "/projects/" + w.Project + "/orders/" + w.Order
-			doc, err := get(url, nil)
+			doc, err := r.get(ctx, url, nil)
 			if err != nil {
 				return err
 			}
 			if !strings.Contains(doc, digits) || fan && !strings.Contains(doc, st.Write.Customer) {
 				return fmt.Errorf("the document of %s does not show write %d", w.Order, n)
 			}
-			q, ok := r.navRequest(url)
-			if !ok {
-				continue
-			}
-			if r.buildID != "" {
-				q.URL = tifaBuild.ReplaceAllString(q.URL, "_tifa="+r.buildID+".")
-			}
-			body, err := get(q.URL, q.Headers)
+			data, ok, err := r.nav(ctx, url)
 			if err != nil {
 				return err
 			}
-			if !strings.Contains(body, digits) {
-				return fmt.Errorf("the navigation data of %s (%s) does not show write %d", w.Order, q.URL, n)
+			if ok && !strings.Contains(data, digits) {
+				return fmt.Errorf("the navigation data of %s does not show write %d", w.Order, n)
 			}
 		}
 	}
 	return nil
 }
 
-// navRequest finds, in the traces, the data request of a click to a page.
-func (r *replayer) navRequest(page string) (TraceReq, bool) {
-	for id := 0; id < len(r.plans); id++ {
-		t, ok := r.traces[id]
-		if !ok {
-			continue
-		}
-		for _, s := range t.Steps {
+// navRequest finds, in the traces, the data request of a click to a page that the browser let
+// finish.
+func (r *runner) navRequest(page string) (TraceReq, bool) {
+	for _, p := range r.wl.Plans {
+		for _, s := range r.wl.Traces[p.ID].Steps {
 			if s.Kind != StepClick || s.Page != page {
 				continue
 			}
 			for _, q := range s.Reqs {
-				if q.Class == "nav" && q.Method == "GET" && !strings.Contains(q.URL, "__manifest") {
+				if q.Class == "nav" && q.Cancel == "" && q.Method == "GET" && !strings.Contains(q.URL, "__manifest") {
 					return q, true
 				}
 			}
@@ -787,175 +884,82 @@ func (r *replayer) navRequest(page string) (TraceReq, bool) {
 	return TraceReq{}, false
 }
 
-// Attempt is the rounds of a framework at one step.
-type Attempt struct {
-	Users  int    `json:"users"`
-	Failed bool   `json:"failed"`
-	Reason string `json:"reason,omitempty"`
-	Source string `json:"source,omitempty"`
+// ReadBrowseResult parses a result written by `compare browse`.
+func ReadBrowseResult(data []byte) (*BrowseResult, error) {
+	var r BrowseResult
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
-// RoundsFail applies the rule of the search to the rounds of one framework at one step and says
-// what failed ("" when every round passes): an error, or the P99 of a full load or of a whole
-// navigation over a second.
-func RoundsFail(runs []BrowseRun) string {
-	var errs int
-	var doc, nav, open float64
-	var none int
-	for _, r := range runs {
-		errs += r.Load.Errors
-		if r.Load.Visits == 0 {
-			none++
+// raiseFileLimit lets the process open as many files as it may: the open model keeps thousands of
+// connections open at high rates.
+func raiseFileLimit() {
+	var lim syscall.Rlimit
+	if syscall.Getrlimit(syscall.RLIMIT_NOFILE, &lim) == nil && lim.Cur < lim.Max {
+		lim.Cur = lim.Max
+		if lim.Cur > 1<<20 {
+			lim.Cur = 1 << 20
 		}
-		open = max(open, r.Load.OpenOldestMs)
-		doc = max(doc, r.Load.Types["doc"].P99)
-		nav = max(nav, r.Load.Types["nav"].P99)
-	}
-	var out []string
-	if none > 0 {
-		out = append(out, fmt.Sprintf("%d rounds completed no visit", none))
-	}
-	if open > 1000 {
-		out = append(out, fmt.Sprintf("a request had waited up to %.0f ms at the end of a window", open))
-	}
-	if errs > 0 {
-		out = append(out, fmt.Sprintf("%d errors", errs))
-	}
-	if doc > 1000 {
-		out = append(out, fmt.Sprintf("full load P99 up to %.0f ms", doc))
-	}
-	if nav > 1000 {
-		out = append(out, fmt.Sprintf("navigation P99 up to %.0f ms", nav))
-	}
-	return strings.Join(out, ", ")
-}
-
-// StepDown is the highest step of the curve below users that passed the search, 0 for none.
-func StepDown(curve []CurvePoint, users int) int {
-	lower := 0
-	for _, p := range curve {
-		if p.Pass && p.Users < users {
-			lower = max(lower, p.Users)
-		}
-	}
-	return lower
-}
-
-// moveRuns takes the runs of a scenario and spec out of runs and puts them with the rejected ones,
-// as the attempt that is run again.
-func moveRuns(runs, rejected []BrowseRun, scenario, spec string) (keep, rej []BrowseRun) {
-	for _, r := range runs {
-		if r.Scenario == scenario && r.Spec == spec {
-			rejected = append(rejected, r)
-		} else {
-			keep = append(keep, r)
-		}
-	}
-	return keep, rejected
-}
-
-// CurveEnd says why the search stopped and which step the rounds started at.
-func CurveEnd(curve []CurvePoint, maxUsers int) string {
-	if len(curve) == 0 {
-		return ""
-	}
-	last := curve[len(curve)-1]
-	if maxUsers == 0 {
-		maxUsers = 128
-	}
-	var why string
-	switch {
-	case !last.Pass:
-		why = fmt.Sprintf("the step at %d users fails (%s)", last.Users, last.Why)
-	case PlateauAfter(curve):
-		why = "visits/s rose under 3% in two steps in a row"
-	case last.Users >= maxUsers:
-		why = fmt.Sprintf("cap reached at %d users", last.Users)
-	default:
-		why = "ended"
-	}
-	chosen := ChooseStep(curve)
-	var at float64
-	for _, p := range curve {
-		if p.Users == chosen {
-			at = p.VisitsPerS
-		}
-	}
-	return fmt.Sprintf("stopped: %s. Chosen: %d users, the passing step with the most visits/s (%.0f)", why, chosen, at)
-}
-
-// backfillAttempts gives the runs and the keys of a record that was made before attempts were kept
-// a source and an attempt each, from the rule applied to their rounds.
-func backfillAttempts(bd *BrowseData) {
-	by := map[string][]BrowseRun{}
-	for i := range bd.Runs {
-		if bd.Runs[i].Source == "" {
-			bd.Runs[i].Source = "run 1"
-		}
-		key := bd.Runs[i].Scenario + "/" + bd.Runs[i].Spec
-		by[key] = append(by[key], bd.Runs[i])
-	}
-	for key, runs := range by {
-		if len(bd.Attempts[key]) > 0 {
-			continue
-		}
-		reason := RoundsFail(runs)
-		bd.Attempts[key] = []Attempt{{Users: runs[0].Load.Users, Failed: reason != "", Reason: reason, Source: "run 1"}}
+		syscall.Setrlimit(syscall.RLIMIT_NOFILE, &lim)
 	}
 }
 
-// MergeBrowse puts the runs of some specs from part into base, replacing what base held for them:
-// their curves, chosen steps, attempts, rounds and trace checks. It is for rerunning a framework
-// without running the others again, and fails if the plans replayed are not the same in both.
-func MergeBrowse(base, part *Record, specs []string) error {
-	b, p := base.Browse, part.Browse
-	if b == nil || p == nil {
-		return fmt.Errorf("both records need a browse part")
-	}
-	for k, n := range p.Common {
-		if b.Common[k] != n {
-			return fmt.Errorf("%s: the new run replays %d plans, the record it goes into %d", k, n, b.Common[k])
-		}
-	}
-	in := func(spec string) bool { return slices.Contains(specs, spec) }
-	keySpec := func(key string) string { _, spec, _ := strings.Cut(key, "/"); return spec }
-	for key := range b.Curves {
-		if in(keySpec(key)) {
-			delete(b.Curves, key)
-			delete(b.Chosen, key)
-			delete(b.Attempts, key)
-		}
-	}
-	for key, v := range p.Curves {
-		b.Curves[key], b.Chosen[key] = v, p.Chosen[key]
-		if a := p.Attempts[key]; len(a) > 0 {
-			if b.Attempts == nil {
-				b.Attempts = map[string][]Attempt{}
+// ConfirmRate looks for a rate at which the rule holds in all the rounds, starting at start and
+// stepping down 10% for up to attempts tries. run plays one round at a rate. It returns the rate that
+// passed all its rounds, or 0 if none did in range, and every round it ran, in order: a failing round
+// ends its try, and the rounds of the failed tries are kept. If the first try passes, one step 10%
+// above it is tried too, since the search can underestimate and nothing else would correct that: the
+// rate above is published if it passes all its rounds, and the first one otherwise.
+func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error)) (float64, []Round, error) {
+	var all []Round
+	try := func(n int, rate float64) (bool, error) {
+		for round := 1; round <= rounds; round++ {
+			r, err := run(rate, round)
+			if err != nil {
+				return false, err
 			}
-			b.Attempts[key] = a
-		}
-	}
-	keep := func(runs []BrowseRun) (out []BrowseRun) {
-		for _, r := range runs {
-			if !in(r.Spec) {
-				out = append(out, r)
+			r.Round, r.Attempt = round, n
+			all = append(all, *r)
+			if !r.Pass {
+				return false, nil
 			}
 		}
-		return out
+		return true, nil
 	}
-	b.Runs = append(keep(b.Runs), p.Runs...)
-	b.Rejected = append(keep(b.Rejected), p.Rejected...)
-	for spec, c := range p.TraceCheck {
-		if b.TraceCheck == nil {
-			b.TraceCheck = map[string]*TraceCheck{}
+	rate := start
+	for n := 1; n <= attempts; n++ {
+		ok, err := try(n, rate)
+		if err != nil {
+			return 0, all, err
 		}
-		b.TraceCheck[spec] = c
+		if ok {
+			if n == 1 {
+				up := math.Round(rate*1.1*100) / 100
+				if ok, err := try(n+1, up); err != nil {
+					return 0, all, err
+				} else if ok {
+					return up, all, nil
+				}
+			}
+			return rate, all, nil
+		}
+		rate = math.Round(rate*0.9*100) / 100
 	}
-	for f, n := range p.Traces {
-		b.Traces[f] = n
-	}
-	for f, n := range p.Dropped {
-		b.Dropped[f] = n
-	}
-	return nil
+	return 0, all, nil
 }
+
+// IsBrowseResult says whether a JSON file is a result of `compare browse` rather than a record of
+// `compare measure`.
+func IsBrowseResult(data []byte) bool {
+	var probe map[string]jsontext.Value
+	if json.Unmarshal(data, &probe) != nil {
+		return false
+	}
+	_, closed := probe["closed"]
+	_, sustain := probe["sustain"]
+	return closed && sustain
+}
+
+func (r *BrowseResult) json() ([]byte, error) { return json.Marshal(r) }

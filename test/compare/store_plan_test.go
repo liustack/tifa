@@ -86,64 +86,87 @@ func TestStoreLinksLeadToVisitPagesInTheSameLanguage(t *testing.T) {
 	}
 }
 
-func TestStorePlansAreTheSameForTheSameSeedAndDifferForAnother(t *testing.T) {
-	a, b, c := GenerateStorePlans(7, 50, 4), GenerateStorePlans(7, 50, 4), GenerateStorePlans(8, 50, 4)
+func TestStorePlanSetIsSeededAndBlocksAreBalanced(t *testing.T) {
+	a, b, c := GenerateStorePlanSet(7, 4), GenerateStorePlanSet(7, 4), GenerateStorePlanSet(8, 4)
 	same := func(x, y Plan) bool { return slices.Equal(x.Steps, y.Steps) }
-	if !slices.EqualFunc(a, b, same) {
+	if a.Site != SiteStore || !slices.EqualFunc(a.Plans, b.Plans, same) {
 		t.Error("the same seed gave different plans")
 	}
-	if slices.EqualFunc(a, c, same) {
+	if slices.EqualFunc(a.Plans, c.Plans, same) {
 		t.Error("another seed gave the same plans")
+	}
+	var firstShares []float64
+	var firstKinds []string
+	for _, s := range StoreFirstShares {
+		firstKinds, firstShares = append(firstKinds, s.Kind), append(firstShares, s.Share)
+	}
+	// The quota of each kind of first page in a block of 95 visits.
+	want := map[string]int{}
+	for _, k := range quota(newRand(1), BlockVisits, firstKinds, firstShares) {
+		want[k]++
+	}
+	for blk := range 4 {
+		var counts PlanCounts
+		langs, kinds := map[string]int{}, map[string]int{}
+		firsts := map[string]int{}
+		for _, p := range a.Plans[blk*BlockVisits : (blk+1)*BlockVisits] {
+			if p.Block != blk {
+				t.Fatalf("plan %d is in block %d", p.ID, p.Block)
+			}
+			counts.Add(p, 0)
+			if p.Steps[0].Kind != StepLoad {
+				t.Fatalf("plan %d starts with %s", p.ID, p.Steps[0].Kind)
+			}
+			lang, kind := StorePageKind(p.Steps[0].Page)
+			langs[lang]++
+			kinds[kind]++
+			firsts[p.Steps[0].Page]++
+			for i, s := range p.Steps[1:] {
+				cur := p.Steps[i].Page
+				if l, _ := StorePageKind(s.Page); l != lang {
+					t.Fatalf("plan %d goes from %s to %s, another language", p.ID, cur, s.Page)
+				}
+				if s.Kind != StepClick || !slices.ContainsFunc(StoreLinks(cur), func(l Link) bool { return l.To == s.Page }) {
+					t.Fatalf("plan %d: %s -> %s is no click on a link of the page", p.ID, cur, s.Page)
+				}
+			}
+		}
+		if counts.Visits != BlockVisits || counts.Views != BlockViews || counts.Loads != BlockVisits || counts.Clicks != BlockViews-BlockVisits {
+			t.Errorf("block %d: %+v", blk, counts)
+		}
+		big, small := StoreLangs[0], StoreLangs[1]
+		if blk%2 == 1 {
+			big, small = small, big
+		}
+		if langs[big] != 48 || langs[small] != 47 {
+			t.Errorf("block %d: languages %v, want 48 %s and 47 %s", blk, langs, big, small)
+		}
+		for k, n := range want {
+			if kinds[k] != n {
+				t.Errorf("block %d: %d visits start on a %s, want %d", blk, kinds[k], k, n)
+			}
+		}
+		// A first page repeats only once every page of its language and kind has been used.
+		for url, n := range firsts {
+			lang, kind := StorePageKind(url)
+			pages := 0
+			for _, u := range StoreVisitPages() {
+				if l, k := StorePageKind(u); l == lang && k == kind {
+					pages++
+				}
+			}
+			if n > (langs[lang]+pages-1)/pages+1 {
+				t.Errorf("block %d: %s starts %d visits", blk, url, n)
+			}
+		}
 	}
 }
 
-func TestStorePlanShapes(t *testing.T) {
-	plans := GenerateStorePlans(1, 20000, 4)
-	var views, reloads, later, zh int
-	firstKind := map[string]int{}
-	for _, p := range plans {
-		views += len(p.Steps)
-		if p.Steps[0].Kind != StepLoad {
-			t.Fatalf("plan %d starts with %s", p.ID, p.Steps[0].Kind)
-		}
-		lang, kind := StorePageKind(p.Steps[0].Page)
-		firstKind[kind]++
-		if lang == "zh-CN" {
-			zh++
-		}
-		for i, s := range p.Steps[1:] {
-			later++
-			cur := p.Steps[i].Page
-			if l, _ := StorePageKind(s.Page); l != lang {
-				t.Fatalf("plan %d goes from %s to %s, another language", p.ID, cur, s.Page)
-			}
-			switch s.Kind {
-			case StepReload:
-				reloads++
-				if s.Page != cur {
-					t.Fatalf("plan %d reloads %s on %s", p.ID, s.Page, cur)
-				}
-			case StepClick:
-				if !slices.ContainsFunc(StoreLinks(cur), func(l Link) bool { return l.To == s.Page }) {
-					t.Fatalf("plan %d clicks %s on %s, which has no such link", p.ID, s.Page, cur)
-				}
-			default:
-				t.Fatalf("plan %d has a %s step after the first", p.ID, s.Kind)
-			}
-		}
-	}
-	if got := float64(views) / float64(len(plans)); math.Abs(got-4) > 0.2 {
-		t.Errorf("%.2f page views a visit, want 4", got)
-	}
-	if got := float64(reloads) / float64(later); math.Abs(got-ReloadShare) > 0.01 {
-		t.Errorf("%.3f of the later views are reloads, want %v", got, ReloadShare)
-	}
-	if got := float64(zh) / float64(len(plans)); math.Abs(got-0.5) > 0.02 {
-		t.Errorf("%.3f of the visits are in Chinese, want half", got)
-	}
-	for _, s := range StoreFirstShares {
-		if got := float64(firstKind[s.Kind]) / float64(len(plans)); math.Abs(got-s.Share) > 0.02 {
-			t.Errorf("%.3f of the visits start on a %s, want %v", got, s.Kind, s.Share)
+// A visit can be on every page of the storefront and go on from it: every page has links to click.
+func TestEveryStoreVisitPageHasLinks(t *testing.T) {
+	for _, url := range StoreVisitPages() {
+		if len(StoreLinks(url)) == 0 {
+			t.Errorf("%s has no link a visit can click", url)
 		}
 	}
 }
@@ -218,23 +241,46 @@ func (c *shopCart) apply(t *testing.T, w PlannedWrite) {
 	}
 }
 
+// storeBlockWrites gives the writes of the storefront scenario name for blocks blocks, in the order
+// of the plans and the page views.
+func storeBlockWrites(t *testing.T, seed uint64, set PlanSet, name string) []PlannedWrite {
+	t.Helper()
+	var out []PlannedWrite
+	for blk := range set.Blocks {
+		ws, err := BlockWrites(seed, set.Plans[blk*BlockVisits:(blk+1)*BlockVisits], scenario(t, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, ws...)
+	}
+	return out
+}
+
 func TestStoreWritesAreAlwaysOnesTheShopTakes(t *testing.T) {
 	wantStatus := map[string]int{WriteAdd: 200, WriteQuantity: 200, WriteCoupon: 204, WriteCheckout: 303}
 	wantMethod := map[string]string{WriteAdd: "POST", WriteQuantity: "PATCH", WriteCoupon: "POST", WriteCheckout: "POST"}
+	set := GenerateStorePlanSet(3, 30)
 	kinds := map[string]int{}
-	for _, p := range GenerateStorePlans(3, 3000, 4) {
+	carts := map[int]*shopCart{}
+	last := map[int]int{}
+	for _, w := range storeBlockWrites(t, 3, set, "store-w50") {
+		p := set.Plans[w.Plan]
 		lang, _ := StorePageKind(p.Steps[0].Page)
-		cart := &shopCart{lines: demoCart()}
-		for _, w := range PlanStoreWrites(3, p, 1) {
-			if w.Store == nil || w.Store.Kind != w.Kind || w.Store.Status != wantStatus[w.Kind] || w.Store.Method != wantMethod[w.Kind] {
-				t.Fatalf("plan %d write %d: %+v", p.ID, w.After, w)
-			}
-			if !strings.HasPrefix(w.Store.Path, StoreBase(lang)+"/") {
-				t.Fatalf("plan %d write %d: path %s is not in the language of the visit (%s)", p.ID, w.After, w.Store.Path, lang)
-			}
-			cart.apply(t, w)
-			kinds[w.Kind]++
+		if w.Store == nil || w.Store.Kind != w.Kind || w.Store.Status != wantStatus[w.Kind] || w.Store.Method != wantMethod[w.Kind] {
+			t.Fatalf("plan %d write %d: %+v", p.ID, w.After, w)
 		}
+		if !strings.HasPrefix(w.Store.Path, StoreBase(lang)+"/") {
+			t.Fatalf("plan %d write %d: path %s is not in the language of the visit (%s)", p.ID, w.After, w.Store.Path, lang)
+		}
+		if n, ok := last[w.Plan]; ok && w.After <= n {
+			t.Fatalf("plan %d: write after view %d comes after the one after view %d", p.ID, w.After, n)
+		}
+		last[w.Plan] = w.After
+		if carts[w.Plan] == nil {
+			carts[w.Plan] = &shopCart{lines: demoCart()}
+		}
+		carts[w.Plan].apply(t, w)
+		kinds[w.Kind]++
 	}
 	// The shares are those of StoreShares, but for the writes that find an empty cart and become an add.
 	var total int
@@ -253,23 +299,40 @@ func TestStoreWritesAreAlwaysOnesTheShopTakes(t *testing.T) {
 	}
 }
 
-func TestStoreWritesFollowTheRateAndTheSeed(t *testing.T) {
-	plans := GenerateStorePlans(5, 4000, 4)
-	for _, rate := range []float64{1.0 / 19, 0.25, 1} {
-		views, writes := 0, 0
-		for _, p := range plans {
-			views += len(p.Steps)
-			writes += len(PlanStoreWrites(5, p, rate))
-		}
-		if got := float64(writes) / float64(views); math.Abs(got-rate) > 0.01 {
-			t.Errorf("rate %.3f: %.3f writes a page view", rate, got)
+// The storefront writes of a block are exactly the share of the scenario, after the same page
+// views as the other scenarios of that share, and the same every time.
+func TestStoreWritesFollowTheShareAndTheSeed(t *testing.T) {
+	set := GenerateStorePlanSet(5, 2)
+	for _, tc := range []struct {
+		name   string
+		perBlk int
+	}{{"store-w5", 20}, {"store-w20", 95}, {"store-w50", 380}} {
+		sc := scenario(t, tc.name)
+		for blk := range 2 {
+			plans := set.Plans[blk*BlockVisits : (blk+1)*BlockVisits]
+			ws, err := BlockWrites(5, plans, sc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rename, err := BlockWrites(5, plans, BrowseScenario{Share: sc.Share, Mix: MixRename})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ws) != tc.perBlk || len(rename) != tc.perBlk {
+				t.Fatalf("%s block %d: %d writes, want %d", tc.name, blk, len(ws), tc.perBlk)
+			}
+			for i := range ws {
+				if ws[i].Plan != rename[i].Plan || ws[i].After != rename[i].After {
+					t.Fatalf("%s: write %d after %d/%d, the rename mix after %d/%d", tc.name, i, ws[i].Plan, ws[i].After, rename[i].Plan, rename[i].After)
+				}
+			}
 		}
 	}
-	a, b := PlanStoreWrites(5, plans[7], 1), PlanStoreWrites(5, plans[7], 1)
+	a, b := storeBlockWrites(t, 5, set, "store-w20"), storeBlockWrites(t, 5, set, "store-w20")
 	if len(a) == 0 || !slices.EqualFunc(a, b, func(x, y PlannedWrite) bool {
-		return x.After == y.After && string(x.Store.Body) == string(y.Store.Body) && x.Store.Path == y.Store.Path
+		return x.Plan == y.Plan && x.After == y.After && string(x.Store.Body) == string(y.Store.Body) && x.Store.Path == y.Store.Path
 	}) {
-		t.Error("the same seed and plan gave different writes")
+		t.Error("the same seed and plans gave different writes")
 	}
 }
 

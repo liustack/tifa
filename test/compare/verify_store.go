@@ -28,7 +28,7 @@ type cartRead struct {
 //  3. Change the quantity of the line added: the page is not what it was.
 //  4. Check out: the server answers 303 to the page of the order, which shows the order number, and
 //     the cart page is not what it was (the cart is empty).
-func (r *replayer) verifyStore(ctx context.Context) error {
+func (r *runner) verifyStore(ctx context.Context) error {
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	v := &visitState{client: c}
@@ -119,7 +119,7 @@ func (r *replayer) verifyStore(ctx context.Context) error {
 
 // checkout places the order of the cart of a visitor and returns where the server sends them (the
 // Location of its 303).
-func (r *replayer) checkout(ctx context.Context, c *http.Client, base string) (string, error) {
+func (r *runner) checkout(ctx context.Context, c *http.Client, base string) (string, error) {
 	lang := "en-US"
 	if strings.HasPrefix(base, "/zh-CN") {
 		lang = "zh-CN"

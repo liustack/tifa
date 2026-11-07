@@ -114,21 +114,16 @@ func demoCart() []cartLine {
 	}
 }
 
-// PlanStoreWrites puts writes into a plan of the storefront: after each page view, with probability
-// rate, a write, as PlanWrites does. The writes follow the cart of the visit, so a write is always
-// one the shop takes. Which writes a plan has depends on the seed, the plan and the rate only. Unlike
-// the office mix, the writes of a lower rate are not among those of a higher one: the cart that a
-// write finds depends on the writes before it.
-func PlanStoreWrites(seed uint64, p Plan, rate float64) []PlannedWrite {
-	when := rand.New(rand.NewPCG(seed^0x9e3779b97f4a7c15, uint64(p.ID)))
+// storeWritesAt makes the writes of a plan of the storefront that follow its page views afters (in
+// order), where BlockWrites put them. The writes follow the cart of the visit, so a write is always
+// one the shop takes. The kind of each is drawn by StoreShares from the seed, the plan and the page
+// view.
+func storeWritesAt(seed uint64, p Plan, afters []int) []PlannedWrite {
 	lang, _ := StorePageKind(p.Steps[0].Page)
 	base := StoreBase(lang)
 	cart := demoCart()
 	var out []PlannedWrite
-	for i := range p.Steps {
-		if when.Float64() >= rate {
-			continue
-		}
+	for _, i := range afters {
 		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(p.ID)<<20|uint64(i)))
 		kind, k := WriteAdd, rng.Float64()
 		for _, s := range StoreShares {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeStoreServer is the part of the storefront that its writes touch, in memory: a cart for each
@@ -164,37 +165,43 @@ func (f *fakeStoreServer) page(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "cart %s coupon %s", strings.Join(lines, ","), c.coupon)
 }
 
-func storeReplayer(base string, write func(string) string, rate float64) *replayer {
-	r := newTestReplayer(base, BrowseScenario{Name: "s", Mean: 4, WriteRate: rate, Mix: MixStore})
+func storeRunner(base string, write func(string) string, share float64) *runner {
+	r := newTestRunner(base, BrowseScenario{Name: "s", Share: share, Mix: MixStore})
 	r.storeWrite = write
 	return r
 }
 
 // traceOf is a trace that loads every page of a plan.
 func traceOf(p Plan) Trace {
-	var t Trace
+	t := Trace{Plan: p.ID}
 	for _, s := range p.Steps {
-		t.Steps = append(t.Steps, TraceStep{Kind: s.Kind, Page: s.Page, Reqs: []TraceReq{{Method: "GET", URL: s.Page, Class: "doc", End: 1}}})
+		t.Steps = append(t.Steps, TraceStep{Kind: s.Kind, Page: s.Page, Reqs: []TraceReq{{Method: "GET", URL: s.Page, Class: "doc", End: 1, Status: 200}}})
 	}
 	return t
 }
 
 func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
+	set := GenerateStorePlanSet(1, 1)
+	traces := map[int]Trace{}
+	for _, p := range set.Plans {
+		traces[p.ID] = traceOf(p)
+	}
+	sc := BrowseScenario{Name: "store-w50", Share: 0.5, Mix: MixStore}
 	for name, write := range map[string]func(string) string{"shop": SameStorePath, "nextjs": NextStorePath, "reactrouter": ReactRouterStorePath} {
 		t.Run(name, func(t *testing.T) {
 			f, srv := newFakeStore(t, write)
-			r := storeReplayer(srv.URL, write, 1)
-			var sent int
-			for _, p := range GenerateStorePlans(1, 60, 4) {
-				tr := traceOf(p)
-				r.plans, r.traces = []Plan{p}, map[int]Trace{0: tr}
-				if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, p); err != nil {
-					t.Fatalf("plan %d: %v", p.ID, err)
-				}
-				sent += len(PlanStoreWrites(1, p, 1))
+			wl, err := NewWorkload(&set, traces, sc, 1)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if len(f.log) != sent || sent == 0 {
-				t.Fatalf("the shop saw %d writes, %d were planned: %v", len(f.log), sent, f.log)
+			r := storeRunner(srv.URL, write, sc.Share)
+			r.wl = wl
+			round := r.RunClosed(context.Background(), 4, BlockVisits, time.Minute)
+			if round.Failures != 0 || round.Visits != BlockVisits {
+				t.Fatalf("%d failures (%s), %d visits", round.Failures, round.FirstErr, round.Visits)
+			}
+			if len(f.log) != BlockViews || round.Writes != BlockViews {
+				t.Fatalf("the shop saw %d writes and the round counted %d, %d were planned", len(f.log), round.Writes, BlockViews)
 			}
 			for _, line := range f.log {
 				if strings.HasPrefix(line, "refused") {
@@ -202,20 +209,24 @@ func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
 				}
 			}
 			n := 0
-			for _, c := range r.res.Writes {
+			for _, c := range round.WriteKinds {
 				n += c
 			}
-			if n != sent || r.res.Writes[WriteAdd] == 0 || r.res.Writes[WriteCheckout] == 0 {
-				t.Errorf("writes counted %v, sent %d", r.res.Writes, sent)
+			if n != BlockViews || round.WriteKinds[WriteAdd] == 0 || round.WriteKinds[WriteCheckout] == 0 {
+				t.Errorf("writes counted %v", round.WriteKinds)
 			}
 			// 200, 204 and 303 are all answers to count by their status.
 			for _, key := range []string{"write add 200 application/json", "write coupon 204 -", "write checkout 303 -"} {
-				if r.res.Responses[key] == 0 {
-					t.Errorf("no %q in %v", key, r.res.Responses)
+				if round.Responses[key] == 0 {
+					t.Errorf("no %q in %v", key, round.Responses)
 				}
 			}
-			if len(r.res.lat["write checkout"]) == 0 || len(r.res.lat["write"]) != sent {
-				t.Errorf("latencies %v", r.res.lat)
+			if round.Types["write checkout"].N == 0 || round.Types["write"].N != BlockViews {
+				t.Errorf("latencies %v", round.Types)
+			}
+			round.Judge(sc)
+			if !round.Valid {
+				t.Errorf("the round of a whole block is not valid: %s", round.WhyInvalid)
 			}
 		})
 	}
@@ -224,9 +235,9 @@ func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
 func TestStoreWriteMustAnswerWithTheStatusOfThePlan(t *testing.T) {
 	f, srv := newFakeStore(t, SameStorePath)
 	f.answer = map[string]int{WriteCoupon: 200}
-	r := storeReplayer(srv.URL, SameStorePath, 1)
+	r := storeRunner(srv.URL, SameStorePath, 0.5)
 	v := &visitState{client: &http.Client{}}
-	err := r.doWrite(context.Background(), v, PlannedWrite{Kind: WriteCoupon, Store: &StoreRequest{Kind: WriteCoupon, Method: "POST", Path: "/store/cart", Body: []byte(`{"code":""}`), Status: 204}})
+	err := r.doWrite(context.Background(), v, newAcc(), PlannedWrite{Kind: WriteCoupon, Store: &StoreRequest{Kind: WriteCoupon, Method: "POST", Path: "/store/cart", Body: []byte(`{"code":""}`), Status: 204}}, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "want 204") {
 		t.Errorf("a coupon answered 200: %v", err)
 	}
@@ -234,17 +245,21 @@ func TestStoreWriteMustAnswerWithTheStatusOfThePlan(t *testing.T) {
 
 func TestReplaySendsTheBodyOfARecordedPostAndTakesA204(t *testing.T) {
 	f, srv := newFakeStore(t, SameStorePath)
-	r := storeReplayer(srv.URL, SameStorePath, 0)
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/store/products/oak-tray", Reqs: []TraceReq{
-		{Method: "GET", URL: "/store/products/oak-tray", Class: "doc", End: 5},
-		{Method: "POST", URL: "/store/mine", Class: "nav", Start: 10, End: 15, Headers: map[string]string{"content-type": "application/json"}, Body: `{"slug":"oak-tray"}`},
+		{Method: "GET", URL: "/store/products/oak-tray", Class: "doc", End: 5, Status: 200},
+		{Method: "POST", URL: "/store/mine", Class: "nav", Start: 10, End: 15, Status: 204, Headers: map[string]string{"content-type": "application/json"}, Body: `{"slug":"oak-tray"}`},
 	}}}}
-	r.plans, r.traces = []Plan{{ID: 0, Steps: []PlanStep{{StepLoad, "/store/products/oak-tray"}}}}, map[int]Trace{0: tr}
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
+	r := storeRunner(srv.URL, SameStorePath, 0.5)
+	r.wl = newTestRunner(srv.URL, r.wl.Scenario, tr).wl
+	a := newAcc()
+	if err := visitOnce(r, a, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.posted) != 1 || f.posted[0] != `{"slug":"oak-tray"}` {
 		t.Errorf("the shop was sent %q", f.posted)
+	}
+	if a.responses["nav 204 -"] != 1 {
+		t.Errorf("responses %v", a.responses)
 	}
 }
 
@@ -252,7 +267,7 @@ func TestVerifyStoreChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
 	for name, write := range map[string]func(string) string{"shop": SameStorePath, "nextjs": NextStorePath} {
 		t.Run(name, func(t *testing.T) {
 			f, srv := newFakeStore(t, write)
-			r := storeReplayer(srv.URL, write, 0)
+			r := storeRunner(srv.URL, write, 0.2)
 			if err := r.verifyStore(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -270,7 +285,7 @@ func TestVerifyStoreChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
 func TestVerifyStoreFailsOnAWrongStatus(t *testing.T) {
 	f, srv := newFakeStore(t, SameStorePath)
 	f.answer = map[string]int{WriteCheckout: 200}
-	r := storeReplayer(srv.URL, SameStorePath, 0)
+	r := storeRunner(srv.URL, SameStorePath, 0.2)
 	if err := r.verifyStore(context.Background()); err == nil || !strings.Contains(err.Error(), "check out") {
 		t.Errorf("a checkout that answers 200 passed: %v", err)
 	}
@@ -298,16 +313,7 @@ func TestStorefrontScenariosRunTifaTwiceAndTheOthersOnce(t *testing.T) {
 	}
 }
 
-func TestTheStorefrontReplaysItsOwnFilesAndTifaVariantsReplayTifa(t *testing.T) {
-	if got := SitePlansPath("d", SiteStore, 4); got != "d/plans-store-m4.json" {
-		t.Error(got)
-	}
-	if got := SiteTracePath("d/", "tifa", SiteStore, 4); got != "d/tifa-store-m4.jsonl" {
-		t.Error(got)
-	}
-	if PlansPath("d", 4) != "d/plans-m4.json" || TracePath("d", "tifa", 4) != "d/tifa-m4.jsonl" {
-		t.Error("the files of the workbench changed their names")
-	}
+func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 	env := Env{Shop: "/shop"}
 	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "tifa-nopage": "tifa", "nextjs": "nextjs", "start": "start", "reactrouter": "reactrouter"} {
 		i := slices.IndexFunc(env.Specs(), func(s Spec) bool { return s.Name == name })
@@ -326,35 +332,35 @@ func TestTheStorefrontReplaysItsOwnFilesAndTifaVariantsReplayTifa(t *testing.T) 
 	}
 }
 
-func TestOnlyStorefrontPlansWithATraceForEveryServerAreReplayed(t *testing.T) {
+// The storefront replays its own plans and traces, and refuses a set in which a framework lacks a
+// plan, as the workbench does.
+func TestTheStorefrontReplaysOnlyAWholeSetOfItsOwnTraces(t *testing.T) {
 	dir := t.TempDir()
-	var plans []Plan
-	for i := range 150 {
-		plans = append(plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/store"}}})
-	}
-	data, _ := json.Marshal(plans)
-	os.WriteFile(SitePlansPath(dir, SiteStore, 4), data, 0o644)
+	set := GenerateStorePlanSet(1, 1)
+	data, _ := json.Marshal(set)
+	os.WriteFile(PlansPath(dir, SiteStore), data, 0o644)
 	write := func(framework string, skip int) {
 		var b strings.Builder
-		for i := range 150 {
-			if i != skip {
-				fmt.Fprintf(&b, `{"plan":%d,"steps":[{"kind":"load","page":"/store","reqs":[{"method":"GET","url":"/store","s":0,"e":1,"status":200,"class":"doc"}]}]}`+"\n", i)
+		for _, p := range set.Plans {
+			if p.ID == skip {
+				continue
 			}
+			line, _ := json.Marshal(traceOf(p))
+			b.Write(line)
+			b.WriteString("\n")
 		}
-		os.WriteFile(filepath.Join(dir, framework+"-store-m4.jsonl"), []byte(b.String()), 0o644)
+		os.WriteFile(filepath.Join(dir, framework+"-store.jsonl"), []byte(b.String()), 0o644)
 	}
-	write("tifa", 3)
+	write("tifa", -1)
 	write("nextjs", 9)
-	// Both Tifa servers read the traces of tifa.
-	specs := []Spec{{Target: Target{Name: "tifa-nopage"}, Framework: "tifa"}, {Target: Target{Name: "tifa-nocache"}, Framework: "tifa"}, {Target: Target{Name: "nextjs"}, Framework: "nextjs"}}
-	sets, common, err := loadSets(dir, SiteStore, specs, 4)
-	if err != nil {
-		t.Fatal(err)
+	got, traces, err := LoadTraces(dir, SiteStore, []string{"tifa"})
+	if err != nil || len(traces["tifa"]) != BlockVisits || got.Site != SiteStore {
+		t.Fatalf("a whole set: %v", err)
 	}
-	if common != 148 || len(sets["tifa-nopage"].traces) != 148 || sets["tifa-nocache"].file != "tifa-store-m4.jsonl" {
-		t.Errorf("common %d, %d, file %s", common, len(sets["tifa-nopage"].traces), sets["tifa-nocache"].file)
+	if _, _, err := LoadTraces(dir, SiteStore, []string{"tifa", "nextjs"}); err == nil || !strings.Contains(err.Error(), "nextjs-store.jsonl") {
+		t.Errorf("a set without plan 9 for Next.js: %v", err)
 	}
-	if _, err := os.Stat(PlansPath(dir, 4)); err == nil {
+	if _, err := os.Stat(PlansPath(dir, SiteWorkbench)); err == nil {
 		t.Error("the workbench plans exist in a folder that only had the storefront's")
 	}
 }

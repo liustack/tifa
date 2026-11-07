@@ -1,7 +1,7 @@
 package compare
 
 import (
-	"math"
+	"math/rand/v2"
 	"reflect"
 	"regexp"
 	"slices"
@@ -9,163 +9,197 @@ import (
 	"testing"
 )
 
-func TestPlansAreTheSameForTheSameSeedAndDifferForAnother(t *testing.T) {
-	a := GeneratePlans(7, 50, 4)
-	b := GeneratePlans(7, 50, 4)
-	c := GeneratePlans(8, 50, 4)
-	if !slices.EqualFunc(a, b, func(x, y Plan) bool { return slices.Equal(x.Steps, y.Steps) }) {
-		t.Error("the same seed gave different plans")
+func scenario(t *testing.T, name string) BrowseScenario {
+	t.Helper()
+	sc, ok := BrowseScenarioByName(name)
+	if !ok {
+		t.Fatalf("no scenario %q", name)
 	}
-	if slices.EqualFunc(a, c, func(x, y Plan) bool { return slices.Equal(x.Steps, y.Steps) }) {
-		t.Error("another seed gave the same plans")
-	}
+	return sc
 }
 
-func TestPlanShapes(t *testing.T) {
-	for _, mean := range []float64{4, 2} {
-		plans := GeneratePlans(1, 20000, mean)
-		var views, reloads, later, firstHub int
-		for _, p := range plans {
-			views += len(p.Steps)
-			if p.Steps[0].Kind != StepLoad {
-				t.Fatalf("plan %d starts with %s", p.ID, p.Steps[0].Kind)
-			}
-			if k, _, _ := PageKind(p.Steps[0].Page); k != "order" {
-				firstHub++
-			}
-			for i, s := range p.Steps[1:] {
-				later++
-				cur := p.Steps[i].Page
-				switch s.Kind {
-				case StepReload:
-					reloads++
-					if s.Page != cur {
-						t.Fatalf("plan %d reloads %s on %s", p.ID, s.Page, cur)
-					}
-				case StepClick:
-					if !slices.ContainsFunc(Links(cur), func(l Link) bool { return l.To == s.Page }) {
-						t.Fatalf("plan %d clicks %s on %s, which has no such link", p.ID, s.Page, cur)
-					}
-				default:
-					t.Fatalf("plan %d has a %s step after the first", p.ID, s.Kind)
-				}
-			}
-		}
-		if got := float64(views) / float64(len(plans)); math.Abs(got-mean) > 0.05*mean {
-			t.Errorf("mean %v: %.2f page views a visit", mean, got)
-		}
-		if got := float64(reloads) / float64(later); math.Abs(got-0.1) > 0.01 {
-			t.Errorf("mean %v: %.3f of the later views are reloads, want 0.1", mean, got)
-		}
-		if got := float64(firstHub) / float64(len(plans)); math.Abs(got-0.5) > 0.02 {
-			t.Errorf("mean %v: %.3f of the visits start on a list or stats page, want 0.5", mean, got)
-		}
+func TestPlanSetIsSeededAndBlocksAreBalanced(t *testing.T) {
+	a, b, c := GeneratePlanSet(7, 3), GeneratePlanSet(7, 3), GeneratePlanSet(8, 3)
+	same := func(x, y PlanSet) bool {
+		return slices.EqualFunc(x.Plans, y.Plans, func(p, q Plan) bool { return slices.Equal(p.Steps, q.Steps) })
 	}
-}
-
-func TestEveryPageOfAPlanIsAPageOfTheApps(t *testing.T) {
+	if !same(a, b) || same(a, c) {
+		t.Fatal("the same seed must give the same plans and another seed other plans")
+	}
 	known := map[string]bool{}
 	for _, p := range AllPages() {
 		known[p.URL] = true
 	}
-	for _, p := range GeneratePlans(3, 2000, 4) {
-		for _, s := range p.Steps {
-			if !known[s.Page] {
-				t.Fatalf("plan %d shows %s, which no app serves", p.ID, s.Page)
+	for blk := range 3 {
+		var counts PlanCounts
+		firstHub := 0
+		orders := map[string]int{}
+		for _, p := range a.Plans[blk*BlockVisits : (blk+1)*BlockVisits] {
+			if p.Block != blk {
+				t.Fatalf("plan %d is in block %d", p.ID, p.Block)
+			}
+			counts.Add(p, 0)
+			if p.Steps[0].Kind != StepLoad {
+				t.Fatalf("plan %d starts with %s", p.ID, p.Steps[0].Kind)
+			}
+			if k, _, o := PageKind(p.Steps[0].Page); k == "order" {
+				orders[o]++
+			} else {
+				firstHub++
+			}
+			for i, s := range p.Steps {
+				if !known[s.Page] {
+					t.Fatalf("plan %d shows %s, which no app serves", p.ID, s.Page)
+				}
+				if i > 0 {
+					if s.Kind != StepClick || !slices.ContainsFunc(Links(p.Steps[i-1].Page), func(l Link) bool { return l.To == s.Page }) {
+						t.Fatalf("plan %d: %s -> %s is no click on a link", p.ID, p.Steps[i-1].Page, s.Page)
+					}
+				}
+			}
+		}
+		if counts.Visits != BlockVisits || counts.Views != BlockViews || counts.Loads != BlockVisits || counts.Clicks != BlockViews-BlockVisits {
+			t.Errorf("block %d: %+v", blk, counts)
+		}
+		if counts.ClickShare() != 0.75 {
+			t.Errorf("block %d: click share %v", blk, counts.ClickShare())
+		}
+		if firstHub != 48 {
+			t.Errorf("block %d: %d first pages are lists or stats, want 48", blk, firstHub)
+		}
+		for o, n := range orders {
+			if n != 1 {
+				t.Errorf("block %d: the first page of order %s is used %d times", blk, o, n)
 			}
 		}
 	}
 }
 
-func TestWritesGoToTheThreeOrdersThatAcceptThem(t *testing.T) {
-	plans := GeneratePlans(5, 20000, 4)
-	rare, often := map[[2]int]bool{}, 0
-	views := 0
-	for _, p := range plans {
-		views += len(p.Steps)
-		for _, w := range PlanWrites(5, p, 1.0/20, MixRename) {
-			often++
-			if w.After < 0 || w.After >= len(p.Steps) {
-				t.Fatalf("write after view %d of %d", w.After, len(p.Steps))
+func TestBlockWritesGiveExactlyTheShareOfTheMix(t *testing.T) {
+	set := GeneratePlanSet(3, 2)
+	for _, tc := range []struct {
+		share float64
+		want  int
+	}{{0.05, 20}, {0.20, 95}, {0.50, 380}} {
+		for blk := range 2 {
+			plans := set.Plans[blk*BlockVisits : (blk+1)*BlockVisits]
+			ws, err := BlockWrites(3, plans, BrowseScenario{Share: tc.share, Mix: MixRename})
+			if err != nil {
+				t.Fatal(err)
 			}
-			if !slices.ContainsFunc(WritableOrders, func(o WriteOrder) bool { return o.Order == w.Order.Order }) {
-				t.Fatalf("write to %s", w.Order.Order)
+			if len(ws) != tc.want {
+				t.Fatalf("share %v: %d writes, want %d", tc.share, len(ws), tc.want)
 			}
-		}
-		for _, w := range PlanWrites(5, p, 1.0/500, MixRename) {
-			rare[[2]int{p.ID, w.After}] = true
+			var counts PlanCounts
+			for _, p := range plans {
+				counts.Add(p, 0)
+			}
+			counts.Writes = len(ws)
+			if got := counts.WriteShare(); got < tc.share-1e-9 || got > tc.share+1e-9 {
+				t.Errorf("share %v: achieved %v", tc.share, got)
+			}
+			perOrder := map[string]int{}
+			seen := map[[2]int]bool{}
+			for _, w := range ws {
+				perOrder[w.Order.Order]++
+				if w.Kind != WriteRename || w.Project != w.Order.Project {
+					t.Fatalf("rename write %+v", w)
+				}
+				k := [2]int{w.Plan, w.After}
+				if seen[k] {
+					t.Fatalf("two writes after page view %v", k)
+				}
+				seen[k] = true
+				if w.Plan/BlockVisits != blk || w.After >= len(plans[w.Plan%BlockVisits].Steps) {
+					t.Fatalf("write %+v outside block %d", w, blk)
+				}
+			}
+			lo, hi := 1<<30, 0
+			for _, o := range WritableOrders {
+				lo, hi = min(lo, perOrder[o.Order]), max(hi, perOrder[o.Order])
+			}
+			if hi-lo > 1 {
+				t.Errorf("share %v: writes per order %v", tc.share, perOrder)
+			}
 		}
 	}
-	if got := float64(often) / float64(views); math.Abs(got-0.05) > 0.005 {
-		t.Errorf("write rate %.4f, want 0.05", got)
-	}
-	// The writes of the lower rate are among those of the higher rate, at the same views.
-	for _, p := range plans {
-		high := map[int]bool{}
-		for _, w := range PlanWrites(5, p, 1.0/20, MixRename) {
-			high[w.After] = true
-		}
-		for _, w := range PlanWrites(5, p, 1.0/500, MixRename) {
-			if !high[w.After] {
-				t.Fatalf("plan %d: a write at 1/500 after view %d is not in the writes at 1/20", p.ID, w.After)
-			}
-		}
+	if _, err := BlockWrites(3, set.Plans[:BlockVisits], BrowseScenario{Share: 0.3, Mix: MixRename}); err == nil {
+		t.Error("a share that needs a fraction of a write was accepted")
 	}
 }
 
-func TestFanOutWriteChangesTheCustomerAndTheDefaultOnlyTheAddress(t *testing.T) {
-	o := WritableOrders[0]
-	addr := WriteStep(nodePath, o, 12, false)
-	fan := WriteStep(nodePath, o, 12, true)
-	if !strings.Contains(string(addr.Body), o.Customer) || strings.Contains(string(fan.Body), `"customer":"`+o.Customer+`"`) {
-		t.Errorf("address %s, fan-out %s", addr.Body, fan.Body)
-	}
-	if !strings.Contains(string(fan.Body), Address(12)) || fan.Method != "PATCH" || fan.Write == nil {
-		t.Errorf("fan-out step %+v", fan)
-	}
-}
-
-func TestOfficeWritesFollowTheSharesAndTheProjectsAreEven(t *testing.T) {
-	plans := GeneratePlans(7, 20000, 4)
-	kinds, projects, total := map[string]int{}, map[string]int{}, 0
-	for _, p := range plans {
-		for _, w := range PlanWrites(7, p, 1, MixOffice) {
-			kinds[w.Kind]++
-			projects[w.Project]++
-			total++
-			if w.Plan != p.ID {
-				t.Fatalf("write of plan %d says plan %d", p.ID, w.Plan)
+// The office writes of a block come by quota: the kinds by their shares (largest remainders for
+// what does not divide) and the projects half and half, at the same page views for every mix of
+// writes with the same share.
+func TestOfficeWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
+	set := GeneratePlanSet(7, 2)
+	for _, tc := range []struct {
+		name  string
+		kinds map[string]int
+	}{
+		{"office-w5", map[string]int{WriteCreate: 8, WriteShip: 6, WriteNote: 4, WriteRecipient: 2}},
+		{"office-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
+		{"office-w50", map[string]int{WriteCreate: 152, WriteShip: 114, WriteNote: 76, WriteRecipient: 38}},
+	} {
+		sc := scenario(t, tc.name)
+		for blk := range 2 {
+			plans := set.Plans[blk*BlockVisits : (blk+1)*BlockVisits]
+			ws, err := BlockWrites(7, plans, sc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kinds, projects := map[string]int{}, map[string]int{}
+			for _, w := range ws {
+				kinds[w.Kind]++
+				projects[w.Project]++
+				if w.Order != (WriteOrder{}) || w.Store != nil {
+					t.Fatalf("an office write names its order: %+v", w)
+				}
+			}
+			if !reflect.DeepEqual(kinds, tc.kinds) {
+				t.Errorf("%s block %d: kinds %v, want %v", tc.name, blk, kinds, tc.kinds)
+			}
+			if d := projects["studio"] - projects["weekend"]; d < -1 || d > 1 || projects["studio"]+projects["weekend"] != len(ws) {
+				t.Errorf("%s block %d: projects %v", tc.name, blk, projects)
+			}
+			// The page views are those of the rename mix of the same share.
+			rename, err := BlockWrites(7, plans, BrowseScenario{Share: sc.Share, Mix: MixRename})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range ws {
+				if ws[i].Plan != rename[i].Plan || ws[i].After != rename[i].After {
+					t.Fatalf("%s: write %d after %d/%d, the rename mix after %d/%d", tc.name, i, ws[i].Plan, ws[i].After, rename[i].Plan, rename[i].After)
+				}
 			}
 		}
 	}
-	for _, s := range OfficeShares {
-		if got := float64(kinds[s.Kind]) / float64(total); math.Abs(got-s.Share) > 0.01 {
-			t.Errorf("%s is %.3f of the writes, want %.2f", s.Kind, got, s.Share)
-		}
-	}
-	if kinds[WriteRename] != 0 || len(kinds) != 4 {
-		t.Errorf("kinds %v", kinds)
-	}
-	if got := float64(projects["studio"]) / float64(total); math.Abs(got-0.5) > 0.01 || projects["weekend"]+projects["studio"] != total {
-		t.Errorf("projects %v", projects)
+	a, _ := BlockWrites(7, set.Plans[:BlockVisits], scenario(t, "office-w20"))
+	b, _ := BlockWrites(7, set.Plans[:BlockVisits], scenario(t, "office-w20"))
+	if !reflect.DeepEqual(a, b) {
+		t.Error("two calls give other writes")
 	}
 }
 
-// A lower rate keeps the writes of a higher rate at the same views, whatever they are.
-func TestOfficeWritesOfALowerRateAreAmongTheHigherRatesWithTheSameKind(t *testing.T) {
-	for _, p := range GeneratePlans(7, 3000, 4) {
-		high := map[int]PlannedWrite{}
-		for _, w := range PlanWrites(7, p, 1.0/4, MixOffice) {
-			high[w.After] = w
+func TestQuotaGivesEachKindItsShareAndTheRestByTheLargestRemainder(t *testing.T) {
+	for _, tc := range []struct {
+		n      int
+		shares []float64
+		want   []int
+	}{
+		{95, []float64{0.5, 0.5}, []int{48, 47}},
+		{20, []float64{0.4, 0.3, 0.2, 0.1}, []int{8, 6, 4, 2}},
+		{95, []float64{0.4, 0.3, 0.2, 0.1}, []int{38, 29, 19, 9}},
+		{95, []float64{0.25, 0.35, 0.15, 0.05, 0.10, 0.10}, []int{24, 33, 14, 5, 10, 9}},
+	} {
+		kinds := []string{"a", "b", "c", "d", "e", "f"}[:len(tc.shares)]
+		got := quota(newRand(1), tc.n, kinds, tc.shares)
+		counts := make([]int, len(kinds))
+		for _, k := range got {
+			counts[slices.Index(kinds, k)]++
 		}
-		for _, w := range PlanWrites(7, p, 1.0/19, MixOffice) {
-			if h, ok := high[w.After]; !ok || h != w {
-				t.Fatalf("plan %d view %d: %+v at 1/19, %+v at 1/4", p.ID, w.After, w, h)
-			}
-		}
-		again := PlanWrites(7, p, 1.0/4, MixOffice)
-		if len(again) != len(high) {
-			t.Fatalf("plan %d: two calls differ", p.ID)
+		if !slices.Equal(counts, tc.want) {
+			t.Errorf("%d by %v: %v, want %v", tc.n, tc.shares, counts, tc.want)
 		}
 	}
 }
@@ -209,3 +243,36 @@ func TestOfficeBodiesAreValidAndTheSameEveryTime(t *testing.T) {
 		t.Error("addresses repeat")
 	}
 }
+
+func TestFanOutWriteChangesTheCustomerAndTheDefaultOnlyTheAddress(t *testing.T) {
+	o := WritableOrders[0]
+	addr := WriteStep(nodePath, o, 12, false)
+	fan := WriteStep(nodePath, o, 12, true)
+	if !strings.Contains(string(addr.Body), o.Customer) || strings.Contains(string(fan.Body), `"customer":"`+o.Customer+`"`) {
+		t.Errorf("address %s, fan-out %s", addr.Body, fan.Body)
+	}
+	if !strings.Contains(string(fan.Body), Address(12)) || fan.Method != "PATCH" || fan.Write == nil {
+		t.Errorf("fan-out step %+v", fan)
+	}
+}
+
+func TestEveryWriteGivesANewCustomerName(t *testing.T) {
+	seen := map[string]int{}
+	for n := 0; n < 20000; n++ {
+		name := CustomerName(n)
+		if prev, ok := seen[name]; ok {
+			t.Fatalf("writes %d and %d give the same customer name %q", prev, n, name)
+		}
+		seen[name] = n
+		if strings.TrimSpace(name) == "" || len([]rune(name)) > 40 {
+			t.Fatalf("name %q", name)
+		}
+	}
+	// The write step carries it, for every order, so a name never comes back after other writes.
+	a, b := WriteStep(nodePath, WritableOrders[0], 1, true), WriteStep(nodePath, WritableOrders[0], 7, true)
+	if string(a.Body) == string(b.Body) || a.Write.Customer == b.Write.Customer {
+		t.Errorf("writes 1 and 7 (the same surname before) give the same body: %s %s", a.Body, b.Body)
+	}
+}
+
+func newRand(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, 0)) }

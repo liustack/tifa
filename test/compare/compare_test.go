@@ -518,6 +518,24 @@ func TestFanOutWriteChangesListsStatsAndOtherOrders(t *testing.T) {
 			}
 			after[spec.Name] = append(after[spec.Name], v)
 		}
+		// A second write to the same order with the surname of the first (n=7, 1 and 7 share it): the
+		// list and the stats must change again, since no write returns them to an earlier state.
+		second := map[string]compare.View{}
+		for _, p := range pages[:2] {
+			second[p.Name] = after[spec.Name][indexOf(pages, p.Name)]
+		}
+		if err := compare.Send(ctx, server.Base, compare.WriteStep(spec.Write, compare.WritableOrders[0], 7, true)); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range pages[:2] {
+			body, err := compare.Fetch(server.Base, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if compare.Diff(second[p.Name], compare.ParseView(body)) == "" {
+				t.Errorf("%s: %s is the same after a second write with the same surname", spec.Name, p.Name)
+			}
+		}
 		server.Stop()
 	}
 	for name, views := range after {
@@ -530,4 +548,13 @@ func TestFanOutWriteChangesListsStatsAndOtherOrders(t *testing.T) {
 	if len(after) < 4 {
 		t.Errorf("only %d servers were checked", len(after))
 	}
+}
+
+func indexOf(pages []compare.Page, name string) int {
+	for i, p := range pages {
+		if p.Name == name {
+			return i
+		}
+	}
+	return -1
 }

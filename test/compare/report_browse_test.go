@@ -1,0 +1,205 @@
+package compare
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func closedRound(fw, sc string, users, round int, views int, seconds float64, pass bool) Round {
+	return Round{Framework: fw, Scenario: sc, Model: "closed", Users: users, Round: round, Blocks: 4, Visits: views / 4, PageViews: views, FullLoads: views / 4, Clicks: views * 3 / 4,
+		Writes: views / 19, WriteShare: 0.05, ClickShare: 0.75, ViewsPerVisit: 4, Seconds: seconds, DrainSeconds: 1.5, CPUSeconds: seconds / 2, PeakRSS: 100, Requests: views * 2, Bytes: int64(views) * 4096,
+		Responses: map[string]int{"doc 200 text/html": views / 4, "nav 200 application/json": views * 3 / 4, "write 200 application/json": views / 19},
+		Renders:   map[string]int{"vm": 3, "cache": views/4 - 3},
+		Types:     map[string]TypeStat{"load": {N: 100, P50: 4, P99: 30}, "click": {N: 300, P50: 2, P99: 15}, "write": {N: 20, P50: 5, P99: 9}},
+		Valid:     true, Pass: pass, Why: map[bool]string{true: "", false: "click P99 1200 ms over 1000 ms"}[pass]}
+}
+
+func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
+	mix := BrowseScenarios[0]
+	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{
+		"office-w5/tifa": {Rate: 400, Done: true}, "office-w5/nextjs": {Rate: 16, Done: true}},
+		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"}}
+	for round := 1; round <= 3; round++ {
+		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 32, round, 4000, 10, true), closedRound("nextjs", mix.Name, 32, round, 400, 10, round != 2))
+		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 8, round, 3000, 10, true), closedRound("nextjs", mix.Name, 8, round, 380, 10, true))
+		l := closedRound("tifa", mix.Name, 0, round, 1000, 100, true)
+		l.Framework, l.Model, l.Rate = "tifa", "open", 8
+		r.Latency = append(r.Latency, l)
+	}
+	md := r.Markdown()
+	for _, want := range []string{
+		"### back office, reads 95% / writes 5%",
+		"| | 8 users | 32 users |",
+		"| Tifa | 300.0 | 400.0 |",
+		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
+		"The slowest server of this scenario (Next.js) therefore sets the rate",
+		"Every server gets 8.00 visits/s",
+		"| Tifa | 400.00 | 1600 |",
+		"What one visit costs the server",
+		"What the server did a second:",
+		"| Tifa | 100.0 | 300.0 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+}
+
+func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
+	mix := BrowseScenarios[0]
+	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
+		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"},
+		Sustain: map[string]*Sustain{"office-w5/nextjs": {Rate: 16, Done: true}, "office-w5/tifa": {Done: true, Note: "no rate passed"}}}
+	for round := 1; round <= 3; round++ {
+		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
+		a.Model = "open"
+		if round == 2 {
+			a.TimedOut = true
+			a.Why = "the workload did not finish in time: a backlog was left"
+			a.Types["load"] = TypeStat{N: 5, P50: 3000, P99: 3000}
+		}
+		r.Latency = append(r.Latency, a)
+		b := closedRound("tifa", mix.Name, 0, round, 1000, 100, false)
+		b.Model, b.Framework = "open", "tifa"
+		r.Latency = append(r.Latency, b)
+	}
+	md := r.Markdown()
+	for _, want := range []string{"| Next.js | 4.0 / 30 (200)", "2 of 3 rounds, the failed ones left out: round 2 failed: the workload did not finish in time", "| Tifa | failed | failed | failed |", "| Tifa | none in range | - | no rate passed |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "3000") {
+		t.Error("a failed round's percentiles are in the table")
+	}
+}
+
+// TestBrowseStampBindsWhatItShould checks that the lines of the stamps that browse.sh prints name the
+// sources, the executables that run, the replayer and the trace files: a stamp that leaves one out
+// lets a stale trace or result be used.
+func TestBrowseStampBindsWhatItShould(t *testing.T) {
+	env, err := NewEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	run := func(scenarios string, args ...string) string {
+		cmd := exec.Command("bash", append([]string{filepath.Join(env.Root, "test", "compare", "browse.sh")}, args...)...)
+		cmd.Dir = env.Root
+		cmd.Env = append(os.Environ(), "BROWSE_OUT="+out, "SCENARIOS="+scenarios)
+		data, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("browse.sh %s: %v\n%s", args, err, data)
+		}
+		return string(data)
+	}
+	trace := run("r80w20", "stamp")
+	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site workbench\n", "plans none\n"} {
+		if !strings.Contains(trace, want) {
+			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
+		}
+	}
+	// The storefront has a stamp of its own, bound to its own plans.
+	os.MkdirAll(filepath.Join(out, "traces"), 0o755)
+	os.WriteFile(filepath.Join(out, "traces", "plans-store.json"), []byte("{}"), 0o644)
+	store := run("r80w20", "stamp", "store")
+	if !strings.Contains(store, "site store\n") || strings.Contains(store, "plans none") {
+		t.Errorf("the storefront stamp:\n%s", store)
+	}
+	if !strings.Contains(run("r80w20", "stamp"), "plans none\n") {
+		t.Error("the workbench stamp is bound to the plans of the storefront")
+	}
+	results := run("r80w20", "runstamp")
+	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "scenarios=r80w20 ", "go ", "node "} {
+		if !strings.Contains(results, want) {
+			t.Errorf("the result stamp lacks %q:\n%s", want, results)
+		}
+	}
+	// A result with the storefront scenarios is bound to the storefront traces too.
+	first := func(s string) string { line, _, _ := strings.Cut(s, "\n"); return line }
+	if first(run("r80w20,store-w5", "runstamp")) == first(results) {
+		t.Error("the result stamp of a run with the storefront is not bound to its traces")
+	}
+}
+
+// Every scenario gets its own closed and open tables with its own servers: the storefront has the
+// two Tifa servers, and each scenario its own rate.
+func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
+	var scs []BrowseScenario
+	for _, name := range strings.Split(DefaultScenarios, ",") {
+		sc, _ := BrowseScenarioByName(name)
+		scs = append(scs, sc)
+	}
+	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
+	for i, sc := range scs {
+		servers := browseServers(sc, BrowseFrameworks)
+		r.Servers[sc.Name] = servers
+		r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = float64(i+2), "nextjs"
+		for j, f := range servers {
+			r.Sustain[sustainKey(sc.Name, f)] = &Sustain{Rate: float64(10 * (j + 1)), Done: true}
+			x := closedRound(f, sc.Name, 32, 1, 4000, 10, true)
+			x.WriteKinds = map[string]int{WriteCreate: 40, WriteShip: 30, WriteAdd: 50, WriteCheckout: 20}
+			x.Orders = map[string]int{"studio": 82, "weekend": 12}
+			r.Closed = append(r.Closed, x)
+			l := closedRound(f, sc.Name, 0, 1, 1000, 100, true)
+			l.Model, l.Rate = "open", float64(i+2)
+			r.Latency = append(r.Latency, l)
+		}
+	}
+	md := r.Markdown()
+	sections := strings.Split(md, "\n### ")
+	for i, sc := range scs {
+		var sec string
+		for _, s := range sections {
+			if strings.HasPrefix(s, sc.Title+"\n") {
+				sec = s
+			}
+		}
+		if sec == "" {
+			t.Fatalf("no section for %s:\n%s", sc.Title, md)
+		}
+		for _, want := range []string{"#### Page views a second at the same number of users", "#### 32 users", "#### The arrival rate each server sustains", "#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))} {
+			if !strings.Contains(sec, want) {
+				t.Errorf("%s lacks %q", sc.Name, want)
+			}
+		}
+		for _, f := range r.Servers[sc.Name] {
+			if !strings.Contains(sec, "| "+BrowseLabel(f)+" |") {
+				t.Errorf("%s has no row for %s", sc.Name, f)
+			}
+		}
+		switch sc.Mix {
+		case MixOffice:
+			if !strings.Contains(sec, "| place an order | ship |") || !strings.Contains(sec, "| 82 / 12 |") {
+				t.Errorf("%s lacks the table of office writes:\n%s", sc.Name, sec)
+			}
+		case MixStore:
+			if !strings.Contains(sec, "| add to cart |") || !strings.Contains(sec, "| Tifa (whole-page cache off) |") || !strings.Contains(sec, "| Tifa (cache off) |") {
+				t.Errorf("%s lacks the table of store writes or a Tifa row:\n%s", sc.Name, sec)
+			}
+		}
+	}
+	for _, want := range []string{"In the back office scenarios", "In the scenarios named for a customer rename", "The storefront scenarios replay"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q", want)
+		}
+	}
+}
+
+func TestReportTellsABrowseResultFromARecord(t *testing.T) {
+	data, err := (&BrowseResult{}).json()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsBrowseResult(data) {
+		t.Error("a browse result is not one")
+	}
+	if IsBrowseResult([]byte(`{"date":"x","runs":[]}`)) {
+		t.Error("a record of measure is a browse result")
+	}
+}

@@ -3,17 +3,19 @@
 // and nothing outside the area being recorded: the workbench (/projects) or the store (/store and
 // /zh-CN/store). A request that carries a body is kept with the body the browser sent.
 //
-//   node record.mjs --base http://127.0.0.1:3000 --plans plans.json --out trace.jsonl [--workers 4] [--area workbench|store]
+//   node record.mjs --base http://127.0.0.1:3000 --plans plans.json --out trace.jsonl [--workers 4] [--limit 100] [--area workbench|store]
 //   node record.mjs --base http://127.0.0.1:3000 --crawl pages.json --out links.json
 //
 // --crawl opens each page of the list in pages.json (an array of URL paths) and writes, for each, the
 // links on it that lead to another page of the list, as the href attribute reads, so that the plans
 // of the store click links that exist.
-
+//
 // Each visit gets a fresh browser context (no cookies, no cache), a 1280x800 viewport, no hover (the
-// mouse rests in a corner between steps), real clicks on the links of the page and the browser's own
-// reload. Requests are timed from the start of their step, so that the replay can keep the
-// order and the parallelism the browser had.
+// mouse rests in a corner between steps) and real clicks on the links of the page. Requests are
+// timed from the start of their step, so that the replay keeps the order and the parallelism the
+// browser had. A request the browser cancels is kept with when and why (cancel), so that the replay
+// cancels it at the same offset instead of reading it to the end. Anything that goes wrong while
+// recording a visit makes that visit's trace invalid: it is written with an error and left out.
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 
@@ -25,7 +27,7 @@ const base = arg('base')
 const area = arg('area', 'workbench')
 if (!['workbench', 'store'].includes(area)) throw new Error('--area is workbench or store')
 const crawl = arg('crawl')
-const plans = crawl ? [] : JSON.parse(fs.readFileSync(arg('plans'), 'utf8'))
+const plans = crawl ? [] : JSON.parse(fs.readFileSync(arg('plans'), 'utf8')).plans
 const workers = Number(arg('workers', '4'))
 const limit = Number(arg('limit', String(plans.length)))
 if (!base) throw new Error('--base is required')
@@ -34,6 +36,7 @@ const keepHeader = /^(accept|rsc|next-router-.*|next-url|x-tsr-.*|x-react-router
 const within = (ms, p) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))])
 const QUIET_MS = 450
 const CAP_MS = 6000
+const NAV_WINDOW_MS = 200
 
 const inStore = (path) => /^(\/zh-CN)?\/store(\/|$)/.test(path)
 const wanted = (req) => {
@@ -47,61 +50,75 @@ async function visit(browser, plan) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
   const page = await context.newPage()
   const steps = []
+  const recs = new Map() // request -> record
   let cur = null
+  let over = false // the visit is over: events of the closing context mean nothing
   let inflight = 0
   let lastActivity = Date.now()
-  const pending = []
+  const navAt = []
+  const headerJobs = []
+  page.on('framenavigated', () => navAt.push(Date.now()))
   page.on('request', (req) => {
-    if (!wanted(req) || !cur) return
+    if (over || !wanted(req) || !cur) return
+    const step = cur
     // Prefetches do not hold the page back: the browser may keep one open for a long time.
     const ahead = Boolean(req.headers()['next-router-prefetch'])
-    if (!ahead) inflight++
-    lastActivity = Date.now()
-    const rec = { method: req.method(), url: req.url().replace(new URL(req.url()).origin, ''), s: Date.now() - cur.t0, type: req.resourceType() }
-    const early = req.headers()
-    rec.headers = Object.fromEntries(Object.entries(early).filter(([k]) => keepHeader.test(k)))
+    const rec = {
+      method: req.method(),
+      url: req.url().replace(new URL(req.url()).origin, ''),
+      headers: Object.fromEntries(Object.entries(req.headers()).filter(([k]) => keepHeader.test(k))),
+      inm: false,
+      s: Date.now() - step.t0,
+      status: 0,
+      class: req.resourceType() === 'document' ? 'doc' : ahead ? 'prefetch' : 'nav',
+      step,
+      ahead,
+      open: true,
+    }
     const body = req.postData()
     if (body) rec.body = body
-    rec.inm = false
-    rec.class = rec.type === 'document' ? 'doc' : ahead ? 'prefetch' : 'nav'
-    cur.reqs.push(rec)
-    // The step this request belongs to, not the one that is current when the browser ends it.
-    const step = cur
-    let finished = false
-    const done = (status) => {
-      if (finished) return // a request ends once, whether the browser or the time limit says so first
-      finished = true
-      if (!ahead) inflight--
-      lastActivity = Date.now()
-      rec.e = Date.now() - step.t0
-      rec.status = status
+    if (!ahead) inflight++
+    lastActivity = Date.now()
+    recs.set(req, rec)
+    step.reqs.push(rec)
+  })
+  const close = (rec) => {
+    if (!rec.open) return false
+    rec.open = false
+    if (!rec.ahead) inflight--
+    lastActivity = Date.now()
+    rec.e = Date.now() - rec.step.t0
+    return true
+  }
+  const headers = (req, rec) =>
+    headerJobs.push(
+      within(3000, req.allHeaders().catch(() => ({}))).then((all) => {
+        if (!all) return
+        // Add to the headers seen when the request was made: when the browser's own list cannot be
+        // had, the router headers must not be lost.
+        Object.assign(rec.headers, Object.fromEntries(Object.entries(all).filter(([k]) => keepHeader.test(k))))
+        rec.inm = 'if-none-match' in all
+        if (all['next-router-prefetch'] || /prefetch/i.test(all['sec-purpose'] ?? '')) rec.class = 'prefetch'
+      }),
+    )
+  page.on('response', (res) => {
+    const rec = recs.get(res.request())
+    if (rec && rec.responded === undefined) {
+      rec.responded = Date.now() - rec.step.t0
+      rec.status = res.status()
     }
-    const p = (async () => {
-      const finish = within(
-        8000,
-        req.response().then(
-          async (res) => {
-            await within(8000, res?.finished().catch(() => {}))
-            done(res ? res.status() : 0)
-            return res
-          },
-          () => (done(0), null),
-        ),
-      )
-      const res = await finish
-      done(0) // does nothing when the browser has finished it; else it was cancelled
-      const all = (await within(3000, req.allHeaders().catch(() => ({})))) ?? {}
-      // Add to the headers seen when the request was made: when the browser's own list cannot be had
-      // (it times out for a request the browser cancelled), the router headers must not be lost.
-      Object.assign(rec.headers, Object.fromEntries(Object.entries(all).filter(([k]) => keepHeader.test(k))))
-      rec.inm = 'if-none-match' in all
-      if (res && res.status() === 0) rec.failed = true
-      if (all['next-router-prefetch'] || /prefetch/i.test(all['sec-purpose'] ?? '')) rec.class = 'prefetch'
-    })()
-    pending.push(p)
+  })
+  page.on('requestfinished', (req) => {
+    const rec = recs.get(req)
+    if (rec && close(rec)) headers(req, rec)
   })
   page.on('requestfailed', (req) => {
-    // A request the browser cancels (Next.js does it to its prefetches once it has what it wants).
+    const rec = recs.get(req)
+    if (!rec || over || !close(rec)) return
+    rec.cancel = req.failure()?.errorText || 'failed'
+    const t = Date.now()
+    rec.afterNav = navAt.some((n) => t - n >= 0 && t - n <= NAV_WINDOW_MS)
+    headers(req, rec)
   })
   const settle = async () => {
     const start = Date.now()
@@ -109,9 +126,15 @@ async function visit(browser, plan) {
       await page.waitForTimeout(100)
       if (inflight === 0 && Date.now() - lastActivity >= QUIET_MS) break
     }
-    await within(2000, Promise.allSettled(pending.splice(0)))
-    // A request the browser has not finished by now (a prefetch it left open) ends with the step.
-    for (const r of cur.reqs) if (r.e === undefined) ((r.e = Date.now() - cur.t0), (r.status = r.status ?? 0))
+    // A request the browser has not finished by now (a prefetch it left open) is cancelled with the
+    // page view, as far as this recording goes.
+    for (const rec of cur.reqs) {
+      if (rec.open) {
+        close(rec)
+        rec.cancel = 'open-at-end'
+      }
+    }
+    await within(3000, Promise.allSettled(headerJobs.splice(0)))
   }
   const begin = (kind, target) => {
     cur = { kind, page: target, t0: Date.now(), reqs: [] }
@@ -122,8 +145,6 @@ async function visit(browser, plan) {
       begin(step.kind, step.page)
       if (step.kind === 'load') {
         await page.goto(base + step.page)
-      } else if (step.kind === 'reload') {
-        await page.reload()
       } else {
         const link = page.locator(`a[href="${step.page}"]:visible`).first()
         if ((await link.count()) === 0) throw new Error(`step ${i}: no link to ${step.page} on ${new URL(page.url()).pathname}`)
@@ -135,8 +156,18 @@ async function visit(browser, plan) {
       const shown = ((u) => u.pathname + u.search)(new URL(page.url()))
       if (shown !== step.page) throw new Error(`step ${i}: shows ${shown}, want ${step.page}`)
     }
-    return { plan: plan.id, steps: steps.map((s) => ({ kind: s.kind, page: s.page, reqs: s.reqs.filter((r) => r.class).sort((a, b) => a.s - b.s) })) }
+    over = true
+    const done = steps.map((s) => ({
+      kind: s.kind,
+      page: s.page,
+      reqs: s.reqs
+        .map(({ step, ahead, open, ...r }) => r)
+        .sort((a, b) => a.s - b.s),
+    }))
+    for (const s of done) for (const r of s.reqs) if (r.e === undefined) throw new Error(`a request of ${s.page} never ended`)
+    return { plan: plan.id, steps: done }
   } catch (e) {
+    over = true
     return { plan: plan.id, error: String(e).slice(0, 300) }
   } finally {
     await context.close()
