@@ -74,9 +74,17 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir, site string, server
 				args = append(args, "--limit", strconv.Itoa(limit))
 			}
 			err = run(ctx, log, recorder, nil, "pnpm", args...)
+			// A server that stopped during the recording fails every visit after it with a refused
+			// connection, and only its own output says why.
+			stopped := ""
+			select {
+			case <-server.exited:
+				stopped = fmt.Sprintf("\n%s stopped during the recording:\n%s", name, server.out)
+			default:
+			}
 			server.Stop()
 			if err != nil {
-				return fmt.Errorf("%s, mean %d: %w", name, mean, err)
+				return fmt.Errorf("%s, mean %d: %w%s", name, mean, err, stopped)
 			}
 		}
 	}
