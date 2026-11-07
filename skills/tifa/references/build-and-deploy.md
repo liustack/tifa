@@ -77,7 +77,7 @@ Common settings (full table in config.md):
 
 Sizes are whole numbers with `B`, `KiB`, `MiB` or `GiB`. Durations use Go's format (`500ms`, `3s`). A bad value stops the program before `OnStart`, listing every one. A flag that is no setting stops the program. Keys and variables that are no setting are left alone, so a misspelt name there changes nothing. `build.*` keys are read only from `tifa.yaml`. `./bin/app config` prints every setting with its value and its source, as a commented file that is a good start for a deployment file.
 
-The app defines its own settings in `config.go` at the root, as package-level variables, and reads them as plain values:
+The app defines its own options in `options.go` at the root, as package-level variables, and reads them as plain values:
 
 ```go
 var DBURL = tifa.String("db.url", "app.db", "Database file") // --db-url, DB_URL

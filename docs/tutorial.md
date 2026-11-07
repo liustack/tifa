@@ -63,7 +63,7 @@ Every folder under `app/` is a URL, and the files in it say what the URL does:
 | `app/todos/todo.go` | The todos domain: the type and the SQLite queries, next to the pages that use it |
 | `app/todos/todo+/` | `/todos/{todo}`. A folder that ends in `+` is a URL parameter, read with `c.Param("todo")` |
 | `app/about/page.tsx` | A page that needs no data: `page.tsx` alone |
-| `db.go`, `sessions.go`, `hooks.go`, `config.go` | At the root: what the whole app shares, such as the database and the store that keeps sessions in it |
+| `db.go`, `sessions.go`, `hooks.go`, `options.go` | At the root: what the whole app shares, such as the database and the store that keeps sessions in it |
 
 See [Writing an app](app.md#folders) and [Structuring an app](structure.md).
 

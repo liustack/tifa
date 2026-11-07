@@ -1,7 +1,7 @@
 ---
 summary: 'Every setting of a Tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
-  - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
+  - Defining an option of the app with tifa.String and the like, or reading one in OnStart
   - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
   - An upload, a download or a stream is cut off after about 10 seconds, or a handler needs longer than the read and write timeouts
@@ -32,7 +32,7 @@ From highest to lowest priority:
 3. The `.env` file in the folder the program runs in.
 4. The deployment file given with `-c path.yaml` (or `--config path.yaml`).
 5. The project file `tifa.yaml` in the app root. `tifa build` reads it and builds its values into the program.
-6. The defaults: those in the table below for the settings of Tifa, those in `config.go` for the [settings of the app](#settings-of-the-app).
+6. The defaults: those in the table below for the settings of Tifa, those in `options.go` for the [options of the app](#options-of-the-app).
 
 A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of Tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
@@ -51,7 +51,7 @@ cache:
   size: 128MiB
 ```
 
-Run `./bin/app config` to print every setting, of Tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file. It leaves out the values of the app's secrets ([`tifa.Secret`](#settings-of-the-app)).
+Run `./bin/app config` to print every setting, of Tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file. It leaves out the values of the app's secrets ([`tifa.Secret`](#options-of-the-app)).
 
 ### Names
 
@@ -138,12 +138,12 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
 
-## Settings of the app
+## Options of the app
 
-An app defines its own settings in `config.go` at its root, as package-level variables:
+An app defines its own options in `options.go` at its root, as package-level variables:
 
 ```go
-// config.go
+// options.go
 package shop
 
 import (
@@ -167,13 +167,13 @@ var (
 - The value comes from the same sources as the settings of Tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of Tifa.
 - The types: `String` (`string`), `Strings` (`[]string`), `Int` (`int`), `Bool` (`bool`), `Duration` (`time.Duration`) and `Size` (`int64` bytes). Their values are written as for the settings of Tifa, see [Value formats](#value-formats). `Strings` is comma-separated text, such as `FEED_HOSTS=a.example,b.example`.
 - `Secret` (`string`) is for a password, a token or a key. It has no default and is empty when no source sets it. It comes from the environment variable, `.env` or the file of `-c`, and not from a flag: a flag shows in the process list to every user of the machine, so the program refuses one and says where to put the value. `./bin/app config` writes where it came from and leaves the value out, as the comment `# api_key: (hidden)`. An error about a secret, such as an unquoted number in the file, names the key and the source but not the value. Put a secret that starts with `*`, `!`, `&` or another YAML sign in quotes.
-- Values are single values. Structured data goes into a file of the app, and a setting holds its path.
-- An invalid value gives the default, and the program lists it with the other invalid settings and stops before `OnStart`.
-- In `go test` the settings keep their defaults, whatever the flags, variables and `.env` are.
+- Values are single values. Structured data goes into a file of the app, and an option holds its path.
+- An invalid value gives the default, and the program lists it with the other invalid settings and options and stops before `OnStart`.
+- In `go test` the options keep their defaults, whatever the flags, variables and `.env` are.
 - The packages that the root package imports cannot read these variables (it would be an import cycle): `OnStart` passes the values to them, such as `store.Open(DBURL)`.
 - An app that needs more can run its own configuration in `OnStart`.
 
-`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `config.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of Tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of Tifa. The program panics on the same mistakes if they get past the build.
+`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `options.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of Tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of Tifa. The program panics on the same mistakes if they get past the build. Apps from before the file was renamed have `config.go`: the build also fails, naming it, when `tifa.String` and the like are still there, so rename it to `options.go`.
 
 ## Render queue
 

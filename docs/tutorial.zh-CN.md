@@ -63,7 +63,7 @@ tifa dev: 19:57:44 ready in 804ms
 | `app/todos/todo.go` | 待办这个域：类型和 SQLite 查询，与用到它们的页面放在一起 |
 | `app/todos/todo+/` | `/todos/{todo}`。以 `+` 结尾的目录是 URL 参数，用 `c.Param("todo")` 读取 |
 | `app/about/page.tsx` | 不需要数据的页面：只有 `page.tsx` |
-| `db.go`、`sessions.go`、`hooks.go`、`config.go` | 放在根目录：整个应用共用的东西，比如数据库，以及把会话存进数据库的存储 |
+| `db.go`、`sessions.go`、`hooks.go`、`options.go` | 放在根目录：整个应用共用的东西，比如数据库，以及把会话存进数据库的存储 |
 
 详见[编写应用](app.zh-CN.md#目录)和[应用的代码结构](structure.zh-CN.md)。
 

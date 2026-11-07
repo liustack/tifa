@@ -29,10 +29,10 @@ go get github.com/wneessen/go-mail@v0.8.1
 
 ## 设置
 
-主机、端口和密码在每台机器上都不同，所以它们是应用的设置（见[应用的配置](../config.zh-CN.md#应用的配置)）：
+主机、端口和密码在每台机器上都不同，所以它们是应用的选项（见[应用的选项](../config.zh-CN.md#应用的选项)）：
 
 ```go
-// config.go
+// options.go
 var (
 	// SMTPHost is the mail server. Empty means mail is written to the log and not sent.
 	SMTPHost = tifa.String("smtp.host", "", "SMTP server host, empty to log mail instead of sending it")
@@ -210,7 +210,7 @@ func AddTodo(ctx context.Context, title string) (Todo, error) {
 }
 ```
 
-`MailNotify` 是又一项设置（`tifa.String("mail.notify", "", ...)`）：为空就不发。事务一提交，处理函数就回答。待办和它的邮件要么都保存，要么都不保存。
+`MailNotify` 是又一个选项（`tifa.String("mail.notify", "", ...)`）：为空就不发。事务一提交，处理函数就回答。待办和它的邮件要么都保存，要么都不保存。
 
 发给访客的邮件，比如收据，用同样的方式排队，`To` 里放访客的地址。访客主动要的邮件（密码重置）也仍然是任务：页面说「已发送」，邮件一秒后到。
 

@@ -31,7 +31,7 @@ read_when:
 myapp/
   go.mod
   hooks.go                          进程与请求钩子（可选）
-  config.go                         应用的配置，见配置文档（可选）
+  options.go                        应用的选项，见配置文档（可选）
   db.go                             整个应用共享的资源：包级变量和函数（可选）
   app/
     route.go  layout.tsx            根 Layout（route.go 里的 Layout），套到所有页面，以及 /（route.go 里的 GET）
@@ -205,7 +205,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 
 - `BodyLimit` 是字节数，任何整数类型都行。请求体超过它时答 413，处理函数不执行。上限算的是整个请求体：文件、其他字段和 multipart 的分隔部分。
 - `ReadTimeout` 是 `time.Duration`。从 Tifa 匹配到路由时开始算，在 `OnRequest` 之前，只管这一个请求。回答在这之后再有 `server.write_timeout` 的时间，因为回答要等请求体收完才写。时间到了请求体还没收完，答 408。
-- 两者都可以是常量（必须大于 0），也可以是变量，比如[应用的配置](config.zh-CN.md#应用的配置)：`var BodyLimit = uploads.UploadLimit`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。变量在应用启动时读一次。变量为 0 时用配置，为负数时应用启动就停下。
+- 两者都可以是常量（必须大于 0），也可以是变量，比如[应用的选项](config.zh-CN.md#应用的选项)：`var BodyLimit = uploads.UploadLimit`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。变量在应用启动时读一次。变量为 0 时用配置，为负数时应用启动就停下。
 - 没有方法函数的 `route.go` 声明其中任何一个都会构建报错。页面的 `route.go` 有 POST 时可以声明，它们作用于 POST。
 - `OnRequest` 或处理函数里的 `c.SetBodyLimit` 照旧可以改单个请求的上限。
 
@@ -967,7 +967,7 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 
 - 程序里跑的都会跑：`OnStart`（拿测试的 context）、`OnRequest`、解码入参、`Validate` 和它的 422、会话、重定向和 `OnError`。测试结束时，服务器等进行中的请求做完，再跑 `OnShutdown`。
 - `srv.Client()` 信任服务器的证书，记下服务器设的 cookie，不跟随重定向，所以测试能看到每个 3xx 和它的 `Location`。
-- 服务器在本机上用 HTTPS 监听。Tifa 的设置和程序一样，来自默认值和 `tifa.yaml`，只有地址和 HTTPS 不同。应用自己的设置保持默认值，因为命令行参数和环境变量到不了测试里，所以在 `Start` 之前直接设变量：`myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`。
+- 服务器在本机上用 HTTPS 监听。Tifa 的设置和程序一样，来自默认值和 `tifa.yaml`，只有地址和 HTTPS 不同。应用的选项保持默认值，因为命令行参数和环境变量到不了测试里，所以在 `Start` 之前直接设变量：`myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`。
 - 没有前端时，页面把它的 `Load` 和 `Layout` 函数的结果按路由 ID 以 JSON 回答：`{"app/layout": …, "app/projects/project+/stats/route": …}`。方法函数的回答和程序里一样。
 - 每次 `Start` 都新建一个服务器，会话也是它自己的，除非 `OnStart` 设了存储。会话存储、`SetHTTPHandler` 和内容都属于进程，所以一个测试二进制同一时间只能跑一个应用，调用 `Start` 的测试不能调用 `t.Parallel`。
 - `.tifa/tifaapp` 是按和现在代码不同的路由生成的，`Start` 就让测试失败。重新跑 `go tool tifa check`，或者开着 `tifa dev`。刚 clone 下来的仓库没有 `.tifa`，在 `tifa check` 写出它之前，`go vet`、`go test` 和 `go mod tidy` 都会因为这个导入失败。`tifa check` 先生成代码再跑 `go vet` 和 `go test`，所以直接跑它就行。

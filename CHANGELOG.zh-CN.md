@@ -12,6 +12,7 @@
 
 ### 变更
 
+- 应用用 `tifa.String` 等定义自己的选项的文件，现在叫 `options.go`，不再是 `config.go`（见[应用的选项](docs/config.zh-CN.md#应用的选项)）。已有的应用：用一次 `git mv` 把 `config.go` 改名为 `options.go`。`config.go` 里还有 `tifa.String` 等调用时，构建会失败，报出文件名并说明要改名。应用在这里定义的东西现在叫应用的选项，Tifa 的配置指 `tifa.yaml` 里的那些。
 - [性能文档](docs/performance.zh-CN.md#和三个-node-框架比)和 README 现在除了 Next.js 和 TanStack Start，也和 React Router 比，并且像浏览器那样带上 gzip 来测。新的[渲染缓存文档](docs/render-cache.zh-CN.md)讲清渲染缓存是什么，为什么对所有页面（包括登录后的页面）都安全，以及每类响应里 Tifa 怎么处理 Cookie、会话和 `Authorization`。
 - 客户端同时接受 gzip 和 zstd 时（浏览器发 `Accept-Encoding: gzip, deflate, br, zstd`），现在得到 gzip。只有客户端不接受 gzip，或者用 `q` 给 zstd 更高优先级时才发 zstd。页面、缓存的页面、导航数据和 `server.compress` 压缩的其他回答都一样。
 - 渲染缓存和整页缓存对每个页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。以前一个页面存 HTML 加 gzip 和 zstd 两份压缩，而且每次没命中都压两次，占一次没命中约 8% 的时间。现在只压一次，页面在缓存里大约只占 HTML 的五分之一，接受 gzip 的客户端命中时直接发存好的字节。不接受压缩的客户端得到边写边解压的 HTML，带 `Content-Length`。不接受 gzip 只接受 zstd、或给 zstd 更高 `q` 的客户端，得到边写边做出的 zstd。
