@@ -123,16 +123,16 @@ type browseSet struct {
 	drop   int
 }
 
-func loadBrowseSet(dir, spec string, mean int) (*browseSet, error) {
+func loadBrowseSet(dir, site string, spec Spec, mean int) (*browseSet, error) {
 	var plans []Plan
-	data, err := os.ReadFile(PlansPath(dir, mean))
+	data, err := os.ReadFile(SitePlansPath(dir, site, mean))
 	if err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(data, &plans); err != nil {
 		return nil, err
 	}
-	file := TracePath(dir, spec, mean)
+	file := SiteTracePath(dir, traceName(spec), site, mean)
 	traces, dropped, err := ReadTraces(file)
 	if err != nil {
 		return nil, err
@@ -144,14 +144,14 @@ func loadBrowseSet(dir, spec string, mean int) (*browseSet, error) {
 	return set, nil
 }
 
-// loadSets loads the traces of every spec for a visit length and keeps, in each, only the plans
+// loadSets loads the traces of every spec for a site and a visit length and keeps, in each, only the plans
 // that all of them have a trace for, so that every server replays the same visits. It returns how
 // many plans that is.
-func loadSets(dir string, specs []Spec, mean int) (map[string]*browseSet, int, error) {
+func loadSets(dir, site string, specs []Spec, mean int) (map[string]*browseSet, int, error) {
 	sets := map[string]*browseSet{}
 	var common map[int]bool
 	for _, s := range specs {
-		set, err := loadBrowseSet(dir, s.Name, mean)
+		set, err := loadBrowseSet(dir, site, s, mean)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -200,13 +200,20 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 			return nil, err
 		}
 	}
+	// The servers of a scenario depend on its site, and the record holds the versions of all of them.
+	specsOf := map[string][]Spec{}
 	var specs []Spec
-	for _, name := range o.Servers {
-		i := slices.IndexFunc(e.Specs(), func(s Spec) bool { return s.Name == name })
-		if i < 0 {
-			return nil, fmt.Errorf("no spec named %q", name)
+	for _, sc := range o.Scenarios {
+		list, err := e.browseSpecs(sc, o.Servers)
+		if err != nil {
+			return nil, err
 		}
-		specs = append(specs, e.Specs()[i])
+		specsOf[sc.Name] = list
+		for _, s := range list {
+			if !slices.ContainsFunc(specs, func(x Spec) bool { return x.Name == s.Name }) {
+				specs = append(specs, s)
+			}
+		}
 	}
 	buildID, err := e.tifaBuildID()
 	if err != nil {
@@ -237,7 +244,8 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 	only := func(key string) bool { return len(o.Only) == 0 || slices.Contains(o.Only, key) }
 	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
 	for _, sc := range o.Scenarios {
-		sets, common, err := loadSets(o.TraceDir, specs, sc.Mean)
+		specs := specsOf[sc.Name]
+		sets, common, err := loadSets(o.TraceDir, sc.site(), specs, sc.Mean)
 		if err != nil {
 			return nil, err
 		}
@@ -247,10 +255,10 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 				bd.Dropped[set.file] = set.drop
 			}
 		}
-		bd.Common[fmt.Sprintf("mean %d", sc.Mean)] = common
+		bd.Common[commonKey(sc)] = common
 		bd.Plans = len(sets[specs[0].Name].plans)
 		newReplayer := func(s Spec, server *Server) *replayer {
-			r := &replayer{base: server.Base, write: s.Write, create: s.Create, traces: sets[s.Name].traces, plans: sets[s.Name].plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+			r := &replayer{base: server.Base, write: s.Write, create: s.Create, storeWrite: s.StoreWrite, traces: sets[s.Name].traces, plans: sets[s.Name].plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
 			if s.Framework == "tifa" {
 				r.buildID = buildID
 			}
@@ -364,12 +372,13 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 	if o.Check {
 		// One round of each framework at its users of the baseline, to count what the servers answered.
 		sc := BrowseScenarios[0]
+		specs := specsOf[sc.Name]
 		for _, s := range Rotate(specs, 0) {
 			key := sc.Name + "/" + s.Name
 			if bd.Chosen[key] == 0 {
 				continue
 			}
-			checkSets, _, err := loadSets(o.TraceDir, specs, sc.Mean)
+			checkSets, _, err := loadSets(o.TraceDir, sc.site(), specs, sc.Mean)
 			if err != nil {
 				return nil, err
 			}
@@ -382,7 +391,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 				server.Stop()
 				return nil, err
 			}
-			r := &replayer{base: server.Base, write: s.Write, create: s.Create, traces: set.traces, plans: set.plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+			r := &replayer{base: server.Base, write: s.Write, create: s.Create, storeWrite: s.StoreWrite, traces: set.traces, plans: set.plans, sc: sc, seed: o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
 			if s.Framework == "tifa" {
 				r.buildID = buildID
 			}
@@ -414,7 +423,11 @@ func search(ctx context.Context, o BrowseOptions, step func(users int) (*LoadRes
 		p.Why = p.why()
 		p.Pass = p.Why == ""
 		curve = append(curve, p)
-		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms, %d orders in the shops %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, res.Orders["studio"]+res.Orders["weekend"], res.FirstErr)
+		orders := ""
+		if res.Orders != nil {
+			orders = fmt.Sprintf(", %d orders in the shops", res.Orders["studio"]+res.Orders["weekend"])
+		}
+		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms%s %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, orders, res.FirstErr)
 		if !p.Pass || PlateauAfter(curve) {
 			break
 		}
@@ -457,6 +470,55 @@ func ChooseStep(curve []CurvePoint) int {
 	return chosen
 }
 
+// commonKey names, in the record, how many plans a scenario replays: the plans of its site and
+// visit length.
+func commonKey(sc BrowseScenario) string {
+	if sc.site() == SiteStore {
+		return fmt.Sprintf("mean %d, storefront", sc.Mean)
+	}
+	return fmt.Sprintf("mean %d", sc.Mean)
+}
+
+// storeTifas are the Tifa servers the storefront scenarios run in place of "tifa": the shop with
+// only the whole-page cache off (the render cache stays on) and the shop with both caches off.
+// The storefront pages have the whole-page cache, which no other framework has, so the comparison
+// shows Tifa with it off, and with the render cache on and off.
+var storeTifas = []string{"tifa-nopage", "tifa-nocache"}
+
+// browseServers are the spec ids a scenario runs for the servers asked for. The storefront runs the
+// two Tifa servers of storeTifas where "tifa" is asked for.
+func browseServers(sc BrowseScenario, names []string) []string {
+	if sc.site() != SiteStore {
+		return names
+	}
+	var out []string
+	for _, name := range names {
+		if name == "tifa" {
+			for _, t := range storeTifas {
+				if !slices.Contains(names, t) {
+					out = append(out, t)
+				}
+			}
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// browseSpecs are the specs a scenario runs.
+func (e Env) browseSpecs(sc BrowseScenario, names []string) ([]Spec, error) {
+	var specs []Spec
+	for _, name := range browseServers(sc, names) {
+		i := slices.IndexFunc(e.Specs(), func(s Spec) bool { return s.Name == name })
+		if i < 0 {
+			return nil, fmt.Errorf("no spec named %q", name)
+		}
+		specs = append(specs, e.Specs()[i])
+	}
+	return specs, nil
+}
+
 func (e Env) tifaBuildID() (string, error) {
 	data, err := os.ReadFile(filepath.Join(e.Shop, ".tifa", "dist", "build.json"))
 	if err != nil {
@@ -476,6 +538,9 @@ func (e Env) tifaBuildID() (string, error) {
 // navigation fetches for it (as the browser asked for it in a trace). It uses addresses and ids of
 // its own, so the server is not what it was.
 func (r *replayer) verifyWrites(ctx context.Context) error {
+	if r.sc.mix() == MixStore {
+		return r.verifyStore(ctx)
+	}
 	if r.sc.mix() == MixRename {
 		return r.verifyRename(ctx)
 	}
@@ -484,6 +549,11 @@ func (r *replayer) verifyWrites(ctx context.Context) error {
 
 // get reads a page or the navigation data of a page.
 func (r *replayer) get(ctx context.Context, url string, headers map[string]string) (string, error) {
+	return r.getAs(ctx, http.DefaultClient, url, headers)
+}
+
+// getAs reads it with a client of its own, for a page that depends on cookies.
+func (r *replayer) getAs(ctx context.Context, c *http.Client, url string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", r.base+url, nil)
 	if err != nil {
 		return "", err
@@ -495,7 +565,7 @@ func (r *replayer) get(ctx context.Context, url string, headers map[string]strin
 	if headers != nil {
 		req.Header.Set("Sec-Fetch-Site", "same-origin")
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := c.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -510,6 +580,11 @@ func (r *replayer) get(ctx context.Context, url string, headers map[string]strin
 // nav reads the data a client navigation fetches for a page, as a trace recorded the browser asking
 // for it. ok is false when no trace has a click to that page.
 func (r *replayer) nav(ctx context.Context, page string) (data string, ok bool, err error) {
+	return r.navAs(ctx, http.DefaultClient, page)
+}
+
+// navAs is nav with a client of its own.
+func (r *replayer) navAs(ctx context.Context, c *http.Client, page string) (data string, ok bool, err error) {
 	q, ok := r.navRequest(page)
 	if !ok {
 		return "", false, nil
@@ -517,7 +592,7 @@ func (r *replayer) nav(ctx context.Context, page string) (data string, ok bool, 
 	if r.buildID != "" {
 		q.URL = tifaBuild.ReplaceAllString(q.URL, "_tifa="+r.buildID+".")
 	}
-	data, err = r.get(ctx, q.URL, q.Headers)
+	data, err = r.getAs(ctx, c, q.URL, q.Headers)
 	return data, true, err
 }
 

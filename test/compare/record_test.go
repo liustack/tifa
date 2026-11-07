@@ -470,3 +470,24 @@ func TestBrowseReportTellsTheWritesOfABackOfficeRound(t *testing.T) {
 		t.Error("the text of the old mix is still the only one")
 	}
 }
+
+func TestBrowseReportTellsTheWritesOfAStorefrontRoundAndLabelsBothTifas(t *testing.T) {
+	run := func(spec, label string, round, adds int) BrowseRun {
+		return BrowseRun{Scenario: "store-w20", Spec: spec, Framework: map[string]string{"tifa-nopage": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs"}[spec], Label: label, Round: round,
+			Load: &LoadResult{Users: 4, Seconds: 30, Visits: 100, Views: 400, Requests: 2000, Renders: map[string]int{"vm": 100, "cache": 300},
+				Writes: map[string]int{WriteAdd: adds, WriteQuantity: 20, WriteCoupon: 10, WriteCheckout: 18},
+				Types:  map[string]TypeStat{"write add": {N: adds, P50: 1.5}, "write checkout": {N: 18, P50: 4}}}}
+	}
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[len(BrowseScenarios)-2 : len(BrowseScenarios)-1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+		Runs: []BrowseRun{run("tifa-nopage", "Tifa (whole-page cache off)", 1, 50), run("tifa-nocache", "Tifa (cache off)", 1, 52), run("nextjs", "Next.js", 1, 49)}}
+	md := r.Markdown()
+	for _, want := range []string{"#### storefront, reads 80% / writes 20%", "| Tifa (cache off) | 52 | 20 | 10 | 18 | 1.5 / - / - / 4.0 |", "Tifa (whole-page cache off), per visit:", "Tifa (cache off), per visit:", "50% add a product", "the whole-page cache off and the render cache on"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(r.Markdown(), "| place an order |") {
+		t.Error("the storefront prints the table of the back office")
+	}
+}

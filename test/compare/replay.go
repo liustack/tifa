@@ -33,6 +33,15 @@ type BrowseScenario struct {
 	FanOut bool `json:"fanOut,omitempty"`
 }
 
+// site is the site the scenario replays visits to: the storefront for the store mix, else the
+// workbench.
+func (s BrowseScenario) site() string {
+	if s.mix() == MixStore {
+		return SiteStore
+	}
+	return SiteWorkbench
+}
+
 // mix is the mix of writes of the scenario.
 func (s BrowseScenario) mix() string {
 	switch {
@@ -54,11 +63,14 @@ var BrowseScenarios = []BrowseScenario{
 	{Name: "r95w5", Title: "reads 95% / writes 5%, every write renames a customer", Mean: 4, WriteRate: 1.0 / 19, Mix: MixRename},
 	{Name: "r80w20", Title: "reads 80% / writes 20%, every write renames a customer", Mean: 4, WriteRate: 1.0 / 4, Mix: MixRename},
 	{Name: "r50w50", Title: "reads 50% / writes 50%, every write renames a customer", Mean: 4, WriteRate: 1, Mix: MixRename},
+	{Name: "store-w5", Title: "storefront, reads 95% / writes 5%", Mean: 4, WriteRate: 1.0 / 19, Mix: MixStore},
+	{Name: "store-w20", Title: "storefront, reads 80% / writes 20%", Mean: 4, WriteRate: 1.0 / 4, Mix: MixStore},
+	{Name: "store-w50", Title: "storefront, reads 50% / writes 50%", Mean: 4, WriteRate: 1, Mix: MixStore},
 }
 
 // DefaultScenarios are the scenarios that run when none is asked for: the back office at the three
-// rates, and the rename stress at 20% only.
-const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20"
+// rates, the rename stress at 20% only and the storefront at 20% only.
+const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20,store-w20"
 
 // maxConns is how many connections a browser opens to one host (HTTP/1.1): a user never has more
 // requests in flight than this.
@@ -66,18 +78,19 @@ const maxConns = 6
 
 // replayer plays traces against one server for a number of users.
 type replayer struct {
-	base    string
-	write   Writer
-	create  func(project string) string // the path that places an order in a project
-	buildID string                      // of Tifa, put into the navigation requests it recorded
-	traces  map[int]Trace
-	plans   []Plan
-	sc      BrowseScenario
-	seed    uint64
-	cpu     func() float64 // processor seconds of the server so far
-	rss     func() int64   // its peak resident size in bytes
-	writes  atomic.Int64   // the number of writes made, which gives each rename its address
-	pool    pool           // the orders that writes go to, kept as long as the server lives
+	base       string
+	write      Writer
+	create     func(project string) string // the path that places an order in a project
+	storeWrite func(path string) string    // the path in this app of a write of the storefront
+	buildID    string                      // of Tifa, put into the navigation requests it recorded
+	traces     map[int]Trace
+	plans      []Plan
+	sc         BrowseScenario
+	seed       uint64
+	cpu        func() float64 // processor seconds of the server so far
+	rss        func() int64   // its peak resident size in bytes
+	writes     atomic.Int64   // the number of writes made, which gives each rename its address
+	pool       pool           // the orders that writes go to, kept as long as the server lives
 
 	t0, t1 atomic.Int64 // the measuring window, unix nanoseconds, 0 until set
 	openMu sync.Mutex
@@ -197,7 +210,11 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 	if r.buildID != "" {
 		url = tifaBuild.ReplaceAllString(url, "_tifa="+r.buildID+".")
 	}
-	req, err := http.NewRequestWithContext(ctx, q.Method, r.base+url, nil)
+	var body io.Reader
+	if q.Body != "" {
+		body = strings.NewReader(q.Body)
+	}
+	req, err := http.NewRequestWithContext(ctx, q.Method, r.base+url, body)
 	if err != nil {
 		return outcome{err: err}
 	}
@@ -232,7 +249,7 @@ func (r *replayer) send(ctx context.Context, v *visitState, q TraceReq) outcome 
 	if err != nil {
 		return outcome{err: err}
 	}
-	if res.StatusCode != 200 && res.StatusCode != 304 {
+	if res.StatusCode != 200 && res.StatusCode != 204 && res.StatusCode != 304 {
 		return outcome{err: fmt.Errorf("%s %s: status %d", q.Method, q.URL, res.StatusCode)}
 	}
 	if q.Class == "doc" {
@@ -337,7 +354,12 @@ func (r *replayer) runStep(ctx context.Context, v *visitState, s TraceStep) erro
 func (r *replayer) visit(ctx context.Context, tr *http.Transport, t Trace, plan Plan) error {
 	jar, _ := cookiejar.New(nil)
 	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, etags: map[string]string{}, sem: make(chan struct{}, maxConns)}
-	writes := PlanWrites(r.seed, plan, r.sc.WriteRate, r.sc.mix())
+	var writes []PlannedWrite
+	if r.sc.mix() == MixStore {
+		writes = PlanStoreWrites(r.seed, plan, r.sc.WriteRate)
+	} else {
+		writes = PlanWrites(r.seed, plan, r.sc.WriteRate, r.sc.mix())
+	}
 	reloads := 0
 	for i, s := range t.Steps {
 		if err := r.runStep(ctx, v, s); err != nil {
@@ -422,7 +444,9 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	res := &r.res
-	res.Orders = r.pool.orderCounts()
+	if r.sc.mix() != MixStore {
+		res.Orders = r.pool.orderCounts()
+	}
 	res.Seconds = end.Sub(start).Seconds()
 	res.CPU = cpu1 - cpu0
 	res.OpenRequests, res.OpenOldestMs = openN, openOldest

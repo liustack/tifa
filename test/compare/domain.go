@@ -241,8 +241,9 @@ func show(v any) string {
 	return string(data)
 }
 
+// mustJSON encodes with the keys of a map in order, so that the same write is the same bytes every time.
 func mustJSON(v any) []byte {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, json.Deterministic(true))
 	if err != nil {
 		panic(err)
 	}

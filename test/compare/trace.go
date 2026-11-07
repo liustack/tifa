@@ -22,6 +22,9 @@ type TraceReq struct {
 	End     float64           `json:"e"`
 	Status  int               `json:"status"`
 	Class   string            `json:"class"`
+	// Body is what the browser sent with a POST or PATCH (the storefront remembers the product a visitor
+	// looked at with a POST of its own), empty for a request with none.
+	Body string `json:"body,omitempty"`
 }
 
 // TraceStep is one page view of a visit and the requests it made.
@@ -72,14 +75,37 @@ func ReadTraces(path string) (traces []Trace, dropped int, err error) {
 	return traces, dropped, sc.Err()
 }
 
-// TracePath is the file of the traces of one framework for plans of a mean length.
-func TracePath(dir, framework string, mean int) string {
-	return fmt.Sprintf("%s/%s-m%d.jsonl", strings.TrimRight(dir, "/"), framework, mean)
+// The sites that visits are made on. The workbench is the pages under /projects, the store the
+// storefront. The files of the workbench have no site in their names.
+const (
+	SiteWorkbench = ""
+	SiteStore     = "store"
+)
+
+// siteTag is what a site adds to the names of its files: "-store", or nothing for the workbench.
+func siteTag(site string) string {
+	if site == SiteWorkbench {
+		return ""
+	}
+	return "-" + site
 }
 
-// PlansPath is the file of the plans of a mean length.
-func PlansPath(dir string, mean int) string {
-	return fmt.Sprintf("%s/plans-m%d.json", strings.TrimRight(dir, "/"), mean)
+// TracePath is the file of the traces of one framework on the workbench for plans of a mean length.
+func TracePath(dir, framework string, mean int) string {
+	return SiteTracePath(dir, framework, SiteWorkbench, mean)
+}
+
+// PlansPath is the file of the plans of the workbench of a mean length.
+func PlansPath(dir string, mean int) string { return SitePlansPath(dir, SiteWorkbench, mean) }
+
+// SiteTracePath is the file of the traces of one framework on a site.
+func SiteTracePath(dir, framework, site string, mean int) string {
+	return fmt.Sprintf("%s/%s%s-m%d.jsonl", strings.TrimRight(dir, "/"), framework, siteTag(site), mean)
+}
+
+// SitePlansPath is the file of the plans of a site.
+func SitePlansPath(dir, site string, mean int) string {
+	return fmt.Sprintf("%s/plans%s-m%d.json", strings.TrimRight(dir, "/"), siteTag(site), mean)
 }
 
 // checkRouterHeaders fails a request that the router of a framework made with a header that the

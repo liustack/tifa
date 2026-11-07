@@ -110,20 +110,30 @@ func GeneratePlans(seed uint64, n int, mean float64) []Plan {
 			hubs = append(hubs, p.URL)
 		}
 	}
-	plans := make([]Plan, n)
-	for i := range plans {
-		rng := rand.New(rand.NewPCG(seed, uint64(i)))
+	return generatePlans(seed, n, mean, Links, func(rng *rand.Rand) string {
 		first := hubs[rng.IntN(len(hubs))]
 		if rng.Float64() >= 0.5 {
 			first = orders[rng.IntN(len(orders))]
 		}
-		steps := []PlanStep{{StepLoad, first}}
+		return first
+	})
+}
+
+// generatePlans is the loop that both sites share: a visit has a geometric number of page views
+// with the given mean, the first is a full load of the page that first picks, and each later one is
+// a reload of the page on screen or a click on one of its links. A page with no link is reloaded.
+func generatePlans(seed uint64, n int, mean float64, links func(url string) []Link, first func(rng *rand.Rand) string) []Plan {
+	plans := make([]Plan, n)
+	for i := range plans {
+		rng := rand.New(rand.NewPCG(seed, uint64(i)))
+		steps := []PlanStep{{StepLoad, first(rng)}}
 		for rng.Float64() < 1-1/mean {
 			cur := steps[len(steps)-1].Page
-			if rng.Float64() < ReloadShare {
+			switch l := links(cur); {
+			case rng.Float64() < ReloadShare || len(l) == 0:
 				steps = append(steps, PlanStep{StepReload, cur})
-			} else {
-				steps = append(steps, PlanStep{StepClick, pick(rng, Links(cur))})
+			default:
+				steps = append(steps, PlanStep{StepClick, pick(rng, l)})
 			}
 		}
 		plans[i] = Plan{ID: i, Steps: steps}
@@ -168,6 +178,8 @@ func WriteStep(w Writer, o WriteOrder, n int, fanOut bool) Step {
 const (
 	MixOffice = "office"
 	MixRename = "rename"
+	// MixStore is the writes of a visitor to the storefront (store_writes.go).
+	MixStore = "store"
 )
 
 // The kinds of a write.
@@ -195,6 +207,8 @@ type PlannedWrite struct {
 	Kind    string
 	Project string
 	Order   WriteOrder
+	// Store is the request of a write of the storefront mix, whole: its cart is the visit's own.
+	Store *StoreRequest
 }
 
 // PlanWrites puts writes into a plan: after each page view, with probability rate, a write. The same
