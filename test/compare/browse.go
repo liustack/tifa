@@ -533,7 +533,7 @@ func (r *replayer) shows(ctx context.Context, what, page string, texts ...string
 //  1. Place an order with a note of its own: its page, the list of the project and the data of the
 //     list show it.
 //  2. Add a note to SH-1040, which has shipped (a note is allowed after shipping).
-//  3. Change the recipient of SH-1041.
+//  3. Change the recipient of an order that has not shipped.
 //  4. Ship the order of step 1: its page and the list show the tracking number, and SH-1039, an
 //     order that shipped long ago, shows something else than before, since it lists the carriers
 //     with their parcels.
@@ -583,11 +583,16 @@ func (r *replayer) verifyOffice(ctx context.Context) error {
 		return err
 	}
 
-	address := Address(n)
-	if _, err := call(http.MethodPatch, r.write("studio", "SH-1041"), map[string]any{"customer": WritableOrders[1].Customer, "phone": WritableOrders[1].Phone, "address": address}); err != nil {
+	// The recipient of an order that waits: SH-1041 when the pool still holds it (before any write of a
+	// round, and its page has a trace), else the order placed above.
+	target, customer, phone := order.ID, "林夏", "13800138000"
+	if r.pool.holds(r.seed, "studio", "SH-1041") {
+		target, customer, phone = "SH-1041", WritableOrders[1].Customer, WritableOrders[1].Phone
+	}
+	if _, err := call(http.MethodPatch, r.write("studio", target), map[string]any{"customer": customer, "phone": phone, "address": Address(n)}); err != nil {
 		return err
 	}
-	if err := r.shows(ctx, "change the recipient", "/projects/studio/orders/SH-1041", digits); err != nil {
+	if err := r.shows(ctx, "change the recipient", "/projects/studio/orders/"+target, digits); err != nil {
 		return err
 	}
 

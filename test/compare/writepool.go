@@ -221,3 +221,16 @@ func (p *pool) countCreated(seed uint64, project string) {
 	p.start(seed)
 	p.created[project]++
 }
+
+// holds says whether the pool still has the order of a project.
+func (p *pool) holds(seed uint64, project, id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.start(seed)
+	for _, o := range p.unshipped[project] {
+		if o.ID == id {
+			return true
+		}
+	}
+	return false
+}

@@ -252,3 +252,21 @@ func TestOfficeWritesReadACompressedAnswer(t *testing.T) {
 		t.Errorf("studio holds %d orders", got)
 	}
 }
+
+// After a round the writes have shipped the orders of the data that waited, and the check must
+// not count on them.
+func TestVerifyOfficeAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
+	r, f := officeReplayer(t)
+	v := &visitState{client: &http.Client{}}
+	for i := range 2 {
+		if err := r.doWrite(context.Background(), v, PlannedWrite{After: i, Plan: 1, Kind: WriteShip, Project: "studio"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.verifyOffice(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.orders["SH-1043"]; o == nil || o.address == "" || o.tracking == "" {
+		t.Errorf("the order of the check: %+v", o)
+	}
+}
