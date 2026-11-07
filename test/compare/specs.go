@@ -38,8 +38,9 @@ type Spec struct {
 	Reference bool     // marked reference in the tables: it explains a gap and is not a contender
 	// AcceptEncoding, when set, is what the client asks this spec for, instead of the global setting.
 	AcceptEncoding string
-	Write          Writer // the path of the write that changes the data of an order
-	Version        string // package.json, from Dir, of the framework package whose version the record keeps
+	Write          Writer                      // the path of the write that changes the data of an order
+	Create         func(project string) string // the path that takes the POST which places an order in a project
+	Version        string                      // package.json, from Dir, of the framework package whose version the record keeps
 }
 
 // Specs are the servers to measure, in the order of a round before it is rotated. Tifa runs one
@@ -53,6 +54,7 @@ func (e Env) Specs() []Spec {
 				Env:  []string{"GOMAXPROCS=1", "SHOP_OPEN=1"},
 			},
 			Framework: "tifa", Label: "Tifa", Configs: configs, Write: func(project, order string) string { return "/projects/" + project + "/orders/" + order },
+			Create: func(project string) string { return "/projects/" + project + "/orders" },
 		}
 	}
 	next := func(name, label string, reference bool, configs []string, flags ...string) Spec {
@@ -63,7 +65,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"),
 				Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
 			},
-			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite,
+			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate,
 			Version: filepath.Join("node_modules", "next", "package.json"),
 		}
 	}
@@ -74,7 +76,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join(".output", "server", "index.mjs")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite,
+			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate,
 			Version: filepath.Join("node_modules", "@tanstack", "react-start", "package.json"),
 		}
 	}
@@ -87,7 +89,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite,
+			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate,
 			Version: filepath.Join("node_modules", "react-router", "package.json"),
 		}
 	}
@@ -166,3 +168,6 @@ func packageVersion(path string) string {
 // nodeWrite is the path of the write endpoint of the three Node apps. It is one path for all of
 // them, since Next.js cannot put a route handler next to a page.
 func nodeWrite(project, order string) string { return "/compare-write/" + project + "/" + order }
+
+// nodeCreate is the path that places an order in a project in the three Node apps.
+func nodeCreate(project string) string { return "/compare-write/" + project }

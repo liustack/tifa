@@ -32,6 +32,7 @@ export default [
   storefront(''),
   route('zh-CN', 'routes/language.tsx', { id: 'zh-CN' }, [storefront('zh-CN:')]),
   route('compare-counts', 'routes/compare-counts.ts'),
+  route('compare-write/:project', 'routes/compare-write-create.ts'),
   route('compare-write/:project/:order', 'routes/compare-write.ts'),
   // The handlers of the storefront (see compare/store-wire.ts for why they are not on the URLs
   // of the pages).

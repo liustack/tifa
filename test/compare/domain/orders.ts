@@ -4,11 +4,11 @@
 // and sorts them, as ordersOf does there, and computes what it returns from that, with nothing kept
 // from an earlier request.
 import { counts } from './counts.ts'
-import { demoOrders } from './demo.ts'
-import { carrierName } from './shipping.ts'
+import { demoOrders, studioCatalogue, warehouse, weekendCatalogue } from './demo.ts'
+import { carrierName, carriers } from './shipping.ts'
 import { Invalid, Locked, NotFound } from './errors.ts'
 import { initials, itemCount, status, total } from './records.ts'
-import type { OrderRecord } from './records.ts'
+import type { ItemRecord, OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
 import { rfc3339 } from './time.ts'
@@ -244,5 +244,101 @@ export function updateRecipient(projectId: string, id: string, customer: string,
   o.customer = customer.trim()
   o.phone = normalPhone(phone)
   o.address = address.trim()
+  return view(o)
+}
+
+// The next functions are the writes of the handlers in shipping.go, detail.go and create.go.
+
+const trackingNo = /^[A-Za-z0-9]{8,20}$/
+
+// checkShipment lists the fields of a shipment that the shop would refuse, as CheckShipment does.
+export function checkShipment(carrier: string, tracking: string): string[] {
+  const fields: string[] = []
+  if (!carriers.some((c) => c.code === carrier)) fields.push('carrier')
+  if (!trackingNo.test(tracking.trim())) fields.push('trackingNo')
+  return fields
+}
+
+// shipOrder records that the order left at at, as ShipOrder does: an order ships once, and the
+// second time throws Locked. It returns the order.
+export function shipOrder(projectId: string, id: string, carrier: string, tracking: string, at: number): Order {
+  const fields = checkShipment(carrier, tracking)
+  if (fields.length > 0) throw new Invalid(fields)
+  const o = orders.find((o) => o.projectId === projectId && o.id === id)
+  if (!o) throw new NotFound(id)
+  if (o.shipment) throw new Locked(id)
+  o.shipment = {
+    carrier, trackingNo: tracking.trim(), shippedAt: at,
+    events: [{ at, place: warehouse, note: 'Courier collected the parcel' }],
+  }
+  return view(o)
+}
+
+// checkNote lists the field of a note that the shop would refuse, as CheckNote does.
+export function checkNote(text: string): string[] {
+  const t = text.trim()
+  return t === '' || Array.from(t).length > 200 ? ['text'] : []
+}
+
+// addNote puts a note by the owner on an order, shipped or not, as AddNote does, and returns the order.
+export function addNote(projectId: string, id: string, text: string, at: number): Order {
+  const fields = checkNote(text)
+  if (fields.length > 0) throw new Invalid(fields)
+  const o = orders.find((o) => o.projectId === projectId && o.id === id)
+  if (!o) throw new NotFound(id)
+  ;(o.notes ??= []).push({ author: 'Owner', text: text.trim(), at })
+  return view(o)
+}
+
+export interface NewOrder {
+  customer: string
+  phone: string
+  email: string
+  address: string
+  note: string
+  items: { slug: string; quantity: number }[]
+}
+
+// The form of the order numbers of a project and its products, as shops in create.go.
+const shops: Record<string, { prefix: string; width: number; catalogue: ItemRecord[] }> = {
+  studio: { prefix: 'SH', width: 0, catalogue: studioCatalogue },
+  weekend: { prefix: 'WK', width: 4, catalogue: weekendCatalogue },
+}
+
+// checkNewOrder lists the fields of a new order that the shop would refuse, as CheckNewOrder does.
+export function checkNewOrder(o: NewOrder): string[] {
+  const fields = checkRecipient(o.customer, o.phone, o.address)
+  if (Array.from(o.note.trim()).length > 200) fields.push('note')
+  if (o.items.length < 1 || o.items.length > 3 || o.items.some((l) => !Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 5)) {
+    fields.push('items')
+  }
+  return fields
+}
+
+// createOrder places an order in a project at at, as CreateOrder does: its number is the one after
+// the highest of the project. It returns the new order.
+export function createOrder(projectId: string, input: NewOrder, at: number): Order {
+  const fields = checkNewOrder(input)
+  if (fields.length > 0) throw new Invalid(fields)
+  const s = shops[projectId]
+  if (!s) throw new NotFound(projectId)
+  const items: ItemRecord[] = []
+  for (const l of input.items) {
+    const p = s.catalogue.find((p) => p.slug === l.slug)
+    if (!p) throw new Invalid(['items'])
+    items.push({ ...p, quantity: l.quantity })
+  }
+  let last = 0
+  for (const o of orders) {
+    if (o.projectId !== projectId) continue
+    const n = Number(o.id.slice(s.prefix.length + 1))
+    if (Number.isInteger(n)) last = Math.max(last, n)
+  }
+  const o: OrderRecord = {
+    id: `${s.prefix}-${String(last + 1).padStart(s.width, '0')}`, projectId, customer: input.customer.trim(),
+    phone: normalPhone(input.phone), email: input.email.trim(), address: input.address.trim(), note: input.note.trim(),
+    placedAt: at, shipment: null, items, notes: null,
+  }
+  orders.push(o)
   return view(o)
 }
