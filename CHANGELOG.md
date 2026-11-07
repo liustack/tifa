@@ -24,6 +24,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- A server that formats many different amounts, dates or names with i18next no longer grows without end. i18next keeps a formatter for each value it formats through `number`, `currency`, `datetime` and the other formats, and through those added with `addCached`, and never lets them go (i18next/i18next#2227): 20,000 new values took 28 MB in a VM, which the server then replaced. The SSR bundle now keeps at most 1,024 for each format, with the same text ([i18next](docs/build.md#frontend-output)).
 - A route that writes several meta tags of one name in its `head`, such as a `theme-color` for light and one for dark mode or several `og:image`, now gets all of them on the page. Only the last one was kept, so a page in light mode showed the dark `theme-color`. A deeper route that writes the name still replaces them all.
 - The render cache held up to twice the memory of `cache.size` with `server.compress` on: it counted the length of the compressed pages but kept the larger buffers they were made in, and left out the Content-Security-Policy of each page. It now keeps exactly sized copies and counts what it keeps, so the live heap of the cache stays within `cache.size`. The peak memory of a program that fills the cache with writes drops with it.
 
