@@ -193,7 +193,7 @@ function Progress() {
   )
 }
 
-// Others are the other orders of the same customer.
+// Others are the newest other orders of the same customer, and the count says how many there are.
 function Others() {
   const { order, others, count, spentCents } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
