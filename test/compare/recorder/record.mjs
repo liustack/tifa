@@ -124,7 +124,9 @@ async function visit(browser, plan) {
     const start = Date.now()
     while (Date.now() - start < CAP_MS) {
       await page.waitForTimeout(100)
-      if (inflight === 0 && Date.now() - lastActivity >= QUIET_MS) break
+      // The quiet is counted within this page view: a click whose requests come a little later (a
+      // client router that renders first) must not settle on the quiet of the page view before.
+      if (inflight === 0 && Date.now() - Math.max(lastActivity, cur.t0) >= QUIET_MS) break
     }
     // A request the browser has not finished by now (a prefetch it left open) is cancelled with the
     // page view, as far as this recording goes.
@@ -157,6 +159,18 @@ async function visit(browser, plan) {
       if (shown !== step.page) throw new Error(`step ${i}: shows ${shown}, want ${step.page}`)
     }
     over = true
+    // A request the page started after its page view settled (while settle waited for headers,
+    // such as the storefront's POST of the product looked at, once Start has hydrated) and that is
+    // still open now is cancelled with the visit, as settle does with the requests it finds open.
+    for (const s of steps) {
+      for (const rec of s.reqs) {
+        if (rec.open) {
+          close(rec)
+          rec.cancel = 'open-at-end'
+        }
+      }
+    }
+    await within(3000, Promise.allSettled(headerJobs.splice(0)))
     const done = steps.map((s) => ({
       kind: s.kind,
       page: s.page,
