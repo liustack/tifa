@@ -19,8 +19,12 @@
 #   LOAD_CPUS           cpus of the load generator                                none: not pinned
 #   LOCKS               files to flock while running, space separated             none
 #   SERVERS             spec ids                                                  tifa,nextjs,start,reactrouter
-#   SCENARIOS           office-w5, office-w20, office-w50 (back office writes),    office-w5,office-w20,office-w50,r80w20
-#                       r95w5, r80w20, r50w50 (every write renames a customer)
+#   SCENARIOS           office-w5, office-w20, office-w50 (back office writes),    office-w5,office-w20,office-w50,r80w20,store-w20
+#                       r95w5, r80w20, r50w50 (every write renames a customer),
+#                       store-w5, store-w20, store-w50 (the storefront, where Tifa runs twice: with
+#                       the whole-page cache off, and with every cache off)
+#                       Only the traces the scenarios need are recorded and checked: the workbench
+#                       and/or the storefront (STAMP and STAMP-store in $BROWSE_TRACES).
 #   VISITS              visits to record for each framework                       100
 #   WORKERS             browser contexts at once while recording                  6
 #   ROUNDS WARM WINDOW SEARCH_WARM SEARCH_WINDOW MAX_USERS                         3 10s 30s 3s 10s 128
@@ -50,15 +54,37 @@ stamp() {
   echo "$s"
 }
 
-traces_current() {
-  [ -f "$traces/STAMP" ] || return 1
-  [ "$(cat "$traces/STAMP")" = "$(stamp)" ] || return 1
-  case "$(stamp)" in *dirty*) return 1 ;; esac
-  local f
-  for f in $(echo "$servers" | tr ',' ' '); do
-    [ -s "$traces/$f-m4.jsonl" ] || return 1
+scenarios=${SCENARIOS:-office-w5,office-w20,office-w50,r80w20,store-w20}
+
+# sites lists the sites the scenarios need traces of: "workbench" for any scenario but the
+# storefront ones, "store" for the storefront ones. Their files are plans-m4.json and <server>-m4.jsonl,
+# and plans-store-m4.json and <server>-store-m4.jsonl, each site with its own stamp.
+sites() {
+  local s out=""
+  for s in $(echo "$scenarios" | tr ',' ' '); do
+    case "$s" in
+      store-*) case "$out" in *store*) ;; *) out="$out store" ;; esac ;;
+      *) case "$out" in *workbench*) ;; *) out="$out workbench" ;; esac ;;
+    esac
   done
-  [ -s "$traces/plans-m4.json" ]
+  echo $out
+}
+
+# site_tag is what a site adds to the names of its files, and site_stamp is its stamp file.
+site_tag() { [ "$1" = store ] && echo "-store" || echo ""; }
+site_stamp() { [ "$1" = store ] && echo "$traces/STAMP-store" || echo "$traces/STAMP"; }
+
+# traces_current says whether the traces of a site are there and belong to the sources of this checkout.
+traces_current() {
+  local site=$1 tag f
+  tag=$(site_tag "$site")
+  [ -f "$(site_stamp "$site")" ] || return 1
+  [ "$(cat "$(site_stamp "$site")")" = "$(stamp)" ] || return 1
+  case "$(stamp)" in *dirty*) return 1 ;; esac
+  for f in $(echo "$servers" | tr ',' ' '); do
+    [ -s "$traces/$f$tag-m4.jsonl" ] || return 1
+  done
+  [ -s "$traces/plans$tag-m4.json" ]
 }
 
 do_build() {
@@ -68,26 +94,36 @@ do_build() {
 
 do_record() {
   build_tool
-  if [ -z "${FORCE_RECORD:-}" ] && traces_current; then
-    echo "traces in $traces are current: $(cat "$traces/STAMP")"
-    return
-  fi
+  local site todo=""
+  for site in $(sites); do
+    if [ -z "${FORCE_RECORD:-}" ] && traces_current "$site"; then
+      echo "the $site traces in $traces are current: $(cat "$(site_stamp "$site")")"
+    else
+      todo="$todo $site"
+    fi
+  done
+  [ -n "$todo" ] || return 0
   "$compare" plans -dir "$traces" -visits 400
   (cd test/compare/recorder && pnpm install --frozen-lockfile && pnpm exec playwright install chromium)
-  "$compare" record -dir "$traces" -skip-build -servers "$servers" -means 4 -limit "$visits" -workers "${WORKERS:-6}"
-  stamp >"$traces/STAMP"
+  for site in $todo; do
+    "$compare" record -dir "$traces" -skip-build -servers "$servers" -site "$site" -means 4 -limit "$visits" -workers "${WORKERS:-6}"
+    stamp >"$(site_stamp "$site")"
+  done
 }
 
 do_run() {
   build_tool
-  if ! traces_current; then
-    echo "the traces in $traces are missing, or belong to other sources than this checkout:" >&2
-    echo "  traces: $(cat "$traces/STAMP" 2>/dev/null || echo none)" >&2
-    echo "  here:   $(stamp)" >&2
-    echo "record them with '$0 record' (on a machine with Chromium), build from the same commit, and copy the folder here" >&2
-    exit 1
-  fi
-  local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "${SCENARIOS:-office-w5,office-w20,office-w50,r80w20}"
+  local site
+  for site in $(sites); do
+    if ! traces_current "$site"; then
+      echo "the $site traces in $traces are missing, or belong to other sources than this checkout:" >&2
+      echo "  traces: $(cat "$(site_stamp "$site")" 2>/dev/null || echo none)" >&2
+      echo "  here:   $(stamp)" >&2
+      echo "record them with '$0 record' (on a machine with Chromium), build from the same commit, and copy the folder here" >&2
+      exit 1
+    fi
+  done
+  local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios"
     -rounds "${ROUNDS:-3}" -warm "${WARM:-10s}" -window "${WINDOW:-30s}" -search-warm "${SEARCH_WARM:-3s}" -search-window "${SEARCH_WINDOW:-10s}"
     -max-users "${MAX_USERS:-128}" -check -source "${SOURCE:-run}" -json "$out/browse.json")
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")

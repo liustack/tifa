@@ -109,6 +109,7 @@ func (p *pool) orderCounts() map[string]int {
 // answered is what a write got back.
 type answered struct {
 	status int
+	kind   string // the media type of the answer, "-" for none
 	body   []byte // as sent, with the compression removed
 	wire   int    // bytes on the wire
 }
@@ -130,7 +131,7 @@ func (r *replayer) request(ctx context.Context, v *visitState, method, path stri
 	b, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	end := time.Now()
-	a := answered{status: res.StatusCode, body: b, wire: len(b)}
+	a := answered{status: res.StatusCode, kind: mediaType(res.Header.Get("Content-Type")), body: b, wire: len(b)}
 	if err == nil && res.Header.Get("Content-Encoding") == "gzip" {
 		var zr *gzip.Reader
 		if zr, err = gzip.NewReader(bytes.NewReader(b)); err == nil {
@@ -140,7 +141,9 @@ func (r *replayer) request(ctx context.Context, v *visitState, method, path stri
 	return a, start, end, err
 }
 
-// doWrite sends a write of the plan and times it. In the rename mix it renames a customer of one of
+// doWrite sends a write of the plan and times it. In the store mix it sends the request of the plan
+// to the path of this app, with the cookies of the visit, and the status must be the one the plan
+// says (a redirect is not followed). In the rename mix it renames a customer of one of
 // the three orders of the data. In the office mix it goes to an order of the pool, or is a create
 // when the pool has none.
 func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) error {
@@ -148,7 +151,11 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 	var method, path string
 	var body []byte
 	var entry *poolOrder
+	want := 200 // the status the shop answers with
 	switch {
+	case r.sc.mix() == MixStore:
+		st := w.Store
+		method, path, body, want = st.Method, r.storeWrite(st.Path), st.Body, st.Status
 	case r.sc.mix() == MixRename:
 		st := WriteStep(r.write, w.Order, int(r.writes.Add(1)), true)
 		method, path, body = st.Method, st.Path, st.Body
@@ -183,8 +190,8 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 	if err != nil {
 		return err
 	}
-	if a.status != 200 {
-		return fmt.Errorf("write %s %s: status %d: %.200s", method, path, a.status, a.body)
+	if a.status != want {
+		return fmt.Errorf("write %s %s: status %d, want %d: %.200s", method, path, a.status, want, a.body)
 	}
 	if kind == WriteCreate {
 		var created struct {
@@ -200,7 +207,7 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 		r.mu.Lock()
 		r.res.Requests++
 		r.res.Bytes += int64(a.wire)
-		r.res.Responses["write "+kind+" "+strconv.Itoa(a.status)+" application/json"]++
+		r.res.Responses["write "+kind+" "+strconv.Itoa(a.status)+" "+a.kind]++
 		r.res.Writes[kind]++
 		if empty {
 			r.res.PoolEmpty++

@@ -374,7 +374,7 @@ func TestOnlyPlansWithATraceForEveryServerAreReplayed(t *testing.T) {
 	write("a", map[int]bool{3: true})
 	write("b", map[int]bool{7: true, 9: true})
 	specs := []Spec{{Target: Target{Name: "a"}}, {Target: Target{Name: "b"}}}
-	sets, common, err := loadSets(dir, specs, 4)
+	sets, common, err := loadSets(dir, SiteWorkbench, specs, 4)
 	if err != nil {
 		t.Fatal(err)
 	}

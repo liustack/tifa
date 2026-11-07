@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ const usage = `usage:
   compare measure [flags]
   compare plans [flags]
   compare record [flags]
+  compare links [flags]
   compare browse [flags]
   compare report out.json
   compare diff old.json new.json`
@@ -43,7 +45,7 @@ func main() {
 	switch os.Args[1] {
 	case "build", "measure":
 		measure(os.Args[1], os.Args[2:])
-	case "plans", "record", "browse":
+	case "plans", "record", "links", "browse":
 		browseCmd(os.Args[1], os.Args[2:])
 	case "report":
 		if len(os.Args) != 3 {
@@ -158,9 +160,10 @@ func measure(cmd string, args []string) {
 	fmt.Println(rec.Markdown())
 }
 
-// browseCmd is plans, record and browse: the comparison of whole visits. plans writes the visit
+// browseCmd is plans, record, links and browse: the comparison of whole visits. plans writes the visit
 // plans, record plays them in a browser against each framework and keeps what the browser sent,
-// and browse replays those traces at load and measures how many visits a second each carries.
+// links makes store_links.json, the links of the storefront pages, and browse replays those traces
+// at load and measures how many visits a second each carries.
 func browseCmd(cmd string, args []string) {
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	var (
@@ -171,8 +174,10 @@ func browseCmd(cmd string, args []string) {
 		workers    = flags.Int("workers", 4, "record: browser contexts at once")
 		limit      = flags.Int("limit", 0, "record: play only the first plans")
 		means      = flags.String("means", "4", "record: comma separated visit lengths to record (the browse runs use 4)")
+		site       = flags.String("site", "workbench", "record: the pages to record, workbench or store")
+		linksOut   = flags.String("links-out", "", "links: where to write the links of the storefront pages (default test/compare/store_links.json)")
 		skipBuild  = flags.Bool("skip-build", false, "record, browse: use the last build")
-		scenarios  = flags.String("scenarios", compare.DefaultScenarios, "browse: comma separated scenarios: office-w5, office-w20, office-w50 (back office writes) and r95w5, r80w20, r50w50 (every write renames a customer)")
+		scenarios  = flags.String("scenarios", compare.DefaultScenarios, "browse: comma separated scenarios: office-w5, office-w20, office-w50 (back office writes), r95w5, r80w20, r50w50 (every write renames a customer) and store-w5, store-w20, store-w50 (the storefront)")
 		serverCPUs = flags.String("server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 		loadCPUs   = flags.String("load-cpus", "", "browse: cpus for the client")
 		rounds     = flags.Int("rounds", 3, "browse: rounds at the chosen users, with fresh servers in a rotating order")
@@ -213,8 +218,26 @@ func browseCmd(cmd string, args []string) {
 			fatal(err)
 		}
 	}
-	if cmd == "record" {
-		if err := env.Record(ctx, os.Stderr, *dir, list, parseMeans(*means), *workers, *limit); err != nil {
+	switch cmd {
+	case "links":
+		out := *linksOut
+		if out == "" {
+			out = filepath.Join(env.Root, "test", "compare", "store_links.json")
+		}
+		if err := env.CrawlStoreLinks(ctx, os.Stderr, out); err != nil {
+			fatal(err)
+		}
+		return
+	case "record":
+		s := compare.SiteWorkbench
+		switch *site {
+		case "workbench":
+		case "store":
+			s = compare.SiteStore
+		default:
+			fatal(fmt.Errorf("-site is workbench or store, not %q", *site))
+		}
+		if err := env.Record(ctx, os.Stderr, *dir, s, list, parseMeans(*means), *workers, *limit); err != nil {
 			fatal(err)
 		}
 		return

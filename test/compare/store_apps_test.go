@@ -45,17 +45,17 @@ type storeApp struct {
 
 var storeApps = []storeApp{
 	{
-		name: "start", label: "TanStack Start", write: func(p string) string { return p },
+		name: "start", label: "TanStack Start", write: compare.SameStorePath,
 	},
 	{
-		name: "nextjs", label: "Next.js", write: nextWrite,
+		name: "nextjs", label: "Next.js", write: compare.NextStorePath,
 		except: map[string]string{
 			"slash body": "Next.js sends a URL with a trailing slash away with its own 308, which has the target as its body and no type, so only the status and Location are compared",
 			"404 page":   "In Next.js 16.4.2, with the route tree under /store/[lang], a 404 raised below the layout of a language is answered with Next.js's error document (an empty #__next_error__ and the payload), and the browser draws the page. The status and title are compared here (a confirmation that is not found has the title of the root), and TestStorefrontErrorPagesInTheBrowser compares what the browser ends up showing",
 		},
 	},
 	{
-		name: "reactrouter", label: "React Router", write: reactRouterWrite,
+		name: "reactrouter", label: "React Router", write: compare.ReactRouterStorePath,
 		except: map[string]string{
 			"home methods": "React Router answers a method the home page does not take with its own 405 document, since a page cannot have a resource route at its URL",
 		},
@@ -63,44 +63,12 @@ var storeApps = []storeApp{
 }
 
 var (
-	nextPageWrite   = regexp.MustCompile(`^(?:/(zh-CN))?/store/(cart|checkout|products/)`)
-	reactPageWrite  = regexp.MustCompile(`^(?:/(zh-CN))?/store/(cart|checkout|products/)`)
-	minePath        = regexp.MustCompile(`^(?:/zh-CN)?/store/mine`)
 	orderNumber     = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
 	cartCookie      = regexp.MustCompile(`store_cart=[^;]+`)
 	isoTime         = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
 	placedLocation  = regexp.MustCompile(`(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
-
-// writeLanguage is the language of a write: the first group of the patterns above, empty for the
-// default language, which has no prefix.
-func writeLanguage(prefix string) string {
-	if prefix == "" {
-		return "en-US"
-	}
-	return prefix
-}
-
-func nextWrite(p string) string {
-	if minePath.MatchString(p) {
-		return p
-	}
-	return nextPageWrite.ReplaceAllStringFunc(p, func(m string) string {
-		parts := nextPageWrite.FindStringSubmatch(m)
-		return "/store/compare-write/" + writeLanguage(parts[1]) + "/" + parts[2]
-	})
-}
-
-func reactRouterWrite(p string) string {
-	if minePath.MatchString(p) {
-		return p
-	}
-	return reactPageWrite.ReplaceAllStringFunc(p, func(m string) string {
-		parts := reactPageWrite.FindStringSubmatch(m)
-		return "/store/" + writeLanguage(parts[1]) + "/_write/" + parts[2]
-	})
-}
 
 // mask takes out what differs by the request: the order number and the cart of the visitor, which
 // are random, and times, which come from the clock.

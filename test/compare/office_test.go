@@ -69,6 +69,7 @@ func (f *fakeShop) create(w http.ResponseWriter, r *http.Request) {
 	f.next[project]++
 	f.orders[id] = &fakeOrder{project: project, customer: in.Customer, note: in.Note}
 	f.log = append(f.log, "create "+id)
+	w.Header().Set("Content-Type", "application/json")
 	json.MarshalWrite(w, map[string]string{"id": id, "customer": in.Customer})
 }
 
@@ -107,6 +108,7 @@ func (f *fakeShop) write(w http.ResponseWriter, r *http.Request) {
 		o.notes = append(o.notes, in["text"])
 	}
 	f.log = append(f.log, r.Method+" "+id)
+	w.Header().Set("Content-Type", "application/json")
 	json.MarshalWrite(w, map[string]string{"id": id})
 }
 

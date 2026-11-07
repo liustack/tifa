@@ -18,6 +18,9 @@ const (
 	ConfigCompression = "compression"
 	ConfigEngine      = "engine"
 	ConfigAA          = "aa"
+	// ConfigStore is for Tifa with only the whole-page cache off, which the storefront scenarios of the
+	// browse comparison run next to Tifa with every cache off. It belongs to no table.
+	ConfigStore = "store"
 )
 
 // Configs are the configurations that tables are made for, in the order they are measured.
@@ -40,6 +43,7 @@ type Spec struct {
 	AcceptEncoding string
 	Write          Writer                      // the path of the write that changes the data of an order
 	Create         func(project string) string // the path that takes the POST which places an order in a project
+	StoreWrite     func(path string) string    // the path in this app of a write of the storefront, from its path in the shop
 	Version        string                      // package.json, from Dir, of the framework package whose version the record keeps
 }
 
@@ -54,7 +58,8 @@ func (e Env) Specs() []Spec {
 				Env:  []string{"GOMAXPROCS=1", "SHOP_OPEN=1"},
 			},
 			Framework: "tifa", Label: "Tifa", Configs: configs, Write: func(project, order string) string { return "/projects/" + project + "/orders/" + order },
-			Create: func(project string) string { return "/projects/" + project + "/orders" },
+			Create:     func(project string) string { return "/projects/" + project + "/orders" },
+			StoreWrite: SameStorePath,
 		}
 	}
 	next := func(name, label string, reference bool, configs []string, flags ...string) Spec {
@@ -65,7 +70,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"),
 				Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
 			},
-			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate,
+			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: NextStorePath,
 			Version: filepath.Join("node_modules", "next", "package.json"),
 		}
 	}
@@ -76,12 +81,14 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join(".output", "server", "index.mjs")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate,
+			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath,
 			Version: filepath.Join("node_modules", "@tanstack", "react-start", "package.json"),
 		}
 	}
 	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--cache-size", "0")
 	tifaCacheOff.Label = "Tifa (cache off)"
+	tifaNoPage := tifa("tifa-nopage", []string{ConfigStore}, "--cache-whole-page=false")
+	tifaNoPage.Label = "Tifa (whole-page cache off)"
 	reactRouter := func(name, label string, reference bool, configs []string, flags ...string) Spec {
 		return Spec{
 			Target: Target{
@@ -89,7 +96,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate,
+			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: ReactRouterStorePath,
 			Version: filepath.Join("node_modules", "react-router", "package.json"),
 		}
 	}
@@ -102,6 +109,7 @@ func (e Env) Specs() []Spec {
 	engine := []string{ConfigEngine}
 	return []Spec{
 		tifa("tifa", []string{ConfigDefault}),
+		tifaNoPage,
 		tifaCacheOff,
 		next("nextjs", "Next.js", false, both),
 		next("nextjs-jitless", "Next.js --jitless", true, engine, "--jitless"),
