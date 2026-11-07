@@ -2,11 +2,29 @@
 //   node test/compare/domain/dump.ts [writes]
 // Node 22.18 and later run TypeScript as it is, by removing its types, so this needs no build.
 import { loadOrder, loadOrderList, loadProject, loadShell, loadStats } from './loaders.ts'
-import { listOrders, updateRecipient } from './orders.ts'
+import { addNote, createOrder, listOrders, shipOrder, updateRecipient } from './orders.ts'
 
 // With a JSON list of writes as the argument, each write is made first, so that the data can be
-// compared with the shop after the same writes: [{project, order, customer, phone, address}].
-for (const w of JSON.parse(process.argv[2] ?? '[]')) updateRecipient(w.project, w.order, w.customer, w.phone, w.address)
+// compared with the shop after the same writes: [{kind, project, order, body}], where kind is
+// create, ship, note or recipient and body is the body of the request to the shop.
+for (const w of JSON.parse(process.argv[2] ?? '[]')) {
+  switch (w.kind) {
+    case 'create':
+      createOrder(w.project, w.body, Date.now())
+      break
+    case 'ship':
+      shipOrder(w.project, w.order, w.body.carrier, w.body.trackingNo, Date.now())
+      break
+    case 'note':
+      addNote(w.project, w.order, w.body.text, Date.now())
+      break
+    case 'recipient':
+      updateRecipient(w.project, w.order, w.body.customer, w.body.phone, w.body.address)
+      break
+    default:
+      throw new Error(`unknown write ${w.kind}`)
+  }
+}
 
 const out: Record<string, Record<string, unknown>> = {}
 const pages: [string, string, string, string][] = []

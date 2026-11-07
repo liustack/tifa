@@ -233,3 +233,29 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		t.Errorf("the first order placed in weekend is not WK-0202: %s", a)
 	}
 }
+
+// backOfficeWrites are the four kinds of write of the back office, in an order every one of them is
+// allowed in: three orders are placed (SH-1043, WK-0202 and SH-1044), SH-1043 is shipped and then
+// gets a note (the port counts milliseconds and Go nanoseconds, so a note and a shipment of one
+// order made in the same millisecond must come in the order the log lists them), and an order of
+// the data is shipped too.
+func backOfficeWrites() []compare.DomainWrite {
+	place := func(project string, items ...map[string]any) compare.DomainWrite {
+		return compare.DomainWrite{Kind: compare.WriteCreate, Project: project, Body: map[string]any{
+			"customer": " 林夏 ", "phone": "138-0013 8000", "email": "linxia@example.com", "address": "上海市徐汇区 · 新地址", "note": "请附手写卡片", "items": items}}
+	}
+	item := func(slug string, quantity int) map[string]any {
+		return map[string]any{"slug": slug, "quantity": quantity}
+	}
+	return []compare.DomainWrite{
+		place("studio", item("pour-over-kettle", 2), item("ceramic-cup", 1)),
+		place("weekend", item("postcards", 3)),
+		place("studio", item("oak-tray", 1)),
+		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1040", Body: map[string]any{"text": " 顾客来电，已收到。 "}},
+		{Kind: compare.WriteRecipient, Project: "studio", Order: "SH-1044", Body: map[string]any{"customer": "陈默", "phone": "13900139001", "address": "杭州市西湖区 · 新地址"}},
+		{Kind: compare.WriteShip, Project: "studio", Order: "SH-1043", Body: map[string]any{"carrier": "ZTO", "trackingNo": " ZTO20261107001 "}},
+		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1043", Body: map[string]any{"text": "客户要求周末送达。"}},
+		{Kind: compare.WriteShip, Project: "studio", Order: "SH-1042", Body: map[string]any{"carrier": "SF", "trackingNo": "SF20261107002"}},
+		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1042", Body: map[string]any{"text": "已发出。"}},
+	}
+}
