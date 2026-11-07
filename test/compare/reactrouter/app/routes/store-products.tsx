@@ -7,6 +7,6 @@ import { storeMeta } from '../compare/store-meta'
 
 export const loader = loadProducts
 export const meta = (args: MetaArgs) =>
-  storeMeta(args, head({ loaderData: args.loaderData, params: args.params } as never))
+  storeMeta(args, head({ loaderData: args.loaderData, params: args.params, matches: args.matches } as never))
 export const ErrorBoundary = storeBoundary(Error)
 export default ProductList

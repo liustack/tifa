@@ -54,7 +54,12 @@ var storeApps = []storeApp{
 			"404 page":   "In Next.js 16.4.2, with the route tree under /store/[lang], a 404 raised below the layout of a language is answered with Next.js's error document (an empty #__next_error__ and the payload), and the browser draws the page. The status and title are compared here (a confirmation that is not found has the title of the root), and TestStorefrontErrorPagesInTheBrowser compares what the browser ends up showing",
 		},
 	},
-	{name: "reactrouter", label: "React Router", write: reactRouterWrite},
+	{
+		name: "reactrouter", label: "React Router", write: reactRouterWrite,
+		except: map[string]string{
+			"home methods": "React Router answers a method the home page does not take with its own 405 document, since a page cannot have a resource route at its URL",
+		},
+	},
 }
 
 var (
@@ -587,6 +592,10 @@ func (p *pair) otherRequests(t *testing.T) {
 		{"PATCH", "/store/products/ceramic-cup"}, {"PUT", "/store/products/ceramic-cup"}, {"DELETE", "/store/products/ceramic-cup"},
 	} {
 		for _, call := range []bool{false, true} {
+			if why, ok := p.spec.except["home methods"]; ok && c[1] == "/store" {
+				t.Logf("exception, %s %s %s %s", p.spec.label, c[0], c[1], why)
+				continue
+			}
 			q.both(fmt.Sprintf("wrong method, call %v", call), request{method: c[0], path: c[1], call: call})
 		}
 	}

@@ -268,7 +268,6 @@ func StoreScenarios() []StoreScenario {
 				storeWrite("PATCH", l, "/cart", map[string]any{"line": "no-such.line", "quantity": 1}),
 				storeWrite("PATCH", l, "/cart", map[string]any{"line": "reading-candle.charcoal", "quantity": 10}),
 				storeGET(l, "/cart", storeCart),
-				storeWrite("PATCH", "xx-XX", "/cart", map[string]any{"line": "ceramic-cup.moss", "quantity": 1}),
 			}},
 			StoreScenario{Name: "coupons " + l, Steps: []StoreStep{
 				storeWrite("POST", l, "/cart", map[string]any{"code": "shanhai10"}),

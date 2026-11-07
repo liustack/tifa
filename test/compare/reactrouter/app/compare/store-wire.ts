@@ -3,9 +3,8 @@
 // React Router: a route of it has a loader for GET and an action for every other method, and a
 // resource route is needed for each write.
 //
-// The handlers are resource routes under /store/<lang>/_write (under /store so that the cookies,
-// whose path is /store, reach them), since a route of React Router that has a page answers a POST
-// or a PATCH to its URL with the page. The shop's URL /store/zh-CN/cart for the PATCH of the cart
+// The handlers are resource routes under /store/<lang>/_write, since a route of React Router that has a page answers a POST
+// or a PATCH to its URL with the page. The shop's URL /store/cart for the PATCH of the cart
 // becomes /store/zh-CN/_write/cart here (see overlay/runtime/call.ts).
 
 import { callMine, methodNotAllowed } from '../../../domain/store/calls.ts'

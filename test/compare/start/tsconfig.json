@@ -14,7 +14,8 @@
     "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./shop/*"],
-      "tifa/client": ["./shop/runtime/client.tsx"]
+      "tifa/client": ["./shop/runtime/client.tsx"],
+      "tifa/i18n": ["./shop/runtime/i18n.tsx"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "../domain/*.ts", "../domain/store/**/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],

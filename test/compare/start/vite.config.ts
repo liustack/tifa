@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(import.meta.dirname, 'shop'),
       'tifa/client': path.resolve(import.meta.dirname, 'shop/runtime/client.tsx'),
+      'tifa/i18n': path.resolve(import.meta.dirname, 'shop/runtime/i18n.tsx'),
     },
   },
   plugins: [tanstackStart(), nitro(), react(), tailwindcss()],
