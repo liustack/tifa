@@ -22,12 +22,7 @@ func GET(c *tifa.Ctx) (Mine, error) {
 	if err != nil {
 		return Mine{}, err
 	}
-	return get(c, l), nil
-}
-
-// get is GET for a locale. tifatest cannot set the language of a Ctx, so the tests call it.
-func get(c *tifa.Ctx, l storekit.Locale) Mine {
-	return Mine{Cart: cart.Get(cart.ID(c), l), Seen: append([]products.Card{}, products.Seen(c, "", l)...)}
+	return Mine{Cart: cart.Get(cart.ID(c), l), Seen: append([]products.Card{}, products.Seen(c, "", l)...)}, nil
 }
 
 // SeenInput is the product page the visitor opened.
