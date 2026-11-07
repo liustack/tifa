@@ -52,6 +52,9 @@ type CurvePoint struct {
 	Visits     int     `json:"visits"`
 	OpenOldest float64 `json:"openOldestMs"`
 	Why        string  `json:"why,omitempty"`
+	// Orders is how many orders each project held at the end of the step. The steps of a search share
+	// one server, so the orders placed in the steps before count.
+	Orders map[string]int `json:"orders,omitempty"`
 }
 
 // BrowseRun is one framework in one round of one scenario, at the users the search chose.
@@ -393,11 +396,11 @@ func (r *replayer) search(ctx context.Context, o BrowseOptions) ([]CurvePoint, i
 		if err != nil {
 			return nil, 0, err
 		}
-		p := CurvePoint{Users: users, VisitsPerS: float64(res.Visits) / res.Seconds, Errors: res.Errors, DocP99: res.Types["doc"].P99, NavP99: res.Types["nav"].P99, Visits: res.Visits, OpenOldest: res.OpenOldestMs}
+		p := CurvePoint{Users: users, VisitsPerS: float64(res.Visits) / res.Seconds, Errors: res.Errors, DocP99: res.Types["doc"].P99, NavP99: res.Types["nav"].P99, Visits: res.Visits, OpenOldest: res.OpenOldestMs, Orders: res.Orders}
 		p.Why = p.why()
 		p.Pass = p.Why == ""
 		curve = append(curve, p)
-		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, res.FirstErr)
+		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms, %d orders in the shops %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, res.Orders["studio"]+res.Orders["weekend"], res.FirstErr)
 		if !p.Pass || PlateauAfter(curve) {
 			break
 		}
