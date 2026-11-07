@@ -143,7 +143,7 @@ func kindOf(p string) kind {
 //   - Go needs a new analysis and a go build. The builder adds code generation and a bundle
 //     when the analysis returns a new route manifest.
 //   - A page.tsx, layout.tsx or layout_.tsx that appears or disappears changes the manifest, so
-//     does tifa.yaml. A language file in a
+//     does tifa.yaml. hooks.ts at the root that appears or disappears changes the entries. A language file in a
 //     _locales folder that appears, disappears or is renamed does too, and it changes the languages
 //     of the content, which are converted again.
 //   - A file the Go code embeds is part of the program, whatever its kind, so it needs a go build.
@@ -184,7 +184,7 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 			if c.op != modified && isLocaleFile(c.path) {
 				s = s.or(everything)
 			}
-			if c.op != modified && (base == "page.tsx" || base == "layout.tsx" || base == "layout_.tsx") {
+			if c.op != modified && (base == "page.tsx" || base == "layout.tsx" || base == "layout_.tsx" || c.path == "hooks.ts") {
 				s = s.or(everything)
 			}
 		}
