@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,37 +16,136 @@ import (
 
 func TestListSumsTheOrdersOfOneProject(t *testing.T) {
 	reset()
-	s := ListOrders("studio")
-	if len(s.Orders) != 42 || s.Orders[0].ID != "SH-1042" || s.Orders[41].ID != "SH-1001" {
-		t.Fatalf("%d orders, from %s to %s", len(s.Orders), s.Orders[0].ID, s.Orders[len(s.Orders)-1].ID)
+	studio := ListOrders("studio", shanghai)
+	s := allRows("studio")
+	if studio.Total != 42 || len(s) != 42 || s[0].ID != "SH-1042" || s[41].ID != "SH-1001" {
+		t.Fatalf("%d orders, from %s to %s", len(s), s[0].ID, s[len(s)-1].ID)
 	}
-	if s.RevenueCents != 1413400 || s.Pending != 2 || s.Shipped != 40 {
-		t.Fatalf("totals %d cents, %d pending, %d shipped", s.RevenueCents, s.Pending, s.Shipped)
+	// The page holds the newest, the totals are over all.
+	if len(studio.Orders) != ListPageSize || !reflect.DeepEqual(studio.Orders, s[:ListPageSize]) {
+		t.Fatalf("the first page holds %d orders", len(studio.Orders))
+	}
+	if studio.RevenueCents != 1413400 || studio.Pending != 2 || studio.Shipped != 40 {
+		t.Fatalf("totals %d cents, %d pending, %d shipped", studio.RevenueCents, studio.Pending, studio.Shipped)
 	}
 	// Newest first, numbered in the order they were placed, and only the newest wait to be shipped.
-	for i, o := range s.Orders {
-		if i > 0 && (o.PlacedAt.After(s.Orders[i-1].PlacedAt) || o.ID >= s.Orders[i-1].ID) {
-			t.Fatalf("%s comes after %s", o.ID, s.Orders[i-1].ID)
+	for i, o := range s {
+		if i > 0 && (o.PlacedAt.After(s[i-1].PlacedAt) || o.ID >= s[i-1].ID) {
+			t.Fatalf("%s comes after %s", o.ID, s[i-1].ID)
 		}
 		if (o.Status == StatusPending) != (o.ID == "SH-1042" || o.ID == "SH-1041") {
 			t.Errorf("%s is %s", o.ID, o.Status)
 		}
 	}
-	first := s.Orders[41].PlacedAt
+	first := s[41].PlacedAt
 	if y, m, d := first.Date(); y != 2026 || m != 9 || d != 14 {
 		t.Errorf("the first order is placed on %s", first)
 	}
-	if w := ListOrders("weekend"); len(w.Orders) != 12 || w.Orders[0].ID != "WK-0201" || w.Orders[11].ID != "WK-0190" || w.Pending != 1 {
+	if w := ListOrders("weekend", shanghai); w.Total != 12 || len(w.Orders) != 12 || w.Orders[0].ID != "WK-0201" || w.Orders[11].ID != "WK-0190" || w.Pending != 1 {
 		t.Fatalf("weekend: %d orders, %d pending", len(w.Orders), w.Pending)
 	}
-	if empty := ListOrders("nowhere"); empty.Orders == nil || len(empty.Orders) != 0 || empty.RevenueCents != 0 {
+	if empty := ListOrders("nowhere", shanghai); empty.Orders == nil || len(empty.Orders) != 0 || empty.Total != 0 || empty.RevenueCents != 0 || empty.OldestPending != nil || empty.Carriers == nil || empty.Daily.Orders == nil {
 		t.Fatalf("list of an unknown project %+v", empty)
+	}
+}
+
+// The cards of the list are drawn from numbers over all the orders, since the page holds only the
+// newest.
+func TestListNumbersCoverTheOrdersTheFirstPageLeavesOut(t *testing.T) {
+	reset()
+	l := ListOrders("studio", shanghai)
+	if l.OldestPending == nil || l.OldestPending.ID != "SH-1041" {
+		t.Errorf("the oldest order waiting to ship is %+v", l.OldestPending)
+	}
+	if !l.NewestAt.Equal(time.Date(2026, 10, 13, 14, 32, 0, 0, chinaTime)) {
+		t.Errorf("newest at %s", l.NewestAt)
+	}
+	// SH-1001 to SH-1017 are not on the page, and their carriers are still listed.
+	want := map[string]bool{}
+	for _, row := range allRows("studio") {
+		if row.Carrier != "" {
+			want[row.Carrier] = true
+		}
+	}
+	if len(l.Carriers) != len(want) || !slices.IsSorted(l.Carriers) {
+		t.Errorf("carriers %v, want %v", l.Carriers, want)
+	}
+	d := l.Daily
+	if len(d.Orders) != 14 || len(d.RevenueCents) != 14 || len(d.Pending) != 14 || len(d.Shipped) != 14 {
+		t.Fatalf("days %+v", d)
+	}
+	// The last day is 13 October, on which only SH-1042 was placed.
+	if d.Orders[13] != 1 || d.Pending[13] != 1 || d.Shipped[13] != 0 || d.RevenueCents[13] != 42800 {
+		t.Errorf("last day: %d orders, %d pending, %d shipped, %d cents", d.Orders[13], d.Pending[13], d.Shipped[13], d.RevenueCents[13])
+	}
+	var orders, cents int
+	for i := range d.Orders {
+		orders += d.Orders[i]
+		cents += d.RevenueCents[i]
+		if d.Pending[i]+d.Shipped[i] != d.Orders[i] {
+			t.Errorf("day %d: %d pending and %d shipped of %d", i, d.Pending[i], d.Shipped[i], d.Orders[i])
+		}
+	}
+	// The same count taken from every order by its date.
+	from := l.NewestAt.Add(-13 * 24 * time.Hour).In(shanghai).Format(time.DateOnly)
+	var wantOrders, wantCents int
+	for _, r := range allRows("studio") {
+		if r.PlacedAt.In(shanghai).Format(time.DateOnly) >= from {
+			wantOrders++
+			wantCents += r.TotalCents
+		}
+	}
+	if orders != wantOrders || cents != wantCents || orders <= 10 {
+		t.Errorf("14 days hold %d orders and %d cents, want %d and %d", orders, cents, wantOrders, wantCents)
+	}
+}
+
+func TestListPageGivesThePagesAfterTheFirst(t *testing.T) {
+	reset()
+	all := allRows("studio")
+	for n, want := range map[int][]OrderRow{0: all[:25], 1: all[25:], 2: {}} {
+		got, err := ListPage("studio", n)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("page %d: %d rows, %v, want %d", n, len(got), err, len(want))
+		}
+	}
+	if got, err := ListPage("studio", -1); err != nil || len(got) != 0 {
+		t.Errorf("page -1: %v %v", got, err)
+	}
+	if _, err := ListPage("nowhere", 0); !errors.Is(err, tifa.ErrNotFound) {
+		t.Errorf("an unknown project: %v", err)
+	}
+}
+
+// Another list on the page of an order holds the newest few, and the count is over all of them.
+func TestCustomerOrdersAreTheNewestFewWithTheCountOfAll(t *testing.T) {
+	reset()
+	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
+	in := newOrder() // 周宁
+	for i := range 14 {
+		if _, err := CreateOrder("studio", in, at.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	others, count, spent := CustomerOrders("studio", "SH-1043")
+	if len(others) != SideListSize || count < 15 || others[0].ID != "SH-1056" || slices.ContainsFunc(others, func(r OrderRow) bool { return r.ID == "SH-1043" }) {
+		t.Fatalf("%d others, first %s, count %d", len(others), others[0].ID, count)
+	}
+	var cents, n int
+	for _, r := range allRows("studio") {
+		if r.Customer == "周宁" {
+			cents += r.TotalCents
+			n++
+		}
+	}
+	if spent != cents || count != n {
+		t.Errorf("spent %d in %d orders, want %d in %d", spent, count, cents, n)
 	}
 }
 
 func TestListRowsCountPiecesAndCents(t *testing.T) {
 	reset()
-	row := ListOrders("studio").Orders[0]
+	row := allRows("studio")[0]
 	want := OrderRow{
 		ID: "SH-1042", Customer: "林夏", Initials: "林", PlacedAt: time.Date(2026, 10, 13, 14, 32, 0, 0, chinaTime),
 		Status: StatusPending, Items: 2, Lines: 2, Product: "晨间手冲壶", Slug: "pour-over-kettle", TotalCents: 42800,
@@ -100,7 +200,7 @@ func TestShipOnce(t *testing.T) {
 	if o.Status != StatusShipped || o.Shipment == nil || !reflect.DeepEqual(*o.Shipment, want) {
 		t.Fatalf("after shipping: %s %+v", o.Status, o.Shipment)
 	}
-	if s := ListOrders("studio"); s.Pending != 1 || s.Shipped != 41 {
+	if s := ListOrders("studio", shanghai); s.Pending != 1 || s.Shipped != 41 {
 		t.Fatalf("totals after shipping: %d pending, %d shipped", s.Pending, s.Shipped)
 	}
 	if err := ShipOrder("studio", "SH-1042", "JD", "JD0001234567", at); err != ErrShipped {
@@ -118,7 +218,7 @@ func TestShipOnce(t *testing.T) {
 func TestDemoShipmentsFollowTheirOrders(t *testing.T) {
 	reset()
 	for _, p := range []string{"studio", "weekend"} {
-		for _, row := range ListOrders(p).Orders {
+		for _, row := range allRows(p) {
 			o, _ := GetOrder(p, row.ID)
 			if (o.Shipment != nil) != (o.Status == StatusShipped) {
 				t.Fatalf("%s is %s with shipment %+v", o.ID, o.Status, o.Shipment)
@@ -193,7 +293,7 @@ func TestUpdateRecipientUntilTheOrderShips(t *testing.T) {
 	if o.Customer != "陈小默" || o.Initials != "陈" || o.Phone != "13900139000" || o.Address != "杭州市西湖区文三路 1 号" {
 		t.Fatalf("after the change: %+v", o)
 	}
-	if row := ListOrders("studio").Orders[1]; row.ID != "SH-1041" || row.Customer != "陈小默" {
+	if row := allRows("studio")[1]; row.ID != "SH-1041" || row.Customer != "陈小默" {
 		t.Fatalf("the list shows %+v", row)
 	}
 	if err := UpdateRecipient("studio", "SH-1040", "周宁", "13800138000", "北京市朝阳区"); err != ErrRecipientLocked {
@@ -229,7 +329,7 @@ func TestEveryProductHasPhotos(t *testing.T) {
 
 func TestListRowsShowTheCarrierOfShippedOrders(t *testing.T) {
 	reset()
-	rows := ListOrders("studio").Orders
+	rows := allRows("studio")
 	if rows[0].Carrier != "" || rows[0].TrackingNo != "" {
 		t.Errorf("pending row %+v", rows[0])
 	}

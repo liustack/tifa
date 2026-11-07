@@ -233,3 +233,97 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		t.Errorf("the first order placed in weekend is not WK-0202: %s", a)
 	}
 }
+
+// backOfficeWrites are the four kinds of write of the back office, in an order every one of them is
+// allowed in: three orders are placed (SH-1043, WK-0202 and SH-1044), SH-1043 is shipped and then
+// gets a note (the port counts milliseconds and Go nanoseconds, so a note and a shipment of one
+// order made in the same millisecond must come in the order the log lists them), and an order of
+// the data is shipped too.
+func backOfficeWrites() []compare.DomainWrite {
+	place := func(project string, items ...map[string]any) compare.DomainWrite {
+		return compare.DomainWrite{Kind: compare.WriteCreate, Project: project, Body: map[string]any{
+			"customer": " 林夏 ", "phone": "138-0013 8000", "email": "linxia@example.com", "address": "上海市徐汇区 · 新地址", "note": "请附手写卡片", "items": items}}
+	}
+	item := func(slug string, quantity int) map[string]any {
+		return map[string]any{"slug": slug, "quantity": quantity}
+	}
+	return []compare.DomainWrite{
+		place("studio", item("pour-over-kettle", 2), item("ceramic-cup", 1)),
+		place("weekend", item("postcards", 3)),
+		place("studio", item("oak-tray", 1)),
+		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1040", Body: map[string]any{"text": " 顾客来电，已收到。 "}},
+		{Kind: compare.WriteRecipient, Project: "studio", Order: "SH-1044", Body: map[string]any{"customer": "陈默", "phone": "13900139001", "address": "杭州市西湖区 · 新地址"}},
+		{Kind: compare.WriteShip, Project: "studio", Order: "SH-1043", Body: map[string]any{"carrier": "ZTO", "trackingNo": " ZTO20261107001 "}},
+		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1043", Body: map[string]any{"text": "客户要求周末送达。"}},
+		{Kind: compare.WriteShip, Project: "studio", Order: "SH-1042", Body: map[string]any{"carrier": "SF", "trackingNo": "SF20261107002"}},
+		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1042", Body: map[string]any{"text": "已发出。"}},
+	}
+}
+
+// TestPagesStayTheSizeOfAPageAsOrdersGrow places 40 orders for a customer who has orders already and
+// checks, in each server, that the pages that list orders hold the newest few and not all: the
+// order list holds one page of 25 rows (a header row and 25), the other orders of the customer on
+// an order page are at most 10, and the numbers over all orders (the count in the tabs of the list
+// and the orders of the customer) went up. The four must show the same.
+func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	ctx := context.Background()
+	list := compare.Page{Name: "list studio", URL: "/projects/studio"}
+	customer := compare.Page{Name: "order SH-1032", URL: "/projects/studio/orders/SH-1032"} // 林夏, who has orders
+	newest := compare.Page{Name: "order SH-1082", URL: "/projects/studio/orders/SH-1082"}
+	stats := compare.Page{Name: "stats studio", URL: "/projects/studio/stats"}
+	views := map[string][]compare.View{}
+	var names []string
+	for _, spec := range env.Specs() {
+		if strings.HasSuffix(spec.Name, "-jitless") || spec.AcceptEncoding != "" || spec.Name == "tifa-nocache" {
+			continue
+		}
+		names = append(names, spec.Name)
+		t.Run(spec.Name, func(t *testing.T) {
+			server, err := spec.Start(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Stop()
+			before := viewOf(t, server.Base, customer)
+			listBefore := viewOf(t, server.Base, list)
+			body := `{"customer":"林夏","phone":"13800138000","email":"linxia@example.com","address":"上海市徐汇区","note":"","items":[{"slug":"oak-tray","quantity":1}]}`
+			for range 40 {
+				if r := call(t, server.Base, "POST", spec.Create("studio"), body); r.Status != 200 {
+					t.Fatalf("place an order: %d", r.Status)
+				}
+			}
+			var got []compare.View
+			for _, p := range []compare.Page{list, customer, newest, stats} {
+				got = append(got, viewOf(t, server.Base, p))
+			}
+			views[spec.Name] = got
+			if rows := got[0].Count["tr"]; rows != 26 {
+				t.Errorf("the order list has %d rows after 40 orders, want a header and 25", rows)
+			}
+			if got[0].Count["a"] > listBefore.Count["a"]+10 {
+				t.Errorf("the order list has %d links, from %d", got[0].Count["a"], listBefore.Count["a"])
+			}
+			if li := got[1].Count["li"]; li > before.Count["li"]+SideRows {
+				t.Errorf("the page of an order of the customer has %d list items, from %d", li, before.Count["li"])
+			}
+			if !strings.Contains(strings.Join(got[1].Text, "|"), "earlier orders") {
+				t.Errorf("the page of an order of the customer does not say how many orders are left out")
+			}
+		})
+	}
+	if len(names) < 4 {
+		t.Fatalf("only %v were checked", names)
+	}
+	for _, name := range names[1:] {
+		for i, p := range []string{"list", "customer", "newest", "stats"} {
+			if d := compare.Diff(views[names[0]][i], views[name][i]); d != "" {
+				t.Errorf("%s: the %s page differs from %s:\n%s", name, p, names[0], d)
+			}
+		}
+	}
+}
+
+// SideRows is how many orders of the same customer an order page lists at most.
+const SideRows = 10

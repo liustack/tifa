@@ -52,7 +52,7 @@ export function loadProject(id: string): Project {
 
 export function loadOrderList(project: Project): OrderList {
   counts.page++
-  return listOrders(project.id)
+  return listOrders(project.id, project.timeZone)
 }
 
 export function loadOrder(project: Project, orderId: string): Detail {

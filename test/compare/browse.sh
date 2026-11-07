@@ -19,7 +19,8 @@
 #   LOAD_CPUS           cpus of the load generator                                none: not pinned
 #   LOCKS               files to flock while running, space separated             none
 #   SERVERS             spec ids                                                  tifa,nextjs,start,reactrouter
-#   SCENARIOS           mixes                                                     r95w5,r80w20,r50w50
+#   SCENARIOS           office-w5, office-w20, office-w50 (back office writes),    office-w5,office-w20,office-w50,r80w20
+#                       r95w5, r80w20, r50w50 (every write renames a customer)
 #   VISITS              visits to record for each framework                       100
 #   WORKERS             browser contexts at once while recording                  6
 #   ROUNDS WARM WINDOW SEARCH_WARM SEARCH_WINDOW MAX_USERS                         3 10s 30s 3s 10s 128
@@ -86,7 +87,7 @@ do_run() {
     echo "record them with '$0 record' (on a machine with Chromium), build from the same commit, and copy the folder here" >&2
     exit 1
   fi
-  local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "${SCENARIOS:-r95w5,r80w20,r50w50}"
+  local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "${SCENARIOS:-office-w5,office-w20,office-w50,r80w20}"
     -rounds "${ROUNDS:-3}" -warm "${WARM:-10s}" -window "${WINDOW:-30s}" -search-warm "${SEARCH_WARM:-3s}" -search-window "${SEARCH_WINDOW:-10s}"
     -max-users "${MAX_USERS:-128}" -check -source "${SOURCE:-run}" -json "$out/browse.json")
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")

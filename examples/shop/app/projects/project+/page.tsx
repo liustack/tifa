@@ -15,9 +15,11 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useEffect, useState } from 'react'
 import { AnimatedNumber } from '../../animated-number'
 import { orderDate, orderTime, percent, yuan } from '../../format'
 import { layout as project, page } from './route.gen'
+import { GET } from './orders/route.gen'
 import { columnNames, columns, features, type Row } from './columns'
 import { SummaryCard, SummaryRow } from './summary-card'
 
@@ -32,19 +34,6 @@ const amountRanges: Record<keyof typeof amounts, [number | undefined, number | u
   low: [undefined, 19999],
   mid: [20000, 50000],
   high: [50001, undefined],
-}
-
-// daily adds up value over the orders of each of the last count days, oldest first.
-function daily(rows: Row[], timeZone: string, count: number, value: (r: Row) => number) {
-  if (rows.length === 0) return []
-  const newest = Math.max(...rows.map((r) => Date.parse(r.placedAt)))
-  const keys = Array.from({ length: count }, (_, i) => orderDate(new Date(newest - (count - 1 - i) * day).toISOString(), timeZone))
-  const sums = new Map(keys.map((k) => [k, 0]))
-  for (const r of rows) {
-    const k = orderDate(r.placedAt, timeZone)
-    if (sums.has(k)) sums.set(k, sums.get(k)! + value(r))
-  }
-  return keys.map((k) => sums.get(k)!)
 }
 
 // download writes rows as a spreadsheet file the browser saves.
@@ -64,16 +53,31 @@ function download(rows: Row[], timeZone: string) {
 export default function OrdersPage() {
   const list = page.useLoaderData()
   const { id: projectId, timeZone } = project.useLoaderData()
-  const all = list.orders ?? noOrders
+  // The page holds the newest orders, and the numbers over all of them come with it. A page after the first is read
+  // from the server when the visitor goes to it. The filters and the search work on the page on screen.
+  const [pageIndex, setPageIndex] = useState(0)
+  const [later, setLater] = useState<Row[]>()
+  useEffect(() => {
+    if (pageIndex === 0) return
+    let stale = false
+    GET({ params: { project: projectId }, input: { page: pageIndex } }).then((rows) => {
+      if (!stale && rows) setLater(rows)
+    })
+    return () => {
+      stale = true
+    }
+  }, [pageIndex, projectId])
+  const all = pageIndex === 0 || !later ? (list.orders ?? noOrders) : later
   const table = useTable({
     features,
     columns,
     data: all,
+    manualPagination: true,
+    rowCount: list.total,
     getRowId: (row) => row.id,
-    initialState: {
-      sorting: [{ id: 'placedAt', desc: true }],
-      pagination: { pageIndex: 0, pageSize },
-    },
+    initialState: { sorting: [{ id: 'placedAt', desc: true }] },
+    state: { pagination: { pageIndex, pageSize } },
+    onPaginationChange: (updater) => setPageIndex((i) => (typeof updater === 'function' ? updater({ pageIndex: i, pageSize }) : updater).pageIndex),
     globalFilterFn: 'includesString',
     getColumnCanGlobalFilter: (column) => column.id === 'id' || column.id === 'customer',
   })
@@ -81,13 +85,13 @@ export default function OrdersPage() {
   const carrier = (table.getColumn('carrier')?.getFilterValue() as string | undefined) ?? 'all'
   const search = (table.state.globalFilter as string | undefined) ?? ''
   const rows = table.getRowModel().rows
-  const matching = table.getFilteredRowModel().rows.length
+  const filtered = table.state.columnFilters.length > 0 || search !== ''
+  const matching = filtered ? table.getFilteredRowModel().rows.length : list.total
   const selected = table.getSelectedRowModel().rows.map((r) => r.original)
-  const { pageIndex } = table.state.pagination
   const from = matching === 0 ? 0 : pageIndex * pageSize + 1
   const to = Math.min(matching, (pageIndex + 1) * pageSize)
 
-  const newest = all.length > 0 ? Math.max(...all.map((r) => Date.parse(r.placedAt))) : 0
+  const newest = list.total > 0 ? Date.parse(list.newestAt) : 0
   const [period, setPeriod] = [periodOf(table.getColumn('placedAt')?.getFilterValue(), newest), (p: keyof typeof periods) => {
     table.getColumn('placedAt')?.setFilterValue(p === 'all' ? undefined : [newest - Number(p) * day, undefined])
     table.setPageIndex(0)
@@ -96,12 +100,11 @@ export default function OrdersPage() {
     table.getColumn('totalCents')?.setFilterValue(amountRanges[a])
     table.setPageIndex(0)
   }]
-  const carriers = [...new Set(all.map((r) => r.carrier).filter(Boolean))].sort()
-  const pending = all.filter((r) => r.status === 'pending').sort((a, b) => Date.parse(a.placedAt) - Date.parse(b.placedAt))
-  const oldest = pending[0]
-  const count = all.length
-  const revenueByDay = daily(all, timeZone, 14, (r) => r.totalCents)
-  const ordersByDay = daily(all, timeZone, 14, () => 1)
+  const carriers = list.carriers
+  const oldest = list.oldestPending ?? undefined
+  const count = list.total
+  const revenueByDay = list.daily.revenueCents
+  const ordersByDay = list.daily.orders
 
   return (
     <section aria-labelledby="orders-title" className="flex flex-col gap-6">
@@ -125,10 +128,10 @@ export default function OrdersPage() {
         <SummaryCard title="Order total" note={`${count} orders in the last 30 days`} points={revenueByDay}>
           <AnimatedNumber value={list.revenueCents} format={yuan} />
         </SummaryCard>
-        <SummaryCard title="To ship" note={oldest ? `Oldest ${orderTime(oldest.placedAt, timeZone)}` : 'All orders shipped'} points={daily(all, timeZone, 14, (r) => (r.status === 'pending' ? 1 : 0))}>
+        <SummaryCard title="To ship" note={oldest ? `Oldest ${orderTime(oldest.placedAt, timeZone)}` : 'All orders shipped'} points={list.daily.pending}>
           <AnimatedNumber value={list.pending} />
         </SummaryCard>
-        <SummaryCard title="Shipped" note={`${percent(count ? list.shipped / count : 0)} of all orders`} points={daily(all, timeZone, 14, (r) => (r.status === 'shipped' ? 1 : 0))}>
+        <SummaryCard title="Shipped" note={`${percent(count ? list.shipped / count : 0)} of all orders`} points={list.daily.shipped}>
           <AnimatedNumber value={list.shipped} />
         </SummaryCard>
         <SummaryCard title="Average order" note="Per order" points={revenueByDay.map((cents, i) => (ordersByDay[i] ? cents / ordersByDay[i] : 0))}>

@@ -102,12 +102,14 @@ func TestDomainMatchesGo(t *testing.T) {
 	if len(want) != len(compare.AllPages()) || len(got) != len(want) {
 		t.Errorf("AllPages lists %d pages, Go answered %d, Node %d", len(compare.AllPages()), len(want), len(got))
 	}
-	// The orders AllPages assumes are the orders the shop has: every row of the lists has a page.
+	// The orders AllPages assumes are the orders the shop has: every order counted by the lists has a page.
 	for _, project := range []string{"studio", "weekend"} {
 		list, _ := want["/projects/"+project]["app/projects/project+/route"].(map[string]any)
 		rows, _ := list["orders"].([]any)
-		if r := compare.OrderIDs[project]; len(rows) != r[1]-r[0]+1 {
-			t.Errorf("%s: the shop has %d orders, AllPages assumes %d", project, len(rows), r[1]-r[0]+1)
+		total, _ := list["total"].(float64)
+		r := compare.OrderIDs[project]
+		if int(total) != r[1]-r[0]+1 || len(rows) != min(int(total), 25) {
+			t.Errorf("%s: the shop has %v orders and sends %d, AllPages assumes %d and the first page holds 25", project, total, len(rows), r[1]-r[0]+1)
 		}
 	}
 }
@@ -386,9 +388,10 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 	return target
 }
 
-// TestDomainMatchesGoAfterWrites sends the first 60 reads' writes of the scenario with writes to
-// the Go shop and applies them in the port, and checks that the data of the six pages is still
-// the same.
+// TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes, and
+// then every kind of write of the back office (place, ship, note, change the recipient), to the Go
+// shop and applies them in the port, and checks that the data of every page, with the pages of the
+// orders placed, is still the same. Instants are left out, since the two make them at different times.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	env := setup(t)
 	if why := compare.NodeRunsTypeScript(); why != "" {
@@ -396,10 +399,12 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	}
 	buildShop(t, env)
 	ctx := context.Background()
-	writes := compare.Writes(compare.ReadWriteScenario, 60)
-	if len(writes) < 5 {
-		t.Fatalf("only %d writes", len(writes))
+	recipients := compare.Writes(compare.ReadWriteScenario, 60)
+	if len(recipients) < 5 {
+		t.Fatalf("only %d writes", len(recipients))
 	}
+	writes := compare.RecipientWrites(recipients)
+	writes = append(writes, backOfficeWrites()...)
 	want, err := env.GoData(ctx, writes...)
 	if err != nil {
 		t.Fatal(err)
@@ -408,10 +413,13 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, d := range compare.DiffData(toAny(t, want), toAny(t, got), 20) {
+	if len(got) != len(want) || len(want) != len(compare.AllPages())+3 {
+		t.Fatalf("%d pages in the shop, %d in the port, want %d", len(want), len(got), len(compare.AllPages())+3)
+	}
+	for _, d := range compare.DiffData(compare.WithoutInstants(toAny(t, want)), compare.WithoutInstants(toAny(t, got)), 20) {
 		t.Error(d)
 	}
-	last := writes[len(writes)-1]
+	last := recipients[len(recipients)-1]
 	text, _ := json.Marshal(want)
 	if !strings.Contains(string(text), last.Address) {
 		t.Errorf("the last write %q is not in the data of the shop", last.Address)

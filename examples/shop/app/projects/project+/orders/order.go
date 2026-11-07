@@ -5,6 +5,7 @@ package orders
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -72,38 +73,126 @@ type OrderRow struct {
 	TotalCents int       `json:"totalCents"`
 }
 
-// OrderList is the order list of a project with its totals.
+// The lists of a page show the newest orders and not all of them, so that a page does not grow
+// with the orders of the shop. The numbers over all orders (totals, counts) are sent next to them.
+const (
+	// ListPageSize is how many orders a page of the order list shows.
+	ListPageSize = 25
+	// SideListSize is how many orders another list on a page shows, such as the other orders of a
+	// customer. Its count is over all of them.
+	SideListSize = 10
+	// listDays is how many days the cards of the order list draw.
+	listDays = 14
+)
+
+// OrderList is the first page of the order list of a project, with numbers over all its orders.
+// Total, the totals, the days and the oldest order waiting to ship are over every order of the
+// project, the carriers are those that took a parcel.
 type OrderList struct {
-	Orders       []OrderRow `json:"orders"`
+	Orders       []OrderRow `json:"orders"` // the newest ListPageSize, newest first
+	Total        int        `json:"total"`
 	RevenueCents int        `json:"revenueCents"`
 	Pending      int        `json:"pending"`
 	Shipped      int        `json:"shipped"`
+	// NewestAt is when the newest order was placed, which the days end on.
+	NewestAt      time.Time  `json:"newestAt"`
+	OldestPending *OrderRow  `json:"oldestPending"` // nil when every order has shipped
+	Carriers      []string   `json:"carriers"`      // names, sorted
+	Daily         DailyCards `json:"daily"`
 }
 
-// ListOrders returns the orders of a project, newest first, with their totals.
-func ListOrders(projectID string) OrderList {
-	l := OrderList{Orders: []OrderRow{}}
-	for _, o := range ordersOf(projectID) {
-		row := OrderRow{
-			ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt,
-			Status: status(o), Lines: len(o.Items), Product: o.Items[0].Name, Slug: o.Items[0].Slug,
-			TotalCents: total(o),
-		}
-		if s := o.Shipment; s != nil {
-			row.Carrier, row.TrackingNo = carrierName(s.Carrier), s.TrackingNo
-		}
-		for _, item := range o.Items {
-			row.Items += item.Quantity
-		}
-		l.Orders = append(l.Orders, row)
-		l.RevenueCents += row.TotalCents
+// DailyCards are what the cards of the order list draw: for each of the last listDays days that end
+// on the day of the newest order, in the time zone of the shop, oldest first, what the orders
+// placed on that day add up to. They are empty for a project without orders.
+type DailyCards struct {
+	RevenueCents []int `json:"revenueCents"`
+	Orders       []int `json:"orders"`
+	Pending      []int `json:"pending"`
+	Shipped      []int `json:"shipped"`
+}
+
+// ListOrders returns the first page of the orders of a project, newest first, with the numbers over
+// all of them. zone is the time zone of the shop, whose days the cards draw.
+func ListOrders(projectID string, zone *time.Location) OrderList {
+	l := OrderList{Orders: []OrderRow{}, Carriers: []string{}, Daily: DailyCards{RevenueCents: []int{}, Orders: []int{}, Pending: []int{}, Shipped: []int{}}}
+	list := ordersOf(projectID) // newest first
+	if len(list) == 0 {
+		return l
+	}
+	l.NewestAt = list[0].PlacedAt
+	// The days, labelled by their date in zone. Days are counted back from the newest order in
+	// steps of 24 hours, so two steps can land on the same date where a zone changes its clock, and
+	// then they share the sums.
+	keys := make([]string, listDays)
+	index := map[string]int{}
+	for i := range keys {
+		keys[i] = l.NewestAt.Add(-time.Duration(listDays-1-i) * 24 * time.Hour).In(zone).Format(time.DateOnly)
+		index[keys[i]] = len(index)
+	}
+	sums := make([][4]int, len(index))
+	carriers := map[string]bool{}
+	for _, o := range list {
+		cents := total(o)
+		l.Total++
+		l.RevenueCents += cents
 		if o.Shipment != nil {
 			l.Shipped++
+			carriers[carrierName(o.Shipment.Carrier)] = true
 		} else {
 			l.Pending++
+			if l.OldestPending == nil || o.PlacedAt.Before(l.OldestPending.PlacedAt) {
+				row := orderRow(o)
+				l.OldestPending = &row
+			}
+		}
+		if i, ok := index[o.PlacedAt.In(zone).Format(time.DateOnly)]; ok {
+			s := &sums[i]
+			s[0] += cents
+			s[1]++
+			if o.Shipment == nil {
+				s[2]++
+			} else {
+				s[3]++
+			}
 		}
 	}
+	for _, key := range keys {
+		s := sums[index[key]]
+		l.Daily.RevenueCents = append(l.Daily.RevenueCents, s[0])
+		l.Daily.Orders = append(l.Daily.Orders, s[1])
+		l.Daily.Pending = append(l.Daily.Pending, s[2])
+		l.Daily.Shipped = append(l.Daily.Shipped, s[3])
+	}
+	l.Carriers = slices.Sorted(maps.Keys(carriers))
+	for _, o := range list[:min(ListPageSize, len(list))] {
+		l.Orders = append(l.Orders, orderRow(o))
+	}
 	return l
+}
+
+// ListPage returns page n (from 0) of the orders of a project, newest first, ListPageSize of them.
+func ListPage(projectID string, n int) ([]OrderRow, error) {
+	if _, ok := shops[projectID]; !ok {
+		return nil, tifa.ErrNotFound
+	}
+	rows := []OrderRow{}
+	list := ordersOf(projectID)
+	if n < 0 || n*ListPageSize >= len(list) {
+		return rows, nil
+	}
+	for _, o := range list[n*ListPageSize : min((n+1)*ListPageSize, len(list))] {
+		rows = append(rows, orderRow(o))
+	}
+	return rows, nil
+}
+
+// allRows are the rows of all the orders of a project, newest first.
+func allRows(projectID string) []OrderRow {
+	rows := []OrderRow{}
+	for _, o := range ordersOf(projectID) {
+		rows = append(rows, orderRow(o))
+	}
+	return rows
 }
 
 // orderRow is the line of the order list for an order.
@@ -244,21 +333,22 @@ func indexOrder(projectID, id string) int {
 	return slices.IndexFunc(orders, func(o orderRecord) bool { return o.ProjectID == projectID && o.ID == id })
 }
 
-// CustomerOrders returns the other orders of the customer of order id in a project, newest
-// first, with the number of orders and the cents they spent in all, this one counted.
+// CustomerOrders returns the newest SideListSize other orders of the customer of order id in a
+// project, newest first, with the number of orders and the cents they spent in all, this one
+// counted.
 func CustomerOrders(projectID, id string) (others []OrderRow, count, spentCents int) {
 	o, err := GetOrder(projectID, id)
 	if err != nil {
 		return []OrderRow{}, 0, 0
 	}
 	others = []OrderRow{}
-	for _, row := range ListOrders(projectID).Orders {
+	for _, row := range allRows(projectID) {
 		if row.Customer != o.Customer {
 			continue
 		}
 		count++
 		spentCents += row.TotalCents
-		if row.ID != id {
+		if row.ID != id && len(others) < SideListSize {
 			others = append(others, row)
 		}
 	}

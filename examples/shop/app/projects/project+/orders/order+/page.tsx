@@ -193,7 +193,7 @@ function Progress() {
   )
 }
 
-// Others are the other orders of the same customer.
+// Others are the newest other orders of the same customer, and the count says how many there are.
 function Others() {
   const { order, others, count, spentCents } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
@@ -228,6 +228,7 @@ function Others() {
             ))}
           </ul>
         )}
+        {count - 1 > others.length && <p className="mt-3 text-xs text-muted-foreground">and {count - 1 - others.length} earlier orders</p>}
       </CardContent>
     </Card>
   )

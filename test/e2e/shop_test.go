@@ -77,7 +77,8 @@ func TestShopApp(t *testing.T) {
 	}
 	// The list is a table that pages in the browser: the rendered page holds the 25 newest
 	// orders and the totals, with money and times in English. The data written into the page
-	// after it holds all 42.
+	// after it holds the same 25 rows and the total of all 42, and the other rows come from the
+	// server when the visitor goes to page 2.
 	_, _, list := get(t, base+"/projects/studio")
 	rendered, _, _ := strings.Cut(list[strings.Index(list, `id="tifa-root"`):], "<script")
 	for _, want := range []string{">SH-1042</a>", ">SH-1018</a>", "¥14,134.00", "October 13 at 14:32"} {
@@ -85,8 +86,8 @@ func TestShopApp(t *testing.T) {
 			t.Errorf("order list lacks %s", want)
 		}
 	}
-	if strings.Contains(rendered, "SH-1017") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
-		t.Errorf("the order list renders other than its first page, or lacks the data of the others:\n%s", list)
+	if strings.Contains(list, "SH-1017") || !strings.Contains(list, `\"total\":42`) {
+		t.Errorf("the order list holds more than its first page, or lacks the total of all orders:\n%s", list)
 	}
 	// The stats page renders its key numbers. The charts load in the browser only, so the HTML
 	// has a placeholder of a fixed height for each, and recharts is in none of the scripts the
