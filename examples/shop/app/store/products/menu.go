@@ -26,11 +26,12 @@ var kinds = map[string][]T{
 
 // Menu returns the category menu: each category with its kinds and its two best rated products.
 func Menu(l storekit.Locale) []MenuGroup {
+	all := records()
 	var out []MenuGroup
 	for _, c := range categories {
 		g := MenuGroup{Category: Category{ID: c.id, Name: c.name.In(l)}}
 		var in []productRecord
-		for _, p := range catalogue {
+		for _, p := range all {
 			if p.category == c.id {
 				in = append(in, p)
 			}
@@ -61,14 +62,9 @@ func compareRating(a, b productRecord) int {
 // Bundle returns up to n products to buy together with slug: others of its category that come in
 // one size, best rated first, so each goes into the cart in its first colour.
 func Bundle(slug string, n int, l storekit.Locale) []Card {
-	var self productRecord
-	for _, p := range catalogue {
-		if p.slug == slug {
-			self = p
-		}
-	}
+	self, _ := record(slug)
 	var in []productRecord
-	for _, p := range catalogue {
+	for _, p := range records() {
 		if p.category == self.category && p.slug != slug && len(p.sizes) == 0 && p.stock > 0 {
 			in = append(in, p)
 		}

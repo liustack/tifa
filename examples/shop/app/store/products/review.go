@@ -50,18 +50,9 @@ type ReviewsPage struct {
 	Pages   int           `json:"pages"`
 }
 
-func productBySlug(slug string) productRecord {
-	for _, r := range catalogue {
-		if r.slug == slug {
-			return r
-		}
-	}
-	return productRecord{}
-}
-
 // ReviewPage returns page of the reviews of a product, from 1. A page past the last shows the last.
 func ReviewPage(slug string, page int, l storekit.Locale) ReviewsPage {
-	p := productBySlug(slug)
+	p, _ := record(slug)
 	total := reviewCount(p)
 	out := ReviewsPage{Total: total, Pages: (total + ReviewsPerPage - 1) / ReviewsPerPage}
 	out.Page = min(max(page, 1), out.Pages)
@@ -81,7 +72,7 @@ func ReviewPage(slug string, page int, l storekit.Locale) ReviewsPage {
 
 // Reviews returns the n newest reviews of a product.
 func Reviews(slug string, n int, l storekit.Locale) []Review {
-	p := productBySlug(slug)
+	p, _ := record(slug)
 	var list []Review
 	for i := range min(n, reviewCount(p)) {
 		list = append(list, reviewAt(p, i, l))
@@ -143,7 +134,7 @@ type ReviewCard struct {
 
 // LatestReviews returns the newest review with pictures of each of the n newest products.
 func LatestReviews(n int, l storekit.Locale) []ReviewCard {
-	list := slices.Clone(catalogue)
+	list := records()
 	slices.SortStableFunc(list, func(a, b productRecord) int { return b.added.Compare(a.added) })
 	var out []ReviewCard
 	for _, p := range list[:min(n, len(list))] {

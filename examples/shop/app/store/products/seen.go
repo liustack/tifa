@@ -34,12 +34,8 @@ func seenSlugs(c *tifa.Ctx) []string {
 }
 
 func known(slug string) bool {
-	for _, p := range catalogue {
-		if p.slug == slug {
-			return true
-		}
-	}
-	return false
+	_, ok := record(slug)
+	return ok
 }
 
 // MarkSeen puts slug in front of the products the visitor has seen and writes the cookie back.
@@ -66,10 +62,8 @@ func Seen(c *tifa.Ctx, except string, l storekit.Locale) []Card {
 		if slug == except {
 			continue
 		}
-		for _, p := range catalogue {
-			if p.slug == slug {
-				out = append(out, p.card(l))
-			}
+		if p, ok := record(slug); ok {
+			out = append(out, p.card(l))
 		}
 	}
 	return out

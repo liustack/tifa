@@ -30,6 +30,8 @@ type productRecord struct {
 	materials   []T
 	specs       [][2]T
 	added       time.Time
+	// number is the place of the product in the catalogue, from 1, which the cards show.
+	number int
 }
 
 var categories = []struct {
@@ -84,7 +86,7 @@ var careNotes = map[string][]T{
 
 func day(month time.Month, d int) time.Time { return time.Date(2026, month, d, 10, 0, 0, 0, time.UTC) }
 
-var catalogue = []productRecord{
+var catalogue = numbered([]productRecord{
 	{
 		slug: "pour-over-kettle", name: T{"晨间手冲壶", "Morning Pour-Over Kettle"}, category: "drinkware",
 		priceFen: 32800, rating: 4.8, stock: 23, badge: "", colors: []string{"mist", "charcoal"},
@@ -449,6 +451,14 @@ var catalogue = []productRecord{
 		specs:     [][2]T{{{"尺寸", "Sizes"}, {"20、25、33 厘米", "20, 25 and 33 cm"}}},
 		added:     day(2, 14),
 	},
+})
+
+// numbered gives each product its place in the list, from 1.
+func numbered(list []productRecord) []productRecord {
+	for i := range list {
+		list[i].number = i + 1
+	}
+	return list
 }
 
 // materialGroups are the families of materials the product list filters by. A product belongs to
