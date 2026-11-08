@@ -327,16 +327,17 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 }
 
 // holdRequests makes the browser keep the data request of the list whose query holds all of want and
-// none of not: the request waits until release is called. The held request is kept on the page object
-// of the test browser, so the next calls of the test can see it.
+// none of not: the request waits until release is called. The held request and the functions that
+// hold it are kept on the page object of the test browser, so the next calls of the test can see them.
 func (b *orderListBrowser) holdRequests(want []string, not []string) {
 	b.t.Helper()
 	b.code(fmt.Sprintf(`async (page) => {
   const want = %s, not = %s
   page.__held = undefined
-  await page.route((url) => url.pathname === '/projects/studio' && url.searchParams.has('_tifa') &&
-    want.every((kv) => url.searchParams.get(kv.split('=')[0]) === kv.split('=')[1]) && not.every((k) => !url.searchParams.has(k)),
-    (route) => { page.__held = route })
+  page.__match = (url) => url.pathname === '/projects/studio' && url.searchParams.has('_tifa') &&
+    want.every((kv) => url.searchParams.get(kv.split('=')[0]) === kv.split('=')[1]) && not.every((k) => !url.searchParams.has(k))
+  page.__hold = (route) => { page.__held = route }
+  await page.route(page.__match, page.__hold)
 }`, jsonList(want), jsonList(not)))
 }
 
@@ -351,9 +352,16 @@ func (b *orderListBrowser) waitHeld() {
 	b.code(`async (page) => { for (let i = 0; i < 100 && !page.__held; i++) await new Promise((r) => setTimeout(r, 50)); if (!page.__held) throw new Error('no request was held') }`)
 }
 
+// release stops holding: the handler that was registered is removed, so a later request of the same
+// kind goes through, and the request held so far goes on to the server.
 func (b *orderListBrowser) release() {
 	b.t.Helper()
-	b.code(`async (page) => { const held = page.__held; page.__held = undefined; await page.unroute(() => true).catch(() => {}); await held.continue() }`)
+	b.code(`async (page) => {
+  const held = page.__held
+  page.__held = undefined
+  await page.unroute(page.__match, page.__hold)
+  if (held) await held.continue()
+}`)
 }
 
 // TestShopOrderListChangesWhileLoadingInBrowser makes a second change of the list while the data for
@@ -395,4 +403,57 @@ func TestShopOrderListChangesWhileLoadingInBrowser(t *testing.T) {
 		t.Errorf("rows %v", rows)
 	}
 	b.check("search and tab")
+}
+
+// back goes one step back in the history of the page.
+func (b *orderListBrowser) back() {
+	b.t.Helper()
+	b.eval(`() => { history.back(); return true }`)
+}
+
+// holdAmountAndGoBack opens the list, asks for an amount, holds the data for it, presses the back
+// button, and lets the held request go. The page is then back on the list it showed before.
+func (b *orderListBrowser) holdAmountAndGoBack() {
+	b.t.Helper()
+	b.open("/projects/studio")
+	b.holdRequests([]string{"amount=high"}, []string{"period"})
+	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Amount' }).click(); await page.getByRole('option', { name: 'Over ¥500' }).click() }`)
+	b.waitHeld()
+	waitFor(b.t, "the URL of the held change", func() bool { return b.search() == "?amount=high" })
+	b.back()
+	waitFor(b.t, "the URL after back", func() bool { return b.search() == "" })
+	b.release()
+	b.waitSelect("Amount", "Any amount")
+}
+
+func (b *orderListBrowser) waitSelect(label, want string) {
+	b.t.Helper()
+	waitFor(b.t, "the "+label+" box to show "+want, func() bool {
+		return b.eval(fmt.Sprintf(`() => document.querySelector('[role="combobox"][aria-label=%q]')?.textContent`, label)) == want
+	})
+}
+
+// TestShopOrderListBackThenAnotherChangeInBrowser presses the back button while the data for a change
+// is still on its way, and then makes another change. The page is back on the query it shows, so the
+// change must be built on that query: the amount that the back button cancelled must not come back.
+func TestShopOrderListBackThenAnotherChangeInBrowser(t *testing.T) {
+	b := newOrderListBrowser(t, "e2e-shop-back1")
+	b.holdAmountAndGoBack()
+	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Placed' }).click(); await page.getByRole('option', { name: 'Last 7 days' }).click() }`)
+	waitFor(t, "the period alone", func() bool { return b.search() == "?period=7" })
+	b.waitSelect("Amount", "Any amount")
+	b.waitSelect("Placed", "Last 7 days")
+	b.check("period after back")
+}
+
+// TestShopOrderListBackThenTheSameChangeInBrowser asks for the amount again after the back button
+// cancelled it. It must be asked for, not dropped for being the same as the cancelled one.
+func TestShopOrderListBackThenTheSameChangeInBrowser(t *testing.T) {
+	b := newOrderListBrowser(t, "e2e-shop-back2")
+	b.holdAmountAndGoBack()
+	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Amount' }).click(); await page.getByRole('option', { name: 'Over ¥500' }).click() }`)
+	waitFor(t, "the amount again", func() bool { return b.search() == "?amount=high" })
+	b.waitSelect("Amount", "Over ¥500")
+	waitFor(t, "a filtered list", func() bool { return b.counted() != "42 orders, 1 to 25" })
+	b.check("amount again after back")
 }

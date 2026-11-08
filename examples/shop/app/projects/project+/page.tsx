@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useTable } from '@tanstack/react-table'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Columns3, Copy, Download, Search, SearchX, Truck, Wallet, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -39,9 +39,17 @@ function trimSearch(text: string) {
   return text.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, '')
 }
 
-// queryKey names a query, so that two are the same when they write the same URL.
-function queryKey(f: Filter) {
-  return JSON.stringify(searchOf(f))
+// filterOf reads the filters out of the query string the router holds, as the server reads them: the
+// first value of a key, and what is not there is empty. A change is built on this, so that it keeps
+// what the URL has.
+function filterOf(search: Record<string, unknown>): Filter {
+  const first = (key: string) => [search[key]].flat()[0]
+  const text = (key: string) => (typeof first(key) === 'string' ? (first(key) as string) : '')
+  const page = Number(text('page'))
+  return {
+    status: text('status'), carrier: text('carrier'), period: text('period'), amount: text('amount'), q: text('q'),
+    sort: text('sort') || 'placedAt', dir: text('dir') || 'desc', page: Number.isInteger(page) && page > 0 ? page : 1,
+  }
 }
 
 function searchOf(f: Filter) {
@@ -77,23 +85,18 @@ export default function OrdersPage() {
   // answer to the query string: the filters and the page come back in list.filter. A change of a
   // filter goes to the first page.
   //
-  // The data for a change takes time, and the controls work meanwhile. So a change is built on the
-  // latest query asked for (target), not on the one on screen (list.filter): a second change keeps the
-  // first. issued lists the queries asked for whose data has not come yet, oldest first. When data
-  // comes for one of them, it and the older ones are done. Data for a query not in the list is a move
-  // the page did not make, such as the back button or another shop, and then the query on screen is
-  // the target again.
+  // A change is built on the query string of the router at the moment it is made, not on the data on
+  // screen: the data for an earlier change may still be on its way, or may have been dropped by the
+  // back button, and the URL is what the visitor has asked for.
   const navigate = useNavigate()
   const filter = list.filter
-  const target = useRef(filter)
-  const issued = useRef<string[]>([])
-  const go = (change: Partial<Filter>, replace = false) => {
-    const next = { ...target.current, page: 1, ...change }
-    if (queryKey(next) === queryKey(target.current)) return
-    target.current = next
-    issued.current.push(queryKey(next))
-    navigate({ to: '/projects/$project', params: { project: projectId }, search: searchOf(next), replace })
-  }
+  const go = (change: Partial<Filter>, replace = false) =>
+    navigate({
+      to: '/projects/$project',
+      params: { project: projectId },
+      search: (current: Record<string, unknown>) => searchOf({ ...filterOf(current), page: 1, ...change }),
+      replace,
+    })
   const pageIndex = filter.page - 1
   const sorting = [{ id: filter.sort, desc: filter.dir === 'desc' }]
   const table = useTable({
@@ -124,26 +127,25 @@ export default function OrdersPage() {
   const from = matching === 0 ? 0 : pageIndex * pageSize + 1
   const to = Math.min(matching, (pageIndex + 1) * pageSize)
 
-  // The search box keeps what the visitor types and asks the server once they pause. A move the page
-  // did not make, such as the back button, puts the query of the URL in the box.
-  const [text, setText] = useState(filter.q)
-  const onScreen = queryKey(filter)
-  const shop = useRef(projectId)
+  // The search box keeps what the visitor types and asks the server once they pause. urlQ is the search
+  // the router has now, which is ahead of the data on screen while a change loads. A search that the box
+  // did not put there, such as the one the back button brings, replaces the text.
+  const urlQ = useRouterState({ select: (s) => trimSearch(filterOf(s.location.search as Record<string, unknown>).q) })
+  const [text, setText] = useState(urlQ)
+  const sent = useRef(urlQ)
   useEffect(() => {
-    const done = shop.current === projectId ? issued.current.indexOf(onScreen) : -1
-    shop.current = projectId
-    if (done >= 0) {
-      issued.current = issued.current.slice(done + 1)
-      return
+    if (urlQ !== sent.current) {
+      sent.current = urlQ
+      setText(urlQ)
     }
-    issued.current = []
-    target.current = filter
-    setText(filter.q)
-  }, [projectId, onScreen])
+  }, [urlQ])
   useEffect(() => {
     const q = trimSearch(text)
-    if (q === target.current.q) return
-    const timer = setTimeout(() => go({ q }, true), 300)
+    if (q === urlQ) return
+    const timer = setTimeout(() => {
+      sent.current = q
+      go({ q }, true)
+    }, 300)
     return () => clearTimeout(timer)
   })
 
@@ -361,10 +363,7 @@ export default function OrdersPage() {
               <EmptyContent>
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    setText('')
-                    go({ status: '', carrier: '', period: '', amount: '', q: '', sort: 'placedAt', dir: 'desc' })
-                  }}
+                  onClick={() => go({ status: '', carrier: '', period: '', amount: '', q: '', sort: 'placedAt', dir: 'desc' })}
                 >
                   View all orders
                 </Button>
