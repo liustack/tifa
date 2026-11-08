@@ -126,16 +126,22 @@ func fileRate(f RateFile, sc string, under map[string]string, probe bool) (*Rate
 	if !ok || probe {
 		return nil, nil
 	}
-	var diff []string
-	for _, k := range slices.Sorted(mapKeys(under, e.Under)) {
-		if under[k] == "" || e.Under[k] != under[k] {
-			diff = append(diff, fmt.Sprintf("%s %q in the file, %q here", k, e.Under[k], under[k]))
-		}
-	}
-	if len(diff) > 0 {
+	if diff := conditionDiff(e.Under, under); len(diff) > 0 {
 		return nil, fmt.Errorf("%s: the rate of %s in test/compare/rates.json was measured under other conditions than this run (%s): run with -probe (PROBE=1 for browse.sh) to search it again and write the file (a condition that is \"\" here is one this run cannot tell: the sources of the traces are known only in a run of browse.sh)", sc, BrowseLabel(openBase), strings.Join(diff, "; "))
 	}
 	return &e, nil
+}
+
+// conditionDiff says how two sets of conditions differ, a condition by line: one that is in one and
+// not the other, that differs, or that is empty in either (a condition nobody can tell never matches).
+func conditionDiff(was, here map[string]string) []string {
+	var diff []string
+	for _, k := range slices.Sorted(mapKeys(here, was)) {
+		if here[k] == "" || was[k] != here[k] {
+			diff = append(diff, fmt.Sprintf("%s %q then, %q here", k, was[k], here[k]))
+		}
+	}
+	return diff
 }
 
 // mapKeys is the keys of both maps.

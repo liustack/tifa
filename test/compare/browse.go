@@ -3,10 +3,13 @@ package compare
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -186,29 +189,58 @@ func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]
 	return set, out, nil
 }
 
-// browseConfig is the settings of a run that its result keeps.
-func browseConfig(o BrowseOptions) map[string]string {
+// browseConfig is the settings of a run that its result keeps, and that a run must have to continue
+// it: the options that change what a round plays or how it is judged, the cpu model of the machine
+// and a hash of the trace and plan files the run loaded (traces).
+func browseConfig(o BrowseOptions, cpu, traces string) map[string]string {
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"probe": fmt.Sprint(o.Probe),
+		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "traces": traces,
 	}
 }
 
-// canContinue says whether a result can be continued by a run with these options: the same stamp
-// and the same settings, so that a probe asked for again, or other cpus or windows, never reuse the
-// rounds of another run.
-func canContinue(res *BrowseResult, o BrowseOptions) error {
-	if res.Stamp != o.Stamp {
-		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, o.Stamp)
+// canContinue says whether a result can be continued by a run with this stamp, settings (cfg, see
+// browseConfig) and versions: all the same, so that a probe asked for again, other cpus, windows,
+// traces, a seed, another machine or other versions never reuse the rounds of another run. The commit
+// of Tifa is not compared: what of the checkout a round depends on is in the stamp, and in the
+// conditions of a rate.
+func canContinue(res *BrowseResult, stamp string, cfg, version map[string]string) error {
+	if res.Stamp != stamp {
+		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, stamp)
 	}
-	want := browseConfig(o)
-	for _, k := range sortedKeys(want) {
-		if res.Config[k] != want[k] {
-			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Config[k], want[k])
+	for _, k := range sortedKeys(cfg) {
+		if res.Config[k] != cfg[k] {
+			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Config[k], cfg[k])
+		}
+	}
+	for _, k := range slices.Sorted(mapKeys(res.Version, version)) {
+		if k != "tifa" && res.Version[k] != version[k] {
+			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Version[k], version[k])
 		}
 	}
 	return nil
+}
+
+// tracesHash is a short hash of the plan and trace files a run loads: for each site, its plans and
+// the traces of names.
+func tracesHash(dir string, names map[string][]string) string {
+	h := sha256.New()
+	for _, site := range slices.Sorted(maps.Keys(names)) {
+		for _, path := range append([]string{PlansPath(dir, site)}, tracePaths(dir, site, names[site])...) {
+			fmt.Fprintf(h, "%s %s\n", filepath.Base(path), fileHash(path))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// tracePaths are the trace files of names on a site, sorted.
+func tracePaths(dir, site string, names []string) []string {
+	var out []string
+	for _, n := range slices.Sorted(slices.Values(names)) {
+		out = append(out, TracePath(dir, n, site))
+	}
+	return out
 }
 
 // Browse runs the browse comparison and returns what it measured. Prepare must have run.
@@ -274,6 +306,8 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	if b.bid, err = e.tifaBuildID(); err != nil {
 		return nil, err
 	}
+	mach, version := machine(), e.versions(specs)
+	cfg := browseConfig(o, mach.CPU, tracesHash(o.TraceDir, names))
 	b.res = &BrowseResult{}
 	if data, err := os.ReadFile(o.OutJSON); err == nil && o.OutJSON != "" {
 		if err := checkFormat(data); err != nil {
@@ -282,13 +316,13 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		if err := json.Unmarshal(data, b.res); err != nil {
 			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
 		}
-		if err := canContinue(b.res, o); err != nil {
+		if err := canContinue(b.res, o.Stamp, cfg, version); err != nil {
 			return nil, fmt.Errorf("%s %w", o.OutJSON, err)
 		}
 		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
 	} else {
 		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
-		b.res.Machine, b.res.Place, b.res.Version = machine(), placement, e.versions(specs)
+		b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
 		b.res.Scenarios, b.res.Servers = o.Scenarios, b.servers
 		b.res.Plans = map[string]PlanInfo{}
 		for site, set := range b.sets {
@@ -298,7 +332,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 			}
 			b.res.Plans[siteName(site)] = info
 		}
-		b.res.Config = browseConfig(o)
+		b.res.Config = cfg
 		b.res.Blocks = map[string]int{}
 		b.res.Sustain = map[string]*Sustain{}
 		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
@@ -557,10 +591,15 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 	for _, fw := range []string{openBase} {
 		key := sustainKey(sc.Name, fw)
 		s := b.res.Sustain[key]
+		under := b.rateConditions(sc)
 		if s != nil && s.Done {
+			// A rate the result holds (searched, or read from the file) is used only under the conditions
+			// of this run too.
+			if diff := conditionDiff(s.Under, under); len(diff) > 0 {
+				return fmt.Errorf("%s: the rate of %s in this result was measured under other conditions than this run (%s): remove the result to start again", sc.Name, BrowseLabel(fw), strings.Join(diff, "; "))
+			}
 			continue
 		}
-		under := b.rateConditions(sc)
 		file, err := readRates(b.o.RateFile)
 		if err != nil {
 			return err

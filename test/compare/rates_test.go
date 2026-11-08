@@ -2,6 +2,7 @@ package compare
 
 import (
 	"encoding/json/v2"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -248,5 +249,29 @@ func TestTheRateFileIsCheckedWhenRead(t *testing.T) {
 		if _, err := readRates(path); err == nil {
 			t.Errorf("%s: the file is read", name)
 		}
+	}
+}
+
+// A rate that a result already holds is checked again when the result is continued: under other
+// conditions (another Next.js, another method) the run is refused, whether the rate was searched or
+// read from the file.
+func TestAContinuedRateIsCheckedAgain(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"plans-store.json", "nextjs-store.jsonl"} {
+		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
+	}
+	os.WriteFile(filepath.Join(dir, "STAMP-store"), []byte("tree js abc\nsite store\n"), 0o644)
+	root, _ := filepath.Abs(filepath.Join("..", ".."))
+	sc := mustScenario("store-w5")
+	b := &browse{e: Env{Root: root}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
+		servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
+		res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}, Sustain: map[string]*Sustain{}}}
+	b.res.Sustain["store-w5/nextjs"] = &Sustain{Rate: 20, Done: true, Under: b.rateConditions(sc)}
+	if err := b.sustain(t.Context(), sc); err != nil {
+		t.Fatalf("the same conditions: %v", err)
+	}
+	b.res.Version["nextjs"] = "16.0.2"
+	if err := b.sustain(t.Context(), sc); err == nil || !strings.Contains(err.Error(), "nextjs") {
+		t.Errorf("another Next.js: %v", err)
 	}
 }
