@@ -595,8 +595,9 @@ func TestStaticFilesSkipOnRequest(t *testing.T) {
 	if w.Code != 200 || w.Body.String() != "<svg/>" || w.Header().Get("Cache-Control") != "no-cache" {
 		t.Errorf("public file under /assets/: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	if w := get(s, "/assets/gone.js"); w.Code != 404 || requests != 1 {
-		t.Errorf("missing asset: %d, OnRequest %d", w.Code, requests)
+	// A missing file under /assets/ is a plain 404, and it is not routed either.
+	if w := get(s, "/assets/gone.js"); w.Code != 404 || requests != 0 || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Errorf("missing asset: %d %v, OnRequest %d", w.Code, w.Header(), requests)
 	}
 	if w := get(s, "/build.json"); w.Code != 404 {
 		t.Errorf("build.json is served: %d", w.Code)

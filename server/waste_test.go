@@ -204,3 +204,24 @@ func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
 	}
 }
 
+// A file under /assets/ that the build does not have, such as a chunk of an old build that a tab
+// opened before a deploy asks for, is a plain 404: no Load, no render.
+func TestMissingAssetIsAPlainNotFound(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	for _, method := range []string{"GET", "HEAD"} {
+		w := e.do(method, "/assets/old-123.js")
+		if w.w.Code != 404 || w.loads != 0 || w.renders != 0 || !strings.HasPrefix(w.w.Header().Get("Content-Type"), "text/plain") {
+			t.Errorf("%s: %s, Content-Type %q", method, w, w.w.Header().Get("Content-Type"))
+		}
+		if cc := w.w.Header().Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s: Cache-Control %q", method, cc)
+		}
+	}
+	// The files of the build and a public file under /assets/ are still served.
+	for _, target := range []string{"/assets/app-1.js", "/assets/logo.svg"} {
+		if w := e.do("GET", target); w.w.Code != 200 {
+			t.Errorf("%s: %s", target, w)
+		}
+	}
+}
+

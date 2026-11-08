@@ -259,7 +259,8 @@ func (s *server) pagesServed() bool {
 // serveStatic answers GET and HEAD for a file of the browser bundle (/assets/...) or of the
 // public directory, before routing and without OnRequest. It reports whether it answered.
 // Bundle files carry a content hash in their names and are cached for good. A name under
-// /assets/ that the bundle lacks may still be a public file, such as public/assets/logo.svg.
+// /assets/ that the bundle lacks may still be a public file, such as public/assets/logo.svg, and is
+// a plain 404 otherwise.
 func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		return false
@@ -278,7 +279,19 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if hash, ok := f.build.Public[name]; ok {
 		etag = `"` + hash + `"`
 	}
-	return serveFile(w, r, f.public, name, "no-cache", etag, false)
+	if serveFile(w, r, f.public, name, "no-cache", etag, false) {
+		return true
+	}
+	// Any other name under /assets/ of an app with pages is a file that is not there, such as a
+	// chunk of an older build that a page loaded before a deploy asks for. It gets a plain 404, as a
+	// file server answers: a 404 page would cost the Loads of the root Layout and a render, for a
+	// script or an image that cannot show it.
+	if strings.HasPrefix(name, "assets/") && f.pages {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return true
+	}
+	return false
 }
 
 // isFile reports whether serveStatic answers a GET of the path p with a file.
