@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -87,5 +88,63 @@ func checkStorefrontSignedIn(t *testing.T, base, buildID, cookie string) {
 	status, h, data := get(t, dataURL(page, buildID, "11"), "Cookie", cookie)
 	if status != 200 || h.Get("Cache-Control") != "private, no-cache" || !strings.Contains(data, `"session":{"signedIn":true`) {
 		t.Errorf("navigation data of a signed-in visitor: %d %v %.300s", status, h, data)
+	}
+}
+
+// shopPages are the pages of the shop that checkEveryShopPageHitsTheRenderCache asks for twice.
+// A page with a reason cannot be asked for twice with no write between, and is not asked for.
+var shopPages = []struct{ path, reason string }{
+	{"/store", ""},
+	{"/zh-CN/store", ""},
+	{"/store/products?sort=price-asc&color=moss", ""},
+	{"/zh-CN/store/products", ""},
+	{"/store/products/oak-tray", ""},
+	{"/zh-CN/store/products/oak-tray", ""},
+	{"/store/journal", ""},
+	{"/zh-CN/store/journal", ""},
+	{"/store/journal/stock-sync-api", ""},
+	{"/zh-CN/store/journal/stock-sync-api", ""},
+	{"/store/cart", ""},
+	{"/zh-CN/store/cart", ""},
+	{"/store/checkout", ""},
+	{"/zh-CN/store/checkout", ""},
+	{"/projects/studio", ""},
+	{"/projects/weekend", ""},
+	{"/projects/studio/orders/SH-1041", ""},
+	{"/projects/studio/stats", ""},
+	{"/projects/weekend/stats", ""},
+	{"/login", ""},
+	{"/store/checkout?placed=SS-X", "the confirmation of an order exists only after a write: a checkout places the order"},
+}
+
+// checkEveryShopPageHitsTheRenderCache asks for each page of the shop twice, with no write in
+// between, and requires the second answer to come from the render cache. A page whose data
+// changes on every request (a time with its fraction, a random value, a counter) never hits, and
+// this is the check that finds it. header is the headers of the visitor, such as the session
+// cookie, and a path in skip is left out for that visitor.
+func checkEveryShopPageHitsTheRenderCache(t *testing.T, base string, skip map[string]string, header ...string) {
+	t.Helper()
+	for i, page := range shopPages {
+		if page.reason != "" {
+			continue
+		}
+		if _, ok := skip[page.path]; ok {
+			continue
+		}
+		path := page.path
+		if strings.Contains(path, "?") {
+			path += "&e2e=hit" + strconv.Itoa(len(header))
+		} else {
+			path += "?e2e=hit" + strconv.Itoa(len(header))
+		}
+		status, first, _ := get(t, base+path, header...)
+		status2, second, _ := get(t, base+path, header...)
+		if status != 200 || status2 != 200 {
+			t.Errorf("page %d %s: %d then %d", i, page.path, status, status2)
+			continue
+		}
+		if first.Get("X-Tifa-Render") != "vm" && first.Get("X-Tifa-Render") != "cache" || second.Get("X-Tifa-Render") != "cache" {
+			t.Errorf("%s: X-Tifa-Render %q then %q, the second must be \"cache\"", page.path, first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
+		}
 	}
 }

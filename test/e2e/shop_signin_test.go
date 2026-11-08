@@ -108,6 +108,9 @@ func checkShopSignIn(t *testing.T, exe, buildID string) {
 	// The storefront pages are not in the whole-page cache: the signed-in visitor gets their own
 	// HTML there, and nothing of it reaches the next visitor.
 	checkStorefrontSignedIn(t, base, buildID, cookie)
+	// A signed-in visitor sends the session cookie and gets the same: every page, twice, and the
+	// second from the render cache. The login page sends a signed-in visitor on to the workbench.
+	checkEveryShopPageHitsTheRenderCache(t, base, map[string]string{"/login": "redirects a signed-in visitor"}, "Cookie", cookie)
 	// Signing out ends the session on the server: the old cookie opens nothing.
 	status, header, _ = send("POST", "/logout", cookie, "")
 	if status != 303 || header.Get("Location") != "/login" {

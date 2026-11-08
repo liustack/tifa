@@ -250,6 +250,7 @@ func TestShopApp(t *testing.T) {
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
 	checkStorefrontNoPageCache(t, base)
+	checkEveryShopPageHitsTheRenderCache(t, base, nil)
 	checkShopModules(t, base)
 	checkProductPageCounts(t, base)
 	checkOrderPageModules(t, base)
