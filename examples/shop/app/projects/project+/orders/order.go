@@ -8,7 +8,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -252,8 +251,11 @@ var amountRanges = map[string][2]int{
 func (q ListQuery) keeper(newest time.Time) func(OrderRow) bool {
 	needle := strings.ToLower(q.Search)
 	var since time.Time
-	if days, err := strconv.Atoi(q.Period); err == nil {
-		since = newest.Add(-time.Duration(days) * 24 * time.Hour)
+	switch q.Period {
+	case "7":
+		since = newest.Add(-7 * 24 * time.Hour)
+	case "30":
+		since = newest.Add(-30 * 24 * time.Hour)
 	}
 	return func(r OrderRow) bool {
 		if q.Carrier != "" && r.Carrier != q.Carrier {
