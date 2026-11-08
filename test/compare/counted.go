@@ -42,8 +42,8 @@ const (
 // BuildCounted builds the shop a second time, into dir, with counters and a path for each group
 // that answers with them on the address in an environment variable:
 //
-//   - ordersOf: the calls of ordersOf, the filter, copy and sort every list, detail and stats
-//     query of the workbench starts with (COMPARE_COUNTS_ADDR);
+//   - ordersOf: the calls of ordersOf, which every read of the orders of a project in the workbench
+//     starts with (COMPARE_COUNTS_ADDR);
 //   - findLocale: the calls of FindLocale, which every Layout and Load of the storefront makes
 //     once, and products: the products built whole (description, care, specs and spec groups
 //     included), which is what GetProduct does (COMPARE_STORE_COUNTS_ADDR).
@@ -63,9 +63,9 @@ func (e Env) BuildCounted(ctx context.Context, log io.Writer, dir string) (strin
 		path  string
 		edits [][2]string
 	}{
-		{filepath.Join(e.Shop, "app", "projects", "project+", "orders", "order.go"), [][2]string{
-			{"\t\"sync\"\n", imports + "\t\"sync\"\n"},
-			{"func ordersOf(projectID string) []orderRecord {\n", countsCode(OrdersCountsEnv, [2]string{"OrdersOfCalls", "ordersOf"}) + "func ordersOf(projectID string) []orderRecord {\n\tOrdersOfCalls.Add(1)\n"},
+		{filepath.Join(e.Shop, "app", "projects", "project+", "orders", "storage.go"), [][2]string{
+			{"\t\"sync\"\n", strings.Replace(imports, "\t\"strconv\"\n", "", 1) + "\t\"sync\"\n"}, // storage.go imports strconv itself
+			{"func ordersOf(projectID string) *projectOrders {\n", countsCode(OrdersCountsEnv, [2]string{"OrdersOfCalls", "ordersOf"}) + "func ordersOf(projectID string) *projectOrders {\n\tOrdersOfCalls.Add(1)\n"},
 		}},
 		{filepath.Join(e.Shop, "app", "store", "storekit", "storekit.go"), [][2]string{
 			{"\t\"math\"\n", "\t\"math\"\n" + imports},

@@ -3,7 +3,6 @@ package orders
 import (
 	"cmp"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -84,110 +83,74 @@ type Sales struct {
 // SalesStats returns the sales of a project over the thirty days that end on the day of its newest
 // order, with days starting at midnight in zone, the time zone of the shop. A real shop would end
 // on today. The demonstration data does not move with the clock, so neither do its stats. A
-// project without orders has no days.
+// project without orders has no days. Everything comes from the totals the writes keep, so the
+// stats cost the same however many orders there are.
 func SalesStats(projectID string, zone *time.Location) Sales {
-	s := Sales{Days: []DaySales{}, TopProducts: []ProductSales{}, Products: []ProductRow{}, Carriers: CarrierStats(projectID), Customers: []CustomerSales{}, Heat: make([][]int, 7), Dispatch: dispatchBands(), Recent: []OrderRow{}}
+	ordersMu.RLock()
+	defer ordersMu.RUnlock()
+	p := ordersOf(projectID)
+	s := Sales{Days: []DaySales{}, TopProducts: []ProductSales{}, Products: []ProductRow{}, Carriers: carrierStats(p), Customers: []CustomerSales{}, Heat: make([][]int, 7), Dispatch: dispatchBands(), Recent: []OrderRow{}}
 	for i := range s.Heat {
 		s.Heat[i] = make([]int, 12)
 	}
-	list := ordersOf(projectID) // newest first
-	if len(list) == 0 {
+	if len(p.all) == 0 {
 		return s
+	}
+	z := p.daysIn(zone)
+	for i := range s.Heat {
+		copy(s.Heat[i], z.heat[i][:])
 	}
 	// An order belongs to the day of its time in zone. The dates themselves are only labels of
 	// the calendar, counted in UTC: in a zone whose daylight saving time starts at midnight, such
 	// as America/Santiago, that day has no 00:00, and counting there would list the day before
 	// twice and leave that day out.
-	last := list[0].PlacedAt.In(zone)
+	last := p.all[len(p.all)-1].PlacedAt.In(zone)
 	first := time.Date(last.Year(), last.Month(), last.Day()-(statsDays-1), 0, 0, 0, 0, time.UTC)
-	index := map[string]int{}
+	products := map[string]*ProductRow{}
 	for i := range statsDays {
 		date := first.AddDate(0, 0, i).Format(time.DateOnly)
-		index[date] = i
-		s.Days = append(s.Days, DaySales{Date: date})
-	}
-	products := map[string]*ProductSales{}
-	rows := map[string]*ProductRow{}
-	customers := map[string]*CustomerSales{}
-	var dispatched time.Duration
-	for _, o := range list {
-		local := o.PlacedAt.In(zone)
-		s.Heat[(int(local.Weekday())+6)%7][local.Hour()/2]++
-		c := customers[o.Customer]
-		if c == nil {
-			c = &CustomerSales{Name: o.Customer, Initials: initials(o.Customer)}
-			customers[o.Customer] = c
-		}
-		c.Orders++
-		c.SpentCents += total(o)
-		if sh := o.Shipment; sh != nil {
-			h := sh.ShippedAt.Sub(o.PlacedAt)
-			dispatched += h
-			s.Dispatch[dispatchBand(h)].Orders++
-		} else {
-			s.Totals.PendingOrders++
-			s.Totals.PendingCents += total(o)
-		}
-		i, ok := index[local.Format(time.DateOnly)]
-		if !ok {
-			continue
-		}
-		d := &s.Days[i]
-		d.Orders++
-		d.RevenueCents += total(o)
-		if o.Shipment != nil {
-			d.Shipped++
-		}
-		for _, item := range o.Items {
-			p := products[item.Name]
-			if p == nil {
-				p = &ProductSales{Slug: item.Slug, Name: item.Name}
-				products[item.Name] = p
-				rows[item.Name] = &ProductRow{Slug: item.Slug, Name: item.Name, Daily: make([]int, statsDays)}
+		day := DaySales{Date: date}
+		if d := z.days[date]; d != nil {
+			day.Orders, day.RevenueCents, day.Shipped, day.Pieces = d.orders, d.revenueCents, d.shipped, d.pieces
+			s.Totals.Pieces += d.pieces
+			for name, dp := range d.products {
+				r := products[name]
+				if r == nil {
+					r = &ProductRow{Slug: dp.slug, Name: name, Daily: make([]int, statsDays)}
+					products[name] = r
+				}
+				r.Quantity += dp.quantity
+				r.Orders += dp.lines
+				r.RevenueCents += dp.revenueCents
+				r.Daily[i] += dp.quantity
 			}
-			p.Quantity += item.Quantity
-			p.RevenueCents += item.Quantity * item.PriceCents
-			r := rows[item.Name]
-			r.Quantity += item.Quantity
-			r.Orders++
-			r.RevenueCents += item.Quantity * item.PriceCents
-			r.Daily[i] += item.Quantity
-			d.Pieces += item.Quantity
-			s.Totals.Pieces += item.Quantity
 		}
+		s.Days = append(s.Days, day)
 	}
-	if shipped := len(list) - s.Totals.PendingOrders; shipped > 0 {
-		s.Totals.AvgDispatchHours = dispatched.Hours() / float64(shipped)
-	}
-	for _, c := range customers {
-		s.Customers = append(s.Customers, *c)
-		s.Totals.Customers++
-		if c.Orders > 1 {
-			s.Totals.Repeat++
-		}
-	}
-	slices.SortFunc(s.Customers, func(a, b CustomerSales) int {
-		return cmp.Or(cmp.Compare(b.SpentCents, a.SpentCents), cmp.Compare(a.Name, b.Name))
-	})
-	s.Customers = s.Customers[:min(8, len(s.Customers))]
-	for _, r := range rows {
+	for _, r := range products {
 		s.Products = append(s.Products, *r)
+		s.TopProducts = append(s.TopProducts, ProductSales{Slug: r.Slug, Name: r.Name, Quantity: r.Quantity, RevenueCents: r.RevenueCents})
 	}
 	slices.SortFunc(s.Products, func(a, b ProductRow) int {
 		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name))
 	})
-	for _, o := range list[:min(8, len(list))] {
-		s.Recent = append(s.Recent, orderRow(o))
-	}
-	for _, p := range products {
-		s.TopProducts = append(s.TopProducts, *p)
-	}
 	slices.SortFunc(s.TopProducts, func(a, b ProductSales) int {
 		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name))
 	})
-	if len(s.TopProducts) > 5 {
-		s.TopProducts = s.TopProducts[:5]
+	s.TopProducts = s.TopProducts[:min(5, len(s.TopProducts))]
+
+	for _, c := range p.ranked[:min(8, len(p.ranked))] {
+		s.Customers = append(s.Customers, CustomerSales{Name: c.name, Initials: initials(c.name), Orders: len(c.orders), SpentCents: c.spentCents})
 	}
+	s.Totals.Customers, s.Totals.Repeat = len(p.customers), p.repeat
+	s.Totals.PendingOrders, s.Totals.PendingCents = len(p.pending), p.pendingCents
+	if shipped := len(p.all) - len(p.pending); shipped > 0 {
+		s.Totals.AvgDispatchHours = p.dispatched.Hours() / float64(shipped)
+	}
+	for i, n := range p.bands {
+		s.Dispatch[i].Orders = n
+	}
+	s.Recent = newestFirst(p.all, 0, 8, "")
 	return s
 }
 
@@ -201,38 +164,18 @@ type CarrierSales struct {
 	AvgTransitHours  float64 `json:"avgTransitHours"`
 }
 
-// CarrierStats returns a line for each carrier, in the order of Carriers. Transit counts only the
-// parcels that have been signed for.
-func CarrierStats(projectID string) []CarrierSales {
+// carrierStats returns a line for each carrier, in the order of Carriers. Transit counts only the
+// parcels that have been signed for. The caller holds ordersMu for reading.
+func carrierStats(p *projectOrders) []CarrierSales {
 	out := make([]CarrierSales, len(Carriers))
-	dispatch := make([]time.Duration, len(Carriers))
-	transit := make([]time.Duration, len(Carriers))
-	delivered := make([]int, len(Carriers))
 	for i, c := range Carriers {
-		out[i] = CarrierSales{Code: c.Code, Name: c.Name}
-	}
-	for _, o := range ordersOf(projectID) {
-		s := o.Shipment
-		i := -1
-		if s != nil {
-			i = slices.IndexFunc(Carriers, func(c Carrier) bool { return c.Code == s.Carrier })
+		t := p.carriers[i]
+		out[i] = CarrierSales{Code: c.Code, Name: c.Name, Orders: t.orders}
+		if t.orders > 0 {
+			out[i].AvgDispatchHours = t.dispatch.Hours() / float64(t.orders)
 		}
-		if i < 0 {
-			continue
-		}
-		out[i].Orders++
-		dispatch[i] += s.ShippedAt.Sub(o.PlacedAt)
-		if n := len(s.Events); n > 0 && strings.HasPrefix(s.Events[n-1].Note, "Delivered") {
-			delivered[i]++
-			transit[i] += s.Events[n-1].At.Sub(s.ShippedAt)
-		}
-	}
-	for i := range out {
-		if out[i].Orders > 0 {
-			out[i].AvgDispatchHours = dispatch[i].Hours() / float64(out[i].Orders)
-		}
-		if delivered[i] > 0 {
-			out[i].AvgTransitHours = transit[i].Hours() / float64(delivered[i])
+		if t.delivered > 0 {
+			out[i].AvgTransitHours = t.transit.Hours() / float64(t.delivered)
 		}
 	}
 	return out

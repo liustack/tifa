@@ -63,7 +63,8 @@ app/
       route.go  layout.tsx  page.tsx   shop Layout (shop name, orders waiting to ship, shop notes, links to orders and stats) and the order list, whose filters, sort and page are in the query string
       columns.tsx              the columns of the order list
       orders/
-        order.go  shipping.go  order domain: list, details, shipping and recipient rules, storage
+        order.go  shipping.go  order domain: list, details, shipping and recipient rules
+        storage.go             the orders in memory, with the indexes and running totals the pages read
         stats.go               sales of the last thirty days, and how each carrier did
         order+/                /projects/{project}/orders/{order}: order details, POST ships, PATCH changes the recipient, PUT puts a note on it
           ship-form.tsx  recipient-dialog.tsx  items.tsx  notes.tsx  activity.tsx  side-cards.tsx

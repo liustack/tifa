@@ -80,17 +80,17 @@ func CheckShipment(carrier, tracking string) error {
 func ShipOrder(projectID, id, carrier, tracking string, at time.Time) error {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
-	i := indexOrder(projectID, id)
-	if i < 0 {
+	p, o := findOrder(projectID, id)
+	if o == nil {
 		return tifa.ErrNotFound
 	}
-	if orders[i].Shipment != nil {
+	if o.Shipment != nil {
 		return ErrShipped
 	}
-	orders[i].Shipment = &shipmentRecord{
+	p.ship(o, &shipmentRecord{
 		Carrier: carrier, TrackingNo: strings.TrimSpace(tracking), ShippedAt: at,
 		Events: []TrackEvent{{At: at, Place: warehouse, Note: "Courier collected the parcel"}},
-	}
+	})
 	return nil
 }
 
@@ -129,15 +129,15 @@ func CheckRecipient(customer, phone, address string) error {
 func UpdateRecipient(projectID, id, customer, phone, address string) error {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
-	i := indexOrder(projectID, id)
-	if i < 0 {
+	p, o := findOrder(projectID, id)
+	if o == nil {
 		return tifa.ErrNotFound
 	}
-	if orders[i].Shipment != nil {
+	if o.Shipment != nil {
 		return ErrRecipientLocked
 	}
-	orders[i].Customer = strings.TrimSpace(customer)
-	orders[i].Phone = normalPhone(phone)
-	orders[i].Address = strings.TrimSpace(address)
+	p.rename(o, strings.TrimSpace(customer))
+	o.Phone = normalPhone(phone)
+	o.Address = strings.TrimSpace(address)
 	return nil
 }

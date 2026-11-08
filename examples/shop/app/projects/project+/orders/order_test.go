@@ -291,12 +291,12 @@ func TestUpdateRecipientUntilTheOrderShips(t *testing.T) {
 func reset() {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
-	orders = demoOrders()
+	orders = load(demoOrders())
 }
 
 func TestEveryProductHasPhotos(t *testing.T) {
 	reset()
-	for _, o := range orders {
+	for _, o := range snapshot() {
 		for _, item := range o.Items {
 			for _, view := range []string{"main", "detail", "scene"} {
 				for _, width := range []int{160, 480, 1200} {

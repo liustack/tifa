@@ -2,7 +2,6 @@ package orders
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -81,13 +80,11 @@ func CreateOrder(projectID string, in NewOrder, at time.Time) (string, error) {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
 	last := 0
-	for _, o := range orders {
-		if n, err := strconv.Atoi(strings.TrimPrefix(o.ID, s.prefix+"-")); o.ProjectID == projectID && err == nil {
-			last = max(last, n)
-		}
+	if p := orders[projectID]; p != nil {
+		last = p.last
 	}
 	id := fmt.Sprintf("%s-%0*d", s.prefix, s.width, last+1)
-	orders = append(orders, orderRecord{
+	insert(orders, &orderRecord{
 		ID: id, ProjectID: projectID, Customer: strings.TrimSpace(in.Customer), Phone: normalPhone(in.Phone),
 		Email: strings.TrimSpace(in.Email), Address: strings.TrimSpace(in.Address), Note: strings.TrimSpace(in.Note),
 		PlacedAt: at, Items: items,

@@ -126,7 +126,7 @@ func TestLinesCountWhatTheShopSoldOfTheProduct(t *testing.T) {
 	reset()
 	o, _ := GetOrder("studio", "SH-1042")
 	want := 0
-	for _, order := range orders {
+	for _, order := range snapshot() {
 		if order.ProjectID != "studio" {
 			continue
 		}
@@ -143,7 +143,7 @@ func TestLinesCountWhatTheShopSoldOfTheProduct(t *testing.T) {
 
 func TestCarrierStatsAverageWhatTheShopShipped(t *testing.T) {
 	reset()
-	stats := CarrierStats("studio")
+	stats := SalesStats("studio", shanghai).Carriers
 	if len(stats) != len(Carriers) {
 		t.Fatalf("%d carriers", len(stats))
 	}

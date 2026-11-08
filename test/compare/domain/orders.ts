@@ -1,10 +1,7 @@
 // The order domain, ported from examples/shop/app/projects/project+/orders/order.go: the order list
-// of a project, order details and the storage behind them. The orders are kept in memory, as in Go,
-// and start with the demonstration data. Every query filters the orders of a project, copies them
-// and sorts them, as ordersOf does there, and computes what it returns from that, with nothing kept
-// from an earlier request.
-import { counts } from './counts.ts'
-import { demoOrders, studioCatalogue, warehouse, weekendCatalogue } from './demo.ts'
+// of a project and order details. The orders are kept in memory with the indexes and sums the
+// pages read (storage.ts), as in Go, and start with the demonstration data.
+import { warehouse } from './demo.ts'
 import { carrierName, carriers } from './shipping.ts'
 import { Invalid, Locked, NotFound } from './errors.ts'
 import { initials, itemCount, status, total } from './records.ts'
@@ -12,6 +9,8 @@ import type { ItemRecord, OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
 import { DAY, local, rfc3339 } from './time.ts'
+import { daysIn, findOrder, insert, orders, ordersOf, rename, ship, shops } from './storage.ts'
+import type { ProjectOrders } from './storage.ts'
 
 export interface LineItem {
   slug: string
@@ -119,22 +118,6 @@ export interface OrderList {
   daily: DailyCards
 }
 
-// The orders, made when the process starts. They live on globalThis, like the counters, since Next.js
-// loads this module once for its pages and once for the write endpoint, and both must see the same orders.
-const g = globalThis as typeof globalThis & { __compareOrders?: OrderRecord[] }
-const orders: OrderRecord[] = (g.__compareOrders ??= demoOrders())
-
-// ordersOf returns copies of the orders of a project, newest first.
-export function ordersOf(projectId: string): OrderRecord[] {
-  counts.ordersOf++
-  const list: OrderRecord[] = []
-  for (const o of orders) {
-    if (o.projectId === projectId) list.push({ ...o, items: o.items.slice() })
-  }
-  list.sort((a, b) => b.placedAt - a.placedAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
-  return list
-}
-
 // orderRow is the line of the order list for an order.
 export function orderRow(o: OrderRecord): OrderRow {
   const row: OrderRow = {
@@ -152,15 +135,20 @@ export function orderRow(o: OrderRecord): OrderRow {
   return row
 }
 
-// allRows are the rows of all the orders of a project, newest first.
-export function allRows(projectId: string): OrderRow[] {
-  return ordersOf(projectId).map(orderRow)
+// newestFirst returns the rows of up to n orders of list, a list by time, newest first, from the
+// from-th newest on, leaving out the order skip.
+export function newestFirst(list: OrderRecord[], from: number, n: number, skip: string): OrderRow[] {
+  const rows: OrderRow[] = []
+  for (let i = list.length - 1 - from; i >= 0 && rows.length < n; i--) {
+    if (list[i].id !== skip) rows.push(orderRow(list[i]))
+  }
+  return rows
 }
 
-// dateKey is the date of an instant in a time zone, such as 2026-10-13.
-function dateKey(ms: number, timeZone: string): string {
-  const d = local(ms, timeZone)
-  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`
+// allRows are the rows of all the orders of a project, newest first.
+export function allRows(projectId: string): OrderRow[] {
+  const p = ordersOf(projectId)
+  return newestFirst(p.all, 0, p.all.length, '')
 }
 
 // amountRanges are the choices of the amount filter, in cents, both ends included.
@@ -199,55 +187,58 @@ function keeper(q: ListQuery, newest: number): (r: OrderRow) => boolean {
 }
 
 // listOrders returns a page of the orders of a project that the query keeps, newest first, with the
-// numbers over all of them, as ListOrders does. The query filters all the orders of the project and
-// the page is cut from what is left. timeZone is the one of the shop, whose days the cards draw.
+// numbers over all of them, as ListOrders does. timeZone is the one of the shop, whose days the
+// cards draw. The list without filters, sorted by time either way, is cut from the orders by time
+// and the numbers come from the sums the writes keep. A filter, a search or the sort by amount goes
+// through every order of the project, as in Go.
 export function listOrders(projectId: string, timeZone: string, query: ListQuery = noQuery): OrderList {
   const q = cleanQuery(query)
   const l: OrderList = {
     orders: [], filter: { ...q, page: 1 }, matching: 0, pages: 0, statuses: { all: 0, pending: 0, shipped: 0 }, total: 0, revenueCents: 0, pending: 0, shipped: 0, newestAt: '0001-01-01T00:00:00Z', oldestPending: null, carriers: [],
     daily: { revenueCents: [], orders: [], pending: [], shipped: [] },
   }
-  const list = ordersOf(projectId)
-  if (list.length === 0) return l
-  l.newestAt = rfc3339(list[0].placedAt)
+  const p = ordersOf(projectId)
+  if (p.all.length === 0) return l
+  const newest = p.all[p.all.length - 1].placedAt
+  l.newestAt = rfc3339(newest)
+  l.total = p.all.length
+  l.revenueCents = p.revenueCents
+  l.pending = p.pending.length
+  l.shipped = l.total - l.pending
+  if (p.pending.length > 0) {
+    // Of the orders placed at the same oldest time, the one with the highest number: the first of
+    // them in the list, newest first.
+    let i = 0
+    while (i + 1 < p.pending.length && p.pending[i + 1].placedAt <= p.pending[0].placedAt) i++
+    l.oldestPending = orderRow(p.pending[i])
+  }
+  for (const [name, n] of p.shippedBy) if (n > 0) l.carriers.push(name)
+  l.carriers.sort()
   // The days, labelled by their date in the time zone, counted back from the newest order in steps
   // of 24 hours: two steps can land on the same date, and then they share the sums.
-  const keys = Array.from({ length: listDays }, (_, i) => dateKey(list[0].placedAt - (listDays - 1 - i) * DAY, timeZone))
-  const sums = new Map<string, [number, number, number, number]>(keys.map((k) => [k, [0, 0, 0, 0]]))
-  const carriers = new Set<string>()
-  let oldest: OrderRecord | undefined
-  for (const o of list) {
-    const cents = total(o)
-    l.total++
-    l.revenueCents += cents
-    if (o.shipment) {
-      l.shipped++
-      carriers.add(carrierName(o.shipment.carrier))
-    } else {
-      l.pending++
-      if (!oldest || o.placedAt < oldest.placedAt) oldest = o
-    }
-    const s = sums.get(dateKey(o.placedAt, timeZone))
-    if (s) {
-      s[0] += cents
-      s[1]++
-      if (o.shipment) s[3]++
-      else s[2]++
-    }
+  const z = daysIn(p, timeZone)
+  for (let i = 0; i < listDays; i++) {
+    const d = z.days.get(local(newest - (listDays - 1 - i) * DAY, timeZone).date)
+    l.daily.revenueCents.push(d?.revenueCents ?? 0)
+    l.daily.orders.push(d?.orders ?? 0)
+    l.daily.pending.push(d?.pending ?? 0)
+    l.daily.shipped.push(d?.shipped ?? 0)
   }
-  for (const k of keys) {
-    const s = sums.get(k)!
-    l.daily.revenueCents.push(s[0])
-    l.daily.orders.push(s[1])
-    l.daily.pending.push(s[2])
-    l.daily.shipped.push(s[3])
+
+  if (q.status === '' && q.carrier === '' && q.period === '' && q.amount === '' && q.q === '' && q.sort === 'placedAt') {
+    l.statuses = { all: l.total, pending: l.pending, shipped: l.shipped }
+    l.matching = l.total
+    l.pages = Math.ceil(l.matching / ListPageSize)
+    l.filter.page = Math.min(q.page, Math.max(l.pages, 1))
+    const from = (l.filter.page - 1) * ListPageSize
+    l.orders = q.dir === 'desc' ? newestFirst(p.all, from, ListPageSize, '') : p.all.slice(from, from + ListPageSize).map(orderRow)
+    return l
   }
-  if (oldest) l.oldestPending = orderRow(oldest)
-  l.carriers = [...carriers].sort()
-  const keep = keeper(q, list[0].placedAt)
+
+  const keep = keeper(q, newest)
   const matched: OrderRow[] = []
-  for (const o of list) {
-    const row = orderRow(o)
+  for (let i = p.all.length - 1; i >= 0; i--) {
+    const row = orderRow(p.all[i])
     if (!keep(row)) continue
     l.statuses.all++
     if (row.status === 'pending') l.statuses.pending++
@@ -268,19 +259,18 @@ export function listOrders(projectId: string, timeZone: string, query: ListQuery
 
 // getOrder returns the order id of a project, or throws NotFound.
 export function getOrder(projectId: string, id: string): Order {
-  const o = orders.find((o) => o.projectId === projectId && o.id === id)
+  const p = ordersOf(projectId)
+  const o = p.byId.get(id)
   if (!o) throw new NotFound(id)
-  return view(o)
+  return view(p, o)
 }
 
 // countPending returns how many orders of a project wait to be shipped.
 export function countPending(projectId: string): number {
-  let n = 0
-  for (const o of ordersOf(projectId)) if (!o.shipment) n++
-  return n
+  return ordersOf(projectId).pending.length
 }
 
-function view(o: OrderRecord): Order {
+function view(p: ProjectOrders, o: OrderRecord): Order {
   const order: Order = {
     id: o.id, projectId: o.projectId, customer: o.customer, initials: initials(o.customer),
     phone: o.phone, email: o.email, address: o.address, note: o.note, placedAt: rfc3339(o.placedAt), status: status(o),
@@ -295,10 +285,10 @@ function view(o: OrderRecord): Order {
     }
   }
   for (const item of o.items) {
+    const product = p.products.get(item.slug)!
     order.items.push({
       slug: item.slug, name: item.name, description: item.description, quantity: item.quantity,
-      priceCents: item.priceCents, color: item.color, stock: item.stock, demand: waitingFor(o.projectId, item.slug),
-      sold: soldOf(o.projectId, item.slug),
+      priceCents: item.priceCents, color: item.color, stock: item.stock, demand: product.waiting, sold: product.sold,
     })
   }
   return order
@@ -307,53 +297,17 @@ function view(o: OrderRecord): Order {
 // customerOrders returns the newest SideListSize other orders of the customer of order id in a project, newest first,
 // with the number of orders and the cents they spent in all, this one counted.
 export function customerOrders(projectId: string, id: string): { others: OrderRow[]; count: number; spentCents: number } {
-  let o: Order
-  try {
-    o = getOrder(projectId, id)
-  } catch {
-    return { others: [], count: 0, spentCents: 0 }
-  }
-  const others: OrderRow[] = []
-  let count = 0
-  let spentCents = 0
-  for (const row of allRows(projectId)) {
-    if (row.customer !== o.customer) continue
-    count++
-    spentCents += row.totalCents
-    if (row.id !== id && others.length < SideListSize) others.push(row)
-  }
-  return { others, count, spentCents }
-}
-
-// soldOf counts the pieces of a product in the orders of a project.
-function soldOf(projectId: string, slug: string): number {
-  let n = 0
-  for (const o of orders) {
-    if (o.projectId !== projectId) continue
-    for (const item of o.items) if (item.slug === slug) n += item.quantity
-  }
-  return n
-}
-
-// waitingFor counts the pieces of a product in the orders of a project that wait to be shipped.
-function waitingFor(projectId: string, slug: string): number {
-  let n = 0
-  for (const o of orders) {
-    if (o.projectId !== projectId || o.shipment) continue
-    for (const item of o.items) if (item.slug === slug) n += item.quantity
-  }
-  return n
+  const p = ordersOf(projectId)
+  const o = p.byId.get(id)
+  if (!o) return { others: [], count: 0, spentCents: 0 }
+  const c = p.customers.get(o.customer)!
+  return { others: newestFirst(c.orders, 0, SideListSize, id), count: c.orders.length, spentCents: c.spentCents }
 }
 
 // ordersWith returns up to n other orders of a project that hold the product slug, newest first.
 export function ordersWith(projectId: string, slug: string, exceptId: string, n: number): OrderRow[] {
-  const rows: OrderRow[] = []
-  for (const o of ordersOf(projectId)) {
-    if (o.id === exceptId || !o.items.some((i) => i.slug === slug)) continue
-    rows.push(orderRow(o))
-    if (rows.length === n) break
-  }
-  return rows
+  const product = ordersOf(projectId).products.get(slug)
+  return product ? newestFirst(product.orders, 0, n, exceptId) : []
 }
 
 // normalPhone drops the spaces and dashes people type between the digits of a phone number.
@@ -376,13 +330,14 @@ export function checkRecipient(customer: string, phone: string, address: string)
 export function updateRecipient(projectId: string, id: string, customer: string, phone: string, address: string): Order {
   const fields = checkRecipient(customer, phone, address)
   if (fields.length > 0) throw new Invalid(fields)
-  const o = orders.find((o) => o.projectId === projectId && o.id === id)
-  if (!o) throw new NotFound(id)
+  const found = findOrder(projectId, id)
+  if (!found) throw new NotFound(id)
+  const [p, o] = found
   if (o.shipment) throw new Locked(id)
-  o.customer = customer.trim()
+  rename(p, o, customer.trim())
   o.phone = normalPhone(phone)
   o.address = address.trim()
-  return view(o)
+  return view(p, o)
 }
 
 // The next functions are the writes of the handlers in shipping.go, detail.go and create.go.
@@ -402,14 +357,15 @@ export function checkShipment(carrier: string, tracking: string): string[] {
 export function shipOrder(projectId: string, id: string, carrier: string, tracking: string, at: number): Order {
   const fields = checkShipment(carrier, tracking)
   if (fields.length > 0) throw new Invalid(fields)
-  const o = orders.find((o) => o.projectId === projectId && o.id === id)
-  if (!o) throw new NotFound(id)
+  const found = findOrder(projectId, id)
+  if (!found) throw new NotFound(id)
+  const [p, o] = found
   if (o.shipment) throw new Locked(id)
-  o.shipment = {
+  ship(p, o, {
     carrier, trackingNo: tracking.trim(), shippedAt: at,
     events: [{ at, place: warehouse, note: 'Courier collected the parcel' }],
-  }
-  return view(o)
+  })
+  return view(p, o)
 }
 
 // checkNote lists the field of a note that the shop would refuse, as CheckNote does.
@@ -422,10 +378,11 @@ export function checkNote(text: string): string[] {
 export function addNote(projectId: string, id: string, text: string, at: number): Order {
   const fields = checkNote(text)
   if (fields.length > 0) throw new Invalid(fields)
-  const o = orders.find((o) => o.projectId === projectId && o.id === id)
-  if (!o) throw new NotFound(id)
+  const found = findOrder(projectId, id)
+  if (!found) throw new NotFound(id)
+  const [p, o] = found
   ;(o.notes ??= []).push({ author: 'Owner', text: text.trim(), at })
-  return view(o)
+  return view(p, o)
 }
 
 export interface NewOrder {
@@ -435,12 +392,6 @@ export interface NewOrder {
   address: string
   note: string
   items: { slug: string; quantity: number }[]
-}
-
-// The form of the order numbers of a project and its products, as shops in create.go.
-const shops: Record<string, { prefix: string; width: number; catalogue: ItemRecord[] }> = {
-  studio: { prefix: 'SH', width: 0, catalogue: studioCatalogue },
-  weekend: { prefix: 'WK', width: 4, catalogue: weekendCatalogue },
 }
 
 // checkNewOrder lists the fields of a new order that the shop would refuse, as CheckNewOrder does.
@@ -466,17 +417,12 @@ export function createOrder(projectId: string, input: NewOrder, at: number): Ord
     if (!p) throw new Invalid(['items'])
     items.push({ ...p, quantity: l.quantity })
   }
-  let last = 0
-  for (const o of orders) {
-    if (o.projectId !== projectId) continue
-    const n = Number(o.id.slice(s.prefix.length + 1))
-    if (Number.isInteger(n)) last = Math.max(last, n)
-  }
+  const last = orders.get(projectId)?.last ?? 0
   const o: OrderRecord = {
     id: `${s.prefix}-${String(last + 1).padStart(s.width, '0')}`, projectId, customer: input.customer.trim(),
     phone: normalPhone(input.phone), email: input.email.trim(), address: input.address.trim(), note: input.note.trim(),
     placedAt: at, shipment: null, items, notes: null,
   }
-  orders.push(o)
-  return view(o)
+  insert(orders, o)
+  return view(orders.get(projectId)!, o)
 }

@@ -63,7 +63,8 @@ app/
       route.go  layout.tsx  page.tsx   店铺 Layout（店名、待发货数、店铺备忘、订单和统计的入口）和订单列表，筛选、排序和页码在查询串里
       columns.tsx              订单列表的列
       orders/
-        order.go  shipping.go  订单领域：列表、详情、发货和收货信息的规则、存储
+        order.go  shipping.go  订单领域：列表、详情、发货和收货信息的规则
+        storage.go             内存里的订单，连同页面要读的索引和随写入更新的合计
         stats.go               近 30 天的销售，以及各家快递的表现
         order+/                /projects/{project}/orders/{order}：订单详情，POST 发货，PATCH 改收货信息，PUT 加备注
           ship-form.tsx  recipient-dialog.tsx  items.tsx  notes.tsx  activity.tsx  side-cards.tsx
