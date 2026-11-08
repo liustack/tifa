@@ -24,10 +24,11 @@ export interface Entry extends Edit {
 }
 
 // trim is Go's strings.TrimSpace: it trims the white space of Unicode, which is not the white
-// space of JavaScript's trim (that also trims U+FEFF and leaves U+0085).
+// space of JavaScript's trim (that also trims U+FEFF and leaves U+0085). Every text of the back
+// office that Go trims is trimmed with it, in a check and in what is kept alike.
 const space = '[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+'
 const ends = new RegExp(`^${space}|${space}$`, 'gu')
-const trim = (s: string): string => s.replace(ends, '')
+export const trim = (s: string): string => s.replace(ends, '')
 
 // checkEdit returns the message of each field of an edit that fails, as Edit.Validate does.
 export function checkEdit(e: Edit): Record<string, string> {

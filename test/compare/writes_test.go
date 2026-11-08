@@ -181,6 +181,11 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"refuse a price written with an exponent", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"priceCents":52000`, `"priceCents":52e3`, 1), nil},
 		{"refuse a stock past the range of an int", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"stock":5`, `"stock":9223372036854775808`, 1), nil},
 		{"refuse a quantity written 2.0", "POST", "create:studio", strings.Replace(newOrder, `"quantity":2`, `"quantity":2.0`, 1), nil},
+		// A title is trimmed as Go's strings.TrimSpace trims: U+0085 is white space, U+FEFF is not.
+		{"edit a title with U+0085 around it", "PATCH", "product:weekend:postcards", strings.Replace(cardEdit, `" Postcards of Cities "`, `"\u0085Cards\u0085"`, 1), []compare.Page{weekendProducts, postcards}},
+		{"add a note with U+FEFF around it", "PUT", "order:studio:SH-1043", `{"text":"\ufeff已核对\ufeff"}`, []compare.Page{order("SH-1043")}},
+		{"change the recipient with U+0085 around the name", "PATCH", "order:studio:SH-1041", `{"customer":"\u0085陈默言\u0085","phone":"13900139001","address":"杭州市西湖区 · 新地址"}`, []compare.Page{order("SH-1041")}},
+		{"edit a title with U+FEFF around it", "PATCH", "product:weekend:postcards", strings.Replace(cardEdit, `" Postcards of Cities "`, `"\ufeffPostcards\ufeff"`, 1), []compare.Page{weekendProducts, postcards}},
 	}
 
 	type outcome struct {
@@ -250,7 +255,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
 	}
-	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200, 422, 422, 400, 400, 400, 400}
+	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200, 422, 422, 400, 400, 400, 400, 200, 200, 200, 200}
 	if len(wantStatus) != len(steps) {
 		t.Fatalf("%d statuses for %d steps", len(wantStatus), len(steps))
 	}

@@ -4,7 +4,7 @@ import { weekendCatalogue, weekendStock } from './demo.ts'
 import { Invalid, NotFound, OutOfStock } from './errors.ts'
 import type { ItemRecord } from './records.ts'
 import type { NewLine } from './storage.ts'
-import { entries, getEntry, update } from './store/products/edit.ts'
+import { entries, getEntry, trim, update } from './store/products/edit.ts'
 import type { Edit, Entry } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 
@@ -54,10 +54,10 @@ export function updateWeekend(slug: string, e: Edit): void {
   if (!p) throw new NotFound(slug)
   p.priceCents = e.priceCents
   p.stock = e.stock
-  p.nameEn = e.nameEn.trim()
-  p.nameZh = e.nameZh.trim()
-  p.descriptionEn = e.descriptionEn.trim()
-  p.descriptionZh = e.descriptionZh.trim()
+  p.nameEn = trim(e.nameEn)
+  p.nameZh = trim(e.nameZh)
+  p.descriptionEn = trim(e.descriptionEn)
+  p.descriptionZh = trim(e.descriptionZh)
 }
 
 // weekendBuy takes the pieces of the lines of a new order from the stock of the weekend shop, or
