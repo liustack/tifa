@@ -137,7 +137,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	var err error
 	status := "tifa; hit"
 	switch {
-	case c.IsData() && s.cache.size == 0:
+	case c.IsData() && s.cache.off():
 		// Nothing can be kept, so the HTML of the entry would be thrown away. The Loads run and the
 		// answer is made as for the entry, without the render. This entry is never stored, and a
 		// request for the document does not wait for it.

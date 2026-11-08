@@ -948,3 +948,26 @@ func TestNavigationDataAtCacheSizeZeroIsNotSharedWithTheDocument(t *testing.T) {
 		t.Errorf("data: %q", data.Body.String())
 	}
 }
+
+// A negative cache size, which a config built in Go can hold, is off like 0.
+func TestNegativeCacheSizeIsOff(t *testing.T) {
+	if !newHTMLCache(-1).off() || newHTMLCache(-1).size != 0 || !newHTMLCache(0).off() || newHTMLCache(1).off() {
+		t.Fatal("off")
+	}
+	e := newNoRenderEnv(t, -1, nil, nil)
+	if w := get(e.s, dataURL("/news", "b1", "11")); w.Code != 200 || e.r.count() != 0 || w.Header().Get("X-Tifa-Render") != "none" {
+		t.Fatalf("data: %d, %d renders, %q", w.Code, e.r.count(), w.Header().Get("X-Tifa-Render"))
+	}
+	e.s.cache.mu.Lock()
+	kept := len(e.s.cache.pages)
+	e.s.cache.mu.Unlock()
+	e.r.result = nil
+	w := get(e.s, "/news")
+	get(e.s, "/news")
+	e.s.cache.mu.Lock()
+	kept += len(e.s.cache.pages)
+	e.s.cache.mu.Unlock()
+	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "<html>/news ") || e.r.count() != 2 || kept != 0 {
+		t.Errorf("page: %d %q, %d renders, %d kept", w.Code, w.Body.String(), e.r.count(), kept)
+	}
+}
