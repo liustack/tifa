@@ -86,7 +86,7 @@ type Round struct {
 	// visits late or used most of its cpus.
 	GeneratorLimited bool `json:"generatorLimited,omitempty"`
 
-	// Renders counts the answers of Tifa by how it answered (X-Tifa-Render: vm, cache or shared), the
+	// Renders counts the answers of Tifa by how it answered (X-Tifa-Render: vm, memo or shared), the
 	// documents and the navigation data alike, and PageRenders splits them by kind of page.
 	Renders     map[string]int            `json:"renders,omitempty"`
 	PageRenders map[string]map[string]int `json:"pageRenders,omitempty"`

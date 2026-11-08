@@ -14,7 +14,7 @@ func closedRound(fw, sc string, sessions, round int, views int, seconds float64,
 	return Round{Framework: fw, Scenario: sc, Model: "closed", Sessions: sessions, Round: round, Blocks: 4, Visits: views / 4, PageViews: views, FullLoads: views / 4, Clicks: views * 3 / 4,
 		Writes: views / 19, WriteShare: 0.05, ClickShare: 0.75, ViewsPerVisit: 4, Seconds: seconds, DrainSeconds: 1.5, CPUSeconds: seconds / 2, PeakRSS: 100, Requests: views * 2, Bytes: int64(views) * 4096,
 		Responses: map[string]int{"doc 200 text/html": views / 4, "nav 200 application/json": views * 3 / 4, "write 200 application/json": views / 19},
-		Renders:   map[string]int{"vm": 3, "cache": views/4 - 3},
+		Renders:   map[string]int{"vm": 3, "memo": views/4 - 3},
 		Types:     map[string]TypeStat{"load": {N: 100, P50: 4, P99: 30}, "click": {N: 300, P50: 2, P99: 15}, "write": {N: 20, P50: 5, P99: 9}},
 		Valid:     true, Pass: pass, Why: map[bool]string{true: "", false: "click P99 1200 ms over 1000 ms"}[pass]}
 }
@@ -232,21 +232,21 @@ func TestReportTellsABrowseResultFromARecord(t *testing.T) {
 	}
 }
 
-// For Tifa the report splits the render cache hits of full loads by kind of page, in every closed
+// For Tifa the report splits the render memo hits of full loads by kind of page, in every closed
 // run and in the read-only control of admin-w5: a diagnostic of what the writes do to the cache.
-func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
+func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 	sc := mustScenario("store-w5")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
-	x.PageRenders = map[string]map[string]int{"list": {"cache": 55, "vm": 45}, "stats": {"cache": 11, "vm": 9}, "order": {"cache": 1, "vm": 99}}
+	x.PageRenders = map[string]map[string]int{"list": {"memo": 55, "vm": 45}, "stats": {"memo": 11, "vm": 9}, "order": {"memo": 1, "vm": 99}}
 	n := closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)
 	c := closedRound("tifa", sc.Name, 32, 1, 8000, 10, true)
 	c.Model, c.Writes, c.WriteShare = "control", 0, 0
-	c.PageRenders = map[string]map[string]int{"list": {"cache": 98, "vm": 2}, "stats": {"cache": 19, "vm": 1}, "order": {"cache": 97, "vm": 3}}
+	c.PageRenders = map[string]map[string]int{"list": {"memo": 98, "vm": 2}, "stats": {"memo": 19, "vm": 1}, "order": {"memo": 97, "vm": 3}}
 	r.Closed, r.Control = []Round{x, n}, []Round{c}
 	md := r.Markdown()
 	for _, want := range []string{
-		"render cache hits by kind of page",
+		"render memo hits by kind of page",
 		"| | list | order | stats |",
 		"| Tifa | 55.0% of 100 | 1.0% of 100 | 55.0% of 20 |",
 		"#### Read-only control",
@@ -338,7 +338,7 @@ func scenarioNamesOf(list []BrowseScenario) []string {
 	return out
 }
 
-// A kind of page that the render cache never or seldom answers in the read-only control, where
+// A kind of page that the render memo never or seldom answers in the read-only control, where
 // nothing changes, is a red flag: something in its data changes on every request (a clock, a
 // random value). It is flagged above the control table, and a kind with few answers is not.
 func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
@@ -346,13 +346,13 @@ func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes = "control", 0
-	c.PageRenders = map[string]map[string]int{"list": {"cache": 98, "vm": 2}, "order": {"vm": 300}, "stats": {"cache": 30, "vm": 70}, "home": {"vm": 5}}
+	c.PageRenders = map[string]map[string]int{"list": {"memo": 98, "vm": 2}, "order": {"vm": 300}, "stats": {"memo": 30, "vm": 70}, "home": {"vm": 5}}
 	l := closedRound("tifa", sc.Name, 0, 1, 1000, 100, true)
-	l.Model, l.PageRenders = "open", map[string]map[string]int{"list": {"cache": 50, "vm": 50}}
+	l.Model, l.PageRenders = "open", map[string]map[string]int{"list": {"memo": 50, "vm": 50}}
 	r.Control, r.Latency = []Round{c}, []Round{l}
 	md := r.Markdown()
 	for _, want := range []string{
-		"**Red flag**: with no writes the render cache answered order 0.0% of 300, stats 30.0% of 100.",
+		"**Red flag**: with no writes the render memo answered order 0.0% of 300, stats 30.0% of 100.",
 		"| Tifa, no writes | 800.0 |",
 		"| Tifa, 20% writes, the latency rounds | 10.0 |",
 	} {
@@ -363,7 +363,7 @@ func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 	if strings.Contains(md, "home 0.0%") {
 		t.Error("a kind of page with 5 answers is flagged")
 	}
-	c.PageRenders = map[string]map[string]int{"list": {"cache": 98, "vm": 2}}
+	c.PageRenders = map[string]map[string]int{"list": {"memo": 98, "vm": 2}}
 	r.Control = []Round{c}
 	if strings.Contains(r.Markdown(), "Red flag") {
 		t.Error("a control that hits is flagged")

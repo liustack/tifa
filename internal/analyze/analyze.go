@@ -560,7 +560,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
+var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "Memo", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -592,31 +592,24 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	}
 }
 
-// boolCache is the error for Cache written as a bool, the switch of the render cache before it was
-// on for every page. Cache is a duration now, the whole-page cache.
-const boolCache = "Cache is a duration, such as Cache = 10 * time.Minute, which turns on the whole-page cache. The render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
-
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":       "Cache = 10 * time.Minute turns on the whole-page cache, RenderCache = false turns the render cache off for the page",
-	"rendercache": "write RenderCache = false to turn the render cache off for the page",
+	"cache":       "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and Memo = false to turn the render memo off for it",
+	"memo":        "write Memo = false to turn the render memo off for the page",
+	"rendercache": "RenderCache is now Memo: write Memo = false to turn the render memo off for the page",
 	"ssr":         "write SSR",
 	"layoutssr":   "write LayoutSSR",
 }
 
 // checkSwitchNames reports the bool constants of route.go that spell a switch in the wrong case,
-// and the removed Cache. Such a constant is a mistake rather than an ordinary name, since it would
+// . Such a constant is a mistake rather than an ordinary name, since it would
 // otherwise be skipped without a word. A constant of another type, or one in another file, such
 // as const cache = "redis", is the app's own and is left alone.
 func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 	for _, name := range scope.Names() {
 		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || c.Val().Kind() != constant.Bool || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
-			continue
-		}
-		if name == "Cache" {
-			a.errorAt(c.Pos(), "%s", boolCache)
 			continue
 		}
 		if advice, ok := switchSpellings[name]; ok {
@@ -646,7 +639,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if !d.routeGo {
 		file = "page.tsx"
 	}
-	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true, RenderCache: true}, file: file}
+	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true, Memo: true}, file: file}
 	if !d.routeGo {
 		if !d.pageTSX {
 			return nil
@@ -663,12 +656,15 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if pkg == nil {
 		return nil
 	}
+	if obj := pkg.Types.Scope().Lookup("RenderCache"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
+		a.errorAt(obj.Pos(), "RenderCache is now Memo: write const Memo = false to turn the render memo off for this page")
+	}
 	scope := pkg.Types.Scope()
 	declared := slices.ContainsFunc(methods, func(m string) bool { return scope.Lookup(m) != nil })
 	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
 		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
 	}
-	for _, name := range []string{"SSR", "RenderCache", "Cache"} {
+	for _, name := range []string{"SSR", "Memo", "Cache"} {
 		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
 			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
 		}
@@ -695,8 +691,8 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
-	r.RenderCache = a.renderCacheConst(pkg)
-	r.Cache = a.cacheConst(pkg)
+	r.Memo = a.memoConst(pkg)
+	r.Cache, r.CacheDefault = a.cacheConst(pkg)
 	return r
 }
 
@@ -723,16 +719,16 @@ func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
 	return l
 }
 
-// renderCacheConst reads RenderCache, which can only be false: the render cache is on for every
+// memoConst reads Memo, which can only be false: the render memo is on for every
 // page, and the switch turns it off for one.
-func (a *analyzer) renderCacheConst(pkg *packages.Package) bool {
-	obj := pkg.Types.Scope().Lookup("RenderCache")
+func (a *analyzer) memoConst(pkg *packages.Package) bool {
+	obj := pkg.Types.Scope().Lookup("Memo")
 	if obj == nil {
 		return true
 	}
 	c, ok := obj.(*types.Const)
 	if !ok || c.Val().Kind() != constant.Bool || constant.BoolVal(c.Val()) {
-		a.errorAt(obj.Pos(), "RenderCache can only be false, which turns the render cache off for this page. It is on by default, so delete the line to keep it on")
+		a.errorAt(obj.Pos(), "Memo can only be false, which turns the render memo off for this page. It is on by default, so delete the line to keep it on")
 		return true
 	}
 	return false
@@ -1321,33 +1317,34 @@ func (a *analyzer) hooks() []string {
 	return found
 }
 
-// cacheConst reads Cache, the whole-page cache time of the page: a time.Duration constant of at
-// least a second, such as 10 * time.Minute. Zero when the page does not set it. A bool Cache is
-// the switch of the render cache from before, which checkSwitchNames reports.
-func (a *analyzer) cacheConst(pkg *packages.Package) time.Duration {
+// cacheConst reads Cache, which lets a shared cache in front of the program keep the page. It is true,
+// which leaves the time to the setting cache_control.s_maxage (the second result), false for none, or
+// a time.Duration constant of at least a second, such as 10 * time.Minute (the first result). Both are
+// zero/false when the page does not set it.
+func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
 	obj := pkg.Types.Scope().Lookup("Cache")
 	if obj == nil {
-		return 0
+		return 0, false
 	}
 	c, isConst := obj.(*types.Const)
 	if isConst && c.Val().Kind() == constant.Bool {
-		return 0 // checkSwitchNames reports it
+		return 0, constant.BoolVal(c.Val())
 	}
 	named, isNamed := types.Unalias(obj.Type()).(*types.Named)
 	isDuration := isNamed && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "time" && named.Obj().Name() == "Duration"
 	if !isConst && !isDuration {
-		return 0 // a type or a function named Cache is the domain code's own
+		return 0, false // a type or a function named Cache is the domain code's own
 	}
 	if !isConst || !isDuration {
-		a.errorAt(obj.Pos(), "Cache must be a time.Duration constant, such as const Cache = 10 * time.Minute")
-		return 0
+		a.errorAt(obj.Pos(), "Cache must be true, false or a time.Duration constant, such as const Cache = 10 * time.Minute")
+		return 0, false
 	}
 	ns, exact := constant.Int64Val(c.Val())
 	if !exact || time.Duration(ns) < time.Second {
 		a.errorAt(obj.Pos(), "Cache must be at least one second, such as const Cache = 10 * time.Minute")
-		return 0
+		return 0, false
 	}
-	return time.Duration(ns)
+	return time.Duration(ns), false
 }
 
 // checkCacheIdentity reports the reads of cookies, headers and the session in the Load of a page
@@ -1362,7 +1359,7 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 	}
 	reported := map[token.Pos]bool{}
 	for _, r := range routes {
-		if r.Cache == 0 || !r.Page || r.broken {
+		if !r.Shared() || !r.Page || r.broken {
 			continue
 		}
 		loads := []*Load{r.Load}

@@ -149,8 +149,7 @@ func (s *Sources) flag(name string, isBool bool) (raw string, ok bool, err error
 	return raw, ok, nil
 }
 
-// apply sets v from each source that names key, the lowest first, so a higher source wins and
-// cache.ignore_query changes the list the sources below left. settings is the project tifa.yaml
+// apply sets v from each source that names key, the lowest first, so a higher source wins. settings is the project tifa.yaml
 // as text, nil for the options of the app. It returns the source of the value, empty for the
 // default, and the errors of the values that are not valid.
 func (s *Sources) apply(key string, v value, settings map[string]string) (from string, errs []error) {

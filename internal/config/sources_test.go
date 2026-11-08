@@ -70,7 +70,7 @@ func dotenvDir(t *testing.T, content string) string {
 }
 
 func TestDotenvSitsBetweenTheEnvironmentAndTheFile(t *testing.T) {
-	dir := dotenvDir(t, "SSR_VMS=5\nSSR_TIMEOUT=4s\nCACHE_SIZE=1MiB\n")
+	dir := dotenvDir(t, "SSR_VMS=5\nSSR_TIMEOUT=4s\nSSR_MEMO_SIZE=1MiB\n")
 	file := writeFile(t, "prod.yaml", "ssr:\n  vms: 2\n  timeout: 2s\n  queue_limit: 9\n")
 	src := Read([]string{"-c", file}, []string{"SSR_TIMEOUT=6s"}, dir)
 	if err := src.Err(); err != nil {
@@ -80,10 +80,10 @@ func TestDotenvSitsBetweenTheEnvironmentAndTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.SSR.VMs != 5 || c.SSR.Timeout != 6*time.Second || c.SSR.QueueLimit != 9 || c.Cache.Size != 1<<20 {
-		t.Fatalf("%+v %+v", c.SSR, c.Cache)
+	if c.SSR.VMs != 5 || c.SSR.Timeout != 6*time.Second || c.SSR.QueueLimit != 9 || c.SSR.MemoSize != 1<<20 {
+		t.Fatalf("%+v", c.SSR)
 	}
-	want := map[string]string{"ssr.vms": ".env SSR_VMS", "ssr.timeout": "env SSR_TIMEOUT", "ssr.queue_limit": "file prod.yaml", "cache.size": ".env CACHE_SIZE"}
+	want := map[string]string{"ssr.vms": ".env SSR_VMS", "ssr.timeout": "env SSR_TIMEOUT", "ssr.queue_limit": "file prod.yaml", "ssr.memo_size": ".env SSR_MEMO_SIZE"}
 	for k, v := range want {
 		if from[k] != v {
 			t.Errorf("%s from %q, want %q", k, from[k], v)
@@ -175,8 +175,8 @@ func TestPortAndHostOfPlatforms(t *testing.T) {
 }
 
 func TestEveryErrorIsReported(t *testing.T) {
-	_, _, err := Load(Read([]string{"--ssr-vms", "x"}, []string{"SSR_TIMEOUT=soon", "CACHE_SIZE=lots"}, ""), nil)
-	for _, want := range []string{"flag --ssr-vms", "env SSR_TIMEOUT", "env CACHE_SIZE"} {
+	_, _, err := Load(Read([]string{"--ssr-vms", "x"}, []string{"SSR_TIMEOUT=soon", "SSR_MEMO_SIZE=lots"}, ""), nil)
+	for _, want := range []string{"flag --ssr-vms", "env SSR_TIMEOUT", "env SSR_MEMO_SIZE"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%v lacks %q", err, want)
 		}

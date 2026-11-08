@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +72,7 @@ ssr:
 		got, want any
 	}{
 		{"default", c.Server.ShutdownTimeout, d.Server.ShutdownTimeout},
-		{"default", c.Cache.Size, d.Cache.Size},
+		{"default", c.SSR.MemoSize, d.SSR.MemoSize},
 		{"embedded", c.Server.Addr, "0.0.0.0:9000"},
 		{"embedded", c.Build.Target, "es2022"},
 		{"file", c.Server.BodyLimit, int64(3 << 20)},
@@ -182,7 +181,7 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 		{name: "flag type", args: []string{"--ssr-vms", "two"}, want: []string{"flag --ssr-vms", "ssr.vms", `"two"`}},
 		{name: "flag unit", args: []string{"--server-body-limit", "1MB"}, want: []string{"flag --server-body-limit", "server.body_limit", `"1MB"`}},
 		{name: "env type", environ: []string{"SERVER_SHUTDOWN_TIMEOUT=soon"}, want: []string{"env SERVER_SHUTDOWN_TIMEOUT", "server.shutdown_timeout"}},
-		{name: "file unit", file: "cache:\n  size: 64MB\n", want: []string{"file prod.yaml line 2", "cache.size", `"64MB"`}},
+		{name: "file unit", file: "ssr:\n  memo_size: 64MB\n", want: []string{"file prod.yaml line 2", "ssr.memo_size", `"64MB"`}},
 		{name: "file range", file: "ssr:\n  vms: 0\n", want: []string{"file prod.yaml line 2", "ssr.vms"}},
 		{name: "file list", file: "server:\n  addr: [a, b]\n", want: []string{"file prod.yaml line 2", "server.addr"}},
 		{name: "file mapping", file: "ssr:\n  vms:\n    count: 2\n", want: []string{"file prod.yaml line 2", "ssr.vms", "expected a single value"}},
@@ -213,7 +212,7 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 func TestExampleLoadsBackToSameValues(t *testing.T) {
 	c := Default()
 	c.Server.Addr = "0.0.0.0:80"
-	c.Cache.Size = 3 << 30
+	c.SSR.MemoSize = 3 << 30
 	c.SSR.VMMemory = 1536 << 10
 	example := printed(c)
 	for _, want := range []string{"--server-addr", "SERVER_ADDR", "server:", "body_limit: 1MiB"} {
@@ -240,7 +239,7 @@ func TestFileValuesMustHaveTheRightType(t *testing.T) {
 		{"yaml empty addr", "prod.yaml", "server:\n  addr:\n", "server.addr"},
 		{"yaml number addr", "prod.yaml", "server:\n  addr: 9527\n", "server.addr"},
 		{"yaml quoted vms", "prod.yaml", "ssr:\n  vms: \"2\"\n", "ssr.vms"},
-		{"yaml bool size", "prod.yaml", "cache:\n  size: true\n", "cache.size"},
+		{"yaml bool size", "prod.yaml", "ssr:\n  memo_size: true\n", "ssr.memo_size"},
 		{"yaml number timeout", "prod.yaml", "ssr:\n  timeout: 3\n", "ssr.timeout"},
 	}
 	for _, tc := range cases {
@@ -277,7 +276,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.whole_page cache.ignore_query session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache_control.s_maxage session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -731,59 +730,6 @@ func TestSessionSettingErrors(t *testing.T) {
 	}
 }
 
-// cache.ignore_query starts as the list of tracking parameters, and each setting adds names to it
-// or takes them out, so a layer needs to say only what it changes.
-func TestCacheIgnoreQueryAddsAndRemoves(t *testing.T) {
-	defaults := Default().Cache.IgnoreQuery
-	for _, name := range []string{"utm_*", "gclid", "fbclid", "msclkid", "twclid", "ttclid", "yclid", "gbraid", "wbraid", "mc_cid", "mc_eid"} {
-		if !slices.Contains(defaults, name) {
-			t.Errorf("the default list lacks %s: %v", name, defaults)
-		}
-	}
-	cases := map[string]struct {
-		args, environ []string
-		want          []string // names that must be in the list
-		gone          []string // names that must not
-	}{
-		"add":        {args: []string{"--cache-ignore-query", "ref, _hsenc"}, want: []string{"ref", "_hsenc", "gclid"}},
-		"remove":     {args: []string{"--cache-ignore-query=-gclid,-utm_*"}, want: []string{"fbclid"}, gone: []string{"gclid", "utm_*"}},
-		"env":        {environ: []string{"CACHE_IGNORE_QUERY=ref,-yclid"}, want: []string{"ref"}, gone: []string{"yclid"}},
-		"remove all": {args: []string{"--cache-ignore-query=-*,ref"}, want: []string{"ref"}, gone: []string{"gclid", "utm_*"}},
-		"file":       {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n")}, want: []string{"ref", "gclid"}},
-		"twice":      {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n"), "--cache-ignore-query=-ref"}, gone: []string{"ref"}, want: []string{"gclid"}},
-	}
-	for name, tc := range cases {
-		c, err := load(t, tc.args, tc.environ, "", "")
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
-			continue
-		}
-		for _, w := range tc.want {
-			if !slices.Contains(c.Cache.IgnoreQuery, w) {
-				t.Errorf("%s: %v lacks %s", name, c.Cache.IgnoreQuery, w)
-			}
-		}
-		for _, g := range tc.gone {
-			if slices.Contains(c.Cache.IgnoreQuery, g) {
-				t.Errorf("%s: %v still has %s", name, c.Cache.IgnoreQuery, g)
-			}
-		}
-	}
-	// Loading does not change the defaults for the next load.
-	if !slices.Equal(Default().Cache.IgnoreQuery, defaults) {
-		t.Error("a load changed the default list")
-	}
-}
-
-func TestCacheIgnoreQueryRefusesBadNames(t *testing.T) {
-	for _, bad := range []string{"a=b", "a&b", "*x", "a*b", "a b", "?a", "a,,b"} {
-		_, err := load(t, []string{"--cache-ignore-query", bad}, nil, "", "")
-		if err == nil || !strings.Contains(err.Error(), "cache.ignore_query") {
-			t.Errorf("%q: got %v", bad, err)
-		}
-	}
-}
-
 // server.csp is off unless a source turns it on, and server.csp_policy holds the policy that
 // only limits scripts. Both are runtime settings, read like the others.
 func TestCSPSettings(t *testing.T) {
@@ -882,5 +828,85 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	// Empty is not set, as the example file of tifa new shows them.
 	if c, _, err := Project([]byte("i18n:\n  default: \"\"\nsite:\n  url: \"\"\n")); err != nil || c.I18n.Default != "" || c.Site.URL != "" {
 		t.Errorf("empty: %+v %+v, %v", c.I18n, c.Site, err)
+	}
+}
+
+// cache_control.s_maxage is the time of a page that writes const Cache = true: 1m by default, and
+// at least a second.
+func TestCacheControlSMaxage(t *testing.T) {
+	if got := Default().CacheControl.SMaxage; got != time.Minute {
+		t.Fatalf("default %v", got)
+	}
+	for name, tc := range map[string]struct {
+		args, environ []string
+		file          string
+		want          time.Duration
+	}{
+		"flag": {args: []string{"--cache-control-s-maxage", "5m"}, want: 5 * time.Minute},
+		"env":  {environ: []string{"CACHE_CONTROL_S_MAXAGE=90s"}, want: 90 * time.Second},
+		"file": {file: "cache_control:\n  s_maxage: 10m\n", want: 10 * time.Minute},
+	} {
+		file := ""
+		if tc.file != "" {
+			file = "tifa.yaml"
+		}
+		c, err := load(t, tc.args, tc.environ, file, tc.file)
+		if err != nil || c.CacheControl.SMaxage != tc.want {
+			t.Errorf("%s: %v, %v", name, c.CacheControl.SMaxage, err)
+		}
+	}
+	for _, bad := range []string{"0s", "500ms", "soon"} {
+		_, err := load(t, []string{"--cache-control-s-maxage", bad}, nil, "", "")
+		if err == nil || !strings.Contains(err.Error(), "cache_control.s_maxage") || !strings.Contains(err.Error(), "at least one second") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
+
+// The settings that were removed or renamed are errors in every place they could be given, and say
+// what to do. They used to be ignored, so a deployment that turned the cache off would have gone on
+// with the default.
+func TestRemovedSettingsAreErrors(t *testing.T) {
+	size := []string{"cache.size", "ssr.memo_size", "--ssr-memo-size", "SSR_MEMO_SIZE"}
+	whole := []string{"cache.whole_page", "removed"}
+	ignore := []string{"cache.ignore_query", "removed"}
+	dir := dotenvDir(t, "CACHE_SIZE=0\n")
+	for name, tc := range map[string]struct {
+		args, environ []string
+		project       string
+		dotenv        bool
+		want          []string
+	}{
+		"size in the project file":  {project: "cache:\n  size: 1MiB\n", want: size},
+		"size env":                  {environ: []string{"CACHE_SIZE=0"}, want: size},
+		"size in the file of -c":    {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  size: 1MiB\n")}, want: size},
+		"size in .env":              {dotenv: true, want: size},
+		"whole_page project file":   {project: "cache:\n  whole_page: false\n", want: whole},
+		"whole_page env":            {environ: []string{"CACHE_WHOLE_PAGE=false"}, want: whole},
+		"ignore_query project file": {project: "cache:\n  ignore_query: ref\n", want: ignore},
+		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
+	} {
+		var err error
+		switch {
+		case tc.project != "":
+			_, _, err = Project([]byte(tc.project))
+		case tc.dotenv:
+			_, _, err = Load(Read(nil, nil, dir), nil)
+		default:
+			_, err = load(t, tc.args, tc.environ, "", "")
+		}
+		if err == nil {
+			t.Errorf("%s: no error", name)
+			continue
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %v lacks %q", name, err, w)
+			}
+		}
+	}
+	// The other keys of an app stay its own.
+	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "tifa.yaml", "cache:\n  ttl: 5\n"); err != nil {
+		t.Errorf("a key of the app: %v", err)
 	}
 }

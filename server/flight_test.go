@@ -58,10 +58,10 @@ func newHeldServer(t *testing.T, cfg config.Config, app App) (*server, *heldRend
 
 // waiting is the number of requests that wait for a render of the HTML cache.
 func waiting(s *server) int {
-	s.cache.mu.Lock()
-	defer s.cache.mu.Unlock()
+	s.memo.mu.Lock()
+	defer s.memo.mu.Unlock()
 	n := 0
-	for _, f := range s.cache.flights {
+	for _, f := range s.memo.flights {
 		n += f.waiters
 	}
 	return n
@@ -123,7 +123,7 @@ func TestBurstOfACachedPageRendersOnce(t *testing.T) {
 	if by := renderedBy(out); by["vm"] != 1 || by["shared"] != 19 {
 		t.Errorf("rendered by %v", by)
 	}
-	if w := get(s, "/stats"); w.Header().Get("X-Tifa-Render") != "cache" || g.renders() != 1 {
+	if w := get(s, "/stats"); w.Header().Get("X-Tifa-Render") != "memo" || g.renders() != 1 {
 		t.Errorf("after the burst: %d renders, %v", g.renders(), w.Header())
 	}
 }
@@ -149,7 +149,7 @@ func TestBurstWithOtherDataRendersEach(t *testing.T) {
 	}
 }
 
-// Requests for a page with RenderCache = false each render, since its HTML may differ by request.
+// Requests for a page with Memo = false each render, since its HTML may differ by request.
 func TestBurstOfAnUncachedPageRendersEach(t *testing.T) {
 	s, g := newHeldServer(t, config.Default(), frontApp())
 	out := burst(t, s, g, 10, "/live", nil)
@@ -442,15 +442,15 @@ func TestRequestDuringLandingFindsThePage(t *testing.T) {
 	s, g := newHeldServer(t, config.Default(), frontApp())
 	close(g.open)
 	arrived := make(chan struct{}, 2)
-	s.cache.fetching = func() { arrived <- struct{}{} }
+	s.memo.fetching = func() { arrived <- struct{}{} }
 	var late *httptest.ResponseRecorder
 	done := make(chan struct{})
-	s.cache.landing = func() {
-		s.cache.landing = nil
+	s.memo.landing = func() {
+		s.memo.landing = nil
 		<-arrived // the first request
-		held := !s.cache.mu.TryLock()
+		held := !s.memo.mu.TryLock()
 		if !held {
-			s.cache.mu.Unlock()
+			s.memo.mu.Unlock()
 		}
 		go func() { late = get(s, "/stats"); close(done) }()
 		if held {
@@ -461,7 +461,7 @@ func TestRequestDuringLandingFindsThePage(t *testing.T) {
 	}
 	first := get(s, "/stats")
 	<-done
-	if g.renders() != 1 || first.Header().Get("X-Tifa-Render") != "vm" || late.Header().Get("X-Tifa-Render") != "cache" {
+	if g.renders() != 1 || first.Header().Get("X-Tifa-Render") != "vm" || late.Header().Get("X-Tifa-Render") != "memo" {
 		t.Errorf("%d renders, the request during the landing rendered by %q", g.renders(), late.Header().Get("X-Tifa-Render"))
 	}
 }

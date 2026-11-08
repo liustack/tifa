@@ -81,7 +81,7 @@ func (c heldVMContext) Err() error { return c.err() }
 func TestSharedRequestsTakeOnePoolWaitSlot(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := config.Default()
-		cfg.SSR.VMs, cfg.SSR.QueueLimit, cfg.Cache.Size = 1, 1, 0
+		cfg.SSR.VMs, cfg.SSR.QueueLimit, cfg.SSR.MemoSize = 1, 1, 0
 		pool, err := ssr.NewPool(`globalThis.startRender = () => { globalThis.renderResult = "<main>ok</main>" }`, nil, cfg.SSR, false)
 		if err != nil {
 			t.Fatal(err)

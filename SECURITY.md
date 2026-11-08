@@ -14,4 +14,4 @@ Fixes land in the latest release (the newest `v0.0.x` tag of github.com/liustack
 
 ## What to keep in mind
 
-Tifa renders React pages inside the server process, keeps sessions and caches rendered pages. How the session cookie works is in [docs/sessions.md](docs/sessions.md), the security headers and Content-Security-Policy are in [docs/config.md](docs/config.md#security-headers), and what the render cache keys on is in [docs/app.md](docs/app.md#ssr-and-cache). Read them before reporting behavior that may be working as intended.
+Tifa renders React pages inside the server process, keeps sessions and remembers rendered pages. How the session cookie works is in [docs/sessions.md](docs/sessions.md), the security headers and Content-Security-Policy are in [docs/config.md](docs/config.md#security-headers), and what the render memo keys on is in [docs/app.md](docs/app.md#ssr-and-cache). Read them before reporting behavior that may be working as intended.

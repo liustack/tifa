@@ -58,7 +58,7 @@ func Load(c *tifa.Ctx) (Home, error) {
 
 // Shell is what every page of the storefront shows around itself: the language, the category
 // menu and the subtotal from which delivery is free. It is the same for every visitor, so the
-// render cache reuses a page across visitors. The cart in the header and the products a visitor
+// render memo reuses a page across visitors. The cart in the header and the products a visitor
 // looked at come from the mine route after the page has loaded.
 type Shell struct {
 	Locale            storekit.Locale      `json:"locale"`

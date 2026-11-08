@@ -121,7 +121,7 @@ func sessionOf(t testing.TB, answer []byte) json.RawMessage {
 	return envelope.Session
 }
 
-// injectedInput turns the answer of a navigation data request, {routes, session}, into the data a whole-page render
+// injectedInput turns the answer of a navigation data request, {routes, session}, into the data a full page render
 // gets, as the server writes it: the statuses, errors and redirects as JSON, and the data of each
 // successful route as JSON text of its own, with the escapes of ssr.EscapeAboveFFFF the server
 // writes into it. A result says the number of its text, which follows the order of the route IDs.
@@ -277,7 +277,7 @@ func joinedScripts(html string) string {
 }
 
 // The page is a function of its input: the same data renders the same HTML under any clock, which
-// the render cache, the ETag and the check of tifa dev stand on. The router stamps each match with
+// the render memo, the ETag and the check of tifa dev stand on. The router stamps each match with
 // the time it loaded, and the page carries 0 in its place.
 func TestShopRendersTheSameAtAnyTime(t *testing.T) {
 	source, pages := shopBundle(t)

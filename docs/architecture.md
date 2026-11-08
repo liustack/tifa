@@ -1,10 +1,10 @@
 ---
-summary: 'How Tifa works inside: which package does what, the path of a request from HTTP to HTML and of a navigation in the browser, what `tifa build` and `tifa dev` do step by step, how the pool of JavaScript VMs is kept healthy, and how the render cache and the whole-page cache fit together'
+summary: 'How Tifa works inside: which package does what, the path of a request from HTTP to HTML and of a navigation in the browser, what `tifa build` and `tifa dev` do step by step, how the pool of JavaScript VMs is kept healthy, and how the render memo works with the Cache-Control of a page with `Cache`'
 read_when:
   - Starting to work on Tifa itself and looking for the package that owns a behavior
-  - Tracing a request, a render or a cache hit through the code
+  - Tracing a request, a render or a memo hit through the code
   - Changing the order of steps in a request, in `tifa build` or in `tifa dev`
-  - Changing internal/ssr, the render cache or the whole-page cache
+  - Changing internal/ssr or the render memo
   - Answering why a page is slow, stale or rendered twice
 ---
 
@@ -22,7 +22,7 @@ A built Tifa app is one executable. Inside it, Go answers every request and call
 flowchart LR
   B["Browser"]
   subgraph P["The executable"]
-    G["Go: routes, hooks, Load, caches (server, internal/core)"]
+    G["Go: routes, hooks, Load, render memo (server, internal/core)"]
     V["VM pool: ssr.js in quickjs (internal/ssr)"]
     S["Embedded files: assets, public, content"]
   end
@@ -37,7 +37,7 @@ flowchart LR
 | --- | --- |
 | `tifa`, `tifatest`, `content` | The public API. `tifa` is thin: it forwards to `internal/core`. `tifatest` makes a `Ctx` for tests |
 | `internal/core` | `Ctx`, errors, the JSON rules, sessions and the session store, the render clock |
-| `server` | The HTTP server: routing, `OnRequest`, page and data requests, both caches, compression, HTTPS, cross-site check, graceful stop |
+| `server` | The HTTP server: routing, `OnRequest`, page and data requests, the render memo, compression, HTTPS, cross-site check, graceful stop |
 | `internal/ssr` | The pool of [QuickJS](https://github.com/liustack/quickjs) VMs and the render call |
 | `internal/config` | Settings: sources, flags, values and their errors |
 | `internal/analyze` | Static analysis of the app's Go code into the route manifest |
@@ -77,16 +77,14 @@ flowchart TD
 ```
 
 - `next(c)` in `OnRequest` is the step from `OnRequest` to the route. A route error comes back out through `next`, and the server turns it into an answer only after `OnRequest` returns.
-- A page of the whole-page cache is made anonymous before the session is read, so none of the later steps see a cookie.
+- The request of a page with `Cache` is made anonymous before the session is read, so none of the later steps see a cookie.
 - A call from a page of an older build gets 409 before the handler runs.
 
 ### What a page handler does
 
 ```mermaid
 flowchart TD
-  P["Page GET"] --> C{"Page has Cache and the request is anonymous?"}
-  C -- "yes" --> WP["Whole-page cache, see Caches"]
-  C -- "no" --> D{"Has _tifa in the URL?"}
+  P["Page GET"] --> D{"Has _tifa in the URL?"}
   D -- "yes" --> DR["Run only the listed Loads, answer JSON by route"]
   D -- "no" --> L["Run every Load of the chain at once"]
   L --> S{"SSR is false?"}
@@ -94,7 +92,7 @@ flowchart TD
   S -- "no" --> RP["Render the page (renderPage)"]
 ```
 
-`renderPage` makes the input of the VM from the results of the `Load`s, computes the ETag from it, and answers 304 when `If-None-Match` matches. Otherwise it asks the render cache, which renders in the VM pool on a miss. Data goes to the VM as text, and the pool fills it into the page after the VM is free again, so the VM does not copy large JSON. With `server.csp` the render marks the scripts and styles it writes with the nonce of the render, and the pool takes the marks out again and hashes those elements, so the page goes out with a policy that lets only them run (see [Content-Security-Policy](config.md#content-security-policy)).
+`renderPage` makes the input of the VM from the results of the `Load`s, computes the ETag from it, and answers 304 when `If-None-Match` matches. Otherwise it asks the render memo, which renders in the VM pool on a miss. Data goes to the VM as text, and the pool fills it into the page after the VM is free again, so the VM does not copy large JSON. With `server.csp` the render marks the scripts and styles it writes with the nonce of the render, and the pool takes the marks out again and hashes those elements, so the page goes out with a policy that lets only them run (see [Content-Security-Policy](config.md#content-security-policy)).
 
 When a render fails, the server renders again with the error in place of the page (`rescue` in `server/page.go`). If that fails too, Go writes a plain error page.
 
@@ -191,33 +189,26 @@ stateDiagram-v2
 
 See [Performance](performance.md) for sizing and [config.md](config.md#render-queue) for the queue.
 
-## Caches
+## The render memo
 
-Two caches share one LRU of `cache.size` bytes.
+The memo is an LRU of `ssr.memo_size` bytes.
 
 ```mermaid
 flowchart TD
-  Q["Page GET"] --> A{"Page has Cache?"}
-  A -- "yes" --> W{"Entry for the URL, within its time?"}
-  W -- "yes" --> WH["Send the entry, no Load, no render"]
-  W -- "no" --> WM["Make the page once for all waiting requests: Loads, then render"]
-  WM --> RC
-  A -- "no" --> LD["Run the Loads"]
+  Q["Page GET"] --> LD["Run the Loads"]
   LD --> ET{"ETag matches If-None-Match?"}
   ET -- "yes" --> N304["304 without a render"]
-  ET -- "no" --> RC{"Render cache has the HTML?"}
-  RC -- "yes" --> RH["Send it (X-Tifa-Render: cache)"]
+  ET -- "no" --> RC{"Render memo has the HTML?"}
+  RC -- "yes" --> RH["Send it (X-Tifa-Render: memo)"]
   RC -- "no" --> FL{"Same render already running?"}
   FL -- "yes" --> SH["Wait for it (shared)"]
   FL -- "no" --> VMR["Render in a VM (vm), keep the HTML"]
 ```
 
-- **Render cache** ([details](render-cache.md)). The key is a hash of the build ID, the SSR bundle, the URL, the data of every `Load`, the session the browser gets and the policy of `server.csp`. The same key always gives the same HTML, so a hit skips the VM. Each request still runs `OnRequest` and its `Load`s, so data is never stale. The page is kept in one form: gzip with `server.compress` on, HTML otherwise.
-- **Shared renders.** Requests that miss the same key at the same time wait for one render, even when `cache.size` is 0. The render runs in a goroutine that belongs to none of them, so one client leaving does not cancel it.
-- **ETag.** It is a hash of the same things as the render key. A matching `If-None-Match` is answered before the cache is asked. The ETag saves the transfer to a browser, and the cache saves the render for everyone else.
-- **Whole-page cache.** Only a page with `const Cache` has it. The request is made anonymous, the key is the scheme, host, path and the query without tracking parameters, and an entry lives for `Cache`. A hit runs no `Load` and no render. A miss makes the page once for every waiting request, through the render cache. When making it fails, the old entry is served for up to a day.
-- A content entry that reaches its date expires every whole page made before it (`contentChanged`).
-- `tifa.ExpirePages` marks the entries of the paths it gets as expired, whatever their host, scheme and query, and drops the makes of those paths under way from the shared ones, so what they read before the call is not kept (`expirePaths`). An expired entry still stands in for a make that fails.
-- `tifa.Stats` reads the counts of the pool and the two caches. Renders and cache lookups count with atomics, under no new lock.
+- **Render memo** ([details](memo.md)). The key is a hash of the build ID, the SSR bundle, the URL, the data of every `Load`, the session the browser gets and the policy of `server.csp`. The same key always gives the same HTML, so a hit skips the VM. Each request still runs `OnRequest` and its `Load`s, so data is never stale. The page is kept in one form: gzip with `server.compress` on, HTML otherwise.
+- **Shared renders.** Requests that miss the same key at the same time wait for one render, even when `ssr.memo_size` is 0. The render runs in a goroutine that belongs to none of them, so one client leaving does not cancel it.
+- **ETag.** It is a hash of the same things as the render key. A matching `If-None-Match` is answered before the memo is asked. The ETag saves the transfer to a browser, and the memo saves the render for everyone else.
+- **Pages with `Cache`.** The memo is all Tifa keeps for them. The request is made anonymous (`anonymize`), the Loads run on every request, and once they are done the Cache-Control for shared caches is set (`setShared`), unless OnRequest, a Load or a Layout made the answer private. A CDN in front holds the page, not Tifa.
+- `tifa.Stats` reads the counts of the pool and of the memo. Renders and memo lookups count with atomics, under no new lock.
 
-Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [The whole-page cache](app.md#the-whole-page-cache). The answers Tifa sends for each case are in [Page requests](build.md#page-requests).
+Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [Cache for CDNs](app.md#cache-for-cdns). The answers Tifa sends for each case are in [Page requests](build.md#page-requests).

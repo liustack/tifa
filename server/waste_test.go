@@ -36,7 +36,6 @@ func (c countedValue) MarshalJSON() ([]byte, error) {
 type workEnv struct {
 	s        *server
 	r        *renders
-	clock    *cacheClock
 	loads    atomic.Int64
 	encodes  atomic.Int64
 	compress *atomic.Int64
@@ -52,7 +51,7 @@ var wastePadding = strings.Repeat("<p>padding text</p>", 200)
 
 func newWorkEnv(t *testing.T, cacheSize int64) *workEnv {
 	t.Helper()
-	e := &workEnv{clock: useCacheClock(t), failWith: map[string]error{}, redirect: map[string]bool{}}
+	e := &workEnv{failWith: map[string]error{}, redirect: map[string]bool{}}
 	load := func(path string) func(c *tifa.Ctx) (any, error) {
 		return func(c *tifa.Ctx) (any, error) {
 			e.loads.Add(1)
@@ -80,21 +79,12 @@ func newWorkEnv(t *testing.T, cacheSize int64) *workEnv {
 		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: load("layout")}},
 		Routes: []Route{
 			page("/plain", nil),
-			page("/live", func(r *Route) { r.NoRenderCache = true }),
+			page("/live", func(r *Route) { r.NoMemo = true }),
 			page("/cached", func(r *Route) { r.Cache = time.Minute }),
-			page("/cachedlive", func(r *Route) { r.Cache, r.NoRenderCache = time.Minute, true }),
-			page("/cachedpriv", func(r *Route) {
-				r.Cache = time.Minute
-				r.Load = func(c *tifa.Ctx) (any, error) {
-					e.loads.Add(1)
-					c.SetHeader("Cache-Control", "private")
-					return e.version.Load(), nil
-				}
-			}),
 		},
 	}
 	cfg := config.Default()
-	cfg.Cache.Size = cacheSize
+	cfg.SSR.MemoSize = cacheSize
 	s := newServer(cfg, app.Hooks)
 	t.Cleanup(s.close)
 	s.register(app.Layouts, app.Routes)
@@ -150,10 +140,10 @@ func (e *workEnv) do(method, target string, header ...string) work {
 }
 
 // A 404 page and an error page from a failed Load are a function of their render input as every
-// page is, so the render cache keeps them. They carry no ETag, and a request with If-None-Match gets
+// page is, so the render memo keeps them. They carry no ETag, and a request with If-None-Match gets
 // the page, since a precondition only applies to an answer that would be 2xx (RFC 9110 13.2.1).
 // OnError still sees every failure.
-func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
+func TestErrorPagesComeFromTheMemo(t *testing.T) {
 	e := newWorkEnv(t, 64<<20)
 	e.fail("/plain", tifa.ErrNotFound)
 	e.fail("/live", tifa.ErrNotFound)
@@ -169,7 +159,7 @@ func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
 		if first.w.Code != tc.status || first.renders != 1 || first.w.Header().Get(renderHeader) != "vm" {
 			t.Errorf("%s: first %s", tc.name, first)
 		}
-		if second.w.Code != tc.status || second.renders != 0 || second.w.Header().Get(renderHeader) != "cache" || second.w.Body.String() != first.w.Body.String() {
+		if second.w.Code != tc.status || second.renders != 0 || second.w.Header().Get(renderHeader) != "memo" || second.w.Body.String() != first.w.Body.String() {
 			t.Errorf("%s: second %s", tc.name, second)
 		}
 		if etag := first.w.Header().Get("ETag") + second.w.Header().Get("ETag"); etag != "" {
@@ -197,17 +187,16 @@ func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
 	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back tomorrow") {
 		t.Errorf("another message: %s", w)
 	}
-	// A page with Cache whose Load answers 404 skips its whole-page cache for a while, and the
-	// render cache has its 404 page meanwhile.
+	// A page with Cache has the 404 page of the render memo like any page.
 	e.fail("/cached", tifa.ErrNotFound)
 	first, second = e.do("GET", "/cached"), e.do("GET", "/cached")
 	if first.w.Code != 404 || first.renders != 1 || second.w.Code != 404 || second.renders != 0 {
 		t.Errorf("404 of a page with Cache: %s, then %s", first, second)
 	}
-	// RenderCache = false keeps its 404 page out of the cache too.
+	// Memo = false keeps its 404 page out of the cache too.
 	for range 2 {
 		if w := e.do("GET", "/live"); w.w.Code != 404 || w.renders != 1 || w.w.Header().Get(renderHeader) != "vm" {
-			t.Errorf("404 of a page with RenderCache = false: %s", w)
+			t.Errorf("404 of a page with Memo = false: %s", w)
 		}
 	}
 }
@@ -234,8 +223,8 @@ func TestMissingAssetIsAPlainNotFound(t *testing.T) {
 }
 
 // A redirect of the router during the render is a result of the render input like a page, so the
-// render cache keeps it.
-func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
+// render memo keeps it.
+func TestRenderRedirectComesFromTheMemo(t *testing.T) {
 	e := newWorkEnv(t, 64<<20)
 	e.redirects("/plain")
 	first, second := e.do("GET", "/plain"), e.do("GET", "/plain")
@@ -247,8 +236,7 @@ func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
 	if first.renders != 1 || second.renders != 0 {
 		t.Errorf("renders: %d then %d", first.renders, second.renders)
 	}
-	// A page with Cache keeps no 307 and skips its cache for a while, and each of those requests
-	// makes the page again: the render cache answers them.
+	// A page with Cache redirects like any page: the render memo answers every request.
 	e.redirects("/cached")
 	var renders int64
 	for _, target := range []string{"/cached", "/cached", dataURL("/cached", "b1", "01"), "/cached"} {
@@ -260,101 +248,6 @@ func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
 	}
 	if renders != 1 {
 		t.Errorf("a page with Cache that redirects rendered %d times", renders)
-	}
-}
-
-// Making an entry of a page with Cache writes the data of each Load to JSON once.
-func TestMadeEntryEncodesEachLoadOnce(t *testing.T) {
-	e := newWorkEnv(t, 64<<20)
-	for _, target := range []string{"/cached", dataURL("/cached", "b1", "01")} {
-		e.s.ExpirePages([]string{"/cached"})
-		if w := e.do("GET", target); w.loads != 2 || w.encodes != 2 {
-			t.Errorf("GET %s: %s", target, w)
-		}
-	}
-}
-
-// X-Tifa-Render on the answer of a page with Cache says whether the VM rendered for it.
-func TestMadeEntrySaysHowItsPageWasMade(t *testing.T) {
-	e := newWorkEnv(t, 64<<20)
-	// The Load makes the answer private, so each request makes the page alone. The first renders,
-	// the others get the render from the render cache.
-	for i, want := range []string{"vm", "cache", "cache"} {
-		w := e.do("GET", "/cachedpriv")
-		if got := w.w.Header().Get(renderHeader); got != want || w.w.Header().Get("Cache-Status") != "tifa; fwd=bypass" && i > 0 {
-			t.Errorf("request %d: %s, Cache-Status %q, want %q", i, w, w.w.Header().Get("Cache-Status"), want)
-		}
-	}
-	// An entry made again from the render cache.
-	e.do("GET", "/cached")
-	e.s.ExpirePages([]string{"/cached"})
-	if w := e.do("GET", "/cached"); w.renders != 0 || w.w.Header().Get(renderHeader) != "cache" {
-		t.Errorf("made again: %s", w)
-	}
-}
-
-// A page with Cache whose entry is made again with the same data keeps the HTML of the old entry,
-// without a render, also when the render cache no longer has the page.
-func TestRemadeEntryWithTheSameDataKeepsItsPage(t *testing.T) {
-	e := newWorkEnv(t, 64<<20)
-	first := e.do("GET", "/cached")
-	if first.renders != 1 {
-		t.Fatalf("first: %s", first)
-	}
-	// The render cache loses its copy of the page.
-	tag := strings.TrimPrefix(first.w.Header().Get("ETag"), "W/")
-	e.s.cache.mu.Lock()
-	e.s.cache.removeLocked(tag)
-	e.s.cache.mu.Unlock()
-	for _, expire := range []func(){
-		func() { e.s.ExpirePages([]string{"/cached"}) },
-		func() { e.clock.advance(2 * time.Minute) },
-		e.s.contentChanged,
-	} {
-		_, _, before := e.s.cache.stats()
-		expire()
-		w := e.do("GET", "/cached")
-		if w.w.Code != 200 || w.loads != 2 || w.renders != 0 || w.compress != 0 || w.w.Header().Get(renderHeader) != "cache" || w.w.Header().Get("ETag") != first.w.Header().Get("ETag") {
-			t.Errorf("made again with the same data: %s, ETag %q", w, w.w.Header().Get("ETag"))
-		}
-		// The new entry holds the same page, which counts once.
-		if _, _, after := e.s.cache.stats(); after != before {
-			t.Errorf("the cache holds %d bytes, %d before", after, before)
-		}
-		if w.w.Body.String() != first.w.Body.String() {
-			t.Error("made again with the same data: another page")
-		}
-		expire()
-		if d := e.do("GET", dataURL("/cached", "b1", "01")); d.w.Code != 200 || d.renders != 0 {
-			t.Errorf("navigation data made again with the same data: %s", d)
-		}
-	}
-	// New data is a new page.
-	e.version.Add(1)
-	e.s.ExpirePages([]string{"/cached"})
-	if w := e.do("GET", "/cached"); w.renders != 1 || w.w.Header().Get("ETag") == first.w.Header().Get("ETag") {
-		t.Errorf("new data: %s", w)
-	}
-}
-
-// Under memory pressure the copy of a busy page with Cache in the render cache goes first, since
-// the hits of the whole-page entry do not touch it. The entry still makes the page again without a
-// render while its data is the same.
-func TestRemadeEntryOutlivesItsCopyInTheRenderCache(t *testing.T) {
-	probe := newWorkEnv(t, 64<<20)
-	probe.do("GET", "/plain?fill=0")
-	_, _, one := probe.s.cache.stats()
-	e := newWorkEnv(t, one*8)
-	e.do("GET", "/cached")
-	for i := range 20 {
-		e.do("GET", fmt.Sprintf("/plain?fill=%d", i))
-		if w := e.do("GET", "/cached"); w.renders != 0 || w.w.Header().Get(renderHeader) != "cache" {
-			t.Fatalf("hit %d: %s", i, w)
-		}
-	}
-	e.s.ExpirePages([]string{"/cached"})
-	if w := e.do("GET", "/cached"); w.renders != 0 {
-		t.Errorf("made again with the same data: %s", w)
 	}
 }
 

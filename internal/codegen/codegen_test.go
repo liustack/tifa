@@ -729,23 +729,6 @@ func TestMainRegistersTheSessionType(t *testing.T) {
 	}
 }
 
-// The whole-page cache of a route keeps the query parameters that the Load of the route and the
-// Layouts around it read.
-func TestCacheQueryCollectsTheLoadsAroundTheRoute(t *testing.T) {
-	m := &analyze.Manifest{Layouts: []analyze.Layout{
-		{ID: "app/layout", Load: &analyze.Load{AllQuery: []string{"lang", "utm_source"}}},
-		{ID: "app/blog/layout"},
-		{ID: "app/other/layout", Load: &analyze.Load{AllQuery: []string{"nope"}}},
-	}}
-	r := analyze.Route{Layouts: []string{"app/layout", "app/blog/layout"}, Load: &analyze.Load{AllQuery: []string{"page", "lang"}}}
-	if got := cacheQuery(m, r); !slices.Equal(got, []string{"lang", "page", "utm_source"}) {
-		t.Errorf("got %v", got)
-	}
-	if got := cacheQuery(m, analyze.Route{}); got != nil {
-		t.Errorf("a route without Loads: %v", got)
-	}
-}
-
 // The options of the app are defined when its root package starts, so the main imports the
 // root package also when it has no hooks.
 func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
@@ -791,9 +774,9 @@ func TestHTMLMarksTheLoadAndImportsItsType(t *testing.T) {
 			Load: &analyze.Load{Result: post, HTML: true}, Routes: []string{"app/news/route", "app/post/route"}}},
 		Routes: []analyze.Route{
 			{ID: "app/news/route", Dir: "app/news", Package: "example.com/x/app/news", Path: "/news", Page: true, SSR: true,
-				RenderCache: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: types.Typ[types.String]}},
+				Memo: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: types.Typ[types.String]}},
 			{ID: "app/post/route", Dir: "app/post", Package: "example.com/x/app/post", Path: "/post", Page: true, SSR: true,
-				RenderCache: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: post, HTML: true}},
+				Memo: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: post, HTML: true}},
 		},
 	}
 	files, err := Generate(root, m, false, fakeExports)
@@ -894,5 +877,25 @@ func TestRuntimeHasTheI18nAdapterOnlyWithLanguagesAndI18next(t *testing.T) {
 				t.Error("the rest of the runtime is missing")
 			}
 		})
+	}
+}
+
+// A page that writes Cache = true is registered with CacheDefault, and one with a duration with that time.
+func TestGoGenWritesTheCacheOfARoute(t *testing.T) {
+	m := &analyze.Manifest{Module: "example.com/m", Routes: []analyze.Route{
+		{ID: "app/on/route", Dir: "app/on", Path: "/on", Page: true, SSR: true, Memo: true, CacheDefault: true},
+		{ID: "app/dur/route", Dir: "app/dur", Path: "/dur", Page: true, SSR: true, Memo: true, Cache: 90 * time.Second},
+	}}
+	src, err := generateGo(m, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	for _, b := range src {
+		all.Write(b)
+	}
+	got := all.String()
+	if regexp.MustCompile(`CacheDefault:\s+true`).FindAllString(got, -1) == nil || !regexp.MustCompile(`Cache:\s+90000000000`).MatchString(got) {
+		t.Errorf("generated code:\n%s", got)
 	}
 }

@@ -79,14 +79,14 @@ var dist = fstest.MapFS{
 }
 
 // frontApp is testApp with a page that skips SSR, a page with a Load of a constant and a page that
-// turns the render cache off (RenderCache = false).
+// turns the render memo off (Memo = false).
 func frontApp() App {
 	app := testApp()
 	app.Routes = append(app.Routes,
 		Route{ID: "app/login", Path: "/login", Page: true, SSR: false, Layouts: []string{"app/layout"}},
 		Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) { return 42, nil }},
-		Route{ID: "app/live", Path: "/live", Page: true, SSR: true, NoRenderCache: true, Layouts: []string{"app/layout"},
+		Route{ID: "app/live", Path: "/live", Page: true, SSR: true, NoMemo: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) { return 42, nil }},
 	)
 	return app
@@ -251,7 +251,7 @@ func TestPageETagCoversTheSSRBundle(t *testing.T) {
 func TestCachedPageRendersOnce(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	first, second := get(s, "/stats"), get(s, "/stats")
-	if first.Header().Get("X-Tifa-Render") != "vm" || second.Header().Get("X-Tifa-Render") != "cache" || r.count() != 1 {
+	if first.Header().Get("X-Tifa-Render") != "vm" || second.Header().Get("X-Tifa-Render") != "memo" || r.count() != 1 {
 		t.Fatalf("renders %d, headers %v then %v", r.count(), first.Header(), second.Header())
 	}
 	if first.Body.String() != second.Body.String() {
@@ -262,7 +262,7 @@ func TestCachedPageRendersOnce(t *testing.T) {
 	}
 }
 
-// Every page is cached, with no switch of its own. RenderCache = false turns it off for one page.
+// Every page is cached, with no switch of its own. Memo = false turns it off for one page.
 func TestEveryPageIsCachedUnlessItTurnsTheCacheOff(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	for range 2 {
@@ -271,17 +271,17 @@ func TestEveryPageIsCachedUnlessItTurnsTheCacheOff(t *testing.T) {
 	if r.count() != 1 {
 		t.Errorf("a page with no switch rendered %d times for 2 requests", r.count())
 	}
-	if w := get(s, "/projects/p1"); w.Header().Get("X-Tifa-Render") != "cache" {
+	if w := get(s, "/projects/p1"); w.Header().Get("X-Tifa-Render") != "memo" {
 		t.Errorf("third request: %v", w.Header())
 	}
 	before := r.count()
 	for range 2 {
 		if w := get(s, "/live"); w.Header().Get("X-Tifa-Render") != "vm" {
-			t.Errorf("RenderCache = false page: %v", w.Header())
+			t.Errorf("Memo = false page: %v", w.Header())
 		}
 	}
 	if r.count() != before+2 {
-		t.Errorf("a page with RenderCache = false rendered %d times for 2 requests", r.count()-before)
+		t.Errorf("a page with Memo = false rendered %d times for 2 requests", r.count()-before)
 	}
 }
 
@@ -730,7 +730,7 @@ func TestFailedRenderIsNotCached(t *testing.T) {
 		return "", errors.New("Error: a component threw during the server render")
 	}
 	for i := range 2 {
-		if w := get(s, "/stats"); w.Code != 500 || w.Header().Get("X-Tifa-Render") == "cache" {
+		if w := get(s, "/stats"); w.Code != 500 || w.Header().Get("X-Tifa-Render") == "memo" {
 			t.Errorf("request %d: %d %v", i, w.Code, w.Header())
 		}
 	}

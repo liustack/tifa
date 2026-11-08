@@ -1,6 +1,6 @@
 // Package mine is what the storefront knows about the visitor in front of it: the cart and the
 // products they looked at last. The storefront pages are the same for everyone, so the
-// render cache can reuse them, and the browser asks for this after a page has loaded.
+// render memo can reuse them, and the browser asks for this after a page has loaded.
 package mine
 
 import (

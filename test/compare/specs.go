@@ -82,7 +82,7 @@ func (e Env) Specs() []Spec {
 			Version: filepath.Join("node_modules", "@tanstack", "react-start", "package.json"),
 		}
 	}
-	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--cache-size", "0")
+	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--ssr-memo-size", "0")
 	tifaCacheOff.Label = "Tifa (cache off)"
 	reactRouter := func(name, label string, reference bool, configs []string, flags ...string) Spec {
 		return Spec{
@@ -175,7 +175,7 @@ func nodeWrite(project, order string) string { return "/compare-write/" + projec
 func nodeCreate(project string) string { return "/compare-write/" + project }
 
 // WarmsUp says whether a measured round of the spec is preceded by a warm-up on the same server. The
-// Node servers have a JIT that needs one. Tifa has none, and its render cache starts empty in every
+// Node servers have a JIT that needs one. Tifa has none, and its render memo starts empty in every
 // measured round, so whatever the cache holds is earned inside the measured time: a warm-up would fill
 // it before the clock starts. That holds for every Tifa spec (the cache off one runs the same
 // runtime), and it is decided here, by the framework, and nowhere else.

@@ -78,17 +78,16 @@ var App = server.App{
 			Page:    true,
 			SSR:     true,
 			Cache:   600000000000, // 10m0s
-			Query:   []string{"lang"},
 			Layouts: []string{"app/layout", "app/auth/layout"},
 		},
 		{
-			ID:            "app/projects/projectId+/route",
-			Path:          "/projects/{projectId}",
-			Page:          true,
-			Load:          func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Load) },
-			SSR:           true,
-			NoRenderCache: true,
-			Layouts:       []string{"app/layout", "app/projects/projectId+/layout"},
+			ID:      "app/projects/projectId+/route",
+			Path:    "/projects/{projectId}",
+			Page:    true,
+			Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Load) },
+			SSR:     true,
+			NoMemo:  true,
+			Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
 		},
 		{
 			ID:      "app/projects/projectId+/orders/orderId+/route",
@@ -114,5 +113,5 @@ var App = server.App{
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "93e9a52c77a0189d34f6897a906702c2",
+	Fingerprint: "03de514df5c2ca6a7c7c9b5316a8a2ce",
 }

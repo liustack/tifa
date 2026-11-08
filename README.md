@@ -39,7 +39,7 @@ So I started hacking on Tifa. Once it is done, deploying should mean copying one
 | Reverse proxy and certificates | nginx + certbot | The Go HTTP server in the binary, which gets its own Let's Encrypt certificate and speaks HTTP/2 |
 | Runtime and process manager | Node.js + PM2 | One Go executable |
 | React SSR | TanStack Start | TanStack Router, rendered by a [pure Go QuickJS](https://github.com/liustack/quickjs) inside the Go process |
-| Cache | Redis | In-process caches for rendered pages and whole pages, plus whatever you keep in Go memory |
+| Cache | Redis | An in-process render memo for pages, a CDN in front if you want one, plus whatever you keep in Go memory |
 | Queues and scheduled jobs | BullMQ + cron | Goroutines you start in `OnStart` |
 | Database | SQLite | SQLite, with a [pure Go driver](https://github.com/liustack/sqlite) so CGO stays off |
 
@@ -89,9 +89,9 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 
 ## One small server is enough
 
-The **[render cache](docs/render-cache.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
+The **[render memo](docs/memo.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
 
-With every cache off, so every request renders:
+With the render memo off, so every request renders:
 
 | | Requests/s | P50 | P99 | Peak RSS |
 | :-- | --: | --: | --: | --: |
@@ -155,15 +155,15 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [streaming](docs/guides/streaming.md) | Adding a common feature and you want a tested way to do it |
 | [Philosophy](docs/philosophy.md) | You want to know why a Tifa app is organized the way it is |
 | [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
-| [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
+| [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and `Cache` for CDNs |
 | [Sessions](docs/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
 | [Content](docs/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
 | [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
 | [Deploying](docs/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
-| [Configuration](docs/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout and page cache |
-| [Architecture](docs/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the caches work inside |
-| [Render cache](docs/render-cache.md) | You want to know why pages, signed-in ones included, are cached safely with nothing to set up |
+| [Configuration](docs/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
+| [Architecture](docs/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the render memo work inside |
+| [Render memo](docs/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |
 | [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
 | [Testing](docs/testing.md) | Contributing to Tifa itself |

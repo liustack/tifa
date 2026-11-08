@@ -20,13 +20,14 @@ import (
 )
 
 type Config struct {
-	Build   Build
-	I18n    I18n
-	Site    Site
-	Server  Server
-	SSR     SSR
-	Cache   Cache
-	Session Session
+	Build  Build
+	I18n   I18n
+	Site   Site
+	Server Server
+	SSR    SSR
+	// CacheControl holds the Cache-Control a page with Cache sends.
+	CacheControl CacheControl
+	Session      Session
 }
 
 // I18n is read by the tifa CLI only, from the project tifa.yaml. Default names the default language,
@@ -150,21 +151,15 @@ type SSR struct {
 	Timeout      time.Duration
 	QueueLimit   int
 	WaitTimeout  time.Duration
+	// MemoSize is the bytes the render memo may hold, 0 turns it off.
+	MemoSize int64
 }
 
-type Cache struct {
-	Size int64
-	// WholePage keeps the pages of routes with Cache for everyone. False renders them like other pages.
-	WholePage bool
-	// IgnoreQuery lists the query parameters the whole-page cache leaves out of its key and of the
-	// URL it renders for: tracking parameters. A name ending in * is a prefix. A page whose Load
-	// reads one of them keeps it.
-	IgnoreQuery []string
+// CacheControl holds the settings of the Cache-Control that pages with Cache send. SMaxage is the
+// s-maxage of a page that writes const Cache = true.
+type CacheControl struct {
+	SMaxage time.Duration
 }
-
-// DefaultIgnoreQuery is the default of cache.ignore_query: the tracking parameters of the common
-// ad and mail services.
-var DefaultIgnoreQuery = []string{"utm_*", "gclid", "gbraid", "wbraid", "fbclid", "msclkid", "twclid", "ttclid", "yclid", "mc_cid", "mc_eid"}
 
 // Session holds the settings of tifa.SetSession. Cookie is the name of the session cookie, MaxAge
 // how long a session lasts from the moment SetSession makes it, and MemoryLimit the bytes the
@@ -189,12 +184,12 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
-		I18n:    I18n{Prefix: "off"},
-		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
-		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second},
-		Cache:   Cache{Size: 64 << 20, WholePage: true, IgnoreQuery: slices.Clone(DefaultIgnoreQuery)},
-		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
+		Build:        Build{Target: "es2020", Public: "public", I18nextCache: true},
+		I18n:         I18n{Prefix: "off"},
+		Server:       Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
+		SSR:          SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
+		CacheControl: CacheControl{SMaxage: time.Minute},
+		Session:      Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
 }
 
@@ -245,9 +240,8 @@ func fields(c *Config) []field {
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
-		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
-		{"cache.whole_page", "Keep the pages of routes with Cache for everyone, false renders them like other pages", boolValue{&c.Cache.WholePage}},
-		{"cache.ignore_query", "Tracking query parameters the whole-page cache ignores: names are added to the list, -name takes one out, -* empties it", ignoreQueryValue{&c.Cache.IgnoreQuery}},
+		{"ssr.memo_size", "Size of the render memo of rendered pages, 0 turns it off", sizeValue{&c.SSR.MemoSize, 0}},
+		{"cache_control.s_maxage", "s-maxage of a page that writes const Cache = true, at least one second", sharedAgeValue{&c.CacheControl.SMaxage}},
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
@@ -283,6 +277,7 @@ func Load(s *Sources, settings map[string]string) (c Config, from map[string]str
 		}
 		errs = append(errs, ferrs...)
 	}
+	errs = append(errs, s.removedErrors()...)
 	return c, from, errors.Join(errs...)
 }
 
@@ -297,6 +292,11 @@ func Project(data []byte) (Config, map[string]string, error) {
 	}
 	settings := map[string]string{}
 	var errs []error
+	for _, r := range removedKeys {
+		if e, ok := entries[r.key]; ok {
+			errs = append(errs, fmt.Errorf("config: tifa.yaml line %d: %s is not a setting any more, %s", e.line, r.key, r.hint))
+		}
+	}
 	for _, f := range fields(&c) {
 		e, ok := entries[f.key]
 		if !ok {
@@ -316,4 +316,48 @@ func Project(data []byte) (Config, map[string]string, error) {
 		}
 	}
 	return c, settings, errors.Join(errs...)
+}
+
+// removedKeys are settings that existed in an earlier version and are gone. They are errors where
+// they used to work, since ignoring them would have a deployment go on with the default.
+var removedKeys = []struct{ key, hint string }{
+	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE)"},
+	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program"},
+	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean"},
+}
+
+// removedErrors reports the removed settings that the file, the environment and .env name. Their
+// flags never reach it: the command line refuses an unknown flag first (see RemovedFlagError). projectFile is the entries of
+// the project tifa.yaml, nil when Load reads the sources of a running program.
+func (s *Sources) removedErrors() []error {
+	var errs []error
+	for _, r := range removedKeys {
+		report := func(where string) {
+			errs = append(errs, fmt.Errorf("config: %s: %s is not a setting any more, %s", where, r.key, r.hint))
+		}
+		if _, ok := s.file[r.key]; ok {
+			report("file " + s.fileName)
+		}
+		if _, ok := s.env[EnvName(r.key)]; ok {
+			report("env " + EnvName(r.key))
+		}
+		if _, ok := s.dotenv[EnvName(r.key)]; ok {
+			report(".env " + EnvName(r.key))
+		}
+	}
+	return errs
+}
+
+// RemovedFlagError adds to the "unknown flag" error of the command line what to do about the flag
+// of a removed setting. Any other error is returned as it is.
+func RemovedFlagError(err error) error {
+	if err == nil {
+		return nil
+	}
+	for _, r := range removedKeys {
+		if strings.Contains(err.Error(), "unknown flag: --"+FlagName(r.key)) {
+			return fmt.Errorf("config: flag --%s: %s is not a setting any more, %s", FlagName(r.key), r.key, r.hint)
+		}
+	}
+	return err
 }

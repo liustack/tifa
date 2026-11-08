@@ -31,8 +31,7 @@ const (
 // whose date is still to come, and the application also answers POST /__tifa/dev/reload: with
 // bundle=1 it loads the front end again from the directory --dist names, with the same openFront
 // that started it, and swaps it in. With content=1 it loads content.json of that directory again,
-// runs Validate on every entry and swaps the data of the collections, which makes every page the
-// whole-page cache made before expire. OnStart does not run again and the state of the application stays.
+// runs Validate on every entry and swaps the data of the collections, which makes the next render of every page read the new data. OnStart does not run again and the state of the application stays.
 // The answer is 204, or 500 with the error, in which case what was loaded before keeps serving.
 // When the content failed, reloadFailedHeader says content. tifa build generates a main that calls
 // Main, so a production program has no such path.

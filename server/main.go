@@ -90,9 +90,10 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 		if err := content.Load(dist); err != nil {
 			return err
 		}
-		// An entry whose date is still to come is shown at that moment, until the program stops.
-		defer content.Watch(s.contentChanged)()
-		// tifa.ExpirePages and tifa.Stats reach the server from OnStart on.
+		// An entry whose date is still to come is shown at that moment, until the program stops. Pages
+		// read the collections on every request, so nothing else needs to hear of it.
+		defer content.Watch(func() {})()
+		// tifa.Stats reaches the server from OnStart on.
 		defer core.Running(s)()
 		if dist != nil {
 			// openFront reads s.dev to turn on the checks of tifa dev.
@@ -153,6 +154,8 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 			cmd.Flags().IntVar(&lifelineFD, "lifeline-fd", -1, "stop when this file descriptor reaches the end of its file, which it does when tifa dev ends (tifa dev)")
 		}
 	}
+	// A flag of a removed setting is refused with what to do instead.
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return config.RemovedFlagError(err) })
 	root.AddCommand(serveCmd, configCmd, versionCmd)
 	root.SetArgs(src.Args())
 	root.SetOut(stdout)

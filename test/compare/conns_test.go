@@ -94,7 +94,7 @@ func TestDriveConnsRunsThemAtOnceAndMergesWhatTheySaw(t *testing.T) {
 			mu.Lock()
 			paths[r.Method+" "+r.URL.Path]++
 			mu.Unlock()
-			w.Header().Set("X-Tifa-Render", "cache")
+			w.Header().Set("X-Tifa-Render", "memo")
 			w.Write([]byte("ok"))
 		}))
 		o := Options{Procs: conns, Steady: 300 * time.Millisecond, Cold: 20}
@@ -116,11 +116,11 @@ func TestDriveConnsRunsThemAtOnceAndMergesWhatTheySaw(t *testing.T) {
 				t.Errorf("a connection has %d cold answers", len(c.Cold))
 			}
 			steady += len(c.Steady)
-			renders += c.Renders["cache"]
+			renders += c.Renders["memo"]
 			rate += float64(len(c.Steady)) / c.Elapsed
 		}
-		if len(res.Steady) != steady || res.Renders["cache"] != renders || len(res.SteadyPage) != steady {
-			t.Errorf("merged %d/%d answers, %d renders", len(res.Steady), len(res.SteadyPage), res.Renders["cache"])
+		if len(res.Steady) != steady || res.Renders["memo"] != renders || len(res.SteadyPage) != steady {
+			t.Errorf("merged %d/%d answers, %d renders", len(res.Steady), len(res.SteadyPage), res.Renders["memo"])
 		}
 		if res.Requests != rate || rate < 100 {
 			t.Errorf("rate %.1f, sum of the connections %.1f", res.Requests, rate)

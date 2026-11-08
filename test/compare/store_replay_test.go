@@ -391,7 +391,7 @@ func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 		}
 	}
 	nocache, _ := env.Target("tifa-nocache")
-	if i := slices.Index(nocache.Args, "--cache-size"); i < 0 || nocache.Args[i+1] != "0" {
+	if i := slices.Index(nocache.Args, "--ssr-memo-size"); i < 0 || nocache.Args[i+1] != "0" {
 		t.Errorf("tifa-nocache runs with %v", nocache.Args)
 	}
 }

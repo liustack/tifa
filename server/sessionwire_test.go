@@ -135,7 +135,7 @@ func TestAppWithoutSessionsRendersWithoutThem(t *testing.T) {
 	}
 }
 
-func TestSessionIsPartOfTheETagAndTheRenderCache(t *testing.T) {
+func TestSessionIsPartOfTheETagAndTheMemo(t *testing.T) {
 	s, r := wireServer(t, wireApp())
 	anon := get(s, "/projects/p1")
 	ann := signedIn(t, s, "Ann")
@@ -165,7 +165,7 @@ func TestSessionIsPartOfTheETagAndTheRenderCache(t *testing.T) {
 		t.Fatalf("renders for three sessions: %d", r.count()-before)
 	}
 	w := get(s, "/stats", "Cookie", ann)
-	if r.count()-before != 3 || w.Header().Get("X-Tifa-Render") != "cache" {
+	if r.count()-before != 3 || w.Header().Get("X-Tifa-Render") != "memo" {
 		t.Errorf("the same session did not hit the cache: %d %s", r.count()-before, w.Header().Get("X-Tifa-Render"))
 	}
 	if got := r.inputs[len(r.inputs)-1]; !strings.Contains(string(got.Session), "Bob") {

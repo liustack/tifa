@@ -106,19 +106,19 @@ Go sends times as instants, and pages format them with `Intl` in the shop's time
 
 Tifa writes `<html lang>`, so the root Layout sets no `lang`. It also links each page to the same page in both languages and to the English one as `x-default`, with the host from `site.url` in `tifa.yaml`. The language switch in the header reads the same list with `useAlternates()` and uses a plain `<a href>`, since the other language is another document. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. `app/store` holds a `layout_.tsx`, so the store shows without the workbench, and the root Layout's `Layout` does not run for it: none of the workbench's data reaches the store's pages. `/store` is the English home page for every browser, and `/en-US/store` answers 308 to it. The shop does not guess a language from `Accept-Language`.
 
-## The storefront and the render cache
+## The storefront and the render memo
 
-The data of the storefront pages (products, journal, menu) is the same for every visitor, so the render cache (see [Render cache](../../docs/render-cache.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (the whole-page cache).
+The data of the storefront pages (products, journal, menu) is the same for every visitor, so the render memo (see [Render memo](../../docs/memo.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (which lets a CDN keep a page).
 
 What belongs to one visitor is not in the page. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
 
-To see the render cache work, look at the headers of a page twice:
+To see the render memo work, look at the headers of a page twice:
 
 ```sh
 curl -si http://127.0.0.1:9527/store/journal | grep -i '^x-tifa-render'
 ```
 
-The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: cache`.
+The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: memo`.
 
 ## Things to try
 
@@ -137,7 +137,7 @@ The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: cache`.
 - Add a product to the cart in a colour, change quantities in the cart and try the codes `SHANHAI10` and `WELCOME30`. The first change gives you a cart of your own. It is kept in the program's memory, and a cookie holds only its ID. When a change fails, for example with the network down, its message shows under the line.
 - Place an order, then open its confirmation in a private window. It answers 404: only the cart that placed an order sees it, since the page shows an email address.
 - Check out with an empty form, a postal code of the wrong shape, or a card number that fails the check digit. The errors show field by field, and Go returns the same ones when a request gets past the browser.
-- Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the render cache.
+- Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the render memo.
 - Open a journal article. The code blocks are highlighted in the HTML the server sends.
 
 For more conventions, see [Build and generated code](../../docs/build.md) and [Writing an app](../../docs/app.md).

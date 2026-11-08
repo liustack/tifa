@@ -118,3 +118,33 @@ func TestServeIsTheDefaultCommand(t *testing.T) {
 		})
 	}
 }
+
+// The flags of the removed settings are refused with what to do instead, whatever the command.
+func TestRemovedFlagsSayWhatToDo(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--cache-size=0"}, []string{"cache.size", "--ssr-memo-size", "SSR_MEMO_SIZE"}},
+		{[]string{"--cache-size", "0"}, []string{"--ssr-memo-size"}},
+		{[]string{"--cache-whole-page"}, []string{"cache.whole_page", "removed"}},
+		{[]string{"--cache-whole-page=false"}, []string{"cache.whole_page", "removed"}},
+		{[]string{"serve", "--cache-ignore-query=ref"}, []string{"cache.ignore_query", "removed"}},
+		{[]string{"config", "--cache-size=0"}, []string{"--ssr-memo-size"}},
+	} {
+		_, _, err := runApp(t, context.Background(), App{}, nil, tc.args...)
+		if err == nil {
+			t.Errorf("%v: no error", tc.args)
+			continue
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%v: %q lacks %q", tc.args, err, w)
+			}
+		}
+	}
+	// A flag that never existed stays what Cobra says.
+	if _, _, err := runApp(t, context.Background(), App{}, nil, "--cache-nope"); err == nil || !strings.Contains(err.Error(), "unknown flag") || strings.Contains(err.Error(), "removed") {
+		t.Errorf("unknown flag: %v", err)
+	}
+}

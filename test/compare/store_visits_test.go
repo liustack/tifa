@@ -83,9 +83,10 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	}
 }
 
-// TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne asks for storefront pages twice. The shop
-// as shipped has no whole-page cache, so no answer has a Cache-Status and the second render comes
-// from the render cache. With every cache off (--cache-size 0), both answers are renders in a VM.
+// TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne asks for storefront pages twice. Tifa keeps
+// no page in the program, with or without Cache, so no answer has a Cache-Status (the check keeps the
+// removed header gone), and the second render comes from the render memo. With the memo off
+// (--ssr-memo-size 0), both answers are renders in a VM.
 func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 	env := setup(t)
 	buildShop(t, env)
@@ -103,25 +104,25 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name string
-		// cache is the Cache-Status of every answer, render the X-Tifa-Render values a second answer may
-		// have, and rendered whether some page must have its second answer from the render cache.
+		// cache is the Cache-Status of every answer (always empty now), render the X-Tifa-Render values a second answer may
+		// have, and rendered whether some page must have its second answer from the render memo.
 		firstCache, againCache string
 		againRender            []string
 		rendered               bool
 	}{
-		{"tifa", "", "", []string{"cache"}, true},
+		{"tifa", "", "", []string{"memo"}, true},
 		{"tifa-nocache", "", "", []string{"vm"}, false},
 	} {
 		server, err := mustTarget(t, env, c.name).Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		fromRenderCache := false
+		fromMemo := false
 		for _, page := range pages {
 			started := time.Now()
 			first, again := ask(server.Base, page), ask(server.Base, page)
 			repeated := false
-			if c.rendered && again.render != "cache" && compare.StoreDayChanged(started, time.Now()) {
+			if c.rendered && again.render != "memo" && compare.StoreDayChanged(started, time.Now()) {
 				// A day of the store changed between the two requests, so the data of the page changed
 				// with it and the second render was right. Ask the pair again, once.
 				first, again = ask(server.Base, page), ask(server.Base, page)
@@ -133,10 +134,10 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 			if again.cache != c.againCache || !slices.Contains(c.againRender, again.render) {
 				t.Errorf("%s: second request of %s answered %+v, want Cache-Status %q and a render of %v", c.name, page, again, c.againCache, c.againRender)
 			}
-			fromRenderCache = fromRenderCache || again.render == "cache"
+			fromMemo = fromMemo || again.render == "memo"
 		}
-		if fromRenderCache != c.rendered {
-			t.Errorf("%s: a second answer came from the render cache: %v, want %v", c.name, fromRenderCache, c.rendered)
+		if fromMemo != c.rendered {
+			t.Errorf("%s: a second answer came from the render memo: %v, want %v", c.name, fromMemo, c.rendered)
 		}
 		server.Stop()
 	}

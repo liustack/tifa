@@ -153,7 +153,7 @@ func TestShopApp(t *testing.T) {
 	if status, _, _ := get(t, detail, "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)
 	}
-	if _, again, _ := get(t, detail); again.Get("X-Tifa-Render") != "cache" {
+	if _, again, _ := get(t, detail); again.Get("X-Tifa-Render") != "memo" {
 		t.Errorf("second request of a page: %s", again.Get("X-Tifa-Render"))
 	}
 
@@ -249,8 +249,8 @@ func TestShopApp(t *testing.T) {
 
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
-	checkStorefrontNoPageCache(t, base)
-	checkEveryShopPageHitsTheRenderCache(t, base, nil)
+	checkStorefrontIsNotShared(t, base)
+	checkEveryShopPageHitsTheMemo(t, base, nil)
 	checkShopModules(t, base)
 	checkProductPageCounts(t, base)
 	checkOrderPageModules(t, base)
@@ -475,9 +475,9 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		t.Errorf("order confirmation:\n%s", rendered(page))
 	}
 	// The confirmation page is a page of the shop like the others: asked for twice with no write in
-	// between, the second answer comes from the render cache. Its delivery dates are those of the day
+	// between, the second answer comes from the render memo. Its delivery dates are those of the day
 	// the order was placed.
-	secondFromRenderCache(t, "order confirmation", func() (int, http.Header) {
+	secondFromMemo(t, "order confirmation", func() (int, http.Header) {
 		status, h, _ := do("GET", placed, "")
 		return status, h
 	})
@@ -592,7 +592,7 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 		t.Errorf("confirmation lacks %s in all:\n%s", want, rendered(page))
 	}
 	// The English confirmation is cached like the Chinese one.
-	secondFromRenderCache(t, "English order confirmation", func() (int, http.Header) {
+	secondFromMemo(t, "English order confirmation", func() (int, http.Header) {
 		status, h, _ := emma.do("GET", placed, "")
 		return status, h
 	})
@@ -840,7 +840,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 	}
 	// A hit goes out as the gzip form the cache stored, with its length.
 	fetch("/projects/studio/orders/SH-1042", "gzip")
-	if order, body := fetch("/projects/studio/orders/SH-1042", "gzip"); order.Header.Get("X-Tifa-Render") != "cache" || order.Header.Get("Content-Encoding") != "gzip" ||
+	if order, body := fetch("/projects/studio/orders/SH-1042", "gzip"); order.Header.Get("X-Tifa-Render") != "memo" || order.Header.Get("Content-Encoding") != "gzip" ||
 		order.Header.Get("Content-Length") != strconv.Itoa(len(body)) || !strings.Contains(gunzip(body), "SH-1042") {
 		t.Errorf("cached order with gzip: %v, %d bytes", order.Header, len(body))
 	}

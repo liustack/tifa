@@ -1,5 +1,5 @@
-// Package news is a page of the area app/store with the whole-page cache. Its data is the same in
-// every language, so only the language of the URL keeps the entries apart.
+// Package news is a page of the area app/store with Cache. Its data is the same in every
+// language, so only the language of the URL keeps the renders apart.
 package news
 
 import (

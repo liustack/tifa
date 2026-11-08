@@ -88,11 +88,13 @@ type Route struct {
 	Handlers []Handler `json:"handlers"`
 	// SSR is false when the route or any Layout in its chain sets SSR = false.
 	SSR bool `json:"ssr"`
-	// RenderCache is false when route.go sets RenderCache = false, and true otherwise.
-	RenderCache bool `json:"renderCache"`
-	// Cache is the whole-page cache time of the page, Cache = 10 * time.Minute in route.go, zero when
+	// Memo is false when route.go sets Memo = false, and true otherwise.
+	Memo bool `json:"memo"`
+	// Cache is how long a shared cache may keep the page, Cache = 10 * time.Minute in route.go, zero when
 	// absent.
 	Cache time.Duration `json:"cache"`
+	// CacheDefault is true when route.go writes Cache = true: the time is the setting cache_control.s_maxage.
+	CacheDefault bool `json:"cacheDefault"`
 	// BodyLimit and ReadTimeout report whether route.go declares them: the body limit and the read
 	// timeout of the requests its method handlers answer, in place of server.body_limit and
 	// server.read_timeout. The generated code refers to them, so a variable set from a setting works.
@@ -175,3 +177,6 @@ func (es Errors) Error() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// Shared reports whether the page has Cache: a time of its own, or the setting for it.
+func (r Route) Shared() bool { return r.Cache > 0 || r.CacheDefault }

@@ -157,7 +157,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer server.Stop()
-			seen := map[string]compare.View{} // the last view of each page, which also puts it into Tifa's render cache
+			seen := map[string]compare.View{} // the last view of each page, which also puts it into Tifa's render memo
 			peek := func(p compare.Page) compare.View {
 				v := viewOf(t, server.Base, p)
 				seen[p.URL] = v

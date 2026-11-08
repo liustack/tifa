@@ -86,15 +86,14 @@ type Route struct {
 	GET, POST, PUT, PATCH, DELETE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
 	SSR bool
-	// NoRenderCache is true when route.go sets RenderCache = false. The HTML of the page is not cached
-	// and its renders are not shared. The zero value keeps the render cache on.
-	NoRenderCache bool
-	// Cache is the whole-page cache time of the page, route.go's const Cache, zero for none.
+	// NoMemo is true when route.go sets Memo = false. The HTML of the page is not cached
+	// and its renders are not shared. The zero value keeps the render memo on.
+	NoMemo bool
+	// Cache is how long a shared cache in front of the program may keep the page (s-maxage), from
+	// route.go's const Cache = 10 * time.Minute. Zero for none.
 	Cache time.Duration
-	// Query lists the query parameters the Loads of the page and of the Layouts around it read,
-	// sorted. The whole-page cache keeps them in its key and in the URL it renders for, even
-	// those cache.ignore_query names.
-	Query []string
+	// CacheDefault is true for const Cache = true: the time is cache_control.s_maxage.
+	CacheDefault bool
 	// BodyLimit and ReadTimeout are route.go's BodyLimit and ReadTimeout: the body limit and the read
 	// timeout of the requests the method handlers of the route answer, in place of
 	// server.body_limit and server.read_timeout. The answer then gets server.write_timeout after
@@ -161,16 +160,18 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			chain = append(chain, load{id: r.ID, run: r.Load, html: r.HTML})
 		}
 		s.path(r.Path)
-		if r.Page && r.Cache > 0 && s.wholePage {
-			s.pageCache[r.Path] = r.Cache
-			s.pageQuery[r.Path] = r.Query
+		switch {
+		case r.Page && r.CacheDefault:
+			s.shared[r.Path] = s.sharedDefault
+		case r.Page && r.Cache > 0:
+			s.shared[r.Path] = r.Cache
 		}
 		if r.Page {
 			if r.GET != nil {
 				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
 			}
 			s.pages[r.Path] = true
-			if r.NoRenderCache {
+			if r.NoMemo {
 				s.uncached[r.Path] = true
 			}
 			s.modules[r.Path] = append(slices.Clone(r.Layouts), r.ID)

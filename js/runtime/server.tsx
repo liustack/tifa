@@ -283,7 +283,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
 
 // undated sets the time each match loaded at to 0 before the router writes the matches into the
 // page. The router stamps a match with Date.now() and dehydrates the stamp (u in dehydrateMatch of
-// ssr-server.js), so two renders of the same input would differ by the time, and the render cache
+// ssr-server.js), so two renders of the same input would differ by the time, and the render memo
 // would give the time of the first render to every later visitor. The page is then a function of
 // its input. The browser reads 0 as data of unknown age, and dates the matches by the age of the
 // data that Go sends with the page (datePage in browser.tsx). router-core has no API to change a

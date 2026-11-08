@@ -82,9 +82,9 @@ func TestValidApp(t *testing.T) {
 		t.Fatalf("got %d routes: %+v", len(m.Routes), m.Routes)
 	}
 	wantRoutes := []struct {
-		id, dir, path          string
-		page, ssr, renderCache bool
-		methods, layouts       []string
+		id, dir, path    string
+		page, ssr, memo  bool
+		methods, layouts []string
 	}{
 		{"app/route", "app", "/", true, true, true, nil, []string{"app/layout"}},
 		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, true, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
@@ -98,7 +98,7 @@ func TestValidApp(t *testing.T) {
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
-		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.RenderCache != w.renderCache ||
+		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Memo != w.memo ||
 			!reflect.DeepEqual(handlerMethods(r), w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
 		}
@@ -502,8 +502,8 @@ func TestViolations(t *testing.T) {
 			{"app/layout.go:7:", "Load is read from route.go only", "layout.go"},
 			{"app/layout.go:9:", "POST is read from route.go only", "layout.go"},
 			{"app/layout.go:11:", "SSR is read from route.go only", "layout.go"},
-			{"app/layout.go:13:", "RenderCache is read from route.go only", "layout.go"},
-			{"app/mixed/extra.go:3:", "RenderCache is read from route.go only", "extra.go"},
+			{"app/layout.go:13:", "Memo is read from route.go only", "layout.go"},
+			{"app/mixed/extra.go:3:", "Memo is read from route.go only", "extra.go"},
 		}},
 		{"replacebad", [][]string{
 			{"app/layout_.tsx:1:", "layout_.tsx drops the layouts above it", "app/ has none", "rename it to layout.tsx"},
@@ -551,27 +551,28 @@ func TestViolations(t *testing.T) {
 		{"sessionhidden", [][]string{
 			{"app/page/route.go:8:", "tifa.SetSession", "type parameter"},
 		}},
-		{"cacheremoved", [][]string{
-			{"app/page/route.go:3:", "render cache is on by default", "delete Cache = true", "RenderCache = false"},
-		}},
 		{"cachevalue", [][]string{
-			{"app/untyped/route.go:3:", "Cache must be a time.Duration constant"},
+			{"app/untyped/route.go:3:", "Cache must be true, false or a time.Duration constant"},
 			{"app/short/route.go:5:", "Cache must be at least one second"},
-			{"app/variable/route.go:5:", "Cache must be a time.Duration constant"},
+			{"app/variable/route.go:5:", "Cache must be true, false or a time.Duration constant"},
 			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
 		}},
 		{"cacheidentity", [][]string{
 			{"app/route.go:5:", "c.Header sees only Host", "every other header is always empty", "app/feed has Cache", "Remove Cache"},
 			{"app/news/route.go:14:", "tifa.Session is always empty here", "app/news has Cache"},
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
+			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
-		{"rendercachevalue", [][]string{
-			{"app/page/route.go:3:", "RenderCache", "can only be false"},
-			{"app/other/route.go:3:", "RenderCache", "can only be false"},
+		{"renamedmemo", [][]string{
+			{"app/page/route.go:3:", "RenderCache is now Memo", "const Memo = false"},
+		}},
+		{"memovalue", [][]string{
+			{"app/page/route.go:3:", "Memo", "can only be false"},
+			{"app/other/route.go:3:", "Memo", "can only be false"},
 		}},
 		{"casednames", [][]string{
-			{"app/page/route.go:3:", "cache", "capital letter", "RenderCache = false"},
-			{"app/page/route.go:5:", "rendercache", "capital letter", "RenderCache = false"},
+			{"app/page/route.go:3:", "cache", "capital letter", "Memo = false"},
+			{"app/page/route.go:5:", "memo", "capital letter", "Memo = false"},
 			{"app/other/route.go:3:", "ssr", "capital letter", "SSR"},
 			// helper.go has const cache = "redis", a string in another file: no error.
 		}},
@@ -583,7 +584,7 @@ func TestViolations(t *testing.T) {
 			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
 			{"app/empty/route.go:1:", "no pages"},
 			{"app/api/route.go:7:", "SSR is not allowed without page.tsx"},
-			{"app/api/route.go:9:", "RenderCache is not allowed without page.tsx"},
+			{"app/api/route.go:9:", "Memo is not allowed without page.tsx"},
 			{"app/both/route.go:9:", "Layout", "func(c *tifa.Ctx) (T, error)"},
 			{"app/_hidden/route.go:1:", "app/_hidden", "rename"},
 			{"app/testdata/x/layout.tsx:1:", "app/testdata", "rename"},
@@ -1222,6 +1223,28 @@ func TestOptionsInOldConfigGoFile(t *testing.T) {
 	for _, want := range []string{"config.go:5:", "rename config.go to options.go"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
+		}
+	}
+}
+
+// const Cache is true, false or a time.Duration: true leaves the time to cache_control.s_maxage.
+func TestCacheConstIsABoolOrADuration(t *testing.T) {
+	m, err := analyzeApp(t, "cachebool")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	type shared struct {
+		cache time.Duration
+		deflt bool
+	}
+	got := map[string]shared{}
+	for _, r := range m.Routes {
+		got[r.Dir] = shared{r.Cache, r.CacheDefault}
+	}
+	want := map[string]shared{"app/on": {0, true}, "app/off": {0, false}, "app/dur": {90 * time.Second, false}}
+	for dir, w := range want {
+		if got[dir] != w {
+			t.Errorf("%s: Cache %+v, want %+v", dir, got[dir], w)
 		}
 	}
 }

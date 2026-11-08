@@ -565,7 +565,7 @@ func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 			t.Errorf("%s with %q: the page reads %q", tc.path, tc.accept, body)
 		}
 	}
-	if w := get(s, "/stats", "Accept-Encoding", "zstd"); w.Header().Get("X-Tifa-Render") != "cache" || r.count() != 2 {
+	if w := get(s, "/stats", "Accept-Encoding", "zstd"); w.Header().Get("X-Tifa-Render") != "memo" || r.count() != 2 {
 		t.Errorf("%d renders, render %q", r.count(), w.Header().Get("X-Tifa-Render"))
 	}
 	head := httptest.NewRequest("HEAD", "/stats", nil)
@@ -591,7 +591,7 @@ func TestCacheHitsPickTheEncodingOfGzhttp(t *testing.T) {
 		path := fmt.Sprintf("/stats?i=%d", i)
 		get(s, path, "Accept-Encoding", accept)
 		hit := get(s, path, "Accept-Encoding", accept)
-		if hit.Header().Get("X-Tifa-Render") != "cache" || hit.Header().Get("Content-Encoding") != live.Header().Get("Content-Encoding") {
+		if hit.Header().Get("X-Tifa-Render") != "memo" || hit.Header().Get("Content-Encoding") != live.Header().Get("Content-Encoding") {
 			t.Errorf("%q: gzhttp gives %q, the cache hit %q", accept, live.Header().Get("Content-Encoding"), hit.Header().Get("Content-Encoding"))
 		}
 	}
@@ -599,7 +599,7 @@ func TestCacheHitsPickTheEncodingOfGzhttp(t *testing.T) {
 
 func noCache() config.Config {
 	cfg := config.Default()
-	cfg.Cache.Size = 0
+	cfg.SSR.MemoSize = 0
 	return cfg
 }
 

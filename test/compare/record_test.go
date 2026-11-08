@@ -31,7 +31,7 @@ func fixture() *Record {
 	both := []string{"default", "engine"}
 	for round, req := range []float64{28.8, 29.0} {
 		tifa := mkRun("tifa", "tifa", round+1, req*5, 6, def...)
-		tifa.Label, tifa.Renders = "Tifa", map[string]int{"vm": 6, "cache": 4994}
+		tifa.Label, tifa.Renders = "Tifa", map[string]int{"vm": 6, "memo": 4994}
 		tifa.Metrics.HitRate = 0.9988
 		nocache := mkRun("tifa-nocache", "tifa", round+1, req, 30, eng...)
 		nocache.Label, nocache.Renders = "Tifa (cache off)", map[string]int{"vm": 5000}
@@ -247,7 +247,7 @@ func withWrites(r *Record) *Record {
 	for round := 1; round <= 2; round++ {
 		tifa := mkRun("tifa", "tifa", round, 120, 7, ConfigDefault)
 		tifa.Label, tifa.Scenario = "Tifa", ScenarioReadWrite
-		tifa.Renders, tifa.Metrics.HitRate = map[string]int{"vm": 500, "cache": 4500}, 0.9
+		tifa.Renders, tifa.Metrics.HitRate = map[string]int{"vm": 500, "memo": 4500}, 0.9
 		tifa.Metrics.Writes, tifa.Metrics.WriteP50, tifa.Metrics.WriteP99 = 500, 3.5, 9.5
 		next := mkRun("nextjs", "nextjs", round, 80, 10, ConfigDefault, ConfigEngine)
 		next.Label, next.Scenario = "Next.js", ScenarioReadWrite
@@ -268,7 +268,7 @@ func TestMarkdownScenarios(t *testing.T) {
 		"90.00%",
 		"| Tifa | 500 | 3.50 | 9.5 |",
 		"reads/s are reads over the time of reads and writes together",
-		"Miss overhead of the render cache",
+		"Miss overhead of the render memo",
 		"P50 31.00 ms with the cache, 30.00 ms without, +3.3%",
 		"30.0 requests/s with the cache, 31.0 without, -3.2%",
 	} {

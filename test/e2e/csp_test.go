@@ -99,7 +99,7 @@ func expectPagesInBrowser(t *testing.T, name, base string, paths ...string) {
 }
 
 // TestPagesUnderCSP starts the pages app with server.csp on. Every page tifa writes, from the VM,
-// the render cache and the whole-page cache, a page without SSR, an error page and a 404, lists
+// the render memo, a page without SSR, an error page and a 404, lists
 // the hash of each inline script it holds and no other, its data and the markup of tifa.HTML values
 // included, and each hydrates in a browser with nothing blocked.
 func TestPagesUnderCSP(t *testing.T) {

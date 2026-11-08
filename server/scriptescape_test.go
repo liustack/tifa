@@ -93,8 +93,8 @@ func escapeServer(t *testing.T, dev bool, csp string) (*server, *int) {
 }
 
 // No path that puts data or an error into a page lets it end a script element: the first render,
-// a render cache hit, the render of a page with the error of a component placed at a level, a
-// whole-page cache hit, the page without SSR, and what tifa dev adds to a page (the error over
+// a render memo hit, the render of a page with the error of a component placed at a level, a
+// page with Cache, the page without SSR, and what tifa dev adds to a page (the error over
 // the page, the plain page of a page that fails at every level, and the note that two renders
 // differ).
 func TestNoPathLetsDataEndAScript(t *testing.T) {
@@ -111,20 +111,14 @@ func TestNoPathLetsDataEndAScript(t *testing.T) {
 		escaped string
 	}{
 		{name: "first render", s: prod, target: "/p", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
-		{name: "render cache hit", s: prod, target: "/p", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`,
+		{name: "render memo hit", s: prod, target: "/p", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`,
 			check: func(t *testing.T, _ *httptest.ResponseRecorder) {
 				if *prodRenders != 1 {
 					t.Errorf("%d renders, want the one of the first request", *prodRenders)
 				}
 			}},
 		{name: "error placed at a level", s: prod, target: "/boom", status: 500, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
-		{name: "whole-page cache miss", s: prod, target: "/cached", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
-		{name: "whole-page cache hit", s: prod, target: "/cached", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`,
-			check: func(t *testing.T, w *httptest.ResponseRecorder) {
-				if got := w.Header().Get("Cache-Status"); got != "tifa; hit" {
-					t.Errorf("Cache-Status %q, want a hit", got)
-				}
-			}},
+		{name: "page with Cache", s: prod, target: "/cached", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
 		{name: "page without SSR", s: prod, target: "/plain", status: 200, escaped: `\u003c/script\u003e\u003cscript\u003ewindow.pwned=1`},
 		{name: "dev: error over the page", s: dev, target: "/boom", status: 500, escaped: `Error: \u003c/script\u003e\u003cscript\u003ewindow.pwned=1`},
 		{name: "dev: page that fails at every level", s: dev, target: "/doom", status: 500, escaped: `Error: &lt;/script&gt;&lt;script&gt;window.pwned=1`},
@@ -162,8 +156,8 @@ func TestThePolicyOfAPageAllowsTheScriptsTifaWrote(t *testing.T) {
 		s      *server
 		target string
 	}{
-		{"first render", prod, "/p"}, {"render cache hit", prod, "/p"}, {"error placed at a level", prod, "/boom"},
-		{"whole-page cache miss", prod, "/cached"}, {"whole-page cache hit", prod, "/cached"},
+		{"first render", prod, "/p"}, {"render memo hit", prod, "/p"}, {"error placed at a level", prod, "/boom"},
+		{"page with Cache, first request", prod, "/cached"}, {"page with Cache, repeat", prod, "/cached"},
 		{"dev: error over the page", dev, "/boom"}, {"dev: page that fails at every level", dev, "/doom"},
 		{"dev: two renders differ", dev, "/differs"}, {"dev: page", dev, "/p"},
 	} {

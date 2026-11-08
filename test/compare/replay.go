@@ -430,7 +430,7 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		a.responses["reload-document header"]++
 	}
 	// Tifa says how it answered a page: a document, and also the navigation data of a page, which can
-	// render the page in a VM too (one from the whole-page cache). Every answer that says so is counted,
+	// render the page in a VM too (one with Cache). Every answer that says so is counted,
 	// by the kind of page of the page view.
 	if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
 		a.renders[rd]++

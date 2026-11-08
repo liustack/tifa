@@ -1,6 +1,6 @@
 // Package article shows markup the app trusts with tifa.HTML: a note of the Layout around the
 // article pages, and an article that each page below loads, whose page renders it on the server
-// (read), from the whole-page cache (cached), only in the browser (plain), or not at all, since
+// (read), with Cache (cached), only in the browser (plain), or not at all, since
 // its component (broken) or a Layout between it and the Layout of the articles (shaky) fails on
 // the server.
 package article

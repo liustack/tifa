@@ -52,7 +52,7 @@ func (s *server) policyHeader() string {
 }
 
 // policyKey is what the policy of the documents follows from besides their HTML: the header and the
-// policy, "" with server.csp off. The ETag of a page covers it (renderKey, contentTag), so a
+// policy, "" with server.csp off. The ETag of a page covers it (renderKey), so a
 // browser that holds a page under another policy gets the page again with this one.
 func (s *server) policyKey() string {
 	if name := s.policyHeader(); name != "" {

@@ -241,7 +241,7 @@ export function discount(code: string, subtotal: number, l: Locale): number {
 // getDeliveries returns the ways the cart can be delivered from now, with their prices for the
 // subtotal: standard delivery is free from freeShippingCents. now is in milliseconds. Go calls it Deliveries.
 // A date is a calendar day of the store: noon, in the time zone of the locale, of the day of now plus the days
-// the way takes, so the data of a page is the same all day and a render cache can reuse the page (as in Go).
+// the way takes, so the data of a page is the same all day and a render memo can reuse the page (as in Go).
 // The pages show the month and the day in that zone.
 export function getDeliveries(cart: Pick<Cart, 'subtotalCents' | 'discountCents' | 'freeShippingCents'>, now: number, l: Locale): Delivery[] {
   return deliveries.map((d) => {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -44,7 +45,7 @@ func slowLayout(c *tifa.Ctx) (string, error) {
 }
 
 // A page says how old its data may be when it goes out, counted from the start of its first Load:
-// the first render, a render the render cache answers, a 304, and the 404 pages it renders. The
+// the first render, a render the render memo answers, a 304, and the 404 pages it renders. The
 // age counts a Load that OnRequest ran before the others. Navigation data does not carry it.
 func TestPageSendsTheAgeOfItsData(t *testing.T) {
 	early := false
@@ -80,12 +81,12 @@ func TestPageSendsTheAgeOfItsData(t *testing.T) {
 		return w.Header().Get("ETag")
 	}
 	etag := aged("render", 200, "vm", 20, "/p")
-	aged("render cache", 200, "cache", 20, "/p")
+	aged("render memo", 200, "memo", 20, "/p")
 	aged("304", 304, "none", 20, "/p", "If-None-Match", etag)
 	aged("404 of a Load", 404, "vm", 20, "/gone")
 	aged("404 of a URL", 404, "vm", 20, "/nothing/here")
 	early = true
-	aged("Load in OnRequest", 200, "cache", 50, "/p")
+	aged("Load in OnRequest", 200, "memo", 50, "/p")
 	early = false
 
 	w := getData(s, "/p", "b1", "11")
@@ -94,38 +95,32 @@ func TestPageSendsTheAgeOfItsData(t *testing.T) {
 	}
 }
 
-// A page of the whole-page cache may be kept by a CDN, which would serve the age it was sent with
-// minutes later, so a page the cache keeps carries no age, on a miss, a hit and a 304, and the
-// browser takes its data as of unknown age. A request that bypasses the cache with an answer for
-// one visitor carries the age of the entry it made.
-func TestCachedPageSendsNoAge(t *testing.T) {
-	e := newPageEnv(t)
+// A page with Cache may be kept by a CDN, which would serve the age it was sent with minutes later,
+// so it carries no age, on a first request, a repeat and a 304, and the browser takes its data as of
+// unknown age. A page whose Load makes the answer for one visitor carries its age.
+func TestPageWithCacheSendsNoAge(t *testing.T) {
+	e := newSharedEnv(t)
 	first := get(e.s, "/news")
-	e.clock.advance(7 * time.Second)
-	hit := get(e.s, "/news")
+	repeat := get(e.s, "/news")
 	same := get(e.s, "/news", "If-None-Match", first.Header().Get("ETag"))
-	for name, w := range map[string]*httptest.ResponseRecorder{"miss": first, "hit": hit, "304": same} {
+	for name, w := range map[string]*httptest.ResponseRecorder{"first": first, "repeat": repeat, "304": same} {
 		if _, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); ok || w.Header().Get("Cache-Control") == "" {
 			t.Errorf("%s: %d %v", name, w.Code, w.Header())
 		}
 	}
-	if hit.Header().Get("Cache-Status") != "tifa; hit" || same.Code != 304 {
-		t.Errorf("hit %v, 304 %d", hit.Header(), same.Code)
+	if same.Code != 304 {
+		t.Errorf("304: %d", same.Code)
 	}
 	w := getData(e.s, "/news", "b1", "11")
 	if _, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); w.Code != 200 || ok {
 		t.Errorf("navigation data: %d %q", w.Code, w.Header().Values("Server-Timing"))
 	}
 
-	own := newPageEnv(t, func(app *App) {
-		app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-			c.SetHeader("Cache-Control", "private, no-cache")
-			return next(c)
-		}
-	})
+	own := newSharedEnv(t)
+	own.header = func(h http.Header) { h.Set("Cache-Control", "private, no-cache") }
 	w = get(own.s, "/news")
-	if age, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); w.Code != 200 || w.Header().Get("Cache-Status") != "tifa; fwd=bypass" || !ok || age != 0 {
-		t.Errorf("bypass: %d %v, age %d %t", w.Code, w.Header(), age, ok)
+	if _, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); w.Code != 200 || !ok {
+		t.Errorf("private: %d %v", w.Code, w.Header())
 	}
 }
 

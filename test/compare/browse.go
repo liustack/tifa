@@ -90,7 +90,7 @@ type BrowseResult struct {
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
 	// Control is the read-only control of each site: Tifa at the sessions of the closed runs with the
-	// same traces and no writes, one short round, to show which pages its render cache answers.
+	// same traces and no writes, one short round, to show which pages its render memo answers.
 	Control []Round `json:"control,omitempty"`
 	// Throughput is, per scenario and server ("store-w5/tifa"), what the steps of its sessions found.
 	Throughput map[string]*Throughput `json:"throughput,omitempty"`
@@ -424,7 +424,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // with starts a fresh server of a spec and calls f with a runner for the workload of the scenario.
 // The server gets no request before f: the check that the writes of the scenario show in its pages runs
 // on a server of its own that is thrown away (checkWrites, once for a spec and a scenario), so that a
-// server of Tifa starts its round with an empty render cache. The round f returns is judged, and when
+// server of Tifa starts its round with an empty render memo. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
@@ -476,7 +476,7 @@ func controlled(list []BrowseScenario, sc BrowseScenario) bool {
 
 // control is a diagnostic, not a result: once for each site, one closed round of Tifa, with no warm-up
 // (with its caches as it ships) at the sessions of the closed runs, with the traces of the first scenario of the
-// site and no writes. It shows which kinds of page the render cache answers when nothing changes,
+// site and no writes. It shows which kinds of page the render memo answers when nothing changes,
 // and against the rounds with writes what the writes do to it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	if !controlled(b.o.Scenarios, sc) || !slices.Contains(b.servers[sc.Name], "tifa") || slices.ContainsFunc(b.res.Control, func(x Round) bool { return x.Scenario == sc.Name }) {

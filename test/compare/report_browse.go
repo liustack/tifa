@@ -247,7 +247,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessi
 			}
 			return rate(func(x *Round) int { return x.Renders[kind] })
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), rate(func(x *Round) int { return x.FullLoads }), rate(func(x *Round) int { return x.Clicks }), rate(func(x *Round) int { return x.Writes }), tifa("vm"), tifa("cache"), tifa("shared"))
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), rate(func(x *Round) int { return x.FullLoads }), rate(func(x *Round) int { return x.Clicks }), rate(func(x *Round) int { return x.Writes }), tifa("vm"), tifa("memo"), tifa("shared"))
 	}
 	b.WriteString("\nWhat one visit costs the server, as requests per visit (and, for Tifa, what it did with the documents and the navigation data that said how they were answered):\n\n| | documents 200 (full pages) | documents 304 | client navigation requests | prefetches | writes | renders | cache hits | shared renders |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
@@ -264,7 +264,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessi
 			}
 			return fmtCell(each(rs, func(x *Round) float64 { return float64(x.Renders[kind]) / float64(max(1, x.Visits)) }), "%.3f")
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), per("doc 200 "), per("doc 304 "), per("nav "), per("prefetch "), per("write "), tifa("vm"), tifa("cache"), tifa("shared"))
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), per("doc 200 "), per("doc 304 "), per("nav "), per("prefetch "), per("write "), tifa("vm"), tifa("memo"), tifa("shared"))
 	}
 	r.pageRendersMarkdown(b, sc, sessions)
 	r.writesMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
@@ -511,7 +511,7 @@ func (r *BrowseResult) checks() map[string]*TraceCheck {
 }
 
 // visitsText is what the report says about the visits of every scenario.
-const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round plans exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota (a round whose visits fail does less than it planned): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Tifa gets no warm-up: it has no JIT, and its render cache starts empty in every round, so what the cache holds is earned inside the measured time. The Node servers get a warm-up with no writes, since their JIT needs one. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
+const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round plans exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota (a round whose visits fail does less than it planned): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Tifa gets no warm-up: it has no JIT, and its render memo starts empty in every round, so what the memo holds is earned inside the measured time. The Node servers get a warm-up with no writes, since their JIT needs one. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
 // adminText is what the report says about the admin scenarios.
 const adminText = "In the admin scenarios the staff of the shop work on orders: 40% of the writes place an order, 30% ship one, 20% add a note and 10% change the recipient, half of them in the studio shop and half in the weekend shop (by quota in every block). A place-an-order write adds a new order (the shop gives it the next number) that the lists, the stats and the pages of orders with the same product or customer show. A ship write takes the oldest order that has not shipped, and a note or a recipient write takes one of them at random, among the orders that were not shipped yet when the server started and the ones placed since. A write that finds no such order is sent as a place-an-order write instead, and counted below. Orders pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders each server held at the end of a round. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization.\n\n"
@@ -520,7 +520,7 @@ const adminText = "In the admin scenarios the staff of the shop work on orders: 
 const renameText = "In the scenarios named for a customer rename, every write gives one of the three orders of the data that can still change a customer name that no write gave before, which the lists, the stats and the other orders of that customer show, the harder case for a cache.\n\n"
 
 // storeText is what the report says about the storefront scenarios.
-const storeText = "The storefront scenarios replay visits to the shop's storefront (the home, the product list with its filters, 28 products, the cart, the checkout, the journal and its posts), in English or Chinese. A visit stays in one language. All of this is assumed, not measured: the language is half and half, the first page is the home 25%, a product 35%, a product list 15%, the journal 5%, a post 10% or the cart 10% (by quota in every block), and a click goes to one of the links a browser found on the page, with a share for each kind of link (from a list, a product 70% of the time, from a product another product 30%, the list 25%, the cart 25%, from the cart the checkout 40%). A visit starts with no cart and sees the demonstration cart of four lines that the shop shows a new visitor. Its writes follow the cart it has, so the shop takes each: 50% add a product in a colour and size it has and that is in stock, 20% change the quantity of a line in the cart (one in five removes it), 10% put a coupon on the cart or take it off, 20% check out. A quantity change or a checkout with an empty cart is an add instead, so the shares sent differ a little (the table of writes says how many of each were sent). A checkout answers 303 to the page of the order and is not followed. The cart is the visit's own (its cookie), so there is nothing shared between visits. The traces hold no writes, so what a browser fetches again after one (the cart count, a refresh of the router) is not replayed. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request. Tifa keeps rendered pages in its render cache (a page whose data is unchanged), which the storefront pages use as they are.\n\n"
+const storeText = "The storefront scenarios replay visits to the shop's storefront (the home, the product list with its filters, 28 products, the cart, the checkout, the journal and its posts), in English or Chinese. A visit stays in one language. All of this is assumed, not measured: the language is half and half, the first page is the home 25%, a product 35%, a product list 15%, the journal 5%, a post 10% or the cart 10% (by quota in every block), and a click goes to one of the links a browser found on the page, with a share for each kind of link (from a list, a product 70% of the time, from a product another product 30%, the list 25%, the cart 25%, from the cart the checkout 40%). A visit starts with no cart and sees the demonstration cart of four lines that the shop shows a new visitor. Its writes follow the cart it has, so the shop takes each: 50% add a product in a colour and size it has and that is in stock, 20% change the quantity of a line in the cart (one in five removes it), 10% put a coupon on the cart or take it off, 20% check out. A quantity change or a checkout with an empty cart is an add instead, so the shares sent differ a little (the table of writes says how many of each were sent). A checkout answers 303 to the page of the order and is not followed. The cart is the visit's own (its cookie), so there is nothing shared between visits. The traces hold no writes, so what a browser fetches again after one (the cart count, a refresh of the router) is not replayed. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request. Tifa keeps rendered pages in its render memo (a page whose data is unchanged), which the storefront pages use as they are.\n\n"
 
 // pageKinds are the kinds of page that the full loads of rounds rendered, sorted.
 func pageKinds(rounds []Round) []string {
@@ -534,7 +534,7 @@ func pageKinds(rounds []Round) []string {
 }
 
 // hitCell is the share of the answers of a kind of page (documents and navigation data that said how
-// they were answered) that the render cache answered, over all the rounds, with how many there were.
+// they were answered) that the render memo answered, over all the rounds, with how many there were.
 func hitCell(rounds []Round, kind string) string {
 	hits, all := cacheHits(rounds, kind)
 	if all == 0 {
@@ -543,12 +543,12 @@ func hitCell(rounds []Round, kind string) string {
 	return fmt.Sprintf("%.1f%% of %d", 100*float64(hits)/float64(all), all)
 }
 
-// cacheHits are the answers of a kind of page the render cache gave in rounds, and all its answers.
+// cacheHits are the answers of a kind of page the render memo gave in rounds, and all its answers.
 func cacheHits(rounds []Round, kind string) (hits, all int) {
 	for _, x := range rounds {
 		for how, n := range x.PageRenders[kind] {
 			all += n
-			if how == "cache" {
+			if how == "memo" {
 				hits += n
 			}
 		}
@@ -556,7 +556,7 @@ func cacheHits(rounds []Round, kind string) (hits, all int) {
 	return hits, all
 }
 
-// pageRendersMarkdown is a diagnostic for Tifa: the render cache hits of the full loads of the
+// pageRendersMarkdown is a diagnostic for Tifa: the render memo hits of the full loads of the
 // closed rounds at a number of sessions, by kind of page (X-Tifa-Render on the documents and the navigation data).
 func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario, sessions int) {
 	var rows []string
@@ -571,7 +571,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 	if len(kinds) == 0 {
 		return
 	}
-	b.WriteString("\nA diagnostic for Tifa, the render cache hits by kind of page (from X-Tifa-Render on the documents and on the navigation data, over the rounds):\n\n|")
+	b.WriteString("\nA diagnostic for Tifa, the render memo hits by kind of page (from X-Tifa-Render on the documents and on the navigation data, over the rounds):\n\n|")
 	for _, k := range kinds {
 		fmt.Fprintf(b, " | %s", k)
 	}
@@ -593,7 +593,7 @@ const (
 	flagLeast = 20
 )
 
-// cacheFlags are the kinds of page whose answers the render cache seldom gave in rounds, as
+// cacheFlags are the kinds of page whose answers the render memo seldom gave in rounds, as
 // "order 0.0% of 300", in order.
 func cacheFlags(rounds []Round) []string {
 	var out []string
@@ -624,9 +624,9 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 		label, writes = label+", the latency rounds", r.latencyRounds("tifa", sc.Name)
 	}
 	kinds := pageKinds(append(slices.Clone(control), writes...))
-	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d concurrent sessions with the traces of this scenario and no writes, one short round, against its rounds with writes. With nothing changing, the render cache should answer almost every request for a page after the first: a kind of page it answers under %.0f%% of the time (with %d answers or more) is flagged to look into. Against the rounds with writes, the hits by kind of page show which pages the writes keep from the cache.\n\n", sessions, 100*flagShare, flagLeast)
+	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d concurrent sessions with the traces of this scenario and no writes, one short round, against its rounds with writes. With nothing changing, the render memo should answer almost every request for a page after the first: a kind of page it answers under %.0f%% of the time (with %d answers or more) is flagged to look into. Against the rounds with writes, the hits by kind of page show which pages the writes keep from the cache.\n\n", sessions, 100*flagShare, flagLeast)
 	if flags := cacheFlags(control); len(flags) > 0 {
-		fmt.Fprintf(b, "**Red flag**: with no writes the render cache answered %s. Look into why: this table does not tell the cause.\n\n", strings.Join(flags, ", "))
+		fmt.Fprintf(b, "**Red flag**: with no writes the render memo answered %s. Look into why: this table does not tell the cause.\n\n", strings.Join(flags, ", "))
 	}
 	b.WriteString("| | page views/s")
 	for _, k := range kinds {
@@ -673,7 +673,7 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from the start of the round (the last step is as long as the round has left). The steps show how throughput and latency change over the round. An open round includes the ramp at the start and the drain at the end, so its first and last steps differ from the middle whatever the server does. Tifa had no warm-up and starts with an empty render cache, the Node servers had one. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from the start of the round (the last step is as long as the round has left). The steps show how throughput and latency change over the round. An open round includes the ramp at the start and the drain at the end, so its first and last steps differ from the middle whatever the server does. Tifa had no warm-up and starts with an empty render memo, the Node servers had one. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}

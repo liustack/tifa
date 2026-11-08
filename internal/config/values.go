@@ -494,52 +494,6 @@ func (v *rawValue) Set(s string) error { v.s = s; return nil }
 func (v *rawValue) String() string     { return v.s }
 func (v *rawValue) Type() string       { return v.typ }
 
-// ignoreQueryValue is cache.ignore_query. It starts as DefaultIgnoreQuery and each setting changes
-// that list: a name is added, -name takes it out, and -* takes them all out, so a layer says only
-// what it changes. A name is a query parameter name in lower case, with a * at the end for a
-// prefix such as utm_*. Names are matched without regard to case.
-type ignoreQueryValue struct{ p *[]string }
-
-func (v ignoreQueryValue) Set(s string) error {
-	items, err := splitList(s)
-	if err != nil {
-		return err
-	}
-	list := slices.Clone(*v.p)
-	for _, item := range items {
-		if item == "-*" {
-			list = nil
-			continue
-		}
-		remove := strings.HasPrefix(item, "-")
-		name := strings.ToLower(strings.TrimPrefix(item, "-"))
-		if err := checkQueryName(name); err != nil {
-			return fmt.Errorf("%q: %v", item, err)
-		}
-		if remove {
-			list = slices.DeleteFunc(list, func(x string) bool { return x == name })
-		} else if !slices.Contains(list, name) {
-			list = append(list, name)
-		}
-	}
-	*v.p = list
-	return nil
-}
-func (v ignoreQueryValue) String() string { return strings.Join(*v.p, ",") }
-func (v ignoreQueryValue) kind() string   { return "string" }
-
-// checkQueryName accepts a query parameter name, or one ending in * for a prefix.
-func checkQueryName(name string) error {
-	base := strings.TrimSuffix(name, "*")
-	if base == "" {
-		return errors.New("is not a query parameter name")
-	}
-	if strings.ContainsAny(base, "=&?#*, \t") || base != strings.TrimSpace(base) {
-		return errors.New("is not a query parameter name: it has a character that cannot be in one, and * may only end a name")
-	}
-	return nil
-}
-
 // secretValue is an option of the app that tifa.Secret defines, such as a password: text that
 // Sources.apply does not take from a flag, which every user of the machine sees in the process
 // list, and that Print does not write.
@@ -619,3 +573,17 @@ func (v siteURLValue) Set(s string) error {
 }
 func (v siteURLValue) String() string { return *v.p }
 func (v siteURLValue) kind() string   { return "string" }
+
+// sharedAgeValue is cache_control.s_maxage: a duration of at least a second, the unit of s-maxage.
+type sharedAgeValue struct{ p *time.Duration }
+
+func (v sharedAgeValue) Set(s string) error {
+	d, err := time.ParseDuration(s)
+	if err != nil || d < time.Second {
+		return fmt.Errorf("invalid duration %q, use at least one second, such as 1m", s)
+	}
+	*v.p = d
+	return nil
+}
+func (v sharedAgeValue) String() string { return v.p.String() }
+func (v sharedAgeValue) kind() string   { return "duration" }

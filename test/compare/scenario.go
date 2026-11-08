@@ -85,7 +85,7 @@ func write(w Writer, page, n int) Step {
 func Address(n int) string { return fmt.Sprintf("演示地址 %08d", n) }
 
 // ReadWriteScenario reads the six pages in turn, and before the first order page after each 10
-// reads it writes the address of that order, so that the page has new data and a render cache must
+// reads it writes the address of that order, so that the page has new data and a render memo must
 // miss on it. Lists and stats cannot be changed by a write (see writable), so a write waits for an
 // order page.
 var ReadWriteScenario = Scenario{Name: ScenarioReadWrite, Configs: []string{ConfigDefault}, Steps: func(w Writer, n int) []Step {
@@ -111,7 +111,7 @@ func floor10(n int) int {
 }
 
 // WriteEachScenario is for Tifa only. It reads the two order pages in turn and writes the order
-// before every read, so the render cache never hits, whatever its size. Next to a run with the cache
+// before every read, so the render memo never hits, whatever its size. Next to a run with the cache
 // off it shows what the cache costs a request that misses.
 var WriteEachScenario = Scenario{Name: ScenarioWriteEach, Specs: []string{"tifa", "tifa-nocache"}, Steps: func(w Writer, n int) []Step {
 	page := 2 + n%2

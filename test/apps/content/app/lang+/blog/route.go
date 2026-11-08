@@ -1,4 +1,4 @@
-// Package blog is the list of posts of a language, kept in the whole-page cache.
+// Package blog is the list of posts of a language, with Cache.
 package blog
 
 import (

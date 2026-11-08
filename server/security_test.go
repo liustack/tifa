@@ -125,7 +125,7 @@ func hasHeader(t *testing.T, what string, h http.Header, name, want string) {
 
 // With server.csp on, every answer carries server.csp_policy, and a page carries it with the hashes
 // of the inline scripts of the head of the build and of what the render marked, from the VM, from
-// the render cache and in each encoding. A page without SSR, which Go writes whole, carries the
+// the render memo and in each encoding. A page without SSR, which Go writes whole, carries the
 // hashes of its own scripts, its data being JSON. Styles get no hashes while the policy leaves
 // them alone. The render is told to mark what it writes.
 func TestCSPOnGivesPagesTheHashesOfTheirScripts(t *testing.T) {
@@ -136,7 +136,7 @@ func TestCSPOnGivesPagesTheHashesOfTheirScripts(t *testing.T) {
 	hasHeader(t, "page", first.Header(), cspHeader, page)
 	hasHeader(t, "page from the cache, gzip", get(s, "/projects/p1", "Accept-Encoding", "gzip").Header(), cspHeader, page)
 	hasHeader(t, "page from the cache, zstd", get(s, "/projects/p1", "Accept-Encoding", "zstd").Header(), cspHeader, page)
-	hasHeader(t, "page that skips the render cache", get(s, "/live").Header(), cspHeader, page)
+	hasHeader(t, "page that skips the render memo", get(s, "/live").Header(), cspHeader, page)
 	hasHeader(t, "404 page", get(s, "/projects/p1/nothing").Header(), cspHeader, page)
 	hasHeader(t, "page without SSR", get(s, "/login").Header(), cspHeader, "script-src 'self' "+head+"; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 	hasHeader(t, "navigation data", get(s, "/projects/p1?_tifa=").Header(), cspHeader, config.DefaultCSPPolicy)
@@ -228,33 +228,31 @@ func TestCSPOffLeavesPagesAlone(t *testing.T) {
 	}
 }
 
-// The whole-page cache keeps the policy of a page with the page: a hit carries the hashes, its 304
-// carries no policy, and the ETag of a page that skips the render cache changes with the policy.
-func TestWholePageCacheKeepsThePolicy(t *testing.T) {
-	useCacheClock(t)
+// A page with Cache has the policy of any page: a repeat carries the hashes, its 304 carries no
+// policy, and the ETag changes with the policy.
+func TestPageWithCacheCarriesThePolicy(t *testing.T) {
 	app := frontApp()
 	app.Routes = append(app.Routes,
 		Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"}},
-		Route{ID: "app/news/live", Path: "/newslive", Page: true, SSR: true, Cache: time.Minute, NoRenderCache: true, Layouts: []string{"app/layout"}},
+		Route{ID: "app/news/live", Path: "/newslive", Page: true, SSR: true, Cache: time.Minute, NoMemo: true, Layouts: []string{"app/layout"}},
 		Route{ID: "app/news/plain", Path: "/newsplain", Page: true, SSR: false, Cache: time.Minute, Layouts: []string{"app/layout"}},
 	)
 	s, inputs := cspServer(t, "on", "", app)
 	head := hashOf(`import "/@react-refresh"`)
 	page := "script-src 'self' " + head + " 'sha256-page'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
-	for _, path := range []string{"/news", "/newslive"} {
-		first := get(s, path)
-		hit := get(s, path)
-		if hit.Header().Get("X-Tifa-Render") != "cache" {
-			t.Fatalf("%s: answered by %q", path, hit.Header().Get("X-Tifa-Render"))
-		}
-		hasHeader(t, path+" made", first.Header(), cspHeader, page)
-		hasHeader(t, path+" hit", hit.Header(), cspHeader, page)
-		notModified := get(s, path, "If-None-Match", hit.Header().Get("ETag"))
-		if notModified.Code != http.StatusNotModified {
-			t.Fatalf("%s: %d", path, notModified.Code)
-		}
-		hasHeader(t, path+" 304", notModified.Header(), cspHeader, "")
+	first := get(s, "/news")
+	hit := get(s, "/news")
+	if hit.Header().Get("X-Tifa-Render") != "memo" {
+		t.Fatalf("answered by %q", hit.Header().Get("X-Tifa-Render"))
 	}
+	hasHeader(t, "/news made", first.Header(), cspHeader, page)
+	hasHeader(t, "/news hit", hit.Header(), cspHeader, page)
+	notModified := get(s, "/news", "If-None-Match", hit.Header().Get("ETag"))
+	if notModified.Code != http.StatusNotModified {
+		t.Fatalf("304: %d", notModified.Code)
+	}
+	hasHeader(t, "/news 304", notModified.Header(), cspHeader, "")
+	hasHeader(t, "/newslive", get(s, "/newslive").Header(), cspHeader, page)
 	hasHeader(t, "page without SSR", get(s, "/newsplain").Header(), cspHeader, "script-src 'self' "+head+"; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 	for _, in := range *inputs {
 		if !in.CSP {
@@ -262,10 +260,8 @@ func TestWholePageCacheKeepsThePolicy(t *testing.T) {
 		}
 	}
 	off, _ := cspServer(t, "off", "", app)
-	for _, path := range []string{"/news", "/newslive", "/newsplain"} {
-		if a, b := get(s, path).Header().Get("ETag"), get(off, path).Header().Get("ETag"); a == b {
-			t.Errorf("%s: the ETag %s is the same with the policy and without", path, a)
-		}
+	if a, b := get(s, "/news").Header().Get("ETag"), get(off, "/news").Header().Get("ETag"); a == b {
+		t.Errorf("the ETag %s is the same with the policy and without", a)
 	}
 }
 

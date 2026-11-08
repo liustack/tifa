@@ -92,7 +92,7 @@ func warmSpecs() (tifa, nocache, node Spec) {
 	return mk("tifa", "tifa"), mk("tifa-nocache", "tifa"), mk("nextjs", "nextjs")
 }
 
-// Tifa has no JIT and starts every measured round with an empty render cache, so a warm-up would put
+// Tifa has no JIT and starts every measured round with an empty render memo, so a warm-up would put
 // what the cache holds there before the clock starts. A measured round of Tifa, with or without the
 // cache, gets no request but its own, and the Node servers keep their warm-up (their JIT needs it).
 func TestOnlyTheNodeServersGetAWarmUp(t *testing.T) {

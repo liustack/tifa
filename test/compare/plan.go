@@ -413,7 +413,7 @@ var fanOutNames = []string{"周川", "吴桐", "郑和", "冯雨", "褚然", "�
 
 // CustomerName is the customer name that the n-th write gives. It is different for every n, so that
 // no write returns the lists, the stats or the pages of the customer's other orders to a state they
-// had before: a render cache that keeps old versions would otherwise hit again, which no real write
+// had before: a render memo that keeps old versions would otherwise hit again, which no real write
 // to a customer name does.
 func CustomerName(n int) string { return fmt.Sprintf("%s %08d", fanOutNames[n%len(fanOutNames)], n) }
 

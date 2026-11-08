@@ -6,4 +6,4 @@ func POST(c *tifa.Ctx) error { return nil }
 
 const SSR = false
 
-const RenderCache = false
+const Memo = false

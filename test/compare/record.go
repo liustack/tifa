@@ -63,7 +63,7 @@ type Run struct {
 	Round     int      `json:"round"`
 	Scenario  string   `json:"scenario"`
 	Metrics   Metrics  `json:"metrics"`
-	// Renders counts the answers by their X-Tifa-Render header ("vm", "cache", "shared") over the
+	// Renders counts the answers by their X-Tifa-Render header ("vm", "memo", "shared") over the
 	// whole run. Only Tifa sets it.
 	Renders map[string]int `json:"renders,omitempty"`
 	// Pages are the steady phase by page.
@@ -126,7 +126,7 @@ type Metrics struct {
 	Settle      float64 `json:"settlesAtRequest"` // SettleNever when it had not
 	RSSStart    float64 `json:"rssAfterStartMiB"` // after the first answer
 	RSSPeak     float64 `json:"peakRssMiB"`
-	HitRate     float64 `json:"hitRate"` // Tifa only: answers with X-Tifa-Render cache or shared
+	HitRate     float64 `json:"hitRate"` // Tifa only: answers with X-Tifa-Render memo or shared
 	// Writes, WriteP50 and WriteP99 are the writes of the steady phase, a request type of their own.
 	// Requests, P50 and P99 are of the reads only, but Requests is reads over the time of the reads
 	// and the writes together.

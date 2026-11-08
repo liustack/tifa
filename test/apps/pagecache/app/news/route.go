@@ -1,5 +1,4 @@
-// Package news is a page with the whole-page cache. Its Load reads only a query parameter, which
-// the cache keeps in its key.
+// Package news is a page with Cache.
 package news
 
 import (

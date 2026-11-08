@@ -63,10 +63,10 @@ func (s *server) close() {
 	}
 }
 
-// anonymousRequest reports whether the request is for a page with the whole-page cache and
+// anonymousRequest reports whether the request is for a page with Cache and
 // asks for it to be read: GET and HEAD, with or without the navigation parameter.
 func (s *server) anonymousRequest(pattern string, r *http.Request) bool {
-	return pattern != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.pageCache[pattern] > 0
+	return pattern != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.shared[pattern] > 0
 }
 
 // anonymity is what an anonymous request leaves in its context: the session of the browser it came
@@ -75,6 +75,8 @@ func (s *server) anonymousRequest(pattern string, r *http.Request) bool {
 type anonymity struct {
 	session *core.BrowserSession
 	err     error
+	// shared is the Cache-Control the framework wrote for the page (setShared), "" before it did.
+	shared string
 }
 
 type anonymityKey struct{}

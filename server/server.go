@@ -44,17 +44,13 @@ type server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
-	// uncached holds the paths of the pages with RenderCache = false: none of their pages, their
-	// error pages included, goes through the render cache.
+	// uncached holds the paths of the pages with Memo = false: none of their pages, their
+	// error pages included, goes through the render memo.
 	uncached map[string]bool
-	// pageCache holds the whole-page cache time of the pages that have one, by path. It stays empty
-	// with cache.whole_page false (wholePage).
-	pageCache map[string]time.Duration
-	wholePage bool
-	// pageQuery holds the query parameters the Loads of a page read, by path: the whole-page
-	// cache keeps them even when cache.ignore_query names them.
-	pageQuery map[string][]string
-	ignore    queryFilter
+	// shared holds the s-maxage of the pages that have Cache, by path. Their requests are anonymous.
+	shared map[string]time.Duration
+	// sharedDefault is the time of a page that writes const Cache = true (cache_control.s_maxage).
+	sharedDefault time.Duration
 	// limits holds the BodyLimit and ReadTimeout of the routes that set them, by path.
 	limits map[string]routeLimits
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
@@ -75,7 +71,7 @@ type server struct {
 	// swapFront can wait for those on the pool it replaces.
 	front     atomic.Pointer[front]
 	rendering sync.RWMutex
-	cache     *htmlCache
+	memo      *renderMemo
 	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain for an app with
 	// pages.
 	dev http.Handler
@@ -95,11 +91,12 @@ type server struct {
 func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery), wholePage: cfg.Cache.WholePage,
-		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, shared: map[string]time.Duration{}, limits: map[string]routeLimits{},
+		modules: map[string][]string{}, layouts: map[string]layoutChain{}, memo: newRenderMemo(cfg.SSR.MemoSize),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)
+	s.sharedDefault = cfg.CacheControl.SMaxage
 	s.sess.cfg = cfg.Session
 	s.handler = http.HandlerFunc(s.route)
 	if cfg.Server.Compress {
@@ -292,7 +289,7 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 			d.Original.Pattern = pattern
 		}
 	}
-	// A page with the whole-page cache answers every visitor alike: its GET and HEAD, and the
+	// A page with Cache answers every visitor alike: its GET and HEAD, and the
 	// navigation data of it, are made anonymous before anything of the app sees them.
 	anon := s.anonymousRequest(pattern, r)
 	var anonErr error
@@ -360,6 +357,8 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 // route: a data request answers them by route, a page renders with them. A request whose client
 // went away while it waited for a shared render (errClientGone) has its connection cut.
 func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
+	// An error is not a page a shared cache may keep, whatever the framework wrote before it failed.
+	dropShared(c)
 	if errors.Is(err, errClientGone) {
 		// Nothing has been written. Returning would let net/http send an empty 200 with the
 		// page's ETag, which a browser or a CDN could keep, as the client may still be there
@@ -422,6 +421,9 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		w.Header().Add("Vary", callHeader)
 		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Status, Session: s.callSession(c)})
 	case redirect != nil:
+		if ttl := s.shared[c.Pattern()]; ttl > 0 && sharedRedirect(redirect.Status) {
+			setShared(c, ttl)
+		}
 		w.Header().Add("Vary", callHeader)
 		http.Redirect(w, r, redirect.URL, redirect.Status)
 	case !page:
@@ -581,8 +583,8 @@ type writer struct {
 	// session is set for /__tifa/session: whatever wrote the answer, a middleware that answered on
 	// its own included, it goes out as private, no-store, without validators.
 	session bool
-	// noCookies drops the Set-Cookie headers of the answer: it is the HTML of a page with the
-	// whole-page cache, which every visitor gets.
+	// noCookies drops the Set-Cookie headers of the answer: it is the HTML of a page with Cache,
+	// which every visitor gets.
 	noCookies bool
 }
 
