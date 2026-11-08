@@ -207,30 +207,3 @@ func TestTakesAtOnceNeverSellMoreThanTheStock(t *testing.T) {
 		t.Errorf("sold %d, %d left", sold, e.Stock)
 	}
 }
-
-func TestAnOrderLineNamesTheVariant(t *testing.T) {
-	t.Cleanup(resetCatalogue)
-	l, err := OrderLine("linen-apron", "ink", "M")
-	if err != nil || l.Name != "Cotton Linen Apron" || l.Variant != "Ink / M" || l.Color != "ink" || l.PriceFen != 16800 {
-		t.Errorf("apron in ink, M: %+v %v", l, err)
-	}
-	// Staff who place an order name no colour: the line takes the first.
-	if l, err := OrderLine("pour-over-kettle", "", ""); err != nil || l.Variant != "Mist" || l.Color != "mist" {
-		t.Errorf("kettle with no colour: %+v %v", l, err)
-	}
-	if _, err := OrderLine("pour-over-kettle", "clay", ""); err == nil {
-		t.Error("a colour the kettle does not come in passes")
-	}
-	if _, err := OrderLine("linen-apron", "ink", "XXL"); err == nil {
-		t.Error("a size the apron does not come in passes")
-	}
-	if _, err := OrderLine("no-such-product", "", ""); !errors.Is(err, tifa.ErrNotFound) {
-		t.Errorf("an unknown product: %v", err)
-	}
-	if err := Update("pour-over-kettle", kettleEdit); err != nil {
-		t.Fatal(err)
-	}
-	if l, _ := OrderLine("pour-over-kettle", "", ""); l.Name != "Dawn Kettle" || l.PriceFen != 29900 {
-		t.Errorf("after an edit the line is %+v", l)
-	}
-}

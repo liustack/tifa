@@ -135,17 +135,11 @@ export interface ProductLine {
   variant: string
   color: string
   priceFen: number
-  quantity: number // the pieces a purchase bought, 0 in a line of orderLine
+  quantity: number // the pieces a purchase bought
 }
 
-// orderLine returns the product slug in a colour and size as an order line, as OrderLine does:
-// staff name no colour, and the line takes the first colour and no size.
-export function orderLine(slug: string, color: string, size: string): ProductLine {
-  const p = catalogue.find((p) => p.slug === slug)
-  if (!p) throw new NotFound(slug)
-  return lineOf(p, color, size)
-}
-
+// lineOf is the product in a colour and size as an order line, as line does in Go: staff name no
+// colour, and the line takes the first colour and no size.
 function lineOf(p: ProductRecord, color: string, size: string): ProductLine {
   if (color === '' && size === '') color = p.colors[0]
   else if (!p.colors.includes(color) || !((p.sizes.length === 0 && size === '') || p.sizes.includes(size))) {

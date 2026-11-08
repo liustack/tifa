@@ -150,7 +150,7 @@ func (b Purchase) Product(slug string, l storekit.Locale) (Product, error) {
 // Buy takes the pieces of every take from the stock, or none of them, and returns what it bought,
 // all under one lock of the catalogue. It returns ErrNoStock when a product has fewer pieces than
 // its takes add up to, tifa.ErrNotFound for a product the catalogue does not have, and the error of
-// OrderLine for a colour or size the product does not come in.
+// line (tifa.Fields) for a colour or size the product does not come in.
 func Buy(takes []Take) (Purchase, error) {
 	catalogueMu.Lock()
 	defer catalogueMu.Unlock()
@@ -187,21 +187,12 @@ type Line struct {
 	Variant  string // such as "Ink / M"
 	Color    string // the ID of the colour
 	PriceFen int
-	Quantity int // the pieces a purchase bought (see Buy), 0 in a line of OrderLine
+	Quantity int // the pieces a purchase bought (see Buy)
 }
 
-// OrderLine returns the product slug in a colour and size as an order line, or tifa.ErrNotFound
-// for a product the catalogue does not have. Staff who place an order name no colour, and the line
-// takes the first colour of the product and no size. A colour or size the product does not come
-// in is an error.
-func OrderLine(slug, color, size string) (Line, error) {
-	p, ok := record(slug)
-	if !ok {
-		return Line{}, tifa.ErrNotFound
-	}
-	return p.line(color, size)
-}
-
+// line is the product in a colour and size as an order line. Staff who place an order name no
+// colour, and the line takes the first colour of the product and no size. A colour or size the
+// product does not come in is an error.
 func (p productRecord) line(color, size string) (Line, error) {
 	if color == "" && size == "" {
 		color = p.colors[0]
