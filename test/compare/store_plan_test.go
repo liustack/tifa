@@ -2,6 +2,7 @@ package compare
 
 import (
 	"encoding/json/v2"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -349,6 +350,92 @@ func TestStoreLinksAreRequestURLs(t *testing.T) {
 			if strings.Contains(l.To, "&amp;") {
 				t.Errorf("%s: link %s is escaped", url, l.To)
 			}
+		}
+	}
+}
+
+// storeWorkload is a storefront workload over blocks blocks of plans. The traces are empty: these
+// tests look at the writes only.
+func storeWorkload(t *testing.T, seed uint64, blocks int, name string) *Workload {
+	t.Helper()
+	set := GenerateStorePlanSet(seed, blocks)
+	traces := map[int]Trace{}
+	for _, p := range set.Plans {
+		traces[p.ID] = Trace{}
+	}
+	w, err := NewWorkload(&set, traces, scenario(t, name), seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// A plan is played again and again over a round, and a cart page that is the same every time is
+// answered from a render memo every time. So two plays of one plan must send other writes.
+func TestStoreWritesDifferOnEveryPlayOfAPlan(t *testing.T) {
+	w := storeWorkload(t, 3, 2, "store-w50")
+	n := len(w.Plans)
+	same, withWrites := 0, 0
+	for s := range n {
+		a, b := w.writesOf(s), w.writesOf(s+n)
+		if len(a) == 0 {
+			continue
+		}
+		withWrites++
+		if len(a) != len(b) {
+			t.Fatalf("visit %d sends %d writes, its next play %d", s, len(a), len(b))
+		}
+		equal := true
+		for j, x := range a {
+			if y, ok := b[j]; !ok || x.Store.Path != y.Store.Path || string(x.Store.Body) != string(y.Store.Body) {
+				equal = false
+			}
+		}
+		if equal {
+			same++
+		}
+	}
+	if withWrites == 0 || same*20 > withWrites {
+		t.Errorf("%d of %d plans with writes send the same writes on their next play", same, withWrites)
+	}
+	if a, b := w.writesOf(5), w.writesOf(5); !maps.EqualFunc(a, b, func(x, y PlannedWrite) bool {
+		return x.Store.Path == y.Store.Path && string(x.Store.Body) == string(y.Store.Body)
+	}) {
+		t.Error("the same visit gave different writes twice")
+	}
+}
+
+// Over the visits of a few rounds every write is one the shop takes against the cart of its visit,
+// the kinds keep the shares, and the writes a round plans are the ones it sends.
+func TestStoreWritesPerVisitAreValidAndKeepTheShares(t *testing.T) {
+	w := storeWorkload(t, 3, 2, "store-w50")
+	n := 3 * len(w.Plans)
+	kinds := map[string]int{}
+	sent := 0
+	for s := range n {
+		cart := &shopCart{lines: demoCart()}
+		ws := w.writesOf(s)
+		for j := range w.planFor(s).Steps {
+			if x, ok := ws[j]; ok {
+				cart.apply(t, x)
+				kinds[x.Kind]++
+				sent++
+			}
+		}
+	}
+	var r Round
+	w.plan(&r, 0, n, false)
+	if r.WritesPlanned != sent {
+		t.Errorf("planned %d writes, the visits send %d", r.WritesPlanned, sent)
+	}
+	for _, s := range StoreShares {
+		got := float64(kinds[s.Kind]) / float64(sent)
+		if s.Kind == WriteAdd {
+			if got < s.Share || got > s.Share+0.08 {
+				t.Errorf("%.3f of the writes are %s, want %v and a little more", got, s.Kind, s.Share)
+			}
+		} else if got > s.Share+0.02 || got < s.Share-0.08 {
+			t.Errorf("%.3f of the writes are %s, want %v or a little less", got, s.Kind, s.Share)
 		}
 	}
 }

@@ -114,17 +114,19 @@ func demoCart() []cartLine {
 	}
 }
 
-// storeWritesAt makes the writes of a plan of the storefront that follow its page views afters (in
-// order), where BlockWrites put them. The writes follow the cart of the visit, so a write is always
-// one the shop takes. The kind of each is drawn by StoreShares from the seed, the plan and the page
-// view.
-func storeWritesAt(seed uint64, p Plan, afters []int) []PlannedWrite {
+// storeWritesOf makes the writes that visit seq of the global sequence sends, which play plan p, after
+// its page views afters (in order), where BlockWrites put them. The writes follow the cart of the
+// visit, so a write is always one the shop takes. What each is, is drawn by StoreShares from the seed,
+// the visit seq and the page view, so a plan played again sends other writes: carts differ from
+// visitor to visitor, and a cart page that were the same in every play of a plan would be answered
+// from a render cache every time.
+func storeWritesOf(seed uint64, seq int, p Plan, afters []int) []PlannedWrite {
 	lang, _ := StorePageKind(p.Steps[0].Page)
 	base := StoreBase(lang)
 	cart := demoCart()
 	var out []PlannedWrite
 	for _, i := range afters {
-		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(p.ID)<<20|uint64(i)))
+		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(seq)<<20|uint64(i)))
 		kind, k := WriteAdd, rng.Float64()
 		for _, s := range StoreShares {
 			if k -= s.Share; k < 0 {
@@ -187,4 +189,10 @@ func storeWritesAt(seed uint64, p Plan, afters []int) []PlannedWrite {
 		out = append(out, PlannedWrite{After: i, Plan: p.ID, Kind: kind, Store: &req})
 	}
 	return out
+}
+
+// storeWritesAt makes the writes of the first play of plan p, where BlockWrites puts them: visit
+// number p.ID of the global sequence (the plans are numbered in the order they are played).
+func storeWritesAt(seed uint64, p Plan, afters []int) []PlannedWrite {
+	return storeWritesOf(seed, p.ID, p, afters)
 }

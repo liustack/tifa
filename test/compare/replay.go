@@ -128,12 +128,15 @@ const ActionSpacing = time.Second
 
 // A Workload is what is replayed for one framework and one scenario: the plans and their traces, and
 // the writes that the scenario puts after some page views. A run plays visits in the order of a
-// global sequence: visit s is plan s mod len(Plans), so a whole block is played before the next.
+// global sequence: visit s is plan s mod len(Plans), so a whole block is played before the next and a
+// plan is played many times in a round. Where a plan has writes is fixed by the plan. In the store
+// mix what they are is drawn per visit s (writesOf), so the plays of a plan have different carts.
 type Workload struct {
 	Plans    []Plan
 	Traces   map[int]Trace // by plan ID
 	Writes   map[[2]int]PlannedWrite
 	Scenario BrowseScenario
+	Seed     uint64 // the seed the writes were drawn from
 }
 
 // planFor is the plan that visit seq of the global sequence plays: the plans in order, over and over.
@@ -160,7 +163,7 @@ func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
 // NewWorkload puts the writes of a scenario into the plans, block by block, and fails if a plan has
 // no trace.
 func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uint64) (*Workload, error) {
-	w := &Workload{Plans: set.Plans, Traces: traces, Writes: map[[2]int]PlannedWrite{}, Scenario: sc}
+	w := &Workload{Plans: set.Plans, Traces: traces, Writes: map[[2]int]PlannedWrite{}, Scenario: sc, Seed: seed}
 	for _, p := range set.Plans {
 		if _, ok := traces[p.ID]; !ok {
 			return nil, fmt.Errorf("plan %d has no trace", p.ID)
@@ -608,6 +611,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 		a.mu.Unlock()
 		return sched
 	}
+	writes := r.wl.writesOf(seq)
 	for i, s := range trace.Steps {
 		sched := wait()
 		if ctx.Err() != nil {
@@ -621,7 +625,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 			}
 			return false
 		}
-		if w, ok := r.wl.Writes[[2]int{plan.ID, i}]; ok && !p.reads {
+		if w, ok := writes[i]; ok && !p.reads {
 			sched := wait()
 			if err := r.doWrite(ctx, v, a, w, sched); err != nil {
 				if ctx.Err() == nil {
@@ -665,4 +669,28 @@ func selfCPU() float64 {
 		return 0
 	}
 	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
+}
+
+// writesOf is the writes that visit seq of the global sequence sends, by the index of the page view
+// they follow. A plan has its writes at the same page views in every play, but in the store mix what
+// is written is drawn again for each visit (storeWritesAt), from the seed and seq. It is worked out
+// when the visit starts, not kept: it takes a few dozen random draws, and a round of any length
+// needs no table.
+func (w *Workload) writesOf(seq int) map[int]PlannedWrite {
+	p := w.planFor(seq)
+	out := map[int]PlannedWrite{}
+	var afters []int
+	for j := range p.Steps {
+		if x, ok := w.Writes[[2]int{p.ID, j}]; ok {
+			out[j] = x
+			afters = append(afters, j)
+		}
+	}
+	if w.Scenario.Mix == MixStore {
+		out = map[int]PlannedWrite{}
+		for _, x := range storeWritesOf(w.Seed, seq, p, afters) {
+			out[x.After] = x
+		}
+	}
+	return out
 }
