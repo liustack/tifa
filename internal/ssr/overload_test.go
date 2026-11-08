@@ -16,7 +16,7 @@ import (
 
 func TestPoolWaitHasServerDeadline(t *testing.T) {
 	cfg := config.Default().SSR
-	cfg.VMs = 1
+	cfg.VMs, cfg.WaitTimeout = 1, time.Second
 	p := newTestPool(t, testSource(t), cfg)
 	acquired, release := holdVMs(p)
 	defer release()

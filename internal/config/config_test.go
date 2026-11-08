@@ -571,7 +571,7 @@ func TestSSRQueueSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.SSR.QueueLimit != 32 || c.SSR.WaitTimeout != time.Second {
+	if c.SSR.QueueLimit != 32 || c.SSR.WaitTimeout != 3*time.Second {
 		t.Fatalf("defaults: %+v", c.SSR)
 	}
 	file := writeFile(t, "deploy.yaml", "ssr:\n  queue_limit: 8\n  wait_timeout: 800ms\n")

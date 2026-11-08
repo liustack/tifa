@@ -68,7 +68,7 @@ Common settings (full table in config.md):
 | `ssr.vms` | CPU count | `--ssr-vms`, `SSR_VMS` | How many pages render at once. Leave it at the default |
 | `ssr.vm_memory` | `128MiB` | `SSR_VM_MEMORY` | Limit per VM |
 | `ssr.timeout` | `3s` | `SSR_TIMEOUT` | One render. Over it is an unexpected error |
-| `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `1s` | `SSR_QUEUE_LIMIT`, `SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
+| `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `3s` | `SSR_QUEUE_LIMIT`, `SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
 | `cache.size` | `64MiB` | `--cache-size`, `CACHE_SIZE` | One size for the render cache and the pages of the whole-page cache (`Cache`), 0 turns both off |
 | `cache.whole_page` | `true` | `--cache-whole-page`, `CACHE_WHOLE_PAGE` | `false` answers the pages with `Cache` like other pages, to measure or debug them. The render cache stays on |
 | `cache.ignore_query` | `utm_*,gclid,fbclid` and the like | `CACHE_IGNORE_QUERY` | Tracking parameters the whole-page cache leaves out of its key. `name` adds, `-name` removes, a trailing `*` is a prefix. A parameter a `Load` reads is always kept |

@@ -131,7 +131,7 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`, `SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
-| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`, `SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
+| `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`, `SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
 | `cache.size` | `64MiB` | `--cache-size`, `CACHE_SIZE` | Size of the render cache of rendered pages and of the pages of the [whole-page cache](app.md#the-whole-page-cache), one LRU for both, counting the bytes it keeps: one form of each page, its gzip form with `server.compress` on and its HTML otherwise (see [Compression](build.md#compression)). `0` turns both off, though requests that miss the same page at the same time still share one render. What the render cache is and why it is safe: [The render cache](render-cache.md). A page turns the render cache off for itself with `RenderCache = false` (see [SSR and cache](app.md#ssr-and-cache)) |
 | `cache.whole_page` | `true` | `--cache-whole-page`, `CACHE_WHOLE_PAGE` | Keep the pages of routes with `Cache` for everyone, see [The whole-page cache](app.md#the-whole-page-cache). `false` renders them like other pages and leaves the render cache on |
 | `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`, `CACHE_IGNORE_QUERY` | The query parameters the whole-page cache leaves out of its key and of the URL it renders for. A name adds to the list, `-name` takes one out, `-*` empties it, and a name ending in `*` is a prefix. A parameter that a `Load` of the page reads is kept whatever this says |
@@ -178,7 +178,7 @@ var (
 
 ## Render queue
 
-When every VM is busy, at most `ssr.queue_limit` renders wait for up to `ssr.wait_timeout`. The first limit reached rejects the render. The default is 32 waiting renders and a 1 second wait. `ssr.timeout` still limits only execution in a VM, to 3 seconds by default. A client cancel or pool shutdown also ends a wait.
+When every VM is busy, at most `ssr.queue_limit` renders wait for up to `ssr.wait_timeout`. The first limit reached rejects the render. The default is 32 waiting renders and a 3 second wait. `ssr.timeout` still limits only execution in a VM, to 3 seconds by default. A client cancel or pool shutdown also ends a wait. The worst case for one render is the two limits added: up to 3 seconds waiting for a VM, then up to 3 seconds running (`ssr.timeout`), 6 seconds in all, inside the 10 second `server.write_timeout`. If you raise either one, keep their sum below the write timeout.
 
 Overload answers use a small HTML page written by Go, status 503, `Retry-After: 1` and `Cache-Control: no-store`, without an ETag. They are not cached, rendered again or sent to `OnError`. `OnRequest` can handle the error returned by `next(c)`. A render of a 404 or an error page uses the same limits. An actual render failure or render timeout still goes to `OnError`.
 
@@ -207,7 +207,7 @@ Returning the original error keeps the default 503 and its headers. Other render
 
 Use `tifa.ErrSSRBusy` when you want to do something of your own with an overload: count it, alert on it, or answer in another way than the default 503 page. If the default is fine, do nothing. The server already answers for you.
 
-- The error comes out of `next(c)` in `OnRequest`. Its text is `tifa: render queue busy: queue is full` or `tifa: render queue busy: wait exceeded 1s`. Match it with `errors.Is`, not by text.
+- The error comes out of `next(c)` in `OnRequest`. Its text is `tifa: render queue busy: queue is full` or `tifa: render queue busy: wait exceeded 3s`. Match it with `errors.Is`, not by text.
 - It never reaches `OnError`. A render that fails, and a render that runs past `ssr.timeout`, are different errors: they do not match, and they go to `OnError`.
 - A request whose own deadline comes before `ssr.wait_timeout` fails with that deadline, not with `tifa.ErrSSRBusy`. A client that goes away gives `context.Canceled`.
 - Return the error unchanged to keep the default answer: 503, `Retry-After: 1` and `Cache-Control: no-store`. If you return a `tifa.Error` of your own instead, the answer uses your status and message, and the default headers are not added. Set the ones you want with `c.SetHeader`.

@@ -131,7 +131,7 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
-| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
+| `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`、`SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
 | `cache.size` | `64MiB` | `--cache-size`、`CACHE_SIZE` | 渲染缓存是什么、为什么安全见[渲染缓存](render-cache.zh-CN.md)。渲染缓存里的页面和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，按实际存下的字节算：每个页面只存一种形式，`server.compress` 开着时存 gzip，否则存 HTML（见[压缩](build.zh-CN.md#压缩)），`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
 | `cache.whole_page` | `true` | `--cache-whole-page`、`CACHE_WHOLE_PAGE` | 带 `Cache` 的路由的页面对所有人共用一份，见[整页缓存](app.zh-CN.md#整页缓存)。设为 `false` 时这些页面和别的页面一样渲染，渲染缓存照常开着 |
 | `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`、`CACHE_IGNORE_QUERY` | 整页缓存的键和渲染用的 URL 里要去掉的查询参数。写一个名字是加进名单，`-名字` 是去掉一个，`-*` 清空，以 `*` 结尾的名字按前缀匹配。页面的 `Load` 读的参数不管这里怎么写都保留 |
@@ -178,7 +178,7 @@ var (
 
 ## 渲染队列
 
-所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 1 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。
+所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 3 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。 一次渲染最坏的耗时是两项限制相加：最多等 3 秒拿 VM，再最多跑 3 秒（`ssr.timeout`），共 6 秒，仍在 10 秒的 `server.write_timeout` 以内。调大其中任何一项时，让两者之和小于写超时。
 
 过载响应由 Go 写出简单的 HTML，状态码为 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不带 ETag。它不会进入缓存，不会再次调用 VM，也不会交给 `OnError`。`OnRequest` 可以处理 `next(c)` 返回的错误。404 和错误页的渲染使用相同限制。真正的渲染失败和渲染超时仍交给 `OnError`。
 
@@ -207,7 +207,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 想对过载做自己的处理时用 `tifa.ErrSSRBusy`：计数、报警，或者不用默认的 503 页面而换一种回答。默认的就够用，就什么都不用做，服务器已经替你回答了。
 
-- 错误从 `OnRequest` 里的 `next(c)` 返回。它的文本是 `tifa: render queue busy: queue is full` 或 `tifa: render queue busy: wait exceeded 1s`。用 `errors.Is` 匹配，不要比较文本。
+- 错误从 `OnRequest` 里的 `next(c)` 返回。它的文本是 `tifa: render queue busy: queue is full` 或 `tifa: render queue busy: wait exceeded 3s`。用 `errors.Is` 匹配，不要比较文本。
 - 它不会交给 `OnError`。渲染本身失败和超过 `ssr.timeout` 是别的错误：它们不匹配，会交给 `OnError`。
 - 请求自己的截止时间比 `ssr.wait_timeout` 先到时，错误是那个截止时间，不是 `tifa.ErrSSRBusy`。客户端走掉得到的是 `context.Canceled`。
 - 原样返回错误，保留默认回答：503、`Retry-After: 1` 和 `Cache-Control: no-store`。改为返回你自己的 `tifa.Error`，回答就用你的状态码和消息，不再加默认的响应头，要什么用 `c.SetHeader` 自己设。
