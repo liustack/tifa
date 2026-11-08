@@ -4,8 +4,10 @@ English · [简体中文](README.zh-CN.md)
 
 Two sides of one small shop, in one program.
 
-- **The workbench**, for the shop owner: two shops, an order list of 25 rows a page with product photos, to sort, search and filter by status, date, carrier and amount, with rows to select and export, order details with a log of what happened, internal notes, payment and invoice, a stock check, a packing list, the way of the parcel, a shipping form and a dialog to change where an order goes, and a sales stats page with charts, a table of every product with sparklines, a heatmap of when orders come, carriers, dispatch times and the best customers. After you ship an order the list and the stats update with it.
+- **The workbench**, for the shop owner: two shops, an order list of 25 rows a page with product photos, to sort, search and filter by status, date, carrier and amount, with rows to select and export, order details with a log of what happened, internal notes, payment and invoice, a stock check, a packing list, the way of the parcel, a shipping form and a dialog to change where an order goes, and a sales stats page with charts, a table of every product with sparklines, a heatmap of when orders come, carriers, dispatch times and the best customers. The first shop also has the products of the storefront, with a page to change the price, the stock and the title and description in both languages. After you ship an order the list and the stats update with it.
 - **The storefront**, for customers, in English and Chinese: a category menu and a cart drawer on every page, a home page with a carousel and tabs of best sellers, a product list with search, facets with counts, quick filters, chosen conditions, a grid and list view and a quick view of each product, product pages with a photo gallery, the whole specification, a comparison with similar products, reviews in pages with photos and replies from the shop, questions and products to buy together, coupons and suggestions around a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
+
+The two sides share their data. A checkout in the storefront becomes the next order of the first shop and takes its pieces from the stock, and a checkout of more than is left is refused. A change to a product in the workbench shows in the storefront on its next request.
 
 Pages are rendered to complete HTML on the server. After the browser takes over, it moves between pages on its own. Data lives in process memory and resets on restart.
 
@@ -72,6 +74,8 @@ app/
       stats/                   /projects/{project}/stats: sales stats
         revenue-chart.client.tsx  products-chart.client.tsx    the charts, loaded in the browser only
         panels.tsx             the product table, order heatmap, carriers, customers and recent orders
+      products/                /projects/studio/products: the products of the storefront, with their price and stock, in the first shop only
+        product+/              /projects/studio/products/{product}: the edit form, PATCH saves it
   store/                       /store in English and /zh-CN/store in Chinese: the folder has `_locales/`, so it is an area with two languages
     storekit/                  what the storefront shares: its two languages, their currency and time zone, prices
     _locales/                  the texts of each language, zh-CN.json and en-US.json
@@ -83,11 +87,12 @@ app/
     mine/                      /store/mine: GET gives the visitor's cart and recently viewed products, POST remembers a product
     products/
       product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews, specifications, recently viewed
+      edit.go                  the edits of the workbench, the stock and the lines orders take from the catalogue
       route.go  page.tsx       product list, filters in the query string, kept for 5 minutes
       filter-schema.ts         the zod schema of the filter form
       product+/                /store/products/{product}: product page kept for 10 minutes, POST adds to the cart
     cart/
-      cart.go  checkout.go     cart domain: lines, coupons, delivery, the checks of an order, placing it
+      cart.go  checkout.go     cart domain: lines, coupons, delivery, the checks of an order, placing it as an order of the first shop
       recent.go                carts and placed orders kept in memory, with a limit and an expiry
       route.go  page.tsx       /store/cart: PATCH changes a quantity, POST applies a coupon
     checkout/                  /store/checkout: the order form, POST places the order
@@ -135,6 +140,8 @@ The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: memo`.
 - Switch the storefront between English and 中文. Prices change between yuan and dollars, and dates, review counts and delivery days follow the language.
 - Search and filter the product list. The filters go into the URL, so a filtered list can be shared and the server renders it as it is. Set a minimum price above the maximum: the form refuses before sending anything.
 - Add a product to the cart in a colour, change quantities in the cart and try the codes `SHANHAI10` and `WELCOME30`. The first change gives you a cart of your own. It is kept in the program's memory, and a cookie holds only its ID. When a change fails, for example with the network down, its message shows under the line.
+- In the first shop, open Products and change the price or the English title of a product, then open it in the storefront. The page shows the change at once. Look at its `X-Tifa-Render` header twice: the first answer after the change is `vm`, the next `memo`. The render memo follows the data, with no code in the app to clear it.
+- Place an order in the storefront. It shows in the order list of the first shop with the next number, and the stock of each of its products goes down in Products. Then put a product in the cart, lower its stock in Products below the quantity in the cart, and check out: the order is refused and nothing changes.
 - Place an order, then open its confirmation in a private window. It answers 404: only the cart that placed an order sees it, since the page shows an email address.
 - Check out with an empty form, a postal code of the wrong shape, or a card number that fails the check digit. The errors show field by field, and Go returns the same ones when a request gets past the browser.
 - Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the render memo.
