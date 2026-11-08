@@ -31,7 +31,7 @@ export const loadShell = (request: Request) =>
 export const loadProject = (request: Request, id: string) =>
   once(request, `project:${id}`, () => orNotFound(() => domain.loadProject(id)))
 export const loadOrderList = (request: Request, id: string) =>
-  domain.loadOrderList(loadProject(request, id))
+  domain.loadOrderList(loadProject(request, id), new URL(request.url).searchParams)
 export const loadOrder = (request: Request, id: string, order: string) =>
   orNotFound(() => domain.loadOrder(loadProject(request, id), order))
 export const loadStats = (request: Request, id: string) => domain.loadStats(loadProject(request, id))

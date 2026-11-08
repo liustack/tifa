@@ -10,6 +10,15 @@ export type { Project } from '../../../domain/loaders.ts'
 
 export const loadShell = (sidebarState: string | undefined) => domain.loadShell(sidebarState)
 export const loadProject = cache((id: string) => domain.loadProject(id))
-export const loadOrderList = cache((project: domain.Project) => domain.loadOrderList(project))
+// query turns the searchParams of a page back into a query string, a key once for each value.
+export function query(searchParams: Record<string, string | string[] | undefined>) {
+  const q = new URLSearchParams()
+  for (const [key, value] of Object.entries(searchParams)) {
+    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) q.append(key, item)
+  }
+  return q.toString()
+}
+
+export const loadOrderList = cache((project: domain.Project, q: string) => domain.loadOrderList(project, new URLSearchParams(q)))
 export const loadOrder = cache((project: domain.Project, order: string) => domain.loadOrder(project, order))
 export const loadStats = cache((project: domain.Project) => domain.loadStats(project))

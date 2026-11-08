@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useTable } from '@tanstack/react-table'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Columns3, Copy, Download, Search, SearchX, Truck, Wallet, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -15,25 +15,53 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatedNumber } from '../../animated-number'
 import { orderDate, orderTime, percent, yuan } from '../../format'
-import { layout as project, page } from './route.gen'
-import { GET } from './orders/route.gen'
+import { layout as project, page, type PageData } from './route.gen'
 import { columnNames, columns, features, type Row } from './columns'
 import { SummaryCard, SummaryRow } from './summary-card'
 
 const noOrders: Row[] = []
 const pageSize = 25
-const day = 24 * 60 * 60 * 1000
 
 const periods = { all: 'All time', '7': 'Last 7 days', '30': 'Last 30 days' } as const
 const amounts = { all: 'Any amount', low: 'Under ¥200', mid: '¥200 to ¥500', high: 'Over ¥500' } as const
-const amountRanges: Record<keyof typeof amounts, [number | undefined, number | undefined] | undefined> = {
-  all: undefined,
-  low: [undefined, 19999],
-  mid: [20000, 50000],
-  high: [50001, undefined],
+
+// The filters, the sort and the page live in the query string: status, carrier, period, amount, q (the
+// search), sort (the column) with dir, and page, which counts from 1. What is not set, the default sort
+// (the newest first) and the first page are left out of the URL.
+type Filter = PageData['filter']
+
+// trimSearch trims the spaces, tabs and line breaks of ASCII from the ends of a search, which is the rule
+// of the server too (other characters that some languages call white space stay in the search).
+function trimSearch(text: string) {
+  return text.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, '')
+}
+
+// filterOf reads the filters out of the query string the router holds, as the server reads them: the
+// first value of a key, and what is not there is empty. A change is built on this, so that it keeps
+// what the URL has.
+function filterOf(search: Record<string, unknown>): Filter {
+  const first = (key: string) => [search[key]].flat()[0]
+  const text = (key: string) => (typeof first(key) === 'string' ? (first(key) as string) : '')
+  const page = Number(text('page'))
+  return {
+    status: text('status'), carrier: text('carrier'), period: text('period'), amount: text('amount'), q: text('q'),
+    sort: text('sort') || 'placedAt', dir: text('dir') || 'desc', page: Number.isInteger(page) && page > 0 ? page : 1,
+  }
+}
+
+function searchOf(f: Filter) {
+  return {
+    ...(f.status ? { status: f.status } : {}),
+    ...(f.carrier ? { carrier: f.carrier } : {}),
+    ...(f.period ? { period: f.period } : {}),
+    ...(f.amount ? { amount: f.amount } : {}),
+    ...(f.q ? { q: f.q } : {}),
+    ...(f.sort !== 'placedAt' || f.dir !== 'desc' ? { sort: f.sort, dir: f.dir } : {}),
+    ...(f.page > 1 ? { page: String(f.page) } : {}),
+  }
 }
 
 // download writes rows as a spreadsheet file the browser saves.
@@ -53,53 +81,74 @@ function download(rows: Row[], timeZone: string) {
 export default function OrdersPage() {
   const list = page.useLoaderData()
   const { id: projectId, timeZone } = project.useLoaderData()
-  // The page holds the newest orders, and the numbers over all of them come with it. A page after the first is read
-  // from the server when the visitor goes to it. The filters and the search work on the page on screen.
-  const [pageIndex, setPageIndex] = useState(0)
-  const [later, setLater] = useState<Row[]>()
-  useEffect(() => {
-    if (pageIndex === 0) return
-    let stale = false
-    GET({ params: { project: projectId }, input: { page: pageIndex } }).then((rows) => {
-      if (!stale && rows) setLater(rows)
+  // The server filters all the orders of the project and cuts the page, so what is on screen is the
+  // answer to the query string: the filters and the page come back in list.filter. A change of a
+  // filter goes to the first page.
+  //
+  // A change is built on the query string of the router at the moment it is made, not on the data on
+  // screen: the data for an earlier change may still be on its way, or may have been dropped by the
+  // back button, and the URL is what the visitor has asked for.
+  const navigate = useNavigate()
+  const filter = list.filter
+  const go = (change: Partial<Filter>, replace = false) =>
+    navigate({
+      to: '/projects/$project',
+      params: { project: projectId },
+      search: (current: Record<string, unknown>) => searchOf({ ...filterOf(current), page: 1, ...change }),
+      replace,
     })
-    return () => {
-      stale = true
-    }
-  }, [pageIndex, projectId])
-  const all = pageIndex === 0 || !later ? (list.orders ?? noOrders) : later
+  const pageIndex = filter.page - 1
+  const sorting = [{ id: filter.sort, desc: filter.dir === 'desc' }]
   const table = useTable({
     features,
     columns,
-    data: all,
+    data: list.orders ?? noOrders,
     manualPagination: true,
-    rowCount: list.total,
+    rowCount: list.matching,
     getRowId: (row) => row.id,
-    initialState: { sorting: [{ id: 'placedAt', desc: true }] },
-    state: { pagination: { pageIndex, pageSize } },
-    onPaginationChange: (updater) => setPageIndex((i) => (typeof updater === 'function' ? updater({ pageIndex: i, pageSize }) : updater).pageIndex),
-    globalFilterFn: 'includesString',
-    getColumnCanGlobalFilter: (column) => column.id === 'id' || column.id === 'customer',
+    manualSorting: true,
+    state: { pagination: { pageIndex, pageSize }, sorting },
+    onSortingChange: (updater) => {
+      const next = (typeof updater === 'function' ? updater(sorting) : updater)[0]
+      go(next ? { sort: next.id, dir: next.desc ? 'desc' : 'asc' } : { sort: 'placedAt', dir: 'desc' })
+    },
+    onPaginationChange: (updater) => {
+      const next = typeof updater === 'function' ? updater({ pageIndex, pageSize }) : updater
+      go({ page: next.pageIndex + 1 })
+    },
   })
-  const status = (table.getColumn('status')?.getFilterValue() as string | undefined) ?? 'all'
-  const carrier = (table.getColumn('carrier')?.getFilterValue() as string | undefined) ?? 'all'
-  const search = (table.state.globalFilter as string | undefined) ?? ''
+  const status = filter.status || 'all'
+  const carrier = filter.carrier || 'all'
+  const period = (filter.period || 'all') as keyof typeof periods
+  const amount = (filter.amount || 'all') as keyof typeof amounts
   const rows = table.getRowModel().rows
-  const filtered = table.state.columnFilters.length > 0 || search !== ''
-  const matching = filtered ? table.getFilteredRowModel().rows.length : list.total
+  const matching = list.matching
   const selected = table.getSelectedRowModel().rows.map((r) => r.original)
   const from = matching === 0 ? 0 : pageIndex * pageSize + 1
   const to = Math.min(matching, (pageIndex + 1) * pageSize)
 
-  const newest = list.total > 0 ? Date.parse(list.newestAt) : 0
-  const [period, setPeriod] = [periodOf(table.getColumn('placedAt')?.getFilterValue(), newest), (p: keyof typeof periods) => {
-    table.getColumn('placedAt')?.setFilterValue(p === 'all' ? undefined : [newest - Number(p) * day, undefined])
-    table.setPageIndex(0)
-  }]
-  const [amount, setAmount] = [amountOf(table.getColumn('totalCents')?.getFilterValue()), (a: keyof typeof amounts) => {
-    table.getColumn('totalCents')?.setFilterValue(amountRanges[a])
-    table.setPageIndex(0)
-  }]
+  // The search box keeps what the visitor types and asks the server once they pause. urlQ is the search
+  // the router has now, which is ahead of the data on screen while a change loads. A search that the box
+  // did not put there, such as the one the back button brings, replaces the text.
+  const urlQ = useRouterState({ select: (s) => trimSearch(filterOf(s.location.search as Record<string, unknown>).q) })
+  const [text, setText] = useState(urlQ)
+  const sent = useRef(urlQ)
+  useEffect(() => {
+    if (urlQ !== sent.current) {
+      sent.current = urlQ
+      setText(urlQ)
+    }
+  }, [urlQ])
+  useEffect(() => {
+    const q = trimSearch(text)
+    if (q === urlQ) return
+    const timer = setTimeout(() => {
+      sent.current = q
+      go({ q }, true)
+    }, 300)
+    return () => clearTimeout(timer)
+  })
+
   const carriers = list.carriers
   const oldest = list.oldestPending ?? undefined
   const count = list.total
@@ -141,10 +190,7 @@ export default function OrdersPage() {
 
       <Tabs
         value={status}
-        onValueChange={(value) => {
-          table.getColumn('status')?.setFilterValue(value === 'all' ? undefined : value)
-          table.setPageIndex(0)
-        }}
+        onValueChange={(value) => go({ status: value === 'all' ? '' : value })}
         className="gap-0 border bg-card"
       >
         <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
@@ -153,13 +199,13 @@ export default function OrdersPage() {
           </h2>
           <TabsList className="rounded-none">
             <TabsTrigger value="all" className="rounded-none">
-              All <span className="font-mono text-xs text-muted-foreground">{count}</span>
+              All <span className="font-mono text-xs text-muted-foreground">{list.statuses.all}</span>
             </TabsTrigger>
             <TabsTrigger value="pending" className="rounded-none">
-              To ship <span className="font-mono text-xs text-muted-foreground">{list.pending}</span>
+              To ship <span className="font-mono text-xs text-muted-foreground">{list.statuses.pending}</span>
             </TabsTrigger>
             <TabsTrigger value="shipped" className="rounded-none">
-              Shipped <span className="font-mono text-xs text-muted-foreground">{list.shipped}</span>
+              Shipped <span className="font-mono text-xs text-muted-foreground">{list.statuses.shipped}</span>
             </TabsTrigger>
           </TabsList>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -170,14 +216,11 @@ export default function OrdersPage() {
                 aria-label="Search order numbers or customers"
                 placeholder="Search order numbers or customers"
                 className="h-8 pl-8"
-                value={search}
-                onChange={(e) => {
-                  table.setGlobalFilter(e.target.value)
-                  table.setPageIndex(0)
-                }}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
               />
             </div>
-            <Select value={period} onValueChange={(v) => setPeriod(v as keyof typeof periods)}>
+            <Select value={period} onValueChange={(v) => go({ period: v === 'all' ? '' : v })}>
               <SelectTrigger size="sm" aria-label="Placed" className="rounded-none">
                 <CalendarDays />
                 <SelectValue>{periods[period]}</SelectValue>
@@ -192,10 +235,7 @@ export default function OrdersPage() {
             </Select>
             <Select
               value={carrier}
-              onValueChange={(v) => {
-                table.getColumn('carrier')?.setFilterValue(v === 'all' ? undefined : v)
-                table.setPageIndex(0)
-              }}
+              onValueChange={(v) => go({ carrier: v === 'all' ? '' : v })}
             >
               <SelectTrigger size="sm" aria-label="Carrier" className="rounded-none">
                 <Truck />
@@ -210,7 +250,7 @@ export default function OrdersPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={amount} onValueChange={(v) => setAmount(v as keyof typeof amounts)}>
+            <Select value={amount} onValueChange={(v) => go({ amount: v === 'all' ? '' : v })}>
               <SelectTrigger size="sm" aria-label="Amount" className="rounded-none">
                 <Wallet />
                 <SelectValue>{amounts[amount]}</SelectValue>
@@ -245,9 +285,9 @@ export default function OrdersPage() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="outline" size="sm" onClick={() => download(table.getFilteredRowModel().rows.map((r) => r.original), timeZone)}>
+            <Button variant="outline" size="sm" onClick={() => download(list.orders ?? noOrders, timeZone)}>
               <Download />
-              Export
+              Export page
             </Button>
           </div>
         </div>
@@ -323,10 +363,7 @@ export default function OrdersPage() {
               <EmptyContent>
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    table.setGlobalFilter('')
-                    table.resetColumnFilters()
-                  }}
+                  onClick={() => go({ status: '', carrier: '', period: '', amount: '', q: '', sort: 'placedAt', dir: 'desc' })}
                 >
                   View all orders
                 </Button>
@@ -365,16 +402,4 @@ export default function OrdersPage() {
       </Tabs>
     </section>
   )
-}
-
-function periodOf(value: unknown, newest: number): keyof typeof periods {
-  if (!Array.isArray(value) || typeof value[0] !== 'number') return 'all'
-  return Math.round((newest - value[0]) / day) === 7 ? '7' : '30'
-}
-
-function amountOf(value: unknown): keyof typeof amounts {
-  for (const [key, range] of Object.entries(amountRanges)) {
-    if (range && Array.isArray(value) && value[0] === range[0] && value[1] === range[1]) return key as keyof typeof amounts
-  }
-  return 'all'
 }

@@ -29,6 +29,17 @@ function queryOf(search: Search | undefined) {
   return parts.length > 0 ? '?' + parts.join('&') : ''
 }
 
+// searchOf reads a query string the way tifa's router does: every value a string, a key given more than
+// once an array.
+function searchOf(params: { entries(): Iterable<[string, string]> }): Search {
+  const search: Record<string, string | string[]> = {}
+  for (const [key, value] of params.entries()) {
+    const previous = search[key]
+    search[key] = previous === undefined ? value : Array.isArray(previous) ? [...previous, value] : [previous, value]
+  }
+  return search
+}
+
 function isActive(pathname: string, href: string, exact?: boolean) {
   if (pathname === href) return true
   return !exact && pathname.startsWith(href.endsWith('/') ? href : href + '/')
@@ -86,13 +97,14 @@ export function Outlet() {
 }
 
 interface RouterState {
-  location: { pathname: string }
+  location: { pathname: string; search: Search }
   isLoading: boolean
 }
 
 export function useRouterState<T>({ select }: { select: (state: RouterState) => T }): T {
   const pathname = usePathname()
-  return select({ location: { pathname }, isLoading: false })
+  const params = useSearchParams()
+  return select({ location: { pathname, search: searchOf(params) }, isLoading: false })
 }
 
 export function useMatchRoute() {
@@ -103,7 +115,13 @@ export function useMatchRoute() {
 export function useNavigate() {
   const router = useNextRouter()
   const pathname = usePathname()
-  return ({ to, params, search }: { to: string; params?: Params; search?: Search }) => router.push(inLanguage(buildPath(to, params), languageOf(pathname)) + queryOf(search))
+  const current = useSearchParams()
+  return ({ to, params, search, replace }: { to: string; params?: Params; search?: Search | ((previous: Search) => Search); replace?: boolean }) => {
+    const next = typeof search === 'function' ? search(searchOf(current)) : search
+    const href = inLanguage(buildPath(to, params), languageOf(pathname)) + queryOf(next)
+    if (replace) router.replace(href)
+    else router.push(href)
+  }
 }
 
 // The router of the page. invalidate loads the data of the page again with refresh, which Next.js
