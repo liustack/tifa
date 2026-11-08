@@ -157,6 +157,8 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"check out", "POST", "checkout", checkout, []compare.Page{list, stats, products, order("SH-1042"), order("SH-1041")}},
 		{"refuse an edit with no English title", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `" Oak Tray, Large "`, `"  "`, 1), nil},
 		{"refuse an edit with a stock below 0", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"stock":5`, `"stock":-1`, 1), nil},
+		// A title that is not a JSON string is a body Go cannot decode (400), not an empty title (422).
+		{"refuse an edit whose English title is a number", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `" Oak Tray, Large "`, `123`, 1), nil},
 		{"refuse an edit in the other shop", "PATCH", "product:weekend:oak-tray", edit, nil},
 		{"refuse an edit of an unknown product", "PATCH", "product:studio:no-such-product", edit, nil},
 		{"edit a product", "PATCH", "product:studio:oak-tray", edit, []compare.Page{products, tray, storeTray}},
@@ -232,7 +234,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
 	}
-	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 404, 404, 200, 200, 200}
+	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200}
 	if len(wantStatus) != len(steps) {
 		t.Fatalf("%d statuses for %d steps", len(wantStatus), len(steps))
 	}
@@ -265,7 +267,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if placed, _ := ref[22].reply.Order.(string); placed != "/store/checkout?placed=SH-1044" {
 		t.Errorf("the checkout placed %q, want the order SH-1044 of the studio shop", placed)
 	}
-	if a, _ := json.Marshal(ref[29].reply.Order); !strings.Contains(string(a), `"name":"橡木大托盘"`) || !strings.Contains(string(a), `"priceCents":52000`) {
+	if a, _ := json.Marshal(ref[30].reply.Order); !strings.Contains(string(a), `"name":"橡木大托盘"`) || !strings.Contains(string(a), `"priceCents":52000`) {
 		t.Errorf("the order of the edited product does not take its new name and price: %s", a)
 	}
 }

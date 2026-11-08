@@ -32,14 +32,21 @@ async function answer(request: Request, run: (body: any) => unknown): Promise<Re
   }
 }
 
-const text = (v: unknown): string => (typeof v === 'string' ? v : '')
 // BadBody is a body Go cannot decode into the input of the handler, which tifa answers with 400.
 class BadBody extends Error {}
 
-// whole is a JSON number that Go decodes into an int: a missing one is 0, and a fraction or another
-// type is a body Go cannot decode.
+// text is a JSON string that Go decodes into a string field, as encoding/json/v2 does: a missing
+// one or null is empty, and another type is a body Go cannot decode.
+function text(v: unknown): string {
+  if (v === undefined || v === null) return ''
+  if (typeof v !== 'string') throw new BadBody()
+  return v
+}
+
+// whole is a JSON number that Go decodes into an int: a missing one or null is 0, and a fraction or
+// another type is a body Go cannot decode.
 function whole(v: unknown): number {
-  if (v === undefined) return 0
+  if (v === undefined || v === null) return 0
   if (typeof v !== 'number' || !Number.isInteger(v)) throw new BadBody()
   return v
 }
