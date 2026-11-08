@@ -51,7 +51,9 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	}
 }
 
-func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
+// The latency table gives every round a server played at the rate, the failed ones too: a server
+// with a failed round fails the rule, and its errors and tail latency are in its row.
+func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	mix := BrowseScenarios[0]
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"},
@@ -60,7 +62,7 @@ func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
 		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
 		a.Model = "open"
 		if round == 2 {
-			a.TimedOut = true
+			a.TimedOut, a.Failures = true, 20
 			a.Why = "the workload did not finish in time: a backlog was left"
 			a.Types["load"] = TypeStat{N: 5, P50: 3000, P99: 3000}
 		}
@@ -70,15 +72,14 @@ func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
 		r.Latency = append(r.Latency, b)
 	}
 	md := r.Markdown()
-	for _, want := range []string{"| Next.js | 4.0 / 30 (200)", "2 of 3 rounds, the failed ones left out: round 2 failed: the workload did not finish in time",
+	for _, want := range []string{
+		"| Next.js | 4.0 (4.0 to 3000.0) / 30 (30 to 3000) (205) |", "| 20 |",
+		"failed the rule in 1 of 3 rounds: round 2 failed: the workload did not finish in time",
 		// A server that fails at the rate in every round is a result, with its numbers.
-		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 0 |", "failed at this rate in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms"} {
+		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 0 |", "failed the rule in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
-	}
-	if strings.Contains(md, "3000") {
-		t.Error("a failed round's percentiles are in the table of a server with rounds that passed")
 	}
 }
 

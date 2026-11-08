@@ -325,36 +325,31 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 		return
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets the same arrival rate, half of the rate %s sustains on this scenario, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it, and its row gives the numbers of its failed rounds. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets the same arrival rate, half of the rate %s sustains on this scenario, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
 	for _, f := range r.Servers[sc.Name] {
-		var good, bad []Round
+		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
+		// its result, with its errors and its tail latency.
+		var shown []Round
+		var notes []string
 		for _, x := range r.Latency {
 			if x.Framework != f || x.Scenario != sc.Name {
 				continue
 			}
-			if x.Pass && x.Valid {
-				good = append(good, x)
-			} else {
-				bad = append(bad, x)
+			shown = append(shown, x)
+			if !x.Pass || !x.Valid {
+				why := x.Why
+				if why == "" {
+					why = x.WhyInvalid
+				}
+				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, why))
 			}
 		}
-		if len(good)+len(bad) == 0 {
+		if len(shown) == 0 {
 			continue
 		}
-		var notes []string
-		for _, x := range bad {
-			why := x.Why
-			if why == "" {
-				why = x.WhyInvalid
-			}
-			notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, why))
-		}
-		shown, note := good, fmt.Sprintf("%d of %d rounds", len(good), len(good)+len(bad))
-		if len(good) == 0 {
-			// It failed at the rate in every round: that is its result, with the numbers it had.
-			shown, note = bad, fmt.Sprintf("failed at this rate in %d of %d rounds: %s", len(bad), len(bad), strings.Join(notes, "; "))
-		} else if len(notes) > 0 {
-			note += ", the failed ones left out: " + strings.Join(notes, "; ")
+		note := fmt.Sprintf("%d of %d rounds passed", len(shown)-len(notes), len(shown))
+		if len(notes) > 0 {
+			note = fmt.Sprintf("failed the rule in %d of %d rounds: %s", len(notes), len(shown), strings.Join(notes, "; "))
 		}
 		fails := 0
 		for _, x := range shown {
