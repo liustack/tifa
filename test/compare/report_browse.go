@@ -673,7 +673,7 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from its first request (the last step is as long as the round has left). Tifa starts with an empty render cache and no warm-up, so its first steps show the cache filling up. The Node servers had a warm-up, so their first steps show what is left of the warming. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from the start of the round (the last step is as long as the round has left). The steps show how throughput and latency change over the round. An open round includes the ramp at the start and the drain at the end, so its first and last steps differ from the middle whatever the server does. Tifa had no warm-up and starts with an empty render cache, the Node servers had one. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
