@@ -639,7 +639,7 @@ function tifaI18nWrap(object, names, clears) {
 tifaI18nWrap(ResourceStore.prototype, ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'], () => true);
 tifaI18nWrap(Formatter.prototype, ['init', 'add', 'addCached'], (formatter) => tifaI18nFormatters.has(formatter));
 if (typeof postProcessor !== 'undefined') tifaI18nWrap(postProcessor, ['addPostProcessor'], () => true);
-if (I18n.prototype.hydrate) tifaI18nWrap(I18n.prototype, ['hydrate'], (i18n) => !i18n.options.isClone && tifaI18nCaches.delete(i18n));
+if (I18n.prototype.hydrate) tifaI18nWrap(I18n.prototype, ['hydrate'], () => true);
 tifaI18nWrap(I18n.prototype, ['loadNamespaces'], () => true);
 tifaI18nWrap(I18n.prototype, ['init', 'reloadResources', 'use', 'setDefaultNamespace', 'loadLanguages'], (i18n) => !i18n.options.isClone && tifaI18nCaches.delete(i18n));
 var tifaI18nForward = Logger.prototype.forward;
@@ -2136,7 +2136,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             notRecognized +
             `${i18next} has a form the tifa plugin does not know, so the tifa plugin does not cache its translations ` +
               'as build.i18next_cache, on by default, asks. Pages render the same, but translations take longer. ' +
-              'i18next 25.5 to 26.5 is cached, and build.i18next_cache: false in tifa.yaml builds without this warning',
+              'i18next 25.5 to 27.0 is cached, and build.i18next_cache: false in tifa.yaml builds without this warning',
           )
         }
         return cached ?? faster
@@ -3127,11 +3127,14 @@ function i18nextFaster(source) {
 // translation it holds: the methods of the store, loadNamespaces, adding a formatter to the
 // formatter of an instance it holds translations of, and, up to i18next 26.5, adding a
 // post-processor, which all instances share. A backend loads resources through the store too. The
-// other methods of an instance that change its resources, namespaces or options make it forget what
-// that instance kept. In i18next 27 these include use, which adds a post-processor to that
-// instance only, and hydrate, which replaces its store data. i18next 27 logs some warnings once
-// (logger.once, only with debug on): the call that logs is not kept, and the calls after it, which
-// log nothing in i18next either, are. changeLanguage and cloneInstance keep it, since the language is part of the key
+// other methods of an instance that change its resources, namespaces or options make the cache
+// forget everything it holds, when that instance held something. In i18next 27 these include use,
+// which adds a post-processor to that instance only. hydrate replaces the store data and adds
+// namespaces to options.ns, an array that instances made from one options object share, so it
+// forgets everything whether or not its instance held something. i18next 27 logs some warnings
+// once (logger.once, only with debug on): the call that logs is not kept, and the calls after it,
+// which log nothing in i18next either, are. changeLanguage and cloneInstance keep it, since the
+// language is part of the key
 // and clones keep nothing. It holds at most about i18nextCacheSize bytes, counting two bytes a
 // character and 80 for each entry, and starts over when the next string would not fit. A key of t
 // whose calls keep missing stops using the cache, see i18nextCacheSource. It assumes that the app

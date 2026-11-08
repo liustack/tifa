@@ -81,6 +81,11 @@ custom.init({
   overloadTranslationOptionHandler: (args) => ({ defaultValue: 'overloaded', name: args.slice(1).join(' ') }),
 })
 
+// sep reads the first part of a key as a namespace only when options.ns lists it, as nsSeparator and
+// keySeparator are the same, so a namespace added later changes what an old key gives.
+const sep = i18next.createInstance()
+sep.init({ lng: 'en', initAsync: false, ns: ['translation'], nsSeparator: '.', keySeparator: '.', resources: { en: { translation: { extra: { title: 'OLD' } }, extra: { title: 'NEW' } } } })
+
 const saving = i18next.createInstance()
 saving.init({ lng: 'en', resources: copy(), initAsync: false, saveMissing: true, missingKeyHandler: () => missing++ })
 saving.on('missingKey', () => missingEvents++)
@@ -149,7 +154,9 @@ function calls() {
 // probe translates keys that only shop uses, so that the cache keeps them while a step changes shop.
 const probe = () => {
   const p = shop.getFixedT('en')
-  return [p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: ['reverse'] }), p('titlex'), p('titlex'), shop.t('titlex')]
+  const c = clone ? clone.getFixedT('en') : () => 'no clone'
+  const s = sep.getFixedT('en')
+  return [p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: ['reverse'] }), p('titlex'), p('titlex'), shop.t('titlex'), c('ppx', { postProcess: 'reverse' }), c('ppx', { postProcess: 'reverse' }), s('extra.title'), s('extra.title')]
 }
 const runs = []
 const step = (name, change) => {
@@ -174,16 +181,16 @@ step('formatter add', () => shop.services.formatter.add('upper', (value) => Stri
 step('formatter addCached', () => shop.services.formatter.addCached('upper', () => (value) => String(value) + '!'))
 step('use a post-processor', () => shop.use({ type: 'postProcessor', name: 'reverse', process: (value) => [...value].reverse().join('') }))
 step('use another post-processor of the name', () => shop.use({ type: 'postProcessor', name: 'reverse', process: (value) => value.toUpperCase() }))
-step('use a post-processor on the clone', () => (clone || shop).use({ type: 'postProcessor', name: 'reverse', process: (value) => value + '?' }))
 step('fixedT.lng', () => (keptEn.lng = 'de'))
 step('fixedT.keyPrefix', () => (keptEn.keyPrefix = 'nested'))
 step('fixedT.ns', () => (keptCommon.ns = 'translation'))
 step('cloneInstance', () => (clone = shop.cloneInstance({ lng: 'en' })))
+step('use a post-processor on the clone', () => clone.use({ type: 'postProcessor', name: 'reverse', process: (value) => value + '?' }))
 step('addResource of the clone', () => clone.addResource('en', 'translation', 'title', 'From the clone'))
 step('changeLanguage of the clone', () => clone.changeLanguage('de'))
 step('hydrate', () => shop.hydrate && shop.hydrate({ en: { translation: { title: 'Hydrated', greet: 'Hi {{name}}' } }, de: { translation: { title: 'Hydriert' } } }, 'en'))
 step('init again', () => custom.init({ lng: 'de', nsSeparator: ':', keySeparator: '.' }))
-step('loadNamespaces', () => shop.loadNamespaces('extra'))
+step('loadNamespaces', () => sep.loadNamespaces('extra'))
 step('loadLanguages', () => shop.loadLanguages('fr'))
 step('reloadResources', () => shop.reloadResources())
 globalThis.result = JSON.stringify({ runs, missing, missingEvents, logs, formats })
@@ -340,7 +347,7 @@ func TestSSRLeavesAnUnknownI18nextUncached(t *testing.T) {
 			root := withI18next(t, ver.alias, change)
 			off, _ := i18nextApp(t, root, page, `{ target: ["es2022"] }`)
 			on, printed := i18nextApp(t, root, page, `{ target: ["es2022"], i18nextCache: true }`)
-			if strings.Count(printed, ver.name(t)+": ") != strings.Count(printed, "[plugin tifa:ssr] ") || strings.Count(printed, "does not cache its translations") != 1 {
+			if strings.Count(printed, ver.name(t)+": ") != strings.Count(printed, "[plugin tifa:ssr] ") || strings.Count(printed, "does not cache its translations") != 1 || !strings.Contains(printed, "i18next 25.5 to 27.0 is cached") {
 				t.Errorf("%s changed: the build prints:\n%s", c.name, printed)
 			}
 			if on != off {
