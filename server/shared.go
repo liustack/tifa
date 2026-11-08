@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,17 +30,17 @@ func sharedCacheControl(ttl time.Duration) string {
 // setShared gives the answer of a page with Cache the Cache-Control that lets a shared cache keep it,
 // unless OnRequest, a Load or a Layout said it is not for everyone: private, no-store or no-cache, or
 // a Vary other than Accept-Encoding. Then the headers stay as they are. It notes what it wrote, so a
-// failure can take it back (dropShared).
+// failure can take it back (dropShared). Only the GET and HEAD that serve made anonymous are shared (anonymousRequest): any other request
+// may have read the visitor.
 func setShared(c *tifa.Ctx, ttl time.Duration) {
+	a := anonymityOf(c.Request())
 	h := c.Writer().Header()
-	if !headersStorable(h) {
+	if a == nil || !headersStorable(h) {
 		return
 	}
 	value := sharedCacheControl(ttl)
 	h.Set("Cache-Control", value)
-	if a := anonymityOf(c.Request()); a != nil {
-		a.shared = value
-	}
+	a.shared = value
 }
 
 // dropShared takes back the Cache-Control that setShared wrote, when the answer turns out to be an
@@ -51,8 +52,12 @@ func dropShared(c *tifa.Ctx) {
 		return
 	}
 	h := c.Writer().Header()
-	if values := h.Values("Cache-Control"); len(values) == 1 && values[0] == a.shared {
-		h.Del("Cache-Control")
+	if i := slices.Index(h["Cache-Control"], a.shared); i >= 0 {
+		if rest := slices.Delete(slices.Clone(h["Cache-Control"]), i, i+1); len(rest) > 0 {
+			h["Cache-Control"] = rest
+		} else {
+			h.Del("Cache-Control")
+		}
 	}
 	a.shared = ""
 }

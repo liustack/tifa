@@ -223,8 +223,45 @@ func TestCachePageRedirectIsShared(t *testing.T) {
 		if w.Code != tc.status || cacheControl(w) != tc.want {
 			t.Errorf("%d, app sets %q: %d, Cache-Control %q, want %q", tc.status, tc.own, w.Code, cacheControl(w), tc.want)
 		}
-		if d := getData(s, "/old", "b1", "11"); strings.Contains(cacheControl(d), "public") {
-			t.Errorf("%d: the data answer is %q", tc.status, cacheControl(d))
+		d := getData(s, "/old", "b1", "11")
+		if d.Code != 200 || !strings.Contains(d.Body.String(), fmt.Sprintf(`"status":%d,"location":"/new"`, tc.status)) || strings.Contains(cacheControl(d), "public") {
+			t.Errorf("%d: the data answer is %d %q, Cache-Control %q", tc.status, d.Code, d.Body.String(), cacheControl(d))
 		}
+	}
+}
+
+// Only what the framework wrote is taken back from a failed page. A directive the app adds after the
+// page ran stays, and so does every other value.
+func TestCachePageFailureKeepsWhatTheAppAdded(t *testing.T) {
+	app := wireApp()
+	app.Routes = append(app.Routes, Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+		Load: func(c *tifa.Ctx) (any, error) { return 7, nil }})
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		err := next(c)
+		c.Writer().Header().Add("Cache-Control", "must-revalidate")
+		return err
+	}
+	s, r := wireServer(t, app)
+	r.result = func(ssr.Input) (string, error) { return "", errors.New("ssr: render page: boom") }
+	w := get(s, "/news")
+	if got := w.Header().Values("Cache-Control"); w.Code != 500 || len(got) != 1 || got[0] != "must-revalidate" {
+		t.Errorf("%d, Cache-Control %q, want only the directive the app added", w.Code, got)
+	}
+}
+
+// Only the GET and HEAD that the framework made anonymous are shared. A POST to the same URL reads
+// the visitor, so its redirect is not for everyone.
+func TestCachePagePostRedirectIsNotShared(t *testing.T) {
+	app := wireApp()
+	app.Routes = append(app.Routes, Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+		Load: func(c *tifa.Ctx) (any, error) { return 7, nil },
+		POST: func(c *tifa.Ctx) error { return tifa.Redirect("/to/"+c.Header("Authorization"), 302) }})
+	s, _ := wireServer(t, app)
+	r := httptest.NewRequest("POST", "/news", nil)
+	r.Header.Set("Authorization", "alice")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 302 || strings.Contains(cacheControl(w), "public") {
+		t.Errorf("POST: %d, Location %q, Cache-Control %q", w.Code, w.Header().Get("Location"), cacheControl(w))
 	}
 }
