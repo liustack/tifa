@@ -197,6 +197,13 @@ func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
 	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back tomorrow") {
 		t.Errorf("another message: %s", w)
 	}
+	// A page with Cache whose Load answers 404 skips its whole-page cache for a while, and the
+	// render cache has its 404 page meanwhile.
+	e.fail("/cached", tifa.ErrNotFound)
+	first, second = e.do("GET", "/cached"), e.do("GET", "/cached")
+	if first.w.Code != 404 || first.renders != 1 || second.w.Code != 404 || second.renders != 0 {
+		t.Errorf("404 of a page with Cache: %s, then %s", first, second)
+	}
 	// RenderCache = false keeps its 404 page out of the cache too.
 	for range 2 {
 		if w := e.do("GET", "/live"); w.w.Code != 404 || w.renders != 1 || w.w.Header().Get(renderHeader) != "vm" {
