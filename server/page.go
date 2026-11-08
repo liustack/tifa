@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"hash"
 	"html"
 	"io"
 	"io/fs"
@@ -21,6 +22,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
@@ -742,26 +744,45 @@ type dataRedirect struct {
 // whole-page cache, which keys by URL.
 func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
-	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
-		io.WriteString(sum, part)
+	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL} {
+		hashString(sum, part)
+		sum.Write([]byte{0})
+	}
+	sum.Write(in.Data)
+	sum.Write([]byte{0})
+	hashString(sum, in.Preload)
+	sum.Write([]byte{0})
+	sum.Write(in.Session)
+	sum.Write([]byte{0})
+	for _, part := range []string{in.SessionKey, in.SessionHead} {
+		hashString(sum, part)
 		sum.Write([]byte{0})
 	}
 	// A site without languages hashes as it did before they existed.
 	if in.Language != "" {
-		io.WriteString(sum, "language:"+in.Language)
+		hashString(sum, "language:"+in.Language)
 		sum.Write([]byte{0})
 	}
 	if in.Alternates != nil {
-		io.WriteString(sum, "alternates:"+string(in.Alternates))
+		hashString(sum, "alternates:")
+		sum.Write(in.Alternates)
 		sum.Write([]byte{0})
 	}
 	// Each text is written with its length, so moving a character from one text to the next
 	// makes another key.
+	var n [20]byte
 	for _, text := range in.Texts {
-		fmt.Fprintf(sum, "%d:", len(text))
-		io.WriteString(sum, text)
+		sum.Write(strconv.AppendInt(n[:0], int64(len(text)), 10))
+		sum.Write([]byte{':'})
+		hashString(sum, text)
 	}
 	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
+}
+
+// hashString writes s to a hash without copying it, as the data of a Load can be long: Write of a
+// hash only reads the bytes it is given and keeps none of them.
+func hashString(h hash.Hash, s string) {
+	h.Write(unsafe.Slice(unsafe.StringData(s), len(s)))
 }
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of

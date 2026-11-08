@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -347,5 +348,22 @@ func TestRemadeEntryOutlivesItsCopyInTheRenderCache(t *testing.T) {
 	e.s.ExpirePages([]string{"/cached"})
 	if w := e.do("GET", "/cached"); w.renders != 0 {
 		t.Errorf("made again with the same data: %s", w)
+	}
+}
+
+// The key of a render hashes the input as it is: it copies none of the data, however long.
+func TestRenderKeyCopiesNothing(t *testing.T) {
+	long := strings.Repeat("x", 100_000)
+	in := ssr.Input{BuildID: "b1", URL: "/table", Data: []byte(`{"app/table/route":{"status":200,"text":0}}` + long), Texts: []string{long, long}, Session: []byte(long), Language: "en", Alternates: []byte(long)}
+	renderKey(in, "bundle", "policy")
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range 10 {
+		renderKey(in, "bundle", "policy")
+	}
+	runtime.ReadMemStats(&after)
+	// Other tests that run meanwhile may allocate too, hence the margin: a copy is 100 KB.
+	if perCall := (after.TotalAlloc - before.TotalAlloc) / 10; perCall > 8<<10 {
+		t.Errorf("renderKey allocates %d bytes for 500 KB of input", perCall)
 	}
 }

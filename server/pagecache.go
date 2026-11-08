@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"errors"
-	"io"
 	"net/http"
 	"slices"
 	"strconv"
@@ -607,9 +606,9 @@ func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in
 // page that has no render key to stand on.
 func contentTag(html, policy string) string {
 	sum := sha256.New()
-	io.WriteString(sum, policy)
+	hashString(sum, policy)
 	sum.Write([]byte{0})
-	io.WriteString(sum, html)
+	hashString(sum, html)
 	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
 }
 
