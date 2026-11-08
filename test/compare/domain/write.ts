@@ -2,6 +2,8 @@ import { Invalid, Locked, NotFound, OutOfStock } from './errors.ts'
 import { addNote, postOrder, shipOrder, updateRecipient } from './orders.ts'
 import type { NewOrder } from './orders.ts'
 import { Fields } from './store/errors.ts'
+import { BadJSON, Num, asInt, parseBody } from './store/json.ts'
+import type { Value } from './store/json.ts'
 import { checkEdit } from './store/products/edit.ts'
 import { shopEntries, shopEntry, updateShopProduct } from './weekend.ts'
 import { storefrontProject } from './store/store.ts'
@@ -14,24 +16,24 @@ import type { Edit } from './store/products/edit.ts'
 // product). They are not part of the pages and are not timed.
 
 async function answer(request: Request, run: (body: any) => unknown): Promise<Response> {
-  let text: string
+  let bytes: Uint8Array
   try {
-    text = await request.text()
+    bytes = new Uint8Array(await request.arrayBuffer())
   } catch {
     return Response.json({ error: 'bad body' }, { status: 400 })
   }
-  let body: any
+  let body: Value
   try {
-    body = parseBody(text)
+    body = parseBody(bytes)
   } catch (e) {
-    if (e instanceof SyntaxError) return Response.json({ error: 'bad body' }, { status: 400 })
+    if (e instanceof BadJSON) return Response.json({ error: 'bad body' }, { status: 400 })
     throw e
   }
   // Go decodes a body of null into the zero value of the input, as it does {}, and checks that.
-  if (body === null) body = {}
-  if (typeof body !== 'object' || Array.isArray(body) || body instanceof NotAnInt) return Response.json({ error: 'bad body' }, { status: 400 })
+  if (body === null) body = new Map()
+  if (!(body instanceof Map)) return Response.json({ error: 'bad body' }, { status: 400 })
   try {
-    return Response.json(run(body))
+    return Response.json(run(plain(body)))
   } catch (e) {
     if (e instanceof BadBody) return Response.json({ error: 'bad body' }, { status: 400 })
     if (e instanceof NotFound) return Response.json({ error: 'not found' }, { status: 404 })
@@ -41,6 +43,15 @@ async function answer(request: Request, run: (body: any) => unknown): Promise<Re
     if (e instanceof Fields) return Response.json({ error: e.message, fields: e.fields }, { status: 422 })
     throw e
   }
+}
+
+// plain turns a value of the JSON reader (store/json.ts), which reads a body with the rules of Go's
+// encoding/json/v2, into plain objects and arrays for the readers below. A number stays a Num, the
+// text it was written in, for whole to read.
+function plain(v: Value): unknown {
+  if (v instanceof Map) return Object.fromEntries([...v].map(([k, e]) => [k, plain(e)]))
+  if (Array.isArray(v)) return v.map(plain)
+  return v
 }
 
 // BadBody is a body Go cannot decode into the input of the handler, which tifa answers with 400.
@@ -54,49 +65,31 @@ function text(v: unknown): string {
   return v
 }
 
-// NotAnInt is a JSON number that Go does not decode into an int, as parseBody reads it: one written
-// with a fraction or an exponent (1.0, 1e0), or past the range of an int64.
-class NotAnInt {
-  readonly source: string
-  constructor(source: string) {
-    this.source = source
-  }
-}
-
-// goInt is how encoding/json/v2 wants a number it decodes into an int to be written.
-const goInt = /^-?(?:0|[1-9][0-9]*)$/
-const minInt = -(2n ** 63n)
-const maxInt = 2n ** 63n - 1n
-
-// parseBody parses a JSON body and gives each number that Go would not decode into an int as a
-// NotAnInt, from the text it was written with (the source the reviver of JSON.parse gets, which V8
-// gives since Node 21). A NotAnInt in a field the handler reads as an int or a text is a body Go
-// cannot decode, and one in a field it does not read is left alone, as Go leaves it.
-function parseBody(text: string): unknown {
-  return JSON.parse(text, (_key: string, value: unknown, context?: { source?: string }) => {
-    if (typeof value !== 'number') return value
-    const source = context?.source
-    if (source === undefined) throw new Error('JSON.parse gave the reviver no source: this Node is older than 21')
-    if (!goInt.test(source)) return new NotAnInt(source)
-    const n = BigInt(source)
-    return n < minInt || n > maxInt ? new NotAnInt(source) : value
-  })
-}
-
 // whole is a JSON number that Go decodes into an int: a missing one or null is 0, and one Go does not
-// decode into an int (a fraction, an exponent, past the range) or another type is a body Go cannot
-// decode.
+// decode into an int (written with a fraction or an exponent, or past the range of an int64) or
+// another type is a body Go cannot decode. A plain number is taken as it is: the writes of the
+// domain check (dump.ts) come from JSON.parse.
 function whole(v: unknown): number {
   if (v === undefined || v === null) return 0
-  if (typeof v !== 'number') throw new BadBody()
-  return v
+  if (typeof v === 'number') return v
+  if (!(v instanceof Num)) throw new BadBody()
+  const n = asInt(v)
+  if (n === undefined) throw new BadBody()
+  return n
 }
 
-// newOrder is the body of a create as Go decodes it into a NewOrder: a missing text is empty.
+// newOrder is the body of a create as Go decodes it into a NewOrder: a missing text is empty, items
+// that are missing or null are none, and items that are not a list, or a line that is not an object
+// or null, are a body Go cannot decode.
 export function newOrder(b: any): NewOrder {
+  if (b.items != null && !Array.isArray(b.items)) throw new BadBody()
+  const items: any[] = b.items ?? []
   return {
     customer: text(b.customer), phone: text(b.phone), email: text(b.email), address: text(b.address), note: text(b.note),
-    items: Array.isArray(b.items) ? b.items.map((l: any) => ({ slug: text(l?.slug), color: text(l?.color), size: text(l?.size), quantity: whole(l?.quantity) })) : [],
+    items: items.map((l) => {
+      if (l !== null && (typeof l !== 'object' || Array.isArray(l) || l instanceof Num)) throw new BadBody()
+      return { slug: text(l?.slug), color: text(l?.color), size: text(l?.size), quantity: whole(l?.quantity) }
+    }),
   }
 }
 

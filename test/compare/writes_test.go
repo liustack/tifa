@@ -186,6 +186,11 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"add a note with U+FEFF around it", "PUT", "order:studio:SH-1043", `{"text":"\ufeff已核对\ufeff"}`, []compare.Page{order("SH-1043")}},
 		{"change the recipient with U+0085 around the name", "PATCH", "order:studio:SH-1041", `{"customer":"\u0085陈默言\u0085","phone":"13900139001","address":"杭州市西湖区 · 新地址"}`, []compare.Page{order("SH-1041")}},
 		{"edit a title with U+FEFF around it", "PATCH", "product:weekend:postcards", strings.Replace(cardEdit, `" Postcards of Cities "`, `"\ufeffPostcards\ufeff"`, 1), []compare.Page{weekendProducts, postcards}},
+		// Go reads a body with encoding/json/v2: a name given twice, in any object, and an escape of a
+		// lone surrogate are a body it cannot decode (400).
+		{"refuse an edit with the stock given twice", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"stock":5`, `"stock":5,"stock":6`, 1), nil},
+		{"refuse a name given twice in a member the edit does not know", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `{"priceCents"`, `{"extra":{"a":1,"a":2},"priceCents"`, 1), nil},
+		{"refuse a title that is a lone surrogate", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `" Oak Tray, Large "`, `"\ud800"`, 1), nil},
 	}
 
 	type outcome struct {
@@ -255,7 +260,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
 	}
-	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200, 422, 422, 400, 400, 400, 400, 200, 200, 200, 200}
+	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200, 422, 422, 400, 400, 400, 400, 200, 200, 200, 200, 400, 400, 400}
 	if len(wantStatus) != len(steps) {
 		t.Fatalf("%d statuses for %d steps", len(wantStatus), len(steps))
 	}
