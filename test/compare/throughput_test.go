@@ -2,6 +2,7 @@ package compare
 
 import (
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -137,5 +138,19 @@ func TestACellFailsOnItsFirstFailedRound(t *testing.T) {
 	}
 	if got, _ := stepOf(cellAt([]float64{90, 91, 92}, 0.8, true), 3); got != trialPass {
 		t.Errorf("three passing rounds: %s", got)
+	}
+}
+
+// The code that decides a verdict lives in the files of the method, so that a change to it is a
+// change of the method: none of it is in the report.
+func TestTheDecisionsAreInTheFilesOfTheMethod(t *testing.T) {
+	data, err := os.ReadFile("report_browse.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"func stepOf(", "func pageViewsPerSecond(", "func each(", "func (r *BrowseResult) cellRounds("} {
+		if strings.Contains(string(data), f) {
+			t.Errorf("report_browse.go holds %s", f)
+		}
 	}
 }

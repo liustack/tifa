@@ -236,8 +236,9 @@ func (b *browse) keepRate(sc BrowseScenario, s *Sustain) error {
 
 // methodFiles are the files of test/compare whose code shapes the load a run plays or the verdicts it
 // gives: the plans, the replay and its writes, the pinning and the start of the servers, the rule, the
-// search and the confirmation. The report is not among them: its wording measures nothing.
-var methodFiles = []string{"browse.go", "load.go", "plan.go", "rates.go", "replay.go", "serve.go", "specs.go", "store_plan.go", "store_writes.go", "throughput.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
+// search and the confirmation, the percentiles and the decisions of the steps. The report is not among
+// them: it only writes what those decided.
+var methodFiles = []string{"browse.go", "load.go", "plan.go", "rates.go", "replay.go", "serve.go", "specs.go", "stats.go", "store_plan.go", "store_writes.go", "throughput.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {

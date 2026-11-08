@@ -46,46 +46,6 @@ func (r *BrowseResult) tries(fw, sc string, sessions int) []Round {
 	return out
 }
 
-// cellRounds are the valid rounds of a spec in one cell of the closed table.
-func (r *BrowseResult) cellRounds(fw, sc string, sessions int) []Round {
-	var out []Round
-	for _, x := range r.Closed {
-		if x.Framework == fw && x.Scenario == sc && x.Sessions == sessions && x.Valid {
-			out = append(out, x)
-		}
-	}
-	return out
-}
-
-func each(rounds []Round, f func(*Round) float64) []float64 {
-	var out []float64
-	for i := range rounds {
-		out = append(out, f(&rounds[i]))
-	}
-	return out
-}
-
-func pageViewsPerSecond(x *Round) float64 { return float64(x.PageViews) / x.Seconds }
-
-// stepUndecided is the outcome of a cell with fewer valid rounds than it needs and none that failed:
-// the experiment did not decide it (its other rounds stayed invalid).
-const stepUndecided = "undecided"
-
-// stepOf is the outcome of a cell from its valid rounds, with why: trialFail when a round failed the
-// rule (a failed round decides the cell, however many rounds it has), stepUndecided when there are
-// fewer than want, and trialPass otherwise.
-func stepOf(rounds []Round, want int) (string, string) {
-	for _, x := range rounds {
-		if !x.Pass {
-			return trialFail, x.Why
-		}
-	}
-	if len(rounds) < want {
-		return stepUndecided, fmt.Sprintf("%d of %d rounds were valid", len(rounds), want)
-	}
-	return trialPass, ""
-}
-
 func count(x *Round, prefix string) float64 {
 	n := 0
 	for k, v := range x.Responses {

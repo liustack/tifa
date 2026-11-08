@@ -180,11 +180,16 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 	if methodHash(root) == method {
 		t.Error("a change to the replay is the same method")
 	}
+	changed := methodHash(root)
+	write("test/compare/stats.go", "another percentile")
+	if methodHash(root) == changed {
+		t.Error("a change to the percentiles is the same method")
+	}
 	os.Remove(filepath.Join(root, "test", "compare", "load.go"))
 	if methodHash(root) != "" {
 		t.Error("a missing file of the method gives a method")
 	}
-	for _, f := range []string{"load.go", "replay.go", "store_writes.go", "writepool.go", "browse.go", "throughput.go"} {
+	for _, f := range []string{"load.go", "replay.go", "stats.go", "store_writes.go", "writepool.go", "browse.go", "throughput.go"} {
 		if !slices.Contains(methodFiles, f) {
 			t.Errorf("the method leaves out %s", f)
 		}
