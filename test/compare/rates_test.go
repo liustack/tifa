@@ -257,30 +257,6 @@ func TestTheRateFileIsCheckedWhenRead(t *testing.T) {
 	}
 }
 
-// A rate that a result already holds is checked again when the result is continued: under other
-// conditions (another Next.js, another method) the run is refused, whether the rate was searched or
-// read from the file.
-func TestAContinuedRateIsCheckedAgain(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"plans-store.json", "nextjs-store.jsonl"} {
-		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
-	}
-	os.WriteFile(filepath.Join(dir, "STAMP-store"), []byte("tree js abc\nsite store\n"), 0o644)
-	root, _ := filepath.Abs(filepath.Join("..", ".."))
-	sc := mustScenario("store-w5")
-	b := &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
-		servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
-		res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}, Sustain: map[string]*Sustain{}}}
-	b.res.Sustain["store-w5/nextjs"] = &Sustain{Rate: 20, Done: true, Under: b.rateConditions(sc)}
-	if err := b.sustain(t.Context(), sc); err != nil {
-		t.Fatalf("the same conditions: %v", err)
-	}
-	b.res.Version["nextjs"] = "16.0.2"
-	if err := b.sustain(t.Context(), sc); err == nil || !strings.Contains(err.Error(), "nextjs") {
-		t.Errorf("another Next.js: %v", err)
-	}
-}
-
 // The build of the Next.js app records the sources it was made from (appHash) in its output, and a
 // rate is reused or searched only on a build of the sources of the checkout: a stale build, or one
 // that says nothing, is refused. The cache that Next.js writes while it serves changes nothing.
@@ -332,4 +308,60 @@ func builtNext(t *testing.T, root string) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// A result is checked when it is read back, before any phase runs: the method it was measured with
+// and the conditions of every rate it holds (searched, or read from the file) must be those of this
+// run, so continuing it with the latency phase alone, or the throughput alone, reuses nothing of
+// another method or another Next.js.
+func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"plans-store.json", "nextjs-store.jsonl"} {
+		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
+	}
+	os.WriteFile(filepath.Join(dir, "STAMP-store"), []byte("tree js abc\nsite store\n"), 0o644)
+	root, _ := filepath.Abs(filepath.Join("..", ".."))
+	sc := mustScenario("store-w5")
+	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}
+	newBrowse := func(phases ...string) *browse {
+		return &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, Phases: phases, Scenarios: []BrowseScenario{sc}},
+			servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
+			res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: version, Sustain: map[string]*Sustain{}}}
+	}
+	cfg := browseConfig(BrowseOptions{}, "AMD EPYC 7B13", "t1", methodHash(root))
+	saved := func(b *browse, mod func(*BrowseResult)) []byte {
+		res := &BrowseResult{Stamp: "s", Config: cfg, Version: version, Machine: Machine{CPU: "AMD EPYC 7B13"}, Scenarios: []BrowseScenario{sc},
+			Sustain: map[string]*Sustain{"store-w5/nextjs": {Rate: 20, Done: true, Under: b.rateConditions(sc)}}}
+		mod(res)
+		data, err := res.json()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	for _, phase := range []string{"latency", "throughput"} {
+		b := newBrowse(phase)
+		if err := b.restore(saved(b, func(*BrowseResult) {}), cfg, version); err != nil {
+			t.Fatalf("%s: the same conditions: %v", phase, err)
+		}
+		b = newBrowse(phase)
+		data := saved(b, func(r *BrowseResult) { r.Sustain["store-w5/nextjs"].Under["nextjs"] = "16.0.0" })
+		if err := b.restore(data, cfg, version); err == nil || !strings.Contains(err.Error(), "nextjs") {
+			t.Errorf("%s: a rate of another Next.js: %v", phase, err)
+		}
+		b = newBrowse(phase)
+		data = saved(b, func(r *BrowseResult) {
+			r.Config = maps.Clone(cfg)
+			r.Config["method"] = "old"
+			r.Sustain = map[string]*Sustain{}
+		})
+		if err := b.restore(data, cfg, version); err == nil || !strings.Contains(err.Error(), "method") {
+			t.Errorf("%s: another method: %v", phase, err)
+		}
+		b = newBrowse(phase)
+		b.e.Next = t.TempDir() // a build that does not say what it was built from
+		if err := b.restore(saved(b, func(*BrowseResult) {}), cfg, version); err == nil || !strings.Contains(err.Error(), "Next.js build") {
+			t.Errorf("%s: a rate on a build of other sources: %v", phase, err)
+		}
+	}
 }

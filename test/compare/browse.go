@@ -190,13 +190,13 @@ func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]
 }
 
 // browseConfig is the settings of a run that its result keeps, and that a run must have to continue
-// it: the options that change what a round plays or how it is judged, the cpu model of the machine
-// and a hash of the trace and plan files the run loaded (traces).
-func browseConfig(o BrowseOptions, cpu, traces string) map[string]string {
+// it: the options that change what a round plays or how it is judged, the cpu model of the machine,
+// a hash of the trace and plan files the run loaded (traces) and the method (see methodHash).
+func browseConfig(o BrowseOptions, cpu, traces, method string) map[string]string {
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "traces": traces,
+		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "traces": traces, "method": method,
 	}
 }
 
@@ -217,6 +217,36 @@ func canContinue(res *BrowseResult, stamp string, cfg, version map[string]string
 	for _, k := range slices.Sorted(mapKeys(res.Version, version)) {
 		if k != "tifa" && res.Version[k] != version[k] {
 			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Version[k], version[k])
+		}
+	}
+	return nil
+}
+
+// restore reads back a result to continue, and checks it in one place before any phase runs, whatever
+// the phases: its format, its settings and versions (canContinue, the method among them), and every
+// rate it holds, searched or read from the file, against the conditions of this run and the build of
+// Next.js that runs.
+func (b *browse) restore(data []byte, cfg, version map[string]string) error {
+	if err := checkFormat(data); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, b.res); err != nil {
+		return err
+	}
+	if err := canContinue(b.res, b.o.Stamp, cfg, version); err != nil {
+		return err
+	}
+	for _, key := range slices.Sorted(maps.Keys(b.res.Sustain)) {
+		name, fw, _ := strings.Cut(key, "/")
+		i := slices.IndexFunc(b.res.Scenarios, func(s BrowseScenario) bool { return s.Name == name })
+		if i < 0 {
+			return fmt.Errorf("holds a rate of %s, which is not one of its scenarios: remove it to start again", name)
+		}
+		if diff := conditionDiff(b.res.Sustain[key].Under, b.rateConditions(b.res.Scenarios[i])); len(diff) > 0 {
+			return fmt.Errorf("the rate of %s on %s was measured under other conditions than this run (%s): remove it to start again", BrowseLabel(fw), name, strings.Join(diff, "; "))
+		}
+		if err := b.checkNextBuild(); err != nil {
+			return fmt.Errorf("holds a rate of %s: %w", name, err)
 		}
 	}
 	return nil
@@ -307,17 +337,11 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		return nil, err
 	}
 	mach, version := machine(), e.versions(specs)
-	cfg := browseConfig(o, mach.CPU, tracesHash(o.TraceDir, names))
+	cfg := browseConfig(o, mach.CPU, tracesHash(o.TraceDir, names), methodHash(e.Root))
 	b.res = &BrowseResult{}
 	if data, err := os.ReadFile(o.OutJSON); err == nil && o.OutJSON != "" {
-		if err := checkFormat(data); err != nil {
+		if err := b.restore(data, cfg, version); err != nil {
 			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
-		}
-		if err := json.Unmarshal(data, b.res); err != nil {
-			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
-		}
-		if err := canContinue(b.res, o.Stamp, cfg, version); err != nil {
-			return nil, fmt.Errorf("%s %w", o.OutJSON, err)
 		}
 		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
 	} else {
@@ -595,15 +619,10 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 	for _, fw := range []string{openBase} {
 		key := sustainKey(sc.Name, fw)
 		s := b.res.Sustain[key]
-		under := b.rateConditions(sc)
 		if s != nil && s.Done {
-			// A rate the result holds (searched, or read from the file) is used only under the conditions
-			// of this run too.
-			if diff := conditionDiff(s.Under, under); len(diff) > 0 {
-				return fmt.Errorf("%s: the rate of %s in this result was measured under other conditions than this run (%s): remove the result to start again", sc.Name, BrowseLabel(fw), strings.Join(diff, "; "))
-			}
-			continue
+			continue // restore checked it against the conditions of this run
 		}
+		under := b.rateConditions(sc)
 		file, err := readRates(b.o.RateFile)
 		if err != nil {
 			return err

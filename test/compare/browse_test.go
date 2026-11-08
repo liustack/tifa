@@ -15,8 +15,8 @@ import (
 func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	o := BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1, Seed: 1}
 	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}
-	res := &BrowseResult{Config: browseConfig(o, "AMD EPYC 7B13", "t1"), Version: version}
-	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1"), version); err != nil {
+	res := &BrowseResult{Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Version: version}
+	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), version); err != nil {
 		t.Fatalf("the same settings: %v", err)
 	}
 	probe := o
@@ -30,16 +30,16 @@ func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	capped := o
 	capped.MaxRate = 64
 	for name, cfg := range map[string]map[string]string{
-		"-probe": browseConfig(probe, "AMD EPYC 7B13", "t1"), "-server-cpus": browseConfig(cpus, "AMD EPYC 7B13", "t1"), "-target": browseConfig(target, "AMD EPYC 7B13", "t1"),
-		"-seed": browseConfig(seed, "AMD EPYC 7B13", "t1"), "-max-rate": browseConfig(capped, "AMD EPYC 7B13", "t1"),
-		"another cpu": browseConfig(o, "Intel Xeon", "t1"), "other traces": browseConfig(o, "AMD EPYC 7B13", "t2"),
+		"-probe": browseConfig(probe, "AMD EPYC 7B13", "t1", "m1"), "-server-cpus": browseConfig(cpus, "AMD EPYC 7B13", "t1", "m1"), "-target": browseConfig(target, "AMD EPYC 7B13", "t1", "m1"),
+		"-seed": browseConfig(seed, "AMD EPYC 7B13", "t1", "m1"), "-max-rate": browseConfig(capped, "AMD EPYC 7B13", "t1", "m1"),
+		"another cpu": browseConfig(o, "Intel Xeon", "t1", "m1"), "other traces": browseConfig(o, "AMD EPYC 7B13", "t2", "m1"), "another method": browseConfig(o, "AMD EPYC 7B13", "t1", "m2"),
 	} {
 		err := canContinue(res, o.Stamp, cfg, version)
 		if err == nil || !strings.Contains(err.Error(), "remove it to start again") {
 			t.Errorf("%s: continued a result of other settings: %v", name, err)
 		}
 	}
-	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1"), map[string]string{"node": "v24.2.0", "nextjs": "16.0.1"}); err == nil || !strings.Contains(err.Error(), "node") {
+	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), map[string]string{"node": "v24.2.0", "nextjs": "16.0.1"}); err == nil || !strings.Contains(err.Error(), "node") {
 		t.Errorf("another Node: %v", err)
 	}
 }
@@ -144,7 +144,7 @@ func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 // A result of the old format, which counted users and had no planned visits, is refused with a clear
 // error, by the report and by a run that would continue it: there is no reading of it.
 func TestAResultOfTheOldFormatIsRefused(t *testing.T) {
-	cur := &BrowseResult{Config: browseConfig(BrowseOptions{Sessions: 8}, "", ""), Closed: []Round{{VisitsPlanned: 4}}, Sustain: map[string]*Sustain{}}
+	cur := &BrowseResult{Config: browseConfig(BrowseOptions{Sessions: 8}, "", "", ""), Closed: []Round{{VisitsPlanned: 4}}, Sustain: map[string]*Sustain{}}
 	data, err := cur.json()
 	if err != nil {
 		t.Fatal(err)
