@@ -265,3 +265,22 @@ func TestMadeEntryEncodesEachLoadOnce(t *testing.T) {
 		}
 	}
 }
+
+// X-Tifa-Render on the answer of a page with Cache says whether the VM rendered for it.
+func TestMadeEntrySaysHowItsPageWasMade(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	// The Load makes the answer private, so each request makes the page alone. The first renders,
+	// the others get the render from the render cache.
+	for i, want := range []string{"vm", "cache", "cache"} {
+		w := e.do("GET", "/cachedpriv")
+		if got := w.w.Header().Get(renderHeader); got != want || w.w.Header().Get("Cache-Status") != "tifa; fwd=bypass" && i > 0 {
+			t.Errorf("request %d: %s, Cache-Status %q, want %q", i, w, w.w.Header().Get("Cache-Status"), want)
+		}
+	}
+	// An entry made again from the render cache.
+	e.do("GET", "/cached")
+	e.s.ExpirePages([]string{"/cached"})
+	if w := e.do("GET", "/cached"); w.renders != 0 || w.w.Header().Get(renderHeader) != "cache" {
+		t.Errorf("made again: %s", w)
+	}
+}
