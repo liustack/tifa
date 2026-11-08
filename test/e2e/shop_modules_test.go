@@ -94,9 +94,11 @@ func checkOrderPageModules(t *testing.T, base string) {
 		wants []string
 		not   []string
 	}{
+		// 4 to ship: the 2 orders of the data that wait to ship, and the 2 orders that the checkouts of
+		// the storefront checks before this one placed in the studio shop.
 		{"/projects/studio/orders/SH-1041", []string{
 			"Activity", "Internal notes", "Picking list", "Stock check", "Carrier comparison", "Gross profit estimate", "Address check", "Payment and invoice", "Order tags", "Before shipping", "Orders with the same product",
-			"两只杯子分开包", "Print order", "Ready to ship", "Stock reserved", "2 to ship",
+			"两只杯子分开包", "Print order", "Ready to ship", "Stock reserved", "4 to ship",
 		}, []string{"Tracking history", "Carrier times", "After shipping"}},
 		{"/projects/studio/orders/SH-1040", []string{
 			"Tracking history", "After shipping", "Delivered, signed by the recipient", "On the trunk line", "Label printed", "Notification sent", "Sold in shop",
