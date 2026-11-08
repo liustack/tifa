@@ -901,9 +901,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	method, path := c.Request().Method, c.Request().URL.Path
 	// A render that fails once no request waits has no OnError to go to, so it is logged.
 	unheard := func(err error) {
-		if !errors.As(err, new(*ssr.RedirectError)) {
-			core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
-		}
+		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
 	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, true, method, path)
@@ -915,6 +913,10 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return renderFailed(c, err, failed)
 	}
 	c.SetHeader(renderHeader, got.how)
+	if got.page.redirect != nil {
+		writeRenderRedirect(c, got.page.redirect)
+		return nil
+	}
 	setDataAge(c.Writer().Header(), time.Since(since))
 	s.setPagePolicy(c.Writer().Header(), got.page.policy)
 	if !got.held {
@@ -924,10 +926,16 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 }
 
 // renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
-// it. twice has tifa dev render a page the render cache keeps once more to find out whether it
-// reads the time or a random number, see devRenderTwice.
+// it. A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
+// the input as the HTML does. twice has tifa dev render a page the render cache keeps once more to
+// find out whether it reads the time or a random number, see devRenderTwice.
 func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
 	rendered, err := f.render(ctx, in)
+	var redirect *ssr.RedirectError
+	if errors.As(err, &redirect) {
+		page := cachedPage{redirect: redirect}
+		return page, s.cache.holds(page), nil
+	}
 	if err != nil {
 		return cachedPage{html: rendered.HTML}, false, err
 	}
@@ -1033,16 +1041,20 @@ func around(html string, i int) string {
 func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
-		// The router spells the URL differently, /%61 for /a, and sends the browser there.
-		// The redirect carries no ETag. The render is a function of the build, the URL and the
-		// data, so an ETag a client got with a 200 for this URL never belongs to a redirect,
-		// and 304 is only answered to a client that made its If-None-Match up.
-		c.Writer().Header().Del("ETag")
-		http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
+		writeRenderRedirect(c, redirect)
 		return nil
 	}
 	failed.err = err
 	return failed
+}
+
+// writeRenderRedirect answers a render that the router ended with a redirect: it spells the URL
+// differently, /%61 for /a, and sends the browser there. The redirect carries no ETag. The render
+// is a function of the build, the URL and the data, so an ETag a client got with a 200 for this URL
+// never belongs to a redirect, and 304 is only answered to a client that made its If-None-Match up.
+func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError) {
+	c.Writer().Header().Del("ETag")
+	http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would

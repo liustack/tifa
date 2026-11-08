@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/core"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // cacheNow is the clock of the whole-page cache. Tests set it.
@@ -135,6 +136,9 @@ type cachedPage struct {
 	body *bodyID
 	// whole is set for a page of the whole-page cache: what it stands for besides the HTML.
 	whole *wholePage
+	// redirect is set for a render that the router ended with a redirect: the page is that
+	// redirect and has no HTML.
+	redirect *ssr.RedirectError
 }
 
 func (p cachedPage) size() int64 { return p.bodySize() + p.meta() }
@@ -148,11 +152,14 @@ func (p cachedPage) bodySize() int64 {
 }
 
 // meta is what the page costs besides its body: its policy, which every page
-// keeps for itself, and what a page of the whole-page cache stands for.
+// keeps for itself, what a page of the whole-page cache stands for, and a redirect.
 func (p cachedPage) meta() int64 {
 	n := int64(len(p.policy))
 	if p.whole != nil {
 		n += p.whole.size()
+	}
+	if p.redirect != nil {
+		n += int64(len(p.redirect.Location)) + 32
 	}
 	return n
 }

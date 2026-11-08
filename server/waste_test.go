@@ -225,3 +225,32 @@ func TestMissingAssetIsAPlainNotFound(t *testing.T) {
 	}
 }
 
+// A redirect of the router during the render is a result of the render input like a page, so the
+// render cache keeps it.
+func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	e.redirects("/plain")
+	first, second := e.do("GET", "/plain"), e.do("GET", "/plain")
+	for i, w := range []work{first, second} {
+		if w.w.Code != 307 || w.w.Header().Get("Location") != "/elsewhere" || w.w.Header().Get("ETag") != "" {
+			t.Errorf("answer %d: %s, Location %q, ETag %q", i, w, w.w.Header().Get("Location"), w.w.Header().Get("ETag"))
+		}
+	}
+	if first.renders != 1 || second.renders != 0 {
+		t.Errorf("renders: %d then %d", first.renders, second.renders)
+	}
+	// A page with Cache keeps no 307 and skips its cache for a while, and each of those requests
+	// makes the page again: the render cache answers them.
+	e.redirects("/cached")
+	var renders int64
+	for _, target := range []string{"/cached", "/cached", dataURL("/cached", "b1", "01"), "/cached"} {
+		w := e.do("GET", target)
+		renders += w.renders
+		if target == "/cached" && (w.w.Code != 307 || w.w.Header().Get("Location") != "/elsewhere") {
+			t.Errorf("GET %s: %s", target, w)
+		}
+	}
+	if renders != 1 {
+		t.Errorf("a page with Cache that redirects rendered %d times", renders)
+	}
+}

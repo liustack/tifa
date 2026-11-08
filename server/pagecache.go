@@ -560,22 +560,26 @@ func (s *server) redirectEntry(entry *wholePage, headers http.Header) (cachedPag
 }
 
 // renderEntry renders the page of an entry, through the render cache unless the page turned it
-// off, and returns it as the cache keeps it.
+// off, and returns it as the cache keeps it. A redirect of the router comes as its error.
 func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, route Route) (cachedPage, bool, error) {
 	method, path := rq.Method, rq.URL.Path
+	var got fetched
+	var err error
 	if route.NoRenderCache {
-		return s.renderOne(ctx, f, in, false, method, path)
-	}
-	unheard := func(err error) {
-		if !errors.As(err, new(*ssr.RedirectError)) {
+		got.page, got.held, err = s.renderOne(ctx, f, in, false, method, path)
+	} else {
+		unheard := func(err error) {
 			core.Logger().ErrorContext(ctx, "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 		}
+		got, err = s.cache.fetch(ctx, renderKey(in, f.build.bundle, s.policyKey()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
+			return s.renderOne(ctx, f, in, true, method, path)
+		})
 	}
-	got, err := s.cache.fetch(ctx, renderKey(in, f.build.bundle, s.policyKey()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
-		return s.renderOne(ctx, f, in, true, method, path)
-	})
-	if err != nil {
+	switch {
+	case err != nil:
 		return cachedPage{}, false, err
+	case got.page.redirect != nil:
+		return cachedPage{}, false, got.page.redirect
 	}
 	return got.page, got.held, nil
 }
