@@ -16,7 +16,7 @@ import (
 
 func TestListSumsTheOrdersOfOneProject(t *testing.T) {
 	reset()
-	studio := ListOrders("studio", shanghai)
+	studio := ListOrders("studio", shanghai, ListQuery{})
 	s := allRows("studio")
 	if studio.Total != 42 || len(s) != 42 || s[0].ID != "SH-1042" || s[41].ID != "SH-1001" {
 		t.Fatalf("%d orders, from %s to %s", len(s), s[0].ID, s[len(s)-1].ID)
@@ -41,10 +41,10 @@ func TestListSumsTheOrdersOfOneProject(t *testing.T) {
 	if y, m, d := first.Date(); y != 2026 || m != 9 || d != 14 {
 		t.Errorf("the first order is placed on %s", first)
 	}
-	if w := ListOrders("weekend", shanghai); w.Total != 12 || len(w.Orders) != 12 || w.Orders[0].ID != "WK-0201" || w.Orders[11].ID != "WK-0190" || w.Pending != 1 {
+	if w := ListOrders("weekend", shanghai, ListQuery{}); w.Total != 12 || len(w.Orders) != 12 || w.Orders[0].ID != "WK-0201" || w.Orders[11].ID != "WK-0190" || w.Pending != 1 {
 		t.Fatalf("weekend: %d orders, %d pending", len(w.Orders), w.Pending)
 	}
-	if empty := ListOrders("nowhere", shanghai); empty.Orders == nil || len(empty.Orders) != 0 || empty.Total != 0 || empty.RevenueCents != 0 || empty.OldestPending != nil || empty.Carriers == nil || empty.Daily.Orders == nil {
+	if empty := ListOrders("nowhere", shanghai, ListQuery{}); empty.Orders == nil || len(empty.Orders) != 0 || empty.Total != 0 || empty.RevenueCents != 0 || empty.OldestPending != nil || empty.Carriers == nil || empty.Daily.Orders == nil {
 		t.Fatalf("list of an unknown project %+v", empty)
 	}
 }
@@ -53,7 +53,7 @@ func TestListSumsTheOrdersOfOneProject(t *testing.T) {
 // newest.
 func TestListNumbersCoverTheOrdersTheFirstPageLeavesOut(t *testing.T) {
 	reset()
-	l := ListOrders("studio", shanghai)
+	l := ListOrders("studio", shanghai, ListQuery{})
 	if l.OldestPending == nil || l.OldestPending.ID != "SH-1041" {
 		t.Errorf("the oldest order waiting to ship is %+v", l.OldestPending)
 	}
@@ -97,23 +97,6 @@ func TestListNumbersCoverTheOrdersTheFirstPageLeavesOut(t *testing.T) {
 	}
 	if orders != wantOrders || cents != wantCents || orders <= 10 {
 		t.Errorf("14 days hold %d orders and %d cents, want %d and %d", orders, cents, wantOrders, wantCents)
-	}
-}
-
-func TestListPageGivesThePagesAfterTheFirst(t *testing.T) {
-	reset()
-	all := allRows("studio")
-	for n, want := range map[int][]OrderRow{0: all[:25], 1: all[25:], 2: {}} {
-		got, err := ListPage("studio", n)
-		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Errorf("page %d: %d rows, %v, want %d", n, len(got), err, len(want))
-		}
-	}
-	if got, err := ListPage("studio", -1); err != nil || len(got) != 0 {
-		t.Errorf("page -1: %v %v", got, err)
-	}
-	if _, err := ListPage("nowhere", 0); !errors.Is(err, tifa.ErrNotFound) {
-		t.Errorf("an unknown project: %v", err)
 	}
 }
 
@@ -200,7 +183,7 @@ func TestShipOnce(t *testing.T) {
 	if o.Status != StatusShipped || o.Shipment == nil || !reflect.DeepEqual(*o.Shipment, want) {
 		t.Fatalf("after shipping: %s %+v", o.Status, o.Shipment)
 	}
-	if s := ListOrders("studio", shanghai); s.Pending != 1 || s.Shipped != 41 {
+	if s := ListOrders("studio", shanghai, ListQuery{}); s.Pending != 1 || s.Shipped != 41 {
 		t.Fatalf("totals after shipping: %d pending, %d shipped", s.Pending, s.Shipped)
 	}
 	if err := ShipOrder("studio", "SH-1042", "JD", "JD0001234567", at); err != ErrShipped {

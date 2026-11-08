@@ -36,7 +36,7 @@ func TestCreateNumbersTheOrderAfterTheHighestOfItsProject(t *testing.T) {
 
 func TestCreateKeepsWhatWasEnteredAndTakesTheRestFromTheCatalogue(t *testing.T) {
 	reset()
-	before := ListOrders("studio", shanghai)
+	before := ListOrders("studio", shanghai, ListQuery{})
 	seen, _ := GetOrder("studio", "SH-1041")
 	sold, demand := seen.Items[0].Sold, seen.Items[0].Demand
 	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
@@ -55,7 +55,7 @@ func TestCreateKeepsWhatWasEnteredAndTakesTheRestFromTheCatalogue(t *testing.T) 
 		t.Fatalf("items %+v, total %d", o.Items, o.TotalCents)
 	}
 	// It is the newest order: first in the list, in the totals and in what waits to ship.
-	l := ListOrders("studio", shanghai)
+	l := ListOrders("studio", shanghai, ListQuery{})
 	if l.Total != 43 || len(l.Orders) != ListPageSize || l.Orders[0].ID != id || l.Pending != before.Pending+1 || l.RevenueCents != before.RevenueCents+o.TotalCents {
 		t.Fatalf("list: %d orders, first %s, %d pending, %d cents", l.Total, l.Orders[0].ID, l.Pending, l.RevenueCents)
 	}

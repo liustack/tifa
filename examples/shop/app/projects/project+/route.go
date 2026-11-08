@@ -3,6 +3,7 @@
 package project
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -10,8 +11,10 @@ import (
 	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 )
 
-// Load returns the first page of the orders, with numbers over all of them. The days of its cards
-// start at midnight in the time zone of the shop.
+// Load returns a page of the orders that the query string keeps, with numbers over all of them.
+// The filters are status, carrier, period, amount and q (a search in order numbers and customers),
+// sort (placedAt or totalCents) and dir (asc or desc), and page counts from 1. A filter or a sort that is not one of the choices is left out, as if it were
+// not there. The days of its cards start at midnight in the time zone of the shop.
 func Load(c *tifa.Ctx) (orders.OrderList, error) {
 	p, err := tifa.Use(c, Layout)
 	if err != nil {
@@ -21,7 +24,17 @@ func Load(c *tifa.Ctx) (orders.OrderList, error) {
 	if err != nil {
 		return orders.OrderList{}, err
 	}
-	return orders.ListOrders(p.ID, zone), nil
+	page, _ := strconv.Atoi(c.Query("page"))
+	return orders.ListOrders(p.ID, zone, orders.ListQuery{
+		Status:  c.Query("status"),
+		Carrier: c.Query("carrier"),
+		Period:  c.Query("period"),
+		Amount:  c.Query("amount"),
+		Search:  c.Query("q"),
+		Sort:    c.Query("sort"),
+		Dir:     c.Query("dir"),
+		Page:    page,
+	}), nil
 }
 
 func Layout(c *tifa.Ctx) (projects.Project, error) {

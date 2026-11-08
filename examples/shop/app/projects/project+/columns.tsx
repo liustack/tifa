@@ -1,15 +1,9 @@
 import { Link } from '@tanstack/react-router'
 import {
-  columnFilteringFeature,
   columnVisibilityFeature,
   createColumnHelper,
-  createFilteredRowModel,
   createPaginatedRowModel,
   createSortedRowModel,
-  filterFn_equals,
-  filterFn_includesString,
-  filterFn_inNumberRange,
-  globalFilteringFeature,
   rowPaginationFeature,
   rowSelectionFeature,
   rowSortingFeature,
@@ -42,10 +36,6 @@ export const features = tableFeatures({
   rowSortingFeature,
   sortedRowModel: createSortedRowModel(),
   sortFns: { basic: sortFn_basic },
-  columnFilteringFeature,
-  globalFilteringFeature,
-  filteredRowModel: createFilteredRowModel(),
-  filterFns: { equals: filterFn_equals, includesString: filterFn_includesString, inNumberRange: filterFn_inNumberRange },
   rowPaginationFeature,
   paginatedRowModel: createPaginatedRowModel(),
   rowSelectionFeature,
@@ -92,7 +82,6 @@ export const columns = helper.columns([
   helper.accessor('product', {
     header: 'Product',
     enableSorting: false,
-    enableGlobalFilter: false,
     cell: (info) => <Product row={info.row.original} />,
   }),
   helper.accessor('customer', {
@@ -113,22 +102,16 @@ export const columns = helper.columns([
     id: 'placedAt',
     header: ({ column }) => <SortButton column={column}>Placed</SortButton>,
     sortFn: 'basic',
-    filterFn: 'inNumberRange',
-    enableGlobalFilter: false,
     cell: (info) => <PlacedAt instant={info.row.original.placedAt} />,
   }),
   helper.accessor('status', {
     header: 'Status',
     enableSorting: false,
-    enableGlobalFilter: false,
-    filterFn: 'equals',
     cell: (info) => <OrderStatus status={info.getValue()} />,
   }),
   helper.accessor('carrier', {
     header: 'Carrier',
     enableSorting: false,
-    enableGlobalFilter: false,
-    filterFn: 'equals',
     cell: (info) => <Carrier row={info.row.original} />,
   }),
   helper.accessor('totalCents', {
@@ -138,8 +121,6 @@ export const columns = helper.columns([
       </div>
     ),
     sortFn: 'basic',
-    filterFn: 'inNumberRange',
-    enableGlobalFilter: false,
     enableHiding: false,
     cell: (info) => <div className="text-right font-mono tabular-nums">{yuan(info.getValue())}</div>,
   }),

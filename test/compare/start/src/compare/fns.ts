@@ -23,9 +23,15 @@ export const projectFn = createServerFn()
   .handler(({ data: id }) => orNotFound(() => domain.loadProject(id)))
 
 // The page loaders get the project that the project Layout loaded, as tifa.Use gives it to a Load.
+// query is the query of the page as its loaderDeps picked it: every value a string, a key given more
+// than once an array. Load reads the first value of a key.
 export const orderListFn = createServerFn()
-  .validator((project: domain.Project) => project)
-  .handler(({ data: project }) => domain.loadOrderList(project))
+  .validator((p: { project: domain.Project; query: Record<string, string | string[]> }) => p)
+  .handler(({ data: p }) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(p.query)) for (const item of Array.isArray(value) ? value : [value]) params.append(key, item)
+    return domain.loadOrderList(p.project, params)
+  })
 
 export const orderFn = createServerFn()
   .validator((p: { project: domain.Project; order: string }) => p)

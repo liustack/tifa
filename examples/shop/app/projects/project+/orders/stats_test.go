@@ -76,7 +76,7 @@ func TestSalesStatsKeepADayThatStartsAfterMidnight(t *testing.T) {
 
 func TestSalesStatsAddUpToTheOrderList(t *testing.T) {
 	for _, id := range []string{"studio", "weekend"} {
-		s, l := SalesStats(id, shanghai), ListOrders(id, shanghai)
+		s, l := SalesStats(id, shanghai), ListOrders(id, shanghai, ListQuery{})
 		var orders, revenue, shipped int
 		for _, d := range s.Days {
 			orders += d.Orders
