@@ -709,37 +709,10 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 	return nil
 }
 
-// storeTifas are the Tifa servers the storefront scenarios run in place of "tifa": the shop with
-// only the whole-page cache off (the render cache stays on) and the shop with both caches off.
-// The storefront pages have the whole-page cache, which no other framework has, so the comparison
-// shows Tifa with it off, and with the render cache on and off.
-var storeTifas = []string{"tifa-nopage", "tifa-nocache"}
-
-// browseServers are the spec ids a scenario runs for the servers asked for. The storefront runs the
-// two Tifa servers of storeTifas where "tifa" is asked for.
-func browseServers(sc BrowseScenario, names []string) []string {
-	if sc.site() != SiteStore {
-		return names
-	}
-	var out []string
-	for _, name := range names {
-		if name == "tifa" {
-			for _, t := range storeTifas {
-				if !slices.Contains(names, t) {
-					out = append(out, t)
-				}
-			}
-			continue
-		}
-		out = append(out, name)
-	}
-	return out
-}
-
 // browseSpecs are the specs a scenario runs.
 func (e Env) browseSpecs(sc BrowseScenario, names []string) ([]Spec, error) {
 	var specs []Spec
-	for _, name := range browseServers(sc, names) {
+	for _, name := range names {
 		i := slices.IndexFunc(e.Specs(), func(s Spec) bool { return s.Name == name })
 		if i < 0 {
 			return nil, fmt.Errorf("no spec named %q", name)

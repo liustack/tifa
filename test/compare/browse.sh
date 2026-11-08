@@ -27,8 +27,7 @@
 #   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
 #   SCENARIOS         office-w5, office-w20, office-w50 (back office writes),       office-w5,office-w20,office-w50,r80w20,store-w5,store-w20
 #                     r95w5, r80w20, r50w50 (every write renames a customer),
-#                     store-w5, store-w20, store-w50 (the storefront, where Tifa runs twice: with
-#                     the whole-page cache off, and with every cache off)
+#                     store-w5, store-w20, store-w50 (the storefront)
 #   PHASES            closed (throughput at equal users), saturation (the users at   closed,saturation,sustain,latency
 #                     which each server saturates), sustain (the rate of Next.js), latency
 #                     (sustain and latency run only for the scenarios with 5% writes)

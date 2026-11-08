@@ -131,8 +131,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 	}
 }
 
-// Every scenario gets its own closed and open tables with its own servers: the storefront has the
-// two Tifa servers, and each scenario its own rate.
+// Every scenario gets its own closed and open tables with its own servers: each scenario has its own rate.
 func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 	var scs []BrowseScenario
 	for _, name := range strings.Split(DefaultScenarios, ",") {
@@ -142,7 +141,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
 	for i, sc := range scs {
-		servers := browseServers(sc, BrowseFrameworks)
+		servers := BrowseFrameworks
 		r.Servers[sc.Name] = servers
 		r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = float64(i+2), "nextjs"
 		if sc.open() {
@@ -193,8 +192,8 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 				t.Errorf("%s lacks the table of office writes:\n%s", sc.Name, sec)
 			}
 		case MixStore:
-			if !strings.Contains(sec, "| add to cart |") || !strings.Contains(sec, "| Tifa (whole-page cache off) |") || !strings.Contains(sec, "| Tifa (cache off) |") {
-				t.Errorf("%s lacks the table of store writes or a Tifa row:\n%s", sc.Name, sec)
+			if !strings.Contains(sec, "| add to cart |") {
+				t.Errorf("%s lacks the table of store writes:\n%s", sc.Name, sec)
 			}
 		}
 	}

@@ -18,9 +18,6 @@ const (
 	ConfigCompression = "compression"
 	ConfigEngine      = "engine"
 	ConfigAA          = "aa"
-	// ConfigStore is for Tifa with only the whole-page cache off, which the storefront scenarios of the
-	// browse comparison run next to Tifa with every cache off. It belongs to no table.
-	ConfigStore = "store"
 )
 
 // Configs are the configurations that tables are made for, in the order they are measured.
@@ -87,8 +84,6 @@ func (e Env) Specs() []Spec {
 	}
 	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--cache-size", "0")
 	tifaCacheOff.Label = "Tifa (cache off)"
-	tifaNoPage := tifa("tifa-nopage", []string{ConfigStore}, "--cache-whole-page=false")
-	tifaNoPage.Label = "Tifa (whole-page cache off)"
 	reactRouter := func(name, label string, reference bool, configs []string, flags ...string) Spec {
 		return Spec{
 			Target: Target{
@@ -109,7 +104,6 @@ func (e Env) Specs() []Spec {
 	engine := []string{ConfigEngine}
 	return []Spec{
 		tifa("tifa", []string{ConfigDefault}),
-		tifaNoPage,
 		tifaCacheOff,
 		next("nextjs", "Next.js", false, both),
 		next("nextjs-jitless", "Next.js --jitless", true, engine, "--jitless"),
