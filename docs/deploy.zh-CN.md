@@ -240,7 +240,7 @@ func GET(c *tifa.Ctx) error {
 
 | 看到的 | 说明 | 怎么办 |
 | --- | --- | --- |
-| `tifa_renders_rejected_total` 在涨 | 渲染遇到队列已满，或等过了 `ssr.wait_timeout`，回了 503 | 加 CPU 和 `ssr.vms`，或者多用缓存（见[机器怎么配](performance.zh-CN.md#机器怎么配)和[渲染队列](config.zh-CN.md#渲染队列)） |
+| `tifa_renders_rejected_total` 在涨 | 渲染遇到队列已满，或等过了 `ssr.wait_timeout`，回了 503 | 加 CPU 和 `ssr.vms`，或者减少渲染（见[机器怎么配](performance.zh-CN.md#机器怎么配)和[渲染队列](config.zh-CN.md#渲染队列)） |
 | `tifa_vms_busy` 大部分时间等于 `tifa_vms`，`tifa_renders_queued` 大于 0 | 每个 VM 都在渲染，还有渲染在等 | 同上：程序到上限了 |
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
 | `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |

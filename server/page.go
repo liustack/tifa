@@ -36,7 +36,7 @@ import (
 // of its own: it is the URL of the page with the query parameter core.DataParam.
 const (
 	buildHeader  = "X-Tifa-Build"  // the build a call comes from, and the build a 409 names
-	renderHeader = "X-Tifa-Render" // how a page was answered: vm, shared, cache or none
+	renderHeader = "X-Tifa-Render" // how a page was answered: vm, shared, memo or none
 )
 
 // Headers of a call of a method handler from the browser, see js/runtime/call.ts. The handler

@@ -82,9 +82,9 @@ func TestValidApp(t *testing.T) {
 		t.Fatalf("got %d routes: %+v", len(m.Routes), m.Routes)
 	}
 	wantRoutes := []struct {
-		id, dir, path          string
-		page, ssr, renderCache bool
-		methods, layouts       []string
+		id, dir, path    string
+		page, ssr, memo  bool
+		methods, layouts []string
 	}{
 		{"app/route", "app", "/", true, true, true, nil, []string{"app/layout"}},
 		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, true, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
@@ -98,7 +98,7 @@ func TestValidApp(t *testing.T) {
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
-		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Memo != w.renderCache ||
+		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Memo != w.memo ||
 			!reflect.DeepEqual(handlerMethods(r), w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
 		}

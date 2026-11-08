@@ -83,9 +83,10 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	}
 }
 
-// TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne asks for storefront pages twice. The shop
-// as shipped has no page with Cache, so no answer has a Cache-Status and the second render comes
-// from the render memo. With every cache off (--ssr-memo-size 0), both answers are renders in a VM.
+// TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne asks for storefront pages twice. Tifa keeps
+// no page in the program, with or without Cache, so no answer has a Cache-Status (the check keeps the
+// removed header gone), and the second render comes from the render memo. With the memo off
+// (--ssr-memo-size 0), both answers are renders in a VM.
 func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 	env := setup(t)
 	buildShop(t, env)
@@ -103,7 +104,7 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name string
-		// cache is the Cache-Status of every answer, render the X-Tifa-Render values a second answer may
+		// cache is the Cache-Status of every answer (always empty now), render the X-Tifa-Render values a second answer may
 		// have, and rendered whether some page must have its second answer from the render memo.
 		firstCache, againCache string
 		againRender            []string
