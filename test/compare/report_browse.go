@@ -400,7 +400,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 		return
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets the same arrival rate, half of the rate %s sustains on this scenario, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named in the row. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | visits failed / unfinished, of planned | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets the same arrival rate, half of the rate %s was confirmed to sustain on this scenario, not half of each server's own capacity, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named in the row. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | visits failed / unfinished, of planned | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
@@ -540,7 +540,7 @@ func (r *BrowseResult) checks() map[string]*TraceCheck {
 }
 
 // visitsText is what the report says about the visits of every scenario.
-const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round has exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota: of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. Every round, closed or open, starts a fresh server, and the warm-ups send no writes, so every round starts with the same data. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
+const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round has exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota: of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, and the warm-ups send no writes, so every round starts with the same data. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
 // adminText is what the report says about the admin scenarios.
 const adminText = "In the admin scenarios the staff of the shop work on orders: 40% of the writes place an order, 30% ship one, 20% add a note and 10% change the recipient, half of them in the studio shop and half in the weekend shop (by quota in every block). A place-an-order write adds a new order (the shop gives it the next number) that the lists, the stats and the pages of orders with the same product or customer show. A ship write takes the oldest order that has not shipped, and a note or a recipient write takes one of them at random, among the orders that were not shipped yet when the server started and the ones placed since. A write that finds no such order is sent as a place-an-order write instead, and counted below. Orders pile up while a server runs, so the lists and stats get heavier the more orders a framework places in a round: the table of writes says how many orders each server held at the end of a round. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization.\n\n"
@@ -565,7 +565,15 @@ func pageKinds(rounds []Round) []string {
 // hitCell is the share of the answers of a kind of page (documents and navigation data that said how
 // they were answered) that the render cache answered, over all the rounds, with how many there were.
 func hitCell(rounds []Round, kind string) string {
-	hits, all := 0, 0
+	hits, all := cacheHits(rounds, kind)
+	if all == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f%% of %d", 100*float64(hits)/float64(all), all)
+}
+
+// cacheHits are the answers of a kind of page the render cache gave in rounds, and all its answers.
+func cacheHits(rounds []Round, kind string) (hits, all int) {
 	for _, x := range rounds {
 		for how, n := range x.PageRenders[kind] {
 			all += n
@@ -574,10 +582,7 @@ func hitCell(rounds []Round, kind string) string {
 			}
 		}
 	}
-	if all == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%.1f%% of %d", 100*float64(hits)/float64(all), all)
+	return hits, all
 }
 
 // pageRendersMarkdown is a diagnostic for Tifa: the render cache hits of the full loads of the
@@ -610,8 +615,28 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 	}
 }
 
-// controlMarkdown gives the read-only control of a scenario, if it has one, against the closed
-// rounds of Tifa at the same sessions.
+// flagShare and flagLeast say which kinds of page the read-only control flags: those the render
+// cache answered under half of the time, with at least 20 answers.
+const (
+	flagShare = 0.5
+	flagLeast = 20
+)
+
+// cacheFlags are the kinds of page whose answers the render cache seldom gave in rounds, as
+// "order 0.0% of 300", in order.
+func cacheFlags(rounds []Round) []string {
+	var out []string
+	for _, k := range pageKinds(rounds) {
+		hits, all := cacheHits(rounds, k)
+		if all >= flagLeast && float64(hits) < flagShare*float64(all) {
+			out = append(out, fmt.Sprintf("%s %.1f%% of %d", k, 100*float64(hits)/float64(all), all))
+		}
+	}
+	return out
+}
+
+// controlMarkdown gives the read-only control of a scenario, if it has one, against the rounds of
+// Tifa with writes: its closed rounds at the same sessions, or its latency rounds.
 func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	var control []Round
 	for _, x := range r.Control {
@@ -623,9 +648,16 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 		return
 	}
 	sessions := control[0].Sessions
-	closed := r.cellRounds("tifa", sc.Name, sessions)
-	kinds := pageKinds(append(slices.Clone(control), closed...))
-	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d concurrent sessions with the same traces and no writes, one short round, against its closed rounds of this scenario. The render cache hits by kind of page show which pages the writes keep from the cache.\n\n| | page views/s", sessions)
+	label, writes := fmt.Sprintf("Tifa, %.0f%% writes", 100*sc.Share), r.cellRounds("tifa", sc.Name, sessions)
+	if len(writes) == 0 {
+		label, writes = label+", the latency rounds", r.latencyRounds("tifa", sc.Name)
+	}
+	kinds := pageKinds(append(slices.Clone(control), writes...))
+	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d concurrent sessions with the traces of this scenario and no writes, one short round, against its rounds with writes. With nothing changing, the render cache should answer almost every request for a page after the first: a kind of page it answers under %.0f%% of the time (with %d answers or more) is flagged, since something in its data changes on every request. Against the rounds with writes, the hits by kind of page show which pages the writes keep from the cache.\n\n", sessions, 100*flagShare, flagLeast)
+	if flags := cacheFlags(control); len(flags) > 0 {
+		fmt.Fprintf(b, "**Red flag**: with no writes the render cache answered %s.\n\n", strings.Join(flags, ", "))
+	}
+	b.WriteString("| | page views/s")
 	for _, k := range kinds {
 		fmt.Fprintf(b, " | %s", k)
 	}
@@ -641,5 +673,5 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 		b.WriteString("\n")
 	}
 	row("Tifa, no writes", control)
-	row(fmt.Sprintf("Tifa, %.0f%% writes", 100*sc.Share), closed)
+	row(label, writes)
 }

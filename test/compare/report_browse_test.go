@@ -39,7 +39,10 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
 		"#### The arrival rate Next.js sustains",
 		"| Next.js | 16.00 | 64 |",
-		"#### Latency at the same arrival rate",
+		"#### Latency at the same arrival rate, half of Next.js's confirmed rate",
+		"not half of each server's own capacity",
+		"The writes are requests inserted into the recorded visits",
+		"the refresh after a write is not replayed",
 		"Every server gets 8.00 visits/s",
 		"What one visit costs the server",
 		"What the server did a second:",
@@ -333,4 +336,36 @@ func scenarioNamesOf(list []BrowseScenario) []string {
 		out = append(out, sc.Name)
 	}
 	return out
+}
+
+// A kind of page that the render cache never or seldom answers in the read-only control, where
+// nothing changes, is a red flag: something in its data changes on every request (a clock, a
+// random value). It is flagged above the control table, and a kind with few answers is not.
+func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
+	sc := mustScenario("admin-w20")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
+	c.Model, c.Writes = "control", 0
+	c.PageRenders = map[string]map[string]int{"list": {"cache": 98, "vm": 2}, "order": {"vm": 300}, "stats": {"cache": 30, "vm": 70}, "home": {"vm": 5}}
+	l := closedRound("tifa", sc.Name, 0, 1, 1000, 100, true)
+	l.Model, l.PageRenders = "open", map[string]map[string]int{"list": {"cache": 50, "vm": 50}}
+	r.Control, r.Latency = []Round{c}, []Round{l}
+	md := r.Markdown()
+	for _, want := range []string{
+		"**Red flag**: with no writes the render cache answered order 0.0% of 300, stats 30.0% of 100.",
+		"| Tifa, no writes | 800.0 |",
+		"| Tifa, 20% writes, the latency rounds | 10.0 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "home 0.0%") {
+		t.Error("a kind of page with 5 answers is flagged")
+	}
+	c.PageRenders = map[string]map[string]int{"list": {"cache": 98, "vm": 2}}
+	r.Control = []Round{c}
+	if strings.Contains(r.Markdown(), "Red flag") {
+		t.Error("a control that hits is flagged")
+	}
 }
