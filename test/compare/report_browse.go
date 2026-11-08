@@ -167,6 +167,7 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 		r.closedDetail(b, sc, n)
 	}
 	r.controlMarkdown(b, sc)
+	r.seriesMarkdown(b, sc)
 	if !sc.Throughput {
 		b.WriteString("\nThis scenario has no throughput table: it is measured for its latency at a fixed arrival rate only.\n")
 	}
@@ -510,7 +511,7 @@ func (r *BrowseResult) checks() map[string]*TraceCheck {
 }
 
 // visitsText is what the report says about the visits of every scenario.
-const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round plans exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota (a round whose visits fail does less than it planned): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, and the warm-ups send no writes, so every round starts with the same data. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
+const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round plans exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota (a round whose visits fail does less than it planned): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Tifa gets no warm-up: it has no JIT, and its render cache starts empty in every round, so what the cache holds is earned inside the measured time. The Node servers get a warm-up with no writes, since their JIT needs one. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
 // adminText is what the report says about the admin scenarios.
 const adminText = "In the admin scenarios the staff of the shop work on orders: 40% of the writes place an order, 30% ship one, 20% add a note and 10% change the recipient, half of them in the studio shop and half in the weekend shop (by quota in every block). A place-an-order write adds a new order (the shop gives it the next number) that the lists, the stats and the pages of orders with the same product or customer show. A ship write takes the oldest order that has not shipped, and a note or a recipient write takes one of them at random, among the orders that were not shipped yet when the server started and the ones placed since. A write that finds no such order is sent as a place-an-order write instead, and counted below. Orders pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders each server held at the end of a round. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization.\n\n"
@@ -644,4 +645,36 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	}
 	row("Tifa, no writes", control)
 	row(label, writes)
+}
+
+// seriesMarkdown shows how the first valid round of each server went in steps of 10 seconds from its
+// first request, closed (at the sessions of its result, else the base) and open: Tifa's cache filling
+// up and the JIT of the Node servers warming show as a change over the round.
+func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var rows []string
+	for _, f := range r.Servers[sc.Name] {
+		sessions := r.baseSessions()
+		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+			sessions = t.Sessions
+		}
+		show := func(label string, rs []Round) {
+			if len(rs) == 0 || len(rs[0].Series) == 0 {
+				return
+			}
+			var rates, p99 []string
+			for _, s := range rs[0].Series {
+				rates, p99 = append(rates, fmt.Sprintf("%.1f", s.PerSecond)), append(p99, fmt.Sprintf("%.0f", s.P99Ms))
+			}
+			rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %s | %s |\n", BrowseLabel(f), label, rs[0].Round, strings.Join(rates, " "), strings.Join(p99, " ")))
+		}
+		show(fmt.Sprintf("closed, %d sessions", sessions), r.cellRounds(f, sc.Name, sessions))
+		show("open", r.latencyRounds(f, sc.Name))
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from the start of the round (the last step is as long as the round has left). The steps show how throughput and latency change over the round. An open round includes the ramp at the start and the drain at the end, so its first and last steps differ from the middle whatever the server does. Tifa had no warm-up and starts with an empty render cache, the Node servers had one. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
 }

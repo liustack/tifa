@@ -217,6 +217,7 @@ type acc struct {
 	pages                               map[string]int
 	renders, responses                  map[string]int
 	lat                                 map[string][]float64
+	samples                             []viewSample // every page view that completed, for the series
 	lastAction                          time.Time
 	// kinds counts the writes by kind, and poolEmpty the admin writes that found no order to go to
 	// and were sent as a create instead (they are among the creates).
@@ -532,6 +533,7 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 	class := pageClass(s.Page)
 	a.mu.Lock()
 	a.lat[kind] = append(a.lat[kind], ms(last.Sub(scheduled)))
+	a.samples = append(a.samples, viewSample{last, ms(last.Sub(scheduled))})
 	a.views++
 	if kind == "load" {
 		a.loads++
