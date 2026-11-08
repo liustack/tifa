@@ -390,8 +390,8 @@ func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
 					continue
 				}
 				if failed[fw] && round > 1 && b.o.Rounds > 1 {
-					// A hung or timed-out round is reported as failed; the other rounds of that cell are skipped.
-					if last := b.lastClosed(fw, sc.Name, users); last != nil && last.TimedOut {
+					// A hung round is reported as failed; the other rounds of that cell are skipped.
+					if hung(b.lastClosed(fw, sc.Name, users)) {
 						continue
 					}
 				}
@@ -452,19 +452,23 @@ func (b *browse) lastClosed(fw, sc string, users int) *Round {
 func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, users, round int, into *[]Round) (*Round, error) {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, users, fw)
 	planBlocks := b.sets[sc.site()].Blocks
+	if _, ok := b.res.Blocks[key]; !ok {
+		rate, err := b.size(ctx, fw, sc, users)
+		if err != nil {
+			return nil, err
+		}
+		b.res.Blocks[key] = BlocksFor(rate, b.o.Target, planBlocks)
+		b.logf("size   %-10s %2d users %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, users, fw, rate, b.res.Blocks[key])
+		if err := b.commit(); err != nil {
+			return nil, err
+		}
+	}
 	for attempt := 1; ; attempt++ {
 		out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-			rate := r.Warm(ctx, users, b.o.Warm)
-			blocks, ok := b.res.Blocks[key]
-			if !ok {
-				blocks = BlocksFor(rate, b.o.Target, planBlocks)
-				b.res.Blocks[key] = blocks
-			}
-			// The warm-up sends no writes, so a server whose writes make it slower (a cache that they
-			// clear) does more in it than in the round, and the first round of a cell can be sized too
-			// large. It is stopped at twice the target, which is too long to be valid, and resized from
-			// what it did.
-			return r.RunClosed(ctx, users, blocks*BlockVisits, 2*b.o.Target)
+			r.Warm(ctx, users, b.o.Warm)
+			// A round that still runs too long (a server that slows down as its data grows) is
+			// stopped at twice the target, which is too long to be valid, and resized from what it did.
+			return r.RunClosed(ctx, users, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
 		})
 		if err != nil {
 			return nil, err
@@ -472,9 +476,10 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		out.Round, out.Attempt = round, attempt
 		// A round takes 0.8 to 1.6 times the target (60 to 120 seconds by default). Outside that it is
 		// invalid: the workload is resized from what this round did, and the round is run again.
-		if lo, hi := roundLength(b.o.Target); out.Valid && out.Visits > 0 && (out.Seconds < lo || out.Seconds > hi) {
+		if blocks, ok := resize(out, b.o.Target, planBlocks); ok {
+			lo, hi := roundLength(b.o.Target)
 			out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
-			b.res.Blocks[key] = BlocksFor(float64(out.Visits)/out.Seconds, b.o.Target, planBlocks)
+			b.res.Blocks[key] = blocks
 		}
 		*into = append(*into, *out)
 		if err := b.commit(); err != nil {
@@ -486,6 +491,35 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 			return out, nil
 		}
 	}
+}
+
+// size is how many visits a second a server completes with the mix of the scenario, writes
+// included, on a fresh server that is then thrown away, for the length of a warm-up. The first round
+// of a cell is sized from it: the warm-up of a round sends no writes (so that every round starts with
+// the same data), and a server that writes make slower (a cache that they clear) would be sized too
+// large from that.
+func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, users int) (float64, error) {
+	var rate float64
+	_, err := b.with(ctx, fw, sc, func(r *runner) *Round {
+		rate = r.Size(ctx, users, b.o.Warm)
+		return &Round{}
+	})
+	return rate, err
+}
+
+// hung says whether a closed round hung: it was stopped and nothing completed in it. A round cut off
+// for running too long completed visits, and is resized from them.
+func hung(r *Round) bool { return r != nil && r.TimedOut && r.Visits == 0 }
+
+// resize says whether a closed round took a length outside the window, and then the blocks the next
+// round of its cell gets, from the visits a second of this one, whatever else made it invalid: a
+// round stopped at twice the target played only part of its blocks, so its mix is off too.
+func resize(out *Round, target time.Duration, planBlocks int) (int, bool) {
+	lo, hi := roundLength(target)
+	if out.Visits == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
+		return 0, false
+	}
+	return BlocksFor(float64(out.Visits)/out.Seconds, target, planBlocks), true
 }
 
 // roundLength is the shortest and the longest a closed round may take, in seconds, for a target.

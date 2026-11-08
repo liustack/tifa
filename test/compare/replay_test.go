@@ -741,3 +741,24 @@ func TestAVisitEndedBetweenActionsWaitsForItsBackgroundRequests(t *testing.T) {
 		}
 	}
 }
+
+// The sizing run plays the mix of its round, writes included, so that a server whose writes make it
+// slower is not sized from the reads alone.
+func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
+	srv, log := fakeApp(t)
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixRename}, tr)
+	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+	if rate := r.Size(context.Background(), 2, 100*time.Millisecond); rate <= 0 {
+		t.Fatalf("the sizing run completed no visit")
+	}
+	writes := 0
+	for _, s := range log() {
+		if s.method != "GET" {
+			writes++
+		}
+	}
+	if writes == 0 {
+		t.Error("the sizing run sent no write")
+	}
+}
