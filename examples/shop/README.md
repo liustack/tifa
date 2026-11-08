@@ -107,7 +107,7 @@ Tifa writes `<html lang>`, so the root Layout sets no `lang`. It also links each
 
 ## The storefront and the render cache
 
-The storefront pages are the same for every visitor, so the render cache (see [Render cache](../../docs/render-cache.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (the whole-page cache).
+The data of the storefront pages (products, journal, menu) is the same for every visitor, so the render cache (see [Render cache](../../docs/render-cache.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (the whole-page cache).
 
 What belongs to one visitor is not in the page. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
 

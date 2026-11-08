@@ -601,7 +601,7 @@ A full page is a user-independent page plus private data. Tifa splits by the kin
 
 Other systems draw the same line: HTTP caches call it `public` against `private`, Magento calls it private content, and donut caching keeps the shared page whole and fills in the holes.
 
-For the third kind, make an API route (a `route.go` with a `GET` handler and no `page.tsx`). Its generated `GET` function is typed and works from the browser. Call it when the page needs the data: after the page has loaded, when a panel opens, or on hover to fetch ahead. The generated functions plug straight into TanStack Query if the app wants a cache. `examples/shop/app/store/mine.ts` is a worked example: the storefront pages are the same for everyone, and this module calls the `GET` of `/store/{lang}/mine` after a page has loaded to fill in the cart and the products the visitor looked at last, and calls it again after a write.
+For the third kind, make an API route (a `route.go` with a `GET` handler and no `page.tsx`). Its generated `GET` function is typed and works from the browser. Call it when the page needs the data: after the page has loaded, when a panel opens, or on hover to fetch ahead. The generated functions plug straight into TanStack Query if the app wants a cache. `examples/shop/app/store/mine.ts` is a worked example: the data of the storefront pages (products, journal, menu) is the same for everyone, and this module calls the `GET` of `/store/{lang}/mine` after a page has loaded to fill in the cart and the products the visitor looked at last, and calls it again after a write.
 
 
 ## Pages open while you deploy
