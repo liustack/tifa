@@ -874,11 +874,77 @@ func TestNavigationDataAtCacheSizeZeroAnswersALoadRedirect(t *testing.T) {
 	}
 }
 
-// A page asked for after navigation data still renders and is kept.
-func TestNavigationDataAtCacheSizeZeroNeverFeedsTheDocument(t *testing.T) {
+// The control of the tests below: with a cache, navigation data and the document share one entry.
+func TestNavigationDataWithACacheFeedsTheDocument(t *testing.T) {
 	e := newNoRenderEnv(t, config.Default().Cache.Size, nil, nil)
 	get(e.s, dataURL("/news", "b1", "11"))
 	if w := get(e.s, "/news"); w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/html") || e.r.count() != 1 {
 		t.Errorf("%d %q, %d renders", w.Code, w.Header().Get("Content-Type"), e.r.count())
+	}
+}
+
+// At cache size 0 the navigation renders nothing and leaves nothing behind, and the document that
+// follows is rendered on its own.
+func TestNavigationDataAtCacheSizeZeroLeavesNothingForTheDocument(t *testing.T) {
+	e := newNoRenderEnv(t, 0, nil, nil)
+	if w := get(e.s, dataURL("/news", "b1", "11")); w.Code != 200 || e.r.count() != 0 {
+		t.Fatalf("data: %d, %d renders", w.Code, e.r.count())
+	}
+	e.s.cache.mu.Lock()
+	kept := len(e.s.cache.pages)
+	e.s.cache.mu.Unlock()
+	if kept != 0 {
+		t.Errorf("%d pages kept", kept)
+	}
+	e.r.result = nil // the document stage renders
+	w := get(e.s, "/news")
+	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/html") || e.r.count() != 1 {
+		t.Fatalf("page: %d %q, %d renders", w.Code, w.Header().Get("Content-Type"), e.r.count())
+	}
+	if body := w.Body.String(); !strings.HasPrefix(body, "<html>/news ") || !strings.Contains(body, `"n":1`) {
+		t.Errorf("body %q", body)
+	}
+}
+
+// A navigation and a document in flight together each run their own Loads: the document neither
+// waits for the navigation nor takes its result.
+func TestNavigationDataAtCacheSizeZeroIsNotSharedWithTheDocument(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	e := newNoRenderEnv(t, 0, nil, func(c *tifa.Ctx) (any, error) {
+		kind := "page"
+		if c.IsData() {
+			kind = "data"
+		}
+		started <- kind
+		<-release
+		return map[string]string{"for": kind}, nil
+	})
+	e.r.result = nil // only the document renders
+	var data, page *httptest.ResponseRecorder
+	var wg sync.WaitGroup
+	wg.Go(func() { data = get(e.s, dataURL("/news", "b1", "11")) })
+	if k := <-started; k != "data" {
+		t.Fatalf("first Load for %q", k)
+	}
+	wg.Go(func() { page = get(e.s, "/news") })
+	select {
+	case k := <-started:
+		if k != "page" {
+			t.Errorf("second Load for %q", k)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the document waits for the navigation")
+	}
+	close(release)
+	wg.Wait()
+	if e.loads.Load() != 2 || e.r.count() != 1 {
+		t.Errorf("%d Loads, %d renders", e.loads.Load(), e.r.count())
+	}
+	if !strings.Contains(page.Header().Get("Content-Type"), "text/html") || !strings.Contains(page.Body.String(), `"for":"page"`) {
+		t.Errorf("page: %q %q", page.Header().Get("Content-Type"), page.Body.String())
+	}
+	if !strings.Contains(data.Body.String(), `"for":"data"`) || strings.Contains(data.Body.String(), "<html>") {
+		t.Errorf("data: %q", data.Body.String())
 	}
 }
