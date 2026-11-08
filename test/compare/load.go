@@ -81,7 +81,7 @@ type Round struct {
 
 	// Renders counts the answers of Tifa by how it answered (X-Tifa-Render: vm, cache or shared), the
 	// documents and the navigation data alike, and PageRenders splits them by kind of page.
-	Renders map[string]int `json:"renders,omitempty"`
+	Renders     map[string]int            `json:"renders,omitempty"`
 	PageRenders map[string]map[string]int `json:"pageRenders,omitempty"`
 	Responses   map[string]int            `json:"responses,omitempty"`
 	Types       map[string]TypeStat       `json:"types"`

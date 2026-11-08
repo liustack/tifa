@@ -206,7 +206,7 @@ type acc struct {
 	mu                                  sync.Mutex
 	visits, views, loads, clicks, wrote int
 	// started counts the visits begun, and failedVisits the ones an action of which failed.
-	started, failedVisits int
+	started, failedVisits               int
 	failures, requests, cancelled, n304 int
 	bytes                               int64
 	firstErr                            string

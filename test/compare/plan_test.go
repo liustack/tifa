@@ -137,7 +137,7 @@ func TestAdminWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
 		name  string
 		kinds map[string]int
 	}{
-				{"admin-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
+		{"admin-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
 		{"admin-w50", map[string]int{WriteCreate: 152, WriteShip: 114, WriteNote: 76, WriteRecipient: 38}},
 	} {
 		sc := scenario(t, tc.name)

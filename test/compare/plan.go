@@ -256,7 +256,7 @@ var WritableOrders = []WriteOrder{
 // new customer name, which the lists, the stats and the other orders of that customer show: the
 // harder case for a cache. "store" is the writes of a visitor to the storefront (store_writes.go).
 const (
-	MixAdmin = "admin"
+	MixAdmin  = "admin"
 	MixRename = "rename"
 	MixStore  = "store"
 )

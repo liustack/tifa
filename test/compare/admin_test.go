@@ -23,12 +23,12 @@ type fakeShop struct {
 	// stale makes the pages ignore shipments, as a cache that is not cleared would, and staleStats
 	// only the stats page.
 	stale, staleStats bool
-	log   []string
+	log               []string
 }
 
 type fakeOrder struct {
 	project, customer, address, note, tracking, carrier string
-	notes                                      []string
+	notes                                               []string
 }
 
 func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
