@@ -10,7 +10,7 @@ import (
 
 // TestShopStaffEditsAndCheckoutsReachTheOtherSide checks that the storefront and the back office of
 // the shop share their data. A staff edit of a product makes the next answer of its page a render in
-// the VM and the one after it a hit of the render cache: the render cache follows the data with no
+// the VM and the one after it a hit of the render memo: the render memo follows the data with no
 // code of the app. A checkout becomes an order of the studio shop and lowers the stock, and a
 // checkout of more than the stock is refused.
 func TestShopStaffEditsAndCheckoutsReachTheOtherSide(t *testing.T) {
@@ -57,9 +57,9 @@ func TestShopStaffEditsAndCheckoutsReachTheOtherSide(t *testing.T) {
 		}
 	}
 
-	// The product page is in the render cache before the edit.
+	// The product page is in the render memo before the edit.
 	get(t, base+"/store/products/oak-tray")
-	page("/store/products/oak-tray", "cache", "Oak Serving Tray")
+	page("/store/products/oak-tray", "memo", "Oak Serving Tray")
 	page("/projects/studio/products/oak-tray", "vm", "Oak Serving Tray")
 
 	edit := `{"priceCents":52000,"stock":5,"nameEn":"Oak Tray, Large","nameZh":"橡木大托盘","descriptionEn":"White oak, carved from one block.","descriptionZh":"整块白橡木挖制。"}`
@@ -74,11 +74,11 @@ func TestShopStaffEditsAndCheckoutsReachTheOtherSide(t *testing.T) {
 	}
 	// The next answer of each page renders again with the new data, and the one after it hits.
 	page("/store/products/oak-tray", "vm", "Oak Tray, Large")
-	page("/store/products/oak-tray", "cache", "Oak Tray, Large")
+	page("/store/products/oak-tray", "memo", "Oak Tray, Large")
 	page("/zh-CN/store/products/oak-tray", "vm", "橡木大托盘")
-	page("/zh-CN/store/products/oak-tray", "cache", "¥520.00")
+	page("/zh-CN/store/products/oak-tray", "memo", "¥520.00")
 	page("/projects/studio/products", "vm", "Oak Tray, Large")
-	page("/projects/studio/products", "cache", "Oak Tray, Large")
+	page("/projects/studio/products", "memo", "Oak Tray, Large")
 
 	// A checkout of the demonstration cart with two trays added becomes the next order of the studio shop and takes them from the stock.
 	if status, _, body := do("POST", "/store/products/oak-tray", `{"color":"oat","size":"M","quantity":2}`); status != 200 {
