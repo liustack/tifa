@@ -340,7 +340,7 @@ type MixFact struct {
 
 // MixFacts are the numbers of the mix of mix.go, with their sources, for the report.
 func MixFacts() []MixFact {
-	pct := func(v float64) string { return strconv.FormatFloat(100*v, 'f', -1, 64) + "%" }
+	pct := func(v float64) string { return strconv.FormatFloat(math.Round(v*1e4)/100, 'f', -1, 64) + "%" }
 	littledata := "median of 438 Shopify stores, 2026-08-03 to 2026-10-31 (Littledata, https://www.littledata.io/benchmarks)"
 	var landing []string
 	for _, l := range LandingShares {

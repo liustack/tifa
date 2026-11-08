@@ -206,6 +206,9 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			t.Errorf("the report lacks the mix fact %q", f.What)
 		}
 	}
+	if !strings.Contains(md, "| shopper visits that add to the cart | 6.6% |") {
+		t.Error("the share of adds is not written as 6.6%")
+	}
 }
 
 func TestReportTellsABrowseResultFromARecord(t *testing.T) {
