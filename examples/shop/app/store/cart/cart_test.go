@@ -103,7 +103,7 @@ func TestCouponsAndDelivery(t *testing.T) {
 	if d := Deliveries(cheap, now, zh); d[0].ID != "standard" || d[0].PriceCents != 1500 || !d[1].Earliest.Equal(d[1].Latest) {
 		t.Errorf("deliveries of a small cart %+v", d)
 	}
-	if d := Deliveries(dear, now, zh); d[0].PriceCents != 0 || !d[0].Earliest.Equal(now.Add(72*time.Hour)) {
+	if d := Deliveries(dear, now, zh); d[0].PriceCents != 0 || !d[0].Earliest.Equal(time.Date(2026, 10, 22, 16, 0, 0, 0, time.UTC)) {
 		t.Errorf("deliveries of a large cart %+v", d)
 	}
 }
@@ -453,4 +453,38 @@ func TestOffersListTheCouponsAndWhetherTheSubtotalReachesThem(t *testing.T) {
 	if o := Offers(1, en); o[0].Detail != "10% off everything" || o[1].Detail != "$4.30 off orders over $28.20" {
 		t.Errorf("english offers %+v", o)
 	}
+}
+
+// A delivery date is a day of the store's time zone, so the Load data of a page does not change
+// within the day. Two times of the same day in Shanghai give the same deliveries, the next day
+// gives other ones, and the dates are midnights of that zone.
+func TestDeliveryDatesAreWholeDaysOfTheStoreZone(t *testing.T) {
+	cart := Cart{FreeShippingCents: 1}
+	morning := time.Date(2026, 10, 20, 0, 5, 0, 123456789, zoneOf(t, "Asia/Shanghai"))
+	night := time.Date(2026, 10, 20, 23, 59, 59, 999999999, zoneOf(t, "Asia/Shanghai"))
+	a, b := Deliveries(cart, morning, zh), Deliveries(cart, night, zh)
+	if fmt.Sprint(a) != fmt.Sprint(b) {
+		t.Errorf("the same day gives other deliveries:\n%v\n%v", a, b)
+	}
+	if want := time.Date(2026, 10, 23, 0, 0, 0, 0, zoneOf(t, "Asia/Shanghai")); !a[0].Earliest.Equal(want) {
+		t.Errorf("earliest of standard delivery %v, want %v", a[0].Earliest, want)
+	}
+	if c := Deliveries(cart, night.Add(time.Second), zh); fmt.Sprint(c) == fmt.Sprint(a) {
+		t.Error("the next day gives the same deliveries")
+	}
+	// The US store counts its days in Los Angeles, not in Shanghai: the same instant is on
+	// another day there.
+	instant := time.Date(2026, 10, 20, 20, 0, 0, 0, time.UTC) // 04:00 on the 21st in Shanghai, 13:00 on the 20th in Los Angeles
+	if got, want := Deliveries(cart, instant, en)[2].Earliest, time.Date(2026, 10, 20, 0, 0, 0, 0, zoneOf(t, "America/Los_Angeles")); !got.Equal(want) {
+		t.Errorf("pickup in Los Angeles %v, want %v", got, want)
+	}
+}
+
+func zoneOf(t *testing.T, name string) *time.Location {
+	t.Helper()
+	z, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return z
 }
