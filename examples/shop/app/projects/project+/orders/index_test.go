@@ -206,3 +206,34 @@ func TestReadsAndWritesAtOnce(t *testing.T) {
 	wg.Wait()
 	checkReads(t, "reads and writes at once")
 }
+
+// In New York the clocks go back an hour on 2026-11-01, so that day has 25 hours. With the newest
+// order at 23:30 that evening, the last two of the 14 steps of 24 hours both land on 11-01. The
+// list shows that date twice, and both show the whole day.
+func TestListOrdersShowADayOf25HoursTwice(t *testing.T) {
+	newYork, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reset)
+	ordersMu.Lock()
+	for i, placed := range []string{"2026-11-02T04:30:00Z", "2026-11-01T05:30:00Z", "2026-10-31T15:00:00Z", "2026-10-20T15:00:00Z"} {
+		at, err := time.Parse(time.RFC3339, placed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		insert(orders, &orderRecord{ID: fmt.Sprint("NY-", i), ProjectID: "nyc", PlacedAt: at, Items: []itemRecord{{Slug: "oak-tray", Quantity: 1, PriceCents: 1000 * (i + 1)}}})
+	}
+	ordersMu.Unlock()
+	all := snapshot()
+	got := ListOrders("nyc", newYork, ListQuery{})
+	if want := refListOrders(all, "nyc", newYork, ListQuery{}); !reflect.DeepEqual(got, want) {
+		g, _ := json.Marshal(got)
+		w, _ := json.Marshal(want)
+		t.Fatalf("list in New York:\n got %s\nwant %s", g, w)
+	}
+	d := got.Daily
+	if d.Orders[12] != 2 || d.Orders[13] != 2 || d.RevenueCents[12] != 3000 || d.RevenueCents[13] != 3000 || d.Orders[11] != 1 {
+		t.Fatalf("daily orders %v, revenue %v, want the last two at 2 orders and 3000 cents, the one before at 1", d.Orders, d.RevenueCents)
+	}
+}

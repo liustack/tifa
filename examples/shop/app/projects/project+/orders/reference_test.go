@@ -70,7 +70,9 @@ func refListOrders(all []orderRecord, projectID string, zone *time.Location, q L
 	index := map[string]int{}
 	for i := range keys {
 		keys[i] = l.NewestAt.Add(-time.Duration(listDays-1-i) * 24 * time.Hour).In(zone).Format(time.DateOnly)
-		index[keys[i]] = len(index)
+		if _, ok := index[keys[i]]; !ok { // a day of 25 hours comes up twice
+			index[keys[i]] = len(index)
+		}
 	}
 	sums := make([][4]int, len(index))
 	carriers := map[string]bool{}
@@ -106,7 +108,7 @@ func refListOrders(all []orderRecord, projectID string, zone *time.Location, q L
 		l.Daily.Pending = append(l.Daily.Pending, s[2])
 		l.Daily.Shipped = append(l.Daily.Shipped, s[3])
 	}
-	l.Carriers = slices.Sorted(maps.Keys(carriers))
+	l.Carriers = append([]string{}, slices.Sorted(maps.Keys(carriers))...)
 	keep := q.keeper(l.NewestAt)
 	var matched []OrderRow
 	for _, o := range list {
