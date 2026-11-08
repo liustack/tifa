@@ -65,9 +65,11 @@ type Round struct {
 	// visits late or used most of its cpus.
 	GeneratorLimited bool `json:"generatorLimited,omitempty"`
 
-	Renders   map[string]int      `json:"renders,omitempty"`
-	Responses map[string]int      `json:"responses,omitempty"`
-	Types     map[string]TypeStat `json:"types"`
+	Renders map[string]int `json:"renders,omitempty"`
+	// PageRenders splits the renders of full loads by kind of page (Tifa only).
+	PageRenders map[string]map[string]int `json:"pageRenders,omitempty"`
+	Responses   map[string]int            `json:"responses,omitempty"`
+	Types       map[string]TypeStat       `json:"types"`
 
 	// WriteKinds counts the writes by kind. PoolEmpty counts the office writes that found no order to
 	// go to and were sent as a create instead (they are among the creates). Orders is, for each
@@ -103,7 +105,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Pages = a.pages
 	r.Failures, r.FirstErr = a.failures, a.firstErr
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
-	r.Renders, r.Responses = a.renders, a.responses
+	r.Renders, r.Responses, r.PageRenders = a.renders, a.responses, a.pageRenders
 	r.WriteKinds, r.PoolEmpty = a.kinds, a.poolEmpty
 	r.Seconds = end.Sub(start).Seconds()
 	if !a.lastAction.IsZero() && a.lastAction.After(start) {

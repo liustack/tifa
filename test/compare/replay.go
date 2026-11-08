@@ -156,10 +156,12 @@ type acc struct {
 	// and were sent as a create instead (they are among the creates).
 	kinds     map[string]int
 	poolEmpty int
+	// pageRenders counts the renders of full loads (X-Tifa-Render on the documents) by kind of page.
+	pageRenders map[string]map[string]int
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}}
 }
 
 func (a *acc) fail(err error) {
@@ -340,6 +342,11 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	if q.Class == "doc" {
 		if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
 			a.renders[rd]++
+			kind := pageClass(q.URL)
+			if a.pageRenders[kind] == nil {
+				a.pageRenders[kind] = map[string]int{}
+			}
+			a.pageRenders[kind][rd]++
 		}
 	}
 	if q.Class == "prefetch" {

@@ -77,6 +77,9 @@ type BrowseResult struct {
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
+	// Control is the read-only control of office-w5: Tifa at the users of the closed runs with the
+	// same traces and no writes, one short round, to show what the writes do to its render cache.
+	Control []Round `json:"control,omitempty"`
 }
 
 // Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
@@ -302,13 +305,16 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}
-	if err := r.verifyWrites(ctx); err != nil {
-		return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
+	// A round with no writes (the read-only control) has none to check, and writes nothing.
+	if sc.Share > 0 {
+		if err := r.verifyWrites(ctx); err != nil {
+			return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
+		}
 	}
 	out := f(r)
 	out.Framework, out.Scenario = name, sc.Name
 	out.Judge(sc)
-	if out.Pass {
+	if out.Pass && sc.Share > 0 {
 		if err := r.verifyWrites(ctx); err != nil {
 			return nil, fmt.Errorf("%s/%s, after the round: %w", sc.Name, name, err)
 		}
@@ -358,7 +364,38 @@ func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
 			}
 		}
 	}
-	return nil
+	return b.control(ctx, sc)
+}
+
+// controlScenario is the scenario of the read-only control, and controlWindow about how long its
+// one round takes (the target of the closed rounds when that is shorter).
+const (
+	controlScenario = "office-w5"
+	controlWindow   = 30 * time.Second
+)
+
+// control is a diagnostic, not a result: on office-w5, one closed round of Tifa (with its caches as
+// it ships) at the users of the closed runs, with the same traces and no writes. Against the closed
+// rounds it shows what the writes do to the render cache of each kind of page.
+func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
+	if sc.Name != controlScenario || !slices.Contains(b.servers[sc.Name], "tifa") || len(b.res.Control) > 0 {
+		return nil
+	}
+	reads := sc
+	reads.Share = 0
+	window := min(b.o.Target, controlWindow)
+	out, err := b.with(ctx, "tifa", reads, func(r *runner) *Round {
+		rate := r.Warm(ctx, b.o.Users, b.o.Warm)
+		blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
+		return r.RunClosed(ctx, b.o.Users, blocks*BlockVisits, 2*window)
+	})
+	if err != nil {
+		return err
+	}
+	out.Model, out.Round = "control", 1
+	b.res.Control = append(b.res.Control, *out)
+	b.logf("control %-10s %2d users tifa, no writes: %.1f page views/s, renders by page %v, pass %v %s\n", sc.Name, out.Users, float64(out.PageViews)/out.Seconds, out.PageRenders, out.Pass, out.Why)
+	return b.commit()
 }
 
 func (b *browse) lastClosed(fw, sc string, users int) *Round {

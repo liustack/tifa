@@ -276,3 +276,13 @@ func TestEveryWriteGivesANewCustomerName(t *testing.T) {
 }
 
 func newRand(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, 0)) }
+
+// The read-only control is a scenario with no writes: its blocks get none.
+func TestAScenarioWithNoWritesGetsNone(t *testing.T) {
+	sc := scenario(t, "office-w5")
+	sc.Share = 0
+	ws, err := BlockWrites(7, GeneratePlanSet(7, 1).Plans, sc)
+	if err != nil || len(ws) != 0 {
+		t.Errorf("%d writes, %v", len(ws), err)
+	}
+}

@@ -180,6 +180,7 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 	for _, u := range users {
 		r.closedDetail(b, sc, u)
 	}
+	r.controlMarkdown(b, sc)
 	if !sc.open() {
 		b.WriteString("\nThis scenario has no open run: the arrival rate and the latency at the same rate are measured on the scenario of each site with 5% writes.\n")
 	}
@@ -242,6 +243,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), per("doc 200 "), per("doc 304 "), per("nav "), per("prefetch "), per("write "), tifa("vm"), tifa("cache"), tifa("shared"))
 	}
+	r.pageRendersMarkdown(b, sc, users)
 	switch sc.Mix {
 	case MixOffice:
 		b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | place an order | ship | note | recipient | sent as a place-an-order write for lack of an order (share of the writes) | write P50 ms: place / ship / note / recipient | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
@@ -430,3 +432,96 @@ const renameText = "In the scenarios named for a customer rename, every write gi
 
 // storeText is what the report says about the storefront scenarios.
 const storeText = "The storefront scenarios replay visits to the shop's storefront (the home, the product list with its filters, 28 products, the cart, the checkout, the journal and its posts), in English or Chinese. A visit stays in one language. All of this is assumed, not measured: the language is half and half, the first page is the home 25%, a product 35%, a product list 15%, the journal 5%, a post 10% or the cart 10% (by quota in every block), and a click goes to one of the links a browser found on the page, with a share for each kind of link (from a list, a product 70% of the time, from a product another product 30%, the list 25%, the cart 25%, from the cart the checkout 40%). A visit starts with no cart and sees the demonstration cart of four lines that the shop shows a new visitor. Its writes follow the cart it has, so the shop takes each: 50% add a product in a colour and size it has and that is in stock, 20% change the quantity of a line in the cart (one in five removes it), 10% put a coupon on the cart or take it off, 20% check out. A quantity change or a checkout with an empty cart is an add instead, so the shares sent differ a little (the table of writes says how many of each were sent). A checkout answers 303 to the page of the order and is not followed. The cart is the visit's own (its cookie), so there is nothing shared between visits. The traces hold no writes, so what a browser fetches again after one (the cart count, a refresh of the router) is not replayed. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request. Tifa keeps rendered pages in two caches: the whole-page cache of the routes that have `Cache` (the home, the product list, the products and the journal, for everyone) and the render cache (a page whose data is unchanged). The storefront runs Tifa twice, once with the whole-page cache off and the render cache on, and once with both off, so that the second does the work the other frameworks do and the first shows what the render cache is worth.\n\n"
+
+// pageKinds are the kinds of page that the full loads of rounds rendered, sorted.
+func pageKinds(rounds []Round) []string {
+	seen := map[string]bool{}
+	for _, x := range rounds {
+		for k := range x.PageRenders {
+			seen[k] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
+
+// hitCell is the share of the full loads of a kind of page that the render cache answered, over
+// all the rounds, with how many full loads had a render.
+func hitCell(rounds []Round, kind string) string {
+	hits, all := 0, 0
+	for _, x := range rounds {
+		for how, n := range x.PageRenders[kind] {
+			all += n
+			if how == "cache" {
+				hits += n
+			}
+		}
+	}
+	if all == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f%% of %d", 100*float64(hits)/float64(all), all)
+}
+
+// pageRendersMarkdown is a diagnostic for Tifa: the render cache hits of the full loads of the
+// closed rounds at a number of users, by kind of page (X-Tifa-Render on the documents).
+func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario, users int) {
+	var rows []string
+	var all []Round
+	for _, f := range r.Servers[sc.Name] {
+		if rs := r.cellRounds(f, sc.Name, users); isTifa(f) && len(rs) > 0 {
+			rows = append(rows, f)
+			all = append(all, rs...)
+		}
+	}
+	kinds := pageKinds(all)
+	if len(kinds) == 0 {
+		return
+	}
+	b.WriteString("\nA diagnostic for Tifa, the render cache hits of full loads by kind of page (from X-Tifa-Render on the documents, over the rounds):\n\n|")
+	for _, k := range kinds {
+		fmt.Fprintf(b, " | %s", k)
+	}
+	b.WriteString(" |\n| ---" + strings.Repeat(" | ---", len(kinds)) + " |\n")
+	for _, f := range rows {
+		rs := r.cellRounds(f, sc.Name, users)
+		fmt.Fprintf(b, "| %s |", BrowseLabel(f))
+		for _, k := range kinds {
+			fmt.Fprintf(b, " %s |", hitCell(rs, k))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// controlMarkdown gives the read-only control of a scenario, if it has one, against the closed
+// rounds of Tifa at the same users.
+func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var control []Round
+	for _, x := range r.Control {
+		if x.Scenario == sc.Name {
+			control = append(control, x)
+		}
+	}
+	if len(control) == 0 {
+		return
+	}
+	users := control[0].Users
+	closed := r.cellRounds("tifa", sc.Name, users)
+	kinds := pageKinds(append(slices.Clone(control), closed...))
+	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d users with the same traces and no writes, one short round, against its closed rounds of this scenario. The render cache hits of full loads by kind of page show which pages the writes keep from the cache.\n\n| | page views/s", users)
+	for _, k := range kinds {
+		fmt.Fprintf(b, " | %s", k)
+	}
+	b.WriteString(" |\n| --- | ---" + strings.Repeat(" | ---", len(kinds)) + " |\n")
+	row := func(label string, rs []Round) {
+		if len(rs) == 0 {
+			return
+		}
+		fmt.Fprintf(b, "| %s | %s |", label, fmtCell(each(rs, pageViewsPerSecond), "%.1f"))
+		for _, k := range kinds {
+			fmt.Fprintf(b, " %s |", hitCell(rs, k))
+		}
+		b.WriteString("\n")
+	}
+	row("Tifa, no writes", control)
+	row(fmt.Sprintf("Tifa, %.0f%% writes", 100*sc.Share), closed)
+}

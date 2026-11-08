@@ -216,3 +216,33 @@ func TestReportTellsABrowseResultFromARecord(t *testing.T) {
 		t.Error("a record of measure is a browse result")
 	}
 }
+
+// For Tifa the report splits the render cache hits of full loads by kind of page, in every closed
+// run and in the read-only control of office-w5: a diagnostic of what the writes do to the cache.
+func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
+	sc := BrowseScenarios[0]
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}}
+	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
+	x.PageRenders = map[string]map[string]int{"list": {"cache": 55, "vm": 45}, "stats": {"cache": 11, "vm": 9}, "order": {"cache": 1, "vm": 99}}
+	n := closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)
+	c := closedRound("tifa", sc.Name, 32, 1, 8000, 10, true)
+	c.Model, c.Writes, c.WriteShare = "control", 0, 0
+	c.PageRenders = map[string]map[string]int{"list": {"cache": 98, "vm": 2}, "stats": {"cache": 19, "vm": 1}, "order": {"cache": 97, "vm": 3}}
+	r.Closed, r.Control = []Round{x, n}, []Round{c}
+	md := r.Markdown()
+	for _, want := range []string{
+		"render cache hits of full loads by kind of page",
+		"| | list | order | stats |",
+		"| Tifa | 55.0% of 100 | 1.0% of 100 | 55.0% of 20 |",
+		"#### Read-only control",
+		"| Tifa, no writes | 800.0 | 98.0% of 100 | 97.0% of 100 | 95.0% of 20 |",
+		"| Tifa, 5% writes | 400.0 | 55.0% of 100 | 1.0% of 100 | 55.0% of 20 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "| Next.js | 55.0%") {
+		t.Error("the split is given for a server that is not Tifa")
+	}
+}

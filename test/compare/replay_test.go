@@ -678,3 +678,35 @@ func TestAClosedRoundTakesSixtyToOneHundredTwentySecondsByDefault(t *testing.T) 
 		t.Errorf("a short trial takes %v to %v s", lo, hi)
 	}
 }
+
+// The render of each full load is counted by the kind of page, from X-Tifa-Render on the document,
+// so the report can tell which pages the writes keep from the render cache.
+func TestRendersOfFullLoadsAreCountedByKindOfPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/projects/studio":
+			w.Header().Set("X-Tifa-Render", "cache")
+		case strings.HasPrefix(r.URL.Path, "/projects/studio/orders/"):
+			w.Header().Set("X-Tifa-Render", "vm")
+		default:
+			w.Header().Set("X-Tifa-Render", "none")
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	load := func(page string) Trace {
+		return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{req(page, "doc", 0, 1), req("/data", "nav", 2, 3)}}}}
+	}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, load("/projects/studio"), load("/projects/studio/orders/SH-1041"), load("/projects/studio"))
+	a := newAcc()
+	for seq := range 3 {
+		if err := visitOnce(r, a, seq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var round Round
+	a.round(&round, 0, 0, 0, 0, time.Now(), time.Now(), 0)
+	if got := fmt.Sprint(round.PageRenders); got != "map[list:map[cache:2] order:map[vm:1]]" {
+		t.Errorf("renders by page %s", got)
+	}
+}
