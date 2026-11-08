@@ -43,6 +43,12 @@ var FilterPages = []struct {
 	{Page{"list studio amount high shipped", listURL("studio", "status", "shipped", "amount", "high"), chain(listRoute)}, -1},
 	{Page{"list studio nothing", listURL("studio", "q", "nobody by this name"), chain(listRoute)}, 0},
 	{Page{"list studio unknown values", listURL("studio", "status", "lost", "period", "365", "amount", "huge", "page", "two"), chain(listRoute)}, 25},
+	{Page{"list studio by amount", listURL("studio", "sort", "totalCents", "dir", "desc"), chain(listRoute)}, 25},
+	{Page{"list studio by amount page 2", listURL("studio", "sort", "totalCents", "dir", "desc", "page", "2"), chain(listRoute)}, 17},
+	{Page{"list studio smallest first", listURL("studio", "sort", "totalCents", "dir", "asc"), chain(listRoute)}, 25},
+	{Page{"list studio oldest first", listURL("studio", "sort", "placedAt", "dir", "asc"), chain(listRoute)}, 25},
+	{Page{"list studio shipped by amount", listURL("studio", "status", "shipped", "amount", "mid", "sort", "totalCents", "dir", "asc"), chain(listRoute)}, -1},
+	{Page{"list studio unknown sort", listURL("studio", "sort", "customer", "dir", "sideways"), chain(listRoute)}, 25},
 	{Page{"list weekend pending", listURL("weekend", "status", "pending"), chain(listRoute)}, 1},
 	{Page{"list weekend search", listURL("weekend", "q", "wk-02"), chain(listRoute)}, 2},
 }

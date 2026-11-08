@@ -58,7 +58,7 @@ export function queryOf(params: URLSearchParams): ListQuery {
   const page = params.get('page') ?? ''
   return {
     status: params.get('status') ?? '', carrier: params.get('carrier') ?? '', period: params.get('period') ?? '',
-    amount: params.get('amount') ?? '', q: params.get('q') ?? '', page: /^[+-]?\d+$/.test(page) ? Number(page) : 0,
+    amount: params.get('amount') ?? '', q: params.get('q') ?? '', sort: params.get('sort') ?? '', dir: params.get('dir') ?? '', page: /^[+-]?\d+$/.test(page) ? Number(page) : 0,
   }
 }
 

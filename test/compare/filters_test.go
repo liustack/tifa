@@ -57,6 +57,24 @@ func TestFilteredListsMatchGo(t *testing.T) {
 	check(compare.FilterPages[1].URL, "matching", 40)
 	check(compare.FilterPages[9].URL, "matching", 0)
 	check(compare.FilterPages[9].URL, "total", 42)
+	// The list sorted by the amount is sorted over both pages: no order of page 2 is bigger than the
+	// last of page 1.
+	var byAmount [2][]any
+	for _, f := range compare.FilterPages {
+		switch f.Name {
+		case "list studio by amount":
+			byAmount[0], _ = want0(t, wantAny, f.URL).(map[string]any)["orders"].([]any)
+		case "list studio by amount page 2":
+			byAmount[1], _ = want0(t, wantAny, f.URL).(map[string]any)["orders"].([]any)
+		}
+	}
+	cents := func(rows []any, i int) float64 {
+		c, _ := rows[i].(map[string]any)["totalCents"].(float64)
+		return c
+	}
+	if len(byAmount[0]) != 25 || len(byAmount[1]) != 17 || cents(byAmount[0], 24) < cents(byAmount[1], 0) || cents(byAmount[0], 0) < cents(byAmount[0], 24) {
+		t.Errorf("the list sorted by the amount is not in order across its pages")
+	}
 }
 
 // want0 is the data of the list page at url.

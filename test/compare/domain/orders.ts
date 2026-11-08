@@ -90,10 +90,12 @@ export interface ListQuery {
   period: string // '7' or '30': placed within that many days of the newest order
   amount: string // 'low' (under 200 yuan), 'mid' (200 to 500 yuan) or 'high' (over 500 yuan)
   q: string // part of an order number or of a customer's name, in any case
+  sort: string // 'placedAt' or 'totalCents'
+  dir: string // 'desc' or 'asc'
   page: number // from 1
 }
 
-export const noQuery: ListQuery = { status: '', carrier: '', period: '', amount: '', q: '', page: 0 }
+export const noQuery: ListQuery = { status: '', carrier: '', period: '', amount: '', q: '', sort: '', dir: '', page: 0 }
 
 export interface StatusCounts {
   all: number
@@ -176,6 +178,8 @@ function cleanQuery(q: ListQuery): ListQuery {
     period: q.period === '7' || q.period === '30' ? q.period : '',
     amount: Object.hasOwn(amountRanges, q.amount) ? q.amount : '',
     q: q.q.trim(),
+    sort: q.sort === 'totalCents' ? 'totalCents' : 'placedAt',
+    dir: q.dir === 'asc' ? 'asc' : 'desc',
     page: Math.max(q.page, 1),
   }
 }
@@ -250,6 +254,10 @@ export function listOrders(projectId: string, timeZone: string, query: ListQuery
     else l.statuses.shipped++
     if (q.status === '' || q.status === row.status) matched.push(row)
   }
+  // The default list is newest first. Orders that tie on the amount stay in that order whichever way
+  // the amount goes (Array.sort is stable), and the time ascending is the default list reversed.
+  if (q.sort === 'totalCents') matched.sort((a, b) => (q.dir === 'desc' ? b.totalCents - a.totalCents : a.totalCents - b.totalCents))
+  else if (q.dir === 'asc') matched.reverse()
   l.matching = matched.length
   l.pages = Math.ceil(l.matching / ListPageSize)
   l.filter.page = Math.min(q.page, Math.max(l.pages, 1))
