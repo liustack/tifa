@@ -165,7 +165,7 @@ func TestAPurchaseKeepsTheProductsAsTheyWereBought(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(bought.Lines) != 2 || bought.Lines[0].Variant != "墨蓝 / M" || bought.Lines[0].Quantity != 2 || bought.Lines[1].Variant != "墨蓝 / L" ||
-		bought.Lines[1].Quantity != 1 || bought.Lines[0].PriceFen != 16800 || bought.Lines[0].Name != "棉麻围裙" {
+		bought.Lines[1].Quantity != 1 || bought.Lines[0].PriceFen != 16800 || bought.Lines[0].Name != "Cotton Linen Apron" {
 		t.Errorf("the lines are %+v", bought.Lines)
 	}
 	e, _ := GetEntry("linen-apron")
@@ -211,7 +211,7 @@ func TestTakesAtOnceNeverSellMoreThanTheStock(t *testing.T) {
 func TestAnOrderLineNamesTheVariant(t *testing.T) {
 	t.Cleanup(resetCatalogue)
 	l, err := OrderLine("linen-apron", "ink", "M")
-	if err != nil || l.Name != "棉麻围裙" || l.Variant != "墨蓝 / M" || l.Color != "ink" || l.PriceFen != 16800 {
+	if err != nil || l.Name != "Cotton Linen Apron" || l.Variant != "墨蓝 / M" || l.Color != "ink" || l.PriceFen != 16800 {
 		t.Errorf("apron in ink, M: %+v %v", l, err)
 	}
 	// Staff who place an order name no colour: the line takes the first.
@@ -230,7 +230,7 @@ func TestAnOrderLineNamesTheVariant(t *testing.T) {
 	if err := Update("pour-over-kettle", kettleEdit); err != nil {
 		t.Fatal(err)
 	}
-	if l, _ := OrderLine("pour-over-kettle", "", ""); l.Name != "黎明手冲壶" || l.PriceFen != 29900 {
+	if l, _ := OrderLine("pour-over-kettle", "", ""); l.Name != "Dawn Kettle" || l.PriceFen != 29900 {
 		t.Errorf("after an edit the line is %+v", l)
 	}
 }

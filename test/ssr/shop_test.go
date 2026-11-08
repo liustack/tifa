@@ -250,7 +250,7 @@ func TestShopRendersReadyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"SH-1042", "林夏", "晨间手冲壶", ">山海工作室</h1>", "2</span> to ship", "data-tsr-stream-part", "Confirm shipment"} {
+	for _, text := range []string{"SH-1042", "林夏", "Morning Pour-Over Kettle", ">山海工作室</h1>", "2</span> to ship", "data-tsr-stream-part", "Confirm shipment"} {
 		if !strings.Contains(html, text) {
 			t.Errorf("missing %q", text)
 		}

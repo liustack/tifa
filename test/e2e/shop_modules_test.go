@@ -146,7 +146,7 @@ func checkStatsPanels(t *testing.T, base string) {
 	in := rendered(page)
 	for _, want := range []string{
 		"Pieces sold", "Pieces per order", "Amount to ship", "Repeat customers", "Product sales", "Order times", "Carrier performance", "How fast we ship", "Regulars", "Recent orders",
-		"Mon", "Sun", "Within 6 hours", "Over 24 hours", "WK-0201", "野餐垫",
+		"Mon", "Sun", "Within 6 hours", "Over 24 hours", "WK-0201", "Picnic Blanket",
 	} {
 		if !strings.Contains(in, want) {
 			t.Errorf("weekend stats lack %s", want)

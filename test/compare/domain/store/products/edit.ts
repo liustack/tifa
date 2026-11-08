@@ -83,10 +83,10 @@ export function stockOf(slug: string): number | undefined {
   return catalogue.find((p) => p.slug === slug)?.stock
 }
 
-// orderName is the name of the product slug as the lines of an order keep it, its Chinese name now,
-// or undefined. Go calls it OrderName.
+// orderName is the name of the product slug as the lines of an order keep it, its English name now
+// (the back office is in English), or undefined. Go calls it OrderName.
 export function orderName(slug: string): string | undefined {
-  return catalogue.find((p) => p.slug === slug)?.name[0]
+  return catalogue.find((p) => p.slug === slug)?.name[1]
 }
 
 // NoStock is what buy throws when a product has fewer pieces than a checkout takes, as Go's
@@ -153,5 +153,5 @@ function lineOf(p: ProductRecord, color: string, size: string): ProductLine {
   }
   let variant = colors.find((c) => c.id === color)?.name[0] ?? color
   if (size !== '') variant += ' / ' + size
-  return { slug: p.slug, name: p.name[0], variant, color, priceFen: p.priceFen, quantity: 0 }
+  return { slug: p.slug, name: p.name[1], variant, color, priceFen: p.priceFen, quantity: 0 }
 }

@@ -283,7 +283,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if placed, _ := ref[22].reply.Order.(string); placed != "/store/checkout?placed=SH-1044" {
 		t.Errorf("the checkout placed %q, want the order SH-1044 of the studio shop", placed)
 	}
-	if a, _ := json.Marshal(ref[30].reply.Order); !strings.Contains(string(a), `"name":"橡木大托盘"`) || !strings.Contains(string(a), `"priceCents":52000`) {
+	if a, _ := json.Marshal(ref[30].reply.Order); !strings.Contains(string(a), `"name":"Oak Tray, Large"`) || !strings.Contains(string(a), `"priceCents":52000`) {
 		t.Errorf("the order of the edited product does not take its new name and price: %s", a)
 	}
 }

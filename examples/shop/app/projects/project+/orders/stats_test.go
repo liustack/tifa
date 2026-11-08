@@ -175,7 +175,7 @@ func TestSalesStatsRankEveryProductWithItsDays(t *testing.T) {
 			t.Errorf("rank %d is %s, the chart has %s", i, s.Products[i].Name, p.Name)
 		}
 	}
-	if k := byName["晨间手冲壶"]; k.Orders < 3 || k.Orders > k.Quantity {
+	if k := byName["Morning Pour-Over Kettle"]; k.Orders < 3 || k.Orders > k.Quantity {
 		t.Errorf("kettle %+v", k)
 	}
 }
@@ -252,7 +252,7 @@ func TestSalesStatsKeepARenamedProductInOneRow(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = products.Update("ceramic-cup", before.Edit) })
 	edit := before.Edit
-	edit.NameZH = "新陶瓷杯"
+	edit.NameEN = "New Ceramic Cup"
 	if err := products.Update("ceramic-cup", edit); err != nil {
 		t.Fatal(err)
 	}
@@ -267,11 +267,11 @@ func TestSalesStatsKeepARenamedProductInOneRow(t *testing.T) {
 			rows = append(rows, r)
 		}
 	}
-	if len(rows) != 1 || rows[0].Name != "新陶瓷杯" {
+	if len(rows) != 1 || rows[0].Name != "New Ceramic Cup" {
 		t.Fatalf("the rows of the renamed product: %+v", rows)
 	}
 	for _, p := range SalesStats("studio", shanghai).TopProducts {
-		if p.Slug == "ceramic-cup" && p.Name != "新陶瓷杯" {
+		if p.Slug == "ceramic-cup" && p.Name != "New Ceramic Cup" {
 			t.Errorf("the best sellers name it %q", p.Name)
 		}
 	}

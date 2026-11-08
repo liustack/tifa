@@ -52,7 +52,7 @@ func TestCreateKeepsWhatWasEnteredAndTakesTheRestFromTheCatalogue(t *testing.T) 
 	if o.Customer != "周宁" || o.Phone != "13700137002" || o.Address != "北京市朝阳区" || o.Note != "请轻放" || !o.PlacedAt.Equal(at) || o.Status != StatusPending || o.Shipment != nil {
 		t.Fatalf("order %+v", o)
 	}
-	if len(o.Items) != 2 || o.Items[0].Name != "手作陶瓷杯" || o.Items[0].PriceCents != 13400 || o.Items[0].Stock != 58-2 || o.TotalCents != 2*13400+58000 {
+	if len(o.Items) != 2 || o.Items[0].Name != "Handmade Ceramic Cup" || o.Items[0].PriceCents != 13400 || o.Items[0].Stock != 58-2 || o.TotalCents != 2*13400+58000 {
 		t.Fatalf("items %+v, total %d", o.Items, o.TotalCents)
 	}
 	// It is the newest order: first in the list, in the totals and in what waits to ship.
@@ -151,9 +151,9 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 	}
 	o, _ := GetOrder("studio", id)
 	want := []LineItem{
-		{Slug: "glass-carafe", Name: "玻璃冷水壶", Description: "雾白", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
-		{Slug: "linen-apron", Name: "棉麻围裙", Description: "墨蓝 / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
-		{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
+		{Slug: "glass-carafe", Name: "Glass Carafe", Description: "雾白", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
+		{Slug: "linen-apron", Name: "Cotton Linen Apron", Description: "墨蓝 / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
+		{Slug: "ceramic-cup", Name: "Handmade Ceramic Cup", Description: "青苔绿", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
 	}
 	for i, w := range want {
 		got := o.Items[i]
@@ -164,7 +164,7 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 		}
 	}
 	edit := before.Edit
-	edit.NameZH, edit.PriceCents, edit.Stock = "新陶瓷杯", 12000, 7
+	edit.NameEN, edit.PriceCents, edit.Stock = "New Ceramic Cup", 12000, 7
 	if err := products.Update("ceramic-cup", edit); err != nil {
 		t.Fatal(err)
 	}
@@ -173,11 +173,11 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o, _ := GetOrder("studio", id); o.Items[0].Name != "新陶瓷杯" || o.Items[0].PriceCents != 12000 || o.Items[0].Stock != 7-1 || o.TotalCents != 12000 {
+	if o, _ := GetOrder("studio", id); o.Items[0].Name != "New Ceramic Cup" || o.Items[0].PriceCents != 12000 || o.Items[0].Stock != 7-1 || o.TotalCents != 12000 {
 		t.Errorf("after an edit the order holds %+v", o.Items[0])
 	}
 	// An order placed before keeps what it was placed at.
-	if o, _ := GetOrder("studio", "SH-1041"); o.Items[0].Name != "手作陶瓷杯" || o.Items[0].PriceCents != 13400 {
+	if o, _ := GetOrder("studio", "SH-1041"); o.Items[0].Name != "Handmade Ceramic Cup" || o.Items[0].PriceCents != 13400 {
 		t.Errorf("SH-1041 now holds %+v", o.Items[0])
 	}
 }
@@ -234,6 +234,46 @@ func TestNowIsToTheMillisecond(t *testing.T) {
 	for range 100 {
 		if n := Now(); n.Nanosecond()%int(time.Millisecond) != 0 {
 			t.Fatalf("Now() = %v has a part under a millisecond", n)
+		}
+	}
+}
+
+// The back office is in English, so the lines of an order, the demonstration ones and the ones staff
+// or a checkout place, name their products in English, as the catalogue of their shop does.
+func TestOrdersNameTheirProductsInEnglish(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	o, err := GetOrder("studio", "SH-1042")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o.Items[0].Name; got != "Morning Pour-Over Kettle" {
+		t.Errorf("SH-1042 holds %q, want the English name of the kettle", got)
+	}
+	w, err := GetOrder("weekend", "WK-0201")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := w.Items[0].Name; got != "Weekend Canvas Tote" {
+		t.Errorf("WK-0201 holds %q, want the English name of the tote", got)
+	}
+	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
+	for _, tc := range []struct{ project, slug, want string }{
+		{"studio", "oak-tray", "Oak Serving Tray"}, {"weekend", "postcards", "Hand-drawn Postcards"},
+	} {
+		id, err := CreateOrder(tc.project, NewOrder{Customer: "周宁", Phone: "13700137002", Address: "北京市朝阳区", Items: []NewLine{{Slug: tc.slug, Quantity: 1}}}, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := GetOrder(tc.project, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := o.Items[0].Name; got != tc.want {
+			t.Errorf("an order of %s holds %q, want %q", tc.slug, got, tc.want)
+		}
+		if got := productName(tc.project, tc.slug); got != tc.want {
+			t.Errorf("the stats name %s %q, want %q", tc.slug, got, tc.want)
 		}
 	}
 }

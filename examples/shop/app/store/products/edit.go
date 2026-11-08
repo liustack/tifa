@@ -179,8 +179,8 @@ func Buy(takes []Take) (Purchase, error) {
 	return out, nil
 }
 
-// Line is a product in one colour and size as a line of a back office order keeps it: its Chinese
-// name, the colour and size as one text and the price in fen.
+// Line is a product in one colour and size as a line of a back office order keeps it: its English
+// name (the back office is in English), the colour and size as one text and the price in fen.
 type Line struct {
 	Slug     string
 	Name     string
@@ -212,7 +212,7 @@ func (p productRecord) line(color, size string) (Line, error) {
 	if size != "" {
 		variant += " / " + size
 	}
-	return Line{Slug: p.slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen}, nil
+	return Line{Slug: p.slug, Name: p.name[1], Variant: variant, Color: color, PriceFen: p.priceFen}, nil
 }
 
 // Stock is how many of the product slug the shop has to sell now, and false for a product the
@@ -222,11 +222,12 @@ func Stock(slug string) (int, bool) {
 	return p.stock, ok
 }
 
-// OrderName is the name of the product slug as the lines of an order keep it, its Chinese name as
-// the catalogue has it now, and false for a product the catalogue does not have.
+// OrderName is the name of the product slug as the lines of an order keep it, its English name as
+// the catalogue has it now (the back office is in English), and false for a product the catalogue
+// does not have.
 func OrderName(slug string) (string, bool) {
 	p, ok := record(slug)
-	return p.name[0], ok
+	return p.name[1], ok
 }
 
 // colorText is the name of a colour in both languages.

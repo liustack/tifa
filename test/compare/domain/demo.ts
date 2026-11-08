@@ -43,22 +43,22 @@ function product(slug: string, name: string, description: string, priceCents: nu
 }
 
 export const studioCatalogue: ItemRecord[] = [
-  product('pour-over-kettle', '晨间手冲壶', '雾白 / 600 ml', 32800, 'sand'),
-  product('linen-coasters', '亚麻杯垫', '原色 / 两件装', 10000, 'olive'),
-  product('ceramic-cup', '手作陶瓷杯', '青苔绿 / 280 ml', 13400, 'olive'),
-  product('oak-tray', '原木托盘', '白橡木 / 大号', 58000, 'sand'),
-  product('reading-candle', '阅读香薰', '雪松与纸张 / 180 g', 19600, 'clay'),
-  product('brass-bookmarks', '黄铜书签', '哑光 / 两枚装', 6800, 'sand'),
-  product('stoneware-vase', '粗陶花器', '灰白 / 中号', 24800, 'clay'),
-  product('linen-apron', '棉麻围裙', '燕麦色 / 均码', 16800, 'olive'),
+  product('pour-over-kettle', 'Morning Pour-Over Kettle', '雾白 / 600 ml', 32800, 'sand'),
+  product('linen-coasters', 'Linen Coasters', '原色 / 两件装', 10000, 'olive'),
+  product('ceramic-cup', 'Handmade Ceramic Cup', '青苔绿 / 280 ml', 13400, 'olive'),
+  product('oak-tray', 'Oak Serving Tray', '白橡木 / 大号', 58000, 'sand'),
+  product('reading-candle', 'Reading Candle', '雪松与纸张 / 180 g', 19600, 'clay'),
+  product('brass-bookmarks', 'Brass Bookmarks', '哑光 / 两枚装', 6800, 'sand'),
+  product('stoneware-vase', 'Stoneware Vase', '灰白 / 中号', 24800, 'clay'),
+  product('linen-apron', 'Cotton Linen Apron', '燕麦色 / 均码', 16800, 'olive'),
 ]
 
 export const weekendCatalogue: ItemRecord[] = [
-  product('canvas-tote', '周末帆布袋', '深蓝 / 标准款', 15800, 'blue'),
-  product('folding-stool', '露营折叠凳', '军绿 / 承重 120 kg', 13900, 'olive'),
-  product('picnic-blanket', '野餐垫', '格纹 / 2 × 2 m', 8900, 'blue'),
-  product('insulated-bottle', '保温水壶', '雾蓝 / 750 ml', 12800, 'blue'),
-  product('postcards', '手绘明信片', '城市系列 / 6 张', 3600, 'clay'),
+  product('canvas-tote', 'Weekend Canvas Tote', '深蓝 / 标准款', 15800, 'blue'),
+  product('folding-stool', 'Camping Folding Stool', '军绿 / 承重 120 kg', 13900, 'olive'),
+  product('picnic-blanket', 'Picnic Blanket', '格纹 / 2 × 2 m', 8900, 'blue'),
+  product('insulated-bottle', 'Insulated Bottle', '雾蓝 / 750 ml', 12800, 'blue'),
+  product('postcards', 'Hand-drawn Postcards', '城市系列 / 6 张', 3600, 'clay'),
 ]
 
 // weekendStock is how many of each product the weekend shop has to sell, as in demo.go.

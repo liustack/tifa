@@ -29,19 +29,19 @@ var (
 // newWeekendShelf is the weekend shop as the demonstration data starts it: the products its orders
 // were sold at (weekendCatalogue), with the stock it has to sell, the orders that wait taken out.
 func newWeekendShelf() []weekendProduct {
-	texts := map[string][3]string{ // the English title, and the description in both languages
-		"canvas-tote":      {"Weekend Canvas Tote", "厚帆布托特包，装得下一天的出行。", "A heavy canvas tote that holds a day out."},
-		"folding-stool":    {"Camping Folding Stool", "铝合金折叠凳，收起来只有一本书大。", "An aluminium stool that folds to the size of a book."},
-		"picnic-blanket":   {"Picnic Blanket", "防水底的格纹野餐垫。", "A checked picnic blanket with a waterproof back."},
-		"insulated-bottle": {"Insulated Bottle", "双层不锈钢，冷热都能保持 12 小时。", "Double-walled steel that keeps a drink hot or cold for 12 hours."},
-		"postcards":        {"Hand-drawn Postcards", "六张城市手绘明信片。", "Six hand-drawn postcards of cities."},
+	texts := map[string][3]string{ // the Chinese title, and the description in both languages
+		"canvas-tote":      {"周末帆布袋", "厚帆布托特包，装得下一天的出行。", "A heavy canvas tote that holds a day out."},
+		"folding-stool":    {"露营折叠凳", "铝合金折叠凳，收起来只有一本书大。", "An aluminium stool that folds to the size of a book."},
+		"picnic-blanket":   {"野餐垫", "防水底的格纹野餐垫。", "A checked picnic blanket with a waterproof back."},
+		"insulated-bottle": {"保温水壶", "双层不锈钢，冷热都能保持 12 小时。", "Double-walled steel that keeps a drink hot or cold for 12 hours."},
+		"postcards":        {"手绘明信片", "六张城市手绘明信片。", "Six hand-drawn postcards of cities."},
 	}
 	var out []weekendProduct
 	for _, p := range weekendCatalogue {
 		t := texts[p.Slug]
 		out = append(out, weekendProduct{
 			Edit: products.Edit{
-				PriceCents: p.PriceCents, Stock: weekendStock[p.Slug], NameZH: p.Name, NameEN: t[0], DescriptionZH: t[1], DescriptionEN: t[2],
+				PriceCents: p.PriceCents, Stock: weekendStock[p.Slug], NameZH: t[0], NameEN: p.Name, DescriptionZH: t[1], DescriptionEN: t[2],
 			},
 			slug: p.Slug, variant: p.Description, color: p.Color,
 		})
@@ -106,7 +106,7 @@ func weekendBuy(lines []NewLine) ([]itemRecord, error) {
 			return nil, errNoStock
 		}
 		p := weekendShelf[i]
-		out = append(out, itemRecord{Slug: p.slug, Name: p.NameZH, Description: p.variant, Quantity: l.Quantity, PriceCents: p.PriceCents, Color: p.color})
+		out = append(out, itemRecord{Slug: p.slug, Name: p.NameEN, Description: p.variant, Quantity: l.Quantity, PriceCents: p.PriceCents, Color: p.color})
 	}
 	for i, n := range want {
 		weekendShelf[i].Stock -= n
@@ -123,7 +123,7 @@ func weekendStockOf(slug string) (int, bool) {
 // weekendName is the name of a product of the weekend shop, as it sells it now.
 func weekendName(slug string) (string, bool) {
 	e, err := GetWeekendEntry(slug)
-	return e.NameZH, err == nil
+	return e.NameEN, err == nil
 }
 
 // ShopEntries returns the products of the shop of a project as the back office lists them: the

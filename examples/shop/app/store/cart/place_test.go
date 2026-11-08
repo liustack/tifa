@@ -148,7 +148,7 @@ func TestAnEditDuringACheckoutChangesNeitherItsOrderNorItsTotal(t *testing.T) {
 		}
 	}
 	edit := apron.Edit
-	edit.PriceCents, edit.NameZH = apron.PriceCents+5000, "新围裙"
+	edit.PriceCents, edit.NameEN = apron.PriceCents+5000, "New Apron"
 	beforeCreateOrder = func() {
 		if err := products.Update("linen-apron", edit); err != nil {
 			t.Error(err)
@@ -164,8 +164,8 @@ func TestAnEditDuringACheckoutChangesNeitherItsOrderNorItsTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, it := range o.Items {
-		if it.PriceCents != apron.PriceCents || it.Name != apron.NameZH {
-			t.Errorf("a line of the order is %s at %d, want %s at %d as the checkout priced it", it.Name, it.PriceCents, apron.NameZH, apron.PriceCents)
+		if it.PriceCents != apron.PriceCents || it.Name != apron.NameEN {
+			t.Errorf("a line of the order is %s at %d, want %s at %d as the checkout priced it", it.Name, it.PriceCents, apron.NameEN, apron.PriceCents)
 		}
 	}
 	if o.TotalCents != 2*apron.PriceCents {

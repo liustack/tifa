@@ -17,16 +17,16 @@ interface WeekendProduct extends Edit {
 // newWeekendShelf is the weekend shop as the demonstration data starts it, as in Go.
 function newWeekendShelf(): WeekendProduct[] {
   const texts: Record<string, [string, string, string]> = {
-    'canvas-tote': ['Weekend Canvas Tote', '厚帆布托特包，装得下一天的出行。', 'A heavy canvas tote that holds a day out.'],
-    'folding-stool': ['Camping Folding Stool', '铝合金折叠凳，收起来只有一本书大。', 'An aluminium stool that folds to the size of a book.'],
-    'picnic-blanket': ['Picnic Blanket', '防水底的格纹野餐垫。', 'A checked picnic blanket with a waterproof back.'],
-    'insulated-bottle': ['Insulated Bottle', '双层不锈钢，冷热都能保持 12 小时。', 'Double-walled steel that keeps a drink hot or cold for 12 hours.'],
-    postcards: ['Hand-drawn Postcards', '六张城市手绘明信片。', 'Six hand-drawn postcards of cities.'],
+    'canvas-tote': ['周末帆布袋', '厚帆布托特包，装得下一天的出行。', 'A heavy canvas tote that holds a day out.'],
+    'folding-stool': ['露营折叠凳', '铝合金折叠凳，收起来只有一本书大。', 'An aluminium stool that folds to the size of a book.'],
+    'picnic-blanket': ['野餐垫', '防水底的格纹野餐垫。', 'A checked picnic blanket with a waterproof back.'],
+    'insulated-bottle': ['保温水壶', '双层不锈钢，冷热都能保持 12 小时。', 'Double-walled steel that keeps a drink hot or cold for 12 hours.'],
+    postcards: ['手绘明信片', '六张城市手绘明信片。', 'Six hand-drawn postcards of cities.'],
   }
   return weekendCatalogue.map((p) => {
     const t = texts[p.slug]
     return {
-      priceCents: p.priceCents, stock: weekendStock[p.slug], nameEn: t[0], nameZh: p.name, descriptionEn: t[2], descriptionZh: t[1],
+      priceCents: p.priceCents, stock: weekendStock[p.slug], nameEn: p.name, nameZh: t[0], descriptionEn: t[2], descriptionZh: t[1],
       slug: p.slug, variant: p.description, color: p.color,
     }
   })
@@ -70,7 +70,7 @@ export function weekendBuy(lines: NewLine[]): ItemRecord[] {
     if (!p || l.color !== '' || l.size !== '') throw new Invalid(['items'])
     want.set(p, (want.get(p) ?? 0) + l.quantity)
     if (want.get(p)! > p.stock) throw new OutOfStock()
-    out.push({ slug: p.slug, name: p.nameZh, description: p.variant, quantity: l.quantity, priceCents: p.priceCents, color: p.color })
+    out.push({ slug: p.slug, name: p.nameEn, description: p.variant, quantity: l.quantity, priceCents: p.priceCents, color: p.color })
   }
   for (const [p, n] of want) p.stock -= n
   return out
@@ -81,7 +81,7 @@ export function weekendStockOf(slug: string): number | undefined {
 }
 
 export function weekendName(slug: string): string | undefined {
-  return shelf.find((p) => p.slug === slug)?.nameZh
+  return shelf.find((p) => p.slug === slug)?.nameEn
 }
 
 // shopEntries, shopEntry and updateShopProduct are the products of the shop of a project, as in Go.

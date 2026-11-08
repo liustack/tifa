@@ -198,7 +198,7 @@ func TestAnOrderShowsTheStockOfNow(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, _ := GetOrder("studio", "SH-1042")
-	if it := o.Items[0]; it.Slug != "pour-over-kettle" || it.Stock != 77 || it.Name != "晨间手冲壶" || it.PriceCents != 32800 {
+	if it := o.Items[0]; it.Slug != "pour-over-kettle" || it.Stock != 77 || it.Name != "Morning Pour-Over Kettle" || it.PriceCents != 32800 {
 		t.Errorf("the kettle of SH-1042 is %+v, want the stock of the catalogue (77) and the name and price it was sold at", it)
 	}
 	w, _ := GetOrder("weekend", "WK-0201") // a canvas tote, which the weekend shop has 45 of

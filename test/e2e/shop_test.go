@@ -70,7 +70,7 @@ func TestShopApp(t *testing.T) {
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" {
 		t.Errorf("order page: %d %v", status, header)
 	}
-	for _, want := range []string{"<title>SH-1042 · Shanhai Workbench</title>", "林夏", "晨间手冲壶", "¥428.00", ">山海工作室</h1>", "2</span> to ship", sidebar, "Confirm shipment", "Pick a carrier"} {
+	for _, want := range []string{"<title>SH-1042 · Shanhai Workbench</title>", "林夏", "Morning Pour-Over Kettle", "¥428.00", ">山海工作室</h1>", "2</span> to ship", sidebar, "Confirm shipment", "Pick a carrier"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("order page lacks %s", want)
 		}

@@ -93,7 +93,7 @@ func TestShopStaffEditsAndCheckoutsReachTheOtherSide(t *testing.T) {
 	if _, _, page := do("GET", placed, ""); !strings.Contains(rendered(page), "SH-1043") {
 		t.Errorf("the confirmation does not show the number of the order")
 	}
-	if status, _, body := get(t, base+"/projects/studio/orders/SH-1043"); status != 200 || !strings.Contains(rendered(body), "Emma Walker") || !strings.Contains(rendered(body), "橡木大托盘") {
+	if status, _, body := get(t, base+"/projects/studio/orders/SH-1043"); status != 200 || !strings.Contains(rendered(body), "Emma Walker") || !strings.Contains(rendered(body), "Oak Tray, Large") {
 		t.Errorf("the back office order: %d\n%.400s", status, rendered(body))
 	}
 	if _, _, body := get(t, base+"/projects/studio"); !strings.Contains(rendered(body), "SH-1043") {
