@@ -595,10 +595,11 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":     "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and Memo = false to turn the render memo off for it",
-	"memo":      "write Memo = false to turn the render memo off for the page",
-	"ssr":       "write SSR",
-	"layoutssr": "write LayoutSSR",
+	"cache":       "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and Memo = false to turn the render memo off for it",
+	"memo":        "write Memo = false to turn the render memo off for the page",
+	"rendercache": "RenderCache is now Memo: write Memo = false to turn the render memo off for the page",
+	"ssr":         "write SSR",
+	"layoutssr":   "write LayoutSSR",
 }
 
 // checkSwitchNames reports the bool constants of route.go that spell a switch in the wrong case,
@@ -654,6 +655,9 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	}
 	if pkg == nil {
 		return nil
+	}
+	if obj := pkg.Types.Scope().Lookup("RenderCache"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
+		a.errorAt(obj.Pos(), "RenderCache is now Memo: write const Memo = false to turn the render memo off for this page")
 	}
 	scope := pkg.Types.Scope()
 	declared := slices.ContainsFunc(methods, func(m string) bool { return scope.Lookup(m) != nil })

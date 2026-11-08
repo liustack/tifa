@@ -563,6 +563,9 @@ func TestViolations(t *testing.T) {
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
+		{"renamedmemo", [][]string{
+			{"app/page/route.go:3:", "RenderCache is now Memo", "const Memo = false"},
+		}},
 		{"memovalue", [][]string{
 			{"app/page/route.go:3:", "Memo", "can only be false"},
 			{"app/other/route.go:3:", "Memo", "can only be false"},
