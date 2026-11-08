@@ -48,7 +48,7 @@ func TestTheMixIsCheckedOverThePlannedVisits(t *testing.T) {
 	}
 }
 
-// Apart from a write the shop refused (TestARefusedWriteMakesARoundInvalid), only the load generator
+// Apart from a request the shop refused (TestARefusedAnswerMakesItsRoundInvalid), only the load generator
 // and a stop make a round invalid: a generator that started fewer visits
 // than planned without the round being cut off, or one that fell behind or ran out of cpus in the
 // open model. A backlog of the server is a valid round that failed.
@@ -321,15 +321,5 @@ func TestAClosedRoundChecksTheHeadroomOfTheLoadGenerator(t *testing.T) {
 	res.Config["loadCpus"] = "1,5"
 	if strings.Contains(res.Markdown(), "was not checked") {
 		t.Error("the report says a pinned load generator was not checked")
-	}
-}
-
-// A round in which the shop refused a write is not the experiment it was planned to be.
-func TestARefusedWriteMakesARoundInvalid(t *testing.T) {
-	r := plannedRound()
-	r.Refused = 1
-	r.Judge(BrowseScenario{Share: 2.0 / 42})
-	if r.Valid || !strings.Contains(r.WhyInvalid, "refused 1 writes with 409 or 422") {
-		t.Errorf("valid %v %q, want invalid for the refused write", r.Valid, r.WhyInvalid)
 	}
 }

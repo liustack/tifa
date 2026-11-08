@@ -103,8 +103,9 @@ type Round struct {
 	WriteKinds map[string]int `json:"writeKinds,omitempty"`
 	PoolEmpty  int            `json:"poolEmpty,omitempty"`
 	Orders     map[string]int `json:"orders,omitempty"`
-	// Refused counts the writes the shop refused with 409 or 422. The plan makes every write one the shop
-	// takes, given the stock the run was restocked with, so a round with one is not valid.
+	// Refused counts the requests, writes and pages, that the shop refused with 409 or 422. Given the
+	// stock the run was restocked with, the plan makes every write one the shop takes, so a round with
+	// one is not valid.
 	Refused int `json:"refused,omitempty"`
 
 	// Valid says that the round is a valid experiment: the visits it planned have the mix it is named
@@ -191,7 +192,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 		}
 	}
 	if r.Refused > 0 {
-		invalid(fmt.Sprintf("the shop refused %d writes with 409 or 422", r.Refused))
+		invalid(fmt.Sprintf("the shop refused %d requests with 409 or 422", r.Refused))
 	}
 	// A round that was not cut off (by its timeout, or the deadline of the open model) starts every
 	// visit it planned: if not, the generator did not do its work.

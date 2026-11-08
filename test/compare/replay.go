@@ -223,10 +223,21 @@ type acc struct {
 	// and were sent as a create instead (they are among the creates).
 	kinds     map[string]int
 	poolEmpty int
-	// refused counts the writes the shop refused with 409 or 422.
+	// refused counts the requests the shop refused with 409 or 422 (see refuse).
 	refused int
 	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
+}
+
+// refuse counts an answer with the status status as refused when it is 409 or 422. After the
+// restock, the plan makes every write one the shop takes and reads only pages that are there, so
+// such an answer means that the round is not the experiment it was meant to be (Round.Refused).
+func (a *acc) refuse(status int) {
+	if status == http.StatusConflict || status == http.StatusUnprocessableEntity {
+		a.mu.Lock()
+		a.refused++
+		a.mu.Unlock()
+	}
 }
 
 func newAcc() *acc {
@@ -398,6 +409,7 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		return cancelled(err)
 	}
 	responded = true
+	a.refuse(res.StatusCode)
 	// The answer is judged by its status as soon as its headers arrive, whether or not the request is
 	// cancelled later: a 500 whose body the cancel cuts off is still a failure. A 204 is the answer
 	// of a recorded POST of the storefront.
