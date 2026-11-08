@@ -15,6 +15,7 @@
 
 ### 变更
 
+- 用 react-i18next 18 的应用，SSR 包不再打印 `tifa rewrite not recognized`。react-i18next 18 用 `Proxy` 包住 i18n 对象，不再复制，所以插件不动 `useTranslation`。i18n 应用的端到端测试现在用 i18next 27.0.1 和 react-i18next 18.0.0（[i18next 适配器](docs/build.zh-CN.md#i18next-适配器)）。
 - 服务端渲染的 i18next 缓存现在也记下运行了应用格式化函数或后处理器的调用的字符串，以前这些调用每次渲染都重新翻译。示例商店的店面页面里，金额和日期都经过它自己的格式化函数，渲染时间是原来的 0.937，是不开缓存时的 0.778，HTML 不变。这类代码对同样的语言、选项和值必须给出同样的文字，就像 React 组件对同样的 props 给出同样的输出。要读请求或当前时间的格式化函数或后处理器，改成从 `t` 的选项里拿这个值（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
 - 应用用 `tifa.String` 等定义自己的选项的文件，现在叫 `options.go`，不再是 `config.go`（见[应用的选项](docs/config.zh-CN.md#应用的选项)）。已有的应用：用一次 `git mv` 把 `config.go` 改名为 `options.go`。`config.go` 里还有 `tifa.String` 等调用时，构建会失败，报出文件名并说明要改名。应用在这里定义的东西现在叫应用的选项，Tifa 的配置指 `tifa.yaml` 里的那些。
 - [性能文档](docs/performance.zh-CN.md#和三个-node-框架比)和 README 现在除了 Next.js 和 TanStack Start，也和 React Router 比，并且像浏览器那样带上 gzip 来测。新的[渲染缓存文档](docs/render-cache.zh-CN.md)讲清渲染缓存是什么，为什么对所有页面（包括登录后的页面）都安全，以及每类响应里 Tifa 怎么处理 Cookie、会话和 `Authorization`。
@@ -25,6 +26,8 @@
 
 ### 修复
 
+- 用 i18next 27 的应用，SSR 包不再为 `fixedT`、`looksLikeObjectPath` 和 `createCachedFormatter` 打印 `tifa rewrite not recognized`。前两处和 26 一样提速。i18next 27.0.1 自己限制了格式化函数的数量，插件不再动它，27.0.0 仍用插件的上限。`build.i18next_cache` 现在在 i18next 27.0.0 和 27.0.1 上和在 26 上一样工作，`hydrate` 会清空它那个实例的缓存（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
+- 服务端渲染的 i18next 缓存不再把前一次调用的文字给另一次只在 Symbol 键下的选项不同的调用，后处理器可以读这样的选项。带这种选项的调用不记（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
 - 用 i18next 格式化大量不同金额、日期或名字的服务器，内存不再一直涨。i18next 通过 `number`、`currency`、`datetime` 等格式和 `addCached` 加的格式格式化时，每个值都存一个格式化函数，而且从不释放（i18next/i18next#2227）：一个 VM 里 20,000 个新值占了 28 MB，之后服务器只好换掉这个 VM。现在 SSR 包里每个格式最多存 1,024 个，文字不变（[i18next](docs/build.zh-CN.md#前端产物)）。
 - 一个路由在 `head` 里写了多个同名 meta 时，比如浅色和深色模式各一个 `theme-color`，或者多个 `og:image`，现在页面上全都有。以前只留最后一个，浅色模式的页面用的也是深色的 `theme-color`。更深的路由写了同名 meta 时，仍然整组替换。
 - `server.compress` 开着时，渲染缓存占的内存最多是 `cache.size` 的两倍：它按压缩页面的长度计数，存的却是压缩时用的更大的缓冲区，每个页面的 Content-Security-Policy 也没有计入。现在存大小刚好的副本，按实际存下的字节计数，缓存的活跃堆不再超过 `cache.size`。一直有写入、把缓存填满的程序，内存峰值也随之下降。

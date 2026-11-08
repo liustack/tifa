@@ -43,6 +43,9 @@ func TestSSRBoundsTheFormattersI18nextKeeps(t *testing.T) {
 		root func() string
 	}{
 		{"i18next 26.5", func() string { return copyTestdata(t, "ssr", true) }},
+		// 27.0.0 keeps them in the same unbounded object, and 27.0.1 bounds them itself.
+		{"i18next 27.0.0", func() string { return withI18next(t, "i18next-27-0-0", func(s string) string { return s }) }},
+		{"i18next 27.0.1", func() string { return withI18next(t, "i18next-27-0-1", func(s string) string { return s }) }},
 		{"longer names", func() string {
 			return withChangedPackage(t, "i18next", filepath.Join("dist", "esm", "i18next.js"), func(source string) string {
 				start := strings.Index(source, "const createCachedFormatter = fn => {")
@@ -55,7 +58,7 @@ func TestSSRBoundsTheFormattersI18nextKeeps(t *testing.T) {
 			root := c.root()
 			writeTree(t, root, map[string]string{"i18n.tsx": i18nextFormatterPage})
 			code, printed := buildPrinting(t, root, "i18n.tsx")
-			if strings.Contains(printed, "createCachedFormatter") {
+			if strings.Contains(printed, "createCachedFormatter") || strings.Contains(printed, "i18next 2") {
 				t.Fatalf("the build prints:\n%s", printed)
 			}
 			bytecode, err := ssr.Compile(code, 128<<20, 30*time.Second)
@@ -84,7 +87,7 @@ func TestSSRBoundsTheFormattersI18nextKeeps(t *testing.T) {
 			run(20000)
 			before := run(5000)
 			after := run(20000)
-			// Each format keeps up to 1,024 formatters, so the two may differ by up to about 1.5 MB, against
+			// Each format keeps up to 1,024 formatters (1,000 in i18next 27.0.1), so the two may differ by up to about 1.5 MB, against
 			// about 28 MB for 20,000 values without the bound.
 			t.Logf("20,000 more values: %+d KB", (after-before)>>10)
 			if grown := after - before; grown > 4<<20 {

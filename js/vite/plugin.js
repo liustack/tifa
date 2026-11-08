@@ -333,6 +333,12 @@ const i18nWrapperSource = `  const createI18nWrapper = original => {
     return wrapper;
   };
 `
+// i18nWrapperProxy is the function in react-i18next 18, which wraps the i18n object in a Proxy
+// instead of copying it, so there is nothing for the plugin to change and nothing to warn about.
+const i18nWrapperProxy = `const createI18nWrapper = original => new Proxy(original, {
+  get: (target, prop) => prop === '__original' ? target : Reflect.get(target, prop)
+});
+`
 // i18nWrapperLists is how many objects reactI18nextCopy keeps a list of keys for.
 const i18nWrapperLists = 8
 // i18nWrapperHelpers is what reactI18nextCopy adds to the end of the module. A list holds the own
@@ -442,6 +448,61 @@ const i18nextCachedFormatterNames = `const createCachedFormatter = fn => {
 };
 `
 const i18nextCachedFormatters = 1024
+// i18nextCachedFormatterTry is the function in i18next 27.0.0: the same cache, with a key that may
+// not serialize. i18nextCachedFormatterBounded is the function in i18next 27.0.1 and later, which
+// keeps at most 1000 formatters in a Map and forgets the oldest, so the plugin leaves it as it is.
+const i18nextCachedFormatterTry = `const createCachedFormatter = fn => {
+  const cache = {};
+  return (v, l, o) => {
+    let optForCache = o;
+    if (o && o.interpolationkey && o.formatParams && o.formatParams[o.interpolationkey] && o[o.interpolationkey]) {
+      optForCache = {
+        ...optForCache,
+        [o.interpolationkey]: undefined
+      };
+    }
+    let key;
+    try {
+      key = l + JSON.stringify(optForCache);
+    } catch (e) {
+      return fn(getCleanedCode(l), o)(v);
+    }
+    let frm = cache[key];
+    if (!frm) {
+      frm = fn(getCleanedCode(l), o);
+      cache[key] = frm;
+    }
+    return frm(v);
+  };
+};
+`
+const i18nextCachedFormatterBounded = `const cachedFormattersLimit = 1000;
+const createCachedFormatter = fn => {
+  const cache = new Map();
+  return (v, l, o) => {
+    let optForCache = o;
+    if (o && o.interpolationkey && o.formatParams && o.formatParams[o.interpolationkey] && o[o.interpolationkey]) {
+      optForCache = {
+        ...optForCache,
+        [o.interpolationkey]: undefined
+      };
+    }
+    let key;
+    try {
+      key = l + JSON.stringify(optForCache);
+    } catch (e) {
+      return fn(getCleanedCode(l), o)(v);
+    }
+    let frm = cache.get(key);
+    if (!frm) {
+      frm = fn(getCleanedCode(l), o);
+      if (cache.size >= cachedFormattersLimit) cache.delete(cache.keys().next().value);
+      cache.set(key, frm);
+    }
+    return frm(v);
+  };
+};
+`
 const i18nextObjectPath = `class RegExpCache {
   constructor(capacity) {
     this.capacity = capacity;
@@ -487,7 +548,7 @@ const i18nextCacheKeys = 4096
 const i18nextCacheSource = `
 var tifaI18nCaches = new WeakMap(), tifaI18nBytes = 0, tifaI18nEffects = 0, tifaI18nIds = new WeakMap(), tifaI18nLastId = 0;
 var tifaI18nDebts = new Map(), tifaI18nFormatters = new WeakSet(), tifaI18nFound;
-var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nObject = Object.prototype;
+var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nSymbols = Object.getOwnPropertySymbols, tifaI18nObject = Object.prototype;
 function tifaI18nClear() { tifaI18nEffects++; tifaI18nCaches = new WeakMap(); tifaI18nBytes = 0; }
 function tifaI18nPart(v) {
   switch (typeof v) {
@@ -508,6 +569,7 @@ function tifaI18nPart(v) {
 function tifaI18nObjectPart(o) {
   const proto = tifaI18nPrototypeOf(o);
   if (proto !== tifaI18nObject && proto !== null) return;
+  if (tifaI18nSymbols(o).length !== 0) return;
   let k = 'o', p;
   for (const name in o) { if ((p = tifaI18nPart(o[name])) === undefined) return; k += name.length + ':' + name + p; }
   return k + ';';
@@ -577,7 +639,8 @@ function tifaI18nWrap(object, names, clears) {
 }
 tifaI18nWrap(ResourceStore.prototype, ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'], () => true);
 tifaI18nWrap(Formatter.prototype, ['init', 'add', 'addCached'], (formatter) => tifaI18nFormatters.has(formatter));
-tifaI18nWrap(postProcessor, ['addPostProcessor'], () => true);
+if (typeof postProcessor !== 'undefined') tifaI18nWrap(postProcessor, ['addPostProcessor'], () => true);
+if (I18n.prototype.hydrate) tifaI18nWrap(I18n.prototype, ['hydrate'], () => true);
 tifaI18nWrap(I18n.prototype, ['loadNamespaces'], () => true);
 tifaI18nWrap(I18n.prototype, ['init', 'reloadResources', 'use', 'setDefaultNamespace', 'loadLanguages'], (i18n) => !i18n.options.isClone && tifaI18nCaches.delete(i18n));
 var tifaI18nForward = Logger.prototype.forward;
@@ -594,9 +657,16 @@ const i18nextCacheMethods = {
   'class ResourceStore extends EventEmitter {': ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'],
   'class Translator extends EventEmitter {': ['changeLanguage', 'translate'],
   'class Formatter {': ['init', 'add', 'addCached', 'format'],
-  'var postProcessor = {': ['addPostProcessor'],
   'class I18n extends EventEmitter {': ['init', 'loadResources', 'reloadResources', 'use', 'changeLanguage', 'setDefaultNamespace', 'loadNamespaces', 'loadLanguages', 'cloneInstance', 'getFixedT'],
 }
+// i18next up to 26.5 keeps post-processors in one object for all instances, which
+// addPostProcessor changes. i18next 27 keeps them for each instance in services.postProcessors,
+// which use changes, and its hydrate replaces the data of the store, so the cache also forgets what
+// an instance holds when hydrate is called on it.
+const i18nextCacheForms = [
+  { methods: { 'var postProcessor = {': ['addPostProcessor'] }, absent: ['\n  hydrate('], once: [] },
+  { methods: { 'class I18n extends EventEmitter {': ['hydrate'] }, absent: ['\nvar postProcessor = {\n'], once: ['\n      this.services.postProcessors[module.name] = module;\n'] },
+]
 // createElement and cloneElement of React in its production file, as React 19.3 has them. Each
 // copies the keys of its config into the props of the element with a for-in loop that asks
 // hasOwnProperty.call about each key and skips key, __self and __source (and a ref that is
@@ -2024,7 +2094,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         const copied = reactI18nextCopy(source)
-        if (!copied && source.includes('createI18nWrapper')) {
+        if (!copied && source.includes('createI18nWrapper') && source.split(i18nWrapperProxy).length !== 2) {
           this.warn(
             notRecognized +
             `react-i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} has no createI18nWrapper the ` +
@@ -2067,7 +2137,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             notRecognized +
             `${i18next} has a form the tifa plugin does not know, so the tifa plugin does not cache its translations ` +
               'as build.i18next_cache, on by default, asks. Pages render the same, but translations take longer. ' +
-              'i18next 25.5 to 26.5 is cached, and build.i18next_cache: false in tifa.yaml builds without this warning',
+              'i18next 25.5 to 27.0 is cached, and build.i18next_cache: false in tifa.yaml builds without this warning',
           )
         }
         return cached ?? faster
@@ -2946,7 +3016,7 @@ function lucideCache(file, source) {
 
 // i18nextFaster returns the source of dist/esm/i18next.js or dist/cjs/i18next.js of i18next with
 // the changes below, and the names of the functions it does not find in a form it knows and
-// leaves as they are. Each line stays where it was. It knows the forms of i18next 23 to 26.5.
+// leaves as they are. Each line stays where it was. It knows the forms of i18next 23 to 27.0.
 // i18next before 25.9 has no selectorOpts, which fixedT then does not need to leave out.
 //
 // fixedT, the function getFixedT returns, copies the options into selectorOpts only when a key or
@@ -2967,7 +3037,8 @@ function lucideCache(file, source) {
 // pattern as before.
 //
 // createCachedFormatter keeps at most i18nextCachedFormatters formatters for each format, and
-// starts over empty when the next would not fit. A formatter it made again is made from the same
+// starts over empty when the next would not fit, except in i18next 27.0.1 and later, which bound it
+// themselves. A formatter it made again is made from the same
 // language and options, so it formats as the one it forgot did.
 function i18nextFaster(source) {
   const unknown = []
@@ -3015,8 +3086,12 @@ function i18nextFaster(source) {
   } else {
     unknown.push('looksLikeObjectPath')
   }
-  const cachedFormatter = [i18nextCachedFormatter, i18nextCachedFormatterNames].find((known) => source.split(known).length === 2)
-  if (cachedFormatter) {
+  const cachedFormatter = [i18nextCachedFormatter, i18nextCachedFormatterNames, i18nextCachedFormatterTry].find(
+    (known) => source.split(known).length === 2,
+  )
+  if (source.split(i18nextCachedFormatterBounded).length === 2) {
+    // i18next 27.0.1 and later bound it themselves.
+  } else if (cachedFormatter) {
     const lines = cachedFormatter.split('\n')
     const kept = lines.findIndex((line) => line.startsWith('      cache[key] = '))
     lines[1] = '  let cache = {}, tifaKept = 0;'
@@ -3030,7 +3105,7 @@ function i18nextFaster(source) {
 
 // i18nextCache returns the source of i18next with a cache of the strings that the functions
 // getFixedT returns give, for build.i18next_cache, or undefined when the source does not have the
-// parts it changes in a form it knows. It knows the forms of i18next 25.5 to 26.5. Each line
+// parts it changes in a form it knows. It knows the forms of i18next 25.5 to 27.0. Each line
 // stays where it was.
 //
 // The cache is a Map for each instance, from a key of the call to the string the call gave, in a
@@ -3039,7 +3114,8 @@ function i18nextFaster(source) {
 // the function has none, the formats object of an i18nFormat module such as i18next-icu, the
 // defaultVariables of the instance, and the key and the options of the call, when each is a
 // string, number, boolean, bigint, null, undefined or array of strings, and the options are a
-// plain object. A call with another value, such as a function or an object, translates as before
+// plain object without Symbol keys. A call with another value, such as a function or an object,
+// translates as before
 // and keeps nothing. So does a call during which i18next logs, as it does for each missing key
 // before it calls missingKeyHandler and emits missingKey, so the handler and the listeners hear of
 // every missing key. A call that runs a formatter added with add or addCached or a post-processor
@@ -3051,9 +3127,16 @@ function i18nextFaster(source) {
 //
 // The cache forgets all it holds when anything an app does through i18next's API could change a
 // translation it holds: the methods of the store, loadNamespaces, adding a formatter to the
-// formatter of an instance it holds translations of, and adding a post-processor. A backend loads
-// resources through the store too. The other methods of an instance that change its resources,
-// namespaces or options make it forget what that instance kept. changeLanguage and cloneInstance keep it, since the language is part of the key
+// formatter of an instance it holds translations of, and, up to i18next 26.5, adding a
+// post-processor, which all instances share. A backend loads resources through the store too. The
+// other methods of an instance that change its resources, namespaces or options make the cache
+// forget everything it holds, when that instance held something. In i18next 27 these include use,
+// which adds a post-processor to that instance only. hydrate replaces the store data and adds
+// namespaces to options.ns, an array that instances made from one options object share, so it
+// forgets everything whether or not its instance held something. i18next 27 logs some warnings
+// once (logger.once, only with debug on): the call that logs is not kept, and the calls after it,
+// which log nothing in i18next either, are. changeLanguage and cloneInstance keep it, since the
+// language is part of the key
 // and clones keep nothing. It holds at most about i18nextCacheSize bytes, counting two bytes a
 // character and 80 for each entry, and starts over when the next string would not fit. A key of t
 // whose calls keep missing stops using the cache, see i18nextCacheSource. It assumes that the app
@@ -3064,12 +3147,16 @@ function i18nextFaster(source) {
 function i18nextCache(source) {
   const once = (text) => source.split(text).length === 2
   if (!once(i18nextCacheHead) || !once(i18nextCacheReturn) || !once(i18nextCacheInstance)) return undefined
-  for (const [head, names] of Object.entries(i18nextCacheMethods)) {
-    const start = source.indexOf(`\n${head}\n`)
-    if (start < 0 || !once(`\n${head}\n`)) return undefined
-    const body = source.slice(start, source.indexOf('\n}', start + 1))
-    if (!names.every((name) => body.includes(`\n  ${name}(`))) return undefined
-  }
+  const hasMethods = (methods) =>
+    Object.entries(methods).every(([head, names]) => {
+      const start = source.indexOf(`\n${head}\n`)
+      if (start < 0 || !once(`\n${head}\n`)) return false
+      const body = source.slice(start, source.indexOf('\n}', start + 1))
+      return names.every((name) => body.includes(`\n  ${name}(`))
+    })
+  if (!hasMethods(i18nextCacheMethods)) return undefined
+  const form = i18nextCacheForms.find((f) => hasMethods(f.methods) && f.absent.every((text) => !source.includes(text)) && f.once.every(once))
+  if (!form) return undefined
   const order = ['\n  getFixedT(', i18nextCacheHead, i18nextCacheReturn, i18nextCacheInstance].map((text) => source.indexOf(text))
   if (order.some((at, i) => i > 0 && at < order[i - 1])) return undefined
   const added = i18nextCacheSource.trim().replace(/\n\s*/g, ' ')

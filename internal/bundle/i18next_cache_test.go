@@ -39,6 +39,8 @@ const messages = {
       upper: 'Up {{x, upper}}',
       list: ['a', 'b'],
       pp: 'abc',
+      ppx: 'abc',
+      titlex: 'Title X',
       'Hello, world?': 'Hi there',
     },
     common: { hello: 'Hello from common', title: 'Common title' },
@@ -78,6 +80,11 @@ custom.init({
   keySeparator: '>',
   overloadTranslationOptionHandler: (args) => ({ defaultValue: 'overloaded', name: args.slice(1).join(' ') }),
 })
+
+// sep reads the first part of a key as a namespace only when options.ns lists it, as nsSeparator and
+// keySeparator are the same, so a namespace added later changes what an old key gives.
+const sep = i18next.createInstance()
+sep.init({ lng: 'en', initAsync: false, ns: ['translation'], nsSeparator: '.', keySeparator: '.', resources: { en: { translation: { extra: { title: 'OLD' } }, extra: { title: 'NEW' } } } })
 
 const saving = i18next.createInstance()
 saving.init({ lng: 'en', resources: copy(), initAsync: false, saveMissing: true, missingKeyHandler: () => missing++ })
@@ -144,10 +151,17 @@ function calls() {
   })
 }
 
+// probe translates keys that only shop uses, so that the cache keeps them while a step changes shop.
+const probe = () => {
+  const p = shop.getFixedT('en')
+  const c = clone ? clone.getFixedT('en') : () => 'no clone'
+  const s = sep.getFixedT('en')
+  return [p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: ['reverse'] }), p('titlex'), p('titlex'), shop.t('titlex'), c('ppx', { postProcess: 'reverse' }), c('ppx', { postProcess: 'reverse' }), s('extra.title'), s('extra.title')]
+}
 const runs = []
 const step = (name, change) => {
   if (change) change()
-  runs.push([name, calls()])
+  runs.push([name, calls().concat([probe()])])
 }
 step('first')
 step('again')
@@ -165,15 +179,18 @@ step('setDefaultNamespace', () => shop.setDefaultNamespace('common'))
 step('setDefaultNamespace back', () => shop.setDefaultNamespace('translation'))
 step('formatter add', () => shop.services.formatter.add('upper', (value) => String(value).toUpperCase()))
 step('formatter addCached', () => shop.services.formatter.addCached('upper', () => (value) => String(value) + '!'))
-step('use a post-processor', () => i18next.use({ type: 'postProcessor', name: 'reverse', process: (value) => [...value].reverse().join('') }))
+step('use a post-processor', () => shop.use({ type: 'postProcessor', name: 'reverse', process: (value) => [...value].reverse().join('') }))
+step('use another post-processor of the name', () => shop.use({ type: 'postProcessor', name: 'reverse', process: (value) => value.toUpperCase() }))
 step('fixedT.lng', () => (keptEn.lng = 'de'))
 step('fixedT.keyPrefix', () => (keptEn.keyPrefix = 'nested'))
 step('fixedT.ns', () => (keptCommon.ns = 'translation'))
 step('cloneInstance', () => (clone = shop.cloneInstance({ lng: 'en' })))
+step('use a post-processor on the clone', () => clone.use({ type: 'postProcessor', name: 'reverse', process: (value) => value + '?' }))
 step('addResource of the clone', () => clone.addResource('en', 'translation', 'title', 'From the clone'))
 step('changeLanguage of the clone', () => clone.changeLanguage('de'))
+step('hydrate', () => shop.hydrate && shop.hydrate({ en: { translation: { title: 'Hydrated', greet: 'Hi {{name}}' } }, de: { translation: { title: 'Hydriert' } } }, 'en'))
 step('init again', () => custom.init({ lng: 'de', nsSeparator: ':', keySeparator: '.' }))
-step('loadNamespaces', () => shop.loadNamespaces('extra'))
+step('loadNamespaces', () => sep.loadNamespaces('extra'))
 step('loadLanguages', () => shop.loadLanguages('fr'))
 step('reloadResources', () => shop.reloadResources())
 globalThis.result = JSON.stringify({ runs, missing, missingEvents, logs, formats })
@@ -229,9 +246,9 @@ type i18nextCacheResult struct {
 	Formats       int
 }
 
-func i18nextCacheRender(t *testing.T, settings string) (i18nextCacheResult, string) {
+func i18nextCacheRender(t *testing.T, ver i18nextVersion, settings string) (i18nextCacheResult, string) {
 	t.Helper()
-	code, printed := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextCachePage, settings)
+	code, printed := i18nextApp(t, i18nextRoot(t, ver), i18nextCachePage, settings)
 	var r i18nextCacheResult
 	if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
 		t.Fatal(err)
@@ -245,89 +262,99 @@ func i18nextCacheRender(t *testing.T, settings string) (i18nextCacheResult, stri
 // listeners of missingKey every time, and an instance with debug on logs as much. A formatter of
 // the app runs only for the calls the cache does not have.
 func TestSSRCachesI18nextTranslationsTheSameWay(t *testing.T) {
-	plain, _ := i18nextCacheRender(t, `{ target: ["es2022"] }`)
-	cached, printed := i18nextCacheRender(t, `{ target: ["es2022"], i18nextCache: true }`)
-	if strings.Contains(printed, "i18next 26.5.3") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	if len(plain.Runs) != len(cached.Runs) {
-		t.Fatalf("%d runs, want %d", len(cached.Runs), len(plain.Runs))
-	}
-	for i := range plain.Runs {
-		want, got := mustJSON(t, plain.Runs[i]), mustJSON(t, cached.Runs[i])
-		if string(got) != string(want) {
-			t.Errorf("run %d differs:\n%s\nwant\n%s", i, got, want)
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		plain, _ := i18nextCacheRender(t, ver, `{ target: ["es2022"] }`)
+		cached, printed := i18nextCacheRender(t, ver, `{ target: ["es2022"], i18nextCache: true }`)
+		if strings.Contains(printed, ver.name(t)) {
+			t.Errorf("the build prints:\n%s", printed)
 		}
-	}
-	if string(mustJSON(t, plain.Runs[0])) == string(mustJSON(t, plain.Runs[len(plain.Runs)-1])) {
-		t.Error("the changes do not change the translations")
-	}
-	if cached.Missing != plain.Missing || cached.MissingEvents != plain.MissingEvents || plain.Missing == 0 || plain.MissingEvents == 0 {
-		t.Errorf("missingKeyHandler called %d times and missingKey %d, want %d and %d", cached.Missing, cached.MissingEvents, plain.Missing, plain.MissingEvents)
-	}
-	if cached.Logs != plain.Logs || plain.Logs == 0 {
-		t.Errorf("i18next logged %d times, want %d", cached.Logs, plain.Logs)
-	}
-	if cached.Formats >= plain.Formats || cached.Formats == 0 {
-		t.Errorf("the formatter of the app ran %d times with the cache and %d without, want fewer but some", cached.Formats, plain.Formats)
-	}
+		if len(plain.Runs) != len(cached.Runs) {
+			t.Fatalf("%d runs, want %d", len(cached.Runs), len(plain.Runs))
+		}
+		for i := range plain.Runs {
+			want, got := mustJSON(t, plain.Runs[i]), mustJSON(t, cached.Runs[i])
+			if string(got) != string(want) {
+				t.Errorf("run %d differs:\n%s\nwant\n%s", i, got, want)
+			}
+		}
+		if string(mustJSON(t, plain.Runs[0])) == string(mustJSON(t, plain.Runs[len(plain.Runs)-1])) {
+			t.Error("the changes do not change the translations")
+		}
+		if cached.Missing != plain.Missing || cached.MissingEvents != plain.MissingEvents || plain.Missing == 0 || plain.MissingEvents == 0 {
+			t.Errorf("missingKeyHandler called %d times and missingKey %d, want %d and %d", cached.Missing, cached.MissingEvents, plain.Missing, plain.MissingEvents)
+		}
+		if cached.Logs != plain.Logs || plain.Logs == 0 {
+			t.Errorf("i18next logged %d times, want %d", cached.Logs, plain.Logs)
+		}
+		if cached.Formats >= plain.Formats || cached.Formats == 0 {
+			t.Errorf("the formatter of the app ran %d times with the cache and %d without, want fewer but some", cached.Formats, plain.Formats)
+		}
+	})
 }
 
 // The cache of build.i18next_cache holds at most about 1 MB of translations in a VM, and
 // starts over when the next one would not fit.
 func TestSSRBoundsTheI18nextCache(t *testing.T) {
-	code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextCacheFill, `{ target: ["es2022"], i18nextCache: true }`)
-	bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bytecode.Close()
-	vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer vm.Close()
-	if _, err := vm.Eval("fill(0, 10)", quickjs.EvalGlobal); err != nil {
-		t.Fatal(err)
-	}
-	vm.RunGC()
-	before := vm.MemorySize()
-	if _, err := vm.Eval("fill(10, 10000)", quickjs.EvalGlobal); err != nil {
-		t.Fatal(err)
-	}
-	vm.RunGC()
-	if grown := vm.MemorySize() - before; grown > 2<<20 {
-		t.Errorf("10000 translations of about 1 KB each grew the VM by %d bytes", grown)
-	}
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		code, _ := i18nextApp(t, i18nextRoot(t, ver), i18nextCacheFill, `{ target: ["es2022"], i18nextCache: true }`)
+		bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer bytecode.Close()
+		vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+		if _, err := vm.Eval("fill(0, 10)", quickjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+		vm.RunGC()
+		before := vm.MemorySize()
+		if _, err := vm.Eval("fill(10, 10000)", quickjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+		vm.RunGC()
+		if grown := vm.MemorySize() - before; grown > 2<<20 {
+			t.Errorf("10000 translations of about 1 KB each grew the VM by %d bytes", grown)
+		}
+	})
 }
 
 // For an i18next whose code the plugin does not know, build.i18next_cache prints a warning and
 // the bundle is the one without the setting.
 func TestSSRLeavesAnUnknownI18nextUncached(t *testing.T) {
-	cases := []struct{ name, old, new string }{
-		{"fixedT", "const fixedT = (key, opts, ...rest) => {", "const fixedT = /* changed */ (key, opts, ...rest) => {"},
-		{"its end", "      return this.t(resultKey, o);", "      return /* changed */ this.t(resultKey, o);"},
-		{"the instance", "const instance = I18n.createInstance();", "const instance = /* changed */ I18n.createInstance();"},
-		{"a method", "  setDefaultNamespace(ns) {", "  setDefaultNamespaces(ns) {"},
-	}
-	page := "import i18next from 'i18next'\n(globalThis as any).result = i18next.getFixedT('en')('title')\n"
-	for _, c := range cases {
-		change := func(source string) string {
-			if strings.Count(source, c.old) != 1 {
-				t.Fatalf("%s: %q is not in i18next once", c.name, c.old)
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		cases := []struct{ name, old, new string }{
+			{"fixedT", "const fixedT = (key, opts, ...rest) => {", "const fixedT = /* changed */ (key, opts, ...rest) => {"},
+			{"its end", "      return this.t(resultKey, o);", "      return /* changed */ this.t(resultKey, o);"},
+			{"the instance", "const instance = I18n.createInstance();", "const instance = /* changed */ I18n.createInstance();"},
+			{"a method", "  setDefaultNamespace(ns) {", "  setDefaultNamespaces(ns) {"},
+			{"post-processors", ver.postProcessorLine, "/* changed */ " + ver.postProcessorLine},
+		}
+		if ver.hydrateLine != "" {
+			cases = append(cases, struct{ name, old, new string }{"hydrate", ver.hydrateLine, "  hydrates(resources, lng) {"})
+		}
+		page := "import i18next from 'i18next'\n(globalThis as any).result = i18next.getFixedT('en')('title')\n"
+		for _, c := range cases {
+			change := func(source string) string {
+				if strings.Count(source, c.old) != 1 {
+					t.Fatalf("%s: %q is not in i18next once", c.name, c.old)
+				}
+				return strings.Replace(source, c.old, c.new, 1)
 			}
-			return strings.Replace(source, c.old, c.new, 1)
+			root := withI18next(t, ver.alias, change)
+			off, _ := i18nextApp(t, root, page, `{ target: ["es2022"] }`)
+			on, printed := i18nextApp(t, root, page, `{ target: ["es2022"], i18nextCache: true }`)
+			if strings.Count(printed, ver.name(t)+": ") != strings.Count(printed, "[plugin tifa:ssr] ") || strings.Count(printed, "does not cache its translations") != 1 || !strings.Contains(printed, "i18next 25.5 to 27.0 is cached") {
+				t.Errorf("%s changed: the build prints:\n%s", c.name, printed)
+			}
+			if on != off {
+				t.Errorf("%s changed: the bundle differs from the one without the cache", c.name)
+			}
 		}
-		root := withChangedPackage(t, "i18next", filepath.Join("dist", "esm", "i18next.js"), change)
-		off, _ := i18nextApp(t, root, page, `{ target: ["es2022"] }`)
-		on, printed := i18nextApp(t, root, page, `{ target: ["es2022"], i18nextCache: true }`)
-		if strings.Count(printed, "i18next 26.5.3: ") != strings.Count(printed, "[plugin tifa:ssr] ") || strings.Count(printed, "does not cache its translations") != 1 {
-			t.Errorf("%s changed: the build prints:\n%s", c.name, printed)
-		}
-		if on != off {
-			t.Errorf("%s changed: the bundle differs from the one without the cache", c.name)
-		}
-	}
+	})
 }
 
 // i18nextReusePage renders requests the ways apps use i18next on a server, and counts the
@@ -389,34 +416,36 @@ globalThis.result = JSON.stringify({
 // changing its language, cloneInstance, and an instance made for each request. The translations
 // stay those without the cache.
 func TestSSRI18nextCacheKeepsAcrossRequests(t *testing.T) {
-	type result struct {
-		Requests [][][]string
-		Later    map[string]int
-	}
-	run := func(settings string) result {
-		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextReusePage, settings)
-		var r result
-		if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
-			t.Fatal(err)
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		type result struct {
+			Requests [][][]string
+			Later    map[string]int
 		}
-		return r
-	}
-	plain := run(`{ target: ["es2022"] }`)
-	cached := run(`{ target: ["es2022"], i18nextCache: true }`)
-	if string(mustJSON(t, cached.Requests)) != string(mustJSON(t, plain.Requests)) {
-		t.Errorf("translations differ:\n%s\nwant\n%s", mustJSON(t, cached.Requests), mustJSON(t, plain.Requests))
-	}
-	if plain.Requests[0][0][0] != "Shop" || plain.Requests[1][0][0] != "Laden" || plain.Requests[1][2][0] != "Laden" {
-		t.Errorf("the languages do not change: %s", mustJSON(t, plain.Requests[:2]))
-	}
-	for name, n := range plain.Later {
-		if n == 0 {
-			t.Errorf("%s: no translations counted without the cache", name)
+		run := func(settings string) result {
+			code, _ := i18nextApp(t, i18nextRoot(t, ver), i18nextReusePage, settings)
+			var r result
+			if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+				t.Fatal(err)
+			}
+			return r
 		}
-		if cached.Later[name] != 0 {
-			t.Errorf("%s translated %d times in the last four requests with the cache, want none", name, cached.Later[name])
+		plain := run(`{ target: ["es2022"] }`)
+		cached := run(`{ target: ["es2022"], i18nextCache: true }`)
+		if string(mustJSON(t, cached.Requests)) != string(mustJSON(t, plain.Requests)) {
+			t.Errorf("translations differ:\n%s\nwant\n%s", mustJSON(t, cached.Requests), mustJSON(t, plain.Requests))
 		}
-	}
+		if plain.Requests[0][0][0] != "Shop" || plain.Requests[1][0][0] != "Laden" || plain.Requests[1][2][0] != "Laden" {
+			t.Errorf("the languages do not change: %s", mustJSON(t, plain.Requests[:2]))
+		}
+		for name, n := range plain.Later {
+			if n == 0 {
+				t.Errorf("%s: no translations counted without the cache", name)
+			}
+			if cached.Later[name] != 0 {
+				t.Errorf("%s translated %d times in the last four requests with the cache, want none", name, cached.Later[name])
+			}
+		}
+	})
 }
 
 // i18nextAppCodePage translates through code of the app. Formatters added with add and addCached
@@ -489,31 +518,33 @@ globalThis.result = JSON.stringify({ runs, calls })
 // a formatter module, and none across a change of defaultVariables, so those give each request its
 // own translation.
 func TestSSRI18nextCacheKeepsAppFormatters(t *testing.T) {
-	type result struct {
-		Runs  [][]string
-		Calls map[string]int
-	}
-	run := func(settings string) result {
-		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextAppCodePage, settings)
-		var r result
-		if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
-			t.Fatal(err)
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		type result struct {
+			Runs  [][]string
+			Calls map[string]int
 		}
-		return r
-	}
-	plain, cached := run(`{ target: ["es2022"] }`), run(`{ target: ["es2022"], i18nextCache: true }`)
-	if got, want := mustJSON(t, cached.Runs), mustJSON(t, plain.Runs); string(got) != string(want) {
-		t.Errorf("translations differ:\n%s\nwant\n%s", got, want)
-	}
-	if got := strings.Join(plain.Runs[5], ","); got != "At 1@,At 1@,Post@,Hi B,Hi B,At 1@B,Post@B" {
-		t.Errorf("the zone does not reach the translations: %s", got)
-	}
-	// Six requests in three zones: defaultVariables are part of a call, so each zone translates once.
-	for _, name := range []string{"zoned", "cached", "pp"} {
-		if plain.Calls[name] != 6 || cached.Calls[name] != 3 {
-			t.Errorf("%s ran %d times without the cache and %d with it, want 6 and 3", name, plain.Calls[name], cached.Calls[name])
+		run := func(settings string) result {
+			code, _ := i18nextApp(t, i18nextRoot(t, ver), i18nextAppCodePage, settings)
+			var r result
+			if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+				t.Fatal(err)
+			}
+			return r
 		}
-	}
+		plain, cached := run(`{ target: ["es2022"] }`), run(`{ target: ["es2022"], i18nextCache: true }`)
+		if got, want := mustJSON(t, cached.Runs), mustJSON(t, plain.Runs); string(got) != string(want) {
+			t.Errorf("translations differ:\n%s\nwant\n%s", got, want)
+		}
+		if got := strings.Join(plain.Runs[5], ","); got != "At 1@,At 1@,Post@,Hi B,Hi B,At 1@B,Post@B" {
+			t.Errorf("the zone does not reach the translations: %s", got)
+		}
+		// Six requests in three zones: defaultVariables are part of a call, so each zone translates once.
+		for _, name := range []string{"zoned", "cached", "pp"} {
+			if plain.Calls[name] != 6 || cached.Calls[name] != 3 {
+				t.Errorf("%s ran %d times without the cache and %d with it, want 6 and 3", name, plain.Calls[name], cached.Calls[name])
+			}
+		}
+	})
 }
 
 // i18nextMissPage translates one key with a new name on every call, as a page that writes the
@@ -545,20 +576,22 @@ globalThis.result = JSON.stringify({ off, title, back })
 // A key whose calls keep missing stops being looked up and kept, so they cost about what they
 // cost without the cache, and other keys stay cached. Once its calls repeat, it is cached again.
 func TestSSRI18nextCacheStopsForKeysThatMiss(t *testing.T) {
-	code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextMissPage, `{ target: ["es2022"], i18nextCache: true }`)
-	var r struct{ Off, Title, Back int }
-	if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
-		t.Fatal(err)
-	}
-	if r.Off < 9 {
-		t.Errorf("after 3000 different names, %d of 10 calls with the same name translated, want at least 9", r.Off)
-	}
-	if r.Title > 1 {
-		t.Errorf("another key translated %d times in 10 calls", r.Title)
-	}
-	if r.Back != 0 {
-		t.Errorf("after 300 calls with the same name, %d of the next 10 translated, want none", r.Back)
-	}
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		code, _ := i18nextApp(t, i18nextRoot(t, ver), i18nextMissPage, `{ target: ["es2022"], i18nextCache: true }`)
+		var r struct{ Off, Title, Back int }
+		if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+			t.Fatal(err)
+		}
+		if r.Off < 9 {
+			t.Errorf("after 3000 different names, %d of 10 calls with the same name translated, want at least 9", r.Off)
+		}
+		if r.Title > 1 {
+			t.Errorf("another key translated %d times in 10 calls", r.Title)
+		}
+		if r.Back != 0 {
+			t.Errorf("after 300 calls with the same name, %d of the next 10 translated, want none", r.Back)
+		}
+	})
 }
 
 // i18nextFormatsPage formats a value that differs on every call with a formatter added with
@@ -581,33 +614,35 @@ globalThis.grow = (count) => {
 // also depends on where earlier allocations put them, and moved by 140 KB when the VM got two more
 // functions it never called.
 func TestSSRI18nextCacheAddsNothingToTheFormattersOfI18next(t *testing.T) {
-	grown := func(settings string) int64 {
-		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextFormatsPage, settings)
-		bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
-		if err != nil {
-			t.Fatal(err)
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		grown := func(settings string) int64 {
+			code, _ := i18nextApp(t, i18nextRoot(t, ver), i18nextFormatsPage, settings)
+			bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer bytecode.Close()
+			vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer vm.Close()
+			if _, err := vm.Eval("grow(100)", quickjs.EvalGlobal); err != nil {
+				t.Fatal(err)
+			}
+			vm.RunGC()
+			before := vm.MemoryUsage().MemoryUsedSize
+			if _, err := vm.Eval("grow(5000)", quickjs.EvalGlobal); err != nil {
+				t.Fatal(err)
+			}
+			vm.RunGC()
+			return vm.MemoryUsage().MemoryUsedSize - before
 		}
-		defer bytecode.Close()
-		vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
-		if err != nil {
-			t.Fatal(err)
+		plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
+		if cached-plain > 100<<10 {
+			t.Errorf("5000 formats grew the VM by %d bytes with the cache and %d without", cached, plain)
 		}
-		defer vm.Close()
-		if _, err := vm.Eval("grow(100)", quickjs.EvalGlobal); err != nil {
-			t.Fatal(err)
-		}
-		vm.RunGC()
-		before := vm.MemoryUsage().MemoryUsedSize
-		if _, err := vm.Eval("grow(5000)", quickjs.EvalGlobal); err != nil {
-			t.Fatal(err)
-		}
-		vm.RunGC()
-		return vm.MemoryUsage().MemoryUsedSize - before
-	}
-	plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
-	if cached-plain > 100<<10 {
-		t.Errorf("5000 formats grew the VM by %d bytes with the cache and %d without", cached, plain)
-	}
+	})
 }
 
 // i18nextInstancesPage makes a new instance for each request, as apps that call createInstance
@@ -629,31 +664,33 @@ globalThis.serve = (count) => {
 // The strings an instance kept go with it, so instances made for each request leave the VM about
 // as large as without the cache.
 func TestSSRI18nextCacheForgetsInstancesThatAreGone(t *testing.T) {
-	grown := func(settings string) int64 {
-		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextInstancesPage, settings)
-		bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
-		if err != nil {
-			t.Fatal(err)
+	forI18nextVersions(t, func(t *testing.T, ver i18nextVersion) {
+		grown := func(settings string) int64 {
+			code, _ := i18nextApp(t, i18nextRoot(t, ver), i18nextInstancesPage, settings)
+			bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer bytecode.Close()
+			vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer vm.Close()
+			if _, err := vm.Eval("serve(10)", quickjs.EvalGlobal); err != nil {
+				t.Fatal(err)
+			}
+			vm.RunGC()
+			before := vm.MemorySize()
+			if _, err := vm.Eval("serve(2000)", quickjs.EvalGlobal); err != nil {
+				t.Fatal(err)
+			}
+			vm.RunGC()
+			return int64(vm.MemorySize()) - int64(before)
 		}
-		defer bytecode.Close()
-		vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
-		if err != nil {
-			t.Fatal(err)
+		plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
+		if cached-plain > 100<<10 {
+			t.Errorf("2000 instances grew the VM by %d bytes with the cache and %d without", cached, plain)
 		}
-		defer vm.Close()
-		if _, err := vm.Eval("serve(10)", quickjs.EvalGlobal); err != nil {
-			t.Fatal(err)
-		}
-		vm.RunGC()
-		before := vm.MemorySize()
-		if _, err := vm.Eval("serve(2000)", quickjs.EvalGlobal); err != nil {
-			t.Fatal(err)
-		}
-		vm.RunGC()
-		return int64(vm.MemorySize()) - int64(before)
-	}
-	plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
-	if cached-plain > 100<<10 {
-		t.Errorf("2000 instances grew the VM by %d bytes with the cache and %d without", cached, plain)
-	}
+	})
 }

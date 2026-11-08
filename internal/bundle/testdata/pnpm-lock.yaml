@@ -53,6 +53,12 @@ importers:
       i18next:
         specifier: 26.5.3
         version: 26.5.3
+      i18next-27-0-0:
+        specifier: npm:i18next@27.0.0
+        version: i18next@27.0.0
+      i18next-27-0-1:
+        specifier: npm:i18next@27.0.1
+        version: i18next@27.0.1
       lucide-react:
         specifier: 1.58.0
         version: 1.58.0(@types/react@19.3.0)(react@19.3.0)
@@ -68,6 +74,9 @@ importers:
       react-i18next:
         specifier: 17.1.0
         version: 17.1.0(i18next@26.5.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react-i18next-18-0-0:
+        specifier: npm:react-i18next@18.0.0
+        version: react-i18next@18.0.0(i18next@26.5.3)(react@19.3.0)
       serialize-javascript:
         specifier: 7.1.2
         version: 7.1.2
@@ -753,6 +762,24 @@ packages:
       typescript:
         optional: true
 
+  i18next@27.0.0:
+    resolution: {integrity: sha512-lCP39wHw2s0MZLyNXNvVEVhSRx3STHXB7XUbyS5qVabE3b+SSqFM/Ffb6HIygeKjYrMAwRV2qDShBQRba/DvAQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  i18next@27.0.1:
+    resolution: {integrity: sha512-KaE5ozP8UUeVpOJIwMVbbnpRKpyYQuxd9ZbseJoDzezE3nvLnZZQn20pkzyIJwPI2Uet/Qs3WzPTG812f6F/Eg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
     engines: {node: '>=6'}
@@ -1076,6 +1103,17 @@ packages:
         optional: true
       react-native:
         optional: true
+      typescript:
+        optional: true
+
+  react-i18next@18.0.0:
+    resolution: {integrity: sha512-xXq/pcuMRwrW4iH0If/RjbPH3zuEqWVtaw4PjDsG54vx0FTook7aS3kop7DXy3g66wHkYUji8l7ZBrA8kfj67Q==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      i18next: '>= 27.0.0'
+      react: '>= 18.0.0'
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
       typescript:
         optional: true
 
@@ -1816,6 +1854,10 @@ snapshots:
 
   i18next@26.5.3: {}
 
+  i18next@27.0.0: {}
+
+  i18next@27.0.1: {}
+
   import-fresh@3.3.1:
     dependencies:
       parent-module: 1.0.1
@@ -2280,6 +2322,12 @@ snapshots:
       use-sync-external-store: 1.7.0(react@19.3.0)
     optionalDependencies:
       react-dom: 19.3.0(react@19.3.0)
+
+  react-i18next@18.0.0(i18next@26.5.3)(react@19.3.0):
+    dependencies:
+      html-parse-stringify: 4.0.1
+      i18next: 26.5.3
+      react: 19.3.0
 
   react-is@16.13.1: {}
 
