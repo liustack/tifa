@@ -7,7 +7,7 @@ import { counts } from './counts.ts'
 import { demoOrders, weekendCatalogue } from './demo.ts'
 import { Invalid, NotFound } from './errors.ts'
 import { Fields } from './store/errors.ts'
-import { orderLine } from './store/products/edit.ts'
+import { orderLine, orderName } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
 import { total } from './records.ts'
@@ -36,6 +36,11 @@ function storefrontLine(l: NewLine): ItemRecord {
   return { slug: p.slug, name: p.name, description: p.variant, quantity: l.quantity, priceCents: p.priceFen, color: p.color, stock: p.stock }
 }
 
+// weekendName is the name of a product of the weekend shop.
+function weekendName(slug: string): string | undefined {
+  return weekendCatalogue.find((p) => p.slug === slug)?.name
+}
+
 // weekendLine is the order line of a product of the weekend shop, which comes in one colour and size.
 function weekendLine(l: NewLine): ItemRecord {
   const p = weekendCatalogue.find((p) => p.slug === l.slug)
@@ -45,9 +50,10 @@ function weekendLine(l: NewLine): ItemRecord {
 
 // The form of the order numbers of a project and the line of each product it sells, as shops in
 // create.go: the studio shop sells the products of the storefront, the weekend shop has its own.
-export const shops: Record<string, { prefix: string; width: number; line: (l: NewLine) => ItemRecord }> = {
-  [storefrontProject]: { prefix: 'SH', width: 0, line: storefrontLine },
-  weekend: { prefix: 'WK', width: 4, line: weekendLine },
+// name is the name of a product it sells, as order lines keep it, or undefined.
+export const shops: Record<string, { prefix: string; width: number; line: (l: NewLine) => ItemRecord; name: (slug: string) => string | undefined }> = {
+  [storefrontProject]: { prefix: 'SH', width: 0, line: storefrontLine, name: orderName },
+  weekend: { prefix: 'WK', width: 4, line: weekendLine, name: weekendName },
 }
 
 export interface CustomerOrders {
@@ -69,10 +75,10 @@ export interface CarrierTotals {
   transit: number // from shipping to signing, added up over the parcels signed for
 }
 
-// DayProduct is what the orders of a day hold of one product. A product's name and slug go
-// together, as in the catalogues.
+// DayProduct is what the orders of a day hold of one product. It has no name: a product can be
+// renamed, and its orders keep the name they were placed under, so the stats name it as its shop
+// does now.
 export interface DayProduct {
-  slug: string
   quantity: number
   lines: number
   revenueCents: number
@@ -84,7 +90,7 @@ export interface DayTotals {
   pending: number
   shipped: number
   pieces: number
-  products: Map<string, DayProduct> // by name
+  products: Map<string, DayProduct> // by slug
 }
 
 // ZoneDays are the orders of a project counted by the day they were placed on and the hour of the
@@ -291,10 +297,10 @@ function addToZone(z: ZoneDays, o: OrderRecord): void {
   if (o.shipment) d.shipped++
   else d.pending++
   for (const item of o.items) {
-    let pr = d.products.get(item.name)
+    let pr = d.products.get(item.slug)
     if (!pr) {
-      pr = { slug: item.slug, quantity: 0, lines: 0, revenueCents: 0 }
-      d.products.set(item.name, pr)
+      pr = { quantity: 0, lines: 0, revenueCents: 0 }
+      d.products.set(item.slug, pr)
     }
     pr.quantity += item.quantity
     pr.lines++

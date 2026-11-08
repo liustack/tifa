@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 )
 
 // shanghai is the zone the demonstration shops trade in.
@@ -237,4 +239,40 @@ func firstOrderOf(projectID, customer string) string {
 		}
 	}
 	return ""
+}
+
+// A product renamed in the back office is still one product: the stats keep one row for it, with
+// its slug and its name as the catalogue has it now, though its orders were placed under two names.
+func TestSalesStatsKeepARenamedProductInOneRow(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	before, err := products.GetEntry("ceramic-cup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = products.Update("ceramic-cup", before.Edit) })
+	edit := before.Edit
+	edit.NameZH = "新陶瓷杯"
+	if err := products.Update("ceramic-cup", edit); err != nil {
+		t.Fatal(err)
+	}
+	in := newOrder()
+	in.Items = []NewLine{{Slug: "ceramic-cup", Quantity: 1}}
+	if _, err := CreateOrder("studio", in, time.Date(2026, 10, 15, 10, 0, 0, 0, shanghai)); err != nil {
+		t.Fatal(err)
+	}
+	var rows []ProductRow
+	for _, r := range SalesStats("studio", shanghai).Products {
+		if r.Slug == "ceramic-cup" {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) != 1 || rows[0].Name != "新陶瓷杯" {
+		t.Fatalf("the rows of the renamed product: %+v", rows)
+	}
+	for _, p := range SalesStats("studio", shanghai).TopProducts {
+		if p.Slug == "ceramic-cup" && p.Name != "新陶瓷杯" {
+			t.Errorf("the best sellers name it %q", p.Name)
+		}
+	}
 }

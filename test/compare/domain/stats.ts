@@ -4,7 +4,7 @@ import { newestFirst } from './orders.ts'
 import { initials } from './records.ts'
 import type { OrderRow } from './orders.ts'
 import { carriers } from './shipping.ts'
-import { byText, daysIn, ordersOf } from './storage.ts'
+import { byText, daysIn, ordersOf, shops } from './storage.ts'
 import type { ProjectOrders } from './storage.ts'
 import { HOUR, hours, local } from './time.ts'
 
@@ -81,6 +81,14 @@ const dispatchBands = (): DispatchBand[] => [
 // salesStats returns the sales of a project over the thirty days that end on the day of its newest
 // order, with days starting at midnight in zone, the time zone of the shop. A project without
 // orders has no days. Everything comes from the sums the writes keep, as in Go.
+// productName is the name of the product slug in the shop of a project as the shop has it now, as
+// productName in create.go.
+function productName(projectId: string, slug: string): string {
+  const name = shops[projectId].name(slug)
+  if (name === undefined) throw new Error(`orders of ${projectId} hold ${slug}, which the shop does not sell`)
+  return name
+}
+
 export function salesStats(projectId: string, zone: string): Sales {
   const p = ordersOf(projectId)
   const s: Sales = {
@@ -106,11 +114,11 @@ export function salesStats(projectId: string, zone: string): Sales {
       day.shipped = d.shipped
       day.pieces = d.pieces
       s.totals.pieces += d.pieces
-      for (const [name, dp] of d.products) {
-        let r = products.get(name)
+      for (const [slug, dp] of d.products) {
+        let r = products.get(slug)
         if (!r) {
-          r = { slug: dp.slug, name, quantity: 0, orders: 0, revenueCents: 0, daily: new Array<number>(statsDays).fill(0) }
-          products.set(name, r)
+          r = { slug, name: productName(projectId, slug), quantity: 0, orders: 0, revenueCents: 0, daily: new Array<number>(statsDays).fill(0) }
+          products.set(slug, r)
         }
         r.quantity += dp.quantity
         r.orders += dp.lines
@@ -124,8 +132,8 @@ export function salesStats(projectId: string, zone: string): Sales {
     s.products.push(r)
     s.topProducts.push({ slug: r.slug, name: r.name, quantity: r.quantity, revenueCents: r.revenueCents })
   }
-  s.products.sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents || byText(a.name, b.name))
-  s.topProducts.sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents || byText(a.name, b.name))
+  s.products.sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents || byText(a.name, b.name) || byText(a.slug, b.slug))
+  s.topProducts.sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents || byText(a.name, b.name) || byText(a.slug, b.slug))
   s.topProducts = s.topProducts.slice(0, 5)
   s.customers = p.ranked.slice(0, 8).map((c) => ({ name: c.name, initials: initials(c.name), orders: c.orders.length, spentCents: c.spentCents }))
   s.totals.customers = p.customers.size

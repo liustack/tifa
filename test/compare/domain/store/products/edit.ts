@@ -78,6 +78,12 @@ export function getEntry(slug: string): Entry {
   return entry(p)
 }
 
+// orderName is the name of the product slug as the lines of an order keep it, its Chinese name now,
+// or undefined. Go calls it OrderName.
+export function orderName(slug: string): string | undefined {
+  return catalogue.find((p) => p.slug === slug)?.name[0]
+}
+
 // NoStock is what takeStock throws when a product has fewer pieces than an order takes, as Go's
 // ErrNoStock.
 export class NoStock extends Error {}

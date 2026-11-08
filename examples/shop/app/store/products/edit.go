@@ -195,6 +195,13 @@ func OrderLine(slug, color, size string) (Line, error) {
 	return Line{Slug: slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen, Stock: p.stock}, nil
 }
 
+// OrderName is the name of the product slug as the lines of an order keep it, its Chinese name as
+// the catalogue has it now, and false for a product the catalogue does not have.
+func OrderName(slug string) (string, bool) {
+	p, ok := record(slug)
+	return p.name[0], ok
+}
+
 // colorText is the name of a colour in both languages.
 func colorText(id string) T {
 	for _, c := range colors {

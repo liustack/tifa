@@ -40,13 +40,14 @@ type shop struct {
 	prefix string // the order number is prefix, a dash and a number
 	width  int    // the number is padded with zeros to this width
 	line   func(NewLine) (itemRecord, error)
+	name   func(slug string) (string, bool) // the name of a product it sells, as order lines keep it
 }
 
 // The studio shop sells the products of the storefront (storekit.Project), as the catalogue has them
 // at the time of the order. The weekend shop keeps a catalogue of its own.
 var shops = map[string]shop{
-	storekit.Project: {prefix: "SH", width: 0, line: storefrontLine},
-	"weekend":        {prefix: "WK", width: 4, line: weekendLine},
+	storekit.Project: {prefix: "SH", width: 0, line: storefrontLine, name: products.OrderName},
+	"weekend":        {prefix: "WK", width: 4, line: weekendLine, name: weekendName},
 }
 
 // storefrontLine is the order line of a product of the storefront in a colour and size.
@@ -71,6 +72,27 @@ func weekendLine(l NewLine) (itemRecord, error) {
 		}
 	}
 	return itemRecord{}, tifa.Fields{"items": "Unknown product " + l.Slug}
+}
+
+// weekendName is the name of a product of the weekend shop.
+func weekendName(slug string) (string, bool) {
+	for _, p := range weekendCatalogue {
+		if p.Slug == slug {
+			return p.Name, true
+		}
+	}
+	return "", false
+}
+
+// productName is the name of the product slug in the shop of a project as the shop has it now,
+// which may not be the name an order of it was placed under. Every line of an order is a product
+// its shop sells, and no shop stops selling one, so a name that is not there is a bug.
+func productName(projectID, slug string) string {
+	name, ok := shops[projectID].name(slug)
+	if !ok {
+		panic("orders of " + projectID + " hold " + slug + ", which the shop does not sell")
+	}
+	return name
 }
 
 // CheckNewOrder returns the fields of a new order that do not follow the rules, or nil. It cannot

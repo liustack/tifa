@@ -110,13 +110,13 @@ type zoneDays struct {
 
 type dayTotals struct {
 	orders, revenueCents, pending, shipped, pieces int
-	products                                       map[string]*dayProduct // by name
+	products                                       map[string]*dayProduct // by slug
 }
 
-// dayProduct is what the orders of a day hold of one product. A product's name and slug go
-// together, as in the catalogues.
+// dayProduct is what the orders of a day hold of one product. It has no name: a product can be
+// renamed, and its orders keep the name they were placed under, so the stats name it as its shop
+// does now.
 type dayProduct struct {
-	slug                          string
 	quantity, lines, revenueCents int
 }
 
@@ -335,10 +335,10 @@ func (z *zoneDays) add(o *orderRecord) {
 		d.shipped++
 	}
 	for _, item := range o.Items {
-		pr := d.products[item.Name]
+		pr := d.products[item.Slug]
 		if pr == nil {
-			pr = &dayProduct{slug: item.Slug}
-			d.products[item.Name] = pr
+			pr = &dayProduct{}
+			d.products[item.Slug] = pr
 		}
 		pr.quantity += item.Quantity
 		pr.lines++
