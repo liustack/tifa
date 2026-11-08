@@ -184,10 +184,29 @@ func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]
 	return set, out, nil
 }
 
+// browseConfig is the settings of a run that its result keeps.
+func browseConfig(o BrowseOptions) map[string]string {
+	return map[string]string{
+		"users": fmt.Sprint(o.Users), "extraUsers": fmt.Sprint(o.ExtraUsers), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
+		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
+	}
+}
+
+// canContinue says whether a result can be continued by a run with these options.
+func canContinue(res *BrowseResult, o BrowseOptions) error {
+	if res.Stamp != o.Stamp {
+		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, o.Stamp)
+	}
+	return nil
+}
+
 // Browse runs the browse comparison and returns what it measured. Prepare must have run.
 func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error) {
 	if o.Log == nil {
 		o.Log = io.Discard
+	}
+	if o.MaxRate != 0 && o.MaxRate < minRate {
+		return nil, fmt.Errorf("-max-rate %v: the search of the sustainable rate needs a cap of at least %v visits a second", o.MaxRate, minRate)
 	}
 	if len(o.Servers) == 0 {
 		o.Servers = BrowseFrameworks
@@ -252,8 +271,8 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		if err := json.Unmarshal(data, b.res); err != nil {
 			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
 		}
-		if b.res.Stamp != o.Stamp {
-			return nil, fmt.Errorf("%s belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", o.OutJSON, b.res.Stamp, o.Stamp)
+		if err := canContinue(b.res, o); err != nil {
+			return nil, fmt.Errorf("%s %w", o.OutJSON, err)
 		}
 		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
 	} else {
@@ -268,10 +287,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 			}
 			b.res.Plans[siteName(site)] = info
 		}
-		b.res.Config = map[string]string{
-			"users": fmt.Sprint(o.Users), "extraUsers": fmt.Sprint(o.ExtraUsers), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
-			"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		}
+		b.res.Config = browseConfig(o)
 		b.res.Blocks = map[string]int{}
 		b.res.Sustain = map[string]*Sustain{}
 		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
@@ -536,29 +552,13 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 			}
 			return r.Pass, b.commit()
 		}
-		// Double from 4 visits a second while the rule holds. If 4 fails, halve until one holds.
-		lo, hi, rate, maxRate := 0.0, 0.0, 4.0, cmp.Or(b.o.MaxRate, 16384)
-		for rate <= maxRate {
-			ok, err := trial(rate)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				hi = rate
-				if lo == 0 && rate > 0.5 {
-					rate /= 2
-					continue
-				}
-				break
-			}
-			if hi > 0 {
-				lo = rate // found going down: the rate that passes, with hi the one above that failed
-				break
-			}
-			lo, rate = rate, rate*2
+		maxRate := cmp.Or(b.o.MaxRate, 16384)
+		lo, hi, err := searchRate(maxRate, trial)
+		if err != nil {
+			return err
 		}
 		if lo == 0 {
-			s.Note, s.Done = "it does not sustain even half a visit a second", true
+			s.Note, s.Done = fmt.Sprintf("it does not sustain %.2f visits a second, the lowest rate tried", hi), true
 			if err := b.commit(); err != nil {
 				return err
 			}
@@ -1034,3 +1034,33 @@ func IsBrowseResult(data []byte) bool {
 }
 
 func (r *BrowseResult) json() ([]byte, error) { return json.Marshal(r) }
+
+// minRate is the lowest cap of the search of the sustainable rate: half a visit a second.
+const minRate = 0.5
+
+// searchRate brackets the rate the rule holds at: it doubles from 4 visits a second (or from maxRate
+// when that is lower) while the rule holds, or, if the first fails, halves until one holds. lo is the highest rate that passed (0 if none did)
+// and hi the lowest that failed above it (0 if none did, within maxRate).
+func searchRate(maxRate float64, trial func(rate float64) (bool, error)) (lo, hi float64, err error) {
+	rate := min(4, maxRate)
+	for rate <= maxRate {
+		ok, err := trial(rate)
+		if err != nil {
+			return 0, 0, err
+		}
+		if !ok {
+			hi = rate
+			if lo == 0 && rate > minRate {
+				rate /= 2
+				continue
+			}
+			break
+		}
+		if hi > 0 {
+			lo = rate // found going down: the rate that passes, with hi the one above that failed
+			break
+		}
+		lo, rate = rate, rate*2
+	}
+	return lo, hi, nil
+}
