@@ -172,6 +172,15 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		// The edit left 5 trays and the order took one: an order of 5 is refused and takes nothing.
 		{"refuse an order over the stock", "POST", "create:studio", strings.Replace(newOrder, `{"slug":"ceramic-cup","quantity":1}`, `{"slug":"oak-tray","quantity":5}`, 1), nil},
 		{"edit a product of the other shop", "PATCH", "product:weekend:postcards", cardEdit, []compare.Page{weekendProducts, postcards}},
+		// Go decodes a body of null into the zero value, which then fails its checks (422). An int takes
+		// only a whole number written without a fraction or an exponent, in the range of an int: any
+		// other is a body Go cannot decode (400).
+		{"refuse an order whose body is null", "POST", "create:studio", `null`, nil},
+		{"refuse an edit whose body is null", "PATCH", "product:studio:oak-tray", `null`, nil},
+		{"refuse a stock written 1.0", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"stock":5`, `"stock":1.0`, 1), nil},
+		{"refuse a price written with an exponent", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"priceCents":52000`, `"priceCents":52e3`, 1), nil},
+		{"refuse a stock past the range of an int", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"stock":5`, `"stock":9223372036854775808`, 1), nil},
+		{"refuse a quantity written 2.0", "POST", "create:studio", strings.Replace(newOrder, `"quantity":2`, `"quantity":2.0`, 1), nil},
 	}
 
 	type outcome struct {
@@ -241,7 +250,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
 	}
-	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200}
+	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200, 422, 422, 400, 400, 400, 400}
 	if len(wantStatus) != len(steps) {
 		t.Fatalf("%d statuses for %d steps", len(wantStatus), len(steps))
 	}

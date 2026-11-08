@@ -14,13 +14,22 @@ import type { Edit } from './store/products/edit.ts'
 // product). They are not part of the pages and are not timed.
 
 async function answer(request: Request, run: (body: any) => unknown): Promise<Response> {
-  let body: any
+  let text: string
   try {
-    body = await request.json()
+    text = await request.text()
   } catch {
     return Response.json({ error: 'bad body' }, { status: 400 })
   }
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'bad body' }, { status: 400 })
+  let body: any
+  try {
+    body = parseBody(text)
+  } catch (e) {
+    if (e instanceof SyntaxError) return Response.json({ error: 'bad body' }, { status: 400 })
+    throw e
+  }
+  // Go decodes a body of null into the zero value of the input, as it does {}, and checks that.
+  if (body === null) body = {}
+  if (typeof body !== 'object' || Array.isArray(body) || body instanceof NotAnInt) return Response.json({ error: 'bad body' }, { status: 400 })
   try {
     return Response.json(run(body))
   } catch (e) {
@@ -45,11 +54,41 @@ function text(v: unknown): string {
   return v
 }
 
-// whole is a JSON number that Go decodes into an int: a missing one or null is 0, and a fraction or
-// another type is a body Go cannot decode.
+// NotAnInt is a JSON number that Go does not decode into an int, as parseBody reads it: one written
+// with a fraction or an exponent (1.0, 1e0), or past the range of an int64.
+class NotAnInt {
+  readonly source: string
+  constructor(source: string) {
+    this.source = source
+  }
+}
+
+// goInt is how encoding/json/v2 wants a number it decodes into an int to be written.
+const goInt = /^-?(?:0|[1-9][0-9]*)$/
+const minInt = -(2n ** 63n)
+const maxInt = 2n ** 63n - 1n
+
+// parseBody parses a JSON body and gives each number that Go would not decode into an int as a
+// NotAnInt, from the text it was written with (the source the reviver of JSON.parse gets, which V8
+// gives since Node 21). A NotAnInt in a field the handler reads as an int or a text is a body Go
+// cannot decode, and one in a field it does not read is left alone, as Go leaves it.
+function parseBody(text: string): unknown {
+  return JSON.parse(text, (_key: string, value: unknown, context?: { source?: string }) => {
+    if (typeof value !== 'number') return value
+    const source = context?.source
+    if (source === undefined) throw new Error('JSON.parse gave the reviver no source: this Node is older than 21')
+    if (!goInt.test(source)) return new NotAnInt(source)
+    const n = BigInt(source)
+    return n < minInt || n > maxInt ? new NotAnInt(source) : value
+  })
+}
+
+// whole is a JSON number that Go decodes into an int: a missing one or null is 0, and one Go does not
+// decode into an int (a fraction, an exponent, past the range) or another type is a body Go cannot
+// decode.
 function whole(v: unknown): number {
   if (v === undefined || v === null) return 0
-  if (typeof v !== 'number' || !Number.isInteger(v)) throw new BadBody()
+  if (typeof v !== 'number') throw new BadBody()
   return v
 }
 
@@ -57,7 +96,7 @@ function whole(v: unknown): number {
 export function newOrder(b: any): NewOrder {
   return {
     customer: text(b.customer), phone: text(b.phone), email: text(b.email), address: text(b.address), note: text(b.note),
-    items: Array.isArray(b.items) ? b.items.map((l: any) => ({ slug: text(l?.slug), color: text(l?.color), size: text(l?.size), quantity: l?.quantity })) : [],
+    items: Array.isArray(b.items) ? b.items.map((l: any) => ({ slug: text(l?.slug), color: text(l?.color), size: text(l?.size), quantity: whole(l?.quantity) })) : [],
   }
 }
 
