@@ -1,11 +1,12 @@
 ---
-summary: 'What the render cache is, how it differs from the whole-page cache, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, its limits, and how to see it work'
+summary: 'What the render cache is, how it differs from the whole-page cache, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, its limits, why a page has one key that is also its ETag, and how to see it work'
 read_when:
   - Wondering whether a cached page could show one visitor's data to another, or reach a CDN
   - Deciding between the render cache and the whole-page cache (`Cache`)
   - Setting Cache-Control on a page, a Load or a handler of an app that has signed-in pages
   - Reading cookies or the Authorization header in your own code instead of using Tifa sessions
   - A page shows a stale time or random value, or you want to know why a request did or did not hit the cache
+  - Wondering why a write to Layout data makes other pages miss, or whether parts of a page could be cached
 ---
 
 English · [简体中文](render-cache.zh-CN.md)
@@ -75,6 +76,14 @@ Behind a CDN, keep the defaults and let it follow the headers of the origin. See
 - **A request with a render clock** (`tifa.WithRenderClock`) neither reads nor stores a page.
 - **`cache.size`** is the memory of the render cache and the whole-page cache together, 64 MiB by default. When it is full the least recently used pages go. `0` turns both off, and requests that miss the same page at the same time still share one render. See [Configuration](config.md).
 - **The URL is the request URI as it came.** Two spellings of the same query, or a tracking parameter, make two entries. That costs hits and never serves a wrong page. Sorting the query and dropping tracking parameters is done by the whole-page cache.
+
+## One key per page
+
+A page has one key, and that key is also its `ETag`. Tifa does not key the data of a Layout apart from the data of its page, and it does not keep parts of a page. So one hash decides both when a render is reused and when a browser gets a 304, and the app writes nothing for either.
+
+What it costs: a write that changes the data of a Layout, such as a count in the header of a project, makes every page under that Layout render again on its next request. A write that leaves the Layout data alone makes only the pages whose `Load` data it changes render again.
+
+The cache keeps one gzip form of each page and sends it in the encoding each visitor takes. Compressing a page costs 1% to 2% of its render. See [Compression](build.md#compression) and [Performance](performance.md#compression).
 
 ## Seeing it work
 
