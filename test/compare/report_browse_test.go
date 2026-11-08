@@ -369,3 +369,29 @@ func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 		t.Error("a control that hits is flagged")
 	}
 }
+
+// The report claims only what the method measures: the half rate is a rate shared by every server,
+// not a promise of answers free of queueing, the mix of a round is what it planned, the admin
+// rounds grow their orders and memory (not a claim of heavier reads), and a page the control
+// seldom hits is flagged to look into, with no cause named.
+func TestTheReportClaimsOnlyWhatItMeasures(t *testing.T) {
+	sc := mustScenario("admin-w20")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
+		Sustain: map[string]*Sustain{"admin-w20/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"admin-w20": 8}, LatencyBase: map[string]string{"admin-w20": "nextjs"}}
+	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
+	c.Model, c.Writes, c.PageRenders = "control", 0, map[string]map[string]int{"order": {"vm": 300}}
+	l := closedRound("tifa", sc.Name, 0, 1, 1000, 100, true)
+	l.Model, l.Rate = "open", 8
+	r.Control, r.Latency = []Round{c}, []Round{l}
+	md := r.Markdown()
+	for _, want := range []string{"every round plans exactly 25% full loads", "and so does the memory that holds them", "Look into why: this table does not tell the cause."} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	for _, claim := range []string{"not how long requests wait in line", "get heavier the more orders", "since something in its data changes on every request", "with nothing changing, something in its data changes"} {
+		if strings.Contains(md, claim) {
+			t.Errorf("the report claims %q", claim)
+		}
+	}
+}
