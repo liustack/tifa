@@ -153,7 +153,8 @@ type DailyCards struct {
 }
 
 // ListOrders returns a page of the orders of a project that the query keeps, newest first, with the
-// numbers over all of them. zone is the time zone of the shop, whose days the cards draw.
+// numbers over all of them. zone is the time zone of the shop, whose days the cards draw, as
+// time.LoadLocation gives it by name (see daysIn).
 //
 // The list without filters, sorted by time either way, is cut from the orders by time, and the
 // numbers come from the totals the writes keep, so it costs the same however many orders there
@@ -189,12 +190,12 @@ func ListOrders(projectID string, zone *time.Location, q ListQuery) OrderList {
 		}
 	}
 	slices.Sort(l.Carriers)
-	// The days, labelled by their date in zone. Days are counted back from the newest order in
+	// The days, labelled by their date in the zone. Days are counted back from the newest order in
 	// steps of 24 hours, so two steps can land on the same date where a zone changes its clock, and
 	// then they share the sums.
 	z := p.daysIn(zone)
 	for i := range listDays {
-		key := l.NewestAt.Add(-time.Duration(listDays-1-i) * 24 * time.Hour).In(zone).Format(time.DateOnly)
+		key := l.NewestAt.Add(-time.Duration(listDays-1-i) * 24 * time.Hour).In(z.zone).Format(time.DateOnly)
 		var d dayTotals
 		if day := z.days[key]; day != nil {
 			d = *day

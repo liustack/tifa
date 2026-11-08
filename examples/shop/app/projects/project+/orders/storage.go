@@ -284,18 +284,33 @@ func (p *projectOrders) leave(o *orderRecord) {
 }
 
 // daysIn returns the orders of p counted by day in zone. The first read in a zone counts them, and
-// the writes after it keep the count. A zone is known by its name, which time.LoadLocation gives
-// whole, such as Asia/Shanghai. The caller holds ordersMu for reading.
+// the writes after it keep the count. The counts are kept by the name of the zone, so zone must be
+// one that time.LoadLocation gives by its name, such as Asia/Shanghai, and the reads label their
+// days with z.zone, the zone that name loads. A zone made another way under a name, such as a
+// time.FixedZone, panics: either its name loads nothing, or it differs from what the name loads at
+// the newest order. That catches a renamed zone that differs there, not every one. The caller holds
+// ordersMu for reading, and p has orders.
 func (p *projectOrders) daysIn(zone *time.Location) *zoneDays {
 	p.zonesMu.Lock()
 	defer p.zonesMu.Unlock()
-	z := p.zones[zone.String()]
+	name := zone.String()
+	z := p.zones[name]
 	if z == nil {
-		z = &zoneDays{zone: zone, days: map[string]*dayTotals{}}
+		loaded, err := time.LoadLocation(name)
+		if err != nil {
+			panic("orders: a zone not loaded by its name: " + err.Error())
+		}
+		z = &zoneDays{zone: loaded, days: map[string]*dayTotals{}}
 		for _, o := range p.all {
 			z.add(o)
 		}
-		p.zones[zone.String()] = z
+		p.zones[name] = z
+	}
+	newest := p.all[len(p.all)-1].PlacedAt
+	_, got := newest.In(zone).Zone()
+	_, want := newest.In(z.zone).Zone()
+	if got != want {
+		panic("orders: the zone " + name + " is not the one its name loads")
 	}
 	return z
 }

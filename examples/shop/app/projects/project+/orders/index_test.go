@@ -237,3 +237,31 @@ func TestListOrdersShowADayOf25HoursTwice(t *testing.T) {
 		t.Fatalf("daily orders %v, revenue %v, want the last two at 2 orders and 3000 cents, the one before at 1", d.Orders, d.RevenueCents)
 	}
 }
+
+// The days are kept by the name of the zone, so only a zone that time.LoadLocation gives by its
+// name is taken. One made another way under a name, the name of a real zone or not, panics rather
+// than read the days of another zone.
+func TestReadsTakeOnlyZonesLoadedByName(t *testing.T) {
+	reset()
+	ListOrders("studio", shanghai, ListQuery{})
+	SalesStats("studio", shanghai)
+	for _, zone := range []*time.Location{time.FixedZone("Asia/Shanghai", 0), time.FixedZone("same", 0), time.FixedZone("same", 8*3600)} {
+		for what, read := range map[string]func(){
+			"list":  func() { ListOrders("studio", zone, ListQuery{}) },
+			"stats": func() { SalesStats("studio", zone) },
+		} {
+			func() {
+				defer func() {
+					if recover() == nil {
+						_, offset := time.Now().In(zone).Zone()
+						t.Errorf("the %s took %s at %+d s", what, zone, offset)
+					}
+				}()
+				read()
+			}()
+		}
+	}
+	if got, want := ListOrders("studio", shanghai, ListQuery{}), refListOrders(snapshot(), "studio", shanghai, ListQuery{}); !reflect.DeepEqual(got, want) {
+		t.Fatal("the list in Shanghai changed")
+	}
+}

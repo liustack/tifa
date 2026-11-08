@@ -233,7 +233,7 @@ function leave(p: ProjectOrders, o: OrderRecord): void {
 }
 
 // daysIn returns the orders of p counted by day in zone. The first read in a zone counts them, and
-// the writes after it keep the count.
+// the writes after it keep the count. zone is an IANA name, which is all Intl needs to know of it.
 export function daysIn(p: ProjectOrders, zone: string): ZoneDays {
   let z = p.zones.get(zone)
   if (!z) {

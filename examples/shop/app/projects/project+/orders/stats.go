@@ -81,10 +81,10 @@ type Sales struct {
 }
 
 // SalesStats returns the sales of a project over the thirty days that end on the day of its newest
-// order, with days starting at midnight in zone, the time zone of the shop. A real shop would end
-// on today. The demonstration data does not move with the clock, so neither do its stats. A
-// project without orders has no days. Everything comes from the totals the writes keep, so the
-// stats cost the same however many orders there are.
+// order, with days starting at midnight in zone, the time zone of the shop as time.LoadLocation
+// gives it by name (see daysIn). A real shop would end on today. The demonstration data does not
+// move with the clock, so neither do its stats. A project without orders has no days. Everything
+// comes from the totals the writes keep, so the stats cost the same however many orders there are.
 func SalesStats(projectID string, zone *time.Location) Sales {
 	ordersMu.RLock()
 	defer ordersMu.RUnlock()
@@ -104,7 +104,7 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 	// the calendar, counted in UTC: in a zone whose daylight saving time starts at midnight, such
 	// as America/Santiago, that day has no 00:00, and counting there would list the day before
 	// twice and leave that day out.
-	last := p.all[len(p.all)-1].PlacedAt.In(zone)
+	last := p.all[len(p.all)-1].PlacedAt.In(z.zone)
 	first := time.Date(last.Year(), last.Month(), last.Day()-(statsDays-1), 0, 0, 0, 0, time.UTC)
 	products := map[string]*ProductRow{}
 	for i := range statsDays {
