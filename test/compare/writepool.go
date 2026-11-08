@@ -17,7 +17,7 @@ import (
 
 // The writes of the office mix go to orders that exist on the server at that moment, which only the
 // server knows: shipping uses an order up, and a new order exists once its create is answered. So
-// each replayer keeps a pool of the orders that have not shipped, per project. It starts with the
+// each runner keeps a pool of the orders that have not shipped, per project. It starts with the
 // orders of the data that wait to ship and lives as long as the server does.
 //
 //   - create adds the id that the server answered with,
@@ -114,16 +114,26 @@ type answered struct {
 	wire   int    // bytes on the wire
 }
 
-// request sends a JSON write and reads the whole answer.
-func (r *replayer) request(ctx context.Context, v *visitState, method, path string, body []byte) (answered, time.Time, time.Time, error) {
+// request sends a JSON write and reads the whole answer. It takes one of the connections of the
+// visit when the visit has them.
+func (r *runner) request(ctx context.Context, v *visitState, method, path string, body []byte) (answered, time.Time, time.Time, error) {
 	req, err := http.NewRequestWithContext(ctx, method, r.base+path, strings.NewReader(string(body)))
 	if err != nil {
 		return answered{}, time.Time{}, time.Time{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept-Encoding", "gzip")
+	if v.sem != nil {
+		select {
+		case v.sem <- struct{}{}:
+		case <-ctx.Done():
+			return answered{}, time.Time{}, time.Time{}, ctx.Err()
+		}
+		defer func() { <-v.sem }()
+	}
 	start := time.Now()
-	defer r.track()()
+	r.inflight.Add(1)
+	defer r.inflight.Add(-1)
 	res, err := v.client.Do(req)
 	if err != nil {
 		return answered{}, start, time.Time{}, err
@@ -141,22 +151,22 @@ func (r *replayer) request(ctx context.Context, v *visitState, method, path stri
 	return a, start, end, err
 }
 
-// doWrite sends a write of the plan and times it. In the store mix it sends the request of the plan
-// to the path of this app, with the cookies of the visit, and the status must be the one the plan
-// says (a redirect is not followed). In the rename mix it renames a customer of one of
-// the three orders of the data. In the office mix it goes to an order of the pool, or is a create
-// when the pool has none.
-func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) error {
+// doWrite sends a write of the plan and times it from when it was scheduled. In the store mix it
+// sends the request of the plan to the path of this app, with the cookies of the visit, and the
+// status must be the one the plan says (a redirect is not followed). In the rename mix it renames a
+// customer of one of the three orders of the data. In the office mix it goes to an order of the
+// pool, or is a create when the pool has none.
+func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWrite, scheduled time.Time) error {
 	kind, empty := w.Kind, false
 	var method, path string
 	var body []byte
 	var entry *poolOrder
 	want := 200 // the status the shop answers with
 	switch {
-	case r.sc.mix() == MixStore:
+	case r.mix() == MixStore:
 		st := w.Store
 		method, path, body, want = st.Method, r.storeWrite(st.Path), st.Body, st.Status
-	case r.sc.mix() == MixRename:
+	case r.mix() == MixRename:
 		st := WriteStep(r.write, w.Order, int(r.writes.Add(1)), true)
 		method, path, body = st.Method, st.Path, st.Body
 	default:
@@ -186,37 +196,36 @@ func (r *replayer) doWrite(ctx context.Context, v *visitState, w PlannedWrite) e
 		}
 		body = mustJSON(payload)
 	}
-	a, start, end, err := r.request(ctx, v, method, path, body)
+	ans, _, end, err := r.request(ctx, v, method, path, body)
 	if err != nil {
 		return err
 	}
-	if a.status != want {
-		return fmt.Errorf("write %s %s: status %d, want %d: %.200s", method, path, a.status, want, a.body)
+	if ans.status != want {
+		return fmt.Errorf("write %s %s: status %d, want %d: %.200s", method, path, ans.status, want, ans.body)
 	}
 	if kind == WriteCreate {
 		var created struct {
 			ID       string `json:"id"`
 			Customer string `json:"customer"`
 		}
-		if err := json.Unmarshal(a.body, &created); err != nil || created.ID == "" {
-			return fmt.Errorf("write %s %s: no order id in the answer: %v %.200s", method, path, err, a.body)
+		if err := json.Unmarshal(ans.body, &created); err != nil || created.ID == "" {
+			return fmt.Errorf("write %s %s: no order id in the answer: %v %.200s", method, path, err, ans.body)
 		}
 		r.pool.add(r.seed, w.Project, created.ID, created.Customer)
 	}
-	if r.inWindow(end) {
-		r.mu.Lock()
-		r.res.Requests++
-		r.res.Bytes += int64(a.wire)
-		r.res.Responses["write "+kind+" "+strconv.Itoa(a.status)+" "+a.kind]++
-		r.res.Writes[kind]++
-		if empty {
-			r.res.PoolEmpty++
-		}
-		r.mu.Unlock()
-		ms := float64(end.Sub(start)) / float64(time.Millisecond)
-		r.addLatency("write", end, ms)
-		r.addLatency("write "+kind, end, ms)
+	took := ms(end.Sub(scheduled))
+	a.mu.Lock()
+	a.requests++
+	a.bytes += int64(ans.wire)
+	a.wrote++
+	a.responses["write "+kind+" "+strconv.Itoa(ans.status)+" "+ans.kind]++
+	a.kinds[kind]++
+	if empty {
+		a.poolEmpty++
 	}
+	a.lat["write"] = append(a.lat["write"], took)
+	a.lat["write "+kind] = append(a.lat["write "+kind], took)
+	a.mu.Unlock()
 	return nil
 }
 

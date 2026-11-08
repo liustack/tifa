@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeShop is the part of the shop that the office writes touch, in memory: the orders of the data
@@ -147,19 +148,20 @@ func (f *fakeShop) page(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s %s %s %s %s %s carriers %d", r.PathValue("order"), o.customer, o.address, o.note, strings.Join(o.notes, ","), o.tracking, shipped)
 }
 
-func officeReplayer(t *testing.T) (*replayer, *fakeShop) {
+func officeRunner(t *testing.T) (*runner, *fakeShop) {
 	f, srv := newFakeShop(t)
-	return newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4, WriteRate: 1, Mix: MixOffice}), f
+	return newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixOffice}), f
 }
 
 func TestOfficeWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) {
-	r, f := officeReplayer(t)
+	r, f := officeRunner(t)
 	v := &visitState{client: &http.Client{}}
+	a := newAcc()
 	n := 0
 	send := func(kind, project string) {
 		t.Helper()
 		n++
-		if err := r.doWrite(context.Background(), v, PlannedWrite{After: n, Plan: 1, Kind: kind, Project: project}); err != nil {
+		if err := r.doWrite(context.Background(), v, a, PlannedWrite{After: n, Plan: 1, Kind: kind, Project: project}, time.Now()); err != nil {
 			t.Fatalf("%s %s: %v", kind, project, err)
 		}
 	}
@@ -177,21 +179,21 @@ func TestOfficeWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) 
 	if strings.Join(f.log, "|") != strings.Join(want, "|") {
 		t.Fatalf("the shop saw %v, want %v", f.log, want)
 	}
-	if r.res.Writes[WriteCreate] != 3 || r.res.Writes[WriteShip] != 4 || r.res.Writes[WriteNote] != 2 || r.res.Writes[WriteRecipient] != 1 || r.res.PoolEmpty != 2 {
-		t.Errorf("writes %v, %d with an empty pool", r.res.Writes, r.res.PoolEmpty)
+	if a.kinds[WriteCreate] != 3 || a.kinds[WriteShip] != 4 || a.kinds[WriteNote] != 2 || a.kinds[WriteRecipient] != 1 || a.poolEmpty != 2 {
+		t.Errorf("writes %v, %d with an empty pool", a.kinds, a.poolEmpty)
 	}
 	if got := r.pool.orderCounts(); got["studio"] != 43 || got["weekend"] != 14 {
 		t.Errorf("orders %v", got)
 	}
-	if len(r.res.lat["write"]) != 10 || len(r.res.lat["write create"]) != 3 || r.res.Responses["write ship 200 application/json"] != 4 {
-		t.Errorf("latencies %v, responses %v", r.res.lat, r.res.Responses)
+	if len(a.lat["write"]) != 10 || len(a.lat["write create"]) != 3 || a.responses["write ship 200 application/json"] != 4 {
+		t.Errorf("latencies %v, responses %v", a.lat, a.responses)
 	}
 }
 
 // Writes of a visit run while other users write: a recipient write must not meet an order that a
 // ship write took at the same moment.
 func TestOfficeWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
-	r, _ := officeReplayer(t)
+	r, _ := officeRunner(t)
 	kinds := []string{WriteCreate, WriteShip, WriteNote, WriteRecipient, WriteCreate, WriteRecipient, WriteShip}
 	var wg sync.WaitGroup
 	errs := make(chan error, 400)
@@ -200,9 +202,10 @@ func TestOfficeWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			v := &visitState{client: &http.Client{}}
+			a := newAcc()
 			for i := range 50 {
 				w := PlannedWrite{After: i, Plan: u, Kind: kinds[(u+i)%len(kinds)], Project: []string{"studio", "weekend"}[(u+i/3)%2]}
-				if err := r.doWrite(context.Background(), v, w); err != nil {
+				if err := r.doWrite(context.Background(), v, a, w, time.Now()); err != nil {
 					errs <- err
 				}
 			}
@@ -216,7 +219,7 @@ func TestOfficeWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 }
 
 func TestVerifyOfficeChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
-	r, f := officeReplayer(t)
+	r, f := officeRunner(t)
 	if err := r.verifyOffice(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -245,9 +248,10 @@ func TestOfficeWritesReadACompressedAnswer(t *testing.T) {
 		zw.Close()
 	}))
 	defer srv.Close()
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4, WriteRate: 1, Mix: MixOffice})
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixOffice})
 	v := &visitState{client: &http.Client{}}
-	if err := r.doWrite(context.Background(), v, PlannedWrite{Kind: WriteCreate, Project: "studio"}); err != nil {
+	a := newAcc()
+	if err := r.doWrite(context.Background(), v, a, PlannedWrite{Kind: WriteCreate, Project: "studio"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.pool.orderCounts()["studio"]; got != 43 {
@@ -258,10 +262,11 @@ func TestOfficeWritesReadACompressedAnswer(t *testing.T) {
 // After a round the writes have shipped the orders of the data that waited, and the check must
 // not count on them.
 func TestVerifyOfficeAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
-	r, f := officeReplayer(t)
+	r, f := officeRunner(t)
 	v := &visitState{client: &http.Client{}}
+	a := newAcc()
 	for i := range 2 {
-		if err := r.doWrite(context.Background(), v, PlannedWrite{After: i, Plan: 1, Kind: WriteShip, Project: "studio"}); err != nil {
+		if err := r.doWrite(context.Background(), v, a, PlannedWrite{After: i, Plan: 1, Kind: WriteShip, Project: "studio"}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

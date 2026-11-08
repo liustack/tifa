@@ -14,8 +14,9 @@ import (
 	"github.com/liustack/tifa/test/compare"
 )
 
-// TestPlannedStoreWritesAreTakenByEveryApp sends the storefront writes of 150 visit plans (every
-// page view followed by a write), each visit with the cookies of its own, to Tifa and to the three
+// TestPlannedStoreWritesAreTakenByEveryApp sends the storefront writes of two blocks of visit plans
+// with half the requests writes (every page view followed by a write), each visit with the cookies
+// of its own, to Tifa and to the three
 // apps, at the path each takes them on. Every write must answer with the status the plan expects
 // (200 for an add and a quantity change, 204 for a coupon, 303 to the page of the order for a
 // checkout, which is not followed) and the cart page after the last write of a visit must be the
@@ -24,7 +25,18 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	ctx := context.Background()
-	plans := compare.GenerateStorePlans(1, 150, 4)
+	set := compare.GenerateStorePlanSet(1, 2)
+	sc, _ := compare.BrowseScenarioByName("store-w50")
+	writes := map[int][]compare.PlannedWrite{}
+	for blk := range set.Blocks {
+		ws, err := compare.BlockWrites(1, set.Plans[blk*compare.BlockVisits:(blk+1)*compare.BlockVisits], sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range ws {
+			writes[w.Plan] = append(writes[w.Plan], w)
+		}
+	}
 	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}$`)
 	for _, name := range []string{"tifa-nocache", "nextjs", "start", "reactrouter"} {
 		var spec compare.Spec
@@ -38,10 +50,10 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 			t.Fatal(err)
 		}
 		sent := map[string]int{}
-		for _, p := range plans {
+		for _, p := range set.Plans {
 			jar, _ := cookiejar.New(nil)
 			client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			for _, w := range compare.PlanStoreWrites(1, p, 1) {
+			for _, w := range writes[p.ID] {
 				path := spec.StoreWrite(w.Store.Path)
 				req, _ := http.NewRequestWithContext(ctx, w.Store.Method, server.Base+path, strings.NewReader(string(w.Store.Body)))
 				req.Header.Set("Content-Type", "application/json")

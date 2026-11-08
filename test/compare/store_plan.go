@@ -4,13 +4,14 @@ import (
 	_ "embed"
 	"encoding/json/v2"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 )
 
 // Visits to the storefront. A visitor loads one page, then clicks the links of the page on screen
-// and now and then reloads it, as on the workbench (plan.go), but the pages, the links and what a
-// visitor does next are those of a shop. A visit stays in one language.
+// as on the workbench (plan.go), in blocks of the same size, but the pages, the links and
+// what a visitor does next are those of a shop. A visit stays in one language.
 //
 // Which pages a visit starts on, and how likely a link is to be clicked, are assumptions (see
 // StoreFirstShares and storeClicks). Which links exist is not: store_links.json holds, for each
@@ -159,11 +160,12 @@ func StoreLinks(url string) []Link {
 	return out
 }
 
-// GenerateStorePlans makes n visits to the storefront whose number of page views is geometric
-// with the given mean. The language is en-US or zh-CN with the same probability, the kind of the
-// first page is picked by StoreFirstShares and the page among those of that kind alike. Plan i
-// depends on the seed and i only.
-func GenerateStorePlans(seed uint64, n int, mean float64) []Plan {
+// GenerateStorePlanSet makes blocks blocks of plans of the storefront (see generateBlocks). The
+// first pages of a block are dealt by quota: the languages half and half (48 and 47, the larger
+// share going to each language in turn from block to block), and the kinds of page by
+// StoreFirstShares. A language and a kind are paired at random, and the page among those of that
+// language and kind is the next of a shuffle of them, so none repeats before all have been used.
+func GenerateStorePlanSet(seed uint64, blocks int) PlanSet {
 	byKind := map[string]map[string][]string{}
 	for _, url := range StoreVisitPages() {
 		l, k := StorePageKind(url)
@@ -172,16 +174,29 @@ func GenerateStorePlans(seed uint64, n int, mean float64) []Plan {
 		}
 		byKind[l][k] = append(byKind[l][k], url)
 	}
-	return generatePlans(seed, n, mean, StoreLinks, func(rng *rand.Rand) string {
-		lang := StoreLangs[rng.IntN(len(StoreLangs))]
-		kind, u := StoreFirstShares[len(StoreFirstShares)-1].Kind, rng.Float64()
-		for _, s := range StoreFirstShares {
-			if u -= s.Share; u < 0 {
-				kind = s.Kind
-				break
-			}
+	var kinds []string
+	var shares []float64
+	for _, s := range StoreFirstShares {
+		kinds, shares = append(kinds, s.Kind), append(shares, s.Share)
+	}
+	return generateBlocks(seed, SiteStore, blocks, StoreLinks, func(rng *rand.Rand, block int) []string {
+		langs := slices.Clone(StoreLangs)
+		if block%2 == 1 {
+			slices.Reverse(langs)
 		}
-		pages := byKind[lang][kind]
-		return pages[rng.IntN(len(pages))]
+		ls := quota(rng, BlockVisits, langs, []float64{0.5, 0.5})
+		ks := quota(rng, BlockVisits, kinds, shares)
+		next := map[string][]string{}
+		var out []string
+		for i := range BlockVisits {
+			key := ls[i] + " " + ks[i]
+			if len(next[key]) == 0 {
+				next[key] = slices.Clone(byKind[ls[i]][ks[i]])
+				rng.Shuffle(len(next[key]), func(a, b int) { next[key][a], next[key][b] = next[key][b], next[key][a] })
+			}
+			out = append(out, next[key][0])
+			next[key] = next[key][1:]
+		}
+		return out
 	})
 }

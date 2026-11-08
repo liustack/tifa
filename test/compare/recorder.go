@@ -11,29 +11,41 @@ import (
 	"strconv"
 )
 
-// WritePlans writes the plans of both visit lengths (4 and 2 page views a visit on average) to dir,
-// for the workbench and for the storefront, where the recorder reads them and the replay finds them
-// again.
-func WritePlans(dir string, seed uint64, visits int) error {
+// WritePlans writes the plans of the workbench and of the storefront (blocks blocks of BlockVisits
+// visits each) to dir, where the recorder reads them and the replay finds them again.
+func WritePlans(dir string, seed uint64, blocks int) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	for _, mean := range []int{4, 2} {
-		for _, site := range []string{SiteWorkbench, SiteStore} {
-			plans := GeneratePlans(seed, visits, float64(mean))
-			if site == SiteStore {
-				plans = GenerateStorePlans(seed, visits, float64(mean))
-			}
-			data, err := json.Marshal(plans)
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(SitePlansPath(dir, site, mean), data, 0o644); err != nil {
-				return err
-			}
+	for _, set := range []PlanSet{GeneratePlanSet(seed, blocks), GenerateStorePlanSet(seed, blocks)} {
+		data, err := json.Marshal(set)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(PlansPath(dir, set.Site), data, 0o644); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// ReadPlans reads the plans of a site from dir.
+func ReadPlans(dir, site string) (*PlanSet, error) {
+	data, err := os.ReadFile(PlansPath(dir, site))
+	if err != nil {
+		return nil, err
+	}
+	var set PlanSet
+	if err := json.Unmarshal(data, &set); err != nil {
+		return nil, err
+	}
+	if len(set.Plans) != set.Blocks*BlockVisits {
+		return nil, fmt.Errorf("%s holds %d plans, %d blocks need %d", PlansPath(dir, site), len(set.Plans), set.Blocks, set.Blocks*BlockVisits)
+	}
+	if set.Site != site {
+		return nil, fmt.Errorf("%s holds the plans of the site %q", PlansPath(dir, site), set.Site)
+	}
+	return &set, nil
 }
 
 // traceName is the name of the traces a spec replays. A spec that is a framework with other
@@ -48,8 +60,8 @@ func traceName(s Spec) string {
 
 // Record plays the plans of dir for a site in a real browser against each framework and writes the
 // traces to dir. The recorder is test/compare/recorder (Node with Playwright). Every framework is
-// started fresh for each visit length, unpinned: recording is not timed.
-func (e Env) Record(ctx context.Context, log io.Writer, dir, site string, servers []string, means []int, workers, limit int) error {
+// started fresh, unpinned: recording is not timed.
+func (e Env) Record(ctx context.Context, log io.Writer, dir, site string, servers []string, workers, limit int) error {
 	recorder := filepath.Join(e.Root, "test", "compare", "recorder")
 	if err := run(ctx, log, recorder, nil, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
@@ -64,28 +76,26 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir, site string, server
 			return fmt.Errorf("no spec named %q", name)
 		}
 		spec := e.Specs()[i]
-		for _, mean := range means {
-			server, err := spec.Start(ctx, "")
-			if err != nil {
-				return err
-			}
-			args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", SitePlansPath(dir, site, mean), "--out", SiteTracePath(dir, traceName(spec), site, mean), "--workers", strconv.Itoa(workers), "--area", area}
-			if limit > 0 {
-				args = append(args, "--limit", strconv.Itoa(limit))
-			}
-			err = run(ctx, log, recorder, nil, "pnpm", args...)
-			// A server that stopped during the recording fails every visit after it with a refused
-			// connection, and only its own output says why.
-			stopped := ""
-			select {
-			case <-server.exited:
-				stopped = fmt.Sprintf("\n%s stopped during the recording:\n%s", name, server.out)
-			default:
-			}
-			server.Stop()
-			if err != nil {
-				return fmt.Errorf("%s, mean %d: %w%s", name, mean, err, stopped)
-			}
+		server, err := spec.Start(ctx, "")
+		if err != nil {
+			return err
+		}
+		args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", PlansPath(dir, site), "--out", TracePath(dir, traceName(spec), site), "--workers", strconv.Itoa(workers), "--area", area}
+		if limit > 0 {
+			args = append(args, "--limit", strconv.Itoa(limit))
+		}
+		err = run(ctx, log, recorder, nil, "pnpm", args...)
+		// A server that stopped during the recording fails every visit after it with a refused
+		// connection, and only its own output says why.
+		stopped := ""
+		select {
+		case <-server.exited:
+			stopped = fmt.Sprintf("\n%s stopped during the recording:\n%s", name, server.out)
+		default:
+		}
+		server.Stop()
+		if err != nil {
+			return fmt.Errorf("%s: %w%s", name, err, stopped)
 		}
 	}
 	return nil

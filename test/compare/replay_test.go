@@ -2,13 +2,12 @@ package compare
 
 import (
 	"context"
-	"encoding/json/v2"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,35 +15,356 @@ import (
 	"time"
 )
 
+// fakeServer answers every GET at once, except /slow-* (30 ms), /hold-* (until the request is
+// cancelled or 5 s) and /fail-* (500), and takes the PATCH of a write.
+func fakeServer(t *testing.T) (*httptest.Server, *atomic.Int64) {
+	var held atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/hold-"):
+			held.Add(1)
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			held.Add(-1)
+		case strings.HasPrefix(r.URL.Path, "/stream-"):
+			// The headers and the start of the answer go out at once, and the rest is held.
+			w.Write([]byte("start"))
+			w.(http.Flusher).Flush()
+			held.Add(1)
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			held.Add(-1)
+			return
+		case strings.HasPrefix(r.URL.Path, "/slow-"):
+			time.Sleep(30 * time.Millisecond)
+		case strings.HasPrefix(r.URL.Path, "/fail-"):
+			http.Error(w, "boom", 500)
+			return
+		}
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &held
+}
+
+func req(url, class string, s, e float64) TraceReq {
+	return TraceReq{Method: "GET", URL: url, Class: class, Start: s, End: e, Status: 200, Headers: map[string]string{"rsc": "1"}}
+}
+
+func cancelled(url, class string, s, e float64) TraceReq {
+	r := req(url, class, s, e)
+	r.Status, r.Cancel = 0, "net::ERR_ABORTED"
+	return r
+}
+
+func testRunner(srv *httptest.Server, plans []Plan, traces map[int]Trace, writes map[[2]int]PlannedWrite) *runner {
+	return &runner{base: srv.URL, write: nodePath, create: nodeCreate, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }, seed: 1,
+		wl: &Workload{Plans: plans, Traces: traces, Writes: writes, Scenario: BrowseScenario{Name: "x", Share: 0.2, Mix: MixRename}}}
+}
+
+// newTestRunner is a runner of a scenario whose plans are the traces given, in order.
+func newTestRunner(base string, sc BrowseScenario, traces ...Trace) *runner {
+	wl := &Workload{Traces: map[int]Trace{}, Writes: map[[2]int]PlannedWrite{}, Scenario: sc}
+	for i, tr := range traces {
+		tr.Plan = i
+		wl.Traces[i] = tr
+		p := Plan{ID: i}
+		for _, s := range tr.Steps {
+			p.Steps = append(p.Steps, PlanStep{s.Kind, s.Page})
+		}
+		wl.Plans = append(wl.Plans, p)
+	}
+	return &runner{base: base, write: nodePath, create: nodeCreate, wl: wl, seed: 1, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
+}
+
+// visitOnce plays visit seq of the runner's sequence and returns what it saw, with the error of the
+// visit if it failed.
+func visitOnce(r *runner, a *acc, seq int) error {
+	if !r.runVisit(context.Background(), http.DefaultTransport.(*http.Transport), a, seq, pacer{}) {
+		return fmt.Errorf("the visit failed: %s", a.firstErr)
+	}
+	return nil
+}
+
+func onePlan(steps ...TraceStep) ([]Plan, map[int]Trace) {
+	var ps []PlanStep
+	for _, s := range steps {
+		ps = append(ps, PlanStep{s.Kind, s.Page})
+	}
+	return []Plan{{ID: 0, Steps: ps}}, map[int]Trace{0: {Plan: 0, Steps: steps}}
+}
+
+func TestCancelledRequestsAreCancelledAtTheirOffsetAndTheirAnswerIsNotRead(t *testing.T) {
+	srv, held := fakeServer(t)
+	// A prefetch the browser cancelled 60 ms in, to a server that holds it for 5 s.
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{
+		req("/doc", "doc", 0, 5), cancelled("/hold-1", "prefetch", 10, 60),
+	}})
+	r := testRunner(srv, plans, traces, nil)
+	start := time.Now()
+	round := r.RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("took %v: the replay waited for a cancelled request", d)
+	}
+	if round.Visits != 1 || round.Failures != 0 || round.PageViews != 1 {
+		t.Fatalf("%+v", round)
+	}
+	for i := 0; i < 50 && held.Load() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if held.Load() != 0 {
+		t.Errorf("%d requests still held at the server: the connection was not released", held.Load())
+	}
+	if d := time.Since(start); d < 55*time.Millisecond {
+		t.Errorf("visit ended after %v, before the cancel offset of 60 ms", d)
+	}
+}
+
+func TestACancelledForegroundRequestAloneIsNoSuccessfulPageView(t *testing.T) {
+	srv, _ := fakeServer(t)
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{cancelled("/hold-1", "doc", 0, 40)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.PageViews != 0 || round.Failures != 1 || round.Visits != 0 {
+		t.Fatalf("%+v", round)
+	}
+	// With another foreground request that finished, the page view succeeds.
+	plans, traces = onePlan(TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelled("/hold-1", "nav", 0, 40), req("/nav", "nav", 5, 20)}})
+	round = testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.PageViews != 1 || round.Failures != 0 || round.Cancelled != 1 {
+		t.Fatalf("%+v", round)
+	}
+}
+
+func TestAFailedPrefetchFailsTheVisitAndANavigationCountsTheWaitForItsDependencies(t *testing.T) {
+	srv, _ := fakeServer(t)
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/doc", "doc", 0, 2), req("/fail-1", "prefetch", 3, 5)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.Visits != 0 || round.Failures != 1 {
+		t.Errorf("a visit whose prefetch answered 500: %+v", round)
+	}
+	// The click's request starts after a slow prefetch has finished, so it waits for it: the click
+	// is timed from the start of the page view, not from its first request.
+	plans, traces = onePlan(TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{req("/slow-pf", "prefetch", 0, 10), req("/n", "nav", 20, 25)}})
+	round = testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.Types["click"].N != 1 || round.Types["click"].P50 < 30 {
+		t.Errorf("click latency %+v: the 30 ms wait for the prefetch is missing", round.Types["click"])
+	}
+}
+
+func TestClosedRoundCountsWritesAndPageViewsAndJudgesTheMix(t *testing.T) {
+	srv, _ := fakeServer(t)
+	steps := []TraceStep{
+		{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{req("/a", "doc", 0, 2)}},
+		{Kind: StepClick, Page: "/projects/studio/stats", Reqs: []TraceReq{req("/b", "nav", 0, 2)}},
+		{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{req("/c", "nav", 0, 2)}},
+		{Kind: StepClick, Page: "/projects/studio/stats", Reqs: []TraceReq{req("/d", "nav", 0, 2)}},
+	}
+	plans, traces := onePlan(steps...)
+	// One write after the first page view: 1 write in 5 actions.
+	r := testRunner(srv, plans, traces, map[[2]int]PlannedWrite{{0, 0}: {Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}})
+	round := r.RunClosed(context.Background(), 2, 6, 10*time.Second)
+	if round.Visits != 6 || round.PageViews != 24 || round.Writes != 6 || round.FullLoads != 6 || round.Clicks != 18 {
+		t.Fatalf("%+v", round)
+	}
+	round.Judge(BrowseScenario{Share: 0.2})
+	if !round.Valid || !round.Pass {
+		t.Errorf("valid %v (%s), pass %v (%s)", round.Valid, round.WhyInvalid, round.Pass, round.Why)
+	}
+	round.Judge(BrowseScenario{Share: 0.5})
+	if round.Valid {
+		t.Error("a round with 20% writes is valid for the 50% mix")
+	}
+	if round.Types["write"].N != 6 || round.Types["load"].N != 6 || round.Types["click"].N != 18 {
+		t.Errorf("types %+v", round.Types)
+	}
+}
+
+func TestRuleCoversEveryClassAndABacklog(t *testing.T) {
+	base := func() *Round {
+		return &Round{Visits: 10, PageViews: 40, FullLoads: 10, Clicks: 30, WriteShare: 0.05, ClickShare: 0.75, ViewsPerVisit: 4,
+			Types: map[string]TypeStat{"load": {N: 10, P99: 100}, "click": {N: 30, P99: 100}, "write": {N: 3, P99: 100}}}
+	}
+	r := base()
+	r.Judge(BrowseScenario{Share: 0.05})
+	if !r.Pass || !r.Valid {
+		t.Fatalf("%s %s", r.Why, r.WhyInvalid)
+	}
+	for name, mod := range map[string]func(*Round){
+		"load":    func(r *Round) { r.Types["load"] = TypeStat{N: 10, P99: 1200} },
+		"click":   func(r *Round) { r.Types["click"] = TypeStat{N: 30, P99: 1200} },
+		"write":   func(r *Round) { r.Types["write"] = TypeStat{N: 3, P99: 1200} },
+		"failure": func(r *Round) { r.Failures = 1 },
+		"backlog": func(r *Round) { r.TimedOut = true },
+	} {
+		r := base()
+		mod(r)
+		r.Judge(BrowseScenario{Share: 0.05})
+		if r.Pass {
+			t.Errorf("%s: the rule passes", name)
+		}
+	}
+	r = base()
+	r.WriteShare = 0.07
+	r.Judge(BrowseScenario{Share: 0.05})
+	if r.Valid {
+		t.Error("a write share two points off is valid")
+	}
+}
+
+func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
+	srv, _ := fakeServer(t)
+	steps := []TraceStep{
+		{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{req("/slow-a", "doc", 0, 30)}},
+		{Kind: StepClick, Page: "/projects/studio/stats", Reqs: []TraceReq{req("/slow-b", "nav", 0, 30)}},
+	}
+	plans, traces := onePlan(steps...)
+	r := testRunner(srv, plans, traces, nil)
+	// 8 visits a second for 1 s: the two actions of a visit are 1 s apart.
+	round := r.RunOpen(context.Background(), 8, 8, 5*time.Second, 0, false)
+	if round.Visits != 8 || round.PageViews != 16 || round.TimedOut {
+		t.Fatalf("%+v", round)
+	}
+	if round.Types["load"].P50 < 30 || round.Types["load"].P50 > 200 || round.Types["click"].P50 < 30 || round.Types["click"].P50 > 200 {
+		t.Errorf("types %+v", round.Types)
+	}
+	if round.Seconds < 1.9 {
+		t.Errorf("round took %.2f s, the second action of the last visit is planned 1 s after its start", round.Seconds)
+	}
+	// A server that holds everything: the visits cannot finish and the round times out.
+	plans, traces = onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/hold-x", "doc", 0, 5)}})
+	r = testRunner(srv, plans, traces, nil)
+	round = r.RunOpen(context.Background(), 4, 4, 300*time.Millisecond, 0, false)
+	if !round.TimedOut || round.Visits != 0 {
+		t.Errorf("a hung server: %+v", round)
+	}
+	round.Judge(BrowseScenario{Share: 0.05})
+	if round.Pass {
+		t.Error("a hung server passes")
+	}
+}
+
+func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
+	dir := t.TempDir()
+	if err := WritePlans(dir, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	set, err := ReadPlans(dir, SiteWorkbench)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, skip int, bad bool) {
+		var b strings.Builder
+		for _, p := range set.Plans {
+			if p.ID == skip {
+				continue
+			}
+			steps := ""
+			for i, s := range p.Steps {
+				if i > 0 {
+					steps += ","
+				}
+				steps += `{"kind":"` + s.Kind + `","page":"` + s.Page + `","reqs":[{"method":"GET","url":"` + s.Page + `","headers":{},"s":0,"e":1,"status":200,"class":"doc"}]}`
+			}
+			line := `{"plan":` + strconv.Itoa(p.ID) + `,"steps":[` + steps + `]}`
+			if bad && p.ID == 3 {
+				line = `{"plan":3,"error":"timeout"}`
+			}
+			b.WriteString(line + "\n")
+		}
+		os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(b.String()), 0o644)
+	}
+	write("a", -1, false)
+	write("b", 7, false)
+	write("c", -1, true)
+	if _, traces, err := LoadTraces(dir, SiteWorkbench, []string{"a"}); err != nil || len(traces["a"]) != BlockVisits {
+		t.Fatalf("a complete set: %v", err)
+	}
+	if _, _, err := LoadTraces(dir, SiteWorkbench, []string{"a", "b"}); err == nil || !strings.Contains(err.Error(), "b.jsonl") {
+		t.Errorf("a set with a missing plan: %v", err)
+	}
+	if _, _, err := LoadTraces(dir, SiteWorkbench, []string{"c"}); err == nil || !strings.Contains(err.Error(), "failed to record") {
+		t.Errorf("a set with a failed visit: %v", err)
+	}
+	// The plans of the storefront are a file of their own, and the workbench ones are not taken for them.
+	store, err := ReadPlans(dir, SiteStore)
+	if err != nil || store.Site != SiteStore || len(store.Plans) != BlockVisits {
+		t.Fatalf("the storefront plans: %v", err)
+	}
+	os.WriteFile(PlansPath(dir, SiteStore), []byte(`{"seed":1,"blocks":1,"site":"store","plans":[]}`), 0o644)
+	if _, err := ReadPlans(dir, SiteStore); err == nil {
+		t.Error("a file of no plans was read as the storefront's")
+	}
+	work, _ := os.ReadFile(PlansPath(dir, SiteWorkbench))
+	os.WriteFile(PlansPath(dir, SiteStore), work, 0o644)
+	if _, err := ReadPlans(dir, SiteStore); err == nil || !strings.Contains(err.Error(), "site") {
+		t.Errorf("the plans of the workbench were read as the storefront's: %v", err)
+	}
+}
+
+func TestPlanAndTraceFilesOfEachSite(t *testing.T) {
+	if PlansPath("d", SiteWorkbench) != "d/plans.json" || TracePath("d/", "tifa", SiteWorkbench) != "d/tifa.jsonl" {
+		t.Error("the files of the workbench changed their names")
+	}
+	if PlansPath("d", SiteStore) != "d/plans-store.json" || TracePath("d", "nextjs", SiteStore) != "d/nextjs-store.jsonl" {
+		t.Error("the files of the storefront changed their names")
+	}
+}
+
+func TestReplaySendsIfNoneMatchOnlyWithTheETagOfThisVisit(t *testing.T) {
+	srv, log := fakeApp(t)
+	tr := Trace{Steps: []TraceStep{
+		{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", INM: true, End: 5, Status: 200}}},  // no ETag yet: a plain GET
+		{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "nav", INM: true, End: 5, Status: 200}}}, // now it has one
+	}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, tr)
+	a := newAcc()
+	if err := visitOnce(r, a, 0); err != nil {
+		t.Fatal(err)
+	}
+	got := log()
+	if len(got) != 2 || got[0].inm != "" || got[1].inm != `W/"x"` {
+		t.Fatalf("requests %+v", got)
+	}
+	if a.n304 != 1 || a.visits != 1 || a.views != 2 {
+		t.Errorf("%d answers 304, %d visits, %d page views", a.n304, a.visits, a.views)
+	}
+	// A second visit starts without the ETag and without the cookie.
+	if err := visitOnce(r, a, 0); err != nil {
+		t.Fatal(err)
+	}
+	got = log()
+	if got[2].inm != "" || got[2].cookie != "" {
+		t.Errorf("the next visit started with %+v", got[2])
+	}
+	if got[0].cookie != "" || got[1].cookie == "" {
+		t.Errorf("cookies within a visit: %+v %+v", got[0], got[1])
+	}
+}
+
 type seen struct {
 	method, uri, inm, cookie, rsc string
 }
 
-// fakeApp answers documents with an ETag, notes what it was sent, and sets a cookie on the first
-// document of a visit.
+// fakeApp answers GETs with an ETag (and a 304 to a request that has it), notes what it was sent,
+// and sets a cookie.
 func fakeApp(t *testing.T) (*httptest.Server, func() []seen) {
 	var mu sync.Mutex
 	var log []seen
-	var inflight, peak atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := inflight.Add(1)
-		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
-		}
-		defer inflight.Add(-1)
 		mu.Lock()
 		log = append(log, seen{r.Method, r.URL.RequestURI(), r.Header.Get("If-None-Match"), r.Header.Get("Cookie"), r.Header.Get("rsc")})
 		mu.Unlock()
-		if strings.Contains(r.URL.Path, "slow") {
-			time.Sleep(30 * time.Millisecond)
-		}
-		if r.Method == "GET" && r.Header.Get("rsc") == "" {
+		if r.Method == "GET" {
 			w.Header().Set("ETag", `W/"x"`)
 			if r.Header.Get("If-None-Match") == `W/"x"` {
 				w.WriteHeader(304)
 				return
 			}
 			http.SetCookie(w, &http.Cookie{Name: "s", Value: "1", Path: "/"})
-			w.Header().Set("X-Tifa-Render", "cache")
 		}
 		w.Write([]byte("ok"))
 	}))
@@ -52,149 +372,272 @@ func fakeApp(t *testing.T) (*httptest.Server, func() []seen) {
 	return srv, func() []seen { mu.Lock(); defer mu.Unlock(); return append([]seen(nil), log...) }
 }
 
-func newTestReplayer(base string, sc BrowseScenario, traces ...Trace) *replayer {
-	r := &replayer{base: base, write: nodePath, create: func(p string) string { return "/compare-write/" + p }, sc: sc, seed: 1, traces: map[int]Trace{}, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
-	for i, tr := range traces {
-		tr.Plan = i
-		r.traces[i] = tr
-		r.plans = append(r.plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}}})
-	}
-	r.res = LoadResult{Renders: map[string]int{}, Responses: map[string]int{}, Writes: map[string]int{}, lat: map[string][]float64{}, Types: map[string]TypeStat{}}
-	r.t0.Store(1)
-	return r
-}
-
-func TestReplaySendsIfNoneMatchOnlyWithTheETagOfThisVisit(t *testing.T) {
+func TestReplayWritesAreTheirOwnRequestTypeAndTheTifaBuildIsSubstituted(t *testing.T) {
 	srv, log := fakeApp(t)
-	doc := func(inm bool) TraceReq {
-		return TraceReq{Method: "GET", URL: "/projects/studio", Class: "doc", INM: inm, End: 5}
-	}
-	tr := Trace{Steps: []TraceStep{
-		{Kind: StepReload, Page: "/projects/studio", Reqs: []TraceReq{doc(true)}}, // no ETag yet: a plain GET
-		{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{doc(false)}},
-		{Kind: StepReload, Page: "/projects/studio", Reqs: []TraceReq{doc(true)}}, // now it has one
-	}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{
+		{Method: "GET", URL: "/projects/studio?_tifa=deadbeef.001", Class: "doc", End: 5, Status: 200},
+	}}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixRename}, tr)
+	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Plan: 0, After: 0, Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+	r.buildID = "cafe01"
+	a := newAcc()
+	if err := visitOnce(r, a, 0); err != nil {
 		t.Fatal(err)
 	}
 	got := log()
-	if len(got) != 3 || got[0].inm != "" || got[1].inm != "" || got[2].inm != `W/"x"` {
+	if len(got) != 2 || got[0].uri != "/projects/studio?_tifa=cafe01.001" || got[1].method != "PATCH" || got[1].uri != "/compare-write/studio/SH-1042" {
 		t.Fatalf("requests %+v", got)
 	}
-	if r.res.N304 != 1 || r.res.Visits != 1 || r.res.Views != 3 || r.res.Reloads != 2 {
-		t.Errorf("result %+v", r.res)
+	if len(a.lat["write"]) != 1 || len(a.lat["write rename"]) != 1 || a.kinds[WriteRename] != 1 || a.responses["write rename 200 text/plain"] != 1 {
+		t.Errorf("latencies %v, responses %v", a.lat, a.responses)
 	}
-	// A second visit starts without the ETag and without the cookie.
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
-		t.Fatal(err)
+}
+
+// A warm-up sends no writes, so every round starts with the data that a fresh server has.
+func TestAWarmUpSendsNoWrites(t *testing.T) {
+	srv, log := fakeApp(t)
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixRename}, tr)
+	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+	if rate := r.Warm(context.Background(), 2, 100*time.Millisecond); rate <= 0 {
+		t.Fatalf("the warm-up completed no visit")
 	}
-	got = log()
-	if got[3].inm != "" || got[3].cookie != "" {
-		t.Errorf("the next visit started with %+v", got[3])
+	r.RunOpen(context.Background(), 50, 5, time.Second, 0, true)
+	for _, s := range log() {
+		if s.method != "GET" {
+			t.Fatalf("a warm-up sent %+v", s)
+		}
 	}
-	if got[0].cookie != "" || got[1].cookie == "" {
-		t.Errorf("cookies within a visit: %+v %+v", got[1], got[2])
+	if round := r.RunClosed(context.Background(), 1, 2, 10*time.Second); round.Writes != 2 {
+		t.Errorf("the round after it sent %d writes, want 2", round.Writes)
+	}
+}
+
+func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
+	if got := BlocksFor(800, 75*time.Second, 4); got%4 != 0 || got < 4 || float64(got*BlockVisits)/800 < 70 {
+		t.Errorf("blocks for 800 visits/s: %d", got)
+	}
+	if got := BlocksFor(0.5, 75*time.Second, 4); got != 4 {
+		t.Errorf("a slow framework still plays whole passes of the plans: %d", got)
+	}
+	// Every open run plays whole cycles of all 380 plans: a part of a cycle has another page mix.
+	if n := visitsFor(8, 30*time.Second, 380); n%380 != 0 || n < 240 {
+		t.Errorf("visits for 8 visits/s: %d", n)
+	}
+	if visitsFor(0.1, time.Second, 380) != 380 || visitsFor(2000, time.Minute, 380)%380 != 0 {
+		t.Error("an open run is whole cycles")
+	}
+}
+
+func TestWholeCyclesHaveTheMixAndPartsOfOneDoNot(t *testing.T) {
+	set := GeneratePlanSet(1, 4)
+	w := &Workload{Plans: set.Plans}
+	views := func(n int) float64 {
+		v := 0
+		for s := 0; s < n; s++ {
+			v += len(w.planFor(s).Steps)
+		}
+		return float64(v) / float64(n)
+	}
+	if got := views(380); got != 4 {
+		t.Errorf("a cycle has %v page views a visit", got)
+	}
+	if got := views(760); got != 4 {
+		t.Errorf("two cycles have %v page views a visit", got)
+	}
+	// Parts of a cycle stray from 4 by more than the 1% a round may: the reason trials play whole cycles.
+	strays := 0
+	for _, n := range []int{95, 120, 190, 240, 285} {
+		if g := views(n); g < 3.96 || g > 4.04 {
+			strays++
+		}
+	}
+	if strays == 0 {
+		t.Error("every part of a cycle has 4 page views a visit within 1%: the test shows nothing")
+	}
+	if w.planFor(380).ID != w.planFor(0).ID {
+		t.Error("the sequence does not wrap")
+	}
+}
+
+func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t *testing.T) {
+	var ran []float64
+	run := func(passAt func(rate float64, round int) bool) func(float64, int) (*Round, error) {
+		ran = nil
+		return func(rate float64, round int) (*Round, error) {
+			ran = append(ran, rate)
+			return &Round{Rate: rate, Pass: passAt(rate, round)}, nil
+		}
+	}
+	// 100 fails, 90 fails in its second round, 81 passes all three.
+	rate, rounds, err := ConfirmRate(100, 4, 3, run(func(r float64, round int) bool {
+		if r == 90 {
+			return round == 1
+		}
+		return r < 85
+	}), 0)
+	if err != nil || rate != 81 {
+		t.Fatalf("rate %v, %v", rate, err)
+	}
+	if len(rounds) != 1+2+3 || rounds[0].Attempt != 1 || rounds[5].Attempt != 3 || rounds[5].Round != 3 {
+		t.Errorf("%d rounds kept: %+v", len(rounds), rounds)
+	}
+	// The first try passes: one step 10% above it is tried, and published if it passes too.
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 110 }), 0)
+	if rate != 110 || len(rounds) != 6 || rounds[3].Attempt != 2 {
+		t.Errorf("a passing step up: rate %v, %d rounds", rate, len(rounds))
+	}
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 100 }), 0)
+	if rate != 100 || len(rounds) != 4 {
+		t.Errorf("a failing step up leaves the first rate: %v, %d rounds", rate, len(rounds))
+	}
+	// Four tries that all fail: no rate, and no untested rate is made up.
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }), 0)
+	if rate != 0 || len(rounds) != 4 {
+		t.Errorf("rate %v after %d rounds", rate, len(rounds))
+	}
+	for _, r := range ran {
+		if r == 65.61 {
+			t.Error("the rate after the last try was run or published")
+		}
+	}
+	// The step up stays within the cap of the search.
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return true }), 105)
+	if rate != 100 || len(rounds) != 3 {
+		t.Errorf("a step up over the cap: rate %v, %d rounds", rate, len(rounds))
+	}
+}
+
+func TestGrowingTellsALevelSeriesFromARunawayOne(t *testing.T) {
+	level, climb, runaway := []float64{}, []float64{}, []float64{}
+	for i := 0; i < 40; i++ {
+		level = append(level, 100)
+		climb = append(climb, min(100, float64(i)*10))
+		runaway = append(runaway, 50+float64(i)*10)
+	}
+	if Growing(level, 10) || Growing(climb, 10) {
+		t.Error("a series that levels off is growing")
+	}
+	if !Growing(runaway, 10) {
+		t.Error("a series that keeps growing is not")
+	}
+	// A backlog that grows by one a second for a minute, sampled twice a second: 100 + 0.5 i.
+	slow, jitter := []float64{}, []float64{}
+	for i := 0; i < 120; i++ {
+		slow = append(slow, 100+0.5*float64(i))
+		jitter = append(jitter, 100+float64(i%7)*3-9)
+	}
+	if !Growing(slow, 24) {
+		t.Error("a steady slow growth of 1 a second over 60 s is not caught")
+	}
+	if Growing(jitter, 24) {
+		t.Error("jitter around a level is growing")
+	}
+	if Growing([]float64{1, 2, 3}, 0) || Growing(runaway[:30], 10) {
+		t.Error("too few samples")
+	}
+}
+
+func TestACancelledRequestIsSentEvenWhenItsOffsetHasPassedAndLivesItsRecordedTime(t *testing.T) {
+	srv, held := fakeServer(t)
+	// The prefetch lived 40 ms in the browser, and its cancel is at 50 ms into the page view. The
+	// document is slow (30 ms), so the prefetch, which starts after it, is sent at about 30 ms; and
+	// its recorded 40 ms of life means it is cancelled at about 70 ms, not at 50.
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{
+		req("/slow-doc", "doc", 0, 10), cancelled("/hold-1", "prefetch", 15, 55),
+	}})
+	r := testRunner(srv, plans, traces, nil)
+	start := time.Now()
+	round := r.RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if d := time.Since(start); d < 65*time.Millisecond || d > time.Second {
+		t.Errorf("visit took %v, want its prefetch to live its recorded 40 ms after being sent at 30 ms", d)
+	}
+	if round.Visits != 1 || round.Failures != 0 {
+		t.Errorf("%+v", round)
+	}
+	for i := 0; i < 50 && held.Load() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if held.Load() != 0 {
+		t.Error("the prefetch was not released")
+	}
+}
+
+func TestAForegroundRequestCancelledAfterItsAnswerCameIsUsed(t *testing.T) {
+	srv, held := fakeServer(t)
+	// Next.js's router aborts the fetch of a click once it has what it needs: the answer began at
+	// 10 ms and the cancel came at 14 ms. The page view is successful and the cancel comes 4 ms after the
+	// answer begins to arrive, however late that is.
+	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/stream-1", "nav", 0, 10, 14)}}
+	plans, traces := onePlan(step)
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.PageViews != 1 || round.Failures != 0 || round.Cancelled != 1 || round.Responses["nav cancelled"] != 1 || round.Requests != 1 {
+		t.Fatalf("%+v", round)
+	}
+	for i := 0; i < 50 && held.Load() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if held.Load() != 0 {
+		t.Error("the request was not released")
+	}
+}
+
+func cancelledAfterAnswer(url, class string, s, responded, e float64) TraceReq {
+	r := cancelled(url, class, s, e)
+	r.Responded = responded
+	return r
+}
+
+func TestAnErrorStatusFailsEvenWhenTheRequestIsCancelledLater(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+	// The browser cancelled it 4 ms after its answer began; the answer is a 500.
+	plans, traces := onePlan(TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/x", "nav", 0, 10, 14), req("/ok", "nav", 0, 5)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.PageViews != 0 || round.Failures != 1 || !strings.Contains(round.FirstErr, "status 500") {
+		t.Fatalf("a cancelled 500 counted as a good page view: %+v", round)
 	}
 }
 
 func TestReplayKeepsTheParallelismOfTheBrowser(t *testing.T) {
-	srv, log := fakeApp(t)
+	srv, _ := fakeServer(t)
 	// Three requests: a and b start together, c starts after a has finished.
-	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{
-		{Method: "GET", URL: "/slow-a", Class: "nav", Start: 0, End: 10, Headers: map[string]string{"rsc": "1"}},
-		{Method: "GET", URL: "/slow-b", Class: "prefetch", Start: 1, End: 50, Headers: map[string]string{"rsc": "1"}},
-		{Method: "GET", URL: "/c", Class: "nav", Start: 20, End: 30, Headers: map[string]string{"rsc": "1"}},
-	}}
-	tr := Trace{Steps: []TraceStep{step}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/doc", "doc", 0, 1)}}, {Kind: StepClick, Page: "/q", Reqs: []TraceReq{
+		req("/slow-a", "nav", 0, 30), req("/slow-b", "prefetch", 1, 50), req("/c", "nav", 40, 45),
+	}}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, tr)
+	a := newAcc()
 	start := time.Now()
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
+	if err := visitOnce(r, a, 0); err != nil {
 		t.Fatal(err)
-	}
-	if got := log(); len(got) != 3 || got[0].uri != "/slow-a" && got[1].uri != "/slow-a" {
-		t.Fatalf("requests %+v", got)
 	}
 	if d := time.Since(start); d > 150*time.Millisecond {
 		t.Errorf("took %v: the requests ran one after another", d)
 	}
-	nav := r.res.lat["nav"]
-	if len(nav) != 1 || nav[0] < 30 { // a (30 ms), then c: one navigation
-		t.Errorf("navigation latencies %v", nav)
+	if click := a.lat["click"]; len(click) != 1 || click[0] < 30 { // a (30 ms), then c: one click
+		t.Errorf("click latencies %v", click)
 	}
-	if len(r.res.lat["prefetch"]) != 1 {
-		t.Errorf("prefetch latencies %v", r.res.lat["prefetch"])
-	}
-}
-
-func TestReplayWritesAreTheirOwnRequestTypeAndTheTifaBuildIsSubstituted(t *testing.T) {
-	srv, log := fakeApp(t)
-	tr := Trace{Steps: []TraceStep{{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{
-		{Method: "GET", URL: "/projects/studio?_tifa=deadbeef.001", Class: "nav", End: 5, Headers: map[string]string{"rsc": "1"}},
-	}}}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4, WriteRate: 1, FanOut: true}, tr)
-	r.buildID = "cafe01"
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
-		t.Fatal(err)
-	}
-	got := log()
-	if len(got) != 2 || got[0].uri != "/projects/studio?_tifa=cafe01.001" || got[1].method != "PATCH" {
-		t.Fatalf("requests %+v", got)
-	}
-	if len(r.res.lat["write"]) != 1 || len(r.res.lat["nav"]) != 1 {
-		t.Errorf("latencies %v", r.res.lat)
-	}
-}
-
-func TestSearchStopsAtAPlateauAndChoosesTheBestStepThatPasses(t *testing.T) {
-	// A server that answers at the same speed however many ask: visits/s rises with the users until
-	// they all wait on one lock.
-	var mu sync.Mutex
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		time.Sleep(time.Millisecond)
-		mu.Unlock()
-		w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
-	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{{Method: "GET", URL: "/p", Class: "doc", End: 1}}}}}
-	var trs []Trace
-	for range 200 {
-		trs = append(trs, tr)
-	}
-	o := BrowseOptions{Log: io.Discard, SearchWarm: 50 * time.Millisecond, SearchWindow: 300 * time.Millisecond, MaxUsers: 64}
-	var replayers []*replayer
-	curve, chosen, err := search(context.Background(), o, func(users int) (*LoadResult, error) {
-		// Every step comes with a replayer of its own, as Browse starts a server for each.
-		step := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, trs...)
-		replayers = append(replayers, step)
-		return step.RunLoad(context.Background(), users, o.SearchWarm, o.SearchWindow)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(replayers) != len(curve) {
-		t.Errorf("%d steps ran on %d replayers", len(curve), len(replayers))
-	}
-	if len(curve) < 3 || len(curve) >= 7 {
-		t.Errorf("%d steps: %+v", len(curve), curve)
-	}
-	if chosen != ChooseStep(curve) {
-		t.Errorf("chose %d out of %+v", chosen, curve)
+	if len(a.lat["prefetch"]) != 1 {
+		t.Errorf("prefetch latencies %v", a.lat["prefetch"])
 	}
 }
 
 func TestReplayDoesNotDeadlockOnRequestsOfTheSameMillisecond(t *testing.T) {
-	srv, _ := fakeApp(t)
-	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{
-		{Method: "GET", URL: "/a", Class: "nav", Start: 5, End: 5, Headers: map[string]string{"rsc": "1"}},
-		{Method: "GET", URL: "/b", Class: "prefetch", Start: 5, End: 5, Headers: map[string]string{"rsc": "1"}},
-		{Method: "GET", URL: "/c", Class: "nav", Start: 5, End: 9, Headers: map[string]string{"rsc": "1"}},
-	}}
-	tr := Trace{Steps: []TraceStep{step}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
+	srv, _ := fakeServer(t)
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{
+		req("/a", "doc", 5, 5), req("/b", "prefetch", 5, 5), req("/c", "nav", 5, 9),
+	}}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, tr)
 	done := make(chan error, 1)
-	go func() { done <- r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]) }()
+	go func() { done <- visitOnce(r, newAcc(), 0) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -205,194 +648,11 @@ func TestReplayDoesNotDeadlockOnRequestsOfTheSameMillisecond(t *testing.T) {
 	}
 }
 
-func TestRoundsFailByTheRuleOfTheSearchAndStepDownToTheNextPassingStep(t *testing.T) {
-	run := func(doc, nav float64, errs int) BrowseRun {
-		return BrowseRun{Load: &LoadResult{Visits: 1, Errors: errs, Types: map[string]TypeStat{"doc": {P99: doc}, "nav": {P99: nav}}}}
-	}
-	if got := RoundsFail([]BrowseRun{run(900, 950, 0), run(100, 100, 0)}); got != "" {
-		t.Errorf("passing rounds fail: %q", got)
-	}
-	got := RoundsFail([]BrowseRun{run(900, 1079, 0), run(1006, 951, 0), run(1, 1, 2)})
-	for _, want := range []string{"2 errors", "full load P99 up to 1006", "navigation P99 up to 1079"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("%q lacks %q", got, want)
-		}
-	}
-	curve := []CurvePoint{{Users: 1, Pass: true}, {Users: 2, Pass: true}, {Users: 4, Pass: false}, {Users: 8, Pass: true}, {Users: 16, Pass: true}}
-	if StepDown(curve, 16) != 8 || StepDown(curve, 8) != 2 || StepDown(curve, 1) != 0 {
-		t.Errorf("step down: %d %d %d", StepDown(curve, 16), StepDown(curve, 8), StepDown(curve, 1))
-	}
-}
-
-func curveOf(v ...float64) []CurvePoint {
-	var c []CurvePoint
-	for i, x := range v {
-		c = append(c, CurvePoint{Users: 1 << i, VisitsPerS: x, Pass: true})
-	}
-	return c
-}
-
-func TestOneDipDoesNotStopTheSearchButTwoSlowStepsDo(t *testing.T) {
-	// 1: 639, 2: 892, 4: 853 is a dip: the search goes on to 8.
-	if PlateauAfter(curveOf(639, 892, 853)) {
-		t.Fatal("a single dip stopped the search")
-	}
-	// 8 is also under 3% above 892 (918.8): it stops, and the rounds run at 2 users, the best step.
-	c := curveOf(639, 892, 853, 880)
-	if !PlateauAfter(c) || ChooseStep(c) != 2 {
-		t.Errorf("plateau %v, chosen %d", PlateauAfter(c), ChooseStep(c))
-	}
-	// 8 brings 950: the search goes on and the rounds would run at 8.
-	c = curveOf(639, 892, 853, 950)
-	if PlateauAfter(c) || ChooseStep(c) != 8 {
-		t.Errorf("plateau %v, chosen %d", PlateauAfter(c), ChooseStep(c))
-	}
-	// Two falls in a row stop it too.
-	if !PlateauAfter(curveOf(100, 200, 190, 180)) {
-		t.Error("two falls did not stop the search")
-	}
-	if got := CurveEnd(curveOf(639, 892, 853, 880), 128); !strings.Contains(got, "Chosen: 2 users") || !strings.Contains(got, "under 3%") {
-		t.Errorf("%q", got)
-	}
-}
-
-func TestChooseStepTakesTheMostVisitsAndTiesGoToFewerUsers(t *testing.T) {
-	c := curveOf(100, 200, 200, 150)
-	if ChooseStep(c) != 2 {
-		t.Errorf("chose %d", ChooseStep(c))
-	}
-	c[1].Pass = false
-	if ChooseStep(c) != 4 {
-		t.Errorf("a failing step was chosen: %d", ChooseStep(c))
-	}
-	if got := CurveEnd(curveOf(10, 20, 40), 4); !strings.Contains(got, "cap reached") || !strings.Contains(got, "Chosen: 4") {
-		t.Errorf("%q", got)
-	}
-	failing := curveOf(10, 20)
-	failing = append(failing, CurvePoint{Users: 4, VisitsPerS: 1, Why: "no visit completed"})
-	if got := CurveEnd(failing, 128); !strings.Contains(got, "fails (no visit completed)") || !strings.Contains(got, "Chosen: 2") {
-		t.Errorf("%q", got)
-	}
-}
-
-func TestTraceCheckCountsHTMLToDataRequestsAndReloadHeaders(t *testing.T) {
-	c := NewTraceCheck("Next.js", "baseline", &LoadResult{Users: 8, Requests: 10, Responses: map[string]int{
-		"doc 200 text/html": 3, "nav 200 text/x-component": 5, "prefetch 200 text/html": 1, "nav 307 -": 1, "reload-document header": 2,
-	}})
-	if c.HTMLToData != 1 || c.NotOK != 1 || c.ReloadHeaders != 2 {
-		t.Errorf("%+v", c)
-	}
-	if s := c.Summary(); !strings.Contains(s, "nav 200 text/x-component x5") || !strings.Contains(s, "HTML answers to data requests: 1") {
-		t.Errorf("%s", s)
-	}
-}
-
-func TestAServerThatHangsFailsTheStepInsteadOfPassingWithNothing(t *testing.T) {
-	release := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
-	defer srv.Close()
-	defer close(release)
-	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{{Method: "GET", URL: "/p", Class: "doc", End: 1}}}}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr, tr)
-	res, err := r.RunLoad(context.Background(), 2, 50*time.Millisecond, 1200*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Visits != 0 || res.Errors != 0 || res.OpenRequests != 2 || res.OpenOldestMs < 1000 {
-		t.Fatalf("visits %d, errors %d, %d requests open for %.0f ms", res.Visits, res.Errors, res.OpenRequests, res.OpenOldestMs)
-	}
-	p := CurvePoint{Users: 2, Visits: res.Visits, OpenOldest: res.OpenOldestMs}
-	if p.why() == "" {
-		t.Error("a step in which nothing completed passes")
-	}
-	if got := RoundsFail([]BrowseRun{{Load: res}}); !strings.Contains(got, "no visit") || !strings.Contains(got, "waited") {
-		t.Errorf("rounds: %q", got)
-	}
-	// Open requests alone fail a step too: visits completed, but one has waited over a second.
-	if (CurvePoint{Visits: 5, OpenOldest: 1500}).why() == "" {
-		t.Error("a request open for 1.5 s passes")
-	}
-}
-
-func TestAFailedPrefetchFailsTheVisit(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/pf") {
-			http.Error(w, "boom", http.StatusInternalServerError)
-			return
-		}
-		w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
-	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{
-		{Method: "GET", URL: "/p", Class: "doc", Start: 0, End: 2},
-		{Method: "GET", URL: "/pf", Class: "prefetch", Start: 3, End: 5, Headers: map[string]string{"rsc": "1"}},
-	}}}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err == nil || !strings.Contains(err.Error(), "500") {
-		t.Fatalf("a visit whose prefetch answered 500 ended with %v", err)
-	}
-	if r.res.Visits != 0 {
-		t.Error("the visit counted")
-	}
-}
-
-func TestNavigationTimeIncludesTheWaitBeforeItsFirstRequest(t *testing.T) {
-	srv, _ := fakeApp(t)
-	// The navigation request starts in the browser after a slow prefetch has finished, so it waits for it.
-	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{
-		{Method: "GET", URL: "/slow-pf", Class: "prefetch", Start: 0, End: 10, Headers: map[string]string{"rsc": "1"}},
-		{Method: "GET", URL: "/n", Class: "nav", Start: 20, End: 25, Headers: map[string]string{"rsc": "1"}},
-	}}
-	tr := Trace{Steps: []TraceStep{step}}
-	r := newTestReplayer(srv.URL, BrowseScenario{Name: "x", Mean: 4}, tr)
-	if err := r.visit(context.Background(), http.DefaultTransport.(*http.Transport), tr, r.plans[0]); err != nil {
-		t.Fatal(err)
-	}
-	if nav := r.res.lat["nav"]; len(nav) != 1 || nav[0] < 30 {
-		t.Errorf("navigation latencies %v: the 30 ms wait for the prefetch is missing", nav)
-	}
-}
-
-func TestOnlyPlansWithATraceForEveryServerAreReplayed(t *testing.T) {
-	dir := t.TempDir()
-	var plans []Plan
-	for i := range 150 {
-		plans = append(plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}}})
-	}
-	data, _ := json.Marshal(plans)
-	os.WriteFile(PlansPath(dir, 4), data, 0o644)
-	write := func(spec string, skip map[int]bool) {
-		var b strings.Builder
-		for i := range 150 {
-			if skip[i] {
-				continue
-			}
-			fmt.Fprintf(&b, `{"plan":%d,"steps":[{"kind":"load","page":"/projects/studio","reqs":[{"method":"GET","url":"/projects/studio","s":0,"e":1,"status":200,"class":"doc"}]}]}`+"\n", i)
-		}
-		os.WriteFile(filepath.Join(dir, spec+"-m4.jsonl"), []byte(b.String()), 0o644)
-	}
-	write("a", map[int]bool{3: true})
-	write("b", map[int]bool{7: true, 9: true})
-	specs := []Spec{{Target: Target{Name: "a"}}, {Target: Target{Name: "b"}}}
-	sets, common, err := loadSets(dir, SiteWorkbench, specs, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if common != 147 || len(sets["a"].traces) != 147 || len(sets["b"].traces) != 147 {
-		t.Errorf("common %d, a %d, b %d", common, len(sets["a"].traces), len(sets["b"].traces))
-	}
-	for _, id := range []int{3, 7, 9} {
-		if _, ok := sets["a"].traces[id]; ok {
-			t.Errorf("a still replays plan %d, which b has no trace for", id)
-		}
-	}
-}
-
 func TestLoadingTracesFailsWhenARouterRequestLostItsHeaders(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, headers, url string) string {
 		path := filepath.Join(dir, name)
-		line := `{"plan":0,"steps":[{"kind":"click","page":"/p","reqs":[{"method":"GET","url":"` + url + `","headers":` + headers + `,"s":0,"e":5,"status":200,"class":"nav"}]}]}` + "\n"
+		line := `{"plan":0,"steps":[{"kind":"load","page":"/p","reqs":[{"method":"GET","url":"/p","headers":{},"s":0,"e":1,"status":200,"class":"doc"}]},{"kind":"click","page":"/q","reqs":[{"method":"GET","url":"` + url + `","headers":` + headers + `,"s":0,"e":5,"status":200,"class":"nav"}]}]}` + "\n"
 		os.WriteFile(path, []byte(line), 0o644)
 		return path
 	}
@@ -407,5 +667,77 @@ func TestLoadingTracesFailsWhenARouterRequestLostItsHeaders(t *testing.T) {
 	}
 	if _, _, err := ReadTraces(write("tifa.jsonl", `{}`, "/projects/studio?_tifa=ab.001")); err != nil {
 		t.Errorf("a Tifa request needs no router header: %v", err)
+	}
+}
+
+func TestAClosedRoundTakesSixtyToOneHundredTwentySecondsByDefault(t *testing.T) {
+	if lo, hi := roundLength(75 * time.Second); lo != 60 || hi != 120 {
+		t.Errorf("a round of the default target takes %v to %v s", lo, hi)
+	}
+	if lo, hi := roundLength(5 * time.Second); lo != 4 || hi != 8 {
+		t.Errorf("a short trial takes %v to %v s", lo, hi)
+	}
+}
+
+// The render of each full load is counted by the kind of page, from X-Tifa-Render on the document,
+// so the report can tell which pages the writes keep from the render cache.
+func TestRendersOfFullLoadsAreCountedByKindOfPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/projects/studio":
+			w.Header().Set("X-Tifa-Render", "cache")
+		case strings.HasPrefix(r.URL.Path, "/projects/studio/orders/"):
+			w.Header().Set("X-Tifa-Render", "vm")
+		default:
+			w.Header().Set("X-Tifa-Render", "none")
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	load := func(page string) Trace {
+		return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{req(page, "doc", 0, 1), req("/data", "nav", 2, 3)}}}}
+	}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, load("/projects/studio"), load("/projects/studio/orders/SH-1041"), load("/projects/studio"))
+	a := newAcc()
+	for seq := range 3 {
+		if err := visitOnce(r, a, seq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var round Round
+	a.round(&round, 0, 0, 0, 0, time.Now(), time.Now(), 0)
+	if got := fmt.Sprint(round.PageRenders); got != "map[list:map[cache:2] order:map[vm:1]]" {
+		t.Errorf("renders by page %s", got)
+	}
+}
+
+// The body a request read before its cancel is counted: the client read those bytes.
+func TestTheBytesReadBeforeACancelAreCounted(t *testing.T) {
+	srv, _ := fakeServer(t)
+	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/stream-1", "nav", 0, 10, 14)}}
+	plans, traces := onePlan(step)
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.Cancelled != 1 || round.Bytes != int64(len("start")) {
+		t.Fatalf("cancelled %d, bytes %d, want 1 and %d", round.Cancelled, round.Bytes, len("start"))
+	}
+}
+
+// A visit whose context ends between two actions waits for its background requests before it
+// returns, as on every other way out, so that a round ends after its last request.
+func TestAVisitEndedBetweenActionsWaitsForItsBackgroundRequests(t *testing.T) {
+	srv, _ := fakeServer(t)
+	plans, traces := onePlan(
+		TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/doc", "doc", 0, 5), req("/hold-1", "prefetch", 1, 5000)}},
+		TraceStep{Kind: StepClick, Page: "/q", Reqs: []TraceReq{req("/nav", "nav", 0, 5)}})
+	for i := 0; i < 20; i++ {
+		r := testRunner(srv, plans, traces, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		a := newAcc()
+		r.runVisit(ctx, http.DefaultTransport.(*http.Transport), a, 0, pacer{open: true, start: time.Now(), reads: true})
+		left := r.inflight.Load()
+		cancel()
+		if left != 0 {
+			t.Fatalf("visit %d returned with %d requests still in flight", i, left)
+		}
 	}
 }
