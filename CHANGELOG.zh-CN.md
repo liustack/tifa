@@ -24,6 +24,7 @@
 - 服务端渲染改用 `github.com/liustack/quickjs` v0.30.1，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。从 v0.30.1 起，渲染超时（`ssr.timeout`）也能停下正在展平很长字符串、执行 `String.prototype.repeat`、编译很长的正则或很大的字符类的页面。以前在超时下编译特别长的正则可能让 VM 崩溃。
 - `tifa new` 固定 `github.com/liustack/sqlite` v0.1.4。v0.1.3 修了一次提交合并超过 64 条不同 SQL 时的空指针崩溃，把值直接拼进 SQL 文本时很常见。v0.1.4 带来分组提交，以及一次全面审查和 Windows 上的修复，还改了一条规则：用命名参数时，从 1 到最大编号的每个参数都要有值，和位置参数一样（`SELECT ?2, :x` 也要给 `?1`）。已有应用执行 `go get github.com/liustack/sqlite@v0.1.4`。
 - 示例 shop 的店面不再使用整页缓存（五个页面的 `const Cache` 已删除），browse 对比因此只跑一份 Tifa。页面只由渲染缓存回答，每个请求都会运行自己的 `Load`。shop 的 README 已同步说明。
+- 示例商店给订单配上索引和随每次写入更新的合计，订单列表、订单页和统计页读数据的耗时在 50 单和 5000 单时差不多。以前每次读都要复制并排序店里的全部订单。筛选、搜索或按金额排序时仍会走一遍全部订单。订单页不再重复显示各家快递的表现，统计页上有。
 
 ### 修复
 
