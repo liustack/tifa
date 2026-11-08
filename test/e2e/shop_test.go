@@ -591,6 +591,11 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	if _, _, page := emma.do("GET", placed, ""); !strings.Contains(rendered(page), want+" in all") || !strings.Contains(rendered(page), "emma@example.com") {
 		t.Errorf("confirmation lacks %s in all:\n%s", want, rendered(page))
 	}
+	// The English confirmation is cached like the Chinese one.
+	secondFromRenderCache(t, "English order confirmation", func() (int, http.Header) {
+		status, h, _ := emma.do("GET", placed, "")
+		return status, h
+	})
 	// The order keeps the email address, so a long one is refused rather than kept.
 	long := strings.Repeat("a", 243) + "@example.com"
 	if status, _, body := emma.do("POST", "/store/checkout", `{"email":"`+long+`","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`); status != 422 || !strings.Contains(body, `"email":"email"`) {

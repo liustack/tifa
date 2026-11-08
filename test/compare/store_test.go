@@ -111,9 +111,10 @@ func TestStoreDomainMatchesGo(t *testing.T) {
 	}
 	first, last := compare.StoreRunSpan(want, got)
 	diffs := check(want, got)
-	if len(diffs) > 0 && compare.StoreDayChanged(first, last) {
-		// A day of the store changed between the two runs, and a delivery date is a day of the store:
-		// both servers can be right. Run it again, once.
+	if compare.OnlyDeliveryDateDiffs(diffs, 25) && compare.StoreDayChanged(first, last) {
+		// A day of the store changed between the two runs and only delivery dates differ, which are
+		// days of the store: both servers can be right. Run it again, once. A difference in anything
+		// else is reported as it is.
 		t.Logf("a day of the store changed during the run (%v to %v), running it again", first, last)
 		diffs = check(run())
 	}

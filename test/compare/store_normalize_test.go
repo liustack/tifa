@@ -123,10 +123,10 @@ func TestStorePlacedDeliveryIsMeasuredFromTheOrder(t *testing.T) {
 	}
 }
 
-// A delivery date is a midnight of the store's zone, the same on both servers all day, so it is
+// A delivery date is a day of the store, noon in its zone, the same on both servers all day, so it is
 // compared as it is. Two runs at different times of the day are the same, a day off is not.
 func TestStoreDeliveryDatesAreComparedAsTheyAre(t *testing.T) {
-	midnight := time.Date(2026, 11, 9, 0, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	noon := time.Date(2026, 11, 9, 12, 0, 0, 0, time.FixedZone("CST", 8*3600))
 	answer := func(at time.Time, earliest time.Time) [][]compare.StoreResult {
 		return [][]compare.StoreResult{{{Status: 200, At: at.UnixMilli(), Body: map[string]any{
 			"delivery": map[string]any{"earliest": earliest.Format(time.RFC3339Nano), "latest": earliest.Format(time.RFC3339Nano)},
@@ -139,11 +139,36 @@ func TestStoreDeliveryDatesAreComparedAsTheyAre(t *testing.T) {
 		return compare.DiffStore(scenarios, want, got, 10)
 	}
 	at := time.Date(2026, 11, 8, 17, 0, 0, 0, time.UTC)
-	// The same midnight, written in two zones, asked at two times of the day.
-	if d := diff(answer(at, midnight), answer(at.Add(5*time.Hour+7*time.Minute), midnight.UTC())); len(d) > 0 {
+	// The same noon, written in two zones, asked at two times of the day.
+	if d := diff(answer(at, noon), answer(at.Add(5*time.Hour+7*time.Minute), noon.UTC())); len(d) > 0 {
 		t.Errorf("the same delivery date differs: %v", d)
 	}
-	if d := diff(answer(at, midnight), answer(at, midnight.Add(24*time.Hour))); len(d) == 0 {
+	if d := diff(answer(at, noon), answer(at, noon.Add(24*time.Hour))); len(d) == 0 {
 		t.Error("a delivery date a day off passed")
+	}
+}
+
+// A run is asked for again only when every difference is a delivery date.
+func TestOnlyDeliveryDateDiffsAreRetried(t *testing.T) {
+	date := "s, step 2 GET /y: /deliveries/0/earliest: Go has \"@day 1\", Node \"@day 2\""
+	other := "s, step 2 GET /y: /cart/count: Go has 1, Node 2"
+	for _, c := range []struct {
+		name  string
+		diffs []string
+		want  bool
+	}{
+		{"none", nil, false},
+		{"dates", []string{date, date}, true},
+		{"a date and something else", []string{date, other}, false},
+		{"something else", []string{other}, false},
+		{"as many as the limit", []string{date, date}, false},
+	} {
+		limit := 25
+		if c.name == "as many as the limit" {
+			limit = 2
+		}
+		if got := compare.OnlyDeliveryDateDiffs(c.diffs, limit); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
 	}
 }

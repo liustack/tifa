@@ -550,9 +550,9 @@ const instantPrefix = "@instant "
 // its distance in milliseconds from the request that made it, written "@instant <ms>", for
 // DiffStore to compare within instantTolerance: a run an hour later is the same. The time an order was
 // placed (under "placed") is counted from the request that placed it (the 303 of the checkout), not
-// from the request that reads it later. A delivery date ("earliest", "latest") is a midnight in the
-// store's time zone, so it is not counted from a request: it becomes "@day <ms>", the instant itself (so the text is "@day", a space and the milliseconds, compared as it is). It is applied to the answers
-// of the shop and of the port alike.
+// from the request that reads it later. A delivery date ("earliest", "latest") is a day of the store,
+// carried as noon in its time zone, so it is not counted from a request: it becomes "@day <ms>", the
+// instant itself, compared as it is. It is applied to the answers of the shop and of the port alike.
 func NormalizeStore(results [][]StoreResult) {
 	var from time.Time
 	instant := func(t time.Time) string {
@@ -570,9 +570,9 @@ func NormalizeStore(results [][]StoreResult) {
 					if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 						from = at
 						if k != "placedAt" {
-							// A delivery date is a midnight of the store's zone, the same all day on both
-							// servers, so it is compared as it is and not by how far it is from the request.
-							x[k] = fmt.Sprintf(" %d", t.UnixMilli())
+							// A delivery date is a day of the store, the same all day on both servers, so it is
+							// compared as it is and not by how far it is from the request.
+							x[k] = fmt.Sprintf("@day %d", t.UnixMilli())
 							continue
 						}
 						if (k == "placedAt" || placed) && !orderAt.IsZero() {
@@ -726,6 +726,23 @@ func StoreDayChanged(a, b time.Time) bool {
 	}
 	return false
 }
+
+// OnlyDeliveryDateDiffs says whether every difference that DiffStore listed is in a delivery date
+// ("earliest" or "latest"), the only values that depend on the day of the store. A list as long as
+// the limit it was made with may have lost others, so it does not count.
+func OnlyDeliveryDateDiffs(diffs []string, limit int) bool {
+	if len(diffs) == 0 || len(diffs) >= limit {
+		return false
+	}
+	for _, d := range diffs {
+		if !deliveryDateDiff.MatchString(d) {
+			return false
+		}
+	}
+	return true
+}
+
+var deliveryDateDiff = regexp.MustCompile(`/(earliest|latest): `)
 
 // StoreRunSpan is the first and the last time a request of the runs was sent.
 func StoreRunSpan(runs ...[][]StoreResult) (first, last time.Time) {
