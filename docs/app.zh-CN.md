@@ -540,7 +540,7 @@ const LayoutSSR = false        // 本目录的 Layout，默认 true
 - 带渲染时钟（`tifa.WithRenderClock`）的请求跳过缓存：不读也不存，因为它的 HTML 取决于键里没有的时间。
 - 多个请求同时没命中缓存，并且构建版本、URL 和数据都相同时（比如刚部署完涌进来一批访客），它们共用一次渲染。每个请求照样跑自己的中间件和 `Load`，保留它们设的响应头（比如 `Set-Cookie` 和 `Vary`），拿到自己接受的编码。`cache.size` 为 0、页面大到缓存放不下、在 `tifa dev` 下也都这样。数据或会话不同的请求各自渲染，写了 `RenderCache = false` 的页面每个请求都渲染。
 - 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不缓存，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进缓存。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
-- 页面响应都带 ETag，它是和缓存键同样内容的哈希。这些都没变的第二次请求带 `If-None-Match` 时答 304，不渲染，也不查缓存。ETag 和缓存是两件事：ETag 省下已经有这个页面的浏览器的传输，缓存省下其他人的渲染。写了 `RenderCache = false` 的页面和带渲染时钟的请求没有 ETag，因为它们的 HTML 不由这些内容决定，总是重新渲染。
+- 页面响应都带 ETag，它是和缓存键同样内容的哈希。这些都没变的第二次请求带 `If-None-Match` 时答 304，不渲染，也不查缓存。ETag 和缓存是两件事：ETag 省下已经有这个页面的浏览器的传输，缓存省下其他人的渲染。写了 `RenderCache = false` 的页面和带渲染时钟的请求没有 ETag，因为它们的 HTML 不由这些内容决定，总是重新渲染。404 页和 `Load` 失败时的错误页也像普通页面一样进渲染缓存，但不带 ETag：304 只代表 200。
 - 页面里不带数据加载的时间，同样的数据总是得到同样的 HTML。页面的响应（渲染、304、应用渲染的 404 页面）改在 `Server-Timing: tifa-age;dur=<毫秒>` 里说明数据可能有多旧，从第一个 `Load` 开始时算起。只有任何缓存都不能不问服务器就重用的响应才带它：`Cache-Control` 里有 `no-cache` 或 `no-store`，默认的 `private, no-cache` 就是。整页缓存给的页面，以及你把 `Cache-Control` 设成允许缓存存下来的页面（比如 `public, max-age=60`），都不带它，因为缓存过一阵会把同一个时长原样发出去。浏览器的路由器把浏览器发出请求的时间减去这个时长，当作数据加载的时间，`staleTime` 和 `gcTime` 从这里算。它在第一次加载或预加载之前才把这个时间写进页面的各个 match，在那之前 `updatedAt` 是 0，和服务器渲染的一样，显示它的组件水合时不会对不上。响应不带它或浏览器读不到它时（Firefox 走普通 HTTP，或者从前进后退历史打开的页面），数据按旧数据处理，回到这个页面时重新加载。导航数据不带它：路由器自己取的数据由它自己记时间。
 - 应用的每个回答（页面、304、404 页面、导航数据、方法处理函数、重定向）默认带 `Cache-Control: private, no-cache`，你自己设过 `Cache-Control` 的除外。开了 `Cache` 的页面里被存下来的回答是例外，见[整页缓存](#整页缓存)。CDN 和代理不会存它，因为页面可能只属于某一位访客。浏览器可以存下来，下次带着 ETag 回来问，页面没变就答 304。要改的话，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")`，你设的值原样发出，只有导航数据（带 `_tifa` 的请求）例外，它永远不是 public：不是 `no-store`、也不是同时有 `private` 和 `no-cache` 的值会换成 `private, no-cache`。JSON 错误（包括 405 和关机时的 503）、Go 写的纯错误页、渲染失败后带错误重新渲染的页面和过载回答都是 `no-store`，你在出错之前设过 `Cache-Control` 的除外。应用渲染的 404 页面仍用默认值。`/assets/` 下的文件保持长期缓存，`public/` 里的文件保持 `no-cache`（见[页面请求](build.zh-CN.md#页面请求)）。渲染缓存只在进程内存渲染结果，不改这个头。
 
@@ -560,7 +560,7 @@ const Cache = 10 * time.Minute
 - **多语言。** 多语言页面按 URL 缓存，每种语言各有一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言网站](#多语言网站)）。
 - **键**是协议、`Host` 请求头（不信 `X-Forwarded-Host`）、路径，以及去掉跟踪参数后的查询串，其余参数按名字排序。`cache.ignore_query` 列出跟踪参数（`utm_*`、`gclid`、`fbclid` 等，见 [config.zh-CN.md](config.zh-CN.md)）。页面链上有 `Load` 读的参数一律保留。页面用同样处理过的 URL 渲染，所以访客看到的内容不会取决于键忽略掉的参数。
 - **存什么。** GET 和 HEAD 共用一份。只存状态码 200、301、302 和 308 的回答。以下情况这次不存，并且这个 URL 的请求两分钟内跳过缓存，免得排队：`Cache-Control` 里有 `private`、`no-store` 或 `no-cache`（由 `OnRequest` 或 `Load` 设的），`Vary` 里有 `Accept-Encoding` 以外的值，以及其他状态码，404 也算。请求里的强制刷新（`Cache-Control: no-cache` 或 `Pragma`）绕不过缓存。
-- **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。
+- **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时新条目沿用旧条目的页面，不用重新渲染。
 - **内容条目到点发布时**，这一刻之前做好的页面全部算作到时，所以文章列表马上就有新的一篇（见[草稿和日期](content.zh-CN.md#草稿和日期)）。
 - **重新生成失败时**，比如 `Load` 返回错误、渲染失败或超时、所有 VM 都忙，就给旧页，最多到过期后一天。再往后照实返回错误。`Load` 返回 `tifa.ErrNotFound`、重定向或 500 以下的其他 `tifa.Error`，是业务上的回答而不是失败，会取代旧页。
 - **响应头。** `Load` 和 `Layout` 设的响应头（除了 Tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。因为重新生成失败而发出的旧页，`s-maxage` 不大于它的 `Age`，所以 CDN 不会把它当成新鲜的。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 Tifa skill 的部署说明。
@@ -586,7 +586,7 @@ func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
 - Tifa 不猜一次写入改了什么。显示它的页面要一个个写出来：这里是这篇文章、文章列表和显示最新几篇的首页，多语言网站还要写上每种语言的页面。
 - 路径是 URL 的路径，按 `c.Request().URL.Path` 的样子解码：写 `/blog/café`，不写 `/blog/caf%C3%A9`。它让这个页面的所有查询串、Host 和协议都过期，所以 `/blog` 也会让 `/blog?page=2` 过期。路径要完全相同：`/blog` 和 `/blog/` 是两个页面，两个都不会让下面的页面过期。
 - 调用之前已经开始的请求仍可能拿到旧页。用调用之前读到的数据做出来的页面不会存下，调用之后的请求也不等它。
-- 数据没变时，新页面和旧的一样：渲染缓存直接给出，不用渲染，已经有这个页面的浏览器凭 ETag 拿到 304。
+- 数据没变时，新页面和旧的一样：直接沿用，不用渲染，已经有这个页面的浏览器凭 ETag 拿到 304。
 - 重新生成失败时，旧页照常顶上，和时间到了一样，最多到 `Cache` 时间结束后一天。
 - 程序里哪里都能调：方法处理函数、后台任务、`OnStart`。服务启动之前和停下之后调用什么也不做。路径不以 `/` 开头会 panic。
 - 它只让这个程序内存里的页面过期。前面的 CDN 存的那份要等 `s-maxage` 用完。程序跑了好几份时，每份有自己的缓存，调用只作用于发起调用的那一份。

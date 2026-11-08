@@ -29,6 +29,11 @@
 
 ### 修复
 
+- 404 页、`Load` 失败时显示的错误页，以及渲染时路由器发出的重定向（`/%61` 转到 `/a`）现在和别的页面一样进渲染缓存，再来一次就是命中（`X-Tifa-Render: cache`），不再渲染。它们仍然不带 `ETag`，`OnError` 仍然看到每次失败。写了 `RenderCache = false` 的页面，错误页也不进缓存（[渲染缓存](docs/render-cache.zh-CN.md#为什么对所有页面都安全)）。
+- `/assets/` 下没有的文件，比如部署前打开的标签页来要旧构建的代码块，现在答纯文本 404，带 `Cache-Control: no-store`。以前它要经过 `OnRequest`，跑根 Layout 的 `Load`，再渲染应用的 404 页（[页面请求](docs/build.zh-CN.md#页面请求)）。
+- 带 `Cache` 的页面在时间到了、`tifa.ExpirePages` 或内容条目发布之后重新生成条目时，数据没变就沿用旧条目的页面。以前渲染缓存里那份被挤掉时会重新渲染，而缓存满时最先被挤掉的正是它（[整页缓存](docs/app.zh-CN.md#整页缓存)）。
+- 带 `Cache` 的页面，条目没经过渲染就做好时（来自渲染缓存或上一个条目），`X-Tifa-Render` 现在写 `cache`，不做 SSR 的页面写 `none`。以前它做的每个条目都写 `vm`。
+- 比 `cache.size` 还大的页面只压缩一次：收 gzip 的客户端拿到为缓存压好的那份，以前那份被扔掉再压一遍。带 `Cache` 的页面未命中时，每个 `Load` 的数据只写一次 JSON，不再写两次。每次渲染的键也不再复制它要哈希的数据，92 KB 数据的请求少产生约 98 KB 垃圾（[优化记录](docs/studies/optimizations.md#server)）。
 - `cache.size: 0` 时，带 `Cache` 的页面的导航数据不再渲染出 HTML 又丢掉。它只跑 `Load` 并返回数据，`X-Tifa-Render` 为 `none`，页面仍然匿名（见[整页缓存](docs/app.zh-CN.md#整页缓存)）。
 - 用 i18next 27 的应用，SSR 包不再为 `fixedT`、`looksLikeObjectPath` 和 `createCachedFormatter` 打印 `tifa rewrite not recognized`。前两处和 26 一样提速。i18next 27.0.1 自己限制了格式化函数的数量，插件不再动它，27.0.0 仍用插件的上限。`build.i18next_cache` 现在在 i18next 27.0.0 和 27.0.1 上和在 26 上一样工作，`hydrate` 会清空它那个实例的缓存（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
 - 服务端渲染的 i18next 缓存不再把前一次调用的文字给另一次只在 Symbol 键下的选项不同的调用，后处理器可以读这样的选项。带这种选项的调用不记（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。

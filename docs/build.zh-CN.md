@@ -591,7 +591,7 @@ export function onStart() {
 
 ## 页面请求
 
-静态文件在路由之前处理，不经过 `OnRequest`：`/assets/` 下的文件带 `Cache-Control: public, max-age=31536000, immutable`，公共目录的文件带 `no-cache` 和 ETag，只响应 GET 与 HEAD。公共文件的 ETag 是 `tifa build` 写进 `build.json` 的内容哈希，因为嵌进程序的副本没有修改时间。带匹配 `If-None-Match` 的请求得到 304，HEAD 也一样。ETag 是强 ETag，文件压缩后发出时变成弱 ETag（`W/"…"`），见[压缩](#压缩)。`tifa dev` 不写哈希，它所服务的文件照旧用修改时间。`/assets/` 下浏览器包里没有的文件再到公共目录里找，所以 `public/assets/logo.svg` 仍是 `/assets/logo.svg`。
+静态文件在路由之前处理，不经过 `OnRequest`：`/assets/` 下的文件带 `Cache-Control: public, max-age=31536000, immutable`，公共目录的文件带 `no-cache` 和 ETag，只响应 GET 与 HEAD。公共文件的 ETag 是 `tifa build` 写进 `build.json` 的内容哈希，因为嵌进程序的副本没有修改时间。带匹配 `If-None-Match` 的请求得到 304，HEAD 也一样。ETag 是强 ETag，文件压缩后发出时变成弱 ETag（`W/"…"`），见[压缩](#压缩)。`tifa dev` 不写哈希，它所服务的文件照旧用修改时间。`/assets/` 下浏览器包里没有的文件再到公共目录里找，所以 `public/assets/logo.svg` 仍是 `/assets/logo.svg`。有页面的应用里，`/assets/` 下别的路径一律答纯文本 404，带 `Cache-Control: no-store`，不经过 `OnRequest`，不跑 `Load`，也不渲染，比如部署前打开的页面来要旧构建的代码块。
 
 页面 URL 的 GET 经过 `OnRequest` 之后：
 
@@ -623,7 +623,7 @@ export function onStart() {
 - 未匹配的 URL（有页面的应用收到 GET 或 HEAD）：Go 找出 URL 能匹配上的最深一层 Layout（规则见 [404](app.zh-CN.md#404)），把它路径里的参数设到请求上。`next` 从根往下执行到这一层的 `Layout` 函数，返回 `tifa.ErrNotFound`。整页请求用它们的结果和状态码 404 渲染，有 Layout 失败时用它的状态码，和页面一样。导航数据请求只执行其中列出的那些，回答它们的结果和 404，有一个失败时回答 200，和页面一样。列出不在其中的路由回答 400。这些 Layout 有一个是 `LayoutSSR = false` 时，Go 写带它们数据的最简文档。别的方法和没有页面的应用回答 JSON 的 404。
 - VM 渲染失败（包括组件在渲染中抛错：字符串渲染器会把它吞进 Suspense 边界，留下 `<!--$!-->` 标记，SSR 入口见到这个标记就把这次渲染当失败）：算意外错误，只交给 `OnError` 一次，永不进渲染缓存和整页缓存。接着页面把错误放进路由树再渲染，见下一条。每次都渲染不出来时，Go 写一张只有状态码和公开消息的简单错误页，不暴露内部错误。在 `tifa dev` 下（`DevMain`），这张页还写出请求、完整的错误，并加载 dev 客户端，重建带来修复后它自动刷新。`OnError` 拿到的是代码实际抛出的错误（被 React 吞掉的也一样），错误栈前 64 帧的位置借 `dist/ssr.js.map` 换成源文件里的位置。代码调用了 QuickJS 没有的 `require` 时，错误还会给出包名和位置，并说明怎么办：从 `.client` 文件引入这个包，把调用放进 `useEffect`，或者换一个不需要 Node 的构建。包在加载时就失败（任何页面渲染之前）时，失败的是引入本身，把调用挪进 `useEffect` 没用，所以预热的错误只建议从 `.client` 文件引入这个包或者换一个构建。组件挂起（抛出 promise，或者是还没加载完的 `React.lazy` 组件）也会这样让渲染失败，因为 `renderToString` 不等待。错误会建议用 `Load` 给页面数据并静态引入组件，或者设 `SSR = false`。懒加载的引入为什么失败，服务端看不到。显示 `Load` 错误（包括 404）的页面渲染失败时，同样走这些重试。
 - 失败时 SSR 入口报出 `levels`：匹配到的路由里，从它显示的最深一条往上到根路由，有几条能显示这个错误。服务端带着输入里的 `error: {status, message, level}` 再渲染，状态码和公开消息取自 `OnError`。入口在路由器脱水之前，把显示的最深一条往上第 `level` 条的匹配换成失败的匹配，里面是一个 `RouteError`，于是由这条路由的 `errorComponent` 显示错误，浏览器也按同一棵树 hydrate。第一次重试的 level 是 0，每失败一次往上挪一层。回答带 `OnError` 的状态码、`Cache-Control: no-store`，不带 ETag。在 `tifa dev` 下 dev 客户端把错误盖在页面上显示。失败的渲染会让它的 VM 退役，所以每次重试都在新的 VM 上。所有重试共用第一次渲染开始后 `ssr.timeout` 的截止时间，和第一次渲染一样，遇上超时、所有 VM 都忙或请求取消就停下。用完 `ssr.vm_memory` 的渲染报不出 levels，服务端就按页面的路由数再加两层（根路由和一条加出来的路由）去试。两样都不是的失败当场停下。
-- 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，状态码 308，不带 ETag。末尾斜杠（`/a/` 写成 `/a`）也一样。这些 URL 只是同一个页面的另一种写法，所以用永久重定向：搜索引擎把永久重定向当作规范 URL，临时重定向则不是，而且 308 保留请求方法。ServeMux 对要清理的路径（`/a//b`、`/a/./b`）或要补斜杠的路径写 307，服务器对这些也答 308。`Load` 或 `OnRequest` 用 `tifa.Redirect` 要求的重定向保留它给的状态码。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
+- 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，状态码 308，不带 ETag。渲染缓存像存页面一样存下这个重定向，同一个 URL 的下一个请求不再渲染。末尾斜杠（`/a/` 写成 `/a`）也一样。这些 URL 只是同一个页面的另一种写法，所以用永久重定向：搜索引擎把永久重定向当作规范 URL，临时重定向则不是，而且 308 保留请求方法。ServeMux 对要清理的路径（`/a//b`、`/a/./b`）或要补斜杠的路径写 307，服务器对这些也答 308。`Load` 或 `OnRequest` 用 `tifa.Redirect` 要求的重定向保留它给的状态码。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
 - 非 GET 请求、接口路由与没有页面的应用仍答 JSON。
 
 ### 回答里的会话
