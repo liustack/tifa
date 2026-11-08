@@ -721,3 +721,23 @@ func TestTheBytesReadBeforeACancelAreCounted(t *testing.T) {
 		t.Fatalf("cancelled %d, bytes %d, want 1 and %d", round.Cancelled, round.Bytes, len("start"))
 	}
 }
+
+// A visit whose context ends between two actions waits for its background requests before it
+// returns, as on every other way out, so that a round ends after its last request.
+func TestAVisitEndedBetweenActionsWaitsForItsBackgroundRequests(t *testing.T) {
+	srv, _ := fakeServer(t)
+	plans, traces := onePlan(
+		TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/doc", "doc", 0, 5), req("/hold-1", "prefetch", 1, 5000)}},
+		TraceStep{Kind: StepClick, Page: "/q", Reqs: []TraceReq{req("/nav", "nav", 0, 5)}})
+	for i := 0; i < 20; i++ {
+		r := testRunner(srv, plans, traces, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		a := newAcc()
+		r.runVisit(ctx, http.DefaultTransport.(*http.Transport), a, 0, pacer{open: true, start: time.Now(), reads: true})
+		left := r.inflight.Load()
+		cancel()
+		if left != 0 {
+			t.Fatalf("visit %d returned with %d requests still in flight", i, left)
+		}
+	}
+}

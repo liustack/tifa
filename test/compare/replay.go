@@ -483,6 +483,9 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	trace := r.wl.Traces[plan.ID]
 	jar, _ := cookiejar.New(nil)
 	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns)}
+	// Every way out of the visit waits for its background requests, so that a round ends after its
+	// last request and a warm-up does not run on into the round.
+	defer v.bg.Wait()
 	action := 0
 	wait := func() time.Time {
 		sched := p.at(action)
@@ -507,7 +510,6 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 			if ctx.Err() == nil {
 				a.fail(err)
 			}
-			v.bg.Wait()
 			return false
 		}
 		if w, ok := r.wl.Writes[[2]int{plan.ID, i}]; ok && !p.reads {
@@ -516,7 +518,6 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 				if ctx.Err() == nil {
 					a.fail(err)
 				}
-				v.bg.Wait()
 				return false
 			}
 		}
