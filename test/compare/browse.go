@@ -47,7 +47,7 @@ type BrowseOptions struct {
 	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
 	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
 	Rounds      int
-	Warm        time.Duration // the warm-up of a closed round, apart from it
+	Warm        time.Duration // the warm-up of a closed round of a Node server, apart from it (see Spec.WarmsUp), and the length of a sizing run
 	Target      time.Duration // how long a closed round should take, about
 	TrialWindow time.Duration // an open trial of the search for the sustainable rate
 	FinalWindow time.Duration // an open round of the latency table, at least
@@ -131,6 +131,35 @@ type browse struct {
 	sets  map[string]*PlanSet
 	trace map[string]map[string]map[int]Trace
 	bid   string
+	// launch starts the server of a spec; the tests set it to serve from a fake (nil: start the real one).
+	launch func(ctx context.Context, spec Spec) (*liveServer, error)
+}
+
+// liveServer is a running server of a spec, with what a round reads from it.
+type liveServer struct {
+	base string
+	cpu  func() float64
+	rss  func() int64
+	stop func()
+}
+
+// start waits for the cpus to be idle, starts a fresh server of a spec and waits until it listens.
+func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
+	if b.launch != nil {
+		return b.launch(ctx, spec)
+	}
+	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
+		return nil, err
+	}
+	server, err := spec.Launch(b.o.ServerCPUs)
+	if err != nil {
+		return nil, err
+	}
+	if err := server.WaitListening(ctx); err != nil {
+		server.Stop()
+		return nil, err
+	}
+	return &liveServer{base: server.Base, cpu: server.CPUSeconds, rss: server.PeakRSS, stop: server.Stop}, nil
 }
 
 func (b *browse) logf(format string, a ...any) { fmt.Fprintf(b.o.Log, format, a...) }
@@ -385,24 +414,18 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
 func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f func(*runner) *Round) (*Round, error) {
-	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
-		return nil, err
-	}
 	spec := b.specs[name]
-	server, err := spec.Launch(b.o.ServerCPUs)
+	server, err := b.start(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
-	defer server.Stop()
-	if err := server.WaitListening(ctx); err != nil {
-		return nil, err
-	}
+	defer server.stop()
 	site := sc.site()
 	wl, err := NewWorkload(b.sets[site], b.trace[site][traceName(spec)], sc, b.o.Seed)
 	if err != nil {
 		return nil, err
 	}
-	r := &runner{base: server.Base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, wl: wl, seed: b.o.Seed, cpu: server.CPUSeconds, rss: server.PeakRSS}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}
@@ -438,8 +461,8 @@ func controlled(list []BrowseScenario, sc BrowseScenario) bool {
 	return i >= 0 && list[i].Name == sc.Name
 }
 
-// control is a diagnostic, not a result: once for each site, one closed round of Tifa (with its
-// caches as it ships) at the sessions of the closed runs, with the traces of the first scenario of the
+// control is a diagnostic, not a result: once for each site, one closed round of Tifa, with no warm-up
+// (with its caches as it ships) at the sessions of the closed runs, with the traces of the first scenario of the
 // site and no writes. It shows which kinds of page the render cache answers when nothing changes,
 // and against the rounds with writes what the writes do to it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
@@ -449,9 +472,13 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	reads := sc
 	reads.Share = 0
 	window := min(b.o.Target, controlWindow)
+	// Tifa gets no warm-up, so the length of the round is sized on a server that is thrown away.
+	rate, err := b.size(ctx, "tifa", reads, b.o.Sessions)
+	if err != nil {
+		return err
+	}
+	blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
 	out, err := b.with(ctx, "tifa", reads, func(r *runner) *Round {
-		rate := r.Warm(ctx, b.o.Sessions, b.o.Warm)
-		blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
 		return r.RunClosed(ctx, b.o.Sessions, blocks*BlockVisits, 2*window)
 	})
 	if err != nil {
@@ -481,7 +508,9 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 	}
 	for attempt := 1; ; attempt++ {
 		out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-			r.Warm(ctx, sessions, b.o.Warm)
+			if b.specs[fw].WarmsUp() {
+				r.Warm(ctx, sessions, b.o.Warm)
+			}
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
 			return r.RunClosed(ctx, sessions, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
@@ -576,12 +605,14 @@ func visitsFor(rate float64, window time.Duration, cycle int) int {
 	return max(1, int(math.Ceil(float64(n)/float64(cycle)))) * cycle
 }
 
-// openRound runs the open model on a fresh server: a warm-up at the same rate with no writes, apart,
-// then whole cycles of all the plans.
+// openRound runs the open model on a fresh server: for a spec that warms up (Spec.WarmsUp) a warm-up
+// at the same rate with no writes, apart, then whole cycles of all the plans.
 func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
 	cycle := len(b.sets[sc.site()].Plans)
 	out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-		r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0, true) // discarded
+		if b.specs[fw].WarmsUp() {
+			r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0, true) // discarded
+		}
 		return r.RunOpen(ctx, rate, visitsFor(rate, window, cycle), 30*time.Second, 0, false)
 	})
 	if err != nil {
