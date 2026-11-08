@@ -1,7 +1,7 @@
 package cart
 
 import (
-	"crypto/rand"
+	"errors"
 	"net/http"
 	"regexp"
 	"slices"
@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
@@ -223,34 +225,33 @@ type Placed struct {
 	PlacedAt   time.Time `json:"placedAt"`
 }
 
-// Placed orders are kept for their confirmation, at most maxPlaced of them and each for
-// placedIdle after it was last shown, like the carts.
+// What the confirmation of a placed order needs beside the order of the back office is kept, at most
+// maxPlaced of them and each for placedIdle after it was last shown, like the carts.
 const (
 	maxPlaced  = 10_000
 	placedIdle = 30 * 24 * time.Hour
 )
 
-// placed are the placed orders by order number.
+// placed are the orders placed from the storefront, by the number of the order in the back office.
 var placed = newRecent[placedRecord](maxPlaced, placedIdle)
 
 type placedRecord struct {
 	// cart is the ID of the cart the order was placed from. Only a request with that cart sees
 	// the order: the confirmation shows an email address, and order numbers can be guessed.
-	cart  string
-	email string
-	count int
-	// totalCents is what the checkout showed, in the minor unit of currency.
+	cart string
+	// totalCents is what the checkout showed, in the minor unit of currency, with the coupon and
+	// the delivery, which the order of the back office does not hold.
 	totalCents int
 	currency   string
 	delivery   string
-	at         time.Time
 }
 
-// PlaceOrder places the order of the cart of the request, empties the cart and returns the
-// number of the order. The order must have passed Validate. It is totalled in the language of
-// l, the storefront it was placed from, from the prices that storefront shows. It holds the lock
-// of the carts from reading the cart to emptying it, so two requests with one cart place one
-// order.
+// PlaceOrder places the order of the cart of the request as an order of the studio shop in the
+// back office, takes its pieces from the stock, empties the cart and returns the number of the
+// order. The order must have passed Validate. It is totalled in the language of l, the storefront
+// it was placed from, from the prices that storefront shows. A cart that holds more of a product
+// than the stock has is refused with 409, and nothing is taken. It holds the lock of the carts
+// from reading the cart to emptying it, so two requests with one cart place one order.
 func PlaceOrder(c *tifa.Ctx, l storekit.Locale, o Order, now time.Time) (string, error) {
 	carts.mu.Lock()
 	defer carts.mu.Unlock()
@@ -270,6 +271,25 @@ func PlaceOrder(c *tifa.Ctx, l storekit.Locale, o Order, now time.Time) (string,
 	if len(cart.Lines) == 0 {
 		return "", tifa.Error{Status: 409, Message: "emptyCart"}
 	}
+	var takes []products.Take
+	var items []orders.NewLine
+	for _, line := range cart.Lines {
+		takes = append(takes, products.Take{Slug: line.Slug, Quantity: line.Quantity})
+		items = append(items, orders.NewLine{Slug: line.Slug, Color: line.Color, Size: line.Size, Quantity: line.Quantity})
+	}
+	if err := products.TakeStock(takes); errors.Is(err, products.ErrNoStock) {
+		return "", tifa.Error{Status: 409, Message: "cartStock"}
+	} else if err != nil {
+		return "", err
+	}
+	a := o.Address
+	id, err := orders.CreateOrder(storekit.Project, orders.NewOrder{
+		Customer: a.Name, Phone: a.Phone, Email: o.Email, Address: address(a, l), Note: o.Notes, Items: items,
+	}, now)
+	if err != nil {
+		products.PutBack(takes)
+		return "", err
+	}
 	if !ok {
 		// A visitor without a cart, who checks out the demonstration cart, gets a cart of their
 		// own, which the order is placed from.
@@ -283,28 +303,32 @@ func PlaceOrder(c *tifa.Ctx, l storekit.Locale, o Order, now time.Time) (string,
 		}
 	}
 	placed.mu.Lock()
-	id := newOrderNumber()
-	placed.add(id, placedRecord{
-		cart: cartID, email: o.Email, count: cart.Count, totalCents: total, currency: l.Currency, delivery: o.Delivery, at: now,
-	}, now)
+	placed.add(id, placedRecord{cart: cartID, totalCents: total, currency: l.Currency, delivery: o.Delivery}, now)
 	placed.mu.Unlock()
 	*rec = cartRecord{}
 	setCookie(c, cartID)
 	return id, nil
 }
 
-// newOrderNumber returns a random order number no placed order has, such as SS-7K2QXM4TBA. The
-// caller holds placed.mu.
-func newOrderNumber() string {
-	for {
-		if id := "SS-" + rand.Text()[:10]; !placed.has(id) {
-			return id
+// address is the delivery address of an order as one line, as the back office keeps it, with the
+// name of the country in the language of l.
+func address(a Address, l storekit.Locale) string {
+	var parts []string
+	for _, p := range []string{a.Line1, a.Line2, a.City, a.Region, a.PostalCode} {
+		if p = strings.TrimSpace(p); p != "" {
+			parts = append(parts, p)
 		}
 	}
+	for _, c := range countries {
+		if c.code == a.Country {
+			parts = append(parts, c.name.In(l))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // GetPlaced returns an order placed from the cart cartID in the language of l, or
-// tifa.ErrNotFound, also when another cart placed it.
+// tifa.ErrNotFound, also when another cart placed it. It reads the order of the back office.
 func GetPlaced(id, cartID string, l storekit.Locale) (Placed, error) {
 	placed.mu.Lock()
 	r, ok := placed.get(id, time.Now())
@@ -312,8 +336,15 @@ func GetPlaced(id, cartID string, l storekit.Locale) (Placed, error) {
 	if !ok || cartID == "" || r.cart != cartID {
 		return Placed{}, tifa.ErrNotFound
 	}
-	p := Placed{ID: id, Email: r.email, Count: r.count, TotalCents: r.totalCents, Currency: r.currency, PlacedAt: r.at}
-	for _, d := range Deliveries(Cart{FreeShippingCents: 1}, r.at, l) {
+	o, err := orders.GetOrder(storekit.Project, id)
+	if err != nil {
+		return Placed{}, err
+	}
+	p := Placed{ID: id, Email: o.Email, TotalCents: r.totalCents, Currency: r.currency, PlacedAt: o.PlacedAt}
+	for _, item := range o.Items {
+		p.Count += item.Quantity
+	}
+	for _, d := range Deliveries(Cart{FreeShippingCents: 1}, o.PlacedAt, l) {
 		if d.ID == r.delivery {
 			p.Delivery = d
 		}

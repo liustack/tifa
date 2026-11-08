@@ -468,7 +468,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}
 	status, header, _ = do("POST", "/zh-CN/store/checkout", `{"email":"lin@example.com","address":{"name":"林夏","phone":"138 0013 8000","country":"CN","region":"上海市","city":"上海市","line1":"武康路 99 号","line2":"","postalCode":"200031"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
 	placed := header.Get("Location")
-	if status != 303 || !strings.HasPrefix(placed, "/zh-CN/store/checkout?placed=SS-") {
+	if status != 303 || !strings.HasPrefix(placed, "/zh-CN/store/checkout?placed=SH-") {
 		t.Fatalf("place the order: %d %s", status, placed)
 	}
 	if _, _, page := do("GET", placed, ""); !strings.Contains(rendered(page), "已提交，确认邮件已发往 lin@example.com") {
@@ -584,7 +584,7 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	total := cart.SubtotalCents - cart.DiscountCents + 360
 	status, header, _ := emma.do("POST", "/store/checkout", `{"email":"emma@example.com","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
 	placed := header.Get("Location")
-	if status != 303 || !strings.HasPrefix(placed, "/store/checkout?placed=SS-") {
+	if status != 303 || !strings.HasPrefix(placed, "/store/checkout?placed=SH-") {
 		t.Fatalf("place the order: %d %s", status, placed)
 	}
 	want := fmt.Sprintf("$%d.%02d", total/100, total%100)
