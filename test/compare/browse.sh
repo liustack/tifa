@@ -25,7 +25,7 @@
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
 #   LOCKS             files to flock while running, space separated, first taken first   none
 #   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
-#   SCENARIOS         office-w5, office-w20, office-w50 (back office writes),       office-w5,office-w20,office-w50,r80w20,store-w5,store-w20
+#   SCENARIOS         admin-w5, admin-w20, admin-w50 (admin writes),       admin-w5,admin-w20,admin-w50,r80w20,store-w5,store-w20
 #                     r95w5, r80w20, r50w50 (every write renames a customer),
 #                     store-w5, store-w20, store-w50 (the storefront)
 #   PHASES            closed (throughput at equal users), saturation (the users at   closed,saturation,sustain,latency
@@ -46,7 +46,7 @@ cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
 servers=${SERVERS:-tifa,nextjs,start,reactrouter}
-scenarios=${SCENARIOS:-office-w5,office-w20,office-w50,r80w20,store-w5,store-w20}
+scenarios=${SCENARIOS:-admin-w5,admin-w20,admin-w50,r80w20,store-w5,store-w20}
 blocks=${BLOCKS:-4}
 mkdir -p "$out" "$traces"
 compare=$out/compare

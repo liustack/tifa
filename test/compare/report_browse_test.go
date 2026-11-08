@@ -22,8 +22,8 @@ func closedRound(fw, sc string, users, round int, views int, seconds float64, pa
 func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	mix := BrowseScenarios[0]
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{
-		"office-w5/nextjs": {Rate: 16, Done: true}},
-		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"}}
+		"admin-w5/nextjs": {Rate: 16, Done: true}},
+		LatencyRate: map[string]float64{"admin-w5": 8}, LatencyBase: map[string]string{"admin-w5": "nextjs"}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 32, round, 4000, 10, true), closedRound("nextjs", mix.Name, 32, round, 400, 10, round != 2))
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 8, round, 3000, 10, true), closedRound("nextjs", mix.Name, 8, round, 380, 10, true))
@@ -33,7 +33,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	}
 	md := r.Markdown()
 	for _, want := range []string{
-		"### back office, reads 95% / writes 5%",
+		"### shop admin, reads 95% / writes 5%",
 		"| | 8 users | 32 users |",
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
@@ -56,8 +56,8 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	mix := BrowseScenarios[0]
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
-		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"},
-		Sustain: map[string]*Sustain{"office-w5/nextjs": {Rate: 16, Done: true}}}
+		LatencyRate: map[string]float64{"admin-w5": 8}, LatencyBase: map[string]string{"admin-w5": "nextjs"},
+		Sustain: map[string]*Sustain{"admin-w5/nextjs": {Rate: 16, Done: true}}}
 	for round := 1; round <= 3; round++ {
 		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
 		a.Model = "open"
@@ -187,9 +187,9 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			}
 		}
 		switch sc.Mix {
-		case MixOffice:
+		case MixAdmin:
 			if !strings.Contains(sec, "| place an order | ship |") || !strings.Contains(sec, "| 82 / 12 |") || !strings.Contains(sec, "| 21 (10.0%) |") {
-				t.Errorf("%s lacks the table of office writes:\n%s", sc.Name, sec)
+				t.Errorf("%s lacks the table of admin writes:\n%s", sc.Name, sec)
 			}
 		case MixStore:
 			if !strings.Contains(sec, "| add to cart |") {
@@ -197,7 +197,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"In the back office scenarios", "In the scenarios named for a customer rename", "The storefront scenarios replay"} {
+	for _, want := range []string{"In the admin scenarios", "In the scenarios named for a customer rename", "The storefront scenarios replay"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q", want)
 		}
@@ -218,7 +218,7 @@ func TestReportTellsABrowseResultFromARecord(t *testing.T) {
 }
 
 // For Tifa the report splits the render cache hits of full loads by kind of page, in every closed
-// run and in the read-only control of office-w5: a diagnostic of what the writes do to the cache.
+// run and in the read-only control of admin-w5: a diagnostic of what the writes do to the cache.
 func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
 	sc := BrowseScenarios[0]
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}}
@@ -253,8 +253,8 @@ func TestBrowseReportShowsServerCoresAndWhereEachServerSaturated(t *testing.T) {
 	sc := BrowseScenarios[1]
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "start"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
 		Saturated: map[string]*Saturated{
-			"office-w20/tifa":   {Users: 50, Why: "used 0.96 of 1 cpus at 50 users", Steps: []int{40, 50}, Probed: true},
-			"office-w20/nextjs": {Users: 32, Why: "at 40 users the page views a second rose by less than the spread of the rounds", Tifa: "abc1234", Date: "2026-11-01"},
+			"admin-w20/tifa":   {Users: 50, Why: "used 0.96 of 1 cpus at 50 users", Steps: []int{40, 50}, Probed: true},
+			"admin-w20/nextjs": {Users: 32, Why: "at 40 users the page views a second rose by less than the spread of the rounds", Tifa: "abc1234", Date: "2026-11-01"},
 		}}
 	for round, d := range []int{-10, 0, 10} {
 		r.Closed = append(r.Closed, closedRound("tifa", sc.Name, 32, round+1, 4000+d, 10, true), closedRound("nextjs", sc.Name, 32, round+1, 400+d, 10, true), closedRound("start", sc.Name, 32, round+1, 300+d, 10, true))

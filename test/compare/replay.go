@@ -20,8 +20,8 @@ import (
 // BrowseScenario is one workload of the browse comparison: a site, a share of the user actions (a
 // page view or a write) that are writes, and which writes they are. The shares are those of the
 // TPC-W mixes (https://www.tpc.org/tpcw/): browsing 5%, shopping 20% and ordering 50% of the actions
-// are writes. Which writes they are is the Mix: "office" (place, ship, annotate and fix the delivery
-// of orders, MixOffice), "rename" (every write gives an order a new customer name, which the lists,
+// are writes. Which writes they are is the Mix: "admin" (place, ship, annotate and fix the delivery
+// of orders, MixAdmin), "rename" (every write gives an order a new customer name, which the lists,
 // the stats and the other orders of that customer show: the harder case for a cache, MixRename) or
 // "store" (a visitor of the storefront fills a cart and checks out, MixStore).
 type BrowseScenario struct {
@@ -51,9 +51,9 @@ const openBase = "nextjs"
 // BrowseScenarios are the scenarios, in the order they are measured. A visit is 4 page views on
 // average (one full load in four, 75% client navigations), an assumption and not a measurement.
 var BrowseScenarios = []BrowseScenario{
-	{"office-w5", "back office, reads 95% / writes 5%", 0.05, MixOffice},
-	{"office-w20", "back office, reads 80% / writes 20%", 0.20, MixOffice},
-	{"office-w50", "back office, reads 50% / writes 50%", 0.50, MixOffice},
+	{"admin-w5", "shop admin, reads 95% / writes 5%", 0.05, MixAdmin},
+	{"admin-w20", "shop admin, reads 80% / writes 20%", 0.20, MixAdmin},
+	{"admin-w50", "shop admin, reads 50% / writes 50%", 0.50, MixAdmin},
 	{"r95w5", "reads 95% / writes 5%, every write renames a customer", 0.05, MixRename},
 	{"r80w20", "reads 80% / writes 20%, every write renames a customer", 0.20, MixRename},
 	{"r50w50", "reads 50% / writes 50%, every write renames a customer", 0.50, MixRename},
@@ -62,10 +62,10 @@ var BrowseScenarios = []BrowseScenario{
 	{"store-w50", "storefront, reads 50% / writes 50%", 0.50, MixStore},
 }
 
-// DefaultScenarios are the scenarios that run when none is asked for: the back office at the three
+// DefaultScenarios are the scenarios that run when none is asked for: the admin at the three
 // rates, the rename stress at 20% only and the storefront at 5% (the open run of the storefront) and
 // 20%.
-const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20,store-w5,store-w20"
+const DefaultScenarios = "admin-w5,admin-w20,admin-w50,r80w20,store-w5,store-w20"
 
 // BrowseScenarioByName finds a scenario of the browse comparison.
 func BrowseScenarioByName(name string) (BrowseScenario, bool) {
@@ -132,7 +132,7 @@ type runner struct {
 	cpu      func() float64 // processor seconds of the server so far
 	rss      func() int64   // its peak resident size in bytes
 	writes   atomic.Int64   // the number of writes made, which gives each rename its address
-	pool     pool           // the orders that office writes go to, kept as long as the server lives
+	pool     pool           // the orders that admin writes go to, kept as long as the server lives
 }
 
 // mix is the mix of writes the runner plays.
@@ -152,7 +152,7 @@ type acc struct {
 	renders, responses                  map[string]int
 	lat                                 map[string][]float64
 	lastAction                          time.Time
-	// kinds counts the writes by kind, and poolEmpty the office writes that found no order to go to
+	// kinds counts the writes by kind, and poolEmpty the admin writes that found no order to go to
 	// and were sent as a create instead (they are among the creates).
 	kinds     map[string]int
 	poolEmpty int

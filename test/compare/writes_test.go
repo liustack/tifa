@@ -84,7 +84,7 @@ func viewOf(t *testing.T, base string, p compare.Page) compare.View {
 	return v
 }
 
-// TestWritesLandAndPagesChangeAlike sends the four writes of the back office (place an order, ship
+// TestWritesLandAndPagesChangeAlike sends the four writes of the shop's admin (place an order, ship
 // it, change the recipient, add a note) and their refusals to each server and checks that all
 // answer with the same status and the same order, and that the pages which show the data change,
 // and then show the same, in every server. A page is checked before and after each write, so a
@@ -234,12 +234,12 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	}
 }
 
-// backOfficeWrites are the four kinds of write of the back office, in an order every one of them is
+// adminWrites are the four kinds of write of the admin, in an order every one of them is
 // allowed in: three orders are placed (SH-1043, WK-0202 and SH-1044), SH-1043 is shipped and then
 // gets a note (the port counts milliseconds and Go nanoseconds, so a note and a shipment of one
 // order made in the same millisecond must come in the order the log lists them), and an order of
 // the data is shipped too.
-func backOfficeWrites() []compare.DomainWrite {
+func adminWrites() []compare.DomainWrite {
 	place := func(project string, items ...map[string]any) compare.DomainWrite {
 		return compare.DomainWrite{Kind: compare.WriteCreate, Project: project, Body: map[string]any{
 			"customer": " 林夏 ", "phone": "138-0013 8000", "email": "linxia@example.com", "address": "上海市徐汇区 · 新地址", "note": "请附手写卡片", "items": items}}
@@ -329,7 +329,7 @@ func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
 const SideRows = 10
 
 // TestStatsCarrierTableCountsAShip places an order and ships it with ZTO in each server, and checks
-// that the carrier table of the stats page, as the office check of the browse comparison reads it
+// that the carrier table of the stats page, as the admin check of the browse comparison reads it
 // (CarrierParcels), counts one more ZTO parcel, the same in all four.
 func TestStatsCarrierTableCountsAShip(t *testing.T) {
 	env := setup(t)

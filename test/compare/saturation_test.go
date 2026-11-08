@@ -132,7 +132,7 @@ func TestTheSaturationFileKeepsEachEntry(t *testing.T) {
 	for _, e := range []struct {
 		sc, fw string
 		s      Saturated
-	}{{"office-w5", "tifa", a}, {"office-w5", "nextjs", b}, {"store-w5", "nextjs", b}, {"office-w5", "nextjs", a}} {
+	}{{"admin-w5", "tifa", a}, {"admin-w5", "nextjs", b}, {"store-w5", "nextjs", b}, {"admin-w5", "nextjs", a}} {
 		if err := writeSaturation(path, e.sc, e.fw, e.s); err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +142,7 @@ func TestTheSaturationFileKeepsEachEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Probed = false // the file holds what was measured, not by which run
-	want := SaturationFile{"office-w5": {"tifa": a, "nextjs": a}, "store-w5": {"nextjs": b}}
+	want := SaturationFile{"admin-w5": {"tifa": a, "nextjs": a}, "store-w5": {"nextjs": b}}
 	if !reflect.DeepEqual(f, want) {
 		t.Errorf("file %+v, want %+v", f, want)
 	}

@@ -79,7 +79,7 @@ type BrowseResult struct {
 	// Blocks is the size of the measured workload of each scenario, number of users and spec (whole
 	// blocks), taken from the warm-up of its first round.
 	Blocks map[string]int `json:"blocks"`
-	// Sustain is, per scenario and spec ("office-w5/tifa"), the search for the arrival rate it
+	// Sustain is, per scenario and spec ("admin-w5/tifa"), the search for the arrival rate it
 	// sustains in the open model.
 	Sustain map[string]*Sustain `json:"sustain"`
 	// LatencyRate is, per scenario, the rate that all its servers were run at: half of the lowest
@@ -87,13 +87,13 @@ type BrowseResult struct {
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
-	// Control is the read-only control of office-w5: Tifa at the users of the closed runs with the
+	// Control is the read-only control of admin-w5: Tifa at the users of the closed runs with the
 	// same traces and no writes, one short round, to show what the writes do to its render cache.
 	Control []Round `json:"control,omitempty"`
 	// Saturation holds the rounds above the users of every server, for the servers that did not use
 	// their cpus there: the steps of a probe, or the users from SaturationFile.
 	Saturation []Round `json:"saturation,omitempty"`
-	// Saturated is, per scenario and server ("office-w5/tifa"), the users at which it saturated.
+	// Saturated is, per scenario and server ("admin-w5/tifa"), the users at which it saturated.
 	Saturated map[string]*Saturated `json:"saturated,omitempty"`
 }
 
@@ -413,11 +413,11 @@ func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
 // controlScenario is the scenario of the read-only control, and controlWindow about how long its
 // one round takes (the target of the closed rounds when that is shorter).
 const (
-	controlScenario = "office-w5"
+	controlScenario = "admin-w5"
 	controlWindow   = 30 * time.Second
 )
 
-// control is a diagnostic, not a result: on office-w5, one closed round of Tifa (with its caches as
+// control is a diagnostic, not a result: on admin-w5, one closed round of Tifa (with its caches as
 // it ships) at the users of the closed runs, with the same traces and no writes. Against the closed
 // rounds it shows what the writes do to the render cache of each kind of page.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
@@ -749,7 +749,7 @@ func (r *runner) verifyWrites(ctx context.Context) error {
 	case MixRename:
 		return r.verifyRename(ctx)
 	}
-	return r.verifyOffice(ctx)
+	return r.verifyAdmin(ctx)
 }
 
 // get reads a page or the navigation data of a page.
@@ -825,7 +825,7 @@ func (r *runner) shows(ctx context.Context, what, page string, texts ...string) 
 	return nil
 }
 
-// verifyOffice makes each write of the office mix once and checks what it changes.
+// verifyAdmin makes each write of the admin mix once and checks what it changes.
 //
 //  1. Place an order with a note of its own: its page, the list of the project and the data of the
 //     list show it.
@@ -838,7 +838,7 @@ func (r *runner) shows(ctx context.Context, what, page string, texts ...string) 
 // The data of an order that was placed here has no trace to ask a navigation request from, so it is
 // read as a document. The order of step 1 is shipped in step 4, so the pool of the writes is what it
 // was.
-func (r *runner) verifyOffice(ctx context.Context) error {
+func (r *runner) verifyAdmin(ctx context.Context) error {
 	v := &visitState{client: &http.Client{}}
 	call := func(method, path string, body any) ([]byte, error) {
 		a, _, _, err := r.request(ctx, v, method, path, mustJSON(body))

@@ -292,12 +292,12 @@ func TestVerifyStoreFailsOnAWrongStatus(t *testing.T) {
 }
 
 func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
-	store, office := BrowseScenarios[len(BrowseScenarios)-2], BrowseScenarios[0]
-	if store.Name != "store-w20" || office.Name != "office-w5" {
-		t.Fatalf("scenarios %s and %s", store.Name, office.Name)
+	store, admin := BrowseScenarios[len(BrowseScenarios)-2], BrowseScenarios[0]
+	if store.Name != "store-w20" || admin.Name != "admin-w5" {
+		t.Fatalf("scenarios %s and %s", store.Name, admin.Name)
 	}
 	env := Env{Shop: "/shop"}
-	for _, sc := range []BrowseScenario{store, office} {
+	for _, sc := range []BrowseScenario{store, admin} {
 		specs, err := env.browseSpecs(sc, BrowseFrameworks)
 		if err != nil {
 			t.Fatal(err)
@@ -338,7 +338,7 @@ func TestTheFivePercentScenariosHaveTheOpenRunAndMoreUsers(t *testing.T) {
 			t.Errorf("%s: users %s", name, users)
 		}
 	}
-	if len(open) != 2 || !open["office-w5"] || !open["store-w5"] {
+	if len(open) != 2 || !open["admin-w5"] || !open["store-w5"] {
 		t.Errorf("the default scenarios with an open run: %v", open)
 	}
 }

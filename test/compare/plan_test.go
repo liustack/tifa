@@ -128,18 +128,18 @@ func TestBlockWritesGiveExactlyTheShareOfTheMix(t *testing.T) {
 	}
 }
 
-// The office writes of a block come by quota: the kinds by their shares (largest remainders for
+// The admin writes of a block come by quota: the kinds by their shares (largest remainders for
 // what does not divide) and the projects half and half, at the same page views for every mix of
 // writes with the same share.
-func TestOfficeWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
+func TestAdminWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
 	set := GeneratePlanSet(7, 2)
 	for _, tc := range []struct {
 		name  string
 		kinds map[string]int
 	}{
-		{"office-w5", map[string]int{WriteCreate: 8, WriteShip: 6, WriteNote: 4, WriteRecipient: 2}},
-		{"office-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
-		{"office-w50", map[string]int{WriteCreate: 152, WriteShip: 114, WriteNote: 76, WriteRecipient: 38}},
+		{"admin-w5", map[string]int{WriteCreate: 8, WriteShip: 6, WriteNote: 4, WriteRecipient: 2}},
+		{"admin-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
+		{"admin-w50", map[string]int{WriteCreate: 152, WriteShip: 114, WriteNote: 76, WriteRecipient: 38}},
 	} {
 		sc := scenario(t, tc.name)
 		for blk := range 2 {
@@ -153,7 +153,7 @@ func TestOfficeWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
 				kinds[w.Kind]++
 				projects[w.Project]++
 				if w.Order != (WriteOrder{}) || w.Store != nil {
-					t.Fatalf("an office write names its order: %+v", w)
+					t.Fatalf("an admin write names its order: %+v", w)
 				}
 			}
 			if !reflect.DeepEqual(kinds, tc.kinds) {
@@ -174,8 +174,8 @@ func TestOfficeWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
 			}
 		}
 	}
-	a, _ := BlockWrites(7, set.Plans[:BlockVisits], scenario(t, "office-w20"))
-	b, _ := BlockWrites(7, set.Plans[:BlockVisits], scenario(t, "office-w20"))
+	a, _ := BlockWrites(7, set.Plans[:BlockVisits], scenario(t, "admin-w20"))
+	b, _ := BlockWrites(7, set.Plans[:BlockVisits], scenario(t, "admin-w20"))
 	if !reflect.DeepEqual(a, b) {
 		t.Error("two calls give other writes")
 	}
@@ -204,19 +204,19 @@ func TestQuotaGivesEachKindItsShareAndTheRestByTheLargestRemainder(t *testing.T)
 	}
 }
 
-func TestOfficeBodiesAreValidAndTheSameEveryTime(t *testing.T) {
+func TestAdminBodiesAreValidAndTheSameEveryTime(t *testing.T) {
 	phone, tracking := regexp.MustCompile(`^1[3-9][0-9]{9}$`), regexp.MustCompile(`^[A-Za-z0-9]{8,20}$`)
 	for plan := range 300 {
 		for after := range 6 {
 			for _, project := range []string{"studio", "weekend"} {
-				c := OfficeBody(7, plan, after, WriteCreate, project).(map[string]any)
-				if !reflect.DeepEqual(c, OfficeBody(7, plan, after, WriteCreate, project)) {
+				c := AdminBody(7, plan, after, WriteCreate, project).(map[string]any)
+				if !reflect.DeepEqual(c, AdminBody(7, plan, after, WriteCreate, project)) {
 					t.Fatal("a body changed between two calls")
 				}
 				if !phone.MatchString(c["phone"].(string)) || c["customer"] == "" || c["address"] == "" {
 					t.Fatalf("create %v", c)
 				}
-				items := c["items"].([]officeLine)
+				items := c["items"].([]adminLine)
 				if len(items) < 1 || len(items) > 3 {
 					t.Fatalf("%d items", len(items))
 				}
@@ -227,19 +227,19 @@ func TestOfficeBodiesAreValidAndTheSameEveryTime(t *testing.T) {
 					}
 					seen[l.Slug] = true
 				}
-				if s := OfficeBody(7, plan, after, WriteShip, project).(map[string]any); !tracking.MatchString(s["trackingNo"].(string)) || !slices.Contains(carrierCodes, s["carrier"].(string)) {
+				if s := AdminBody(7, plan, after, WriteShip, project).(map[string]any); !tracking.MatchString(s["trackingNo"].(string)) || !slices.Contains(carrierCodes, s["carrier"].(string)) {
 					t.Fatalf("ship %v", s)
 				}
-				if n := OfficeBody(7, plan, after, WriteNote, project).(map[string]any)["text"].(string); n == "" || len([]rune(n)) > 200 {
+				if n := AdminBody(7, plan, after, WriteNote, project).(map[string]any)["text"].(string); n == "" || len([]rune(n)) > 200 {
 					t.Fatalf("note %q", n)
 				}
-				if r := OfficeBody(7, plan, after, WriteRecipient, project).(map[string]any); !phone.MatchString(r["phone"].(string)) || len([]rune(r["address"].(string))) > 100 {
+				if r := AdminBody(7, plan, after, WriteRecipient, project).(map[string]any); !phone.MatchString(r["phone"].(string)) || len([]rune(r["address"].(string))) > 100 {
 					t.Fatalf("recipient %v", r)
 				}
 			}
 		}
 	}
-	if OfficeAddress(1, 2) == OfficeAddress(1, 3) || OfficeAddress(1, 2) == OfficeAddress(2, 2) {
+	if AdminAddress(1, 2) == AdminAddress(1, 3) || AdminAddress(1, 2) == AdminAddress(2, 2) {
 		t.Error("addresses repeat")
 	}
 }
@@ -279,7 +279,7 @@ func newRand(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, 0)) }
 
 // The read-only control is a scenario with no writes: its blocks get none.
 func TestAScenarioWithNoWritesGetsNone(t *testing.T) {
-	sc := scenario(t, "office-w5")
+	sc := scenario(t, "admin-w5")
 	sc.Share = 0
 	ws, err := BlockWrites(7, GeneratePlanSet(7, 1).Plans, sc)
 	if err != nil || len(ws) != 0 {

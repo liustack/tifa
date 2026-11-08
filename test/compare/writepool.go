@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// The writes of the office mix go to orders that exist on the server at that moment, which only the
+// The writes of the admin mix go to orders that exist on the server at that moment, which only the
 // server knows: shipping uses an order up, and a new order exists once its create is answered. So
 // each runner keeps a pool of the orders that have not shipped, per project. It starts with the
 // orders of the data that wait to ship and lives as long as the server does.
@@ -154,7 +154,7 @@ func (r *runner) request(ctx context.Context, v *visitState, method, path string
 // doWrite sends a write of the plan and times it from when it was scheduled. In the store mix it
 // sends the request of the plan to the path of this app, with the cookies of the visit, and the
 // status must be the one the plan says (a redirect is not followed). In the rename mix it renames a
-// customer of one of the three orders of the data. In the office mix it goes to an order of the
+// customer of one of the three orders of the data. In the admin mix it goes to an order of the
 // pool, or is a create when the pool has none.
 func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWrite, scheduled time.Time) error {
 	kind, empty := w.Kind, false
@@ -182,7 +182,7 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 		if entry == nil && kind != WriteCreate {
 			kind, empty = WriteCreate, true
 		}
-		payload := OfficeBody(r.seed, w.Plan, w.After, kind, w.Project)
+		payload := AdminBody(r.seed, w.Plan, w.After, kind, w.Project)
 		switch kind {
 		case WriteCreate:
 			method, path = http.MethodPost, r.create(w.Project)

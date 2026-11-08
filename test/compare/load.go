@@ -72,9 +72,9 @@ type Round struct {
 	Responses   map[string]int            `json:"responses,omitempty"`
 	Types       map[string]TypeStat       `json:"types"`
 
-	// WriteKinds counts the writes by kind. PoolEmpty counts the office writes that found no order to
+	// WriteKinds counts the writes by kind. PoolEmpty counts the admin writes that found no order to
 	// go to and were sent as a create instead (they are among the creates). Orders is, for each
-	// project, how many orders the server held at the end of an office round: those of the data and
+	// project, how many orders the server held at the end of an admin round: those of the data and
 	// every order placed since it started.
 	WriteKinds map[string]int `json:"writeKinds,omitempty"`
 	PoolEmpty  int            `json:"poolEmpty,omitempty"`
@@ -209,9 +209,9 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 	return round
 }
 
-// countOrders notes, after an office round, how many orders each project holds.
+// countOrders notes, after an admin round, how many orders each project holds.
 func (r *runner) countOrders(round *Round) {
-	if r.mix() == MixOffice {
+	if r.mix() == MixAdmin {
 		round.Orders = r.pool.orderCounts()
 	}
 }

@@ -389,7 +389,7 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 }
 
 // TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes, and
-// then every kind of write of the back office (place, ship, note, change the recipient), to the Go
+// then every kind of write of the shop's admin (place, ship, note, change the recipient), to the Go
 // shop and applies them in the port, and checks that the data of every page, with the pages of the
 // orders placed, is still the same. Instants are left out, since the two make them at different times.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
@@ -404,7 +404,7 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 		t.Fatalf("only %d writes", len(recipients))
 	}
 	writes := compare.RecipientWrites(recipients)
-	writes = append(writes, backOfficeWrites()...)
+	writes = append(writes, adminWrites()...)
 	want, err := env.GoData(ctx, writes...)
 	if err != nil {
 		t.Fatal(err)

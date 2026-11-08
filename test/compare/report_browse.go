@@ -133,8 +133,8 @@ func (r *BrowseResult) Markdown() string {
 	for _, sc := range r.Scenarios {
 		mixes[sc.Mix] = true
 	}
-	if mixes[MixOffice] {
-		b.WriteString(officeText)
+	if mixes[MixAdmin] {
+		b.WriteString(adminText)
 	}
 	if mixes[MixRename] {
 		b.WriteString(renameText)
@@ -262,7 +262,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 	}
 	r.pageRendersMarkdown(b, sc, users)
 	switch sc.Mix {
-	case MixOffice:
+	case MixAdmin:
 		b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | place an order | ship | note | recipient | sent as a place-an-order write for lack of an order (share of the writes) | write P50 ms: place / ship / note / recipient | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 		for _, f := range fw {
 			rs := r.cellRounds(f, sc.Name, users)
@@ -457,8 +457,8 @@ func (r *BrowseResult) checks() map[string]*TraceCheck {
 // visitsText is what the report says about the visits of every scenario.
 const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. Plans come in blocks of 95 visits and 380 page views, so every round has exactly 25% full loads, 75% client navigations and 4 page views a visit, and the writes of its scenario by quota: of 100 user actions, a page view or a write, 5, 20 or 50 are writes, as in the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/). What a visit is made of (its length, the links clicked, what the writes are) is assumed, not measured. Every round, closed or open, starts a fresh server, and the warm-ups send no writes, so every round starts with the same data. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
-// officeText is what the report says about the back office scenarios.
-const officeText = "In the back office scenarios the staff of the shop work on orders: 40% of the writes place an order, 30% ship one, 20% add a note and 10% change the recipient, half of them in the studio shop and half in the weekend shop (by quota in every block). A place-an-order write adds a new order (the shop gives it the next number) that the lists, the stats and the pages of orders with the same product or customer show. A ship write takes the oldest order that has not shipped, and a note or a recipient write takes one of them at random, among the orders that were not shipped yet when the server started and the ones placed since. A write that finds no such order is sent as a place-an-order write instead, and counted below. Orders pile up while a server runs, so the lists and stats get heavier the more orders a framework places in a round: the table of writes says how many orders each server held at the end of a round. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization.\n\n"
+// adminText is what the report says about the admin scenarios.
+const adminText = "In the admin scenarios the staff of the shop work on orders: 40% of the writes place an order, 30% ship one, 20% add a note and 10% change the recipient, half of them in the studio shop and half in the weekend shop (by quota in every block). A place-an-order write adds a new order (the shop gives it the next number) that the lists, the stats and the pages of orders with the same product or customer show. A ship write takes the oldest order that has not shipped, and a note or a recipient write takes one of them at random, among the orders that were not shipped yet when the server started and the ones placed since. A write that finds no such order is sent as a place-an-order write instead, and counted below. Orders pile up while a server runs, so the lists and stats get heavier the more orders a framework places in a round: the table of writes says how many orders each server held at the end of a round. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization.\n\n"
 
 // renameText is what the report says about the scenarios where every write renames a customer.
 const renameText = "In the scenarios named for a customer rename, every write gives one of the three orders of the data that can still change a customer name that no write gave before, which the lists, the stats and the other orders of that customer show, the harder case for a cache.\n\n"
