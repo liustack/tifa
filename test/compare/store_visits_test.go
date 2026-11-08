@@ -122,7 +122,7 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 		againRender            []string
 		rendered               bool
 	}{
-		{"tifa", "", "", []string{"memo"}, true},
+		{"tifa", "", "", []string{compare.RenderHit}, true},
 		{"tifa-nocache", "", "", []string{"vm"}, false},
 	} {
 		server, err := mustTarget(t, env, c.name).Start(ctx, "")
@@ -134,7 +134,7 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 			started := time.Now()
 			first, again := ask(server.Base, page), ask(server.Base, page)
 			repeated := false
-			if c.rendered && again.render != "memo" && compare.StoreDayChanged(started, time.Now()) {
+			if c.rendered && again.render != compare.RenderHit && compare.StoreDayChanged(started, time.Now()) {
 				// A day of the store changed between the two requests, so the data of the page changed
 				// with it and the second render was right. Ask the pair again, once.
 				first, again = ask(server.Base, page), ask(server.Base, page)
@@ -146,7 +146,7 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 			if again.cache != c.againCache || !slices.Contains(c.againRender, again.render) {
 				t.Errorf("%s: second request of %s answered %+v, want Cache-Status %q and a render of %v", c.name, page, again, c.againCache, c.againRender)
 			}
-			fromMemo = fromMemo || again.render == "memo"
+			fromMemo = fromMemo || again.render == compare.RenderHit
 		}
 		if fromMemo != c.rendered {
 			t.Errorf("%s: a second answer came from the render memo: %v, want %v", c.name, fromMemo, c.rendered)

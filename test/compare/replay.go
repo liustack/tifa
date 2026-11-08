@@ -449,7 +449,7 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 	// Tifa says how it answered a page: a document, and also the navigation data of a page, which can
 	// render the page in a VM too (one with Cache). Every answer that says so is counted,
 	// by the kind of page of the page view.
-	if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
+	if rd := res.Header.Get(RenderHeader); rd != "" && rd != RenderNone {
 		a.renders[rd]++
 		kind := pageClass(page)
 		if a.pageRenders[kind] == nil {

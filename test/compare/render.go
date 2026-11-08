@@ -72,3 +72,14 @@ func parseRender(out string) ([]RenderResult, error) {
 	}
 	return results, nil
 }
+
+// The values of X-Tifa-Render that the comparison reads: a render in a VM, an answer that waited for
+// a render of the same page in flight, an answer with no render (a redirect, a write), and a hit of the
+// render memo, the one that skips the render. Every check and table reads the hit through RenderHit.
+const (
+	RenderHeader = "X-Tifa-Render"
+	RenderVM     = "vm"
+	RenderShared = "shared"
+	RenderNone   = "none"
+	RenderHit    = "memo"
+)
