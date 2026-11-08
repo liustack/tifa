@@ -277,6 +277,7 @@ func Load(s *Sources, settings map[string]string) (c Config, from map[string]str
 		}
 		errs = append(errs, ferrs...)
 	}
+	errs = append(errs, s.removedErrors()...)
 	return c, from, errors.Join(errs...)
 }
 
@@ -291,6 +292,11 @@ func Project(data []byte) (Config, map[string]string, error) {
 	}
 	settings := map[string]string{}
 	var errs []error
+	for _, r := range removedKeys {
+		if e, ok := entries[r.key]; ok {
+			errs = append(errs, fmt.Errorf("config: tifa.yaml line %d: %s is not a setting any more, %s", e.line, r.key, r.hint))
+		}
+	}
 	for _, f := range fields(&c) {
 		e, ok := entries[f.key]
 		if !ok {
@@ -310,4 +316,36 @@ func Project(data []byte) (Config, map[string]string, error) {
 		}
 	}
 	return c, settings, errors.Join(errs...)
+}
+
+// removedKeys are settings that existed in an earlier version and are gone. They are errors where
+// they used to work, since ignoring them would have a deployment go on with the default.
+var removedKeys = []struct{ key, hint string }{
+	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE)"},
+	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program"},
+	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean"},
+}
+
+// removedErrors reports the removed settings that the sources name. projectFile is the entries of
+// the project tifa.yaml, nil when Load reads the sources of a running program.
+func (s *Sources) removedErrors() []error {
+	var errs []error
+	for _, r := range removedKeys {
+		report := func(where string) {
+			errs = append(errs, fmt.Errorf("config: %s: %s is not a setting any more, %s", where, r.key, r.hint))
+		}
+		if _, ok := s.file[r.key]; ok {
+			report("file " + s.fileName)
+		}
+		if _, ok, _ := s.flag(FlagName(r.key), false); ok {
+			report("flag --" + FlagName(r.key))
+		}
+		if _, ok := s.env[EnvName(r.key)]; ok {
+			report("env " + EnvName(r.key))
+		}
+		if _, ok := s.dotenv[EnvName(r.key)]; ok {
+			report(".env " + EnvName(r.key))
+		}
+	}
+	return errs
 }

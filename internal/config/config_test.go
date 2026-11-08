@@ -862,3 +862,55 @@ func TestCacheControlSMaxage(t *testing.T) {
 		}
 	}
 }
+
+// The settings that were removed or renamed are errors in every place they could be given, and say
+// what to do. They used to be ignored, so a deployment that turned the cache off would have gone on
+// with the default.
+func TestRemovedSettingsAreErrors(t *testing.T) {
+	size := []string{"cache.size", "ssr.memo_size", "--ssr-memo-size", "SSR_MEMO_SIZE"}
+	whole := []string{"cache.whole_page", "removed"}
+	ignore := []string{"cache.ignore_query", "removed"}
+	dir := dotenvDir(t, "CACHE_SIZE=0\n")
+	for name, tc := range map[string]struct {
+		args, environ []string
+		project       string
+		dotenv        bool
+		want          []string
+	}{
+		"size in the project file":  {project: "cache:\n  size: 1MiB\n", want: size},
+		"size flag":                 {args: []string{"--cache-size=0"}, want: size},
+		"size flag with a space":    {args: []string{"--cache-size", "0"}, want: size},
+		"size env":                  {environ: []string{"CACHE_SIZE=0"}, want: size},
+		"size in the file of -c":    {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  size: 1MiB\n")}, want: size},
+		"size in .env":              {dotenv: true, want: size},
+		"whole_page project file":   {project: "cache:\n  whole_page: false\n", want: whole},
+		"whole_page flag":           {args: []string{"--cache-whole-page=false"}, want: whole},
+		"whole_page env":            {environ: []string{"CACHE_WHOLE_PAGE=false"}, want: whole},
+		"ignore_query project file": {project: "cache:\n  ignore_query: ref\n", want: ignore},
+		"ignore_query flag":         {args: []string{"--cache-ignore-query", "ref"}, want: ignore},
+		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
+	} {
+		var err error
+		switch {
+		case tc.project != "":
+			_, _, err = Project([]byte(tc.project))
+		case tc.dotenv:
+			_, _, err = Load(Read(nil, nil, dir), nil)
+		default:
+			_, err = load(t, tc.args, tc.environ, "", "")
+		}
+		if err == nil {
+			t.Errorf("%s: no error", name)
+			continue
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %v lacks %q", name, err, w)
+			}
+		}
+	}
+	// The other keys of an app stay its own.
+	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "tifa.yaml", "cache:\n  ttl: 5\n"); err != nil {
+		t.Errorf("a key of the app: %v", err)
+	}
+}
