@@ -31,9 +31,9 @@ func checkStorefrontNoPageCache(t *testing.T, base string) {
 		// The answers need not be equal: a product page carries the time of the request in its
 		// delivery dates, so its data is new each time and the render cache cannot reuse it.
 		status, first, _ := get(t, base+path)
-		_, second, _ := get(t, base+path)
-		if status != 200 {
-			t.Errorf("%s: %d", path, status)
+		status2, second, _ := get(t, base+path)
+		if status != 200 || status2 != 200 {
+			t.Errorf("%s: %d then %d", path, status, status2)
 		}
 		notKept(path, first)
 		notKept(path, second)
@@ -42,7 +42,7 @@ func checkStorefrontNoPageCache(t *testing.T, base string) {
 		}
 	}
 
-	// Cookies and tracking parameters do not make a page of their own.
+	// Cookies do not make a page of their own.
 	page := base + "/zh-CN/store/journal?e2e=cache"
 	_, _, plain := get(t, page)
 	_, h, withCookies := get(t, page, "Cookie", "store_cart=abc; shop_seen=oak-tray.ceramic-cup; lang=en-US", "Accept-Language", "en-US")
@@ -80,9 +80,9 @@ func checkStorefrontSignedIn(t *testing.T, base, buildID, cookie string) {
 	if !strings.Contains(anonymous, `<html data-session="out"`) {
 		t.Errorf("the anonymous page does not say that no one is signed in: %.120s", anonymous)
 	}
-	_, h, again := get(t, page)
-	if h.Get("Cache-Status") != "" || again != anonymous || !strings.Contains(again, `<html data-session="out"`) {
-		t.Errorf("an anonymous visitor after a signed-in one: %v, same page as before: %v", h, again == anonymous)
+	status, h, again := get(t, page)
+	if status != 200 || h.Get("Cache-Status") != "" || h.Get("Cache-Control") != "private, no-cache" || again != anonymous || !strings.Contains(again, `<html data-session="out"`) {
+		t.Errorf("an anonymous visitor after a signed-in one: %d %v, same page as before: %v", status, h, again == anonymous)
 	}
 	status, h, data := get(t, dataURL(page, buildID, "11"), "Cookie", cookie)
 	if status != 200 || h.Get("Cache-Control") != "private, no-cache" || !strings.Contains(data, `"session":{"signedIn":true`) {
