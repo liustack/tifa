@@ -6,13 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
 )
 
-// Restocking before a run. A checkout of the storefront takes its pieces from the stock of the
-// shop, so a run of many visits would sell products out, and its checkouts would be refused. Before
+// Restocking before a run. An order takes its pieces from the stock of its shop, a checkout of the
+// storefront and an order staff place alike, so a run of many visits would sell products out, and
+// its orders would be refused. Before
 // a run with writes starts its clock, every product is given the stock the run can buy at most, with
 // room to spare, through the back office, as staff would change it. All four servers get the same
 // requests, none of them renders a page, and none of it is timed.
@@ -23,38 +25,59 @@ const stockMargin = 2
 // maxStock is the most stock the back office takes for a product (Edit.Validate in the shop).
 const maxStock = 99_999
 
-// StockFor returns the stock each product needs for visits visits of plans with writes (the plans
-// in order, over and over, as a run plays them): stockMargin times the pieces of it that the
-// checkouts of those visits can buy at most. A product no checkout can buy is not in it. The cart of
-// a visit is followed as the shop keeps it: it starts with the demonstration cart, an add puts at
-// most maxLine of one line in it, a quantity change sets a line and a checkout empties it.
-func StockFor(plans []Plan, writes []PlannedWrite, visits int) map[string]int {
+// StockFor returns the stock each product of each shop needs for visits visits of plans with writes
+// (the plans in order, over and over, as a run plays them), by project and then slug: stockMargin
+// times the pieces of it that the orders of those visits can take at most. A product no order can
+// take is not in it. Every order takes its pieces from the stock: a checkout of the storefront from
+// studio, and an order staff place from its shop.
+//
+// The cart of a visit is followed as the shop keeps it: it starts with the demonstration cart, an
+// add puts at most maxLine of one line in it, a quantity change sets a line and a checkout empties
+// it. Any write of the back office may place an order, because one that finds no order in the pool
+// places one instead, so each counts with the items AdminBody gives its create (seed is the seed of
+// the workload, as the replay passes it).
+func StockFor(seed uint64, plans []Plan, writes []PlannedWrite, visits int) map[string]map[string]int {
 	byPlan := map[int][]PlannedWrite{}
 	for _, w := range writes {
-		if w.Store != nil {
-			byPlan[w.Plan] = append(byPlan[w.Plan], w)
-		}
+		byPlan[w.Plan] = append(byPlan[w.Plan], w)
 	}
-	bought := map[int]map[string]int{} // by plan
+	bought := map[int]map[string]map[string]int{} // by plan
 	for _, p := range plans {
-		bought[p.ID] = boughtBy(byPlan[p.ID])
+		bought[p.ID] = boughtBy(seed, byPlan[p.ID])
 	}
-	need := map[string]int{}
+	need := map[string]map[string]int{}
 	for s := range visits {
-		for slug, n := range bought[plans[s%len(plans)].ID] {
-			need[slug] += stockMargin * n
+		for project, n := range bought[plans[s%len(plans)].ID] {
+			if need[project] == nil {
+				need[project] = map[string]int{}
+			}
+			for slug, k := range n {
+				need[project][slug] += stockMargin * k
+			}
 		}
 	}
 	return need
 }
 
-// boughtBy is the pieces of each product that the checkouts of one visit buy at most.
-func boughtBy(writes []PlannedWrite) map[string]int {
+// boughtBy is the pieces of each product of each shop that the orders of one visit take at most.
+func boughtBy(seed uint64, writes []PlannedWrite) map[string]map[string]int {
 	writes = slices.Clone(writes)
 	slices.SortFunc(writes, func(a, b PlannedWrite) int { return a.After - b.After })
 	cart := demoCart()
-	out := map[string]int{}
+	out := map[string]map[string]int{}
+	take := func(project, slug string, n int) {
+		if out[project] == nil {
+			out[project] = map[string]int{}
+		}
+		out[project][slug] += n
+	}
 	for _, w := range writes {
+		if w.Store == nil {
+			for _, l := range AdminBody(seed, w.Plan, w.After, WriteCreate, w.Project).(map[string]any)["items"].([]adminLine) {
+				take(w.Project, l.Slug, l.Quantity)
+			}
+			continue
+		}
 		var body struct {
 			Color, Size, Line string
 			Quantity          int
@@ -81,7 +104,7 @@ func boughtBy(writes []PlannedWrite) map[string]int {
 			}
 		case WriteCheckout:
 			for _, l := range cart {
-				out[l.slug] += l.quantity
+				take(storefrontShop, l.slug, l.quantity)
 			}
 			cart = nil
 		}
@@ -100,13 +123,13 @@ type shopEntry struct {
 	DescriptionZH string `json:"descriptionZh"`
 }
 
-// Restock reads the products of the storefront from the server at base and gives each the stock
-// need says, or keeps its stock when that is more. It makes one request for the list and one edit
-// of each product, at the paths of spec (Spec.Products and Spec.EditProduct), and fails when an
-// answer is not a 200, or says that the server rendered a page for it (X-Tifa-Render other than
-// none): a run whose restock failed is not valid. buildID is the build of Tifa, which its request
-// for the list names.
-func Restock(ctx context.Context, client *http.Client, base string, spec Spec, buildID string, need map[string]int) error {
+// Restock reads the products of each shop in need (by project, as StockFor gives it) from the
+// server at base and gives each the stock need says, or keeps its stock when that is more. It makes
+// one request for the list of a shop and one edit of each of its products, at the paths of spec
+// (Spec.Products and Spec.EditProduct), and fails when an answer is not a 200, or says that the
+// server rendered a page for it (X-Tifa-Render other than none): a run whose restock failed is not
+// valid. buildID is the build of Tifa, which its request for a list names.
+func Restock(ctx context.Context, client *http.Client, base string, spec Spec, buildID string, need map[string]map[string]int) error {
 	send := func(method, path string, body []byte) ([]byte, error) {
 		req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(body))
 		if err != nil {
@@ -130,7 +153,17 @@ func Restock(ctx context.Context, client *http.Client, base string, spec Spec, b
 		}
 		return data, nil
 	}
-	data, err := send(http.MethodGet, spec.Products(storefrontShop, buildID), nil)
+	for _, project := range slices.Sorted(maps.Keys(need)) {
+		if err := restockShop(send, spec, buildID, project, need[project]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// restockShop restocks the products of one shop, as Restock says, through send.
+func restockShop(send func(method, path string, body []byte) ([]byte, error), spec Spec, buildID, project string, need map[string]int) error {
+	data, err := send(http.MethodGet, spec.Products(project, buildID), nil)
 	if err != nil {
 		return err
 	}
@@ -142,18 +175,18 @@ func Restock(ctx context.Context, client *http.Client, base string, spec Spec, b
 		} `json:"routes"`
 	}
 	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("restock: the list of products: %w", err)
+		return fmt.Errorf("restock: the list of products of %s: %w", project, err)
 	}
 	entries := list.Routes[productsRoute].Data
 	if len(entries) == 0 {
-		return fmt.Errorf("restock: the list of products is empty: %.200s", data)
+		return fmt.Errorf("restock: the list of products of %s is empty: %.200s", project, data)
 	}
 	for _, e := range entries {
 		edit := map[string]any{
 			"priceCents": e.PriceCents, "stock": max(e.Stock, need[e.Slug]), "nameEn": e.NameEN, "nameZh": e.NameZH,
 			"descriptionEn": e.DescriptionEN, "descriptionZh": e.DescriptionZH,
 		}
-		if _, err := send(http.MethodPatch, spec.EditProduct(storefrontShop, e.Slug), mustJSON(edit)); err != nil {
+		if _, err := send(http.MethodPatch, spec.EditProduct(project, e.Slug), mustJSON(edit)); err != nil {
 			return err
 		}
 	}
@@ -175,10 +208,12 @@ func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) 
 	if n < 0 {
 		n = len(r.wl.Plans)
 	}
-	need := StockFor(r.wl.Plans, writes, n)
+	need := StockFor(r.seed, r.wl.Plans, writes, n)
 	if visits < 0 {
-		for slug := range need {
-			need[slug] = maxStock
+		for _, shop := range need {
+			for slug := range shop {
+				shop[slug] = maxStock
+			}
 		}
 	}
 	return Restock(ctx, http.DefaultClient, r.base, spec, r.buildID, need)

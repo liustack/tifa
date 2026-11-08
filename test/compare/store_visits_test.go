@@ -41,7 +41,7 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 		all = append(all, ws...)
 	}
 	// The plans buy more than the shop has in stock, so each server is restocked first, as a run is.
-	need := compare.StockFor(set.Plans, all, len(set.Plans))
+	need := compare.StockFor(1, set.Plans, all, len(set.Plans))
 	buildID := shopBuildID(t, env)
 	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SH-[0-9]+$`)
 	for _, name := range []string{"tifa-nocache", "nextjs", "start", "reactrouter"} {

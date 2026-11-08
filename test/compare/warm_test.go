@@ -55,15 +55,15 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 				w.Write([]byte("ok"))
 				return
 			}
-			// The restock before a run with writes: the list of the products and an edit of each, as the
-			// shop answers them, with no render.
-			if r.URL.Path == "/compare-write/studio/products" {
+			// The restock before a run with writes: the list of the products of a shop and an edit of
+			// each, as the shop answers them, with no render.
+			if r.URL.Path == "/compare-write/studio/products" || r.URL.Path == "/compare-write/weekend/products" {
 				l.seq.add('R')
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(`{"routes":{"app/projects/project+/products/route":{"status":200,"data":[{"slug":"oak-tray","priceCents":58000,"stock":6,"nameEn":"Oak Tray","nameZh":"原木托盘","descriptionEn":"Oak.","descriptionZh":"橡木。"}]}}}`))
 				return
 			}
-			if r.Method == "PATCH" && strings.HasPrefix(r.URL.Path, "/compare-write/studio/products/") {
+			if r.Method == "PATCH" && (strings.HasPrefix(r.URL.Path, "/compare-write/studio/products/") || strings.HasPrefix(r.URL.Path, "/compare-write/weekend/products/")) {
 				l.seq.add('R')
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(`{}`))
