@@ -223,7 +223,7 @@ func (b *browse) saturationCell(ctx context.Context, fw string, sc BrowseScenari
 		if err != nil {
 			return nil, err
 		}
-		if r.TimedOut {
+		if hung(r) {
 			break // a hung cell is reported as failed, as in the closed tables
 		}
 	}

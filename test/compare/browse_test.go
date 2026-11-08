@@ -84,3 +84,44 @@ func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
 		t.Error("no search and no error")
 	}
 }
+
+// A closed round outside the length window resizes its cell from what it did, whatever else made it
+// invalid: a round stopped at twice the target played only part of its blocks, so its mix is off
+// too, and the next round must not get the same blocks again.
+func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
+	target := 75 * time.Second
+	for _, tc := range []struct {
+		name string
+		out  Round
+		want bool
+	}{
+		{"stopped at twice the target, its partial mix off", Round{Seconds: 150, Visits: 3555, TimedOut: true, WhyInvalid: "4.046 page views a visit, want 4 within 1%"}, true},
+		{"stopped at twice the target", Round{Seconds: 150, Visits: 3555, TimedOut: true, Valid: true}, true},
+		{"too short", Round{Seconds: 40, Visits: 3800, Valid: true}, true},
+		{"too short with its mix off", Round{Seconds: 40, Visits: 3800, WhyInvalid: "write share 0.060, want 0.05 within 0.01"}, true},
+		{"in the window", Round{Seconds: 90, Visits: 3800, Valid: true}, false},
+		{"nothing completed", Round{Seconds: 150, WhyInvalid: "no visit completed"}, false},
+	} {
+		blocks, ok := resize(&tc.out, target, 4)
+		if ok != tc.want {
+			t.Errorf("%s: resized %v, want %v", tc.name, ok, tc.want)
+		}
+		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4); ok && blocks != want {
+			t.Errorf("%s: %d blocks, want %d", tc.name, blocks, want)
+		}
+	}
+}
+
+// Only a round in which nothing completed is a hang that skips the rest of its cell. A round cut off
+// for running too long completed visits: it is resized, and the cell goes on.
+func TestARoundCutOffForItsLengthIsNoHang(t *testing.T) {
+	if hung(&Round{TimedOut: true, Seconds: 150, Visits: 3555, WhyInvalid: "the round took 150 s, outside 60 to 120 s: resized"}) {
+		t.Error("a round cut off for its length is taken for a hang")
+	}
+	if !hung(&Round{TimedOut: true, Seconds: 150, WhyInvalid: "no visit completed"}) {
+		t.Error("a round in which nothing completed is not taken for a hang")
+	}
+	if hung(&Round{Seconds: 90, Visits: 3555, Valid: true}) || hung(nil) {
+		t.Error("a round that ended is taken for a hang")
+	}
+}

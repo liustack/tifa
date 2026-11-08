@@ -212,10 +212,21 @@ func (r *runner) countOrders(round *Round) {
 }
 
 // Warm plays the workload with users users for d, counting nothing, and returns how many visits a
-// second it completed. It is the warm-up of a framework, apart from the measured round, and it sizes
-// that round. It sends no writes (see pacer), so the data the round starts with is the same for
-// every framework.
+// second it completed. It is the warm-up of a framework, apart from the measured round. It sends no
+// writes (see pacer), so the data the round starts with is the same for every framework.
 func (r *runner) Warm(ctx context.Context, users int, d time.Duration) float64 {
+	return r.closedFor(ctx, users, d, pacer{reads: true})
+}
+
+// Size plays the scenario with its writes for d, on users, and returns the visits a second: what the
+// first round of a cell is sized from.
+func (r *runner) Size(ctx context.Context, users int, d time.Duration) float64 {
+	return r.closedFor(ctx, users, d, pacer{})
+}
+
+// closedFor plays visits on users, each starting the next as soon as one ends, for d, and returns
+// the visits a second.
+func (r *runner) closedFor(ctx context.Context, users int, d time.Duration, p pacer) float64 {
 	a := newAcc()
 	var next atomic.Int64
 	wctx, cancel := context.WithTimeout(ctx, d)
@@ -229,7 +240,7 @@ func (r *runner) Warm(ctx context.Context, users int, d time.Duration) float64 {
 			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns, IdleConnTimeout: idleConn}
 			defer tr.CloseIdleConnections()
 			for wctx.Err() == nil {
-				r.runVisit(wctx, tr, a, int(next.Add(1))-1, pacer{reads: true})
+				r.runVisit(wctx, tr, a, int(next.Add(1))-1, p)
 			}
 		}()
 	}
