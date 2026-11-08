@@ -164,7 +164,7 @@ func TestAPurchaseKeepsTheProductsAsTheyWereBought(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bought.Lines) != 2 || bought.Lines[0].Variant != "墨蓝 / M" || bought.Lines[0].Quantity != 2 || bought.Lines[1].Variant != "墨蓝 / L" ||
+	if len(bought.Lines) != 2 || bought.Lines[0].Variant != "Ink / M" || bought.Lines[0].Quantity != 2 || bought.Lines[1].Variant != "Ink / L" ||
 		bought.Lines[1].Quantity != 1 || bought.Lines[0].PriceFen != 16800 || bought.Lines[0].Name != "Cotton Linen Apron" {
 		t.Errorf("the lines are %+v", bought.Lines)
 	}
@@ -211,11 +211,11 @@ func TestTakesAtOnceNeverSellMoreThanTheStock(t *testing.T) {
 func TestAnOrderLineNamesTheVariant(t *testing.T) {
 	t.Cleanup(resetCatalogue)
 	l, err := OrderLine("linen-apron", "ink", "M")
-	if err != nil || l.Name != "Cotton Linen Apron" || l.Variant != "墨蓝 / M" || l.Color != "ink" || l.PriceFen != 16800 {
+	if err != nil || l.Name != "Cotton Linen Apron" || l.Variant != "Ink / M" || l.Color != "ink" || l.PriceFen != 16800 {
 		t.Errorf("apron in ink, M: %+v %v", l, err)
 	}
 	// Staff who place an order name no colour: the line takes the first.
-	if l, err := OrderLine("pour-over-kettle", "", ""); err != nil || l.Variant != "雾白" || l.Color != "mist" {
+	if l, err := OrderLine("pour-over-kettle", "", ""); err != nil || l.Variant != "Mist" || l.Color != "mist" {
 		t.Errorf("kettle with no colour: %+v %v", l, err)
 	}
 	if _, err := OrderLine("pour-over-kettle", "clay", ""); err == nil {

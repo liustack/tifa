@@ -151,7 +151,7 @@ function lineOf(p: ProductRecord, color: string, size: string): ProductLine {
   else if (!p.colors.includes(color) || !((p.sizes.length === 0 && size === '') || p.sizes.includes(size))) {
     throw new Fields({ items: 'Unknown colour or size of ' + p.slug })
   }
-  let variant = colors.find((c) => c.id === color)?.name[0] ?? color
+  let variant = colors.find((c) => c.id === color)?.name[1] ?? color
   if (size !== '') variant += ' / ' + size
   return { slug: p.slug, name: p.name[1], variant, color, priceFen: p.priceFen, quantity: 0 }
 }

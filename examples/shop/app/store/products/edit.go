@@ -184,7 +184,7 @@ func Buy(takes []Take) (Purchase, error) {
 type Line struct {
 	Slug     string
 	Name     string
-	Variant  string // such as "墨蓝 / M"
+	Variant  string // such as "Ink / M"
 	Color    string // the ID of the colour
 	PriceFen int
 	Quantity int // the pieces a purchase bought (see Buy), 0 in a line of OrderLine
@@ -208,7 +208,7 @@ func (p productRecord) line(color, size string) (Line, error) {
 	} else if !slices.Contains(p.colors, color) || !(len(p.sizes) == 0 && size == "" || slices.Contains(p.sizes, size)) {
 		return Line{}, tifa.Fields{"items": "Unknown colour or size of " + p.slug}
 	}
-	variant := colorText(color)[0]
+	variant := colorText(color)[1]
 	if size != "" {
 		variant += " / " + size
 	}

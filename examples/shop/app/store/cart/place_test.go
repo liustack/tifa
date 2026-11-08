@@ -66,7 +66,7 @@ func TestACheckoutBecomesAnOrderOfTheStudioShop(t *testing.T) {
 	if o.Address != "武康路 99 号, 上海市, 上海市, 200031, 中国大陆" {
 		t.Errorf("the address is %q", o.Address)
 	}
-	if len(o.Items) != 2 || o.Items[0].Slug != "linen-apron" || o.Items[0].Description != "墨蓝 / M" || o.Items[0].Quantity != 2 || o.Items[0].PriceCents != 16800 ||
+	if len(o.Items) != 2 || o.Items[0].Slug != "linen-apron" || o.Items[0].Description != "Ink / M" || o.Items[0].Quantity != 2 || o.Items[0].PriceCents != 16800 ||
 		o.Items[1].Slug != "glass-carafe" || o.Items[1].Quantity != 1 || o.TotalCents != 2*16800+15800 {
 		t.Errorf("the lines are %+v", o.Items)
 	}

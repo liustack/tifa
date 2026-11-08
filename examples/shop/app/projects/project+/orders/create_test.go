@@ -151,9 +151,9 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 	}
 	o, _ := GetOrder("studio", id)
 	want := []LineItem{
-		{Slug: "glass-carafe", Name: "Glass Carafe", Description: "雾白", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
-		{Slug: "linen-apron", Name: "Cotton Linen Apron", Description: "墨蓝 / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
-		{Slug: "ceramic-cup", Name: "Handmade Ceramic Cup", Description: "青苔绿", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
+		{Slug: "glass-carafe", Name: "Glass Carafe", Description: "Mist", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
+		{Slug: "linen-apron", Name: "Cotton Linen Apron", Description: "Ink / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
+		{Slug: "ceramic-cup", Name: "Handmade Ceramic Cup", Description: "Moss", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
 	}
 	for i, w := range want {
 		got := o.Items[i]
@@ -274,6 +274,37 @@ func TestOrdersNameTheirProductsInEnglish(t *testing.T) {
 		}
 		if got := productName(tc.project, tc.slug); got != tc.want {
 			t.Errorf("the stats name %s %q, want %q", tc.slug, got, tc.want)
+		}
+	}
+}
+
+// The colour and size of a line are in English too: a demonstration order as it was written, a
+// line of the storefront with the English name of its colour, and a line of the weekend shop as it
+// sells the product.
+func TestOrderLinesDescribeTheirVariantInEnglish(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	o, err := GetOrder("studio", "SH-1042")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o.Items[0].Description; got != "Mist / 600 ml" {
+		t.Errorf("SH-1042 describes its kettle as %q", got)
+	}
+	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
+	for _, tc := range []struct{ project, slug, want string }{
+		{"studio", "pour-over-kettle", "Mist"}, {"weekend", "postcards", "Cities / 6 cards"},
+	} {
+		id, err := CreateOrder(tc.project, NewOrder{Customer: "周宁", Phone: "13700137002", Address: "北京市朝阳区", Items: []NewLine{{Slug: tc.slug, Quantity: 1}}}, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := GetOrder(tc.project, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := o.Items[0].Description; got != tc.want {
+			t.Errorf("an order of %s describes it as %q, want %q", tc.slug, got, tc.want)
 		}
 	}
 }
