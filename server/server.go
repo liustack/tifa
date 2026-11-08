@@ -357,6 +357,8 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 // route: a data request answers them by route, a page renders with them. A request whose client
 // went away while it waited for a shared render (errClientGone) has its connection cut.
 func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
+	// An error is not a page a shared cache may keep, whatever the framework wrote before it failed.
+	dropShared(c)
 	if errors.Is(err, errClientGone) {
 		// Nothing has been written. Returning would let net/http send an empty 200 with the
 		// page's ETag, which a browser or a CDN could keep, as the client may still be there
@@ -419,6 +421,9 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		w.Header().Add("Vary", callHeader)
 		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Status, Session: s.callSession(c)})
 	case redirect != nil:
+		if ttl := s.shared[c.Pattern()]; ttl > 0 && sharedRedirect(redirect.Status) {
+			setShared(c, ttl)
+		}
 		w.Header().Add("Vary", callHeader)
 		http.Redirect(w, r, redirect.URL, redirect.Status)
 	case !page:

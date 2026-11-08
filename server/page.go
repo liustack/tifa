@@ -570,7 +570,7 @@ func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 			return err
 		}
 		if ttl := s.shared[r.Path]; ttl > 0 {
-			setShared(c.Writer().Header(), ttl)
+			setShared(c, ttl)
 		}
 		if !r.SSR {
 			return s.dataOnly(c, items, http.StatusOK, r.Path)

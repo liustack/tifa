@@ -75,6 +75,8 @@ func (s *server) anonymousRequest(pattern string, r *http.Request) bool {
 type anonymity struct {
 	session *core.BrowserSession
 	err     error
+	// shared is the Cache-Control the framework wrote for the page (setShared), "" before it did.
+	shared string
 }
 
 type anonymityKey struct{}

@@ -1,6 +1,9 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // sharedEnv is an app with the page /news, which has Cache = time.Minute and a Load of a constant,
@@ -158,5 +162,69 @@ func TestCacheDurationIsTheTimeOfThePage(t *testing.T) {
 	// No Cache, no shared policy.
 	if cc := cacheControl(get(serverWithCache(t, 0, Route{}), "/a")); cc != defaultCache {
 		t.Errorf("no Cache: Cache-Control %q", cc)
+	}
+}
+
+// A page with Cache whose render fails goes out as an error, never with the policy that lets a
+// shared cache keep the page: the one the framework wrote before the render is taken back. A policy
+// the app set stays.
+func TestCachePageFailureIsNeverPublic(t *testing.T) {
+	timedOut := fmt.Errorf("ssr: render timed out after 3s: %w", context.DeadlineExceeded)
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"timeout, not tried again", timedOut},
+		{"no levels to try", errors.New("ssr: render page: boom")},
+		{"every try fails", pageError{levels: 2}},
+	} {
+		for _, own := range []string{"", "private"} {
+			e := newSharedEnv(t)
+			if own != "" {
+				e.header = func(h http.Header) { h.Set("Cache-Control", own) }
+			}
+			e.r.result = func(ssr.Input) (string, error) { return "", tc.err }
+			w := get(e.s, "/news")
+			want := "no-store"
+			if own != "" {
+				want = own
+			}
+			if w.Code != 500 || cacheControl(w) != want {
+				t.Errorf("%s, app sets %q: %d, Cache-Control %q, want %q", tc.name, own, w.Code, cacheControl(w), want)
+			}
+		}
+	}
+}
+
+// A redirect from a Load of a page with Cache is the same for everyone, so a shared cache may keep
+// it. A Load that makes the answer private still does.
+func TestCachePageRedirectIsShared(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		own    string
+		want   string
+	}{
+		{302, "", wantShared},
+		{301, "", wantShared},
+		{308, "", wantShared},
+		{302, "private", "private"},
+		{302, "no-store", "no-store"},
+	} {
+		app := wireApp()
+		app.Routes = append(app.Routes, Route{ID: "app/old", Path: "/old", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) {
+				if tc.own != "" {
+					c.SetHeader("Cache-Control", tc.own)
+				}
+				return nil, tifa.Redirect("/new", tc.status)
+			}})
+		s, _ := wireServer(t, app)
+		w := get(s, "/old")
+		if w.Code != tc.status || cacheControl(w) != tc.want {
+			t.Errorf("%d, app sets %q: %d, Cache-Control %q, want %q", tc.status, tc.own, w.Code, cacheControl(w), tc.want)
+		}
+		if d := getData(s, "/old", "b1", "11"); strings.Contains(cacheControl(d), "public") {
+			t.Errorf("%d: the data answer is %q", tc.status, cacheControl(d))
+		}
 	}
 }

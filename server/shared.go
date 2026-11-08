@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/core"
 )
 
@@ -27,11 +28,38 @@ func sharedCacheControl(ttl time.Duration) string {
 
 // setShared gives the answer of a page with Cache the Cache-Control that lets a shared cache keep it,
 // unless OnRequest, a Load or a Layout said it is not for everyone: private, no-store or no-cache, or
-// a Vary other than Accept-Encoding. Then the headers stay as they are.
-func setShared(h http.Header, ttl time.Duration) {
-	if headersStorable(h) {
-		h.Set("Cache-Control", sharedCacheControl(ttl))
+// a Vary other than Accept-Encoding. Then the headers stay as they are. It notes what it wrote, so a
+// failure can take it back (dropShared).
+func setShared(c *tifa.Ctx, ttl time.Duration) {
+	h := c.Writer().Header()
+	if !headersStorable(h) {
+		return
 	}
+	value := sharedCacheControl(ttl)
+	h.Set("Cache-Control", value)
+	if a := anonymityOf(c.Request()); a != nil {
+		a.shared = value
+	}
+}
+
+// dropShared takes back the Cache-Control that setShared wrote, when the answer turns out to be an
+// error: a page that failed is not for a shared cache to keep. A Cache-Control the app set is not
+// touched.
+func dropShared(c *tifa.Ctx) {
+	a := anonymityOf(c.Request())
+	if a == nil || a.shared == "" {
+		return
+	}
+	h := c.Writer().Header()
+	if values := h.Values("Cache-Control"); len(values) == 1 && values[0] == a.shared {
+		h.Del("Cache-Control")
+	}
+	a.shared = ""
+}
+
+// sharedRedirect is whether a redirect of a page with Cache may be kept by a shared cache.
+func sharedRedirect(status int) bool {
+	return status == http.StatusMovedPermanently || status == http.StatusFound || status == http.StatusPermanentRedirect
 }
 
 // headersStorable reports whether the headers of an answer let a shared cache keep it: no private,
