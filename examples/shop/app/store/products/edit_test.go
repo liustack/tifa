@@ -211,7 +211,7 @@ func TestTakesAtOnceNeverSellMoreThanTheStock(t *testing.T) {
 func TestAnOrderLineNamesTheVariant(t *testing.T) {
 	t.Cleanup(resetCatalogue)
 	l, err := OrderLine("linen-apron", "ink", "M")
-	if err != nil || l.Name != "棉麻围裙" || l.Variant != "墨蓝 / M" || l.Color != "ink" || l.PriceFen != 16800 || l.Stock != 34 {
+	if err != nil || l.Name != "棉麻围裙" || l.Variant != "墨蓝 / M" || l.Color != "ink" || l.PriceFen != 16800 {
 		t.Errorf("apron in ink, M: %+v %v", l, err)
 	}
 	// Staff who place an order name no colour: the line takes the first.
@@ -230,7 +230,7 @@ func TestAnOrderLineNamesTheVariant(t *testing.T) {
 	if err := Update("pour-over-kettle", kettleEdit); err != nil {
 		t.Fatal(err)
 	}
-	if l, _ := OrderLine("pour-over-kettle", "", ""); l.Name != "黎明手冲壶" || l.PriceFen != 29900 || l.Stock != 3 {
+	if l, _ := OrderLine("pour-over-kettle", "", ""); l.Name != "黎明手冲壶" || l.PriceFen != 29900 {
 		t.Errorf("after an edit the line is %+v", l)
 	}
 }

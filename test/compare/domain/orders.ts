@@ -9,7 +9,7 @@ import type { ItemRecord, OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
 import { DAY, local, rfc3339 } from './time.ts'
-import { daysIn, findOrder, insert, orders, ordersOf, rename, ship, shops, storefrontItem } from './storage.ts'
+import { daysIn, findOrder, insert, orders, ordersOf, productStock, rename, ship, shops, storefrontItem } from './storage.ts'
 import { storefrontProject } from './store/store.ts'
 import type { ProductLine } from './store/products/edit.ts'
 import type { NewLine, ProjectOrders } from './storage.ts'
@@ -290,7 +290,7 @@ function view(p: ProjectOrders, o: OrderRecord): Order {
     const product = p.products.get(item.slug)!
     order.items.push({
       slug: item.slug, name: item.name, description: item.description, quantity: item.quantity,
-      priceCents: item.priceCents, color: item.color, stock: item.stock, demand: product.waiting, sold: product.sold,
+      priceCents: item.priceCents, color: item.color, stock: productStock(o.projectId, item.slug), demand: product.waiting, sold: product.sold,
     })
   }
   return order

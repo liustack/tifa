@@ -28,7 +28,6 @@ export interface ItemRecord {
   quantity: number
   priceCents: number
   color: string
-  stock: number
 }
 
 export interface OrderRecord {

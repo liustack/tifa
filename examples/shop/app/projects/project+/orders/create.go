@@ -41,13 +41,16 @@ type shop struct {
 	width  int    // the number is padded with zeros to this width
 	line   func(NewLine) (itemRecord, error)
 	name   func(slug string) (string, bool) // the name of a product it sells, as order lines keep it
+	// stock is how many of a product it sells it has to sell now: the orders that wait to ship have
+	// been taken out of it.
+	stock func(slug string) (int, bool)
 }
 
 // The studio shop sells the products of the storefront (storekit.Project), as the catalogue has them
 // at the time of the order. The weekend shop keeps a catalogue of its own.
 var shops = map[string]shop{
-	storekit.Project: {prefix: "SH", width: 0, line: storefrontLine, name: products.OrderName},
-	"weekend":        {prefix: "WK", width: 4, line: weekendLine, name: weekendName},
+	storekit.Project: {prefix: "SH", width: 0, line: storefrontLine, name: products.OrderName, stock: products.Stock},
+	"weekend":        {prefix: "WK", width: 4, line: weekendLine, name: weekendName, stock: weekendStockOf},
 }
 
 // storefrontLine is the order line of a product of the storefront in a colour and size.
@@ -65,7 +68,7 @@ func storefrontLine(l NewLine) (itemRecord, error) {
 
 func storefrontItem(p products.Line) itemRecord {
 	return itemRecord{
-		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: p.Quantity, PriceCents: p.PriceFen, Color: p.Color, Stock: p.Stock,
+		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: p.Quantity, PriceCents: p.PriceFen, Color: p.Color,
 	}
 }
 
@@ -77,6 +80,12 @@ func weekendLine(l NewLine) (itemRecord, error) {
 		}
 	}
 	return itemRecord{}, tifa.Fields{"items": "Unknown product " + l.Slug}
+}
+
+// weekendStockOf is how many of a product the weekend shop has to sell.
+func weekendStockOf(slug string) (int, bool) {
+	n, ok := weekendStock[slug]
+	return n, ok
 }
 
 // weekendName is the name of a product of the weekend shop.
@@ -98,6 +107,16 @@ func productName(projectID, slug string) string {
 		panic("orders of " + projectID + " hold " + slug + ", which the shop does not sell")
 	}
 	return name
+}
+
+// productStock is how many of the product slug the shop of a project has to sell now. Like a name,
+// a stock that is not there is a bug.
+func productStock(projectID, slug string) int {
+	n, ok := shops[projectID].stock(slug)
+	if !ok {
+		panic("orders of " + projectID + " hold " + slug + ", which the shop does not sell")
+	}
+	return n
 }
 
 // CheckNewOrder returns the fields of a new order that do not follow the rules, or nil. It cannot

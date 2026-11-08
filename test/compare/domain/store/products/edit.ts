@@ -78,6 +78,11 @@ export function getEntry(slug: string): Entry {
   return entry(p)
 }
 
+// stockOf is how many of the product slug the shop has to sell now, or undefined. Go calls it Stock.
+export function stockOf(slug: string): number | undefined {
+  return catalogue.find((p) => p.slug === slug)?.stock
+}
+
 // orderName is the name of the product slug as the lines of an order keep it, its Chinese name now,
 // or undefined. Go calls it OrderName.
 export function orderName(slug: string): string | undefined {
@@ -119,7 +124,6 @@ export function buy(takes: Take[]): Purchase {
     p.stock -= n
     out.products.set(p.slug, { ...p })
   }
-  for (const l of out.lines) l.stock = out.products.get(l.slug)!.stock
   return out
 }
 
@@ -131,7 +135,6 @@ export interface ProductLine {
   variant: string
   color: string
   priceFen: number
-  stock: number
   quantity: number // the pieces a purchase bought, 0 in a line of orderLine
 }
 
@@ -150,5 +153,5 @@ function lineOf(p: ProductRecord, color: string, size: string): ProductLine {
   }
   let variant = colors.find((c) => c.id === color)?.name[0] ?? color
   if (size !== '') variant += ' / ' + size
-  return { slug: p.slug, name: p.name[0], variant, color, priceFen: p.priceFen, stock: p.stock, quantity: 0 }
+  return { slug: p.slug, name: p.name[0], variant, color, priceFen: p.priceFen, quantity: 0 }
 }

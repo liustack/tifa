@@ -182,7 +182,7 @@ func refGetOrder(all []orderRecord, projectID, id string) (Order, error) {
 		}
 		order.Items = append(order.Items, LineItem{
 			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
-			PriceCents: item.PriceCents, Color: item.Color, Stock: item.Stock, Sold: sold, Demand: waiting,
+			PriceCents: item.PriceCents, Color: item.Color, Stock: productStock(projectID, item.Slug), Sold: sold, Demand: waiting,
 		})
 	}
 	return order, nil

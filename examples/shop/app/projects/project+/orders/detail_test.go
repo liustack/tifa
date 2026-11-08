@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 )
 
 func TestOrdersCarryTheirPayment(t *testing.T) {
@@ -178,5 +179,30 @@ func TestLinesKnowTheStockAndWhatWaitingOrdersNeed(t *testing.T) {
 	shipped, _ := GetOrder("studio", "SH-1040")
 	if shipped.Items[0].Demand != 0 {
 		t.Errorf("shipped line demand %d", shipped.Items[0].Demand)
+	}
+}
+
+// The stock an order shows is what the shop has to sell now, which the orders waiting to ship have
+// already been taken out of: staff who change the stock of a product see it on every order of it, and
+// the line keeps the name and price it was sold at.
+func TestAnOrderShowsTheStockOfNow(t *testing.T) {
+	reset()
+	kettle, err := products.GetEntry("pour-over-kettle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = products.Update("pour-over-kettle", kettle.Edit) })
+	edit := kettle.Edit
+	edit.Stock = 77
+	if err := products.Update("pour-over-kettle", edit); err != nil {
+		t.Fatal(err)
+	}
+	o, _ := GetOrder("studio", "SH-1042")
+	if it := o.Items[0]; it.Slug != "pour-over-kettle" || it.Stock != 77 || it.Name != "晨间手冲壶" || it.PriceCents != 32800 {
+		t.Errorf("the kettle of SH-1042 is %+v, want the stock of the catalogue (77) and the name and price it was sold at", it)
+	}
+	w, _ := GetOrder("weekend", "WK-0201") // a canvas tote, which the weekend shop has 45 of
+	if it := w.Items[0]; it.Slug != "canvas-tote" || it.Stock != 45 {
+		t.Errorf("the tote of WK-0201 is %+v, want 45 in stock", it)
 	}
 }

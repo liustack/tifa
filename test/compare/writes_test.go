@@ -117,6 +117,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		// checkout is the order of a visitor with no cart, who checks out the demonstration cart.
 		checkout = `{"email":"emma@example.com","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`
 		edit     = `{"priceCents":52000,"stock":5,"nameEn":" Oak Tray, Large ","nameZh":"橡木大托盘","descriptionEn":"White oak, carved from one block.","descriptionZh":"整块白橡木挖制。"}`
+		cupEdit  = `{"priceCents":13400,"stock":3,"nameEn":"Ceramic Cup","nameZh":"手作陶瓷杯","descriptionEn":"Thrown by hand.","descriptionZh":"手工拉坯。"}`
 	)
 
 	// A step is a write and the pages it must change.
@@ -151,12 +152,16 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"refuse a note on an unknown order", "PUT", "order:studio:SH-9999", `{"text":"hi"}`, nil},
 		{"add a note to a shipped order", "PUT", "order:studio:SH-1040", `{"text":" 顾客来电，已收到。 "}`, []compare.Page{order("SH-1040")}},
 		{"add a note", "PUT", "order:studio:SH-1043", `{"text":"客户要求周末送达。"}`, []compare.Page{order("SH-1043")}},
-		{"check out", "POST", "checkout", checkout, []compare.Page{list, stats, products}},
+		// The demonstration cart holds a kettle and cups, so the stock cards of the orders that wait for
+		// them show what is left to sell.
+		{"check out", "POST", "checkout", checkout, []compare.Page{list, stats, products, order("SH-1042"), order("SH-1041")}},
 		{"refuse an edit with no English title", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `" Oak Tray, Large "`, `"  "`, 1), nil},
 		{"refuse an edit with a stock below 0", "PATCH", "product:studio:oak-tray", strings.Replace(edit, `"stock":5`, `"stock":-1`, 1), nil},
 		{"refuse an edit in the other shop", "PATCH", "product:weekend:oak-tray", edit, nil},
 		{"refuse an edit of an unknown product", "PATCH", "product:studio:no-such-product", edit, nil},
 		{"edit a product", "PATCH", "product:studio:oak-tray", edit, []compare.Page{products, tray, storeTray}},
+		// SH-1041 waits for two cups: its stock card shows the stock staff set.
+		{"edit the stock of a product an order waits for", "PATCH", "product:studio:ceramic-cup", cupEdit, []compare.Page{products, order("SH-1041")}},
 		{"place an order of the edited product", "POST", "create:studio", strings.Replace(newOrder, "ceramic-cup", "oak-tray", 1), []compare.Page{list, stats, order("SH-1045")}},
 	}
 
@@ -227,7 +232,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
 	}
-	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 404, 404, 200, 200}
+	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 404, 404, 200, 200, 200}
 	if len(wantStatus) != len(steps) {
 		t.Fatalf("%d statuses for %d steps", len(wantStatus), len(steps))
 	}
@@ -260,7 +265,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if placed, _ := ref[22].reply.Order.(string); placed != "/store/checkout?placed=SH-1044" {
 		t.Errorf("the checkout placed %q, want the order SH-1044 of the studio shop", placed)
 	}
-	if a, _ := json.Marshal(ref[28].reply.Order); !strings.Contains(string(a), `"name":"橡木大托盘"`) || !strings.Contains(string(a), `"priceCents":52000`) {
+	if a, _ := json.Marshal(ref[29].reply.Order); !strings.Contains(string(a), `"name":"橡木大托盘"`) || !strings.Contains(string(a), `"priceCents":52000`) {
 		t.Errorf("the order of the edited product does not take its new name and price: %s", a)
 	}
 }

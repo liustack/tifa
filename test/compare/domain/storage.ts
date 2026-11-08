@@ -4,10 +4,10 @@
 // and the order page show. Every write updates them with the order, so a read of the pages costs
 // about the same with 50 orders as with 5000. They start with the demonstration data.
 import { counts } from './counts.ts'
-import { demoOrders, weekendCatalogue } from './demo.ts'
+import { demoOrders, weekendCatalogue, weekendStock } from './demo.ts'
 import { Invalid, NotFound } from './errors.ts'
 import { Fields } from './store/errors.ts'
-import { orderLine, orderName } from './store/products/edit.ts'
+import { orderLine, orderName, stockOf } from './store/products/edit.ts'
 import type { ProductLine } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
@@ -38,7 +38,7 @@ function storefrontLine(l: NewLine): ItemRecord {
 }
 
 export function storefrontItem(p: ProductLine): ItemRecord {
-  return { slug: p.slug, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color, stock: p.stock }
+  return { slug: p.slug, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color }
 }
 
 // weekendName is the name of a product of the weekend shop.
@@ -55,10 +55,22 @@ function weekendLine(l: NewLine): ItemRecord {
 
 // The form of the order numbers of a project and the line of each product it sells, as shops in
 // create.go: the studio shop sells the products of the storefront, the weekend shop has its own.
-// name is the name of a product it sells, as order lines keep it, or undefined.
-export const shops: Record<string, { prefix: string; width: number; line: (l: NewLine) => ItemRecord; name: (slug: string) => string | undefined }> = {
-  [storefrontProject]: { prefix: 'SH', width: 0, line: storefrontLine, name: orderName },
-  weekend: { prefix: 'WK', width: 4, line: weekendLine, name: weekendName },
+// name is the name of a product it sells, as order lines keep it, or undefined. stock is how many of
+// it the shop has to sell now, the orders that wait to ship taken out, or undefined.
+export const shops: Record<
+  string,
+  { prefix: string; width: number; line: (l: NewLine) => ItemRecord; name: (slug: string) => string | undefined; stock: (slug: string) => number | undefined }
+> = {
+  [storefrontProject]: { prefix: 'SH', width: 0, line: storefrontLine, name: orderName, stock: stockOf },
+  weekend: { prefix: 'WK', width: 4, line: weekendLine, name: weekendName, stock: (slug) => weekendStock[slug] },
+}
+
+// productStock is how many of the product slug the shop of a project has to sell now, as in Go: a
+// stock that is not there is a bug.
+export function productStock(projectId: string, slug: string): number {
+  const n = shops[projectId].stock(slug)
+  if (n === undefined) throw new Error(`orders of ${projectId} hold ${slug}, which the shop does not sell`)
+  return n
 }
 
 export interface CustomerOrders {

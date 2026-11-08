@@ -176,21 +176,17 @@ func Buy(takes []Take) (Purchase, error) {
 		catalogue[i].stock -= n
 		out.products[catalogue[i].slug] = catalogue[i]
 	}
-	for j, l := range out.Lines {
-		out.Lines[j].Stock = out.products[l.Slug].stock
-	}
 	return out, nil
 }
 
 // Line is a product in one colour and size as a line of a back office order keeps it: its Chinese
-// name, the colour and size as one text, the price in fen and the stock left.
+// name, the colour and size as one text and the price in fen.
 type Line struct {
 	Slug     string
 	Name     string
 	Variant  string // such as "墨蓝 / M"
 	Color    string // the ID of the colour
 	PriceFen int
-	Stock    int
 	Quantity int // the pieces a purchase bought (see Buy), 0 in a line of OrderLine
 }
 
@@ -216,7 +212,14 @@ func (p productRecord) line(color, size string) (Line, error) {
 	if size != "" {
 		variant += " / " + size
 	}
-	return Line{Slug: p.slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen, Stock: p.stock}, nil
+	return Line{Slug: p.slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen}, nil
+}
+
+// Stock is how many of the product slug the shop has to sell now, and false for a product the
+// catalogue does not have. The orders that wait to ship have been taken out of it.
+func Stock(slug string) (int, bool) {
+	p, ok := record(slug)
+	return p.stock, ok
 }
 
 // OrderName is the name of the product slug as the lines of an order keep it, its Chinese name as

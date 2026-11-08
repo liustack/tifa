@@ -48,8 +48,8 @@ type LineItem struct {
 	Quantity    int    `json:"quantity"`
 	PriceCents  int    `json:"priceCents"`
 	Color       string `json:"color"`
-	// Stock is how many the shop has left, and Demand how many of them the orders waiting to ship
-	// need.
+	// Stock is how many the shop has to sell now, the orders waiting to ship taken out, and Demand
+	// how many the orders waiting to ship need.
 	Stock  int `json:"stock"`
 	Demand int `json:"demand"`
 	// Sold is how many of the product the shop has sold in all its orders.
@@ -371,7 +371,7 @@ func view(p *projectOrders, o *orderRecord) Order {
 		product := p.products[item.Slug]
 		order.Items = append(order.Items, LineItem{
 			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
-			PriceCents: item.PriceCents, Color: item.Color, Stock: item.Stock, Sold: product.sold, Demand: product.waiting,
+			PriceCents: item.PriceCents, Color: item.Color, Stock: productStock(o.ProjectID, item.Slug), Sold: product.sold, Demand: product.waiting,
 		})
 	}
 	return order

@@ -47,7 +47,6 @@ type itemRecord struct {
 	Quantity    int
 	PriceCents  int
 	Color       string
-	Stock       int
 }
 
 // projectOrders are the orders of one project with what its pages read. Lists of orders are
