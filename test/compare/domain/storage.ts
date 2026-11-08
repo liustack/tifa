@@ -4,10 +4,11 @@
 // and the order page show. Every write updates them with the order, so a read of the pages costs
 // about the same with 50 orders as with 5000. They start with the demonstration data.
 import { counts } from './counts.ts'
-import { demoOrders, weekendCatalogue, weekendStock } from './demo.ts'
-import { Invalid, NotFound } from './errors.ts'
+import { demoOrders } from './demo.ts'
+import { Invalid, NotFound, OutOfStock } from './errors.ts'
 import { Fields } from './store/errors.ts'
-import { orderLine, orderName, stockOf } from './store/products/edit.ts'
+import { buy, NoStock, orderName, stockOf } from './store/products/edit.ts'
+import { weekendBuy, weekendName, weekendStockOf } from './weekend.ts'
 import type { ProductLine } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
@@ -24,45 +25,33 @@ export interface NewLine {
   quantity: number
 }
 
-// storefrontLine is the order line of a product of the storefront, which the studio shop sells.
-function storefrontLine(l: NewLine): ItemRecord {
-  let p
+// storefrontBuy buys the lines of a new order of the studio shop from the catalogue of the
+// storefront, as a checkout does (storefrontBuy in Go).
+function storefrontBuy(lines: NewLine[]): ItemRecord[] {
   try {
-    p = orderLine(l.slug, l.color, l.size)
+    return buy(lines.map((l) => ({ slug: l.slug, color: l.color, size: l.size, quantity: l.quantity }))).lines.map(storefrontItem)
   } catch (e) {
+    if (e instanceof NoStock) throw new OutOfStock()
     if (e instanceof NotFound) throw new Invalid(['items'])
     if (e instanceof Fields) throw new Invalid(Object.keys(e.fields))
     throw e
   }
-  return storefrontItem({ ...p, quantity: l.quantity })
 }
 
 export function storefrontItem(p: ProductLine): ItemRecord {
   return { slug: p.slug, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color }
 }
 
-// weekendName is the name of a product of the weekend shop.
-function weekendName(slug: string): string | undefined {
-  return weekendCatalogue.find((p) => p.slug === slug)?.name
-}
-
-// weekendLine is the order line of a product of the weekend shop, which comes in one colour and size.
-function weekendLine(l: NewLine): ItemRecord {
-  const p = weekendCatalogue.find((p) => p.slug === l.slug)
-  if (!p || l.color !== '' || l.size !== '') throw new Invalid(['items'])
-  return { ...p, quantity: l.quantity }
-}
-
-// The form of the order numbers of a project and the line of each product it sells, as shops in
+// The form of the order numbers of a project and how it buys the lines of an order, as shops in
 // create.go: the studio shop sells the products of the storefront, the weekend shop has its own.
 // name is the name of a product it sells, as order lines keep it, or undefined. stock is how many of
 // it the shop has to sell now, the orders that wait to ship taken out, or undefined.
 export const shops: Record<
   string,
-  { prefix: string; width: number; line: (l: NewLine) => ItemRecord; name: (slug: string) => string | undefined; stock: (slug: string) => number | undefined }
+  { prefix: string; width: number; buy: (lines: NewLine[]) => ItemRecord[]; name: (slug: string) => string | undefined; stock: (slug: string) => number | undefined }
 > = {
-  [storefrontProject]: { prefix: 'SH', width: 0, line: storefrontLine, name: orderName, stock: stockOf },
-  weekend: { prefix: 'WK', width: 4, line: weekendLine, name: weekendName, stock: (slug) => weekendStock[slug] },
+  [storefrontProject]: { prefix: 'SH', width: 0, buy: storefrontBuy, name: orderName, stock: stockOf },
+  weekend: { prefix: 'WK', width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf },
 }
 
 // productStock is how many of the product slug the shop of a project has to sell now, as in Go: a

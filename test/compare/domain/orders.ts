@@ -420,7 +420,7 @@ export function postOrder(projectId: string, input: NewOrder, at: number): Order
 export function createOrder(projectId: string, input: NewOrder, at: number): Order {
   const s = shops[projectId]
   if (!s) throw new NotFound(projectId)
-  return keep(projectId, s, input, input.items.map(s.line), at)
+  return keep(projectId, s, input, s.buy(input.items), at)
 }
 
 // createStoreOrder places an order of the storefront in the studio shop with the lines its checkout

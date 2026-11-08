@@ -388,10 +388,11 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 	return target
 }
 
-// TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes, and
-// then a staff edit of a product and every kind of write of the shop's admin (place, ship, note,
-// change the recipient), to the Go shop and applies them in the port, and checks that the data of every page, with the pages of the
-// orders placed, is still the same. Instants are left out, since the two make them at different times.
+// TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes,
+// and then a staff edit of a product of each shop and every kind of write of the shop's admin (place,
+// ship, note, change the recipient), to the Go shop and applies them in the port, and checks that the
+// data of every page, with the pages of the orders placed, is still the same. Instants are left out,
+// since the two make them at different times.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	env := setup(t)
 	if why := compare.NodeRunsTypeScript(); why != "" {
@@ -408,6 +409,8 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	// name and price.
 	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "studio", Order: "oak-tray", Body: map[string]any{
 		"priceCents": 52000, "stock": 5, "nameEn": " Oak Tray, Large ", "nameZh": "橡木大托盘", "descriptionEn": "White oak, carved from one block.", "descriptionZh": "整块白橡木挖制。"}})
+	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "weekend", Order: "postcards", Body: map[string]any{
+		"priceCents": 3800, "stock": 40, "nameEn": " Postcards of Cities ", "nameZh": "城市明信片", "descriptionEn": "Six cards.", "descriptionZh": "六张。"}})
 	writes = append(writes, adminWrites()...)
 	want, err := env.GoData(ctx, writes...)
 	if err != nil {

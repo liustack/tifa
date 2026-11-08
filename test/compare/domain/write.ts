@@ -1,8 +1,9 @@
-import { Invalid, Locked, NotFound } from './errors.ts'
+import { Invalid, Locked, NotFound, OutOfStock } from './errors.ts'
 import { addNote, postOrder, shipOrder, updateRecipient } from './orders.ts'
 import type { NewOrder } from './orders.ts'
 import { Fields } from './store/errors.ts'
-import { checkEdit, entries, getEntry, update } from './store/products/edit.ts'
+import { checkEdit } from './store/products/edit.ts'
+import { shopEntries, shopEntry, updateShopProduct } from './weekend.ts'
 import { storefrontProject } from './store/store.ts'
 import type { Edit } from './store/products/edit.ts'
 
@@ -26,6 +27,7 @@ async function answer(request: Request, run: (body: any) => unknown): Promise<Re
     if (e instanceof BadBody) return Response.json({ error: 'bad body' }, { status: 400 })
     if (e instanceof NotFound) return Response.json({ error: 'not found' }, { status: 404 })
     if (e instanceof Locked) return Response.json({ error: 'locked' }, { status: 409 })
+    if (e instanceof OutOfStock) return Response.json({ error: 'Not enough in stock' }, { status: 409 })
     if (e instanceof Invalid) return Response.json({ error: e.message, fields: e.fields }, { status: 422 })
     if (e instanceof Fields) return Response.json({ error: e.message, fields: e.fields }, { status: 422 })
     throw e
@@ -85,24 +87,23 @@ export function editOf(b: any): Edit {
   }
 }
 
-// editProduct changes a product of the storefront, as the PATCH of products/product+/route.go: the
-// edit is checked first, and only the studio shop has products to edit.
+// editProduct changes a product of the shop of a project, as the PATCH of products/product+/route.go:
+// the edit is checked first.
 export function editProduct(request: Request, project: string, product: string): Promise<Response> {
   if (request.method !== 'PATCH') return Promise.resolve(Response.json({ error: 'method not allowed' }, { status: 405 }))
   return answer(request, (b) => {
     const e = editOf(b)
     const fields = checkEdit(e)
     if (Object.keys(fields).length > 0) throw new Fields(fields)
-    if (project !== storefrontProject) throw new NotFound(project)
-    update(product, e)
-    return getEntry(product)
+    updateShopProduct(project, product, e)
+    return shopEntry(project, product)
   })
 }
 
-// listProducts answers the products of the storefront as Tifa answers the data of the product list
+// listProducts answers the products of the shop of a project as Tifa answers the data of the product list
 // of the back office (its Load, by the ID of its route), without rendering a page. The restock
 // before a run reads it (restock.go).
 export function listProducts(project: string): Response {
-  if (project !== storefrontProject) return Response.json({ error: 'not found' }, { status: 404 })
-  return Response.json({ routes: { 'app/projects/project+/products/route': { status: 200, data: entries() } } })
+  if (project !== storefrontProject && project !== 'weekend') return Response.json({ error: 'not found' }, { status: 404 })
+  return Response.json({ routes: { 'app/projects/project+/products/route': { status: 200, data: shopEntries(project) } } })
 }

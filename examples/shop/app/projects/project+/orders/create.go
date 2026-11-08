@@ -39,8 +39,10 @@ type NewOrder struct {
 type shop struct {
 	prefix string // the order number is prefix, a dash and a number
 	width  int    // the number is padded with zeros to this width
-	line   func(NewLine) (itemRecord, error)
-	name   func(slug string) (string, bool) // the name of a product it sells, as order lines keep it
+	// buy takes the pieces of the lines of a new order from the stock, or none of them, and returns
+	// them as order lines.
+	buy  func([]NewLine) ([]itemRecord, error)
+	name func(slug string) (string, bool) // the name of a product it sells, as order lines keep it
 	// stock is how many of a product it sells it has to sell now: the orders that wait to ship have
 	// been taken out of it.
 	stock func(slug string) (int, bool)
@@ -49,53 +51,46 @@ type shop struct {
 // The studio shop sells the products of the storefront (storekit.Project), as the catalogue has them
 // at the time of the order. The weekend shop keeps a catalogue of its own.
 var shops = map[string]shop{
-	storekit.Project: {prefix: "SH", width: 0, line: storefrontLine, name: products.OrderName, stock: products.Stock},
-	"weekend":        {prefix: "WK", width: 4, line: weekendLine, name: weekendName, stock: weekendStockOf},
+	storekit.Project: {prefix: "SH", width: 0, buy: storefrontBuy, name: products.OrderName, stock: products.Stock},
+	"weekend":        {prefix: "WK", width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf},
 }
 
-// storefrontLine is the order line of a product of the storefront in a colour and size.
-func storefrontLine(l NewLine) (itemRecord, error) {
-	p, err := products.OrderLine(l.Slug, l.Color, l.Size)
-	if errors.Is(err, tifa.ErrNotFound) {
-		return itemRecord{}, tifa.Fields{"items": "Unknown product " + l.Slug}
+// errNoStock is what placing an order of more than the stock answers, with the status a checkout
+// of the storefront answers it with.
+var errNoStock = tifa.Error{Status: 409, Message: "Not enough in stock"}
+
+// storefrontBuy buys the lines of a new order of the studio shop from the catalogue of the
+// storefront (products.Buy), as a checkout does.
+func storefrontBuy(lines []NewLine) ([]itemRecord, error) {
+	var takes []products.Take
+	for _, l := range lines {
+		takes = append(takes, products.Take{Slug: l.Slug, Color: l.Color, Size: l.Size, Quantity: l.Quantity})
 	}
-	if err != nil {
-		return itemRecord{}, err
+	bought, err := products.Buy(takes)
+	switch {
+	case errors.Is(err, products.ErrNoStock):
+		return nil, errNoStock
+	case errors.Is(err, tifa.ErrNotFound):
+		for _, l := range lines {
+			if _, ok := products.Stock(l.Slug); !ok {
+				return nil, tifa.Fields{"items": "Unknown product " + l.Slug}
+			}
+		}
+		return nil, err
+	case err != nil:
+		return nil, err
 	}
-	p.Quantity = l.Quantity
-	return storefrontItem(p), nil
+	var items []itemRecord
+	for _, l := range bought.Lines {
+		items = append(items, storefrontItem(l))
+	}
+	return items, nil
 }
 
 func storefrontItem(p products.Line) itemRecord {
 	return itemRecord{
 		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: p.Quantity, PriceCents: p.PriceFen, Color: p.Color,
 	}
-}
-
-// weekendLine is the order line of a product of the weekend shop, which comes in one colour and size.
-func weekendLine(l NewLine) (itemRecord, error) {
-	for _, p := range weekendCatalogue {
-		if p.Slug == l.Slug && l.Color == "" && l.Size == "" {
-			return item(p, l.Quantity), nil
-		}
-	}
-	return itemRecord{}, tifa.Fields{"items": "Unknown product " + l.Slug}
-}
-
-// weekendStockOf is how many of a product the weekend shop has to sell.
-func weekendStockOf(slug string) (int, bool) {
-	n, ok := weekendStock[slug]
-	return n, ok
-}
-
-// weekendName is the name of a product of the weekend shop.
-func weekendName(slug string) (string, bool) {
-	for _, p := range weekendCatalogue {
-		if p.Slug == slug {
-			return p.Name, true
-		}
-	}
-	return "", false
 }
 
 // productName is the name of the product slug in the shop of a project as the shop has it now,
@@ -141,20 +136,17 @@ func CheckNewOrder(in NewOrder) error {
 }
 
 // CreateOrder places an order in a project at at and returns its number: the next one after the
-// highest of the project, written like the others. The caller checks the order with CheckNewOrder
-// first.
+// highest of the project, written like the others. It takes the pieces of the order from the stock
+// of the shop as a checkout of the storefront does, and refuses an order of more than is left with a
+// 409, taking nothing. The caller checks the order with CheckNewOrder first.
 func CreateOrder(projectID string, in NewOrder, at time.Time) (string, error) {
 	s, ok := shops[projectID]
 	if !ok {
 		return "", tifa.ErrNotFound
 	}
-	var items []itemRecord
-	for _, l := range in.Items {
-		it, err := s.line(l)
-		if err != nil {
-			return "", err
-		}
-		items = append(items, it)
+	items, err := s.buy(in.Items)
+	if err != nil {
+		return "", err
 	}
 	return keep(projectID, s, in, items, at), nil
 }

@@ -18,8 +18,7 @@ import { customerOrders, getOrder, listOrders, ordersWith } from './orders.ts'
 import type { ListQuery } from './orders.ts'
 import type { Order, OrderList, OrderRow } from './orders.ts'
 import { getProject, listProjects } from './projects.ts'
-import { entries, getEntry } from './store/products/edit.ts'
-import { storefrontProject } from './store/store.ts'
+import { shopEntries, shopEntry } from './weekend.ts'
 import type { Entry } from './store/products/edit.ts'
 import type { Project } from './projects.ts'
 import { carriers } from './shipping.ts'
@@ -91,12 +90,10 @@ export function loadStats(project: Project): Sales {
 
 export function loadProducts(project: Project): Entry[] {
   counts.page++
-  if (project.id !== storefrontProject) throw new NotFound(project.id)
-  return entries()
+  return shopEntries(project.id)
 }
 
 export function loadProductEntry(project: Project, slug: string): Entry {
   counts.page++
-  if (project.id !== storefrontProject) throw new NotFound(project.id)
-  return getEntry(slug)
+  return shopEntry(project.id, slug)
 }

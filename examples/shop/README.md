@@ -4,10 +4,10 @@ English · [简体中文](README.zh-CN.md)
 
 Two sides of one small shop, in one program.
 
-- **The workbench**, for the shop owner: two shops, an order list of 25 rows a page with product photos, to sort, search and filter by status, date, carrier and amount, with rows to select and export, order details with a log of what happened, internal notes, payment and invoice, a stock check, a packing list, the way of the parcel, a shipping form and a dialog to change where an order goes, and a sales stats page with charts, a table of every product with sparklines, a heatmap of when orders come, carriers, dispatch times and the best customers. The first shop also has the products of the storefront, with a page to change the price, the stock and the title and description in both languages. After you ship an order the list and the stats update with it.
+- **The workbench**, for the shop owner: two shops, an order list of 25 rows a page with product photos, to sort, search and filter by status, date, carrier and amount, with rows to select and export, order details with a log of what happened, internal notes, payment and invoice, a stock check, a packing list, the way of the parcel, a shipping form and a dialog to change where an order goes, and a sales stats page with charts, a table of every product with sparklines, a heatmap of when orders come, carriers, dispatch times and the best customers. Each shop has its products, with a page to change the price, the stock and the title and description in both languages, and the first shop sells those of the storefront. After you ship an order the list and the stats update with it.
 - **The storefront**, for customers, in English and Chinese: a category menu and a cart drawer on every page, a home page with a carousel and tabs of best sellers, a product list with search, facets with counts, quick filters, chosen conditions, a grid and list view and a quick view of each product, product pages with a photo gallery, the whole specification, a comparison with similar products, reviews in pages with photos and replies from the shop, questions and products to buy together, coupons and suggestions around a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
 
-The two sides share their data. A checkout in the storefront becomes the next order of the first shop and takes its pieces from the stock, and a checkout of more than is left is refused. A change to a product in the workbench shows in the storefront on its next request.
+The two sides share their data. A checkout in the storefront becomes the next order of the first shop. Every order takes its pieces from the stock of its shop, a checkout and an order placed in the workbench alike, and an order of more than is left is refused. A change to a product in the workbench shows in the storefront on its next request.
 
 Pages are rendered to complete HTML on the server. After the browser takes over, it moves between pages on its own. Data lives in process memory and resets on restart.
 
@@ -71,11 +71,12 @@ app/
         order+/                /projects/{project}/orders/{order}: order details, POST ships, PATCH changes the recipient, PUT puts a note on it
           ship-form.tsx  recipient-dialog.tsx  items.tsx  notes.tsx  activity.tsx  side-cards.tsx
         detail.go              what an order page shows beside the order: payment, log, notes, packing list
+        create.go  weekend.go  placing an order, which takes its stock, and the products of the second shop
       stats/                   /projects/{project}/stats: sales stats
         revenue-chart.client.tsx  products-chart.client.tsx    the charts, loaded in the browser only
         panels.tsx             the product table, order heatmap, carriers, customers and recent orders
-      products/                /projects/studio/products: the products of the storefront, with their price and stock, in the first shop only
-        product+/              /projects/studio/products/{product}: the edit form, PATCH saves it
+      products/                /projects/{project}/products: the products of the shop, with their price and stock (the first shop has those of the storefront)
+        product+/              /projects/{project}/products/{product}: the edit form, PATCH saves it
   store/                       /store in English and /zh-CN/store in Chinese: the folder has `_locales/`, so it is an area with two languages
     storekit/                  what the storefront shares: its two languages, their currency and time zone, prices
     _locales/                  the texts of each language, zh-CN.json and en-US.json

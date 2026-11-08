@@ -52,7 +52,7 @@ func TestCreateKeepsWhatWasEnteredAndTakesTheRestFromTheCatalogue(t *testing.T) 
 	if o.Customer != "周宁" || o.Phone != "13700137002" || o.Address != "北京市朝阳区" || o.Note != "请轻放" || !o.PlacedAt.Equal(at) || o.Status != StatusPending || o.Shipment != nil {
 		t.Fatalf("order %+v", o)
 	}
-	if len(o.Items) != 2 || o.Items[0].Name != "手作陶瓷杯" || o.Items[0].PriceCents != 13400 || o.Items[0].Stock != 58 || o.TotalCents != 2*13400+58000 {
+	if len(o.Items) != 2 || o.Items[0].Name != "手作陶瓷杯" || o.Items[0].PriceCents != 13400 || o.Items[0].Stock != 58-2 || o.TotalCents != 2*13400+58000 {
 		t.Fatalf("items %+v, total %d", o.Items, o.TotalCents)
 	}
 	// It is the newest order: first in the list, in the totals and in what waits to ship.
@@ -151,9 +151,9 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 	}
 	o, _ := GetOrder("studio", id)
 	want := []LineItem{
-		{Slug: "glass-carafe", Name: "玻璃冷水壶", Description: "雾白", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12, Sold: 1, Demand: 1},
-		{Slug: "linen-apron", Name: "棉麻围裙", Description: "墨蓝 / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34},
-		{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58},
+		{Slug: "glass-carafe", Name: "玻璃冷水壶", Description: "雾白", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
+		{Slug: "linen-apron", Name: "棉麻围裙", Description: "墨蓝 / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
+		{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
 	}
 	for i, w := range want {
 		got := o.Items[i]
@@ -173,11 +173,58 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o, _ := GetOrder("studio", id); o.Items[0].Name != "新陶瓷杯" || o.Items[0].PriceCents != 12000 || o.Items[0].Stock != 7 || o.TotalCents != 12000 {
+	if o, _ := GetOrder("studio", id); o.Items[0].Name != "新陶瓷杯" || o.Items[0].PriceCents != 12000 || o.Items[0].Stock != 7-1 || o.TotalCents != 12000 {
 		t.Errorf("after an edit the order holds %+v", o.Items[0])
 	}
 	// An order placed before keeps what it was placed at.
 	if o, _ := GetOrder("studio", "SH-1041"); o.Items[0].Name != "手作陶瓷杯" || o.Items[0].PriceCents != 13400 {
 		t.Errorf("SH-1041 now holds %+v", o.Items[0])
+	}
+}
+
+// Every order takes its pieces from the stock, the ones staff place as a checkout does: the stock
+// goes down by what the order holds, so what the warehouse holds (the stock and what waits to ship)
+// stays the same, and an order of more than is left is refused with 409 and takes nothing. That holds
+// in both shops.
+func TestAStaffOrderTakesItsStock(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	for _, tc := range []struct{ project, slug string }{{"studio", "oak-tray"}, {"weekend", "postcards"}} {
+		stock := productStock(tc.project, tc.slug)
+		waiting := 0
+		if p := ordersOf(tc.project).products[tc.slug]; p != nil {
+			waiting = p.waiting
+		}
+		in := newOrder()
+		in.Items = []NewLine{{Slug: tc.slug, Quantity: 2}}
+		id, err := CreateOrder(tc.project, in, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, _ := GetOrder(tc.project, id)
+		if it := o.Items[0]; it.Stock != stock-2 || it.Stock+it.Demand != stock+waiting {
+			t.Errorf("%s: %s went from %d in stock and %d to ship to %d and %d, want 2 fewer in stock and the warehouse the same",
+				tc.project, tc.slug, stock, waiting, it.Stock, it.Demand)
+		}
+		in.Items = []NewLine{{Slug: tc.slug, Quantity: 5}}
+		// postcards start with 260, so this ends when the stock goes down.
+		for n := 0; productStock(tc.project, tc.slug) >= 5; n++ {
+			if n == 100 {
+				t.Fatalf("%s: 100 orders of 5 took nothing from %d %s", tc.project, productStock(tc.project, tc.slug), tc.slug)
+			}
+			if _, err := CreateOrder(tc.project, in, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		left := productStock(tc.project, tc.slug)
+		before := len(ordersOf(tc.project).all)
+		_, err = CreateOrder(tc.project, in, time.Now())
+		var te tifa.Error
+		if !errors.As(err, &te) || te.Status != 409 {
+			t.Errorf("%s: an order of 5 with %d left: %v, want a 409", tc.project, left, err)
+		}
+		if productStock(tc.project, tc.slug) != left || len(ordersOf(tc.project).all) != before {
+			t.Errorf("%s: a refused order took stock or was kept", tc.project)
+		}
 	}
 }

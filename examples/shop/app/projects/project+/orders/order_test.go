@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 )
 
 func TestListSumsTheOrdersOfOneProject(t *testing.T) {
@@ -103,6 +104,8 @@ func TestListNumbersCoverTheOrdersTheFirstPageLeavesOut(t *testing.T) {
 // Another list on the page of an order holds the newest few, and the count is over all of them.
 func TestCustomerOrdersAreTheNewestFewWithTheCountOfAll(t *testing.T) {
 	reset()
+	t.Cleanup(reset)
+	stockUp()
 	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
 	in := newOrder() // 周宁
 	for i := range 14 {
@@ -287,8 +290,36 @@ func TestUpdateRecipientUntilTheOrderShips(t *testing.T) {
 	}
 }
 
-// reset puts the demonstration orders back, so each test starts from them.
+// stockUp gives every product of both shops the most stock the back office takes, for a test that
+// places more orders than the demonstration stock holds. reset puts the stock back.
+func stockUp() {
+	for _, e := range startEntries {
+		e.Stock = 99_999
+		if err := products.Update(e.Slug, e.Edit); err != nil {
+			panic(err)
+		}
+	}
+	weekendMu.Lock()
+	for i := range weekendShelf {
+		weekendShelf[i].Stock = 99_999
+	}
+	weekendMu.Unlock()
+}
+
+// startEntries is the catalogue of the storefront as the tests of this package start with it.
+var startEntries = products.Entries()
+
+// reset puts the demonstration orders back, with the stock of both shops as they start, so each
+// test starts from them.
 func reset() {
+	for _, e := range startEntries {
+		if err := products.Update(e.Slug, e.Edit); err != nil {
+			panic(err)
+		}
+	}
+	weekendMu.Lock()
+	weekendShelf = newWeekendShelf()
+	weekendMu.Unlock()
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
 	orders = load(demoOrders())

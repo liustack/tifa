@@ -163,6 +163,7 @@ func TestReadsMatchTheReferenceAfterEveryWrite(t *testing.T) {
 func TestReadsAndWritesAtOnce(t *testing.T) {
 	reset()
 	t.Cleanup(reset)
+	stockUp()
 	zs := zones(t)
 	day := time.Date(2026, 10, 14, 9, 30, 0, 0, chinaTime)
 	var wg sync.WaitGroup

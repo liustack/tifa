@@ -109,6 +109,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	}
 	weekend := compare.Page{Name: "list weekend", URL: "/projects/weekend"}
 	products, tray := compare.ProductPages[0], compare.ProductPages[1]
+	weekendProducts, postcards := compare.ProductPages[2], compare.ProductPages[3]
 	storeTray := compare.Page{Name: "store product oak-tray", URL: "/store/products/oak-tray"}
 	const (
 		newOrder  = `{"customer":" 林夏 ","phone":"138-0013 8000","email":"linxia@example.com","address":"上海市徐汇区 · 新地址","note":"请附手写卡片","items":[{"slug":"pour-over-kettle","quantity":2},{"slug":"ceramic-cup","quantity":1}]}`
@@ -118,6 +119,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		checkout = `{"email":"emma@example.com","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`
 		edit     = `{"priceCents":52000,"stock":5,"nameEn":" Oak Tray, Large ","nameZh":"橡木大托盘","descriptionEn":"White oak, carved from one block.","descriptionZh":"整块白橡木挖制。"}`
 		cupEdit  = `{"priceCents":13400,"stock":3,"nameEn":"Ceramic Cup","nameZh":"手作陶瓷杯","descriptionEn":"Thrown by hand.","descriptionZh":"手工拉坯。"}`
+		cardEdit = `{"priceCents":3800,"stock":40,"nameEn":" Postcards of Cities ","nameZh":"城市明信片","descriptionEn":"Six cards.","descriptionZh":"六张。"}`
 	)
 
 	// A step is a write and the pages it must change.
@@ -135,9 +137,10 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"refuse an unknown product", "POST", "create:studio", strings.Replace(newOrder, "ceramic-cup", "no-such-product", 1), nil},
 		{"refuse a product of the storefront in the other shop", "POST", "create:weekend", strings.Replace(weekOrder, "postcards", "oak-tray", 1), nil},
 		{"refuse an unknown project", "POST", "create:nowhere", newOrder, nil},
+		// An order staff place takes its pieces from the stock, as a checkout does.
 		{"place an order", "POST", "create:studio", newOrder,
-			[]compare.Page{list, stats, order("SH-1043"), order("SH-1042"), order("SH-1041"), order("SH-1032")}},
-		{"place an order in the other shop", "POST", "create:weekend", weekOrder, []compare.Page{weekend}},
+			[]compare.Page{list, stats, products, order("SH-1043"), order("SH-1042"), order("SH-1041"), order("SH-1032")}},
+		{"place an order in the other shop", "POST", "create:weekend", weekOrder, []compare.Page{weekend, weekendProducts, postcards}},
 		{"refuse a bad carrier", "POST", "order:studio:SH-1043", `{"carrier":"XX","trackingNo":"ZTO20261107001"}`, nil},
 		{"refuse a short tracking number", "POST", "order:studio:SH-1043", `{"carrier":"ZTO","trackingNo":"short"}`, nil},
 		{"refuse an unknown order", "POST", "order:studio:SH-9999", shipping, nil},
@@ -164,7 +167,11 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"edit a product", "PATCH", "product:studio:oak-tray", edit, []compare.Page{products, tray, storeTray}},
 		// SH-1041 waits for two cups: its stock card shows the stock staff set.
 		{"edit the stock of a product an order waits for", "PATCH", "product:studio:ceramic-cup", cupEdit, []compare.Page{products, order("SH-1041")}},
-		{"place an order of the edited product", "POST", "create:studio", strings.Replace(newOrder, "ceramic-cup", "oak-tray", 1), []compare.Page{list, stats, order("SH-1045")}},
+		{"place an order of the edited product", "POST", "create:studio", strings.Replace(newOrder, "ceramic-cup", "oak-tray", 1),
+			[]compare.Page{list, stats, products, tray, storeTray, order("SH-1045")}},
+		// The edit left 5 trays and the order took one: an order of 5 is refused and takes nothing.
+		{"refuse an order over the stock", "POST", "create:studio", strings.Replace(newOrder, `{"slug":"ceramic-cup","quantity":1}`, `{"slug":"oak-tray","quantity":5}`, 1), nil},
+		{"edit a product of the other shop", "PATCH", "product:weekend:postcards", cardEdit, []compare.Page{weekendProducts, postcards}},
 	}
 
 	type outcome struct {
@@ -190,7 +197,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 				seen[p.URL] = v
 				return v
 			}
-			for _, p := range []compare.Page{list, stats, weekend, order("SH-1042"), order("SH-1041"), order("SH-1032"), order("SH-1040"), products, tray, storeTray} {
+			for _, p := range []compare.Page{list, stats, weekend, order("SH-1042"), order("SH-1041"), order("SH-1032"), order("SH-1040"), products, tray, storeTray, weekendProducts, postcards} {
 				peek(p)
 			}
 			for _, s := range steps {
@@ -234,7 +241,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
 	}
-	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200}
+	wantStatus := []int{400, 422, 422, 422, 422, 422, 404, 200, 200, 422, 422, 404, 404, 200, 409, 409, 200, 422, 422, 404, 200, 200, 303, 422, 422, 400, 404, 404, 200, 200, 200, 409, 200}
 	if len(wantStatus) != len(steps) {
 		t.Fatalf("%d statuses for %d steps", len(wantStatus), len(steps))
 	}

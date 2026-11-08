@@ -3,7 +3,8 @@
 // Node 22.18 and later run TypeScript as it is, by removing its types, so this needs no build.
 import { loadOrder, loadOrderList, loadProductEntry, loadProducts, loadProject, loadShell, loadStats } from './loaders.ts'
 import { addNote, allRows, postOrder, shipOrder, updateRecipient } from './orders.ts'
-import { checkEdit, update } from './store/products/edit.ts'
+import { checkEdit } from './store/products/edit.ts'
+import { updateShopProduct } from './weekend.ts'
 import { editOf, newOrder } from './write.ts'
 
 // With a JSON list of writes as the argument, each write is made first, so that the data can be
@@ -18,7 +19,7 @@ for (const w of JSON.parse(process.argv[2] ?? '[]')) {
     case 'product': {
       const e = editOf(w.body)
       if (Object.keys(checkEdit(e)).length > 0) throw new Error(`an edit the shop refuses: ${JSON.stringify(w.body)}`)
-      update(w.order, e)
+      updateShopProduct(w.project, w.order, e)
       break
     }
     case 'ship':
@@ -42,8 +43,9 @@ for (const project of ['studio', 'weekend']) {
   for (const o of allRows(project)) pages.push([`/projects/${project}/orders/${o.id}`, project, o.id, 'order'])
   pages.push([`/projects/${project}/stats`, project, '', 'stats'])
 }
-// The product pages of ProductPages (compare.go): the list and one product, of the studio shop only.
+// The product pages of ProductPages (compare.go): the list and one product of each shop.
 pages.push(['/projects/studio/products', 'studio', '', 'products'], ['/projects/studio/products/oak-tray', 'studio', 'oak-tray', 'product'])
+pages.push(['/projects/weekend/products', 'weekend', '', 'products'], ['/projects/weekend/products/postcards', 'weekend', 'postcards', 'product'])
 for (const [url, project, order, page] of pages) {
   const p = loadProject(project)
   const data: Record<string, unknown> = {

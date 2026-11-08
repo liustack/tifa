@@ -24,7 +24,7 @@ func TestLoadFindsTheProductInTheStudioShop(t *testing.T) {
 	if err != nil || e.Slug != "oak-tray" || e.NameEN != "Oak Serving Tray" || e.PriceCents != 58000 || e.Stock != 6 {
 		t.Fatalf("Load: %+v, %v", e, err)
 	}
-	for _, tc := range [][2]string{{"studio", "no-such-product"}, {"weekend", "oak-tray"}, {"nowhere", "oak-tray"}} {
+	for _, tc := range [][2]string{{"studio", "no-such-product"}, {"weekend", "oak-tray"}, {"nowhere", "oak-tray"}} { // the weekend shop does not sell the tray
 		if _, err := tifa.Use(productCtx(t, "GET", tc[0], tc[1]), Load); !errors.Is(err, tifa.ErrNotFound) {
 			t.Errorf("%s in %s: %v", tc[1], tc[0], err)
 		}
@@ -54,5 +54,20 @@ func TestPATCHChangesTheProductOfTheStorefront(t *testing.T) {
 	}
 	if p, _ := catalogue.GetEntry("glass-carafe"); p.Edit != edit {
 		t.Errorf("a refused PATCH changed the product: %+v", p.Edit)
+	}
+}
+
+// The weekend shop edits its own products with the same edit.
+func TestPATCHChangesAProductOfTheWeekendShop(t *testing.T) {
+	before, err := tifa.Use(productCtx(t, "GET", "weekend", "postcards"), Load)
+	if err != nil || before.NameZH != "手绘明信片" {
+		t.Fatalf("Load: %+v, %v", before, err)
+	}
+	t.Cleanup(func() { _, _ = PATCH(productCtx(t, "PATCH", "weekend", "postcards"), before.Edit) })
+	edit := before.Edit
+	edit.Stock, edit.NameZH = 9, " 城市明信片 "
+	got, err := PATCH(productCtx(t, "PATCH", "weekend", "postcards"), edit)
+	if err != nil || got.Stock != 9 || got.NameZH != "城市明信片" {
+		t.Fatalf("PATCH: %+v, %v", got, err)
 	}
 }

@@ -92,6 +92,8 @@ export default function ProductPage() {
   }
 
   const { isSubmitting, isDirty, errors } = form.formState
+  // The studio shop sells the products of the storefront. The weekend shop has a catalogue of its own.
+  const storefront = project.id === 'studio'
   return (
     <section aria-labelledby="product-title" className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -108,7 +110,7 @@ export default function ProductPage() {
               {product.nameEn}
             </h2>
             <p className="text-sm text-muted-foreground">
-              <span className="font-mono">No. {String(product.number).padStart(3, '0')}</span> · {product.category} · {yuan(product.priceCents)} ·{' '}
+              <span className="font-mono">No. {String(product.number).padStart(3, '0')}</span> ·{product.category && ` ${product.category} ·`} {yuan(product.priceCents)} ·{' '}
               {product.stock === 0 ? 'Sold out' : `${product.stock} in stock`}
             </p>
           </div>
@@ -120,19 +122,21 @@ export default function ProductPage() {
               All products
             </Link>
           </Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/store/products/${product.slug}`}>
-              <ExternalLink />
-              View in the storefront
-            </a>
-          </Button>
+          {storefront && (
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/store/products/${product.slug}`}>
+                <ExternalLink />
+                View in the storefront
+              </a>
+            </Button>
+          )}
         </div>
       </div>
       <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card className="lg:order-2">
           <CardHeader>
             <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Price and stock</CardTitle>
-            <CardDescription>Prices are in yuan. The English storefront shows them in dollars.</CardDescription>
+            <CardDescription>{storefront ? "Prices are in yuan. The English storefront shows them in dollars." : "Prices are in yuan."}</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -154,7 +158,7 @@ export default function ProductPage() {
                   <Field data-invalid={fieldState.invalid}>
                     <FieldLabel htmlFor="product-stock">Stock</FieldLabel>
                     <Input {...field} id="product-stock" inputMode="numeric" autoComplete="off" aria-invalid={fieldState.invalid} />
-                    <FieldDescription>Each order from the storefront takes its pieces from here.</FieldDescription>
+                    <FieldDescription>Each order takes its pieces from here.</FieldDescription>
                     {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                   </Field>
                 )}
@@ -165,7 +169,7 @@ export default function ProductPage() {
         <Card className="lg:order-1">
           <CardHeader>
             <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">Title and description</CardTitle>
-            <CardDescription>What the storefront shows, in English and in Chinese.</CardDescription>
+            <CardDescription>{storefront ? "What the storefront shows, in English and in Chinese." : "In English and in Chinese."}</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -181,7 +185,7 @@ export default function ProductPage() {
                 {saved && !isDirty && (
                   <p role="status" className="flex items-center gap-1.5 text-sm text-muted-foreground">
                     <Check className="size-4 text-primary" />
-                    Saved. The storefront shows it now.
+                    {storefront ? "Saved. The storefront shows it now." : "Saved."}
                   </p>
                 )}
               </div>
