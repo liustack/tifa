@@ -126,7 +126,7 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `server.csp_policy` | `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'` | `--server-csp-policy`、`SERVER_CSP_POLICY` | `server.csp` 的策略，指令之间用分号隔开。只检查它能不能作为一个头发出：可打印 ASCII、不含逗号、指令名只有字母、数字和连字符 |
 | `server.trusted_origins` | 无 | `--server-trusted-origins`、`SERVER_TRUSTED_ORIGINS` | 这些来源的页面可以从别的网站发写请求（POST、PUT、PATCH、DELETE），逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写请求](#跨站写请求) |
 | `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`SERVER_CROSS_SITE_PATHS` | 这些路径模式的写请求不检查来自哪个网站，逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写请求](#跨站写请求) |
-| `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配)。VM 数等于 GOMAXPROCS 时，只要每个 VM 都在渲染，短请求就要排在渲染后面等约 20 ms。需要它们保持很快时，让 GOMAXPROCS 大于 `ssr.vms` |
+| `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配)。实测在每个 P 都在渲染时（每个 P 一个 VM，1 个 CPU 上 `GOMAXPROCS=1`），短请求排在渲染后面等约 20 ms，原因是 Go 的调度器（10 ms 的监控周期，来回两次）。同一个 CPU 上设 `GOMAXPROCS=2`，P50 是 0.016 ms。需要短请求保持很快时，让 GOMAXPROCS 大于 `ssr.vms`，但多出来的 P 只在还有空闲 CPU 时才有用 |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`SSR_VM_MEMORY` | 每个 VM 的内存上限。渲染时内存用尽则这次渲染失败，VM 换成新的。页面代码接不住它。引擎留住再用的形状也算在这里，最坏每个 VM 约 6 MiB（按 2048 个形状、每个 32 个键、键名约十个字符算，键名更长会更多），调低时要留出这部分（见[内存](performance.zh-CN.md#内存)） |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
@@ -178,7 +178,7 @@ var (
 
 ## 渲染队列
 
-所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 3 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。 一次渲染最坏的耗时是两项限制相加：最多等 3 秒拿 VM，再最多跑 3 秒（`ssr.timeout`），共 6 秒，仍在 10 秒的 `server.write_timeout` 以内。调大其中任何一项时，让两者之和小于写超时。
+所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 3 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。 一次渲染最坏的耗时是两项限制相加：最多等 3 秒拿 VM，再最多跑 3 秒（`ssr.timeout`），共 6 秒，这只是 SSR 部分，仍在 10 秒的 `server.write_timeout` 以内。`OnRequest`、`Load`、编码、压缩和写出响应共用同一个写超时，调大其中任何一项时要给它们留出余地。
 
 过载响应由 Go 写出简单的 HTML，状态码为 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不带 ETag。它不会进入缓存，不会再次调用 VM，也不会交给 `OnError`。`OnRequest` 可以处理 `next(c)` 返回的错误。404 和错误页的渲染使用相同限制。真正的渲染失败和渲染超时仍交给 `OnError`。
 

@@ -15,7 +15,7 @@
 
 ### 变更
 
-- `ssr.wait_timeout` 默认值从 `1s` 改为 `3s`，与 `ssr.timeout` 相同。一个请求最多等 3 秒拿 VM，再最多渲染 3 秒，共 6 秒，仍在 10 秒的 `server.write_timeout` 以内。32 个排队的渲染要跑超过 1 秒的机器上（比如单核、页面渲染超过 31 毫秒），突发请求原来等 1 秒就回 503，现在最多等 3 秒，除非先碰到 `ssr.queue_limit`。想保留原来的限制，设 `ssr.wait_timeout: 1s`（[渲染队列](docs/config.zh-CN.md#渲染队列)）。
+- `ssr.wait_timeout` 默认值从 `1s` 改为 `3s`，与 `ssr.timeout` 相同。一个请求最多等 3 秒拿 VM，再最多渲染 3 秒，共 6 秒，这只是 SSR 部分，仍在 10 秒的 `server.write_timeout` 以内。`OnRequest`、`Load`、编码、压缩和写出响应共用同一个超时，调大其中任何一项时要给它们留出余地。32 个排队的渲染要跑超过 1 秒的机器上（比如单核、页面渲染超过 31 毫秒），突发请求原来等 1 秒就回 503，现在最多等 3 秒，除非先碰到 `ssr.queue_limit`。想保留原来的限制，设 `ssr.wait_timeout: 1s`（[渲染队列](docs/config.zh-CN.md#渲染队列)）。
 - 用 react-i18next 18 的应用，SSR 包不再打印 `tifa rewrite not recognized`。react-i18next 18 用 `Proxy` 包住 i18n 对象，不再复制，所以插件不动 `useTranslation`。i18n 应用的端到端测试现在用 i18next 27.0.1 和 react-i18next 18.0.0（[i18next 适配器](docs/build.zh-CN.md#i18next-适配器)）。
 - 服务端渲染的 i18next 缓存现在也记下运行了应用格式化函数或后处理器的调用的字符串，以前这些调用每次渲染都重新翻译。示例商店的店面页面里，金额和日期都经过它自己的格式化函数，渲染时间是原来的 0.937，是不开缓存时的 0.778，HTML 不变。这类代码对同样的语言、选项和值必须给出同样的文字，就像 React 组件对同样的 props 给出同样的输出。要读请求或当前时间的格式化函数或后处理器，改成从 `t` 的选项里拿这个值（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
 - 应用用 `tifa.String` 等定义自己的选项的文件，现在叫 `options.go`，不再是 `config.go`（见[应用的选项](docs/config.zh-CN.md#应用的选项)）。已有的应用：用一次 `git mv` 把 `config.go` 改名为 `options.go`。`config.go` 里还有 `tifa.String` 等调用时，构建会失败，报出文件名并说明要改名。应用在这里定义的东西现在叫应用的选项，Tifa 的配置指 `tifa.yaml` 里的那些。
