@@ -477,8 +477,24 @@ var badges = []struct {
 	{"limited", T{"限量", "Limited"}},
 }
 
-// materialFamilies returns the ids of the families a product's materials fall in.
+// familiesOf holds the material families of each product of the catalogue, by slug. The product list
+// and the filters ask for them for every product on every request, and they never change.
+var familiesOf = func() map[string][]string {
+	m := make(map[string][]string, len(catalogue))
+	for _, p := range catalogue {
+		m[p.slug] = computeMaterialFamilies(p)
+	}
+	return m
+}()
+
+// materialFamilies returns the ids of the families a product's materials fall in. The slice is shared:
+// do not change it.
 func materialFamilies(p productRecord) []string {
+	return familiesOf[p.slug]
+}
+
+// computeMaterialFamilies works out the families of a product from the words of its materials.
+func computeMaterialFamilies(p productRecord) []string {
 	var out []string
 	for _, g := range materialGroups {
 		if slices.ContainsFunc(p.materials, func(m T) bool {

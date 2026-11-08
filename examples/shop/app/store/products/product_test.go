@@ -170,3 +170,29 @@ func TestTopRatedStartsWithTheBestAndTheCheaperOfEquals(t *testing.T) {
 		}
 	}
 }
+
+// The material families of a product are worked out once for the whole catalogue. They are the same
+// as when each call works them out from the words of the materials, and a product has some.
+func TestMaterialFamiliesAreWorkedOutOnce(t *testing.T) {
+	withFamilies := 0
+	for _, p := range catalogue {
+		want := computeMaterialFamilies(p)
+		if got := materialFamilies(p); !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", p.slug, got, want)
+		}
+		if len(want) > 0 {
+			withFamilies++
+		}
+	}
+	if withFamilies < len(catalogue)/2 {
+		t.Errorf("%d of %d products have a material family", withFamilies, len(catalogue))
+	}
+}
+
+func BenchmarkMaterialFamilies(b *testing.B) {
+	for b.Loop() {
+		for _, p := range catalogue {
+			materialFamilies(p)
+		}
+	}
+}

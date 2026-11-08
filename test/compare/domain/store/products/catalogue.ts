@@ -447,11 +447,25 @@ export const badges: { id: string; name: Text }[] = ([	["new", ["新品", "New"]
 	["sale", ["特价", "On sale"]],
 	["limited", ["限量", "Limited"]],] as [string, Text][]).map(([id, name]) => ({ id, name }))
 
-// materialFamilies returns the ids of the families a product's materials fall in.
-export function materialFamilies(p: ProductRecord): string[] {
+// computeMaterialFamilies works out the families of a product from the words of its materials.
+function computeMaterialFamilies(p: ProductRecord): string[] {
   return materialGroups
     .filter((g) => p.materials.some((m) => g.words.some((w) => m[0].toLowerCase().includes(w) || m[1].toLowerCase().includes(w))))
     .map((g) => g.id)
+}
+
+const familiesOf = new Map<string, string[]>()
+
+// materialFamilies returns the ids of the families a product's materials fall in. The product list and
+// its filters ask for them for every product on every request and they never change, so each product's
+// are worked out once (as Go does at start). The array is shared: do not change it.
+export function materialFamilies(p: ProductRecord): string[] {
+  let families = familiesOf.get(p.slug)
+  if (!families) {
+    families = computeMaterialFamilies(p)
+    familiesOf.set(p.slug, families)
+  }
+  return families
 }
 
 // reviewCount is how many reviews a product has.
