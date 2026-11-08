@@ -200,6 +200,14 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 	if err != nil {
 		return err
 	}
+	// The shop refuses a write that the plan could not make valid, such as a checkout of more than the
+	// stock (409) or an add of a product sold out (422): the round is not the experiment it was meant
+	// to be (see Round.Refused).
+	if ans.status == http.StatusConflict || ans.status == http.StatusUnprocessableEntity {
+		a.mu.Lock()
+		a.refused++
+		a.mu.Unlock()
+	}
 	if ans.status != want {
 		return fmt.Errorf("write %s %s: status %d, want %d: %.200s", method, path, ans.status, want, ans.body)
 	}

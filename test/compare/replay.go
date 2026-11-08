@@ -223,6 +223,8 @@ type acc struct {
 	// and were sent as a create instead (they are among the creates).
 	kinds     map[string]int
 	poolEmpty int
+	// refused counts the writes the shop refused with 409 or 422.
+	refused int
 	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
 }

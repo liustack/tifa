@@ -103,6 +103,9 @@ type Round struct {
 	WriteKinds map[string]int `json:"writeKinds,omitempty"`
 	PoolEmpty  int            `json:"poolEmpty,omitempty"`
 	Orders     map[string]int `json:"orders,omitempty"`
+	// Refused counts the writes the shop refused with 409 or 422. The plan makes every write one the shop
+	// takes, given the stock the run was restocked with, so a round with one is not valid.
+	Refused int `json:"refused,omitempty"`
 
 	// Valid says that the round is a valid experiment: the visits it planned have the mix it is named
 	// for (write share within one point, the share of clicks within one point and 4 page views a
@@ -137,6 +140,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
 	r.Renders, r.Responses, r.PageRenders = a.renders, a.responses, a.pageRenders
 	r.WriteKinds, r.PoolEmpty = a.kinds, a.poolEmpty
+	r.Refused = a.refused
 	r.Seconds = end.Sub(start).Seconds()
 	if !a.lastAction.IsZero() && a.lastAction.After(start) {
 		r.DrainSeconds = end.Sub(a.lastAction).Seconds()
@@ -185,6 +189,9 @@ func (r *Round) Judge(sc BrowseScenario) {
 		case math.Abs(views-4) > 0.04:
 			invalid(fmt.Sprintf("%.3f page views a visit planned, want 4 within 1%%", views))
 		}
+	}
+	if r.Refused > 0 {
+		invalid(fmt.Sprintf("the shop refused %d writes with 409 or 422", r.Refused))
 	}
 	// A round that was not cut off (by its timeout, or the deadline of the open model) starts every
 	// visit it planned: if not, the generator did not do its work.
