@@ -84,8 +84,9 @@ func reviewsOf(page string) string {
 }
 
 // checkOrderPageModules checks the modules of the workbench order page: a waiting order shows what
-// to pick and check before shipping, a shipped one how its parcel went. A note put on an order
-// shows on its page, and an empty one is refused.
+// to pick and check before shipping, a shipped one how its parcel went. How the carriers did for
+// the shop is on the stats page, not here. A note put on an order shows on its page, and an empty
+// one is refused.
 func checkOrderPageModules(t *testing.T, base string) {
 	t.Helper()
 	for _, tc := range []struct {
@@ -98,8 +99,8 @@ func checkOrderPageModules(t *testing.T, base string) {
 			"两只杯子分开包", "Print order", "Ready to ship", "Stock reserved", "2 to ship",
 		}, []string{"Tracking history", "Carrier times", "After shipping"}},
 		{"/projects/studio/orders/SH-1040", []string{
-			"Tracking history", "Carrier times", "After shipping", "Delivered, signed by the recipient", "On the trunk line", "Label printed", "Notification sent", "Sold in shop",
-		}, []string{"Picking list", "Stock check", "Before shipping"}},
+			"Tracking history", "After shipping", "Delivered, signed by the recipient", "On the trunk line", "Label printed", "Notification sent", "Sold in shop",
+		}, []string{"Picking list", "Stock check", "Before shipping", "Carrier times"}},
 	} {
 		status, _, page := get(t, base+tc.path)
 		in := rendered(page)

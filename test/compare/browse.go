@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -829,9 +831,9 @@ func (r *runner) shows(ctx context.Context, what, page string, texts ...string) 
 //     list show it.
 //  2. Add a note to SH-1040, which has shipped (a note is allowed after shipping).
 //  3. Change the recipient of an order that has not shipped.
-//  4. Ship the order of step 1: its page and the list show the tracking number, and SH-1039, an
-//     order that shipped long ago, shows something else than before, since it lists the carriers
-//     with their parcels.
+//  4. Ship the order of step 1 with ZTO: its page and the list show the tracking number, the
+//     carrier table of the stats page counts one more ZTO parcel, and the navigation data of the
+//     stats page is not what it was.
 //
 // The data of an order that was placed here has no trace to ask a navigation request from, so it is
 // read as a document. The order of step 1 is shipped in step 4, so the pool of the writes is what it
@@ -891,12 +893,16 @@ func (r *runner) verifyOffice(ctx context.Context) error {
 		return err
 	}
 
-	other := "/projects/studio/orders/SH-1039"
-	beforeDoc, err := r.get(ctx, other, nil)
+	stats := "/projects/studio/stats"
+	beforeDoc, err := r.get(ctx, stats, nil)
 	if err != nil {
 		return err
 	}
-	beforeData, haveData, err := r.nav(ctx, other)
+	parcels, err := CarrierParcels(beforeDoc, "ZTO Express")
+	if err != nil {
+		return fmt.Errorf("ship: %s before the ship: %w", stats, err)
+	}
+	beforeData, haveData, err := r.nav(ctx, stats)
 	if err != nil {
 		return err
 	}
@@ -910,23 +916,42 @@ func (r *runner) verifyOffice(ctx context.Context) error {
 	if err := r.shows(ctx, "ship", "/projects/studio", tracking); err != nil {
 		return err
 	}
-	afterDoc, err := r.get(ctx, other, nil)
+	afterDoc, err := r.get(ctx, stats, nil)
 	if err != nil {
 		return err
 	}
-	if afterDoc == beforeDoc {
-		return fmt.Errorf("ship: the document of %s, which lists the carriers, is the same after a parcel shipped", other)
+	if n, err := CarrierParcels(afterDoc, "ZTO Express"); err != nil || n != parcels+1 {
+		return fmt.Errorf("ship: the carrier table of %s counts %d ZTO parcels after one more shipped, want %d (%v)", stats, n, parcels+1, err)
 	}
 	if haveData {
-		afterData, _, err := r.nav(ctx, other)
+		afterData, _, err := r.nav(ctx, stats)
 		if err != nil {
 			return err
 		}
 		if afterData == beforeData {
-			return fmt.Errorf("ship: the navigation data of %s, which lists the carriers, is the same after a parcel shipped", other)
+			return fmt.Errorf("ship: the navigation data of %s, which counts the parcels of each carrier, is the same after a parcel shipped", stats)
 		}
 	}
 	return nil
+}
+
+// carrierCell is a line of the carrier table of the stats page as React renders it: the name of
+// the carrier in a cell and the parcels it took in the next.
+var carrierCell = regexp.MustCompile(`>([^<>]+)</td><td[^>]*>(\d+)</td>`)
+
+// CarrierParcels reads from the document of a stats page how many parcels the carrier name took.
+func CarrierParcels(doc, name string) (int, error) {
+	var found []int
+	for _, m := range carrierCell.FindAllStringSubmatch(doc, -1) {
+		if m[1] == name {
+			n, _ := strconv.Atoi(m[2])
+			found = append(found, n)
+		}
+	}
+	if len(found) != 1 {
+		return 0, fmt.Errorf("%d lines of the carrier table for %s", len(found), name)
+	}
+	return found[0], nil
 }
 
 // verifyRename writes to each writable order, both kinds of the rename PATCH (the address alone, then

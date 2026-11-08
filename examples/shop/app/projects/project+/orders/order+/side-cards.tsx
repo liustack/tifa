@@ -240,10 +240,10 @@ export function AddressCheck() {
   )
 }
 
-// CarrierAdvice sets the carriers side by side before the order ships: what they promise, what
-// they cost, and how fast the shop has handed parcels to each so far.
+// CarrierAdvice sets the carriers side by side before the order ships: what they promise and what
+// they cost. How each has done for the shop is on the stats page.
 export function CarrierAdvice() {
-  const { carriers, carrierStats } = page.useLoaderData()
+  const { carriers } = page.useLoaderData()
   return (
     <Card>
       <CardHeader>
@@ -260,7 +260,6 @@ export function CarrierAdvice() {
               <TableHead className="text-xs font-normal text-muted-foreground">Carrier</TableHead>
               <TableHead className="text-xs font-normal text-muted-foreground">Time</TableHead>
               <TableHead className="text-right text-xs font-normal text-muted-foreground">First kg</TableHead>
-              <TableHead className="text-right text-xs font-normal text-muted-foreground">Shipped</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -276,7 +275,6 @@ export function CarrierAdvice() {
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{c.days}</TableCell>
                 <TableCell className="text-right font-mono text-xs tabular-nums">{yuan(c.feeCents)}</TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{carrierStats.find((s) => s.code === c.code)?.orders ?? 0} orders</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -318,49 +316,6 @@ export function StockCheck() {
             )
           })}
         </ul>
-      </CardContent>
-    </Card>
-  )
-}
-
-// CarrierTimes sets the carrier of this parcel beside the others, by how long parcels took.
-export function CarrierTimes() {
-  const { order, carrierStats } = page.useLoaderData()
-  const list = carrierStats.filter((c) => c.orders > 0)
-  const slowest = Math.max(...list.map((c) => c.avgDispatchHours + c.avgTransitHours), 1)
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className={title}>Carrier times</CardTitle>
-        <CardDescription>The average over all shipped orders in this shop, from order to delivery.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ul className="space-y-3">
-          {list.map((c) => (
-            <li key={c.code} className="space-y-1.5">
-              <p className="flex justify-between text-sm">
-                <span className={cn(c.code === order.shipment?.carrier && "font-medium text-primary")}>{c.name}</span>
-                <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                  {Math.round(c.avgDispatchHours + c.avgTransitHours)} hours · {c.orders} orders
-                </span>
-              </p>
-              <div className="flex h-1.5 bg-muted" aria-hidden>
-                <span className="block h-full bg-chart-4" style={{ width: `${(c.avgDispatchHours / slowest) * 100}%` }} />
-                <span className="block h-full bg-primary" style={{ width: `${(c.avgTransitHours / slowest) * 100}%` }} />
-              </div>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-4 flex gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 bg-chart-4" />
-            In the shop
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 bg-primary" />
-            In transit
-          </span>
-        </p>
       </CardContent>
     </Card>
   )

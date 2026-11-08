@@ -30,6 +30,7 @@ export function hours(ms: number): number {
 }
 
 export interface Local {
+  date: string // 2026-10-13
   year: number
   month: number // 1 to 12
   day: number
@@ -51,6 +52,7 @@ export function local(ms: number, zone: string): Local {
   const parts: Record<string, string> = {}
   for (const p of format.formatToParts(ms)) parts[p.type] = p.value
   return {
+    date: `${parts.year}-${parts.month.padStart(2, '0')}-${parts.day.padStart(2, '0')}`,
     year: Number(parts.year), month: Number(parts.month), day: Number(parts.day), hour: Number(parts.hour),
     weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday),
   }

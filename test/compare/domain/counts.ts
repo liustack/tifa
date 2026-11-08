@@ -3,7 +3,7 @@
 // load this module once for its server components and once for its route handlers.
 
 export interface Counts {
-  ordersOf: number // calls of ordersOf, the filter, copy and sort every list, detail and stats query starts with
+  ordersOf: number // calls of ordersOf, which every read of the orders of a project starts with
   shell: number // runs of the root Layout
   project: number // runs of the project Layout
   page: number // runs of the Load of a page

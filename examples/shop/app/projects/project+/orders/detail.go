@@ -139,25 +139,22 @@ func CheckNote(text string) error {
 func AddNote(projectID, id, author, text string, at time.Time) error {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
-	i := indexOrder(projectID, id)
-	if i < 0 {
+	_, o := findOrder(projectID, id)
+	if o == nil {
 		return tifa.ErrNotFound
 	}
-	orders[i].Notes = append(orders[i].Notes, Note{Author: author, Text: strings.TrimSpace(text), At: at})
+	o.Notes = append(o.Notes, Note{Author: author, Text: strings.TrimSpace(text), At: at})
 	return nil
 }
 
-// OrdersWith returns up to n other orders of a project that hold the product slug, newest first.
+// OrdersWith returns up to n other orders of a project that hold the product slug, newest first. An
+// n of 0 or less gives none.
 func OrdersWith(projectID, slug, exceptID string, n int) []OrderRow {
-	var rows []OrderRow
-	for _, o := range ordersOf(projectID) {
-		if o.ID == exceptID || !slices.ContainsFunc(o.Items, func(i itemRecord) bool { return i.Slug == slug }) {
-			continue
-		}
-		rows = append(rows, orderRow(o))
-		if len(rows) == n {
-			break
-		}
+	ordersMu.RLock()
+	defer ordersMu.RUnlock()
+	product := ordersOf(projectID).products[slug]
+	if product == nil {
+		return []OrderRow{}
 	}
-	return rows
+	return newestFirst(product.orders, 0, n, exceptID)
 }

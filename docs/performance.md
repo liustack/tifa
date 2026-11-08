@@ -161,7 +161,7 @@ Only a full page load renders. Navigating in the browser fetches JSON that Go wr
 | The same page answered with 304 | 36,985 | 1.33 to 1.34 ms | 6.1 to 6.2 ms | 0.15 ms |
 | API `PATCH` of an order | 53,275 | 1.51 to 1.53 ms | 3.5 to 3.6 ms | 0.07 ms |
 
-Much of their cost is the app's: the shop's `Load` functions copy and sort every order on each request. The `PATCH` row may be limited by the load tool, which used a whole CPU.
+Much of their cost was the app's: when this was measured, the shop's `Load` functions copied and sorted every order on each request. They now read indexes and running totals that the writes keep. The `PATCH` row may be limited by the load tool, which used a whole CPU.
 
 Requests for a page that miss the cache at the same time share one render (see [SSR and cache](app.md#ssr-and-cache)), so a burst on a cold page, such as right after a deploy, costs one render instead of one per request. 50 requests at once for a cold order page, a fresh process each round, five rounds: one render each round, and all 50 answered in 32.5 to 33.2 ms with 10 VMs on 8 CPUs, and in 30.9 to 38.0 ms with 2 VMs on 2 CPUs. The one render is the first in a fresh VM, which is slower than a warm one.
 

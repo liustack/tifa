@@ -5,11 +5,9 @@ package orders
 
 import (
 	"cmp"
-	"maps"
 	"math"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -155,65 +153,79 @@ type DailyCards struct {
 }
 
 // ListOrders returns a page of the orders of a project that the query keeps, newest first, with the
-// numbers over all of them. The query filters all the orders of the project, and the page is cut
-// from what is left. zone is the time zone of the shop, whose days the cards draw.
+// numbers over all of them. zone is the time zone of the shop, whose days the cards draw, as
+// time.LoadLocation gives it by name (see daysIn).
+//
+// The list without filters, sorted by time either way, is cut from the orders by time, and the
+// numbers come from the totals the writes keep, so it costs the same however many orders there
+// are. A filter, a search or the sort by amount goes through every order of the project instead,
+// which costs time in proportion to the orders, plus sorting the ones kept when the sort is by
+// amount.
 func ListOrders(projectID string, zone *time.Location, q ListQuery) OrderList {
 	q = q.clean()
 	l := OrderList{Orders: []OrderRow{}, Filter: q, Carriers: []string{}, Daily: DailyCards{RevenueCents: []int{}, Orders: []int{}, Pending: []int{}, Shipped: []int{}}}
 	l.Filter.Page = 1
-	list := ordersOf(projectID) // newest first
-	if len(list) == 0 {
+	ordersMu.RLock()
+	defer ordersMu.RUnlock()
+	p := ordersOf(projectID)
+	if len(p.all) == 0 {
 		return l
 	}
-	l.NewestAt = list[0].PlacedAt
-	// The days, labelled by their date in zone. Days are counted back from the newest order in
+	l.NewestAt = p.all[len(p.all)-1].PlacedAt
+	l.Total, l.RevenueCents, l.Pending = len(p.all), p.revenueCents, len(p.pending)
+	l.Shipped = l.Total - l.Pending
+	if len(p.pending) > 0 {
+		// Of the orders placed at the same oldest time, the one with the highest number: the first
+		// of them in the list, newest first.
+		i := 0
+		for i+1 < len(p.pending) && !p.pending[0].PlacedAt.Before(p.pending[i+1].PlacedAt) {
+			i++
+		}
+		row := orderRow(p.pending[i])
+		l.OldestPending = &row
+	}
+	for name, n := range p.shippedBy {
+		if n > 0 {
+			l.Carriers = append(l.Carriers, name)
+		}
+	}
+	slices.Sort(l.Carriers)
+	// The days, labelled by their date in the zone. Days are counted back from the newest order in
 	// steps of 24 hours, so two steps can land on the same date where a zone changes its clock, and
 	// then they share the sums.
-	keys := make([]string, listDays)
-	index := map[string]int{}
-	for i := range keys {
-		keys[i] = l.NewestAt.Add(-time.Duration(listDays-1-i) * 24 * time.Hour).In(zone).Format(time.DateOnly)
-		index[keys[i]] = len(index)
+	z := p.daysIn(zone)
+	for i := range listDays {
+		key := l.NewestAt.Add(-time.Duration(listDays-1-i) * 24 * time.Hour).In(z.zone).Format(time.DateOnly)
+		var d dayTotals
+		if day := z.days[key]; day != nil {
+			d = *day
+		}
+		l.Daily.RevenueCents = append(l.Daily.RevenueCents, d.revenueCents)
+		l.Daily.Orders = append(l.Daily.Orders, d.orders)
+		l.Daily.Pending = append(l.Daily.Pending, d.pending)
+		l.Daily.Shipped = append(l.Daily.Shipped, d.shipped)
 	}
-	sums := make([][4]int, len(index))
-	carriers := map[string]bool{}
-	for _, o := range list {
-		cents := total(o)
-		l.Total++
-		l.RevenueCents += cents
-		if o.Shipment != nil {
-			l.Shipped++
-			carriers[carrierName(o.Shipment.Carrier)] = true
+
+	if q.Status == "" && q.Carrier == "" && q.Period == "" && q.Amount == "" && q.Search == "" && q.Sort == SortPlaced {
+		l.Statuses = StatusCounts{All: l.Total, Pending: l.Pending, Shipped: l.Shipped}
+		l.Matching = l.Total
+		l.Pages = (l.Matching + ListPageSize - 1) / ListPageSize
+		l.Filter.Page = min(q.Page, max(l.Pages, 1))
+		from := (l.Filter.Page - 1) * ListPageSize
+		if q.Dir == SortDesc {
+			l.Orders = newestFirst(p.all, from, ListPageSize, "")
 		} else {
-			l.Pending++
-			if l.OldestPending == nil || o.PlacedAt.Before(l.OldestPending.PlacedAt) {
-				row := orderRow(o)
-				l.OldestPending = &row
+			for _, o := range p.all[from:min(from+ListPageSize, len(p.all))] {
+				l.Orders = append(l.Orders, orderRow(o))
 			}
 		}
-		if i, ok := index[o.PlacedAt.In(zone).Format(time.DateOnly)]; ok {
-			s := &sums[i]
-			s[0] += cents
-			s[1]++
-			if o.Shipment == nil {
-				s[2]++
-			} else {
-				s[3]++
-			}
-		}
+		return l
 	}
-	for _, key := range keys {
-		s := sums[index[key]]
-		l.Daily.RevenueCents = append(l.Daily.RevenueCents, s[0])
-		l.Daily.Orders = append(l.Daily.Orders, s[1])
-		l.Daily.Pending = append(l.Daily.Pending, s[2])
-		l.Daily.Shipped = append(l.Daily.Shipped, s[3])
-	}
-	l.Carriers = slices.Sorted(maps.Keys(carriers))
+
 	keep := q.keeper(l.NewestAt)
 	var matched []OrderRow
-	for _, o := range list {
-		row := orderRow(o)
+	for i := len(p.all) - 1; i >= 0; i-- {
+		row := orderRow(p.all[i])
 		if !keep(row) {
 			continue
 		}
@@ -307,20 +319,11 @@ func (q ListQuery) keeper(newest time.Time) func(OrderRow) bool {
 	}
 }
 
-// allRows are the rows of all the orders of a project, newest first.
-func allRows(projectID string) []OrderRow {
-	rows := []OrderRow{}
-	for _, o := range ordersOf(projectID) {
-		rows = append(rows, orderRow(o))
-	}
-	return rows
-}
-
 // orderRow is the line of the order list for an order.
-func orderRow(o orderRecord) OrderRow {
+func orderRow(o *orderRecord) OrderRow {
 	row := OrderRow{
-		ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt, Status: status(o), Lines: len(o.Items),
-		TotalCents: total(o), Items: itemCount(o),
+		ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt, Status: status(*o), Lines: len(o.Items),
+		TotalCents: total(*o), Items: itemCount(*o),
 	}
 	if len(o.Items) > 0 {
 		row.Product, row.Slug = o.Items[0].Name, o.Items[0].Slug
@@ -335,29 +338,27 @@ func orderRow(o orderRecord) OrderRow {
 func GetOrder(projectID, id string) (Order, error) {
 	ordersMu.RLock()
 	defer ordersMu.RUnlock()
-	i := indexOrder(projectID, id)
-	if i < 0 {
+	p := ordersOf(projectID)
+	o := p.byID[id]
+	if o == nil {
 		return Order{}, tifa.ErrNotFound
 	}
-	return view(orders[i]), nil
+	return view(p, o), nil
 }
 
 // CountPending returns how many orders of a project wait to be shipped.
 func CountPending(projectID string) int {
-	n := 0
-	for _, o := range ordersOf(projectID) {
-		if o.Shipment == nil {
-			n++
-		}
-	}
-	return n
+	ordersMu.RLock()
+	defer ordersMu.RUnlock()
+	return len(ordersOf(projectID).pending)
 }
 
-func view(o orderRecord) Order {
+// view is the whole order o of the project p. The caller holds ordersMu for reading.
+func view(p *projectOrders, o *orderRecord) Order {
 	order := Order{
 		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: initials(o.Customer),
-		Phone: o.Phone, Email: o.Email, Address: o.Address, Note: o.Note, PlacedAt: o.PlacedAt, Status: status(o),
-		TotalCents: total(o), Items: []LineItem{}, Payment: payment(o), Log: logOf(o), Packing: packing(o),
+		Phone: o.Phone, Email: o.Email, Address: o.Address, Note: o.Note, PlacedAt: o.PlacedAt, Status: status(*o),
+		TotalCents: total(*o), Items: []LineItem{}, Payment: payment(*o), Log: logOf(*o), Packing: packing(*o),
 		Notes: slices.Clone(o.Notes),
 	}
 	if s := o.Shipment; s != nil {
@@ -367,10 +368,10 @@ func view(o orderRecord) Order {
 		}
 	}
 	for _, item := range o.Items {
+		product := p.products[item.Slug]
 		order.Items = append(order.Items, LineItem{
 			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
-			PriceCents: item.PriceCents, Color: item.Color, Stock: item.Stock, Sold: soldOf(o.ProjectID, item.Slug),
-			Demand: waitingFor(o.ProjectID, item.Slug),
+			PriceCents: item.PriceCents, Color: item.Color, Stock: item.Stock, Sold: product.sold, Demand: product.waiting,
 		})
 	}
 	return order
@@ -393,118 +394,17 @@ func total(o orderRecord) int {
 	return sum
 }
 
-// The orders are kept in memory, standing in for the order tables of a real database. They start
-// with demonstration data, and changes are lost when the process exits.
-
-type orderRecord struct {
-	ID        string
-	ProjectID string
-	Customer  string
-	Phone     string
-	Email     string
-	Address   string
-	Note      string
-	PlacedAt  time.Time
-	Shipment  *shipmentRecord // nil until the order ships
-	Items     []itemRecord
-	Notes     []Note
-}
-
-type shipmentRecord struct {
-	Carrier    string // a code of Carriers
-	TrackingNo string
-	ShippedAt  time.Time
-	Events     []TrackEvent // oldest first, as the carrier reports them
-}
-
-type itemRecord struct {
-	Slug        string
-	Name        string
-	Description string
-	Quantity    int
-	PriceCents  int
-	Color       string
-	Stock       int
-}
-
-var (
-	ordersMu sync.RWMutex
-	orders   = demoOrders()
-)
-
-// ordersOf returns copies of the orders of a project, newest first.
-func ordersOf(projectID string) []orderRecord {
-	ordersMu.RLock()
-	defer ordersMu.RUnlock()
-	var list []orderRecord
-	for _, o := range orders {
-		if o.ProjectID == projectID {
-			o.Items = slices.Clone(o.Items)
-			list = append(list, o)
-		}
-	}
-	slices.SortFunc(list, func(a, b orderRecord) int {
-		return cmp.Or(b.PlacedAt.Compare(a.PlacedAt), cmp.Compare(b.ID, a.ID))
-	})
-	return list
-}
-
-// indexOrder finds the order id of a project. The caller holds ordersMu.
-func indexOrder(projectID, id string) int {
-	return slices.IndexFunc(orders, func(o orderRecord) bool { return o.ProjectID == projectID && o.ID == id })
-}
-
 // CustomerOrders returns the newest SideListSize other orders of the customer of order id in a
 // project, newest first, with the number of orders and the cents they spent in all, this one
 // counted.
 func CustomerOrders(projectID, id string) (others []OrderRow, count, spentCents int) {
-	o, err := GetOrder(projectID, id)
-	if err != nil {
+	ordersMu.RLock()
+	defer ordersMu.RUnlock()
+	p := ordersOf(projectID)
+	o := p.byID[id]
+	if o == nil {
 		return []OrderRow{}, 0, 0
 	}
-	others = []OrderRow{}
-	for _, row := range allRows(projectID) {
-		if row.Customer != o.Customer {
-			continue
-		}
-		count++
-		spentCents += row.TotalCents
-		if row.ID != id && len(others) < SideListSize {
-			others = append(others, row)
-		}
-	}
-	return others, count, spentCents
-}
-
-// soldOf counts the pieces of a product in the orders of a project. The caller holds ordersMu.
-func soldOf(projectID, slug string) int {
-	n := 0
-	for _, o := range orders {
-		if o.ProjectID != projectID {
-			continue
-		}
-		for _, item := range o.Items {
-			if item.Slug == slug {
-				n += item.Quantity
-			}
-		}
-	}
-	return n
-}
-
-// waitingFor counts the pieces of a product in the orders of a project that wait to be shipped.
-// The caller holds ordersMu.
-func waitingFor(projectID, slug string) int {
-	n := 0
-	for _, o := range orders {
-		if o.ProjectID != projectID || o.Shipment != nil {
-			continue
-		}
-		for _, item := range o.Items {
-			if item.Slug == slug {
-				n += item.Quantity
-			}
-		}
-	}
-	return n
+	c := p.customers[o.Customer]
+	return newestFirst(c.orders, 0, SideListSize, id), len(c.orders), c.spentCents
 }

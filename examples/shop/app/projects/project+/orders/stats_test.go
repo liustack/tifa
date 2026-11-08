@@ -57,7 +57,7 @@ func TestSalesStatsKeepADayThatStartsAfterMidnight(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		orders = append(orders, orderRecord{ID: fmt.Sprint("CL-", i), ProjectID: "chile", PlacedAt: at})
+		insert(orders, &orderRecord{ID: fmt.Sprint("CL-", i), ProjectID: "chile", PlacedAt: at})
 	}
 	ordersMu.Unlock()
 	s := SalesStats("chile", santiago)

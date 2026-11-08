@@ -18,8 +18,8 @@ import { getProject, listProjects } from './projects.ts'
 import type { Project } from './projects.ts'
 import { carriers } from './shipping.ts'
 import type { Carrier } from './shipping.ts'
-import { carrierStats, salesStats } from './stats.ts'
-import type { CarrierSales, Sales } from './stats.ts'
+import { salesStats } from './stats.ts'
+import type { Sales } from './stats.ts'
 
 export type { Project } from './projects.ts'
 export { NotFound } from './errors.ts'
@@ -38,7 +38,6 @@ export interface Detail {
   count: number
   spentCents: number
   sameProduct: OrderRow[]
-  carrierStats: CarrierSales[]
 }
 
 export function loadShell(sidebarState: string | undefined): Shell {
@@ -73,7 +72,7 @@ export function loadOrder(project: Project, orderId: string): Detail {
   const { others, count, spentCents } = customerOrders(project.id, o.id)
   return {
     order: o, carriers, others, count, spentCents,
-    sameProduct: ordersWith(project.id, o.items[0].slug, o.id, 4), carrierStats: carrierStats(project.id),
+    sameProduct: ordersWith(project.id, o.items[0].slug, o.id, 4),
   }
 }
 

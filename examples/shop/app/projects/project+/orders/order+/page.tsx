@@ -17,7 +17,7 @@ import OrderItems from './items'
 import { Activity } from './activity'
 import { Notes } from './notes'
 import { RecipientDialog } from './recipient-dialog'
-import { Actions, AddressCheck, CarrierAdvice, CarrierTimes, Checklist, Customer, Margin, PaymentCard, Packing, StockCheck, Tags } from './side-cards'
+import { Actions, AddressCheck, CarrierAdvice, Checklist, Customer, Margin, PaymentCard, Packing, StockCheck, Tags } from './side-cards'
 import { ShipForm } from './ship-form'
 
 export default function OrderPage() {
@@ -87,7 +87,6 @@ export default function OrderPage() {
           {!order.shipment && <StockCheck />}
           {!order.shipment && <Packing />}
           {order.shipment && <Tracking />}
-          {order.shipment && <CarrierTimes />}
           <Notes />
           <Activity />
           <Others />

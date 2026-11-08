@@ -181,7 +181,7 @@ const requests = 5
 // asks for a page once and reads what the counters gained, then asks again several times and
 // checks that they gained that many times more.
 //
-//   - tifa is the shop built with a counter on ordersOf, the query every page's data starts with
+//   - tifa is the shop built with a counter on ordersOf, which every read of the orders starts with
 //     (see Env.BuildCounted), and renders are read from X-Tifa-Render, which says "vm" for a page
 //     rendered in a VM and "cache" or "shared" for one that was not.
 //   - The Node apps count ordersOf in the port, and the runs of the root Layout, the project
