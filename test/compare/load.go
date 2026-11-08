@@ -30,7 +30,8 @@ type Round struct {
 	Round     int     `json:"round"`
 	Blocks    int     `json:"blocks"`
 
-	Visits    int            `json:"visits"` // visits that completed
+	Visits    int            `json:"visits"`           // visits that completed
+	Played    int            `json:"played,omitempty"` // closed: visits that ended, the failed ones too
 	PageViews int            `json:"pageViews"`
 	FullLoads int            `json:"fullLoads"`
 	Clicks    int            `json:"clicks"`
@@ -175,7 +176,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 // It starts at the first scheduled action and ends when the last visit has finished, or at timeout.
 func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.Duration) *Round {
 	a := newAcc()
-	var next atomic.Int64
+	var next, played atomic.Int64
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cpu0, client0 := r.cpu(), selfCPU()
@@ -192,7 +193,10 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 				if s >= visits {
 					return
 				}
-				r.runVisit(ctx, tr, a, s, pacer{})
+				// A visit that ended counts as played, completed or failed: one the timeout cut off does not.
+				if r.runVisit(ctx, tr, a, s, pacer{}) || ctx.Err() == nil {
+					played.Add(1)
+				}
 			}
 		}()
 	}
@@ -200,6 +204,7 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 	end := time.Now()
 	round := &Round{Model: "closed", Users: users, Blocks: visits / BlockVisits, TimedOut: ctx.Err() == context.DeadlineExceeded}
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
+	round.Played = int(played.Load())
 	r.countOrders(round)
 	return round
 }
@@ -225,10 +230,10 @@ func (r *runner) Size(ctx context.Context, users int, d time.Duration) float64 {
 }
 
 // closedFor plays visits on users, each starting the next as soon as one ends, for d, and returns
-// the visits a second.
+// the visits a second that ended, completed or failed.
 func (r *runner) closedFor(ctx context.Context, users int, d time.Duration, p pacer) float64 {
 	a := newAcc()
-	var next atomic.Int64
+	var next, ended atomic.Int64
 	wctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	start := time.Now()
@@ -240,14 +245,16 @@ func (r *runner) closedFor(ctx context.Context, users int, d time.Duration, p pa
 			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns, IdleConnTimeout: idleConn}
 			defer tr.CloseIdleConnections()
 			for wctx.Err() == nil {
-				r.runVisit(wctx, tr, a, int(next.Add(1))-1, p)
+				// Visits that failed count too (a 503 ends a visit fast): the rate sizes rounds, whose length
+				// every visit sets.
+				if r.runVisit(wctx, tr, a, int(next.Add(1))-1, p) || wctx.Err() == nil {
+					ended.Add(1)
+				}
 			}
 		}()
 	}
 	wg.Wait()
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return float64(a.visits) / time.Since(start).Seconds()
+	return float64(ended.Load()) / time.Since(start).Seconds()
 }
 
 // BlocksFor sizes a workload: the whole blocks (a multiple of the number of blocks of the plans,

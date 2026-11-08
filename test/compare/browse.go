@@ -516,10 +516,13 @@ func hung(r *Round) bool { return r != nil && r.TimedOut && r.Visits == 0 }
 // round stopped at twice the target played only part of its blocks, so its mix is off too.
 func resize(out *Round, target time.Duration, planBlocks int) (int, bool) {
 	lo, hi := roundLength(target)
-	if out.Visits == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
+	// Every visit it played sets its length, the failed ones too. A result written before Played was
+	// counted has only the visits that completed.
+	played := cmp.Or(out.Played, out.Visits)
+	if played == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
 		return 0, false
 	}
-	return BlocksFor(float64(out.Visits)/out.Seconds, target, planBlocks), true
+	return BlocksFor(float64(played)/out.Seconds, target, planBlocks), true
 }
 
 // roundLength is the shortest and the longest a closed round may take, in seconds, for a target.

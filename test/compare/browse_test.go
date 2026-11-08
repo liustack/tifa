@@ -125,3 +125,13 @@ func TestARoundCutOffForItsLengthIsNoHang(t *testing.T) {
 		t.Error("a round that ended is taken for a hang")
 	}
 }
+
+// A round's length is set by every visit it played, the failed ones too (a 503 ends a visit fast),
+// so it resizes from them and not from the visits that completed.
+func TestAResizeCountsTheVisitsThatFailed(t *testing.T) {
+	out := Round{Seconds: 59, Visits: 1900, Played: 2660, Blocks: 28, Valid: true}
+	blocks, ok := resize(&out, 75*time.Second, 4)
+	if want := BlocksFor(2660.0/59, 75*time.Second, 4); !ok || blocks != want {
+		t.Errorf("resized %v to %d blocks, want %d", ok, blocks, want)
+	}
+}
