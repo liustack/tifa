@@ -133,6 +133,11 @@ type browse struct {
 	bid   string
 	// launch starts the server of a spec; the tests set it to serve from a fake (nil: start the real one).
 	launch func(ctx context.Context, spec Spec) (*liveServer, error)
+	// verify checks that the writes of a scenario show in the pages of a server; the tests replace it
+	// (nil: runner.verifyWrites).
+	verify func(ctx context.Context, r *runner) error
+	// checked says which specs have had the writes of a scenario checked (key scenario/spec).
+	checked map[string]bool
 }
 
 // liveServer is a running server of a spec, with what a round reads from it.
@@ -160,6 +165,14 @@ func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 		return nil, err
 	}
 	return &liveServer{base: server.Base, cpu: server.CPUSeconds, rss: server.PeakRSS, stop: server.Stop}, nil
+}
+
+// verifyWrites checks the writes of the scenario on the server of r.
+func (b *browse) verifyWrites(ctx context.Context, r *runner) error {
+	if b.verify != nil {
+		return b.verify(ctx, r)
+	}
+	return r.verifyWrites(ctx)
 }
 
 func (b *browse) logf(format string, a ...any) { fmt.Fprintf(b.o.Log, format, a...) }
@@ -408,32 +421,32 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	return b.res, b.commit()
 }
 
-// with starts a fresh server of a spec, checks that the writes of the scenario show in its pages,
-// and calls f with a runner for the workload of the scenario. The round f returns is judged, and
-// when it passed the writes are checked again, on the server it ran against. The server is stopped
-// after. Every round starts a fresh server, so the data is the same at the start of every round:
+// with starts a fresh server of a spec and calls f with a runner for the workload of the scenario.
+// The server gets no request before f: the check that the writes of the scenario show in its pages runs
+// on a server of its own that is thrown away (checkWrites, once for a spec and a scenario), so that a
+// server of Tifa starts its round with an empty render cache. The round f returns is judged, and when
+// it passed the writes are checked again, on the server it ran against, after its timing. The server is
+// stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
 func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f func(*runner) *Round) (*Round, error) {
-	spec := b.specs[name]
-	server, err := b.start(ctx, spec)
+	// A round with no writes (the read-only control) has none to check, and writes nothing.
+	if key := sc.Name + "/" + name; sc.Share > 0 && !b.checked[key] {
+		if err := b.checkWrites(ctx, name, sc); err != nil {
+			return nil, err
+		}
+		if b.checked == nil {
+			b.checked = map[string]bool{}
+		}
+		b.checked[key] = true
+	}
+	server, err := b.start(ctx, b.specs[name])
 	if err != nil {
 		return nil, err
 	}
 	defer server.stop()
-	site := sc.site()
-	wl, err := NewWorkload(b.sets[site], b.trace[site][traceName(spec)], sc, b.o.Seed)
+	r, err := b.runnerFor(name, sc, server)
 	if err != nil {
 		return nil, err
-	}
-	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
-	if spec.Framework == "tifa" {
-		r.buildID = b.bid
-	}
-	// A round with no writes (the read-only control) has none to check, and writes nothing.
-	if sc.Share > 0 {
-		if err := r.verifyWrites(ctx); err != nil {
-			return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
-		}
 	}
 	out := f(r)
 	// A run that was stopped (an interrupt) leaves a round that is not a result, and it is not kept.
@@ -443,7 +456,7 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 	out.Framework, out.Scenario = name, sc.Name
 	out.Judge(sc)
 	if out.Pass && sc.Share > 0 {
-		if err := r.verifyWrites(ctx); err != nil {
+		if err := b.verifyWrites(ctx, r); err != nil {
 			return nil, fmt.Errorf("%s/%s, after the round: %w", sc.Name, name, err)
 		}
 	}
@@ -1327,6 +1340,39 @@ func checkFormat(data []byte) error {
 		if _, planned := x["visitsPlanned"]; !planned {
 			return errOldFormat
 		}
+	}
+	return nil
+}
+
+// runnerFor is a runner of the workload of a scenario against a server of a spec.
+func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (*runner, error) {
+	spec := b.specs[name]
+	site := sc.site()
+	wl, err := NewWorkload(b.sets[site], b.trace[site][traceName(spec)], sc, b.o.Seed)
+	if err != nil {
+		return nil, err
+	}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
+	if spec.Framework == "tifa" {
+		r.buildID = b.bid
+	}
+	return r, nil
+}
+
+// checkWrites checks that the writes of a scenario show in the pages of a spec, on a fresh server that
+// is thrown away, so that it is not done on the server of a round.
+func (b *browse) checkWrites(ctx context.Context, name string, sc BrowseScenario) error {
+	server, err := b.start(ctx, b.specs[name])
+	if err != nil {
+		return err
+	}
+	defer server.stop()
+	r, err := b.runnerFor(name, sc, server)
+	if err != nil {
+		return err
+	}
+	if err := b.verifyWrites(ctx, r); err != nil {
+		return fmt.Errorf("%s/%s: %w", sc.Name, name, err)
 	}
 	return nil
 }

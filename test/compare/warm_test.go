@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,7 +15,8 @@ import (
 // launched is one server a fake launch started, with the requests it got.
 type launched struct {
 	spec string
-	hits atomic.Int64
+	hits atomic.Int64 // every request
+	seq  seq          // in order, the checks apart from the traffic
 }
 
 // warmBrowse is a browse run against fake servers: every launch starts a new one and notes it. The
@@ -45,7 +47,13 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 	b.launch = func(ctx context.Context, spec Spec) (*liveServer, error) {
 		l := &launched{spec: spec.Name}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get(verifyHeader) != "" {
+				l.seq.add('V')
+				w.Write([]byte("ok"))
+				return
+			}
 			l.hits.Add(1)
+			l.seq.add('T')
 			w.Write([]byte("ok"))
 		}))
 		mu.Lock()
@@ -61,7 +69,10 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 }
 
 func warmSpecs() (tifa, nocache, node Spec) {
-	return Spec{Target: Target{Name: "tifa"}, Framework: "tifa"}, Spec{Target: Target{Name: "tifa-nocache"}, Framework: "tifa"}, Spec{Target: Target{Name: "nextjs"}, Framework: "nextjs"}
+	mk := func(name, fw string) Spec {
+		return Spec{Target: Target{Name: name}, Framework: fw, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath}
+	}
+	return mk("tifa", "tifa"), mk("tifa-nocache", "tifa"), mk("nextjs", "nextjs")
 }
 
 // Tifa has no JIT and starts every measured round with an empty render cache, so a warm-up would put
@@ -139,6 +150,81 @@ func TestSizingNeverReachesAMeasuredServer(t *testing.T) {
 		}
 		if len(list) != 1+len(b.res.Closed) {
 			t.Errorf("%s: %d servers for %d rounds: want one for the sizing and one a round", spec.Name, len(list), len(b.res.Closed))
+		}
+	}
+}
+
+// A request of a check that a fake server tells from the traffic of a round by this header.
+const verifyHeader = "X-Test-Verify"
+
+// seq is what one server got, in order: "V" for a request of the write check and "T" for the traffic
+// of a round (a warm-up, a sizing run or a measured round).
+type seq struct {
+	mu   sync.Mutex
+	kind []byte
+}
+
+func (s *seq) add(k byte) { s.mu.Lock(); s.kind = append(s.kind, k); s.mu.Unlock() }
+func (s *seq) first() (byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.kind) == 0 {
+		return 0, false
+	}
+	return s.kind[0], true
+}
+func (s *seq) has(k byte) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Contains(s.kind, k)
+}
+
+// The write check of a scenario sends requests, so it must not run on the server of a measured round
+// nor on the one of a sizing run: both start with the first request of their traffic, and the check
+// runs on a server of its own. That holds for every attempt, closed and open, in every mix with
+// writes, for Tifa with and without the cache. The check after a round stays on the server of the
+// round, once its timing has ended.
+func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
+	tifa, nocache, node := warmSpecs()
+	for _, mix := range []string{MixRename, MixAdmin, MixStore} {
+		sc := BrowseScenario{Name: "w-" + mix, Share: 0.05, Mix: mix}
+		for _, spec := range []Spec{tifa, nocache, node} {
+			for _, open := range []bool{false, true} {
+				name := mix + "/" + spec.Name + "/closed"
+				if open {
+					name = mix + "/" + spec.Name + "/open"
+				}
+				t.Run(name, func(t *testing.T) {
+					b, servers := warmBrowse(t, sc, spec)
+					b.verify = func(ctx context.Context, r *runner) error {
+						req, _ := http.NewRequestWithContext(ctx, "GET", r.base+"/check", nil)
+						req.Header.Set(verifyHeader, "1")
+						resp, err := http.DefaultClient.Do(req)
+						if err == nil {
+							resp.Body.Close()
+						}
+						return err
+					}
+					var err error
+					if open {
+						_, err = b.openRound(context.Background(), spec.Name, sc, 100, time.Second, time.Second)
+					} else {
+						_, err = b.closedRound(context.Background(), spec.Name, sc, 2, 1)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					list := servers()
+					if len(list) == 0 {
+						t.Fatal("no server")
+					}
+					for i, l := range list {
+						if k, ok := l.seq.first(); ok && k == 'V' && l.seq.has('T') && !spec.WarmsUp() {
+							t.Errorf("server %d of %s got a check before its traffic", i, spec.Name)
+						}
+					}
+				})
+			}
 		}
 	}
 }
