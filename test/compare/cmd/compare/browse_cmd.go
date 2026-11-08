@@ -23,7 +23,7 @@ func browseFlags(flags *flag.FlagSet) {
 	o := &browseOpts
 	flags.StringVar(&o.out, "out", "browse.json", "browse: the result, written after every round and continued if it exists")
 	flags.StringVar(&o.scenarios, "scenarios", compare.DefaultScenarios, "browse: comma separated scenarios: office-w5, office-w20, office-w50 (back office writes), r95w5, r80w20, r50w50 (every write renames a customer) and store-w5, store-w20, store-w50 (the storefront)")
-	flags.StringVar(&o.phases, "phases", "closed,sustain,latency", "browse: the parts to run: closed (throughput at equal users), sustain (the arrival rate each server sustains) and latency")
+	flags.StringVar(&o.phases, "phases", "closed,sustain,latency", "browse: the parts to run: closed (throughput at equal users), sustain (the arrival rate Next.js sustains) and latency (every server at half of it), the last two for the scenarios with 5% writes only")
 	flags.StringVar(&o.extra, "extra-users", "8,16", "browse: more users for the scenarios with 5% writes, besides -users")
 	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func closedRound(fw, sc string, users, round int, views int, seconds float64, pa
 func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	mix := BrowseScenarios[0]
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{
-		"office-w5/tifa": {Rate: 400, Done: true}, "office-w5/nextjs": {Rate: 16, Done: true}},
+		"office-w5/nextjs": {Rate: 16, Done: true}},
 		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 32, round, 4000, 10, true), closedRound("nextjs", mix.Name, 32, round, 400, 10, round != 2))
@@ -36,9 +37,10 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"| | 8 users | 32 users |",
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
-		"The slowest server of this scenario (Next.js) therefore sets the rate",
+		"#### The arrival rate Next.js sustains",
+		"| Next.js | 16.00 | 64 |",
+		"half of the rate Next.js sustains on this scenario",
 		"Every server gets 8.00 visits/s",
-		"| Tifa | 400.00 | 1600 |",
 		"What one visit costs the server",
 		"What the server did a second:",
 		"| Tifa | 100.0 | 300.0 |",
@@ -53,7 +55,7 @@ func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
 	mix := BrowseScenarios[0]
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"office-w5": 8}, LatencyBase: map[string]string{"office-w5": "nextjs"},
-		Sustain: map[string]*Sustain{"office-w5/nextjs": {Rate: 16, Done: true}, "office-w5/tifa": {Done: true, Note: "no rate passed"}}}
+		Sustain: map[string]*Sustain{"office-w5/nextjs": {Rate: 16, Done: true}}}
 	for round := 1; round <= 3; round++ {
 		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
 		a.Model = "open"
@@ -68,13 +70,15 @@ func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
 		r.Latency = append(r.Latency, b)
 	}
 	md := r.Markdown()
-	for _, want := range []string{"| Next.js | 4.0 / 30 (200)", "2 of 3 rounds, the failed ones left out: round 2 failed: the workload did not finish in time", "| Tifa | failed | failed | failed |", "| Tifa | none in range | - | no rate passed |"} {
+	for _, want := range []string{"| Next.js | 4.0 / 30 (200)", "2 of 3 rounds, the failed ones left out: round 2 failed: the workload did not finish in time",
+		// A server that fails at the rate in every round is a result, with its numbers.
+		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 0 |", "failed at this rate in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
 	}
 	if strings.Contains(md, "3000") {
-		t.Error("a failed round's percentiles are in the table")
+		t.Error("a failed round's percentiles are in the table of a server with rounds that passed")
 	}
 }
 
@@ -140,15 +144,20 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 		servers := browseServers(sc, BrowseFrameworks)
 		r.Servers[sc.Name] = servers
 		r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = float64(i+2), "nextjs"
-		for j, f := range servers {
-			r.Sustain[sustainKey(sc.Name, f)] = &Sustain{Rate: float64(10 * (j + 1)), Done: true}
+		if sc.open() {
+			r.Sustain[sustainKey(sc.Name, "nextjs")] = &Sustain{Rate: float64(2 * (i + 2)), Done: true}
+		}
+		for _, f := range servers {
 			x := closedRound(f, sc.Name, 32, 1, 4000, 10, true)
 			x.WriteKinds = map[string]int{WriteCreate: 40, WriteShip: 30, WriteAdd: 50, WriteCheckout: 20}
 			x.Orders = map[string]int{"studio": 82, "weekend": 12}
+			x.PoolEmpty = 21 // of 210 writes
 			r.Closed = append(r.Closed, x)
-			l := closedRound(f, sc.Name, 0, 1, 1000, 100, true)
-			l.Model, l.Rate = "open", float64(i+2)
-			r.Latency = append(r.Latency, l)
+			if sc.open() {
+				l := closedRound(f, sc.Name, 0, 1, 1000, 100, true)
+				l.Model, l.Rate = "open", float64(i+2)
+				r.Latency = append(r.Latency, l)
+			}
 		}
 	}
 	md := r.Markdown()
@@ -163,10 +172,14 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 		if sec == "" {
 			t.Fatalf("no section for %s:\n%s", sc.Title, md)
 		}
-		for _, want := range []string{"#### Page views a second at the same number of users", "#### 32 users", "#### The arrival rate each server sustains", "#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))} {
-			if !strings.Contains(sec, want) {
+		open := []string{"#### The arrival rate Next.js sustains", "#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))}
+		for _, want := range append([]string{"#### Page views a second at the same number of users", "#### 32 users"}, open...) {
+			if !strings.Contains(sec, want) && (sc.open() || !slices.Contains(open, want)) {
 				t.Errorf("%s lacks %q", sc.Name, want)
 			}
+		}
+		if !sc.open() && (strings.Contains(sec, "#### Latency") || !strings.Contains(sec, "This scenario has no open run")) {
+			t.Errorf("%s has an open run or does not say it has none:\n%s", sc.Name, sec)
 		}
 		for _, f := range r.Servers[sc.Name] {
 			if !strings.Contains(sec, "| "+BrowseLabel(f)+" |") {
@@ -175,7 +188,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 		}
 		switch sc.Mix {
 		case MixOffice:
-			if !strings.Contains(sec, "| place an order | ship |") || !strings.Contains(sec, "| 82 / 12 |") {
+			if !strings.Contains(sec, "| place an order | ship |") || !strings.Contains(sec, "| 82 / 12 |") || !strings.Contains(sec, "| 21 (10.0%) |") {
 				t.Errorf("%s lacks the table of office writes:\n%s", sc.Name, sec)
 			}
 		case MixStore:

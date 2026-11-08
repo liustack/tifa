@@ -40,6 +40,14 @@ func (s BrowseScenario) site() string {
 	return SiteWorkbench
 }
 
+// open says whether the scenario has the open run (the search for the rate of Next.js and the
+// latency at half of it): the 95/5 mixes. Its closed runs also have more numbers of users.
+func (s BrowseScenario) open() bool { return s.Share == 0.05 }
+
+// openBase is the server whose sustainable rate sets the rate of an open run: half of it, for every
+// server of the scenario.
+const openBase = "nextjs"
+
 // BrowseScenarios are the scenarios, in the order they are measured. A visit is 4 page views on
 // average (one full load in four, 75% client navigations), an assumption and not a measurement.
 var BrowseScenarios = []BrowseScenario{
@@ -55,8 +63,9 @@ var BrowseScenarios = []BrowseScenario{
 }
 
 // DefaultScenarios are the scenarios that run when none is asked for: the back office at the three
-// rates, the rename stress at 20% only and the storefront at 20% only.
-const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20,store-w20"
+// rates, the rename stress at 20% only and the storefront at 5% (the open run of the storefront) and
+// 20%.
+const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20,store-w5,store-w20"
 
 // BrowseScenarioByName finds a scenario of the browse comparison.
 func BrowseScenarioByName(name string) (BrowseScenario, bool) {

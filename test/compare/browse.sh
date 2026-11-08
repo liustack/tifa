@@ -25,11 +25,12 @@
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
 #   LOCKS             files to flock while running, space separated, first taken first   none
 #   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
-#   SCENARIOS         office-w5, office-w20, office-w50 (back office writes),       office-w5,office-w20,office-w50,r80w20,store-w20
+#   SCENARIOS         office-w5, office-w20, office-w50 (back office writes),       office-w5,office-w20,office-w50,r80w20,store-w5,store-w20
 #                     r95w5, r80w20, r50w50 (every write renames a customer),
 #                     store-w5, store-w20, store-w50 (the storefront, where Tifa runs twice: with
 #                     the whole-page cache off, and with every cache off)
-#   PHASES            closed (throughput at equal users), sustain, latency          closed,sustain,latency
+#   PHASES            closed (throughput at equal users), sustain (the rate of Next.js), latency   closed,sustain,latency
+#                     (sustain and latency run only for the scenarios with 5% writes)
 #   USERS EXTRA_USERS users of every scenario; more users for the 5% write scenarios   32, 8,16
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
@@ -43,7 +44,7 @@ cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
 servers=${SERVERS:-tifa,nextjs,start,reactrouter}
-scenarios=${SCENARIOS:-office-w5,office-w20,office-w50,r80w20,store-w20}
+scenarios=${SCENARIOS:-office-w5,office-w20,office-w50,r80w20,store-w5,store-w20}
 blocks=${BLOCKS:-4}
 mkdir -p "$out" "$traces"
 compare=$out/compare

@@ -108,7 +108,7 @@ func p50Cell(rounds []Round, kind string) string {
 }
 
 // Markdown writes the tables of the browse comparison: for every scenario, throughput at the same
-// number of users, the arrival rate each server sustains and latency at the same arrival rate.
+// number of users, and for the scenarios with 5% writes the rate Next.js sustains and latency at half of it.
 func (r *BrowseResult) Markdown() string {
 	var b strings.Builder
 	v := r.Version
@@ -180,6 +180,9 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 	for _, u := range users {
 		r.closedDetail(b, sc, u)
 	}
+	if !sc.open() {
+		b.WriteString("\nThis scenario has no open run: the arrival rate and the latency at the same rate are measured on the scenario of each site with 5% writes.\n")
+	}
 	r.sustainMarkdown(b, sc)
 	r.latencyMarkdown(b, sc)
 }
@@ -241,7 +244,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 	}
 	switch sc.Mix {
 	case MixOffice:
-		b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | place an order | ship | note | recipient | sent as a place-an-order write for lack of an order | write P50 ms: place / ship / note / recipient | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+		b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | place an order | ship | note | recipient | sent as a place-an-order write for lack of an order (share of the writes) | write P50 ms: place / ship / note / recipient | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 		for _, f := range fw {
 			rs := r.cellRounds(f, sc.Name, users)
 			if len(rs) == 0 {
@@ -251,8 +254,10 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 				return fmtCell(each(rs, func(x *Round) float64 { return float64(get(x)) }), "%.0f")
 			}
 			kind := func(k string) string { return n(func(x *Round) int { return x.WriteKinds[k] }) }
+			empty := n(func(x *Round) int { return x.PoolEmpty }) + " (" +
+				fmtCell(each(rs, func(x *Round) float64 { return 100 * float64(x.PoolEmpty) / float64(max(1, x.Writes)) }), "%.1f") + "%)"
 			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s / %s / %s / %s | %s / %s |\n", BrowseLabel(f),
-				kind(WriteCreate), kind(WriteShip), kind(WriteNote), kind(WriteRecipient), n(func(x *Round) int { return x.PoolEmpty }),
+				kind(WriteCreate), kind(WriteShip), kind(WriteNote), kind(WriteRecipient), empty,
 				p50Cell(rs, "write "+WriteCreate), p50Cell(rs, "write "+WriteShip), p50Cell(rs, "write "+WriteNote), p50Cell(rs, "write "+WriteRecipient),
 				n(func(x *Round) int { return x.Orders["studio"] }), n(func(x *Round) int { return x.Orders["weekend"] }))
 		}
@@ -287,10 +292,13 @@ func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if !slices.ContainsFunc(fw, func(f string) bool { return r.Sustain[sustainKey(sc.Name, f)] != nil }) {
 		return
 	}
-	fmt.Fprintf(b, "\n#### The arrival rate each server sustains\n\nOpen model: visits start on schedule whether or not the earlier ones are done, and the actions of a visit are planned one second apart. A rate is sustained when full loads, clicks and writes each have a P99 of at most 1 s, nothing fails, no backlog is left, and the load generator keeps up, in %d rounds. The search doubles the rate, narrows it to within 10%%, then confirms it.\n\n| | sustained rate, visits/s | page views/s | notes |\n| --- | --- | --- | --- |\n", r.rounds())
+	fmt.Fprintf(b, "\n#### The arrival rate %s sustains\n\nOpen model: visits start on schedule whether or not the earlier ones are done, and the actions of a visit are planned one second apart. A rate is sustained when full loads, clicks and writes each have a P99 of at most 1 s, nothing fails, no backlog is left, and the load generator keeps up, in %d rounds. The search doubles the rate, narrows it to within 10%%, then confirms it (and tries 10%% above it, within the cap of the search). It is run for %s only, whose rate sets the rate of the open run.\n\n| | sustained rate, visits/s | page views/s | notes |\n| --- | --- | --- | --- |\n", BrowseLabel(openBase), r.rounds(), BrowseLabel(openBase))
 	for _, f := range fw {
 		s := r.Sustain[sustainKey(sc.Name, f)]
-		if s == nil || !s.Done {
+		if s == nil {
+			continue
+		}
+		if !s.Done {
 			fmt.Fprintf(b, "| %s | - | - | not measured |\n", BrowseLabel(f))
 			continue
 		}
@@ -311,7 +319,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 		return
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nOne rate that every server can sustain is needed, otherwise the slowest one's queue grows without end and its latency depends on how long the test runs. The slowest server of this scenario (%s) therefore sets the rate, and half of its limit leaves room, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets the same arrival rate, half of the rate %s sustains on this scenario, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it, and its row gives the numbers of its failed rounds. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
 	for _, f := range r.Servers[sc.Name] {
 		var good, bad []Round
 		for _, x := range r.Latency {
@@ -335,20 +343,19 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 			}
 			notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, why))
 		}
+		shown, note := good, fmt.Sprintf("%d of %d rounds", len(good), len(good)+len(bad))
 		if len(good) == 0 {
-			fmt.Fprintf(b, "| %s | failed | failed | failed | - | - | %s |\n", BrowseLabel(f), strings.Join(notes, "; "))
-			continue
-		}
-		fails := 0
-		for _, x := range good {
-			fails += x.Failures
-		}
-		note := fmt.Sprintf("%d of %d rounds", len(good), len(good)+len(bad))
-		if len(notes) > 0 {
+			// It failed at the rate in every round: that is its result, with the numbers it had.
+			shown, note = bad, fmt.Sprintf("failed at this rate in %d of %d rounds: %s", len(bad), len(bad), strings.Join(notes, "; "))
+		} else if len(notes) > 0 {
 			note += ", the failed ones left out: " + strings.Join(notes, "; ")
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %s | %s |\n", BrowseLabel(f), typeCell(good, "load"), typeCell(good, "click"), typeCell(good, "write"), fails,
-			fmtCell(each(good, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
+		fails := 0
+		for _, x := range shown {
+			fails += x.Failures
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), fails,
+			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
 	}
 }
 

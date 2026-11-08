@@ -306,10 +306,55 @@ func TestStorefrontScenariosRunTifaTwiceAndTheOthersOnce(t *testing.T) {
 	if got := strings.Join(browseServers(store, []string{"tifa", "tifa-nocache", "start"}), ","); got != "tifa-nopage,tifa-nocache,start" {
 		t.Errorf("the storefront with tifa-nocache named runs %s", got)
 	}
+	var stores []string
 	for _, name := range strings.Split(DefaultScenarios, ",") {
-		if strings.HasPrefix(name, "store-") && name != "store-w20" {
-			t.Errorf("%s runs by default", name)
+		if strings.HasPrefix(name, "store-") {
+			stores = append(stores, name)
 		}
+	}
+	if strings.Join(stores, ",") != "store-w5,store-w20" {
+		t.Errorf("the storefront scenarios that run by default: %v", stores)
+	}
+}
+
+// The open run is for the 95/5 mix of each site only, and those scenarios have 8 and 16 users
+// besides 32 in the closed runs.
+func TestTheFivePercentScenariosHaveTheOpenRunAndMoreUsers(t *testing.T) {
+	b := &browse{o: BrowseOptions{Users: 32, ExtraUsers: []int{8, 16}}}
+	open := map[string]bool{}
+	for _, name := range strings.Split(DefaultScenarios, ",") {
+		sc, _ := BrowseScenarioByName(name)
+		users := fmt.Sprint(b.usersFor(sc))
+		if sc.open() {
+			open[name] = true
+			if users != "[8 16 32]" {
+				t.Errorf("%s: users %s", name, users)
+			}
+		} else if users != "[32]" {
+			t.Errorf("%s: users %s", name, users)
+		}
+	}
+	if len(open) != 2 || !open["office-w5"] || !open["store-w5"] {
+		t.Errorf("the default scenarios with an open run: %v", open)
+	}
+}
+
+// The rate of the open run is half of what Next.js sustains on the scenario, whatever the others
+// sustain: a server that cannot hold it fails at it.
+func TestTheOpenRateIsHalfOfNextjs(t *testing.T) {
+	sc := BrowseScenario{Name: "store-w5"}
+	res := &BrowseResult{Sustain: map[string]*Sustain{
+		"store-w5/nextjs": {Rate: 21.5, Done: true}, "store-w5/tifa-nocache": {Rate: 5, Done: true}, "store-w5/start": {Rate: 400, Done: true}}}
+	if rate, err := openRate(res, sc); err != nil || rate != 10.75 {
+		t.Errorf("rate %v, %v", rate, err)
+	}
+	res.Sustain["store-w5/nextjs"] = &Sustain{Done: true, Note: "no rate passed"}
+	if _, err := openRate(res, sc); err == nil || !strings.Contains(err.Error(), "Next.js") {
+		t.Errorf("a Next.js with no rate: %v", err)
+	}
+	delete(res.Sustain, "store-w5/nextjs")
+	if _, err := openRate(res, sc); err == nil {
+		t.Error("a scenario whose Next.js was not searched has a rate")
 	}
 }
 

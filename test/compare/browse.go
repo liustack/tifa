@@ -317,10 +317,10 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 }
 
 // usersFor are the numbers of users of the closed rounds of a scenario: o.Users, and o.ExtraUsers
-// too for a scenario with 5% writes.
+// too for a scenario with the open run (5% writes).
 func (b *browse) usersFor(sc BrowseScenario) []int {
 	users := []int{b.o.Users}
-	if sc.Share == 0.05 {
+	if sc.open() {
 		users = append(slices.Clone(b.o.ExtraUsers), users...)
 	}
 	return users
@@ -452,11 +452,18 @@ func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, ra
 // sustainKey names the search of one spec in one scenario.
 func sustainKey(sc, spec string) string { return sc + "/" + spec }
 
-// sustain finds, for each server of a scenario, the arrival rate it sustains in the open model on
-// that scenario: double the rate while the rule holds, narrow it to within 10%, then require the
-// rule over three rounds, stepping down 10% until it holds.
+// sustain finds the arrival rate that Next.js sustains in the open model on a scenario with the open
+// run: double the rate while the rule holds, narrow it to within 10%, then require the rule over the
+// rounds, stepping down 10% until it holds. Only Next.js is searched: half of its rate is the rate of
+// the open run for every server.
 func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
-	for _, fw := range b.servers[sc.Name] {
+	if !sc.open() {
+		return nil
+	}
+	if !slices.Contains(b.servers[sc.Name], openBase) {
+		return fmt.Errorf("%s: the open run is set by %s, which is not among the servers", sc.Name, BrowseLabel(openBase))
+	}
+	for _, fw := range []string{openBase} {
 		key := sustainKey(sc.Name, fw)
 		s := b.res.Sustain[key]
 		if s != nil && s.Done {
@@ -477,8 +484,8 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 			return r.Pass, b.commit()
 		}
 		// Double from 4 visits a second while the rule holds. If 4 fails, halve until one holds.
-		lo, hi, rate := 0.0, 0.0, 4.0
-		for rate <= cmp.Or(b.o.MaxRate, 16384) {
+		lo, hi, rate, maxRate := 0.0, 0.0, 4.0, cmp.Or(b.o.MaxRate, 16384)
+		for rate <= maxRate {
 			ok, err := trial(rate)
 			if err != nil {
 				return err
@@ -525,14 +532,14 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why)
 			s.Confirm = append(s.Confirm, *r)
 			return r, b.commit()
-		})
+		}, maxRate)
 		if err != nil {
 			return err
 		}
 		s.Confirm = rounds
 		s.Rate, s.Done = confirmed, true
 		if confirmed == 0 {
-			s.Note = "no sustainable rate in range: no rate from " + fmt.Sprintf("%.2f", lo) + " down in four steps of 10% passed three rounds"
+			s.Note = fmt.Sprintf("no sustainable rate in range: no rate from %.2f down in four steps of 10%% passed %d rounds", lo, b.o.Rounds)
 		}
 		if hi == 0 && confirmed > 0 {
 			s.Note = "the search reached its cap without failing"
@@ -544,25 +551,32 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 	return nil
 }
 
-// latency is the latency table of a scenario: all its servers at the same arrival rate, half of the
-// lowest rate any of them sustains on that scenario, three rounds in a rotating order with fresh
-// servers.
+// openRate is the rate of the open run of a scenario: half of the rate Next.js sustains on it.
+func openRate(res *BrowseResult, sc BrowseScenario) (float64, error) {
+	s := res.Sustain[sustainKey(sc.Name, openBase)]
+	if s == nil || !s.Done {
+		return 0, fmt.Errorf("%s: no sustainable rate of %s: run the sustain phase first", sc.Name, BrowseLabel(openBase))
+	}
+	if s.Rate == 0 {
+		return 0, fmt.Errorf("%s: %s has no sustainable rate in range (%s), so the open run has no rate", sc.Name, BrowseLabel(openBase), s.Note)
+	}
+	return math.Round(s.Rate/2*100) / 100, nil
+}
+
+// latency is the open run of a scenario: all its servers at the same arrival rate, half of the rate
+// Next.js sustains on that scenario, the rounds in a rotating order with fresh servers. A server that
+// cannot hold the rate fails at it, and its rounds are kept as they are: the rate is never lowered
+// for it.
 func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
+	if !sc.open() {
+		return nil
+	}
 	if b.res.LatencyRate[sc.Name] == 0 {
-		low, base := 0.0, ""
-		for _, fw := range b.servers[sc.Name] {
-			s := b.res.Sustain[sustainKey(sc.Name, fw)]
-			if s == nil || !s.Done {
-				return fmt.Errorf("%s: no sustainable rate for %s: run the sustain phase first", sc.Name, fw)
-			}
-			if s.Rate == 0 {
-				return fmt.Errorf("%s: %s has no sustainable rate in range (%s): there is no rate that all sustain", sc.Name, fw, s.Note)
-			}
-			if low == 0 || s.Rate < low {
-				low, base = s.Rate, fw
-			}
+		rate, err := openRate(b.res, sc)
+		if err != nil {
+			return err
 		}
-		b.res.LatencyRate[sc.Name], b.res.LatencyBase[sc.Name] = math.Round(low/2*100)/100, base
+		b.res.LatencyRate[sc.Name], b.res.LatencyBase[sc.Name] = rate, openBase
 		if err := b.commit(); err != nil {
 			return err
 		}
@@ -915,8 +929,9 @@ func raiseFileLimit() {
 // passed all its rounds, or 0 if none did in range, and every round it ran, in order: a failing round
 // ends its try, and the rounds of the failed tries are kept. If the first try passes, one step 10%
 // above it is tried too, since the search can underestimate and nothing else would correct that: the
-// rate above is published if it passes all its rounds, and the first one otherwise.
-func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error)) (float64, []Round, error) {
+// rate above is published if it passes all its rounds, and the first one otherwise. The step up is
+// not tried when it would pass maxRate, the cap of the search (none when 0).
+func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error), maxRate float64) (float64, []Round, error) {
 	var all []Round
 	try := func(n int, rate float64) (bool, error) {
 		for round := 1; round <= rounds; round++ {
@@ -939,8 +954,7 @@ func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, rou
 			return 0, all, err
 		}
 		if ok {
-			if n == 1 {
-				up := math.Round(rate*1.1*100) / 100
+			if up := math.Round(rate*1.1*100) / 100; n == 1 && (maxRate == 0 || up <= maxRate) {
 				if ok, err := try(n+1, up); err != nil {
 					return 0, all, err
 				} else if ok {
