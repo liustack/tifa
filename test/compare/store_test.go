@@ -65,14 +65,18 @@ func TestStoreDomainMatchesGo(t *testing.T) {
 	}
 	defer shop.Stop()
 	buildID := shopBuildID(t, env)
-	want, err := compare.RunStoreOnShop(ctx, shop.Base, buildID, scenarios)
-	if err != nil {
-		t.Fatal(err)
+	run := func() (want, got [][]compare.StoreResult) {
+		want, err := compare.RunStoreOnShop(ctx, shop.Base, buildID, scenarios)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err = env.RunStoreOnNode(ctx, scenarios)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return want, got
 	}
-	got, err := env.RunStoreOnNode(ctx, scenarios)
-	if err != nil {
-		t.Fatal(err)
-	}
+	want, got := run()
 
 	// The scenarios must have reached what they are about: the pages answer 200, the missing ones
 	// 404, and the checkouts placed orders.
@@ -100,9 +104,20 @@ func TestStoreDomainMatchesGo(t *testing.T) {
 		t.Errorf("the scenarios reached %d pages and %d placed orders", pages, placed)
 	}
 
-	compare.NormalizeStore(want)
-	compare.NormalizeStore(got)
-	diffs := compare.DiffStore(scenarios, want, got, 25)
+	check := func(want, got [][]compare.StoreResult) []string {
+		compare.NormalizeStore(want)
+		compare.NormalizeStore(got)
+		return compare.DiffStore(scenarios, want, got, 25)
+	}
+	first, last := compare.StoreRunSpan(want, got)
+	diffs := check(want, got)
+	if compare.OnlyDeliveryDateDiffs(diffs, 25) && compare.StoreDayChanged(first, last) {
+		// A day of the store changed between the two runs and only delivery dates differ, which are
+		// days of the store: both servers can be right. Run it again, once. A difference in anything
+		// else is reported as it is.
+		t.Logf("a day of the store changed during the run (%v to %v), running it again", first, last)
+		diffs = check(run())
+	}
 	for _, d := range diffs {
 		t.Error(d)
 	}

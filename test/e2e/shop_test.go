@@ -249,7 +249,8 @@ func TestShopApp(t *testing.T) {
 
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
-	checkStorefrontPageCache(t, base)
+	checkStorefrontNoPageCache(t, base)
+	checkEveryShopPageHitsTheRenderCache(t, base, nil)
 	checkShopModules(t, base)
 	checkProductPageCounts(t, base)
 	checkOrderPageModules(t, base)
@@ -358,25 +359,18 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		status int
 		lang   string
 		text   string
-		// cached is a URL of a page with Cache, whose HTML is the same for every visitor and so
-		// carries no data-session. The other 404s are made for the visitor.
-		cached bool
 	}{
-		{"/store", 200, "en-US", "Free delivery", true},
-		{"/zh-CN/store", 200, "zh-CN", "秋天的第一壶茶", true},
-		{"/zh-CN/store/products/nope", 404, "zh-CN", "没有找到这个页面", true},
-		{"/store/journal/nope", 404, "en-US", "We could not find this page", true},
-		{"/store/nope/deeper", 404, "en-US", "We could not find this page", false},
-		{"/store/nope", 404, "en-US", "We could not find this page", false},
-		{"/zh-CN/store/journal/x/y", 404, "zh-CN", "没有找到这个页面", false},
-		{"/zh-CN/store/xx", 404, "zh-CN", "没有找到这个页面", false},
+		{"/store", 200, "en-US", "Free delivery"},
+		{"/zh-CN/store", 200, "zh-CN", "秋天的第一壶茶"},
+		{"/zh-CN/store/products/nope", 404, "zh-CN", "没有找到这个页面"},
+		{"/store/journal/nope", 404, "en-US", "We could not find this page"},
+		{"/store/nope/deeper", 404, "en-US", "We could not find this page"},
+		{"/store/nope", 404, "en-US", "We could not find this page"},
+		{"/zh-CN/store/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
+		{"/zh-CN/store/xx", 404, "zh-CN", "没有找到这个页面"},
 	} {
 		status, _, page := get(t, base+tc.path)
-		attr := ` data-session="out"`
-		if tc.cached {
-			attr = ""
-		}
-		if start := `<!DOCTYPE html><html` + attr + ` lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
+		if start := `<!DOCTYPE html><html data-session="out" lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
 	}
@@ -480,6 +474,13 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if _, _, page := do("GET", placed, ""); !strings.Contains(rendered(page), "已提交，确认邮件已发往 lin@example.com") {
 		t.Errorf("order confirmation:\n%s", rendered(page))
 	}
+	// The confirmation page is a page of the shop like the others: asked for twice with no write in
+	// between, the second answer comes from the render cache. Its delivery dates are those of the day
+	// the order was placed.
+	secondFromRenderCache(t, "order confirmation", func() (int, http.Header) {
+		status, h, _ := do("GET", placed, "")
+		return status, h
+	})
 	if _, _, page := do("GET", "/zh-CN/store/cart", ""); !strings.Contains(rendered(page), "购物车是空的") {
 		t.Errorf("cart after the order:\n%s", rendered(page))
 	}
@@ -590,6 +591,11 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	if _, _, page := emma.do("GET", placed, ""); !strings.Contains(rendered(page), want+" in all") || !strings.Contains(rendered(page), "emma@example.com") {
 		t.Errorf("confirmation lacks %s in all:\n%s", want, rendered(page))
 	}
+	// The English confirmation is cached like the Chinese one.
+	secondFromRenderCache(t, "English order confirmation", func() (int, http.Header) {
+		status, h, _ := emma.do("GET", placed, "")
+		return status, h
+	})
 	// The order keeps the email address, so a long one is refused rather than kept.
 	long := strings.Repeat("a", 243) + "@example.com"
 	if status, _, body := emma.do("POST", "/store/checkout", `{"email":"`+long+`","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`); status != 422 || !strings.Contains(body, `"email":"email"`) {

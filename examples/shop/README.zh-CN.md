@@ -105,19 +105,19 @@ Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化
 
 `<html lang>` 由 Tifa 写，所以根 Layout 不设 `lang`。Tifa 还给每一页链接两种语言的同一页，并把英文那页作为 `x-default`，主机取自 `tifa.yaml` 的 `site.url`。顶栏的语言切换用 `useAlternates()` 读同一份列表，用普通的 `<a href>`，因为另一种语言是另一份文档。店面没有的路径在店面 Layout 里显示 404，用的是 URL 里的语言。`app/store` 放了 `layout_.tsx`，所以店面外面不套工作台，根 Layout 的 `Layout` 也不为它执行：工作台的数据不会进店面的页面。`/store` 对所有浏览器都是英文首页，`/en-US/store` 会 308 跳到它，店面不按 `Accept-Language` 猜语言。
 
-## 店面的整页缓存
+## 店面和渲染缓存
 
-店面的页面对每个访客都一样，所以它们的 `route.go` 里都写了 `const Cache`（见[整页缓存](../../docs/app.zh-CN.md#整页缓存)）：首页、手记列表和商品页缓存 10 分钟，商品列表缓存 5 分钟，手记文章缓存 1 小时。这段时间内程序直接从内存回答，不跑 `Load`，也不渲染，前面的 CDN 也可以把页面存同样久。页面语言来自 URL，所以每种语言各有一条缓存。
+店面页面的数据（商品、手记、菜单）对每个访客都一样，所以渲染缓存（见[渲染缓存](../../docs/render-cache.zh-CN.md)）会复用它们：页面的数据和之前某次请求相同时，程序跳过 React 渲染，直接发存好的 HTML。每个请求的 `Load` 照常运行，页面也没有用 `const Cache`（整页缓存）。
 
-缓存的页面看不到 cookie，所以属于某个访客的东西不在页面里。店面 Layout 只有语言、菜单和包邮门槛。顶栏的购物车和「最近看过」是浏览器在页面加载后向 `/store/mine` 要的，每次改动后再要一次。商品页用一次 POST 告诉这个路由现在打开的是哪个商品。
+属于某个访客的东西不在页面里。店面 Layout 只有语言、菜单和包邮门槛。顶栏的购物车和「最近看过」是浏览器在页面加载后向 `/store/mine` 要的，每次改动后再要一次。商品页用一次 POST 告诉这个路由现在打开的是哪个商品。
 
-想看它怎么起作用，把一个页面的响应头看两次：
+想看渲染缓存怎么起作用，把一个页面的响应头看两次：
 
 ```sh
-curl -si http://127.0.0.1:9527/store/journal | grep -i '^cache-status\|^age\|^x-tifa-render'
+curl -si http://127.0.0.1:9527/store/journal | grep -i '^x-tifa-render'
 ```
 
-第一次是 `Cache-Status: tifa; fwd=miss` 和 `X-Tifa-Render: vm`，第二次是 `Cache-Status: tifa; hit`，带 `Age` 和 `X-Tifa-Render: cache`。请求里带 cookie 不改变结果，带 `utm_source` 这样的跟踪参数也一样。工作台的页面没有 `Cache`，响应头是 `Cache-Control: private, no-cache`。
+第一次是 `X-Tifa-Render: vm`，第二次是 `X-Tifa-Render: cache`。
 
 ## 可以试试
 
@@ -136,7 +136,7 @@ curl -si http://127.0.0.1:9527/store/journal | grep -i '^cache-status\|^age\|^x-
 - 选一种颜色把商品加入购物车，在购物车里改数量，试试优惠码 `SHANHAI10` 和 `WELCOME30`。第一次改动时，你会拿到自己的购物车。它存在程序内存里，cookie 里只放它的编号。改动失败时，比如断网了，那一行下面会给出提示。
 - 下一单，再在无痕窗口里打开它的确认页。会返回 404：确认页上有邮箱地址，所以只有下单的那个购物车能看到。
 - 不填表单、填一个格式不对的邮编，或者填一个校验位不对的卡号，再去结算。错误按字段显示，请求绕过浏览器时 Go 也返回同样的错误。
-- 打开一个商品页，再打开商品列表。「最近看过」里有刚才那个商品，它是页面加载后浏览器从 `/store/mine` 取来的，而页面本身来自缓存。
+- 打开一个商品页，再打开商品列表。「最近看过」里有刚才那个商品，它是页面加载后浏览器从 `/store/mine` 取来的，而页面本身来自渲染缓存。
 - 打开一篇手记，代码块的高亮已经在服务器发来的 HTML 里。
 
 更多约定见 [构建与生成代码](../../docs/build.zh-CN.md) 和 [应用怎么写](../../docs/app.zh-CN.md)。

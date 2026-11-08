@@ -55,3 +55,33 @@ export function local(ms: number, zone: string): Local {
     weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday),
   }
 }
+
+const clocks = new Map<string, Intl.DateTimeFormat>()
+
+// zoneOffset is how far the wall clock of a time zone is ahead of UTC at an instant, in milliseconds.
+function zoneOffset(ms: number, zone: string): number {
+  let format = clocks.get(zone)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+    })
+    clocks.set(zone, format)
+  }
+  const p: Record<string, number> = {}
+  for (const part of format.formatToParts(ms)) if (part.type !== 'literal') p[part.type] = Number(part.value)
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / SECOND) * SECOND
+}
+
+// noon is 12:00 of the day that is days after the day of an instant, in a time zone, as Go's
+// Deliveries computes a date: time.Date(y, m, d+days, 12, 0, 0, 0, zone). A delivery date is a date,
+// carried as noon in the store zone: noon is never skipped or repeated by a change of the clock, so
+// a page can add whole 24 hour steps to it and still land on the right calendar day.
+export function noon(ms: number, zone: string, days: number): number {
+  const l = local(ms, zone)
+  const wall = Date.UTC(l.year, l.month - 1, l.day + days, 12)
+  // The offset of the zone at that noon, found from a first guess, since it can change (daylight
+  // saving time) between the instant and the day it is counted to.
+  let at = wall - zoneOffset(wall, zone)
+  at = wall - zoneOffset(at, zone)
+  return at
+}

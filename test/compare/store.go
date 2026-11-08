@@ -548,11 +548,11 @@ const instantPrefix = "@instant "
 // NormalizeStore removes what differs between two runs of the same scenario: the random cart
 // id and order number, and the instants counted from the time of the request. An instant becomes
 // its distance in milliseconds from the request that made it, written "@instant <ms>", for
-// DiffStore to compare within instantTolerance: a run an hour later is the same and a delivery that
-// is off by an hour is not. The time an order was placed, and its delivery (the keys under "placed"), are
-// counted from the request that placed it (the 303 of the checkout), not from the request that reads
-// it later. A quote for the cart is counted from the request that reads it. It is applied to the answers
-// of the shop and of the port alike.
+// DiffStore to compare within instantTolerance: a run an hour later is the same. The time an order was
+// placed (under "placed") is counted from the request that placed it (the 303 of the checkout), not
+// from the request that reads it later. A delivery date ("earliest", "latest") is a day of the store,
+// carried as noon in its time zone, so it is not counted from a request: it becomes "@day <ms>", the
+// instant itself, compared as it is. It is applied to the answers of the shop and of the port alike.
 func NormalizeStore(results [][]StoreResult) {
 	var from time.Time
 	instant := func(t time.Time) string {
@@ -569,6 +569,12 @@ func NormalizeStore(results [][]StoreResult) {
 				if s, ok := e.(string); ok && (k == "earliest" || k == "latest" || k == "placedAt") {
 					if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 						from = at
+						if k != "placedAt" {
+							// A delivery date is a day of the store, the same all day on both servers, so it is
+							// compared as it is and not by how far it is from the request.
+							x[k] = fmt.Sprintf("@day %d", t.UnixMilli())
+							continue
+						}
 						if (k == "placedAt" || placed) && !orderAt.IsZero() {
 							from = orderAt
 						}
@@ -697,4 +703,61 @@ func (e Env) ShopBuildID() (string, error) {
 		return "", err
 	}
 	return built.BuildID, nil
+}
+
+// storeZones are the time zones of the storefront's languages, where its delivery dates are counted.
+var storeZones = []string{"Asia/Shanghai", "America/Los_Angeles"}
+
+// StoreDayChanged says whether the day changed in the time zone of either language of the store
+// between two instants. A delivery date is a calendar day of the store, so two servers that answer
+// on both sides of such a moment give different dates and both are right. A caller that finds a
+// difference then runs that sample again, once, and does not widen any tolerance.
+func StoreDayChanged(a, b time.Time) bool {
+	for _, name := range storeZones {
+		zone, err := time.LoadLocation(name)
+		if err != nil {
+			panic(err)
+		}
+		ay, am, ad := a.In(zone).Date()
+		by, bm, bd := b.In(zone).Date()
+		if ay != by || am != bm || ad != bd {
+			return true
+		}
+	}
+	return false
+}
+
+// OnlyDeliveryDateDiffs says whether every difference that DiffStore listed is in a delivery date
+// ("earliest" or "latest"), the only values that depend on the day of the store. A list as long as
+// the limit it was made with may have lost others, so it does not count.
+func OnlyDeliveryDateDiffs(diffs []string, limit int) bool {
+	if len(diffs) == 0 || len(diffs) >= limit {
+		return false
+	}
+	for _, d := range diffs {
+		if !deliveryDateDiff.MatchString(d) {
+			return false
+		}
+	}
+	return true
+}
+
+var deliveryDateDiff = regexp.MustCompile(`/(earliest|latest): `)
+
+// StoreRunSpan is the first and the last time a request of the runs was sent.
+func StoreRunSpan(runs ...[][]StoreResult) (first, last time.Time) {
+	for _, run := range runs {
+		for _, rs := range run {
+			for _, r := range rs {
+				at := time.UnixMilli(r.At)
+				if first.IsZero() || at.Before(first) {
+					first = at
+				}
+				if at.After(last) {
+					last = at
+				}
+			}
+		}
+	}
+	return first, last
 }

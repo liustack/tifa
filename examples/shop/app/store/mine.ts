@@ -2,8 +2,8 @@ import { useSyncExternalStore } from 'react'
 import { GET, POST, type GETOutput } from './mine/route.gen'
 
 // What the store knows about this visitor: the cart and the products they looked at last. The
-// pages are cached and the same for everyone, so this comes from the mine route after the page
-// has loaded. It is null until the first answer, on the server and on the first browser render.
+// pages are the same for everyone, so this comes from the mine route after the page has
+// loaded. It is null until the first answer, on the server and on the first browser render.
 // One document holds one language, and the route answers in the language of the page's URL.
 let current: GETOutput | null = null
 let requests = 0

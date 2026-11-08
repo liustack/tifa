@@ -63,9 +63,11 @@ var storeApps = []storeApp{
 }
 
 var (
-	orderNumber     = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
-	cartCookie      = regexp.MustCompile(`store_cart=[^;]+`)
-	isoTime         = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
+	orderNumber = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
+	cartCookie  = regexp.MustCompile(`store_cart=[^;]+`)
+	isoTime     = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
+	// deliveryDay is a delivery date: a day of the store, carried as noon in its zone, the same on both servers all day.
+	deliveryDay     = regexp.MustCompile(`((?:earliest|latest)\\?":\\?")(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d))`)
 	placedLocation  = regexp.MustCompile(`(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
@@ -106,11 +108,20 @@ type reply struct {
 	done   time.Time // when the answer was read
 }
 
-// instants writes the instants in a body as "@instant", and returns how far each is from the
+// instants writes the instants in a body as "@instant", except a delivery date (a day of the store, noon in its
+// zone, written as "@day <ms>" and compared as it is), and returns how far each is from the
 // request, in milliseconds, for the caller to compare within a tolerance: a delivery two days away
 // is the same on two servers that answered at different times, and one that is off by hours is not.
 func (r reply) instants(s string) (string, []int64) {
 	var offsets []int64
+	s = deliveryDay.ReplaceAllStringFunc(s, func(m string) string {
+		sub := deliveryDay.FindStringSubmatch(m)
+		t, err := time.Parse(time.RFC3339Nano, sub[2])
+		if err != nil {
+			return m
+		}
+		return fmt.Sprintf("%s@day %d", sub[1], t.UnixMilli())
+	})
 	s = isoTime.ReplaceAllStringFunc(s, func(m string) string {
 		t, err := time.Parse(time.RFC3339Nano, m)
 		if err != nil {
@@ -316,6 +327,9 @@ type pair struct {
 	spec storeApp
 	// placed is when each server was asked to place the order that orders names.
 	placed [2][2]time.Time
+	// rebuilt is true in the second try of a sample that was built again because its two orders were
+	// placed on different days of the store. rebuild asks for that.
+	rebuilt, rebuild bool
 }
 
 func (p *pair) fresh() *pair {
@@ -325,7 +339,14 @@ func (p *pair) fresh() *pair {
 // both sends a request to both servers and fails when the answers differ.
 func (p *pair) both(name string, r request) (tifa, app reply) {
 	p.t.Helper()
+	start := time.Now()
 	tifa, app = p.tifa.do(r), p.app.do(r)
+	if a, b := tifa.describe(), app.describe(); a != b && r.method == "GET" && compare.StoreDayChanged(start, laterOf(tifa.done, app.done)) {
+		// A day of the store changed between the first request and the last answer, and a delivery
+		// date is a day of the store: both can be right. Ask again, once. Only a read is asked again,
+		// a write is not.
+		tifa, app = p.tifa.do(r), p.app.do(r)
+	}
 	if a, b := tifa.describe(), app.describe(); a != b {
 		p.t.Errorf("%s: %s %s differs.\nTifa:\n%s\n\n%s:\n%s", name, r.method, r.path, a, p.spec.label, b)
 	}
@@ -343,15 +364,44 @@ func (p *pair) both(name string, r request) (tifa, app reply) {
 	return tifa, app
 }
 
+// laterOf is the later of two times.
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
 // views compares a page on both servers: status and what a reader sees. A confirmation page
-// {order} is asked for by the number each server made.
+// {order} is asked for by the number each server made. A delivery date is a day of the store, so
+// when the day changed in either of its zones between the first request and the last reply, a
+// difference may be the day and the pages are asked for again, once. The comparison stays exact.
+// A confirmation page also has the delivery dates of the day its order was placed: if the two orders
+// were placed on different days of the store, the sample is built again with fresh visitors
+// (p.rebuild), since asking for the page again would show the same two days.
 func (p *pair) views(name, path string, orders [2]string, want int) {
+	p.t.Helper()
+	start := time.Now()
+	errs := p.compareViews(name, path, orders, want)
+	if len(errs) > 0 && strings.Contains(path, "placed={order}") && !p.rebuilt && compare.StoreDayChanged(p.placed[0][0], p.placed[1][0]) {
+		p.rebuild = true
+		return
+	}
+	if len(errs) > 0 && compare.StoreDayChanged(start, time.Now()) {
+		errs = p.compareViews(name, path, orders, want)
+	}
+	for _, e := range errs {
+		p.t.Error(e)
+	}
+}
+
+// compareViews asks both servers for a page and lists how they differ.
+func (p *pair) compareViews(name, path string, orders [2]string, want int) (errs []string) {
 	p.t.Helper()
 	ts, tv, ta := p.tifa.page(strings.ReplaceAll(path, "{order}", orders[0]))
 	as, av, aa := p.app.page(strings.ReplaceAll(path, "{order}", orders[1]))
 	if ts != want || as != want {
-		p.t.Errorf("%s: %s answered %d in Tifa and %d in %s, want %d", name, path, ts, as, p.spec.label, want)
-		return
+		return []string{fmt.Sprintf("%s: %s answered %d in Tifa and %d in %s, want %d", name, path, ts, as, p.spec.label, want)}
 	}
 	if strings.Contains(path, "placed={order}") {
 		p.checkPlacedTime(name, path, [2]*compare.View{&tv, &av}, [2]string{orders[0], orders[1]})
@@ -360,18 +410,19 @@ func (p *pair) views(name, path string, orders [2]string, want int) {
 		if why, ok := p.spec.except["404 page"]; ok {
 			// A confirmation that is not found is a 404 the page itself raises, which Next.js draws from its root, so it has the title of the root.
 			if tv.Title != av.Title && !strings.Contains(path, "placed=") {
-				p.t.Errorf("%s: %s: title %q in Tifa, %q in %s", name, path, tv.Title, av.Title, p.spec.label)
+				errs = append(errs, fmt.Sprintf("%s: %s: title %q in Tifa, %q in %s", name, path, tv.Title, av.Title, p.spec.label))
 			}
 			p.t.Logf("exception, %s %s: %s", p.spec.label, path, why)
-			return
+			return errs
 		}
 	}
 	if d := compare.Diff(tv, av); d != "" {
-		p.t.Errorf("%s: %s differs from Tifa:\n%s", name, path, d)
+		errs = append(errs, fmt.Sprintf("%s: %s differs from Tifa:\n%s", name, path, d))
 	}
 	if d := diffAttrs(ta, aa); d != "" {
-		p.t.Errorf("%s: %s has other attributes than Tifa's:\n%s", name, path, d)
+		errs = append(errs, fmt.Sprintf("%s: %s has other attributes than Tifa's:\n%s", name, path, d))
 	}
+	return errs
 }
 
 // diffAttrs says where two lists of attributes differ: the first places, and the lengths.
@@ -463,25 +514,36 @@ func (p *pair) states(t *testing.T) {
 	for _, state := range compare.StoreStates() {
 		q := p.fresh()
 		q.t = t
-		var orders [2]string
-		for _, s := range state.Steps {
-			r := request{method: s.Method, path: s.URL, body: s.Body}
-			a, b := q.tifa.do(r), q.app.do(r)
-			if a.status >= 400 || b.status >= 400 {
-				t.Fatalf("%s: %s answered %d in Tifa and %d in %s: %s %s", state.Name, s, a.status, b.status, p.spec.label, a.body, b.body)
-			}
-			if id := placedOrder(a); id != "" {
-				orders[0] = id
-				q.placed[0] = [2]time.Time{a.at, a.done}
-			}
-			if id := placedOrder(b); id != "" {
-				orders[1] = id
-				q.placed[1] = [2]time.Time{b.at, b.done}
-			}
+		p.state(t, q, state)
+		if q.rebuild {
+			// The two orders were placed on different days of the store: build the state again, once.
+			q = p.fresh()
+			q.t, q.rebuilt = t, true
+			p.state(t, q, state)
 		}
-		for _, page := range state.Pages {
-			q.views(state.Name+" "+page.Name, page.URL, orders, 200)
+	}
+}
+
+// state builds one cart state on both servers with q and compares its pages.
+func (p *pair) state(t *testing.T, q *pair, state compare.StoreState) {
+	var orders [2]string
+	for _, s := range state.Steps {
+		r := request{method: s.Method, path: s.URL, body: s.Body}
+		a, b := q.tifa.do(r), q.app.do(r)
+		if a.status >= 400 || b.status >= 400 {
+			t.Fatalf("%s: %s answered %d in Tifa and %d in %s: %s %s", state.Name, s, a.status, b.status, p.spec.label, a.body, b.body)
 		}
+		if id := placedOrder(a); id != "" {
+			orders[0] = id
+			q.placed[0] = [2]time.Time{a.at, a.done}
+		}
+		if id := placedOrder(b); id != "" {
+			orders[1] = id
+			q.placed[1] = [2]time.Time{b.at, b.done}
+		}
+	}
+	for _, page := range state.Pages {
+		q.views(state.Name+" "+page.Name, page.URL, orders, 200)
 	}
 }
 
@@ -659,6 +721,18 @@ var storeWrites = []step{
 func (p *pair) writes(t *testing.T, call bool) {
 	q := p.fresh()
 	q.t = t
+	p.writeSteps(t, q, call)
+	if q.rebuild {
+		// The two orders were placed on different days of the store: send the writes again as fresh
+		// visitors, once.
+		q = p.fresh()
+		q.t, q.rebuilt = t, true
+		p.writeSteps(t, q, call)
+	}
+}
+
+// writeSteps sends the writes with q and compares what follows each.
+func (p *pair) writeSteps(t *testing.T, q *pair, call bool) {
 	var orders [2]string
 	for _, s := range storeWrites {
 		isWrite := s.method != "GET"

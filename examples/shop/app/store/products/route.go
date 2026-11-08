@@ -1,8 +1,6 @@
 package products
 
 import (
-	"time"
-
 	"strconv"
 
 	"github.com/liustack/tifa"
@@ -15,10 +13,6 @@ type List struct {
 	Results
 	Picks []Card `json:"picks"`
 }
-
-// Cache keeps a list for five minutes, a result of a filter in the query string included. Stock
-// and ratings change faster than articles do.
-const Cache = 5 * time.Minute
 
 // Load searches the catalogue with the filters in the query string. A filter that does not parse
 // is left out, as if it were not there.

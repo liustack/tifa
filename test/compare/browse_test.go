@@ -139,10 +139,10 @@ func TestAResizeCountsTheVisitsThatFailed(t *testing.T) {
 // A cell with no valid round says why its rounds failed, not only how many there were.
 func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 	sc, _ := BrowseScenarioByName("store-w5")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa-nopage", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("nextjs", sc.Name, 32, round, 400, 10, true))
-		bad := closedRound("tifa-nopage", sc.Name, 32, 1, 4000, 59, false)
+		bad := closedRound("tifa", sc.Name, 32, 1, 4000, 59, false)
 		bad.Valid, bad.Attempt = false, round
 		bad.Why, bad.WhyInvalid = "630 failures (GET /zh-CN/store/cart: status 503)", "the round took 59 s, outside 60 to 120 s: resized"
 		r.Closed = append(r.Closed, bad)

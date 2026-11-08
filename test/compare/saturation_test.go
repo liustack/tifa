@@ -154,9 +154,9 @@ func TestTheProbeSkipsACellWithNoValidRound(t *testing.T) {
 	sc, _ := BrowseScenarioByName("store-w5")
 	var log strings.Builder
 	path := filepath.Join(t.TempDir(), "saturation.json")
-	b := &browse{o: BrowseOptions{Log: &log, Rounds: 3, Users: 32, ServerCPUCount: 1, SaturationFile: path}, servers: map[string][]string{sc.Name: {"tifa-nopage"}}, res: &BrowseResult{}}
+	b := &browse{o: BrowseOptions{Log: &log, Rounds: 3, Users: 32, ServerCPUCount: 1, SaturationFile: path}, servers: map[string][]string{sc.Name: {"tifa"}}, res: &BrowseResult{}}
 	for round := 1; round <= 3; round++ {
-		bad := closedRound("tifa-nopage", sc.Name, 32, round, 4000, 59, false)
+		bad := closedRound("tifa", sc.Name, 32, round, 4000, 59, false)
 		bad.Valid, bad.WhyInvalid = false, "the round took 59 s, outside 60 to 120 s: resized"
 		b.res.Closed = append(b.res.Closed, bad)
 	}

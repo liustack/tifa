@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa/test/compare"
 )
@@ -82,11 +83,9 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	}
 }
 
-// TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne asks for pages whose route has Cache
-// twice. With every cache off, both answers are renders in a VM and
-// the Cache-Status is a miss, never a hit. With only the whole-page cache off, no answer comes from it (no Cache-Status)
-// but the second render comes from the render cache. The shop as shipped is the control: its second
-// answer is a hit of the whole-page cache, so the check can fail.
+// TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne asks for storefront pages twice. The shop
+// as shipped has no whole-page cache, so no answer has a Cache-Status and the second render comes
+// from the render cache. With every cache off (--cache-size 0), both answers are renders in a VM.
 func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 	env := setup(t)
 	buildShop(t, env)
@@ -110,9 +109,8 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 		againRender            []string
 		rendered               bool
 	}{
-		{"tifa", "tifa; fwd=miss", "tifa; hit", []string{"cache"}, true},
-		{"tifa-nopage", "", "", []string{"cache", "vm"}, true},
-		{"tifa-nocache", "tifa; fwd=miss", "tifa; fwd=miss", []string{"vm"}, false},
+		{"tifa", "", "", []string{"cache"}, true},
+		{"tifa-nocache", "", "", []string{"vm"}, false},
 	} {
 		server, err := mustTarget(t, env, c.name).Start(ctx, "")
 		if err != nil {
@@ -120,8 +118,16 @@ func TestTifaWithItsCachesOffNeverAnswersAStorefrontPageFromOne(t *testing.T) {
 		}
 		fromRenderCache := false
 		for _, page := range pages {
+			started := time.Now()
 			first, again := ask(server.Base, page), ask(server.Base, page)
-			if first.cache != c.firstCache || first.render != "vm" {
+			repeated := false
+			if c.rendered && again.render != "cache" && compare.StoreDayChanged(started, time.Now()) {
+				// A day of the store changed between the two requests, so the data of the page changed
+				// with it and the second render was right. Ask the pair again, once.
+				first, again = ask(server.Base, page), ask(server.Base, page)
+				repeated = true
+			}
+			if first.cache != c.firstCache || first.render != "vm" && !repeated {
 				t.Errorf("%s: first request of %s answered %+v, want Cache-Status %q and a render in a VM", c.name, page, first, c.firstCache)
 			}
 			if again.cache != c.againCache || !slices.Contains(c.againRender, again.render) {

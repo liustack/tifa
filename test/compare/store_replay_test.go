@@ -291,20 +291,24 @@ func TestVerifyStoreFailsOnAWrongStatus(t *testing.T) {
 	}
 }
 
-func TestStorefrontScenariosRunTifaTwiceAndTheOthersOnce(t *testing.T) {
+func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
 	store, office := BrowseScenarios[len(BrowseScenarios)-2], BrowseScenarios[0]
 	if store.Name != "store-w20" || office.Name != "office-w5" {
 		t.Fatalf("scenarios %s and %s", store.Name, office.Name)
 	}
-	names := BrowseFrameworks
-	if got := strings.Join(browseServers(store, names), ","); got != "tifa-nopage,tifa-nocache,nextjs,start,reactrouter" {
-		t.Errorf("the storefront runs %s", got)
-	}
-	if got := strings.Join(browseServers(office, names), ","); got != "tifa,nextjs,start,reactrouter" {
-		t.Errorf("the back office runs %s", got)
-	}
-	if got := strings.Join(browseServers(store, []string{"tifa", "tifa-nocache", "start"}), ","); got != "tifa-nopage,tifa-nocache,start" {
-		t.Errorf("the storefront with tifa-nocache named runs %s", got)
+	env := Env{Shop: "/shop"}
+	for _, sc := range []BrowseScenario{store, office} {
+		specs, err := env.browseSpecs(sc, BrowseFrameworks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, s := range specs {
+			names = append(names, s.Name)
+		}
+		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter" {
+			t.Errorf("%s runs %s", sc.Name, got)
+		}
 	}
 	var stores []string
 	for _, name := range strings.Split(DefaultScenarios, ",") {
@@ -360,16 +364,11 @@ func TestTheOpenRateIsHalfOfNextjs(t *testing.T) {
 
 func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 	env := Env{Shop: "/shop"}
-	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "tifa-nopage": "tifa", "nextjs": "nextjs", "start": "start", "reactrouter": "reactrouter"} {
+	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs", "start": "start", "reactrouter": "reactrouter"} {
 		i := slices.IndexFunc(env.Specs(), func(s Spec) bool { return s.Name == name })
 		if got := traceName(env.Specs()[i]); got != want {
 			t.Errorf("%s replays the traces of %s, want %s", name, got, want)
 		}
-	}
-	// Tifa with its whole-page cache off is the shop with one flag more.
-	nopage, _ := env.Target("tifa-nopage")
-	if !slices.Contains(nopage.Args, "--cache-whole-page=false") || slices.Contains(nopage.Args, "--cache-size") {
-		t.Errorf("tifa-nopage runs with %v", nopage.Args)
 	}
 	nocache, _ := env.Target("tifa-nocache")
 	if i := slices.Index(nocache.Args, "--cache-size"); i < 0 || nocache.Args[i+1] != "0" {
