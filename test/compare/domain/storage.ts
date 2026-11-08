@@ -8,6 +8,7 @@ import { demoOrders, weekendCatalogue } from './demo.ts'
 import { Invalid, NotFound } from './errors.ts'
 import { Fields } from './store/errors.ts'
 import { orderLine, orderName } from './store/products/edit.ts'
+import type { ProductLine } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
 import { total } from './records.ts'
@@ -33,7 +34,11 @@ function storefrontLine(l: NewLine): ItemRecord {
     if (e instanceof Fields) throw new Invalid(Object.keys(e.fields))
     throw e
   }
-  return { slug: p.slug, name: p.name, description: p.variant, quantity: l.quantity, priceCents: p.priceFen, color: p.color, stock: p.stock }
+  return storefrontItem({ ...p, quantity: l.quantity })
+}
+
+export function storefrontItem(p: ProductLine): ItemRecord {
+  return { slug: p.slug, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color, stock: p.stock }
 }
 
 // weekendName is the name of a product of the weekend shop.

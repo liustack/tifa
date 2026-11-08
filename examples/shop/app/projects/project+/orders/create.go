@@ -59,9 +59,14 @@ func storefrontLine(l NewLine) (itemRecord, error) {
 	if err != nil {
 		return itemRecord{}, err
 	}
+	p.Quantity = l.Quantity
+	return storefrontItem(p), nil
+}
+
+func storefrontItem(p products.Line) itemRecord {
 	return itemRecord{
-		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: l.Quantity, PriceCents: p.PriceFen, Color: p.Color, Stock: p.Stock,
-	}, nil
+		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: p.Quantity, PriceCents: p.PriceFen, Color: p.Color, Stock: p.Stock,
+	}
 }
 
 // weekendLine is the order line of a product of the weekend shop, which comes in one colour and size.
@@ -132,6 +137,22 @@ func CreateOrder(projectID string, in NewOrder, at time.Time) (string, error) {
 		}
 		items = append(items, it)
 	}
+	return keep(projectID, s, in, items, at), nil
+}
+
+// CreateStoreOrder places an order of the storefront in the studio shop at at and returns its
+// number, with the lines its checkout bought (products.Buy): they keep the names and prices the
+// checkout totalled, whatever the catalogue says now. It leaves out in.Items.
+func CreateStoreOrder(in NewOrder, lines []products.Line, at time.Time) string {
+	var items []itemRecord
+	for _, l := range lines {
+		items = append(items, storefrontItem(l))
+	}
+	return keep(storekit.Project, shops[storekit.Project], in, items, at)
+}
+
+// keep keeps a new order of the shop s of a project with its lines, and returns its number.
+func keep(projectID string, s shop, in NewOrder, items []itemRecord, at time.Time) string {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
 	last := 0
@@ -144,5 +165,5 @@ func CreateOrder(projectID string, in NewOrder, at time.Time) (string, error) {
 		Email: strings.TrimSpace(in.Email), Address: strings.TrimSpace(in.Address), Note: strings.TrimSpace(in.Note),
 		PlacedAt: at, Items: items,
 	})
-	return id, nil
+	return id
 }

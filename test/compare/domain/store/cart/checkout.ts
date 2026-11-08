@@ -4,10 +4,10 @@ import { Fields, HttpError, NotFound } from '../errors.ts'
 import { inLocale, storefrontProject } from '../store.ts'
 import type { Locale } from '../store.ts'
 import { DAY, iso } from '../time.ts'
-import { createOrder, getOrder } from '../../orders.ts'
-import type { NewLine } from '../../storage.ts'
-import { NoStock, putBack, takeStock } from '../products/edit.ts'
-import type { Take } from '../products/edit.ts'
+import { createStoreOrder, getOrder } from '../../orders.ts'
+import { buy, NoStock } from '../products/edit.ts'
+import type { Purchase, Take } from '../products/edit.ts'
+import { product } from '../products/product.ts'
 import { cartId, carts, cookieName, demoLinesCopy, getDeliveries, newCartId, priceCart, setCartCookie } from './cart.ts'
 import type { Delivery } from './cart.ts'
 import { countries, deliveries } from './data.ts'
@@ -198,24 +198,22 @@ export function placeOrder(c: Ctx, l: Locale, o: Order, now: number): string {
   }
   const ok = rec !== undefined
   if (!rec) rec = { lines: demoLinesCopy(), coupon: '' }
-  const cart = priceCart(rec.lines, rec.coupon, l)
-  if (cart.lines.length === 0) throw new HttpError(409, 'emptyCart')
-  const takes: Take[] = cart.lines.map((line) => ({ slug: line.slug, quantity: line.quantity }))
-  const items: NewLine[] = cart.lines.map((line) => ({ slug: line.slug, color: line.color, size: line.size, quantity: line.quantity }))
+  if (rec.lines.length === 0) throw new HttpError(409, 'emptyCart')
+  // As in Go, the order and its total come from what was bought, not from the catalogue later.
+  const takes: Take[] = rec.lines.map((r) => ({ slug: r.slug, color: r.color, size: r.size, quantity: r.quantity }))
+  let bought: Purchase
   try {
-    takeStock(takes)
+    bought = buy(takes)
   } catch (e) {
     if (e instanceof NoStock) throw new HttpError(409, 'cartStock')
     throw e
   }
+  const cart = priceCart(rec.lines, rec.coupon, l, (slug, l) => {
+    const p = bought.products.get(slug)
+    return p ? product(p, l) : null
+  })
   const a = o.address
-  let orderId: string
-  try {
-    orderId = createOrder(storefrontProject, { customer: a.name, phone: a.phone, email: o.email, address: address(a, l), note: o.notes, items }, now).id
-  } catch (e) {
-    putBack(takes)
-    throw e
-  }
+  const orderId = createStoreOrder({ customer: a.name, phone: a.phone, email: o.email, address: address(a, l), note: o.notes, items: [] }, bought.lines, now).id
   if (!ok) {
     // A visitor without a cart, who checks out the demonstration cart, gets a cart of their own,
     // which the order is placed from.

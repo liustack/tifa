@@ -246,6 +246,10 @@ type placedRecord struct {
 	delivery   string
 }
 
+// beforeCreateOrder runs, when a test sets it, after a checkout has taken its stock and before it
+// creates its order, so a test can change the catalogue there.
+var beforeCreateOrder func()
+
 // PlaceOrder places the order of the cart of the request as an order of the studio shop in the
 // back office, takes its pieces from the stock, empties the cart and returns the number of the
 // order. The order must have passed Validate. It is totalled in the language of l, the storefront
@@ -267,29 +271,29 @@ func PlaceOrder(c *tifa.Ctx, l storekit.Locale, o Order, now time.Time) (string,
 	case !ok:
 		rec = &cartRecord{lines: demoLines}
 	}
-	cart := price(rec.lines, rec.coupon, l)
-	if len(cart.Lines) == 0 {
+	if len(rec.lines) == 0 {
 		return "", tifa.Error{Status: 409, Message: "emptyCart"}
 	}
+	// The stock is taken, and the products read, under one lock of the catalogue: the order and its
+	// total come from what was bought, not from what the catalogue says later.
 	var takes []products.Take
-	var items []orders.NewLine
-	for _, line := range cart.Lines {
-		takes = append(takes, products.Take{Slug: line.Slug, Quantity: line.Quantity})
-		items = append(items, orders.NewLine{Slug: line.Slug, Color: line.Color, Size: line.Size, Quantity: line.Quantity})
+	for _, r := range rec.lines {
+		takes = append(takes, products.Take{Slug: r.slug, Color: r.color, Size: r.size, Quantity: r.quantity})
 	}
-	if err := products.TakeStock(takes); errors.Is(err, products.ErrNoStock) {
+	bought, err := products.Buy(takes)
+	if errors.Is(err, products.ErrNoStock) {
 		return "", tifa.Error{Status: 409, Message: "cartStock"}
 	} else if err != nil {
 		return "", err
 	}
-	a := o.Address
-	id, err := orders.CreateOrder(storekit.Project, orders.NewOrder{
-		Customer: a.Name, Phone: a.Phone, Email: o.Email, Address: address(a, l), Note: o.Notes, Items: items,
-	}, now)
-	if err != nil {
-		products.PutBack(takes)
-		return "", err
+	cart := price(rec.lines, rec.coupon, l, bought.Product)
+	if beforeCreateOrder != nil {
+		beforeCreateOrder()
 	}
+	a := o.Address
+	id := orders.CreateStoreOrder(orders.NewOrder{
+		Customer: a.Name, Phone: a.Phone, Email: o.Email, Address: address(a, l), Note: o.Notes,
+	}, bought.Lines, now)
 	if !ok {
 		// A visitor without a cart, who checks out the demonstration cart, gets a cart of their
 		// own, which the order is placed from.

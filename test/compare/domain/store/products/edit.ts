@@ -84,34 +84,43 @@ export function orderName(slug: string): string | undefined {
   return catalogue.find((p) => p.slug === slug)?.name[0]
 }
 
-// NoStock is what takeStock throws when a product has fewer pieces than an order takes, as Go's
+// NoStock is what buy throws when a product has fewer pieces than a checkout takes, as Go's
 // ErrNoStock.
 export class NoStock extends Error {}
 
-// Take is how many pieces of a product an order takes from the stock.
+// Take is how many pieces of a product in a colour and size a checkout takes from the stock.
 export interface Take {
   slug: string
+  color: string
+  size: string
   quantity: number
 }
 
-// takeStock takes the pieces of every take from the stock, or none of them, as TakeStock does.
-export function takeStock(takes: Take[]): void {
+// Purchase is what a checkout bought, as the catalogue had it when the checkout took its stock, as
+// in Go: the checkout totals its order and places it from it.
+export interface Purchase {
+  lines: ProductLine[] // one for each take, in their order, with its quantity
+  products: Map<string, ProductRecord> // copies, by slug
+}
+
+// buy takes the pieces of every take from the stock, or none of them, and returns what it bought,
+// as Buy does.
+export function buy(takes: Take[]): Purchase {
+  const out: Purchase = { lines: [], products: new Map() }
   const want = new Map<ProductRecord, number>()
   for (const t of takes) {
     const p = catalogue.find((p) => p.slug === t.slug)
     if (!p) throw new NotFound(t.slug)
     want.set(p, (want.get(p) ?? 0) + t.quantity)
     if (want.get(p)! > p.stock) throw new NoStock()
+    out.lines.push({ ...lineOf(p, t.color, t.size), quantity: t.quantity })
   }
-  for (const [p, n] of want) p.stock -= n
-}
-
-// putBack gives the pieces of takes back to the stock, as PutBack does.
-export function putBack(takes: Take[]): void {
-  for (const t of takes) {
-    const p = catalogue.find((p) => p.slug === t.slug)
-    if (p) p.stock += t.quantity
+  for (const [p, n] of want) {
+    p.stock -= n
+    out.products.set(p.slug, { ...p })
   }
+  for (const l of out.lines) l.stock = out.products.get(l.slug)!.stock
+  return out
 }
 
 // ProductLine is a product in one colour and size as a line of a back office order keeps it. Go
@@ -123,6 +132,7 @@ export interface ProductLine {
   color: string
   priceFen: number
   stock: number
+  quantity: number // the pieces a purchase bought, 0 in a line of orderLine
 }
 
 // orderLine returns the product slug in a colour and size as an order line, as OrderLine does:
@@ -130,11 +140,15 @@ export interface ProductLine {
 export function orderLine(slug: string, color: string, size: string): ProductLine {
   const p = catalogue.find((p) => p.slug === slug)
   if (!p) throw new NotFound(slug)
+  return lineOf(p, color, size)
+}
+
+function lineOf(p: ProductRecord, color: string, size: string): ProductLine {
   if (color === '' && size === '') color = p.colors[0]
   else if (!p.colors.includes(color) || !((p.sizes.length === 0 && size === '') || p.sizes.includes(size))) {
-    throw new Fields({ items: 'Unknown colour or size of ' + slug })
+    throw new Fields({ items: 'Unknown colour or size of ' + p.slug })
   }
   let variant = colors.find((c) => c.id === color)?.name[0] ?? color
   if (size !== '') variant += ' / ' + size
-  return { slug, name: p.name[0], variant, color, priceFen: p.priceFen, stock: p.stock }
+  return { slug: p.slug, name: p.name[0], variant, color, priceFen: p.priceFen, stock: p.stock, quantity: 0 }
 }

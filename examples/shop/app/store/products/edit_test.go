@@ -131,7 +131,7 @@ func TestUpdateKeepsTheTextsTrimmed(t *testing.T) {
 func TestStockIsTakenWholeOrNotAtAll(t *testing.T) {
 	t.Cleanup(resetCatalogue)
 	// oak-tray has 6. Two lines of one product count together.
-	if err := TakeStock([]Take{{"oak-tray", 4}, {"ceramic-cup", 1}, {"oak-tray", 3}}); !errors.Is(err, ErrNoStock) {
+	if _, err := Buy([]Take{{"oak-tray", "oat", "M", 4}, {"ceramic-cup", "moss", "", 1}, {"oak-tray", "oat", "L", 3}}); !errors.Is(err, ErrNoStock) {
 		t.Fatalf("taking 7 of 6: %v", err)
 	}
 	if e, _ := GetEntry("oak-tray"); e.Stock != 6 {
@@ -140,7 +140,7 @@ func TestStockIsTakenWholeOrNotAtAll(t *testing.T) {
 	if e, _ := GetEntry("ceramic-cup"); e.Stock != 58 {
 		t.Errorf("a refused take changed another product: %d", e.Stock)
 	}
-	if err := TakeStock([]Take{{"oak-tray", 4}, {"oak-tray", 2}, {"ceramic-cup", 1}}); err != nil {
+	if _, err := Buy([]Take{{"oak-tray", "oat", "M", 4}, {"oak-tray", "oat", "L", 2}, {"ceramic-cup", "moss", "", 1}}); err != nil {
 		t.Fatalf("taking all 6: %v", err)
 	}
 	if p, _ := GetProduct("oak-tray", en); p.Stock != 0 || p.InStock {
@@ -149,15 +149,41 @@ func TestStockIsTakenWholeOrNotAtAll(t *testing.T) {
 	if e, _ := GetEntry("ceramic-cup"); e.Stock != 57 {
 		t.Errorf("ceramic-cup has %d", e.Stock)
 	}
-	if err := TakeStock([]Take{{"oak-tray", 1}}); !errors.Is(err, ErrNoStock) {
+	if _, err := Buy([]Take{{"oak-tray", "oat", "M", 1}}); !errors.Is(err, ErrNoStock) {
 		t.Errorf("taking from none: %v", err)
 	}
-	if err := TakeStock([]Take{{"no-such-product", 1}}); !errors.Is(err, tifa.ErrNotFound) {
+	if _, err := Buy([]Take{{"no-such-product", "", "", 1}}); !errors.Is(err, tifa.ErrNotFound) {
 		t.Errorf("taking an unknown product: %v", err)
 	}
-	PutBack([]Take{{"oak-tray", 2}})
-	if e, _ := GetEntry("oak-tray"); e.Stock != 2 {
-		t.Errorf("after putting 2 back: %d", e.Stock)
+}
+
+// A purchase keeps the products as they were when their stock was taken.
+func TestAPurchaseKeepsTheProductsAsTheyWereBought(t *testing.T) {
+	t.Cleanup(resetCatalogue)
+	bought, err := Buy([]Take{{"linen-apron", "ink", "M", 2}, {"linen-apron", "ink", "L", 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bought.Lines) != 2 || bought.Lines[0].Variant != "墨蓝 / M" || bought.Lines[0].Quantity != 2 || bought.Lines[1].Variant != "墨蓝 / L" ||
+		bought.Lines[1].Quantity != 1 || bought.Lines[0].PriceFen != 16800 || bought.Lines[0].Name != "棉麻围裙" {
+		t.Errorf("the lines are %+v", bought.Lines)
+	}
+	e, _ := GetEntry("linen-apron")
+	e.PriceCents, e.NameZH = 20000, "新围裙"
+	if err := Update("linen-apron", e.Edit); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := bought.Product("linen-apron", zh); err != nil || p.PriceCents != 16800 || p.Name != "棉麻围裙" || p.Stock != 34-3 {
+		t.Errorf("after an edit the purchase has %+v, %v", p, err)
+	}
+	if _, err := bought.Product("oak-tray", zh); !errors.Is(err, tifa.ErrNotFound) {
+		t.Errorf("a product it did not buy: %v", err)
+	}
+	if _, err := Buy([]Take{{"linen-apron", "ink", "XXL", 1}}); err == nil {
+		t.Error("a size the apron does not come in passes")
+	}
+	if e, _ := GetEntry("linen-apron"); e.Stock != 34-3 {
+		t.Errorf("a refused purchase took stock: %d", e.Stock)
 	}
 }
 
@@ -168,7 +194,7 @@ func TestTakesAtOnceNeverSellMoreThanTheStock(t *testing.T) {
 	sold := 0
 	for range 20 {
 		wg.Go(func() {
-			if TakeStock([]Take{{"oak-tray", 1}}) == nil {
+			if _, err := Buy([]Take{{"oak-tray", "oat", "M", 1}}); err == nil {
 				mu.Lock()
 				sold++
 				mu.Unlock()

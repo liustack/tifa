@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // What staff change in the back office, and what orders take from the catalogue.
@@ -119,48 +120,66 @@ func (p productRecord) entry() Entry {
 	return e
 }
 
-// ErrNoStock is the error of TakeStock when a product has fewer pieces than an order takes.
+// ErrNoStock is the error of Buy when a product has fewer pieces than a checkout takes.
 var ErrNoStock = errors.New("not enough in stock")
 
-// Take is how many pieces of a product an order takes from the stock.
+// Take is how many pieces of a product in a colour and size a checkout takes from the stock.
 type Take struct {
-	Slug     string
-	Quantity int
+	Slug, Color, Size string
+	Quantity          int
 }
 
-// TakeStock takes the pieces of every take from the stock, or none of them: it returns ErrNoStock
-// when a product has fewer pieces than its takes add up to, and tifa.ErrNotFound for a product
-// the catalogue does not have.
-func TakeStock(takes []Take) error {
+// A Purchase is what a checkout bought, as the catalogue had it when the checkout took its stock.
+// The checkout totals its order and places it from the purchase, so an edit of staff at the same
+// time changes neither.
+type Purchase struct {
+	Lines    []Line                   // one for each take, in their order, with its quantity
+	products map[string]productRecord // by slug
+}
+
+// Product returns a product of the purchase in the language of l, as GetProduct returned it when
+// the purchase was made, or tifa.ErrNotFound for one it does not hold.
+func (b Purchase) Product(slug string, l storekit.Locale) (Product, error) {
+	p, ok := b.products[slug]
+	if !ok {
+		return Product{}, tifa.ErrNotFound
+	}
+	return p.product(l), nil
+}
+
+// Buy takes the pieces of every take from the stock, or none of them, and returns what it bought,
+// all under one lock of the catalogue. It returns ErrNoStock when a product has fewer pieces than
+// its takes add up to, tifa.ErrNotFound for a product the catalogue does not have, and the error of
+// OrderLine for a colour or size the product does not come in.
+func Buy(takes []Take) (Purchase, error) {
 	catalogueMu.Lock()
 	defer catalogueMu.Unlock()
+	out := Purchase{products: map[string]productRecord{}}
 	want := map[int]int{} // pieces, by the index of the product in the catalogue
 	for _, t := range takes {
 		i := slices.IndexFunc(catalogue, func(p productRecord) bool { return p.slug == t.Slug })
 		if i < 0 {
-			return tifa.ErrNotFound
+			return Purchase{}, tifa.ErrNotFound
 		}
 		want[i] += t.Quantity
 		if want[i] > catalogue[i].stock {
-			return ErrNoStock
+			return Purchase{}, ErrNoStock
 		}
+		line, err := catalogue[i].line(t.Color, t.Size)
+		if err != nil {
+			return Purchase{}, err
+		}
+		line.Quantity = t.Quantity
+		out.Lines = append(out.Lines, line)
 	}
 	for i, n := range want {
 		catalogue[i].stock -= n
+		out.products[catalogue[i].slug] = catalogue[i]
 	}
-	return nil
-}
-
-// PutBack gives the pieces of takes that TakeStock took back to the stock, when the order that
-// took them could not be placed.
-func PutBack(takes []Take) {
-	catalogueMu.Lock()
-	defer catalogueMu.Unlock()
-	for _, t := range takes {
-		if i := slices.IndexFunc(catalogue, func(p productRecord) bool { return p.slug == t.Slug }); i >= 0 {
-			catalogue[i].stock += t.Quantity
-		}
+	for j, l := range out.Lines {
+		out.Lines[j].Stock = out.products[l.Slug].stock
 	}
+	return out, nil
 }
 
 // Line is a product in one colour and size as a line of a back office order keeps it: its Chinese
@@ -172,6 +191,7 @@ type Line struct {
 	Color    string // the ID of the colour
 	PriceFen int
 	Stock    int
+	Quantity int // the pieces a purchase bought (see Buy), 0 in a line of OrderLine
 }
 
 // OrderLine returns the product slug in a colour and size as an order line, or tifa.ErrNotFound
@@ -183,16 +203,20 @@ func OrderLine(slug, color, size string) (Line, error) {
 	if !ok {
 		return Line{}, tifa.ErrNotFound
 	}
+	return p.line(color, size)
+}
+
+func (p productRecord) line(color, size string) (Line, error) {
 	if color == "" && size == "" {
 		color = p.colors[0]
 	} else if !slices.Contains(p.colors, color) || !(len(p.sizes) == 0 && size == "" || slices.Contains(p.sizes, size)) {
-		return Line{}, tifa.Fields{"items": "Unknown colour or size of " + slug}
+		return Line{}, tifa.Fields{"items": "Unknown colour or size of " + p.slug}
 	}
 	variant := colorText(color)[0]
 	if size != "" {
 		variant += " / " + size
 	}
-	return Line{Slug: slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen, Stock: p.stock}, nil
+	return Line{Slug: p.slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen, Stock: p.stock}, nil
 }
 
 // OrderName is the name of the product slug as the lines of an order keep it, its Chinese name as

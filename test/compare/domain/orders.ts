@@ -9,7 +9,9 @@ import type { ItemRecord, OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
 import { DAY, local, rfc3339 } from './time.ts'
-import { daysIn, findOrder, insert, orders, ordersOf, rename, ship, shops } from './storage.ts'
+import { daysIn, findOrder, insert, orders, ordersOf, rename, ship, shops, storefrontItem } from './storage.ts'
+import { storefrontProject } from './store/store.ts'
+import type { ProductLine } from './store/products/edit.ts'
 import type { NewLine, ProjectOrders } from './storage.ts'
 
 export interface LineItem {
@@ -418,7 +420,17 @@ export function postOrder(projectId: string, input: NewOrder, at: number): Order
 export function createOrder(projectId: string, input: NewOrder, at: number): Order {
   const s = shops[projectId]
   if (!s) throw new NotFound(projectId)
-  const items: ItemRecord[] = input.items.map(s.line)
+  return keep(projectId, s, input, input.items.map(s.line), at)
+}
+
+// createStoreOrder places an order of the storefront in the studio shop with the lines its checkout
+// bought, as CreateStoreOrder does: they keep the names and prices the checkout totalled.
+export function createStoreOrder(input: NewOrder, lines: ProductLine[], at: number): Order {
+  return keep(storefrontProject, shops[storefrontProject], input, lines.map(storefrontItem), at)
+}
+
+// keep keeps a new order of the shop s of a project with its lines, as keep does in Go.
+function keep(projectId: string, s: (typeof shops)[string], input: NewOrder, items: ItemRecord[], at: number): Order {
   const last = orders.get(projectId)?.last ?? 0
   const o: OrderRecord = {
     id: `${s.prefix}-${String(last + 1).padStart(s.width, '0')}`, projectId, customer: input.customer.trim(),

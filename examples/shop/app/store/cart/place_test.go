@@ -128,3 +128,54 @@ func TestACheckoutOverTheStockIsRefused(t *testing.T) {
 		t.Errorf("%d trays left", got.Stock)
 	}
 }
+
+// A checkout is placed and totalled from the catalogue as it was when it took the stock: staff who
+// change the price and title of a product while it is placed change neither the order nor the total
+// of its confirmation.
+func TestAnEditDuringACheckoutChangesNeitherItsOrderNorItsTotal(t *testing.T) {
+	apron := keepEntry(t, "linen-apron")
+	id := newCart(t, lineRecord{"linen-apron", "ink", "M", 1}, lineRecord{"linen-apron", "ink", "L", 1})
+	c, _ := visit(t, id)
+	now := time.Date(2026, 11, 9, 9, 30, 0, 0, time.UTC)
+	in := goodOrder()
+	in.Delivery = "standard"
+	// What the checkout showed: the cart at the old price, with its delivery.
+	shown := price([]lineRecord{{"linen-apron", "ink", "M", 1}, {"linen-apron", "ink", "L", 1}}, "", zh, products.GetProduct)
+	want := shown.SubtotalCents
+	for _, d := range Deliveries(shown, now, zh) {
+		if d.ID == in.Delivery {
+			want += d.PriceCents
+		}
+	}
+	edit := apron.Edit
+	edit.PriceCents, edit.NameZH = apron.PriceCents+5000, "新围裙"
+	beforeCreateOrder = func() {
+		if err := products.Update("linen-apron", edit); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeCreateOrder = nil })
+	number, err := PlaceOrder(c, zh, in, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := orders.GetOrder(storekit.Project, number)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range o.Items {
+		if it.PriceCents != apron.PriceCents || it.Name != apron.NameZH {
+			t.Errorf("a line of the order is %s at %d, want %s at %d as the checkout priced it", it.Name, it.PriceCents, apron.NameZH, apron.PriceCents)
+		}
+	}
+	if o.TotalCents != 2*apron.PriceCents {
+		t.Errorf("the order totals %d, want %d", o.TotalCents, 2*apron.PriceCents)
+	}
+	p, err := GetPlaced(number, id, zh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TotalCents != want {
+		t.Errorf("the confirmation totals %d, want %d", p.TotalCents, want)
+	}
+}
