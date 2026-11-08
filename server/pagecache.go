@@ -141,7 +141,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	pattern := c.Pattern()
 	language := c.Language()
 	generate := func(ctx context.Context, renderless bool) (cachedPage, bool, error) {
-		return s.generate(ctx, base, pattern, route, chain, f, ttl, language, renderless)
+		return s.generate(ctx, base, key, pattern, route, chain, f, ttl, language, renderless)
 	}
 	alone := func() (fetched, error) {
 		page, _, err := generate(rq.Context(), false)
@@ -453,10 +453,11 @@ func (s *server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 }
 
 // generate makes the entry of key: it runs the Loads of the whole chain, renders the page and
-// returns it, and whether the cache keeps it. A result that is not the page, a 404 or another
+// returns it, and whether the cache keeps it. When the entry it replaces was made from the same
+// input, its page is kept and nothing is rendered. A result that is not the page, a 404 or another
 // answer of the app, is returned as an error for each request to answer with. Requests skip the
 // cache of key for a while after a result that cannot be stored.
-func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string, renderless bool) (cachedPage, bool, error) {
+func (s *server) generate(ctx context.Context, base *http.Request, key, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string, renderless bool) (cachedPage, bool, error) {
 	rq := base.Clone(ctx)
 	rq.URL.RawQuery = s.ignore.clean(rq.URL.RawQuery, s.pageQuery[pattern])
 	rq.RequestURI = rq.URL.RequestURI()
@@ -537,8 +538,15 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		defer s.rendering.RUnlock()
 		in := ssr.Input{BuildID: f.build.ID, Language: language, Alternates: pageAlternates, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
 			SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
+		tag := renderKey(in, f.build.bundle, s.policyKey())
+		// The entry made before, fresh or not, may have the HTML of this input: it is kept then,
+		// whether or not the render cache still has its own copy.
+		if old, ok := s.cache.renderedFrom(key, tag); ok {
+			page, held, entry.made, entry.etag = old, s.cache.holds(old), "cache", tag
+			break
+		}
 		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
-		got, err := s.renderEntry(ctx, rq, f, in, route)
+		got, err := s.renderEntry(ctx, rq, f, in, tag, route)
 		if err != nil {
 			failed.err = err
 			return s.madeFailed(failed, headers, effects{})
@@ -549,7 +557,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 			return s.redirectEntry(entry, headers)
 		}
 		page, held = got.page, got.held
-		entry.etag = renderKey(in, f.build.bundle, s.policyKey())
+		entry.etag = tag
 		if route.NoRenderCache {
 			entry.etag = contentTag(page.html, s.policyKey())
 		}
@@ -579,8 +587,9 @@ func (s *server) redirectEntry(entry *wholePage, headers http.Header) (cachedPag
 }
 
 // renderEntry renders the page of an entry, through the render cache unless the page turned it
-// off, and returns it as the cache keeps it, with how it was made (see fetched).
-func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, route Route) (fetched, error) {
+// off, and returns it as the cache keeps it, with how it was made (see fetched). tag is the render
+// key of in.
+func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, tag string, route Route) (fetched, error) {
 	method, path := rq.Method, rq.URL.Path
 	if route.NoRenderCache {
 		page, held, err := s.renderOne(ctx, f, in, false, method, path)
@@ -589,7 +598,7 @@ func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in
 	unheard := func(err error) {
 		core.Logger().ErrorContext(ctx, "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
-	return s.cache.fetch(ctx, renderKey(in, f.build.bundle, s.policyKey()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	return s.cache.fetch(ctx, tag, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, true, method, path)
 	})
 }

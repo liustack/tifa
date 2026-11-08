@@ -284,3 +284,68 @@ func TestMadeEntrySaysHowItsPageWasMade(t *testing.T) {
 		t.Errorf("made again: %s", w)
 	}
 }
+
+// A page with Cache whose entry is made again with the same data keeps the HTML of the old entry,
+// without a render, also when the render cache no longer has the page.
+func TestRemadeEntryWithTheSameDataKeepsItsPage(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	first := e.do("GET", "/cached")
+	if first.renders != 1 {
+		t.Fatalf("first: %s", first)
+	}
+	// The render cache loses its copy of the page.
+	tag := strings.TrimPrefix(first.w.Header().Get("ETag"), "W/")
+	e.s.cache.mu.Lock()
+	e.s.cache.removeLocked(tag)
+	e.s.cache.mu.Unlock()
+	for _, expire := range []func(){
+		func() { e.s.ExpirePages([]string{"/cached"}) },
+		func() { e.clock.advance(2 * time.Minute) },
+		e.s.contentChanged,
+	} {
+		_, _, before := e.s.cache.stats()
+		expire()
+		w := e.do("GET", "/cached")
+		if w.w.Code != 200 || w.loads != 2 || w.renders != 0 || w.compress != 0 || w.w.Header().Get(renderHeader) != "cache" || w.w.Header().Get("ETag") != first.w.Header().Get("ETag") {
+			t.Errorf("made again with the same data: %s, ETag %q", w, w.w.Header().Get("ETag"))
+		}
+		// The new entry holds the same page, which counts once.
+		if _, _, after := e.s.cache.stats(); after != before {
+			t.Errorf("the cache holds %d bytes, %d before", after, before)
+		}
+		if w.w.Body.String() != first.w.Body.String() {
+			t.Error("made again with the same data: another page")
+		}
+		expire()
+		if d := e.do("GET", dataURL("/cached", "b1", "01")); d.w.Code != 200 || d.renders != 0 {
+			t.Errorf("navigation data made again with the same data: %s", d)
+		}
+	}
+	// New data is a new page.
+	e.version.Add(1)
+	e.s.ExpirePages([]string{"/cached"})
+	if w := e.do("GET", "/cached"); w.renders != 1 || w.w.Header().Get("ETag") == first.w.Header().Get("ETag") {
+		t.Errorf("new data: %s", w)
+	}
+}
+
+// Under memory pressure the copy of a busy page with Cache in the render cache goes first, since
+// the hits of the whole-page entry do not touch it. The entry still makes the page again without a
+// render while its data is the same.
+func TestRemadeEntryOutlivesItsCopyInTheRenderCache(t *testing.T) {
+	probe := newWorkEnv(t, 64<<20)
+	probe.do("GET", "/plain?fill=0")
+	_, _, one := probe.s.cache.stats()
+	e := newWorkEnv(t, one*8)
+	e.do("GET", "/cached")
+	for i := range 20 {
+		e.do("GET", fmt.Sprintf("/plain?fill=%d", i))
+		if w := e.do("GET", "/cached"); w.renders != 0 || w.w.Header().Get(renderHeader) != "cache" {
+			t.Fatalf("hit %d: %s", i, w)
+		}
+	}
+	e.s.ExpirePages([]string{"/cached"})
+	if w := e.do("GET", "/cached"); w.renders != 0 {
+		t.Errorf("made again with the same data: %s", w)
+	}
+}

@@ -342,6 +342,24 @@ func (c *htmlCache) stale(key string, now time.Time) (cachedPage, bool) {
 	return page, true
 }
 
+// renderedFrom returns the page of the entry of the whole-page cache at key, fresh or not, when its
+// HTML was rendered through the render cache from the input whose render key is tag: a new entry
+// made from that input has the same HTML. An entry of a page with RenderCache = false has a tag of
+// its HTML instead (contentTag), which no render key equals.
+func (c *htmlCache) renderedFrom(key, tag string) (cachedPage, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.pages[key]
+	if !ok {
+		return cachedPage{}, false
+	}
+	page := e.Value.(*cached).page
+	if page.whole == nil || page.whole.status != http.StatusOK || page.whole.etag != tag {
+		return cachedPage{}, false
+	}
+	return page, true
+}
+
 // markBypassLocked has requests for key skip the cache until the time given: a page whose result
 // cannot be stored would otherwise make every request wait for the one before it (Varnish calls
 // this hit-for-miss).
