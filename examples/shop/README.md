@@ -105,19 +105,19 @@ Go sends times as instants, and pages format them with `Intl` in the shop's time
 
 Tifa writes `<html lang>`, so the root Layout sets no `lang`. It also links each page to the same page in both languages and to the English one as `x-default`, with the host from `site.url` in `tifa.yaml`. The language switch in the header reads the same list with `useAlternates()` and uses a plain `<a href>`, since the other language is another document. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. `app/store` holds a `layout_.tsx`, so the store shows without the workbench, and the root Layout's `Layout` does not run for it: none of the workbench's data reaches the store's pages. `/store` is the English home page for every browser, and `/en-US/store` answers 308 to it. The shop does not guess a language from `Accept-Language`.
 
-## The storefront cache
+## The storefront and the render cache
 
-The storefront pages are the same for every visitor, so they carry `const Cache` in their `route.go` (see [The whole-page cache](../../docs/app.md#the-whole-page-cache)): the home page, the journal list and a product page 10 minutes, the product list 5 minutes, a journal post an hour. Within that time the program answers from memory, without running a `Load` or rendering, and a CDN in front may keep the page for the same time. The page language comes from the URL, so each language has its own entry.
+The storefront pages are the same for every visitor, so the render cache (see [Render cache](../../docs/render-cache.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (the whole-page cache).
 
-A cached page sees no cookie, so what belongs to one visitor is not in it. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
+What belongs to one visitor is not in the page. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
 
-To see it work, look at the headers of a page twice:
+To see the render cache work, look at the headers of a page twice:
 
 ```sh
-curl -si http://127.0.0.1:9527/store/journal | grep -i '^cache-status\|^age\|^x-tifa-render'
+curl -si http://127.0.0.1:9527/store/journal | grep -i '^x-tifa-render'
 ```
 
-The first answer says `Cache-Status: tifa; fwd=miss` and `X-Tifa-Render: vm`, the second `Cache-Status: tifa; hit` with an `Age` and `X-Tifa-Render: cache`. A cookie in the request changes nothing, and neither does a tracking parameter such as `utm_source`. The workbench pages carry no `Cache` and say `Cache-Control: private, no-cache`.
+The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: cache`.
 
 ## Things to try
 
@@ -136,7 +136,7 @@ The first answer says `Cache-Status: tifa; fwd=miss` and `X-Tifa-Render: vm`, th
 - Add a product to the cart in a colour, change quantities in the cart and try the codes `SHANHAI10` and `WELCOME30`. The first change gives you a cart of your own. It is kept in the program's memory, and a cookie holds only its ID. When a change fails, for example with the network down, its message shows under the line.
 - Place an order, then open its confirmation in a private window. It answers 404: only the cart that placed an order sees it, since the page shows an email address.
 - Check out with an empty form, a postal code of the wrong shape, or a card number that fails the check digit. The errors show field by field, and Go returns the same ones when a request gets past the browser.
-- Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the cache.
+- Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the render cache.
 - Open a journal article. The code blocks are highlighted in the HTML the server sends.
 
 For more conventions, see [Build and generated code](../../docs/build.md) and [Writing an app](../../docs/app.md).

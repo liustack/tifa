@@ -601,7 +601,7 @@ func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
 
 别的系统也是这样分的：HTTP 缓存叫 `public` 和 `private`，Magento 叫 private content，donut caching 则是共用的页面保持完整，再把空洞填上。
 
-第三种数据的做法：写一个 API 路由（有 `GET` 处理函数、没有 `page.tsx` 的 `route.go`）。它生成的 `GET` 函数有类型，可以直接在浏览器里调用。什么时候调由页面决定：页面加载后、面板打开时，或者鼠标悬停时提前取。如果应用想要缓存，生成的函数可以直接接进 TanStack Query。`examples/shop/app/store/mine.ts` 是一个完整的例子：店面页面有缓存、对所有人相同，这个模块在页面加载后调用 `/store/{lang}/mine` 的 `GET`，填上购物车和访客最近看过的商品，写入之后再调用一次。
+第三种数据的做法：写一个 API 路由（有 `GET` 处理函数、没有 `page.tsx` 的 `route.go`）。它生成的 `GET` 函数有类型，可以直接在浏览器里调用。什么时候调由页面决定：页面加载后、面板打开时，或者鼠标悬停时提前取。如果应用想要缓存，生成的函数可以直接接进 TanStack Query。`examples/shop/app/store/mine.ts` 是一个完整的例子：店面页面对所有人相同，这个模块在页面加载后调用 `/store/{lang}/mine` 的 `GET`，填上购物车和访客最近看过的商品，写入之后再调用一次。
 
 
 ## 部署时还开着的页面

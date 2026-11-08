@@ -26,10 +26,6 @@ type Detail struct {
 	Delivery cart.Delivery `json:"delivery"`
 }
 
-// Cache keeps a product page for ten minutes. The same price, stock and reviews for everyone: the
-// products a visitor looked at come from the mine route.
-const Cache = 10 * time.Minute
-
 func Load(c *tifa.Ctx) (Detail, error) {
 	l, err := storekit.FindLocale(c.Language())
 	if err != nil {

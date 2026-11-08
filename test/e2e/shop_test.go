@@ -249,7 +249,7 @@ func TestShopApp(t *testing.T) {
 
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
-	checkStorefrontPageCache(t, base)
+	checkStorefrontNoPageCache(t, base)
 	checkShopModules(t, base)
 	checkProductPageCounts(t, base)
 	checkOrderPageModules(t, base)
@@ -358,25 +358,18 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		status int
 		lang   string
 		text   string
-		// cached is a URL of a page with Cache, whose HTML is the same for every visitor and so
-		// carries no data-session. The other 404s are made for the visitor.
-		cached bool
 	}{
-		{"/store", 200, "en-US", "Free delivery", true},
-		{"/zh-CN/store", 200, "zh-CN", "秋天的第一壶茶", true},
-		{"/zh-CN/store/products/nope", 404, "zh-CN", "没有找到这个页面", true},
-		{"/store/journal/nope", 404, "en-US", "We could not find this page", true},
-		{"/store/nope/deeper", 404, "en-US", "We could not find this page", false},
-		{"/store/nope", 404, "en-US", "We could not find this page", false},
-		{"/zh-CN/store/journal/x/y", 404, "zh-CN", "没有找到这个页面", false},
-		{"/zh-CN/store/xx", 404, "zh-CN", "没有找到这个页面", false},
+		{"/store", 200, "en-US", "Free delivery"},
+		{"/zh-CN/store", 200, "zh-CN", "秋天的第一壶茶"},
+		{"/zh-CN/store/products/nope", 404, "zh-CN", "没有找到这个页面"},
+		{"/store/journal/nope", 404, "en-US", "We could not find this page"},
+		{"/store/nope/deeper", 404, "en-US", "We could not find this page"},
+		{"/store/nope", 404, "en-US", "We could not find this page"},
+		{"/zh-CN/store/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
+		{"/zh-CN/store/xx", 404, "zh-CN", "没有找到这个页面"},
 	} {
 		status, _, page := get(t, base+tc.path)
-		attr := ` data-session="out"`
-		if tc.cached {
-			attr = ""
-		}
-		if start := `<!DOCTYPE html><html` + attr + ` lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
+		if start := `<!DOCTYPE html><html data-session="out" lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
 	}

@@ -3,8 +3,6 @@
 package store
 
 import (
-	"time"
-
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/store/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/journal"
@@ -33,9 +31,6 @@ type CategoryPicks struct {
 // picks are the products the shop uses every day, which the home page shows on their own.
 var picks = []string{"pour-over-kettle", "ceramic-cup", "oak-tray"}
 
-// Cache keeps the home page for ten minutes. The new products and the latest posts change slowly.
-const Cache = 10 * time.Minute
-
 func Load(c *tifa.Ctx) (Home, error) {
 	l, err := storekit.FindLocale(c.Language())
 	if err != nil {
@@ -63,8 +58,8 @@ func Load(c *tifa.Ctx) (Home, error) {
 
 // Shell is what every page of the storefront shows around itself: the language, the category
 // menu and the subtotal from which delivery is free. It is the same for every visitor, so the
-// pages can be cached. The cart in the header and the products a visitor looked at come from
-// the mine route after the page has loaded.
+// render cache reuses a page across visitors. The cart in the header and the products a visitor
+// looked at come from the mine route after the page has loaded.
 type Shell struct {
 	Locale            storekit.Locale      `json:"locale"`
 	Menu              []products.MenuGroup `json:"menu"`
