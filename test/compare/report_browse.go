@@ -321,6 +321,9 @@ func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
 
 func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
+		if s := r.Sustain[sustainKey(sc.Name, openBase)]; sc.open() && s != nil && s.Done && s.Rate == 0 {
+			fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nNo open run: %s has no sustainable rate in range on this scenario (%s).\n", BrowseLabel(openBase), s.Note)
+		}
 		return
 	}
 	rate := r.LatencyRate[sc.Name]

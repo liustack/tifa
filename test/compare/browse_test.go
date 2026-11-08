@@ -2,6 +2,7 @@ package compare
 
 import (
 	"context"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -32,5 +33,31 @@ func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
 	}
 	if _, err := (Env{}).Browse(context.Background(), BrowseOptions{MaxRate: 0.25}); err == nil || !strings.Contains(err.Error(), "-max-rate") {
 		t.Errorf("a cap under half a visit a second: %v", err)
+	}
+}
+
+// A scenario where Next.js has no sustainable rate in range has no open run: that is its result, and
+// the latency phase goes on with the other scenarios.
+func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
+	sc, _ := BrowseScenarioByName("office-w5")
+	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3}, servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, res: &BrowseResult{
+		Sustain:     map[string]*Sustain{sustainKey(sc.Name, openBase): {Done: true, Note: "no rate passed its confirmation rounds"}},
+		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{},
+	}}
+	if err := b.latency(context.Background(), sc); err != nil {
+		t.Fatalf("the latency phase stopped: %v", err)
+	}
+	if len(b.res.Latency) != 0 {
+		t.Fatalf("open rounds were run: %d", len(b.res.Latency))
+	}
+	r := b.res
+	r.Scenarios, r.Servers, r.Version = []BrowseScenario{sc}, b.servers, map[string]string{}
+	if md := r.Markdown(); !strings.Contains(md, "No open run: Next.js has no sustainable rate in range on this scenario (no rate passed its confirmation rounds)") {
+		t.Errorf("the report does not say why there is no open run:\n%s", md)
+	}
+	// Without a search done it is still an error: the sustain phase did not run.
+	b.res.Sustain = map[string]*Sustain{}
+	if err := b.latency(context.Background(), sc); err == nil {
+		t.Error("no search and no error")
 	}
 }

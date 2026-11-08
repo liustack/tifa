@@ -624,6 +624,11 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 	if !sc.open() {
 		return nil
 	}
+	if s := b.res.Sustain[sustainKey(sc.Name, openBase)]; s != nil && s.Done && s.Rate == 0 {
+		// That is the result of the search: this scenario has no open run, and the others go on.
+		b.logf("latency %s: no open run, %s has no sustainable rate in range (%s)\n", sc.Name, BrowseLabel(openBase), s.Note)
+		return nil
+	}
 	if b.res.LatencyRate[sc.Name] == 0 {
 		rate, err := openRate(b.res, sc)
 		if err != nil {
