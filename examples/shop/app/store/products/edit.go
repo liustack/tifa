@@ -1,0 +1,206 @@
+package products
+
+import (
+	"errors"
+	"slices"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/liustack/tifa"
+)
+
+// What staff change in the back office, and what orders take from the catalogue.
+
+// Edit is what staff can change of a product: the price in fen, the stock, and the title and
+// description in both languages. The back office checks it with the same rules before sending it
+// (the schema of its edit page), and Validate checks it again here.
+type Edit struct {
+	PriceCents    int    `json:"priceCents"`
+	Stock         int    `json:"stock"`
+	NameEN        string `json:"nameEn"`
+	NameZH        string `json:"nameZh"`
+	DescriptionEN string `json:"descriptionEn"`
+	DescriptionZH string `json:"descriptionZh"`
+}
+
+// Entry is a product as the back office lists and edits it.
+type Entry struct {
+	Edit
+	Slug   string `json:"slug"`
+	Number int    `json:"number"`
+	// Category is the name of the category in English, the language of the back office.
+	Category string `json:"category"`
+}
+
+// The limits of an edit. Prices are in fen.
+const (
+	minPriceFen    = 100       // 1 yuan
+	maxPriceFen    = 9_999_900 // 99,999 yuan
+	maxStock       = 99_999
+	maxName        = 60
+	maxDescription = 1000
+)
+
+// Validate checks an edit field by field, after trimming the spaces around the texts.
+func (e Edit) Validate() error {
+	f := tifa.Fields{}
+	if e.PriceCents < minPriceFen || e.PriceCents > maxPriceFen {
+		f["priceCents"] = "Enter a price from ¥1 to ¥99,999"
+	}
+	if e.Stock < 0 || e.Stock > maxStock {
+		f["stock"] = "Enter a stock from 0 to 99,999"
+	}
+	for _, t := range []struct {
+		field, value, empty, long string
+		max                       int
+	}{
+		{"nameEn", e.NameEN, "Enter the English title", "A title is at most 60 characters", maxName},
+		{"nameZh", e.NameZH, "Enter the Chinese title", "A title is at most 60 characters", maxName},
+		{"descriptionEn", e.DescriptionEN, "Enter the English description", "A description is at most 1,000 characters", maxDescription},
+		{"descriptionZh", e.DescriptionZH, "Enter the Chinese description", "A description is at most 1,000 characters", maxDescription},
+	} {
+		switch v := strings.TrimSpace(t.value); {
+		case v == "":
+			f[t.field] = t.empty
+		case utf8.RuneCountInString(v) > t.max:
+			f[t.field] = t.long
+		}
+	}
+	return f.Err()
+}
+
+// Update changes a product to what an edit says, or returns tifa.ErrNotFound. The edit must have
+// passed Validate. The next request of every storefront page shows the change.
+func Update(slug string, e Edit) error {
+	catalogueMu.Lock()
+	defer catalogueMu.Unlock()
+	i := slices.IndexFunc(catalogue, func(p productRecord) bool { return p.slug == slug })
+	if i < 0 {
+		return tifa.ErrNotFound
+	}
+	p := &catalogue[i]
+	p.priceFen, p.stock = e.PriceCents, e.Stock
+	p.name = T{strings.TrimSpace(e.NameZH), strings.TrimSpace(e.NameEN)}
+	p.description = T{strings.TrimSpace(e.DescriptionZH), strings.TrimSpace(e.DescriptionEN)}
+	return nil
+}
+
+// Entries returns every product of the catalogue, in its order.
+func Entries() []Entry {
+	var out []Entry
+	for _, p := range records() {
+		out = append(out, p.entry())
+	}
+	return out
+}
+
+// GetEntry returns the product slug, or tifa.ErrNotFound.
+func GetEntry(slug string) (Entry, error) {
+	p, ok := record(slug)
+	if !ok {
+		return Entry{}, tifa.ErrNotFound
+	}
+	return p.entry(), nil
+}
+
+func (p productRecord) entry() Entry {
+	e := Entry{
+		Edit: Edit{
+			PriceCents: p.priceFen, Stock: p.stock, NameEN: p.name[1], NameZH: p.name[0],
+			DescriptionEN: p.description[1], DescriptionZH: p.description[0],
+		},
+		Slug: p.slug, Number: p.number,
+	}
+	for _, c := range categories {
+		if c.id == p.category {
+			e.Category = c.name[1]
+		}
+	}
+	return e
+}
+
+// ErrNoStock is the error of TakeStock when a product has fewer pieces than an order takes.
+var ErrNoStock = errors.New("not enough in stock")
+
+// Take is how many pieces of a product an order takes from the stock.
+type Take struct {
+	Slug     string
+	Quantity int
+}
+
+// TakeStock takes the pieces of every take from the stock, or none of them: it returns ErrNoStock
+// when a product has fewer pieces than its takes add up to, and tifa.ErrNotFound for a product
+// the catalogue does not have.
+func TakeStock(takes []Take) error {
+	catalogueMu.Lock()
+	defer catalogueMu.Unlock()
+	want := map[int]int{} // pieces, by the index of the product in the catalogue
+	for _, t := range takes {
+		i := slices.IndexFunc(catalogue, func(p productRecord) bool { return p.slug == t.Slug })
+		if i < 0 {
+			return tifa.ErrNotFound
+		}
+		want[i] += t.Quantity
+		if want[i] > catalogue[i].stock {
+			return ErrNoStock
+		}
+	}
+	for i, n := range want {
+		catalogue[i].stock -= n
+	}
+	return nil
+}
+
+// PutBack gives the pieces of takes that TakeStock took back to the stock, when the order that
+// took them could not be placed.
+func PutBack(takes []Take) {
+	catalogueMu.Lock()
+	defer catalogueMu.Unlock()
+	for _, t := range takes {
+		if i := slices.IndexFunc(catalogue, func(p productRecord) bool { return p.slug == t.Slug }); i >= 0 {
+			catalogue[i].stock += t.Quantity
+		}
+	}
+}
+
+// Line is a product in one colour and size as a line of a back office order keeps it: its Chinese
+// name, the colour and size as one text, the price in fen and the stock left.
+type Line struct {
+	Slug     string
+	Name     string
+	Variant  string // such as "墨蓝 / M"
+	Color    string // the ID of the colour
+	PriceFen int
+	Stock    int
+}
+
+// OrderLine returns the product slug in a colour and size as an order line, or tifa.ErrNotFound
+// for a product the catalogue does not have. Staff who place an order name no colour, and the line
+// takes the first colour of the product and no size. A colour or size the product does not come
+// in is an error.
+func OrderLine(slug, color, size string) (Line, error) {
+	p, ok := record(slug)
+	if !ok {
+		return Line{}, tifa.ErrNotFound
+	}
+	if color == "" && size == "" {
+		color = p.colors[0]
+	} else if !slices.Contains(p.colors, color) || !(len(p.sizes) == 0 && size == "" || slices.Contains(p.sizes, size)) {
+		return Line{}, tifa.Fields{"items": "Unknown colour or size of " + slug}
+	}
+	variant := colorText(color)[0]
+	if size != "" {
+		variant += " / " + size
+	}
+	return Line{Slug: slug, Name: p.name[0], Variant: variant, Color: color, PriceFen: p.priceFen, Stock: p.stock}, nil
+}
+
+// colorText is the name of a colour in both languages.
+func colorText(id string) T {
+	for _, c := range colors {
+		if c.id == id {
+			return c.name
+		}
+	}
+	return T{id, id}
+}
