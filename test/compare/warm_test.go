@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,8 +29,10 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 	set := &PlanSet{Blocks: 1}
 	traces := map[int]Trace{}
 	for i := range BlockVisits {
-		set.Plans = append(set.Plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}}})
-		traces[i] = Trace{Plan: i, Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
+		set.Plans = append(set.Plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}, {StepClick, "/projects/studio"}, {StepClick, "/projects/studio"}, {StepClick, "/projects/studio"}}})
+		doc := TraceStep{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}
+		nav := TraceStep{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "nav", End: 1, Status: 200}}}
+		traces[i] = Trace{Plan: i, Steps: []TraceStep{doc, nav, nav, nav}}
 	}
 	b := &browse{
 		o:       BrowseOptions{Log: io.Discard, Sessions: 2, Rounds: 1, Warm: 150 * time.Millisecond, Target: time.Second, Scenarios: []BrowseScenario{sc}, Seed: 1},
@@ -54,6 +57,20 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 			}
 			l.hits.Add(1)
 			l.seq.add('T')
+			// A write is answered as the shop answers it: a checkout with a 303, a created order with its id.
+			switch {
+			case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/checkout"):
+				w.Header().Set("Location", "/store/orders/1")
+				w.WriteHeader(303)
+				return
+			case r.Method == "POST" && r.URL.Path == "/store/cart":
+				w.WriteHeader(204)
+				return
+			case r.Method == "POST" && !strings.HasPrefix(r.URL.Path, "/store/"):
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"id":"SH-9000","customer":"x"}`))
+				return
+			}
 			w.Write([]byte("ok"))
 		}))
 		mu.Lock()
@@ -173,6 +190,14 @@ func (s *seq) first() (byte, bool) {
 	}
 	return s.kind[0], true
 }
+
+// order is the kinds of the requests as a string, such as "TTTVV".
+func (s *seq) order() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return string(s.kind)
+}
+
 func (s *seq) has(k byte) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,11 +230,12 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 						}
 						return err
 					}
+					var out *Round
 					var err error
 					if open {
-						_, err = b.openRound(context.Background(), spec.Name, sc, 100, time.Second, time.Second)
+						out, err = b.openRound(context.Background(), spec.Name, sc, 100, time.Second, time.Second)
 					} else {
-						_, err = b.closedRound(context.Background(), spec.Name, sc, 2, 1)
+						out, err = b.closedRound(context.Background(), spec.Name, sc, 2, 1)
 					}
 					if err != nil {
 						t.Fatal(err)
@@ -218,10 +244,30 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					if len(list) == 0 {
 						t.Fatal("no server")
 					}
+					if !out.Pass {
+						t.Fatalf("the round did not pass (%s), so the check after it was not reached", out.Why)
+					}
+					checks, after := 0, 0
 					for i, l := range list {
-						if k, ok := l.seq.first(); ok && k == 'V' && l.seq.has('T') && !spec.WarmsUp() {
-							t.Errorf("server %d of %s got a check before its traffic", i, spec.Name)
+						o := l.seq.order()
+						switch {
+						case o != "" && strings.Trim(o, "V") == "":
+							checks++ // a server of the check alone
+						case strings.Contains(o, "V"):
+							after++
+							if strings.Contains(o, "VT") && !spec.WarmsUp() {
+								t.Errorf("server %d of %s: %s, a check before traffic", i, spec.Name, o)
+							}
+							if !strings.HasSuffix(strings.TrimRight(o, "V"), "T") || strings.Contains(strings.TrimRight(o, "V"), "V") && !spec.WarmsUp() {
+								t.Errorf("server %d of %s: %s, a check among the traffic", i, spec.Name, o)
+							}
 						}
+					}
+					if checks == 0 {
+						t.Errorf("no server of its own got the check: %d servers", len(list))
+					}
+					if after == 0 {
+						t.Errorf("no check after the round on its server: %d servers", len(list))
 					}
 				})
 			}
