@@ -33,6 +33,17 @@ const amounts = { all: 'Any amount', low: 'Under ¥200', mid: '¥200 to ¥500', 
 // (the newest first) and the first page are left out of the URL.
 type Filter = PageData['filter']
 
+// trimSearch trims the spaces, tabs and line breaks of ASCII from the ends of a search, which is the rule
+// of the server too (other characters that some languages call white space stay in the search).
+function trimSearch(text: string) {
+  return text.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, '')
+}
+
+// queryKey names a query, so that two are the same when they write the same URL.
+function queryKey(f: Filter) {
+  return JSON.stringify(searchOf(f))
+}
+
 function searchOf(f: Filter) {
   return {
     ...(f.status ? { status: f.status } : {}),
@@ -65,10 +76,24 @@ export default function OrdersPage() {
   // The server filters all the orders of the project and cuts the page, so what is on screen is the
   // answer to the query string: the filters and the page come back in list.filter. A change of a
   // filter goes to the first page.
+  //
+  // The data for a change takes time, and the controls work meanwhile. So a change is built on the
+  // latest query asked for (target), not on the one on screen (list.filter): a second change keeps the
+  // first. issued lists the queries asked for whose data has not come yet, oldest first. When data
+  // comes for one of them, it and the older ones are done. Data for a query not in the list is a move
+  // the page did not make, such as the back button or another shop, and then the query on screen is
+  // the target again.
   const navigate = useNavigate()
   const filter = list.filter
-  const go = (change: Partial<Filter>, replace = false) =>
-    navigate({ to: '/projects/$project', params: { project: projectId }, search: searchOf({ ...filter, page: 1, ...change }), replace })
+  const target = useRef(filter)
+  const issued = useRef<string[]>([])
+  const go = (change: Partial<Filter>, replace = false) => {
+    const next = { ...target.current, page: 1, ...change }
+    if (queryKey(next) === queryKey(target.current)) return
+    target.current = next
+    issued.current.push(queryKey(next))
+    navigate({ to: '/projects/$project', params: { project: projectId }, search: searchOf(next), replace })
+  }
   const pageIndex = filter.page - 1
   const sorting = [{ id: filter.sort, desc: filter.dir === 'desc' }]
   const table = useTable({
@@ -99,23 +124,26 @@ export default function OrdersPage() {
   const from = matching === 0 ? 0 : pageIndex * pageSize + 1
   const to = Math.min(matching, (pageIndex + 1) * pageSize)
 
-  // The search box keeps what the visitor types and asks the server once they pause. A query that
-  // comes from elsewhere, such as the back button, replaces the text.
+  // The search box keeps what the visitor types and asks the server once they pause. A move the page
+  // did not make, such as the back button, puts the query of the URL in the box.
   const [text, setText] = useState(filter.q)
-  const asked = useRef(filter.q)
+  const onScreen = queryKey(filter)
+  const shop = useRef(projectId)
   useEffect(() => {
-    if (filter.q !== asked.current) {
-      asked.current = filter.q
-      setText(filter.q)
+    const done = shop.current === projectId ? issued.current.indexOf(onScreen) : -1
+    shop.current = projectId
+    if (done >= 0) {
+      issued.current = issued.current.slice(done + 1)
+      return
     }
-  }, [filter.q])
+    issued.current = []
+    target.current = filter
+    setText(filter.q)
+  }, [projectId, onScreen])
   useEffect(() => {
-    const q = text.trim()
-    if (q === asked.current) return
-    const timer = setTimeout(() => {
-      asked.current = q
-      go({ q }, true)
-    }, 300)
+    const q = trimSearch(text)
+    if (q === target.current.q) return
+    const timer = setTimeout(() => go({ q }, true), 300)
     return () => clearTimeout(timer)
   })
 
@@ -333,9 +361,10 @@ export default function OrdersPage() {
               <EmptyContent>
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    navigate({ to: '/projects/$project', params: { project: projectId }, search: {} })
-                  }
+                  onClick={() => {
+                    setText('')
+                    go({ status: '', carrier: '', period: '', amount: '', q: '', sort: 'placedAt', dir: 'desc' })
+                  }}
                 >
                   View all orders
                 </Button>

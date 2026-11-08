@@ -248,6 +248,11 @@ func ListOrders(projectID string, zone *time.Location, q ListQuery) OrderList {
 	return l
 }
 
+// searchSpace are the characters trimmed from the ends of a search: the white space of ASCII, and no
+// other, so that Go, the TypeScript port and the search box trim the same. strings.TrimSpace and
+// JavaScript's trim() disagree about U+0085, U+00A0 and U+FEFF.
+const searchSpace = " \t\n\v\f\r"
+
 // clean leaves out what the URL says that is not one of the choices, and trims the search.
 func (q ListQuery) clean() ListQuery {
 	if q.Status != StatusPending && q.Status != StatusShipped {
@@ -259,7 +264,7 @@ func (q ListQuery) clean() ListQuery {
 	if _, ok := amountRanges[q.Amount]; !ok {
 		q.Amount = ""
 	}
-	q.Search = strings.TrimSpace(q.Search)
+	q.Search = strings.Trim(q.Search, searchSpace)
 	if q.Sort != SortAmount {
 		q.Sort = SortPlaced
 	}

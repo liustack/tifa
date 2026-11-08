@@ -324,3 +324,23 @@ func TestListSortByPlacedTimeAndWithFilters(t *testing.T) {
 		}
 	}
 }
+
+// Only ASCII spaces are trimmed from the search, the same in Go, the TypeScript port and the search box:
+// the other characters that some languages call white space stay in the search.
+func TestListSearchTrimsAsciiWhitespaceOnly(t *testing.T) {
+	reset()
+	for search, want := range map[string]int{
+		" \t\nsh-1005\r\v\f ": 1,
+		"\u0085sh-1005":       0, // NEXT LINE
+		"\ufeffsh-1005":       0, // ZERO WIDTH NO-BREAK SPACE
+		"\u00a0sh-1005":       0, // NO-BREAK SPACE
+	} {
+		l := ListOrders("studio", shanghai, ListQuery{Search: search})
+		if l.Matching != want {
+			t.Errorf("search %q: matching %d, want %d", search, l.Matching, want)
+		}
+		if want == 1 && l.Filter.Search != "sh-1005" {
+			t.Errorf("search %q is echoed as %q", search, l.Filter.Search)
+		}
+	}
+}

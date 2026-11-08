@@ -325,3 +325,74 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 	head([]string{"SH-1042", "SH-1041", "SH-1040"}, "")
 	b.check("default sort again")
 }
+
+// holdRequests makes the browser keep the data request of the list whose query holds all of want and
+// none of not: the request waits until release is called. The held request is kept on the page object
+// of the test browser, so the next calls of the test can see it.
+func (b *orderListBrowser) holdRequests(want []string, not []string) {
+	b.t.Helper()
+	b.code(fmt.Sprintf(`async (page) => {
+  const want = %s, not = %s
+  page.__held = undefined
+  await page.route((url) => url.pathname === '/projects/studio' && url.searchParams.has('_tifa') &&
+    want.every((kv) => url.searchParams.get(kv.split('=')[0]) === kv.split('=')[1]) && not.every((k) => !url.searchParams.has(k)),
+    (route) => { page.__held = route })
+}`, jsonList(want), jsonList(not)))
+}
+
+func jsonList(items []string) string {
+	out, _ := json.Marshal(items)
+	return string(out)
+}
+
+// waitHeld waits until the browser holds a request, and release lets it go on to the server.
+func (b *orderListBrowser) waitHeld() {
+	b.t.Helper()
+	b.code(`async (page) => { for (let i = 0; i < 100 && !page.__held; i++) await new Promise((r) => setTimeout(r, 50)); if (!page.__held) throw new Error('no request was held') }`)
+}
+
+func (b *orderListBrowser) release() {
+	b.t.Helper()
+	b.code(`async (page) => { const held = page.__held; page.__held = undefined; await page.unroute(() => true).catch(() => {}); await held.continue() }`)
+}
+
+// TestShopOrderListChangesWhileLoadingInBrowser makes a second change of the list while the data for
+// the first is still on its way. Both changes must be in the URL and on screen, and the search box must
+// show the query the URL has. The test holds the data request of the first change in the browser until
+// the second is made, so the order is the same on every run.
+func TestShopOrderListChangesWhileLoadingInBrowser(t *testing.T) {
+	b := newOrderListBrowser(t, "e2e-shop-race")
+
+	// An amount, then a period before the answer for the amount is back.
+	b.open("/projects/studio")
+	b.holdRequests([]string{"amount=high"}, []string{"period"})
+	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Amount' }).click(); await page.getByRole('option', { name: 'Over ¥500' }).click() }`)
+	b.waitHeld()
+	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Placed' }).click(); await page.getByRole('option', { name: 'Last 7 days' }).click() }`)
+	b.release()
+	waitFor(t, "both filters", func() bool { return b.search() == "?period=7&amount=high" })
+	waitFor(t, "the answer to both", func() bool {
+		return b.eval(`() => document.querySelector('[role="combobox"][aria-label="Amount"]')?.textContent`) == "Over ¥500"
+	})
+	if v := b.eval(`() => document.querySelector('[role="combobox"][aria-label="Placed"]')?.textContent`); v != "Last 7 days" {
+		t.Errorf("the period box shows %v", v)
+	}
+	b.check("two filters")
+
+	// A search, then a tab before the answer for the search is back. The tab keeps the search.
+	b.open("/projects/studio")
+	b.holdRequests([]string{"q=sh-1005"}, []string{"status"})
+	b.code(`async (page) => { await page.getByRole('searchbox', { name: 'Search order numbers or customers' }).fill('sh-1005') }`)
+	b.waitHeld()
+	b.code(`async (page) => { await page.getByRole('tab', { name: /Shipped/ }).click() }`)
+	b.release()
+	waitFor(t, "the search and the tab", func() bool { return b.search() == "?status=shipped&q=sh-1005" })
+	waitFor(t, "the answer to both", func() bool { return b.counted() == "1 orders, 1 to 1" })
+	if v := b.eval(`() => document.querySelector('input[type="search"]').value`); v != "sh-1005" {
+		t.Errorf("the search box shows %v", v)
+	}
+	if rows := b.rows(); len(rows) != 1 || rows[0] != "SH-1005" {
+		t.Errorf("rows %v", rows)
+	}
+	b.check("search and tab")
+}
