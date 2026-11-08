@@ -16,7 +16,8 @@ import (
 // shop keeps running totals: its orders by time, by number, by customer and by product, and the
 // sums the order list, the stats and the order page show. Every write updates them under ordersMu,
 // in the same step as the order, so a read of the pages costs about the same with 50 orders as
-// with 5000. Only a filtered order list still goes through all the orders (see ListOrders).
+// with 5000. The order list without filters or a search, sorted by time, is cut from the orders by
+// time. A filter, a search or the sort by amount still goes through all the orders (see ListOrders).
 
 type orderRecord struct {
 	ID        string

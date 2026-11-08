@@ -304,7 +304,8 @@ export function customerOrders(projectId: string, id: string): { others: OrderRo
   return { others: newestFirst(c.orders, 0, SideListSize, id), count: c.orders.length, spentCents: c.spentCents }
 }
 
-// ordersWith returns up to n other orders of a project that hold the product slug, newest first.
+// ordersWith returns up to n other orders of a project that hold the product slug, newest first. An
+// n of 0 or less gives none.
 export function ordersWith(projectId: string, slug: string, exceptId: string, n: number): OrderRow[] {
   const product = ordersOf(projectId).products.get(slug)
   return product ? newestFirst(product.orders, 0, n, exceptId) : []

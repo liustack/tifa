@@ -147,7 +147,8 @@ func AddNote(projectID, id, author, text string, at time.Time) error {
 	return nil
 }
 
-// OrdersWith returns up to n other orders of a project that hold the product slug, newest first.
+// OrdersWith returns up to n other orders of a project that hold the product slug, newest first. An
+// n of 0 or less gives none.
 func OrdersWith(projectID, slug, exceptID string, n int) []OrderRow {
 	ordersMu.RLock()
 	defer ordersMu.RUnlock()
