@@ -328,6 +328,7 @@ func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
 	customer := compare.Page{Name: "order SH-1032", URL: "/projects/studio/orders/SH-1032"} // 林夏, who has orders
 	newest := compare.Page{Name: "order SH-1082", URL: "/projects/studio/orders/SH-1082"}
 	stats := compare.Page{Name: "stats studio", URL: "/projects/studio/stats"}
+	buildID := shopBuildID(t, env)
 	views := map[string][]compare.View{}
 	var names []string
 	for _, spec := range env.Specs() {
@@ -343,6 +344,14 @@ func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
 			defer server.Stop()
 			before := viewOf(t, server.Base, customer)
 			listBefore := viewOf(t, server.Base, list)
+			// Each order takes a tray from the stock, so the shop gets 40 first, as staff would give it.
+			id := ""
+			if spec.Framework == "tifa" {
+				id = buildID
+			}
+			if err := compare.Restock(ctx, http.DefaultClient, server.Base, spec, id, map[string]map[string]int{"studio": {"oak-tray": 40}}); err != nil {
+				t.Fatal(err)
+			}
 			body := `{"customer":"林夏","phone":"13800138000","email":"linxia@example.com","address":"上海市徐汇区","note":"","items":[{"slug":"oak-tray","quantity":1}]}`
 			for range 40 {
 				if r := call(t, server.Base, "POST", spec.Create("studio"), body); r.Status != 200 {
@@ -370,6 +379,10 @@ func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
 	}
 	if len(names) < 4 {
 		t.Fatalf("only %v were checked", names)
+	}
+	// A server that stopped early has no pages to compare.
+	if t.Failed() {
+		return
 	}
 	for _, name := range names[1:] {
 		for i, p := range []string{"list", "customer", "newest", "stats"} {
