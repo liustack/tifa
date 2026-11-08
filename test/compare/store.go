@@ -551,7 +551,7 @@ const instantPrefix = "@instant "
 // DiffStore to compare within instantTolerance: a run an hour later is the same. The time an order was
 // placed (under "placed") is counted from the request that placed it (the 303 of the checkout), not
 // from the request that reads it later. A delivery date ("earliest", "latest") is a midnight in the
-// store's time zone, so it is not counted from a request: it becomes "@day <ms>", the instant itself. It is applied to the answers
+// store's time zone, so it is not counted from a request: it becomes "@day <ms>", the instant itself (so the text is "@day", a space and the milliseconds, compared as it is). It is applied to the answers
 // of the shop and of the port alike.
 func NormalizeStore(results [][]StoreResult) {
 	var from time.Time
@@ -703,4 +703,44 @@ func (e Env) ShopBuildID() (string, error) {
 		return "", err
 	}
 	return built.BuildID, nil
+}
+
+// storeZones are the time zones of the storefront's languages, where its delivery dates are counted.
+var storeZones = []string{"Asia/Shanghai", "America/Los_Angeles"}
+
+// StoreDayChanged says whether the day changed in the time zone of either language of the store
+// between two instants. A delivery date is a calendar day of the store, so two servers that answer
+// on both sides of such a moment give different dates and both are right. A caller that finds a
+// difference then runs that sample again, once, and does not widen any tolerance.
+func StoreDayChanged(a, b time.Time) bool {
+	for _, name := range storeZones {
+		zone, err := time.LoadLocation(name)
+		if err != nil {
+			panic(err)
+		}
+		ay, am, ad := a.In(zone).Date()
+		by, bm, bd := b.In(zone).Date()
+		if ay != by || am != bm || ad != bd {
+			return true
+		}
+	}
+	return false
+}
+
+// StoreRunSpan is the first and the last time a request of the runs was sent.
+func StoreRunSpan(runs ...[][]StoreResult) (first, last time.Time) {
+	for _, run := range runs {
+		for _, rs := range run {
+			for _, r := range rs {
+				at := time.UnixMilli(r.At)
+				if first.IsZero() || at.Before(first) {
+					first = at
+				}
+				if at.After(last) {
+					last = at
+				}
+			}
+		}
+	}
+	return first, last
 }

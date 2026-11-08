@@ -337,6 +337,11 @@ func (p *pair) fresh() *pair {
 func (p *pair) both(name string, r request) (tifa, app reply) {
 	p.t.Helper()
 	tifa, app = p.tifa.do(r), p.app.do(r)
+	if a, b := tifa.describe(), app.describe(); a != b && r.method == "GET" && compare.StoreDayChanged(tifa.at, app.at) {
+		// A day of the store changed between the two answers, and a delivery date is a day of the
+		// store: both can be right. Ask again, once. Only a read is asked again, a write is not.
+		tifa, app = p.tifa.do(r), p.app.do(r)
+	}
 	if a, b := tifa.describe(), app.describe(); a != b {
 		p.t.Errorf("%s: %s %s differs.\nTifa:\n%s\n\n%s:\n%s", name, r.method, r.path, a, p.spec.label, b)
 	}
