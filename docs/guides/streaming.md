@@ -1,5 +1,5 @@
 ---
-summary: 'How to send an answer while it is being made in a Tifa app: server-sent events for live updates, a streamed answer such as the reply of a language model, the Go handler and the deadlines it lifts, how the browser reads each, how they sit with the whole-page cache, compression and proxies, and what happens to an open stream when the program stops'
+summary: 'How to send an answer while it is being made in a Tifa app: server-sent events for live updates, a streamed answer such as the reply of a language model, the Go handler and the deadlines it lifts, how the browser reads each, how they sit with the render memo and `Cache`, compression and proxies, and what happens to an open stream when the program stops'
 read_when:
   - Pushing live updates to open pages, such as a clock, a counter or new orders
   - Showing the reply of a language model word by word as it comes
@@ -231,9 +231,9 @@ function Ask() {
 - A `fetch` to your own site is a same-origin write, so the [cross-site check](../config.md#cross-site-writes) lets it through.
 - A stream that breaks halfway throws in `reader.read()`. The page keeps what it has and says it was cut off.
 
-## The whole-page cache and other caches
+## Caches
 
-- A stream is a handler, never a page, so neither the render cache nor the [whole-page cache](../app.md#the-whole-page-cache) holds it. A page with `Cache` may open a stream: the cached HTML is the same for everyone, and each browser opens its own stream once the page runs.
+- A stream is a handler, never a page, so neither the render memo nor a CDN that keeps a page with [`Cache`](../app.md#cache-for-cdns) holds it. A page with `Cache` may open a stream: the HTML is the same for everyone, and each browser opens its own stream once the page runs.
 - Without a `Cache-Control` of yours the answer is `private, no-cache`, so a CDN does not keep it. Leave it so.
 - nginx holds back the answers it passes on until it has enough of them. `X-Accel-Buffering: no` turns that off for one answer. Other proxies and CDNs have settings of their own. If events arrive in bursts, look there first.
 - Over HTTP/1.1 a browser opens at most 6 connections to a site, and each open `EventSource` keeps one. With [HTTPS](../config.md#https) on, the program speaks HTTP/2, and all the streams of a browser share one connection.

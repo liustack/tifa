@@ -386,8 +386,8 @@ What else changes at that moment:
 
 | Where | What happens |
 | --- | --- |
-| Pages with `Cache` | Every page the whole-page cache made before that moment counts as expired, and the next request makes it again. A page whose data did not change comes from the render cache, without a new render. |
-| The page of the entry | It answered 404 before, which the whole-page cache does not keep, so it opens at that moment. |
+| Pages with `Cache` | Their `Load`s run on every request, so the next request reads the new entry. A page whose data did not change comes from the render memo, without a new render. |
+| The page of the entry | It answered 404 before, so it opens at that moment. |
 | A CDN in front of the program | A page with `Cache` goes out with `s-maxage` set to that time, so a CDN may show the old list for up to that long. |
 | RSS, a sitemap and other handlers | They read the collection on each request and have the entry. Something worked out from the content in `OnStart` and kept does not. |
 
@@ -397,7 +397,7 @@ One request that reads a collection several times may see both sides of that mom
 
 `tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](dev.md#what-each-change-triggers)):
 
-- A Markdown file changed, added or removed, its body or its front matter: `tifa dev` scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, the whole-page cache expires, and open pages reload.
+- A Markdown file changed, added or removed, its body or its front matter: `tifa dev` scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, and open pages reload.
 - Another file under `content/`, such as an image: the entries in its folder are converted again, and the translations that fall back to that folder.
 - `content.go` or a schema type: the Go steps run, and every entry is converted again.
 - `vite.config.ts` or a plugin it imports: every entry is converted again once Vite's dev server restarted, or at once in an app without pages.

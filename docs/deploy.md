@@ -8,7 +8,7 @@ read_when:
   - Deciding what a systemd unit or a Dockerfile for a Tifa app needs
   - Visitors get refused connections, or are signed out, each time you deploy
   - Adding a health check for a load balancer, a container or Kubernetes
-  - Watching the VM pool and the caches with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `cache.size`
+  - Watching the VM pool and the render memo with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `ssr.memo_size`
 ---
 
 English · [简体中文](deploy.zh-CN.md)
@@ -131,7 +131,7 @@ In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` add
 - **Caching.** Pages, navigation data and handler answers are `private, no-cache` by default, so a CDN does not store them. Keep it that way. Let the CDN cache these:
   - `/assets/`: content-hashed, `public, max-age=31536000, immutable`.
   - The files in `public/`: `no-cache` with an ETag, so the CDN asks and gets a 304.
-  - Pages with `Cache`: they are anonymous and carry `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400` and `Age`. A CDN that follows the origin's `Cache-Control` keeps a page for the time of `Cache` and no longer. See [The whole-page cache](app.md#the-whole-page-cache).
+  - Pages with `Cache`: they are anonymous and carry `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. A CDN that follows the origin's `Cache-Control` keeps a page for the time of `Cache` and no longer. See [Cache for CDNs](app.md#cache-for-cdns).
 - **Do not make the CDN ignore the origin's cache headers.** Use a cache setting that follows them, and never one that forces a time or caches everything. The settings for each CDN are in [CDN settings](#cdn-settings).
 - **The navigation data of a page with `Cache` is not shared.** It is the page URL plus `?_tifa=...`, it carries the session of the browser, and it is always `private, no-cache`. The cache key must include the query string (at least `_tifa`), or the CDN must skip the cache for requests with `_tifa`. Drop cookies by path only for the HTML of the page, never for the same path with `_tifa`.
 - **Do not cache `/__tifa/session`.** It answers per visitor and is `private, no-store`.
@@ -193,7 +193,7 @@ func GET(c *tifa.Ctx) error {
 
 ### Metrics
 
-`tifa.Stats()` returns the state of the VM pool, the render cache and the whole-page cache, and what they did since the program started. The counts are atomic, and reading the number of entries and VMs takes a short lock, so reading it every few seconds costs nothing you can measure. Under `tifa dev` the counts of the VM pool start again from zero each time the front end is rebuilt. This route writes it in the text format Prometheus reads, with no library:
+`tifa.Stats()` returns the state of the VM pool, the render memo, and what it did since the program started. The counts are atomic, and reading the number of entries and VMs takes a short lock, so reading it every few seconds costs nothing you can measure. Under `tifa dev` the counts of the VM pool start again from zero each time the front end is rebuilt. This route writes it in the text format Prometheus reads, with no library:
 
 ```go
 // app/metrics/route.go
@@ -220,18 +220,12 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_renders_failed_total", "counter", "Renders that failed.", float64(s.SSR.Failed))
 	metric("tifa_render_seconds_total", "counter", "Time the renders took.", s.SSR.RenderTime.Seconds())
 	metric("tifa_renders_rejected_total", "counter", "Renders answered 503 as busy.", float64(s.SSR.Rejected))
-	for _, cache := range []struct {
-		name  string
-		stats tifa.CacheStats
-	}{{"render_cache", s.RenderCache}, {"page_cache", s.PageCache}} {
-		metric("tifa_"+cache.name+"_entries", "gauge", "Entries kept.", float64(cache.stats.Entries))
-		metric("tifa_"+cache.name+"_hits_total", "counter", "Answered from an entry.", float64(cache.stats.Hits))
-		metric("tifa_"+cache.name+"_misses_total", "counter", "Made by the request.", float64(cache.stats.Misses))
-		metric("tifa_"+cache.name+"_shared_total", "counter", "Waited for another request.", float64(cache.stats.Shared))
-	}
-	metric("tifa_page_cache_stale_total", "counter", "Old pages sent for a failed one.", float64(s.PageCache.Stale))
-	metric("tifa_cache_bytes", "gauge", "Bytes the caches hold.", float64(s.CacheBytes))
-	metric("tifa_cache_size_bytes", "gauge", "Bytes the caches may hold.", float64(s.CacheSize))
+	metric("tifa_memo_entries", "gauge", "Entries kept.", float64(s.Memo.Entries))
+	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
+	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
+	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
+	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
+	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
 	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, err := io.WriteString(c.Writer(), b.String())
 	return err
@@ -246,16 +240,15 @@ What to read, and what to change:
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
-| `tifa_renders_rejected_total` grows | Renders found the queue full or waited past `ssr.wait_timeout`, and got 503 | More CPU and `ssr.vms`, or more caching (see [Sizing a machine](performance.md#sizing-a-machine) and [Render queue](config.md#render-queue)) |
+| `tifa_renders_rejected_total` grows | Renders found the queue full or waited past `ssr.wait_timeout`, and got 503 | More CPU and `ssr.vms`, or fewer renders (see [Sizing a machine](performance.md#sizing-a-machine) and [Render queue](config.md#render-queue)) |
 | `tifa_vms_busy` is `tifa_vms` most of the time, `tifa_renders_queued` above 0 | Every VM renders and others wait | The same: the program is at its limit |
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | The mean time of a render | When it grows, find the page that got slower |
 | `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
-| Hits low next to misses, `tifa_cache_bytes` near `tifa_cache_size_bytes` | The caches drop pages before they are asked for again | A larger `cache.size` |
-| `tifa_page_cache_stale_total` grows | Pages with `Cache` fail to make again and the old page is sent | The log has the error of each failed make |
+| Hits low next to misses, `tifa_memo_bytes` near `tifa_memo_size_bytes` | The render memo drops pages before they are asked for again | A larger `ssr.memo_size` |
 
 ## After a deploy
 
 - A visitor who had a page open keeps working: the next click or handler call sees the new build, and the browser reloads the page once. See [Pages open while you deploy](app.md#pages-open-while-you-deploy).
 - If your `OnRequest` or a CDN rule lets a CDN keep pages other than the ones with `Cache`, clear them on every deploy. Otherwise a visitor can get an old page whose scripts are gone.
 - A CDN that keeps pages with `Cache` hands out the old HTML until `s-maxage` runs out, and the scripts that HTML names may be gone. Clear those pages in the CDN too when you deploy. A browser that asks the program itself gets the new page at once.
-- The whole-page cache and the render cache of the program live in memory and start empty after a restart.
+- The render memo of the program lives in memory and starts empty after a restart.

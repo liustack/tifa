@@ -523,7 +523,7 @@ func POST(c *tifa.Ctx, in RenameInput) error {
 - **Read the session, then the database.** Take the ID from the session and load the rest. The session is a copy made at sign-in. A name changed later, a role taken away or a disabled account is not in it.
 - **Guard in two places.** `OnRequest` turns visitors away from a whole area before any `Load` runs, for page loads and link clicks alike. A handler is a URL of its own and can be called without its page, so each handler that needs a user checks the session itself. A `Load` that returns a user's data should do the same.
 - **Keep the copy in step.** When something in the session changes, call `SetSession` again, as `POST` does. The call brings the new session to the browser, so the header follows at once.
-- **Pages with `Cache`.** On a page kept in the whole-page cache, `Session` is nil for everyone, so such a page cannot be private (see [the whole-page cache](../app.md#the-whole-page-cache)).
+- **Pages with `Cache`.** On a page with `Cache`, `Session` is nil for everyone, so such a page cannot be private (see [Cache for CDNs](../app.md#cache-for-cdns)).
 
 `app/account/page.tsx`:
 

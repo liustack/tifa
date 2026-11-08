@@ -5,7 +5,7 @@ read_when:
   - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
   - An upload, a download or a stream is cut off after about 10 seconds, or a handler needs longer than the read and write timeouts
-  - Deploying a Tifa app, or changing its port, body limit, read and write timeouts, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
+  - Deploying a Tifa app, or changing its port, body limit, read and write timeouts, compression, VM count, VM stack depth, render timeout, render queue, render memo, or the Cache-Control a page with `Cache` sends
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
@@ -47,8 +47,7 @@ server:
   body_limit: 4MiB
 ssr:
   timeout: 2s
-cache:
-  size: 128MiB
+  memo_size: 128MiB
 ```
 
 Run `./bin/app config` to print every setting, of Tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file. It leaves out the values of the app's secrets ([`tifa.Secret`](#options-of-the-app)).
@@ -65,7 +64,7 @@ Each setting has a key, a flag and an environment variable, all from one rule:
 - A key is lower case letters, digits and underscores, in at least two parts joined with dots.
 - The flag replaces dots and underscores with hyphens. The environment variable replaces dots with underscores and is in upper case. There is no prefix.
 - In a YAML file each part of the key is one level: `db.url` is `url` under `db:`.
-- A flag takes its value after a space or after `=`: `--ssr-vms 4` or `--ssr-vms=4`. A word that starts with `-` is always a flag and never a value, so a value that starts with `-`, such as a negative number or `-gclid` of `cache.ignore_query`, goes after `=`: `--cache-ignore-query=-gclid`. A flag without its value fails. The program reads no flag after `--`.
+- A flag takes its value after a space or after `=`: `--ssr-vms 4` or `--ssr-vms=4`. A word that starts with `-` is always a flag and never a value, so a value that starts with `-`, such as a negative number, goes after `=`: `--cache-ignore-query=-gclid`. A flag without its value fails. The program reads no flag after `--`.
 
 ### .env
 
@@ -132,9 +131,8 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `ssr.timeout` | `3s` | `--ssr-timeout`, `SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
 | `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`, `SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
-| `cache.size` | `64MiB` | `--cache-size`, `CACHE_SIZE` | Size of the render cache of rendered pages and of the pages of the [whole-page cache](app.md#the-whole-page-cache), one LRU for both, counting the bytes it keeps: one form of each page, its gzip form with `server.compress` on and its HTML otherwise (see [Compression](build.md#compression)). `0` turns both off, though requests that miss the same page at the same time still share one render. A page with `Cache` stays anonymous, and its navigation data is answered by its `Load`s without a render (`X-Tifa-Render: none`). What the render cache is and why it is safe: [The render cache](render-cache.md). A page turns the render cache off for itself with `RenderCache = false` (see [SSR and cache](app.md#ssr-and-cache)) |
-| `cache.whole_page` | `true` | `--cache-whole-page`, `CACHE_WHOLE_PAGE` | Keep the pages of routes with `Cache` for everyone, see [The whole-page cache](app.md#the-whole-page-cache). `false` renders them like other pages and leaves the render cache on |
-| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`, `CACHE_IGNORE_QUERY` | The query parameters the whole-page cache leaves out of its key and of the URL it renders for. A name adds to the list, `-name` takes one out, `-*` empties it, and a name ending in `*` is a prefix. A parameter that a `Load` of the page reads is kept whatever this says |
+| `ssr.memo_size` | `64MiB` | `--ssr-memo-size`, `SSR_MEMO_SIZE` | Size of the render memo, counting the bytes it keeps: one form of each page, its gzip form with `server.compress` on and its HTML otherwise (see [Compression](build.md#compression)). When it is full the least recently used pages go. `0` turns it off, though requests that miss the same page at the same time still share one render. What the render memo is and why it is safe: [The render memo](memo.md). A page turns the render memo off for itself with `Memo = false` (see [SSR and cache](app.md#ssr-and-cache)) |
+| `cache_control.s_maxage` | `1m` | `--cache-control-s-maxage`, `CACHE_CONTROL_S_MAXAGE` | The `s-maxage` of a page that writes `const Cache = true`: how long a shared cache in front of the program, such as a CDN, may keep it. At least one second. A page with `const Cache = 10 * time.Minute` uses its own time. See [Cache for CDNs](app.md#cache-for-cdns) |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](sessions.md) |
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
@@ -238,7 +236,7 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 
 `tifatest.NewCtx` does not run SSR, so the queue itself is never full in such a test. Pass the error in by hand as above.
 
-The limits apply only when a render needs a VM. Cache hits, 304 responses, navigation data, API routes and pages with SSR off do not wait for one. Requests sharing a cache miss count as one render. `Load` runs before admission, and shared requests still hold their own HTTP state. A queue limit bounds render jobs, not total process memory or all HTTP requests. See [Overload](performance.md#overload) for sizing and measurements.
+The limits apply only when a render needs a VM. Memo hits, 304 responses, navigation data, API routes and pages with SSR off do not wait for one. Requests sharing a memo miss count as one render. `Load` runs before admission, and shared requests still hold their own HTTP state. A queue limit bounds render jobs, not total process memory or all HTTP requests. See [Overload](performance.md#overload) for sizing and measurements.
 
 ## Long requests
 
@@ -321,7 +319,7 @@ Copying or building the file again drops it, so do it after each deployment. Und
 
 ### What changes over HTTP/2
 
-- Compression, the `.gz` files of the build, the render cache, the whole-page cache, ETags, redirects and server-sent events work as over HTTP/1.1, and a flush sends what was written at once.
+- Compression, the `.gz` files of the build, the render memo, ETags, redirects and server-sent events work as over HTTP/1.1, and a flush sends what was written at once.
 - Deadlines run out over HTTP/2 even while the handler is not reading or writing: a write deadline that passes ends the answer, and a read deadline that passes makes the rest of the body fail to read. Moving either afterwards does not help. Over HTTP/1.1 a deadline that passed can still be moved before the next read or write. Move deadlines before they pass, see [Long requests](#long-requests).
 - `Hijack` fails with `http.ErrNotSupported` on an HTTP/2 connection, since that connection carries other requests too. Unless `GODEBUG=http2xconnect=1` is set, the server does not offer WebSockets over HTTP/2, so browsers open them over a separate HTTP/1.1 connection, where `Hijack` works.
 - Over HTTPS, read what compression may leak in [Compression](build.md#compression).
@@ -363,7 +361,7 @@ The default policy, `server.csp_policy`, is `script-src 'self'; object-src 'none
 
 Styles are left alone: React writes `style` attributes, and emotion and MUI add style elements while the page runs.
 
-Every page has inline scripts of Tifa's own: the router hands the data of the Loads to the browser in one and restores the scroll position with another. Tifa hashes each inline script and style it writes into a page (SHA-256) and adds the hashes to the policy in the header of that page, so they run. These are the scripts and styles of the head of the build (Vite's preamble under `tifa dev`), of the session head, of the router, and of the `scripts` and `styles` of `head` functions, and under `tifa dev` its own error overlay. The same page always gets the same header, so the render cache, the whole-page cache and ETags work as before. Other answers, JSON and files, carry the policy as it is.
+Every page has inline scripts of Tifa's own: the router hands the data of the Loads to the browser in one and restores the scroll position with another. Tifa hashes each inline script and style it writes into a page (SHA-256) and adds the hashes to the policy in the header of that page, so they run. These are the scripts and styles of the head of the build (Vite's preamble under `tifa dev`), of the session head, of the router, and of the `scripts` and `styles` of `head` functions, and under `tifa dev` its own error overlay. The same page always gets the same header, so the render memo and ETags work as before. Other answers, JSON and files, carry the policy as it is.
 
 The hashes go into `script-src` and `script-src-elem`, and into `style-src` and `style-src-elem` when the policy has them. A policy with only `default-src` gets a `script-src` with the sources of `default-src` and the hashes. A directive whose `'unsafe-inline'` still lets every inline script run gets no hashes, since browsers ignore `'unsafe-inline'` once a directive lists one. With a hash, a nonce or, for scripts, `'strict-dynamic'` in the directive, browsers already ignore it, so the hashes go in.
 
@@ -424,8 +422,7 @@ What a lower depth breaks:
 
 ## Value formats
 
-- Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `cache.size` may be 0.
-- `cache.ignore_query` is a comma-separated list of changes to the default list: `ref,-gclid` adds `ref` and takes `gclid` out. Names are matched without regard to case and may not hold `=`, `&`, `?` or spaces. A `*` may only end a name. Each source changes the list the sources below it left.
+- Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `ssr.memo_size` may be 0.
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`. A `tifa.Duration` of the app may also be 0 or negative.
 - In a YAML file a whole number setting is a number (`vms: 2`, not `"2"`), a `true` or `false` setting a bool, and every other setting text. A size may be a number of bytes or text with a unit.
 - `ssr.vms` is a whole number of at least 1.

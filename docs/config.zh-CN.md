@@ -5,7 +5,7 @@ read_when:
   - 写 .env 文件，或部署到会设 PORT 的平台
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
   - 上传、下载或推流大约 10 秒就被切断，或者处理函数需要的时间超过读写超时
-  - 部署 Tifa 应用，或要改端口、请求体上限、读写超时、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
+  - 部署 Tifa 应用，或要改端口、请求体上限、读写超时、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染记忆，或带 `Cache` 的页面发出的 Cache-Control
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
@@ -47,8 +47,7 @@ server:
   body_limit: 4MiB
 ssr:
   timeout: 2s
-cache:
-  size: 128MiB
+  memo_size: 128MiB
 ```
 
 运行 `./bin/app config` 会列出全部配置和选项（Tifa 的配置和应用的选项）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。应用的秘密（[`tifa.Secret`](#应用的选项)）只写来源，不写值。
@@ -65,7 +64,7 @@ cache:
 - 键由小写字母、数字和下划线组成，用点分成至少两段。
 - 参数把点和下划线换成连字符。环境变量把点换成下划线，全部大写，不加前缀。
 - 在 YAML 文件里，键的每一段是一层：`db.url` 就是 `db:` 下面的 `url`。
-- 参数的值写在空格后或 `=` 后：`--ssr-vms 4` 或 `--ssr-vms=4`。以 `-` 开头的词永远是参数，不会当成值，所以以 `-` 开头的值（比如负数，或 `cache.ignore_query` 的 `-gclid`）要写在 `=` 后：`--cache-ignore-query=-gclid`。缺值的参数会报错。`--` 之后的参数一律不读。
+- 参数的值写在空格后或 `=` 后：`--ssr-vms 4` 或 `--ssr-vms=4`。以 `-` 开头的词永远是参数，不会当成值，所以以 `-` 开头的值（比如负数）要写在 `=` 后：`--cache-ignore-query=-gclid`。缺值的参数会报错。`--` 之后的参数一律不读。
 
 ### .env
 
@@ -132,9 +131,8 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
 | `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`、`SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
-| `cache.size` | `64MiB` | `--cache-size`、`CACHE_SIZE` | 渲染缓存是什么、为什么安全见[渲染缓存](render-cache.zh-CN.md)。渲染缓存里的页面和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，按实际存下的字节算：每个页面只存一种形式，`server.compress` 开着时存 gzip，否则存 HTML（见[压缩](build.zh-CN.md#压缩)），`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染。带 `Cache` 的页面仍然匿名，它的导航数据只跑 `Load`，不渲染页面（`X-Tifa-Render` 为 `none`）（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
-| `cache.whole_page` | `true` | `--cache-whole-page`、`CACHE_WHOLE_PAGE` | 带 `Cache` 的路由的页面对所有人共用一份，见[整页缓存](app.zh-CN.md#整页缓存)。设为 `false` 时这些页面和别的页面一样渲染，渲染缓存照常开着 |
-| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`、`CACHE_IGNORE_QUERY` | 整页缓存的键和渲染用的 URL 里要去掉的查询参数。写一个名字是加进名单，`-名字` 是去掉一个，`-*` 清空，以 `*` 结尾的名字按前缀匹配。页面的 `Load` 读的参数不管这里怎么写都保留 |
+| `ssr.memo_size` | `64MiB` | `--ssr-memo-size`、`SSR_MEMO_SIZE` | 渲染记忆的大小，按实际存下的字节算：每个页面只存一种形式，`server.compress` 开着时存 gzip，否则存 HTML（见[压缩](build.zh-CN.md#压缩)）。满了就丢最久没用的页面。`0` 把它关闭，但同时没命中同一个页面的请求仍然共用一次渲染。渲染记忆是什么、为什么安全见[渲染记忆](memo.zh-CN.md)。页面可以用 `Memo = false` 给自己关掉渲染记忆（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)） |
+| `cache_control.s_maxage` | `1m` | `--cache-control-s-maxage`、`CACHE_CONTROL_S_MAXAGE` | 写了 `const Cache = true` 的页面的 `s-maxage`：程序前面的共享缓存（比如 CDN）可以把它留多久，至少一秒。写了 `const Cache = 10 * time.Minute` 的页面用自己的时间。见[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache) |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`SESSION_COOKIE` | 会话 cookie 的名字。`tifa dev` 下去掉 `__Host-` 前缀，见[会话](sessions.zh-CN.md) |
 | `session.max_age` | `720h` | `--session-max-age`、`SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`SESSION_MEMORY_LIMIT` | 内存会话存储最多放多少字节，`OnStart` 没用 `tifa.SetSessionStore` 设存储时才用。满了先挤掉最早过期的 |
@@ -238,7 +236,7 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 
 `tifatest.NewCtx` 不跑 SSR，这样的测试里队列不会真的满，像上面这样手动把错误传进去。
 
-限制只在渲染需要 VM 时生效。缓存命中、304、导航数据、API 和关闭 SSR 的页面都不等 VM。共享同一次缓存未命中的请求只算一次渲染。`Load` 在准入检查前运行，共享渲染的请求仍各自占用 HTTP 状态。队列限制约束渲染任务数量，不是整个进程的内存或全部 HTTP 请求。容量建议和测量见[过载](performance.zh-CN.md#过载)。
+限制只在渲染需要 VM 时生效。渲染记忆命中、304、导航数据、API 和关闭 SSR 的页面都不等 VM。共享同一次渲染记忆未命中的请求只算一次渲染。`Load` 在准入检查前运行，共享渲染的请求仍各自占用 HTTP 状态。队列限制约束渲染任务数量，不是整个进程的内存或全部 HTTP 请求。容量建议和测量见[过载](performance.zh-CN.md#过载)。
 
 ## 耗时长的请求
 
@@ -321,7 +319,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 ### HTTP/2 下有什么不同
 
-- 压缩、构建写好的 `.gz` 文件、渲染缓存、整页缓存、ETag、跳转和 server-sent events 都和 HTTP/1.1 下一样，flush 会把写好的内容马上发出去。
+- 压缩、构建写好的 `.gz` 文件、渲染记忆、ETag、跳转和 server-sent events 都和 HTTP/1.1 下一样，flush 会把写好的内容马上发出去。
 - HTTP/2 下期限到了就生效，哪怕处理函数当时没在读写：写期限一到回答就结束了，读期限一到请求体剩下的部分就读不出来。事后再挪哪个都没用。HTTP/1.1 下期限过了，只要下一次读写之前挪开，仍然有效。要在期限到之前挪，见[耗时长的请求](#耗时长的请求)。
 - 在 HTTP/2 连接上 `Hijack` 返回 `http.ErrNotSupported`，因为这条连接上还有别的请求。除非设了 `GODEBUG=http2xconnect=1`，服务端不在 HTTP/2 上提供 WebSocket，浏览器会另开一条 HTTP/1.1 连接来建 WebSocket，那里 `Hijack` 照常能用。
 - 走 HTTPS 时压缩可能泄露什么，见[压缩](build.zh-CN.md#压缩)。
@@ -363,7 +361,7 @@ Content-Security-Policy 告诉浏览器哪些脚本可以运行。策略只放�
 
 样式不受限：React 会写 `style` 属性，emotion 和 MUI 在页面运行时还会添加 style 元素。
 
-每个页面都有 Tifa 自己的内联脚本：路由器用一个把 Load 的数据交给浏览器，用另一个恢复滚动位置。Tifa 给它写进页面的每个内联脚本和样式算 SHA-256 哈希，加进这个页面响应头里的策略，所以它们能运行。包括构建 head 里的脚本和样式（`tifa dev` 下是 Vite 的 preamble）、会话 head、路由器的脚本、`head` 函数的 `scripts` 和 `styles`，以及 `tifa dev` 自己的错误浮层。同一个页面总是得到同一个头，所以渲染缓存、整页缓存和 ETag 照常工作。其他回答（JSON 和文件）带原样的策略。
+每个页面都有 Tifa 自己的内联脚本：路由器用一个把 Load 的数据交给浏览器，用另一个恢复滚动位置。Tifa 给它写进页面的每个内联脚本和样式算 SHA-256 哈希，加进这个页面响应头里的策略，所以它们能运行。包括构建 head 里的脚本和样式（`tifa dev` 下是 Vite 的 preamble）、会话 head、路由器的脚本、`head` 函数的 `scripts` 和 `styles`，以及 `tifa dev` 自己的错误浮层。同一个页面总是得到同一个头，所以渲染记忆和 ETag 照常工作。其他回答（JSON 和文件）带原样的策略。
 
 哈希加进 `script-src` 和 `script-src-elem`，策略里有 `style-src`、`style-src-elem` 时也加进去。只有 `default-src` 的策略会多出一条 `script-src`，内容是 `default-src` 的来源加上哈希。`'unsafe-inline'` 仍然放行全部内联脚本的指令不加哈希，因为指令里一有哈希，浏览器就不理 `'unsafe-inline'` 了。指令里已有哈希、nonce，或者脚本指令里有 `'strict-dynamic'` 时，浏览器本来就不理它，哈希照加。
 
@@ -424,8 +422,7 @@ server:
 
 ## 值的写法
 
-- 大小写成整数加可选单位：`B`、`KiB`、`MiB` 或 `GiB`，比如 `512KiB`。不带单位就是字节。只有 `cache.size` 可以是 0。
-- `cache.ignore_query` 是逗号分隔的名单改动，作用在默认名单上：`ref,-gclid` 加上 `ref`，去掉 `gclid`。名字不分大小写，不能含 `=`、`&`、`?` 和空格，`*` 只能放在名字末尾。每一层来源都在下一层留下的名单上改。
+- 大小写成整数加可选单位：`B`、`KiB`、`MiB` 或 `GiB`，比如 `512KiB`。不带单位就是字节。只有 `ssr.memo_size` 可以是 0。
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。应用的 `tifa.Duration` 也可以是 0 或负数。
 - YAML 文件里，整数配置写成数字（`vms: 2`，不是 `"2"`），`true` 或 `false` 的配置写成布尔值，其余都写成文本。大小可以写字节数，也可以写带单位的文本。
 - `ssr.vms` 是不小于 1 的整数。

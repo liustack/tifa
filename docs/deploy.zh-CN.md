@@ -8,7 +8,7 @@ read_when:
   - 想知道 Tifa 应用的 systemd unit 或 Dockerfile 需要什么
   - 每次部署访客都会连不上，或者被登出
   - 给负载均衡器、容器或 Kubernetes 加健康检查
-  - 用 Prometheus 或别的监控系统看 VM 池和缓存，或者据此判断机器要不要加 CPU、`cache.size` 要不要调大
+  - 用 Prometheus 或别的监控系统看 VM 池和渲染记忆，或者据此判断机器要不要加 CPU、`ssr.memo_size` 要不要调大
 ---
 
 [English](deploy.md) · 简体中文
@@ -131,7 +131,7 @@ WantedBy=sockets.target
 - **缓存。** 页面、导航数据和处理函数的回答默认是 `private, no-cache`，所以 CDN 不会存它们。保持这样。让 CDN 缓存这些：
   - `/assets/`：带内容哈希，`public, max-age=31536000, immutable`。
   - `public/` 里的文件：`no-cache` 加 ETag，CDN 会来问，得到 304。
-  - 带 `Cache` 的页面：它们是匿名的，带 `Cache-Control: public, max-age=0, s-maxage=<秒数>, stale-if-error=86400` 和 `Age`。遵循源站 `Cache-Control` 的 CDN 会把页面保存 `Cache` 那么久，不会更久。见[整页缓存](app.zh-CN.md#整页缓存)。
+  - 带 `Cache` 的页面：它们是匿名的，带 `Cache-Control: public, max-age=0, s-maxage=<秒数>, stale-if-error=86400` 。遵循源站 `Cache-Control` 的 CDN 会把页面保存 `Cache` 那么久，不会更久。见[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache)。
 - **别让 CDN 忽略源站的缓存头。** 用遵循它们的缓存设置，不要用固定时间或缓存一切的设置。各家 CDN 的设置见 [CDN 设置](#cdn-设置)。
 - **带 `Cache` 的页面的导航数据不能共享。** 它是页面 URL 加 `?_tifa=...`，带着这个浏览器的会话，永远是 `private, no-cache`。缓存键必须包含查询字符串（至少 `_tifa`），或者让 CDN 对带 `_tifa` 的请求绕过缓存。只按路径去掉页面 HTML 的 cookie，带 `_tifa` 的同一路径绝不能去。
 - **别缓存 `/__tifa/session`。** 它按访客回答，是 `private, no-store`。
@@ -193,7 +193,7 @@ func GET(c *tifa.Ctx) error {
 
 ### 指标
 
-`tifa.Stats()` 返回 VM 池、渲染缓存和整页缓存现在的状态，以及程序启动以来做了什么。计数是原子的，读条目数和 VM 数时会短暂加锁，每几秒读一次的开销测不出来。`tifa dev` 下每次重建前端，VM 池的计数都从零开始。下面这个路由不用任何库，把它写成 Prometheus 读的文本格式：
+`tifa.Stats()` 返回 VM 池和渲染记忆现在的状态，以及程序启动以来做了什么。计数是原子的，读条目数和 VM 数时会短暂加锁，每几秒读一次的开销测不出来。`tifa dev` 下每次重建前端，VM 池的计数都从零开始。下面这个路由不用任何库，把它写成 Prometheus 读的文本格式：
 
 ```go
 // app/metrics/route.go
@@ -220,18 +220,12 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_renders_failed_total", "counter", "Renders that failed.", float64(s.SSR.Failed))
 	metric("tifa_render_seconds_total", "counter", "Time the renders took.", s.SSR.RenderTime.Seconds())
 	metric("tifa_renders_rejected_total", "counter", "Renders answered 503 as busy.", float64(s.SSR.Rejected))
-	for _, cache := range []struct {
-		name  string
-		stats tifa.CacheStats
-	}{{"render_cache", s.RenderCache}, {"page_cache", s.PageCache}} {
-		metric("tifa_"+cache.name+"_entries", "gauge", "Entries kept.", float64(cache.stats.Entries))
-		metric("tifa_"+cache.name+"_hits_total", "counter", "Answered from an entry.", float64(cache.stats.Hits))
-		metric("tifa_"+cache.name+"_misses_total", "counter", "Made by the request.", float64(cache.stats.Misses))
-		metric("tifa_"+cache.name+"_shared_total", "counter", "Waited for another request.", float64(cache.stats.Shared))
-	}
-	metric("tifa_page_cache_stale_total", "counter", "Old pages sent for a failed one.", float64(s.PageCache.Stale))
-	metric("tifa_cache_bytes", "gauge", "Bytes the caches hold.", float64(s.CacheBytes))
-	metric("tifa_cache_size_bytes", "gauge", "Bytes the caches may hold.", float64(s.CacheSize))
+	metric("tifa_memo_entries", "gauge", "Entries kept.", float64(s.Memo.Entries))
+	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
+	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
+	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
+	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
+	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
 	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, err := io.WriteString(c.Writer(), b.String())
 	return err
@@ -250,12 +244,11 @@ func GET(c *tifa.Ctx) error {
 | `tifa_vms_busy` 大部分时间等于 `tifa_vms`，`tifa_renders_queued` 大于 0 | 每个 VM 都在渲染，还有渲染在等 | 同上：程序到上限了 |
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
 | `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |
-| 命中比未命中少很多，`tifa_cache_bytes` 接近 `tifa_cache_size_bytes` | 页面还没被再次请求就被缓存挤掉了 | 调大 `cache.size` |
-| `tifa_page_cache_stale_total` 在涨 | 开了 `Cache` 的页面重新生成失败，发出的是旧页 | 日志里有每次生成失败的错误 |
+| 命中比未命中少很多，`tifa_memo_bytes` 接近 `tifa_memo_size_bytes` | 页面还没被再次请求就被渲染记忆挤掉了 | 调大 `ssr.memo_size` |
 
 ## 部署之后
 
 - 开着页面的访客能继续用：下一次点击或处理函数调用会发现是新版本，浏览器把页面重载一次。见[部署时还开着的页面](app.zh-CN.md#部署时还开着的页面)。
 - 如果你的 `OnRequest` 或 CDN 规则让 CDN 缓存了带 `Cache` 以外的页面，每次部署都要清掉它们。否则访客可能拿到脚本已经不存在的旧页面。
 - 缓存了带 `Cache` 页面的 CDN 会一直给出旧 HTML，直到 `s-maxage` 到期，而那份 HTML 引用的脚本可能已经没了。部署时也清掉 CDN 里的这些页面。直接问程序的浏览器会马上拿到新页面。
-- 程序里的整页缓存和渲染缓存放在内存里，重启后是空的。
+- 程序里的渲染记忆放在内存里，重启后是空的。

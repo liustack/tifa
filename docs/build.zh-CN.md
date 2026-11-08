@@ -245,7 +245,7 @@ docs/build.md - ...
 tifa routes [--dir 应用根目录] [--json]
 ```
 
-做和 `tifa build` 一样的静态分析，不生成也不构建，打印路由表：目录、URL、Layout、方法（页面记作 `page`）、`SSR` 和 `RenderCache` 开关，再打印 Layout 表。违反约定时的报错和 `tifa build` 一样。`--json` 改为打印路由清单，带每个 `Load` 返回值和每个方法函数入参、结果的 Go 类型。
+做和 `tifa build` 一样的静态分析，不生成也不构建，打印路由表：目录、URL、Layout、方法（页面记作 `page`）、`SSR` 和 `Memo` 开关，再打印 Layout 表。违反约定时的报错和 `tifa build` 一样。`--json` 改为打印路由清单，带每个 `Load` 返回值和每个方法函数入参、结果的 Go 类型。
 
 ### go.mod
 
@@ -418,7 +418,7 @@ shop 用适配器的那一个实例，并在 `hooks.ts` 里给它配上自己的
 - 模块用 `import()` 加载的 chunk（比如 `.client.tsx` 组件）不预加载，等代码运行到时才加载。
 - `Load` 失败时，路由器只显示到出错的最外一层，页面也只预加载到这一层。Layout 失败时显示上一层的 `Error`，所以不带这个 Layout 的 chunk。页面失败时显示从页面往上第一个 `Error`，可能就是它自己的，所以带上页面的 chunk，它不导出 `Error` 时也带。没有匹配到页面的 URL 预加载到它的 404 所在的那层 Layout。不走 SSR 的页面在 Go 写的文档里同样带这些链接。
 - 这些链接不带 nonce，和 `head` 里其他标签一样：它们加载本站的文件，`script-src 'self'` 本来就放行。
-- 列表在构建时生成，启动时读一次，渲染不为它做 I/O。链接由构建和匹配到的路径决定，所以 ETag 和渲染缓存照旧。
+- 列表在构建时生成，启动时读一次，渲染不为它做 I/O。链接由构建和匹配到的路径决定，所以 ETag 和渲染记忆照旧。
 - `tifa dev` 不写列表，也不写链接。
 
 不开 [HTTPS](config.zh-CN.md#https) 时，Tifa 在普通 TCP 上只提供 HTTP/1.1，而浏览器只在 TLS 上用 HTTP/2。走 HTTP/1.1 时浏览器对一个主机最多开 6 个连接，页面要的文件每多 6 个，大约多等一个往返。开了 HTTPS，或者前面有和浏览器讲 HTTP/2 的代理或 CDN 时，这些文件共用一个连接，个数的影响小得多。数一数页面的 `modulepreload` 链接，就知道它除入口脚本外还要几个文件。
@@ -561,7 +561,7 @@ export function onStart() {
 - 每个 `Load` 的结果是 `{status, data?, error?}`：成功为 200 带 `data`，`tifa.ErrNotFound` 为 404，其他错误带状态码与公开消息。
 - 路由 ID 指一个 `Load` 或 `Layout` 函数：页面和 API 路由（目录里的 `page.tsx` 和 `route.go`）是目录加 `/route`，Layout 是目录加 `/layout`，比如 `app/layout`、`app/projects/project+/route`。
 - 整页渲染的 VM 输入是 `{url, buildId, data: {路由 ID: 结果}, preload}`，与 `internal/ssr.Input` 一致。结果里有 `status`、`error` 和 `location`，成功的 `Load` 还有它的 JSON 文本的编号 `text`。文本本身不在输入里，而是 `startRender(json, ...texts)` 里输入之后的参数，按路由 ID 的顺序排列，所以 Go 不用把它们转义进输入的 JSON，VM 也不用再从里面解析出来。
-- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：页面 URL 加保留的查询参数 `_tifa=<构建 ID>.<位图>`，例如 `/projects/studio?_tifa=1f3a9c.011`。位图的每一位对应这个 URL 链上的一个 `Load` 或 `Layout`，从根 Layout 到页面（没有函数的 Layout 或页面不占位），`1` 表示要这一层的数据。位数不等于链上 `Load` 的个数时服务器答 400。请求不带 Tifa 的请求头，`fetch` 不自动跟随重定向（`redirect: "manual"`）。路由器预加载页面时（链接被鼠标悬停，`defaultPreload: 'intent'`），值以 `.p` 结尾，如 `_tifa=1f3a9c.011.p`。服务器照常回答，只有 URL 能区分（日志里能看出哪些请求是预加载）。这个标记不能让请求数等于页面浏览量：预加载的结果之后可以直接用于导航而不再发请求，数据失效后的重新加载又会多发一次。要准确统计浏览量，数浏览器完成的客户端导航（路由器事件）加整页请求。框架在你的代码运行前就把 `_tifa` 从请求里拿掉：`c.Query`、`c.QueryValues`、`c.Request().URL`、渲染用的 URL、ETag 和渲染缓存键里都没有它，所以 `OnRequest` 看到的页面和它的数据路径相同。`Load` 读名为 `_tifa` 的查询参数会让构建失败。用 `tifa.SetHTTPHandler` 挂的中间件看到的是原样的请求，带着 `_tifa`。回答有三种：
+- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：页面 URL 加保留的查询参数 `_tifa=<构建 ID>.<位图>`，例如 `/projects/studio?_tifa=1f3a9c.011`。位图的每一位对应这个 URL 链上的一个 `Load` 或 `Layout`，从根 Layout 到页面（没有函数的 Layout 或页面不占位），`1` 表示要这一层的数据。位数不等于链上 `Load` 的个数时服务器答 400。请求不带 Tifa 的请求头，`fetch` 不自动跟随重定向（`redirect: "manual"`）。路由器预加载页面时（链接被鼠标悬停，`defaultPreload: 'intent'`），值以 `.p` 结尾，如 `_tifa=1f3a9c.011.p`。服务器照常回答，只有 URL 能区分（日志里能看出哪些请求是预加载）。这个标记不能让请求数等于页面浏览量：预加载的结果之后可以直接用于导航而不再发请求，数据失效后的重新加载又会多发一次。要准确统计浏览量，数浏览器完成的客户端导航（路由器事件）加整页请求。框架在你的代码运行前就把 `_tifa` 从请求里拿掉：`c.Query`、`c.QueryValues`、`c.Request().URL`、渲染用的 URL、ETag 和渲染记忆键里都没有它，所以 `OnRequest` 看到的页面和它的数据路径相同。`Load` 读名为 `_tifa` 的查询参数会让构建失败。用 `tifa.SetHTTPHandler` 挂的中间件看到的是原样的请求，带着 `_tifa`。回答有三种：
   - `{"routes": {路由 ID: 结果}, "session": ...}`：不论 HTTP 状态码，浏览器把 `routes` 逐项分发。应用有会话时才有 `session`，见[回答里的会话](#回答里的会话)。
   - `{"redirect": "<URL>", "status": <3xx>}`（应用有会话时带上本次请求的 `session`）：`OnRequest` 返回 `tifa.Redirect`、URL 的写法不规范（ServeMux 的重定向，状态码 308）等整个请求要跳转的情况，HTTP 状态码是 200。请求里每个路由都收到这个重定向，loader 抛出 TanStack 的 `redirect()`。
   - 其他：`OnRequest` 拒绝了整个请求，回答是 `{"error": 消息}` 与错误的状态码，同批 loader 一起以这个状态失败。
@@ -597,22 +597,23 @@ export function onStart() {
 
 | 请求 | 回答 |
 | --- | --- |
-| 无 `_tifa` | 并发执行匹配链上所有 `Load`。构建 ID、SSR 包、URL、访客的会话与结果的哈希作 ETag（写了 `RenderCache = false` 的页面和带渲染时钟的请求没有 ETag，总是渲染），`If-None-Match` 命中答 304。除了写了 `RenderCache = false` 的页面和带渲染时钟的请求，先查渲染缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM，同一个键同时未命中的请求只进一次 |
+| 无 `_tifa` | 并发执行匹配链上所有 `Load`。构建 ID、SSR 包、URL、访客的会话与结果的哈希作 ETag（写了 `Memo = false` 的页面和带渲染时钟的请求没有 ETag，总是渲染），`If-None-Match` 命中答 304。除了写了 `Memo = false` 的页面和带渲染时钟的请求，先查渲染记忆（按字节计的 LRU，容量 `ssr.memo_size`，0 关闭），未命中才进 VM，同一个键同时未命中的请求只进一次 |
 | 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据（各个 `Load` 的结果，JSON 文本在各自的 `json` 里，还有访客的会话 `session`），浏览器直接渲染，不再请求数据 |
 | 有 `_tifa=<构建 ID>.<位图>[.p]` | 只执行位图里是 `1` 的路由的 `Load` 或 `Layout`（`tifa.Use` 在本次请求内去重），答 200 与 `{"routes": {路由 ID: 结果}, "session": ...}`，每个路由带自己的状态。构建 ID 不是当前构建时答 409，值的形式不对或位数不等于匹配链上 `Load` 的个数时答 400。出错与重定向见下文 |
 
-开了 `Cache`（见[整页缓存](app.zh-CN.md#整页缓存)）的页面，GET、HEAD 和带 `_tifa` 的请求回答方式不同。这些请求是匿名的：进 `OnRequest` 之前去掉 `Cookie` 和 `Authorization`，HTML 上的 `Set-Cookie` 也会去掉。回答来自处理过的 URL 对应的条目：
+开了 `Cache`（见[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache)）的页面和别的页面回答方式一样，只有两处不同。GET、HEAD 和带 `_tifa` 的请求是匿名的：进 `OnRequest` 之前去掉 `Cookie` 和 `Authorization`，HTML 上的 `Set-Cookie` 也会去掉。HTML 还会说明程序前面的共享缓存可以留多久：
 
-| 请求 | 回答 |
+| 回答 | `Cache-Control` |
 | --- | --- |
-| 无 `_tifa`，条目还新鲜 | 存着的 HTML，不跑 `Load`，不渲染。ETag 是条目的，`If-None-Match` 命中时由条目答 304。`Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400`，`Age: <生成后过了几秒>`，`Cache-Status: tifa; hit`，`X-Tifa-Render: cache` |
-| 无 `_tifa`，没有条目或时间到了 | 执行链上所有 `Load` 并渲染，等它的请求共用一次，结果存下来。`Cache-Status: tifa; fwd=miss`。失败时，如果有条目且过期不到一天，就答这个条目，`Cache-Status: tifa; fwd=stale`。否则错误按下文的流程处理 |
-| 有 `_tifa` | 从同一个条目里读列出的路由，没有就先生成，答 200，内容同上，并带上浏览器的 `session`，服务器在丢掉 cookie 之前先读出它。永远是 `private, no-cache` |
-| 存不下的结果 | 像没开 `Cache` 的页面一样回答，带 `private, no-cache` 和 `Cache-Status` 的 `fwd=miss`，这个 URL 的请求两分钟内跳过缓存（`Cache-Status: tifa; fwd=bypass`） |
+| HTML、304 和 HEAD | `public, max-age=0, s-maxage=<秒数>, stale-if-error=86400`。秒数是 `Cache`，`Cache = true` 时取 `cache_control.s_maxage`。回答没有 `Age` 和 `Cache-Status`：Tifa 自己不留这个页面 |
+| `OnRequest`、`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache`，或 `Accept-Encoding` 以外的 `Vary` 时的 HTML | 应用设的值，和没开 `Cache` 的页面一样 |
+| 数据请求（`_tifa`） | 永远是 `private, no-cache` |
+
+`Load` 每个请求都跑。`X-Tifa-Render` 和 ETag 是渲染记忆的。
 
 所有走路由的回答（整页、304、数据请求、方法处理函数和重定向）都带 `Cache-Control: private, no-cache`，应用在 `OnRequest`、`Load`、`Layout` 或处理函数里自己设置过 `Cache-Control` 时保留应用的值。导航数据的回答（带 `_tifa` 的请求，不管状态码，409 和重定向也算）例外，它永远不是 public：应用设的值如果不是 `no-store`，也不是同时有 `private` 和 `no-cache`，就换成 `private, no-cache`。框架只在最终响应头发出时加这一次。JSON 错误、纯错误页、带错误的页面和过载回答发 `no-store`，应用在出错之前设过 `Cache-Control` 的除外。应用的 404 页面用默认值。
 
-页面和它的导航数据是不同的 URL，只按 URL 做键的缓存会把两者分开，不需要为此加 `Vary`。回答保留应用设置的 `Vary`（比如 `OnRequest` 里的 `Vary: Cookie`）。`X-Tifa-Render: vm|shared|cache|none` 说明这次是 VM 渲染、共用同时到的另一个请求发起的渲染、缓存命中还是没进 VM。页面和 JSON 回答不压缩发出时带 `Content-Length`。
+页面和它的导航数据是不同的 URL，只按 URL 做键的缓存会把两者分开，不需要为此加 `Vary`。回答保留应用设置的 `Vary`（比如 `OnRequest` 里的 `Vary: Cookie`）。`X-Tifa-Render: vm|shared|memo|none` 说明这次是 VM 渲染、共用同时到的另一个请求发起的渲染、渲染记忆命中还是没进 VM。页面和 JSON 回答不压缩发出时带 `Content-Length`。
 
 出错时，`Load` 的错误先沿 `next` 交给 `OnRequest`，`OnRequest` 返回之后框架才处理：
 
@@ -621,16 +622,16 @@ export function onStart() {
 - `OnRequest` 返回别的错误：以中间件为准，按错误本身处理（重定向、`ErrNotFound`、`tifa.Error` 直接处理，其他交给 `OnError`）。整页请求返回 Go 写的简单错误页，数据请求答 `{"error": 消息}` 与状态码，不再输出各项数据。`OnRequest` 自己写了响应时框架不再写。
 - 数据请求遇到整个请求的重定向（`OnRequest` 返回 `tifa.Redirect`，或 URL 写法不规范）答 200 与 `{"redirect", "status"}`，不发 3xx。这个 JSON 里的 URL，以及 `Load` 重定向的路由结果里的 `location`，和 3xx 会带的一样：`../list` 这样的相对 URL 按请求的路径解析，与 `http.Redirect` 相同。
 - 未匹配的 URL（有页面的应用收到 GET 或 HEAD）：Go 找出 URL 能匹配上的最深一层 Layout（规则见 [404](app.zh-CN.md#404)），把它路径里的参数设到请求上。`next` 从根往下执行到这一层的 `Layout` 函数，返回 `tifa.ErrNotFound`。整页请求用它们的结果和状态码 404 渲染，有 Layout 失败时用它的状态码，和页面一样。导航数据请求只执行其中列出的那些，回答它们的结果和 404，有一个失败时回答 200，和页面一样。列出不在其中的路由回答 400。这些 Layout 有一个是 `LayoutSSR = false` 时，Go 写带它们数据的最简文档。别的方法和没有页面的应用回答 JSON 的 404。
-- VM 渲染失败（包括组件在渲染中抛错：字符串渲染器会把它吞进 Suspense 边界，留下 `<!--$!-->` 标记，SSR 入口见到这个标记就把这次渲染当失败）：算意外错误，只交给 `OnError` 一次，永不进渲染缓存和整页缓存。接着页面把错误放进路由树再渲染，见下一条。每次都渲染不出来时，Go 写一张只有状态码和公开消息的简单错误页，不暴露内部错误。在 `tifa dev` 下（`DevMain`），这张页还写出请求、完整的错误，并加载 dev 客户端，重建带来修复后它自动刷新。`OnError` 拿到的是代码实际抛出的错误（被 React 吞掉的也一样），错误栈前 64 帧的位置借 `dist/ssr.js.map` 换成源文件里的位置。代码调用了 QuickJS 没有的 `require` 时，错误还会给出包名和位置，并说明怎么办：从 `.client` 文件引入这个包，把调用放进 `useEffect`，或者换一个不需要 Node 的构建。包在加载时就失败（任何页面渲染之前）时，失败的是引入本身，把调用挪进 `useEffect` 没用，所以预热的错误只建议从 `.client` 文件引入这个包或者换一个构建。组件挂起（抛出 promise，或者是还没加载完的 `React.lazy` 组件）也会这样让渲染失败，因为 `renderToString` 不等待。错误会建议用 `Load` 给页面数据并静态引入组件，或者设 `SSR = false`。懒加载的引入为什么失败，服务端看不到。显示 `Load` 错误（包括 404）的页面渲染失败时，同样走这些重试。
+- VM 渲染失败（包括组件在渲染中抛错：字符串渲染器会把它吞进 Suspense 边界，留下 `<!--$!-->` 标记，SSR 入口见到这个标记就把这次渲染当失败）：算意外错误，只交给 `OnError` 一次，永不进渲染记忆。接着页面把错误放进路由树再渲染，见下一条。每次都渲染不出来时，Go 写一张只有状态码和公开消息的简单错误页，不暴露内部错误。在 `tifa dev` 下（`DevMain`），这张页还写出请求、完整的错误，并加载 dev 客户端，重建带来修复后它自动刷新。`OnError` 拿到的是代码实际抛出的错误（被 React 吞掉的也一样），错误栈前 64 帧的位置借 `dist/ssr.js.map` 换成源文件里的位置。代码调用了 QuickJS 没有的 `require` 时，错误还会给出包名和位置，并说明怎么办：从 `.client` 文件引入这个包，把调用放进 `useEffect`，或者换一个不需要 Node 的构建。包在加载时就失败（任何页面渲染之前）时，失败的是引入本身，把调用挪进 `useEffect` 没用，所以预热的错误只建议从 `.client` 文件引入这个包或者换一个构建。组件挂起（抛出 promise，或者是还没加载完的 `React.lazy` 组件）也会这样让渲染失败，因为 `renderToString` 不等待。错误会建议用 `Load` 给页面数据并静态引入组件，或者设 `SSR = false`。懒加载的引入为什么失败，服务端看不到。显示 `Load` 错误（包括 404）的页面渲染失败时，同样走这些重试。
 - 失败时 SSR 入口报出 `levels`：匹配到的路由里，从它显示的最深一条往上到根路由，有几条能显示这个错误。服务端带着输入里的 `error: {status, message, level}` 再渲染，状态码和公开消息取自 `OnError`。入口在路由器脱水之前，把显示的最深一条往上第 `level` 条的匹配换成失败的匹配，里面是一个 `RouteError`，于是由这条路由的 `errorComponent` 显示错误，浏览器也按同一棵树 hydrate。第一次重试的 level 是 0，每失败一次往上挪一层。回答带 `OnError` 的状态码、`Cache-Control: no-store`，不带 ETag。在 `tifa dev` 下 dev 客户端把错误盖在页面上显示。失败的渲染会让它的 VM 退役，所以每次重试都在新的 VM 上。所有重试共用第一次渲染开始后 `ssr.timeout` 的截止时间，和第一次渲染一样，遇上超时、所有 VM 都忙或请求取消就停下。用完 `ssr.vm_memory` 的渲染报不出 levels，服务端就按页面的路由数再加两层（根路由和一条加出来的路由）去试。两样都不是的失败当场停下。
-- 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，状态码 308，不带 ETag。渲染缓存像存页面一样存下这个重定向，同一个 URL 的下一个请求不再渲染。末尾斜杠（`/a/` 写成 `/a`）也一样。这些 URL 只是同一个页面的另一种写法，所以用永久重定向：搜索引擎把永久重定向当作规范 URL，临时重定向则不是，而且 308 保留请求方法。ServeMux 对要清理的路径（`/a//b`、`/a/./b`）或要补斜杠的路径写 307，服务器对这些也答 308。`Load` 或 `OnRequest` 用 `tifa.Redirect` 要求的重定向保留它给的状态码。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
+- 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，状态码 308，不带 ETag。渲染记忆像存页面一样存下这个重定向，同一个 URL 的下一个请求不再渲染。末尾斜杠（`/a/` 写成 `/a`）也一样。这些 URL 只是同一个页面的另一种写法，所以用永久重定向：搜索引擎把永久重定向当作规范 URL，临时重定向则不是，而且 308 保留请求方法。ServeMux 对要清理的路径（`/a//b`、`/a/./b`）或要补斜杠的路径写 307，服务器对这些也答 308。`Load` 或 `OnRequest` 用 `tifa.Redirect` 要求的重定向保留它给的状态码。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
 - 非 GET 请求、接口路由与没有页面的应用仍答 JSON。
 
 ### 回答里的会话
 
 调用了 `tifa.SetSession` 的应用，会把本次请求的会话以 `{"signedIn": bool, "data"?: ...}` 的形状交给浏览器，`data` 是会话类型的 `Exposed` 方法返回的值（清单把类型告诉服务器，生成的 `tifaapp/app.go` 用 `Session: server.SessionOf[T]` 注册它，所以带着旧会话启动的程序在第一个请求之前就知道类型。`T` 写不进 main 时构建失败：它必须是导出的具名 struct 类型，不能是泛型。请求带着会话而没有登记类型时，请求以错误失败）。只有给一个访客的回答才带它：
 
-- 整页：`ssr.Input` 有 `session`（上面的 JSON）、`sessionKey`（cookie 名加 `:v1`，浏览器存副本的地方）和 `sessionHead`（head 最前面的脚本和样式，见[会话](sessions.zh-CN.md#在浏览器里)）。渲染时在 `<html>` 上写 `data-session="in"` 或 `"out"`，通过路由的 dehydrate 数据（`buildId` 旁边的 `session` 和 `sessionKey`）交给浏览器，并在服务端把它交给 `useSession`。`SSR = false` 的页面把 `session` 和 `sessionKey` 放在启动数据里，`<html data-session="in">` 或 `"out"` 和 head 脚本由 Go 自己写。ETag 和渲染缓存的键都包含会话的哈希，所以两个访客除非浏览器拿到相同的会话，否则不会共用 ETag 或缓存条目。开了 `Cache` 的页面，HTML 里没有这些，因为 HTML 对所有人都一样（见[整页缓存](app.zh-CN.md#整页缓存)）：head 最前面的脚本在浏览器里设好 `data-session`，它的导航数据带的是那个浏览器的会话。
+- 整页：`ssr.Input` 有 `session`（上面的 JSON）、`sessionKey`（cookie 名加 `:v1`，浏览器存副本的地方）和 `sessionHead`（head 最前面的脚本和样式，见[会话](sessions.zh-CN.md#在浏览器里)）。渲染时在 `<html>` 上写 `data-session="in"` 或 `"out"`，通过路由的 dehydrate 数据（`buildId` 旁边的 `session` 和 `sessionKey`）交给浏览器，并在服务端把它交给 `useSession`。`SSR = false` 的页面把 `session` 和 `sessionKey` 放在启动数据里，`<html data-session="in">` 或 `"out"` 和 head 脚本由 Go 自己写。ETag 和渲染记忆的键都包含会话的哈希，所以两个访客除非浏览器拿到相同的会话，否则不会共用 ETag 或渲染记忆的条目。开了 `Cache` 的页面，HTML 里没有这些，因为 HTML 对所有人都一样（见[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache)）：head 最前面的脚本在浏览器里设好 `data-session`，它的导航数据带的是那个浏览器的会话。
 - 导航数据：`{"routes": ..., "session": ...}`，404 和有 `Load` 失败的回答也一样。
 - 带 `X-Tifa-Call` 的调用：`Output` 或 `InputOutput` 处理函数答 `{"result": ..., "session"?: ...}`。`Input` 处理函数答 204，调用让某人登录或登出时（`SetSession` 或 `ClearSession` 无错返回）改答 200 与 `{"session": ...}`。同样的情况下，重定向的 JSON 里也加上 `session`。错误回答没有。不带这个请求头的请求，得到的还是原来的结果、204 或重定向。这些回答加 `Vary: X-Tifa-Call`，因为两种形状不同。
 - `GET /__tifa/session`，HEAD 也行：本次请求的会话，`Cache-Control: private, no-store`，没有校验器。它的每个回答，包括错误、405、409 和 `OnRequest` 提前给出的回答，都是 `Cache-Control: private, no-store`，没有 `ETag` 和 `Last-Modified`。请求头 `X-Tifa-Build` 是别的构建时答 409 并带 `X-Tifa-Build`，其他方法答 405，没有会话的应用答 404。它在 `OnRequest` 里运行，匹配的 pattern 是 `/__tifa/session`。
@@ -643,7 +644,7 @@ export function onStart() {
 
 - 页面、导航数据、JSON 和其他文本在发出时压缩，用 gzip 或 zstd，各取默认级别，和 Caddy、Traefik 一样，由 [klauspost/compress](https://github.com/klauspost/compress) 的 gzhttp 完成。按客户端的 `Accept-Encoding` 选：客户端接受 gzip 就用 gzip，只有客户端不接受 gzip，或者给 zstd 的 `q` 更高时才用 zstd。浏览器发 `gzip, deflate, br, zstd`，得到 gzip。回答从 1024 字节起才压缩，而且只压文本类型：`text/*`（server-sent events 的 `text/event-stream` 除外，见[流式输出](guides/streaming.zh-CN.md)）、JavaScript、JSON、XML、`+json` 和 `+xml` 类型、WebAssembly、图标，以及 TTF、OTF、EOT 字体。HEAD、已经带 `Content-Encoding` 的回答和带 `Content-Range` 的回答原样发出。
 - 浏览器包里的文件，对接受 gzip 的 GET 直接发构建写好的 `.gz` 文件，类型和缓存头沿用原文件，和 nginx 的 `gzip_static` 一样。Range 请求取的是 `.gz` 文件的一段。没有 `.gz` 的文件，类型在上面的列表里就在发出时压缩。公共目录里的 `.gz` 文件是它自己，不会代替别的文件发出。
-- 渲染缓存和整页缓存里的页面在做出来时压缩一次，缓存只存这份 gzip，所以示例 shop 的页面大约只占 HTML 的五分之一，`cache.size` 算的正是存下的字节数。接受 gzip 的客户端命中时，直接发存好的字节，带它们的 `Content-Length`。不接受压缩的客户端（`Accept-Encoding` 里没有 gzip 或 zstd、HEAD、带 `No-Gzip-Compression`）得到 HTML，边解压边写出，`Content-Length` 是 HTML 的长度。不接受 gzip 只接受 zstd、或给 zstd 更高 `q` 的客户端，得到边写边用存好的页面做出的 zstd，分块发出。别的什么都不存，所以命中既不压缩，也不留第二份。小于 1024 字节的页面、gzip 压不小的页面和 `server.compress` 关着时的所有页面存成 HTML。即使这样也放不进 `cache.size` 的页面（比如 `cache.size` 为 0）在发出时压缩。
+- 渲染记忆里的页面在做出来时压缩一次，渲染记忆只存这份 gzip，所以示例 shop 的页面大约只占 HTML 的五分之一，`ssr.memo_size` 算的正是存下的字节数。接受 gzip 的客户端命中时，直接发存好的字节，带它们的 `Content-Length`。不接受压缩的客户端（`Accept-Encoding` 里没有 gzip 或 zstd、HEAD、带 `No-Gzip-Compression`）得到 HTML，边解压边写出，`Content-Length` 是 HTML 的长度。不接受 gzip 只接受 zstd、或给 zstd 更高 `q` 的客户端，得到边写边用存好的页面做出的 zstd，分块发出。别的什么都不存，所以命中既不压缩，也不留第二份。小于 1024 字节的页面、gzip 压不小的页面和 `server.compress` 关着时的所有页面存成 HTML。即使这样也放不进 `ssr.memo_size` 的页面（比如 `ssr.memo_size` 为 0）在发出时压缩。
 - 每个回答都带 `Vary: Accept-Encoding`，没压缩的也带，应用自己设了 `Vary` 也一样。
 - 压缩后的回答（公共文件也算），强 ETag 改成弱 ETag（`W/"…"`），和 nginx 一样，因为强 ETag 承诺的是同样的字节。`If-None-Match` 按弱比较，所以 304 照常有效。页面的 ETag 一开始就是弱的，各种编码和它的 304 都一样，因为 304 在知道编码之前就答了。
 - 不用 brotli。纯 Go 的 brotli 编码器在 4 级和 5 级要花 gzip 的 4 到 6 倍时间，页面只小 3% 到 16%。

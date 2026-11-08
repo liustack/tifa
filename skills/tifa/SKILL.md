@@ -53,7 +53,7 @@ myapp/
 
 | File | Holds |
 | --- | --- |
-| `route.go` | All Go names of the folder: `Load`, `Layout`, `LayoutSSR`, `SSR`, `RenderCache`, `Cache`, and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
+| `route.go` | All Go names of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Memo`, `Cache`, `BodyLimit`, `ReadTimeout` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
 | `page.tsx` | The page component (default export), and optional `head` and `Error` exports |
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |
@@ -75,7 +75,7 @@ Rendering on the server:
 
 Go side:
 
-6. Putting `Load`, `Layout`, `RenderCache`, a handler and so on in a file other than `route.go` of the folder. The build fails. A `Load` needs a `page.tsx` beside it, and a folder with `page.tsx` cannot declare `GET`.
+6. Putting `Load`, `Layout`, `Memo`, a handler and so on in a file other than `route.go` of the folder. The build fails. A `Load` needs a `page.tsx` beside it, and a folder with `page.tsx` cannot declare `GET`.
 7. Calling `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Query("x")`, `c.QueryValues("x")`, `c.Header`, `c.Cookie`, `c.Context()`. Pass these a constant string, and do not store, return or convert `c` (see `references/routing-and-data.md`).
 8. Doing permission checks only in a `Layout`. On browser navigation a cached Layout does not run again. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
 9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted.
@@ -87,7 +87,7 @@ Go side:
 Sessions (see `references/routing-and-data.md`):
 
 - Rolling your own sign-in cookie or session table. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, keep the record in memory without a store, and `tifa.SetSessionStore` in `OnStart` moves it to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`, and sign out with a POST.
-- Showing who is signed in from the data of a `Load`. Use `useSession()`, `<SignedIn>` and `<SignedOut>` from `tifa/client`, which wrap one element each and are right from the first paint. Give the session type an `Exposed()` method that returns only what the browser may keep, and read it as `data`. Keep the Layouts above a page free of personal data: a page with `const Cache` is made once for everyone, so its `Load` and Layouts see no cookie, header or session, and the build fails when they read one. The render cache keys pages by data and session, so it never mixes up visitors. Take the user, and anything else that is the visitor's own such as a cart, from `useSession` or from a handler the browser calls after the page has loaded.
+- Showing who is signed in from the data of a `Load`. Use `useSession()`, `<SignedIn>` and `<SignedOut>` from `tifa/client`, which wrap one element each and are right from the first paint. Give the session type an `Exposed()` method that returns only what the browser may keep, and read it as `data`. Keep the Layouts above a page free of personal data: a page with `const Cache` is made once for everyone, so its `Load` and Layouts see no cookie, header or session, and the build fails when they read one. The render memo keys pages by data and session, so it never mixes up visitors. Take the user, and anything else that is the visitor's own such as a cart, from `useSession` or from a handler the browser calls after the page has loaded.
 
 Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFound` or `Document`, declaring `const Path`, a `form` struct tag, `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `Error` export, with a check `error instanceof RouteError && error.status === 404`.
 
@@ -96,7 +96,7 @@ Build and deploy:
 14. Forgetting to reload page data after a write. Tifa never reloads it for you, not after a `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen` either. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
 15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the Tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
 16. Changing the React or TanStack Router versions by hand. Tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build stops with the versions when they are wrong.
-17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = 10 * time.Minute` in its `route.go` (a duration of at least a second, never `true`), and Tifa then sends the public headers itself, with `Age` and `Cache-Status: tifa; hit` or `fwd=miss`. Navigation data is never public. `RenderCache = false` is the other switch: it only turns the render cache off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
+17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = true` (the time is the setting `cache_control.s_maxage`, 1m by default) or `const Cache = 10 * time.Minute` in its `route.go`, and Tifa then sends the public headers itself. Tifa keeps nothing of the page: a CDN does. Navigation data is never public. `Memo = false` is the other switch: it only turns the render memo off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
 18. Editing `schema.sql` of a `tifa new` app and expecting `tifa dev` to pick it up. It does not watch that file, so restart it.
 
 ## References
@@ -106,7 +106,7 @@ Read the one that matches the task. Each is short and links to the full docs.
 | File | Read when |
 | --- | --- |
 | [references/routing-and-data.md](references/routing-and-data.md) | Adding a page, a Layout or an API route. Writing `Load`, `Layout`, `tifa.Use`, method handlers with input and result, calling them from the browser, JSON rules, `hooks.go`, auth and sessions with `OnRequest`, or the build complains about `Ctx` usage |
-| [references/rendering.md](references/rendering.md) | A page fails to render on the server or does not hydrate. Using a library, date, number, chart or browser API in a page. `head` tags, `SSR` and `RenderCache` switches, Tailwind or shadcn/ui |
+| [references/rendering.md](references/rendering.md) | A page fails to render on the server or does not hydrate. Using a library, date, number, chart or browser API in a page. `head` tags, `SSR` and `Memo` switches, Tailwind or shadcn/ui |
 | [references/errors-and-404.md](references/errors-and-404.md) | Showing a 404, a 403 or a failed `Load`. Redirects. Choosing between `tifa.ErrNotFound`, `tifa.Error`, `tifa.Fields` and `OnError` |
 | [references/i18n.md](references/i18n.md) | A site in several languages, language in the URL, `lang` on `<html>`, translations with i18next |
 | [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers, `OnRequest` or code that needs a signed-in user, and checking the real HTML |

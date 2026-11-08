@@ -1,6 +1,6 @@
 # Rendering on the server
 
-Contents: how a render works, what the server has and lacks, dates and numbers that must match, Temporal, browser-only components, libraries, `head` and the document shell, `SSR` and `RenderCache`, styles.
+Contents: how a render works, what the server has and lacks, dates and numbers that must match, Temporal, browser-only components, libraries, `head` and the document shell, `SSR` and `Memo`, styles.
 
 Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md).
 
@@ -141,22 +141,23 @@ export const documentHead = {
 
 Exporting `Document` fails the build. Files in the `public/` folder (set by `build.public`) are served from `/`.
 
-## SSR and RenderCache switches
+## SSR and Memo switches
 
 In `route.go` next to a `page.tsx`:
 
 ```go
 const SSR = false              // the page, default true
-const RenderCache = false      // the page, turns the render cache off, default on
-const Cache = 10 * time.Minute // the page, the same answer for everyone for 10 minutes, default off
+const Memo = false             // the page, turns the render memo off, default on
+const Cache = true             // the page, the same for everyone, a CDN may keep it for cache_control.s_maxage, default off
+// const Cache = 10 * time.Minute  // the same, with its own time
 const LayoutSSR = false        // the Layout of the folder, default true
 ```
 
 - `SSR = false`: `OnRequest` and every `Load` still run, QuickJS is skipped, and the browser renders a minimal document with the data. `LayoutSSR = false` applies to every page the Layout wraps. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
-- The render cache is on for every page: the HTML is kept by build, URL, session and the data of the `Load` and Layout functions, which still run on every request. Do not let `Date.now()`, `Math.random()` and the like reach the HTML. `tifa dev` renders each page twice and says when the two differ. A page that shows the time or a random number on purpose writes `RenderCache = false`, which only accepts `false`. Burst requests for a cold page share one render. `Cache = true` from an older Tifa fails the build: delete it. `SSR` and `RenderCache` fail the build in a `route.go` with no `page.tsx`, and the names need their capitals.
-- A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from the render cache. The render cache does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
-- `Cache` (a `time.Duration`) keeps the whole answer of a public page for that long, without running its `Load` or rendering. Use it for articles, docs and landing pages. Such a page is anonymous: `Cookie` and `Authorization` are dropped before `OnRequest`, `tifa.Session` is nil, `SetSession` fails, and the build fails when its `Load`, a Layout around it or a function they call reads `c.Cookie`, `c.Header` or `tifa.Session`. Do not use it on pages that depend on who is signed in. If the new page cannot be made, the old one is served for up to a day. Tracking parameters (`utm_*`, `gclid`, `fbclid`, see `cache.ignore_query`) are left out of its key. What depends on the visitor, such as a cart or a list of products they looked at, comes from a handler the browser calls after the page has loaded. Add `?_tifa=` data requests and `Cache-Status: tifa; hit` or `fwd=miss` to what you check with `curl`. See the whole-page cache in docs/app.md.
-- `cache.size` in `tifa.yaml` sizes the render cache and the whole-page cache together (default 64MiB, 0 turns both off).
+- The render memo is on for every page: the HTML is kept by build, URL, session and the data of the `Load` and Layout functions, which still run on every request. Do not let `Date.now()`, `Math.random()` and the like reach the HTML. `tifa dev` renders each page twice and says when the two differ. A page that shows the time or a random number on purpose writes `Memo = false`, which only accepts `false`. Burst requests for a cold page share one render. `SSR` and `Memo` fail the build in a `route.go` with no `page.tsx`, and the names need their capitals.
+- A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from the render memo. The render memo does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
+- `Cache` (`true`, or a `time.Duration` of at least a second) tells the CDN or proxy in front that a public page is the same for everyone and may be kept for that long (`true` takes `cache_control.s_maxage`, 1m by default). Tifa keeps nothing of it itself: its `Load`s run on every request. Use it for articles, docs and landing pages. Such a page is anonymous: `Cookie` and `Authorization` are dropped before `OnRequest`, `tifa.Session` is nil, `SetSession` fails, and the build fails when its `Load`, a Layout around it or a function they call reads `c.Cookie`, `c.Header` or `tifa.Session`. Do not use it on pages that depend on who is signed in.  What depends on the visitor, such as a cart or a list of products they looked at, comes from a handler the browser calls after the page has loaded. Add `?_tifa=` data requests to what you check with `curl`. See "Cache for CDNs" in docs/app.md.
+- `ssr.memo_size` in `tifa.yaml` sizes the render memo (default 64MiB, 0 turns it off).
 
 ## Styles
 
@@ -211,5 +212,5 @@ Then point the aliases in `components.json` into `components/` so the app root k
 ## Debugging a render
 
 - Under `tifa dev`, a failed render shows an overlay with the stack in your source files, and `curl -i` on the page shows the status and error. `go tool tifa errors` lists failed requests, hydration mismatches and other browser errors of the open pages, and pages whose two renders differ. A built app shows only the status and the public message.
-- Look at the HTML: `curl -s http://127.0.0.1:9527/path`. The response header `X-Tifa-Render` says `vm`, `shared`, `cache` or `none`, and a page with `Cache` also sends `Cache-Status: tifa; hit`, `fwd=miss` or `fwd=stale`.
+- Look at the HTML: `curl -s http://127.0.0.1:9527/path`. The response header `X-Tifa-Render` says `vm`, `shared`, `memo` or `none`.
 - Hydration mismatch: search the page code for the causes above, in this order: current time or randomness, locale or time zone defaults, local-time `Date` methods, browser-only values read while rendering, data that differs between the server and browser (a user-specific value from a cookie that `Load` did not return).

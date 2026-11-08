@@ -35,7 +35,7 @@ quickjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎
 - **单次渲染**：一个热 VM 跑在一个核的一个线程上，另一个线程空着，渲染方式和 `test/ssr` 的 `BenchmarkShop` 相同。先热 256 次，再测 500 次（工作台）、300 次（店面）或 200 次（MUI），跑 5 轮，取每轮 P50 的中位数。
 - **Node**：Node 24.13.0 跑同一份 `ssr.js`，给同样的输入，跑在另一个空闲的核上，先热 600 次，再跑 5 轮、每轮 200 次。HTML 和 Tifa 的相同。
 - **C QuickJS**：QuickJS 2026-06-04，由 quickjs 的[引擎对比](https://github.com/liustack/quickjs/blob/main/docs/benchmarks.md)工具构建和运行，用同样的包。C 没有 `Intl`，要用的页面跑 FormatJS polyfill。
-- **完整请求**：构建出的 `bin/shop`，用 `SHOP_OPEN=1` 启动（否则工作台要登录），加 `--cache-size 0`，让每个页面请求都渲染（同时到的同一页请求即使这样也共用一次渲染，所以在途请求多时，渲染次数会少于请求数），用 [oha](https://github.com/hatoo/oha) 从别的核上压测。没有另外说明时页面以 gzip 发出。每一档先热几秒，再测 15 到 20 秒，跑两到三轮。
+- **完整请求**：构建出的 `bin/shop`，用 `SHOP_OPEN=1` 启动（否则工作台要登录），加 `--ssr-memo-size 0`，让每个页面请求都渲染（同时到的同一页请求即使这样也共用一次渲染，所以在途请求多时，渲染次数会少于请求数），用 [oha](https://github.com/hatoo/oha) 从别的核上压测。没有另外说明时页面以 gzip 发出。每一档先热几秒，再测 15 到 20 秒，跑两到三轮。
 
 ## 一个页面渲染多快
 
@@ -77,14 +77,14 @@ MUI 几行用 C 引擎重新测过（quickjs 0cc6d332，2026-10-29，同类机�
 
 shop 的订单工作台做成四个版本：Tifa，以及 Next.js 16.4.2、TanStack Start 1.169.3 和 React Router 8.5.1（框架模式）三个应用，React 组件相同，跑在 Node 24.13.0 上。每个请求里，三个 Node 应用都跑一份用 TypeScript 移植的 Go 数据加载代码。测试检查四个版本在全部 58 个页面上显示同样的文本，每个请求做同样的事，一次写会改到的页面都显示出了改动。机器是 Google Cloud 的 `c2d-standard-8` 虚拟机：8 个 vCPU，AMD EPYC 7B13（Zen 3），也就是 4 个物理核、每核 2 个超线程，内存 32 GB，Linux 7.3。每个框架按出厂方式跑在一个物理核的一个超线程上，同核的另一个超线程空着，压测工具跑在另一个核上：
 
-- **Tifa**：`bin/shop --server-addr 127.0.0.1:PORT --ssr-vms 1`，环境里 `GOMAXPROCS=1`。[渲染缓存](render-cache.zh-CN.md)开着，64 MiB，`server.compress` 开着。
+- **Tifa**：`bin/shop --server-addr 127.0.0.1:PORT --ssr-vms 1`，环境里 `GOMAXPROCS=1`。[渲染记忆](memo.zh-CN.md)开着，64 MiB，`server.compress` 开着。
 - **Next.js**：`node node_modules/next/dist/bin/next start -H 127.0.0.1 -p PORT`。每个路由都是动态的，gzip 开着。
 - **TanStack Start**：`node .output/server/index.mjs`，它的 Nitro node 服务器。渲染出的页面不压缩。
 - **React Router**：`node node_modules/@react-router/serve/bin.cjs build/server/index.js`。`react-router-serve` 用 gzip 压缩。
 
 ### 引擎（缓存全关）
 
-六个工作台页面轮流请求：两家店各自的订单列表、一个订单和统计，每个请求都带 `Accept-Encoding: gzip`，由只开一个连接的 Go 客户端发出。Tifa 用 `cache.size` 0，每个请求都渲染，和 Node 应用一样。标了参考的行是加了 `--jitless` 的 Node（在同一个脚本前加 `node --jitless`），用来看 JIT 值多少。数字从进程启动开始算，不预热：先 1,000 个冷请求，再稳定加压 30 秒，3 轮，每轮用新起的服务，取中位数并给出各轮的范围。两个一模一样的 Tifa 服务，每秒请求数差 2.4%，P99 差 4.8%，所以更小的差距当作噪声。2026-11-06 用 Tifa 83644319、quickjs v0.30.1 和 Go 1.27.2 测。
+六个工作台页面轮流请求：两家店各自的订单列表、一个订单和统计，每个请求都带 `Accept-Encoding: gzip`，由只开一个连接的 Go 客户端发出。Tifa 用 `ssr.memo_size` 0，每个请求都渲染，和 Node 应用一样。标了参考的行是加了 `--jitless` 的 Node（在同一个脚本前加 `node --jitless`），用来看 JIT 值多少。数字从进程启动开始算，不预热：先 1,000 个冷请求，再稳定加压 30 秒，3 轮，每轮用新起的服务，取中位数并给出各轮的范围。两个一模一样的 Tifa 服务，每秒请求数差 2.4%，P99 差 4.8%，所以更小的差距当作噪声。2026-11-06 用 Tifa 83644319、quickjs v0.30.1 和 Go 1.27.2 测。
 
 | | 每秒请求数 | 是 Tifa 的几倍 | P50 | P99 | RSS 峰值 | 启动后第一次响应 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -122,7 +122,7 @@ shop 的订单工作台做成四个版本：Tifa，以及 Next.js 16.4.2、TanSt
 
 ## 多核怎么扩展
 
-2026-11-06 测的，Tifa aacb96bf，quickjs v0.30.1，机器见[这些数字怎么测的](#这些数字怎么测的)，页面是改版后商店的六个工作台页面，gzip。这是渲染能力：所有缓存都关（`cache.size` 为 0），每个 VM 一个在途请求，每个 URL 都不同，不会有两个请求共用一次渲染。[机器怎么配](#机器怎么配)就是按它配的。渲染缓存会让一个核答的请求多很多，[对比](#和三个-node-框架比)在 1 个核上给出了这一点。这里只有 Tifa：Next.js、TanStack Start 和 React Router 用默认的启动命令只跑一个进程，所以不随核数扩展。
+2026-11-06 测的，Tifa aacb96bf，quickjs v0.30.1，机器见[这些数字怎么测的](#这些数字怎么测的)，页面是改版后商店的六个工作台页面，gzip。这是渲染能力：所有缓存都关（`ssr.memo_size` 为 0），每个 VM 一个在途请求，每个 URL 都不同，不会有两个请求共用一次渲染。[机器怎么配](#机器怎么配)就是按它配的。渲染记忆会让一个核答的请求多很多，[对比](#和三个-node-框架比)在 1 个核上给出了这一点。这里只有 Tifa：Next.js、TanStack Start 和 React Router 用默认的启动命令只跑一个进程，所以不随核数扩展。
 
 服务器跑在该行写的 CPU 上，一个 CPU 一个 VM（`--ssr-vms` 和 `GOMAXPROCS`）。客户端跑在 cpu 3，也就是第四个物理核上，它的兄弟超线程空着。整个运行期间四对核的锁都持有。每格是三轮的中位数，每轮都是新启动的服务器，冷请求每条连接 1,000 个，之后稳定阶段 30 秒，括号里是范围。
 
@@ -144,20 +144,20 @@ shop 的订单工作台做成四个版本：Tifa，以及 Next.js 16.4.2、TanSt
 ### CPU 和 `ssr.vms`
 
 - [`ssr.vms`](config.zh-CN.md#配置项) 保持默认就好。默认值是 Go 看到的 CPU 数（`GOMAXPROCS`），在容器里跟着 CPU 限额走。
-- 像 shop 工作台这样的页面，每个物理核按每秒约 42 个页面请求准备，每个请求连 HTTP 约占一个核 24 ms，这是渲染缓存关着测的（见[多核怎么扩展](#多核怎么扩展)）。店面在改版前的 2026-10-24 测的是每个请求约 29 ms，每秒约 34 个。渲染时间不同的页面按比例换算。
+- 像 shop 工作台这样的页面，每个物理核按每秒约 42 个页面请求准备，每个请求连 HTTP 约占一个核 24 ms，这是渲染记忆关着测的（见[多核怎么扩展](#多核怎么扩展)）。店面在改版前的 2026-10-24 测的是每个请求约 29 ms，每秒约 34 个。渲染时间不同的页面按比例换算。
 - 云上的一个 vCPU 通常是一个超线程，2 个 vCPU 常常就是 1 个物理核。所有超线程都忙时，每个 vCPU 按约 0.6 个物理核算：6 个忙着的超线程每秒答 153 个请求，每个 vCPU 26 个，物理核上是 42 个。这时每次渲染慢约 1.65 倍：P50 是 32.5 ms，对比 19.4 ms。
 - VM 比 CPU 多不会多出吞吐，反而让每次渲染变慢。7 个 CPU 上（用 2026-10-24 的 shop 页面）8 个 VM 每秒答 338 个请求、P50 16.6 ms，7 个 VM 答 334 个、P50 14.7 ms。
 - VM 比 CPU 少也没好处：同样 7 个 CPU，4 个 VM 每秒答 235 个、P50 11.9 ms，因为系统仍会把其中两个放到同一个核的两个超线程上。只给程序和物理核一样多的 CPU，两样都更好：4 个物理核上 4 个 VM 每秒答 279 个、P50 9.6 ms。
 - cpuset（比如 Docker 的 `--cpuset-cpus`）能把程序钉到每个核的一个超线程上，但管不了别的程序用它们的兄弟超线程。Kubernetes 的 static CPU manager 策略按整核分配，一个核的两个超线程一起给，就是上面超线程都忙的情况。只设 CPU 配额（比如 Docker 的 `--cpus`）时线程不绑核，这种情况没有测过。
 
-只有整页加载才渲染。在浏览器里切换页面取的是 Go 直接写的 JSON，不经过 VM，API 路由和整页缓存（`Cache`，见[应用](app.zh-CN.md#整页缓存)）答出的页面也不渲染。整页缓存连 `Load` 也不跑，还没有测过。渲染缓存对所有页面默认开，写 `RenderCache = false` 的页面除外，命中比渲染快约 80 倍：一个 VM、一个在途请求时每秒 2,865 个请求，渲染是 38 个（见[研究](studies/nextjs-and-tanstack-start.md#cache-hit-against-cache-hit)）。命中时仍然要跑 `Load` 并算数据的哈希，下表里是每个请求 0.15 ms 的 CPU。3 个物理核（6 个超线程）上 6 个 VM，64 个在途请求，gzip：
+只有整页加载才渲染。在浏览器里切换页面取的是 Go 直接写的 JSON，不经过 VM，API 路由也不渲染。渲染记忆对所有页面默认开，写 `Memo = false` 的页面除外，命中比渲染快约 80 倍：一个 VM、一个在途请求时每秒 2,865 个请求，渲染是 38 个（见[研究](studies/nextjs-and-tanstack-start.md#cache-hit-against-cache-hit)）。命中时仍然要跑 `Load` 并算数据的哈希，下表里是每个请求 0.15 ms 的 CPU。3 个物理核（6 个超线程）上 6 个 VM，64 个在途请求，gzip：
 
 | 请求 | 请求/秒 | P50 | P99 | 每个请求的 CPU |
 | --- | --- | --- | --- | --- |
 | 列表的导航数据 | 17,989 | 2.65 ms | 14.4 到 14.9 ms | 0.32 ms |
 | 订单的导航数据 | 26,949 | 1.68 到 1.74 ms | 9.7 到 10.0 ms | 0.21 ms |
 | 统计的导航数据 | 18,448 | 2.57 到 2.60 ms | 14.0 ms | 0.31 ms |
-| 命中渲染缓存的页面 | 37,094 | 1.30 到 1.33 ms | 6.2 到 6.3 ms | 0.15 ms |
+| 命中渲染记忆的页面 | 37,094 | 1.30 到 1.33 ms | 6.2 到 6.3 ms | 0.15 ms |
 | 同一页面回 304 | 36,985 | 1.33 到 1.34 ms | 6.1 到 6.2 ms | 0.15 ms |
 | API 用 `PATCH` 改一个订单 | 53,275 | 1.51 到 1.53 ms | 3.5 到 3.6 ms | 0.07 ms |
 
@@ -241,7 +241,7 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 | 订单 | 39 到 40 KB | 181 到 185 µs 压到 8.4 到 8.6 KB | 128 到 131 µs 压到 8.7 到 8.8 KB | gzip 2.2%，zstd 1.5% |
 | 统计 | 35 KB | 133 到 138 µs 压到 7.1 到 7.2 KB | 109 到 111 µs 压到 7.4 到 7.5 KB | gzip 1.9%，zstd 1.5% |
 
-整个请求：服务端在一个物理核上（两个超线程，2 个 VM），oha 在另一个物理核上，每档 15 秒，跑两轮。页面用 `--cache-size 0` 渲染，缓存的订单页（两个轮流）从渲染缓存里出。zstd 那一列请求带 `Accept-Encoding: zstd`，因为两种都接受的客户端现在得到 gzip：
+整个请求：服务端在一个物理核上（两个超线程，2 个 VM），oha 在另一个物理核上，每档 15 秒，跑两轮。页面用 `--ssr-memo-size 0` 渲染，缓存的订单页（两个轮流）从渲染记忆里出。zstd 那一列请求带 `Accept-Encoding: zstd`，因为两种都接受的客户端现在得到 gzip：
 
 | 请求 | 不压缩 | zstd | gzip |
 | --- | --- | --- | --- |
@@ -256,8 +256,8 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 - 对页面来说，三种编码相差不到 4%，页面发出去小了约 6 倍。
 - 导航数据回答起来很便宜，所以压缩的开销看得出来：核跑满时每秒少 6% 到 17% 的请求，回答小 1.8 到 5.4 倍。
-- 接受 gzip 的客户端命中缓存时，直接发缓存和页面一起存好的 gzip，要写的字节少，所以比命中 HTML 省 CPU。缓存只存这一种形式，页面做出来时压一次，`cache.size` 算的是存下的字节数，所以示例 shop 的页面大约只占 HTML 的五分之一。不接受压缩的客户端得到边写边解压的 HTML，多花百分之几毫秒。偏好 zstd 的客户端得到边写边用存好的页面做出的 zstd，多花零点几毫秒。
-- 代价：Mac 上、示例 shop、一个 VM，`compare measure` 带读写，3 轮、每轮 10 秒，`cache.size` 为 64 MiB。Mac 上当时还有别的活在跑，请看范围，不要看中间值：
+- 接受 gzip 的客户端命中缓存时，直接发缓存和页面一起存好的 gzip，要写的字节少，所以比命中 HTML 省 CPU。缓存只存这一种形式，页面做出来时压一次，`ssr.memo_size` 算的是存下的字节数，所以示例 shop 的页面大约只占 HTML 的五分之一。不接受压缩的客户端得到边写边解压的 HTML，多花百分之几毫秒。偏好 zstd 的客户端得到边写边用存好的页面做出的 zstd，多花零点几毫秒。
+- 代价：Mac 上、示例 shop、一个 VM，`compare measure` 带读写，3 轮、每轮 10 秒，`ssr.memo_size` 为 64 MiB。Mac 上当时还有别的活在跑，请看范围，不要看中间值：
 
   | | 命中 P50 | 命中 P99 | 有写入时没命中的 P50 | 峰值 RSS，读取 | 峰值 RSS，写入 |
   | --- | --- | --- | --- | --- | --- |
@@ -266,12 +266,12 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
   | 开启，客户端发 gzip | 0.15 到 0.18 ms | 8.9 到 11.8 ms | 7.7 到 8.1 ms | 81 到 88 MiB | 95 到 115 MiB |
   | 开启，客户端只发 zstd | 0.49 到 0.59 ms | 9.9 到 12.4 ms | 7.7 到 16.5 ms | 82 到 88 MiB | 103 到 126 MiB |
 
-  没命中时把页面压一次，在 7.3 ms 的一次没命中里约占 0.1 ms。缓存里堆满旧版本时，程序比关闭压缩少占约 60 MiB，缓存的活跃堆不超过 `cache.size`。
+  没命中时把页面压一次，在 7.3 ms 的一次没命中里约占 0.1 ms。缓存里堆满旧版本时，程序比关闭压缩少占约 60 MiB，缓存的活跃堆不超过 `ssr.memo_size`。
 - 浏览器包发 `.gz` 文件，每秒答的请求约是发原文件的 2 倍，因为要写的字节少。
 
 ## Content-Security-Policy
 
-开了 `server.csp` 时，Go 把 VM 渲染出的每个页面里的记号去掉，再给记号标出的脚本和样式算哈希（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。`internal/ssr` 的 `BenchmarkTakeMarks` 用一个 140 KB 的页面，里面有五个打了记号的元素，其中一个装着 6 KB 数据，在 Apple M4 上约 31 µs，大部分是多复制一次页面和查找 nonce。商店工作台页面在一个核上渲染一次要几十毫秒，所以这大约是一次渲染的 0.1%。渲染缓存和整页缓存命中时，头随页面一起存着，不再多花时间。关掉 `server.csp` 时渲染不做这些。
+开了 `server.csp` 时，Go 把 VM 渲染出的每个页面里的记号去掉，再给记号标出的脚本和样式算哈希（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。`internal/ssr` 的 `BenchmarkTakeMarks` 用一个 140 KB 的页面，里面有五个打了记号的元素，其中一个装着 6 KB 数据，在 Apple M4 上约 31 µs，大部分是多复制一次页面和查找 nonce。商店工作台页面在一个核上渲染一次要几十毫秒，所以这大约是一次渲染的 0.1%。渲染记忆命中时，头随页面一起存着，不再多花时间。关掉 `server.csp` 时渲染不做这些。
 
 每项优化是怎么找到、怎么量的，以及试过又放弃的做法：[优化记录](studies/optimizations.md)。
 
@@ -284,7 +284,7 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 - 比较两个构建每个页面的 HTML。路由会把渲染的时刻写进每个 match（`u:` 后面跟 13 位数字），先遮掉它。
 - 只有 1 个 VM 的基准看不出 VM 之间的争用。改动碰到内存分配时，还要同时用多个 VM 渲染，看 mutex profile。
 
-完整请求：构建 `examples/shop`，用 `taskset` 把环境里有 `SHOP_OPEN=1` 的 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
+完整请求：构建 `examples/shop`，用 `taskset` 把环境里有 `SHOP_OPEN=1` 的 `bin/shop --server-addr 127.0.0.1:0 --ssr-memo-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
 Next.js、TanStack Start 和 React Router：`go run ./test/compare/cmd/compare measure` 构建这几个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)，英文）。
 

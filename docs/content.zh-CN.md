@@ -386,8 +386,8 @@ tifa: content: blog zh-CN/202611/launch and en/202611/release-notes are publishe
 
 | 地方 | 会怎样 |
 | --- | --- |
-| 带 `Cache` 的页面 | 整页缓存里在这一刻之前做好的页面全部算作过期，下一个请求重新生成。数据没变的页面由渲染缓存回答，不重新渲染。 |
-| 条目自己的页面 | 之前回答 404，而 404 不进整页缓存，所以到点就能打开。 |
+| 带 `Cache` 的页面 | 它们的 `Load` 每个请求都跑，所以下一个请求读到的就是新条目。数据没变的页面由渲染记忆回答，不重新渲染。 |
+| 条目自己的页面 | 之前回答 404，所以到点就能打开。 |
 | 程序前面的 CDN | 带 `Cache` 的页面发出时 `s-maxage` 就是这个时长，CDN 可能在这段时间内还给旧的列表。 |
 | RSS、sitemap 等 handler | 每次请求都读集合，所以有这个条目。在 `OnStart` 里根据内容算好存起来的东西没有。 |
 
@@ -397,7 +397,7 @@ tifa: content: blog zh-CN/202611/launch and en/202611/release-notes are publishe
 
 `tifa dev` 从 `.tifa/dist` 读内容，所以 `content/` 下的改动不需要 go build，也不用重启（见[改动触发什么](dev.zh-CN.md#改动触发什么)）：
 
-- Markdown 文件的正文或 front matter 改了，或者新增、删除：`tifa dev` 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，换上新数据，之后打开的页面显示新内容。`OnStart` 不再跑，整页缓存过期，打开着的页面刷新。
+- Markdown 文件的正文或 front matter 改了，或者新增、删除：`tifa dev` 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，换上新数据，之后打开的页面显示新内容。`OnStart` 不再跑，打开着的页面刷新。
 - `content/` 下的其他文件，比如图片：它所在文件夹里的条目重新转换，回退到这个文件夹的译文也是。
 - `content.go` 或 schema 类型：跑 Go 的那些步骤，全部条目重新转换。
 - `vite.config.ts` 或它导入的插件：Vite 开发服务器重启后全部条目重新转换，没有页面的应用马上转换。

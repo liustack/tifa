@@ -1,10 +1,10 @@
 ---
-summary: 'Tifa 的内部怎么工作：每个包管什么、一个请求从 HTTP 到 HTML 的路径和浏览器里一次导航的路径、`tifa build` 和 `tifa dev` 一步步做什么、JavaScript VM 池怎么保持健康、渲染缓存和整页缓存怎么配合'
+summary: 'Tifa 的内部怎么工作：每个包管什么、一个请求从 HTTP 到 HTML 的路径和浏览器里一次导航的路径、`tifa build` 和 `tifa dev` 一步步做什么、JavaScript VM 池怎么保持健康、渲染记忆怎么和带 `Cache` 的页面的 Cache-Control 配合'
 read_when:
   - 开始改 Tifa 本身，想找某个行为归哪个包管
-  - 在代码里追一个请求、一次渲染或一次缓存命中
+  - 在代码里追一个请求、一次渲染或一次渲染记忆命中
   - 改请求、`tifa build` 或 `tifa dev` 里步骤的顺序
-  - 改 internal/ssr、渲染缓存或整页缓存
+  - 改 internal/ssr 或渲染记忆
   - 想知道一个页面为什么慢、为什么旧、为什么渲染了两次
 ---
 
@@ -22,7 +22,7 @@ read_when:
 flowchart LR
   B["浏览器"]
   subgraph P["可执行文件"]
-    G["Go：路由、钩子、Load、缓存 (server, internal/core)"]
+    G["Go：路由、钩子、Load、渲染记忆 (server, internal/core)"]
     V["VM 池：quickjs 里的 ssr.js (internal/ssr)"]
     S["内嵌文件：assets、public、content"]
   end
@@ -37,7 +37,7 @@ flowchart LR
 | --- | --- |
 | `tifa`、`tifatest`、`content` | 公开的 API。`tifa` 很薄，只转给 `internal/core`。`tifatest` 为测试造 `Ctx` |
 | `internal/core` | `Ctx`、错误、JSON 规则、会话和会话存储、渲染时钟 |
-| `server` | HTTP 服务器：路由、`OnRequest`、页面请求和数据请求、两个缓存、压缩、HTTPS、跨站检查、优雅退出 |
+| `server` | HTTP 服务器：路由、`OnRequest`、页面请求和数据请求、渲染记忆、压缩、HTTPS、跨站检查、优雅退出 |
 | `internal/ssr` | [QuickJS](https://github.com/liustack/quickjs) VM 池和渲染调用 |
 | `internal/config` | 设置：来源、命令行参数、值和它们的错误 |
 | `internal/analyze` | 把应用的 Go 代码静态分析成路由清单 |
@@ -77,16 +77,14 @@ flowchart TD
 ```
 
 - `OnRequest` 里的 `next(c)` 就是从 `OnRequest` 走到路由的那一步。路由的错误通过 `next` 返回，服务器等 `OnRequest` 返回之后才把它变成回答。
-- 整页缓存的页面在读会话之前就被变成匿名的，所以之后的步骤都看不到 cookie。
+- 开了 `Cache` 的页面的请求在读会话之前就被变成匿名的，所以之后的步骤都看不到 cookie。
 - 来自旧版本页面的调用，在处理函数运行之前就得到 409。
 
 ### 页面处理做什么
 
 ```mermaid
 flowchart TD
-  P["页面 GET"] --> C{"页面有 Cache，并且请求是匿名的？"}
-  C -- "是" --> WP["整页缓存，见「缓存」"]
-  C -- "否" --> D{"URL 里有 _tifa？"}
+  P["页面 GET"] --> D{"URL 里有 _tifa？"}
   D -- "是" --> DR["只运行列出的 Load，按路由回答 JSON"]
   D -- "否" --> L["同时运行这条链上的每个 Load"]
   L --> S{"SSR 是 false？"}
@@ -94,7 +92,7 @@ flowchart TD
   S -- "否" --> RP["渲染页面 (renderPage)"]
 ```
 
-`renderPage` 用各个 `Load` 的结果造出 VM 的输入，由它算出 ETag，`If-None-Match` 匹配就回答 304。否则去问渲染缓存，缓存没有再到 VM 池里渲染。数据以文本的形式交给 VM，等 VM 空出来之后由池把它填进页面，所以 VM 不用复制大块的 JSON。开了 `server.csp` 时，渲染给自己写的脚本和样式打上这次渲染的 nonce 作记号，池再把记号去掉并给这些元素算哈希，页面带着只放行它们的策略发出（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。
+`renderPage` 用各个 `Load` 的结果造出 VM 的输入，由它算出 ETag，`If-None-Match` 匹配就回答 304。否则去问渲染记忆，没有再到 VM 池里渲染。数据以文本的形式交给 VM，等 VM 空出来之后由池把它填进页面，所以 VM 不用复制大块的 JSON。开了 `server.csp` 时，渲染给自己写的脚本和样式打上这次渲染的 nonce 作记号，池再把记号去掉并给这些元素算哈希，页面带着只放行它们的策略发出（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。
 
 渲染失败时，服务器带着错误再渲染一次，用错误代替页面（`server/page.go` 里的 `rescue`）。再失败，就由 Go 写一个简单的错误页。
 
@@ -191,33 +189,26 @@ stateDiagram-v2
 
 容量怎么定见[性能](performance.zh-CN.md)，队列见 [config.zh-CN.md](config.zh-CN.md#渲染队列)。
 
-## 缓存
+## 渲染记忆
 
-两个缓存共用一个大小为 `cache.size` 字节的 LRU。
+渲染记忆是一个大小为 `ssr.memo_size` 字节的 LRU。
 
 ```mermaid
 flowchart TD
-  Q["页面 GET"] --> A{"页面有 Cache？"}
-  A -- "是" --> W{"这个 URL 有条目，并且在有效期内？"}
-  W -- "是" --> WH["发送条目，不运行 Load，不渲染"]
-  W -- "否" --> WM["为所有在等的请求只做一次页面：Load，然后渲染"]
-  WM --> RC
-  A -- "否" --> LD["运行 Load"]
+  Q["页面 GET"] --> LD["运行 Load"]
   LD --> ET{"ETag 和 If-None-Match 匹配？"}
   ET -- "是" --> N304["304，不渲染"]
-  ET -- "否" --> RC{"渲染缓存里有这份 HTML？"}
-  RC -- "是" --> RH["发送它 (X-Tifa-Render: cache)"]
+  ET -- "否" --> RC{"渲染记忆里有这份 HTML？"}
+  RC -- "是" --> RH["发送它 (X-Tifa-Render: memo)"]
   RC -- "否" --> FL{"同一个渲染已经在跑？"}
   FL -- "是" --> SH["等它 (shared)"]
   FL -- "否" --> VMR["在 VM 里渲染 (vm)，保存 HTML"]
 ```
 
-- **渲染缓存**（[详情](render-cache.zh-CN.md)）。键是 build ID、SSR bundle、URL、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。
-- **共享渲染。** 同时没命中同一个键的请求只等一次渲染，`cache.size` 为 0 时也一样。这次渲染跑在一个不属于任何请求的 goroutine 里，所以某个客户端走掉不会取消它。
-- **ETag。** 它是和渲染键同样那些东西的哈希。匹配的 `If-None-Match` 在问缓存之前就得到回答。ETag 省的是发给浏览器的传输，缓存省的是给其他人的渲染。
-- **整页缓存。** 只有写了 `const Cache` 的页面有。请求被变成匿名的，键是协议、host、路径和去掉跟踪参数的查询字符串，条目存活 `Cache` 那么久。命中既不运行 `Load` 也不渲染。没命中时，为所有在等的请求只做一次页面，要经过渲染缓存。做新页面失败时，最多一天内继续给出旧条目。
-- 内容条目到了它的日期，在它之前做出的所有整页都算过期（`contentChanged`）。
-- `tifa.ExpirePages` 把它收到的路径的条目标成过期，不管 Host、协议和查询串，并把这些路径正在进行的生成从共享的生成里拿掉，这样它们在调用之前读到的东西不会存下（`expirePaths`）。过期的条目仍可以在生成失败时顶上。
-- `tifa.Stats` 读出 VM 池和两个缓存的计数。渲染和缓存查找用原子计数，不加新锁。
+- **渲染记忆**（[详情](memo.zh-CN.md)）。键是 build ID、SSR bundle、URL、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。
+- **共享渲染。** 同时没命中同一个键的请求只等一次渲染，`ssr.memo_size` 为 0 时也一样。这次渲染跑在一个不属于任何请求的 goroutine 里，所以某个客户端走掉不会取消它。
+- **ETag。** 它是和渲染键同样那些东西的哈希。匹配的 `If-None-Match` 在问渲染记忆之前就得到回答。ETag 省的是发给浏览器的传输，渲染记忆省的是给其他人的渲染。
+- **带 `Cache` 的页面。** Tifa 为它们留下的只有渲染记忆。请求被变成匿名的（`anonymize`），`Load` 每个请求都跑，跑完后设上给共享缓存的 Cache-Control（`setShared`），除非 OnRequest、`Load` 或 `Layout` 已让回答变成私有的。留住页面的是前面的 CDN，不是 Tifa。
+- `tifa.Stats` 读出 VM 池和渲染记忆的计数。渲染和记忆查找用原子计数，不加新锁。
 
-给应用的规则在 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)和[整页缓存](app.zh-CN.md#整页缓存)里。Tifa 在每种情况下发出的回答见[页面请求](build.zh-CN.md#页面请求)。
+给应用的规则在 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)和[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache)里。Tifa 在每种情况下发出的回答见[页面请求](build.zh-CN.md#页面请求)。

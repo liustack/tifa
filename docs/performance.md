@@ -35,7 +35,7 @@ The numbers in the sections after the comparison were measured on 2026-10-24, on
 - **One render**: one warm VM on one thread of a core whose other thread is idle, as `BenchmarkShop` in `test/ssr` renders. 256 renders to warm up, then 500 (workbench), 300 (storefront) or 200 (MUI) timed, five rounds, the median of the per-round P50.
 - **Node**: Node 24.13.0 runs the same `ssr.js` with the same inputs on another idle core, 600 renders to warm up, then five rounds of 200. The HTML is the same as Tifa's.
 - **C QuickJS**: QuickJS 2026-06-04, built and run by quickjs's [engine comparison](https://github.com/liustack/quickjs/blob/main/docs/benchmarks.md), on the same bundles. C has no `Intl`, so it runs the FormatJS polyfill on pages that need it.
-- **Whole requests**: the built `bin/shop` started with `SHOP_OPEN=1` (the workbench needs a sign-in otherwise) and `--cache-size 0`, so every page request renders (requests for the same page that arrive together share one render even then, so a run with several in flight renders less than once for each), loaded with [oha](https://github.com/hatoo/oha) from other cores. Pages go out as gzip unless a table says otherwise. Each step warms up for a few seconds and runs for 15 to 20 seconds, two or three rounds.
+- **Whole requests**: the built `bin/shop` started with `SHOP_OPEN=1` (the workbench needs a sign-in otherwise) and `--ssr-memo-size 0`, so every page request renders (requests for the same page that arrive together share one render even then, so a run with several in flight renders less than once for each), loaded with [oha](https://github.com/hatoo/oha) from other cores. Pages go out as gzip unless a table says otherwise. Each step warms up for a few seconds and runs for 15 to 20 seconds, two or three rounds.
 
 ## How fast a page renders
 
@@ -77,14 +77,14 @@ The MUI rows were measured again with the C engine (quickjs 0cc6d332, 2026-10-29
 
 The order workbench of the shop, built four ways: as Tifa and as a Next.js 16.4.2, a TanStack Start 1.169.3 and a React Router 8.5.1 app (framework mode), all with the same React components, on Node 24.13.0. The Node apps run a TypeScript port of the Go code that loads each page's data, on every request. Tests check that the four show the same text on all 58 pages, do the same work for each request, and show a write on every page it changes. The machine is a Google Cloud `c2d-standard-8` VM: 8 vCPUs of an AMD EPYC 7B13 (Zen 3), that is 4 physical cores with 2 hyperthreads each, 32 GB of memory, Linux 7.3. Each framework runs as it ships on one hyperthread of one physical core, with the other hyperthread idle, and the load tool runs on another core:
 
-- **Tifa**: `bin/shop --server-addr 127.0.0.1:PORT --ssr-vms 1` with `GOMAXPROCS=1`. The [render cache](render-cache.md) is on at 64 MiB and `server.compress` is on.
+- **Tifa**: `bin/shop --server-addr 127.0.0.1:PORT --ssr-vms 1` with `GOMAXPROCS=1`. The [render memo](memo.md) is on at 64 MiB and `server.compress` is on.
 - **Next.js**: `node node_modules/next/dist/bin/next start -H 127.0.0.1 -p PORT`. Every route is dynamic, gzip is on.
 - **TanStack Start**: `node .output/server/index.mjs`, its Nitro node server. It does not compress rendered pages.
 - **React Router**: `node node_modules/@react-router/serve/bin.cjs build/server/index.js`. `react-router-serve` compresses with gzip.
 
 ### Engine (caches off)
 
-The six workbench pages in turn: the order list, an order and the stats of each of two shops, every request with `Accept-Encoding: gzip`, from a Go client with one connection. Tifa runs with `cache.size` 0, so every request renders, as the Node apps do. The rows marked reference are Node with `--jitless` (`node --jitless` before the same script), to show what the JIT is worth. The numbers are from process start, with no warm-up: 1,000 cold requests, then 30 seconds of steady load, 3 rounds on fresh servers, the median with the range of the rounds. Two identical Tifa servers differ by 2.4% in requests a second and 4.8% in P99, so read smaller gaps as noise. Measured on 2026-11-06 with Tifa 83644319, quickjs v0.30.1 and Go 1.27.2.
+The six workbench pages in turn: the order list, an order and the stats of each of two shops, every request with `Accept-Encoding: gzip`, from a Go client with one connection. Tifa runs with `ssr.memo_size` 0, so every request renders, as the Node apps do. The rows marked reference are Node with `--jitless` (`node --jitless` before the same script), to show what the JIT is worth. The numbers are from process start, with no warm-up: 1,000 cold requests, then 30 seconds of steady load, 3 rounds on fresh servers, the median with the range of the rounds. Two identical Tifa servers differ by 2.4% in requests a second and 4.8% in P99, so read smaller gaps as noise. Measured on 2026-11-06 with Tifa 83644319, quickjs v0.30.1 and Go 1.27.2.
 
 | | Requests/s | Against Tifa | P50 | P99 | Peak RSS | First answer after start |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -122,7 +122,7 @@ To measure again, see [Testing](testing.md#comparison-with-nextjs-tanstack-start
 
 ## How it scales with cores
 
-Measured on 2026-11-06 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. This is render capacity: every cache is off (`cache.size` 0), there is one request in flight per VM, and every URL is unique so that no two requests share a render. [Sizing a machine](#sizing-a-machine) sizes with it. The render cache raises what a core serves a lot, and [the comparison](#against-nextjs-tanstack-start-and-react-router) shows it on one core. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
+Measured on 2026-11-06 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. This is render capacity: every cache is off (`ssr.memo_size` 0), there is one request in flight per VM, and every URL is unique so that no two requests share a render. [Sizing a machine](#sizing-a-machine) sizes with it. The render memo raises what a core serves a lot, and [the comparison](#against-nextjs-tanstack-start-and-react-router) shows it on one core. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
 
 The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `GOMAXPROCS`). The client ran on cpu 3, the fourth physical core, with its sibling idle. All four core pairs were locked for the whole run. Each cell is the median of three rounds with fresh servers, 30 s steady after 1,000 cold requests per connection, with the range in brackets.
 
@@ -144,20 +144,20 @@ The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `
 ### CPU and `ssr.vms`
 
 - Leave [`ssr.vms`](config.md#settings) at its default, the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit.
-- Plan on about 42 page requests a second per physical core for pages like the shop's workbench, about 24 ms of a core each with HTTP, measured with the render cache off ([how it scales](#how-it-scales-with-cores)). The storefront took about 29 ms a request, so about 34 a second, on 2026-10-24 before the redesign. Pages with a different render time scale with it.
+- Plan on about 42 page requests a second per physical core for pages like the shop's workbench, about 24 ms of a core each with HTTP, measured with the render memo off ([how it scales](#how-it-scales-with-cores)). The storefront took about 29 ms a request, so about 34 a second, on 2026-10-24 before the redesign. Pages with a different render time scale with it.
 - A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.6 of a physical core per vCPU: 6 busy hyperthreads answered 153 requests a second, 26 per vCPU, against 42 on a physical core. Renders are then about 1.65 times slower: a P50 of 32.5 ms against 19.4 ms.
 - More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, with the shop's pages of 2026-10-24, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.
 - Fewer VMs than CPUs does not help either: on the same 7 CPUs, 4 VMs answered 235 requests a second at a P50 of 11.9 ms, because the system still puts two of them on the hyperthreads of one core. Giving the program as many CPUs as physical cores is better on both counts: 4 VMs on 4 physical cores answered 279 at 9.6 ms.
 - A cpuset, such as Docker's `--cpuset-cpus`, can pin the program to one hyperthread of each core, but cannot keep other programs off the siblings. The static CPU manager policy of Kubernetes hands out whole cores, both hyperthreads, which is the busy hyperthread case above. A plain CPU quota, such as Docker's `--cpus`, does not pin threads. That case was not measured.
 
-Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes and pages answered by the whole-page cache (`Cache`, see [App](app.md#the-whole-page-cache)) do not render either. The whole-page cache runs no `Load` either, and is not measured yet. The render cache is on for every page unless it writes `RenderCache = false`, and a hit is about 80 times faster than a render: with one VM and one request in flight, 2,865 requests a second against 38 (see [the study](studies/nextjs-and-tanstack-start.md#cache-hit-against-cache-hit)). A hit still runs the `Load` functions and hashes their data, which the table shows as 0.15 ms of CPU. 6 VMs on 3 physical cores (6 hyperthreads), 64 requests in flight, gzip:
+Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes do not render either. The render memo is on for every page unless it writes `Memo = false`, and a hit is about 80 times faster than a render: with one VM and one request in flight, 2,865 requests a second against 38 (see [the study](studies/nextjs-and-tanstack-start.md#cache-hit-against-cache-hit)). A hit still runs the `Load` functions and hashes their data, which the table shows as 0.15 ms of CPU. 6 VMs on 3 physical cores (6 hyperthreads), 64 requests in flight, gzip:
 
 | Request | Requests/s | P50 | P99 | CPU per request |
 | --- | --- | --- | --- | --- |
 | Navigation data of a list | 17,989 | 2.65 ms | 14.4 to 14.9 ms | 0.32 ms |
 | Navigation data of an order | 26,949 | 1.68 to 1.74 ms | 9.7 to 10.0 ms | 0.21 ms |
 | Navigation data of the stats | 18,448 | 2.57 to 2.60 ms | 14.0 ms | 0.31 ms |
-| A page from the render cache | 37,094 | 1.30 to 1.33 ms | 6.2 to 6.3 ms | 0.15 ms |
+| A page from the render memo | 37,094 | 1.30 to 1.33 ms | 6.2 to 6.3 ms | 0.15 ms |
 | The same page answered with 304 | 36,985 | 1.33 to 1.34 ms | 6.1 to 6.2 ms | 0.15 ms |
 | API `PATCH` of an order | 53,275 | 1.51 to 1.53 ms | 3.5 to 3.6 ms | 0.07 ms |
 
@@ -241,7 +241,7 @@ What compressing one page takes, on one core, with the encoders reused as the se
 | Order | 39 to 40 KB | 8.4 to 8.6 KB in 181 to 185 µs | 8.7 to 8.8 KB in 128 to 131 µs | gzip 2.2%, zstd 1.5% |
 | Stats | 35 KB | 7.1 to 7.2 KB in 133 to 138 µs | 7.4 to 7.5 KB in 109 to 111 µs | gzip 1.9%, zstd 1.5% |
 
-Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and oha on another, 15 seconds per step, two rounds. Pages render with `--cache-size 0`, and the cached order pages, two in turn, come from the render cache. The zstd column asks with `Accept-Encoding: zstd`, since a client that offers both now gets gzip:
+Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and oha on another, 15 seconds per step, two rounds. Pages render with `--ssr-memo-size 0`, and the cached order pages, two in turn, come from the render memo. The zstd column asks with `Accept-Encoding: zstd`, since a client that offers both now gets gzip:
 
 | Request | Uncompressed | zstd | gzip |
 | --- | --- | --- | --- |
@@ -256,8 +256,8 @@ Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and o
 
 - For pages, the three encodings stay within 4% of each other, and pages go out about 6 times smaller.
 - Navigation data is cheap to answer, so compressing it shows: 6% to 17% fewer requests a second on a saturated core, for answers 1.8 to 5.4 times smaller.
-- A cache hit for a client that takes gzip sends the gzip form the cache stored with the page, so it takes less CPU than a hit on HTML, since there are fewer bytes to write. The cache keeps that one form alone, made once when the page is made, and `cache.size` counts the bytes it keeps, so a page of the shop takes about a fifth of its HTML. A client that takes no compression gets the HTML unzipped as it is written, a few hundredths of a millisecond more, and a client that prefers zstd gets zstd made from the stored page as it is written, a few tenths more.
-- What it costs, on the Mac with the shop and one VM, `compare measure` with reads and writes, 3 rounds of 10 seconds, `cache.size` 64 MiB. The Mac had other work running, so read the ranges, not the middles:
+- A cache hit for a client that takes gzip sends the gzip form the cache stored with the page, so it takes less CPU than a hit on HTML, since there are fewer bytes to write. The cache keeps that one form alone, made once when the page is made, and `ssr.memo_size` counts the bytes it keeps, so a page of the shop takes about a fifth of its HTML. A client that takes no compression gets the HTML unzipped as it is written, a few hundredths of a millisecond more, and a client that prefers zstd gets zstd made from the stored page as it is written, a few tenths more.
+- What it costs, on the Mac with the shop and one VM, `compare measure` with reads and writes, 3 rounds of 10 seconds, `ssr.memo_size` 64 MiB. The Mac had other work running, so read the ranges, not the middles:
 
   | | Hit P50 | Hit P99 | Miss P50, with writes | Peak RSS, reads | Peak RSS, writes |
   | --- | --- | --- | --- | --- | --- |
@@ -266,12 +266,12 @@ Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and o
   | on, client sends gzip | 0.15 to 0.18 ms | 8.9 to 11.8 ms | 7.7 to 8.1 ms | 81 to 88 MiB | 95 to 115 MiB |
   | on, client sends only zstd | 0.49 to 0.59 ms | 9.9 to 12.4 ms | 7.7 to 16.5 ms | 82 to 88 MiB | 103 to 126 MiB |
 
-  Compressing the page once on a miss costs about 0.1 ms of a 7.3 ms miss. With the cache full of old versions, the program takes about 60 MiB less than with compression off, and the live heap of the cache stays within `cache.size`.
+  Compressing the page once on a miss costs about 0.1 ms of a 7.3 ms miss. With the cache full of old versions, the program takes about 60 MiB less than with compression off, and the live heap of the cache stays within `ssr.memo_size`.
 - The bundle sent as its `.gz` file answers about 2 times the requests a second of the file itself, since there are fewer bytes to write.
 
 ## Content-Security-Policy
 
-With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](config.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render cache or of the whole-page cache keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
+With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](config.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render memo keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
 
 How each optimization was found and measured, and what was tried and dropped: [Optimizations](studies/optimizations.md).
 
@@ -284,7 +284,7 @@ How each optimization was found and measured, and what was tried and dropped: [O
 - Compare the HTML of every page between the two builds. The router writes the time of the render into each match (`u:` followed by 13 digits), so mask that first.
 - A benchmark with one VM cannot see contention between VMs. For a change near memory allocation, also render with several VMs at once and read the mutex profile.
 
-Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` with `SHOP_OPEN=1` in its environment, pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
+Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --ssr-memo-size 0` with `SHOP_OPEN=1` in its environment, pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
 
 Next.js, TanStack Start and React Router: `go run ./test/compare/cmd/compare measure` builds the apps and runs this method with the cores as flags (see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)).
 

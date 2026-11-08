@@ -41,7 +41,7 @@
 | 反向代理与证书 | nginx + certbot | 程序里的 Go HTTP 服务器，自己申请 Let's Encrypt 证书，支持 HTTP/2 |
 | 运行时与进程管理 | Node.js + PM2 | 一个 Go 可执行文件 |
 | React SSR | TanStack Start | TanStack Router，由 Go 进程内的[纯 Go QuickJS](https://github.com/liustack/quickjs)渲染 |
-| 缓存 | Redis | 进程内的渲染缓存和整页缓存，以及你放在 Go 内存里的数据 |
+| 缓存 | Redis | 进程内的渲染记忆，想要的话前面放 CDN，以及你放在 Go 内存里的数据 |
 | 队列与定时任务 | BullMQ + cron | 在 `OnStart` 里启动的 goroutine |
 | 数据库 | SQLite | SQLite，用[纯 Go 驱动](https://github.com/liustack/sqlite)，CGO 保持关闭 |
 
@@ -89,9 +89,9 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 ## 一台小服务器就够
 
-**[渲染缓存](docs/render-cache.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
+**[渲染记忆](docs/memo.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
 
-缓存全关，每个请求都渲染：
+渲染记忆关掉，每个请求都渲染：
 
 | | 每秒请求数 | P50 | P99 | RSS 峰值 |
 | :-- | --: | --: | --: | --: |
@@ -155,15 +155,15 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 | 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md)、[流式输出](docs/guides/streaming.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
 | [哲学](docs/philosophy.zh-CN.md) | 想知道 Tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
-| [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
+| [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和给 CDN 用的 `Cache` |
 | [会话](docs/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
 | [内容](docs/content.zh-CN.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
 | [部署](docs/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
-| [配置](docs/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时和页面缓存 |
-| [内部结构](docs/architecture.zh-CN.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和缓存在内部是怎么工作的 |
-| [渲染缓存](docs/render-cache.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地缓存 |
+| [配置](docs/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
+| [内部结构](docs/architecture.zh-CN.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的 |
+| [渲染记忆](docs/memo.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
 | [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/testing.md) | 参与 Tifa 本身的开发（英文） |
