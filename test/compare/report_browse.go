@@ -36,6 +36,17 @@ func BrowseLabel(spec string) string {
 // isTifa says whether a spec is one of the Tifa servers, whose answers say what they rendered.
 func isTifa(spec string) bool { return spec == "tifa" || strings.HasPrefix(spec, "tifa-") }
 
+// tries are all the rounds of a cell of the closed table, the invalid ones too.
+func (r *BrowseResult) tries(fw, sc string, users int) []Round {
+	var out []Round
+	for _, x := range r.Closed {
+		if x.Framework == fw && x.Scenario == sc && x.Users == users {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 // cellRounds are the valid rounds of a spec in one cell of the closed table.
 func (r *BrowseResult) cellRounds(fw, sc string, users int) []Round {
 	var out []Round
@@ -167,7 +178,11 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 			fmt.Fprintf(b, "| %s |", BrowseLabel(f))
 			for _, u := range users {
 				rs := r.cellRounds(f, sc.Name, u)
-				if ok, why := verdict(rs, rounds); !ok {
+				if tries := r.tries(f, sc.Name, u); len(rs) == 0 && len(tries) > 0 {
+					// No round of the cell was valid: say why the last one failed, with what made it invalid.
+					last := tries[len(tries)-1]
+					fmt.Fprintf(b, " failed (no valid round of %d: %s) |", len(tries), strings.Join(slices.DeleteFunc([]string{last.Why, last.WhyInvalid}, func(s string) bool { return s == "" }), "; "))
+				} else if ok, why := verdict(rs, rounds); !ok {
 					fmt.Fprintf(b, " failed (%s) |", why)
 				} else {
 					fmt.Fprintf(b, " %s |", fmtCell(each(rs, pageViewsPerSecond), "%.1f"))

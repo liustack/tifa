@@ -762,3 +762,13 @@ func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
 		t.Error("the sizing run sent no write")
 	}
 }
+
+// A closed round counts the visits it played, the ones that failed too.
+func TestAClosedRoundCountsTheVisitsItPlayed(t *testing.T) {
+	srv, _ := fakeServer(t)
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/fail-1", "doc", 0, 5)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 2, 6, 10*time.Second)
+	if round.Visits != 0 || round.Played != 6 {
+		t.Errorf("visits %d, played %d, want 0 and 6", round.Visits, round.Played)
+	}
+}
