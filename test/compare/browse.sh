@@ -31,6 +31,9 @@
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
 #                     (Tifa with no writes, once a site), sustain (the rate of Next.js),
 #                     latency (each for the scenarios that have that table)
+#   PROBE=1           search the rate of Next.js again and write it into
+#                     test/compare/rates.json (else the file is used, and a run whose
+#                     conditions differ from the file is refused)
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
@@ -140,7 +143,7 @@ run_stamp() {
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
-  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # traces_current is true when the traces of a site were recorded from these sources, with these
@@ -215,6 +218,7 @@ do_run() {
   done
   local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
+  [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
   [ -n "${SESSIONS:-}" ] && cmd+=(-sessions "$SESSIONS")
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")
   [ -n "${WARM:-}" ] && cmd+=(-warm "$WARM")

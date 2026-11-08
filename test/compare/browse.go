@@ -36,17 +36,21 @@ type BrowseOptions struct {
 	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the sessions used them
 	// (none when it is not pinned: then no server is stepped up).
 	ServerCPUCount int
-	Scenarios      []BrowseScenario // the default ones when empty
-	Phases         []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
-	Sessions       int              // the concurrent sessions every server starts the throughput at, 8
-	Rounds         int
-	Warm           time.Duration // the warm-up of a closed round, apart from it
-	Target         time.Duration // how long a closed round should take, about
-	TrialWindow    time.Duration // an open trial of the search for the sustainable rate
-	FinalWindow    time.Duration // an open round of the latency table, at least
-	MaxRate        float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
-	Stamp          string        // what the traces and the builds belong to, kept in the result
-	Log            io.Writer
+	// Probe searches the rate of Next.js again, and writes it into RateFile.
+	Probe bool
+	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
+	RateFile    string
+	Scenarios   []BrowseScenario // the default ones when empty
+	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
+	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
+	Rounds      int
+	Warm        time.Duration // the warm-up of a closed round, apart from it
+	Target      time.Duration // how long a closed round should take, about
+	TrialWindow time.Duration // an open trial of the search for the sustainable rate
+	FinalWindow time.Duration // an open round of the latency table, at least
+	MaxRate     float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
+	Stamp       string        // what the traces and the builds belong to, kept in the result
+	Log         io.Writer
 }
 
 // PlanInfo is what the plans of a site hold.
@@ -99,6 +103,10 @@ type Sustain struct {
 	Limited bool   `json:"generatorLimited,omitempty"`
 	Done    bool   `json:"done"`
 	Note    string `json:"note,omitempty"`
+	// Under is what the rate was measured under (see rateConditions), and From the run it came from
+	// when it was read from the file of rates rather than searched in this run.
+	Under map[string]string `json:"under,omitempty"`
+	From  *RateSource       `json:"fromFile,omitempty"`
 }
 
 // siteName is how a site is named in the result.
@@ -183,11 +191,13 @@ func browseConfig(o BrowseOptions) map[string]string {
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
+		"probe": fmt.Sprint(o.Probe),
 	}
 }
 
 // canContinue says whether a result can be continued by a run with these options: the same stamp
-// and the same settings, so that other cpus or windows never reuse the rounds of another run.
+// and the same settings, so that a probe asked for again, or other cpus or windows, never reuse the
+// rounds of another run.
 func canContinue(res *BrowseResult, o BrowseOptions) error {
 	if res.Stamp != o.Stamp {
 		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, o.Stamp)
@@ -217,6 +227,9 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	}
 	if len(o.Phases) == 0 {
 		o.Phases = []string{"throughput", "control", "sustain", "latency"}
+	}
+	if o.RateFile == "" {
+		o.RateFile = filepath.Join(e.Root, "test", "compare", "rates.json")
 	}
 	if o.Sessions == 0 {
 		o.Sessions = 8
@@ -535,7 +548,24 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 		if s != nil && s.Done {
 			continue
 		}
-		s = &Sustain{}
+		under := b.rateConditions(sc)
+		file, err := readRates(b.o.RateFile)
+		if err != nil {
+			return err
+		}
+		entry, err := fileRate(file, sc.Name, under, b.o.Probe)
+		if err != nil {
+			return err
+		}
+		if entry != nil {
+			b.logf("sustain %-10s %-12s %.2f visits/s from %s, confirmed on %s (Tifa %s)\n", sc.Name, fw, entry.Rate, b.o.RateFile, entry.Source.Date, entry.Source.Tifa)
+			b.res.Sustain[key] = &Sustain{Rate: entry.Rate, Done: true, Under: under, From: &entry.Source}
+			if err := b.commit(); err != nil {
+				return err
+			}
+			continue
+		}
+		s = &Sustain{Under: under}
 		b.res.Sustain[key] = s
 		trial := func(rate float64) (bool, error) {
 			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
@@ -595,6 +625,9 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 			s.Note = "the search reached its cap without failing"
 		}
 		if err := b.commit(); err != nil {
+			return err
+		}
+		if err := b.keepRate(sc, s); err != nil {
 			return err
 		}
 	}

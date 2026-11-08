@@ -9,19 +9,21 @@ import (
 	"time"
 )
 
-// A result is continued only under the settings it was started with: other server cpus or windows
-// must not reuse the rounds of another run.
+// A result is continued only under the settings it was started with: a probe asked for again, or
+// other server cpus, must not reuse the rounds of another run, nor a probe the rate of a run without one.
 func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	o := BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1}
 	res := &BrowseResult{Config: browseConfig(o)}
 	if err := canContinue(res, o); err != nil {
 		t.Fatalf("the same settings: %v", err)
 	}
+	probe := o
+	probe.Probe = true
 	cpus := o
 	cpus.ServerCPUs, cpus.ServerCPUCount = "0,2", 2
 	target := o
 	target.Target = 30 * time.Second
-	for name, other := range map[string]BrowseOptions{"-server-cpus": cpus, "-target": target} {
+	for name, other := range map[string]BrowseOptions{"-probe": probe, "-server-cpus": cpus, "-target": target} {
 		err := canContinue(res, other)
 		if err == nil || !strings.Contains(err.Error(), "remove it to start again") {
 			t.Errorf("%s: continued a result of other settings: %v", name, err)
