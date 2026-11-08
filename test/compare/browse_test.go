@@ -46,11 +46,11 @@ func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
 		{16384, 1, []float64{4, 2, 1}, 1, 2},
 	} {
 		var tried []float64
-		lo, hi, err := searchRate(tc.max, func(rate float64) (bool, error) {
+		lo, hi, limited, err := searchRate(tc.max, func(rate float64) (string, error) {
 			tried = append(tried, rate)
-			return rate <= tc.passes, nil
+			return map[bool]string{true: trialPass, false: trialFail}[rate <= tc.passes], nil
 		})
-		if err != nil || lo != tc.lo || hi != tc.hi || !reflect.DeepEqual(tried, tc.tried) {
+		if err != nil || limited || lo != tc.lo || hi != tc.hi || !reflect.DeepEqual(tried, tc.tried) {
 			t.Errorf("cap %v, passing up to %v: lo %v hi %v tried %v (%v), want %v %v %v", tc.max, tc.passes, lo, hi, tried, err, tc.lo, tc.hi, tc.tried)
 		}
 	}

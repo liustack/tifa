@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -141,13 +142,76 @@ func TestAClosedRoundCountsTheVisitsThatFailed(t *testing.T) {
 	}
 }
 
-// The confirmation of a rate never accepts an invalid round, even one that passed the rule.
-func TestConfirmRateRefusesAnInvalidRound(t *testing.T) {
-	rate, _, err := ConfirmRate(100, 2, 3, func(rate float64, round int) (*Round, error) {
-		return &Round{Rate: rate, Pass: true, Valid: rate < 95}, nil
-	}, 0)
-	if err != nil || rate != 90 {
-		t.Errorf("rate %v (%v), want 90", rate, err)
+// The confirmation of a rate never accepts an invalid round, even one that passed the rule, and an
+// invalid round never moves it: the round is played again at the same rate, up to three tries. When
+// the tries run out the confirmation stops there, limited by the load generator, with every round kept.
+func TestConfirmRateRetriesAnInvalidRoundAtItsRate(t *testing.T) {
+	var ran []float64
+	plays := map[[2]float64]int{}
+	run := func(invalid func(rate float64, round, try int) bool) func(float64, int) (*Round, error) {
+		ran, plays = nil, map[[2]float64]int{}
+		return func(rate float64, round int) (*Round, error) {
+			ran = append(ran, rate)
+			k := [2]float64{rate, float64(round)}
+			plays[k]++
+			return &Round{Rate: rate, Pass: rate <= 100, Valid: !invalid(rate, round, plays[k])}, nil
+		}
+	}
+	// Round 2 at 100 is invalid on its first try: it is played again at 100, and 100 is confirmed.
+	rate, rounds, limited, err := ConfirmRate(100, 4, 3, run(func(r float64, round, try int) bool { return r == 100 && round == 2 && try == 1 }), 0)
+	if err != nil || rate != 100 || limited || len(rounds) != 4+1 || rounds[1].Valid || rounds[1].Round != 2 || rounds[2].Round != 2 {
+		t.Errorf("a retried round: rate %v, limited %v, %d rounds %+v (%v)", rate, limited, len(rounds), rounds, err)
+	}
+	// Every try at 100 is invalid: no rate, limited, and no step down to 90.
+	rate, rounds, limited, _ = ConfirmRate(100, 4, 3, run(func(float64, int, int) bool { return true }), 0)
+	if rate != 0 || !limited || len(rounds) != 3 || slices.Contains(ran, 90) {
+		t.Errorf("an invalid rate: rate %v, limited %v, %d rounds, ran %v", rate, limited, len(rounds), ran)
+	}
+	// 100 is confirmed and every try 10%% above it is invalid: 100 stands, limited.
+	rate, _, limited, _ = ConfirmRate(100, 4, 3, run(func(r float64, _, _ int) bool { return r > 100 }), 0)
+	if rate != 100 || !limited {
+		t.Errorf("an invalid step up: rate %v, limited %v", rate, limited)
+	}
+}
+
+// The search of a rate stops at a rate whose trials stay invalid: it neither halves nor narrows on
+// an experiment that did not work, and says that the load generator limited it.
+func TestTheRateSearchStopsAtAnInvalidTrial(t *testing.T) {
+	var tried []float64
+	lo, hi, limited, err := searchRate(16384, func(rate float64) (string, error) {
+		tried = append(tried, rate)
+		if rate >= 16 {
+			return trialInvalid, nil
+		}
+		return trialPass, nil
+	})
+	if err != nil || lo != 8 || hi != 0 || !limited || !slices.Equal(tried, []float64{4, 8, 16}) {
+		t.Errorf("lo %v hi %v limited %v tried %v (%v)", lo, hi, limited, tried, err)
+	}
+	if _, _, limited, _ := searchRate(16384, func(float64) (string, error) { return trialInvalid, nil }); !limited {
+		t.Error("a first trial that stays invalid is not limited")
+	}
+}
+
+// A trial plays an invalid round again at the same rate, up to three tries, and its outcome is that
+// of the last try.
+func TestATrialRetriesAnInvalidRound(t *testing.T) {
+	for _, tc := range []struct {
+		validAt int // the try that is valid, 0 for none
+		want    string
+		tries   int
+	}{{1, trialPass, 1}, {3, trialPass, 3}, {0, trialInvalid, 3}} {
+		tries := 0
+		r, err := retryInvalid(func(try int) (*Round, error) {
+			tries++
+			return &Round{Attempt: try, Pass: true, Valid: try == tc.validAt}, nil
+		})
+		if err != nil || trialOf(r) != tc.want || tries != tc.tries {
+			t.Errorf("valid at try %d: %s after %d tries (%v)", tc.validAt, trialOf(r), tries, err)
+		}
+	}
+	if got := trialOf(&Round{Valid: true}); got != trialFail {
+		t.Errorf("a valid round that failed: %s", got)
 	}
 }
 

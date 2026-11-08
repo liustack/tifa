@@ -109,3 +109,15 @@ func TestTheSustainPhaseReadsTheFileOrRefuses(t *testing.T) {
 		t.Errorf("another Next.js: %v", err)
 	}
 }
+
+// A rate that the load generator limited is never written into the file: it could not be reused.
+func TestALimitedRateIsNotWritten(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rates.json")
+	b := &browse{o: BrowseOptions{RateFile: path, Log: &strings.Builder{}}, res: &BrowseResult{}}
+	if err := b.keepRate(mustScenario("store-w5"), &Sustain{Rate: 20, Limited: true, Done: true, Under: under()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("a limited rate was written")
+	}
+}

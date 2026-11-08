@@ -470,7 +470,7 @@ func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t
 		}
 	}
 	// 100 fails, 90 fails in its second round, 81 passes all three.
-	rate, rounds, err := ConfirmRate(100, 4, 3, run(func(r float64, round int) bool {
+	rate, rounds, _, err := ConfirmRate(100, 4, 3, run(func(r float64, round int) bool {
 		if r == 90 {
 			return round == 1
 		}
@@ -483,16 +483,16 @@ func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t
 		t.Errorf("%d rounds kept: %+v", len(rounds), rounds)
 	}
 	// The first try passes: one step 10% above it is tried, and published if it passes too.
-	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 110 }), 0)
+	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 110 }), 0)
 	if rate != 110 || len(rounds) != 6 || rounds[3].Attempt != 2 {
 		t.Errorf("a passing step up: rate %v, %d rounds", rate, len(rounds))
 	}
-	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 100 }), 0)
+	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 100 }), 0)
 	if rate != 100 || len(rounds) != 4 {
 		t.Errorf("a failing step up leaves the first rate: %v, %d rounds", rate, len(rounds))
 	}
 	// Four tries that all fail: no rate, and no untested rate is made up.
-	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }), 0)
+	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }), 0)
 	if rate != 0 || len(rounds) != 4 {
 		t.Errorf("rate %v after %d rounds", rate, len(rounds))
 	}
@@ -502,7 +502,7 @@ func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t
 		}
 	}
 	// The step up stays within the cap of the search.
-	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return true }), 105)
+	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return true }), 105)
 	if rate != 100 || len(rounds) != 3 {
 		t.Errorf("a step up over the cap: rate %v, %d rounds", rate, len(rounds))
 	}

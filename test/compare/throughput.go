@@ -259,7 +259,7 @@ func (r *BrowseResult) closedDone(fw, sc string, sessions, round int) bool {
 			tries++
 		}
 	}
-	return tries >= 3
+	return tries >= maxTries
 }
 
 // cellFailed says whether a cell has a valid round that failed the rule, which decides the cell.

@@ -441,7 +441,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		}
 		b.logf("closed %-10s %2d sessions %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
 			sc.Name, sessions, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
-		if out.Valid || attempt >= 3 {
+		if out.Valid || attempt >= maxTries {
 			return out, nil
 		}
 	}
@@ -567,61 +567,77 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 		}
 		s = &Sustain{Under: under}
 		b.res.Sustain[key] = s
-		trial := func(rate float64) (bool, error) {
-			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
+		// A trial that is not valid is played again at its rate: only a valid one moves the search.
+		trial := func(rate float64) (string, error) {
+			r, err := retryInvalid(func(try int) (*Round, error) {
+				r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
+				if err != nil {
+					return nil, err
+				}
+				r.Attempt = try
+				s.Trials = append(s.Trials, *r)
+				b.logf("sustain %-10s %-12s %8.2f visits/s (try %d): pass %v %s valid %v %s (%d visits, load P99 %.0f, click P99 %.0f ms, client %.2f cores)\n", sc.Name, fw, rate, try, r.Pass, r.Why, r.Valid, r.WhyInvalid, r.Visits, r.Types["load"].P99, r.Types["click"].P99, r.ClientCPU/math.Max(r.Seconds, 1))
+				return r, b.commit()
+			})
 			if err != nil {
-				return false, err
+				return "", err
 			}
-			s.Trials = append(s.Trials, *r)
-			b.logf("sustain %-10s %-12s %8.2f visits/s: pass %v %s (%d visits, load P99 %.0f, click P99 %.0f ms, client %.2f cores)\n", sc.Name, fw, rate, r.Pass, r.Why, r.Visits, r.Types["load"].P99, r.Types["click"].P99, r.ClientCPU/math.Max(r.Seconds, 1))
-			if r.GeneratorLimited {
-				s.Limited = true
-			}
-			return r.Pass && r.Valid, b.commit()
+			return trialOf(r), nil
 		}
 		maxRate := b.maxRate()
-		lo, hi, err := searchRate(maxRate, trial)
+		lo, hi, limited, err := searchRate(maxRate, trial)
 		if err != nil {
 			return err
 		}
+		s.Limited = limited
 		if lo == 0 {
 			s.Note, s.Done = fmt.Sprintf("it does not sustain %.2f visits a second, the lowest rate tried", hi), true
+			if limited {
+				s.Note = "the load generator could not play a valid trial, so the search found no rate"
+			}
 			if err := b.commit(); err != nil {
 				return err
 			}
 			continue
 		}
-		for hi > 0 && hi-lo > 0.1*lo {
+		for !s.Limited && hi > 0 && hi-lo > 0.1*lo {
 			mid := math.Round((lo+hi)/2*100) / 100
-			ok, err := trial(mid)
+			got, err := trial(mid)
 			if err != nil {
 				return err
 			}
-			if ok {
+			switch got {
+			case trialPass:
 				lo = mid
-			} else {
+			case trialFail:
 				hi = mid
+			default:
+				s.Limited = true
 			}
 		}
-		// Only a rate that passed all its confirmation rounds is published. Every round stays in the record.
-		confirmed, rounds, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
+		// Only a rate that passed all its confirmation rounds, each of them valid, is published. Every
+		// round stays in the record.
+		confirmed, rounds, limited, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
 			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow*2, b.o.TrialWindow/3)
 			if err != nil {
 				return nil, err
 			}
-			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why)
+			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s valid %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why, r.Valid, r.WhyInvalid)
 			s.Confirm = append(s.Confirm, *r)
 			return r, b.commit()
 		}, maxRate)
 		if err != nil {
 			return err
 		}
+		s.Limited = s.Limited || limited
 		s.Confirm = rounds
 		s.Rate, s.Done = confirmed, true
-		if confirmed == 0 {
+		switch {
+		case confirmed == 0 && limited:
+			s.Note = fmt.Sprintf("the load generator could not play valid confirmation rounds at %.2f visits a second, so no rate is confirmed", lo)
+		case confirmed == 0:
 			s.Note = fmt.Sprintf("no sustainable rate in range: no rate from %.2f down in four steps of 10%% passed %d rounds", lo, b.o.Rounds)
-		}
-		if hi == 0 && confirmed > 0 {
+		case hi == 0 && !s.Limited:
 			s.Note = "the search reached its cap without failing"
 		}
 		if err := b.commit(); err != nil {
@@ -682,11 +698,11 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 					if x.Framework == fw && x.Scenario == sc.Name && x.Round == round {
 						tries++
 						if x.Valid {
-							tries = 3
+							tries = maxTries
 						}
 					}
 				}
-				if tries >= 3 {
+				if tries >= maxTries {
 					break
 				}
 				r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
@@ -1024,48 +1040,100 @@ func raiseFileLimit() {
 	}
 }
 
-// ConfirmRate looks for a rate at which the rule holds in all the rounds, each of them valid, starting at start and
-// stepping down 10% for up to attempts tries. run plays one round at a rate. It returns the rate that
-// passed all its rounds, or 0 if none did in range, and every round it ran, in order: a failing round
-// ends its try, and the rounds of the failed tries are kept. If the first try passes, one step 10%
-// above it is tried too, since the search can underestimate and nothing else would correct that: the
-// rate above is published if it passes all its rounds, and the first one otherwise. The step up is
-// not tried when it would pass maxRate, the cap of the search (none when 0).
-func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error), maxRate float64) (float64, []Round, error) {
+// The outcomes of a round of the search of a rate: valid and passing the rule, valid and failing
+// it, or not valid (the load generator did not do its work), which says nothing about the server.
+const (
+	trialPass    = "pass"
+	trialFail    = "fail"
+	trialInvalid = "invalid"
+)
+
+// trialOf is the outcome of a round.
+func trialOf(r *Round) string {
+	switch {
+	case !r.Valid:
+		return trialInvalid
+	case r.Pass:
+		return trialPass
+	}
+	return trialFail
+}
+
+// maxTries is how many times a round that is not valid is played, at the same rate or sessions.
+const maxTries = 3
+
+// retryInvalid plays a round (try counts from 1) until one is valid, up to maxTries, and returns the
+// last one.
+func retryInvalid(play func(try int) (*Round, error)) (*Round, error) {
+	var r *Round
+	for try := 1; try <= maxTries; try++ {
+		var err error
+		if r, err = play(try); err != nil {
+			return nil, err
+		}
+		if r.Valid {
+			break
+		}
+	}
+	return r, nil
+}
+
+// ConfirmRate looks for a rate at which the rule holds in all the rounds, each of them valid, starting
+// at start and stepping down 10% for up to attempts tries. run plays one round at a rate. A round that
+// is not valid is played again at its rate (up to maxTries): it never steps the rate down. It returns
+// the rate that passed all its rounds, or 0 if none did in range, every round it ran, in order (a
+// failing round ends its try, and the rounds of the failed tries are kept), and whether the load
+// generator limited it: a round stayed invalid, which ends the confirmation there. If the first try
+// passes, one step 10% above it is tried too, since the search can underestimate and nothing else
+// would correct that: the rate above is published if it passes all its rounds, and the first one
+// otherwise. The step up is not tried when it would pass maxRate, the cap of the search (none when 0).
+func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error), maxRate float64) (float64, []Round, bool, error) {
 	var all []Round
-	try := func(n int, rate float64) (bool, error) {
+	try := func(n int, rate float64) (string, error) {
 		for round := 1; round <= rounds; round++ {
-			r, err := run(rate, round)
+			r, err := retryInvalid(func(int) (*Round, error) {
+				r, err := run(rate, round)
+				if err != nil {
+					return nil, err
+				}
+				r.Round, r.Attempt = round, n
+				all = append(all, *r)
+				return r, nil
+			})
 			if err != nil {
-				return false, err
+				return "", err
 			}
-			r.Round, r.Attempt = round, n
-			all = append(all, *r)
-			if !r.Pass || !r.Valid {
-				return false, nil
+			if got := trialOf(r); got != trialPass {
+				return got, nil
 			}
 		}
-		return true, nil
+		return trialPass, nil
 	}
 	rate := start
 	for n := 1; n <= attempts; n++ {
-		ok, err := try(n, rate)
+		got, err := try(n, rate)
 		if err != nil {
-			return 0, all, err
+			return 0, all, false, err
 		}
-		if ok {
+		switch got {
+		case trialInvalid:
+			return 0, all, true, nil
+		case trialPass:
 			if up := math.Round(rate*1.1*100) / 100; n == 1 && (maxRate == 0 || up <= maxRate) {
-				if ok, err := try(n+1, up); err != nil {
-					return 0, all, err
-				} else if ok {
-					return up, all, nil
+				got, err := try(n+1, up)
+				if err != nil {
+					return 0, all, false, err
 				}
+				if got == trialPass {
+					return up, all, false, nil
+				}
+				return rate, all, got == trialInvalid, nil
 			}
-			return rate, all, nil
+			return rate, all, false, nil
 		}
 		rate = math.Round(rate*0.9*100) / 100
 	}
-	return 0, all, nil
+	return 0, all, false, nil
 }
 
 // IsBrowseResult says whether a JSON file is a result of `compare browse` rather than a record of
@@ -1086,16 +1154,21 @@ func (r *BrowseResult) json() ([]byte, error) { return json.Marshal(r) }
 const minRate = 0.5
 
 // searchRate brackets the rate the rule holds at: it doubles from 4 visits a second (or from maxRate
-// when that is lower) while the rule holds, or, if the first fails, halves until one holds. lo is the highest rate that passed (0 if none did)
-// and hi the lowest that failed above it (0 if none did, within maxRate).
-func searchRate(maxRate float64, trial func(rate float64) (bool, error)) (lo, hi float64, err error) {
+// when that is lower) while the rule holds, or, if the first fails, halves until one holds. lo is the
+// highest rate that passed (0 if none did) and hi the lowest that failed above it (0 if none did,
+// within maxRate). A trial that stayed invalid ends the search where it is, limited by the load
+// generator: it is neither a pass nor a failure of the server.
+func searchRate(maxRate float64, trial func(rate float64) (string, error)) (lo, hi float64, limited bool, err error) {
 	rate := min(4, maxRate)
 	for rate <= maxRate {
-		ok, err := trial(rate)
+		got, err := trial(rate)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, false, err
 		}
-		if !ok {
+		if got == trialInvalid {
+			return lo, hi, true, nil
+		}
+		if got == trialFail {
 			hi = rate
 			if lo == 0 && rate > minRate {
 				rate /= 2
@@ -1109,7 +1182,7 @@ func searchRate(maxRate float64, trial func(rate float64) (bool, error)) (lo, hi
 		}
 		lo, rate = rate, rate*2
 	}
-	return lo, hi, nil
+	return lo, hi, false, nil
 }
 
 // errOldFormat is the error for a result written by an older version of `compare browse`.
