@@ -6,15 +6,16 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // PageData is the data of each of every page of CheckedPages by URL and then by route ID: what the Go Layout
@@ -23,12 +24,15 @@ type PageData map[string]map[string]any
 
 // DomainWrite is a write that the domain check makes to the shop and to the port before it compares
 // their data: Kind is one of the kinds of write (WriteCreate has no Order, and the Order of
-// WriteProduct is the slug of the product), Body its JSON.
+// WriteProduct is the slug of the product), Body its JSON. At is the instant the shop made it at,
+// in Unix milliseconds, which GoData fills in for the writes that take one (a create, a ship and a
+// note) and the port then makes it at.
 type DomainWrite struct {
 	Kind    string `json:"kind"`
 	Project string `json:"project"`
 	Order   string `json:"order,omitempty"`
 	Body    any    `json:"body"`
+	At      int64  `json:"at,omitempty"`
 }
 
 // RecipientWrites are the writes that change the recipient of orders, for the check.
@@ -72,21 +76,80 @@ func (w DomainWrite) shopRequest() Step {
 	return Step{Method: http.MethodPatch, Path: order, Body: mustJSON(w.Body)}
 }
 
+// sendWrite makes w on the shop at base and returns the instant the shop made it at, in Unix
+// milliseconds, from the order it answers with: when it was placed (a create), shipped (a ship) or
+// got its last note (a note). The other writes take no instant and give 0.
+func sendWrite(ctx context.Context, base string, w DomainWrite) (int64, error) {
+	st := w.shopRequest()
+	req, err := http.NewRequestWithContext(ctx, st.Method, base+st.Path, bytes.NewReader(st.Body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return 0, err
+	}
+	if res.StatusCode != 200 {
+		return 0, fmt.Errorf("%s %s: status %d: %.200s", st.Method, st.Path, res.StatusCode, body)
+	}
+	var order struct {
+		PlacedAt time.Time `json:"placedAt"`
+		Shipment *struct {
+			ShippedAt time.Time `json:"shippedAt"`
+		} `json:"shipment"`
+		Notes []struct {
+			At time.Time `json:"at"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal(body, &order); err != nil {
+		return 0, fmt.Errorf("%s %s: %w", st.Method, st.Path, err)
+	}
+	var at time.Time
+	switch w.Kind {
+	case WriteCreate:
+		at = order.PlacedAt
+	case WriteShip:
+		if order.Shipment == nil {
+			return 0, fmt.Errorf("%s %s: the order did not ship: %.200s", st.Method, st.Path, body)
+		}
+		at = order.Shipment.ShippedAt
+	case WriteNote:
+		if len(order.Notes) == 0 {
+			return 0, fmt.Errorf("%s %s: the order has no note: %.200s", st.Method, st.Path, body)
+		}
+		at = order.Notes[len(order.Notes)-1].At
+	default:
+		return 0, nil
+	}
+	if at.IsZero() || at.Nanosecond()%int(time.Millisecond) != 0 {
+		return 0, fmt.Errorf("%s %s: the shop made it at %v, not a whole millisecond the port can take", st.Method, st.Path, at)
+	}
+	return at.UnixMilli(), nil
+}
+
 // GoData starts bin/shop and asks it, as the browser router does, for the data of the Layouts and
-// the page of each of every page of CheckedPages.
-func (e Env) GoData(ctx context.Context, writes ...DomainWrite) (PageData, error) {
+// the page of each of every page of CheckedPages, after making writes. It also returns the writes
+// with the instant the shop made each at (DomainWrite.At), for NodeData to make them at.
+func (e Env) GoData(ctx context.Context, writes ...DomainWrite) (PageData, []DomainWrite, error) {
 	buildID, err := e.ShopBuildID()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	shop, err := e.Targets()[0].Start(ctx, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer shop.Stop()
-	for _, w := range writes {
-		if err := Send(ctx, shop.Base, w.shopRequest()); err != nil {
-			return nil, err
+	timed := slices.Clone(writes)
+	for i, w := range timed {
+		if timed[i].At, err = sendWrite(ctx, shop.Base, w); err != nil {
+			return nil, nil, err
 		}
 	}
 
@@ -96,16 +159,16 @@ func (e Env) GoData(ctx context.Context, writes ...DomainWrite) (PageData, error
 		url := shop.Base + page.URL + "?_tifa=" + buildID + "." + strings.Repeat("1", strings.Count(page.Routes, ",")+1)
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		body, err := io.ReadAll(res.Body)
 		res.Body.Close()
 		if err != nil || res.StatusCode != 200 {
-			return nil, fmt.Errorf("data of %s: %d %v %s", page.URL, res.StatusCode, err, body)
+			return nil, nil, fmt.Errorf("data of %s: %d %v %s", page.URL, res.StatusCode, err, body)
 		}
 		var answer struct {
 			Routes map[string]struct {
@@ -114,17 +177,17 @@ func (e Env) GoData(ctx context.Context, writes ...DomainWrite) (PageData, error
 			} `json:"routes"`
 		}
 		if err := json.Unmarshal(body, &answer); err != nil {
-			return nil, fmt.Errorf("data of %s: %w", page.URL, err)
+			return nil, nil, fmt.Errorf("data of %s: %w", page.URL, err)
 		}
 		out[page.URL] = map[string]any{}
 		for id, r := range answer.Routes {
 			if r.Status != 200 {
-				return nil, fmt.Errorf("data of %s: route %s answered %d", page.URL, id, r.Status)
+				return nil, nil, fmt.Errorf("data of %s: route %s answered %d", page.URL, id, r.Status)
 			}
 			out[page.URL][id] = r.Data
 		}
 	}
-	return out, nil
+	return out, timed, nil
 }
 
 var nodeVersion = regexp.MustCompile(`^v(\d+)\.(\d+)`)
@@ -253,20 +316,15 @@ func mustJSON(v any) []byte {
 	return data
 }
 
-// WithoutInstants drops every instant from page data: the keys "at" and those that end in "At",
-// and rounds the average dispatch hours of a carrier to 2 decimals, since an order that is shipped
-// some milliseconds after it was placed adds a little to it. Writes that place or ship an order use
-// the clock of the process that makes them, and the shop and the port run at different moments.
+// WithoutInstants drops every instant from page data: the keys "at" and those that end in "At".
+// The port makes its writes at the instants the shop made them (DomainWrite.At), but writes an
+// instant as text in its own way.
 func WithoutInstants(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, e := range x {
 			if k == "at" || strings.HasSuffix(k, "At") {
 				delete(x, k)
-				continue
-			}
-			if f, ok := e.(float64); ok && k == "avgDispatchHours" {
-				x[k] = math.Round(f*100) / 100
 				continue
 			}
 			x[k] = WithoutInstants(e)

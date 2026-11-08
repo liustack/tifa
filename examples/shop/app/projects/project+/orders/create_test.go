@@ -228,3 +228,12 @@ func TestAStaffOrderTakesItsStock(t *testing.T) {
 		}
 	}
 }
+
+// The instant of a write is kept to the millisecond, as JavaScript keeps it.
+func TestNowIsToTheMillisecond(t *testing.T) {
+	for range 100 {
+		if n := Now(); n.Nanosecond()%int(time.Millisecond) != 0 {
+			t.Fatalf("Now() = %v has a part under a millisecond", n)
+		}
+	}
+}

@@ -8,13 +8,18 @@ import { updateShopProduct } from './weekend.ts'
 import { editOf, newOrder } from './write.ts'
 
 // With a JSON list of writes as the argument, each write is made first, so that the data can be
-// compared with the shop after the same writes: [{kind, project, order, body}], where kind is
-// create, ship, note, recipient or product (order is then the slug of the product) and body is the
-// body of the request to the shop.
+// compared with the shop after the same writes: [{kind, project, order, body, at}], where kind is
+// create, ship, note, recipient or product (order is then the slug of the product), body is the
+// body of the request to the shop, and at is the instant in Unix milliseconds the shop made a
+// create, a ship or a note at (DomainWrite in domain.go), which the port makes it at too.
+const at = (w: { kind: string; at?: number }): number => {
+  if (!Number.isInteger(w.at)) throw new Error(`a ${w.kind} with no instant: the shop's must be given`)
+  return w.at!
+}
 for (const w of JSON.parse(process.argv[2] ?? '[]')) {
   switch (w.kind) {
     case 'create':
-      postOrder(w.project, newOrder(w.body), Date.now())
+      postOrder(w.project, newOrder(w.body), at(w))
       break
     case 'product': {
       const e = editOf(w.body)
@@ -23,10 +28,10 @@ for (const w of JSON.parse(process.argv[2] ?? '[]')) {
       break
     }
     case 'ship':
-      shipOrder(w.project, w.order, w.body.carrier, w.body.trackingNo, Date.now())
+      shipOrder(w.project, w.order, w.body.carrier, w.body.trackingNo, at(w))
       break
     case 'note':
-      addNote(w.project, w.order, w.body.text, Date.now())
+      addNote(w.project, w.order, w.body.text, at(w))
       break
     case 'recipient':
       updateRecipient(w.project, w.order, w.body.customer, w.body.phone, w.body.address)

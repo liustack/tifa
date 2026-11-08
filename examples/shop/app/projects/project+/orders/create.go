@@ -178,3 +178,8 @@ func keep(projectID string, s shop, in NewOrder, items []itemRecord, at time.Tim
 	})
 	return id
 }
+
+// Now is the instant a write of an order is made at: the time of the server, to the millisecond.
+// Instants are kept to the millisecond, as JavaScript keeps them, so the ports of the shop in the
+// comparison apps can make a write at the very instant the shop made it.
+func Now() time.Time { return time.Now().Truncate(time.Millisecond) }

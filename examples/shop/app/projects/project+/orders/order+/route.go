@@ -2,8 +2,6 @@
 package order
 
 import (
-	"time"
-
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/projects/project+"
 	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
@@ -48,7 +46,7 @@ func (in ShipInput) Validate() error { return orders.CheckShipment(in.Carrier, i
 
 // POST ships the order and answers with it.
 func POST(c *tifa.Ctx, in ShipInput) (orders.Order, error) {
-	if err := orders.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier, in.TrackingNo, time.Now()); err != nil {
+	if err := orders.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier, in.TrackingNo, orders.Now()); err != nil {
 		return orders.Order{}, err
 	}
 	return orders.GetOrder(c.Param("project"), c.Param("order"))
@@ -81,7 +79,7 @@ func (in NoteInput) Validate() error { return orders.CheckNote(in.Text) }
 // PUT puts a note on the order, for the staff of the shop, and answers with the order. Notes can
 // be written after the order ships too.
 func PUT(c *tifa.Ctx, in NoteInput) (orders.Order, error) {
-	if err := orders.AddNote(c.Param("project"), c.Param("order"), "Owner", in.Text, time.Now()); err != nil {
+	if err := orders.AddNote(c.Param("project"), c.Param("order"), "Owner", in.Text, orders.Now()); err != nil {
 		return orders.Order{}, err
 	}
 	return orders.GetOrder(c.Param("project"), c.Param("order"))

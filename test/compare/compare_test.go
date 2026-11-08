@@ -78,7 +78,7 @@ func TestDomainMatchesGo(t *testing.T) {
 	}
 	buildShop(t, env)
 	ctx := context.Background()
-	want, err := env.GoData(ctx)
+	want, _, err := env.GoData(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,8 +391,9 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 // TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes,
 // and then a staff edit of a product of each shop and every kind of write of the shop's admin (place,
 // ship, note, change the recipient), to the Go shop and applies them in the port, and checks that the
-// data of every page, with the pages of the orders placed, is still the same. Instants are left out,
-// since the two make them at different times.
+// data of every page, with the pages of the orders placed, is still the same. The port makes each
+// write at the instant the shop made it, so what follows from the instants (the dispatch hours, the
+// heatmap) is the same too. Instants are left out, as the two write them as text in their own ways.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	env := setup(t)
 	if why := compare.NodeRunsTypeScript(); why != "" {
@@ -412,11 +413,14 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "weekend", Order: "postcards", Body: map[string]any{
 		"priceCents": 3800, "stock": 40, "nameEn": " Postcards of Cities ", "nameZh": "城市明信片", "descriptionEn": "Six cards.", "descriptionZh": "六张。"}})
 	writes = append(writes, adminWrites()...)
-	want, err := env.GoData(ctx, writes...)
+	want, timed, err := env.GoData(ctx, writes...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := env.NodeData(ctx, writes...)
+	// The port must make each write at the instant the shop made it, not read a clock of its own: its
+	// clock runs an hour ahead here, so a write timed by it shows in the dispatch hours of the stats.
+	t.Setenv("NODE_OPTIONS", "--import=data:text/javascript,const%20now%3DDate.now%3BDate.now%3D()%3D%3Enow()%2B3600000")
+	got, err := env.NodeData(ctx, timed...)
 	if err != nil {
 		t.Fatal(err)
 	}
