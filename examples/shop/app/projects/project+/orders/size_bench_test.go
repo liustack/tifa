@@ -43,7 +43,8 @@ func grow(tb testing.TB, n int) {
 
 // BenchmarkReads times the reads of the pages of the workbench with studio at about 50, 2000 and
 // 5000 orders: the order list, an order with the other orders of its customer and of its first
-// product, the pending count every page shows in the sidebar, and the stats.
+// product, the pending count every page shows in the sidebar, and the stats, then a new order in
+// studio.
 func BenchmarkReads(b *testing.B) {
 	for _, n := range []int{50, 2000, 5000} {
 		grow(b, n)
@@ -69,14 +70,18 @@ func BenchmarkReads(b *testing.B) {
 				SalesStats("studio", shanghai)
 			}
 		})
-		// Each run starts again from n orders, since the run before placed many in weekend, and the
-		// orders it places are newer than all of them, as orders placed now are.
+		// Each run starts again from n orders in studio, since the run before placed more there, and
+		// reads its list and stats first, so the writes keep the day totals of its zone up, as they
+		// do once a page has been read. The orders it places are newer than all of them, as orders
+		// placed now are.
 		b.Run(fmt.Sprintf("orders=%d/create", n), func(b *testing.B) {
 			grow(b, n)
+			ListOrders("studio", shanghai, ListQuery{})
+			SalesStats("studio", shanghai)
 			at := time.Date(2026, 10, 20, 9, 0, 0, 0, chinaTime)
 			for b.Loop() {
 				at = at.Add(time.Second)
-				if _, err := CreateOrder("weekend", NewOrder{Customer: "林夏", Phone: "13800138000", Address: "上海市徐汇区", Items: []NewLine{{Slug: "postcards", Quantity: 1}}}, at); err != nil {
+				if _, err := CreateOrder("studio", NewOrder{Customer: "林夏", Phone: "13800138000", Address: "上海市徐汇区", Items: []NewLine{{Slug: "oak-tray", Quantity: 1}}}, at); err != nil {
 					b.Fatal(err)
 				}
 			}
