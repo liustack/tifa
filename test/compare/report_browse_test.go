@@ -395,3 +395,38 @@ func TestTheReportClaimsOnlyWhatItMeasures(t *testing.T) {
 		}
 	}
 }
+
+// The report shows, per server and scenario, how the first valid round went in 10 second steps:
+// Tifa's cache filling up and the JIT of the Node servers warming show as a change over the round.
+func TestBrowseReportShowsTheSeriesOfEachServer(t *testing.T) {
+	mix := mustScenario("store-w5")
+	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+		Config: map[string]string{"sessions": "32"}}
+	steps := func(rates, p99 []float64) []SeriesStep {
+		var out []SeriesStep
+		for i := range rates {
+			out = append(out, SeriesStep{From: 10 * i, PageViews: int(rates[i] * 10), PerSecond: rates[i], P99Ms: p99[i]})
+		}
+		return out
+	}
+	tifa := closedRound("tifa", mix.Name, 32, 1, 4000, 30, true)
+	tifa.Series = steps([]float64{210, 380, 402.5}, []float64{240, 90, 61})
+	node := closedRound("nextjs", mix.Name, 32, 1, 400, 30, true)
+	node.Series = steps([]float64{30, 41, 44}, []float64{800, 300, 250})
+	open := closedRound("nextjs", mix.Name, 0, 1, 400, 30, true)
+	open.Model, open.Rate = "open", 8
+	open.Series = steps([]float64{32, 32}, []float64{120, 100})
+	r.Closed = append(r.Closed, tifa, node)
+	r.Latency = append(r.Latency, open)
+	md := r.Markdown()
+	for _, want := range []string{
+		"#### Page views a second and P99 in 10 second steps",
+		"| Tifa | closed, 32 sessions, round 1 | 210.0 380.0 402.5 | 240 90 61 |",
+		"| Next.js | closed, 32 sessions, round 1 | 30.0 41.0 44.0 | 800 300 250 |",
+		"| Next.js | open, round 1 | 32.0 32.0 | 120 100 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+}

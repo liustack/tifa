@@ -92,6 +92,9 @@ type Round struct {
 	PageRenders map[string]map[string]int `json:"pageRenders,omitempty"`
 	Responses   map[string]int            `json:"responses,omitempty"`
 	Types       map[string]TypeStat       `json:"types"`
+	// Series is page views a second and their P99 in steps of SeriesLength from the first request: how the
+	// round went as the cache filled or the JIT warmed.
+	Series []SeriesStep `json:"series,omitempty"`
 
 	// WriteKinds counts the writes by kind. PoolEmpty counts the admin writes that found no order to
 	// go to and were sent as a create instead (they are among the creates). Orders is, for each
@@ -140,6 +143,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	}
 	r.CPUSeconds, r.ClientCPU = cpu1-cpu0, client1-client0
 	r.PeakRSS = float64(rss) / (1 << 20)
+	r.Series = viewSeries(a.samples, start, end)
 	r.Types = map[string]TypeStat{}
 	for kind, l := range a.lat {
 		sorted := sortedCopy(l)
