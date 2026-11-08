@@ -326,7 +326,8 @@ var removedKeys = []struct{ key, hint string }{
 	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean"},
 }
 
-// removedErrors reports the removed settings that the sources name. projectFile is the entries of
+// removedErrors reports the removed settings that the file, the environment and .env name. Their
+// flags never reach it: the command line refuses an unknown flag first (see RemovedFlagError). projectFile is the entries of
 // the project tifa.yaml, nil when Load reads the sources of a running program.
 func (s *Sources) removedErrors() []error {
 	var errs []error
@@ -337,9 +338,6 @@ func (s *Sources) removedErrors() []error {
 		if _, ok := s.file[r.key]; ok {
 			report("file " + s.fileName)
 		}
-		if _, ok, _ := s.flag(FlagName(r.key), false); ok {
-			report("flag --" + FlagName(r.key))
-		}
 		if _, ok := s.env[EnvName(r.key)]; ok {
 			report("env " + EnvName(r.key))
 		}
@@ -348,4 +346,18 @@ func (s *Sources) removedErrors() []error {
 		}
 	}
 	return errs
+}
+
+// RemovedFlagError adds to the "unknown flag" error of the command line what to do about the flag
+// of a removed setting. Any other error is returned as it is.
+func RemovedFlagError(err error) error {
+	if err == nil {
+		return nil
+	}
+	for _, r := range removedKeys {
+		if strings.Contains(err.Error(), "unknown flag: --"+FlagName(r.key)) {
+			return fmt.Errorf("config: flag --%s: %s is not a setting any more, %s", FlagName(r.key), r.key, r.hint)
+		}
+	}
+	return err
 }

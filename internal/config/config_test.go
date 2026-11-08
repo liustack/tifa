@@ -878,16 +878,12 @@ func TestRemovedSettingsAreErrors(t *testing.T) {
 		want          []string
 	}{
 		"size in the project file":  {project: "cache:\n  size: 1MiB\n", want: size},
-		"size flag":                 {args: []string{"--cache-size=0"}, want: size},
-		"size flag with a space":    {args: []string{"--cache-size", "0"}, want: size},
 		"size env":                  {environ: []string{"CACHE_SIZE=0"}, want: size},
 		"size in the file of -c":    {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  size: 1MiB\n")}, want: size},
 		"size in .env":              {dotenv: true, want: size},
 		"whole_page project file":   {project: "cache:\n  whole_page: false\n", want: whole},
-		"whole_page flag":           {args: []string{"--cache-whole-page=false"}, want: whole},
 		"whole_page env":            {environ: []string{"CACHE_WHOLE_PAGE=false"}, want: whole},
 		"ignore_query project file": {project: "cache:\n  ignore_query: ref\n", want: ignore},
-		"ignore_query flag":         {args: []string{"--cache-ignore-query", "ref"}, want: ignore},
 		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
 	} {
 		var err error
