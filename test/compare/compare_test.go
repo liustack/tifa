@@ -613,3 +613,33 @@ func dig(v any, keys ...string) any {
 	}
 	return v
 }
+
+// TestTheNodeAppsCacheNothing guards that the three Node apps keep no page: two identical GETs of the
+// pages of the site, the workbench and the storefront in both languages, have nothing that lets a
+// cache keep them or ask for them again cheaply (compare.CacheSigns). An upgrade of a framework or a
+// change of its config that turns on a cache fails here.
+func TestTheNodeAppsCacheNothing(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	pages := slices.Concat(compare.Pages, compare.StorePages())
+	for _, name := range []string{"nextjs", "start", "reactrouter"} {
+		target := mustTarget(t, env, name)
+		server, err := target.Start(context.Background(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, page := range pages {
+			for try := range 2 {
+				_, header, err := compare.FetchWithHeader(server.Base, page)
+				if err != nil {
+					t.Errorf("%s: %v", name, err)
+					break
+				}
+				if signs := compare.CacheSigns(header); len(signs) > 0 {
+					t.Errorf("%s: GET %s (%d of 2) has %v", name, page.URL, try+1, signs)
+				}
+			}
+		}
+		server.Stop()
+	}
+}
