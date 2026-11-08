@@ -243,7 +243,7 @@ func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
 	r.Closed, r.Control = []Round{x, n}, []Round{c}
 	md := r.Markdown()
 	for _, want := range []string{
-		"render cache hits of full loads by kind of page",
+		"render cache hits by kind of page",
 		"| | list | order | stats |",
 		"| Tifa | 55.0% of 100 | 1.0% of 100 | 55.0% of 20 |",
 		"#### Read-only control",

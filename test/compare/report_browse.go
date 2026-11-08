@@ -246,7 +246,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), rate(func(x *Round) int { return x.FullLoads }), rate(func(x *Round) int { return x.Clicks }), rate(func(x *Round) int { return x.Writes }), tifa("vm"), tifa("cache"), tifa("shared"))
 	}
-	b.WriteString("\nWhat one visit costs the server, as requests per visit (and, for Tifa, what it did with the documents):\n\n| | documents 200 (full pages) | documents 304 | client navigation requests | prefetches | writes | renders | cache hits | shared renders |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhat one visit costs the server, as requests per visit (and, for Tifa, what it did with the documents and the navigation data that said how they were answered):\n\n| | documents 200 (full pages) | documents 304 | client navigation requests | prefetches | writes | renders | cache hits | shared renders |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := r.cellRounds(f, sc.Name, users)
 		if len(rs) == 0 {
@@ -505,8 +505,8 @@ func pageKinds(rounds []Round) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// hitCell is the share of the full loads of a kind of page that the render cache answered, over
-// all the rounds, with how many full loads had a render.
+// hitCell is the share of the answers of a kind of page (documents and navigation data that said how
+// they were answered) that the render cache answered, over all the rounds, with how many there were.
 func hitCell(rounds []Round, kind string) string {
 	hits, all := 0, 0
 	for _, x := range rounds {
@@ -524,7 +524,7 @@ func hitCell(rounds []Round, kind string) string {
 }
 
 // pageRendersMarkdown is a diagnostic for Tifa: the render cache hits of the full loads of the
-// closed rounds at a number of users, by kind of page (X-Tifa-Render on the documents).
+// closed rounds at a number of users, by kind of page (X-Tifa-Render on the documents and the navigation data).
 func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario, users int) {
 	var rows []string
 	var all []Round
@@ -538,7 +538,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 	if len(kinds) == 0 {
 		return
 	}
-	b.WriteString("\nA diagnostic for Tifa, the render cache hits of full loads by kind of page (from X-Tifa-Render on the documents, over the rounds):\n\n|")
+	b.WriteString("\nA diagnostic for Tifa, the render cache hits by kind of page (from X-Tifa-Render on the documents and on the navigation data, over the rounds):\n\n|")
 	for _, k := range kinds {
 		fmt.Fprintf(b, " | %s", k)
 	}
@@ -568,7 +568,7 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	users := control[0].Users
 	closed := r.cellRounds("tifa", sc.Name, users)
 	kinds := pageKinds(append(slices.Clone(control), closed...))
-	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d users with the same traces and no writes, one short round, against its closed rounds of this scenario. The render cache hits of full loads by kind of page show which pages the writes keep from the cache.\n\n| | page views/s", users)
+	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d users with the same traces and no writes, one short round, against its closed rounds of this scenario. The render cache hits by kind of page show which pages the writes keep from the cache.\n\n| | page views/s", users)
 	for _, k := range kinds {
 		fmt.Fprintf(b, " | %s", k)
 	}

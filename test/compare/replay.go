@@ -198,7 +198,7 @@ type acc struct {
 	// and were sent as a create instead (they are among the creates).
 	kinds     map[string]int
 	poolEmpty int
-	// pageRenders counts the renders of full loads (X-Tifa-Render on the documents) by kind of page.
+	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
 }
 
@@ -272,8 +272,9 @@ var errNotSent = errors.New("cancelled before it was sent")
 
 // send plays one recorded request. A request the browser cancelled is cancelled at the recorded
 // offset from the start of its step: the connection is released and the rest of the answer is not
-// read. cancelAt is that time (zero for a request the browser let finish).
-func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, cancelAt time.Time) outcome {
+// read. cancelAt is that time (zero for a request the browser let finish). page is the page of the
+// page view the request belongs to.
+func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, page string, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	responded, sent := false, false
@@ -384,15 +385,16 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	if rd := res.Header.Get("X-Remix-Reload-Document"); rd != "" {
 		a.responses["reload-document header"]++
 	}
-	if q.Class == "doc" {
-		if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
-			a.renders[rd]++
-			kind := pageClass(q.URL)
-			if a.pageRenders[kind] == nil {
-				a.pageRenders[kind] = map[string]int{}
-			}
-			a.pageRenders[kind][rd]++
+	// Tifa says how it answered a page: a document, and also the navigation data of a page, which can
+	// render the page in a VM too (one from the whole-page cache). Every answer that says so is counted,
+	// by the kind of page of the page view.
+	if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
+		a.renders[rd]++
+		kind := pageClass(page)
+		if a.pageRenders[kind] == nil {
+			a.pageRenders[kind] = map[string]int{}
 		}
+		a.pageRenders[kind][rd]++
 	}
 	if q.Class == "prefetch" {
 		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))
@@ -445,7 +447,7 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 					return
 				}
 			}
-			outs[j] = r.send(ctx, v, a, q, cancelAt)
+			outs[j] = r.send(ctx, v, a, q, s.Page, cancelAt)
 			if q.Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
 				v.fail(outs[j].err) // a prefetch that fails is a failure of the visit
 			}
