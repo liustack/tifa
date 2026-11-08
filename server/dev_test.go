@@ -401,9 +401,14 @@ func TestDevMainKeepsRequestErrors(t *testing.T) {
 	if broken.URL != "/broken?x=1" || broken.Status != 503 || broken.Message != "Come back later" || !strings.Contains(broken.Error, "the orders table is gone") || broken.Count != 1 {
 		t.Errorf("second = %+v", broken)
 	}
-	if len(got.Renders) != 1 || got.Renders[0].URL != "/stats" || got.Renders[0].Method != "GET" ||
-		!strings.Contains(got.Renders[0].Text, "read the time or a random number") || got.Renders[0].Count != 1 {
-		t.Errorf("renders = %+v", got.Renders)
+	// The error page of /broken goes through the render cache like a page, so it is checked too.
+	if len(got.Renders) != 2 {
+		t.Fatalf("renders = %+v", got.Renders)
+	}
+	for i, url := range []string{"/broken?x=1", "/stats"} {
+		if r := got.Renders[i]; r.URL != url || r.Method != "GET" || !strings.Contains(r.Text, "read the time or a random number") || r.Count != 1 {
+			t.Errorf("render %d = %+v", i, r)
+		}
 	}
 	if code, body := fetch(t, "DELETE", base+deverrors.Path); code != http.StatusNoContent {
 		t.Fatalf("DELETE: %d %s", code, body)

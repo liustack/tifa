@@ -170,6 +170,9 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
 			}
 			s.pages[r.Path] = true
+			if r.NoRenderCache {
+				s.uncached[r.Path] = true
+			}
 			s.modules[r.Path] = append(slices.Clone(r.Layouts), r.ID)
 			s.handle("GET", r.Path, s.pageHandler(r, chain))
 		}

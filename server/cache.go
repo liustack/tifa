@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/core"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // cacheNow is the clock of the whole-page cache. Tests set it.
@@ -135,6 +136,9 @@ type cachedPage struct {
 	body *bodyID
 	// whole is set for a page of the whole-page cache: what it stands for besides the HTML.
 	whole *wholePage
+	// redirect is set for a render that the router ended with a redirect: the page is that
+	// redirect and has no HTML.
+	redirect *ssr.RedirectError
 }
 
 func (p cachedPage) size() int64 { return p.bodySize() + p.meta() }
@@ -148,11 +152,14 @@ func (p cachedPage) bodySize() int64 {
 }
 
 // meta is what the page costs besides its body: its policy, which every page
-// keeps for itself, and what a page of the whole-page cache stands for.
+// keeps for itself, what a page of the whole-page cache stands for, and a redirect.
 func (p cachedPage) meta() int64 {
 	n := int64(len(p.policy))
 	if p.whole != nil {
 		n += p.whole.size()
+	}
+	if p.redirect != nil {
+		n += int64(len(p.redirect.Location)) + 32
 	}
 	return n
 }
@@ -332,6 +339,24 @@ func (c *htmlCache) stale(key string, now time.Time) (cachedPage, bool) {
 		return cachedPage{}, false
 	}
 	c.order.MoveToFront(e)
+	return page, true
+}
+
+// renderedFrom returns the page of the entry of the whole-page cache at key, fresh or not, when its
+// HTML was rendered through the render cache from the input whose render key is tag: a new entry
+// made from that input has the same HTML. An entry of a page with RenderCache = false has a tag of
+// its HTML instead (contentTag), which no render key equals.
+func (c *htmlCache) renderedFrom(key, tag string) (cachedPage, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.pages[key]
+	if !ok {
+		return cachedPage{}, false
+	}
+	page := e.Value.(*cached).page
+	if page.whole == nil || page.whole.status != http.StatusOK || page.whole.etag != tag {
+		return cachedPage{}, false
+	}
 	return page, true
 }
 

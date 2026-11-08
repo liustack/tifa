@@ -1,0 +1,405 @@
+package server
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/ssr"
+)
+
+// The tests here count what a request costs: the Loads it runs, the renders in the VM, the JSON
+// encodings of Load data and the gzip compressions of pages for the cache.
+
+// countedValue counts how often JSON writes it.
+type countedValue struct {
+	n *atomic.Int64
+	v int64
+}
+
+func (c countedValue) MarshalJSON() ([]byte, error) {
+	c.n.Add(1)
+	return []byte(fmt.Sprint(c.v)), nil
+}
+
+// workEnv is an app whose pages sit under a root Layout with a Load. version is the data of every
+// Load that returns data, so a test changes the data by moving it on. failWith, by path, is the
+// error the Load of that page returns. redirects, by path, makes the render redirect.
+type workEnv struct {
+	s        *server
+	r        *renders
+	clock    *cacheClock
+	loads    atomic.Int64
+	encodes  atomic.Int64
+	compress *atomic.Int64
+	onError  atomic.Int64
+	version  atomic.Int64
+	mu       sync.Mutex
+	failWith map[string]error
+	redirect map[string]bool
+}
+
+// wastePadding makes a page large enough to be compressed.
+var wastePadding = strings.Repeat("<p>padding text</p>", 200)
+
+func newWorkEnv(t *testing.T, cacheSize int64) *workEnv {
+	t.Helper()
+	e := &workEnv{clock: useCacheClock(t), failWith: map[string]error{}, redirect: map[string]bool{}}
+	load := func(path string) func(c *tifa.Ctx) (any, error) {
+		return func(c *tifa.Ctx) (any, error) {
+			e.loads.Add(1)
+			e.mu.Lock()
+			err := e.failWith[path]
+			e.mu.Unlock()
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"v": countedValue{&e.encodes, e.version.Load()}}, nil
+		}
+	}
+	page := func(path string, change func(*Route)) Route {
+		r := Route{ID: "app" + path, Path: path, Page: true, SSR: true, Layouts: []string{"app/layout"}, Load: load(path)}
+		if change != nil {
+			change(&r)
+		}
+		return r
+	}
+	app := App{
+		Hooks: Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {
+			e.onError.Add(1)
+			return tifa.Error{Status: 500, Message: "Internal Server Error"}
+		}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: load("layout")}},
+		Routes: []Route{
+			page("/plain", nil),
+			page("/live", func(r *Route) { r.NoRenderCache = true }),
+			page("/cached", func(r *Route) { r.Cache = time.Minute }),
+			page("/cachedlive", func(r *Route) { r.Cache, r.NoRenderCache = time.Minute, true }),
+			page("/cachedpriv", func(r *Route) {
+				r.Cache = time.Minute
+				r.Load = func(c *tifa.Ctx) (any, error) {
+					e.loads.Add(1)
+					c.SetHeader("Cache-Control", "private")
+					return e.version.Load(), nil
+				}
+			}),
+		},
+	}
+	cfg := config.Default()
+	cfg.Cache.Size = cacheSize
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	e.r = &renders{result: func(in ssr.Input) (string, error) {
+		e.mu.Lock()
+		redirect := e.redirect[strings.SplitN(in.URL, "?", 2)[0]]
+		e.mu.Unlock()
+		if redirect {
+			return "", &ssr.RedirectError{Location: "/elsewhere", Status: http.StatusTemporaryRedirect}
+		}
+		return "<html>" + in.URL + " " + string(in.Data) + " " + strings.Join(in.Texts, " ") + wastePadding + "</html>", nil
+	}}
+	if err := s.setFront(dist, e.r.render); err != nil {
+		t.Fatal(err)
+	}
+	e.compress = countCompressions(t)
+	e.s = s
+	return e
+}
+
+func (e *workEnv) fail(path string, err error) {
+	e.mu.Lock()
+	e.failWith[path] = err
+	e.mu.Unlock()
+}
+
+func (e *workEnv) redirects(path string) {
+	e.mu.Lock()
+	e.redirect[path] = true
+	e.mu.Unlock()
+}
+
+// work is what one request cost and what it answered.
+type work struct {
+	w                                         *httptest.ResponseRecorder
+	loads, renders, encodes, compress, errors int64
+}
+
+func (k work) String() string {
+	return fmt.Sprintf("%d, %d Loads, %d renders, %d encodings, %d compressions, X-Tifa-Render %q", k.w.Code, k.loads, k.renders, k.encodes, k.compress, k.w.Header().Get(renderHeader))
+}
+
+func (e *workEnv) do(method, target string, header ...string) work {
+	l, r, j, c, o := e.loads.Load(), e.r.count(), e.encodes.Load(), e.compress.Load(), e.onError.Load()
+	req := httptest.NewRequest(method, target, nil)
+	req.Header.Set("Accept-Encoding", chrome)
+	for i := 0; i < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
+	w := httptest.NewRecorder()
+	e.s.ServeHTTP(w, req)
+	return work{w: w, loads: e.loads.Load() - l, renders: int64(e.r.count() - r), encodes: e.encodes.Load() - j, compress: e.compress.Load() - c, errors: e.onError.Load() - o}
+}
+
+// A 404 page and an error page from a failed Load are a function of their render input as every
+// page is, so the render cache keeps them. They carry no ETag, and a request with If-None-Match gets
+// the page, since a precondition only applies to an answer that would be 2xx (RFC 9110 13.2.1).
+// OnError still sees every failure.
+func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	e.fail("/plain", tifa.ErrNotFound)
+	e.fail("/live", tifa.ErrNotFound)
+	for _, tc := range []struct {
+		name, target string
+		status       int
+		errors       int64
+	}{
+		{"a Load returns 404", "/plain", 404, 0},
+		{"no route matches", "/nope", 404, 0},
+	} {
+		first, second := e.do("GET", tc.target), e.do("GET", tc.target)
+		if first.w.Code != tc.status || first.renders != 1 || first.w.Header().Get(renderHeader) != "vm" {
+			t.Errorf("%s: first %s", tc.name, first)
+		}
+		if second.w.Code != tc.status || second.renders != 0 || second.w.Header().Get(renderHeader) != "cache" || second.w.Body.String() != first.w.Body.String() {
+			t.Errorf("%s: second %s", tc.name, second)
+		}
+		if etag := first.w.Header().Get("ETag") + second.w.Header().Get("ETag"); etag != "" {
+			t.Errorf("%s: ETag %q", tc.name, etag)
+		}
+		if w := e.do("GET", tc.target, "If-None-Match", "*"); w.w.Code != tc.status || w.renders != 0 || w.w.Body.Len() == 0 {
+			t.Errorf("%s: with If-None-Match: %s", tc.name, w)
+		}
+		if w := e.do("HEAD", tc.target); w.w.Code != tc.status || w.renders != 0 {
+			t.Errorf("%s: HEAD %s", tc.name, w)
+		}
+	}
+	// An unexpected error: OnError runs each time, the page renders once.
+	e.fail("/plain", fmt.Errorf("db down"))
+	first, second := e.do("GET", "/plain"), e.do("GET", "/plain")
+	if first.w.Code != 500 || first.renders != 1 || first.errors != 1 || second.w.Code != 500 || second.renders != 0 || second.errors != 1 || second.w.Body.String() != first.w.Body.String() {
+		t.Errorf("Load fails: %s, OnError %d, then %s, OnError %d", first, first.errors, second, second.errors)
+	}
+	// What the page shows of the error is in the key: another status or message is another page.
+	e.fail("/plain", tifa.Error{Status: 503, Message: "come back later"})
+	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back later") {
+		t.Errorf("another error: %s", w)
+	}
+	e.fail("/plain", tifa.Error{Status: 503, Message: "come back tomorrow"})
+	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back tomorrow") {
+		t.Errorf("another message: %s", w)
+	}
+	// A page with Cache whose Load answers 404 skips its whole-page cache for a while, and the
+	// render cache has its 404 page meanwhile.
+	e.fail("/cached", tifa.ErrNotFound)
+	first, second = e.do("GET", "/cached"), e.do("GET", "/cached")
+	if first.w.Code != 404 || first.renders != 1 || second.w.Code != 404 || second.renders != 0 {
+		t.Errorf("404 of a page with Cache: %s, then %s", first, second)
+	}
+	// RenderCache = false keeps its 404 page out of the cache too.
+	for range 2 {
+		if w := e.do("GET", "/live"); w.w.Code != 404 || w.renders != 1 || w.w.Header().Get(renderHeader) != "vm" {
+			t.Errorf("404 of a page with RenderCache = false: %s", w)
+		}
+	}
+}
+
+// A file under /assets/ that the build does not have, such as a chunk of an old build that a tab
+// opened before a deploy asks for, is a plain 404: no Load, no render.
+func TestMissingAssetIsAPlainNotFound(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	for _, method := range []string{"GET", "HEAD"} {
+		w := e.do(method, "/assets/old-123.js")
+		if w.w.Code != 404 || w.loads != 0 || w.renders != 0 || !strings.HasPrefix(w.w.Header().Get("Content-Type"), "text/plain") {
+			t.Errorf("%s: %s, Content-Type %q", method, w, w.w.Header().Get("Content-Type"))
+		}
+		if cc := w.w.Header().Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s: Cache-Control %q", method, cc)
+		}
+	}
+	// The files of the build and a public file under /assets/ are still served.
+	for _, target := range []string{"/assets/app-1.js", "/assets/logo.svg"} {
+		if w := e.do("GET", target); w.w.Code != 200 {
+			t.Errorf("%s: %s", target, w)
+		}
+	}
+}
+
+// A redirect of the router during the render is a result of the render input like a page, so the
+// render cache keeps it.
+func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	e.redirects("/plain")
+	first, second := e.do("GET", "/plain"), e.do("GET", "/plain")
+	for i, w := range []work{first, second} {
+		if w.w.Code != 307 || w.w.Header().Get("Location") != "/elsewhere" || w.w.Header().Get("ETag") != "" {
+			t.Errorf("answer %d: %s, Location %q, ETag %q", i, w, w.w.Header().Get("Location"), w.w.Header().Get("ETag"))
+		}
+	}
+	if first.renders != 1 || second.renders != 0 {
+		t.Errorf("renders: %d then %d", first.renders, second.renders)
+	}
+	// A page with Cache keeps no 307 and skips its cache for a while, and each of those requests
+	// makes the page again: the render cache answers them.
+	e.redirects("/cached")
+	var renders int64
+	for _, target := range []string{"/cached", "/cached", dataURL("/cached", "b1", "01"), "/cached"} {
+		w := e.do("GET", target)
+		renders += w.renders
+		if target == "/cached" && (w.w.Code != 307 || w.w.Header().Get("Location") != "/elsewhere") {
+			t.Errorf("GET %s: %s", target, w)
+		}
+	}
+	if renders != 1 {
+		t.Errorf("a page with Cache that redirects rendered %d times", renders)
+	}
+}
+
+// Making an entry of a page with Cache writes the data of each Load to JSON once.
+func TestMadeEntryEncodesEachLoadOnce(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	for _, target := range []string{"/cached", dataURL("/cached", "b1", "01")} {
+		e.s.ExpirePages([]string{"/cached"})
+		if w := e.do("GET", target); w.loads != 2 || w.encodes != 2 {
+			t.Errorf("GET %s: %s", target, w)
+		}
+	}
+}
+
+// X-Tifa-Render on the answer of a page with Cache says whether the VM rendered for it.
+func TestMadeEntrySaysHowItsPageWasMade(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	// The Load makes the answer private, so each request makes the page alone. The first renders,
+	// the others get the render from the render cache.
+	for i, want := range []string{"vm", "cache", "cache"} {
+		w := e.do("GET", "/cachedpriv")
+		if got := w.w.Header().Get(renderHeader); got != want || w.w.Header().Get("Cache-Status") != "tifa; fwd=bypass" && i > 0 {
+			t.Errorf("request %d: %s, Cache-Status %q, want %q", i, w, w.w.Header().Get("Cache-Status"), want)
+		}
+	}
+	// An entry made again from the render cache.
+	e.do("GET", "/cached")
+	e.s.ExpirePages([]string{"/cached"})
+	if w := e.do("GET", "/cached"); w.renders != 0 || w.w.Header().Get(renderHeader) != "cache" {
+		t.Errorf("made again: %s", w)
+	}
+}
+
+// A page with Cache whose entry is made again with the same data keeps the HTML of the old entry,
+// without a render, also when the render cache no longer has the page.
+func TestRemadeEntryWithTheSameDataKeepsItsPage(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	first := e.do("GET", "/cached")
+	if first.renders != 1 {
+		t.Fatalf("first: %s", first)
+	}
+	// The render cache loses its copy of the page.
+	tag := strings.TrimPrefix(first.w.Header().Get("ETag"), "W/")
+	e.s.cache.mu.Lock()
+	e.s.cache.removeLocked(tag)
+	e.s.cache.mu.Unlock()
+	for _, expire := range []func(){
+		func() { e.s.ExpirePages([]string{"/cached"}) },
+		func() { e.clock.advance(2 * time.Minute) },
+		e.s.contentChanged,
+	} {
+		_, _, before := e.s.cache.stats()
+		expire()
+		w := e.do("GET", "/cached")
+		if w.w.Code != 200 || w.loads != 2 || w.renders != 0 || w.compress != 0 || w.w.Header().Get(renderHeader) != "cache" || w.w.Header().Get("ETag") != first.w.Header().Get("ETag") {
+			t.Errorf("made again with the same data: %s, ETag %q", w, w.w.Header().Get("ETag"))
+		}
+		// The new entry holds the same page, which counts once.
+		if _, _, after := e.s.cache.stats(); after != before {
+			t.Errorf("the cache holds %d bytes, %d before", after, before)
+		}
+		if w.w.Body.String() != first.w.Body.String() {
+			t.Error("made again with the same data: another page")
+		}
+		expire()
+		if d := e.do("GET", dataURL("/cached", "b1", "01")); d.w.Code != 200 || d.renders != 0 {
+			t.Errorf("navigation data made again with the same data: %s", d)
+		}
+	}
+	// New data is a new page.
+	e.version.Add(1)
+	e.s.ExpirePages([]string{"/cached"})
+	if w := e.do("GET", "/cached"); w.renders != 1 || w.w.Header().Get("ETag") == first.w.Header().Get("ETag") {
+		t.Errorf("new data: %s", w)
+	}
+}
+
+// Under memory pressure the copy of a busy page with Cache in the render cache goes first, since
+// the hits of the whole-page entry do not touch it. The entry still makes the page again without a
+// render while its data is the same.
+func TestRemadeEntryOutlivesItsCopyInTheRenderCache(t *testing.T) {
+	probe := newWorkEnv(t, 64<<20)
+	probe.do("GET", "/plain?fill=0")
+	_, _, one := probe.s.cache.stats()
+	e := newWorkEnv(t, one*8)
+	e.do("GET", "/cached")
+	for i := range 20 {
+		e.do("GET", fmt.Sprintf("/plain?fill=%d", i))
+		if w := e.do("GET", "/cached"); w.renders != 0 || w.w.Header().Get(renderHeader) != "cache" {
+			t.Fatalf("hit %d: %s", i, w)
+		}
+	}
+	e.s.ExpirePages([]string{"/cached"})
+	if w := e.do("GET", "/cached"); w.renders != 0 {
+		t.Errorf("made again with the same data: %s", w)
+	}
+}
+
+// The key of a render hashes the input as it is: it copies none of the data, however long.
+func TestRenderKeyCopiesNothing(t *testing.T) {
+	long := strings.Repeat("x", 100_000)
+	in := ssr.Input{BuildID: "b1", URL: "/table", Data: []byte(`{"app/table/route":{"status":200,"text":0}}` + long), Texts: []string{long, long}, Session: []byte(long), Language: "en", Alternates: []byte(long)}
+	renderKey(in, "bundle", "policy")
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range 10 {
+		renderKey(in, "bundle", "policy")
+	}
+	runtime.ReadMemStats(&after)
+	// Other tests that run meanwhile may allocate too, hence the margin: a copy is 100 KB.
+	if perCall := (after.TotalAlloc - before.TotalAlloc) / 10; perCall > 8<<10 {
+		t.Errorf("renderKey allocates %d bytes for 500 KB of input", perCall)
+	}
+}
+
+// A page larger than the cache is compressed once, and a client that takes gzip gets that form.
+func TestPageLargerThanTheCacheIsCompressedOnce(t *testing.T) {
+	e := newWorkEnv(t, 100) // the page gzips to a few hundred bytes
+	for range 2 {
+		w := e.do("GET", "/plain")
+		if w.w.Code != 200 || w.renders != 1 || w.compress != 1 || w.w.Header().Get("Content-Encoding") != "gzip" {
+			t.Fatalf("%s, Content-Encoding %q", w, w.w.Header().Get("Content-Encoding"))
+		}
+		// Compressing the HTML as it goes out gives the same bytes, without a length.
+		if html := e.r.inputs[len(e.r.inputs)-1]; w.w.Body.String() != string(compressPage(e.lastHTML(t, html))) || w.w.Header().Get("Content-Length") != fmt.Sprint(w.w.Body.Len()) {
+			t.Errorf("the answer is not the gzip form the render made: Content-Length %q", w.w.Header().Get("Content-Length"))
+		}
+	}
+	// A client that takes no gzip gets the HTML.
+	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Header().Get("Content-Encoding") != "" || !strings.HasPrefix(w.w.Body.String(), "<html>") {
+		t.Errorf("identity: %s, %q", w, w.w.Header().Get("Content-Encoding"))
+	}
+}
+
+// lastHTML renders in again with the fake bundle, for a test to compare.
+func (e *workEnv) lastHTML(t *testing.T, in ssr.Input) string {
+	t.Helper()
+	html, err := e.r.result(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return html
+}

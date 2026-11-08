@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"errors"
-	"io"
 	"net/http"
 	"slices"
 	"strconv"
@@ -52,9 +51,23 @@ type wholePage struct {
 	headers http.Header
 	// fx is what making the entry does to the cache besides storing it.
 	fx effects
+	// made says how the HTML of the entry was made, as fetched.how does: vm for a render the make
+	// started, shared for one another request started, cache from the render cache, none without
+	// the VM. It is what X-Tifa-Render says to the requests that made the entry (see answeredHow).
+	made string
 	// created is when the entry was made, expires when its time is over and staleUntil when it
 	// stops standing in for a failed page.
 	created, expires, staleUntil time.Time
+}
+
+// answeredHow is what X-Tifa-Render says of an answer from the entry that fetch or a make alone
+// gave with how: cache for a hit, else how the make got the HTML, which a request that waited for
+// a make that rendered calls shared.
+func (w *wholePage) answeredHow(how string) string {
+	if how == "cache" || how == "shared" && w.made == "vm" {
+		return how
+	}
+	return w.made
 }
 
 // wholeRoute is the JSON text of the data of one Load, by route ID.
@@ -127,7 +140,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	pattern := c.Pattern()
 	language := c.Language()
 	generate := func(ctx context.Context, renderless bool) (cachedPage, bool, error) {
-		return s.generate(ctx, base, pattern, route, chain, f, ttl, language, renderless)
+		return s.generate(ctx, base, key, pattern, route, chain, f, ttl, language, renderless)
 	}
 	alone := func() (fetched, error) {
 		page, _, err := generate(rq.Context(), false)
@@ -439,10 +452,11 @@ func (s *server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 }
 
 // generate makes the entry of key: it runs the Loads of the whole chain, renders the page and
-// returns it, and whether the cache keeps it. A result that is not the page, a 404 or another
+// returns it, and whether the cache keeps it. When the entry it replaces was made from the same
+// input, its page is kept and nothing is rendered. A result that is not the page, a 404 or another
 // answer of the app, is returned as an error for each request to answer with. Requests skip the
 // cache of key for a while after a result that cannot be stored.
-func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string, renderless bool) (cachedPage, bool, error) {
+func (s *server) generate(ctx context.Context, base *http.Request, key, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string, renderless bool) (cachedPage, bool, error) {
 	rq := base.Clone(ctx)
 	rq.URL.RawQuery = s.ignore.clean(rq.URL.RawQuery, s.pageQuery[pattern])
 	rq.RequestURI = rq.URL.RequestURI()
@@ -451,7 +465,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 	core.SetLanguage(c, language)
 	core.SetAnonymous(c)
 	created := cacheNow()
-	entry := &wholePage{created: created, expires: created.Add(ttl), staleUntil: created.Add(ttl + staleIfError)}
+	entry := &wholePage{created: created, expires: created.Add(ttl), staleUntil: created.Add(ttl + staleIfError), made: "none"}
 
 	items, loads, err := runChain(c, chain, route.SSR, route.Path)
 	if err != nil {
@@ -469,11 +483,15 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		}
 		return s.madeFailed(err, headers, effects{})
 	}
+	// The texts of the entry are those the page is made from too, written once.
 	for _, l := range chain {
-		text, err := loaderText(items[l.id].Data)
+		item := items[l.id]
+		text, err := loaderText(item.Data)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
+		item.text = text
+		items[l.id] = item
 		entry.routes = append(entry.routes, wholeRoute{id: l.id, text: text})
 	}
 
@@ -519,18 +537,26 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		defer s.rendering.RUnlock()
 		in := ssr.Input{BuildID: f.build.ID, Language: language, Alternates: pageAlternates, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
 			SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
+		tag := renderKey(in, f.build.bundle, s.policyKey())
+		// The entry made before, fresh or not, may have the HTML of this input: it is kept then,
+		// whether or not the render cache still has its own copy.
+		if old, ok := s.cache.renderedFrom(key, tag); ok {
+			page, held, entry.made, entry.etag = old, s.cache.holds(old), "cache", tag
+			break
+		}
 		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
-		page, held, err = s.renderEntry(ctx, rq, f, in, route)
+		got, err := s.renderEntry(ctx, rq, f, in, tag, route)
 		if err != nil {
-			var redirect *ssr.RedirectError
-			if errors.As(err, &redirect) {
-				entry.status, entry.location = redirect.Status, redirect.Location
-				return s.redirectEntry(entry, headers)
-			}
 			failed.err = err
 			return s.madeFailed(failed, headers, effects{})
 		}
-		entry.etag = renderKey(in, f.build.bundle, s.policyKey())
+		entry.made = got.how
+		if redirect := got.page.redirect; redirect != nil {
+			entry.status, entry.location = redirect.Status, redirect.Location
+			return s.redirectEntry(entry, headers)
+		}
+		page, held = got.page, got.held
+		entry.etag = tag
 		if route.NoRenderCache {
 			entry.etag = contentTag(page.html, s.policyKey())
 		}
@@ -560,33 +586,29 @@ func (s *server) redirectEntry(entry *wholePage, headers http.Header) (cachedPag
 }
 
 // renderEntry renders the page of an entry, through the render cache unless the page turned it
-// off, and returns it as the cache keeps it.
-func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, route Route) (cachedPage, bool, error) {
+// off, and returns it as the cache keeps it, with how it was made (see fetched). tag is the render
+// key of in.
+func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, tag string, route Route) (fetched, error) {
 	method, path := rq.Method, rq.URL.Path
 	if route.NoRenderCache {
-		return s.renderOne(ctx, f, in, false, method, path)
+		page, held, err := s.renderOne(ctx, f, in, false, method, path)
+		return fetched{page: page, held: held, how: "vm"}, err
 	}
 	unheard := func(err error) {
-		if !errors.As(err, new(*ssr.RedirectError)) {
-			core.Logger().ErrorContext(ctx, "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
-		}
+		core.Logger().ErrorContext(ctx, "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
-	got, err := s.cache.fetch(ctx, renderKey(in, f.build.bundle, s.policyKey()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	return s.cache.fetch(ctx, tag, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, true, method, path)
 	})
-	if err != nil {
-		return cachedPage{}, false, err
-	}
-	return got.page, got.held, nil
 }
 
 // contentTag is the quoted tag of a page made from its content and policy (see policyKey), for a
 // page that has no render key to stand on.
 func contentTag(html, policy string) string {
 	sum := sha256.New()
-	io.WriteString(sum, policy)
+	hashString(sum, policy)
 	sum.Write([]byte{0})
-	io.WriteString(sum, html)
+	hashString(sum, html)
 	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
 }
 
@@ -596,7 +618,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 	replayHeaders(c.Writer().Header(), entry.headers)
 	c.SetHeader("Cache-Status", status)
 	if c.IsData() {
-		c.SetHeader(renderHeader, got.how)
+		c.SetHeader(renderHeader, entry.answeredHow(got.how))
 		if entry.status != http.StatusOK {
 			session := s.answerSession(c)
 			if session != nil {
@@ -619,7 +641,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 	if got.held {
 		s.setCacheHeaders(c, entry, now, status == "tifa; fwd=stale")
 	}
-	c.SetHeader(renderHeader, got.how)
+	c.SetHeader(renderHeader, entry.answeredHow(got.how))
 	if entry.status != http.StatusOK {
 		http.Redirect(c.Writer(), c.Request(), entry.location, entry.status)
 		return nil

@@ -37,6 +37,8 @@ See [The whole-page cache](app.md#the-whole-page-cache) for the second one.
 
 Tifa reuses a render only when every input is the same: the build, the SSR bundle, the URL, the data of every `Load` and Layout, and the session the browser gets (with `server.csp`, also the policy). The React render cannot read cookies or headers and does no I/O. Everything it shows comes from Go, through that data. So a reused render is byte for byte what a new render would give for that request.
 
+The 404 page and the page a failed `Load` shows are kept the same way. The status and public message of each failed `Load` are part of the data, and `OnError` still sees every failure. They carry no `ETag`, since a 304 only stands for a 200. A redirect the router makes while rendering, such as `/%61` to `/a`, is kept too.
+
 ## Signed-in and private pages
 
 A cart, a bill or an account page is cached the same way. Another visitor has other data or another session, which is another key, so they never get this page. The cache lives in the memory of the process, and it is never sent to a CDN.

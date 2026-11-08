@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"hash"
 	"html"
 	"io"
 	"io/fs"
@@ -21,6 +22,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
@@ -259,7 +261,8 @@ func (s *server) pagesServed() bool {
 // serveStatic answers GET and HEAD for a file of the browser bundle (/assets/...) or of the
 // public directory, before routing and without OnRequest. It reports whether it answered.
 // Bundle files carry a content hash in their names and are cached for good. A name under
-// /assets/ that the bundle lacks may still be a public file, such as public/assets/logo.svg.
+// /assets/ that the bundle lacks may still be a public file, such as public/assets/logo.svg, and is
+// a plain 404 otherwise.
 func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		return false
@@ -278,7 +281,19 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if hash, ok := f.build.Public[name]; ok {
 		etag = `"` + hash + `"`
 	}
-	return serveFile(w, r, f.public, name, "no-cache", etag, false)
+	if serveFile(w, r, f.public, name, "no-cache", etag, false) {
+		return true
+	}
+	// Any other name under /assets/ of an app with pages is a file that is not there, such as a
+	// chunk of an older build that a page loaded before a deploy asks for. It gets a plain 404, as a
+	// file server answers: a 404 page would cost the Loads of the root Layout and a render, for a
+	// script or an image that cannot show it.
+	if strings.HasPrefix(name, "assets/") && f.pages {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return true
+	}
+	return false
 }
 
 // isFile reports whether serveStatic answers a GET of the path p with a file.
@@ -347,6 +362,18 @@ type routeResult struct {
 	// html is the html of the load of the result: its data may hold tifa.HTML values, which a page
 	// the server renders carries as markers (pageText).
 	html bool
+	// text is the JSON text of Data (loaderText) once it is written, "" before: the whole-page cache
+	// writes it for its entry, and the render uses it then (see dataText).
+	text string
+}
+
+// dataText returns the JSON text of the data of r (loaderText), the one written already when there
+// is one.
+func (r routeResult) dataText() (string, error) {
+	if r.text != "" {
+		return r.text, nil
+	}
+	return loaderText(r.Data)
 }
 
 // loaderText writes the data of a Load as the JSON text a page carries. The render parses that
@@ -375,7 +402,7 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
 		if item.Status == http.StatusOK {
-			text, err := loaderText(item.Data)
+			text, err := item.dataText()
 			if err != nil {
 				return nil, err
 			}
@@ -413,7 +440,7 @@ func renderInput(items map[string]routeResult) (data []byte, texts, pageTexts []
 		item := items[id]
 		result := renderResult{Status: item.Status, Error: item.Error, Location: item.Location}
 		if item.Status == http.StatusOK {
-			text, err := loaderText(item.Data)
+			text, err := item.dataText()
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -717,26 +744,45 @@ type dataRedirect struct {
 // whole-page cache, which keys by URL.
 func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
-	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
-		io.WriteString(sum, part)
+	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL} {
+		hashString(sum, part)
+		sum.Write([]byte{0})
+	}
+	sum.Write(in.Data)
+	sum.Write([]byte{0})
+	hashString(sum, in.Preload)
+	sum.Write([]byte{0})
+	sum.Write(in.Session)
+	sum.Write([]byte{0})
+	for _, part := range []string{in.SessionKey, in.SessionHead} {
+		hashString(sum, part)
 		sum.Write([]byte{0})
 	}
 	// A site without languages hashes as it did before they existed.
 	if in.Language != "" {
-		io.WriteString(sum, "language:"+in.Language)
+		hashString(sum, "language:"+in.Language)
 		sum.Write([]byte{0})
 	}
 	if in.Alternates != nil {
-		io.WriteString(sum, "alternates:"+string(in.Alternates))
+		hashString(sum, "alternates:")
+		sum.Write(in.Alternates)
 		sum.Write([]byte{0})
 	}
 	// Each text is written with its length, so moving a character from one text to the next
 	// makes another key.
+	var n [20]byte
 	for _, text := range in.Texts {
-		fmt.Fprintf(sum, "%d:", len(text))
-		io.WriteString(sum, text)
+		sum.Write(strconv.AppendInt(n[:0], int64(len(text)), 10))
+		sum.Write([]byte{':'})
+		hashString(sum, text)
 	}
 	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
+}
+
+// hashString writes s to a hash without copying it, as the data of a Load can be long: Write of a
+// hash only reads the bytes it is given and keeps none of them.
+func hashString(h hash.Hash, s string) {
+	h.Write(unsafe.Slice(unsafe.StringData(s), len(s)))
 }
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
@@ -785,9 +831,16 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	// The ETag and the 304 before the render stand on the HTML being a function of the key. A page
 	// with RenderCache = false says it is not, and a request with a clock is not either, so they get
 	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
+	//
+	// A 404 or an error page is kept by the render cache like any page, but gets neither an ETag
+	// nor a 304: a precondition only applies to an answer that would be 2xx (RFC 9110 section
+	// 13.2.1). The status is not part of the key, and need not be: the render does not see it, and
+	// what an error page shows, the status and public message of each failed Load, is in its data.
 	var tag string
-	if status == http.StatusOK && cache {
+	if cache {
 		tag = renderKey(in, f.build.bundle, s.policyKey())
+	}
+	if status == http.StatusOK && cache {
 		etag := tag
 		if s.cfg.Compress {
 			etag = "W/" + tag
@@ -804,7 +857,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 		}
 	}
 	failed.start = time.Now()
-	if cache && tag != "" {
+	if cache {
 		return s.renderCached(c, f, in, tag, status, failed, since)
 	}
 	page, err := f.render(r.Context(), in)
@@ -881,9 +934,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	method, path := c.Request().Method, c.Request().URL.Path
 	// A render that fails once no request waits has no OnError to go to, so it is logged.
 	unheard := func(err error) {
-		if !errors.As(err, new(*ssr.RedirectError)) {
-			core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
-		}
+		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
 	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, true, method, path)
@@ -895,19 +946,26 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return renderFailed(c, err, failed)
 	}
 	c.SetHeader(renderHeader, got.how)
+	if got.page.redirect != nil {
+		writeRenderRedirect(c, got.page.redirect)
+		return nil
+	}
 	setDataAge(c.Writer().Header(), time.Since(since))
 	s.setPagePolicy(c.Writer().Header(), got.page.policy)
-	if !got.held {
-		return writeHTML(c, status, got.page.html)
-	}
 	return writeCached(c, status, got.page, s.formEncoding(c))
 }
 
 // renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
-// it. twice has tifa dev render a page the render cache keeps once more to find out whether it
-// reads the time or a random number, see devRenderTwice.
+// it. A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
+// the input as the HTML does. twice has tifa dev render a page the render cache keeps once more to
+// find out whether it reads the time or a random number, see devRenderTwice.
 func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
 	rendered, err := f.render(ctx, in)
+	var redirect *ssr.RedirectError
+	if errors.As(err, &redirect) {
+		page := cachedPage{redirect: redirect}
+		return page, s.cache.holds(page), nil
+	}
 	if err != nil {
 		return cachedPage{html: rendered.HTML}, false, err
 	}
@@ -925,8 +983,8 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 // server.compress a page of at least gzhttp's minimum size is compressed here, once, whatever the
 // request that caused the render takes, since the cache keeps the gzip form alone. The page keeps
 // the HTML too for the requests that wait for the render and for the tag of the whole-page cache:
-// the cache drops it when it stores the page. A page the cache cannot hold is only the HTML, which
-// goes out as it comes.
+// the cache drops it when it stores the page. A page the cache cannot hold keeps both forms too,
+// for the requests that wait for its render, so none of them compresses it again.
 func (s *server) newPage(html, policy string) (cachedPage, bool) {
 	page := cachedPage{html: html, n: len(html), policy: policy}
 	if s.cache.off() {
@@ -936,7 +994,6 @@ func (s *server) newPage(html, policy string) (cachedPage, bool) {
 		page.gzip = compressPage(html)
 	}
 	if !s.cache.holds(page) {
-		page.gzip = nil
 		return page, false
 	}
 	page.body = new(bodyID)
@@ -1013,16 +1070,20 @@ func around(html string, i int) string {
 func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
-		// The router spells the URL differently, /%61 for /a, and sends the browser there.
-		// The redirect carries no ETag. The render is a function of the build, the URL and the
-		// data, so an ETag a client got with a 200 for this URL never belongs to a redirect,
-		// and 304 is only answered to a client that made its If-None-Match up.
-		c.Writer().Header().Del("ETag")
-		http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
+		writeRenderRedirect(c, redirect)
 		return nil
 	}
 	failed.err = err
 	return failed
+}
+
+// writeRenderRedirect answers a render that the router ended with a redirect: it spells the URL
+// differently, /%61 for /a, and sends the browser there. The redirect carries no ETag. The render
+// is a function of the build, the URL and the data, so an ETag a client got with a 200 for this URL
+// never belongs to a redirect, and 304 is only answered to a client that made its If-None-Match up.
+func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError) {
+	c.Writer().Header().Del("ETag")
+	http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
@@ -1198,7 +1259,9 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 	}
 	var renderErr error
 	if ssrOn {
-		renderErr = s.renderPage(c, items, loads, e.Status, false, key)
+		// The page goes through the render cache unless its page turned it off. The key of the
+		// Layout of a URL that matches no page is never a path of a page.
+		renderErr = s.renderPage(c, items, loads, e.Status, !s.uncached[key], key)
 	} else {
 		renderErr = s.dataOnly(c, items, e.Status, key)
 	}
