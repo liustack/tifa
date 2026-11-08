@@ -29,8 +29,11 @@
 #                     r95w5, r80w20, r50w50 (every write renames a customer),
 #                     store-w5, store-w20, store-w50 (the storefront, where Tifa runs twice: with
 #                     the whole-page cache off, and with every cache off)
-#   PHASES            closed (throughput at equal users), sustain (the rate of Next.js), latency   closed,sustain,latency
+#   PHASES            closed (throughput at equal users), saturation (the users at   closed,saturation,sustain,latency
+#                     which each server saturates), sustain (the rate of Next.js), latency
 #                     (sustain and latency run only for the scenarios with 5% writes)
+#   PROBE=1           probe the users at which each server saturates again, and rewrite
+#                     test/compare/saturation.json (else it is read, and probed where it has none)
 #   USERS EXTRA_USERS users of every scenario; more users for the 5% write scenarios   32, 8,16
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
@@ -123,7 +126,7 @@ run_stamp() {
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
-  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} users=${USERS:-} extra=${EXTRA_USERS-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} users=${USERS:-} extra=${EXTRA_USERS-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # traces_current is true when the traces of a site were recorded from these sources, with these
@@ -198,6 +201,7 @@ do_run() {
   done
   local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
+  [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
   [ -n "${USERS:-}" ] && cmd+=(-users "$USERS")
   [ "${EXTRA_USERS+set}" = set ] && cmd+=(-extra-users "$EXTRA_USERS")
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")

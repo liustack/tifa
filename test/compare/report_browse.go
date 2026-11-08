@@ -159,7 +159,7 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 	fmt.Fprintf(b, "\n### %s\n\n", sc.Title)
 	users := r.usersOf(sc.Name)
 	if len(users) > 0 {
-		b.WriteString("#### Page views a second at the same number of users\n\nClosed loop, zero think time, every user with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule at that many users (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog): it is never measured at another number of users in its place. A page view counts when it completes. Prefetches and writes are not page views.\n\n| |")
+		b.WriteString("#### Page views a second at the same number of users\n\nClosed loop, zero think time, every user with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule at that many users (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog): it is never measured at another number of users in its place. A page view counts when it completes. Prefetches and writes are not page views. This is throughput at the same concurrency: it is the capacity of a server only where the server used its core, which the server cores of the tables below show.\n\n| |")
 		for _, u := range users {
 			fmt.Fprintf(b, " %d users |", u)
 		}
@@ -180,6 +180,9 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 	for _, u := range users {
 		r.closedDetail(b, sc, u)
 	}
+	if len(users) > 0 {
+		r.saturationMarkdown(b, sc, rounds)
+	}
 	r.controlMarkdown(b, sc)
 	if !sc.open() {
 		b.WriteString("\nThis scenario has no open run: the arrival rate and the latency at the same rate are measured on the scenario of each site with 5% writes.\n")
@@ -192,14 +195,14 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users int) {
 	fw := r.Servers[sc.Name]
 	fmt.Fprintf(b, "\n#### %d users\n\n", users)
-	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | server cores | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := r.cellRounds(f, sc.Name, users)
 		if len(rs) == 0 {
 			continue
 		}
 		reads := func(x *Round) float64 { return float64(x.Requests) - count(x, "write ") }
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f),
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f),
 			fmtCell(each(rs, pageViewsPerSecond), "%.1f"),
 			fmtCell(each(rs, func(x *Round) float64 { return float64(x.Visits) / x.Seconds }), "%.2f"),
 			fmtCell(each(rs, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"),
@@ -207,7 +210,8 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 			fmtCell(each(rs, func(x *Round) float64 { return reads(x) / float64(max(1, x.PageViews)) }), "%.1f"),
 			fmtCell(each(rs, func(x *Round) float64 { return float64(x.Bytes) / 1024 / float64(max(1, x.PageViews)) }), "%.1f"),
 			typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"),
-			fmtCell(each(rs, func(x *Round) float64 { return x.ClientCPU / x.Seconds }), "%.2f"))
+			coresCell(rs, func(x *Round) float64 { return x.CPUSeconds }),
+			coresCell(rs, func(x *Round) float64 { return x.ClientCPU }))
 	}
 	b.WriteString("\nWhat the server did a second:\n\n| | full loads/s | clicks/s | writes/s | renders/s | cache hits/s | shared renders/s |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
@@ -374,6 +378,24 @@ func (r *BrowseResult) allServers() []string {
 	return out
 }
 
+// baseUsers is the number of users every server plays in every scenario (o.Users).
+func (r *BrowseResult) baseUsers() int {
+	if n, err := strconv.Atoi(r.Config["users"]); err == nil && n > 0 {
+		return n
+	}
+	return 32
+}
+
+// coresCell is the cores a process used over the window, or "-" when it was not measured (the CPU of
+// the server is read from /proc, so there is none on a Mac).
+func coresCell(rs []Round, cpu func(*Round) float64) string {
+	v := each(rs, func(x *Round) float64 { return cpu(x) / x.Seconds })
+	if slices.Max(v) == 0 {
+		return "-"
+	}
+	return fmtCell(v, "%.2f")
+}
+
 func (r *BrowseResult) usersOf(sc string) []int {
 	var out []int
 	for _, x := range r.Closed {
@@ -524,4 +546,44 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	}
 	row("Tifa, no writes", control)
 	row(fmt.Sprintf("Tifa, %.0f%% writes", 100*sc.Share), closed)
+}
+
+// saturationMarkdown is the table of the users at which each server saturated in a scenario.
+func (r *BrowseResult) saturationMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
+	base := r.baseUsers()
+	var fws []string
+	for _, f := range r.Servers[sc.Name] {
+		if r.Saturated[sustainKey(sc.Name, f)] != nil {
+			fws = append(fws, f)
+		}
+	}
+	b.WriteString("\n#### Users at which each server saturated\n\n")
+	if len(fws) == 0 {
+		b.WriteString("Not measured in this run: it needs the server pinned to cpus (`-server-cpus`, on Linux), so that its cores are known.\n")
+		return
+	}
+	fmt.Fprintf(b, "For a server that used under 0.95 of its cpus at %d users, the users go up about 25%% a step (%d, %d, %d and so on) until a step gains fewer page views a second than the spread of the rounds, fails the rule, or uses 0.95 of the cpus. The count is kept in `test/compare/saturation.json`, and a later run plays it straight away: then the run that measured it is given.\n\n", base, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))))
+	b.WriteString("| | users | page views/s | server cores | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | why the steps stopped | measured |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, f := range fws {
+		s := r.Saturated[sustainKey(sc.Name, f)]
+		rs := r.saturationCell(f, sc.Name, s.Users)
+		if s.Users == base {
+			rs = r.cellRounds(f, sc.Name, base)
+		}
+		views := ""
+		if ok, why := verdict(rs, rounds); !ok {
+			views = fmt.Sprintf("failed (%s)", why)
+		} else {
+			views = fmtCell(each(rs, pageViewsPerSecond), "%.1f")
+		}
+		measured := "in this run"
+		if !s.Probed {
+			measured = fmt.Sprintf("Tifa %s, %s", s.Tifa, s.Date)
+		}
+		cpu := "-"
+		if len(rs) > 0 {
+			cpu = coresCell(rs, func(x *Round) float64 { return x.CPUSeconds })
+		}
+		fmt.Fprintf(b, "| %s | %d | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), s.Users, views, cpu, typeCell(rs, "load"), typeCell(rs, "click"), s.Why, measured)
+	}
 }

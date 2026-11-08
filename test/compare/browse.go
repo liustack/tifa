@@ -30,19 +30,27 @@ type BrowseOptions struct {
 	Servers      []string
 	ServerCPUs   string
 	LoadCPUs     string
-	LoadCPUCount int              // how many cpus the load may use, to tell a saturated generator
-	Scenarios    []BrowseScenario // the default ones when empty
-	Phases       []string         // "closed", "sustain" and "latency"; all of them when empty
-	Users        int              // the users of the throughput table, 32
-	ExtraUsers   []int            // more users, for the scenarios with 5% writes only: 8 and 16
-	Rounds       int
-	Warm         time.Duration // the warm-up of a closed round, apart from it
-	Target       time.Duration // how long a closed round should take, about
-	TrialWindow  time.Duration // an open trial of the search for the sustainable rate
-	FinalWindow  time.Duration // an open round of the latency table, at least
-	MaxRate      float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
-	Stamp        string        // what the traces and the builds belong to, kept in the result
-	Log          io.Writer
+	LoadCPUCount int // how many cpus the load may use, to tell a saturated generator
+	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the users used them
+	// (none when it is not pinned: then the saturation phase does nothing).
+	ServerCPUCount int
+	// Probe measures again the users at which each server saturates, and rewrites SaturationFile.
+	Probe bool
+	// SaturationFile holds those users, per scenario and server (test/compare/saturation.json when
+	// empty).
+	SaturationFile string
+	Scenarios      []BrowseScenario // the default ones when empty
+	Phases         []string         // "closed", "saturation", "sustain" and "latency"; all of them when empty
+	Users          int              // the users of the throughput table, 32
+	ExtraUsers     []int            // more users, for the scenarios with 5% writes only: 8 and 16
+	Rounds         int
+	Warm           time.Duration // the warm-up of a closed round, apart from it
+	Target         time.Duration // how long a closed round should take, about
+	TrialWindow    time.Duration // an open trial of the search for the sustainable rate
+	FinalWindow    time.Duration // an open round of the latency table, at least
+	MaxRate        float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
+	Stamp          string        // what the traces and the builds belong to, kept in the result
+	Log            io.Writer
 }
 
 // PlanInfo is what the plans of a site hold.
@@ -80,6 +88,11 @@ type BrowseResult struct {
 	// Control is the read-only control of office-w5: Tifa at the users of the closed runs with the
 	// same traces and no writes, one short round, to show what the writes do to its render cache.
 	Control []Round `json:"control,omitempty"`
+	// Saturation holds the rounds above the users of every server, for the servers that did not use
+	// their cpus there: the steps of a probe, or the users from SaturationFile.
+	Saturation []Round `json:"saturation,omitempty"`
+	// Saturated is, per scenario and server ("office-w5/tifa"), the users at which it saturated.
+	Saturated map[string]*Saturated `json:"saturated,omitempty"`
 }
 
 // Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
@@ -186,7 +199,10 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		}
 	}
 	if len(o.Phases) == 0 {
-		o.Phases = []string{"closed", "sustain", "latency"}
+		o.Phases = []string{"closed", "saturation", "sustain", "latency"}
+	}
+	if o.SaturationFile == "" {
+		o.SaturationFile = filepath.Join(e.Root, "test", "compare", "saturation.json")
 	}
 	if o.Users == 0 {
 		o.Users = 32
@@ -265,7 +281,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	for _, phase := range []struct {
 		name string
 		run  func(context.Context, BrowseScenario) error
-	}{{"closed", b.closed}, {"sustain", b.sustain}, {"latency", b.latency}} {
+	}{{"closed", b.closed}, {"saturation", b.saturation}, {"sustain", b.sustain}, {"latency", b.latency}} {
 		if !has(phase.name) {
 			continue
 		}
@@ -354,7 +370,7 @@ func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
 						continue
 					}
 				}
-				r, err := b.closedRound(ctx, fw, sc, users, round)
+				r, err := b.closedRound(ctx, fw, sc, users, round, &b.res.Closed)
 				if err != nil {
 					return err
 				}
@@ -408,7 +424,7 @@ func (b *browse) lastClosed(fw, sc string, users int) *Round {
 	return nil
 }
 
-func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, users, round int) (*Round, error) {
+func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, users, round int, into *[]Round) (*Round, error) {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, users, fw)
 	planBlocks := b.sets[sc.site()].Blocks
 	for attempt := 1; ; attempt++ {
@@ -435,7 +451,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 			out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
 			b.res.Blocks[key] = BlocksFor(float64(out.Visits)/out.Seconds, b.o.Target, planBlocks)
 		}
-		b.res.Closed = append(b.res.Closed, *out)
+		*into = append(*into, *out)
 		if err := b.commit(); err != nil {
 			return nil, err
 		}

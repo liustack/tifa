@@ -246,3 +246,40 @@ func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
 		t.Error("the split is given for a server that is not Tifa")
 	}
 }
+
+// The closed rows give the server cores next to the client cores, and the saturation table the users
+// at which each server saturated, from this run or from the file.
+func TestBrowseReportShowsServerCoresAndWhereEachServerSaturated(t *testing.T) {
+	sc := BrowseScenarios[1]
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "start"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+		Saturated: map[string]*Saturated{
+			"office-w20/tifa":   {Users: 50, Why: "used 0.96 of 1 cpus at 50 users", Steps: []int{40, 50}, Probed: true},
+			"office-w20/nextjs": {Users: 32, Why: "at 40 users the page views a second rose by less than the spread of the rounds", Tifa: "abc1234", Date: "2026-11-01"},
+		}}
+	for round, d := range []int{-10, 0, 10} {
+		r.Closed = append(r.Closed, closedRound("tifa", sc.Name, 32, round+1, 4000+d, 10, true), closedRound("nextjs", sc.Name, 32, round+1, 400+d, 10, true), closedRound("start", sc.Name, 32, round+1, 300+d, 10, true))
+		r.Saturation = append(r.Saturation, closedRound("tifa", sc.Name, 40, round+1, 4500+d, 10, true), closedRound("tifa", sc.Name, 50, round+1, 5000+d, 10, true))
+	}
+	md := r.Markdown()
+	for _, want := range []string{
+		"| | 32 users |\n",
+		"| Tifa | 400.0 (399.0 to 401.0) |\n",
+		"| server cores | client cores |",
+		"| 0.50 | - |",
+		"#### Users at which each server saturated",
+		"(40, 50, 64 and so on)",
+		"| Tifa | 50 | 500.0 (499.0 to 501.0) | 0.50 | 4.0 / 30 (300) | 2.0 / 15 (900) | used 0.96 of 1 cpus at 50 users | in this run |",
+		"| Next.js | 32 | 40.0 (39.0 to 41.0) | 0.50 | 4.0 / 30 (300) | 2.0 / 15 (900) | at 40 users the page views a second rose by less than the spread of the rounds | Tifa abc1234, 2026-11-01 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "| TanStack Start | 32 |") || strings.Contains(md, "#### 40 users") {
+		t.Error("the report shows a server with no saturation entry, or the steps as a closed table")
+	}
+	r.Saturated = nil
+	if md := r.Markdown(); !strings.Contains(md, "Not measured in this run: it needs the server pinned to cpus") {
+		t.Errorf("the report does not say the saturation was not measured:\n%s", md)
+	}
+}
