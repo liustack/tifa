@@ -898,7 +898,7 @@ func (r *runner) verifyOffice(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	parcels, err := carrierParcels(beforeDoc, "ZTO Express")
+	parcels, err := CarrierParcels(beforeDoc, "ZTO Express")
 	if err != nil {
 		return fmt.Errorf("ship: %s before the ship: %w", stats, err)
 	}
@@ -920,7 +920,7 @@ func (r *runner) verifyOffice(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if n, err := carrierParcels(afterDoc, "ZTO Express"); err != nil || n != parcels+1 {
+	if n, err := CarrierParcels(afterDoc, "ZTO Express"); err != nil || n != parcels+1 {
 		return fmt.Errorf("ship: the carrier table of %s counts %d ZTO parcels after one more shipped, want %d (%v)", stats, n, parcels+1, err)
 	}
 	if haveData {
@@ -939,8 +939,8 @@ func (r *runner) verifyOffice(ctx context.Context) error {
 // the carrier in a cell and the parcels it took in the next.
 var carrierCell = regexp.MustCompile(`>([^<>]+)</td><td[^>]*>(\d+)</td>`)
 
-// carrierParcels reads from the document of a stats page how many parcels the carrier name took.
-func carrierParcels(doc, name string) (int, error) {
+// CarrierParcels reads from the document of a stats page how many parcels the carrier name took.
+func CarrierParcels(doc, name string) (int, error) {
 	var found []int
 	for _, m := range carrierCell.FindAllStringSubmatch(doc, -1) {
 		if m[1] == name {

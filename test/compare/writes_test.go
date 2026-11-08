@@ -327,3 +327,49 @@ func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
 
 // SideRows is how many orders of the same customer an order page lists at most.
 const SideRows = 10
+
+// TestStatsCarrierTableCountsAShip places an order and ships it with ZTO in each server, and checks
+// that the carrier table of the stats page, as the office check of the browse comparison reads it
+// (CarrierParcels), counts one more ZTO parcel, the same in all four.
+func TestStatsCarrierTableCountsAShip(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	ctx := context.Background()
+	stats := compare.Page{Name: "stats studio", URL: "/projects/studio/stats"}
+	const order = `{"customer":"林夏","phone":"13800138000","email":"linxia@example.com","address":"上海市徐汇区","note":"","items":[{"slug":"oak-tray","quantity":1}]}`
+	counts := map[string][2]int{}
+	for _, spec := range env.Specs() {
+		if strings.HasSuffix(spec.Name, "-jitless") || spec.AcceptEncoding != "" || spec.Name == "tifa-nocache" {
+			continue
+		}
+		server, err := spec.Start(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		parcels := func() int {
+			doc, err := compare.Fetch(server.Base, stats)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, err := compare.CarrierParcels(string(doc), "ZTO Express")
+			if err != nil {
+				t.Fatalf("%s: %v", spec.Name, err)
+			}
+			return n
+		}
+		before := parcels()
+		if r := call(t, server.Base, "POST", spec.Create("studio"), order); r.Status != 200 {
+			t.Fatalf("%s: place: %d", spec.Name, r.Status)
+		}
+		if r := call(t, server.Base, "POST", spec.Write("studio", "SH-1043"), `{"carrier":"ZTO","trackingNo":"ZTO20261108001"}`); r.Status != 200 {
+			t.Fatalf("%s: ship: %d", spec.Name, r.Status)
+		}
+		counts[spec.Name] = [2]int{before, parcels()}
+		server.Stop()
+	}
+	for name, c := range counts {
+		if c[1] != c[0]+1 || c != counts["tifa"] {
+			t.Errorf("%s: %d ZTO parcels before the ship and %d after, tifa %v", name, c[0], c[1], counts["tifa"])
+		}
+	}
+}
