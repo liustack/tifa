@@ -189,13 +189,22 @@ func browseConfig(o BrowseOptions) map[string]string {
 	return map[string]string{
 		"users": fmt.Sprint(o.Users), "extraUsers": fmt.Sprint(o.ExtraUsers), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
+		"probe": fmt.Sprint(o.Probe),
 	}
 }
 
-// canContinue says whether a result can be continued by a run with these options.
+// canContinue says whether a result can be continued by a run with these options: the same stamp
+// and the same settings, so that a probe asked for again, or other cpus or windows, never reuse the
+// rounds of another run.
 func canContinue(res *BrowseResult, o BrowseOptions) error {
 	if res.Stamp != o.Stamp {
 		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, o.Stamp)
+	}
+	want := browseConfig(o)
+	for _, k := range sortedKeys(want) {
+		if res.Config[k] != want[k] {
+			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Config[k], want[k])
+		}
 	}
 	return nil
 }

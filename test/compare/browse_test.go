@@ -6,7 +6,30 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+// A result is continued only under the settings it was started with: a probe asked for again, or
+// other server cpus, must not reuse the rounds and the saturation counts of another run.
+func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
+	o := BrowseOptions{Users: 32, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1}
+	res := &BrowseResult{Config: browseConfig(o)}
+	if err := canContinue(res, o); err != nil {
+		t.Fatalf("the same settings: %v", err)
+	}
+	probe := o
+	probe.Probe = true
+	cpus := o
+	cpus.ServerCPUs, cpus.ServerCPUCount = "0,2", 2
+	target := o
+	target.Target = 30 * time.Second
+	for name, other := range map[string]BrowseOptions{"-probe": probe, "-server-cpus": cpus, "-target": target} {
+		err := canContinue(res, other)
+		if err == nil || !strings.Contains(err.Error(), "remove it to start again") {
+			t.Errorf("%s: continued a result of other settings: %v", name, err)
+		}
+	}
+}
 
 // The search of the sustainable rate starts within its cap, so a cap under 4 visits a second still
 // measures, and halves below that.
