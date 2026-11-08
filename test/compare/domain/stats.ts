@@ -121,7 +121,7 @@ export function salesStats(projectId: string, zone: string): Sales {
           products.set(slug, r)
         }
         r.quantity += dp.quantity
-        r.orders += dp.lines
+        r.orders += dp.orders
         r.revenueCents += dp.revenueCents
         r.daily[i] += dp.quantity
       }

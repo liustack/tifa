@@ -276,3 +276,33 @@ func TestSalesStatsKeepARenamedProductInOneRow(t *testing.T) {
 		}
 	}
 }
+
+// An order that holds a product in two variants counts as one order of the product, with the pieces
+// and the revenue of both lines.
+func TestAnOrderOfTwoVariantsIsOneOrderOfTheProduct(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	row := func() ProductRow {
+		for _, r := range SalesStats("studio", shanghai).Products {
+			if r.Slug == "oak-tray" {
+				return r
+			}
+		}
+		return ProductRow{}
+	}
+	before := row()
+	in := newOrder()
+	in.Items = []NewLine{{Slug: "oak-tray", Color: "oat", Size: "M", Quantity: 1}, {Slug: "oak-tray", Color: "oat", Size: "L", Quantity: 2}}
+	// An hour before the newest order, so the days of the stats stay the same.
+	newest, _ := GetOrder("studio", "SH-1042")
+	id, err := CreateOrder("studio", in, newest.PlacedAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, _ := GetOrder("studio", id)
+	after := row()
+	if after.Orders != before.Orders+1 || after.Quantity != before.Quantity+3 || after.RevenueCents != before.RevenueCents+o.TotalCents {
+		t.Errorf("the tray row went from %d orders, %d pieces, %d cents to %d, %d, %d: want one order more, 3 pieces and %d cents",
+			before.Orders, before.Quantity, before.RevenueCents, after.Orders, after.Quantity, after.RevenueCents, o.TotalCents)
+	}
+}

@@ -280,18 +280,23 @@ func refSalesStats(all []orderRecord, projectID string, zone *time.Location) Sal
 		if o.Shipment != nil {
 			d.Shipped++
 		}
+		counted := map[string]bool{}
 		for _, item := range o.Items {
-			p := products[item.Name]
+			p := products[item.Slug]
 			if p == nil {
-				p = &ProductSales{Slug: item.Slug, Name: item.Name}
-				products[item.Name] = p
-				rows[item.Name] = &ProductRow{Slug: item.Slug, Name: item.Name, Daily: make([]int, statsDays)}
+				name := productName(projectID, item.Slug)
+				p = &ProductSales{Slug: item.Slug, Name: name}
+				products[item.Slug] = p
+				rows[item.Slug] = &ProductRow{Slug: item.Slug, Name: name, Daily: make([]int, statsDays)}
 			}
 			p.Quantity += item.Quantity
 			p.RevenueCents += item.Quantity * item.PriceCents
-			r := rows[item.Name]
+			r := rows[item.Slug]
 			r.Quantity += item.Quantity
-			r.Orders++
+			if !counted[item.Slug] {
+				counted[item.Slug] = true
+				r.Orders++
+			}
 			r.RevenueCents += item.Quantity * item.PriceCents
 			r.Daily[i] += item.Quantity
 			d.Pieces += item.Quantity

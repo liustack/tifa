@@ -286,7 +286,8 @@ func adminWrites() []compare.DomainWrite {
 	return []compare.DomainWrite{
 		place("studio", item("pour-over-kettle", 2), item("ceramic-cup", 1)),
 		place("weekend", item("postcards", 3)),
-		place("studio", item("oak-tray", 1)),
+		// Two sizes of the tray in one order: one order of the product in the stats.
+		place("studio", map[string]any{"slug": "oak-tray", "color": "oat", "size": "M", "quantity": 1}, map[string]any{"slug": "oak-tray", "color": "oat", "size": "L", "quantity": 1}),
 		{Kind: compare.WriteNote, Project: "studio", Order: "SH-1040", Body: map[string]any{"text": " 顾客来电，已收到。 "}},
 		{Kind: compare.WriteRecipient, Project: "studio", Order: "SH-1044", Body: map[string]any{"customer": "陈默", "phone": "13900139001", "address": "杭州市西湖区 · 新地址"}},
 		{Kind: compare.WriteShip, Project: "studio", Order: "SH-1043", Body: map[string]any{"carrier": "ZTO", "trackingNo": " ZTO20261107001 "}},

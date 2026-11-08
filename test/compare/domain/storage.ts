@@ -97,7 +97,7 @@ export interface CarrierTotals {
 // does now.
 export interface DayProduct {
   quantity: number
-  lines: number
+  orders: number // the orders that hold the product, in one line or more
   revenueCents: number
 }
 
@@ -313,14 +313,18 @@ function addToZone(z: ZoneDays, o: OrderRecord): void {
   d.revenueCents += total(o)
   if (o.shipment) d.shipped++
   else d.pending++
+  const counted = new Set<string>() // the products of the order, which counts once for each
   for (const item of o.items) {
     let pr = d.products.get(item.slug)
     if (!pr) {
-      pr = { quantity: 0, lines: 0, revenueCents: 0 }
+      pr = { quantity: 0, orders: 0, revenueCents: 0 }
       d.products.set(item.slug, pr)
     }
     pr.quantity += item.quantity
-    pr.lines++
+    if (!counted.has(item.slug)) {
+      counted.add(item.slug)
+      pr.orders++
+    }
     pr.revenueCents += item.quantity * item.priceCents
     d.pieces += item.quantity
   }

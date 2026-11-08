@@ -120,7 +120,7 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 					products[slug] = r
 				}
 				r.Quantity += dp.quantity
-				r.Orders += dp.lines
+				r.Orders += dp.orders
 				r.RevenueCents += dp.revenueCents
 				r.Daily[i] += dp.quantity
 			}

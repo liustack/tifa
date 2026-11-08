@@ -116,7 +116,8 @@ type dayTotals struct {
 // renamed, and its orders keep the name they were placed under, so the stats name it as its shop
 // does now.
 type dayProduct struct {
-	quantity, lines, revenueCents int
+	quantity, revenueCents int
+	orders                 int // the orders that hold the product, in one line or more
 }
 
 var (
@@ -333,6 +334,7 @@ func (z *zoneDays) add(o *orderRecord) {
 	} else {
 		d.shipped++
 	}
+	counted := map[string]bool{} // the products of the order, which counts once for each
 	for _, item := range o.Items {
 		pr := d.products[item.Slug]
 		if pr == nil {
@@ -340,7 +342,10 @@ func (z *zoneDays) add(o *orderRecord) {
 			d.products[item.Slug] = pr
 		}
 		pr.quantity += item.Quantity
-		pr.lines++
+		if !counted[item.Slug] {
+			counted[item.Slug] = true
+			pr.orders++
+		}
 		pr.revenueCents += item.Quantity * item.PriceCents
 		d.pieces += item.Quantity
 	}
