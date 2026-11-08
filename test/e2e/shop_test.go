@@ -474,6 +474,13 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if _, _, page := do("GET", placed, ""); !strings.Contains(rendered(page), "已提交，确认邮件已发往 lin@example.com") {
 		t.Errorf("order confirmation:\n%s", rendered(page))
 	}
+	// The confirmation page is a page of the shop like the others: asked for twice with no write in
+	// between, the second answer comes from the render cache. Its delivery dates are those of the day
+	// the order was placed.
+	secondFromRenderCache(t, "order confirmation", func() (int, http.Header) {
+		status, h, _ := do("GET", placed, "")
+		return status, h
+	})
 	if _, _, page := do("GET", "/zh-CN/store/cart", ""); !strings.Contains(rendered(page), "购物车是空的") {
 		t.Errorf("cart after the order:\n%s", rendered(page))
 	}
