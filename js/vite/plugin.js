@@ -548,7 +548,7 @@ const i18nextCacheKeys = 4096
 const i18nextCacheSource = `
 var tifaI18nCaches = new WeakMap(), tifaI18nBytes = 0, tifaI18nEffects = 0, tifaI18nIds = new WeakMap(), tifaI18nLastId = 0;
 var tifaI18nDebts = new Map(), tifaI18nFormatters = new WeakSet(), tifaI18nFound;
-var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nObject = Object.prototype;
+var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nSymbols = Object.getOwnPropertySymbols, tifaI18nObject = Object.prototype;
 function tifaI18nClear() { tifaI18nEffects++; tifaI18nCaches = new WeakMap(); tifaI18nBytes = 0; }
 function tifaI18nPart(v) {
   switch (typeof v) {
@@ -569,6 +569,7 @@ function tifaI18nPart(v) {
 function tifaI18nObjectPart(o) {
   const proto = tifaI18nPrototypeOf(o);
   if (proto !== tifaI18nObject && proto !== null) return;
+  if (tifaI18nSymbols(o).length !== 0) return;
   let k = 'o', p;
   for (const name in o) { if ((p = tifaI18nPart(o[name])) === undefined) return; k += name.length + ':' + name + p; }
   return k + ';';
@@ -3113,7 +3114,8 @@ function i18nextFaster(source) {
 // the function has none, the formats object of an i18nFormat module such as i18next-icu, the
 // defaultVariables of the instance, and the key and the options of the call, when each is a
 // string, number, boolean, bigint, null, undefined or array of strings, and the options are a
-// plain object. A call with another value, such as a function or an object, translates as before
+// plain object without Symbol keys. A call with another value, such as a function or an object,
+// translates as before
 // and keeps nothing. So does a call during which i18next logs, as it does for each missing key
 // before it calls missingKeyHandler and emits missingKey, so the handler and the listeners hear of
 // every missing key. A call that runs a formatter added with add or addCached or a post-processor
