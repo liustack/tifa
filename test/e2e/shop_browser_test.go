@@ -65,7 +65,9 @@ func shopPagesInBrowser(t *testing.T, session string, args ...string) {
 		{"/login", ""}, // the sign-in page has no links
 		{"/projects/studio", "/projects/studio/orders/SH-1041"},
 		{"/projects/studio/orders/SH-1041", "/projects/studio/stats"},
-		{"/projects/studio/stats", "/projects/studio"},
+		{"/projects/studio/stats", "/projects/studio/products"},
+		{"/projects/studio/products", "/projects/studio/products/oak-tray"},
+		{"/projects/studio/products/oak-tray", "/projects/studio"},
 		{"/store", "/store/products"},
 		{"/store/products", "/store/products/pour-over-kettle"},
 		{"/store/products/pour-over-kettle", "/store/journal"},

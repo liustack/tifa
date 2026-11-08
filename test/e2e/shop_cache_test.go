@@ -115,6 +115,8 @@ var shopPages = []string{
 	"/projects/studio/orders/SH-1041",
 	"/projects/studio/stats",
 	"/projects/weekend/stats",
+	"/projects/studio/products",
+	"/projects/studio/products/oak-tray",
 	"/login",
 }
 
