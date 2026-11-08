@@ -81,14 +81,13 @@ func count(x *Round, prefix string) float64 {
 }
 
 func typeCell(rounds []Round, kind string) string {
-	if len(rounds) == 0 {
-		return "-"
-	}
-	p50 := each(rounds, func(x *Round) float64 { return x.Types[kind].P50 })
-	p99 := each(rounds, func(x *Round) float64 { return x.Types[kind].P99 })
+	// A round with no samples of the kind has no latency of it, which is not 0 ms.
+	var p50, p99 []float64
 	n := 0
 	for _, x := range rounds {
-		n += x.Types[kind].N
+		if t := x.Types[kind]; t.N > 0 {
+			p50, p99, n = append(p50, t.P50), append(p99, t.P99), n+t.N
+		}
 	}
 	if n == 0 {
 		return "-"

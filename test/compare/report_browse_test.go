@@ -284,3 +284,19 @@ func TestBrowseReportShowsServerCoresAndWhereEachServerSaturated(t *testing.T) {
 		t.Errorf("the report does not say the saturation was not measured:\n%s", md)
 	}
 }
+
+// A round with no samples of a kind of action has no latency of it: it is left out of the cell, and
+// not taken as 0 ms.
+func TestTypeCellLeavesOutRoundsWithNoSamples(t *testing.T) {
+	rs := []Round{
+		{Types: map[string]TypeStat{"load": {N: 10, P50: 5, P99: 9}}},
+		{Types: map[string]TypeStat{"load": {N: 10, P50: 5, P99: 9}, "write": {N: 0}}},
+		{Types: map[string]TypeStat{"load": {N: 10, P50: 5, P99: 9}, "write": {N: 4, P50: 700, P99: 1500}}},
+	}
+	if got, want := typeCell(rs, "write"), "700.0 / 1500 (4)"; got != want {
+		t.Errorf("write cell %q, want %q", got, want)
+	}
+	if got := typeCell(rs, "click"); got != "-" {
+		t.Errorf("click cell %q, want -", got)
+	}
+}
