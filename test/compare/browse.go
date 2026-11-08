@@ -432,7 +432,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 			return nil, err
 		}
 		out.Round, out.Attempt = round, attempt
-		if blocks := calibrate(out, b.o.Target, planBlocks); blocks > 0 {
+		if blocks := judgeClosed(out, b.o.Target, planBlocks, b.o.LoadCPUCount); blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
 		b.res.Closed = append(b.res.Closed, *out)
@@ -461,6 +461,17 @@ func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, session
 	return rate, err
 }
 
+// judgeClosed finishes the judgement of a closed round: a load generator that ran out of cpus makes it
+// invalid, whatever the server did (a closed round has no schedule, so only the cpus are checked, and
+// only when the generator has cpus of its own, loadCPUs). Then its length is checked (calibrate), and
+// it returns the blocks of the next round of its cell, 0 for no change.
+func judgeClosed(out *Round, target time.Duration, planBlocks, loadCPUs int) int {
+	if why := generatorFault(out, loadCPUs); why != "" {
+		out.GeneratorLimited, out.Valid, out.WhyInvalid = true, false, why
+	}
+	return calibrate(out, target, planBlocks)
+}
+
 // calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
 // times the target (60 to 120 seconds by default). Outside that it returns the blocks the next round
 // of its cell gets, from the visits a second this one ended (the failed ones too: a 503 ends a visit
@@ -480,8 +491,9 @@ func calibrate(out *Round, target time.Duration, planBlocks int) int {
 	return BlocksFor(float64(ended)/out.Seconds, target, planBlocks)
 }
 
-// generatorFault says why the load generator, not the server, limited an open round, or "" when it
-// did not: visits must start on time and it must have processor time to spare.
+// generatorFault says why the load generator, not the server, limited a round, or "" when it did not:
+// visits of an open round must start on time, and it must have processor time to spare (checked only
+// when it has cpus of its own, loadCPUs).
 func generatorFault(out *Round, loadCPUs int) string {
 	why := ""
 	if out.LagMs > 250 {

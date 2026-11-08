@@ -293,3 +293,32 @@ func TestAClosedRoundWithOneRequestThatNeverAnswersFails(t *testing.T) {
 		t.Errorf("valid %v (%s), pass %v (%s): want a valid round that failed", round.Valid, round.WhyInvalid, round.Pass, round.Why)
 	}
 }
+
+// A closed round whose load generator ran out of cpus is not valid, whatever the server did: it is
+// played again, and never counted as a plateau or a failure of the server. Without pinned cpus for
+// the load generator its headroom cannot be checked, and the report says so.
+func TestAClosedRoundChecksTheHeadroomOfTheLoadGenerator(t *testing.T) {
+	for _, pass := range []bool{true, false} {
+		r := plannedRound()
+		r.Seconds, r.ClientCPU, r.Valid, r.Pass = 90, 90*1.7, true, pass
+		judgeClosed(r, 75*time.Second, 4, 2)
+		if r.Valid || !r.GeneratorLimited || !strings.Contains(r.WhyInvalid, "used 1.70 cores of 2") {
+			t.Errorf("pass %v: valid %v, limited %v %q", pass, r.Valid, r.GeneratorLimited, r.WhyInvalid)
+		}
+	}
+	r := plannedRound()
+	r.Seconds, r.ClientCPU, r.Valid, r.Pass = 90, 90*1.7, true, true
+	if judgeClosed(r, 75*time.Second, 4, 0); !r.Valid {
+		t.Errorf("not pinned: %s", r.WhyInvalid)
+	}
+	sc := mustScenario("store-w5")
+	res := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{},
+		Config: map[string]string{"sessions": "8", "loadCpus": ""}, Closed: []Round{closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)}}
+	if md := res.Markdown(); !strings.Contains(md, "The load generator was not pinned to cpus of its own (`-load-cpus`), so whether it had cpus to spare was not checked.") {
+		t.Errorf("the report does not say the headroom was not checked:\n%s", md)
+	}
+	res.Config["loadCpus"] = "1,5"
+	if strings.Contains(res.Markdown(), "was not checked") {
+		t.Error("the report says a pinned load generator was not checked")
+	}
+}
