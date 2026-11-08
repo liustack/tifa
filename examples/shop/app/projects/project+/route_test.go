@@ -49,6 +49,12 @@ func TestLoadReadsTheFiltersAndThePageFromTheQuery(t *testing.T) {
 	if err != nil || l.Matching != want.Matching || !slices.Equal(ids(l.Orders), ids(want.Orders)) || l.Filter != want.Filter {
 		t.Fatalf("%s: %v, %+v", q, err, l.Filter)
 	}
+	// The biggest order of the project is first when the list is sorted by the amount, whichever page
+	// it would have been on.
+	l, err = Load(listCtx(t, "studio", "sort=totalCents&dir=desc&status=shipped"))
+	if err != nil || l.Filter.Sort != "totalCents" || l.Filter.Dir != "desc" || l.Orders[0].TotalCents < l.Orders[24].TotalCents || l.Matching != 40 {
+		t.Fatalf("sorted: %+v, %v", l.Filter, err)
+	}
 	// A page that is not a number is the first, and a filter that matches nothing is no error.
 	l, err = Load(listCtx(t, "studio", "page=two&q=nobody+by+this+name"))
 	if err != nil || l.Filter.Page != 1 || l.Matching != 0 || len(l.Orders) != 0 || l.Total != 42 {

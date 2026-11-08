@@ -28,8 +28,9 @@ const pageSize = 25
 const periods = { all: 'All time', '7': 'Last 7 days', '30': 'Last 30 days' } as const
 const amounts = { all: 'Any amount', low: 'Under ¥200', mid: '¥200 to ¥500', high: 'Over ¥500' } as const
 
-// The filters and the page live in the query string: status, carrier, period, amount, q (the search)
-// and page, which counts from 1. What is not set, or is the first page, is left out of the URL.
+// The filters, the sort and the page live in the query string: status, carrier, period, amount, q (the
+// search), sort (the column) with dir, and page, which counts from 1. What is not set, the default sort
+// (the newest first) and the first page are left out of the URL.
 type Filter = PageData['filter']
 
 function searchOf(f: Filter) {
@@ -39,6 +40,7 @@ function searchOf(f: Filter) {
     ...(f.period ? { period: f.period } : {}),
     ...(f.amount ? { amount: f.amount } : {}),
     ...(f.q ? { q: f.q } : {}),
+    ...(f.sort !== 'placedAt' || f.dir !== 'desc' ? { sort: f.sort, dir: f.dir } : {}),
     ...(f.page > 1 ? { page: String(f.page) } : {}),
   }
 }
@@ -68,6 +70,7 @@ export default function OrdersPage() {
   const go = (change: Partial<Filter>, replace = false) =>
     navigate({ to: '/projects/$project', params: { project: projectId }, search: searchOf({ ...filter, page: 1, ...change }), replace })
   const pageIndex = filter.page - 1
+  const sorting = [{ id: filter.sort, desc: filter.dir === 'desc' }]
   const table = useTable({
     features,
     columns,
@@ -75,8 +78,12 @@ export default function OrdersPage() {
     manualPagination: true,
     rowCount: list.matching,
     getRowId: (row) => row.id,
-    initialState: { sorting: [{ id: 'placedAt', desc: true }] },
-    state: { pagination: { pageIndex, pageSize } },
+    manualSorting: true,
+    state: { pagination: { pageIndex, pageSize }, sorting },
+    onSortingChange: (updater) => {
+      const next = (typeof updater === 'function' ? updater(sorting) : updater)[0]
+      go(next ? { sort: next.id, dir: next.desc ? 'desc' : 'asc' } : { sort: 'placedAt', dir: 'desc' })
+    },
     onPaginationChange: (updater) => {
       const next = typeof updater === 'function' ? updater({ pageIndex, pageSize }) : updater
       go({ page: next.pageIndex + 1 })
@@ -250,7 +257,7 @@ export default function OrdersPage() {
             </DropdownMenu>
             <Button variant="outline" size="sm" onClick={() => download(list.orders ?? noOrders, timeZone)}>
               <Download />
-              Export
+              Export page
             </Button>
           </div>
         </div>

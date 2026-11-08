@@ -296,4 +296,32 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Placed' }).click(); await page.getByRole('option', { name: 'Last 7 days' }).click() }`)
 	waitFor(t, "the period filter", func() bool { return b.search() == "?period=7&amount=high" })
 	b.check("select boxes")
+
+	// Sorting covers all the orders too: by amount, the biggest order of the shop is first although it
+	// sits on page 2 of the list by time. Orders of the same amount stay newest first. A change of sort
+	// goes back to page 1, and the third click on the heading is the default sort again.
+	b.open("/projects/studio")
+	head := func(want []string, search string) {
+		t.Helper()
+		waitFor(t, "the sort "+search, func() bool { return b.search() == search && len(b.rows()) > 0 && b.rows()[0] == want[0] })
+		if rows := b.rows(); len(rows) != 25 || strings.Join(rows[:len(want)], ",") != strings.Join(want, ",") || b.counted() != "42 orders, 1 to 25" {
+			t.Errorf("sort %q: %v, %q", search, rows, b.counted())
+		}
+	}
+	b.click("Amount")
+	head([]string{"SH-1008", "SH-1032", "SH-1009"}, "?sort=totalCents&dir=desc")
+	b.click("Page 2")
+	waitFor(t, "page 2 of the sort", func() bool { return b.counted() == "42 orders, 26 to 42" })
+	if b.search() != "?sort=totalCents&dir=desc&page=2" {
+		t.Errorf("page 2 of the sort: %q", b.search())
+	}
+	b.click("Page 1")
+	b.click("Amount")
+	head([]string{"SH-1030", "SH-1024", "SH-1016"}, "?sort=totalCents&dir=asc")
+	b.check("sorted")
+	b.click("Page 2")
+	waitFor(t, "page 2 of the ascending sort", func() bool { return b.counted() == "42 orders, 26 to 42" })
+	b.click("Amount")
+	head([]string{"SH-1042", "SH-1041", "SH-1040"}, "")
+	b.check("default sort again")
 }

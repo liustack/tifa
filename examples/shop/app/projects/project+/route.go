@@ -13,8 +13,8 @@ import (
 
 // Load returns a page of the orders that the query string keeps, with numbers over all of them.
 // The filters are status, carrier, period, amount and q (a search in order numbers and customers),
-// and page counts from 1. A filter that is not one of the choices is left out, as if it were not
-// there. The days of its cards start at midnight in the time zone of the shop.
+// sort (placedAt or totalCents) and dir (asc or desc), and page counts from 1. A filter or a sort that is not one of the choices is left out, as if it were
+// not there. The days of its cards start at midnight in the time zone of the shop.
 func Load(c *tifa.Ctx) (orders.OrderList, error) {
 	p, err := tifa.Use(c, Layout)
 	if err != nil {
@@ -31,6 +31,8 @@ func Load(c *tifa.Ctx) (orders.OrderList, error) {
 		Period:  c.Query("period"),
 		Amount:  c.Query("amount"),
 		Search:  c.Query("q"),
+		Sort:    c.Query("sort"),
+		Dir:     c.Query("dir"),
 		Page:    page,
 	}), nil
 }

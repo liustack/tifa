@@ -96,8 +96,20 @@ type ListQuery struct {
 	Period  string `json:"period"`  // "7" or "30": placed within that many days of the newest order
 	Amount  string `json:"amount"`  // "low" (under 200 yuan), "mid" (200 to 500 yuan) or "high" (over 500 yuan)
 	Search  string `json:"q"`       // part of an order number or of a customer's name, in any case
+	Sort    string `json:"sort"`    // SortPlaced or SortAmount
+	Dir     string `json:"dir"`     // SortDesc or SortAsc
 	Page    int    `json:"page"`    // from 1
 }
+
+// The columns the list can be sorted by, and the directions. The default is the time the order was
+// placed, newest first. Orders that tie on the amount stay in the order of the default list, newest
+// first, whichever way the amount goes.
+const (
+	SortPlaced = "placedAt"
+	SortAmount = "totalCents"
+	SortDesc   = "desc"
+	SortAsc    = "asc"
+)
 
 // StatusCounts are how many orders there are in each tab of the list: all, waiting to ship and
 // shipped.
@@ -215,6 +227,19 @@ func ListOrders(projectID string, zone *time.Location, q ListQuery) OrderList {
 			matched = append(matched, row)
 		}
 	}
+	switch q.Sort {
+	case SortAmount:
+		slices.SortStableFunc(matched, func(a, b OrderRow) int {
+			if q.Dir == SortDesc {
+				return cmp.Compare(b.TotalCents, a.TotalCents)
+			}
+			return cmp.Compare(a.TotalCents, b.TotalCents)
+		})
+	case SortPlaced:
+		if q.Dir == SortAsc {
+			slices.Reverse(matched) // the default list reversed: oldest first, and by number on a tie
+		}
+	}
 	l.Matching = len(matched)
 	l.Pages = (l.Matching + ListPageSize - 1) / ListPageSize
 	l.Filter.Page = min(q.Page, max(l.Pages, 1))
@@ -235,6 +260,12 @@ func (q ListQuery) clean() ListQuery {
 		q.Amount = ""
 	}
 	q.Search = strings.TrimSpace(q.Search)
+	if q.Sort != SortAmount {
+		q.Sort = SortPlaced
+	}
+	if q.Dir != SortAsc {
+		q.Dir = SortDesc
+	}
 	q.Page = max(q.Page, 1)
 	return q
 }

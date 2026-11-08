@@ -198,12 +198,12 @@ func TestListQueryCleansWhatTheURLSays(t *testing.T) {
 	if l := ListOrders("studio", shanghai, ListQuery{Page: -4}); l.Filter.Page != 1 || l.Orders[0].ID != "SH-1042" {
 		t.Errorf("page -4: page %d", l.Filter.Page)
 	}
-	l := ListOrders("studio", shanghai, ListQuery{Status: "lost", Period: "365", Amount: "huge"})
-	if l.Filter != (ListQuery{Page: 1}) || l.Matching != 42 {
+	l := ListOrders("studio", shanghai, ListQuery{Status: "lost", Period: "365", Amount: "huge", Sort: "customer", Dir: "sideways"})
+	if l.Filter != (ListQuery{Sort: SortPlaced, Dir: SortDesc, Page: 1}) || l.Matching != 42 {
 		t.Errorf("filters that are not choices: %+v, matching %d", l.Filter, l.Matching)
 	}
 	l = ListOrders("studio", shanghai, ListQuery{Status: StatusShipped, Carrier: "SF Express", Period: "7", Amount: "low", Search: " 林 "})
-	if l.Filter != (ListQuery{Status: StatusShipped, Carrier: "SF Express", Period: "7", Amount: "low", Search: "林", Page: 1}) {
+	if l.Filter != (ListQuery{Status: StatusShipped, Carrier: "SF Express", Period: "7", Amount: "low", Search: "林", Sort: SortPlaced, Dir: SortDesc, Page: 1}) {
 		t.Errorf("filters echoed: %+v", l.Filter)
 	}
 }
@@ -216,5 +216,111 @@ func TestListFilterIsPerProject(t *testing.T) {
 	}
 	if !slices.IsSorted(l.Carriers) {
 		t.Errorf("carriers %v", l.Carriers)
+	}
+}
+
+// byAmount is the rows ordered by what the sort by amount must give: the amount, and orders of the
+// same amount in the order of the unsorted list, newest first, whichever way the amount goes.
+func byAmount(rows []OrderRow, desc bool) []OrderRow {
+	out := slices.Clone(rows)
+	slices.SortStableFunc(out, func(a, b OrderRow) int {
+		if desc {
+			return b.TotalCents - a.TotalCents
+		}
+		return a.TotalCents - b.TotalCents
+	})
+	return out
+}
+
+// A sort covers all the orders of the project and comes before the paging: the biggest order of the
+// project is first on page 1, not the biggest of the newest 25.
+func TestListSortsEveryOrderBeforeItCutsThePages(t *testing.T) {
+	reset()
+	all := allRows("studio")
+	for _, desc := range []bool{true, false} {
+		dir := map[bool]string{true: SortDesc, false: SortAsc}[desc]
+		want := idsOf(byAmount(all, desc))
+		page1 := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: dir})
+		page2 := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: dir, Page: 2})
+		got := append(idsOf(page1.Orders), idsOf(page2.Orders)...)
+		if !reflect.DeepEqual(got, want) || page1.Filter.Sort != SortAmount || page1.Filter.Dir != dir {
+			t.Fatalf("amount %s: %v, want %v", dir, got, want)
+		}
+	}
+	// The biggest order is not among the newest 25, so a sort of the page on screen would miss it.
+	biggest := byAmount(all, true)[0].ID
+	if slices.Contains(idsOf(all[:ListPageSize]), biggest) {
+		t.Fatalf("%s is on the first page of the unsorted list: the test shows nothing", biggest)
+	}
+	if l := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: SortDesc}); l.Orders[0].ID != biggest {
+		t.Errorf("the biggest order is %s, page 1 starts with %s", biggest, l.Orders[0].ID)
+	}
+}
+
+// Orders of the same amount keep the order of the unsorted list, newest first, both ways.
+func TestListSortKeepsTiesInAStableOrder(t *testing.T) {
+	reset()
+	ties := 0
+	for _, dir := range []string{SortAsc, SortDesc} {
+		l1 := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: dir})
+		l2 := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: dir, Page: 2})
+		rows := append(slices.Clone(l1.Orders), l2.Orders...)
+		for i := 1; i < len(rows); i++ {
+			if rows[i].TotalCents != rows[i-1].TotalCents {
+				continue
+			}
+			ties++
+			if rows[i].PlacedAt.After(rows[i-1].PlacedAt) || (rows[i].PlacedAt.Equal(rows[i-1].PlacedAt) && rows[i].ID > rows[i-1].ID) {
+				t.Errorf("%s: %s comes after %s with the same amount", dir, rows[i].ID, rows[i-1].ID)
+			}
+		}
+	}
+	if ties == 0 {
+		t.Fatal("no two orders have the same amount: the test shows nothing")
+	}
+	// Asking twice gives the same list.
+	a := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: SortAsc})
+	b := ListOrders("studio", shanghai, ListQuery{Sort: SortAmount, Dir: SortAsc})
+	if !reflect.DeepEqual(a, b) {
+		t.Error("two answers to the same sort differ")
+	}
+}
+
+func TestListSortByPlacedTimeAndWithFilters(t *testing.T) {
+	reset()
+	all := allRows("studio")
+	oldest := ListOrders("studio", shanghai, ListQuery{Sort: SortPlaced, Dir: SortAsc})
+	want := idsOf(all)
+	slices.Reverse(want)
+	if !reflect.DeepEqual(idsOf(oldest.Orders), want[:ListPageSize]) || oldest.Orders[0].ID != "SH-1001" {
+		t.Errorf("oldest first: %v", idsOf(oldest.Orders))
+	}
+	// The filters come first, then the sort, then the page.
+	shipped := pick(all, func(r OrderRow) bool { return r.Status == StatusShipped })
+	var rows []OrderRow
+	for _, r := range all {
+		if r.Status == StatusShipped {
+			rows = append(rows, r)
+		}
+	}
+	want = idsOf(byAmount(rows, false))
+	l := ListOrders("studio", shanghai, ListQuery{Status: StatusShipped, Sort: SortAmount, Dir: SortAsc, Page: 2})
+	if l.Matching != len(shipped) || !reflect.DeepEqual(idsOf(l.Orders), want[ListPageSize:]) {
+		t.Errorf("shipped by amount, page 2: %v, want %v", idsOf(l.Orders), want[ListPageSize:])
+	}
+	// A sort that is not one of the choices is the default, and the direction alone does not make a
+	// sort by the amount.
+	def := ListOrders("studio", shanghai, ListQuery{})
+	for _, q := range []ListQuery{{Sort: "customer"}, {Dir: "asc"}, {Sort: "", Dir: "up"}} {
+		got := ListOrders("studio", shanghai, q)
+		if q.Dir == "asc" {
+			if got.Filter.Sort != SortPlaced || got.Filter.Dir != SortAsc {
+				t.Errorf("%+v: %+v", q, got.Filter)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(got.Orders, def.Orders) || got.Filter.Sort != SortPlaced || got.Filter.Dir != SortDesc {
+			t.Errorf("%+v: %+v", q, got.Filter)
+		}
 	}
 }
