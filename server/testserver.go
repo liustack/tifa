@@ -103,7 +103,7 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 			return nil, err
 		}
 	}
-	undo = append(undo, content.Watch(s.contentChanged))
+	undo = append(undo, content.Watch(func() {}))
 	undo = append(undo, core.Running(s))
 	if dist != nil {
 		if err := s.openSharedFront(dist, cfg.SSR); err != nil {

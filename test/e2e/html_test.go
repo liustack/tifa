@@ -45,10 +45,10 @@ func TestHTMLPages(t *testing.T) {
 	if again := once("/article/read", 200, "cache", "BODY_END"); again != first {
 		t.Errorf("the render cache gave another page:\n%s", again)
 	}
-	// The whole-page cache, made and then hit.
+	// A page with Cache renders and then comes from the render cache like any page.
 	once("/article/cached", 200, "vm", "SHELF_NOTE", "BODY_END")
-	if _, header, body := get(t, base+"/article/cached"); header.Get("Cache-Status") != "tifa; hit" || strings.Count(body, "BODY_END") != 1 || strings.Count(body, marker) != 4 {
-		t.Errorf("/article/cached from the whole-page cache: %q\n%s", header.Get("Cache-Status"), body)
+	if _, header, body := get(t, base+"/article/cached"); header.Get("X-Tifa-Render") != "cache" || strings.Count(body, "BODY_END") != 1 || strings.Count(body, marker) != 4 {
+		t.Errorf("/article/cached the second time: %q\n%s", header.Get("X-Tifa-Render"), body)
 	}
 	// The page fails on the server and renders again with its error in its place: the Layout still
 	// carries its note once, and the data of the page that failed is not in the page.
@@ -67,7 +67,7 @@ func TestHTMLPages(t *testing.T) {
 	if strings.Contains(plain, "$tifa") || strings.Contains(plain, "data-tifa-html") {
 		t.Errorf("/article/plain carries markers:\n%s", plain)
 	}
-	// Navigation data carries the strings, from the Loads and from the whole-page cache.
+	// Navigation data carries the strings, from the Loads.
 	for _, target := range []string{"/article/read", "/article/cached"} {
 		_, _, body := get(t, dataURL(base+target, built.BuildID, "111"))
 		for _, part := range []string{`"note":"<p class=shelf>SHELF_NOTE<br/>of the shelf</p>"`, `"notes":["<b>NOTE_ONE</b>","<i>NOTE_TWO</i>"]`, "BODY_END"} {

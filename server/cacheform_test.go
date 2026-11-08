@@ -262,38 +262,28 @@ func TestAdmissionCountsTheKeptForm(t *testing.T) {
 	}
 }
 
-// The ETag of a page in the whole-page cache is the hash of the HTML where there is no render key,
-// a page that skips SSR and a page that skips the render cache, whether the cache keeps it as gzip
-// or not. The page goes out in each encoding, from a hit as from the miss.
-func TestWholePageCacheKeepsGzipAndTheSameTags(t *testing.T) {
+// A page with Cache goes out in each encoding with the same tag as the page the render made, from a
+// hit of the render cache as from the miss.
+func TestPageWithCacheKeepsGzipAndTheSameTags(t *testing.T) {
 	routes := func(app App) App {
 		app.Routes = append(app.Routes,
 			Route{ID: "app/cached", Path: "/cached", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"}},
-			Route{ID: "app/fresh", Path: "/fresh", Page: true, SSR: true, Cache: time.Minute, NoRenderCache: true, Layouts: []string{"app/layout"}},
-			Route{ID: "app/plain", Path: "/plain", Page: true, SSR: false, Cache: time.Minute, Layouts: []string{"app/layout"}},
 		)
 		return app
 	}
 	off := config.Default()
 	off.Server.Compress = false
 	on, plain := newBigServer(t, config.Default(), routes(frontApp())), newBigServer(t, off, routes(frontApp()))
-	for _, path := range []string{"/cached", "/fresh", "/plain"} {
-		want := get(plain, path)
-		html := want.Body.String()
-		for _, accept := range []string{"gzip", "", "zstd", "gzip"} {
-			w := get(on, path, "Accept-Encoding", accept)
-			if w.Code != 200 || decoded(t, w) != html || w.Header().Get("ETag") != "W/"+want.Header().Get("ETag") {
-				t.Errorf("%s with %q: %d %v, ETag want W/%s", path, accept, w.Code, w.Header(), want.Header().Get("ETag"))
-			}
-		}
-		if hit := get(on, path); hit.Header().Get("Cache-Status") != "tifa; hit" || hit.Header().Get("Content-Length") != strconv.Itoa(len(html)) {
-			t.Errorf("%s hit: %v", path, hit.Header())
+	want := get(plain, "/cached")
+	html := want.Body.String()
+	for _, accept := range []string{"gzip", "", "zstd", "gzip"} {
+		w := get(on, "/cached", "Accept-Encoding", accept)
+		if w.Code != 200 || decoded(t, w) != html || w.Header().Get("ETag") != "W/"+want.Header().Get("ETag") {
+			t.Errorf("with %q: %d %v, ETag want W/%s", accept, w.Code, w.Header(), want.Header().Get("ETag"))
 		}
 	}
-	for _, p := range keptPages(on) {
-		if p.whole != nil && p.html == "" && p.gzip == nil {
-			t.Error("a page of the whole-page cache kept no body")
-		}
+	if hit := get(on, "/cached"); hit.Header().Get("X-Tifa-Render") != "cache" || hit.Header().Get("Content-Length") != strconv.Itoa(len(html)) {
+		t.Errorf("hit: %v", hit.Header())
 	}
 }
 

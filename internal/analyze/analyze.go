@@ -593,13 +593,13 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 }
 
 // boolCache is the error for Cache written as a bool, the switch of the render cache before it was
-// on for every page. Cache is a duration now, the whole-page cache.
-const boolCache = "Cache is a duration, such as Cache = 10 * time.Minute, which turns on the whole-page cache. The render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
+// on for every page. Cache is a duration now.
+const boolCache = "Cache is a duration, such as Cache = 10 * time.Minute, which lets a shared cache in front of the program keep the page. The render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
 
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":       "Cache = 10 * time.Minute turns on the whole-page cache, RenderCache = false turns the render cache off for the page",
+	"cache":       "Cache = 10 * time.Minute lets a shared cache keep the page, RenderCache = false turns the render cache off for the page",
 	"rendercache": "write RenderCache = false to turn the render cache off for the page",
 	"ssr":         "write SSR",
 	"layoutssr":   "write LayoutSSR",
@@ -1321,7 +1321,7 @@ func (a *analyzer) hooks() []string {
 	return found
 }
 
-// cacheConst reads Cache, the whole-page cache time of the page: a time.Duration constant of at
+// cacheConst reads Cache, how long a shared cache may keep the page: a time.Duration constant of at
 // least a second, such as 10 * time.Minute. Zero when the page does not set it. A bool Cache is
 // the switch of the render cache from before, which checkSwitchNames reports.
 func (a *analyzer) cacheConst(pkg *packages.Package) time.Duration {

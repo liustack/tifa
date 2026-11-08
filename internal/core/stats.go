@@ -1,8 +1,6 @@
 package core
 
 import (
-	"fmt"
-	"strings"
 	"sync"
 	"time"
 )
@@ -10,9 +8,9 @@ import (
 // Stats is what the running server reports about its VM pool and its caches, see ReadStats.
 type Stats struct {
 	SSR SSRStats
-	// RenderCache counts the renders of pages, PageCache the requests for pages with Cache.
-	RenderCache, PageCache CacheStats
-	// CacheBytes is what the two caches hold now, and CacheSize what they may hold (cache.size).
+	// RenderCache counts the renders of pages.
+	RenderCache CacheStats
+	// CacheBytes is what the render cache holds now, and CacheSize what it may hold (cache.size).
 	CacheBytes, CacheSize int64
 }
 
@@ -37,13 +35,10 @@ type CacheStats struct {
 	// Hits are answered from an entry. Misses made the page, and Shared waited for a page another
 	// request was making at the time.
 	Hits, Misses, Shared uint64
-	// Stale counts the old pages of the whole-page cache sent because making a new one failed.
-	Stale uint64
 }
 
-// Server is a server that runs, as ExpirePages and ReadStats see it.
+// Server is a server that runs, as ReadStats sees it.
 type Server interface {
-	ExpirePages(paths []string)
 	Stats() Stats
 }
 
@@ -52,7 +47,7 @@ var running struct {
 	servers []Server
 }
 
-// Running adds s to the servers ExpirePages and ReadStats reach, until the function it returns is
+// Running adds s to the servers ReadStats reaches, until the function it returns is
 // called.
 func Running(s Server) (stop func()) {
 	running.mu.Lock()
@@ -79,19 +74,6 @@ func servers() []Server {
 	return running.servers
 }
 
-// ExpirePages has every running server make the pages of its whole-page cache at paths again. It
-// panics for a path that does not start with a slash.
-func ExpirePages(paths []string) {
-	for _, p := range paths {
-		if !strings.HasPrefix(p, "/") {
-			panic(fmt.Sprintf("tifa: ExpirePages wants paths that start with /, got %q", p))
-		}
-	}
-	for _, s := range servers() {
-		s.ExpirePages(paths)
-	}
-}
-
 // ReadStats returns the stats of the running server, the sum of all of them when a test runs
 // several, and the zero Stats when none runs.
 func ReadStats() Stats {
@@ -106,7 +88,6 @@ func ReadStats() Stats {
 		out.SSR.RenderTime += st.SSR.RenderTime
 		out.SSR.Rejected += st.SSR.Rejected
 		out.RenderCache = out.RenderCache.add(st.RenderCache)
-		out.PageCache = out.PageCache.add(st.PageCache)
 		out.CacheBytes += st.CacheBytes
 		out.CacheSize += st.CacheSize
 	}
@@ -114,5 +95,5 @@ func ReadStats() Stats {
 }
 
 func (a CacheStats) add(b CacheStats) CacheStats {
-	return CacheStats{Entries: a.Entries + b.Entries, Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared, Stale: a.Stale + b.Stale}
+	return CacheStats{Entries: a.Entries + b.Entries, Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared}
 }

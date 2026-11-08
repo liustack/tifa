@@ -1,0 +1,109 @@
+package server
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/liustack/tifa"
+)
+
+// sharedEnv is an app with the page /news, which has Cache = time.Minute and a Load of a constant,
+// and /fresh, whose Load changes on every request.
+type sharedEnv struct {
+	s      *server
+	r      *renders
+	loads  atomic.Int64
+	header func(h http.Header)
+}
+
+func newSharedEnv(t *testing.T) *sharedEnv {
+	t.Helper()
+	e := &sharedEnv{}
+	app := wireApp()
+	app.Routes = append(app.Routes,
+		Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) {
+				e.loads.Add(1)
+				if e.header != nil {
+					e.header(c.Writer().Header())
+				}
+				return 7, nil
+			}},
+	)
+	e.s, e.r = wireServer(t, app)
+	return e
+}
+
+const wantShared = "public, max-age=0, s-maxage=60, stale-if-error=86400"
+
+// A page with Cache runs its Load on every request. Nothing keeps the page for a later request: the
+// only saving is the render, which the memo skips for the same data.
+func TestCachePageRunsItsLoadOnEveryRequest(t *testing.T) {
+	e := newSharedEnv(t)
+	for range 3 {
+		if w := get(e.s, "/news"); w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body.String())
+		}
+	}
+	if e.loads.Load() != 3 {
+		t.Errorf("%d Loads for 3 requests", e.loads.Load())
+	}
+	if e.r.count() != 1 {
+		t.Errorf("%d renders, want 1: the same data renders once", e.r.count())
+	}
+	for _, target := range []string{"/news", dataURL("/news", "b1", "11")} {
+		before := e.loads.Load()
+		get(e.s, target)
+		get(e.s, target)
+		if got := e.loads.Load() - before; got != 2 {
+			t.Errorf("%s: %d Loads for 2 requests", target, got)
+		}
+	}
+}
+
+// The headers say a shared cache may keep the page for its Cache time. Nothing in them comes from a
+// store in the program: no Age, no Cache-Status.
+func TestCachePageSaysWhatASharedCacheMayKeep(t *testing.T) {
+	e := newSharedEnv(t)
+	first, second := get(e.s, "/news"), get(e.s, "/news")
+	for name, w := range map[string]*httptest.ResponseRecorder{"first": first, "second": second} {
+		if cc := w.Header().Get("Cache-Control"); cc != wantShared {
+			t.Errorf("%s: Cache-Control %q", name, cc)
+		}
+		if w.Header().Get("Age") != "" || w.Header().Get("Cache-Status") != "" {
+			t.Errorf("%s: Age %q, Cache-Status %q", name, w.Header().Get("Age"), w.Header().Get("Cache-Status"))
+		}
+	}
+	// The 304 of the memo carries the same policy, and HEAD is answered like GET.
+	tag := second.Header().Get("ETag")
+	w := get(e.s, "/news", "If-None-Match", tag)
+	if w.Code != 304 || w.Header().Get("Cache-Control") != wantShared {
+		t.Errorf("304: %d, Cache-Control %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+	h := httptest.NewRecorder()
+	e.s.ServeHTTP(h, httptest.NewRequest("HEAD", "/news", nil))
+	if h.Code != 200 || h.Header().Get("Cache-Control") != wantShared {
+		t.Errorf("HEAD: %d, Cache-Control %q", h.Code, h.Header().Get("Cache-Control"))
+	}
+	// Navigation data is for one browser: it carries its session and is never public.
+	if d := getData(e.s, "/news", "b1", "11"); d.Code != 200 || strings.Contains(d.Header().Get("Cache-Control"), "public") {
+		t.Errorf("data: %d, Cache-Control %q", d.Code, d.Header().Get("Cache-Control"))
+	}
+}
+
+// A Load or Layout can still say the answer is not for everyone.
+func TestCachePageStaysPrivateWhenALoadSaysSo(t *testing.T) {
+	for _, value := range []string{"private", "no-store", "no-cache"} {
+		e := newSharedEnv(t)
+		e.header = func(h http.Header) { h.Set("Cache-Control", value) }
+		w := get(e.s, "/news")
+		cc := w.Header().Get("Cache-Control")
+		if w.Code != 200 || !strings.Contains(cc, value) || strings.Contains(cc, "public") || strings.Contains(cc, "s-maxage") {
+			t.Errorf("%s: %d, Cache-Control %q", value, w.Code, cc)
+		}
+	}
+}

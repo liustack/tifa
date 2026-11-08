@@ -1,4 +1,4 @@
-// Package pagecachetest is the root of the app that tests the whole-page cache. Its hook records
+// Package pagecachetest is the root of the app that tests pages with Cache. Its hook records
 // what the code of an app sees on a page with Cache, and sets a cookie on every answer.
 package pagecachetest
 

@@ -47,14 +47,8 @@ type server struct {
 	// uncached holds the paths of the pages with RenderCache = false: none of their pages, their
 	// error pages included, goes through the render cache.
 	uncached map[string]bool
-	// pageCache holds the whole-page cache time of the pages that have one, by path. It stays empty
-	// with cache.whole_page false (wholePage).
-	pageCache map[string]time.Duration
-	wholePage bool
-	// pageQuery holds the query parameters the Loads of a page read, by path: the whole-page
-	// cache keeps them even when cache.ignore_query names them.
-	pageQuery map[string][]string
-	ignore    queryFilter
+	// shared holds the s-maxage of the pages that have Cache, by path. Their requests are anonymous.
+	shared map[string]time.Duration
 	// limits holds the BodyLimit and ReadTimeout of the routes that set them, by path.
 	limits map[string]routeLimits
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
@@ -95,7 +89,7 @@ type server struct {
 func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery), wholePage: cfg.Cache.WholePage,
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, shared: map[string]time.Duration{}, limits: map[string]routeLimits{},
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}

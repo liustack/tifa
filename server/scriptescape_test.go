@@ -118,13 +118,7 @@ func TestNoPathLetsDataEndAScript(t *testing.T) {
 				}
 			}},
 		{name: "error placed at a level", s: prod, target: "/boom", status: 500, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
-		{name: "whole-page cache miss", s: prod, target: "/cached", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
-		{name: "whole-page cache hit", s: prod, target: "/cached", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`,
-			check: func(t *testing.T, w *httptest.ResponseRecorder) {
-				if got := w.Header().Get("Cache-Status"); got != "tifa; hit" {
-					t.Errorf("Cache-Status %q, want a hit", got)
-				}
-			}},
+		{name: "page with Cache", s: prod, target: "/cached", status: 200, escaped: `\x3C/script>\x3Cscript>window.pwned=1`},
 		{name: "page without SSR", s: prod, target: "/plain", status: 200, escaped: `\u003c/script\u003e\u003cscript\u003ewindow.pwned=1`},
 		{name: "dev: error over the page", s: dev, target: "/boom", status: 500, escaped: `Error: \u003c/script\u003e\u003cscript\u003ewindow.pwned=1`},
 		{name: "dev: page that fails at every level", s: dev, target: "/doom", status: 500, escaped: `Error: &lt;/script&gt;&lt;script&gt;window.pwned=1`},

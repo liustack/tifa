@@ -5,20 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
-	"net/http"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/liustack/tifa/internal/core"
 	"github.com/liustack/tifa/internal/ssr"
 )
-
-// cacheNow is the clock of the whole-page cache. Tests set it.
-var cacheNow = time.Now
 
 // htmlCache keeps rendered pages by the hash of their render input, up
 // to size bytes of pages, each in the one form it keeps. It drops the least recently used pages first.
@@ -31,21 +24,13 @@ type htmlCache struct {
 	pages map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
-	// bypass holds, by page key, until when requests skip the cache of that page: its last result
-	// could not be stored, see markBypass.
-	bypass map[string]time.Time
-	// bodies counts, for the pages that share their body (the render cache
-	// and the whole-page cache keep the same render), how many pages use each, so the bytes count once.
+	// bodies counts, for the pages that share their body, how many pages use each, so the bytes
+	// count once.
 	bodies map[*bodyID]*bodyUse
-	// madeAfter is the moment the content collections last changed: a page of the whole-page
-	// cache made before it is no longer fresh, see expireMadeBefore.
-	madeAfter time.Time
-	// entries counts the pages kept, by kind (kindOf), under mu. hits, misses and shared count what
-	// fetch found, and staleSent the old pages of the whole-page cache sent for a failed one. Every
+	// entries counts the pages kept, under mu. hits, misses and shared count what fetch found. Every
 	// request counts, so these are atomic, and Stats reads them without the lock.
-	entries              [2]int
-	hits, misses, shared [2]atomic.Uint64
-	staleSent            atomic.Uint64
+	entries              int
+	hits, misses, shared atomic.Uint64
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
 	fetching, landing func()
@@ -60,32 +45,7 @@ type flight struct {
 	page cachedPage
 	held bool
 	err  error
-	// unshared is set when the result belongs to the request that made it: its headers say it is
-	// not for everyone, so the requests that waited make their own, see effects.
-	unshared bool
 }
-
-// effects are what the result of making a page of the whole-page cache does to the cache besides
-// being stored. They are applied when the flight ends, and only if it is still the flight of its
-// key: a make that every request gave up on, and another one replaced, must not touch what the
-// newer one did.
-type effects struct {
-	set      bool // the other fields are meant
-	remove   bool // the old page is gone: an answer of the app replaces it
-	bypass   bool // requests skip the cache for a while, see markBypass
-	unshared bool
-}
-
-// madeError is the error of making a page of the whole-page cache. headers are the response headers the
-// Load and Layout functions set before it failed.
-type madeError struct {
-	err     error
-	headers http.Header
-	fx      effects
-}
-
-func (e *madeError) Error() string { return e.err.Error() }
-func (e *madeError) Unwrap() error { return e.err }
 
 // bodyID stands for the body one render made. It is not empty, because Go may
 // give every pointer to an empty value the same address, and the pages would count as one.
@@ -99,23 +59,6 @@ type bodyUse struct {
 type cached struct {
 	key  string
 	page cachedPage
-	// expired is set by expirePaths, under htmlCache.mu: the page is no longer fresh, but still
-	// stands in for one that fails.
-	expired bool
-}
-
-// Kinds of keys, see kindOf.
-const (
-	renderKind = iota
-	pageKind
-)
-
-// kindOf says which cache a key is of: the render cache or the whole-page cache.
-func kindOf(key string) int {
-	if strings.HasPrefix(key, pageKeyPrefix) {
-		return pageKind
-	}
-	return renderKind
 }
 
 // cachedPage is a rendered page as the cache keeps it: one form of it, never changed after the page
@@ -134,8 +77,6 @@ type cachedPage struct {
 	// body is shared by the pages made from one render, see htmlCache.bodies. Nil for a page that
 	// shares nothing.
 	body *bodyID
-	// whole is set for a page of the whole-page cache: what it stands for besides the HTML.
-	whole *wholePage
 	// redirect is set for a render that the router ended with a redirect: the page is that
 	// redirect and has no HTML.
 	redirect *ssr.RedirectError
@@ -151,91 +92,27 @@ func (p cachedPage) bodySize() int64 {
 	return int64(len(p.html))
 }
 
-// meta is what the page costs besides its body: its policy, which every page
-// keeps for itself, what a page of the whole-page cache stands for, and a redirect.
+// meta is what the page costs besides its body: its policy, which every page keeps for itself, and
+// a redirect.
 func (p cachedPage) meta() int64 {
 	n := int64(len(p.policy))
-	if p.whole != nil {
-		n += p.whole.size()
-	}
 	if p.redirect != nil {
 		n += int64(len(p.redirect.Location)) + 32
 	}
 	return n
 }
 
-// effects returns what the result of a make does to the cache, from its page or its error.
-func effectsOf(page cachedPage, err error) effects {
-	var made *madeError
-	switch {
-	case page.whole != nil:
-		return page.whole.fx
-	case errors.As(err, &made):
-		return made.fx
-	}
-	return effects{}
-}
-
-// fresh reports whether a page may be served at now: a page of the render cache always may, a
-// page of the whole-page cache until its time is over, if it was made after madeAfter.
-func (p cachedPage) fresh(now, madeAfter time.Time) bool {
-	return p.whole == nil || now.Before(p.whole.expires) && p.whole.created.After(madeAfter)
-}
-
-// expireMadeBefore makes every page of the whole-page cache made before t, or at t, no longer
-// fresh: the next request makes it again. Such a page still stands in for one that fails (stale).
-// The makes and renders under way read their data before t, so later requests do not wait for
-// them and start their own: the requests that already wait get the result as before, and a make
-// that is replaced so does not enter the cache (see fly). A render of the render cache that is
-// under way may be done twice, which is rare, since content is published seldom.
-func (c *htmlCache) expireMadeBefore(t time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if t.After(c.madeAfter) {
-		c.madeAfter = t
-	}
-	clear(c.flights)
-}
-
-// expirePaths makes the pages of the whole-page cache at paths, decoded, no longer fresh, whatever
-// their host, scheme and query: the next request makes each again. Such a page still stands in for
-// one that fails (stale). The makes of those pages under way may have read their data before the
-// call, so later requests do not wait for them, and their pages do not enter the cache (see fly):
-// the requests that already wait get them as before. Requests that skipped the cache of such a page
-// use it again (see markBypassLocked), since what made the page not for everyone may have changed.
-func (c *htmlCache) expirePaths(paths map[string]bool) {
-	matches := func(key string) bool {
-		path, ok := pagePath(key)
-		return ok && paths[path]
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for key, e := range c.pages {
-		if matches(key) {
-			e.Value.(*cached).expired = true
-		}
-	}
-	maps.DeleteFunc(c.flights, func(key string, _ *flight) bool { return matches(key) })
-	maps.DeleteFunc(c.bypass, func(key string, _ time.Time) bool { return matches(key) })
-}
-
-// stats returns what the render cache and the whole-page cache hold and did, and the bytes they
-// share.
-func (c *htmlCache) stats() (render, page core.CacheStats, used int64) {
+// stats returns what the cache holds and did, and the bytes it holds.
+func (c *htmlCache) stats() (render core.CacheStats, used int64) {
 	c.mu.Lock()
 	entries, used := c.entries, c.used
 	c.mu.Unlock()
-	of := func(kind int) core.CacheStats {
-		return core.CacheStats{Entries: entries[kind], Hits: c.hits[kind].Load(), Misses: c.misses[kind].Load(), Shared: c.shared[kind].Load()}
-	}
-	render, page = of(renderKind), of(pageKind)
-	page.Stale = c.staleSent.Load()
-	return render, page, used
+	return core.CacheStats{Entries: entries, Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load()}, used
 }
 
 func newHTMLCache(size int64) *htmlCache {
 	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
-	return &htmlCache{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}, bodies: map[*bodyID]*bodyUse{}}
+	return &htmlCache{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bodies: map[*bodyID]*bodyUse{}}
 }
 
 func (c *htmlCache) get(key string) (cachedPage, bool) {
@@ -278,7 +155,7 @@ func (c *htmlCache) putLocked(key string, page cachedPage) {
 		return
 	}
 	c.pages[key] = c.order.PushFront(&cached{key: key, page: page})
-	c.entries[kindOf(key)]++
+	c.entries++
 	c.charge(page)
 	for c.used > c.size {
 		c.removeLocked(c.order.Back().Value.(*cached).key)
@@ -320,78 +197,9 @@ func (c *htmlCache) removeLocked(key string) {
 		c.refund(e.Value.(*cached).page)
 		c.order.Remove(e)
 		delete(c.pages, key)
-		c.entries[kindOf(key)]--
+		c.entries--
 	}
 }
-
-// stale returns the page of key even when its time is over, as long as it is within the time a
-// page may stand in for a failed one (staleIfError after its time ended). Only pages of the
-// whole-page cache qualify.
-func (c *htmlCache) stale(key string, now time.Time) (cachedPage, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, ok := c.pages[key]
-	if !ok {
-		return cachedPage{}, false
-	}
-	page := e.Value.(*cached).page
-	if page.whole == nil || !now.Before(page.whole.staleUntil) {
-		return cachedPage{}, false
-	}
-	c.order.MoveToFront(e)
-	return page, true
-}
-
-// renderedFrom returns the page of the entry of the whole-page cache at key, fresh or not, when its
-// HTML was rendered through the render cache from the input whose render key is tag: a new entry
-// made from that input has the same HTML. An entry of a page with RenderCache = false has a tag of
-// its HTML instead (contentTag), which no render key equals.
-func (c *htmlCache) renderedFrom(key, tag string) (cachedPage, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, ok := c.pages[key]
-	if !ok {
-		return cachedPage{}, false
-	}
-	page := e.Value.(*cached).page
-	if page.whole == nil || page.whole.status != http.StatusOK || page.whole.etag != tag {
-		return cachedPage{}, false
-	}
-	return page, true
-}
-
-// markBypassLocked has requests for key skip the cache until the time given: a page whose result
-// cannot be stored would otherwise make every request wait for the one before it (Varnish calls
-// this hit-for-miss).
-func (c *htmlCache) markBypassLocked(key string, until time.Time) {
-	if len(c.bypass) >= maxBypass {
-		now := cacheNow()
-		for k, t := range c.bypass {
-			if !now.Before(t) {
-				delete(c.bypass, k)
-			}
-		}
-		if len(c.bypass) >= maxBypass {
-			return
-		}
-	}
-	c.bypass[key] = until
-}
-
-// bypassed reports whether requests for key skip the cache at now.
-func (c *htmlCache) bypassed(key string, now time.Time) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	until, ok := c.bypass[key]
-	if ok && !now.Before(until) {
-		delete(c.bypass, key)
-		return false
-	}
-	return ok
-}
-
-// maxBypass bounds the pages whose cache is skipped.
-const maxBypass = 4096
 
 // fetched is a page fetch answers with. held reports that the cache keeps it or could, and how
 // says where it came from: cache, vm for a render the request started, or shared for one another
@@ -419,19 +227,18 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 	if c.fetching != nil {
 		c.fetching()
 	}
-	kind := kindOf(key)
 	c.mu.Lock()
-	if e, ok := c.pages[key]; ok && !e.Value.(*cached).expired && e.Value.(*cached).page.fresh(cacheNow(), c.madeAfter) {
+	if e, ok := c.pages[key]; ok {
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
-		c.hits[kind].Add(1)
+		c.hits.Add(1)
 		return fetched{page: e.Value.(*cached).page, held: true, how: "cache"}, nil
 	}
 	how := "shared"
-	counter := &c.shared[kind]
+	counter := &c.shared
 	f := c.flights[key]
 	if f == nil {
-		how, counter = "vm", &c.misses[kind]
+		how, counter = "vm", &c.misses
 		f = &flight{done: make(chan struct{})}
 		var flightCtx context.Context
 		flightCtx, f.cancel = context.WithCancel(context.WithoutCancel(ctx))
@@ -443,9 +250,6 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 	counter.Add(1)
 	select {
 	case <-f.done:
-		if f.unshared && how == "shared" {
-			return fetched{how: "retry"}, nil
-		}
 		return fetched{page: f.page, held: f.held, how: how}, f.err
 	case <-ctx.Done():
 		c.mu.Lock()
@@ -476,23 +280,12 @@ func (c *htmlCache) fly(ctx context.Context, key string, f *flight, unheard func
 			f.page, f.held = cachedPage{}, false
 		}
 		c.mu.Lock()
-		fx := effectsOf(f.page, f.err)
-		f.unshared = fx.unshared
-		// A make that was given up on and replaced leaves the cache as the newer one made it.
-		if current := c.flights[key] == f; current || !(fx.set || f.page.whole != nil) {
-			if f.err == nil && f.held {
-				c.putLocked(key, f.page)
-			} else if f.err == nil {
-				// A result that cannot be kept replaces the page it came instead of: the page is
-				// gone or has changed to something else, and must not come back as the old one.
-				c.removeLocked(key)
-			}
-			if fx.remove {
-				c.removeLocked(key)
-			}
-			if fx.bypass {
-				c.markBypassLocked(key, cacheNow().Add(hitForMiss))
-			}
+		if f.err == nil && f.held {
+			c.putLocked(key, f.page)
+		} else if f.err == nil {
+			// A result that cannot be kept replaces the page it came instead of: it must not
+			// come back as the old one.
+			c.removeLocked(key)
 		}
 		if c.landing != nil {
 			c.landing()

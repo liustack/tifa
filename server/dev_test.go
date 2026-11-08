@@ -484,8 +484,8 @@ func TestDevMainReloadsTheContent(t *testing.T) {
 			t.Fatalf("page: %d %s", code, body)
 		}
 	}
-	if n := loads.Load(); n != 1 {
-		t.Fatalf("Load ran %d times, want once and a cache hit", n)
+	if n := loads.Load(); n != 2 {
+		t.Fatalf("Load ran %d times, want once for each request", n)
 	}
 
 	writePosts("A", "B")
@@ -495,8 +495,8 @@ func TestDevMainReloadsTheContent(t *testing.T) {
 	if got := titles(); !slices.Equal(got, []string{"A", "B"}) {
 		t.Fatalf("titles after the reload %q", got)
 	}
-	if code, body := fetch(t, "GET", base+"/posts"); code != 200 || loads.Load() != 2 {
-		t.Fatalf("page after the reload: %d %s, Load ran %d times: want the cached page expired", code, body, loads.Load())
+	if code, body := fetch(t, "GET", base+"/posts"); code != 200 || loads.Load() != 3 {
+		t.Fatalf("page after the reload: %d %s, Load ran %d times: want one more", code, body, loads.Load())
 	}
 
 	writePosts("A", "")

@@ -45,15 +45,14 @@ func entryAlternates(base string, e content.Entry) []tifa.Alternate {
 var allLanguages = []string{"zh-CN", "en-US", "de"}
 
 type altEnv struct {
-	s     *server
-	r     *renders
-	clock *cacheClock
-	tr    *translations
+	s  *server
+	r  *renders
+	tr *translations
 }
 
 func newAltEnv(t *testing.T, always bool) *altEnv {
 	t.Helper()
-	e := &altEnv{clock: useCacheClock(t), tr: &translations{}}
+	e := &altEnv{tr: &translations{}}
 	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "ni-hao"}, content.Translation{Lang: "en-US", Slug: "hello"})
 	app := wireApp()
 	app.I18n = &I18n{Default: "zh-CN", Always: always, Languages: allLanguages, SiteURL: "https://a.example.com/"}
@@ -156,9 +155,6 @@ func TestSetAlternatesReplacesTheList(t *testing.T) {
 	}
 	// An entry in one language only has one version: no links.
 	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "ni-hao"})
-	e.clock.advance(time.Second)
-	e.s.contentChanged()
-	e.clock.advance(time.Millisecond)
 	get(e.s, "/store/journal/ni-hao")
 	if got := e.lastAlternates(t); !strings.HasSuffix(got, `"list":[{"language":"zh-CN","url":"/store/journal/ni-hao"}],"custom":true}`) {
 		t.Errorf("an entry with one version carries %s", got)
@@ -242,9 +238,9 @@ func onlyOnes(target string) string {
 	return "11"
 }
 
-// A page the whole-page cache holds gets the new list once a translation is published, in the
-// render and in the data of a navigation.
-func TestCachedPageGetsTheListOfAPublishedTranslation(t *testing.T) {
+// A page with Cache gets the new list once a translation is published, in the render and in the
+// data of a navigation.
+func TestPageWithCacheGetsTheListOfAPublishedTranslation(t *testing.T) {
 	e := newAltEnv(t, false)
 	two := `{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]`
 	three := `{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"},{"language":"de","url":"/de/store/journal/hallo"}]`
@@ -255,14 +251,11 @@ func TestCachedPageGetsTheListOfAPublishedTranslation(t *testing.T) {
 	if got := e.lastAlternates(t); !strings.HasSuffix(got, two+`,"custom":true}`) {
 		t.Fatalf("before: %s", got)
 	}
-	// The data of a navigation from the cached entry has the list too.
+	// The data of a navigation has the list too.
 	if w := getData(e.s, "/store/journal/ni-hao", "b1", "01"); !strings.Contains(w.Body.String(), two+"}") {
-		t.Errorf("cached data before: %s", w.Body.String())
+		t.Errorf("data before: %s", w.Body.String())
 	}
 	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "ni-hao"}, content.Translation{Lang: "en-US", Slug: "hello"}, content.Translation{Lang: "de", Slug: "hallo"})
-	e.clock.advance(time.Second)
-	e.s.contentChanged()
-	e.clock.advance(time.Millisecond)
 	w := get(e.s, "/store/journal/ni-hao")
 	if w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("after publishing: %q", w.Header().Get("X-Tifa-Render"))
@@ -271,7 +264,7 @@ func TestCachedPageGetsTheListOfAPublishedTranslation(t *testing.T) {
 		t.Errorf("after: %s", got)
 	}
 	if w := getData(e.s, "/store/journal/ni-hao", "b1", "01"); !strings.Contains(w.Body.String(), three+"}") {
-		t.Errorf("cached data after: %s", w.Body.String())
+		t.Errorf("data after: %s", w.Body.String())
 	}
 	// Another list is another page for the ETag: a browser holding the old copy gets the new one.
 	if w.Header().Get("ETag") == before {

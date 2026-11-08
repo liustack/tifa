@@ -11,7 +11,7 @@ import (
 
 // TestDevContent runs tifa dev on a copy of test/apps/content and changes its Markdown: each
 // change runs the content step alone, without go build, and a reload shows it. The list page has
-// a whole-page cache, which a reload of the content expires.
+// a Cache time, which a reload of the content must not hold on to.
 func TestDevContent(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {

@@ -574,17 +574,17 @@ func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if !s.pagesServed() {
 			return loadsAsJSON(c, chain)
 		}
-		if ttl := s.pageCache[r.Path]; ttl > 0 && anonymityOf(c.Request()) != nil {
-			return s.cachedPageRequest(c, r, chain, ttl)
-		}
 		if c.IsData() {
 			return s.dataRequest(c, chain, r.Path)
 		}
 		items, loads, err := runChain(c, chain, r.SSR, r.Path)
-		switch {
-		case err != nil:
+		if err != nil {
 			return err
-		case !r.SSR:
+		}
+		if ttl := s.shared[r.Path]; ttl > 0 {
+			setShared(c.Writer().Header(), ttl)
+		}
+		if !r.SSR {
 			return s.dataOnly(c, items, http.StatusOK, r.Path)
 		}
 		return s.renderPage(c, items, loads, http.StatusOK, !r.NoRenderCache, r.Path)
@@ -820,7 +820,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	if err != nil {
 		return err
 	}
-	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: c.Request().URL.RequestURI(), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -1128,7 +1128,7 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 	if err != nil {
 		return err
 	}
-	doc, err := dataOnlyDocument(f, items, key, s.renderURI(c), c.Language(), alternates, sess)
+	doc, err := dataOnlyDocument(f, items, key, c.Request().URL.RequestURI(), c.Language(), alternates, sess)
 	if err != nil {
 		return err
 	}
@@ -1402,14 +1402,4 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, page)
-}
-
-// renderURI is the URL a page is rendered for. A page with the whole-page cache gets the cleaned
-// one (pageURI), the URL its cache entry stands for. The others get the URL as it came.
-func (s *server) renderURI(c *tifa.Ctx) string {
-	r := c.Request()
-	if anonymityOf(r) != nil {
-		return s.pageURI(r, c.Pattern())
-	}
-	return r.URL.RequestURI()
 }

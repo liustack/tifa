@@ -154,17 +154,7 @@ type SSR struct {
 
 type Cache struct {
 	Size int64
-	// WholePage keeps the pages of routes with Cache for everyone. False renders them like other pages.
-	WholePage bool
-	// IgnoreQuery lists the query parameters the whole-page cache leaves out of its key and of the
-	// URL it renders for: tracking parameters. A name ending in * is a prefix. A page whose Load
-	// reads one of them keeps it.
-	IgnoreQuery []string
 }
-
-// DefaultIgnoreQuery is the default of cache.ignore_query: the tracking parameters of the common
-// ad and mail services.
-var DefaultIgnoreQuery = []string{"utm_*", "gclid", "gbraid", "wbraid", "fbclid", "msclkid", "twclid", "ttclid", "yclid", "mc_cid", "mc_eid"}
 
 // Session holds the settings of tifa.SetSession. Cookie is the name of the session cookie, MaxAge
 // how long a session lasts from the moment SetSession makes it, and MemoryLimit the bytes the
@@ -193,7 +183,7 @@ func Default() Config {
 		I18n:    I18n{Prefix: "off"},
 		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
 		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second},
-		Cache:   Cache{Size: 64 << 20, WholePage: true, IgnoreQuery: slices.Clone(DefaultIgnoreQuery)},
+		Cache:   Cache{Size: 64 << 20},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
 }
@@ -246,8 +236,6 @@ func fields(c *Config) []field {
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
 		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
-		{"cache.whole_page", "Keep the pages of routes with Cache for everyone, false renders them like other pages", boolValue{&c.Cache.WholePage}},
-		{"cache.ignore_query", "Tracking query parameters the whole-page cache ignores: names are added to the list, -name takes one out, -* empties it", ignoreQueryValue{&c.Cache.IgnoreQuery}},
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},

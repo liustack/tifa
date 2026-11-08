@@ -315,7 +315,7 @@ func TestContentAppWithoutPages(t *testing.T) {
 
 // TestContentPublishedAtItsDate builds the content app with a post dated twenty seconds after the
 // build starts. The running program answers 404 for it and leaves it out of the list, which the
-// whole-page cache keeps for ten minutes. At its date the post is on the list and on its own page,
+// render cache keeps. At its date the post is on the list and on its own page,
 // without a new build, and the program logs it.
 func TestContentPublishedAtItsDate(t *testing.T) {
 	skipUnlessEnabled(t)

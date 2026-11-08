@@ -130,9 +130,6 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		}
 		if r.Cache > 0 {
 			fmt.Fprintf(&app, "Cache: %d, // %s\n", int64(r.Cache), r.Cache)
-			if names := cacheQuery(m, r); len(names) > 0 {
-				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(names))
-			}
 		}
 		fmt.Fprintf(&app, "Layouts: %s,\n", stringSlice(r.Layouts))
 		if r.Load != nil && r.Load.HTML {
@@ -278,20 +275,3 @@ func gofmt(name, src string) ([]byte, error) {
 	return out, nil
 }
 
-// cacheQuery lists the query parameters read by the Load of the route and by the Layout functions
-// around it, sorted: the whole-page cache of the route keeps them whatever cache.ignore_query says.
-func cacheQuery(m *analyze.Manifest, r analyze.Route) []string {
-	var names []string
-	if r.Load != nil {
-		names = append(names, r.Load.AllQuery...)
-	}
-	for _, id := range r.Layouts {
-		for _, l := range m.Layouts {
-			if l.ID == id && l.Load != nil {
-				names = append(names, l.Load.AllQuery...)
-			}
-		}
-	}
-	slices.Sort(names)
-	return slices.Compact(names)
-}

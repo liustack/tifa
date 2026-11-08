@@ -78,7 +78,6 @@ var App = server.App{
 			Page:    true,
 			SSR:     true,
 			Cache:   600000000000, // 10m0s
-			Query:   []string{"lang"},
 			Layouts: []string{"app/layout", "app/auth/layout"},
 		},
 		{
@@ -114,5 +113,5 @@ var App = server.App{
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "93e9a52c77a0189d34f6897a906702c2",
+	Fingerprint: "c08d84e32ad630505dc3bd07ee94219f",
 }
