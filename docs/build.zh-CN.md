@@ -354,7 +354,7 @@ React DOM 19.3.0 和 19.3.1 是插件读过每个函数的版本。新版本里 
 
 i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每次渲染约翻译 126 次，而且多半是同样的文案配同样的值。所以 Tifa 插件在 SSR 包里给 i18next 加了一个缓存。`getFixedT` 返回的 `t`（react-i18next 的 `useTranslation` 交出去的就是它）记住自己给出的每个字符串，之后用同样的键和选项再调用时直接拿回这个字符串，不再翻译一遍。每个 VM 有自己的缓存。缓存默认打开。在项目文件里写上 `build.i18next_cache: false` 就关掉，这时 SSR 包和没有缓存时一个字节都不差。
 
-查缓存用的是 i18next 实例、`t` 的语言、命名空间和键前缀、`t` 没有语言时实例的语言、键、实例的 `interpolation.defaultVariables`、`i18nFormat` 模块（比如 i18next-icu）的 `formats`，以及这次调用的选项。只有键和选项都是字符串、数字、布尔值、`null`、`undefined` 或字符串数组，并且选项是普通对象的调用才会被记住。其余的照旧翻译：
+查缓存用的是 i18next 实例、`t` 的语言、命名空间和键前缀、`t` 没有语言时实例的语言、键、实例的 `interpolation.defaultVariables`、`i18nFormat` 模块（比如 i18next-icu）的 `formats`，以及这次调用的选项。只有键和选项都是字符串、数字、布尔值、`null`、`undefined` 或字符串数组，并且选项是不带 Symbol 键的普通对象的调用才会被记住。其余的照旧翻译：
 
 - 键或选项是函数或对象，比如 `replace`、`formatParams` 或 `Date`
 - 结果不是字符串（`returnObjects`、`returnDetails`）
@@ -362,7 +362,7 @@ i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每�
 - 用 `cloneInstance` 做出的实例、带 `missingInterpolationHandler` 的实例、自带格式化模块（`use({ type: 'formatter' })`）的实例，它们的调用一概不记
 - 实例自己的 `t`（`i18n.t`），`Trans` 没拿到 `t` 时用的就是它
 
-应用通过 i18next 的 API 改动缓存里的翻译所依赖的东西时，缓存清空：`addResource`、`addResources`、`addResourceBundle`、`removeResourceBundle`、再次 `init`、`loadNamespaces`、`loadLanguages`、`reloadResources`、`setDefaultNamespace`、`use`、`hydrate`（i18next 27），给缓存里有翻译的实例加格式化函数，加后处理器。i18next 26.5 及以前，后处理器属于所有实例，加一个就清空整个缓存。i18next 27 里它属于调用 `use` 的那个实例，`use` 清空这个实例的记录。i18next-http-backend 这类 backend 用 `addResourceBundle` 放入加载到的资源，所以加载资源也会清空缓存。`changeLanguage`、`cloneInstance` 和新建实例不清空缓存，因为语言是每条记录的一部分，每个实例的记录也各归各。实例没了，它记住的字符串也随之释放，所以每个请求新建实例的应用，不会让缓存塞满以后的请求再也用不上的字符串。每个 VM 里缓存最多存约 1 MB，键和字符串的每个字符按两字节算，每条再加 80 字节。下一个字符串放不下时，缓存清空重来。
+应用通过 i18next 的 API 改动缓存里的翻译所依赖的东西时，缓存清空：`addResource`、`addResources`、`addResourceBundle`、`removeResourceBundle`、再次 `init`、`loadNamespaces`、`loadLanguages`、`reloadResources`、`setDefaultNamespace`、`use`、`hydrate`（i18next 27），给缓存里有翻译的实例加格式化函数，加后处理器。i18next 26.5 及以前，后处理器属于所有实例，加一个就清空整个缓存。i18next 27 里它属于调用 `use` 的那个实例，那个实例记住过字符串时，`use` 清空整个缓存。`hydrate` 一律清空整个缓存，因为它会往 `ns` 数组里加命名空间，而用同一个选项对象做出的实例共用这个数组。i18next-http-backend 这类 backend 用 `addResourceBundle` 放入加载到的资源，所以加载资源也会清空缓存。`changeLanguage`、`cloneInstance` 和新建实例不清空缓存，因为语言是每条记录的一部分，每个实例的记录也各归各。实例没了，它记住的字符串也随之释放，所以每个请求新建实例的应用，不会让缓存塞满以后的请求再也用不上的字符串。每个 VM 里缓存最多存约 1 MB，键和字符串的每个字符按两字节算，每条再加 80 字节。下一个字符串放不下时，缓存清空重来。
 
 缓存很少答得上的键，比如选项里带着用户名字的键，当它的调用没找到的次数比找到次数的四倍多出 64 次时，就不再用缓存。之后每 33 次调用里有一次再试缓存，试的这些调用找得到字符串时，这个键就重新用上缓存。不用缓存时，它的调用除了查一次键，花的时间和没有缓存时一样。
 
