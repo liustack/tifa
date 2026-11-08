@@ -40,3 +40,11 @@ export const orderFn = createServerFn()
 export const statsFn = createServerFn()
   .validator((project: domain.Project) => project)
   .handler(({ data: project }) => domain.loadStats(project))
+
+export const productsFn = createServerFn()
+  .validator((project: domain.Project) => project)
+  .handler(({ data: project }) => orNotFound(() => domain.loadProducts(project)))
+
+export const productEntryFn = createServerFn()
+  .validator((p: { project: domain.Project; product: string }) => p)
+  .handler(({ data: p }) => orNotFound(() => domain.loadProductEntry(p.project, p.product)))

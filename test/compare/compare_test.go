@@ -94,13 +94,13 @@ func TestDomainMatchesGo(t *testing.T) {
 	if len(diffs) > 0 {
 		t.Error("the TypeScript port in test/compare/domain no longer matches the Go code of examples/shop: port the change")
 	}
-	for _, p := range compare.AllPages() {
+	for _, p := range compare.CheckedPages() {
 		if len(want[p.URL]) == 0 || len(got[p.URL]) != len(want[p.URL]) {
 			t.Errorf("%s: Go answered %d routes, Node %d", p.URL, len(want[p.URL]), len(got[p.URL]))
 		}
 	}
-	if len(want) != len(compare.AllPages()) || len(got) != len(want) {
-		t.Errorf("AllPages lists %d pages, Go answered %d, Node %d", len(compare.AllPages()), len(want), len(got))
+	if len(want) != len(compare.CheckedPages()) || len(got) != len(want) {
+		t.Errorf("CheckedPages lists %d pages, Go answered %d, Node %d", len(compare.CheckedPages()), len(want), len(got))
 	}
 	// The orders AllPages assumes are the orders the shop has: every order counted by the lists has a page.
 	for _, project := range []string{"studio", "weekend"} {
@@ -145,7 +145,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, page := range compare.AllPages() {
+		for _, page := range compare.CheckedPages() {
 			body, err := compare.Fetch(server.Base, page)
 			if err != nil {
 				t.Errorf("%s: %v", target.Name, err)
@@ -159,7 +159,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 	}
 	tifa := views["tifa"]
 	for _, name := range names[1:] {
-		for i, page := range compare.AllPages() {
+		for i, page := range compare.CheckedPages() {
 			if len(views[name]) <= i || len(tifa) <= i {
 				continue
 			}
@@ -219,7 +219,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 			counts = "http://" + countsAddr
 		}
 		perPage[target.Name] = map[string]int64{}
-		for _, page := range compare.AllPages() {
+		for _, page := range compare.CheckedPages() {
 			before := readCounts(t, counts)
 			render := fetchRender(t, server.Base, page)
 			one := diffCounts(before, readCounts(t, counts))
@@ -258,7 +258,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 		perStore[target.Name] = storeComputes(t, target.Name, server.Base, countBases, node, storeWriteOf(target.Name))
 		server.Stop()
 	}
-	for _, page := range compare.AllPages() {
+	for _, page := range compare.CheckedPages() {
 		a, b, c, d := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name], perPage["reactrouter"][page.Name]
 		if a != b || a != c || a != d {
 			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d, React Router %d", page.Name, a, b, c, d)
@@ -389,8 +389,8 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 }
 
 // TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes, and
-// then every kind of write of the shop's admin (place, ship, note, change the recipient), to the Go
-// shop and applies them in the port, and checks that the data of every page, with the pages of the
+// then a staff edit of a product and every kind of write of the shop's admin (place, ship, note,
+// change the recipient), to the Go shop and applies them in the port, and checks that the data of every page, with the pages of the
 // orders placed, is still the same. Instants are left out, since the two make them at different times.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	env := setup(t)
@@ -404,6 +404,10 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 		t.Fatalf("only %d writes", len(recipients))
 	}
 	writes := compare.RecipientWrites(recipients)
+	// The edit comes before the orders, so the order of the tray that adminWrites places takes its new
+	// name and price.
+	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "studio", Order: "oak-tray", Body: map[string]any{
+		"priceCents": 52000, "stock": 5, "nameEn": " Oak Tray, Large ", "nameZh": "橡木大托盘", "descriptionEn": "White oak, carved from one block.", "descriptionZh": "整块白橡木挖制。"}})
 	writes = append(writes, adminWrites()...)
 	want, err := env.GoData(ctx, writes...)
 	if err != nil {
@@ -413,8 +417,8 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != len(want) || len(want) != len(compare.AllPages())+3 {
-		t.Fatalf("%d pages in the shop, %d in the port, want %d", len(want), len(got), len(compare.AllPages())+3)
+	if len(got) != len(want) || len(want) != len(compare.CheckedPages())+3 {
+		t.Fatalf("%d pages in the shop, %d in the port, want %d", len(want), len(got), len(compare.CheckedPages())+3)
 	}
 	for _, d := range compare.DiffData(compare.WithoutInstants(toAny(t, want)), compare.WithoutInstants(toAny(t, got)), 20) {
 		t.Error(d)

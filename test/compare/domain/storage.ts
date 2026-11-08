@@ -4,16 +4,50 @@
 // and the order page show. Every write updates them with the order, so a read of the pages costs
 // about the same with 50 orders as with 5000. They start with the demonstration data.
 import { counts } from './counts.ts'
-import { demoOrders, studioCatalogue, weekendCatalogue } from './demo.ts'
+import { demoOrders, weekendCatalogue } from './demo.ts'
+import { Invalid, NotFound } from './errors.ts'
+import { Fields } from './store/errors.ts'
+import { orderLine } from './store/products/edit.ts'
+import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
 import { total } from './records.ts'
 import type { ItemRecord, OrderRecord, ShipmentRecord } from './records.ts'
 import { HOUR, local } from './time.ts'
 
-// The form of the order numbers of a project and its products, as shops in create.go.
-export const shops: Record<string, { prefix: string; width: number; catalogue: ItemRecord[] }> = {
-  studio: { prefix: 'SH', width: 0, catalogue: studioCatalogue },
-  weekend: { prefix: 'WK', width: 4, catalogue: weekendCatalogue },
+// A NewLine is one product of a new order in a colour and size, as in create.go. Staff leave the
+// colour and size empty.
+export interface NewLine {
+  slug: string
+  color: string
+  size: string
+  quantity: number
+}
+
+// storefrontLine is the order line of a product of the storefront, which the studio shop sells.
+function storefrontLine(l: NewLine): ItemRecord {
+  let p
+  try {
+    p = orderLine(l.slug, l.color, l.size)
+  } catch (e) {
+    if (e instanceof NotFound) throw new Invalid(['items'])
+    if (e instanceof Fields) throw new Invalid(Object.keys(e.fields))
+    throw e
+  }
+  return { slug: p.slug, name: p.name, description: p.variant, quantity: l.quantity, priceCents: p.priceFen, color: p.color, stock: p.stock }
+}
+
+// weekendLine is the order line of a product of the weekend shop, which comes in one colour and size.
+function weekendLine(l: NewLine): ItemRecord {
+  const p = weekendCatalogue.find((p) => p.slug === l.slug)
+  if (!p || l.color !== '' || l.size !== '') throw new Invalid(['items'])
+  return { ...p, quantity: l.quantity }
+}
+
+// The form of the order numbers of a project and the line of each product it sells, as shops in
+// create.go: the studio shop sells the products of the storefront, the weekend shop has its own.
+export const shops: Record<string, { prefix: string; width: number; line: (l: NewLine) => ItemRecord }> = {
+  [storefrontProject]: { prefix: 'SH', width: 0, line: storefrontLine },
+  weekend: { prefix: 'WK', width: 4, line: weekendLine },
 }
 
 export interface CustomerOrders {

@@ -38,7 +38,7 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 			writes[w.Plan] = append(writes[w.Plan], w)
 		}
 	}
-	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}$`)
+	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SH-[0-9]+$`)
 	for _, name := range []string{"tifa-nocache", "nextjs", "start", "reactrouter"} {
 		var spec compare.Spec
 		for _, s := range env.Specs() {

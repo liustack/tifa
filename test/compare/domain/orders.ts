@@ -10,7 +10,7 @@ import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
 import { DAY, local, rfc3339 } from './time.ts'
 import { daysIn, findOrder, insert, orders, ordersOf, rename, ship, shops } from './storage.ts'
-import type { ProjectOrders } from './storage.ts'
+import type { NewLine, ProjectOrders } from './storage.ts'
 
 export interface LineItem {
   slug: string
@@ -392,7 +392,7 @@ export interface NewOrder {
   email: string
   address: string
   note: string
-  items: { slug: string; quantity: number }[]
+  items: NewLine[]
 }
 
 // checkNewOrder lists the fields of a new order that the shop would refuse, as CheckNewOrder does.
@@ -405,19 +405,20 @@ export function checkNewOrder(o: NewOrder): string[] {
   return fields
 }
 
-// createOrder places an order in a project at at, as CreateOrder does: its number is the one after
-// the highest of the project. It returns the new order.
-export function createOrder(projectId: string, input: NewOrder, at: number): Order {
+// postOrder is the POST of orders/route.go: it checks the order as Validate does, then places it.
+export function postOrder(projectId: string, input: NewOrder, at: number): Order {
   const fields = checkNewOrder(input)
   if (fields.length > 0) throw new Invalid(fields)
+  return createOrder(projectId, input, at)
+}
+
+// createOrder places an order in a project at at, as CreateOrder does: its number is the one after
+// the highest of the project, and its lines come from the products the project sells. The caller
+// checks the order first. It returns the new order.
+export function createOrder(projectId: string, input: NewOrder, at: number): Order {
   const s = shops[projectId]
   if (!s) throw new NotFound(projectId)
-  const items: ItemRecord[] = []
-  for (const l of input.items) {
-    const p = s.catalogue.find((p) => p.slug === l.slug)
-    if (!p) throw new Invalid(['items'])
-    items.push({ ...p, quantity: l.quantity })
-  }
+  const items: ItemRecord[] = input.items.map(s.line)
   const last = orders.get(projectId)?.last ?? 0
   const o: OrderRecord = {
     id: `${s.prefix}-${String(last + 1).padStart(s.width, '0')}`, projectId, customer: input.customer.trim(),

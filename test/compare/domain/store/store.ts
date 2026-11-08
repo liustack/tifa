@@ -11,6 +11,10 @@ export interface Locale {
   other: string
 }
 
+// storefrontProject is the shop of the back office whose customer side the storefront is, as
+// storekit.Project: its products are the catalogue, and a checkout becomes one of its orders.
+export const storefrontProject = 'studio'
+
 const locales: Locale[] = [
   { code: 'zh-CN', currency: 'CNY', timeZone: 'Asia/Shanghai', other: 'en-US' },
   { code: 'en-US', currency: 'USD', timeZone: 'America/Los_Angeles', other: 'zh-CN' },

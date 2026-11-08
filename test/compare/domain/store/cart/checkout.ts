@@ -1,10 +1,14 @@
 // Ported from cart/checkout.go: validating an order, placing it, and showing a placed order.
 import type { Ctx } from '../ctx.ts'
 import { Fields, HttpError, NotFound } from '../errors.ts'
-import { inLocale } from '../store.ts'
+import { inLocale, storefrontProject } from '../store.ts'
 import type { Locale } from '../store.ts'
 import { DAY, iso } from '../time.ts'
-import { cartId, carts, cookieName, demoLinesCopy, getDeliveries, newCartId, priceCart, randomText, setCartCookie } from './cart.ts'
+import { createOrder, getOrder } from '../../orders.ts'
+import type { NewLine } from '../../storage.ts'
+import { NoStock, putBack, takeStock } from '../products/edit.ts'
+import type { Take } from '../products/edit.ts'
+import { cartId, carts, cookieName, demoLinesCopy, getDeliveries, newCartId, priceCart, setCartCookie } from './cart.ts'
 import type { Delivery } from './cart.ts'
 import { countries, deliveries } from './data.ts'
 import { Recent } from './recent.ts'
@@ -167,9 +171,8 @@ const placedIdle = 30 * DAY
 
 interface PlacedRecord {
   // cart is the ID of the cart the order was placed from. Only a request with that cart sees the order.
+  // The rest of the order is the order of the back office.
   cart: string
-  email: string
-  count: number
   totalCents: number
   currency: string
   delivery: string
@@ -180,8 +183,9 @@ interface PlacedRecord {
 const g = globalThis as typeof globalThis & { __comparePlaced?: Recent<PlacedRecord> }
 const placed = (g.__comparePlaced ??= new Recent<PlacedRecord>(maxPlaced, placedIdle))
 
-// placeOrder places the order of the cart of the request, empties the cart and returns the
-// number of the order. The order must have passed validate. Go calls it PlaceOrder.
+// placeOrder places the order of the cart of the request as an order of the studio shop, takes its
+// pieces from the stock, empties the cart and returns the number of the order. The order must have
+// passed validate. Go calls it PlaceOrder.
 export function placeOrder(c: Ctx, l: Locale, o: Order, now: number): string {
   let id = cartId(c)
   let rec = carts.get(id, now)
@@ -193,10 +197,25 @@ export function placeOrder(c: Ctx, l: Locale, o: Order, now: number): string {
     throw new HttpError(409, 'cartExpired')
   }
   const ok = rec !== undefined
-  if (!rec) rec = { lines: [], coupon: '' }
-  if (!ok) rec.lines = demoLinesCopy()
+  if (!rec) rec = { lines: demoLinesCopy(), coupon: '' }
   const cart = priceCart(rec.lines, rec.coupon, l)
   if (cart.lines.length === 0) throw new HttpError(409, 'emptyCart')
+  const takes: Take[] = cart.lines.map((line) => ({ slug: line.slug, quantity: line.quantity }))
+  const items: NewLine[] = cart.lines.map((line) => ({ slug: line.slug, color: line.color, size: line.size, quantity: line.quantity }))
+  try {
+    takeStock(takes)
+  } catch (e) {
+    if (e instanceof NoStock) throw new HttpError(409, 'cartStock')
+    throw e
+  }
+  const a = o.address
+  let orderId: string
+  try {
+    orderId = createOrder(storefrontProject, { customer: a.name, phone: a.phone, email: o.email, address: address(a, l), note: o.notes, items }, now).id
+  } catch (e) {
+    putBack(takes)
+    throw e
+  }
   if (!ok) {
     // A visitor without a cart, who checks out the demonstration cart, gets a cart of their own,
     // which the order is placed from.
@@ -205,24 +224,30 @@ export function placeOrder(c: Ctx, l: Locale, o: Order, now: number): string {
   }
   let total = cart.subtotalCents - cart.discountCents
   for (const d of getDeliveries(cart, now, l)) if (d.id === o.delivery) total += d.priceCents
-  let orderId: string
-  do {
-    orderId = 'SS-' + randomText().slice(0, 10)
-  } while (placed.has(orderId))
-  placed.add(orderId, { cart: id, email: o.email, count: cart.count, totalCents: total, currency: l.currency, delivery: o.delivery, at: now }, now)
+  placed.add(orderId, { cart: id, totalCents: total, currency: l.currency, delivery: o.delivery, at: now }, now)
   rec.lines = []
   rec.coupon = ''
   setCartCookie(c, id)
   return orderId
 }
 
+// address is the delivery address of an order as one line, as the back office keeps it, with the
+// name of the country in the language of l.
+function address(a: Address, l: Locale): string {
+  const parts = [a.line1, a.line2, a.city, a.region, a.postalCode].map((p) => p.trim()).filter((p) => p !== '')
+  for (const c of countries) if (c.code === a.country) parts.push(inLocale(c.name, l))
+  return parts.join(', ')
+}
+
 // getPlaced returns an order placed from the cart cartId in the language of l, or throws
-// NotFound, also when another cart placed it. Go calls it GetPlaced.
+// NotFound, also when another cart placed it. It reads the order of the back office. Go calls it
+// GetPlaced.
 export function getPlaced(id: string, cart: string, l: Locale, now = Date.now()): Placed {
   const r = placed.get(id, now)
   if (!r || cart === '' || r.cart !== cart) throw new NotFound()
+  const o = getOrder(storefrontProject, id)
   const p: Placed = {
-    id, email: r.email, count: r.count, totalCents: r.totalCents, currency: r.currency, placedAt: iso(r.at),
+    id, email: o.email, count: o.items.reduce((n, item) => n + item.quantity, 0), totalCents: r.totalCents, currency: r.currency, placedAt: iso(r.at),
     delivery: { id: '', name: '', priceCents: 0, earliest: '0001-01-01T00:00:00Z', latest: '0001-01-01T00:00:00Z' },
   }
   for (const d of getDeliveries({ subtotalCents: 0, discountCents: 0, freeShippingCents: 1 }, r.at, l)) if (d.id === r.delivery) p.delivery = d

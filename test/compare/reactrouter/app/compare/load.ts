@@ -35,3 +35,6 @@ export const loadOrderList = (request: Request, id: string) =>
 export const loadOrder = (request: Request, id: string, order: string) =>
   orNotFound(() => domain.loadOrder(loadProject(request, id), order))
 export const loadStats = (request: Request, id: string) => domain.loadStats(loadProject(request, id))
+export const loadProducts = (request: Request, id: string) => orNotFound(() => domain.loadProducts(loadProject(request, id)))
+export const loadProductEntry = (request: Request, id: string, product: string) =>
+  orNotFound(() => domain.loadProductEntry(loadProject(request, id), product))

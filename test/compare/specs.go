@@ -38,10 +38,11 @@ type Spec struct {
 	Reference bool     // marked reference in the tables: it explains a gap and is not a contender
 	// AcceptEncoding, when set, is what the client asks this spec for, instead of the global setting.
 	AcceptEncoding string
-	Write          Writer                      // the path of the write that changes the data of an order
-	Create         func(project string) string // the path that takes the POST which places an order in a project
-	StoreWrite     func(path string) string    // the path in this app of a write of the storefront, from its path in the shop
-	Version        string                      // package.json, from Dir, of the framework package whose version the record keeps
+	Write          Writer                               // the path of the write that changes the data of an order
+	Create         func(project string) string          // the path that takes the POST which places an order in a project
+	StoreWrite     func(path string) string             // the path in this app of a write of the storefront, from its path in the shop
+	EditProduct    func(project, product string) string // the path that takes the PATCH which changes a product of the storefront
+	Version        string                               // package.json, from Dir, of the framework package whose version the record keeps
 }
 
 // Specs are the servers to measure, in the order of a round before it is rotated. Tifa runs one
@@ -55,8 +56,9 @@ func (e Env) Specs() []Spec {
 				Env:  []string{"GOMAXPROCS=1", "SHOP_OPEN=1"},
 			},
 			Framework: "tifa", Label: "Tifa", Configs: configs, Write: func(project, order string) string { return "/projects/" + project + "/orders/" + order },
-			Create:     func(project string) string { return "/projects/" + project + "/orders" },
-			StoreWrite: SameStorePath,
+			Create:      func(project string) string { return "/projects/" + project + "/orders" },
+			StoreWrite:  SameStorePath,
+			EditProduct: func(project, product string) string { return "/projects/" + project + "/products/" + product },
 		}
 	}
 	next := func(name, label string, reference bool, configs []string, flags ...string) Spec {
@@ -67,7 +69,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"),
 				Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
 			},
-			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: NextStorePath,
+			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: NextStorePath, EditProduct: nodeEditProduct,
 			Version: filepath.Join("node_modules", "next", "package.json"),
 		}
 	}
@@ -78,7 +80,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join(".output", "server", "index.mjs")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath,
+			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath, EditProduct: nodeEditProduct,
 			Version: filepath.Join("node_modules", "@tanstack", "react-start", "package.json"),
 		}
 	}
@@ -91,7 +93,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: ReactRouterStorePath,
+			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: ReactRouterStorePath, EditProduct: nodeEditProduct,
 			Version: filepath.Join("node_modules", "react-router", "package.json"),
 		}
 	}
@@ -180,3 +182,8 @@ func nodeCreate(project string) string { return "/compare-write/" + project }
 // it before the clock starts. That holds for every Tifa spec (the cache off one runs the same
 // runtime), and it is decided here, by the framework, and nowhere else.
 func (s Spec) WarmsUp() bool { return s.Framework != "tifa" }
+
+// nodeEditProduct is the path that changes a product of the storefront in the three Node apps.
+func nodeEditProduct(project, product string) string {
+	return "/compare-write/" + project + "/products/" + product
+}
