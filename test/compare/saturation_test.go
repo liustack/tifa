@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -144,5 +145,28 @@ func TestTheSaturationFileKeepsEachEntry(t *testing.T) {
 	want := SaturationFile{"office-w5": {"tifa": a, "nextjs": a}, "store-w5": {"nextjs": b}}
 	if !reflect.DeepEqual(f, want) {
 		t.Errorf("file %+v, want %+v", f, want)
+	}
+}
+
+// A server whose closed rounds at the users of every server were all invalid has nothing to probe
+// from: the phase says so and goes on, and the file gets no entry for it.
+func TestTheProbeSkipsACellWithNoValidRound(t *testing.T) {
+	sc, _ := BrowseScenarioByName("store-w5")
+	var log strings.Builder
+	path := filepath.Join(t.TempDir(), "saturation.json")
+	b := &browse{o: BrowseOptions{Log: &log, Rounds: 3, Users: 32, ServerCPUCount: 1, SaturationFile: path}, servers: map[string][]string{sc.Name: {"tifa-nopage"}}, res: &BrowseResult{}}
+	for round := 1; round <= 3; round++ {
+		bad := closedRound("tifa-nopage", sc.Name, 32, round, 4000, 59, false)
+		bad.Valid, bad.WhyInvalid = false, "the round took 59 s, outside 60 to 120 s: resized"
+		b.res.Closed = append(b.res.Closed, bad)
+	}
+	if err := b.saturation(context.Background(), sc); err != nil {
+		t.Fatalf("the saturation phase stopped: %v", err)
+	}
+	if f, err := readSaturation(path); err != nil || len(f[sc.Name]) != 0 {
+		t.Errorf("the file has %v (%v), want no entry", f, err)
+	}
+	if !strings.Contains(log.String(), "no valid round at 32 users") {
+		t.Errorf("the log does not say why it was not probed:\n%s", log.String())
 	}
 }
