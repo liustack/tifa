@@ -11,7 +11,8 @@ import (
 // The throughput of a scenario starts with every server at the same number of concurrent sessions
 // (8 by default, no think time), three rounds each in a rotating order. From there each server is
 // stepped on its own: up about 25% a step (10, 13, 16 and so on) while its median server cores stay
-// under 0.95 of its cpus and every round passes, or down to 6 and 4 sessions when it fails at 8.
+// under 0.95 of its cpus and every round passes, or down to 6 and 4 sessions when it fails at 8. A
+// step with too few valid rounds is not decided: it is not a failure, and nothing steps down from it.
 // What it found is typed (Throughput.Result), and every row says the sessions it was measured at.
 // A cell is used only when all its rounds passed: a failed round is never capacity.
 
@@ -23,16 +24,22 @@ const (
 	// ThroughputPlateau is a plateau with the core not full: one step up gained less than the
 	// spread of the rounds.
 	ThroughputPlateau = "plateau, core not full"
-	// ThroughputHighestPassing is the highest step that passed, the next one having failed the rule
-	// (the next one up, or 8 sessions when it stepped down).
+	// ThroughputHighestPassing is the highest step that passed, the next one having failed the rule in
+	// a valid round (the next one up, or 8 sessions when it stepped down).
 	ThroughputHighestPassing = "highest passing step"
 	// ThroughputCap is a server still under 0.95 of its cpus and still gaining at the last step.
 	ThroughputCap = "highest step tried"
-	// ThroughputCoresUnknown is a server whose cores are not known (not pinned, or no CPU measured):
-	// it is given at the first step, which is not a capacity.
+	// ThroughputCoresUnknown is a server whose cores are not known at a step that passed (not pinned,
+	// or no CPU measured): the steps stop there, and that step is not a capacity.
 	ThroughputCoresUnknown = "cores not known"
 	// ThroughputNone is a server with no step that passed.
 	ThroughputNone = "no passing step"
+	// ThroughputUndecided is a server with no step that passed and one that could not be decided (too
+	// few valid rounds, none failed): at 8 sessions, or on the way down.
+	ThroughputUndecided = "not decided"
+	// ThroughputNextUndecided is the highest step that passed, the next one up not decided: it had too
+	// few valid rounds, none failed.
+	ThroughputNextUndecided = "next step not decided"
 )
 
 // Throughput is what the steps found for one server in a scenario: the result, the sessions of the
@@ -125,30 +132,46 @@ func joinSessions(list []int) string {
 
 // stepSessions steps one server from base sessions and types what it found. run plays the rounds
 // of a cell (or reads back the ones played) and returns its valid rounds. cpus is the cpus of the
-// server, 0 when not known. want is the rounds a cell needs.
+// server, 0 when not known. want is the rounds a cell needs. A step passes, fails (a valid round
+// failed the rule) or is not decided (too few valid rounds): only a failure steps down, and a step
+// that is not decided ends the steps without a claim about it. After every step that passed, its
+// cores are decided first (used, or not known, which both end the steps), and only then whether it
+// gained over the step below.
 func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error)) (Throughput, error) {
 	t := Throughput{}
-	play := func(sessions int) ([]Round, error) {
+	play := func(sessions int) ([]Round, string, string, error) {
 		t.Steps = append(t.Steps, sessions)
-		return run(sessions)
+		rs, err := run(sessions)
+		if err != nil {
+			return nil, "", "", err
+		}
+		got, why := stepOf(rs, want)
+		return rs, got, why, nil
 	}
-	at, err := play(base)
+	undecided := func(sessions int, why string) string {
+		return fmt.Sprintf("%d sessions could not be decided: %s", sessions, why)
+	}
+	at, got, why, err := play(base)
 	if err != nil {
 		return t, err
 	}
-	if len(at) == 0 {
-		t.Result, t.Why = ThroughputNone, fmt.Sprintf("no valid round at %d sessions", base)
+	switch got {
+	case stepUndecided:
+		t.Result, t.Why = ThroughputUndecided, undecided(base, why)
 		return t, nil
-	}
-	if ok, why := verdict(at, want); !ok {
+	case trialFail:
 		failed := []int{base}
 		for _, s := range stepsDown(base) {
-			rs, err := play(s)
+			_, down, downWhy, err := play(s)
 			if err != nil {
 				return t, err
 			}
-			if ok, _ := verdict(rs, want); ok {
+			switch down {
+			case trialPass:
 				t.Result, t.Sessions, t.Why = ThroughputHighestPassing, s, fmt.Sprintf("failed at %s sessions: %s", joinSessions(failed), why)
+				return t, nil
+			case stepUndecided:
+				t.Result, t.Why = ThroughputUndecided, fmt.Sprintf("failed at %s sessions: %s; %s", joinSessions(failed), why, undecided(s, downWhy))
 				return t, nil
 			}
 			failed = append(failed, s)
@@ -156,29 +179,44 @@ func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error))
 		t.Result, t.Why = ThroughputNone, fmt.Sprintf("failed at %s sessions: %s", joinSessions(failed), why)
 		return t, nil
 	}
-	switch coreUse(at, cpus) {
-	case "unknown":
-		t.Result, t.Sessions, t.Why = ThroughputCoresUnknown, base, "the cores of the server are not known (it needs -server-cpus and its CPU from /proc, on Linux): no steps"
-		return t, nil
-	case "used":
-		t.Result, t.Sessions, t.Why = ThroughputCoreUsed, base, fmt.Sprintf("used %.2f of %d cpus at %d sessions", cores(at), cpus, base)
+	t.Sessions = base
+	// cored ends the steps at a step that passed when its cores are used or not known.
+	cored := func(rs []Round, sessions int) bool {
+		switch coreUse(rs, cpus) {
+		case "unknown":
+			t.Result, t.Sessions = ThroughputCoresUnknown, sessions
+			t.Why = fmt.Sprintf("the cores of the server were not known at %d sessions (it needs -server-cpus and its CPU from /proc, on Linux): the steps stopped", sessions)
+			if sessions == base {
+				t.Why = "the cores of the server are not known (it needs -server-cpus and its CPU from /proc, on Linux): no steps"
+			}
+			return true
+		case "used":
+			t.Result, t.Sessions, t.Why = ThroughputCoreUsed, sessions, fmt.Sprintf("used %.2f of %d cpus at %d sessions", cores(rs), cpus, sessions)
+			return true
+		}
+		return false
+	}
+	if cored(at, base) {
 		return t, nil
 	}
-	t.Sessions = base
 	for next := stepUp(base); ; next = stepUp(next) {
 		if next > maxSessions {
 			t.Result, t.Why = ThroughputCap, fmt.Sprintf("still under 0.95 of %d cpus and gaining at %d sessions, where the steps stop", cpus, t.Sessions)
 			return t, nil
 		}
-		rs, err := play(next)
+		rs, got, why, err := play(next)
 		if err != nil {
 			return t, err
 		}
-		if ok, why := verdict(rs, want); !ok {
+		switch got {
+		case trialFail:
 			t.Result, t.Why = ThroughputHighestPassing, fmt.Sprintf("failed at %d sessions: %s", next, why)
-			if len(rs) == 0 {
-				t.Why = fmt.Sprintf("no valid round at %d sessions", next)
-			}
+			return t, nil
+		case stepUndecided:
+			t.Result, t.Why = ThroughputNextUndecided, undecided(next, why)
+			return t, nil
+		}
+		if cored(rs, next) {
 			return t, nil
 		}
 		if !beats(rs, at) {
@@ -186,10 +224,6 @@ func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error))
 			return t, nil
 		}
 		t.Sessions, at = next, rs
-		if coreUse(rs, cpus) == "used" {
-			t.Result, t.Why = ThroughputCoreUsed, fmt.Sprintf("used %.2f of %d cpus at %d sessions", cores(rs), cpus, next)
-			return t, nil
-		}
 	}
 }
 

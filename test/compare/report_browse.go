@@ -67,18 +67,23 @@ func each(rounds []Round, f func(*Round) float64) []float64 {
 
 func pageViewsPerSecond(x *Round) float64 { return float64(x.PageViews) / x.Seconds }
 
-// verdict says whether a cell passes: no round failed, and there were as many as asked for. A
-// failed round decides the cell, however many rounds it has.
-func verdict(rounds []Round, want int) (bool, string) {
+// stepUndecided is the outcome of a cell with fewer valid rounds than it needs and none that failed:
+// the experiment did not decide it (its other rounds stayed invalid).
+const stepUndecided = "undecided"
+
+// stepOf is the outcome of a cell from its valid rounds, with why: trialFail when a round failed the
+// rule (a failed round decides the cell, however many rounds it has), stepUndecided when there are
+// fewer than want, and trialPass otherwise.
+func stepOf(rounds []Round, want int) (string, string) {
 	for _, x := range rounds {
 		if !x.Pass {
-			return false, x.Why
+			return trialFail, x.Why
 		}
 	}
 	if len(rounds) < want {
-		return false, fmt.Sprintf("%d of %d rounds", len(rounds), want)
+		return stepUndecided, fmt.Sprintf("%d of %d rounds were valid", len(rounds), want)
 	}
-	return true, ""
+	return trialPass, ""
 }
 
 func count(x *Round, prefix string) float64 {
@@ -180,15 +185,17 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 			for _, n := range sessions {
 				rs := r.cellRounds(f, sc.Name, n)
 				tries := r.tries(f, sc.Name, n)
-				switch ok, why := verdict(rs, rounds); {
+				switch got, why := stepOf(rs, rounds); {
 				case len(tries) == 0:
 					b.WriteString(" - |")
 				case len(rs) == 0:
 					// No round of the cell was valid: say why the last one failed, with what made it invalid.
 					last := tries[len(tries)-1]
-					fmt.Fprintf(b, " failed (no valid round of %d: %s) |", len(tries), strings.Join(slices.DeleteFunc([]string{last.Why, last.WhyInvalid}, func(s string) bool { return s == "" }), "; "))
-				case !ok:
+					fmt.Fprintf(b, " not decided (no valid round of %d: %s) |", len(tries), strings.Join(slices.DeleteFunc([]string{last.Why, last.WhyInvalid}, func(s string) bool { return s == "" }), "; "))
+				case got == trialFail:
 					fmt.Fprintf(b, " failed (%s) |", why)
+				case got == stepUndecided:
+					fmt.Fprintf(b, " not decided (%s) |", why)
 				default:
 					fmt.Fprintf(b, " %s |", fmtCell(each(rs, pageViewsPerSecond), "%.1f"))
 				}
@@ -219,7 +226,7 @@ func peopleCell(views float64) string {
 // throughputMarkdown is the table of what the steps of the sessions found for each server.
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	base := r.baseSessions()
-	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions, no think time, %d rounds. A server whose median server cores stay under 0.95 of its cpus, with every round passing, is stepped up about 25%% a step (%d, %d, %d and so on), and one that fails at %d is stepped down to %s. The result says how the steps ended: `%s` (every round passed and the median server cores reached 0.95), `%s` (a step up gained fewer page views a second than the spread of the rounds), `%s` (the next step failed the rule, so this is the step below it), `%s` (the server's cores were not measured, so it was not stepped: on a Mac, or without `-server-cpus`), `%s`. Each row gives the sessions it was measured at, so servers are compared at their own working points, not at the same concurrency. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured (it holds no long sessions open and no memory for them). A round in which the load generator used over 0.8 of its cpus is not valid and is played again, so a limit of the generator is never read as one of the server.\n\n", base, rounds, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))), base, joinSessions(stepsDown(base)), ThroughputCoreUsed, ThroughputPlateau, ThroughputHighestPassing, ThroughputCoresUnknown, ThroughputNone)
+	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions, no think time, %d rounds. A server whose median server cores stay under 0.95 of its cpus, with every round passing, is stepped up about 25%% a step (%d, %d, %d and so on), and one that fails at %d is stepped down to %s. A step passes, fails (a valid round failed the rule) or is not decided (too few valid rounds, none failed): only a failure steps down. The result says how the steps ended: `%s` (every round passed and the median server cores reached 0.95, even when the gain over the step below is within the spread of the rounds), `%s` (no reliable gain was measured: the slowest round of the step up was not faster than the fastest round of the step below, which is reported), `%s` (the next step failed the rule, so this is the step below it), `%s` (the next step was not decided, so this is the step below it), `%s` (the server's cores were not measured at a step that passed, so the steps stopped there: on a Mac, or without `-server-cpus`), `%s` (every step failed), `%s` (a step was not decided and none below it passed). Each row gives the sessions it was measured at, so servers are compared at their own working points, not at the same concurrency. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured (it holds no long sessions open and no memory for them). A round in which the load generator used over 0.8 of its cpus is not valid and is played again, so a limit of the generator is never read as one of the server.\n\n", base, rounds, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))), base, joinSessions(stepsDown(base)), ThroughputCoreUsed, ThroughputPlateau, ThroughputHighestPassing, ThroughputNextUndecided, ThroughputCoresUnknown, ThroughputNone, ThroughputUndecided)
 	if r.Config["loadCpus"] == "" {
 		b.WriteString("The load generator was not pinned to cpus of its own (`-load-cpus`), so whether it had cpus to spare was not checked.\n\n")
 	}

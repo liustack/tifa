@@ -82,7 +82,16 @@ func TestTheThroughputResultIsTypedByHowTheStepsEnded(t *testing.T) {
 		{"8 failed, 6 passed", 1, map[int][]Round{8: bad, 6: ok(0.9, 70, 71, 72)}, ThroughputHighestPassing, 6, []int{8, 6}, "failed at 8 sessions: click P99"},
 		{"8 and 6 failed, 4 passed", 1, map[int][]Round{8: bad, 6: bad, 4: ok(0.9, 50, 51, 52)}, ThroughputHighestPassing, 4, []int{8, 6, 4}, "failed at 8 and 6 sessions: click P99"},
 		{"every step down failed", 1, map[int][]Round{8: bad, 6: bad, 4: bad}, ThroughputNone, 0, []int{8, 6, 4}, "failed at 8, 6 and 4 sessions: click P99"},
-		{"no valid round", 1, map[int][]Round{8: nil}, ThroughputNone, 0, []int{8}, "no valid round at 8 sessions"},
+		// A step with too few valid rounds, none of them failed, is not decided: it is not a failure, so
+		// nothing steps down from it, and the step below it stands when there is one.
+		{"no valid round", 1, map[int][]Round{8: nil}, ThroughputUndecided, 0, []int{8}, "8 sessions could not be decided: 0 of 3 rounds were valid"},
+		{"two valid rounds at 8", 1, map[int][]Round{8: ok(0.7, 99, 100)}, ThroughputUndecided, 0, []int{8}, "8 sessions could not be decided: 2 of 3 rounds were valid"},
+		{"8 failed, 6 not decided", 1, map[int][]Round{8: bad, 6: nil}, ThroughputUndecided, 0, []int{8, 6}, "failed at 8 sessions: click P99 1200 ms over 1000 ms; 6 sessions could not be decided"},
+		{"the next step not decided", 1, map[int][]Round{8: base, 10: ok(0.8, 120)}, ThroughputNextUndecided, 8, []int{8, 10}, "10 sessions could not be decided: 1 of 3 rounds were valid"},
+		// The cores are decided before the plateau: a step that passed with its core used is the result,
+		// even with a gain over the step below that the spread of the rounds hides.
+		{"the core used with no clear gain", 1, map[int][]Round{8: ok(0.90, 99, 100, 101), 10: ok(0.96, 100, 101, 103)}, ThroughputCoreUsed, 10, []int{8, 10}, "used 0.96 of 1 cpus at 10 sessions"},
+		{"the cores lost after a step", 1, map[int][]Round{8: base, 10: ok(0, 110, 112, 114)}, ThroughputCoresUnknown, 10, []int{8, 10}, "the cores of the server were not known at 10 sessions"},
 		{"cores not known", 0, map[int][]Round{8: base}, ThroughputCoresUnknown, 8, []int{8}, "the cores of the server are not known"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,12 +127,15 @@ func TestTheThroughputResultIsTypedByHowTheStepsEnded(t *testing.T) {
 }
 
 // A cell fails on its first failed round, whatever the count of rounds: the rounds after it are
-// not needed for the verdict.
+// not needed for the verdict. A cell with too few valid rounds and none failed is not decided.
 func TestACellFailsOnItsFirstFailedRound(t *testing.T) {
-	if ok, why := verdict(cellAt([]float64{90}, 0.8, false), 3); ok || !strings.Contains(why, "click P99") {
-		t.Errorf("one failed round of three: %v %q", ok, why)
+	if got, why := stepOf(cellAt([]float64{90}, 0.8, false), 3); got != trialFail || !strings.Contains(why, "click P99") {
+		t.Errorf("one failed round of three: %s %q", got, why)
 	}
-	if ok, why := verdict(cellAt([]float64{90, 91}, 0.8, true), 3); ok || why != "2 of 3 rounds" {
-		t.Errorf("two passing rounds of three: %v %q", ok, why)
+	if got, why := stepOf(cellAt([]float64{90, 91}, 0.8, true), 3); got != stepUndecided || why != "2 of 3 rounds were valid" {
+		t.Errorf("two passing rounds of three: %s %q", got, why)
+	}
+	if got, _ := stepOf(cellAt([]float64{90, 91, 92}, 0.8, true), 3); got != trialPass {
+		t.Errorf("three passing rounds: %s", got)
 	}
 }

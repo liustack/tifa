@@ -123,7 +123,7 @@ func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 		r.Closed = append(r.Closed, bad)
 	}
 	md := r.Markdown()
-	if want := "failed (no valid round of 3: 630 failures (GET /zh-CN/store/cart: status 503); the round took 59 s, outside 60 to 120 s: resized) |"; !strings.Contains(md, want) {
+	if want := "not decided (no valid round of 3: 630 failures (GET /zh-CN/store/cart: status 503); the round took 59 s, outside 60 to 120 s: resized) |"; !strings.Contains(md, want) {
 		t.Errorf("the report lacks %q:\n%s", want, md)
 	}
 }
