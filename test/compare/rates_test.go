@@ -101,7 +101,7 @@ func TestTheSustainPhaseReadsTheFileOrRefuses(t *testing.T) {
 	}
 	sc := mustScenario("store-w5")
 	var log strings.Builder
-	b := &browse{e: Env{Root: root}, o: BrowseOptions{Log: &log, Rounds: 3, TraceDir: dir, Stamp: "from browse.sh", ServerCPUs: "0", LoadCPUs: "1,5", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
+	b := &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: &log, Rounds: 3, TraceDir: dir, Stamp: "from browse.sh", ServerCPUs: "0", LoadCPUs: "1,5", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
 		servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
 		res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}, Sustain: map[string]*Sustain{}}}
 	if err := writeRate(b.o.RateFile, sc.Name, RateEntry{Rate: 21.5, Unit: rateUnit, Under: b.rateConditions(sc), Source: RateSource{Date: "2026-11-09"}}); err != nil {
@@ -268,7 +268,7 @@ func TestAContinuedRateIsCheckedAgain(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "STAMP-store"), []byte("tree js abc\nsite store\n"), 0o644)
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
 	sc := mustScenario("store-w5")
-	b := &browse{e: Env{Root: root}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
+	b := &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
 		servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
 		res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}, Sustain: map[string]*Sustain{}}}
 	b.res.Sustain["store-w5/nextjs"] = &Sustain{Rate: 20, Done: true, Under: b.rateConditions(sc)}
@@ -279,4 +279,57 @@ func TestAContinuedRateIsCheckedAgain(t *testing.T) {
 	if err := b.sustain(t.Context(), sc); err == nil || !strings.Contains(err.Error(), "nextjs") {
 		t.Errorf("another Next.js: %v", err)
 	}
+}
+
+// The build of the Next.js app records the sources it was made from (appHash) in its output, and a
+// rate is reused or searched only on a build of the sources of the checkout: a stale build, or one
+// that says nothing, is refused. The cache that Next.js writes while it serves changes nothing.
+func TestARateIsOnlyUsedOnABuildOfTheSources(t *testing.T) {
+	root := t.TempDir()
+	next := filepath.Join(root, "test", "compare", "nextjs")
+	write := func(name, s string) {
+		os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755)
+		os.WriteFile(filepath.Join(root, name), []byte(s), 0o644)
+	}
+	write("test/compare/nextjs/src/page.tsx", "a")
+	write("test/compare/domain/orders.ts", "o")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "."}} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	b := &browse{e: Env{Root: root, Next: next}}
+	if err := b.checkNextBuild(); err == nil || !strings.Contains(err.Error(), "build") {
+		t.Errorf("a build that says nothing: %v", err)
+	}
+	os.MkdirAll(filepath.Join(next, ".next"), 0o755)
+	if err := writeNextSource(root, next); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.checkNextBuild(); err != nil {
+		t.Errorf("a build of the sources: %v", err)
+	}
+	write("test/compare/nextjs/.next/cache/fetch", "x")
+	if err := b.checkNextBuild(); err != nil {
+		t.Errorf("the cache of the build: %v", err)
+	}
+	write("test/compare/nextjs/src/page.tsx", "b")
+	if err := b.checkNextBuild(); err == nil || !strings.Contains(err.Error(), "other sources") {
+		t.Errorf("a stale build: %v", err)
+	}
+	writeNextSource(root, next)
+	write("test/compare/nextjs/shop/app/page.tsx", "the pages copied from the shop")
+	if err := b.checkNextBuild(); err == nil {
+		t.Error("pages copied from the shop after the build are the sources it was built from")
+	}
+}
+
+// builtNext is a Next.js app folder whose build says it was made from the sources at root.
+func builtNext(t *testing.T, root string) string {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".next"), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, ".next", nextSourceFile), []byte(appHash(root)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

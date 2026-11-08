@@ -588,6 +588,10 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 	if !slices.Contains(b.servers[sc.Name], openBase) {
 		return fmt.Errorf("%s: the open run is set by %s, which is not among the servers", sc.Name, BrowseLabel(openBase))
 	}
+	// A rate is reused, searched and written only on a build of the sources it is bound to.
+	if err := b.checkNextBuild(); err != nil {
+		return fmt.Errorf("%s: %w", sc.Name, err)
+	}
 	for _, fw := range []string{openBase} {
 		key := sustainKey(sc.Name, fw)
 		s := b.res.Sustain[key]

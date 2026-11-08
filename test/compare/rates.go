@@ -255,8 +255,9 @@ func methodHash(root string) string {
 }
 
 // appHash is a short hash of the sources of the Next.js app and of the domain code it shares: the
-// files git tracks there, as they are on disk (so a change not committed yet counts), without the
-// installed packages and the build. It is "" when git cannot list them.
+// files git tracks there, as they are on disk (so a change not committed yet counts), and the pages
+// that Sync copied from the shop into the app (shop/, which git ignores), without the installed
+// packages and the build. It is "" when git cannot list them.
 func appHash(root string) string {
 	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", "test/compare/nextjs", "test/compare/domain").Output()
 	if err != nil {
@@ -276,6 +277,26 @@ func appHash(root string) string {
 		fmt.Fprintf(h, "%s %d\n", f, len(data))
 		h.Write(data)
 	}
+	copied := filepath.Join(root, "test", "compare", "nextjs", "shop")
+	err = filepath.WalkDir(copied, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && path == copied {
+			return filepath.SkipDir
+		}
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		fmt.Fprintf(h, "%s %d\n", filepath.ToSlash(rel), len(data))
+		h.Write(data)
+		return nil
+	})
+	if err != nil {
+		return ""
+	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
@@ -293,4 +314,32 @@ func stampHash(path, site string) string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:8])
+}
+
+// nextSourceFile is where the build of the Next.js app records the sources it was made from (appHash),
+// in its output. The cache Next.js writes into .next while it serves is not part of it.
+const nextSourceFile = "compare-source"
+
+// writeNextSource records in the output of the Next.js app at dir the sources it was just built from.
+func writeNextSource(root, dir string) error {
+	h := appHash(root)
+	if h == "" {
+		return fmt.Errorf("%s: cannot tell the sources of the Next.js app (git ls-files failed)", dir)
+	}
+	return os.WriteFile(filepath.Join(dir, ".next", nextSourceFile), []byte(h+"\n"), 0o644)
+}
+
+// checkNextBuild says whether the Next.js app that runs was built from the sources of the checkout,
+// which its rate is bound to: a build that does not say what it was built from, or one of other
+// sources, is refused.
+func (b *browse) checkNextBuild() error {
+	path := filepath.Join(b.e.Next, ".next", nextSourceFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("the Next.js build does not say what it was built from (%v): build it again (compare build, or browse.sh build)", err)
+	}
+	if built, now := strings.TrimSpace(string(data)), appHash(b.e.Root); built != now {
+		return fmt.Errorf("the Next.js build was made from other sources than the checkout (built from %q, the sources are %q): build it again (compare build, or browse.sh build)", built, now)
+	}
+	return nil
 }
