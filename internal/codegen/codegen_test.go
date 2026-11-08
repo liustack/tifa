@@ -879,3 +879,23 @@ func TestRuntimeHasTheI18nAdapterOnlyWithLanguagesAndI18next(t *testing.T) {
 		})
 	}
 }
+
+// A page that writes Cache = true is registered with CacheDefault, and one with a duration with that time.
+func TestGoGenWritesTheCacheOfARoute(t *testing.T) {
+	m := &analyze.Manifest{Module: "example.com/m", Routes: []analyze.Route{
+		{ID: "app/on/route", Dir: "app/on", Path: "/on", Page: true, SSR: true, RenderCache: true, CacheDefault: true},
+		{ID: "app/dur/route", Dir: "app/dur", Path: "/dur", Page: true, SSR: true, RenderCache: true, Cache: 90 * time.Second},
+	}}
+	src, err := generateGo(m, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	for _, b := range src {
+		all.Write(b)
+	}
+	got := all.String()
+	if regexp.MustCompile(`CacheDefault:\s+true`).FindAllString(got, -1) == nil || !regexp.MustCompile(`Cache:\s+90000000000`).MatchString(got) {
+		t.Errorf("generated code:\n%s", got)
+	}
+}

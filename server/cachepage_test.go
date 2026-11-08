@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/config"
 )
 
 // sharedEnv is an app with the page /news, which has Cache = time.Minute and a Load of a constant,
@@ -105,5 +106,57 @@ func TestCachePageStaysPrivateWhenALoadSaysSo(t *testing.T) {
 		if w.Code != 200 || !strings.Contains(cc, value) || strings.Contains(cc, "public") || strings.Contains(cc, "s-maxage") {
 			t.Errorf("%s: %d, Cache-Control %q", value, w.Code, cc)
 		}
+	}
+}
+
+// serverWithCache builds a server whose cache_control.s_maxage is sMaxage (the default when zero) and
+// that has the page /a with the Cache the route gives.
+func serverWithCache(t *testing.T, sMaxage time.Duration, route Route) *server {
+	t.Helper()
+	cfg := config.Default()
+	if sMaxage != 0 {
+		cfg.CacheControl.SMaxage = sMaxage
+	}
+	app := frontApp()
+	route.ID, route.Path, route.Page, route.SSR, route.Layouts = "app/a", "/a", true, true, []string{"app/layout"}
+	app.Routes = append(app.Routes, route)
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	r := &renders{}
+	if err := s.setFront(dist, r.render); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func sharedFor(seconds string) string {
+	return "public, max-age=0, s-maxage=" + seconds + ", stale-if-error=86400"
+}
+
+// const Cache = true takes its time from cache_control.s_maxage, 1m unless the setting says another.
+func TestCacheTrueUsesTheSettingForItsTime(t *testing.T) {
+	if got := config.Default().CacheControl.SMaxage; got != time.Minute {
+		t.Fatalf("the default s_maxage is %v, want 1m", got)
+	}
+	if cc := cacheControl(get(serverWithCache(t, 0, Route{CacheDefault: true}), "/a")); cc != sharedFor("60") {
+		t.Errorf("Cache = true: Cache-Control %q", cc)
+	}
+	if cc := cacheControl(get(serverWithCache(t, 5*time.Minute, Route{CacheDefault: true}), "/a")); cc != sharedFor("300") {
+		t.Errorf("Cache = true with s_maxage 5m: Cache-Control %q", cc)
+	}
+}
+
+// A duration in const Cache is the page's own time, whatever the setting says.
+func TestCacheDurationIsTheTimeOfThePage(t *testing.T) {
+	if cc := cacheControl(get(serverWithCache(t, 5*time.Minute, Route{Cache: 10 * time.Minute}), "/a")); cc != sharedFor("600") {
+		t.Errorf("Cache = 10m: Cache-Control %q", cc)
+	}
+	if cc := cacheControl(get(serverWithCache(t, 0, Route{Cache: time.Second}), "/a")); cc != sharedFor("1") {
+		t.Errorf("Cache = 1s: Cache-Control %q", cc)
+	}
+	// No Cache, no shared policy.
+	if cc := cacheControl(get(serverWithCache(t, 0, Route{}), "/a")); cc != defaultCache {
+		t.Errorf("no Cache: Cache-Control %q", cc)
 	}
 }

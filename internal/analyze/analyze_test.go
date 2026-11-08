@@ -551,19 +551,17 @@ func TestViolations(t *testing.T) {
 		{"sessionhidden", [][]string{
 			{"app/page/route.go:8:", "tifa.SetSession", "type parameter"},
 		}},
-		{"cacheremoved", [][]string{
-			{"app/page/route.go:3:", "render cache is on by default", "delete Cache = true", "RenderCache = false"},
-		}},
 		{"cachevalue", [][]string{
-			{"app/untyped/route.go:3:", "Cache must be a time.Duration constant"},
+			{"app/untyped/route.go:3:", "Cache must be true, false or a time.Duration constant"},
 			{"app/short/route.go:5:", "Cache must be at least one second"},
-			{"app/variable/route.go:5:", "Cache must be a time.Duration constant"},
+			{"app/variable/route.go:5:", "Cache must be true, false or a time.Duration constant"},
 			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
 		}},
 		{"cacheidentity", [][]string{
 			{"app/route.go:5:", "c.Header sees only Host", "every other header is always empty", "app/feed has Cache", "Remove Cache"},
 			{"app/news/route.go:14:", "tifa.Session is always empty here", "app/news has Cache"},
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
+			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
 		{"rendercachevalue", [][]string{
 			{"app/page/route.go:3:", "RenderCache", "can only be false"},
@@ -1222,6 +1220,28 @@ func TestOptionsInOldConfigGoFile(t *testing.T) {
 	for _, want := range []string{"config.go:5:", "rename config.go to options.go"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
+		}
+	}
+}
+
+// const Cache is true, false or a time.Duration: true leaves the time to cache_control.s_maxage.
+func TestCacheConstIsABoolOrADuration(t *testing.T) {
+	m, err := analyzeApp(t, "cachebool")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	type shared struct {
+		cache time.Duration
+		deflt bool
+	}
+	got := map[string]shared{}
+	for _, r := range m.Routes {
+		got[r.Dir] = shared{r.Cache, r.CacheDefault}
+	}
+	want := map[string]shared{"app/on": {0, true}, "app/off": {0, false}, "app/dur": {90 * time.Second, false}}
+	for dir, w := range want {
+		if got[dir] != w {
+			t.Errorf("%s: Cache %+v, want %+v", dir, got[dir], w)
 		}
 	}
 }

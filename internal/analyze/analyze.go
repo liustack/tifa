@@ -592,31 +592,23 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	}
 }
 
-// boolCache is the error for Cache written as a bool, the switch of the render cache before it was
-// on for every page. Cache is a duration now.
-const boolCache = "Cache is a duration, such as Cache = 10 * time.Minute, which lets a shared cache in front of the program keep the page. The render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
-
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":       "Cache = 10 * time.Minute lets a shared cache keep the page, RenderCache = false turns the render cache off for the page",
+	"cache":       "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and RenderCache = false to turn the render cache off for it",
 	"rendercache": "write RenderCache = false to turn the render cache off for the page",
 	"ssr":         "write SSR",
 	"layoutssr":   "write LayoutSSR",
 }
 
 // checkSwitchNames reports the bool constants of route.go that spell a switch in the wrong case,
-// and the removed Cache. Such a constant is a mistake rather than an ordinary name, since it would
+// . Such a constant is a mistake rather than an ordinary name, since it would
 // otherwise be skipped without a word. A constant of another type, or one in another file, such
 // as const cache = "redis", is the app's own and is left alone.
 func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 	for _, name := range scope.Names() {
 		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || c.Val().Kind() != constant.Bool || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
-			continue
-		}
-		if name == "Cache" {
-			a.errorAt(c.Pos(), "%s", boolCache)
 			continue
 		}
 		if advice, ok := switchSpellings[name]; ok {
@@ -696,7 +688,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
 	r.RenderCache = a.renderCacheConst(pkg)
-	r.Cache = a.cacheConst(pkg)
+	r.Cache, r.CacheDefault = a.cacheConst(pkg)
 	return r
 }
 
@@ -1321,33 +1313,34 @@ func (a *analyzer) hooks() []string {
 	return found
 }
 
-// cacheConst reads Cache, how long a shared cache may keep the page: a time.Duration constant of at
-// least a second, such as 10 * time.Minute. Zero when the page does not set it. A bool Cache is
-// the switch of the render cache from before, which checkSwitchNames reports.
-func (a *analyzer) cacheConst(pkg *packages.Package) time.Duration {
+// cacheConst reads Cache, which lets a shared cache in front of the program keep the page. It is true,
+// which leaves the time to the setting cache_control.s_maxage (the second result), false for none, or
+// a time.Duration constant of at least a second, such as 10 * time.Minute (the first result). Both are
+// zero/false when the page does not set it.
+func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
 	obj := pkg.Types.Scope().Lookup("Cache")
 	if obj == nil {
-		return 0
+		return 0, false
 	}
 	c, isConst := obj.(*types.Const)
 	if isConst && c.Val().Kind() == constant.Bool {
-		return 0 // checkSwitchNames reports it
+		return 0, constant.BoolVal(c.Val())
 	}
 	named, isNamed := types.Unalias(obj.Type()).(*types.Named)
 	isDuration := isNamed && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "time" && named.Obj().Name() == "Duration"
 	if !isConst && !isDuration {
-		return 0 // a type or a function named Cache is the domain code's own
+		return 0, false // a type or a function named Cache is the domain code's own
 	}
 	if !isConst || !isDuration {
-		a.errorAt(obj.Pos(), "Cache must be a time.Duration constant, such as const Cache = 10 * time.Minute")
-		return 0
+		a.errorAt(obj.Pos(), "Cache must be true, false or a time.Duration constant, such as const Cache = 10 * time.Minute")
+		return 0, false
 	}
 	ns, exact := constant.Int64Val(c.Val())
 	if !exact || time.Duration(ns) < time.Second {
 		a.errorAt(obj.Pos(), "Cache must be at least one second, such as const Cache = 10 * time.Minute")
-		return 0
+		return 0, false
 	}
-	return time.Duration(ns)
+	return time.Duration(ns), false
 }
 
 // checkCacheIdentity reports the reads of cookies, headers and the session in the Load of a page
@@ -1362,7 +1355,7 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 	}
 	reported := map[token.Pos]bool{}
 	for _, r := range routes {
-		if r.Cache == 0 || !r.Page || r.broken {
+		if !r.Shared() || !r.Page || r.broken {
 			continue
 		}
 		loads := []*Load{r.Load}

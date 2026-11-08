@@ -51,6 +51,9 @@
 # cache:
 #   size: 64MiB             # HTML cache of rendered pages, 0 turns it off
 
+# cache_control:
+#   s_maxage: 1m            # how long a shared cache such as a CDN may keep a page that writes const Cache = true
+
 # session:
 #   cookie: __Host-tifa_session  # name of the session cookie, tifa dev drops the __Host- prefix
 #   max_age: 720h           # how long a session lasts from the moment tifa.SetSession makes it

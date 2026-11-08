@@ -131,6 +131,9 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		if r.Cache > 0 {
 			fmt.Fprintf(&app, "Cache: %d, // %s\n", int64(r.Cache), r.Cache)
 		}
+		if r.CacheDefault {
+			app.WriteString("CacheDefault: true,\n")
+		}
 		fmt.Fprintf(&app, "Layouts: %s,\n", stringSlice(r.Layouts))
 		if r.Load != nil && r.Load.HTML {
 			app.WriteString("HTML: true,\n")
@@ -274,4 +277,3 @@ func gofmt(name, src string) ([]byte, error) {
 	}
 	return out, nil
 }
-

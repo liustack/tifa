@@ -49,6 +49,8 @@ type server struct {
 	uncached map[string]bool
 	// shared holds the s-maxage of the pages that have Cache, by path. Their requests are anonymous.
 	shared map[string]time.Duration
+	// sharedDefault is the time of a page that writes const Cache = true (cache_control.s_maxage).
+	sharedDefault time.Duration
 	// limits holds the BodyLimit and ReadTimeout of the routes that set them, by path.
 	limits map[string]routeLimits
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
@@ -94,6 +96,7 @@ func newServer(cfg config.Config, hooks Hooks) *server {
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)
+	s.sharedDefault = cfg.CacheControl.SMaxage
 	s.sess.cfg = cfg.Session
 	s.handler = http.HandlerFunc(s.route)
 	if cfg.Server.Compress {

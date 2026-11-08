@@ -276,7 +276,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache_control.s_maxage session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -828,5 +828,37 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	// Empty is not set, as the example file of tifa new shows them.
 	if c, _, err := Project([]byte("i18n:\n  default: \"\"\nsite:\n  url: \"\"\n")); err != nil || c.I18n.Default != "" || c.Site.URL != "" {
 		t.Errorf("empty: %+v %+v, %v", c.I18n, c.Site, err)
+	}
+}
+
+// cache_control.s_maxage is the time of a page that writes const Cache = true: 1m by default, and
+// at least a second.
+func TestCacheControlSMaxage(t *testing.T) {
+	if got := Default().CacheControl.SMaxage; got != time.Minute {
+		t.Fatalf("default %v", got)
+	}
+	for name, tc := range map[string]struct {
+		args, environ []string
+		file          string
+		want          time.Duration
+	}{
+		"flag": {args: []string{"--cache-control-s-maxage", "5m"}, want: 5 * time.Minute},
+		"env":  {environ: []string{"CACHE_CONTROL_S_MAXAGE=90s"}, want: 90 * time.Second},
+		"file": {file: "cache_control:\n  s_maxage: 10m\n", want: 10 * time.Minute},
+	} {
+		file := ""
+		if tc.file != "" {
+			file = "tifa.yaml"
+		}
+		c, err := load(t, tc.args, tc.environ, file, tc.file)
+		if err != nil || c.CacheControl.SMaxage != tc.want {
+			t.Errorf("%s: %v, %v", name, c.CacheControl.SMaxage, err)
+		}
+	}
+	for _, bad := range []string{"0s", "500ms", "soon"} {
+		_, err := load(t, []string{"--cache-control-s-maxage", bad}, nil, "", "")
+		if err == nil || !strings.Contains(err.Error(), "cache_control.s_maxage") || !strings.Contains(err.Error(), "at least one second") {
+			t.Errorf("%q: %v", bad, err)
+		}
 	}
 }

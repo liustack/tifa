@@ -20,13 +20,15 @@ import (
 )
 
 type Config struct {
-	Build   Build
-	I18n    I18n
-	Site    Site
-	Server  Server
-	SSR     SSR
-	Cache   Cache
-	Session Session
+	Build  Build
+	I18n   I18n
+	Site   Site
+	Server Server
+	SSR    SSR
+	Cache  Cache
+	// CacheControl holds the Cache-Control a page with Cache sends.
+	CacheControl CacheControl
+	Session      Session
 }
 
 // I18n is read by the tifa CLI only, from the project tifa.yaml. Default names the default language,
@@ -156,6 +158,12 @@ type Cache struct {
 	Size int64
 }
 
+// CacheControl holds the settings of the Cache-Control that pages with Cache send. SMaxage is the
+// s-maxage of a page that writes const Cache = true.
+type CacheControl struct {
+	SMaxage time.Duration
+}
+
 // Session holds the settings of tifa.SetSession. Cookie is the name of the session cookie, MaxAge
 // how long a session lasts from the moment SetSession makes it, and MemoryLimit the bytes the
 // default in-memory store may hold.
@@ -179,12 +187,13 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
-		I18n:    I18n{Prefix: "off"},
-		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
-		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second},
-		Cache:   Cache{Size: 64 << 20},
-		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
+		Build:        Build{Target: "es2020", Public: "public", I18nextCache: true},
+		I18n:         I18n{Prefix: "off"},
+		Server:       Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
+		SSR:          SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second},
+		Cache:        Cache{Size: 64 << 20},
+		CacheControl: CacheControl{SMaxage: time.Minute},
+		Session:      Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
 }
 
@@ -236,6 +245,7 @@ func fields(c *Config) []field {
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
 		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
+		{"cache_control.s_maxage", "s-maxage of a page that writes const Cache = true, at least one second", sharedAgeValue{&c.CacheControl.SMaxage}},
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},

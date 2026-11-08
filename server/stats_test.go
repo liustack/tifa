@@ -24,6 +24,7 @@ func TestStatsCountTheRenderCache(t *testing.T) {
 		t.Errorf("%+v", s)
 	}
 }
+
 // tifa.Stats reaches the server of the program from OnStart on, and nothing once it stopped.
 func TestStatsReachTheRunningServer(t *testing.T) {
 	var during tifa.ServerStats

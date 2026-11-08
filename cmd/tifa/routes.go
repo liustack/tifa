@@ -68,7 +68,7 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 			layouts[i] = dirs[id]
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%t\t%s\n", r.Dir, r.Path, dash(strings.Join(layouts, " > ")),
-			dash(strings.Join(methods, " ")), r.SSR, r.RenderCache, cacheText(r.Cache))
+			dash(strings.Join(methods, " ")), r.SSR, r.RenderCache, cacheText(r))
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT\tSSR")
@@ -85,10 +85,13 @@ func dash(s string) string {
 	return s
 }
 
-// cacheText writes the whole-page cache time of a route, - for none.
-func cacheText(d time.Duration) string {
-	if d == 0 {
-		return "-"
+// cacheText writes the Cache of a route: its time, "default" for Cache = true, - for none.
+func cacheText(r analyze.Route) string {
+	switch {
+	case r.CacheDefault:
+		return "default"
+	case r.Cache > 0:
+		return r.Cache.String()
 	}
-	return d.String()
+	return "-"
 }
