@@ -29,6 +29,7 @@
 
 ### 修复
 
+- `cache.size: 0` 时，带 `Cache` 的页面的导航数据不再渲染出 HTML 又丢掉。它只跑 `Load` 并返回数据，`X-Tifa-Render` 为 `none`，页面仍然匿名（见[整页缓存](docs/app.zh-CN.md#整页缓存)）。
 - 用 i18next 27 的应用，SSR 包不再为 `fixedT`、`looksLikeObjectPath` 和 `createCachedFormatter` 打印 `tifa rewrite not recognized`。前两处和 26 一样提速。i18next 27.0.1 自己限制了格式化函数的数量，插件不再动它，27.0.0 仍用插件的上限。`build.i18next_cache` 现在在 i18next 27.0.0 和 27.0.1 上和在 26 上一样工作，`hydrate` 会清空它那个实例的缓存（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
 - 服务端渲染的 i18next 缓存不再把前一次调用的文字给另一次只在 Symbol 键下的选项不同的调用，后处理器可以读这样的选项。带这种选项的调用不记（[i18next 缓存](docs/build.zh-CN.md#i18next-缓存)）。
 - 用 i18next 格式化大量不同金额、日期或名字的服务器，内存不再一直涨。i18next 通过 `number`、`currency`、`datetime` 等格式和 `addCached` 加的格式格式化时，每个值都存一个格式化函数，而且从不释放（i18next/i18next#2227）：一个 VM 里 20,000 个新值占了 28 MB，之后服务器只好换掉这个 VM。现在 SSR 包里每个格式最多存 1,024 个，文字不变（[i18next](docs/build.zh-CN.md#前端产物)）。

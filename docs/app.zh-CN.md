@@ -564,7 +564,7 @@ const Cache = 10 * time.Minute
 - **内容条目到点发布时**，这一刻之前做好的页面全部算作到时，所以文章列表马上就有新的一篇（见[草稿和日期](content.zh-CN.md#草稿和日期)）。
 - **重新生成失败时**，比如 `Load` 返回错误、渲染失败或超时、所有 VM 都忙，就给旧页，最多到过期后一天。再往后照实返回错误。`Load` 返回 `tifa.ErrNotFound`、重定向或 500 以下的其他 `tifa.Error`，是业务上的回答而不是失败，会取代旧页。
 - **响应头。** `Load` 和 `Layout` 设的响应头（除了 Tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。因为重新生成失败而发出的旧页，`s-maxage` 不大于它的 `Age`，所以 CDN 不会把它当成新鲜的。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 Tifa skill 的部署说明。
-- 条目和渲染缓存共用 `cache.size`，也共用页面本身。页面只存一种形式，`server.compress` 开着时存 gzip，发出时按每个访客接受的编码来（见[压缩](build.zh-CN.md#压缩)）。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。
+- 条目和渲染缓存共用 `cache.size`，也共用页面本身。页面只存一种形式，`server.compress` 开着时存 gzip，发出时按每个访客接受的编码来（见[压缩](build.zh-CN.md#压缩)）。`cache.size` 为 0 时什么都不存，同时没命中的文档请求仍然共用一次生成。导航数据请求此时不渲染 HTML，只跑 `Load` 并返回数据，`X-Tifa-Render` 为 `none`。页面仍然匿名，`Load` 设的响应头照旧被过滤。
 - 在 `tifa.yaml` 里写 **`cache.whole_page: false`**（或者 `--cache-whole-page=false`），整个应用关掉整页缓存，渲染缓存照常开着。这时带 `Cache` 的页面和别的页面一样应答：每个请求带着自己的请求头运行 `Load`，应答用默认的 `Cache-Control`。上面那些构建检查照样生效，所以页面显示的内容不变。想在没有这层缓存的情况下测量或排查页面时用它。
 
 #### 写入后重新生成页面
