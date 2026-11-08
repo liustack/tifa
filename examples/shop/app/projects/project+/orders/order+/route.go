@@ -20,8 +20,6 @@ type Detail struct {
 	SpentCents int               `json:"spentCents"`
 	// Other orders of the shop that hold the first product of this one, newest first.
 	SameProduct []orders.OrderRow `json:"sameProduct"`
-	// How each carrier did for the shop.
-	CarrierStats []orders.CarrierSales `json:"carrierStats"`
 }
 
 // Load reads the project through its Layout, which loads it once for the whole request.
@@ -37,7 +35,7 @@ func Load(c *tifa.Ctx) (Detail, error) {
 	others, count, spent := orders.CustomerOrders(p.ID, o.ID)
 	return Detail{
 		Order: o, Carriers: orders.Carriers, Others: others, Count: count, SpentCents: spent,
-		SameProduct: orders.OrdersWith(p.ID, o.Items[0].Slug, o.ID, 4), CarrierStats: orders.CarrierStats(p.ID),
+		SameProduct: orders.OrdersWith(p.ID, o.Items[0].Slug, o.ID, 4),
 	}, nil
 }
 

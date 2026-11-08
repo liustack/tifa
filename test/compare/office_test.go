@@ -20,20 +20,21 @@ type fakeShop struct {
 	mu     sync.Mutex
 	orders map[string]*fakeOrder
 	next   map[string]int
-	// stale makes the pages ignore shipments, as a cache that is not cleared would.
-	stale bool
+	// stale makes the pages ignore shipments, as a cache that is not cleared would, and staleStats
+	// only the stats page.
+	stale, staleStats bool
 	log   []string
 }
 
 type fakeOrder struct {
-	project, customer, address, note, tracking string
+	project, customer, address, note, tracking, carrier string
 	notes                                      []string
 }
 
 func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
 	f := &fakeShop{orders: map[string]*fakeOrder{
-		"SH-1039": {project: "studio", customer: "许知", tracking: "JD1"},
-		"SH-1040": {project: "studio", customer: "周宁", tracking: "SF1"},
+		"SH-1039": {project: "studio", customer: "许知", tracking: "JD1", carrier: "JD"},
+		"SH-1040": {project: "studio", customer: "周宁", tracking: "SF1", carrier: "SF"},
 		"SH-1041": {project: "studio", customer: "陈默"},
 		"SH-1042": {project: "studio", customer: "林夏"},
 		"WK-0201": {project: "weekend", customer: "苏禾"},
@@ -45,6 +46,7 @@ func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
 	mux.HandleFunc("PATCH /compare-write/{project}/{order}", f.write)
 	mux.HandleFunc("GET /projects/{project}", f.list)
 	mux.HandleFunc("GET /projects/{project}/orders/{order}", f.page)
+	mux.HandleFunc("GET /projects/{project}/stats", f.stats)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -94,7 +96,7 @@ func (f *fakeShop) write(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "shipped", 409)
 			return
 		}
-		o.tracking = in["trackingNo"]
+		o.tracking, o.carrier = in["trackingNo"], in["carrier"]
 	case "PATCH":
 		if o.tracking != "" {
 			http.Error(w, "shipped", 409)
@@ -113,14 +115,20 @@ func (f *fakeShop) write(w http.ResponseWriter, r *http.Request) {
 	json.MarshalWrite(w, map[string]string{"id": id})
 }
 
-func (f *fakeShop) shipped() int {
-	n := 0
-	for _, o := range f.orders {
-		if o.tracking != "" {
-			n++
+// stats is the carrier table of the stats page, as React renders it, with the parcels of each
+// carrier. A stale one counts only those of the data.
+func (f *fakeShop) stats(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range []struct{ code, name string }{{"SF", "SF Express"}, {"JD", "JD Logistics"}, {"ZTO", "ZTO Express"}} {
+		n := 0
+		for id, o := range f.orders {
+			if o.project == r.PathValue("project") && o.carrier == c.code && !((f.stale || f.staleStats) && id > "SH-1042") {
+				n++
+			}
 		}
+		fmt.Fprintf(w, `<tr data-slot="table-row"><td class="text-sm">%s</td><td class="text-right">%d</td><td>None</td></tr>`, c.name, n)
 	}
-	return n
 }
 
 func (f *fakeShop) list(w http.ResponseWriter, r *http.Request) {
@@ -141,11 +149,7 @@ func (f *fakeShop) page(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", 404)
 		return
 	}
-	shipped := f.shipped()
-	if f.stale {
-		shipped = 0
-	}
-	fmt.Fprintf(w, "%s %s %s %s %s %s carriers %d", r.PathValue("order"), o.customer, o.address, o.note, strings.Join(o.notes, ","), o.tracking, shipped)
+	fmt.Fprintf(w, "%s %s %s %s %s %s", r.PathValue("order"), o.customer, o.address, o.note, strings.Join(o.notes, ","), o.tracking)
 }
 
 func officeRunner(t *testing.T) (*runner, *fakeShop) {
@@ -232,6 +236,10 @@ func TestVerifyOfficeChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
 	}
 	if f.orders["SH-1041"].tracking != "" || f.orders["SH-1041"].address == "" || len(f.orders["SH-1040"].notes) != 1 {
 		t.Errorf("the check left the data of SH-1040 and SH-1041 as %+v and %+v", f.orders["SH-1040"], f.orders["SH-1041"])
+	}
+	f.staleStats = true
+	if err := r.verifyOffice(context.Background()); err == nil || !strings.Contains(err.Error(), "carrier table") {
+		t.Errorf("a server whose stats page ignores shipments: %v", err)
 	}
 	f.stale = true
 	if err := r.verifyOffice(context.Background()); err == nil {

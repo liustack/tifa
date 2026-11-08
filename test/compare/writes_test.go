@@ -89,8 +89,8 @@ func viewOf(t *testing.T, base string, p compare.Page) compare.View {
 // answer with the same status and the same order, and that the pages which show the data change,
 // and then show the same, in every server. A page is checked before and after each write, so a
 // page cached across a write is caught, and the pages are those the write reaches: the order
-// itself, the lists and stats of its project, the orders that share its product or its customer,
-// and the orders of the project that show the carriers.
+// itself, the lists and stats of its project, and the orders that share its product or its
+// customer.
 func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
@@ -129,7 +129,7 @@ func TestWritesLandAndPagesChangeAlike(t *testing.T) {
 		{"refuse an unknown order", "POST", "order:studio:SH-9999", shipping, nil},
 		{"refuse an order of the other shop", "POST", "order:weekend:SH-1043", shipping, nil},
 		{"ship", "POST", "order:studio:SH-1043", shipping,
-			[]compare.Page{list, stats, order("SH-1043"), order("SH-1042"), order("SH-1041"), order("SH-1040")}},
+			[]compare.Page{list, stats, order("SH-1043"), order("SH-1042"), order("SH-1041")}},
 		{"refuse to ship twice", "POST", "order:studio:SH-1043", shipping, nil},
 		{"refuse to change a shipped order", "PATCH", "order:studio:SH-1043", `{"customer":"林夏","phone":"13800138000","address":"上海"}`, nil},
 		{"change the recipient", "PATCH", "order:studio:SH-1041", `{"customer":"陈默","phone":"13900139001","address":"杭州市西湖区 · 新地址"}`, []compare.Page{order("SH-1041")}},
