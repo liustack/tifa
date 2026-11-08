@@ -49,6 +49,9 @@ var FilterPages = []struct {
 	{Page{"list studio oldest first", listURL("studio", "sort", "placedAt", "dir", "asc"), chain(listRoute)}, 25},
 	{Page{"list studio shipped by amount", listURL("studio", "status", "shipped", "amount", "mid", "sort", "totalCents", "dir", "asc"), chain(listRoute)}, -1},
 	{Page{"list studio unknown sort", listURL("studio", "sort", "customer", "dir", "sideways"), chain(listRoute)}, 25},
+	{Page{"list studio search with next line", listURL("studio", "q", "\u0085sh-1005"), chain(listRoute)}, 0},
+	{Page{"list studio search with byte order mark", listURL("studio", "q", "\ufeffsh-1005"), chain(listRoute)}, 0},
+	{Page{"list studio search with spaces", listURL("studio", "q", " \t sh-1005 "), chain(listRoute)}, 1},
 	{Page{"list weekend pending", listURL("weekend", "status", "pending"), chain(listRoute)}, 1},
 	{Page{"list weekend search", listURL("weekend", "q", "wk-02"), chain(listRoute)}, 2},
 }

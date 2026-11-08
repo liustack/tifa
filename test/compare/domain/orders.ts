@@ -177,7 +177,7 @@ function cleanQuery(q: ListQuery): ListQuery {
     carrier: q.carrier,
     period: q.period === '7' || q.period === '30' ? q.period : '',
     amount: Object.hasOwn(amountRanges, q.amount) ? q.amount : '',
-    q: q.q.trim(),
+    q: q.q.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, ''), // ASCII white space only, as searchSpace in order.go
     sort: q.sort === 'totalCents' ? 'totalCents' : 'placedAt',
     dir: q.dir === 'asc' ? 'asc' : 'desc',
     page: Math.max(q.page, 1),
