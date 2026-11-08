@@ -69,6 +69,13 @@ type Round struct {
 	Failures int    `json:"failures"`
 	FirstErr string `json:"firstError,omitempty"`
 	TimedOut bool   `json:"timedOut,omitempty"`
+	// CutOff counts the actions (page views and writes) in flight when the round was cut off, CutOffLate
+	// the ones among them that had been in flight for longer than the rule allows (LatencyLimit), and
+	// CutOffOldestMs how long the oldest had. An action cut off within the rule is a matter of sizing.
+	// One cut off past it is a request the server did not answer in time, which fails the rule.
+	CutOff         int     `json:"cutOffActions,omitempty"`
+	CutOffLate     int     `json:"cutOffOverLimit,omitempty"`
+	CutOffOldestMs float64 `json:"cutOffOldestMs,omitempty"`
 	// Lag is the largest time a visit started after it was scheduled (open model): the generator
 	// itself falling behind.
 	LagMs float64 `json:"maxStartLagMs,omitempty"`
@@ -121,6 +128,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Visits, r.PageViews, r.FullLoads, r.Clicks, r.Writes = a.visits, a.views, a.loads, a.clicks, a.wrote
 	r.VisitsStarted, r.VisitsFailed = a.started, a.failedVisits
 	r.VisitsUnfinished = r.VisitsPlanned - r.Visits - r.VisitsFailed
+	r.CutOff, r.CutOffLate, r.CutOffOldestMs = a.cutOff, a.cutLate, a.cutOldest
 	r.Pages = a.pages
 	r.Failures, r.FirstErr = a.failures, a.firstErr
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
@@ -187,9 +195,15 @@ func (r *Round) Judge(sc BrowseScenario) {
 		r.Pass = false
 	}
 	// A closed round cut off by its timeout ran longer than it was sized for, which is a matter of
-	// calibration (see calibrate). An open round past its deadline left a backlog.
+	// calibration (see calibrate), unless an action it cut off had waited past the rule (below). An
+	// open round past its deadline left a backlog.
 	if r.TimedOut && r.Model == "open" {
 		fail("the workload did not finish in time: a backlog was left")
+	}
+	// An action that had been in flight for longer than the rule when the round was cut off did not
+	// get its answer in time: its latency is over the limit, though it has no sample.
+	if r.CutOffLate > 0 {
+		fail(fmt.Sprintf("%d actions had been in flight for over %.0f ms when the round was cut off (the oldest for %.0f ms)", r.CutOffLate, LatencyLimit, r.CutOffOldestMs))
 	}
 	if r.Failures > 0 {
 		fail(fmt.Sprintf("%d failures (%s)", r.Failures, r.FirstErr))

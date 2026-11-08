@@ -2,7 +2,10 @@ package compare
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -112,6 +115,9 @@ func TestAClosedRoundCutOffCountsItsUnfinishedVisits(t *testing.T) {
 	if round.Visits+round.VisitsFailed+round.VisitsUnfinished != round.VisitsPlanned || round.VisitsStarted > round.VisitsPlanned || round.PageViewsPlanned != 800 || round.ClicksPlanned != 600 {
 		t.Errorf("planned %d, started %d, succeeded %d, failed %d, unfinished %d, page views planned %d", round.VisitsPlanned, round.VisitsStarted, round.Visits, round.VisitsFailed, round.VisitsUnfinished, round.PageViewsPlanned)
 	}
+	if round.CutOff == 0 || round.CutOffLate != 0 {
+		t.Errorf("cut off %d actions, %d over the rule: an action cut off within the rule is a matter of sizing", round.CutOff, round.CutOffLate)
+	}
 	round.Judge(BrowseScenario{Share: 0})
 	if !round.Valid || !round.Pass {
 		t.Errorf("a round cut off by its timeout: valid %v (%s), pass %v (%s)", round.Valid, round.WhyInvalid, round.Pass, round.Why)
@@ -158,5 +164,68 @@ func TestAHungClosedRoundIsAValidFailedRound(t *testing.T) {
 	}
 	if blocks := calibrate(r, 75*time.Second, 4); blocks != 0 || !r.Valid {
 		t.Errorf("resized to %d blocks, valid %v", blocks, r.Valid)
+	}
+}
+
+// fourViews is a visit of a full load and three clicks, all to url.
+func fourViews(url string) []TraceStep {
+	return []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req(url, "doc", 0, 5)}}, {Kind: StepClick, Page: "/p", Reqs: []TraceReq{req(url, "nav", 0, 5)}},
+		{Kind: StepClick, Page: "/p", Reqs: []TraceReq{req(url, "nav", 0, 5)}}, {Kind: StepClick, Page: "/p", Reqs: []TraceReq{req(url, "nav", 0, 5)}}}
+}
+
+// A server that answers well and then stops answering leaves actions in flight for longer than the
+// rule when the round is cut off. The answers it gave pass the rule, but the round is a valid round
+// that failed, and its length resizes nothing away.
+func TestAClosedRoundThatIsFineAndThenStallsFails(t *testing.T) {
+	var n atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) > 40 {
+			<-r.Context().Done()
+			return
+		}
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	plans, traces := onePlan(fourViews("/a")...)
+	r := testRunner(srv, plans, traces, nil)
+	r.wl.Scenario.Share = 0
+	round := r.RunClosed(context.Background(), 2, 400, 1500*time.Millisecond)
+	if !round.TimedOut || round.Visits == 0 || round.Types["load"].P99 > LatencyLimit || round.Types["click"].P99 > LatencyLimit {
+		t.Fatalf("the test shows nothing: %+v", round)
+	}
+	if round.CutOff != 2 || round.CutOffLate != 2 || round.CutOffOldestMs < LatencyLimit {
+		t.Errorf("cut off %d actions, %d over the rule, the oldest %.0f ms", round.CutOff, round.CutOffLate, round.CutOffOldestMs)
+	}
+	round.Judge(BrowseScenario{Share: 0})
+	if !round.Valid || round.Pass || !strings.Contains(round.Why, "cut off") {
+		t.Errorf("valid %v (%s), pass %v (%s): want a valid round that failed", round.Valid, round.WhyInvalid, round.Pass, round.Why)
+	}
+	calibrate(round, 75*time.Second, 4)
+	if !round.Valid {
+		t.Errorf("the resize discarded the failure: %s", round.WhyInvalid)
+	}
+}
+
+// One request that never answers, among requests that all answer at once, fails the round too.
+func TestAClosedRoundWithOneRequestThatNeverAnswersFails(t *testing.T) {
+	srv, _ := fakeServer(t)
+	hung := fourViews("/a")
+	hung[2].Reqs = []TraceReq{req("/hold-1", "nav", 0, 5)}
+	traces := make([]Trace, 8000)
+	for i := range traces {
+		traces[i] = Trace{Steps: fourViews("/a")}
+	}
+	traces[1] = Trace{Steps: hung} // the second visit of the round, and no other
+	r := newTestRunner(srv.URL, BrowseScenario{Share: 0}, traces...)
+	round := r.RunClosed(context.Background(), 4, 8000, 1500*time.Millisecond)
+	if !round.TimedOut || round.Visits < 100 {
+		t.Fatalf("the test shows nothing: %+v", round)
+	}
+	if round.CutOffLate == 0 {
+		t.Errorf("cut off %d actions, none over the rule", round.CutOff)
+	}
+	round.Judge(BrowseScenario{Share: 0})
+	if !round.Valid || round.Pass {
+		t.Errorf("valid %v (%s), pass %v (%s): want a valid round that failed", round.Valid, round.WhyInvalid, round.Pass, round.Why)
 	}
 }

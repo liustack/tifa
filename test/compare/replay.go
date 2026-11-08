@@ -206,7 +206,11 @@ type acc struct {
 	mu                                  sync.Mutex
 	visits, views, loads, clicks, wrote int
 	// started counts the visits begun, and failedVisits the ones an action of which failed.
-	started, failedVisits               int
+	started, failedVisits int
+	// cutOff counts the actions in flight when the round was cut off, cutLate the ones in flight for
+	// longer than the rule, and cutOldest how long the oldest was, in ms.
+	cutOff, cutLate                     int
+	cutOldest                           float64
 	failures, requests, cancelled, n304 int
 	bytes                               int64
 	firstErr                            string
@@ -235,6 +239,23 @@ func (a *acc) fail(err error) {
 	if a.firstErr == "" {
 		a.firstErr = err.Error()
 	}
+}
+
+// cut counts an action that the end of the round cut off, scheduled at sched: how long it had been in
+// flight when the context ended (at its deadline, when it has one that passed).
+func (a *acc) cut(ctx context.Context, sched time.Time) {
+	at := time.Now()
+	if d, ok := ctx.Deadline(); ok && d.Before(at) {
+		at = d
+	}
+	age := ms(at.Sub(sched))
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cutOff++
+	if age > LatencyLimit {
+		a.cutLate++
+	}
+	a.cutOldest = max(a.cutOldest, age)
 }
 
 func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
@@ -579,6 +600,8 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 		if _, err := r.runStep(ctx, v, a, s, sched); err != nil {
 			if ctx.Err() == nil {
 				a.fail(err)
+			} else {
+				a.cut(ctx, sched)
 			}
 			return false
 		}
@@ -587,6 +610,8 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 			if err := r.doWrite(ctx, v, a, w, sched); err != nil {
 				if ctx.Err() == nil {
 					a.fail(err)
+				} else {
+					a.cut(ctx, sched)
 				}
 				return false
 			}
