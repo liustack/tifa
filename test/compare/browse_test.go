@@ -62,7 +62,7 @@ func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
 // A scenario where Next.js has no sustainable rate in range has no open run: that is its result, and
 // the latency phase goes on with the other scenarios.
 func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
-	sc, _ := BrowseScenarioByName("admin-w5")
+	sc, _ := BrowseScenarioByName("store-w5")
 	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3}, servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, res: &BrowseResult{
 		Sustain:     map[string]*Sustain{sustainKey(sc.Name, openBase): {Done: true, Note: "no rate passed its confirmation rounds"}},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{},

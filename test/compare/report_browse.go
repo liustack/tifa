@@ -197,8 +197,11 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 		r.saturationMarkdown(b, sc, rounds)
 	}
 	r.controlMarkdown(b, sc)
-	if !sc.open() {
-		b.WriteString("\nThis scenario has no open run: the arrival rate and the latency at the same rate are measured on the scenario of each site with 5% writes.\n")
+	if !sc.Throughput {
+		b.WriteString("\nThis scenario has no throughput table: it is measured for its latency at a fixed arrival rate only.\n")
+	}
+	if !sc.Latency {
+		b.WriteString("\nThis scenario has no open run: it is measured for its throughput only.\n")
 	}
 	r.sustainMarkdown(b, sc)
 	r.latencyMarkdown(b, sc)
@@ -261,11 +264,19 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), per("doc 200 "), per("doc 304 "), per("nav "), per("prefetch "), per("write "), tifa("vm"), tifa("cache"), tifa("shared"))
 	}
 	r.pageRendersMarkdown(b, sc, users)
+	r.writesMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, users) })
+	r.achievedMarkdown(b, sc, users)
+}
+
+// writesMarkdown writes what the writes of the rounds of each server were, the rounds of a server
+// given by rounds.
+func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
+	fw := r.Servers[sc.Name]
 	switch sc.Mix {
 	case MixAdmin:
 		b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | place an order | ship | note | recipient | sent as a place-an-order write for lack of an order (share of the writes) | write P50 ms: place / ship / note / recipient | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 		for _, f := range fw {
-			rs := r.cellRounds(f, sc.Name, users)
+			rs := rounds(f)
 			if len(rs) == 0 {
 				continue
 			}
@@ -283,7 +294,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 	case MixStore:
 		b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | add to cart | change quantity | coupon | check out | write P50 ms: add / quantity / coupon / check out |\n| --- | --- | --- | --- | --- | --- |\n")
 		for _, f := range fw {
-			rs := r.cellRounds(f, sc.Name, users)
+			rs := rounds(f)
 			if len(rs) == 0 {
 				continue
 			}
@@ -294,6 +305,11 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 				p50Cell(rs, "write "+WriteAdd), p50Cell(rs, "write "+WriteQuantity), p50Cell(rs, "write "+WriteCoupon), p50Cell(rs, "write "+WriteCheckout))
 		}
 	}
+}
+
+// achievedMarkdown writes what the closed rounds of a scenario at a number of users achieved.
+func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, users int) {
+	fw := r.Servers[sc.Name]
 	b.WriteString("\nWhat the rounds achieved, against what the scenario asks for (a round is run again unless its write share is within 1 point of the scenario, its click share within 1 point of 75% and it has 4 page views a visit within 1%):\n\n| | blocks | visits | page views | full loads | clicks | writes | write share | click share | page views/visit | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := r.cellRounds(f, sc.Name, users)
@@ -335,7 +351,7 @@ func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
 
 func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
-		if s := r.Sustain[sustainKey(sc.Name, openBase)]; sc.open() && s != nil && s.Done && s.Rate == 0 {
+		if s := r.Sustain[sustainKey(sc.Name, openBase)]; sc.Latency && s != nil && s.Done && s.Rate == 0 {
 			fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nNo open run: %s has no sustainable rate in range on this scenario (%s).\n", BrowseLabel(openBase), s.Note)
 		}
 		return
@@ -374,6 +390,18 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), fails,
 			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
 	}
+	r.writesMarkdown(b, sc, func(f string) []Round { return r.latencyRounds(f, sc.Name) })
+}
+
+// latencyRounds are the rounds a server played at the rate of the open run of a scenario.
+func (r *BrowseResult) latencyRounds(fw, sc string) []Round {
+	var out []Round
+	for _, x := range r.Latency {
+		if x.Framework == fw && x.Scenario == sc {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // allServers are the specs of every scenario, in the order they first appear.

@@ -23,8 +23,8 @@ var browseOpts struct {
 func browseFlags(flags *flag.FlagSet) {
 	o := &browseOpts
 	flags.StringVar(&o.out, "out", "browse.json", "browse: the result, written after every round and continued if it exists")
-	flags.StringVar(&o.scenarios, "scenarios", compare.DefaultScenarios, "browse: comma separated scenarios: admin-w5, admin-w20, admin-w50 (admin writes), r95w5, r80w20, r50w50 (every write renames a customer) and store-w5, store-w20, store-w50 (the storefront)")
-	flags.StringVar(&o.phases, "phases", "closed,saturation,sustain,latency", "browse: the parts to run: closed (throughput at equal users), saturation (the users at which each server that did not use its cpus saturates, read from test/compare/saturation.json or probed), sustain (the arrival rate Next.js sustains) and latency (every server at half of it), the last two for the scenarios with 5% writes only")
+	flags.StringVar(&o.scenarios, "scenarios", compare.DefaultScenarios, "browse: comma separated scenarios and groups: default (store-w5 and admin-w20), extra (store-w20 and admin-w50), and store-w50, r95w5, r50w50 (every write renames a customer)")
+	flags.StringVar(&o.phases, "phases", "closed,saturation,control,sustain,latency", "browse: the parts to run: closed (throughput at equal users), saturation (the users at which each server that did not use its cpus saturates, read from test/compare/saturation.json or probed), control (Tifa with no writes, once for each site), sustain (the arrival rate Next.js sustains) and latency (every server at half of it), each for the scenarios that have that table")
 	flags.StringVar(&o.extra, "extra-users", "8,16", "browse: more users for the scenarios with 5% writes, besides -users")
 	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
@@ -60,13 +60,11 @@ func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, se
 	o := &browseOpts
 	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs), Probe: o.probe,
 		Phases: strings.Split(o.phases, ","), Users: o.users, Rounds: o.rounds, Warm: o.warm, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, MaxRate: o.maxRate, Log: os.Stderr}
-	for _, name := range strings.Split(o.scenarios, ",") {
-		sc, ok := compare.BrowseScenarioByName(strings.TrimSpace(name))
-		if !ok {
-			fatal(fmt.Errorf("no scenario %q", name))
-		}
-		opts.Scenarios = append(opts.Scenarios, sc)
+	scs, err := compare.ParseScenarios(o.scenarios)
+	if err != nil {
+		fatal(err)
 	}
+	opts.Scenarios = scs
 	for _, f := range strings.Split(o.extra, ",") {
 		if f = strings.TrimSpace(f); f != "" {
 			n, err := strconv.Atoi(f)

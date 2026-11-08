@@ -137,8 +137,7 @@ func TestAdminWritesOfABlockFollowTheSharesByQuota(t *testing.T) {
 		name  string
 		kinds map[string]int
 	}{
-		{"admin-w5", map[string]int{WriteCreate: 8, WriteShip: 6, WriteNote: 4, WriteRecipient: 2}},
-		{"admin-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
+				{"admin-w20", map[string]int{WriteCreate: 38, WriteShip: 29, WriteNote: 19, WriteRecipient: 9}},
 		{"admin-w50", map[string]int{WriteCreate: 152, WriteShip: 114, WriteNote: 76, WriteRecipient: 38}},
 	} {
 		sc := scenario(t, tc.name)
@@ -279,7 +278,7 @@ func newRand(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, 0)) }
 
 // The read-only control is a scenario with no writes: its blocks get none.
 func TestAScenarioWithNoWritesGetsNone(t *testing.T) {
-	sc := scenario(t, "admin-w5")
+	sc := scenario(t, "admin-w20")
 	sc.Share = 0
 	ws, err := BlockWrites(7, GeneratePlanSet(7, 1).Plans, sc)
 	if err != nil || len(ws) != 0 {

@@ -87,8 +87,8 @@ type BrowseResult struct {
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
-	// Control is the read-only control of admin-w5: Tifa at the users of the closed runs with the
-	// same traces and no writes, one short round, to show what the writes do to its render cache.
+	// Control is the read-only control of each site: Tifa at the users of the closed runs with the
+	// same traces and no writes, one short round, to show which pages its render cache answers.
 	Control []Round `json:"control,omitempty"`
 	// Saturation holds the rounds above the users of every server, for the servers that did not use
 	// their cpus there: the steps of a probe, or the users from SaturationFile.
@@ -223,13 +223,10 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		o.Servers = BrowseFrameworks
 	}
 	if len(o.Scenarios) == 0 {
-		for _, name := range strings.Split(DefaultScenarios, ",") {
-			sc, _ := BrowseScenarioByName(name)
-			o.Scenarios = append(o.Scenarios, sc)
-		}
+		o.Scenarios, _ = ParseScenarios(DefaultScenarios)
 	}
 	if len(o.Phases) == 0 {
-		o.Phases = []string{"closed", "saturation", "sustain", "latency"}
+		o.Phases = []string{"closed", "saturation", "control", "sustain", "latency"}
 	}
 	if o.SaturationFile == "" {
 		o.SaturationFile = filepath.Join(e.Root, "test", "compare", "saturation.json")
@@ -308,7 +305,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	for _, phase := range []struct {
 		name string
 		run  func(context.Context, BrowseScenario) error
-	}{{"closed", b.closed}, {"saturation", b.saturation}, {"sustain", b.sustain}, {"latency", b.latency}} {
+	}{{"closed", b.closed}, {"saturation", b.saturation}, {"control", b.control}, {"sustain", b.sustain}, {"latency", b.latency}} {
 		if !has(phase.name) {
 			continue
 		}
@@ -369,7 +366,7 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 // too for a scenario with the open run (5% writes).
 func (b *browse) usersFor(sc BrowseScenario) []int {
 	users := []int{b.o.Users}
-	if sc.open() {
+	if sc.Latency {
 		users = append(slices.Clone(b.o.ExtraUsers), users...)
 	}
 	return users
@@ -384,6 +381,9 @@ func (b *browse) closedDone(fw, sc string, users, round int) bool {
 // closed is the throughput table of a scenario: every server at the same number of users, three
 // rounds in a rotating order with fresh servers.
 func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
+	if !sc.Throughput {
+		return nil
+	}
 	for _, users := range b.usersFor(sc) {
 		failed := map[string]bool{}
 		for round := 1; round <= b.o.Rounds; round++ {
@@ -407,21 +407,26 @@ func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
 			}
 		}
 	}
-	return b.control(ctx, sc)
+	return nil
 }
 
-// controlScenario is the scenario of the read-only control, and controlWindow about how long its
-// one round takes (the target of the closed rounds when that is shorter).
-const (
-	controlScenario = "admin-w5"
-	controlWindow   = 30 * time.Second
-)
+// controlWindow is about how long the one round of the read-only control takes (the target of the
+// closed rounds when that is shorter).
+const controlWindow = 30 * time.Second
 
-// control is a diagnostic, not a result: on admin-w5, one closed round of Tifa (with its caches as
-// it ships) at the users of the closed runs, with the same traces and no writes. Against the closed
-// rounds it shows what the writes do to the render cache of each kind of page.
+// controlled says whether the read-only control runs on a scenario of a list: on the first
+// scenario of each site, once.
+func controlled(list []BrowseScenario, sc BrowseScenario) bool {
+	i := slices.IndexFunc(list, func(s BrowseScenario) bool { return s.site() == sc.site() })
+	return i >= 0 && list[i].Name == sc.Name
+}
+
+// control is a diagnostic, not a result: once for each site, one closed round of Tifa (with its
+// caches as it ships) at the users of the closed runs, with the traces of the first scenario of the
+// site and no writes. It shows which kinds of page the render cache answers when nothing changes,
+// and against the rounds with writes what the writes do to it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
-	if sc.Name != controlScenario || !slices.Contains(b.servers[sc.Name], "tifa") || len(b.res.Control) > 0 {
+	if !controlled(b.o.Scenarios, sc) || !slices.Contains(b.servers[sc.Name], "tifa") || slices.ContainsFunc(b.res.Control, func(x Round) bool { return x.Scenario == sc.Name }) {
 		return nil
 	}
 	reads := sc
@@ -574,7 +579,7 @@ func sustainKey(sc, spec string) string { return sc + "/" + spec }
 // rounds, stepping down 10% until it holds. Only Next.js is searched: half of its rate is the rate of
 // the open run for every server.
 func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
-	if !sc.open() {
+	if !sc.Latency {
 		return nil
 	}
 	if !slices.Contains(b.servers[sc.Name], openBase) {
@@ -669,7 +674,7 @@ func openRate(res *BrowseResult, sc BrowseScenario) (float64, error) {
 // cannot hold the rate fails at it, and its rounds are kept as they are: the rate is never lowered
 // for it.
 func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
-	if !sc.open() {
+	if !sc.Latency {
 		return nil
 	}
 	if s := b.res.Sustain[sustainKey(sc.Name, openBase)]; s != nil && s.Done && s.Rate == 0 {

@@ -20,10 +20,10 @@ func closedRound(fw, sc string, users, round int, views int, seconds float64, pa
 }
 
 func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
-	mix := BrowseScenarios[0]
+	mix := mustScenario("store-w5")
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{
-		"admin-w5/nextjs": {Rate: 16, Done: true}},
-		LatencyRate: map[string]float64{"admin-w5": 8}, LatencyBase: map[string]string{"admin-w5": "nextjs"}}
+		"store-w5/nextjs": {Rate: 16, Done: true}},
+		LatencyRate: map[string]float64{"store-w5": 8}, LatencyBase: map[string]string{"store-w5": "nextjs"}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 32, round, 4000, 10, true), closedRound("nextjs", mix.Name, 32, round, 400, 10, round != 2))
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 8, round, 3000, 10, true), closedRound("nextjs", mix.Name, 8, round, 380, 10, true))
@@ -33,7 +33,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	}
 	md := r.Markdown()
 	for _, want := range []string{
-		"### shop admin, reads 95% / writes 5%",
+		"### storefront, reads 95% / writes 5%",
 		"| | 8 users | 32 users |",
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
@@ -54,10 +54,10 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 // The latency table gives every round a server played at the rate, the failed ones too: a server
 // with a failed round fails the rule, and its errors and tail latency are in its row.
 func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
-	mix := BrowseScenarios[0]
+	mix := mustScenario("store-w5")
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
-		LatencyRate: map[string]float64{"admin-w5": 8}, LatencyBase: map[string]string{"admin-w5": "nextjs"},
-		Sustain: map[string]*Sustain{"admin-w5/nextjs": {Rate: 16, Done: true}}}
+		LatencyRate: map[string]float64{"store-w5": 8}, LatencyBase: map[string]string{"store-w5": "nextjs"},
+		Sustain: map[string]*Sustain{"store-w5/nextjs": {Rate: 16, Done: true}}}
 	for round := 1; round <= 3; round++ {
 		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
 		a.Model = "open"
@@ -102,7 +102,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		}
 		return string(data)
 	}
-	trace := run("r80w20", "stamp")
+	trace := run("admin-w20", "stamp")
 	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site workbench\n", "plans none\n"} {
 		if !strings.Contains(trace, want) {
 			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
@@ -111,40 +111,45 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 	// The storefront has a stamp of its own, bound to its own plans.
 	os.MkdirAll(filepath.Join(out, "traces"), 0o755)
 	os.WriteFile(filepath.Join(out, "traces", "plans-store.json"), []byte("{}"), 0o644)
-	store := run("r80w20", "stamp", "store")
+	store := run("admin-w20", "stamp", "store")
 	if !strings.Contains(store, "site store\n") || strings.Contains(store, "plans none") {
 		t.Errorf("the storefront stamp:\n%s", store)
 	}
-	if !strings.Contains(run("r80w20", "stamp"), "plans none\n") {
+	if !strings.Contains(run("admin-w20", "stamp"), "plans none\n") {
 		t.Error("the workbench stamp is bound to the plans of the storefront")
 	}
-	results := run("r80w20", "runstamp")
-	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "scenarios=r80w20 ", "go ", "node "} {
+	results := run("admin-w20", "runstamp")
+	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "scenarios=admin-w20 ", "go ", "node "} {
 		if !strings.Contains(results, want) {
 			t.Errorf("the result stamp lacks %q:\n%s", want, results)
 		}
 	}
 	// A result with the storefront scenarios is bound to the storefront traces too.
 	first := func(s string) string { line, _, _ := strings.Cut(s, "\n"); return line }
-	if first(run("r80w20,store-w5", "runstamp")) == first(results) {
+	if first(run("admin-w20,store-w5", "runstamp")) == first(results) {
 		t.Error("the result stamp of a run with the storefront is not bound to its traces")
+	}
+	// The script names the scenarios of the groups as replay.go does.
+	for group := range ScenarioGroups {
+		scs, _ := ParseScenarios(group + ",r95w5")
+		if got, want := strings.TrimSpace(run(group+",r95w5", "scenarios")), strings.Join(scenarioNamesOf(scs), ","); got != want {
+			t.Errorf("browse.sh expands %s to %s, replay.go to %s", group, got, want)
+		}
 	}
 }
 
-// Every scenario gets its own closed and open tables with its own servers: each scenario has its own rate.
+// Every scenario gets the tables it has, with its own servers: the closed tables for a scenario with
+// throughput, the search and the latency for one with latency, each with its own rate. The writes of
+// a round are given for the rounds a scenario has.
 func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
-	var scs []BrowseScenario
-	for _, name := range strings.Split(DefaultScenarios, ",") {
-		sc, _ := BrowseScenarioByName(name)
-		scs = append(scs, sc)
-	}
+	scs, _ := ParseScenarios("default,extra")
 	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
 	for i, sc := range scs {
 		servers := BrowseFrameworks
 		r.Servers[sc.Name] = servers
-		r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = float64(i+2), "nextjs"
-		if sc.open() {
+		if sc.Latency {
+			r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = float64(i+2), "nextjs"
 			r.Sustain[sustainKey(sc.Name, "nextjs")] = &Sustain{Rate: float64(2 * (i + 2)), Done: true}
 		}
 		for _, f := range servers {
@@ -152,10 +157,12 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			x.WriteKinds = map[string]int{WriteCreate: 40, WriteShip: 30, WriteAdd: 50, WriteCheckout: 20}
 			x.Orders = map[string]int{"studio": 82, "weekend": 12}
 			x.PoolEmpty = 21 // of 210 writes
-			r.Closed = append(r.Closed, x)
-			if sc.open() {
-				l := closedRound(f, sc.Name, 0, 1, 1000, 100, true)
-				l.Model, l.Rate = "open", float64(i+2)
+			if sc.Throughput {
+				r.Closed = append(r.Closed, x)
+			}
+			if sc.Latency {
+				l := x
+				l.Model, l.Rate, l.Users = "open", float64(i+2), 0
 				r.Latency = append(r.Latency, l)
 			}
 		}
@@ -172,14 +179,19 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 		if sec == "" {
 			t.Fatalf("no section for %s:\n%s", sc.Title, md)
 		}
+		closed := []string{"#### Page views a second at the same number of users", "#### 32 users"}
 		open := []string{"#### The arrival rate Next.js sustains", "#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))}
-		for _, want := range append([]string{"#### Page views a second at the same number of users", "#### 32 users"}, open...) {
-			if !strings.Contains(sec, want) && (sc.open() || !slices.Contains(open, want)) {
-				t.Errorf("%s lacks %q", sc.Name, want)
+		for _, want := range append(closed, open...) {
+			has := strings.Contains(sec, want)
+			if slices.Contains(closed, want) && has != sc.Throughput || slices.Contains(open, want) && has != sc.Latency {
+				t.Errorf("%s has %q: %v", sc.Name, want, has)
 			}
 		}
-		if !sc.open() && (strings.Contains(sec, "#### Latency") || !strings.Contains(sec, "This scenario has no open run")) {
-			t.Errorf("%s has an open run or does not say it has none:\n%s", sc.Name, sec)
+		if !sc.Latency && !strings.Contains(sec, "This scenario has no open run") {
+			t.Errorf("%s does not say it has no open run:\n%s", sc.Name, sec)
+		}
+		if !sc.Throughput && !strings.Contains(sec, "This scenario has no throughput table") {
+			t.Errorf("%s does not say it has no throughput table:\n%s", sc.Name, sec)
 		}
 		for _, f := range r.Servers[sc.Name] {
 			if !strings.Contains(sec, "| "+BrowseLabel(f)+" |") {
@@ -197,7 +209,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"In the admin scenarios", "In the scenarios named for a customer rename", "The storefront scenarios replay"} {
+	for _, want := range []string{"In the admin scenarios", "The storefront scenarios replay"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q", want)
 		}
@@ -220,7 +232,7 @@ func TestReportTellsABrowseResultFromARecord(t *testing.T) {
 // For Tifa the report splits the render cache hits of full loads by kind of page, in every closed
 // run and in the read-only control of admin-w5: a diagnostic of what the writes do to the cache.
 func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
-	sc := BrowseScenarios[0]
+	sc := mustScenario("store-w5")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"list": {"cache": 55, "vm": 45}, "stats": {"cache": 11, "vm": 9}, "order": {"cache": 1, "vm": 99}}
@@ -250,11 +262,11 @@ func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
 // The closed rows give the server cores next to the client cores, and the saturation table the users
 // at which each server saturated, from this run or from the file.
 func TestBrowseReportShowsServerCoresAndWhereEachServerSaturated(t *testing.T) {
-	sc := BrowseScenarios[1]
+	sc := mustScenario("store-w20")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "start"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
 		Saturated: map[string]*Saturated{
-			"admin-w20/tifa":   {Users: 50, Why: "used 0.96 of 1 cpus at 50 users", Steps: []int{40, 50}, Probed: true},
-			"admin-w20/nextjs": {Users: 32, Why: "at 40 users the page views a second rose by less than the spread of the rounds", Tifa: "abc1234", Date: "2026-11-01"},
+			"store-w20/tifa":   {Users: 50, Why: "used 0.96 of 1 cpus at 50 users", Steps: []int{40, 50}, Probed: true},
+			"store-w20/nextjs": {Users: 32, Why: "at 40 users the page views a second rose by less than the spread of the rounds", Tifa: "abc1234", Date: "2026-11-01"},
 		}}
 	for round, d := range []int{-10, 0, 10} {
 		r.Closed = append(r.Closed, closedRound("tifa", sc.Name, 32, round+1, 4000+d, 10, true), closedRound("nextjs", sc.Name, 32, round+1, 400+d, 10, true), closedRound("start", sc.Name, 32, round+1, 300+d, 10, true))
@@ -298,4 +310,20 @@ func TestTypeCellLeavesOutRoundsWithNoSamples(t *testing.T) {
 	if got := typeCell(rs, "click"); got != "-" {
 		t.Errorf("click cell %q, want -", got)
 	}
+}
+
+func mustScenario(name string) BrowseScenario {
+	sc, ok := BrowseScenarioByName(name)
+	if !ok {
+		panic(name)
+	}
+	return sc
+}
+
+func scenarioNamesOf(list []BrowseScenario) []string {
+	var out []string
+	for _, sc := range list {
+		out = append(out, sc.Name)
+	}
+	return out
 }

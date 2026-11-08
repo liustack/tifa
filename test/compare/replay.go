@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,12 +24,16 @@ import (
 // are writes. Which writes they are is the Mix: "admin" (place, ship, annotate and fix the delivery
 // of orders, MixAdmin), "rename" (every write gives an order a new customer name, which the lists,
 // the stats and the other orders of that customer show: the harder case for a cache, MixRename) or
-// "store" (a visitor of the storefront fills a cart and checks out, MixStore).
+// "store" (a visitor of the storefront fills a cart and checks out, MixStore). Throughput says that
+// the scenario has the closed tables, and Latency the open run (the search for the rate of Next.js
+// and every server at half of it).
 type BrowseScenario struct {
-	Name  string  `json:"name"`
-	Title string  `json:"title"`
-	Share float64 `json:"writeShare"`
-	Mix   string  `json:"mix"`
+	Name       string  `json:"name"`
+	Title      string  `json:"title"`
+	Share      float64 `json:"writeShare"`
+	Mix        string  `json:"mix"`
+	Throughput bool    `json:"throughput"`
+	Latency    bool    `json:"latency"`
 }
 
 // site is the site the scenario replays visits to: the storefront for the store mix, else the
@@ -40,10 +45,6 @@ func (s BrowseScenario) site() string {
 	return SiteWorkbench
 }
 
-// open says whether the scenario has the open run (the search for the rate of Next.js and the
-// latency at half of it): the 95/5 mixes. Its closed runs also have more numbers of users.
-func (s BrowseScenario) open() bool { return s.Share == 0.05 }
-
 // openBase is the server whose sustainable rate sets the rate of an open run: half of it, for every
 // server of the scenario.
 const openBase = "nextjs"
@@ -51,21 +52,25 @@ const openBase = "nextjs"
 // BrowseScenarios are the scenarios, in the order they are measured. A visit is 4 page views on
 // average (one full load in four, 75% client navigations), an assumption and not a measurement.
 var BrowseScenarios = []BrowseScenario{
-	{"admin-w5", "shop admin, reads 95% / writes 5%", 0.05, MixAdmin},
-	{"admin-w20", "shop admin, reads 80% / writes 20%", 0.20, MixAdmin},
-	{"admin-w50", "shop admin, reads 50% / writes 50%", 0.50, MixAdmin},
-	{"r95w5", "reads 95% / writes 5%, every write renames a customer", 0.05, MixRename},
-	{"r80w20", "reads 80% / writes 20%, every write renames a customer", 0.20, MixRename},
-	{"r50w50", "reads 50% / writes 50%, every write renames a customer", 0.50, MixRename},
-	{"store-w5", "storefront, reads 95% / writes 5%", 0.05, MixStore},
-	{"store-w20", "storefront, reads 80% / writes 20%", 0.20, MixStore},
-	{"store-w50", "storefront, reads 50% / writes 50%", 0.50, MixStore},
+	{"store-w5", "storefront, reads 95% / writes 5%", 0.05, MixStore, true, true},
+	{"admin-w20", "shop admin, reads 80% / writes 20%", 0.20, MixAdmin, false, true},
+	{"store-w20", "a storefront with more writes, reads 80% / writes 20%", 0.20, MixStore, true, false},
+	{"admin-w50", "shop admin, reads 50% / writes 50%", 0.50, MixAdmin, false, true},
+	{"store-w50", "storefront, reads 50% / writes 50%", 0.50, MixStore, true, false},
+	{"r95w5", "reads 95% / writes 5%, every write renames a customer", 0.05, MixRename, true, true},
+	{"r50w50", "reads 50% / writes 50%, every write renames a customer", 0.50, MixRename, true, false},
 }
 
-// DefaultScenarios are the scenarios that run when none is asked for: the admin at the three
-// rates, the rename stress at 20% only and the storefront at 5% (the open run of the storefront) and
-// 20%.
-const DefaultScenarios = "admin-w5,admin-w20,admin-w50,r80w20,store-w5,store-w20"
+// ScenarioGroups are the lists of scenarios that a name stands for. "default" runs when none is
+// asked for: the storefront at 5% writes (throughput and latency) and the admin at 20% (latency).
+// "extra" is run on demand: the storefront at 20% (throughput) and the admin at 50% (latency).
+var ScenarioGroups = map[string][]string{
+	"default": {"store-w5", "admin-w20"},
+	"extra":   {"store-w20", "admin-w50"},
+}
+
+// DefaultScenarios is the list of scenarios that runs when none is asked for.
+const DefaultScenarios = "default"
 
 // BrowseScenarioByName finds a scenario of the browse comparison.
 func BrowseScenarioByName(name string) (BrowseScenario, bool) {
@@ -75,6 +80,43 @@ func BrowseScenarioByName(name string) (BrowseScenario, bool) {
 		}
 	}
 	return BrowseScenario{}, false
+}
+
+// ParseScenarios reads a comma separated list of scenarios and groups, in order, each scenario
+// once.
+func ParseScenarios(list string) ([]BrowseScenario, error) {
+	var out []BrowseScenario
+	add := func(name string) error {
+		sc, ok := BrowseScenarioByName(name)
+		if !ok {
+			return fmt.Errorf("no scenario %q: have the groups default and extra and %v", name, browseScenarioNames())
+		}
+		if !slices.ContainsFunc(out, func(s BrowseScenario) bool { return s.Name == name }) {
+			out = append(out, sc)
+		}
+		return nil
+	}
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		names, group := ScenarioGroups[name]
+		if !group {
+			names = []string{name}
+		}
+		for _, n := range names {
+			if err := add(n); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
+func browseScenarioNames() []string {
+	var out []string
+	for _, s := range BrowseScenarios {
+		out = append(out, s.Name)
+	}
+	return out
 }
 
 // maxConns is how many connections a browser opens to one host (HTTP/1.1): a visit never has more
