@@ -254,3 +254,14 @@ func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
 		t.Errorf("a page with Cache that redirects rendered %d times", renders)
 	}
 }
+
+// Making an entry of a page with Cache writes the data of each Load to JSON once.
+func TestMadeEntryEncodesEachLoadOnce(t *testing.T) {
+	e := newWorkEnv(t, 64<<20)
+	for _, target := range []string{"/cached", dataURL("/cached", "b1", "01")} {
+		e.s.ExpirePages([]string{"/cached"})
+		if w := e.do("GET", target); w.loads != 2 || w.encodes != 2 {
+			t.Errorf("GET %s: %s", target, w)
+		}
+	}
+}

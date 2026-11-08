@@ -469,11 +469,15 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		}
 		return s.madeFailed(err, headers, effects{})
 	}
+	// The texts of the entry are those the page is made from too, written once.
 	for _, l := range chain {
-		text, err := loaderText(items[l.id].Data)
+		item := items[l.id]
+		text, err := loaderText(item.Data)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
+		item.text = text
+		items[l.id] = item
 		entry.routes = append(entry.routes, wholeRoute{id: l.id, text: text})
 	}
 

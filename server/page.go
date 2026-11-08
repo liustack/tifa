@@ -360,6 +360,18 @@ type routeResult struct {
 	// html is the html of the load of the result: its data may hold tifa.HTML values, which a page
 	// the server renders carries as markers (pageText).
 	html bool
+	// text is the JSON text of Data (loaderText) once it is written, "" before: the whole-page cache
+	// writes it for its entry, and the render uses it then (see dataText).
+	text string
+}
+
+// dataText returns the JSON text of the data of r (loaderText), the one written already when there
+// is one.
+func (r routeResult) dataText() (string, error) {
+	if r.text != "" {
+		return r.text, nil
+	}
+	return loaderText(r.Data)
 }
 
 // loaderText writes the data of a Load as the JSON text a page carries. The render parses that
@@ -388,7 +400,7 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
 		if item.Status == http.StatusOK {
-			text, err := loaderText(item.Data)
+			text, err := item.dataText()
 			if err != nil {
 				return nil, err
 			}
@@ -426,7 +438,7 @@ func renderInput(items map[string]routeResult) (data []byte, texts, pageTexts []
 		item := items[id]
 		result := renderResult{Status: item.Status, Error: item.Error, Location: item.Location}
 		if item.Status == http.StatusOK {
-			text, err := loaderText(item.Data)
+			text, err := item.dataText()
 			if err != nil {
 				return nil, nil, nil, err
 			}
