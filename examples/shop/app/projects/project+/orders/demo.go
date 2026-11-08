@@ -43,6 +43,8 @@ var customers = []customer{
 	{"陆川", "19900199015", "luchuan@example.com", "深圳市南山区 · 演示地址"},
 }
 
+// studioCatalogue are the products of the storefront that the demonstration orders of studio hold, as
+// they were sold. New orders of studio take their products from the storefront (see shops).
 var studioCatalogue = []itemRecord{
 	{Slug: "pour-over-kettle", Name: "晨间手冲壶", Description: "雾白 / 600 ml", PriceCents: 32800, Color: "sand", Stock: 23},
 	{Slug: "linen-coasters", Name: "亚麻杯垫", Description: "原色 / 两件装", PriceCents: 10000, Color: "olive", Stock: 80},

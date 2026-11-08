@@ -1,20 +1,26 @@
 package orders
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/store/products"
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // Placing a new order, with the rules for it.
 
-// A NewLine is one product of a new order. The shop's catalogue gives its name, price, colour and
-// stock.
+// A NewLine is one product of a new order in a colour and size. The shop's catalogue gives its name,
+// price and stock. Staff leave the colour and size empty, and the line takes the first colour of the
+// product. A checkout of the storefront names the colour and size of each line of the cart.
 type NewLine struct {
 	Slug     string `json:"slug"`
+	Color    string `json:"color"`
+	Size     string `json:"size"`
 	Quantity int    `json:"quantity"`
 }
 
@@ -28,16 +34,43 @@ type NewOrder struct {
 	Items    []NewLine `json:"items"`
 }
 
-// shop is what a project needs to place orders: the form of its order numbers and its products.
+// shop is what a project needs to place orders: the form of its order numbers and the line of each
+// product it sells.
 type shop struct {
-	prefix    string // the order number is prefix, a dash and a number
-	width     int    // the number is padded with zeros to this width
-	catalogue []itemRecord
+	prefix string // the order number is prefix, a dash and a number
+	width  int    // the number is padded with zeros to this width
+	line   func(NewLine) (itemRecord, error)
 }
 
+// The studio shop sells the products of the storefront (storekit.Project), as the catalogue has them
+// at the time of the order. The weekend shop keeps a catalogue of its own.
 var shops = map[string]shop{
-	"studio":  {prefix: "SH", width: 0, catalogue: studioCatalogue},
-	"weekend": {prefix: "WK", width: 4, catalogue: weekendCatalogue},
+	storekit.Project: {prefix: "SH", width: 0, line: storefrontLine},
+	"weekend":        {prefix: "WK", width: 4, line: weekendLine},
+}
+
+// storefrontLine is the order line of a product of the storefront in a colour and size.
+func storefrontLine(l NewLine) (itemRecord, error) {
+	p, err := products.OrderLine(l.Slug, l.Color, l.Size)
+	if errors.Is(err, tifa.ErrNotFound) {
+		return itemRecord{}, tifa.Fields{"items": "Unknown product " + l.Slug}
+	}
+	if err != nil {
+		return itemRecord{}, err
+	}
+	return itemRecord{
+		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: l.Quantity, PriceCents: p.PriceFen, Color: p.Color, Stock: p.Stock,
+	}, nil
+}
+
+// weekendLine is the order line of a product of the weekend shop, which comes in one colour and size.
+func weekendLine(l NewLine) (itemRecord, error) {
+	for _, p := range weekendCatalogue {
+		if p.Slug == l.Slug && l.Color == "" && l.Size == "" {
+			return item(p, l.Quantity), nil
+		}
+	}
+	return itemRecord{}, tifa.Fields{"items": "Unknown product " + l.Slug}
 }
 
 // CheckNewOrder returns the fields of a new order that do not follow the rules, or nil. It cannot
@@ -71,11 +104,11 @@ func CreateOrder(projectID string, in NewOrder, at time.Time) (string, error) {
 	}
 	var items []itemRecord
 	for _, l := range in.Items {
-		i := indexProduct(s.catalogue, l.Slug)
-		if i < 0 {
-			return "", tifa.Fields{"items": "Unknown product " + l.Slug}
+		it, err := s.line(l)
+		if err != nil {
+			return "", err
 		}
-		items = append(items, item(s.catalogue[i], l.Quantity))
+		items = append(items, it)
 	}
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
@@ -90,13 +123,4 @@ func CreateOrder(projectID string, in NewOrder, at time.Time) (string, error) {
 		PlacedAt: at, Items: items,
 	})
 	return id, nil
-}
-
-func indexProduct(catalogue []itemRecord, slug string) int {
-	for i, p := range catalogue {
-		if p.Slug == slug {
-			return i
-		}
-	}
-	return -1
 }

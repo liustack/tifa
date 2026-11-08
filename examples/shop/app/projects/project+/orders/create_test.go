@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 	"github.com/liustack/tifa/tifatest"
 )
 
@@ -98,9 +99,17 @@ func TestCreateRules(t *testing.T) {
 		t.Errorf("a good order: %v", err)
 	}
 	in := newOrder()
-	in.Items[1].Slug = "canvas-tote" // a product of the weekend shop
+	in.Items[1].Slug = "no-such-product"
 	if _, err := CreateOrder("studio", in, time.Now()); !errors.As(err, &fields) || fields["items"] == "" {
-		t.Errorf("a product of another shop: %v", err)
+		t.Errorf("an unknown product: %v", err)
+	}
+	in = newOrder()
+	in.Items[1].Color = "ink" // the oak tray comes in oat only
+	if _, err := CreateOrder("studio", in, time.Now()); !errors.As(err, &fields) || fields["items"] == "" {
+		t.Errorf("a colour the product does not come in: %v", err)
+	}
+	if _, err := CreateOrder("weekend", newOrder(), time.Now()); !errors.As(err, &fields) || fields["items"] == "" {
+		t.Errorf("a product of the storefront in the weekend shop: %v", err)
 	}
 	if _, err := CreateOrder("nowhere", newOrder(), time.Now()); !errors.Is(err, tifa.ErrNotFound) {
 		t.Errorf("an unknown project: %v", err)
@@ -121,5 +130,54 @@ func TestPOSTPlacesTheOrderAndAnswersWithIt(t *testing.T) {
 	})
 	if err != nil || o.ID != "WK-0202" || o.TotalCents != 18000 || o.Status != StatusPending || time.Since(o.PlacedAt) > time.Minute {
 		t.Fatalf("%+v, %v", o, err)
+	}
+}
+
+// The studio shop sells the products of the storefront: an order takes their names, prices and
+// stock from its catalogue as it is when the order is placed.
+func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
+	reset()
+	before, err := products.GetEntry("ceramic-cup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = products.Update("ceramic-cup", before.Edit) })
+	at := time.Date(2026, 11, 7, 10, 0, 0, 0, chinaTime)
+	in := newOrder()
+	in.Items = []NewLine{{Slug: "glass-carafe", Color: "mist", Quantity: 1}, {Slug: "linen-apron", Color: "ink", Size: "M", Quantity: 2}, {Slug: "ceramic-cup", Quantity: 1}}
+	id, err := CreateOrder("studio", in, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, _ := GetOrder("studio", id)
+	want := []LineItem{
+		{Slug: "glass-carafe", Name: "玻璃冷水壶", Description: "雾白", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12, Sold: 1, Demand: 1},
+		{Slug: "linen-apron", Name: "棉麻围裙", Description: "墨蓝 / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34},
+		{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58},
+	}
+	for i, w := range want {
+		got := o.Items[i]
+		got.Sold, got.Demand = 0, 0
+		w.Sold, w.Demand = 0, 0
+		if got != w {
+			t.Errorf("line %d is %+v, want %+v", i, got, w)
+		}
+	}
+	edit := before.Edit
+	edit.NameZH, edit.PriceCents, edit.Stock = "新陶瓷杯", 12000, 7
+	if err := products.Update("ceramic-cup", edit); err != nil {
+		t.Fatal(err)
+	}
+	in.Items = []NewLine{{Slug: "ceramic-cup", Quantity: 1}}
+	id, err = CreateOrder("studio", in, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o, _ := GetOrder("studio", id); o.Items[0].Name != "新陶瓷杯" || o.Items[0].PriceCents != 12000 || o.Items[0].Stock != 7 || o.TotalCents != 12000 {
+		t.Errorf("after an edit the order holds %+v", o.Items[0])
+	}
+	// An order placed before keeps what it was placed at.
+	if o, _ := GetOrder("studio", "SH-1041"); o.Items[0].Name != "手作陶瓷杯" || o.Items[0].PriceCents != 13400 {
+		t.Errorf("SH-1041 now holds %+v", o.Items[0])
 	}
 }

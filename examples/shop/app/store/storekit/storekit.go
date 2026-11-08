@@ -58,3 +58,7 @@ func Price(fen int, l Locale) int {
 	}
 	return int(math.Ceil(float64(fen)/yuanPerDollar/10)) * 10
 }
+
+// Project is the shop of the back office whose customer side the storefront is: its products are
+// the storefront's catalogue, and a checkout places an order in it.
+const Project = "studio"
