@@ -164,10 +164,11 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 	md := r.Markdown()
 	sections := strings.Split(md, "\n### ")
 	for i, sc := range scs {
+		// The results of the scenario, and its diagnostics in the appendix.
 		var sec string
 		for _, s := range sections {
-			if strings.HasPrefix(s, sc.Title+"\n") {
-				sec = s
+			if strings.HasPrefix(s, sc.Title+"\n") || strings.HasPrefix(s, sc.Title+": what is behind") {
+				sec += s
 			}
 		}
 		if sec == "" {
@@ -196,7 +197,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			t.Errorf("%s lacks the table of writes:\n%s", sc.Name, sec)
 		}
 	}
-	for _, want := range []string{"The comparison plays the shop as one site", "#### The mix", "| scenario shop-staff-x2 | staff 4% of the visits, 40% of their visits edit a product, 30% ship an order |"} {
+	for _, want := range []string{"The comparison plays the shop as one site", "\n### The mix\n", "| scenario shop-staff-x2 | staff 4% of the visits, 40% of their visits edit a product, 30% ship an order |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q", want)
 		}
@@ -420,6 +421,90 @@ func TestBrowseReportShowsTheSeriesOfEachServer(t *testing.T) {
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+}
+
+// The body of the report holds the results alone: for each scenario its throughput table and its
+// latency table, then the mix with the source of every number. Every diagnostic is in the appendix
+// after it, and each result table links to the diagnostics behind it.
+func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) {
+	scs, _ := ParseScenarios("default")
+	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"},
+		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}, Throughput: map[string]*Throughput{}}
+	for _, sc := range scs {
+		r.Servers[sc.Name] = []string{"tifa", "nextjs"}
+		r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = 4, "nextjs"
+		r.Sustain[sustainKey(sc.Name, "nextjs")] = &Sustain{Rate: 8, Done: true}
+		for _, f := range r.Servers[sc.Name] {
+			r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+			x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
+			x.WriteKinds = map[string]int{WriteAdd: 5}
+			x.PageRenders = map[string]map[string]int{"product": {"vm": 3, "memo": 7}}
+			x.Series = []SeriesStep{{From: 0, PageViews: 4000, PerSecond: 400, P99Ms: 30}}
+			r.Closed = append(r.Closed, x)
+			l := x
+			l.Model, l.Rate, l.Sessions = "open", 4, 0
+			r.Latency = append(r.Latency, l)
+		}
+	}
+	c := closedRound("tifa", scs[0].Name, 8, 1, 8000, 10, true)
+	c.Model, c.Writes, c.PageRenders = "control", 0, map[string]map[string]int{"product": {"vm": 1, "memo": 99}}
+	r.Control = []Round{c}
+	md := r.Markdown()
+	body, appendix, ok := strings.Cut(md, "\n## Appendix\n")
+	if !ok {
+		t.Fatalf("the report has no appendix:\n%s", md)
+	}
+	// The body: the four result tables in order, each with its link, then the mix.
+	at := 0
+	for _, sc := range scs {
+		for _, part := range []struct{ heading, anchor string }{{"#### Throughput", "throughput"}, {"#### Latency at the same arrival rate", "latency"}} {
+			i := strings.Index(body[at:], part.heading)
+			if i < 0 {
+				t.Fatalf("the body lacks the %s table of %s after its earlier tables:\n%s", part.anchor, sc.Name, body)
+			}
+			at += i + len(part.heading)
+			link := fmt.Sprintf("](#diagnostics-%s-%s)", sc.Name, part.anchor)
+			next := strings.Index(body[at:], "\n#### ")
+			if next < 0 {
+				next = len(body) - at
+			}
+			if !strings.Contains(body[at:at+next], link) {
+				t.Errorf("the %s table of %s does not link to its diagnostics (%s)", part.anchor, sc.Name, link)
+			}
+			if !strings.Contains(appendix, fmt.Sprintf(`<a id="diagnostics-%s-%s"></a>`, sc.Name, part.anchor)) {
+				t.Errorf("the appendix has no anchor for the %s diagnostics of %s", part.anchor, sc.Name)
+			}
+		}
+	}
+	if i := strings.Index(body, "\n### The mix\n"); i < at {
+		t.Errorf("the mix is not after the result tables in the body")
+	}
+	for _, f := range MixFacts() {
+		if !strings.Contains(body, "| "+f.What+" | "+f.Value+" | "+f.Source+" |") {
+			t.Errorf("the body lacks the mix fact %q", f.What)
+		}
+	}
+	// Every diagnostic is in the appendix and none in the body.
+	for _, diag := range []string{
+		"#### The arrival rate Next.js sustains",
+		"#### Page views a second at each number of concurrent sessions",
+		"What the server did a second:",
+		"What one visit costs the server",
+		"What the writes of a round were",
+		"What the rounds planned and did",
+		"the render memo hits by kind of page",
+		"private pages from the memo",
+		"#### Read-only control",
+		"#### Page views a second and P99 in 10 second steps",
+		"### Do the traces replay on this machine",
+	} {
+		if strings.Contains(body, diag) {
+			t.Errorf("the body holds the diagnostic %q", diag)
+		}
+		if !strings.Contains(appendix, diag) {
+			t.Errorf("the appendix lacks the diagnostic %q", diag)
 		}
 	}
 }

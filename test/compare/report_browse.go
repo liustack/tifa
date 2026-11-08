@@ -82,8 +82,12 @@ func p50Cell(rounds []Round, kind string) string {
 	return fmtCell(out, "%.1f")
 }
 
-// Markdown writes the tables of the browse comparison: for every scenario, throughput at the same
-// number of sessions, and for the scenarios with latency the rate Next.js sustains and the latency at half of it.
+// Markdown writes the report of the browse comparison. The body holds the results alone: for every
+// scenario its throughput table and its latency table, each with a link to the diagnostics behind
+// it, then the mix with the source of every number. The appendix after it holds how the comparison
+// is made and every diagnostic: the steps of the sessions and what the rounds did, the rate Next.js
+// sustains, the render memo of Tifa, the read-only control, the time series and whether the traces
+// replay.
 func (r *BrowseResult) Markdown() string {
 	var b strings.Builder
 	v := r.Version
@@ -93,13 +97,17 @@ func (r *BrowseResult) Markdown() string {
 			fmt.Fprintf(&b, ", %s %s", k, r.Version[k])
 		}
 	}
-	fmt.Fprintf(&b, ". %s, %s. Placement: %s.\n\n", r.Machine.CPU, r.Machine.Kernel, r.Place.Note)
-	b.WriteString(visitsText)
-	b.WriteString(siteText)
-	r.assumptionsMarkdown(&b)
+	fmt.Fprintf(&b, ". %s, %s. Placement: %s.\n", r.Machine.CPU, r.Machine.Kernel, r.Place.Note)
 	rounds := r.rounds()
 	for _, sc := range r.Scenarios {
-		r.scenarioMarkdown(&b, sc, rounds)
+		r.resultsMarkdown(&b, sc, rounds)
+	}
+	r.assumptionsMarkdown(&b)
+	b.WriteString("\n## Appendix\n\n### How the comparison is made\n\n")
+	b.WriteString(visitsText)
+	b.WriteString(siteText)
+	for _, sc := range r.Scenarios {
+		r.diagnosticsMarkdown(&b, sc, rounds)
 	}
 	if checks := r.checks(); len(checks) > 0 {
 		b.WriteString("\n### Do the traces replay on this machine\n\nThe answers of one round of each server (the first valid closed round at the base sessions of the first scenario it ran), by type of request, status and content type:\n\n")
@@ -115,12 +123,38 @@ func (r *BrowseResult) Markdown() string {
 	return b.String()
 }
 
-func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
-	fw := r.Servers[sc.Name]
+// diagnosticsAnchor is the id of the part of the appendix that holds the diagnostics behind the
+// throughput or the latency table of a scenario.
+func diagnosticsAnchor(sc BrowseScenario, table string) string {
+	return "diagnostics-" + sc.Name + "-" + table
+}
+
+// resultsMarkdown writes the result tables of a scenario: its throughput and its latency, each with a
+// link to its diagnostics.
+func (r *BrowseResult) resultsMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	fmt.Fprintf(b, "\n### %s\n\n", sc.Title)
-	sessions := r.sessionsOf(sc.Name)
-	if len(sessions) > 0 {
+	if len(r.sessionsOf(sc.Name)) > 0 {
 		r.throughputMarkdown(b, sc, rounds)
+		fmt.Fprintf(b, "\nDiagnostics: [the steps of the sessions, what the rounds did and cost, the writes, the render memo of Tifa, the read-only control and the time series](#%s).\n", diagnosticsAnchor(sc, "throughput"))
+	}
+	if !sc.Throughput {
+		b.WriteString("\nThis scenario has no throughput table: it is measured for its latency at a fixed arrival rate only.\n")
+	}
+	if r.latencyMarkdown(b, sc) {
+		fmt.Fprintf(b, "\nDiagnostics: [the arrival rate Next.js sustains, the writes and what the rounds did](#%s).\n", diagnosticsAnchor(sc, "latency"))
+	}
+	if !sc.Latency {
+		b.WriteString("\nThis scenario has no open run: it is measured for its throughput only.\n")
+	}
+}
+
+// diagnosticsMarkdown writes, in the appendix, the diagnostics behind the result tables of a
+// scenario.
+func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
+	fw := r.Servers[sc.Name]
+	sessions := r.sessionsOf(sc.Name)
+	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the throughput\n", diagnosticsAnchor(sc, "throughput"), sc.Title)
+	if len(sessions) > 0 {
 		b.WriteString("\n#### Page views a second at each number of concurrent sessions\n\nClosed loop: N concurrent sessions, no think time, each playing the next visit as soon as it ends one, with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule there (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog). A cell stops at its first failed round, which decides it. A page view counts when it completes. Prefetches and writes are not page views. `-` is a number of sessions the server was not stepped to.\n\n| |")
 		for _, n := range sessions {
 			fmt.Fprintf(b, " %d sessions |", n)
@@ -154,14 +188,13 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 	}
 	r.controlMarkdown(b, sc)
 	r.seriesMarkdown(b, sc)
-	if !sc.Throughput {
-		b.WriteString("\nThis scenario has no throughput table: it is measured for its latency at a fixed arrival rate only.\n")
-	}
-	if !sc.Latency {
-		b.WriteString("\nThis scenario has no open run: it is measured for its throughput only.\n")
-	}
+	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
 	r.sustainMarkdown(b, sc)
-	r.latencyMarkdown(b, sc)
+	if rs := func(f string) []Round { return r.latencyRounds(f, sc.Name) }; slices.ContainsFunc(fw, func(f string) bool { return len(rs(f)) > 0 }) {
+		b.WriteString("\n#### The rounds at the same arrival rate\n")
+		r.writesMarkdown(b, sc, rs)
+		r.achievedMarkdown(b, sc, rs)
+	}
 }
 
 // peopleCell reads page views a second as the active people who would make them at one page every
@@ -331,12 +364,13 @@ func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
 	}
 }
 
-func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
+// latencyMarkdown writes the latency table of a scenario, and reports whether it had rounds to show.
+func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bool {
 	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
 		if s := r.Sustain[sustainKey(sc.Name, openBase)]; sc.Latency && s != nil && s.Done && s.Rate == 0 {
 			fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nNo open run: %s has no sustainable rate in range on this scenario (%s).\n", BrowseLabel(openBase), s.Note)
 		}
-		return
+		return false
 	}
 	rate := r.LatencyRate[sc.Name]
 	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets the same arrival rate, half of the rate %s was confirmed to sustain on this scenario, not half of each server's own capacity. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named in the row. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | visits failed / unfinished, of planned | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, r.rounds())
@@ -372,8 +406,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %d / %d of %d | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), fails, failed, unfinished, planned,
 			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
 	}
-	r.writesMarkdown(b, sc, func(f string) []Round { return r.latencyRounds(f, sc.Name) })
-	r.achievedMarkdown(b, sc, func(f string) []Round { return r.latencyRounds(f, sc.Name) })
+	return true
 }
 
 // latencyRounds are the valid rounds a server played at the rate of the open run of a scenario.
@@ -661,7 +694,7 @@ const siteText = "The comparison plays the shop as one site: shoppers on the sto
 
 // assumptionsMarkdown lists the numbers of the mix with their sources, and what each scenario sets.
 func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
-	b.WriteString("#### The mix\n\n| | value | source |\n| --- | --- | --- |\n")
+	b.WriteString("\n### The mix\n\nWhat the visits are made of, each number with where it comes from. A number that no published data backs is an assumption.\n\n| | value | source |\n| --- | --- | --- |\n")
 	for _, f := range MixFacts() {
 		fmt.Fprintf(b, "| %s | %s | %s |\n", f.What, f.Value, f.Source)
 	}
