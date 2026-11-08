@@ -560,7 +560,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
+var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "Memo", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -595,10 +595,10 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":       "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and RenderCache = false to turn the render cache off for it",
-	"rendercache": "write RenderCache = false to turn the render cache off for the page",
-	"ssr":         "write SSR",
-	"layoutssr":   "write LayoutSSR",
+	"cache":     "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and Memo = false to turn the render memo off for it",
+	"memo":      "write Memo = false to turn the render memo off for the page",
+	"ssr":       "write SSR",
+	"layoutssr": "write LayoutSSR",
 }
 
 // checkSwitchNames reports the bool constants of route.go that spell a switch in the wrong case,
@@ -638,7 +638,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if !d.routeGo {
 		file = "page.tsx"
 	}
-	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true, RenderCache: true}, file: file}
+	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true, Memo: true}, file: file}
 	if !d.routeGo {
 		if !d.pageTSX {
 			return nil
@@ -660,7 +660,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
 		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
 	}
-	for _, name := range []string{"SSR", "RenderCache", "Cache"} {
+	for _, name := range []string{"SSR", "Memo", "Cache"} {
 		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
 			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
 		}
@@ -687,7 +687,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
-	r.RenderCache = a.renderCacheConst(pkg)
+	r.Memo = a.memoConst(pkg)
 	r.Cache, r.CacheDefault = a.cacheConst(pkg)
 	return r
 }
@@ -715,16 +715,16 @@ func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
 	return l
 }
 
-// renderCacheConst reads RenderCache, which can only be false: the render cache is on for every
+// memoConst reads Memo, which can only be false: the render memo is on for every
 // page, and the switch turns it off for one.
-func (a *analyzer) renderCacheConst(pkg *packages.Package) bool {
-	obj := pkg.Types.Scope().Lookup("RenderCache")
+func (a *analyzer) memoConst(pkg *packages.Package) bool {
+	obj := pkg.Types.Scope().Lookup("Memo")
 	if obj == nil {
 		return true
 	}
 	c, ok := obj.(*types.Const)
 	if !ok || c.Val().Kind() != constant.Bool || constant.BoolVal(c.Val()) {
-		a.errorAt(obj.Pos(), "RenderCache can only be false, which turns the render cache off for this page. It is on by default, so delete the line to keep it on")
+		a.errorAt(obj.Pos(), "Memo can only be false, which turns the render memo off for this page. It is on by default, so delete the line to keep it on")
 		return true
 	}
 	return false

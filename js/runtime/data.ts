@@ -1,6 +1,6 @@
 // The data protocol between the Go server and the route loaders.
 //
-// Every Load result travels as a RouteResult. A whole-page render gets them injected by Go
+// Every Load result travels as a RouteResult. A full page render gets them injected by Go
 // (Injected), a client navigation asks for them with one request per URL: a GET of the page URL
 // with the query parameter _tifa=<build ID>.<digits>, the build the page was rendered with and one
 // digit for each Load on the chain of the URL, from the root Layout down, 1 for the ones asked for.
@@ -105,7 +105,7 @@ export const redirectHeader = 'X-Tifa-Redirect'
 // parsed from, or the slot Go fills with that text.
 export const goJSON = new WeakMap<object, string>()
 
-// injected answers from the data Go injected for a whole-page render. Rendering does no I/O.
+// injected answers from the data Go injected for a full page render. Rendering does no I/O.
 export function injected(input: Injected): Source {
   const results = new Map<string, RouteResult>()
   for (const [id, { json, slot, ...result }] of Object.entries(input.data)) {

@@ -52,7 +52,7 @@ type sessionState struct {
 	phase   atomic.Uint32
 	noStore atomic.Bool // the answer sets or clears the cookie, or comes from a failed store
 	changed atomic.Bool // SetSession or ClearSession ran, see SessionChanged
-	// anonymous is set for a request of a page with the whole-page cache: it has no session and
+	// anonymous is set for a request of a page with Cache: it has no session and
 	// cannot make one, see SetAnonymous.
 	anonymous atomic.Bool
 
@@ -67,8 +67,8 @@ type sessionState struct {
 }
 
 // SetAnonymous makes the request anonymous: the server dropped its Cookie and Authorization headers
-// and read no session, so Session is nil, and SetSession and ClearSession fail. A page with the
-// whole-page cache answers every visitor alike, so nothing of the visitor may reach it.
+// and read no session, so Session is nil, and SetSession and ClearSession fail. A page with Cache
+// answers every visitor alike, so nothing of the visitor may reach it.
 func SetAnonymous(c *Ctx) { c.req.sess.anonymous.Store(true) }
 
 // Anonymous reports whether the request was made anonymous, see SetAnonymous.

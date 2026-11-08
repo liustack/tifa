@@ -13,8 +13,7 @@ import (
 
 // The language of a request is the first segment of its path when that is a language of the site.
 // The server takes it off before it matches the path, so ServeMux only sees plain paths, and
-// puts the URL as it came back once the route is known: everything after the match, the whole-page
-// cache key, the URL SSR gets, the Ctx and the redirects of the app, sees the public URL.
+// puts the URL as it came back once the route is known: everything after the match, the render key, the URL SSR gets, the Ctx and the redirects of the app, sees the public URL.
 //
 //   - A route without languages (outside every area) has the default language and no prefix. A
 //     prefix on its URL is a 404.

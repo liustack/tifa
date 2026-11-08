@@ -68,7 +68,7 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 			layouts[i] = dirs[id]
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%t\t%s\n", r.Dir, r.Path, dash(strings.Join(layouts, " > ")),
-			dash(strings.Join(methods, " ")), r.SSR, r.RenderCache, cacheText(r))
+			dash(strings.Join(methods, " ")), r.SSR, r.Memo, cacheText(r))
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT\tSSR")

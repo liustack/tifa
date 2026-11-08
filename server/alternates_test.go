@@ -245,7 +245,7 @@ func TestPageWithCacheGetsTheListOfAPublishedTranslation(t *testing.T) {
 	two := `{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]`
 	three := `{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"},{"language":"de","url":"/de/store/journal/hallo"}]`
 	before := get(e.s, "/store/journal/ni-hao").Header().Get("ETag")
-	if w := get(e.s, "/store/journal/ni-hao"); w.Header().Get("X-Tifa-Render") != "cache" {
+	if w := get(e.s, "/store/journal/ni-hao"); w.Header().Get("X-Tifa-Render") != "memo" {
 		t.Fatalf("the second request: %q", w.Header().Get("X-Tifa-Render"))
 	}
 	if got := e.lastAlternates(t); !strings.HasSuffix(got, two+`,"custom":true}`) {

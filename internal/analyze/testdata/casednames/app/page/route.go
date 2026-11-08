@@ -2,4 +2,4 @@ package page
 
 const cache = false
 
-const rendercache = false
+const memo = false

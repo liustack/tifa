@@ -29,10 +29,10 @@ func countCompressions(t *testing.T) *atomic.Int64 {
 
 // keptPages returns the pages the cache keeps, most recently used first.
 func keptPages(s *server) []cachedPage {
-	s.cache.mu.Lock()
-	defer s.cache.mu.Unlock()
+	s.memo.mu.Lock()
+	defer s.memo.mu.Unlock()
 	var out []cachedPage
-	for e := s.cache.order.Front(); e != nil; e = e.Next() {
+	for e := s.memo.order.Front(); e != nil; e = e.Next() {
 		out = append(out, e.Value.(*cached).page)
 	}
 	return out
@@ -64,8 +64,8 @@ func TestACachedPageIsKeptAsGzipAlone(t *testing.T) {
 			if len(kept) != 1 || kept[0].gzip == nil || kept[0].html != "" || kept[0].n != len(html) || n.Load() != 1 {
 				t.Fatalf("kept %d pages %+v, %d compressions", len(kept), kept[0], n.Load())
 			}
-			if cap(kept[0].gzip) != len(kept[0].gzip) || s.cache.used != int64(len(kept[0].gzip)+len(kept[0].policy)) {
-				t.Errorf("charged %d for %d bytes of gzip (cap %d) and %d of policy", s.cache.used, len(kept[0].gzip), cap(kept[0].gzip), len(kept[0].policy))
+			if cap(kept[0].gzip) != len(kept[0].gzip) || s.memo.used != int64(len(kept[0].gzip)+len(kept[0].policy)) {
+				t.Errorf("charged %d for %d bytes of gzip (cap %d) and %d of policy", s.memo.used, len(kept[0].gzip), cap(kept[0].gzip), len(kept[0].policy))
 			}
 		})
 	}
@@ -80,7 +80,7 @@ func TestAGzipHitSendsTheStoredBytes(t *testing.T) {
 	html, _ := bigPage(ssr.Input{URL: "/stats"})
 	for _, accept := range []string{"gzip", chrome} {
 		hit := get(s, "/stats", "Accept-Encoding", accept)
-		if hit.Header().Get("X-Tifa-Render") != "cache" || hit.Header().Get("Content-Encoding") != "gzip" || !bytes.Equal(hit.Body.Bytes(), stored) ||
+		if hit.Header().Get("X-Tifa-Render") != "memo" || hit.Header().Get("Content-Encoding") != "gzip" || !bytes.Equal(hit.Body.Bytes(), stored) ||
 			hit.Header().Get("Content-Length") != strconv.Itoa(len(stored)) || !strings.HasPrefix(hit.Header().Get("ETag"), `W/"`) || !varies(hit, "Accept-Encoding") {
 			t.Errorf("gzip hit with %q: %v", accept, hit.Header())
 		}
@@ -104,7 +104,7 @@ func TestAnIdentityHitUnzipsTheEntry(t *testing.T) {
 	before := keptPages(s)[0]
 	for _, accept := range []string{"", "br", "gzip;q=0", "identity"} {
 		w := get(s, "/stats", "Accept-Encoding", accept)
-		if w.Header().Get("X-Tifa-Render") != "cache" || w.Header().Get("Content-Encoding") != "" || w.Body.String() != html ||
+		if w.Header().Get("X-Tifa-Render") != "memo" || w.Header().Get("Content-Encoding") != "" || w.Body.String() != html ||
 			w.Header().Get("Content-Length") != strconv.Itoa(len(html)) || !varies(w, "Accept-Encoding") || !strings.HasPrefix(w.Header().Get("ETag"), `W/"`) {
 			t.Errorf("identity hit with %q: %v", accept, w.Header())
 		}
@@ -138,12 +138,12 @@ func TestAZstdHitIsMadeFromTheGzipEntry(t *testing.T) {
 	before := keptPages(s)[0]
 	for _, accept := range []string{"zstd", "zstd;q=1, gzip;q=0.5", "gzip;q=0, zstd"} {
 		w := get(s, "/stats", "Accept-Encoding", accept)
-		if w.Header().Get("X-Tifa-Render") != "cache" || w.Header().Get("Content-Encoding") != "zstd" || decoded(t, w) != html ||
+		if w.Header().Get("X-Tifa-Render") != "memo" || w.Header().Get("Content-Encoding") != "zstd" || decoded(t, w) != html ||
 			w.Header().Get("Content-Length") != "" || !varies(w, "Accept-Encoding") || !strings.HasPrefix(w.Header().Get("ETag"), `W/"`) {
 			t.Errorf("zstd hit with %q: %v", accept, w.Header())
 		}
 	}
-	if after := keptPages(s)[0]; &after.gzip[0] != &before.gzip[0] || after.html != "" || n.Load() != 1 || s.cache.used != int64(len(before.gzip)+len(before.policy)) {
+	if after := keptPages(s)[0]; &after.gzip[0] != &before.gzip[0] || after.html != "" || n.Load() != 1 || s.memo.used != int64(len(before.gzip)+len(before.policy)) {
 		t.Errorf("the entry changed, %d compressions", n.Load())
 	}
 }
@@ -214,10 +214,10 @@ func TestAPageThatIsNotCompressedIsKeptAsHTML(t *testing.T) {
 	off.Server.Compress = false
 	s := newBigServer(t, off, frontApp())
 	html := get(s, "/stats", "Accept-Encoding", "gzip").Body.String()
-	if w := get(s, "/stats", "Accept-Encoding", "gzip"); w.Body.String() != html || w.Header().Get("Content-Encoding") != "" || w.Header().Get("X-Tifa-Render") != "cache" {
+	if w := get(s, "/stats", "Accept-Encoding", "gzip"); w.Body.String() != html || w.Header().Get("Content-Encoding") != "" || w.Header().Get("X-Tifa-Render") != "memo" {
 		t.Errorf("compress off: %v", w.Header())
 	}
-	if kept := keptPages(s); len(kept) != 1 || kept[0].gzip != nil || kept[0].html != html || s.cache.used != int64(len(html)+len(kept[0].policy)) {
+	if kept := keptPages(s); len(kept) != 1 || kept[0].gzip != nil || kept[0].html != html || s.memo.used != int64(len(html)+len(kept[0].policy)) {
 		t.Errorf("compress off kept %+v", kept[0])
 	}
 	small, _ := newFrontServer(t, frontApp())
@@ -231,7 +231,7 @@ func TestAPageThatIsNotCompressedIsKeptAsHTML(t *testing.T) {
 }
 
 // The cache admits a page for what it keeps: a page whose HTML is larger than the cache but whose
-// gzip form fits is kept, one whose form does not fit is not, and cache.size 0 compresses nothing.
+// gzip form fits is kept, one whose form does not fit is not, and ssr.memo_size 0 compresses nothing.
 func TestAdmissionCountsTheKeptForm(t *testing.T) {
 	html, _ := bigPage(ssr.Input{URL: "/stats"})
 	gz := compressPage(html)
@@ -246,24 +246,24 @@ func TestAdmissionCountsTheKeptForm(t *testing.T) {
 	} {
 		n := countCompressions(t)
 		cfg := config.Default()
-		cfg.Cache.Size = tc.size
+		cfg.SSR.MemoSize = tc.size
 		s := newBigServer(t, cfg, frontApp())
 		get(s, "/stats", "Accept-Encoding", "gzip")
 		w := get(s, "/stats", "Accept-Encoding", "gzip")
-		if (w.Header().Get("X-Tifa-Render") == "cache") != tc.kept || len(keptPages(s)) != map[bool]int{true: 1}[tc.kept] || decoded(t, w) != html {
-			t.Errorf("cache.size %d: %v, %d pages", tc.size, w.Header(), len(keptPages(s)))
+		if (w.Header().Get("X-Tifa-Render") == "memo") != tc.kept || len(keptPages(s)) != map[bool]int{true: 1}[tc.kept] || decoded(t, w) != html {
+			t.Errorf("ssr.memo_size %d: %v, %d pages", tc.size, w.Header(), len(keptPages(s)))
 		}
-		if s.cache.used > tc.size {
-			t.Errorf("cache.size %d: %d charged", tc.size, s.cache.used)
+		if s.memo.used > tc.size {
+			t.Errorf("ssr.memo_size %d: %d charged", tc.size, s.memo.used)
 		}
 		if tc.size == 0 && n.Load() != 0 {
-			t.Errorf("cache.size 0: %d compressions", n.Load())
+			t.Errorf("ssr.memo_size 0: %d compressions", n.Load())
 		}
 	}
 }
 
 // A page with Cache goes out in each encoding with the same tag as the page the render made, from a
-// hit of the render cache as from the miss.
+// hit of the render memo as from the miss.
 func TestPageWithCacheKeepsGzipAndTheSameTags(t *testing.T) {
 	routes := func(app App) App {
 		app.Routes = append(app.Routes,
@@ -282,7 +282,7 @@ func TestPageWithCacheKeepsGzipAndTheSameTags(t *testing.T) {
 			t.Errorf("with %q: %d %v, ETag want W/%s", accept, w.Code, w.Header(), want.Header().Get("ETag"))
 		}
 	}
-	if hit := get(on, "/cached"); hit.Header().Get("X-Tifa-Render") != "cache" || hit.Header().Get("Content-Length") != strconv.Itoa(len(html)) {
+	if hit := get(on, "/cached"); hit.Header().Get("X-Tifa-Render") != "memo" || hit.Header().Get("Content-Length") != strconv.Itoa(len(html)) {
 		t.Errorf("hit: %v", hit.Header())
 	}
 }

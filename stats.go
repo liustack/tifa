@@ -2,14 +2,14 @@ package tifa
 
 import "github.com/liustack/tifa/internal/core"
 
-// ServerStats is what Stats returns: the VM pool that renders pages and the render cache. Counts
+// ServerStats is what Stats returns: the VM pool that renders pages and the render memo. Counts
 // run from the start of the program, the other fields are the state now. Under tifa dev the counts
 // of SSR start again when the front end is rebuilt.
 //
 //	SSR          the VM pool, see SSRStats
-//	RenderCache  renders of pages: Hits skip the VM
-//	CacheBytes   what the render cache holds now, in bytes
-//	CacheSize    what it may hold, cache.size
+//	Memo         renders of pages: Hits skip the VM
+//	MemoBytes    what the render memo holds now, in bytes
+//	MemoSize     what it may hold, ssr.memo_size
 type ServerStats = core.Stats
 
 // SSRStats is the VM pool in ServerStats.
@@ -23,13 +23,13 @@ type ServerStats = core.Stats
 //	Rejected    renders refused with ErrSSRBusy and answered 503: the queue was full, or the wait passed ssr.wait_timeout
 type SSRStats = core.SSRStats
 
-// CacheStats is the render cache in ServerStats.
+// MemoStats is the render memo in ServerStats.
 //
 //	Entries  entries kept now
 //	Hits     answered from an entry
 //	Misses   rendered by the request
 //	Shared   waited for the same page another request was rendering at the time
-type CacheStats = core.CacheStats
+type MemoStats = core.MemoStats
 
 // Stats returns the state of the server now. It is cheap and safe to call from many requests at
 // once, such as from a route that a monitoring system reads. Before the server starts and after

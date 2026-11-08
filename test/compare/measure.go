@@ -188,7 +188,7 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 	m.First1000 = mean(first.Cold[:min(1000, len(first.Cold))])
 	m.Settle = settleOf(first.Cold, first.ColdPage, steady, steadyPage)
 	m.RSSPeak = float64(server.PeakRSS()) / (1 << 20)
-	if hits, total := d.Renders["cache"]+d.Renders["shared"], d.Renders["vm"]+d.Renders["cache"]+d.Renders["shared"]; total > 0 {
+	if hits, total := d.Renders["memo"]+d.Renders["shared"], d.Renders["vm"]+d.Renders["memo"]+d.Renders["shared"]; total > 0 {
 		m.HitRate = float64(hits) / float64(total)
 		run.Renders = d.Renders
 	}

@@ -72,7 +72,7 @@ ssr:
 		got, want any
 	}{
 		{"default", c.Server.ShutdownTimeout, d.Server.ShutdownTimeout},
-		{"default", c.Cache.Size, d.Cache.Size},
+		{"default", c.SSR.MemoSize, d.SSR.MemoSize},
 		{"embedded", c.Server.Addr, "0.0.0.0:9000"},
 		{"embedded", c.Build.Target, "es2022"},
 		{"file", c.Server.BodyLimit, int64(3 << 20)},
@@ -181,7 +181,7 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 		{name: "flag type", args: []string{"--ssr-vms", "two"}, want: []string{"flag --ssr-vms", "ssr.vms", `"two"`}},
 		{name: "flag unit", args: []string{"--server-body-limit", "1MB"}, want: []string{"flag --server-body-limit", "server.body_limit", `"1MB"`}},
 		{name: "env type", environ: []string{"SERVER_SHUTDOWN_TIMEOUT=soon"}, want: []string{"env SERVER_SHUTDOWN_TIMEOUT", "server.shutdown_timeout"}},
-		{name: "file unit", file: "cache:\n  size: 64MB\n", want: []string{"file prod.yaml line 2", "cache.size", `"64MB"`}},
+		{name: "file unit", file: "ssr:\n  memo_size: 64MB\n", want: []string{"file prod.yaml line 2", "ssr.memo_size", `"64MB"`}},
 		{name: "file range", file: "ssr:\n  vms: 0\n", want: []string{"file prod.yaml line 2", "ssr.vms"}},
 		{name: "file list", file: "server:\n  addr: [a, b]\n", want: []string{"file prod.yaml line 2", "server.addr"}},
 		{name: "file mapping", file: "ssr:\n  vms:\n    count: 2\n", want: []string{"file prod.yaml line 2", "ssr.vms", "expected a single value"}},
@@ -212,7 +212,7 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 func TestExampleLoadsBackToSameValues(t *testing.T) {
 	c := Default()
 	c.Server.Addr = "0.0.0.0:80"
-	c.Cache.Size = 3 << 30
+	c.SSR.MemoSize = 3 << 30
 	c.SSR.VMMemory = 1536 << 10
 	example := printed(c)
 	for _, want := range []string{"--server-addr", "SERVER_ADDR", "server:", "body_limit: 1MiB"} {
@@ -239,7 +239,7 @@ func TestFileValuesMustHaveTheRightType(t *testing.T) {
 		{"yaml empty addr", "prod.yaml", "server:\n  addr:\n", "server.addr"},
 		{"yaml number addr", "prod.yaml", "server:\n  addr: 9527\n", "server.addr"},
 		{"yaml quoted vms", "prod.yaml", "ssr:\n  vms: \"2\"\n", "ssr.vms"},
-		{"yaml bool size", "prod.yaml", "cache:\n  size: true\n", "cache.size"},
+		{"yaml bool size", "prod.yaml", "ssr:\n  memo_size: true\n", "ssr.memo_size"},
 		{"yaml number timeout", "prod.yaml", "ssr:\n  timeout: 3\n", "ssr.timeout"},
 	}
 	for _, tc := range cases {
@@ -276,7 +276,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache_control.s_maxage session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache_control.s_maxage session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}

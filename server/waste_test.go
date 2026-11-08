@@ -79,12 +79,12 @@ func newWorkEnv(t *testing.T, cacheSize int64) *workEnv {
 		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: load("layout")}},
 		Routes: []Route{
 			page("/plain", nil),
-			page("/live", func(r *Route) { r.NoRenderCache = true }),
+			page("/live", func(r *Route) { r.NoMemo = true }),
 			page("/cached", func(r *Route) { r.Cache = time.Minute }),
 		},
 	}
 	cfg := config.Default()
-	cfg.Cache.Size = cacheSize
+	cfg.SSR.MemoSize = cacheSize
 	s := newServer(cfg, app.Hooks)
 	t.Cleanup(s.close)
 	s.register(app.Layouts, app.Routes)
@@ -140,10 +140,10 @@ func (e *workEnv) do(method, target string, header ...string) work {
 }
 
 // A 404 page and an error page from a failed Load are a function of their render input as every
-// page is, so the render cache keeps them. They carry no ETag, and a request with If-None-Match gets
+// page is, so the render memo keeps them. They carry no ETag, and a request with If-None-Match gets
 // the page, since a precondition only applies to an answer that would be 2xx (RFC 9110 13.2.1).
 // OnError still sees every failure.
-func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
+func TestErrorPagesComeFromTheMemo(t *testing.T) {
 	e := newWorkEnv(t, 64<<20)
 	e.fail("/plain", tifa.ErrNotFound)
 	e.fail("/live", tifa.ErrNotFound)
@@ -159,7 +159,7 @@ func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
 		if first.w.Code != tc.status || first.renders != 1 || first.w.Header().Get(renderHeader) != "vm" {
 			t.Errorf("%s: first %s", tc.name, first)
 		}
-		if second.w.Code != tc.status || second.renders != 0 || second.w.Header().Get(renderHeader) != "cache" || second.w.Body.String() != first.w.Body.String() {
+		if second.w.Code != tc.status || second.renders != 0 || second.w.Header().Get(renderHeader) != "memo" || second.w.Body.String() != first.w.Body.String() {
 			t.Errorf("%s: second %s", tc.name, second)
 		}
 		if etag := first.w.Header().Get("ETag") + second.w.Header().Get("ETag"); etag != "" {
@@ -187,16 +187,16 @@ func TestErrorPagesComeFromTheRenderCache(t *testing.T) {
 	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back tomorrow") {
 		t.Errorf("another message: %s", w)
 	}
-	// A page with Cache has the 404 page of the render cache like any page.
+	// A page with Cache has the 404 page of the render memo like any page.
 	e.fail("/cached", tifa.ErrNotFound)
 	first, second = e.do("GET", "/cached"), e.do("GET", "/cached")
 	if first.w.Code != 404 || first.renders != 1 || second.w.Code != 404 || second.renders != 0 {
 		t.Errorf("404 of a page with Cache: %s, then %s", first, second)
 	}
-	// RenderCache = false keeps its 404 page out of the cache too.
+	// Memo = false keeps its 404 page out of the cache too.
 	for range 2 {
 		if w := e.do("GET", "/live"); w.w.Code != 404 || w.renders != 1 || w.w.Header().Get(renderHeader) != "vm" {
-			t.Errorf("404 of a page with RenderCache = false: %s", w)
+			t.Errorf("404 of a page with Memo = false: %s", w)
 		}
 	}
 }
@@ -223,8 +223,8 @@ func TestMissingAssetIsAPlainNotFound(t *testing.T) {
 }
 
 // A redirect of the router during the render is a result of the render input like a page, so the
-// render cache keeps it.
-func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
+// render memo keeps it.
+func TestRenderRedirectComesFromTheMemo(t *testing.T) {
 	e := newWorkEnv(t, 64<<20)
 	e.redirects("/plain")
 	first, second := e.do("GET", "/plain"), e.do("GET", "/plain")
@@ -236,7 +236,7 @@ func TestRenderRedirectComesFromTheRenderCache(t *testing.T) {
 	if first.renders != 1 || second.renders != 0 {
 		t.Errorf("renders: %d then %d", first.renders, second.renders)
 	}
-	// A page with Cache redirects like any page: the render cache answers every request.
+	// A page with Cache redirects like any page: the render memo answers every request.
 	e.redirects("/cached")
 	var renders int64
 	for _, target := range []string{"/cached", "/cached", dataURL("/cached", "b1", "01"), "/cached"} {

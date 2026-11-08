@@ -6,7 +6,7 @@ import (
 )
 
 func TestHTMLCacheEvictsLeastRecentlyUsedByBytes(t *testing.T) {
-	c := newHTMLCache(10)
+	c := newRenderMemo(10)
 	c.put("a", cachedPage{html: "1234"})
 	c.put("b", cachedPage{html: "1234"})
 	if _, ok := c.get("a"); !ok { // a is now the most recent
@@ -35,7 +35,7 @@ func TestHTMLCacheEvictsLeastRecentlyUsedByBytes(t *testing.T) {
 }
 
 func TestHTMLCacheZeroSizeKeepsNothing(t *testing.T) {
-	c := newHTMLCache(0)
+	c := newRenderMemo(0)
 	c.put("a", cachedPage{html: "x"})
 	if _, ok := c.get("a"); ok {
 		t.Error("zero-size cache kept an entry")
@@ -44,7 +44,7 @@ func TestHTMLCacheZeroSizeKeepsNothing(t *testing.T) {
 
 // A page that has its gzip form is kept as that alone, and charged for it.
 func TestHTMLCacheKeepsTheGzipFormAlone(t *testing.T) {
-	c := newHTMLCache(10)
+	c := newRenderMemo(10)
 	c.put("a", cachedPage{html: "123456789012", gzip: []byte("1234"), n: 12})
 	p, ok := c.get("a")
 	if !ok || p.html != "" || string(p.gzip) != "1234" || p.n != 12 || c.used != 4 {
@@ -60,7 +60,7 @@ func TestHTMLCacheKeepsTheGzipFormAlone(t *testing.T) {
 	}
 }
 func TestHTMLCacheChargesThePolicyOfAPage(t *testing.T) {
-	c := newHTMLCache(100)
+	c := newRenderMemo(100)
 	page := cachedPage{html: "1234", policy: "abcdef"}
 	c.put("a", page)
 	if c.used != page.size() || c.used != 10 {

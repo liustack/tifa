@@ -5,4 +5,4 @@ const cache = "redis"
 
 const ssr2 = false
 
-var rendercache = 3
+var memo = 3

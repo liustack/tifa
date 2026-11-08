@@ -25,7 +25,6 @@ type Config struct {
 	Site   Site
 	Server Server
 	SSR    SSR
-	Cache  Cache
 	// CacheControl holds the Cache-Control a page with Cache sends.
 	CacheControl CacheControl
 	Session      Session
@@ -152,10 +151,8 @@ type SSR struct {
 	Timeout      time.Duration
 	QueueLimit   int
 	WaitTimeout  time.Duration
-}
-
-type Cache struct {
-	Size int64
+	// MemoSize is the bytes the render memo may hold, 0 turns it off.
+	MemoSize int64
 }
 
 // CacheControl holds the settings of the Cache-Control that pages with Cache send. SMaxage is the
@@ -190,8 +187,7 @@ func Default() Config {
 		Build:        Build{Target: "es2020", Public: "public", I18nextCache: true},
 		I18n:         I18n{Prefix: "off"},
 		Server:       Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
-		SSR:          SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second},
-		Cache:        Cache{Size: 64 << 20},
+		SSR:          SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
 		CacheControl: CacheControl{SMaxage: time.Minute},
 		Session:      Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
@@ -244,7 +240,7 @@ func fields(c *Config) []field {
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
-		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
+		{"ssr.memo_size", "Size of the render memo of rendered pages, 0 turns it off", sizeValue{&c.SSR.MemoSize, 0}},
 		{"cache_control.s_maxage", "s-maxage of a page that writes const Cache = true, at least one second", sharedAgeValue{&c.CacheControl.SMaxage}},
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},

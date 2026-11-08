@@ -13,10 +13,10 @@ import (
 	"github.com/liustack/tifa/internal/ssr"
 )
 
-// htmlCache keeps rendered pages by the hash of their render input, up
+// renderMemo keeps rendered pages by the hash of their render input, up
 // to size bytes of pages, each in the one form it keeps. It drops the least recently used pages first.
 // Requests that miss the same page at the same time wait for one render of it (fetch).
-type htmlCache struct {
+type renderMemo struct {
 	mu    sync.Mutex
 	size  int64
 	used  int64
@@ -39,7 +39,7 @@ type htmlCache struct {
 // flight is the one render of a page that every request missing it waits for, see fetch.
 type flight struct {
 	done    chan struct{}
-	waiters int                // requests waiting for it, under htmlCache.mu
+	waiters int                // requests waiting for it, under renderMemo.mu
 	cancel  context.CancelFunc // stops the render while it waits for a VM
 	// Set before done is closed: the page and whether the cache can keep it, or the error.
 	page cachedPage
@@ -74,7 +74,7 @@ type cachedPage struct {
 	// policy is the Content-Security-Policy of the page with the hashes of its inline scripts and
 	// styles, "" with server.csp off (see renderedPolicy).
 	policy string
-	// body is shared by the pages made from one render, see htmlCache.bodies. Nil for a page that
+	// body is shared by the pages made from one render, see renderMemo.bodies. Nil for a page that
 	// shares nothing.
 	body *bodyID
 	// redirect is set for a render that the router ended with a redirect: the page is that
@@ -103,19 +103,19 @@ func (p cachedPage) meta() int64 {
 }
 
 // stats returns what the cache holds and did, and the bytes it holds.
-func (c *htmlCache) stats() (render core.CacheStats, used int64) {
+func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 	c.mu.Lock()
 	entries, used := c.entries, c.used
 	c.mu.Unlock()
-	return core.CacheStats{Entries: entries, Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load()}, used
+	return core.MemoStats{Entries: entries, Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load()}, used
 }
 
-func newHTMLCache(size int64) *htmlCache {
+func newRenderMemo(size int64) *renderMemo {
 	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
-	return &htmlCache{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bodies: map[*bodyID]*bodyUse{}}
+	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bodies: map[*bodyID]*bodyUse{}}
 }
 
-func (c *htmlCache) get(key string) (cachedPage, bool) {
+func (c *renderMemo) get(key string) (cachedPage, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.pages[key]
@@ -134,21 +134,21 @@ func (p cachedPage) kept() cachedPage {
 	return p
 }
 
-// off reports that the cache stores nothing: cache.size is below 1.
-func (c *htmlCache) off() bool { return c.size < 1 }
+// off reports that the cache stores nothing: ssr.memo_size is below 1.
+func (c *renderMemo) off() bool { return c.size < 1 }
 
 // holds reports whether the cache can keep the page, in the form it keeps it. A page it cannot hold
 // is sent as it comes.
-func (c *htmlCache) holds(p cachedPage) bool { return !c.off() && p.kept().size() <= c.size }
+func (c *renderMemo) holds(p cachedPage) bool { return !c.off() && p.kept().size() <= c.size }
 
 // put stores a page in its one form, or does not when that does not fit.
-func (c *htmlCache) put(key string, page cachedPage) {
+func (c *renderMemo) put(key string, page cachedPage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.putLocked(key, page)
 }
 
-func (c *htmlCache) putLocked(key string, page cachedPage) {
+func (c *renderMemo) putLocked(key string, page cachedPage) {
 	c.removeLocked(key)
 	page = page.kept()
 	if page.size() > c.size {
@@ -164,7 +164,7 @@ func (c *htmlCache) putLocked(key string, page cachedPage) {
 
 // charge counts a page that enters the cache. Its body counts once for all the
 // pages that share them.
-func (c *htmlCache) charge(p cachedPage) {
+func (c *renderMemo) charge(p cachedPage) {
 	c.used += p.meta()
 	if p.body == nil {
 		c.used += p.bodySize()
@@ -179,7 +179,7 @@ func (c *htmlCache) charge(p cachedPage) {
 }
 
 // refund undoes charge for a page that leaves.
-func (c *htmlCache) refund(p cachedPage) {
+func (c *renderMemo) refund(p cachedPage) {
 	c.used -= p.meta()
 	if p.body == nil {
 		c.used -= p.bodySize()
@@ -192,7 +192,7 @@ func (c *htmlCache) refund(p cachedPage) {
 	}
 }
 
-func (c *htmlCache) removeLocked(key string) {
+func (c *renderMemo) removeLocked(key string) {
 	if e, ok := c.pages[key]; ok {
 		c.refund(e.Value.(*cached).page)
 		c.order.Remove(e)
@@ -202,7 +202,7 @@ func (c *htmlCache) removeLocked(key string) {
 }
 
 // fetched is a page fetch answers with. held reports that the cache keeps it or could, and how
-// says where it came from: cache, vm for a render the request started, or shared for one another
+// says where it came from: memo, vm for a render the request started, or shared for one another
 // request started.
 type fetched struct {
 	page cachedPage
@@ -223,7 +223,7 @@ type fetched struct {
 // render, a panic turned into an error. Nothing of it is kept, so the next request renders again.
 // A render that fails when no request waits any more goes to unheard, except one that stopped
 // because no request waits.
-func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
+func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
 	if c.fetching != nil {
 		c.fetching()
 	}
@@ -232,7 +232,7 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
 		c.hits.Add(1)
-		return fetched{page: e.Value.(*cached).page, held: true, how: "cache"}, nil
+		return fetched{page: e.Value.(*cached).page, held: true, how: "memo"}, nil
 	}
 	how := "shared"
 	counter := &c.shared
@@ -266,7 +266,7 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 }
 
 // fly runs the render of f and hands its result to the requests that wait for it.
-func (c *htmlCache) fly(ctx context.Context, key string, f *flight, unheard func(error), render func(context.Context) (cachedPage, bool, error)) {
+func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard func(error), render func(context.Context) (cachedPage, bool, error)) {
 	returned := false
 	defer func() {
 		if !returned {

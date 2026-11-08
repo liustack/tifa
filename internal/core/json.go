@@ -10,7 +10,7 @@ import (
 // defaults (a nil slice is [], a nil map is {}, no HTML escapes) and two changes:
 //
 //   - Deterministic sorts map keys, so the same value always gives the same text. The render
-//     cache, the ETag of a page and the whole-page cache rely on it.
+//     memo and the ETag of a page rely on it.
 //   - AllowInvalidUTF8 writes each byte of a string that is no UTF-8 as U+FFFD, as the VM and the
 //     browser read such a string, instead of failing. Otherwise one bad string a visitor sent in a
 //     form would make every page that shows it fail.

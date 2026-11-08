@@ -31,7 +31,7 @@ func TestRenderClockSkipsTheCache(t *testing.T) {
 	if w := get(s, "/stats"); w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Errorf("first plain request after clock requests: %v", w.Header())
 	}
-	if w := get(s, "/stats"); w.Header().Get("X-Tifa-Render") != "cache" {
+	if w := get(s, "/stats"); w.Header().Get("X-Tifa-Render") != "memo" {
 		t.Errorf("second plain request: %v", w.Header())
 	}
 	// It did not read: a clock request after a hit renders again.
@@ -40,7 +40,7 @@ func TestRenderClockSkipsTheCache(t *testing.T) {
 	}
 }
 
-// The HTML of a request with a render clock, and of a page with RenderCache = false, is not a
+// The HTML of a request with a render clock, and of a page with Memo = false, is not a
 // function of the key, so neither carries an ETag that could answer 304 without a render.
 func TestVolatilePagesAreNeverAnsweredNotModified(t *testing.T) {
 	app := frontApp()
@@ -68,13 +68,13 @@ func TestVolatilePagesAreNeverAnsweredNotModified(t *testing.T) {
 	if w := get(s, "/stats", "X-Clock", "1", "If-None-Match", etag); w.Code != 200 || r.count() != before+1 {
 		t.Errorf("clock moved: %d, %d renders", w.Code, r.count()-before)
 	}
-	// RenderCache = false: whatever the client sends, the page renders.
+	// Memo = false: whatever the client sends, the page renders.
 	live := get(s, "/live")
 	if live.Header().Get("ETag") != "" {
-		t.Errorf("a page with RenderCache = false has the ETag %q", live.Header().Get("ETag"))
+		t.Errorf("a page with Memo = false has the ETag %q", live.Header().Get("ETag"))
 	}
 	before = r.count()
 	if w := get(s, "/live", "If-None-Match", "*"); w.Code != 200 || r.count() != before+1 {
-		t.Errorf("RenderCache = false with If-None-Match: %d, %d renders", w.Code, r.count()-before)
+		t.Errorf("Memo = false with If-None-Match: %d, %d renders", w.Code, r.count()-before)
 	}
 }

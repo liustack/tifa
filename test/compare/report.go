@@ -43,15 +43,15 @@ func (r *Record) Markdown() string {
 	}
 	fmt.Fprintf(&b, ". %d rounds, fresh servers each, %s of steady load after %d cold requests, no warm-up. The client sends Accept-Encoding: %s. Each cell is the median of the rounds, with their range in brackets when they differ.\n", r.Settings.Rounds, r.Settings.Steady, r.Settings.Cold, cmp.Or(r.Settings.AcceptEncoding, "identity"))
 
-	b.WriteString("\n### Out of the box\n\nEach framework as shipped: Tifa with its render cache at the default size.\n\n")
+	b.WriteString("\n### Out of the box\n\nEach framework as shipped: Tifa with its render memo at the default size.\n\n")
 	r.speedTable(&b, "default", ScenarioRead)
 	r.wireNote(&b)
 	if r.hasScenario(ScenarioReadWrite) {
-		b.WriteString("\n### Out of the box, reads with writes\n\nThe same reads, and before the first order page after each 10 reads one write that gives that order a new address, so that the render cache of Tifa misses on it. Only the reads are timed. Lists and stats do not show the address, so writes come before order pages only. The hit rate is Tifa's.\n\n")
+		b.WriteString("\n### Out of the box, reads with writes\n\nThe same reads, and before the first order page after each 10 reads one write that gives that order a new address, so that the render memo of Tifa misses on it. Only the reads are timed. Lists and stats do not show the address, so writes come before order pages only. The hit rate is Tifa's.\n\n")
 		r.speedTable(&b, "default", ScenarioReadWrite)
 		r.writeTable(&b)
 	}
-	b.WriteString("\n### Engine\n\nEvery cache off: Tifa with `cache.size: 0`. Rows marked reference are Node with `--jitless`, to show what the JIT is worth.\n\n")
+	b.WriteString("\n### Engine\n\nEvery cache off: Tifa with `ssr.memo_size: 0`. Rows marked reference are Node with `--jitless`, to show what the JIT is worth.\n\n")
 	r.speedTable(&b, "engine", ScenarioRead)
 	b.WriteString("\n### Memory\n\n")
 	r.memoryTable(&b)
@@ -263,7 +263,7 @@ func (r *Record) hasScenario(name string) bool {
 	return slices.ContainsFunc(r.Runs, func(run Run) bool { return scenarioOf(run) == name })
 }
 
-// missOverhead writes what the render cache costs a request that misses, from the runs in which
+// missOverhead writes what the render memo costs a request that misses, from the runs in which
 // every read of an order page follows a write: Tifa with the cache on, which never hits, against
 // Tifa with the cache off.
 func (r *Record) missOverhead(b *strings.Builder) {
@@ -288,7 +288,7 @@ func (r *Record) missOverhead(b *strings.Builder) {
 	if offP50 == 0 || offReq == 0 {
 		return
 	}
-	fmt.Fprintf(b, "\nMiss overhead of the render cache, with a write before every read of an order page so that it never hits: P50 %.2f ms with the cache, %.2f ms without, %+.1f%%. %.1f requests/s with the cache, %.1f without, %+.1f%%.\n",
+	fmt.Fprintf(b, "\nMiss overhead of the render memo, with a write before every read of an order page so that it never hits: P50 %.2f ms with the cache, %.2f ms without, %+.1f%%. %.1f requests/s with the cache, %.1f without, %+.1f%%.\n",
 		onP50, offP50, (onP50-offP50)/offP50*100, onReq, offReq, (onReq-offReq)/offReq*100)
 }
 

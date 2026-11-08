@@ -21,7 +21,7 @@ func plain(body string) string { return reactText.ReplaceAllString(body, "") }
 
 // TestI18nApp builds test/apps/i18n, a store in zh-CN and en-US next to a page and an API route
 // outside every area, and checks from outside what the server does with the language of a URL:
-// the 308s and 404s, the language and the URL the code of the app sees, the render cache and
+// the 308s and 404s, the language and the URL the code of the app sees, the render memo and
 // the ETag that never cross languages, and tifa.Languages.
 func TestI18nApp(t *testing.T) {
 	skipUnlessEnabled(t)
@@ -108,7 +108,7 @@ func TestI18nApp(t *testing.T) {
 		}
 	})
 
-	t.Run("the render cache and the ETag never cross languages", func(t *testing.T) {
+	t.Run("the render memo and the ETag never cross languages", func(t *testing.T) {
 		news := func(path string) (string, string, string) {
 			t.Helper()
 			status, h, body := cacheSend(t, "GET", base+path, "")
@@ -131,10 +131,10 @@ func TestI18nApp(t *testing.T) {
 		if zhTag == "" || zhTag == enTag {
 			t.Errorf("ETags %q and %q, want two", zhTag, enTag)
 		}
-		if _, status, body := news("/store/news"); status != "cache" || body != zhBody {
+		if _, status, body := news("/store/news"); status != "memo" || body != zhBody {
 			t.Errorf("second zh-CN request: %q", status)
 		}
-		if _, status, body := news("/en-US/store/news"); status != "cache" || body != enBody {
+		if _, status, body := news("/en-US/store/news"); status != "memo" || body != enBody {
 			t.Errorf("second en-US request: %q", status)
 		}
 		// The tag of one language does not answer 304 for the other.
@@ -151,7 +151,7 @@ func TestI18nApp(t *testing.T) {
 		if !strings.Contains(zhData, same) || !strings.Contains(enData, same) {
 			t.Errorf("data of zh-CN %s and of en-US %s", zhData, enData)
 		}
-		// The page of the render cache carries the language of its own render.
+		// The page of the render memo carries the language of its own render.
 		// (The list of versions names en-US too, so the language of the page is the one in front of it.)
 		if !regexp.MustCompile(`dehydratedData:\$R\[\d+\]=\{buildId:"[^"]*",language:"zh-CN"`).MatchString(zhBody) {
 			t.Errorf("the hydration data of the zh-CN page: %.200s", zhBody)

@@ -455,7 +455,7 @@ func placedOrder(r reply) string {
 }
 
 // TestStorefront runs the checks of the storefront against each Node app. Tifa runs without its
-// render cache, as in the other comparisons, and is started once.
+// render memo, as in the other comparisons, and is started once.
 func TestStorefront(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)

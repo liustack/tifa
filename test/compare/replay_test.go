@@ -681,14 +681,14 @@ func TestAClosedRoundTakesSixtyToOneHundredTwentySecondsByDefault(t *testing.T) 
 
 // The render of each full load and of each navigation data answer is counted by the kind of page of
 // its page view, from X-Tifa-Render, so the report can tell which pages the writes keep from the
-// render cache. A data answer that renders the page in a VM costs what a document does.
+// render memo. A data answer that renders the page in a VM costs what a document does.
 func TestRendersAreCountedByKindOfPage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/data":
 			w.Header().Set("X-Tifa-Render", "vm")
 		case r.URL.Path == "/projects/studio":
-			w.Header().Set("X-Tifa-Render", "cache")
+			w.Header().Set("X-Tifa-Render", "memo")
 		case strings.HasPrefix(r.URL.Path, "/projects/studio/orders/"):
 			w.Header().Set("X-Tifa-Render", "vm")
 		default:
@@ -709,10 +709,10 @@ func TestRendersAreCountedByKindOfPage(t *testing.T) {
 	}
 	var round Round
 	a.round(&round, 0, 0, 0, 0, time.Now(), time.Now(), 0)
-	if got := fmt.Sprint(round.PageRenders); got != "map[list:map[cache:2 vm:2] order:map[vm:2]]" {
+	if got := fmt.Sprint(round.PageRenders); got != "map[list:map[memo:2 vm:2] order:map[vm:2]]" {
 		t.Errorf("renders by page %s", got)
 	}
-	if got := fmt.Sprint(round.Renders); got != "map[cache:2 vm:4]" {
+	if got := fmt.Sprint(round.Renders); got != "map[memo:2 vm:4]" {
 		t.Errorf("renders %s", got)
 	}
 }

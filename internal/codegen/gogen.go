@@ -125,8 +125,8 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 			fmt.Fprintf(&app, "ReadTimeout: %s.ReadTimeout,\n", imports.alias(r.Package, r.Dir))
 		}
 		fmt.Fprintf(&app, "SSR: %t,\n", r.SSR)
-		if !r.RenderCache {
-			app.WriteString("NoRenderCache: true,\n")
+		if !r.Memo {
+			app.WriteString("NoMemo: true,\n")
 		}
 		if r.Cache > 0 {
 			fmt.Fprintf(&app, "Cache: %d, // %s\n", int64(r.Cache), r.Cache)

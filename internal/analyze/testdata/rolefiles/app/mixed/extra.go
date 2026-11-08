@@ -1,3 +1,3 @@
 package mixed
 
-const RenderCache = false
+const Memo = false

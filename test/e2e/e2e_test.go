@@ -541,7 +541,7 @@ func TestPagesApp(t *testing.T) {
 	written := `$_TSR.t.get("tifa.data")("` + ssr.ScriptString(string(ssr.EscapeAboveFFFF(hostile["app/hostile/route"].Data))) + `")`
 	_, firstHeader, hostileFirst := get(t, base+"/hostile")
 	_, secondHeader, hostileSecond := get(t, base+"/hostile")
-	if firstHeader.Get("X-Tifa-Render") != "vm" || secondHeader.Get("X-Tifa-Render") != "cache" || hostileFirst != hostileSecond {
+	if firstHeader.Get("X-Tifa-Render") != "vm" || secondHeader.Get("X-Tifa-Render") != "memo" || hostileFirst != hostileSecond {
 		t.Errorf("hostile data: %s then %s, the pages are the same: %v", firstHeader.Get("X-Tifa-Render"), secondHeader.Get("X-Tifa-Render"), hostileFirst == hostileSecond)
 	}
 	for _, page := range []string{hostileFirst, hostileSecond} {
@@ -603,14 +603,14 @@ func TestPagesApp(t *testing.T) {
 	// A page renders once.
 	_, first, _ := get(t, base+"/shops/south")
 	_, second, _ := get(t, base+"/shops/south")
-	if first.Get("X-Tifa-Render") != "vm" || second.Get("X-Tifa-Render") != "cache" {
-		t.Errorf("render cache: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
+	if first.Get("X-Tifa-Render") != "vm" || second.Get("X-Tifa-Render") != "memo" {
+		t.Errorf("render memo: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
 	}
-	// RenderCache = false renders on every request.
+	// Memo = false renders on every request.
 	_, roll1, rollBody1 := get(t, base+"/dice")
 	_, roll2, rollBody2 := get(t, base+"/dice")
 	if roll1.Get("X-Tifa-Render") != "vm" || roll2.Get("X-Tifa-Render") != "vm" || rollBody1 == rollBody2 {
-		t.Errorf("RenderCache = false: %s then %s, equal pages: %v", roll1.Get("X-Tifa-Render"), roll2.Get("X-Tifa-Render"), rollBody1 == rollBody2)
+		t.Errorf("Memo = false: %s then %s, equal pages: %v", roll1.Get("X-Tifa-Render"), roll2.Get("X-Tifa-Render"), rollBody1 == rollBody2)
 	}
 	// Requests that miss the cache at the same time share one render. Those that come after it
 	// find the cache.
@@ -710,7 +710,7 @@ func checkBurst(t *testing.T, url string, n int) {
 		}
 		by[a.render]++
 	}
-	if by["vm"] != 1 || by["shared"]+by["cache"] != n-1 {
+	if by["vm"] != 1 || by["shared"]+by["memo"] != n-1 {
 		t.Errorf("a burst of %d requests was answered by %v, want one render", n, by)
 	}
 }

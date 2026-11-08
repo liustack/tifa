@@ -82,7 +82,7 @@ func (e Env) Specs() []Spec {
 			Version: filepath.Join("node_modules", "@tanstack", "react-start", "package.json"),
 		}
 	}
-	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--cache-size", "0")
+	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--ssr-memo-size", "0")
 	tifaCacheOff.Label = "Tifa (cache off)"
 	reactRouter := func(name, label string, reference bool, configs []string, flags ...string) Spec {
 		return Spec{

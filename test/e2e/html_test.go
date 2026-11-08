@@ -34,7 +34,7 @@ func TestHTMLPages(t *testing.T) {
 		return body
 	}
 	marker := `{\"$tifa\":\"html\"}`
-	// The VM renders the page, and the render cache answers the next request with the same page.
+	// The VM renders the page, and the render memo answers the next request with the same page.
 	first := once("/article/read", 200, "vm", "SHELF_NOTE", "BODY_START", "BODY_END", "NOTE_ONE", "NOTE_TWO")
 	if n := strings.Count(first, marker); n != 4 {
 		t.Errorf("/article/read: %d markers, want 4:\n%s", n, first)
@@ -42,12 +42,12 @@ func TestHTMLPages(t *testing.T) {
 	if n := strings.Count(first, "data-tifa-html="); n != 4 {
 		t.Errorf("/article/read: %d elements of <HTML>, want 4:\n%s", n, first)
 	}
-	if again := once("/article/read", 200, "cache", "BODY_END"); again != first {
-		t.Errorf("the render cache gave another page:\n%s", again)
+	if again := once("/article/read", 200, "memo", "BODY_END"); again != first {
+		t.Errorf("the render memo gave another page:\n%s", again)
 	}
-	// A page with Cache renders and then comes from the render cache like any page.
+	// A page with Cache renders and then comes from the render memo like any page.
 	once("/article/cached", 200, "vm", "SHELF_NOTE", "BODY_END")
-	if _, header, body := get(t, base+"/article/cached"); header.Get("X-Tifa-Render") != "cache" || strings.Count(body, "BODY_END") != 1 || strings.Count(body, marker) != 4 {
+	if _, header, body := get(t, base+"/article/cached"); header.Get("X-Tifa-Render") != "memo" || strings.Count(body, "BODY_END") != 1 || strings.Count(body, marker) != 4 {
 		t.Errorf("/article/cached the second time: %q\n%s", header.Get("X-Tifa-Render"), body)
 	}
 	// The page fails on the server and renders again with its error in its place: the Layout still

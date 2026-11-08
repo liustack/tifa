@@ -183,7 +183,7 @@ const requests = 5
 //
 //   - tifa is the shop built with a counter on ordersOf, which every read of the orders starts with
 //     (see Env.BuildCounted), and renders are read from X-Tifa-Render, which says "vm" for a page
-//     rendered in a VM and "cache" or "shared" for one that was not.
+//     rendered in a VM and "memo" or "shared" for one that was not.
 //   - The Node apps count ordersOf in the port, and the runs of the root Layout, the project
 //     Layout and the page's Load, and the renders of the page on the server.
 //
@@ -428,7 +428,7 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 
 // TestWriteChangesThePage writes the address of an order in each server and checks that the page
 // of the order shows it, and shows a second write after it and not the first. The servers include
-// Tifa with its render cache on, whose cached page must not be served after a write.
+// Tifa with its render memo on, whose cached page must not be served after a write.
 func TestWriteChangesThePage(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
@@ -502,7 +502,7 @@ func TestFanOutWriteChangesListsStatsAndOtherOrders(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			before = append(before, compare.ParseView(body)) // also puts the page into Tifa's render cache
+			before = append(before, compare.ParseView(body)) // also puts the page into Tifa's render memo
 		}
 		if err := compare.Send(ctx, server.Base, compare.WriteStep(spec.Write, compare.WritableOrders[0], 1, true)); err != nil {
 			t.Fatal(err)

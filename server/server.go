@@ -44,8 +44,8 @@ type server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
-	// uncached holds the paths of the pages with RenderCache = false: none of their pages, their
-	// error pages included, goes through the render cache.
+	// uncached holds the paths of the pages with Memo = false: none of their pages, their
+	// error pages included, goes through the render memo.
 	uncached map[string]bool
 	// shared holds the s-maxage of the pages that have Cache, by path. Their requests are anonymous.
 	shared map[string]time.Duration
@@ -71,7 +71,7 @@ type server struct {
 	// swapFront can wait for those on the pool it replaces.
 	front     atomic.Pointer[front]
 	rendering sync.RWMutex
-	cache     *htmlCache
+	memo      *renderMemo
 	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain for an app with
 	// pages.
 	dev http.Handler
@@ -92,7 +92,7 @@ func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, shared: map[string]time.Duration{}, limits: map[string]routeLimits{},
-		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
+		modules: map[string][]string{}, layouts: map[string]layoutChain{}, memo: newRenderMemo(cfg.SSR.MemoSize),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)
@@ -289,7 +289,7 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 			d.Original.Pattern = pattern
 		}
 	}
-	// A page with the whole-page cache answers every visitor alike: its GET and HEAD, and the
+	// A page with Cache answers every visitor alike: its GET and HEAD, and the
 	// navigation data of it, are made anonymous before anything of the app sees them.
 	anon := s.anonymousRequest(pattern, r)
 	var anonErr error
@@ -578,8 +578,8 @@ type writer struct {
 	// session is set for /__tifa/session: whatever wrote the answer, a middleware that answered on
 	// its own included, it goes out as private, no-store, without validators.
 	session bool
-	// noCookies drops the Set-Cookie headers of the answer: it is the HTML of a page with the
-	// whole-page cache, which every visitor gets.
+	// noCookies drops the Set-Cookie headers of the answer: it is the HTML of a page with Cache,
+	// which every visitor gets.
 	noCookies bool
 }
 

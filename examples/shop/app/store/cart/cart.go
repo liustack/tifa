@@ -318,7 +318,7 @@ var deliveries = []deliveryRecord{
 // the days the way takes (so "next day" is tomorrow on the store's calendar). The pages show only
 // the month and the day, in that same zone (hooks.ts formats dates with the zone of the language, on
 // the server and in the browser, so both show the same day). With the time of the request in it, the
-// data of a page would be new on every request and the render cache could never reuse the page.
+// data of a page would be new on every request and the render memo could never reuse the page.
 func Deliveries(cart Cart, now time.Time, l storekit.Locale) []Delivery {
 	today := now.In(zone(l))
 	var out []Delivery

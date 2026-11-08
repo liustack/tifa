@@ -45,7 +45,7 @@ func slowLayout(c *tifa.Ctx) (string, error) {
 }
 
 // A page says how old its data may be when it goes out, counted from the start of its first Load:
-// the first render, a render the render cache answers, a 304, and the 404 pages it renders. The
+// the first render, a render the render memo answers, a 304, and the 404 pages it renders. The
 // age counts a Load that OnRequest ran before the others. Navigation data does not carry it.
 func TestPageSendsTheAgeOfItsData(t *testing.T) {
 	early := false
@@ -81,12 +81,12 @@ func TestPageSendsTheAgeOfItsData(t *testing.T) {
 		return w.Header().Get("ETag")
 	}
 	etag := aged("render", 200, "vm", 20, "/p")
-	aged("render cache", 200, "cache", 20, "/p")
+	aged("render memo", 200, "memo", 20, "/p")
 	aged("304", 304, "none", 20, "/p", "If-None-Match", etag)
 	aged("404 of a Load", 404, "vm", 20, "/gone")
 	aged("404 of a URL", 404, "vm", 20, "/nothing/here")
 	early = true
-	aged("Load in OnRequest", 200, "cache", 50, "/p")
+	aged("Load in OnRequest", 200, "memo", 50, "/p")
 	early = false
 
 	w := getData(s, "/p", "b1", "11")

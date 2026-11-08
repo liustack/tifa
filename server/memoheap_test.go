@@ -14,7 +14,7 @@ import (
 )
 
 // The cache charges what its pages hold: a cache filled with distinct pages keeps a live heap
-// within cache.size and a small margin, whichever form the requests take.
+// within ssr.memo_size and a small margin, whichever form the requests take.
 func TestCacheHeapStaysWithinItsSize(t *testing.T) {
 	const size = 8 << 20
 	words := strings.Fields("order shipped paid refund customer address parcel invoice coupon stock price total tax note")
@@ -32,7 +32,7 @@ func TestCacheHeapStaysWithinItsSize(t *testing.T) {
 	for _, accept := range []string{"gzip", "zstd", ""} {
 		t.Run("accept="+accept, func(t *testing.T) {
 			cfg := config.Default()
-			cfg.Cache.Size = size
+			cfg.SSR.MemoSize = size
 			app := frontApp()
 			s := newServer(cfg, app.Hooks)
 			s.register(app.Layouts, app.Routes)
@@ -57,12 +57,12 @@ func TestCacheHeapStaysWithinItsSize(t *testing.T) {
 				}
 			}
 			grown := int64(live()) - int64(base)
-			s.cache.mu.Lock()
-			used, entries := s.cache.used, len(s.cache.pages)
-			s.cache.mu.Unlock()
+			s.memo.mu.Lock()
+			used, entries := s.memo.used, len(s.memo.pages)
+			s.memo.mu.Unlock()
 			t.Logf("accept %q: %d pages kept, charged %d, heap grew by %d of %d", accept, entries, used, grown, size)
 			if used > size || grown > size+size/8 {
-				t.Errorf("charged %d, heap grew by %d, cache.size %d", used, grown, size)
+				t.Errorf("charged %d, heap grew by %d, ssr.memo_size %d", used, grown, size)
 			}
 			if entries < 10 {
 				t.Errorf("%d pages kept", entries)

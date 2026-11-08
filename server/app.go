@@ -86,9 +86,9 @@ type Route struct {
 	GET, POST, PUT, PATCH, DELETE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
 	SSR bool
-	// NoRenderCache is true when route.go sets RenderCache = false. The HTML of the page is not cached
-	// and its renders are not shared. The zero value keeps the render cache on.
-	NoRenderCache bool
+	// NoMemo is true when route.go sets Memo = false. The HTML of the page is not cached
+	// and its renders are not shared. The zero value keeps the render memo on.
+	NoMemo bool
 	// Cache is how long a shared cache in front of the program may keep the page (s-maxage), from
 	// route.go's const Cache = 10 * time.Minute. Zero for none.
 	Cache time.Duration
@@ -171,7 +171,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
 			}
 			s.pages[r.Path] = true
-			if r.NoRenderCache {
+			if r.NoMemo {
 				s.uncached[r.Path] = true
 			}
 			s.modules[r.Path] = append(slices.Clone(r.Layouts), r.ID)

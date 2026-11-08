@@ -774,9 +774,9 @@ func TestHTMLMarksTheLoadAndImportsItsType(t *testing.T) {
 			Load: &analyze.Load{Result: post, HTML: true}, Routes: []string{"app/news/route", "app/post/route"}}},
 		Routes: []analyze.Route{
 			{ID: "app/news/route", Dir: "app/news", Package: "example.com/x/app/news", Path: "/news", Page: true, SSR: true,
-				RenderCache: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: types.Typ[types.String]}},
+				Memo: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: types.Typ[types.String]}},
 			{ID: "app/post/route", Dir: "app/post", Package: "example.com/x/app/post", Path: "/post", Page: true, SSR: true,
-				RenderCache: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: post, HTML: true}},
+				Memo: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: post, HTML: true}},
 		},
 	}
 	files, err := Generate(root, m, false, fakeExports)
@@ -883,8 +883,8 @@ func TestRuntimeHasTheI18nAdapterOnlyWithLanguagesAndI18next(t *testing.T) {
 // A page that writes Cache = true is registered with CacheDefault, and one with a duration with that time.
 func TestGoGenWritesTheCacheOfARoute(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/m", Routes: []analyze.Route{
-		{ID: "app/on/route", Dir: "app/on", Path: "/on", Page: true, SSR: true, RenderCache: true, CacheDefault: true},
-		{ID: "app/dur/route", Dir: "app/dur", Path: "/dur", Page: true, SSR: true, RenderCache: true, Cache: 90 * time.Second},
+		{ID: "app/on/route", Dir: "app/on", Path: "/on", Page: true, SSR: true, Memo: true, CacheDefault: true},
+		{ID: "app/dur/route", Dir: "app/dur", Path: "/dur", Page: true, SSR: true, Memo: true, Cache: 90 * time.Second},
 	}}
 	src, err := generateGo(m, nil, false)
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 // functions, with the attribute nonce="<the nonce of the render>" right after the tag name.
 // RenderPage takes each mark out again and hashes what the element holds. The nonce is drawn
 // after the Loads ran, as for the slots (see slots.go), so no data can carry a mark. The page that
-// goes out is byte for byte the page without CSP, so its ETag, the render cache and the browser's
+// goes out is byte for byte the page without CSP, so its ETag, the render memo and the browser's
 // copy do not depend on a nonce, and the hashes, which follow from the page, can go into a header
 // that a cached copy keeps.
 

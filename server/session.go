@@ -63,7 +63,7 @@ func (s *server) close() {
 	}
 }
 
-// anonymousRequest reports whether the request is for a page with the whole-page cache and
+// anonymousRequest reports whether the request is for a page with Cache and
 // asks for it to be read: GET and HEAD, with or without the navigation parameter.
 func (s *server) anonymousRequest(pattern string, r *http.Request) bool {
 	return pattern != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.shared[pattern] > 0

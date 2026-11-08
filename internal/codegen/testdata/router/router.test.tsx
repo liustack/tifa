@@ -42,7 +42,7 @@ function inject(data: Record<string, RouteResult | InjectedResult>) {
   return { data: out, texts }
 }
 
-// renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
+// renderResult runs one full page render through the SSR entry, as the Go VM pool does.
 async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number, extra: object = {}) {
   globalThis.renderResult = undefined
   const input = inject(data)
@@ -192,7 +192,7 @@ test('the module preloads Go gives for the matched routes follow the asset tags'
 })
 
 // The router stamps each match with the time it loaded and writes that time into the page. The
-// render writes 0 instead, so the page is a function of its input, which the render cache and
+// render writes 0 instead, so the page is a function of its input, which the render memo and
 // the ETag stand on, and the browser dates the matches itself.
 test('two renders of the same data at different times write the same page', async () => {
   const data = { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') }

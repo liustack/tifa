@@ -362,18 +362,6 @@ type routeResult struct {
 	// html is the html of the load of the result: its data may hold tifa.HTML values, which a page
 	// the server renders carries as markers (pageText).
 	html bool
-	// text is the JSON text of Data (loaderText) once it is written, "" before: the whole-page cache
-	// writes it for its entry, and the render uses it then (see dataText).
-	text string
-}
-
-// dataText returns the JSON text of the data of r (loaderText), the one written already when there
-// is one.
-func (r routeResult) dataText() (string, error) {
-	if r.text != "" {
-		return r.text, nil
-	}
-	return loaderText(r.Data)
 }
 
 // loaderText writes the data of a Load as the JSON text a page carries. The render parses that
@@ -402,7 +390,7 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
 		if item.Status == http.StatusOK {
-			text, err := item.dataText()
+			text, err := loaderText(item.Data)
 			if err != nil {
 				return nil, err
 			}
@@ -440,7 +428,7 @@ func renderInput(items map[string]routeResult) (data []byte, texts, pageTexts []
 		item := items[id]
 		result := renderResult{Status: item.Status, Error: item.Error, Location: item.Location}
 		if item.Status == http.StatusOK {
-			text, err := item.dataText()
+			text, err := loaderText(item.Data)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -564,7 +552,7 @@ func sameError(a, b error) bool {
 
 // pageHandler answers GET for a page:
 //   - with the _tifa parameter, the data of the routes it asks for as JSON
-//   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML (unless RenderCache = false)
+//   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML (unless Memo = false)
 //   - with SSR = false somewhere on its chain, a minimal document carrying the data
 //
 // When a Load fails it returns a *loadFailure, for OnRequest to see as the error of Next.
@@ -587,7 +575,7 @@ func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if !r.SSR {
 			return s.dataOnly(c, items, http.StatusOK, r.Path)
 		}
-		return s.renderPage(c, items, loads, http.StatusOK, !r.NoRenderCache, r.Path)
+		return s.renderPage(c, items, loads, http.StatusOK, !r.NoMemo, r.Path)
 	}
 }
 
@@ -709,7 +697,7 @@ type dataRedirect struct {
 }
 
 // renderKey is the quoted hash of everything the HTML of a page is made from, which is the ETag
-// of the page and the key of the render cache. The HTML is a function of ssr.Input, the SSR
+// of the page and the key of the render memo. The HTML is a function of ssr.Input, the SSR
 // bundle and the render clock (a request with a clock skips the cache, see renderPage), and
 // TestRenderKeyCoversEveryFieldOfTheInput fails for a field of the input that is neither in the key
 // nor listed there with the reason it cannot change the HTML of a cached page.
@@ -736,12 +724,11 @@ type dataRedirect struct {
 //
 // What the application's own code does is another matter: a component that reads the time or a
 // random number makes its page differ from one render to the next. tifa dev renders each page
-// twice to say so, and RenderCache = false turns the cache off for such a page.
+// twice to say so, and Memo = false turns the render memo off for such a page.
 //
 // The URL in the key is the request URI as it came, so two spellings of the same query, or a
 // tracking parameter, make two entries. That costs hits and never serves a wrong page, since the
-// render reads the same URI. Sorting the query and dropping tracking parameters belongs to the
-// whole-page cache, which keys by URL.
+// render reads the same URI.
 func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
 	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL} {
@@ -829,10 +816,10 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 		cache = false
 	}
 	// The ETag and the 304 before the render stand on the HTML being a function of the key. A page
-	// with RenderCache = false says it is not, and a request with a clock is not either, so they get
+	// with Memo = false says it is not, and a request with a clock is not either, so they get
 	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
 	//
-	// A 404 or an error page is kept by the render cache like any page, but gets neither an ETag
+	// A 404 or an error page is kept by the render memo like any page, but gets neither an ETag
 	// nor a 304: a precondition only applies to an answer that would be 2xx (RFC 9110 section
 	// 13.2.1). The status is not part of the key, and need not be: the render does not see it, and
 	// what an error page shows, the status and public message of each failed Load, is in its data.
@@ -926,7 +913,7 @@ func revalidated(h http.Header) bool {
 var errClientGone = fmt.Errorf("tifa: the client went away: %w", context.Canceled)
 
 // renderCached answers a page from the HTML cache, or from the render
-// that every request missing the same key at the time waits for (htmlCache.fetch). Each request
+// that every request missing the same key at the time waits for (renderMemo.fetch). Each request
 // writes the page with its own headers and in its own encoding, as a cache hit does. With
 // server.compress the render compresses the page into both its forms once, so no request
 // compresses it again, whatever encoding the request that started the render takes.
@@ -936,7 +923,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	unheard := func(err error) {
 		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
-	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, true, method, path)
 	})
 	if err != nil {
@@ -957,14 +944,14 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 
 // renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
 // it. A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
-// the input as the HTML does. twice has tifa dev render a page the render cache keeps once more to
+// the input as the HTML does. twice has tifa dev render a page the render memo keeps once more to
 // find out whether it reads the time or a random number, see devRenderTwice.
 func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
 	rendered, err := f.render(ctx, in)
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		page := cachedPage{redirect: redirect}
-		return page, s.cache.holds(page), nil
+		return page, s.memo.holds(page), nil
 	}
 	if err != nil {
 		return cachedPage{html: rendered.HTML}, false, err
@@ -982,18 +969,18 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 // newPage makes the page of html for the cache, and says whether the cache can keep it. With
 // server.compress a page of at least gzhttp's minimum size is compressed here, once, whatever the
 // request that caused the render takes, since the cache keeps the gzip form alone. The page keeps
-// the HTML too for the requests that wait for the render and for the tag of the whole-page cache:
+// the HTML too for the requests that wait for the render:
 // the cache drops it when it stores the page. A page the cache cannot hold keeps both forms too,
 // for the requests that wait for its render, so none of them compresses it again.
 func (s *server) newPage(html, policy string) (cachedPage, bool) {
 	page := cachedPage{html: html, n: len(html), policy: policy}
-	if s.cache.off() {
+	if s.memo.off() {
 		return page, false
 	}
 	if s.cfg.Compress {
 		page.gzip = compressPage(html)
 	}
-	if !s.cache.holds(page) {
+	if !s.memo.holds(page) {
 		return page, false
 	}
 	page.body = new(bodyID)
@@ -1005,7 +992,7 @@ func (s *server) newPage(html, policy string) (cachedPage, bool) {
 // that shows the date, the time to the minute or "3 hours ago" renders differently.
 const devClockShift = 36*time.Hour + 7*time.Minute + 13*time.Second
 
-// devRenderTwice is what tifa dev adds to the render of a page that the render cache keeps: it
+// devRenderTwice is what tifa dev adds to the render of a page that the render memo keeps: it
 // renders the same input again, with the clock of the VM moved on by devClockShift, and when the
 // HTML differs, the page read the time or a random number while rendering, which the cache would
 // freeze. It then returns the page with the warning in the overlay of the dev client and true, and
@@ -1025,7 +1012,7 @@ func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, ren
 	}
 	text := "This page read the time or a random number while rendering, so two renders of the same data differ. " +
 		"tifa dev renders the page a second time with the clock 36 hours on, and the two differ. " +
-		"Change the component so it renders the same, or write RenderCache = false in route.go. " +
+		"Change the component so it renders the same, or write Memo = false in route.go. " +
 		"The built app would keep the first render for later requests.\n\n" +
 		"First render:  " + around(first, i) + "\nSecond render: " + around(second, i)
 	if places := reads.Places(); len(places) > 0 {
@@ -1259,7 +1246,7 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 	}
 	var renderErr error
 	if ssrOn {
-		// The page goes through the render cache unless its page turned it off. The key of the
+		// The page goes through the render memo unless its page turned it off. The key of the
 		// Layout of a URL that matches no page is never a path of a page.
 		renderErr = s.renderPage(c, items, loads, e.Status, !s.uncached[key], key)
 	} else {

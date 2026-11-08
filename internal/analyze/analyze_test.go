@@ -98,7 +98,7 @@ func TestValidApp(t *testing.T) {
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
-		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.RenderCache != w.renderCache ||
+		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Memo != w.renderCache ||
 			!reflect.DeepEqual(handlerMethods(r), w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
 		}
@@ -502,8 +502,8 @@ func TestViolations(t *testing.T) {
 			{"app/layout.go:7:", "Load is read from route.go only", "layout.go"},
 			{"app/layout.go:9:", "POST is read from route.go only", "layout.go"},
 			{"app/layout.go:11:", "SSR is read from route.go only", "layout.go"},
-			{"app/layout.go:13:", "RenderCache is read from route.go only", "layout.go"},
-			{"app/mixed/extra.go:3:", "RenderCache is read from route.go only", "extra.go"},
+			{"app/layout.go:13:", "Memo is read from route.go only", "layout.go"},
+			{"app/mixed/extra.go:3:", "Memo is read from route.go only", "extra.go"},
 		}},
 		{"replacebad", [][]string{
 			{"app/layout_.tsx:1:", "layout_.tsx drops the layouts above it", "app/ has none", "rename it to layout.tsx"},
@@ -563,13 +563,13 @@ func TestViolations(t *testing.T) {
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
-		{"rendercachevalue", [][]string{
-			{"app/page/route.go:3:", "RenderCache", "can only be false"},
-			{"app/other/route.go:3:", "RenderCache", "can only be false"},
+		{"memovalue", [][]string{
+			{"app/page/route.go:3:", "Memo", "can only be false"},
+			{"app/other/route.go:3:", "Memo", "can only be false"},
 		}},
 		{"casednames", [][]string{
-			{"app/page/route.go:3:", "cache", "capital letter", "RenderCache = false"},
-			{"app/page/route.go:5:", "rendercache", "capital letter", "RenderCache = false"},
+			{"app/page/route.go:3:", "cache", "capital letter", "Memo = false"},
+			{"app/page/route.go:5:", "memo", "capital letter", "Memo = false"},
 			{"app/other/route.go:3:", "ssr", "capital letter", "SSR"},
 			// helper.go has const cache = "redis", a string in another file: no error.
 		}},
@@ -581,7 +581,7 @@ func TestViolations(t *testing.T) {
 			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
 			{"app/empty/route.go:1:", "no pages"},
 			{"app/api/route.go:7:", "SSR is not allowed without page.tsx"},
-			{"app/api/route.go:9:", "RenderCache is not allowed without page.tsx"},
+			{"app/api/route.go:9:", "Memo is not allowed without page.tsx"},
 			{"app/both/route.go:9:", "Layout", "func(c *tifa.Ctx) (T, error)"},
 			{"app/_hidden/route.go:1:", "app/_hidden", "rename"},
 			{"app/testdata/x/layout.tsx:1:", "app/testdata", "rename"},

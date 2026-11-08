@@ -47,9 +47,7 @@
 #   timeout: 3s             # time limit of one render
 #   queue_limit: 32         # renders waiting for a VM, 0 rejects when all VMs are busy
 #   wait_timeout: 3s        # maximum wait for a VM, then 503 with Retry-After: 1
-
-# cache:
-#   size: 64MiB             # HTML cache of rendered pages, 0 turns it off
+#   memo_size: 64MiB        # render memo of rendered pages, 0 turns it off
 
 # cache_control:
 #   s_maxage: 1m            # how long a shared cache such as a CDN may keep a page that writes const Cache = true

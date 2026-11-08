@@ -88,9 +88,9 @@ type Route struct {
 	Handlers []Handler `json:"handlers"`
 	// SSR is false when the route or any Layout in its chain sets SSR = false.
 	SSR bool `json:"ssr"`
-	// RenderCache is false when route.go sets RenderCache = false, and true otherwise.
-	RenderCache bool `json:"renderCache"`
-	// Cache is the whole-page cache time of the page, Cache = 10 * time.Minute in route.go, zero when
+	// Memo is false when route.go sets Memo = false, and true otherwise.
+	Memo bool `json:"memo"`
+	// Cache is how long a shared cache may keep the page, Cache = 10 * time.Minute in route.go, zero when
 	// absent.
 	Cache time.Duration `json:"cache"`
 	// CacheDefault is true when route.go writes Cache = true: the time is the setting cache_control.s_maxage.

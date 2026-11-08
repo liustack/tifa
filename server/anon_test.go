@@ -19,7 +19,7 @@ type seen struct {
 	setErr, clearErr                         error
 }
 
-// anonApp is wireApp with a page that has the whole-page cache (/news) and one that has not
+// anonApp is wireApp with a page that has Cache (/news) and one that has not
 // (/stats), a POST on /news, and an OnRequest that records what it sees and sets a cookie.
 func anonApp(record func(path string, s seen)) App {
 	app := wireApp()

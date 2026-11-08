@@ -194,7 +194,7 @@ func htmlServer(t *testing.T) *server {
 }
 
 // A page the server renders carries the tifa.HTML values of a marked Load once, in its markup, on
-// every path that renders it: the first render, the render cache, the whole-page cache and the render
+// every path that renders it: the first render, the render memo and the render
 // with an error placed at a level. Navigation data, a page without SSR and a Load the build did not
 // mark carry the string.
 func TestPagesCarryHTMLInTheirMarkupOnly(t *testing.T) {
@@ -220,9 +220,9 @@ func TestPagesCarryHTMLInTheirMarkupOnly(t *testing.T) {
 		}
 	}
 	once("first render", "/p", 200)
-	once("render cache hit", "/p", 200)
-	once("whole-page cache miss", "/cached", 200)
-	once("whole-page cache hit", "/cached", 200)
+	once("render memo hit", "/p", 200)
+	once("page with Cache, first request", "/cached", 200)
+	once("page with Cache, repeat", "/cached", 200)
 	once("error placed at a level", "/boom", 500)
 
 	twice := func(name, target, part string) {
@@ -240,7 +240,7 @@ func TestPagesCarryHTMLInTheirMarkupOnly(t *testing.T) {
 		}
 	}
 	twice("navigation data", "/p?_tifa=b1.11", `"body":"<p>PAGE_BODY</p>"`)
-	twice("navigation data of the whole-page cache", "/cached?_tifa=b1.11", `"body":"<p>PAGE_BODY</p>"`)
+	twice("navigation data of a page with Cache", "/cached?_tifa=b1.11", `"body":"<p>PAGE_BODY</p>"`)
 	twice("page without SSR", "/plain", `\"body\":\"\u003cp\u003ePAGE_BODY\u003c/p\u003e\"`)
 	twice("Layout of a page without SSR", "/plain", `\"body\":\"\u003cp\u003eLAYOUT_BODY\u003c/p\u003e\"`)
 	w := get(s, "/unmarked")

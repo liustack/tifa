@@ -64,8 +64,8 @@ func headersStorable(h http.Header) bool {
 // Stats is tifa.Stats for this server.
 func (s *server) Stats() core.Stats {
 	var out core.Stats
-	out.RenderCache, out.CacheBytes = s.cache.stats()
-	out.CacheSize = s.cache.size
+	out.Memo, out.MemoBytes = s.memo.stats()
+	out.MemoSize = s.memo.size
 	// Only tifa dev replaces the front end, and with it the pool and its counts.
 	if f := s.front.Load(); f != nil && f.pool != nil {
 		out.SSR = f.pool.Stats()

@@ -20,8 +20,8 @@ func i18nManifest() *analyze.Manifest {
 			{ID: "app/store/layout", Dir: "app/store", Path: "/store", TSX: true, SSR: true, Parent: "app/layout", Area: "app/store", Languages: both, Routes: []string{"app/store/route"}},
 		},
 		Routes: []analyze.Route{
-			{ID: "app/projects/route", Dir: "app/projects", Path: "/projects", Page: true, SSR: true, RenderCache: true, Layouts: []string{"app/layout"}},
-			{ID: "app/store/route", Dir: "app/store", Path: "/store", Page: true, SSR: true, RenderCache: true, Layouts: []string{"app/layout", "app/store/layout"}, Area: "app/store", Languages: both},
+			{ID: "app/projects/route", Dir: "app/projects", Path: "/projects", Page: true, SSR: true, Memo: true, Layouts: []string{"app/layout"}},
+			{ID: "app/store/route", Dir: "app/store", Path: "/store", Page: true, SSR: true, Memo: true, Layouts: []string{"app/layout", "app/store/layout"}, Area: "app/store", Languages: both},
 		},
 	}
 }

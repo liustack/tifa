@@ -277,7 +277,7 @@ func TestDevReloadKeepsServingPages(t *testing.T) {
 
 // Under tifa dev a page that cached its render is rendered twice, and when the two differ the
 // page says so in the overlay of the dev client, the terminal says so, and the page is not cached.
-// A built app renders once and keeps the page. A page with RenderCache = false is rendered once.
+// A built app renders once and keeps the page. A page with Memo = false is rendered once.
 func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 	const warning = "This page read the time or a random number while rendering"
@@ -297,9 +297,9 @@ func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 		// A page that shows the time to the minute renders the same twice in a row, almost always: the
 		// second render runs with the clock moved on.
 		{"dev, the time to the minute", true, `' + new Date().toISOString().slice(0, 16) + '`, "/stats", true, "vm", "new Date() at app/page.tsx:1:1"},
-		{"dev, steady", true, "same", "/stats", false, "cache", ""},
-		{"dev, RenderCache = false", true, `' + Math.random() + '`, "/live", false, "vm", ""},
-		{"built, random", false, `' + Math.random() + '`, "/stats", false, "cache", ""},
+		{"dev, steady", true, "same", "/stats", false, "memo", ""},
+		{"dev, Memo = false", true, `' + Math.random() + '`, "/live", false, "vm", ""},
+		{"built, random", false, `' + Math.random() + '`, "/stats", false, "memo", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs syncBuffer
@@ -330,7 +330,7 @@ func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 			if got := strings.Contains(logs.String(), warning); got != tc.warned {
 				t.Errorf("terminal warning %t, want %t:\n%s", got, tc.warned, logs.String())
 			}
-			if tc.warned && (!strings.Contains(body, "RenderCache = false") || !strings.Contains(logs.String(), "<p>")) {
+			if tc.warned && (!strings.Contains(body, "Memo = false") || !strings.Contains(logs.String(), "<p>")) {
 				t.Errorf("the warning names no fix or no place:\n%s\n%s", body, logs.String())
 			}
 			if tc.read != "" && (!strings.Contains(body, tc.read) || !strings.Contains(logs.String(), tc.read)) {
@@ -401,7 +401,7 @@ func TestDevMainKeepsRequestErrors(t *testing.T) {
 	if broken.URL != "/broken?x=1" || broken.Status != 503 || broken.Message != "Come back later" || !strings.Contains(broken.Error, "the orders table is gone") || broken.Count != 1 {
 		t.Errorf("second = %+v", broken)
 	}
-	// The error page of /broken goes through the render cache like a page, so it is checked too.
+	// The error page of /broken goes through the render memo like a page, so it is checked too.
 	if len(got.Renders) != 2 {
 		t.Fatalf("renders = %+v", got.Renders)
 	}
@@ -438,7 +438,7 @@ func TestMainKeepsNoRequestErrors(t *testing.T) {
 
 // tifa dev asks the running app to load the content it converted again. The app swaps the data
 // of the collections in place, shows the entries whose date is to come, keeps what it had when an
-// entry fails Validate, and the pages of the whole-page cache expire.
+// entry fails Validate, and the pages with Cache load them again.
 func TestDevMainReloadsTheContent(t *testing.T) {
 	posts := definePosts(t)
 	dir := t.TempDir()
