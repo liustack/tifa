@@ -72,6 +72,7 @@ func BenchmarkReads(b *testing.B) {
 		b.Run(fmt.Sprintf("orders=%d/create", n), func(b *testing.B) {
 			at := time.Date(2026, 10, 20, 9, 0, 0, 0, chinaTime)
 			for b.Loop() {
+				at = at.Add(time.Second)
 				if _, err := CreateOrder("weekend", NewOrder{Customer: "林夏", Phone: "13800138000", Address: "上海市徐汇区", Items: []NewLine{{Slug: "postcards", Quantity: 1}}}, at); err != nil {
 					b.Fatal(err)
 				}
