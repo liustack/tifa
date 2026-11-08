@@ -28,13 +28,10 @@
 #   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
 #   SCENARIOS         scenarios and groups: default (store-w5, admin-w20),          default
 #                     extra (store-w20, admin-w50), store-w50, r95w5, r50w50
-#   PHASES            closed (throughput at equal users), saturation (the users at   closed,saturation,control,sustain,latency
-#                     which each server saturates), control (Tifa with no writes, once
-#                     a site), sustain (the rate of Next.js), latency
-#                     (each for the scenarios that have that table)
-#   PROBE=1           probe the users at which each server saturates again, and rewrite
-#                     test/compare/saturation.json (else it is read, and probed where it has none)
-#   USERS EXTRA_USERS users of every scenario; more users for the 5% write scenarios   32, 8,16
+#   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
+#                     (Tifa with no writes, once a site), sustain (the rate of Next.js),
+#                     latency (each for the scenarios that have that table)
+#   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
 #   BLOCKS            blocks of 95 visits to record for each site (the plans)       4
@@ -61,6 +58,10 @@ expand_groups() {
   echo "$list"
 }
 scenarios=$(expand_groups "${SCENARIOS:-default}")
+# The names before sessions are refused, so that an old command line does not run another method.
+for old in USERS EXTRA_USERS; do
+  if [ -n "${!old+set}" ]; then echo "$old is gone: the throughput counts concurrent sessions, set SESSIONS (8 by default)" >&2; exit 2; fi
+done
 blocks=${BLOCKS:-4}
 mkdir -p "$out" "$traces"
 compare=$out/compare
@@ -139,7 +140,7 @@ run_stamp() {
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
-  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} users=${USERS:-} extra=${EXTRA_USERS-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # traces_current is true when the traces of a site were recorded from these sources, with these
@@ -214,9 +215,7 @@ do_run() {
   done
   local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
-  [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
-  [ -n "${USERS:-}" ] && cmd+=(-users "$USERS")
-  [ "${EXTRA_USERS+set}" = set ] && cmd+=(-extra-users "$EXTRA_USERS")
+  [ -n "${SESSIONS:-}" ] && cmd+=(-sessions "$SESSIONS")
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")
   [ -n "${WARM:-}" ] && cmd+=(-warm "$WARM")
   [ -n "${TARGET:-}" ] && cmd+=(-target "$TARGET")

@@ -33,18 +33,12 @@ type BrowseOptions struct {
 	ServerCPUs   string
 	LoadCPUs     string
 	LoadCPUCount int // how many cpus the load may use, to tell a saturated generator
-	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the users used them
-	// (none when it is not pinned: then the saturation phase does nothing).
+	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the sessions used them
+	// (none when it is not pinned: then no server is stepped up).
 	ServerCPUCount int
-	// Probe measures again the users at which each server saturates, and rewrites SaturationFile.
-	Probe bool
-	// SaturationFile holds those users, per scenario and server (test/compare/saturation.json when
-	// empty).
-	SaturationFile string
 	Scenarios      []BrowseScenario // the default ones when empty
-	Phases         []string         // "closed", "saturation", "sustain" and "latency"; all of them when empty
-	Users          int              // the users of the throughput table, 32
-	ExtraUsers     []int            // more users, for the scenarios with 5% writes only: 8 and 16
+	Phases         []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
+	Sessions       int              // the concurrent sessions every server starts the throughput at, 8
 	Rounds         int
 	Warm           time.Duration // the warm-up of a closed round, apart from it
 	Target         time.Duration // how long a closed round should take, about
@@ -74,9 +68,10 @@ type BrowseResult struct {
 	Scenarios []BrowseScenario    `json:"scenarios"`
 	// Servers is, per scenario, the specs it runs, in the order of the tables.
 	Servers map[string][]string `json:"servers"`
-	// Closed holds every round at a fixed number of users, the invalid ones that were run again too.
+	// Closed holds every closed round, at every number of concurrent sessions, the invalid ones that
+	// were run again too.
 	Closed []Round `json:"closed"`
-	// Blocks is the size of the measured workload of each scenario, number of users and spec (whole
+	// Blocks is the size of the measured workload of each scenario, number of sessions and spec (whole
 	// blocks), taken from the warm-up of its first round.
 	Blocks map[string]int `json:"blocks"`
 	// Sustain is, per scenario and spec ("admin-w5/tifa"), the search for the arrival rate it
@@ -87,14 +82,11 @@ type BrowseResult struct {
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
-	// Control is the read-only control of each site: Tifa at the users of the closed runs with the
+	// Control is the read-only control of each site: Tifa at the sessions of the closed runs with the
 	// same traces and no writes, one short round, to show which pages its render cache answers.
 	Control []Round `json:"control,omitempty"`
-	// Saturation holds the rounds above the users of every server, for the servers that did not use
-	// their cpus there: the steps of a probe, or the users from SaturationFile.
-	Saturation []Round `json:"saturation,omitempty"`
-	// Saturated is, per scenario and server ("admin-w5/tifa"), the users at which it saturated.
-	Saturated map[string]*Saturated `json:"saturated,omitempty"`
+	// Throughput is, per scenario and server ("store-w5/tifa"), what the steps of its sessions found.
+	Throughput map[string]*Throughput `json:"throughput,omitempty"`
 }
 
 // Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
@@ -189,15 +181,13 @@ func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]
 // browseConfig is the settings of a run that its result keeps.
 func browseConfig(o BrowseOptions) map[string]string {
 	return map[string]string{
-		"users": fmt.Sprint(o.Users), "extraUsers": fmt.Sprint(o.ExtraUsers), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
+		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"probe": fmt.Sprint(o.Probe),
 	}
 }
 
 // canContinue says whether a result can be continued by a run with these options: the same stamp
-// and the same settings, so that a probe asked for again, or other cpus or windows, never reuse the
-// rounds of another run.
+// and the same settings, so that other cpus or windows never reuse the rounds of another run.
 func canContinue(res *BrowseResult, o BrowseOptions) error {
 	if res.Stamp != o.Stamp {
 		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, o.Stamp)
@@ -226,13 +216,10 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		o.Scenarios, _ = ParseScenarios(DefaultScenarios)
 	}
 	if len(o.Phases) == 0 {
-		o.Phases = []string{"closed", "saturation", "control", "sustain", "latency"}
+		o.Phases = []string{"throughput", "control", "sustain", "latency"}
 	}
-	if o.SaturationFile == "" {
-		o.SaturationFile = filepath.Join(e.Root, "test", "compare", "saturation.json")
-	}
-	if o.Users == 0 {
-		o.Users = 32
+	if o.Sessions == 0 {
+		o.Sessions = 8
 	}
 	if o.Rounds == 0 {
 		o.Rounds = 3
@@ -276,6 +263,9 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	}
 	b.res = &BrowseResult{}
 	if data, err := os.ReadFile(o.OutJSON); err == nil && o.OutJSON != "" {
+		if err := checkFormat(data); err != nil {
+			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
+		}
 		if err := json.Unmarshal(data, b.res); err != nil {
 			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
 		}
@@ -305,7 +295,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	for _, phase := range []struct {
 		name string
 		run  func(context.Context, BrowseScenario) error
-	}{{"closed", b.closed}, {"saturation", b.saturation}, {"control", b.control}, {"sustain", b.sustain}, {"latency", b.latency}} {
+	}{{"throughput", b.throughput}, {"control", b.control}, {"sustain", b.sustain}, {"latency", b.latency}} {
 		if !has(phase.name) {
 			continue
 		}
@@ -366,54 +356,6 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 	return out, nil
 }
 
-// usersFor are the numbers of users of the closed rounds of a scenario: o.Users, and o.ExtraUsers
-// too for a scenario with the open run (5% writes).
-func (b *browse) usersFor(sc BrowseScenario) []int {
-	users := []int{b.o.Users}
-	if sc.Latency {
-		users = append(slices.Clone(b.o.ExtraUsers), users...)
-	}
-	return users
-}
-
-func (b *browse) closedDone(fw, sc string, users, round int) bool {
-	return slices.ContainsFunc(b.res.Closed, func(r Round) bool {
-		return r.Framework == fw && r.Scenario == sc && r.Users == users && r.Round == round && r.Valid
-	})
-}
-
-// closed is the throughput table of a scenario: every server at the same number of users, three
-// rounds in a rotating order with fresh servers.
-func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
-	if !sc.Throughput {
-		return nil
-	}
-	for _, users := range b.usersFor(sc) {
-		failed := map[string]bool{}
-		for round := 1; round <= b.o.Rounds; round++ {
-			for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-				if b.closedDone(fw, sc.Name, users, round) {
-					continue
-				}
-				if failed[fw] && round > 1 && b.o.Rounds > 1 {
-					// A hung round is reported as failed; the other rounds of that cell are skipped.
-					if hung(b.lastClosed(fw, sc.Name, users)) {
-						continue
-					}
-				}
-				r, err := b.closedRound(ctx, fw, sc, users, round, &b.res.Closed)
-				if err != nil {
-					return err
-				}
-				if !r.Pass {
-					failed[fw] = true
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // controlWindow is about how long the one round of the read-only control takes (the target of the
 // closed rounds when that is shorter).
 const controlWindow = 30 * time.Second
@@ -426,7 +368,7 @@ func controlled(list []BrowseScenario, sc BrowseScenario) bool {
 }
 
 // control is a diagnostic, not a result: once for each site, one closed round of Tifa (with its
-// caches as it ships) at the users of the closed runs, with the traces of the first scenario of the
+// caches as it ships) at the sessions of the closed runs, with the traces of the first scenario of the
 // site and no writes. It shows which kinds of page the render cache answers when nothing changes,
 // and against the rounds with writes what the writes do to it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
@@ -437,49 +379,41 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	reads.Share = 0
 	window := min(b.o.Target, controlWindow)
 	out, err := b.with(ctx, "tifa", reads, func(r *runner) *Round {
-		rate := r.Warm(ctx, b.o.Users, b.o.Warm)
+		rate := r.Warm(ctx, b.o.Sessions, b.o.Warm)
 		blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
-		return r.RunClosed(ctx, b.o.Users, blocks*BlockVisits, 2*window)
+		return r.RunClosed(ctx, b.o.Sessions, blocks*BlockVisits, 2*window)
 	})
 	if err != nil {
 		return err
 	}
 	out.Model, out.Round = "control", 1
 	b.res.Control = append(b.res.Control, *out)
-	b.logf("control %-10s %2d users tifa, no writes: %.1f page views/s, renders by page %v, pass %v %s\n", sc.Name, out.Users, float64(out.PageViews)/out.Seconds, out.PageRenders, out.Pass, out.Why)
+	b.logf("control %-10s %2d sessions tifa, no writes: %.1f page views/s, renders by page %v, pass %v %s\n", sc.Name, out.Sessions, float64(out.PageViews)/out.Seconds, out.PageRenders, out.Pass, out.Why)
 	return b.commit()
 }
 
-func (b *browse) lastClosed(fw, sc string, users int) *Round {
-	for i := len(b.res.Closed) - 1; i >= 0; i-- {
-		r := &b.res.Closed[i]
-		if r.Framework == fw && r.Scenario == sc && r.Users == users {
-			return r
-		}
-	}
-	return nil
-}
-
-func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, users, round int, into *[]Round) (*Round, error) {
-	key := fmt.Sprintf("%s/%d/%s", sc.Name, users, fw)
+// closedRound plays one round of a cell, again (up to three tries) while it is not valid, and keeps
+// every try.
+func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, sessions, round int) (*Round, error) {
+	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
 	planBlocks := b.sets[sc.site()].Blocks
 	if _, ok := b.res.Blocks[key]; !ok {
-		rate, err := b.size(ctx, fw, sc, users)
+		rate, err := b.size(ctx, fw, sc, sessions)
 		if err != nil {
 			return nil, err
 		}
 		b.res.Blocks[key] = BlocksFor(rate, b.o.Target, planBlocks)
-		b.logf("size   %-10s %2d users %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, users, fw, rate, b.res.Blocks[key])
+		b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
 		if err := b.commit(); err != nil {
 			return nil, err
 		}
 	}
 	for attempt := 1; ; attempt++ {
 		out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-			r.Warm(ctx, users, b.o.Warm)
+			r.Warm(ctx, sessions, b.o.Warm)
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
-			return r.RunClosed(ctx, users, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
+			return r.RunClosed(ctx, sessions, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
 		})
 		if err != nil {
 			return nil, err
@@ -488,12 +422,12 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		if blocks := calibrate(out, b.o.Target, planBlocks); blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
-		*into = append(*into, *out)
+		b.res.Closed = append(b.res.Closed, *out)
 		if err := b.commit(); err != nil {
 			return nil, err
 		}
-		b.logf("closed %-10s %2d users %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
-			sc.Name, users, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
+		b.logf("closed %-10s %2d sessions %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
+			sc.Name, sessions, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
 		if out.Valid || attempt >= 3 {
 			return out, nil
 		}
@@ -505,18 +439,14 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 // of a cell is sized from it: the warm-up of a round sends no writes (so that every round starts with
 // the same data), and a server that writes make slower (a cache that they clear) would be sized too
 // large from that.
-func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, users int) (float64, error) {
+func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
 	_, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-		rate = r.Size(ctx, users, b.o.Warm)
+		rate = r.Size(ctx, sessions, b.o.Warm)
 		return &Round{}
 	})
 	return rate, err
 }
-
-// hung says whether a closed round hung: it was stopped and nothing completed in it. A round cut off
-// for running too long completed visits, and is resized from them.
-func hung(r *Round) bool { return r != nil && r.TimedOut && r.Visits == 0 }
 
 // calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
 // times the target (60 to 120 seconds by default). Outside that it returns the blocks the next round
@@ -585,6 +515,9 @@ func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, ra
 // sustainKey names the search of one spec in one scenario.
 func sustainKey(sc, spec string) string { return sc + "/" + spec }
 
+// maxRate is the cap of the search of the rate.
+func (b *browse) maxRate() float64 { return cmp.Or(b.o.MaxRate, 16384) }
+
 // sustain finds the arrival rate that Next.js sustains in the open model on a scenario with the open
 // run: double the rate while the rule holds, narrow it to within 10%, then require the rule over the
 // rounds, stepping down 10% until it holds. Only Next.js is searched: half of its rate is the rate of
@@ -616,7 +549,7 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 			}
 			return r.Pass && r.Valid, b.commit()
 		}
-		maxRate := cmp.Or(b.o.MaxRate, 16384)
+		maxRate := b.maxRate()
 		lo, hi, err := searchRate(maxRate, trial)
 		if err != nil {
 			return err
@@ -1032,8 +965,12 @@ func (r *runner) navRequest(page string) (TraceReq, bool) {
 	return TraceReq{}, false
 }
 
-// ReadBrowseResult parses a result written by `compare browse`.
+// ReadBrowseResult parses a result written by `compare browse`. A result of the old format (users
+// and not sessions, no planned visits) is refused: nothing reads it.
 func ReadBrowseResult(data []byte) (*BrowseResult, error) {
+	if err := checkFormat(data); err != nil {
+		return nil, err
+	}
 	var r BrowseResult
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, err
@@ -1140,4 +1077,33 @@ func searchRate(maxRate float64, trial func(rate float64) (bool, error)) (lo, hi
 		lo, rate = rate, rate*2
 	}
 	return lo, hi, nil
+}
+
+// errOldFormat is the error for a result written by an older version of `compare browse`.
+var errOldFormat = fmt.Errorf("written by an older version of compare browse (users and not sessions, or no planned visits): it cannot be reported or continued, run it again")
+
+// checkFormat refuses a result of the old format: one whose settings or rounds count users, or that
+// has the saturation phase.
+func checkFormat(data []byte) error {
+	var top struct {
+		Settings   map[string]string           `json:"settings"`
+		Closed     []map[string]jsontext.Value `json:"closed"`
+		Saturated  jsontext.Value              `json:"saturated"`
+		Saturation jsontext.Value              `json:"saturation"`
+	}
+	if err := json.Unmarshal(data, &top); err != nil {
+		return err
+	}
+	if _, ok := top.Settings["users"]; ok || top.Saturated != nil || top.Saturation != nil {
+		return errOldFormat
+	}
+	for _, x := range top.Closed {
+		if _, users := x["users"]; users {
+			return errOldFormat
+		}
+		if _, planned := x["visitsPlanned"]; !planned {
+			return errOldFormat
+		}
+	}
+	return nil
 }

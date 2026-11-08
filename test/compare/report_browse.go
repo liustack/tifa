@@ -36,10 +36,10 @@ func BrowseLabel(spec string) string {
 func isTifa(spec string) bool { return spec == "tifa" || strings.HasPrefix(spec, "tifa-") }
 
 // tries are all the rounds of a cell of the closed table, the invalid ones too.
-func (r *BrowseResult) tries(fw, sc string, users int) []Round {
+func (r *BrowseResult) tries(fw, sc string, sessions int) []Round {
 	var out []Round
 	for _, x := range r.Closed {
-		if x.Framework == fw && x.Scenario == sc && x.Users == users {
+		if x.Framework == fw && x.Scenario == sc && x.Sessions == sessions {
 			out = append(out, x)
 		}
 	}
@@ -47,10 +47,10 @@ func (r *BrowseResult) tries(fw, sc string, users int) []Round {
 }
 
 // cellRounds are the valid rounds of a spec in one cell of the closed table.
-func (r *BrowseResult) cellRounds(fw, sc string, users int) []Round {
+func (r *BrowseResult) cellRounds(fw, sc string, sessions int) []Round {
 	var out []Round
 	for _, x := range r.Closed {
-		if x.Framework == fw && x.Scenario == sc && x.Users == users && x.Valid {
+		if x.Framework == fw && x.Scenario == sc && x.Sessions == sessions && x.Valid {
 			out = append(out, x)
 		}
 	}
@@ -67,15 +67,16 @@ func each(rounds []Round, f func(*Round) float64) []float64 {
 
 func pageViewsPerSecond(x *Round) float64 { return float64(x.PageViews) / x.Seconds }
 
-// verdict says whether a cell passes: every round did, and there were as many as asked for.
+// verdict says whether a cell passes: no round failed, and there were as many as asked for. A
+// failed round decides the cell, however many rounds it has.
 func verdict(rounds []Round, want int) (bool, string) {
-	if len(rounds) < want {
-		return false, fmt.Sprintf("%d of %d rounds", len(rounds), want)
-	}
 	for _, x := range rounds {
 		if !x.Pass {
 			return false, x.Why
 		}
+	}
+	if len(rounds) < want {
+		return false, fmt.Sprintf("%d of %d rounds", len(rounds), want)
 	}
 	return true, ""
 }
@@ -117,7 +118,7 @@ func p50Cell(rounds []Round, kind string) string {
 }
 
 // Markdown writes the tables of the browse comparison: for every scenario, throughput at the same
-// number of users, and for the scenarios with 5% writes the rate Next.js sustains and latency at half of it.
+// number of sessions, and for the scenarios with latency the rate Next.js sustains and the latency at half of it.
 func (r *BrowseResult) Markdown() string {
 	var b strings.Builder
 	v := r.Version
@@ -147,7 +148,7 @@ func (r *BrowseResult) Markdown() string {
 		r.scenarioMarkdown(&b, sc, rounds)
 	}
 	if checks := r.checks(); len(checks) > 0 {
-		b.WriteString("\n### Do the traces replay on this machine\n\nThe answers of one round of each server (the first valid closed round at the most users of the first scenario it ran), by type of request, status and content type:\n\n")
+		b.WriteString("\n### Do the traces replay on this machine\n\nThe answers of one round of each server (the first valid closed round at the base sessions of the first scenario it ran), by type of request, status and content type:\n\n")
 		for _, f := range r.allServers() {
 			if c := checks[f]; c != nil {
 				fmt.Fprintf(&b, "- %s: %s\n", BrowseLabel(f), c.Summary())
@@ -166,35 +167,37 @@ func (r *BrowseResult) Markdown() string {
 func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	fw := r.Servers[sc.Name]
 	fmt.Fprintf(b, "\n### %s\n\n", sc.Title)
-	users := r.usersOf(sc.Name)
-	if len(users) > 0 {
-		b.WriteString("#### Page views a second at the same number of users\n\nClosed loop, zero think time, every user with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule at that many users (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog): it is never measured at another number of users in its place. A page view counts when it completes. Prefetches and writes are not page views. This is throughput at the same concurrency: it is the capacity of a server only where the server used its core, which the server cores of the tables below show.\n\n| |")
-		for _, u := range users {
-			fmt.Fprintf(b, " %d users |", u)
+	sessions := r.sessionsOf(sc.Name)
+	if len(sessions) > 0 {
+		r.throughputMarkdown(b, sc, rounds)
+		b.WriteString("\n#### Page views a second at each number of concurrent sessions\n\nClosed loop: N concurrent sessions, no think time, each playing the next visit as soon as it ends one, with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule there (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog). A cell stops at its first failed round, which decides it. A page view counts when it completes. Prefetches and writes are not page views. `-` is a number of sessions the server was not stepped to.\n\n| |")
+		for _, n := range sessions {
+			fmt.Fprintf(b, " %d sessions |", n)
 		}
-		b.WriteString("\n| --- |" + strings.Repeat(" --- |", len(users)) + "\n")
+		b.WriteString("\n| --- |" + strings.Repeat(" --- |", len(sessions)) + "\n")
 		for _, f := range fw {
 			fmt.Fprintf(b, "| %s |", BrowseLabel(f))
-			for _, u := range users {
-				rs := r.cellRounds(f, sc.Name, u)
-				if tries := r.tries(f, sc.Name, u); len(rs) == 0 && len(tries) > 0 {
+			for _, n := range sessions {
+				rs := r.cellRounds(f, sc.Name, n)
+				tries := r.tries(f, sc.Name, n)
+				switch ok, why := verdict(rs, rounds); {
+				case len(tries) == 0:
+					b.WriteString(" - |")
+				case len(rs) == 0:
 					// No round of the cell was valid: say why the last one failed, with what made it invalid.
 					last := tries[len(tries)-1]
 					fmt.Fprintf(b, " failed (no valid round of %d: %s) |", len(tries), strings.Join(slices.DeleteFunc([]string{last.Why, last.WhyInvalid}, func(s string) bool { return s == "" }), "; "))
-				} else if ok, why := verdict(rs, rounds); !ok {
+				case !ok:
 					fmt.Fprintf(b, " failed (%s) |", why)
-				} else {
+				default:
 					fmt.Fprintf(b, " %s |", fmtCell(each(rs, pageViewsPerSecond), "%.1f"))
 				}
 			}
 			b.WriteString("\n")
 		}
 	}
-	for _, u := range users {
-		r.closedDetail(b, sc, u)
-	}
-	if len(users) > 0 {
-		r.saturationMarkdown(b, sc, rounds)
+	for _, n := range r.detailSessions(sc.Name) {
+		r.closedDetail(b, sc, n)
 	}
 	r.controlMarkdown(b, sc)
 	if !sc.Throughput {
@@ -207,13 +210,42 @@ func (r *BrowseResult) scenarioMarkdown(b *strings.Builder, sc BrowseScenario, r
 	r.latencyMarkdown(b, sc)
 }
 
-// closedDetail writes what the closed rounds of a scenario at a number of users did.
-func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users int) {
+// peopleCell reads page views a second as the active people who would make them at one page every
+// 5 to 10 seconds: a reading aid, not a measurement.
+func peopleCell(views float64) string {
+	return fmt.Sprintf("%.0f to %.0f", 5*views, 10*views)
+}
+
+// throughputMarkdown is the table of what the steps of the sessions found for each server.
+func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
+	base := r.baseSessions()
+	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions, no think time, %d rounds. A server whose median server cores stay under 0.95 of its cpus, with every round passing, is stepped up about 25%% a step (%d, %d, %d and so on), and one that fails at %d is stepped down to %s. The result says how the steps ended: `%s` (every round passed and the median server cores reached 0.95), `%s` (a step up gained fewer page views a second than the spread of the rounds), `%s` (the next step failed the rule, so this is the step below it), `%s` (the server's cores were not measured, so it was not stepped: on a Mac, or without `-server-cpus`), `%s`. Each row gives the sessions it was measured at, so servers are compared at their own working points, not at the same concurrency. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured (it holds no long sessions open and no memory for them).\n\n", base, rounds, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))), base, joinSessions(stepsDown(base)), ThroughputCoreUsed, ThroughputPlateau, ThroughputHighestPassing, ThroughputCoresUnknown, ThroughputNone)
+	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | server cores | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | why the steps stopped | sessions played |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, f := range r.Servers[sc.Name] {
+		t := r.Throughput[sustainKey(sc.Name, f)]
+		if t == nil {
+			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - | - | - | - |\n", BrowseLabel(f))
+			continue
+		}
+		steps := fmt.Sprint(t.Steps)
+		if t.Sessions == 0 {
+			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - | - | %s | %s |\n", BrowseLabel(f), t.Result, t.Why, steps)
+			continue
+		}
+		rs := r.cellRounds(f, sc.Name, t.Sessions)
+		views := each(rs, pageViewsPerSecond)
+		fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, fmtCell(views, "%.1f"), peopleCell(Median(views)),
+			coresCell(rs, func(x *Round) float64 { return x.CPUSeconds }), typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"), t.Why, steps)
+	}
+}
+
+// closedDetail writes what the closed rounds of a scenario at a number of sessions did.
+func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessions int) {
 	fw := r.Servers[sc.Name]
-	fmt.Fprintf(b, "\n#### %d users\n\n", users)
+	fmt.Fprintf(b, "\n#### %d concurrent sessions\n\n", sessions)
 	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | server cores | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
-		rs := r.cellRounds(f, sc.Name, users)
+		rs := r.cellRounds(f, sc.Name, sessions)
 		if len(rs) == 0 {
 			continue
 		}
@@ -231,7 +263,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 	}
 	b.WriteString("\nWhat the server did a second:\n\n| | full loads/s | clicks/s | writes/s | renders/s | cache hits/s | shared renders/s |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
-		rs := r.cellRounds(f, sc.Name, users)
+		rs := r.cellRounds(f, sc.Name, sessions)
 		if len(rs) == 0 {
 			continue
 		}
@@ -248,7 +280,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 	}
 	b.WriteString("\nWhat one visit costs the server, as requests per visit (and, for Tifa, what it did with the documents and the navigation data that said how they were answered):\n\n| | documents 200 (full pages) | documents 304 | client navigation requests | prefetches | writes | renders | cache hits | shared renders |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
-		rs := r.cellRounds(f, sc.Name, users)
+		rs := r.cellRounds(f, sc.Name, sessions)
 		if len(rs) == 0 {
 			continue
 		}
@@ -263,9 +295,9 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), per("doc 200 "), per("doc 304 "), per("nav "), per("prefetch "), per("write "), tifa("vm"), tifa("cache"), tifa("shared"))
 	}
-	r.pageRendersMarkdown(b, sc, users)
-	r.writesMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, users) })
-	r.achievedMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, users) })
+	r.pageRendersMarkdown(b, sc, sessions)
+	r.writesMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
+	r.achievedMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 }
 
 // writesMarkdown writes what the writes of the rounds of each server were, the rounds of a server
@@ -420,17 +452,18 @@ func (r *BrowseResult) allServers() []string {
 	return out
 }
 
-// baseUsers is the number of users every server plays in every scenario (o.Users).
-func (r *BrowseResult) baseUsers() int {
-	if n, err := strconv.Atoi(r.Config["users"]); err == nil && n > 0 {
-		return n
-	}
-	return 32
+// baseSessions is the number of sessions every server starts at (o.Sessions).
+func (r *BrowseResult) baseSessions() int {
+	n, _ := strconv.Atoi(r.Config["sessions"])
+	return n
 }
 
 // coresCell is the cores a process used over the window, or "-" when it was not measured (the CPU of
 // the server is read from /proc, so there is none on a Mac).
 func coresCell(rs []Round, cpu func(*Round) float64) string {
+	if len(rs) == 0 {
+		return "-"
+	}
 	v := each(rs, func(x *Round) float64 { return cpu(x) / x.Seconds })
 	if slices.Max(v) == 0 {
 		return "-"
@@ -438,18 +471,34 @@ func coresCell(rs []Round, cpu func(*Round) float64) string {
 	return fmtCell(v, "%.2f")
 }
 
-func (r *BrowseResult) usersOf(sc string) []int {
+// sessionsOf are the numbers of sessions the closed rounds of a scenario played, in order.
+func (r *BrowseResult) sessionsOf(sc string) []int {
 	var out []int
 	for _, x := range r.Closed {
-		if x.Scenario == sc && !slices.Contains(out, x.Users) {
-			out = append(out, x.Users)
+		if x.Scenario == sc && !slices.Contains(out, x.Sessions) {
+			out = append(out, x.Sessions)
 		}
 	}
 	slices.Sort(out)
 	return out
 }
 
-// rounds is how many rounds a cell has when it is complete.
+// detailSessions are the numbers of sessions of a scenario whose cells get the detail tables: the
+// base, and the sessions of each server's result.
+func (r *BrowseResult) detailSessions(sc string) []int {
+	played := r.sessionsOf(sc)
+	var out []int
+	for _, n := range played {
+		if n == r.baseSessions() || slices.ContainsFunc(r.Servers[sc], func(f string) bool {
+			t := r.Throughput[sustainKey(sc, f)]
+			return t != nil && t.Sessions == n
+		}) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // rounds is the number of rounds of a cell: the setting of the run, or for a result without it the
 // most rounds of a closed cell.
 func (r *BrowseResult) rounds() int {
@@ -466,16 +515,12 @@ func (r *BrowseResult) rounds() int {
 func (r *BrowseResult) checks() map[string]*TraceCheck {
 	out := map[string]*TraceCheck{}
 	for _, sc := range r.Scenarios {
-		users := r.usersOf(sc.Name)
-		if len(users) == 0 {
-			continue
-		}
 		for _, f := range r.Servers[sc.Name] {
 			if out[f] != nil {
 				continue
 			}
 			for _, x := range r.Closed {
-				if x.Framework == f && x.Scenario == sc.Name && x.Users == users[len(users)-1] && x.Valid {
+				if x.Framework == f && x.Scenario == sc.Name && x.Sessions == r.baseSessions() && x.Valid {
 					out[f] = NewTraceCheck(BrowseLabel(f), &x)
 					break
 				}
@@ -527,12 +572,12 @@ func hitCell(rounds []Round, kind string) string {
 }
 
 // pageRendersMarkdown is a diagnostic for Tifa: the render cache hits of the full loads of the
-// closed rounds at a number of users, by kind of page (X-Tifa-Render on the documents and the navigation data).
-func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario, users int) {
+// closed rounds at a number of sessions, by kind of page (X-Tifa-Render on the documents and the navigation data).
+func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario, sessions int) {
 	var rows []string
 	var all []Round
 	for _, f := range r.Servers[sc.Name] {
-		if rs := r.cellRounds(f, sc.Name, users); isTifa(f) && len(rs) > 0 {
+		if rs := r.cellRounds(f, sc.Name, sessions); isTifa(f) && len(rs) > 0 {
 			rows = append(rows, f)
 			all = append(all, rs...)
 		}
@@ -547,7 +592,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 	}
 	b.WriteString(" |\n| ---" + strings.Repeat(" | ---", len(kinds)) + " |\n")
 	for _, f := range rows {
-		rs := r.cellRounds(f, sc.Name, users)
+		rs := r.cellRounds(f, sc.Name, sessions)
 		fmt.Fprintf(b, "| %s |", BrowseLabel(f))
 		for _, k := range kinds {
 			fmt.Fprintf(b, " %s |", hitCell(rs, k))
@@ -557,7 +602,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 }
 
 // controlMarkdown gives the read-only control of a scenario, if it has one, against the closed
-// rounds of Tifa at the same users.
+// rounds of Tifa at the same sessions.
 func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	var control []Round
 	for _, x := range r.Control {
@@ -568,10 +613,10 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if len(control) == 0 {
 		return
 	}
-	users := control[0].Users
-	closed := r.cellRounds("tifa", sc.Name, users)
+	sessions := control[0].Sessions
+	closed := r.cellRounds("tifa", sc.Name, sessions)
 	kinds := pageKinds(append(slices.Clone(control), closed...))
-	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d users with the same traces and no writes, one short round, against its closed rounds of this scenario. The render cache hits by kind of page show which pages the writes keep from the cache.\n\n| | page views/s", users)
+	fmt.Fprintf(b, "\n#### Read-only control\n\nA diagnostic, not a result: Tifa as it ships, at %d concurrent sessions with the same traces and no writes, one short round, against its closed rounds of this scenario. The render cache hits by kind of page show which pages the writes keep from the cache.\n\n| | page views/s", sessions)
 	for _, k := range kinds {
 		fmt.Fprintf(b, " | %s", k)
 	}
@@ -588,44 +633,4 @@ func (r *BrowseResult) controlMarkdown(b *strings.Builder, sc BrowseScenario) {
 	}
 	row("Tifa, no writes", control)
 	row(fmt.Sprintf("Tifa, %.0f%% writes", 100*sc.Share), closed)
-}
-
-// saturationMarkdown is the table of the users at which each server saturated in a scenario.
-func (r *BrowseResult) saturationMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
-	base := r.baseUsers()
-	var fws []string
-	for _, f := range r.Servers[sc.Name] {
-		if r.Saturated[sustainKey(sc.Name, f)] != nil {
-			fws = append(fws, f)
-		}
-	}
-	b.WriteString("\n#### Users at which each server saturated\n\n")
-	if len(fws) == 0 {
-		b.WriteString("Not measured in this run: it needs the server pinned to cpus (`-server-cpus`, on Linux), so that its cores are known.\n")
-		return
-	}
-	fmt.Fprintf(b, "For a server that used under 0.95 of its cpus at %d users, the users go up about 25%% a step (%d, %d, %d and so on) until a step gains fewer page views a second than the spread of the rounds, fails the rule, or uses 0.95 of the cpus. The count is kept in `test/compare/saturation.json`, and a later run plays it straight away: then the run that measured it is given.\n\n", base, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))))
-	b.WriteString("| | users | page views/s | server cores | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | why the steps stopped | measured |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
-	for _, f := range fws {
-		s := r.Saturated[sustainKey(sc.Name, f)]
-		rs := r.saturationCell(f, sc.Name, s.Users)
-		if s.Users == base {
-			rs = r.cellRounds(f, sc.Name, base)
-		}
-		views := ""
-		if ok, why := verdict(rs, rounds); !ok {
-			views = fmt.Sprintf("failed (%s)", why)
-		} else {
-			views = fmtCell(each(rs, pageViewsPerSecond), "%.1f")
-		}
-		measured := "in this run"
-		if !s.Probed {
-			measured = fmt.Sprintf("Tifa %s, %s", s.Tifa, s.Date)
-		}
-		cpu := "-"
-		if len(rs) > 0 {
-			cpu = coresCell(rs, func(x *Round) float64 { return x.CPUSeconds })
-		}
-		fmt.Fprintf(b, "| %s | %d | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), s.Users, views, cpu, typeCell(rs, "load"), typeCell(rs, "click"), s.Why, measured)
-	}
 }

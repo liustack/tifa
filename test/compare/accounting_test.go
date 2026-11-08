@@ -144,3 +144,19 @@ func TestConfirmRateRefusesAnInvalidRound(t *testing.T) {
 		t.Errorf("rate %v (%v), want 90", rate, err)
 	}
 }
+
+// A closed round in which nothing completed before its timeout (a hung server) is a valid round that
+// failed, which decides its cell, and its length resizes nothing.
+func TestAHungClosedRoundIsAValidFailedRound(t *testing.T) {
+	r := plannedRound()
+	r.TimedOut, r.Seconds = true, 150
+	r.VisitsStarted, r.Visits, r.VisitsUnfinished, r.PageViews, r.FullLoads, r.Clicks, r.Writes = 3, 0, 10, 0, 0, 0, 0
+	r.Types = map[string]TypeStat{}
+	r.Judge(BrowseScenario{Share: 2.0 / 42})
+	if !r.Valid || r.Pass {
+		t.Errorf("valid %v (%s), pass %v", r.Valid, r.WhyInvalid, r.Pass)
+	}
+	if blocks := calibrate(r, 75*time.Second, 4); blocks != 0 || !r.Valid {
+		t.Errorf("resized to %d blocks, valid %v", blocks, r.Valid)
+	}
+}

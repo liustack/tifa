@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-func closedRound(fw, sc string, users, round int, views int, seconds float64, pass bool) Round {
-	return Round{Framework: fw, Scenario: sc, Model: "closed", Users: users, Round: round, Blocks: 4, Visits: views / 4, PageViews: views, FullLoads: views / 4, Clicks: views * 3 / 4,
+func closedRound(fw, sc string, sessions, round int, views int, seconds float64, pass bool) Round {
+	return Round{Framework: fw, Scenario: sc, Model: "closed", Sessions: sessions, Round: round, Blocks: 4, Visits: views / 4, PageViews: views, FullLoads: views / 4, Clicks: views * 3 / 4,
 		Writes: views / 19, WriteShare: 0.05, ClickShare: 0.75, ViewsPerVisit: 4, Seconds: seconds, DrainSeconds: 1.5, CPUSeconds: seconds / 2, PeakRSS: 100, Requests: views * 2, Bytes: int64(views) * 4096,
 		Responses: map[string]int{"doc 200 text/html": views / 4, "nav 200 application/json": views * 3 / 4, "write 200 application/json": views / 19},
 		Renders:   map[string]int{"vm": 3, "cache": views/4 - 3},
@@ -23,7 +23,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	mix := mustScenario("store-w5")
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{
 		"store-w5/nextjs": {Rate: 16, Done: true}},
-		LatencyRate: map[string]float64{"store-w5": 8}, LatencyBase: map[string]string{"store-w5": "nextjs"}}
+		LatencyRate: map[string]float64{"store-w5": 8}, LatencyBase: map[string]string{"store-w5": "nextjs"}, Config: map[string]string{"sessions": "32"}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 32, round, 4000, 10, true), closedRound("nextjs", mix.Name, 32, round, 400, 10, round != 2))
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 8, round, 3000, 10, true), closedRound("nextjs", mix.Name, 8, round, 380, 10, true))
@@ -34,12 +34,12 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	md := r.Markdown()
 	for _, want := range []string{
 		"### storefront, reads 95% / writes 5%",
-		"| | 8 users | 32 users |",
+		"| | 8 sessions | 32 sessions |",
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
 		"#### The arrival rate Next.js sustains",
 		"| Next.js | 16.00 | 64 |",
-		"half of the rate Next.js sustains on this scenario",
+		"#### Latency at the same arrival rate",
 		"Every server gets 8.00 visits/s",
 		"What one visit costs the server",
 		"What the server did a second:",
@@ -143,7 +143,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 // a round are given for the rounds a scenario has.
 func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 	scs, _ := ParseScenarios("default,extra")
-	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
 	for i, sc := range scs {
 		servers := BrowseFrameworks
@@ -162,7 +162,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			}
 			if sc.Latency {
 				l := x
-				l.Model, l.Rate, l.Users = "open", float64(i+2), 0
+				l.Model, l.Rate, l.Sessions = "open", float64(i+2), 0
 				r.Latency = append(r.Latency, l)
 			}
 		}
@@ -179,7 +179,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 		if sec == "" {
 			t.Fatalf("no section for %s:\n%s", sc.Title, md)
 		}
-		closed := []string{"#### Page views a second at the same number of users", "#### 32 users"}
+		closed := []string{"#### Page views a second at each number of concurrent sessions", "#### 32 concurrent sessions"}
 		open := []string{"#### The arrival rate Next.js sustains", "#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))}
 		for _, want := range append(closed, open...) {
 			has := strings.Contains(sec, want)
@@ -233,7 +233,7 @@ func TestReportTellsABrowseResultFromARecord(t *testing.T) {
 // run and in the read-only control of admin-w5: a diagnostic of what the writes do to the cache.
 func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
 	sc := mustScenario("store-w5")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"list": {"cache": 55, "vm": 45}, "stats": {"cache": 11, "vm": 9}, "order": {"cache": 1, "vm": 99}}
 	n := closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)
@@ -259,40 +259,47 @@ func TestBrowseReportSplitsTheRenderCacheOfFullLoadsByPage(t *testing.T) {
 	}
 }
 
-// The closed rows give the server cores next to the client cores, and the saturation table the users
-// at which each server saturated, from this run or from the file.
-func TestBrowseReportShowsServerCoresAndWhereEachServerSaturated(t *testing.T) {
-	sc := mustScenario("store-w20")
+// The throughput table types each server's result and gives the sessions it was measured at, its
+// page views a second, the active people they stand for and its server cores. A server whose next
+// step failed reports the step below, never the failed one, and the table of every number of
+// sessions shows the failed cell as failed.
+func TestBrowseReportTypesTheThroughputOfEachServer(t *testing.T) {
+	sc := mustScenario("store-w5")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "start"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
-		Saturated: map[string]*Saturated{
-			"store-w20/tifa":   {Users: 50, Why: "used 0.96 of 1 cpus at 50 users", Steps: []int{40, 50}, Probed: true},
-			"store-w20/nextjs": {Users: 32, Why: "at 40 users the page views a second rose by less than the spread of the rounds", Tifa: "abc1234", Date: "2026-11-01"},
+		Config: map[string]string{"sessions": "8", "rounds": "3"},
+		Throughput: map[string]*Throughput{
+			"store-w5/tifa":   {Result: ThroughputCoreUsed, Sessions: 13, Why: "used 0.96 of 1 cpus at 13 sessions", Steps: []int{8, 10, 13}},
+			"store-w5/nextjs": {Result: ThroughputHighestPassing, Sessions: 8, Why: "failed at 10 sessions: click P99 1200 ms over 1000 ms", Steps: []int{8, 10}},
+			"store-w5/start":  {Result: ThroughputNone, Why: "failed at 8, 6 and 4 sessions: click P99 1200 ms over 1000 ms", Steps: []int{8, 6, 4}},
 		}}
 	for round, d := range []int{-10, 0, 10} {
-		r.Closed = append(r.Closed, closedRound("tifa", sc.Name, 32, round+1, 4000+d, 10, true), closedRound("nextjs", sc.Name, 32, round+1, 400+d, 10, true), closedRound("start", sc.Name, 32, round+1, 300+d, 10, true))
-		r.Saturation = append(r.Saturation, closedRound("tifa", sc.Name, 40, round+1, 4500+d, 10, true), closedRound("tifa", sc.Name, 50, round+1, 5000+d, 10, true))
+		r.Closed = append(r.Closed, closedRound("tifa", sc.Name, 8, round+1, 4000+d, 10, true), closedRound("tifa", sc.Name, 10, round+1, 4500+d, 10, true), closedRound("tifa", sc.Name, 13, round+1, 5000+d, 10, true),
+			closedRound("nextjs", sc.Name, 8, round+1, 400+d, 10, true))
+	}
+	r.Closed = append(r.Closed, closedRound("nextjs", sc.Name, 10, 1, 9000, 10, false))
+	for _, n := range []int{8, 6, 4} {
+		r.Closed = append(r.Closed, closedRound("start", sc.Name, n, 1, 300, 10, false))
 	}
 	md := r.Markdown()
 	for _, want := range []string{
-		"| | 32 users |\n",
-		"| Tifa | 400.0 (399.0 to 401.0) |\n",
+		"#### Throughput",
+		"| | result | sessions | page views/s | active people at one page per 5 to 10 s | server cores |",
+		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 2500 to 5000 | 0.50 |",
+		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 200 to 400 | 0.50 |",
+		"| TanStack Start | no passing step | - | - |",
+		"| | 4 sessions | 6 sessions | 8 sessions | 10 sessions | 13 sessions |",
+		"| Next.js | - | - | 40.0 (39.0 to 41.0) | failed (click P99 1200 ms over 1000 ms) | - |",
+		"| TanStack Start | failed (click P99 1200 ms over 1000 ms) | failed (click P99 1200 ms over 1000 ms) | failed (click P99 1200 ms over 1000 ms) | - | - |",
+		"#### 8 concurrent sessions",
+		"#### 13 concurrent sessions",
 		"| server cores | client cores |",
-		"| 0.50 | - |",
-		"#### Users at which each server saturated",
-		"(40, 50, 64 and so on)",
-		"| Tifa | 50 | 500.0 (499.0 to 501.0) | 0.50 | 4.0 / 30 (300) | 2.0 / 15 (900) | used 0.96 of 1 cpus at 50 users | in this run |",
-		"| Next.js | 32 | 40.0 (39.0 to 41.0) | 0.50 | 4.0 / 30 (300) | 2.0 / 15 (900) | at 40 users the page views a second rose by less than the spread of the rounds | Tifa abc1234, 2026-11-01 |",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
 	}
-	if strings.Contains(md, "| TanStack Start | 32 |") || strings.Contains(md, "#### 40 users") {
-		t.Error("the report shows a server with no saturation entry, or the steps as a closed table")
-	}
-	r.Saturated = nil
-	if md := r.Markdown(); !strings.Contains(md, "Not measured in this run: it needs the server pinned to cpus") {
-		t.Errorf("the report does not say the saturation was not measured:\n%s", md)
+	if strings.Contains(md, "900.0") || strings.Contains(md, "#### 10 concurrent sessions") {
+		t.Error("the report counts a failed round, or gives the detail of a step that is no result")
 	}
 }
 

@@ -25,7 +25,7 @@ type Round struct {
 	Framework string  `json:"framework"` // the spec id: tifa-nocache is a framework of its own here
 	Scenario  string  `json:"scenario"`
 	Model     string  `json:"model"`                     // "closed" or "open"
-	Users     int     `json:"users,omitempty"`           // closed
+	Sessions  int     `json:"sessions,omitempty"`        // closed: the concurrent sessions, no think time
 	Rate      float64 `json:"visitsPerSecond,omitempty"` // open: visits started a second
 	Round     int     `json:"round"`
 	Blocks    int     `json:"blocks"`
@@ -208,10 +208,10 @@ func (r *Round) Judge(sc BrowseScenario) {
 	}
 }
 
-// RunClosed plays visits seq 0..visits-1 of the global sequence with users users, each taking the
+// RunClosed plays visits seq 0..visits-1 of the global sequence with sessions concurrent sessions, each taking the
 // next visit when it finishes one (zero think time), and each visit with at most six connections.
 // It starts at the first scheduled action and ends when the last visit has finished, or at timeout.
-func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.Duration) *Round {
+func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout time.Duration) *Round {
 	a := newAcc()
 	var next atomic.Int64
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -219,7 +219,7 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 	cpu0, client0 := r.cpu(), selfCPU()
 	start := time.Now()
 	var wg sync.WaitGroup
-	for range users {
+	for range sessions {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -236,7 +236,7 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 	}
 	wg.Wait()
 	end := time.Now()
-	round := &Round{Model: "closed", Users: users, Blocks: visits / BlockVisits, TimedOut: ctx.Err() == context.DeadlineExceeded}
+	round := &Round{Model: "closed", Sessions: sessions, Blocks: visits / BlockVisits, TimedOut: ctx.Err() == context.DeadlineExceeded}
 	r.wl.plan(round, 0, visits, false)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	r.countOrders(round)
@@ -250,29 +250,29 @@ func (r *runner) countOrders(round *Round) {
 	}
 }
 
-// Warm plays the workload with users users for d, counting nothing, and returns how many visits a
+// Warm plays the workload with sessions sessions for d, counting nothing, and returns how many visits a
 // second it completed. It is the warm-up of a framework, apart from the measured round. It sends no
 // writes (see pacer), so the data the round starts with is the same for every framework.
-func (r *runner) Warm(ctx context.Context, users int, d time.Duration) float64 {
-	return r.closedFor(ctx, users, d, pacer{reads: true})
+func (r *runner) Warm(ctx context.Context, sessions int, d time.Duration) float64 {
+	return r.closedFor(ctx, sessions, d, pacer{reads: true})
 }
 
-// Size plays the scenario with its writes for d, on users, and returns the visits a second: what the
+// Size plays the scenario with its writes for d, on sessions concurrent sessions, and returns the visits a second: what the
 // first round of a cell is sized from.
-func (r *runner) Size(ctx context.Context, users int, d time.Duration) float64 {
-	return r.closedFor(ctx, users, d, pacer{})
+func (r *runner) Size(ctx context.Context, sessions int, d time.Duration) float64 {
+	return r.closedFor(ctx, sessions, d, pacer{})
 }
 
-// closedFor plays visits on users, each starting the next as soon as one ends, for d, and returns
+// closedFor plays visits on sessions concurrent sessions, each starting the next as soon as one ends, for d, and returns
 // the visits a second that ended, completed or failed.
-func (r *runner) closedFor(ctx context.Context, users int, d time.Duration, p pacer) float64 {
+func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p pacer) float64 {
 	a := newAcc()
 	var next, ended atomic.Int64
 	wctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	start := time.Now()
 	var wg sync.WaitGroup
-	for range users {
+	for range sessions {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

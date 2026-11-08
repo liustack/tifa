@@ -9,21 +9,19 @@ import (
 	"time"
 )
 
-// A result is continued only under the settings it was started with: a probe asked for again, or
-// other server cpus, must not reuse the rounds and the saturation counts of another run.
+// A result is continued only under the settings it was started with: other server cpus or windows
+// must not reuse the rounds of another run.
 func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
-	o := BrowseOptions{Users: 32, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1}
+	o := BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1}
 	res := &BrowseResult{Config: browseConfig(o)}
 	if err := canContinue(res, o); err != nil {
 		t.Fatalf("the same settings: %v", err)
 	}
-	probe := o
-	probe.Probe = true
 	cpus := o
 	cpus.ServerCPUs, cpus.ServerCPUCount = "0,2", 2
 	target := o
 	target.Target = 30 * time.Second
-	for name, other := range map[string]BrowseOptions{"-probe": probe, "-server-cpus": cpus, "-target": target} {
+	for name, other := range map[string]BrowseOptions{"-server-cpus": cpus, "-target": target} {
 		err := canContinue(res, other)
 		if err == nil || !strings.Contains(err.Error(), "remove it to start again") {
 			t.Errorf("%s: continued a result of other settings: %v", name, err)
@@ -111,20 +109,6 @@ func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 	}
 }
 
-// Only a round in which nothing completed is a hang that skips the rest of its cell. A round cut off
-// for running too long completed visits: it is resized, and the cell goes on.
-func TestARoundCutOffForItsLengthIsNoHang(t *testing.T) {
-	if hung(&Round{TimedOut: true, Seconds: 150, Visits: 3555, WhyInvalid: "the round took 150 s, outside 60 to 120 s: resized"}) {
-		t.Error("a round cut off for its length is taken for a hang")
-	}
-	if !hung(&Round{TimedOut: true, Seconds: 150, WhyInvalid: "no visit completed"}) {
-		t.Error("a round in which nothing completed is not taken for a hang")
-	}
-	if hung(&Round{Seconds: 90, Visits: 3555, Valid: true}) || hung(nil) {
-		t.Error("a round that ended is taken for a hang")
-	}
-}
-
 // A cell with no valid round says why its rounds failed, not only how many there were.
 func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 	sc, _ := BrowseScenarioByName("store-w5")
@@ -139,5 +123,27 @@ func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 	md := r.Markdown()
 	if want := "failed (no valid round of 3: 630 failures (GET /zh-CN/store/cart: status 503); the round took 59 s, outside 60 to 120 s: resized) |"; !strings.Contains(md, want) {
 		t.Errorf("the report lacks %q:\n%s", want, md)
+	}
+}
+
+// A result of the old format, which counted users and had no planned visits, is refused with a clear
+// error, by the report and by a run that would continue it: there is no reading of it.
+func TestAResultOfTheOldFormatIsRefused(t *testing.T) {
+	cur := &BrowseResult{Config: browseConfig(BrowseOptions{Sessions: 8}), Closed: []Round{{VisitsPlanned: 4}}, Sustain: map[string]*Sustain{}}
+	data, err := cur.json()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadBrowseResult(data); err != nil {
+		t.Fatalf("the current format: %v", err)
+	}
+	for name, old := range map[string]string{
+		"users in the settings": `{"settings":{"users":"32","rounds":"3"},"closed":[],"sustain":{}}`,
+		"users in a round":      `{"settings":{"sessions":"8"},"closed":[{"users":32,"visits":10}],"sustain":{}}`,
+		"a saturation file":     `{"settings":{"sessions":"8"},"closed":[],"sustain":{},"saturated":{}}`,
+	} {
+		if _, err := ReadBrowseResult([]byte(old)); err == nil || !strings.Contains(err.Error(), "older version") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
