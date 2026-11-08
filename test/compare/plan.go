@@ -27,11 +27,24 @@ type PlanStep struct {
 	Page string `json:"page"` // the URL path
 }
 
-// Plan is one visit. Block is the block it belongs to.
+// Plan is one visit. Block is the block it belongs to. Role says who makes it: a shopper on the
+// storefront or the staff in the back office. A returning shopper comes back to a cart of their own,
+// made before the round (see runner.setup). Writes are the writes of a shopper visit, by the page view
+// they follow: what they put in the cart is drawn for each played visit (storeWritesOf). The writes of
+// a staff visit are drawn for each played visit too, by the scenario (Workload.writesOf).
 type Plan struct {
-	ID    int        `json:"id"`
-	Block int        `json:"block"`
-	Steps []PlanStep `json:"steps"`
+	ID        int         `json:"id"`
+	Block     int         `json:"block"`
+	Role      string      `json:"role,omitempty"`
+	Returning bool        `json:"returning,omitempty"`
+	Writes    []PlanWrite `json:"writes,omitempty"`
+	Steps     []PlanStep  `json:"steps"`
+}
+
+// PlanWrite is a write of a shopper visit after its page view After (counted from 0).
+type PlanWrite struct {
+	After int    `json:"after"`
+	Kind  string `json:"kind"`
 }
 
 // A block is 95 visits of 380 page views (4 a visit), so that the writes of the three rates come out

@@ -112,13 +112,14 @@ var StoreFirstShares = []struct {
 
 // storeClicks says, for the kind of page a visitor is on, how likely a click is to go to a link of
 // each kind. They are assumptions, shares of the links the page has: a visitor on a list picks a
-// product, on a product looks at a related one, goes back to the list or goes to the cart, and
-// from the cart to the checkout. A kind the page has no link to is left out, and the rest count
-// for the whole.
+// product, on a product looks at a related one, goes back to the list, to the cart or to the
+// checkout (the link of the cart drawer), and from the cart to the checkout. A kind the page has no
+// link to is left out, and the rest count for the whole. Among the links of a kind, a product is
+// picked by its popularity (productWeight), any other page alike.
 var storeClicks = map[string]map[string]float64{
 	StoreKindHome:     {StoreKindList: 0.3, StoreKindProduct: 0.4, StoreKindJournal: 0.15, StoreKindCart: 0.1, StoreKindPost: 0.05},
 	StoreKindList:     {StoreKindProduct: 0.7, StoreKindList: 0.1, StoreKindHome: 0.1, StoreKindCart: 0.1},
-	StoreKindProduct:  {StoreKindProduct: 0.3, StoreKindList: 0.25, StoreKindCart: 0.25, StoreKindHome: 0.1, StoreKindJournal: 0.1},
+	StoreKindProduct:  {StoreKindProduct: 0.3, StoreKindList: 0.25, StoreKindCart: 0.25, StoreKindCheckout: 0.1, StoreKindHome: 0.1, StoreKindJournal: 0.1},
 	StoreKindJournal:  {StoreKindPost: 0.7, StoreKindHome: 0.15, StoreKindList: 0.15},
 	StoreKindPost:     {StoreKindJournal: 0.4, StoreKindProduct: 0.3, StoreKindHome: 0.15, StoreKindList: 0.15},
 	StoreKindCart:     {StoreKindCheckout: 0.4, StoreKindProduct: 0.3, StoreKindList: 0.2, StoreKindHome: 0.1},
@@ -153,8 +154,16 @@ func StoreLinks(url string) []Link {
 	}
 	var out []Link
 	for _, k := range kinds {
+		weight := func(string) float64 { return 1 }
+		if k == StoreKindProduct {
+			weight = func(to string) float64 { return productWeight(productOf(to)) }
+		}
+		var sum float64
 		for _, to := range by[k] {
-			out = append(out, Link{to, storeClicks[kind][k] / total / float64(len(by[k]))})
+			sum += weight(to)
+		}
+		for _, to := range by[k] {
+			out = append(out, Link{to, storeClicks[kind][k] / total * weight(to) / sum})
 		}
 	}
 	return out
