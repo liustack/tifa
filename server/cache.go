@@ -250,11 +250,11 @@ func (p cachedPage) kept() cachedPage {
 	return p
 }
 
-// holds reports whether the cache can keep the page, in the form it keeps it. A page it cannot hold
-// is sent as it comes.
 // off reports that the cache stores nothing: cache.size is below 1.
 func (c *htmlCache) off() bool { return c.size < 1 }
 
+// holds reports whether the cache can keep the page, in the form it keeps it. A page it cannot hold
+// is sent as it comes.
 func (c *htmlCache) holds(p cachedPage) bool { return !c.off() && p.kept().size() <= c.size }
 
 // put stores a page in its one form, or does not when that does not fit.
