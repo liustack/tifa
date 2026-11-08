@@ -548,10 +548,10 @@ const instantPrefix = "@instant "
 // NormalizeStore removes what differs between two runs of the same scenario: the random cart
 // id and order number, and the instants counted from the time of the request. An instant becomes
 // its distance in milliseconds from the request that made it, written "@instant <ms>", for
-// DiffStore to compare within instantTolerance: a run an hour later is the same and a delivery that
-// is off by an hour is not. The time an order was placed, and its delivery (the keys under "placed"), are
-// counted from the request that placed it (the 303 of the checkout), not from the request that reads
-// it later. A quote for the cart is counted from the request that reads it. It is applied to the answers
+// DiffStore to compare within instantTolerance: a run an hour later is the same. The time an order was
+// placed (under "placed") is counted from the request that placed it (the 303 of the checkout), not
+// from the request that reads it later. A delivery date ("earliest", "latest") is a midnight in the
+// store's time zone, so it is not counted from a request: it becomes "@day <ms>", the instant itself. It is applied to the answers
 // of the shop and of the port alike.
 func NormalizeStore(results [][]StoreResult) {
 	var from time.Time
@@ -569,6 +569,12 @@ func NormalizeStore(results [][]StoreResult) {
 				if s, ok := e.(string); ok && (k == "earliest" || k == "latest" || k == "placedAt") {
 					if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 						from = at
+						if k != "placedAt" {
+							// A delivery date is a midnight of the store's zone, the same all day on both
+							// servers, so it is compared as it is and not by how far it is from the request.
+							x[k] = fmt.Sprintf(" %d", t.UnixMilli())
+							continue
+						}
 						if (k == "placedAt" || placed) && !orderAt.IsZero() {
 							from = orderAt
 						}

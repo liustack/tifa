@@ -55,3 +55,31 @@ export function local(ms: number, zone: string): Local {
     weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday),
   }
 }
+
+const clocks = new Map<string, Intl.DateTimeFormat>()
+
+// zoneOffset is how far the wall clock of a time zone is ahead of UTC at an instant, in milliseconds.
+function zoneOffset(ms: number, zone: string): number {
+  let format = clocks.get(zone)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+    })
+    clocks.set(zone, format)
+  }
+  const p: Record<string, number> = {}
+  for (const part of format.formatToParts(ms)) if (part.type !== 'literal') p[part.type] = Number(part.value)
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / SECOND) * SECOND
+}
+
+// midnight is 00:00 of the day that is days after the day of an instant, in a time zone, as Go's
+// Deliveries computes a date: time.Date(y, m, d+days, 0, 0, 0, 0, zone).
+export function midnight(ms: number, zone: string, days: number): number {
+  const l = local(ms, zone)
+  const wall = Date.UTC(l.year, l.month - 1, l.day + days)
+  // The offset of the zone at that midnight, found from a first guess, since it can change (daylight
+  // saving time) between the instant and the day it is counted to.
+  let at = wall - zoneOffset(wall, zone)
+  at = wall - zoneOffset(at, zone)
+  return at
+}

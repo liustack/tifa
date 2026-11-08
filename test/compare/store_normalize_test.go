@@ -7,14 +7,14 @@ import (
 	"github.com/liustack/tifa/test/compare"
 )
 
-// An instant in an answer is compared by how far it is from the request that made it, to the
-// second: the Go shop and the port answer at different times, but a delivery that is two days away
-// is two days away for both, and one that is off by hours is not.
+// An instant in an answer (the time an order was placed) is compared by how far it is from the
+// request that made it, to the second: the Go shop and the port answer at different times, but an
+// order placed two days ago is two days ago for both, and one that is off by hours is not.
 func TestStoreInstantsAreComparedFromTheRequest(t *testing.T) {
 	at := time.Date(2026, 11, 6, 10, 30, 0, 0, time.UTC)
 	answer := func(at time.Time, offset time.Duration, jitter time.Duration) [][]compare.StoreResult {
 		return [][]compare.StoreResult{{{Status: 200, At: at.UnixMilli(), Body: map[string]any{
-			"earliest": at.Add(offset + jitter).Format(time.RFC3339Nano), "placedAt": at.Add(jitter).Format(time.RFC3339Nano),
+			"placedAt": at.Add(offset + jitter).Format(time.RFC3339Nano),
 		}}}}
 	}
 	scenarios := []compare.StoreScenario{{Name: "s", Steps: []compare.StoreStep{{Method: "GET", URL: "/x"}}}}
@@ -42,7 +42,7 @@ func TestStoreInstantsAreComparedFromTheRequest(t *testing.T) {
 func TestStoreInstantsAreComparedWithATolerance(t *testing.T) {
 	at := time.Date(2026, 11, 6, 10, 30, 0, 0, time.UTC)
 	answer := func(offset time.Duration) [][]compare.StoreResult {
-		return [][]compare.StoreResult{{{Status: 200, At: at.UnixMilli(), Body: map[string]any{"earliest": at.Add(offset).Format(time.RFC3339Nano)}}}}
+		return [][]compare.StoreResult{{{Status: 200, At: at.UnixMilli(), Body: map[string]any{"placedAt": at.Add(offset).Format(time.RFC3339Nano)}}}}
 	}
 	scenarios := []compare.StoreScenario{{Name: "s", Steps: []compare.StoreStep{{Method: "GET", URL: "/x"}}}}
 	diff := func(a, b time.Duration) []string {
@@ -89,9 +89,8 @@ func TestStorePlacedAtIsMeasuredFromTheOrder(t *testing.T) {
 	}
 }
 
-// A placed order is read back with its delivery, which is counted from the time the order was
-// placed like placedAt is, while a quote for the cart that is read at the same time is counted from
-// the request that reads it.
+// A placed order is read back with its delivery, which is a day of the store and so the same whenever
+// it is read, as is a quote for the cart that is read at the same time.
 func TestStorePlacedDeliveryIsMeasuredFromTheOrder(t *testing.T) {
 	order := time.Date(2026, 11, 6, 10, 30, 0, 0, time.UTC)
 	const day = 24 * time.Hour
@@ -104,7 +103,7 @@ func TestStorePlacedDeliveryIsMeasuredFromTheOrder(t *testing.T) {
 					"placedAt": order.Add(30 * time.Millisecond).Format(time.RFC3339Nano),
 					"delivery": map[string]any{"earliest": order.Add(2 * day).Format(time.RFC3339Nano), "latest": order.Add(3 * day).Format(time.RFC3339Nano)},
 				},
-				"deliveries": []any{map[string]any{"earliest": read.Add(quote).Format(time.RFC3339Nano)}},
+				"deliveries": []any{map[string]any{"earliest": time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC).Add(quote).Format(time.RFC3339Nano)}},
 			}},
 		}}
 	}
@@ -115,11 +114,36 @@ func TestStorePlacedDeliveryIsMeasuredFromTheOrder(t *testing.T) {
 		return compare.DiffStore(scenarios, want, got, 10)
 	}
 	// One server read the order 1 s after it was placed and the other 9 s after: the same order, and the same quote.
-	if d := diff(run(time.Second, 2*day), run(9*time.Second, 2*day)); len(d) > 0 {
+	if d := diff(run(time.Second, 0), run(9*time.Second, 0)); len(d) > 0 {
 		t.Errorf("the same order differs: %v", d)
 	}
-	// A quote for the cart that is off from the request that read it is not the same.
-	if d := diff(run(time.Second, 2*day), run(9*time.Second, 2*day+time.Hour)); len(d) == 0 {
-		t.Error("a quote that is an hour off passed")
+	// A quote for another day is not the same.
+	if d := diff(run(time.Second, 0), run(9*time.Second, day)); len(d) == 0 {
+		t.Error("a quote that is a day off passed")
+	}
+}
+
+// A delivery date is a midnight of the store's zone, the same on both servers all day, so it is
+// compared as it is. Two runs at different times of the day are the same, a day off is not.
+func TestStoreDeliveryDatesAreComparedAsTheyAre(t *testing.T) {
+	midnight := time.Date(2026, 11, 9, 0, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	answer := func(at time.Time, earliest time.Time) [][]compare.StoreResult {
+		return [][]compare.StoreResult{{{Status: 200, At: at.UnixMilli(), Body: map[string]any{
+			"delivery": map[string]any{"earliest": earliest.Format(time.RFC3339Nano), "latest": earliest.Format(time.RFC3339Nano)},
+		}}}}
+	}
+	scenarios := []compare.StoreScenario{{Name: "s", Steps: []compare.StoreStep{{Method: "GET", URL: "/x"}}}}
+	diff := func(want, got [][]compare.StoreResult) []string {
+		compare.NormalizeStore(want)
+		compare.NormalizeStore(got)
+		return compare.DiffStore(scenarios, want, got, 10)
+	}
+	at := time.Date(2026, 11, 8, 17, 0, 0, 0, time.UTC)
+	// The same midnight, written in two zones, asked at two times of the day.
+	if d := diff(answer(at, midnight), answer(at.Add(5*time.Hour+7*time.Minute), midnight.UTC())); len(d) > 0 {
+		t.Errorf("the same delivery date differs: %v", d)
+	}
+	if d := diff(answer(at, midnight), answer(at, midnight.Add(24*time.Hour))); len(d) == 0 {
+		t.Error("a delivery date a day off passed")
 	}
 }

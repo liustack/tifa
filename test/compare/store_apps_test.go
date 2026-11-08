@@ -63,9 +63,11 @@ var storeApps = []storeApp{
 }
 
 var (
-	orderNumber     = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
-	cartCookie      = regexp.MustCompile(`store_cart=[^;]+`)
-	isoTime         = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
+	orderNumber = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
+	cartCookie  = regexp.MustCompile(`store_cart=[^;]+`)
+	isoTime     = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
+	// deliveryDay is a delivery date: a midnight of the store's zone, the same on both servers all day.
+	deliveryDay     = regexp.MustCompile(`((?:earliest|latest)\\?":\\?")(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d))`)
 	placedLocation  = regexp.MustCompile(`(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
@@ -106,11 +108,20 @@ type reply struct {
 	done   time.Time // when the answer was read
 }
 
-// instants writes the instants in a body as "@instant", and returns how far each is from the
+// instants writes the instants in a body as "@instant", except a delivery date (a midnight of the store's
+// zone, written as "@day <ms>" and compared as it is), and returns how far each is from the
 // request, in milliseconds, for the caller to compare within a tolerance: a delivery two days away
 // is the same on two servers that answered at different times, and one that is off by hours is not.
 func (r reply) instants(s string) (string, []int64) {
 	var offsets []int64
+	s = deliveryDay.ReplaceAllStringFunc(s, func(m string) string {
+		sub := deliveryDay.FindStringSubmatch(m)
+		t, err := time.Parse(time.RFC3339Nano, sub[2])
+		if err != nil {
+			return m
+		}
+		return fmt.Sprintf("%s@day %d", sub[1], t.UnixMilli())
+	})
 	s = isoTime.ReplaceAllStringFunc(s, func(m string) string {
 		t, err := time.Parse(time.RFC3339Nano, m)
 		if err != nil {

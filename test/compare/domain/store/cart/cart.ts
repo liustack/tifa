@@ -9,6 +9,7 @@ import { colorName, getProductOrNull, hasVariant } from '../products/index.ts'
 import { inLocale, price } from '../store.ts'
 import type { Locale } from '../store.ts'
 import { DAY, iso } from '../time.ts'
+import { midnight } from '../../time.ts'
 import { deliveries } from './data.ts'
 import { Recent } from './recent.ts'
 
@@ -239,11 +240,14 @@ export function discount(code: string, subtotal: number, l: Locale): number {
 
 // getDeliveries returns the ways the cart can be delivered from now, with their prices for the
 // subtotal: standard delivery is free from freeShippingCents. now is in milliseconds. Go calls it Deliveries.
+// A date is a whole day: midnight, in the time zone of the locale, of the day of now plus the days the way
+// takes, so the data of a page is the same all day and a render cache can reuse the page (as in Go).
+// The pages show the month and the day in that zone.
 export function getDeliveries(cart: Pick<Cart, 'subtotalCents' | 'discountCents' | 'freeShippingCents'>, now: number, l: Locale): Delivery[] {
   return deliveries.map((d) => {
     let p = price(d.priceFen, l)
     if (d.id === 'standard' && cart.subtotalCents - cart.discountCents >= cart.freeShippingCents) p = 0
-    return { id: d.id, name: inLocale(d.name, l), priceCents: p, earliest: iso(now + d.earliestDays * DAY), latest: iso(now + d.latestDays * DAY) }
+    return { id: d.id, name: inLocale(d.name, l), priceCents: p, earliest: iso(midnight(now, l.timeZone, d.earliestDays)), latest: iso(midnight(now, l.timeZone, d.latestDays)) }
   })
 }
 
