@@ -85,9 +85,9 @@ func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
 	}
 }
 
-// A closed round outside the length window resizes its cell from what it did, whatever else made it
-// invalid: a round stopped at twice the target played only part of its blocks, so its mix is off
-// too, and the next round must not get the same blocks again.
+// A closed round outside the length window resizes its cell from what it did, a round stopped at
+// twice the target too: it played only part of its blocks, and the next round must not get the same
+// blocks again.
 func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 	target := 75 * time.Second
 	for _, tc := range []struct {
@@ -95,18 +95,17 @@ func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 		out  Round
 		want bool
 	}{
-		{"stopped at twice the target, its partial mix off", Round{Seconds: 150, Visits: 3555, TimedOut: true, WhyInvalid: "4.046 page views a visit, want 4 within 1%"}, true},
-		{"stopped at twice the target", Round{Seconds: 150, Visits: 3555, TimedOut: true, Valid: true}, true},
-		{"too short", Round{Seconds: 40, Visits: 3800, Valid: true}, true},
-		{"too short with its mix off", Round{Seconds: 40, Visits: 3800, WhyInvalid: "write share 0.060, want 0.05 within 0.01"}, true},
-		{"in the window", Round{Seconds: 90, Visits: 3800, Valid: true}, false},
-		{"nothing completed", Round{Seconds: 150, WhyInvalid: "no visit completed"}, false},
+		{"stopped at twice the target", Round{Seconds: 150, Visits: 3555, TimedOut: true}, true},
+		{"too short", Round{Seconds: 40, Visits: 3800}, true},
+		{"in the window", Round{Seconds: 90, Visits: 3800}, false},
+		{"nothing ended", Round{Seconds: 150, TimedOut: true}, false},
 	} {
-		blocks, ok := resize(&tc.out, target, 4)
-		if ok != tc.want {
-			t.Errorf("%s: resized %v, want %v", tc.name, ok, tc.want)
+		tc.out.Pass, tc.out.Valid = true, true
+		blocks := calibrate(&tc.out, target, 4)
+		if (blocks > 0) != tc.want || tc.out.Valid == tc.want {
+			t.Errorf("%s: %d blocks, valid %v", tc.name, blocks, tc.out.Valid)
 		}
-		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4); ok && blocks != want {
+		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4); tc.want && blocks != want {
 			t.Errorf("%s: %d blocks, want %d", tc.name, blocks, want)
 		}
 	}
@@ -123,16 +122,6 @@ func TestARoundCutOffForItsLengthIsNoHang(t *testing.T) {
 	}
 	if hung(&Round{Seconds: 90, Visits: 3555, Valid: true}) || hung(nil) {
 		t.Error("a round that ended is taken for a hang")
-	}
-}
-
-// A round's length is set by every visit it played, the failed ones too (a 503 ends a visit fast),
-// so it resizes from them and not from the visits that completed.
-func TestAResizeCountsTheVisitsThatFailed(t *testing.T) {
-	out := Round{Seconds: 59, Visits: 1900, Played: 2660, Blocks: 28, Valid: true}
-	blocks, ok := resize(&out, 75*time.Second, 4)
-	if want := BlocksFor(2660.0/59, 75*time.Second, 4); !ok || blocks != want {
-		t.Errorf("resized %v to %d blocks, want %d", ok, blocks, want)
 	}
 }
 

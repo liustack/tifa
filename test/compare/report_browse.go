@@ -265,7 +265,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, users
 	}
 	r.pageRendersMarkdown(b, sc, users)
 	r.writesMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, users) })
-	r.achievedMarkdown(b, sc, users)
+	r.achievedMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, users) })
 }
 
 // writesMarkdown writes what the writes of the rounds of each server were, the rounds of a server
@@ -307,17 +307,19 @@ func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rou
 	}
 }
 
-// achievedMarkdown writes what the closed rounds of a scenario at a number of users achieved.
-func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, users int) {
+// achievedMarkdown writes what the rounds of a scenario planned and did, the rounds of a server given
+// by rounds: the first of them, and the length of all.
+func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
 	fw := r.Servers[sc.Name]
-	b.WriteString("\nWhat the rounds achieved, against what the scenario asks for (a round is run again unless its write share is within 1 point of the scenario, its click share within 1 point of 75% and it has 4 page views a visit within 1%):\n\n| | blocks | visits | page views | full loads | clicks | writes | write share | click share | page views/visit | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned write share is within 1 point of the scenario, its planned click share within 1 point of 75% and it plans 4 page views a visit within 1%, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
-		rs := r.cellRounds(f, sc.Name, users)
+		rs := rounds(f)
 		if len(rs) == 0 {
 			continue
 		}
 		x := rs[0]
-		fmt.Fprintf(b, "| %s | %d | %d | %d | %d | %d | %d | %.2f%% | %.2f%% | %.3f | %s | %s |\n", BrowseLabel(f), x.Blocks, x.Visits, x.PageViews, x.FullLoads, x.Clicks, x.Writes, 100*x.WriteShare, 100*x.ClickShare, x.ViewsPerVisit,
+		fmt.Fprintf(b, "| %s | %d | %d / %d / %d / %d / %d | %d / %d | %d | %d / %d | %d / %d | %.2f%% | %s | %s |\n", BrowseLabel(f), x.Blocks,
+			x.VisitsPlanned, x.VisitsStarted, x.Visits, x.VisitsFailed, x.VisitsUnfinished, x.PageViewsPlanned, x.PageViews, x.FullLoads, x.ClicksPlanned, x.Clicks, x.WritesPlanned, x.Writes, 100*x.WriteShare,
 			fmtCell(each(rs, func(x *Round) float64 { return x.Seconds }), "%.0f"), fmtCell(each(rs, func(x *Round) float64 { return x.DrainSeconds }), "%.1f"))
 	}
 }
@@ -357,47 +359,48 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) {
 		return
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets the same arrival rate, half of the rate %s sustains on this scenario, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets the same arrival rate, half of the rate %s sustains on this scenario, so the latency shows how fast each answers and not how long requests wait in line near saturation. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named in the row. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | visits failed / unfinished, of planned | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, 4*rate, r.rounds())
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
-		var shown []Round
-		var notes []string
+		shown := r.latencyRounds(f, sc.Name)
+		var notes, invalid []string
 		for _, x := range r.Latency {
-			if x.Framework != f || x.Scenario != sc.Name {
-				continue
-			}
-			shown = append(shown, x)
-			if !x.Pass || !x.Valid {
-				why := x.Why
-				if why == "" {
-					why = x.WhyInvalid
-				}
-				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, why))
+			if x.Framework == f && x.Scenario == sc.Name && !x.Valid {
+				invalid = append(invalid, fmt.Sprintf("round %d try %d: %s", x.Round, x.Attempt, x.WhyInvalid))
 			}
 		}
-		if len(shown) == 0 {
+		for _, x := range shown {
+			if !x.Pass {
+				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, x.Why))
+			}
+		}
+		if len(shown) == 0 && len(invalid) == 0 {
 			continue
 		}
 		note := fmt.Sprintf("%d of %d rounds passed", len(shown)-len(notes), len(shown))
 		if len(notes) > 0 {
 			note = fmt.Sprintf("failed the rule in %d of %d rounds: %s", len(notes), len(shown), strings.Join(notes, "; "))
 		}
-		fails := 0
-		for _, x := range shown {
-			fails += x.Failures
+		if len(invalid) > 0 {
+			note += fmt.Sprintf("; not valid, run again: %s", strings.Join(invalid, "; "))
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), fails,
+		fails, failed, unfinished, planned := 0, 0, 0, 0
+		for _, x := range shown {
+			fails, failed, unfinished, planned = fails+x.Failures, failed+x.VisitsFailed, unfinished+x.VisitsUnfinished, planned+x.VisitsPlanned
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %d / %d of %d | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), fails, failed, unfinished, planned,
 			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
 	}
 	r.writesMarkdown(b, sc, func(f string) []Round { return r.latencyRounds(f, sc.Name) })
+	r.achievedMarkdown(b, sc, func(f string) []Round { return r.latencyRounds(f, sc.Name) })
 }
 
-// latencyRounds are the rounds a server played at the rate of the open run of a scenario.
+// latencyRounds are the valid rounds a server played at the rate of the open run of a scenario.
 func (r *BrowseResult) latencyRounds(fw, sc string) []Round {
 	var out []Round
 	for _, x := range r.Latency {
-		if x.Framework == fw && x.Scenario == sc {
+		if x.Framework == fw && x.Scenario == sc && x.Valid {
 			out = append(out, x)
 		}
 	}

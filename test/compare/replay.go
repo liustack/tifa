@@ -139,6 +139,24 @@ type Workload struct {
 // planFor is the plan that visit seq of the global sequence plays: the plans in order, over and over.
 func (w *Workload) planFor(seq int) Plan { return w.Plans[seq%len(w.Plans)] }
 
+// plan sets in a round what visits seq0 to seq0+n-1 of the global sequence plan: the visits, their
+// page views, the clicks among them and, unless reads, the writes the scenario puts after them.
+func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
+	r.VisitsPlanned, r.PageViewsPlanned, r.ClicksPlanned, r.WritesPlanned = n, 0, 0, 0
+	for s := seq0; s < seq0+n; s++ {
+		p := w.planFor(s)
+		for j, st := range p.Steps {
+			r.PageViewsPlanned++
+			if st.Kind == StepClick {
+				r.ClicksPlanned++
+			}
+			if _, ok := w.Writes[[2]int{p.ID, j}]; ok && !reads {
+				r.WritesPlanned++
+			}
+		}
+	}
+}
+
 // NewWorkload puts the writes of a scenario into the plans, block by block, and fails if a plan has
 // no trace.
 func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uint64) (*Workload, error) {
@@ -187,6 +205,8 @@ var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)
 type acc struct {
 	mu                                  sync.Mutex
 	visits, views, loads, clicks, wrote int
+	// started counts the visits begun, and failedVisits the ones an action of which failed.
+	started, failedVisits int
 	failures, requests, cancelled, n304 int
 	bytes                               int64
 	firstErr                            string
@@ -206,10 +226,12 @@ func newAcc() *acc {
 	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}}
 }
 
+// fail counts a visit that failed, and the error that ended it.
 func (a *acc) fail(err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.failures++
+	a.failedVisits++
 	if a.firstErr == "" {
 		a.firstErr = err.Error()
 	}
@@ -521,7 +543,8 @@ func (p pacer) at(j int) time.Time {
 
 // runVisit plays plan number seq of the global sequence: its page views in turn, the writes of the
 // scenario after the page views the plan puts them after, and at the end the background requests
-// the browser still had. It reports whether the visit completed.
+// the browser still had. It reports whether the visit completed. A visit that a failed action ends
+// counts as failed. One that the context ends (the round was cut off) counts as neither.
 func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq int, p pacer) bool {
 	plan := r.wl.planFor(seq)
 	trace := r.wl.Traces[plan.ID]
@@ -530,6 +553,9 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()
+	a.mu.Lock()
+	a.started++
+	a.mu.Unlock()
 	action := 0
 	wait := func() time.Time {
 		sched := p.at(action)

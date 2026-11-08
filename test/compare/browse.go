@@ -352,6 +352,10 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 		}
 	}
 	out := f(r)
+	// A run that was stopped (an interrupt) leaves a round that is not a result, and it is not kept.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	out.Framework, out.Scenario = name, sc.Name
 	out.Judge(sc)
 	if out.Pass && sc.Share > 0 {
@@ -481,11 +485,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 			return nil, err
 		}
 		out.Round, out.Attempt = round, attempt
-		// A round takes 0.8 to 1.6 times the target (60 to 120 seconds by default). Outside that it is
-		// invalid: the workload is resized from what this round did, and the round is run again.
-		if blocks, ok := resize(out, b.o.Target, planBlocks); ok {
-			lo, hi := roundLength(b.o.Target)
-			out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
+		if blocks := calibrate(out, b.o.Target, planBlocks); blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
 		*into = append(*into, *out)
@@ -518,18 +518,36 @@ func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, users i
 // for running too long completed visits, and is resized from them.
 func hung(r *Round) bool { return r != nil && r.TimedOut && r.Visits == 0 }
 
-// resize says whether a closed round took a length outside the window, and then the blocks the next
-// round of its cell gets, from the visits a second of this one, whatever else made it invalid: a
-// round stopped at twice the target played only part of its blocks, so its mix is off too.
-func resize(out *Round, target time.Duration, planBlocks int) (int, bool) {
+// calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
+// times the target (60 to 120 seconds by default). Outside that it returns the blocks the next round
+// of its cell gets, from the visits a second this one ended (the failed ones too: a 503 ends a visit
+// fast, and the completed visits alone would size a server that refuses load far too small), and 0
+// when the round was in the window. A round outside the window that passed the rule is invalid and is
+// run again. One that failed the rule stays a valid round that failed: the length is a matter of
+// calibration, and never discards a failure the server showed.
+func calibrate(out *Round, target time.Duration, planBlocks int) int {
 	lo, hi := roundLength(target)
-	// Every visit it played sets its length, the failed ones too. A result written before Played was
-	// counted has only the visits that completed.
-	played := cmp.Or(out.Played, out.Visits)
-	if played == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
-		return 0, false
+	ended := out.Visits + out.VisitsFailed
+	if ended == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
+		return 0
 	}
-	return BlocksFor(float64(played)/out.Seconds, target, planBlocks), true
+	if out.Pass && out.Valid {
+		out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
+	}
+	return BlocksFor(float64(ended)/out.Seconds, target, planBlocks)
+}
+
+// generatorFault says why the load generator, not the server, limited an open round, or "" when it
+// did not: visits must start on time and it must have processor time to spare.
+func generatorFault(out *Round, loadCPUs int) string {
+	why := ""
+	if out.LagMs > 250 {
+		why = fmt.Sprintf("the load generator started a visit %.0f ms late", out.LagMs)
+	}
+	if loadCPUs > 0 && out.Seconds > 0 && out.ClientCPU/out.Seconds > 0.8*float64(loadCPUs) {
+		why = fmt.Sprintf("the load generator used %.2f cores of %d", out.ClientCPU/out.Seconds, loadCPUs)
+	}
+	return why
 }
 
 // roundLength is the shortest and the longest a closed round may take, in seconds, for a target.
@@ -556,17 +574,10 @@ func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, ra
 	if err != nil {
 		return nil, err
 	}
-	// The load generator is checked first, so that a generator that cannot keep up is never reported
-	// as a limit of the server: visits must start on time and it must have processor time to spare.
-	why := ""
-	if out.LagMs > 250 {
-		why = fmt.Sprintf("the load generator started a visit %.0f ms late", out.LagMs)
-	}
-	if b.o.LoadCPUCount > 0 && out.Seconds > 0 && out.ClientCPU/out.Seconds > 0.8*float64(b.o.LoadCPUCount) {
-		why = fmt.Sprintf("the load generator used %.2f cores of %d", out.ClientCPU/out.Seconds, b.o.LoadCPUCount)
-	}
-	if why != "" {
-		out.GeneratorLimited, out.Pass, out.Why = true, false, why
+	// A generator that cannot keep up makes the round invalid, so that it is never reported as a limit
+	// of the server.
+	if why := generatorFault(out, b.o.LoadCPUCount); why != "" {
+		out.GeneratorLimited, out.Valid, out.WhyInvalid = true, false, why
 	}
 	return out, nil
 }
@@ -603,7 +614,7 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 			if r.GeneratorLimited {
 				s.Limited = true
 			}
-			return r.Pass, b.commit()
+			return r.Pass && r.Valid, b.commit()
 		}
 		maxRate := cmp.Or(b.o.MaxRate, 16384)
 		lo, hi, err := searchRate(maxRate, trial)
@@ -698,18 +709,30 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 	window := max(b.o.FinalWindow, time.Duration(1100/rate*float64(time.Second)))
 	for round := 1; round <= b.o.Rounds; round++ {
 		for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-			if slices.ContainsFunc(b.res.Latency, func(r Round) bool { return r.Framework == fw && r.Scenario == sc.Name && r.Round == round }) {
-				continue
-			}
-			r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
-			if err != nil {
-				return err
-			}
-			r.Round = round
-			b.res.Latency = append(b.res.Latency, *r)
-			b.logf("latency %-10s %-12s round %d: %d visits, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s\n", sc.Name, fw, round, r.Visits, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why)
-			if err := b.commit(); err != nil {
-				return err
+			// A round that is not valid (the load generator fell behind) is run again, up to three tries.
+			for {
+				tries := 0
+				for _, x := range b.res.Latency {
+					if x.Framework == fw && x.Scenario == sc.Name && x.Round == round {
+						tries++
+						if x.Valid {
+							tries = 3
+						}
+					}
+				}
+				if tries >= 3 {
+					break
+				}
+				r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
+				if err != nil {
+					return err
+				}
+				r.Round, r.Attempt = round, tries+1
+				b.res.Latency = append(b.res.Latency, *r)
+				b.logf("latency %-10s %-12s round %d (try %d): %d of %d visits succeeded, %d failed, %d unfinished, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s valid %v %s\n", sc.Name, fw, round, r.Attempt, r.Visits, r.VisitsPlanned, r.VisitsFailed, r.VisitsUnfinished, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why, r.Valid, r.WhyInvalid)
+				if err := b.commit(); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1031,7 +1054,7 @@ func raiseFileLimit() {
 	}
 }
 
-// ConfirmRate looks for a rate at which the rule holds in all the rounds, starting at start and
+// ConfirmRate looks for a rate at which the rule holds in all the rounds, each of them valid, starting at start and
 // stepping down 10% for up to attempts tries. run plays one round at a rate. It returns the rate that
 // passed all its rounds, or 0 if none did in range, and every round it ran, in order: a failing round
 // ends its try, and the rounds of the failed tries are kept. If the first try passes, one step 10%
@@ -1048,7 +1071,7 @@ func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, rou
 			}
 			r.Round, r.Attempt = round, n
 			all = append(all, *r)
-			if !r.Pass {
+			if !r.Pass || !r.Valid {
 				return false, nil
 			}
 		}

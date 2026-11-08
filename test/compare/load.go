@@ -30,14 +30,27 @@ type Round struct {
 	Round     int     `json:"round"`
 	Blocks    int     `json:"blocks"`
 
-	Visits    int            `json:"visits"`           // visits that completed
-	Played    int            `json:"played,omitempty"` // closed: visits that ended, the failed ones too
-	PageViews int            `json:"pageViews"`
-	FullLoads int            `json:"fullLoads"`
-	Clicks    int            `json:"clicks"`
-	Writes    int            `json:"writes"`
-	Pages     map[string]int `json:"pagesByClass"`
+	// The visits of the round: planned (what its workload holds), started by the load generator,
+	// succeeded (Visits: every action of it did), failed (an action failed, which ends the visit) and
+	// unfinished (the round ended, or was cut off, before they ended, the ones never started too).
+	VisitsPlanned    int `json:"visitsPlanned"`
+	VisitsStarted    int `json:"visitsStarted"`
+	Visits           int `json:"visitsSucceeded"`
+	VisitsFailed     int `json:"visitsFailed"`
+	VisitsUnfinished int `json:"visitsUnfinished"`
+	// What the planned visits hold: page views, the clicks among them, and writes. The mix is checked
+	// on these. The ones below were done: a page view and a write count when they complete.
+	PageViewsPlanned int            `json:"pageViewsPlanned"`
+	ClicksPlanned    int            `json:"clicksPlanned"`
+	WritesPlanned    int            `json:"writesPlanned"`
+	PageViews        int            `json:"pageViews"`
+	FullLoads        int            `json:"fullLoads"`
+	Clicks           int            `json:"clicks"`
+	Writes           int            `json:"writes"`
+	Pages            map[string]int `json:"pagesByClass"`
 
+	// The shares that the round achieved, over what completed: a diagnostic. A round whose visits
+	// failed achieves another mix than it planned.
 	WriteShare    float64 `json:"writeShare"`
 	ClickShare    float64 `json:"clickShare"`
 	ViewsPerVisit float64 `json:"pageViewsPerVisit"`
@@ -81,9 +94,11 @@ type Round struct {
 	PoolEmpty  int            `json:"poolEmpty,omitempty"`
 	Orders     map[string]int `json:"orders,omitempty"`
 
-	// Valid says that the round achieved the mix it is named for: write share within one point, the
-	// share of clicks within one point and 4 page views a visit within 1%. A round that is not valid
-	// is run again.
+	// Valid says that the round is a valid experiment: the visits it planned have the mix it is named
+	// for (write share within one point, the share of clicks within one point and 4 page views a
+	// visit within 1%), the load generator did its work, and a closed round took the length it was
+	// sized for or failed the rule. A round that is not valid is run again. A server that fails or falls
+	// behind does not make a round invalid: that round is valid, and fails.
 	Valid      bool   `json:"valid"`
 	WhyInvalid string `json:"whyInvalid,omitempty"`
 	// Pass says that every class of action met the rule: P99 of full loads, clicks and writes at
@@ -104,6 +119,8 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	r.Visits, r.PageViews, r.FullLoads, r.Clicks, r.Writes = a.visits, a.views, a.loads, a.clicks, a.wrote
+	r.VisitsStarted, r.VisitsFailed = a.started, a.failedVisits
+	r.VisitsUnfinished = r.VisitsPlanned - r.Visits - r.VisitsFailed
 	r.Pages = a.pages
 	r.Failures, r.FirstErr = a.failures, a.firstErr
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
@@ -131,19 +148,36 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	}
 }
 
-// Judge sets Valid and Pass of a round. The mix is checked on what the round achieved, and the rule
-// on every class of action.
+// Judge sets Valid and Pass of a round. Valid is about the experiment: the visits it planned have
+// the mix of the scenario, and the load generator started every visit it was meant to (one that
+// fell behind or ran out of cpus is found by generatorFault). Pass is about the server, on what
+// it did: a server that fails visits or falls behind fails the rule, in a valid round.
 func (r *Round) Judge(sc BrowseScenario) {
 	r.Valid, r.WhyInvalid = true, ""
-	switch {
-	case r.Visits == 0:
-		r.Valid, r.WhyInvalid = false, "no visit completed"
-	case math.Abs(r.WriteShare-sc.Share) > 0.01:
-		r.Valid, r.WhyInvalid = false, fmt.Sprintf("write share %.3f, want %.2f within 0.01", r.WriteShare, sc.Share)
-	case math.Abs(r.ClickShare-0.75) > 0.01:
-		r.Valid, r.WhyInvalid = false, fmt.Sprintf("click share %.3f, want 0.75 within 0.01", r.ClickShare)
-	case math.Abs(r.ViewsPerVisit-4) > 0.04:
-		r.Valid, r.WhyInvalid = false, fmt.Sprintf("%.3f page views a visit, want 4 within 1%%", r.ViewsPerVisit)
+	invalid := func(why string) {
+		if r.Valid {
+			r.Valid, r.WhyInvalid = false, why
+		}
+	}
+	if r.VisitsPlanned == 0 || r.PageViewsPlanned == 0 {
+		invalid("no visit planned")
+	} else {
+		share := float64(r.WritesPlanned) / float64(r.PageViewsPlanned+r.WritesPlanned)
+		clicks := float64(r.ClicksPlanned) / float64(r.PageViewsPlanned)
+		views := float64(r.PageViewsPlanned) / float64(r.VisitsPlanned)
+		switch {
+		case math.Abs(share-sc.Share) > 0.01:
+			invalid(fmt.Sprintf("the planned write share is %.3f, want %.2f within 0.01", share, sc.Share))
+		case math.Abs(clicks-0.75) > 0.01:
+			invalid(fmt.Sprintf("the planned click share is %.3f, want 0.75 within 0.01", clicks))
+		case math.Abs(views-4) > 0.04:
+			invalid(fmt.Sprintf("%.3f page views a visit planned, want 4 within 1%%", views))
+		}
+	}
+	// A round that was not cut off (by its timeout, or the deadline of the open model) starts every
+	// visit it planned: if not, the generator did not do its work.
+	if !r.TimedOut && r.VisitsStarted < r.VisitsPlanned {
+		invalid(fmt.Sprintf("the load generator started %d of the %d visits planned", r.VisitsStarted, r.VisitsPlanned))
 	}
 	r.Pass, r.Why = true, ""
 	fail := func(why string) {
@@ -152,7 +186,9 @@ func (r *Round) Judge(sc BrowseScenario) {
 		}
 		r.Pass = false
 	}
-	if r.TimedOut {
+	// A closed round cut off by its timeout ran longer than it was sized for, which is a matter of
+	// calibration (see calibrate). An open round past its deadline left a backlog.
+	if r.TimedOut && r.Model == "open" {
 		fail("the workload did not finish in time: a backlog was left")
 	}
 	if r.Failures > 0 {
@@ -177,7 +213,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 // It starts at the first scheduled action and ends when the last visit has finished, or at timeout.
 func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.Duration) *Round {
 	a := newAcc()
-	var next, played atomic.Int64
+	var next atomic.Int64
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cpu0, client0 := r.cpu(), selfCPU()
@@ -194,18 +230,15 @@ func (r *runner) RunClosed(ctx context.Context, users, visits int, timeout time.
 				if s >= visits {
 					return
 				}
-				// A visit that ended counts as played, completed or failed: one the timeout cut off does not.
-				if r.runVisit(ctx, tr, a, s, pacer{}) || ctx.Err() == nil {
-					played.Add(1)
-				}
+				r.runVisit(ctx, tr, a, s, pacer{})
 			}
 		}()
 	}
 	wg.Wait()
 	end := time.Now()
 	round := &Round{Model: "closed", Users: users, Blocks: visits / BlockVisits, TimedOut: ctx.Err() == context.DeadlineExceeded}
+	r.wl.plan(round, 0, visits, false)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
-	round.Played = int(played.Load())
 	r.countOrders(round)
 	return round
 }
@@ -346,6 +379,7 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	end := time.Now()
 	round := &Round{Model: "open", Rate: rate, TimedOut: timedOut.Load(), Backlog: Growing(visitsIn, ramp) || Growing(requestsIn, ramp)}
 	round.LagMs = ms(time.Duration(lag.Load()))
+	r.wl.plan(round, seq0, n, reads)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	r.countOrders(round)
 	return round

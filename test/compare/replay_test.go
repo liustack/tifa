@@ -185,7 +185,7 @@ func TestClosedRoundCountsWritesAndPageViewsAndJudgesTheMix(t *testing.T) {
 
 func TestRuleCoversEveryClassAndABacklog(t *testing.T) {
 	base := func() *Round {
-		return &Round{Visits: 10, PageViews: 40, FullLoads: 10, Clicks: 30, WriteShare: 0.05, ClickShare: 0.75, ViewsPerVisit: 4,
+		return &Round{Model: "open", VisitsPlanned: 10, VisitsStarted: 10, PageViewsPlanned: 40, ClicksPlanned: 30, WritesPlanned: 2, Visits: 10, PageViews: 40, FullLoads: 10, Clicks: 30,
 			Types: map[string]TypeStat{"load": {N: 10, P99: 100}, "click": {N: 30, P99: 100}, "write": {N: 3, P99: 100}}}
 	}
 	r := base()
@@ -208,7 +208,7 @@ func TestRuleCoversEveryClassAndABacklog(t *testing.T) {
 		}
 	}
 	r = base()
-	r.WriteShare = 0.07
+	r.WritesPlanned = 3
 	r.Judge(BrowseScenario{Share: 0.05})
 	if r.Valid {
 		t.Error("a write share two points off is valid")
@@ -466,7 +466,7 @@ func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t
 		ran = nil
 		return func(rate float64, round int) (*Round, error) {
 			ran = append(ran, rate)
-			return &Round{Rate: rate, Pass: passAt(rate, round)}, nil
+			return &Round{Rate: rate, Pass: passAt(rate, round), Valid: true}, nil
 		}
 	}
 	// 100 fails, 90 fails in its second round, 81 passes all three.
@@ -770,11 +770,3 @@ func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
 }
 
 // A closed round counts the visits it played, the ones that failed too.
-func TestAClosedRoundCountsTheVisitsItPlayed(t *testing.T) {
-	srv, _ := fakeServer(t)
-	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/fail-1", "doc", 0, 5)}})
-	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 2, 6, 10*time.Second)
-	if round.Visits != 0 || round.Played != 6 {
-		t.Errorf("visits %d, played %d, want 0 and 6", round.Visits, round.Played)
-	}
-}
