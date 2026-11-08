@@ -69,7 +69,10 @@ func BenchmarkReads(b *testing.B) {
 				SalesStats("studio", shanghai)
 			}
 		})
+		// Each run starts again from n orders, since the run before placed many in weekend, and the
+		// orders it places are newer than all of them, as orders placed now are.
 		b.Run(fmt.Sprintf("orders=%d/create", n), func(b *testing.B) {
+			grow(b, n)
 			at := time.Date(2026, 10, 20, 9, 0, 0, 0, chinaTime)
 			for b.Loop() {
 				at = at.Add(time.Second)
