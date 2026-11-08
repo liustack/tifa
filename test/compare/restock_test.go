@@ -12,50 +12,49 @@ import (
 	"testing"
 )
 
-// The stock a run needs follows the cart of each visit as the shop keeps it, and counts what its
-// checkouts buy, the plans taken in order over and over, times the margin.
+// The stock a run needs follows the cart of each visit as the shop keeps it, from the adds that
+// make the cart of a returning visit before the round, and counts what its checkouts buy and the
+// orders staff may place, times the margin.
 func TestStockForCountsWhatTheCheckoutsOfARunBuy(t *testing.T) {
-	store := func(after, plan int, kind, path string, body map[string]any) PlannedWrite {
-		return PlannedWrite{After: after, Plan: plan, Kind: kind, Store: &StoreRequest{Kind: kind, Path: path, Body: mustJSON(body)}}
+	store := func(after int, kind, path string, body map[string]any) PlannedWrite {
+		return PlannedWrite{After: after, Kind: kind, Store: &StoreRequest{Kind: kind, Path: path, Body: mustJSON(body)}}
 	}
-	plans := []Plan{{ID: 0}, {ID: 1}}
-	writes := []PlannedWrite{
-		// Plan 0 (given out of order): two more of the kettle in the cart, the cups taken out, 12 of an
-		// apron capped at 10 of a line, a checkout, and an add after it that is not bought.
-		store(3, 0, WriteCheckout, "/store/checkout", map[string]any{"email": "a@b.c"}),
-		store(0, 0, WriteAdd, "/store/products/pour-over-kettle", map[string]any{"color": "mist", "quantity": 2}),
-		store(1, 0, WriteQuantity, "/store/cart", map[string]any{"line": "ceramic-cup.moss", "quantity": 0}),
-		store(2, 0, WriteAdd, "/store/products/linen-apron", map[string]any{"color": "oat", "size": "L", "quantity": 12}),
-		store(3, 0, WriteCoupon, "/store/cart", map[string]any{"code": "SHANHAI10"}),
-		store(4, 0, WriteAdd, "/store/products/oak-tray", map[string]any{"color": "oak", "quantity": 3}),
-		// Plan 1 buys the demonstration cart as it is.
-		store(2, 1, WriteCheckout, "/zh-CN/store/checkout", map[string]any{"email": "a@b.c"}),
-		// A write of the back office may place the order AdminBody gives its create, in its shop.
-		{After: 1, Plan: 1, Kind: WriteShip, Project: "studio"},
-		{After: 0, Plan: 0, Kind: WriteNote, Project: "weekend"},
+	// Given out of order: two more of the kettle in the cart, the cups taken out, 12 of an apron
+	// capped at 10 of a line, a checkout, and an add after it that is not bought.
+	a := VisitWrites{Writes: []PlannedWrite{
+		store(3, WriteCheckout, "/store/checkout", map[string]any{"email": "a@b.c"}),
+		store(0, WriteAdd, "/store/products/pour-over-kettle", map[string]any{"color": "mist", "quantity": 2}),
+		store(1, WriteQuantity, "/store/cart", map[string]any{"line": "ceramic-cup.moss", "quantity": 0}),
+		store(2, WriteAdd, "/store/products/linen-apron", map[string]any{"color": "oat", "size": "L", "quantity": 12}),
+		store(3, WriteCoupon, "/store/cart", map[string]any{"code": "SHANHAI10"}),
+		store(4, WriteAdd, "/store/products/oak-tray", map[string]any{"color": "oak", "quantity": 3}),
+	}}
+	// The demonstration cart as it is, and a ship of the staff, which places the order AdminBody
+	// gives its create when the pool is empty.
+	ship := PlannedWrite{After: 1, Seq: 1, Kind: WriteShip, Project: "studio"}
+	b := VisitWrites{Writes: []PlannedWrite{store(2, WriteCheckout, "/zh-CN/store/checkout", map[string]any{"email": "a@b.c"}), ship}}
+	// A returning visit buys the cart its setup made, and a note places no order.
+	c := VisitWrites{
+		Setup:  []StoreRequest{{Kind: WriteAdd, Path: "/store/products/oak-tray", Body: mustJSON(map[string]any{"color": "oak", "quantity": 2})}},
+		Writes: []PlannedWrite{store(0, WriteCheckout, "/store/checkout", map[string]any{"email": "a@b.c"}), {After: 0, Seq: 2, Kind: WriteNote, Project: "weekend"}},
 	}
-	// Three visits: plan 0, plan 1, plan 0.
-	got := StockFor(7, plans, writes, 3)
+	got := StockFor(7, []VisitWrites{a, b, a, c})
 	want := map[string]map[string]int{
 		"studio": {
-			"pour-over-kettle": stockMargin * (3 + 3 + 1),
-			"ceramic-cup":      stockMargin * 2,
-			"linen-apron":      stockMargin * (11 + 11 + 1),
-			"reading-candle":   stockMargin * (1 + 1 + 1),
+			"pour-over-kettle": stockMargin * (3 + 1 + 3 + 1),
+			"ceramic-cup":      stockMargin * (2 + 2),
+			"linen-apron":      stockMargin * (11 + 1 + 11 + 1),
+			"reading-candle":   stockMargin * (1 + 1 + 1 + 1),
+			"oak-tray":         stockMargin * 2,
 		},
-		"weekend": {},
 	}
-	staff := func(w PlannedWrite, times int) {
-		for _, l := range AdminBody(7, w.Plan, w.After, WriteCreate, w.Project).(map[string]any)["items"].([]adminLine) {
-			want[w.Project][l.Slug] += stockMargin * times * l.Quantity
-		}
+	for _, l := range AdminBody(7, ship.Seq, ship.After, WriteCreate, ship.Project).(map[string]any)["items"].([]adminLine) {
+		want["studio"][l.Slug] += stockMargin * l.Quantity
 	}
-	staff(writes[7], 1)
-	staff(writes[8], 2)
 	if !maps.EqualFunc(got, want, func(a, b map[string]int) bool { return maps.Equal(a, b) }) {
 		t.Errorf("StockFor = %v, want %v", got, want)
 	}
-	if got := StockFor(7, plans, nil, 3); len(got) != 0 {
+	if got := StockFor(7, []VisitWrites{{}, {}}); len(got) != 0 {
 		t.Errorf("a run with no order needs %v", got)
 	}
 }

@@ -2,6 +2,7 @@ package compare
 
 import (
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -62,8 +63,17 @@ func cancelled(url, class string, s, e float64) TraceReq {
 }
 
 func testRunner(srv *httptest.Server, plans []Plan, traces map[int]Trace, writes map[[2]int]PlannedWrite) *runner {
-	return &runner{base: srv.URL, write: nodePath, create: nodeCreate, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }, seed: 1,
-		wl: &Workload{Plans: plans, Traces: traces, Writes: writes, Scenario: BrowseScenario{Name: "x", Share: 0.2, Mix: MixRename}}}
+	return &runner{base: srv.URL, write: nodePath, create: nodeCreate, storeWrite: samePath, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }, seed: 1,
+		wl: &Workload{Plans: plans, Traces: traces, Writes: writes, Scenario: BrowseScenario{Name: "x"}}}
+}
+
+// samePath sends a write of the storefront to the path of the plan.
+func samePath(path string) string { return path }
+
+// testWrite is a write of a workload made by hand: an add to the cart, which the fake servers answer
+// with a 200.
+func testWrite() PlannedWrite {
+	return PlannedWrite{Kind: WriteAdd, Store: &StoreRequest{Kind: WriteAdd, Method: "POST", Path: "/store/products/oak-tray", Body: []byte(`{"color":"oak","quantity":1}`), Status: 200}}
 }
 
 // newTestRunner is a runner of a scenario whose plans are the traces given, in order.
@@ -78,7 +88,7 @@ func newTestRunner(base string, sc BrowseScenario, traces ...Trace) *runner {
 		}
 		wl.Plans = append(wl.Plans, p)
 	}
-	return &runner{base: base, write: nodePath, create: nodeCreate, wl: wl, seed: 1, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
+	return &runner{base: base, write: nodePath, create: nodeCreate, storeWrite: samePath, wl: wl, seed: 1, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
 }
 
 // visitOnce plays visit seq of the runner's sequence and returns what it saw, with the error of the
@@ -165,18 +175,14 @@ func TestClosedRoundCountsWritesAndPageViewsAndJudgesTheMix(t *testing.T) {
 	}
 	plans, traces := onePlan(steps...)
 	// One write after the first page view: 1 write in 5 actions.
-	r := testRunner(srv, plans, traces, map[[2]int]PlannedWrite{{0, 0}: {Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}})
+	r := testRunner(srv, plans, traces, map[[2]int]PlannedWrite{{0, 0}: testWrite()})
 	round := r.RunClosed(context.Background(), 2, 6, 10*time.Second)
 	if round.Visits != 6 || round.PageViews != 24 || round.Writes != 6 || round.FullLoads != 6 || round.Clicks != 18 {
 		t.Fatalf("%+v", round)
 	}
-	round.Judge(BrowseScenario{Share: 0.2})
+	round.Judge(BrowseScenario{})
 	if !round.Valid || !round.Pass {
 		t.Errorf("valid %v (%s), pass %v (%s)", round.Valid, round.WhyInvalid, round.Pass, round.Why)
-	}
-	round.Judge(BrowseScenario{Share: 0.5})
-	if round.Valid {
-		t.Error("a round with 20% writes is valid for the 50% mix")
 	}
 	if round.Types["write"].N != 6 || round.Types["load"].N != 6 || round.Types["click"].N != 18 {
 		t.Errorf("types %+v", round.Types)
@@ -189,7 +195,7 @@ func TestRuleCoversEveryClassAndABacklog(t *testing.T) {
 			Types: map[string]TypeStat{"load": {N: 10, P99: 100}, "click": {N: 30, P99: 100}, "write": {N: 3, P99: 100}}}
 	}
 	r := base()
-	r.Judge(BrowseScenario{Share: 0.05})
+	r.Judge(BrowseScenario{})
 	if !r.Pass || !r.Valid {
 		t.Fatalf("%s %s", r.Why, r.WhyInvalid)
 	}
@@ -202,16 +208,10 @@ func TestRuleCoversEveryClassAndABacklog(t *testing.T) {
 	} {
 		r := base()
 		mod(r)
-		r.Judge(BrowseScenario{Share: 0.05})
+		r.Judge(BrowseScenario{})
 		if r.Pass {
 			t.Errorf("%s: the rule passes", name)
 		}
-	}
-	r = base()
-	r.WritesPlanned = 3
-	r.Judge(BrowseScenario{Share: 0.05})
-	if r.Valid {
-		t.Error("a write share two points off is valid")
 	}
 }
 
@@ -241,7 +241,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	if !round.TimedOut || round.Visits != 0 {
 		t.Errorf("a hung server: %+v", round)
 	}
-	round.Judge(BrowseScenario{Share: 0.05})
+	round.Judge(BrowseScenario{})
 	if round.Pass {
 		t.Error("a hung server passes")
 	}
@@ -252,7 +252,7 @@ func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
 	if err := WritePlans(dir, 1, 1); err != nil {
 		t.Fatal(err)
 	}
-	set, err := ReadPlans(dir, SiteWorkbench)
+	set, err := ReadPlans(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,37 +280,30 @@ func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
 	write("a", -1, false)
 	write("b", 7, false)
 	write("c", -1, true)
-	if _, traces, err := LoadTraces(dir, SiteWorkbench, []string{"a"}); err != nil || len(traces["a"]) != BlockVisits {
+	if _, traces, err := LoadTraces(dir, []string{"a"}); err != nil || len(traces["a"]) != SiteBlockPlans {
 		t.Fatalf("a complete set: %v", err)
 	}
-	if _, _, err := LoadTraces(dir, SiteWorkbench, []string{"a", "b"}); err == nil || !strings.Contains(err.Error(), "b.jsonl") {
+	if _, _, err := LoadTraces(dir, []string{"a", "b"}); err == nil || !strings.Contains(err.Error(), "b.jsonl") {
 		t.Errorf("a set with a missing plan: %v", err)
 	}
-	if _, _, err := LoadTraces(dir, SiteWorkbench, []string{"c"}); err == nil || !strings.Contains(err.Error(), "failed to record") {
+	if _, _, err := LoadTraces(dir, []string{"c"}); err == nil || !strings.Contains(err.Error(), "failed to record") {
 		t.Errorf("a set with a failed visit: %v", err)
 	}
-	// The plans of the storefront are a file of their own, and the workbench ones are not taken for them.
-	store, err := ReadPlans(dir, SiteStore)
-	if err != nil || store.Site != SiteStore || len(store.Plans) != BlockVisits {
-		t.Fatalf("the storefront plans: %v", err)
+	// Plans that are not those of the site are refused: too few for their blocks, or of another site.
+	os.WriteFile(PlansPath(dir), []byte(`{"seed":1,"blocks":1,"site":"shop","plans":[]}`), 0o644)
+	if _, err := ReadPlans(dir); err == nil {
+		t.Error("a file of no plans was read")
 	}
-	os.WriteFile(PlansPath(dir, SiteStore), []byte(`{"seed":1,"blocks":1,"site":"store","plans":[]}`), 0o644)
-	if _, err := ReadPlans(dir, SiteStore); err == nil {
-		t.Error("a file of no plans was read as the storefront's")
-	}
-	work, _ := os.ReadFile(PlansPath(dir, SiteWorkbench))
-	os.WriteFile(PlansPath(dir, SiteStore), work, 0o644)
-	if _, err := ReadPlans(dir, SiteStore); err == nil || !strings.Contains(err.Error(), "site") {
-		t.Errorf("the plans of the workbench were read as the storefront's: %v", err)
+	data, _ := json.Marshal(PlanSet{Seed: 1, Blocks: set.Blocks, Site: "store", Plans: set.Plans})
+	os.WriteFile(PlansPath(dir), data, 0o644)
+	if _, err := ReadPlans(dir); err == nil || !strings.Contains(err.Error(), "site") {
+		t.Errorf("the plans of another site were read: %v", err)
 	}
 }
 
-func TestPlanAndTraceFilesOfEachSite(t *testing.T) {
-	if PlansPath("d", SiteWorkbench) != "d/plans.json" || TracePath("d/", "tifa", SiteWorkbench) != "d/tifa.jsonl" {
-		t.Error("the files of the workbench changed their names")
-	}
-	if PlansPath("d", SiteStore) != "d/plans-store.json" || TracePath("d", "nextjs", SiteStore) != "d/nextjs-store.jsonl" {
-		t.Error("the files of the storefront changed their names")
+func TestPlanAndTraceFilesOfTheSite(t *testing.T) {
+	if PlansPath("d") != "d/plans.json" || TracePath("d/", "tifa") != "d/tifa.jsonl" || TracePath("d", "nextjs") != "d/nextjs.jsonl" {
+		t.Error("the files of the site changed their names")
 	}
 }
 
@@ -320,7 +313,7 @@ func TestReplaySendsIfNoneMatchOnlyWithTheETagOfThisVisit(t *testing.T) {
 		{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", INM: true, End: 5, Status: 200}}},  // no ETag yet: a plain GET
 		{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "nav", INM: true, End: 5, Status: 200}}}, // now it has one
 	}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, tr)
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
 	a := newAcc()
 	if err := visitOnce(r, a, 0); err != nil {
 		t.Fatal(err)
@@ -377,18 +370,18 @@ func TestReplayWritesAreTheirOwnRequestTypeAndTheTifaBuildIsSubstituted(t *testi
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{
 		{Method: "GET", URL: "/projects/studio?_tifa=deadbeef.001", Class: "doc", End: 5, Status: 200},
 	}}}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixRename}, tr)
-	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Plan: 0, After: 0, Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+	r.wl.Writes[[2]int{0, 0}] = testWrite()
 	r.buildID = "cafe01"
 	a := newAcc()
 	if err := visitOnce(r, a, 0); err != nil {
 		t.Fatal(err)
 	}
 	got := log()
-	if len(got) != 2 || got[0].uri != "/projects/studio?_tifa=cafe01.001" || got[1].method != "PATCH" || got[1].uri != "/compare-write/studio/SH-1042" {
+	if len(got) != 2 || got[0].uri != "/projects/studio?_tifa=cafe01.001" || got[1].method != "POST" || got[1].uri != "/store/products/oak-tray" {
 		t.Fatalf("requests %+v", got)
 	}
-	if len(a.lat["write"]) != 1 || len(a.lat["write rename"]) != 1 || a.kinds[WriteRename] != 1 || a.responses["write rename 200 text/plain"] != 1 {
+	if len(a.lat["write"]) != 1 || len(a.lat["write add"]) != 1 || a.kinds[WriteAdd] != 1 || a.responses["write add 200 text/plain"] != 1 {
 		t.Errorf("latencies %v, responses %v", a.lat, a.responses)
 	}
 }
@@ -397,8 +390,8 @@ func TestReplayWritesAreTheirOwnRequestTypeAndTheTifaBuildIsSubstituted(t *testi
 func TestAWarmUpSendsNoWrites(t *testing.T) {
 	srv, log := fakeApp(t)
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixRename}, tr)
-	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+	r.wl.Writes[[2]int{0, 0}] = testWrite()
 	if rate := r.Warm(context.Background(), 2, 100*time.Millisecond); rate <= 0 {
 		t.Fatalf("the warm-up completed no visit")
 	}
@@ -414,10 +407,10 @@ func TestAWarmUpSendsNoWrites(t *testing.T) {
 }
 
 func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
-	if got := BlocksFor(800, 75*time.Second, 4); got%4 != 0 || got < 4 || float64(got*BlockVisits)/800 < 70 {
+	if got := BlocksFor(800, 75*time.Second, 4, 95); got%4 != 0 || got < 4 || float64(got*95)/800 < 70 {
 		t.Errorf("blocks for 800 visits/s: %d", got)
 	}
-	if got := BlocksFor(0.5, 75*time.Second, 4); got != 4 {
+	if got := BlocksFor(0.5, 75*time.Second, 4, 95); got != 4 {
 		t.Errorf("a slow framework still plays whole passes of the plans: %d", got)
 	}
 	// Every open run plays whole cycles of all 380 plans: a part of a cycle has another page mix.
@@ -429,34 +422,52 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 	}
 }
 
-func TestWholeCyclesHaveTheMixAndPartsOfOneDoNot(t *testing.T) {
-	set := GeneratePlanSet(1, 4)
-	w := &Workload{Plans: set.Plans}
-	views := func(n int) float64 {
-		v := 0
-		for s := 0; s < n; s++ {
-			v += len(w.planFor(s).Steps)
+// A cycle of the site plays, for each block of plans, its 1000 shopper visits and the staff visits
+// of the scenario, placed among them. Every block of the cycle has the mix of the scenario exactly:
+// the staff share and their edits and ships by quota, and the shopper mix of the plans. The staff
+// visits go through all the staff plans over the cycles, and a read-only scenario plans no write.
+func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		staff, edits, ship int
+	}{{"shop", 20, 4, 6}, {"shop-staff-x2", 42, 17, 13}} {
+		w := siteWorkload(t, 5, 2, tc.name)
+		bv := w.blockVisits()
+		if bv != ShopperBlockVisits+tc.staff || w.cycleLen() != 2*bv {
+			t.Fatalf("%s: %d visits a block, a cycle of %d", tc.name, bv, w.cycleLen())
 		}
-		return float64(v) / float64(n)
-	}
-	if got := views(380); got != 4 {
-		t.Errorf("a cycle has %v page views a visit", got)
-	}
-	if got := views(760); got != 4 {
-		t.Errorf("two cycles have %v page views a visit", got)
-	}
-	// Parts of a cycle stray from 4 by more than the 1% a round may: the reason trials play whole cycles.
-	strays := 0
-	for _, n := range []int{95, 120, 190, 240, 285} {
-		if g := views(n); g < 3.96 || g > 4.04 {
-			strays++
+		staffPlans := map[int]bool{}
+		for b := range 6 {
+			var r Round
+			w.plan(&r, b*bv, bv, false)
+			m := r.Mix
+			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 2600, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
+			if m == nil || *m != want {
+				t.Fatalf("%s block %d of the run plans %+v, want %+v", tc.name, b, m, want)
+			}
+			if why := m.why(w.Scenario); why != "" {
+				t.Errorf("%s block %d: %s", tc.name, b, why)
+			}
+			for s := b * bv; s < (b+1)*bv; s++ {
+				if p := w.planFor(s); p.Role == RoleStaff {
+					staffPlans[p.ID] = true
+				}
+			}
 		}
-	}
-	if strays == 0 {
-		t.Error("every part of a cycle has 4 page views a visit within 1%: the test shows nothing")
-	}
-	if w.planFor(380).ID != w.planFor(0).ID {
-		t.Error("the sequence does not wrap")
+		if len(staffPlans) != 2*StaffBlockPlans {
+			t.Errorf("%s: the staff visits played %d of the %d staff plans", tc.name, len(staffPlans), 2*StaffBlockPlans)
+		}
+		if w.planFor(w.cycleLen()+3).ID != w.planFor(3).ID && w.planFor(3).Role == RoleShopper {
+			t.Errorf("%s: the shopper visits do not wrap with the cycle", tc.name)
+		}
+		reads := w.Scenario
+		reads.ReadOnly = true
+		w.Scenario = reads
+		var r Round
+		w.plan(&r, 0, bv, false)
+		if r.WritesPlanned != 0 || r.Mix.Adds+r.Mix.Edits+r.Mix.Ships+r.Mix.Checkouts != 0 {
+			t.Errorf("%s read-only: %d writes planned", tc.name, r.WritesPlanned)
+		}
 	}
 }
 
@@ -613,7 +624,7 @@ func TestReplayKeepsTheParallelismOfTheBrowser(t *testing.T) {
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/doc", "doc", 0, 1)}}, {Kind: StepClick, Page: "/q", Reqs: []TraceReq{
 		req("/slow-a", "nav", 0, 30), req("/slow-b", "prefetch", 1, 50), req("/c", "nav", 40, 45),
 	}}}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, tr)
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
 	a := newAcc()
 	start := time.Now()
 	if err := visitOnce(r, a, 0); err != nil {
@@ -635,7 +646,7 @@ func TestReplayDoesNotDeadlockOnRequestsOfTheSameMillisecond(t *testing.T) {
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{
 		req("/a", "doc", 5, 5), req("/b", "prefetch", 5, 5), req("/c", "nav", 5, 9),
 	}}}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, tr)
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
 	done := make(chan error, 1)
 	go func() { done <- visitOnce(r, newAcc(), 0) }()
 	select {
@@ -700,7 +711,7 @@ func TestRendersAreCountedByKindOfPage(t *testing.T) {
 	load := func(page string) Trace {
 		return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{req(page, "doc", 0, 1), req("/data", "nav", 2, 3)}}}}
 	}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Mix: MixRename}, load("/projects/studio"), load("/projects/studio/orders/SH-1041"), load("/projects/studio"))
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, load("/projects/studio"), load("/projects/studio/orders/SH-1041"), load("/projects/studio"))
 	a := newAcc()
 	for seq := range 3 {
 		if err := visitOnce(r, a, seq); err != nil {
@@ -709,11 +720,59 @@ func TestRendersAreCountedByKindOfPage(t *testing.T) {
 	}
 	var round Round
 	a.round(&round, 0, 0, 0, 0, time.Now(), time.Now(), 0)
-	if got := fmt.Sprint(round.PageRenders); got != "map[list:map[memo:2 vm:2] order:map[vm:2]]" {
+	if got := fmt.Sprint(round.PageRenders); got != "map[staff list:map[memo:2 vm:2] staff order:map[vm:2]]" {
 		t.Errorf("renders by page %s", got)
 	}
 	if got := fmt.Sprint(round.Renders); got != "map[memo:2 vm:4]" {
 		t.Errorf("renders %s", got)
+	}
+}
+
+// Tifa starts every round with an empty render memo, so the first answer of each kind of page is a
+// render: a round whose first answer of a kind came from the memo is not valid (something filled it
+// before the round). The answers of the private pages, the cart and the checkout, that came from the
+// memo are counted apart.
+func TestTheFirstAnswerOfEachKindOfPageMustBeARender(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(path string, n int) string // how the n-th answer of a path is made
+		valid  bool
+	}{
+		{"renders first", func(_ string, n int) string { return map[bool]string{true: RenderVM, false: RenderHit}[n == 1] }, true},
+		{"shared first", func(_ string, n int) string { return map[bool]string{true: RenderShared, false: RenderHit}[n == 1] }, true},
+		{"a hit first", func(path string, n int) string {
+			if path == "/store/cart" {
+				return RenderHit
+			}
+			return RenderVM
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			seen := map[string]int{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				seen[r.URL.Path]++
+				n := seen[r.URL.Path]
+				mu.Unlock()
+				w.Header().Set(RenderHeader, tc.answer(r.URL.Path, n))
+				w.Write([]byte("ok"))
+			}))
+			defer srv.Close()
+			load := func(page string) Trace {
+				return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{req(page, "doc", 0, 1)}}, {Kind: StepClick, Page: page, Reqs: []TraceReq{req(page, "nav", 0, 1)}}}}
+			}
+			r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, load("/store/cart"), load("/store/products/oak-tray"), load("/store/checkout"))
+			round := r.RunClosed(context.Background(), 1, 3, 10*time.Second)
+			round.Judge(BrowseScenario{})
+			if round.Valid != tc.valid || !tc.valid && !strings.Contains(round.WhyInvalid, "first answer of a cart page") {
+				t.Errorf("first answers %v: valid %v (%s)", round.FirstRenders, round.Valid, round.WhyInvalid)
+			}
+			// The second answers of the cart and of the checkout, or both answers of the cart.
+			if round.PrivateHits != 2 {
+				t.Errorf("%d answers of the cart and the checkout came from the memo, want 2: %v", round.PrivateHits, round.PageRenders)
+			}
+		})
 	}
 }
 
@@ -753,8 +812,8 @@ func TestAVisitEndedBetweenActionsWaitsForItsBackgroundRequests(t *testing.T) {
 func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
 	srv, log := fakeApp(t)
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixRename}, tr)
-	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+	r.wl.Writes[[2]int{0, 0}] = testWrite()
 	if rate := r.Size(context.Background(), 2, 100*time.Millisecond); rate <= 0 {
 		t.Fatalf("the sizing run completed no visit")
 	}
@@ -774,7 +833,7 @@ func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
 // A write or a page that the shop answers with 409 or 422 counts as refused as soon as its status
 // arrives, even when its body then cannot be read, and the round it is in is not valid.
 func TestARefusedAnswerMakesItsRoundInvalid(t *testing.T) {
-	for _, tc := range []struct{ name, refuse string }{{"a write whose body is cut", "PATCH"}, {"a page", "GET"}} {
+	for _, tc := range []struct{ name, refuse string }{{"a write whose body is cut", "POST"}, {"a page", "GET"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != tc.refuse {
@@ -794,8 +853,8 @@ func TestARefusedAnswerMakesItsRoundInvalid(t *testing.T) {
 			tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{
 				{Method: "GET", URL: "/projects/studio", Class: "doc", End: 5, Status: 200},
 			}}}}
-			r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.2, Mix: MixRename}, tr)
-			r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Plan: 0, After: 0, Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+			r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+			r.wl.Writes[[2]int{0, 0}] = testWrite()
 			a := newAcc()
 			if err := visitOnce(r, a, 0); err == nil {
 				t.Fatal("the visit did not fail")
@@ -803,7 +862,7 @@ func TestARefusedAnswerMakesItsRoundInvalid(t *testing.T) {
 			round := plannedRound()
 			now := time.Now()
 			a.round(round, 0, 0, 0, 0, now, now.Add(time.Second), 0)
-			round.Judge(BrowseScenario{Share: 2.0 / 42})
+			round.Judge(BrowseScenario{})
 			if round.Refused != 1 || round.Valid || !strings.Contains(round.WhyInvalid, "refused 1 requests") {
 				t.Errorf("refused %d, valid %v (%s): want one refused answer and an invalid round", round.Refused, round.Valid, round.WhyInvalid)
 			}

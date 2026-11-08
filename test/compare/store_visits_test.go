@@ -15,33 +15,25 @@ import (
 	"github.com/liustack/tifa/test/compare"
 )
 
-// TestPlannedStoreWritesAreTakenByEveryApp sends the storefront writes of two blocks of visit plans
-// with half the requests writes (every page view followed by a write), each visit with the cookies
-// of its own, to Tifa and to the three
-// apps, at the path each takes them on. Every write must answer with the status the plan expects
-// (200 for an add and a quantity change, 204 for a coupon, 303 to the page of the order for a
-// checkout, which is not followed) and the cart page after the last write of a visit must be the
-// one the plan leaves: empty after a checkout, else holding the lines of the plan.
+// TestPlannedStoreWritesAreTakenByEveryApp sends what the shopper visits of a block of the site send
+// to the storefront, each visit with the cookies of its own, to Tifa and to the three apps, at the
+// path each takes them on: for a returning visit the adds that make its cart before the round, then
+// the writes of the visit. Every write must answer with the status the plan expects (200 for an add,
+// 303 to the page of the order for a checkout, which is not followed).
 func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	ctx := context.Background()
-	set := compare.GenerateStorePlanSet(1, 2)
-	sc, _ := compare.BrowseScenarioByName("store-w50")
-	writes := map[int][]compare.PlannedWrite{}
-	var all []compare.PlannedWrite
-	for blk := range set.Blocks {
-		ws, err := compare.BlockWrites(1, set.Plans[blk*compare.BlockVisits:(blk+1)*compare.BlockVisits], sc)
-		if err != nil {
-			t.Fatal(err)
+	set := compare.GenerateSitePlanSet(1, 1)
+	// The visits buy more than the shop has in stock, so each server is restocked first, as a run is.
+	var visits []compare.VisitWrites
+	for seq, p := range set.Plans {
+		if p.Role == compare.RoleShopper {
+			pre, writes := compare.StoreVisitWrites(1, seq, p)
+			visits = append(visits, compare.VisitWrites{Setup: pre, Writes: writes})
 		}
-		for _, w := range ws {
-			writes[w.Plan] = append(writes[w.Plan], w)
-		}
-		all = append(all, ws...)
 	}
-	// The plans buy more than the shop has in stock, so each server is restocked first, as a run is.
-	need := compare.StockFor(1, set.Plans, all, len(set.Plans))
+	need := compare.StockFor(1, visits)
 	buildID := shopBuildID(t, env)
 	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SH-[0-9]+$`)
 	for _, name := range []string{"tifa-nocache", "nextjs", "start", "reactrouter"} {
@@ -63,12 +55,20 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		sent := map[string]int{}
-		for _, p := range set.Plans {
+		for seq, p := range set.Plans {
+			if p.Role != compare.RoleShopper {
+				continue
+			}
 			jar, _ := cookiejar.New(nil)
 			client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			for _, w := range writes[p.ID] {
-				path := spec.StoreWrite(w.Store.Path)
-				req, _ := http.NewRequestWithContext(ctx, w.Store.Method, server.Base+path, strings.NewReader(string(w.Store.Body)))
+			pre, writes := compare.StoreVisitWrites(1, seq, p)
+			reqs := pre
+			for _, w := range writes {
+				reqs = append(reqs, *w.Store)
+			}
+			for i, w := range reqs {
+				path := spec.StoreWrite(w.Path)
+				req, _ := http.NewRequestWithContext(ctx, w.Method, server.Base+path, strings.NewReader(string(w.Body)))
 				req.Header.Set("Content-Type", "application/json")
 				res, err := client.Do(req)
 				if err != nil {
@@ -76,8 +76,8 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 				}
 				body, _ := io.ReadAll(res.Body)
 				res.Body.Close()
-				if res.StatusCode != w.Store.Status {
-					t.Fatalf("%s, plan %d, write after view %d: %s %s %s answered %d, want %d: %.200s", name, p.ID, w.After, w.Store.Method, path, w.Store.Body, res.StatusCode, w.Store.Status, body)
+				if res.StatusCode != w.Status {
+					t.Fatalf("%s, plan %d, write %d: %s %s %s answered %d, want %d: %.200s", name, p.ID, i, w.Method, path, w.Body, res.StatusCode, w.Status, body)
 				}
 				if w.Kind == compare.WriteCheckout && !located.MatchString(res.Header.Get("Location")) {
 					t.Fatalf("%s: a checkout sent the visitor to %q", name, res.Header.Get("Location"))
@@ -86,7 +86,7 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 			}
 		}
 		server.Stop()
-		for _, kind := range []string{compare.WriteAdd, compare.WriteQuantity, compare.WriteCoupon, compare.WriteCheckout} {
+		for _, kind := range []string{compare.WriteAdd, compare.WriteCheckout} {
 			if sent[kind] == 0 {
 				t.Errorf("%s: no %s write was sent", name, kind)
 			}

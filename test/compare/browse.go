@@ -56,7 +56,7 @@ type BrowseOptions struct {
 	Log         io.Writer
 }
 
-// PlanInfo is what the plans of a site hold.
+// PlanInfo is what the plans of the site hold.
 type PlanInfo struct {
 	Blocks int `json:"blocks"`
 	PlanCounts
@@ -64,15 +64,15 @@ type PlanInfo struct {
 
 // BrowseResult is everything the browse comparison measured, round by round.
 type BrowseResult struct {
-	Stamp     string              `json:"stamp"`
-	Date      string              `json:"date"`
-	Seed      uint64              `json:"seed"`
-	Machine   Machine             `json:"machine"`
-	Place     Placement           `json:"placement"`
-	Version   map[string]string   `json:"versions"`
-	Config    map[string]string   `json:"settings"`
-	Plans     map[string]PlanInfo `json:"plans"` // by site: "workbench" or "store"
-	Scenarios []BrowseScenario    `json:"scenarios"`
+	Stamp     string            `json:"stamp"`
+	Date      string            `json:"date"`
+	Seed      uint64            `json:"seed"`
+	Machine   Machine           `json:"machine"`
+	Place     Placement         `json:"placement"`
+	Version   map[string]string `json:"versions"`
+	Config    map[string]string `json:"settings"`
+	Plans     PlanInfo          `json:"plans"`
+	Scenarios []BrowseScenario  `json:"scenarios"`
 	// Servers is, per scenario, the specs it runs, in the order of the tables.
 	Servers map[string][]string `json:"servers"`
 	// Closed holds every closed round, at every number of concurrent sessions, the invalid ones that
@@ -81,7 +81,7 @@ type BrowseResult struct {
 	// Blocks is the size of the measured workload of each scenario, number of sessions and spec (whole
 	// blocks), taken from the warm-up of its first round.
 	Blocks map[string]int `json:"blocks"`
-	// Sustain is, per scenario and spec ("admin-w5/tifa"), the search for the arrival rate it
+	// Sustain is, per scenario and spec ("shop/tifa"), the search for the arrival rate it
 	// sustains in the open model.
 	Sustain map[string]*Sustain `json:"sustain"`
 	// LatencyRate is, per scenario, the rate that all its servers were run at: half of the lowest
@@ -89,10 +89,10 @@ type BrowseResult struct {
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
-	// Control is the read-only control of each site: Tifa at the sessions of the closed runs with the
+	// Control is the read-only control, on the first scenario: Tifa at the sessions of the closed runs with the
 	// same traces and no writes, one short round, to show which pages its render memo answers.
 	Control []Round `json:"control,omitempty"`
-	// Throughput is, per scenario and server ("store-w5/tifa"), what the steps of its sessions found.
+	// Throughput is, per scenario and server ("shop/tifa"), what the steps of its sessions found.
 	Throughput map[string]*Throughput `json:"throughput,omitempty"`
 }
 
@@ -112,14 +112,6 @@ type Sustain struct {
 	From  *RateSource       `json:"fromFile,omitempty"`
 }
 
-// siteName is how a site is named in the result.
-func siteName(site string) string {
-	if site == SiteWorkbench {
-		return "workbench"
-	}
-	return site
-}
-
 type browse struct {
 	e     Env
 	o     BrowseOptions
@@ -127,9 +119,9 @@ type browse struct {
 	specs map[string]Spec
 	// servers are the spec ids of each scenario.
 	servers map[string][]string
-	// sets and traces are by site, and the traces by the name a spec replays (traceName).
-	sets  map[string]*PlanSet
-	trace map[string]map[string]map[int]Trace
+	// set is the plans of the site, and trace their traces by the name a spec replays (traceName).
+	set   *PlanSet
+	trace map[string]map[int]Trace
 	bid   string
 	// launch starts the server of a spec; the tests set it to serve from a fake (nil: start the real one).
 	launch func(ctx context.Context, spec Spec) (*liveServer, error)
@@ -195,17 +187,17 @@ func (b *browse) commit() error {
 	return os.Rename(b.o.OutJSON+".tmp", b.o.OutJSON)
 }
 
-// LoadTraces reads the plans of a site and the traces of the names given, and fails unless every
+// LoadTraces reads the plans of the site and the traces of the names given, and fails unless every
 // name has a trace for every plan: a replay on an incomplete set would not play the same visits on
 // every server.
-func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
-	set, err := ReadPlans(dir, site)
+func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
+	set, err := ReadPlans(dir)
 	if err != nil {
 		return nil, nil, err
 	}
 	out := map[string]map[int]Trace{}
 	for _, name := range names {
-		path := TracePath(dir, name, site)
+		path := TracePath(dir, name)
 		traces, dropped, err := ReadTraces(path)
 		if err != nil {
 			return nil, nil, err
@@ -294,25 +286,18 @@ func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 	return nil
 }
 
-// tracesHash is a short hash of the plan and trace files a run loads: for each site, its plans and
-// the traces of names.
-func tracesHash(dir string, names map[string][]string) string {
+// tracesHash is a short hash of the plan and trace files a run loads: the plans and the traces of
+// names.
+func tracesHash(dir string, names []string) string {
 	h := sha256.New()
-	for _, site := range slices.Sorted(maps.Keys(names)) {
-		for _, path := range append([]string{PlansPath(dir, site)}, tracePaths(dir, site, names[site])...) {
-			fmt.Fprintf(h, "%s %s\n", filepath.Base(path), fileHash(path))
-		}
+	paths := []string{PlansPath(dir)}
+	for _, n := range slices.Sorted(slices.Values(names)) {
+		paths = append(paths, TracePath(dir, n))
+	}
+	for _, path := range paths {
+		fmt.Fprintf(h, "%s %s\n", filepath.Base(path), fileHash(path))
 	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
-}
-
-// tracePaths are the trace files of names on a site, sorted.
-func tracePaths(dir, site string, names []string) []string {
-	var out []string
-	for _, n := range slices.Sorted(slices.Values(names)) {
-		out = append(out, TracePath(dir, n, site))
-	}
-	return out
 }
 
 // Browse runs the browse comparison and returns what it measured. Prepare must have run.
@@ -351,9 +336,9 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 			return nil, err
 		}
 	}
-	b := &browse{e: e, o: o, specs: map[string]Spec{}, servers: map[string][]string{}, sets: map[string]*PlanSet{}, trace: map[string]map[string]map[int]Trace{}}
+	b := &browse{e: e, o: o, specs: map[string]Spec{}, servers: map[string][]string{}, trace: map[string]map[int]Trace{}}
 	var specs []Spec
-	names := map[string][]string{} // by site: the traces it needs
+	var names []string // the traces the specs replay
 	for _, sc := range o.Scenarios {
 		list, err := e.browseSpecs(sc, o.Servers)
 		if err != nil {
@@ -365,15 +350,13 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 				b.specs[s.Name] = s
 				specs = append(specs, s)
 			}
-			if !slices.Contains(names[sc.site()], traceName(s)) {
-				names[sc.site()] = append(names[sc.site()], traceName(s))
+			if !slices.Contains(names, traceName(s)) {
+				names = append(names, traceName(s))
 			}
 		}
 	}
-	for site, list := range names {
-		if b.sets[site], b.trace[site], err = LoadTraces(o.TraceDir, site, list); err != nil {
-			return nil, err
-		}
+	if b.set, b.trace, err = LoadTraces(o.TraceDir, names); err != nil {
+		return nil, err
 	}
 	if b.bid, err = e.tifaBuildID(); err != nil {
 		return nil, err
@@ -390,13 +373,9 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
 		b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
 		b.res.Scenarios, b.res.Servers = o.Scenarios, b.servers
-		b.res.Plans = map[string]PlanInfo{}
-		for site, set := range b.sets {
-			info := PlanInfo{Blocks: set.Blocks}
-			for _, p := range set.Plans {
-				info.PlanCounts.Add(p, 0)
-			}
-			b.res.Plans[siteName(site)] = info
+		b.res.Plans = PlanInfo{Blocks: b.set.Blocks}
+		for _, p := range b.set.Plans {
+			b.res.Plans.PlanCounts.Add(p)
 		}
 		b.res.Config = cfg
 		b.res.Blocks = map[string]int{}
@@ -426,14 +405,15 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // show in its pages runs on a server of its own that is thrown away (checkWrites, once for a spec and a
 // scenario), so that a server of Tifa starts its round with an empty render memo. A run with writes
 // first restocks the server (prepare), which renders nothing, for visits visits (-1 for a run that
-// plays for a time, the sizing run). A run whose restock fails is an invalid round, and f does not
+// plays for a time, the sizing run), and f then makes the carts of the returning visitors before its
+// clock (setupCarts), which render nothing either. A run whose restock fails is an invalid round, and f does not
 // run. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
 func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visits int, f func(*runner) *Round) (*Round, error) {
 	// A round with no writes (the read-only control) has none to check, and writes nothing.
-	if key := sc.Name + "/" + name; sc.Share > 0 && !b.checked[key] {
+	if key := sc.Name + "/" + name; !sc.ReadOnly && !b.checked[key] {
 		if err := b.checkWrites(ctx, name, sc); err != nil {
 			return nil, err
 		}
@@ -451,7 +431,7 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 	if err != nil {
 		return nil, err
 	}
-	if sc.Share > 0 {
+	if !sc.ReadOnly {
 		if err := b.prepare(ctx, r, b.specs[name], visits); err != nil {
 			return &Round{Framework: name, Scenario: sc.Name, WhyInvalid: err.Error()}, nil
 		}
@@ -463,7 +443,7 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 	}
 	out.Framework, out.Scenario = name, sc.Name
 	out.Judge(sc)
-	if out.Pass && sc.Share > 0 {
+	if out.Pass && !sc.ReadOnly {
 		if err := b.verifyWrites(ctx, r); err != nil {
 			return nil, fmt.Errorf("%s/%s, after the round: %w", sc.Name, name, err)
 		}
@@ -475,32 +455,30 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 // closed rounds when that is shorter).
 const controlWindow = 30 * time.Second
 
-// controlled says whether the read-only control runs on a scenario of a list: on the first
-// scenario of each site, once.
+// controlled says whether the read-only control runs on a scenario of a list: on the first, once.
 func controlled(list []BrowseScenario, sc BrowseScenario) bool {
-	i := slices.IndexFunc(list, func(s BrowseScenario) bool { return s.site() == sc.site() })
-	return i >= 0 && list[i].Name == sc.Name
+	return len(list) > 0 && list[0].Name == sc.Name
 }
 
-// control is a diagnostic, not a result: once for each site, one closed round of Tifa, with no warm-up
-// (with its caches as it ships) at the sessions of the closed runs, with the traces of the first scenario of the
-// site and no writes. It shows which kinds of page the render memo answers when nothing changes,
+// control is a diagnostic, not a result: once, one closed round of Tifa, with no warm-up
+// (with its caches as it ships) at the sessions of the closed runs, with the visits of the first scenario and no
+// writes (the carts of the returning visitors are made, as they are data). It shows which kinds of page the render memo answers when nothing changes,
 // and against the rounds with writes what the writes do to it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	if !controlled(b.o.Scenarios, sc) || !slices.Contains(b.servers[sc.Name], "tifa") || slices.ContainsFunc(b.res.Control, func(x Round) bool { return x.Scenario == sc.Name }) {
 		return nil
 	}
 	reads := sc
-	reads.Share = 0
+	reads.ReadOnly = true
 	window := min(b.o.Target, controlWindow)
 	// Tifa gets no warm-up, so the length of the round is sized on a server that is thrown away.
 	rate, err := b.size(ctx, "tifa", reads, b.o.Sessions)
 	if err != nil {
 		return err
 	}
-	blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
+	blocks := BlocksFor(rate, window, b.set.Blocks, reads.blockVisits())
 	out, err := b.with(ctx, "tifa", reads, 0, func(r *runner) *Round {
-		return r.RunClosed(ctx, b.o.Sessions, blocks*BlockVisits, 2*window)
+		return r.RunClosed(ctx, b.o.Sessions, blocks*reads.blockVisits(), 2*window)
 	})
 	if err != nil {
 		return err
@@ -515,32 +493,32 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 // every try.
 func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, sessions, round int) (*Round, error) {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
-	planBlocks := b.sets[sc.site()].Blocks
+	planBlocks := b.set.Blocks
 	if _, ok := b.res.Blocks[key]; !ok {
 		rate, err := b.size(ctx, fw, sc, sessions)
 		if err != nil {
 			return nil, err
 		}
-		b.res.Blocks[key] = BlocksFor(rate, b.o.Target, planBlocks)
+		b.res.Blocks[key] = BlocksFor(rate, b.o.Target, planBlocks, sc.blockVisits())
 		b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
 		if err := b.commit(); err != nil {
 			return nil, err
 		}
 	}
 	for attempt := 1; ; attempt++ {
-		out, err := b.with(ctx, fw, sc, b.res.Blocks[key]*BlockVisits, func(r *runner) *Round {
+		out, err := b.with(ctx, fw, sc, b.res.Blocks[key]*sc.blockVisits(), func(r *runner) *Round {
 			if b.specs[fw].WarmsUp() {
 				r.Warm(ctx, sessions, b.o.Warm)
 			}
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
-			return r.RunClosed(ctx, sessions, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
+			return r.RunClosed(ctx, sessions, b.res.Blocks[key]*sc.blockVisits(), 2*b.o.Target)
 		})
 		if err != nil {
 			return nil, err
 		}
 		out.Round, out.Attempt = round, attempt
-		if blocks := judgeClosed(out, b.o.Target, planBlocks, b.o.LoadCPUCount); blocks > 0 {
+		if blocks := judgeClosed(out, b.o.Target, planBlocks, sc.blockVisits(), b.o.LoadCPUCount); blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
 		b.res.Closed = append(b.res.Closed, *out)
@@ -576,11 +554,11 @@ func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, session
 // invalid, whatever the server did (a closed round has no schedule, so only the cpus are checked, and
 // only when the generator has cpus of its own, loadCPUs). Then its length is checked (calibrate), and
 // it returns the blocks of the next round of its cell, 0 for no change.
-func judgeClosed(out *Round, target time.Duration, planBlocks, loadCPUs int) int {
+func judgeClosed(out *Round, target time.Duration, planBlocks, blockVisits, loadCPUs int) int {
 	if why := generatorFault(out, loadCPUs); why != "" {
 		out.GeneratorLimited, out.Valid, out.WhyInvalid = true, false, why
 	}
-	return calibrate(out, target, planBlocks)
+	return calibrate(out, target, planBlocks, blockVisits)
 }
 
 // calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
@@ -590,7 +568,7 @@ func judgeClosed(out *Round, target time.Duration, planBlocks, loadCPUs int) int
 // when the round was in the window. A round outside the window that passed the rule is invalid and is
 // run again. One that failed the rule stays a valid round that failed: the length is a matter of
 // calibration, and never discards a failure the server showed.
-func calibrate(out *Round, target time.Duration, planBlocks int) int {
+func calibrate(out *Round, target time.Duration, planBlocks, blockVisits int) int {
 	lo, hi := roundLength(target)
 	ended := out.Visits + out.VisitsFailed
 	if ended == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
@@ -599,7 +577,7 @@ func calibrate(out *Round, target time.Duration, planBlocks int) int {
 	if out.Pass && out.Valid {
 		out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
 	}
-	return BlocksFor(float64(ended)/out.Seconds, target, planBlocks)
+	return BlocksFor(float64(ended)/out.Seconds, target, planBlocks, blockVisits)
 }
 
 // generatorFault says why the load generator, not the server, limited a round, or "" when it did not:
@@ -632,7 +610,7 @@ func visitsFor(rate float64, window time.Duration, cycle int) int {
 // openRound runs the open model on a fresh server: for a spec that warms up (Spec.WarmsUp) a warm-up
 // at the same rate with no writes, apart, then whole cycles of all the plans.
 func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
-	cycle := len(b.sets[sc.site()].Plans)
+	cycle := b.set.Blocks * sc.blockVisits()
 	visits := visitsFor(rate, window, cycle)
 	out, err := b.with(ctx, fw, sc, visits, func(r *runner) *Round {
 		if b.specs[fw].WarmsUp() {
@@ -882,12 +860,14 @@ func (e Env) tifaBuildID() (string, error) {
 // what the server shows next: in the document of a page and in the data a client navigation fetches
 // for it (as the browser asked for it in a trace). It uses addresses and ids of its own, so the
 // server is not what it was, but alike on every server.
+// The site has both: the writes of the storefront (verifyStore) and of the back office
+// (verifyAdmin).
+//
+// TODO(shop-merge): once the back office edits products, check that an edit shows on the product
+// page, the list and the home, and that a checkout shows in the orders of the back office.
 func (r *runner) verifyWrites(ctx context.Context) error {
-	switch r.mix() {
-	case MixStore:
-		return r.verifyStore(ctx)
-	case MixRename:
-		return r.verifyRename(ctx)
+	if err := r.verifyStore(ctx); err != nil {
+		return err
 	}
 	return r.verifyAdmin(ctx)
 }
@@ -1092,38 +1072,6 @@ func CarrierParcels(doc, name string) (int, error) {
 		return 0, fmt.Errorf("%d lines of the carrier table for %s", len(found), name)
 	}
 	return found[0], nil
-}
-
-// verifyRename writes to each writable order, both kinds of the rename PATCH (the address alone, then
-// the address and the name), and checks that the document of the order shows it and that so does
-// the data a client navigation fetches for it.
-func (r *runner) verifyRename(ctx context.Context) error {
-	for _, fan := range []bool{false, true} {
-		for _, w := range WritableOrders {
-			n := int(r.writes.Add(1))
-			st := WriteStep(r.write, w, n, fan)
-			if err := Send(ctx, r.base, st); err != nil {
-				return err
-			}
-			digits := fmt.Sprintf("%08d", n)
-			url := "/projects/" + w.Project + "/orders/" + w.Order
-			doc, err := r.get(ctx, url, nil)
-			if err != nil {
-				return err
-			}
-			if !strings.Contains(doc, digits) || fan && !strings.Contains(doc, st.Write.Customer) {
-				return fmt.Errorf("the document of %s does not show write %d", w.Order, n)
-			}
-			data, ok, err := r.nav(ctx, url)
-			if err != nil {
-				return err
-			}
-			if ok && !strings.Contains(data, digits) {
-				return fmt.Errorf("the navigation data of %s does not show write %d", w.Order, n)
-			}
-		}
-	}
-	return nil
 }
 
 // navRequest finds, in the traces, the data request of a click to a page that the browser let
@@ -1359,8 +1307,7 @@ func checkFormat(data []byte) error {
 // runnerFor is a runner of the workload of a scenario against a server of a spec.
 func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (*runner, error) {
 	spec := b.specs[name]
-	site := sc.site()
-	wl, err := NewWorkload(b.sets[site], b.trace[site][traceName(spec)], sc, b.o.Seed)
+	wl, err := NewWorkload(b.set, b.trace[traceName(spec)], sc, b.o.Seed)
 	if err != nil {
 		return nil, err
 	}

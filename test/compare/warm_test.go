@@ -17,36 +17,44 @@ import (
 type launched struct {
 	spec string
 	hits atomic.Int64 // every request
+	gets atomic.Int64 // the GETs, the requests that can render a page
 	seq  seq          // in order, the checks apart from the traffic
 }
 
 // warmBrowse is a browse run against fake servers: every launch starts a new one and notes it. The
-// plans are one block of 95 visits of a single page view, in a scenario with no writes.
+// plans are one block of the site, each page view one request to its page, in the scenario sc.
 func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func() []*launched) {
 	t.Helper()
 	var mu sync.Mutex
 	var all []*launched
-	set := &PlanSet{Blocks: 1}
+	set := GenerateSitePlanSet(1, 1)
 	traces := map[int]Trace{}
-	for i := range BlockVisits {
-		set.Plans = append(set.Plans, Plan{ID: i, Steps: []PlanStep{{StepLoad, "/projects/studio"}, {StepClick, "/projects/studio"}, {StepClick, "/projects/studio"}, {StepClick, "/projects/studio"}}})
-		doc := TraceStep{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}
-		nav := TraceStep{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "nav", End: 1, Status: 200}}}
-		traces[i] = Trace{Plan: i, Steps: []TraceStep{doc, nav, nav, nav}}
+	for _, p := range set.Plans {
+		tr := Trace{Plan: p.ID}
+		for _, s := range p.Steps {
+			class := "nav"
+			if s.Kind == StepLoad {
+				class = "doc"
+			}
+			tr.Steps = append(tr.Steps, TraceStep{Kind: s.Kind, Page: s.Page, Reqs: []TraceReq{{Method: "GET", URL: s.Page, Class: class, End: 1, Status: 200}}})
+		}
+		traces[p.ID] = tr
 	}
 	b := &browse{
-		o:       BrowseOptions{Log: io.Discard, Sessions: 2, Rounds: 1, Warm: 150 * time.Millisecond, Target: time.Second, Scenarios: []BrowseScenario{sc}, Seed: 1},
+		o:       BrowseOptions{Log: io.Discard, Sessions: 2, Rounds: 1, Warm: 150 * time.Millisecond, Target: 200 * time.Millisecond, Scenarios: []BrowseScenario{sc}, Seed: 1},
 		specs:   map[string]Spec{},
 		servers: map[string][]string{},
-		sets:    map[string]*PlanSet{sc.site(): set},
-		trace:   map[string]map[string]map[int]Trace{sc.site(): {}},
+		set:     &set,
+		trace:   map[string]map[int]Trace{},
 		res:     &BrowseResult{Blocks: map[string]int{}, Sustain: map[string]*Sustain{}},
 	}
 	for _, s := range specs {
 		b.specs[s.Name] = s
 		b.servers[sc.Name] = append(b.servers[sc.Name], s.Name)
-		b.trace[sc.site()][traceName(s)] = traces
+		b.trace[traceName(s)] = traces
 	}
+	// The fake shows no page that a write changes: the check of the writes is the test's to set.
+	b.verify = func(context.Context, *runner) error { return nil }
 	b.launch = func(ctx context.Context, spec Spec) (*liveServer, error) {
 		l := &launched{spec: spec.Name}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +78,14 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 				return
 			}
 			l.hits.Add(1)
-			l.seq.add('T')
+			if r.Method == "POST" && strings.Contains(r.URL.Path, "/store/products/") {
+				l.seq.add('A')
+			} else {
+				l.seq.add('T')
+			}
+			if r.Method == "GET" {
+				l.gets.Add(1)
+			}
 			// A write is answered as the shop answers it: a checkout with a 303, a created order with its id.
 			switch {
 			case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/checkout"):
@@ -99,6 +114,12 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 	}
 }
 
+// busy are the servers that got a request: a server of the check of the writes gets none while the
+// check is the stub of warmBrowse.
+func busy(list []*launched) []*launched {
+	return slices.DeleteFunc(list, func(l *launched) bool { return l.hits.Load() == 0 && !l.seq.has('V') })
+}
+
 func warmSpecs() (tifa, nocache, node Spec) {
 	mk := func(name, fw string) Spec {
 		return Spec{Target: Target{Name: name}, Framework: fw, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath, EditProduct: nodeEditProduct, Products: nodeProducts}
@@ -107,11 +128,37 @@ func warmSpecs() (tifa, nocache, node Spec) {
 }
 
 // Tifa has no JIT and starts every measured round with an empty render memo, so a warm-up would put
-// what the cache holds there before the clock starts. A measured round of Tifa, with or without the
-// cache, gets no request but its own, and the Node servers keep their warm-up (their JIT needs it).
-func TestOnlyTheNodeServersGetAWarmUp(t *testing.T) {
+// what the memo holds there before the clock starts. Before a measured round of Tifa, with or
+// without the cache, nothing that renders reaches its server: it gets the GETs of the round and no
+// other, and besides the writes of the round only the writes that make the carts of the returning
+// visitors. Both kinds of setup happen, in this order: the restock (Restock, which renders nothing), then
+// the carts of the returning visitors, then the round. The Node servers keep their warm-up (their JIT
+// needs it).
+func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 	tifa, nocache, node := warmSpecs()
-	sc := BrowseScenario{Name: "reads", Share: 0, Mix: MixRename}
+	sc := mustScenario("shop")
+	// own says whether a server got the requests of its round and no other: the GETs of the round, and
+	// its writes and those of its setup.
+	own := func(l *launched, out *Round) bool {
+		return int(l.gets.Load()) == out.Requests-out.Writes && int(l.hits.Load()) == out.Requests+out.SetupRequests
+	}
+	// setUp checks that a server of a round was restocked, then got the carts of the setup, then the
+	// round, with nothing between (Tifa), or the warm-up between the restock and the carts (Node).
+	setUp := func(t *testing.T, l *launched, out *Round, warmed bool) {
+		t.Helper()
+		o := l.seq.order()
+		rest := strings.TrimLeft(o, "R")
+		if len(o)-len(rest) < 2 || strings.Contains(rest, "R") {
+			t.Errorf("the server of the round got %.40s..., want the restock (a list and its edits) before anything else", o)
+		}
+		if warmed {
+			return
+		}
+		carts := strings.Repeat("A", out.SetupRequests)
+		if out.SetupRequests == 0 || !strings.HasPrefix(rest, carts+"T") {
+			t.Errorf("after the restock the server got %.40s..., want the %d adds of the carts, then the round", rest, out.SetupRequests)
+		}
+	}
 	for _, tc := range []struct {
 		spec   Spec
 		warmed bool
@@ -122,16 +169,20 @@ func TestOnlyTheNodeServersGetAWarmUp(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			list := servers()
+			list := busy(servers())
 			// The first server is the sizing run, thrown away. Then one server for each try of the round
 			// (a round of this fake is never valid, so it is tried again).
 			if len(list) != 1+len(b.res.Closed) || out.Requests == 0 {
 				t.Fatalf("%d servers for %d rounds, %d requests in the last", len(list), len(b.res.Closed), out.Requests)
 			}
 			out = &b.res.Closed[0]
-			if got := int(list[1].hits.Load()); (got > out.Requests) != tc.warmed || (!tc.warmed && got != out.Requests) {
-				t.Errorf("the server of the round got %d requests, the round counted %d: warmed %v, want %v", got, out.Requests, got > out.Requests, tc.warmed)
+			if out.SetupRequests == 0 {
+				t.Fatalf("the round made no cart for a returning visitor")
 			}
+			if own(list[1], out) == tc.warmed {
+				t.Errorf("the server of the round got %d requests (%d GETs), the round counted %d (%d writes, %d of setup): warmed %v", list[1].hits.Load(), list[1].gets.Load(), out.Requests, out.Writes, out.SetupRequests, tc.warmed)
+			}
+			setUp(t, list[1], out, tc.warmed)
 			if list[0].hits.Load() == 0 {
 				t.Errorf("the sizing run sent nothing")
 			}
@@ -142,13 +193,17 @@ func TestOnlyTheNodeServersGetAWarmUp(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			list := servers()
+			list := busy(servers())
 			if len(list) != 1 || out.Requests == 0 {
 				t.Fatalf("%d servers, %d requests in the round", len(list), out.Requests)
 			}
-			if got := int(list[0].hits.Load()); (got > out.Requests) != tc.warmed || (!tc.warmed && got != out.Requests) {
-				t.Errorf("the server of the round got %d requests, the round counted %d: warmed %v, want %v", got, out.Requests, got > out.Requests, tc.warmed)
+			if own(list[0], out) == tc.warmed {
+				t.Errorf("the server of the round got %d requests (%d GETs), the round counted %d (%d writes, %d of setup): warmed %v", list[0].hits.Load(), list[0].gets.Load(), out.Requests, out.Writes, out.SetupRequests, tc.warmed)
 			}
+			if out.SetupRequests == 0 {
+				t.Fatalf("the round made no cart for a returning visitor")
+			}
+			setUp(t, list[0], out, tc.warmed)
 		})
 	}
 	// The read-only control is Tifa: its server gets the round and nothing else.
@@ -156,12 +211,12 @@ func TestOnlyTheNodeServersGetAWarmUp(t *testing.T) {
 	if err := b.control(context.Background(), sc); err != nil {
 		t.Fatal(err)
 	}
-	list := servers()
+	list := busy(servers())
 	if len(b.res.Control) != 1 || len(list) != 2 {
 		t.Fatalf("%d control rounds on %d servers", len(b.res.Control), len(list))
 	}
-	if got, want := int(list[1].hits.Load()), b.res.Control[0].Requests; got != want || want == 0 {
-		t.Errorf("the control server got %d requests, the round counted %d", got, want)
+	if c := &b.res.Control[0]; !own(list[1], c) || c.Requests == 0 || c.Writes != 0 {
+		t.Errorf("the control server got %d requests, the round counted %d (%d writes, %d of setup)", list[1].hits.Load(), c.Requests, c.Writes, c.SetupRequests)
 	}
 }
 
@@ -169,13 +224,13 @@ func TestOnlyTheNodeServersGetAWarmUp(t *testing.T) {
 // server of a measured round, for Tifa as for the Node servers.
 func TestSizingNeverReachesAMeasuredServer(t *testing.T) {
 	tifa, _, node := warmSpecs()
-	sc := BrowseScenario{Name: "reads", Share: 0, Mix: MixRename}
+	sc := mustScenario("shop")
 	for _, spec := range []Spec{tifa, node} {
 		b, servers := warmBrowse(t, sc, spec)
 		if _, err := b.closedRound(context.Background(), spec.Name, sc, 2, 1); err != nil {
 			t.Fatal(err)
 		}
-		list := servers()
+		list := busy(servers())
 		if len(list) < 2 {
 			t.Fatalf("%s: %d servers", spec.Name, len(list))
 		}
@@ -189,8 +244,8 @@ func TestSizingNeverReachesAMeasuredServer(t *testing.T) {
 const verifyHeader = "X-Test-Verify"
 
 // seq is what one server got, in order: "V" for a request of the write check, "R" for one of the
-// restock before a run with writes, and "T" for the traffic of a round (a warm-up, a sizing run or a
-// measured round).
+// restock before a run with writes, "A" for an add to a cart (of the setup or of a round), and "T"
+// for the rest of the traffic of a round (a warm-up, a sizing run or a measured round).
 type seq struct {
 	mu   sync.Mutex
 	kind []byte
@@ -227,8 +282,8 @@ func (s *seq) has(k byte) bool {
 // round, once its timing has ended.
 func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 	tifa, nocache, node := warmSpecs()
-	for _, mix := range []string{MixRename, MixAdmin, MixStore} {
-		sc := BrowseScenario{Name: "w-" + mix, Share: 0.05, Mix: mix}
+	for _, sc := range BrowseScenarios {
+		mix := sc.Name
 		for _, spec := range []Spec{tifa, nocache, node} {
 			for _, open := range []bool{false, true} {
 				name := mix + "/" + spec.Name + "/closed"
@@ -256,7 +311,7 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					list := servers()
+					list := busy(servers())
 					if len(list) == 0 {
 						t.Fatal("no server")
 					}
@@ -265,7 +320,8 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					}
 					checks, after := 0, 0
 					for i, l := range list {
-						o := l.seq.order()
+						// An add, the carts of the setup among them, is traffic here.
+						o := strings.ReplaceAll(l.seq.order(), "A", "T")
 						// Every server of traffic is restocked before it, and only then.
 						if i := strings.IndexByte(o, 'T'); i >= 0 {
 							if i == 0 || strings.Trim(o[:i], "R") != "" {

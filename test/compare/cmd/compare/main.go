@@ -179,11 +179,10 @@ func browseCmd(cmd string, args []string) {
 	var (
 		dir       = flags.String("dir", "traces", "the folder of the plans and traces")
 		seed      = flags.Uint64("seed", 1, "the seed of the plans and their writes")
-		blocks    = flags.Int("blocks", 4, "plans: blocks of 95 visits, for each site")
+		blocks    = flags.Int("blocks", 1, "plans: blocks of 1050 visits, 1000 shoppers and 50 staff")
 		servers   = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter)")
 		workers   = flags.Int("workers", 4, "record: browser contexts at once")
 		limit     = flags.Int("limit", 0, "record: play only the first plans")
-		site      = flags.String("site", "workbench", "record: the pages to record, workbench or store")
 		linksOut  = flags.String("links-out", "", "links: where to write the links of the storefront pages (default test/compare/store_links.json)")
 		skipBuild = flags.Bool("skip-build", false, "record, browse: use the last build")
 	)
@@ -224,15 +223,7 @@ func browseCmd(cmd string, args []string) {
 		}
 		return
 	case "record":
-		s := compare.SiteWorkbench
-		switch *site {
-		case "workbench":
-		case "store":
-			s = compare.SiteStore
-		default:
-			fatal(fmt.Errorf("-site is workbench or store, not %q", *site))
-		}
-		if err := env.Record(ctx, os.Stderr, *dir, s, list, *workers, *limit); err != nil {
+		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit); err != nil {
 			fatal(err)
 		}
 		return

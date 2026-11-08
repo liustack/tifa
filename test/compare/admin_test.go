@@ -154,10 +154,10 @@ func (f *fakeShop) page(w http.ResponseWriter, r *http.Request) {
 
 func adminRunner(t *testing.T) (*runner, *fakeShop) {
 	f, srv := newFakeShop(t)
-	return newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixAdmin}), f
+	return newTestRunner(srv.URL, BrowseScenario{Name: "x"}), f
 }
 
-func TestAdminWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) {
+func TestStaffWritesShipTheOldestEditAnyAndFallBackToACreate(t *testing.T) {
 	r, f := adminRunner(t)
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
@@ -165,40 +165,39 @@ func TestAdminWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) {
 	send := func(kind, project string) {
 		t.Helper()
 		n++
-		if err := r.doWrite(context.Background(), v, a, PlannedWrite{After: n, Plan: 1, Kind: kind, Project: project}, time.Now()); err != nil {
+		if err := r.doWrite(context.Background(), v, a, PlannedWrite{After: n, Seq: 1, Kind: kind, Project: project}, time.Now()); err != nil {
 			t.Fatalf("%s %s: %v", kind, project, err)
 		}
 	}
 	send(WriteShip, "studio")
 	send(WriteShip, "studio")
 	send(WriteShip, "studio") // the pool of studio is empty now
-	send(WriteNote, "studio") // goes to the order that the last write placed
-	send(WriteRecipient, "studio")
-	send(WriteNote, "studio")
+	send(WriteEdit, "studio") // goes to the order that the last write placed
+	send(WriteEdit, "studio")
 	send(WriteShip, "studio") // takes the order placed, which is the only one left
 	send(WriteShip, "weekend")
-	send(WriteRecipient, "weekend") // the pool of weekend is empty: a create
+	send(WriteEdit, "weekend") // the pool of weekend is empty: a create
 	send(WriteCreate, "weekend")
-	want := []string{"POST SH-1041", "POST SH-1042", "create SH-1043", "PUT SH-1043", "PATCH SH-1043", "PUT SH-1043", "POST SH-1043", "POST WK-0201", "create WK-0202", "create WK-0203"}
+	want := []string{"POST SH-1041", "POST SH-1042", "create SH-1043", "PATCH SH-1043", "PATCH SH-1043", "POST SH-1043", "POST WK-0201", "create WK-0202", "create WK-0203"}
 	if strings.Join(f.log, "|") != strings.Join(want, "|") {
 		t.Fatalf("the shop saw %v, want %v", f.log, want)
 	}
-	if a.kinds[WriteCreate] != 3 || a.kinds[WriteShip] != 4 || a.kinds[WriteNote] != 2 || a.kinds[WriteRecipient] != 1 || a.poolEmpty != 2 {
+	if a.kinds[WriteCreate] != 3 || a.kinds[WriteShip] != 4 || a.kinds[WriteEdit] != 2 || a.poolEmpty != 2 {
 		t.Errorf("writes %v, %d with an empty pool", a.kinds, a.poolEmpty)
 	}
 	if got := r.pool.orderCounts(); got["studio"] != 43 || got["weekend"] != 14 {
 		t.Errorf("orders %v", got)
 	}
-	if len(a.lat["write"]) != 10 || len(a.lat["write create"]) != 3 || a.responses["write ship 200 application/json"] != 4 {
+	if len(a.lat["write"]) != 9 || len(a.lat["write create"]) != 3 || a.responses["write ship 200 application/json"] != 4 {
 		t.Errorf("latencies %v, responses %v", a.lat, a.responses)
 	}
 }
 
-// Writes of a visit run while other users write: a recipient write must not meet an order that a
-// ship write took at the same moment.
-func TestAdminWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
+// Writes of a visit run while other users write: an edit must not meet an order that a ship write
+// took at the same moment.
+func TestStaffWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 	r, _ := adminRunner(t)
-	kinds := []string{WriteCreate, WriteShip, WriteNote, WriteRecipient, WriteCreate, WriteRecipient, WriteShip}
+	kinds := []string{WriteCreate, WriteShip, WriteEdit, WriteEdit, WriteCreate, WriteEdit, WriteShip}
 	var wg sync.WaitGroup
 	errs := make(chan error, 400)
 	for u := range 8 {
@@ -208,7 +207,7 @@ func TestAdminWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 			v := &visitState{client: &http.Client{}}
 			a := newAcc()
 			for i := range 50 {
-				w := PlannedWrite{After: i, Plan: u, Kind: kinds[(u+i)%len(kinds)], Project: []string{"studio", "weekend"}[(u+i/3)%2]}
+				w := PlannedWrite{After: i, Seq: u, Kind: kinds[(u+i)%len(kinds)], Project: []string{"studio", "weekend"}[(u+i/3)%2]}
 				if err := r.doWrite(context.Background(), v, a, w, time.Now()); err != nil {
 					errs <- err
 				}
@@ -256,7 +255,7 @@ func TestAdminWritesReadACompressedAnswer(t *testing.T) {
 		zw.Close()
 	}))
 	defer srv.Close()
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixAdmin})
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"})
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
 	if err := r.doWrite(context.Background(), v, a, PlannedWrite{Kind: WriteCreate, Project: "studio"}, time.Now()); err != nil {
@@ -274,7 +273,7 @@ func TestVerifyAdminAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
 	for i := range 2 {
-		if err := r.doWrite(context.Background(), v, a, PlannedWrite{After: i, Plan: 1, Kind: WriteShip, Project: "studio"}, time.Now()); err != nil {
+		if err := r.doWrite(context.Background(), v, a, PlannedWrite{After: i, Seq: 1, Kind: WriteShip, Project: "studio"}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

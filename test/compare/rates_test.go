@@ -22,29 +22,29 @@ func under() map[string]string {
 // On a mismatch the run is refused and asked for -probe: the rate is never reused silently. With
 // -probe, or no entry for the scenario, the rate is searched.
 func TestTheRateFileIsUsedOnlyUnderTheSameConditions(t *testing.T) {
-	file := RateFile{"store-w5": {Rate: 21.5, Unit: "visits/s", Under: under(), Source: RateSource{Date: "2026-11-09", Tifa: "abc1234"}}}
-	if e, err := fileRate(file, "store-w5", under(), false); err != nil || e == nil || e.Rate != 21.5 {
+	file := RateFile{"shop": {Rate: 21.5, Unit: "visits/s", Under: under(), Source: RateSource{Date: "2026-11-09", Tifa: "abc1234"}}}
+	if e, err := fileRate(file, "shop", under(), false); err != nil || e == nil || e.Rate != 21.5 {
 		t.Fatalf("the same conditions: %+v %v", e, err)
 	}
-	if e, err := fileRate(file, "admin-w20", under(), false); err != nil || e != nil {
+	if e, err := fileRate(file, "shop-staff-x2", under(), false); err != nil || e != nil {
 		t.Errorf("no entry: %+v %v, want a search", e, err)
 	}
-	if e, err := fileRate(file, "store-w5", under(), true); err != nil || e != nil {
+	if e, err := fileRate(file, "shop", under(), true); err != nil || e != nil {
 		t.Errorf("-probe: %+v %v, want a search", e, err)
 	}
 	for _, k := range []string{"cpu", "trace", "nextjs", "sources", "rule"} {
 		u := under()
 		u[k] = "other"
-		e, err := fileRate(file, "store-w5", u, false)
+		e, err := fileRate(file, "shop", u, false)
 		if e != nil || err == nil || !strings.Contains(err.Error(), "-probe") || !strings.Contains(err.Error(), k) {
 			t.Errorf("%s differs: %+v %v", k, e, err)
 		}
 	}
 	// A condition the run cannot tell (traces recorded by hand, with no stamp) never matches.
-	u, f := under(), RateFile{"store-w5": file["store-w5"]}
+	u, f := under(), RateFile{"shop": file["shop"]}
 	u["sources"] = ""
-	f["store-w5"].Under["sources"] = ""
-	if e, err := fileRate(f, "store-w5", u, false); e != nil || err == nil {
+	f["shop"].Under["sources"] = ""
+	if e, err := fileRate(f, "shop", u, false); e != nil || err == nil {
 		t.Errorf("an unknown condition: %+v %v", e, err)
 	}
 }
@@ -62,16 +62,16 @@ func TestTheRateFileKeepsEachScenario(t *testing.T) {
 	for _, e := range []struct {
 		sc string
 		e  RateEntry
-	}{{"store-w5", a}, {"admin-w20", a}, {"admin-w20", b}} {
+	}{{"shop", a}, {"shop-staff-x2", a}, {"shop-staff-x2", b}} {
 		if err := writeRate(path, e.sc, e.e); err != nil {
 			t.Fatal(err)
 		}
 	}
 	f, err = readRates(path)
-	if err != nil || !reflect.DeepEqual(f, RateFile{"store-w5": a, "admin-w20": b}) {
+	if err != nil || !reflect.DeepEqual(f, RateFile{"shop": a, "shop-staff-x2": b}) {
 		t.Errorf("file %+v (%v)", f, err)
 	}
-	os.WriteFile(path, []byte(`{"store-w5": {"users": 32}}`), 0o644)
+	os.WriteFile(path, []byte(`{"shop": {"users": 32}}`), 0o644)
 	if _, err := readRates(path); err == nil {
 		t.Error("a file of another format is read")
 	}
@@ -79,10 +79,10 @@ func TestTheRateFileKeepsEachScenario(t *testing.T) {
 
 // The report says where a rate read from the file was confirmed.
 func TestTheReportSaysWhereARateFromTheFileWasConfirmed(t *testing.T) {
-	sc := mustScenario("admin-w20")
+	sc := mustScenario("shop-staff-x2")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{
-		"admin-w20/nextjs": {Rate: 20, Done: true, From: &RateSource{Date: "2026-11-09 10:00:00 UTC", Tifa: "abc1234", Result: "browse.json", Confirm: []RateRound{{Pass: true, Valid: true}, {Pass: true, Valid: true}, {Pass: true, Valid: true}}}}}}
-	if md := r.Markdown(); !strings.Contains(md, "| Next.js | 20.00 | 80 | from test/compare/rates.json: confirmed on 2026-11-09 10:00:00 UTC with Tifa abc1234 (browse.json), 3 of 3 confirmation rounds passed |") {
+		"shop-staff-x2/nextjs": {Rate: 20, Done: true, From: &RateSource{Date: "2026-11-09 10:00:00 UTC", Tifa: "abc1234", Result: "browse.json", Confirm: []RateRound{{Pass: true, Valid: true}, {Pass: true, Valid: true}, {Pass: true, Valid: true}}}}}}
+	if md := r.Markdown(); !strings.Contains(md, "| Next.js | 20.00 | 53 | from test/compare/rates.json: confirmed on 2026-11-09 10:00:00 UTC with Tifa abc1234 (browse.json), 3 of 3 confirmation rounds passed |") {
 		t.Errorf("the report:\n%s", md)
 	}
 }
@@ -91,15 +91,15 @@ func TestTheReportSaysWhereARateFromTheFileWasConfirmed(t *testing.T) {
 // and refuses a run under others.
 func TestTheSustainPhaseReadsTheFileOrRefuses(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"plans-store.json", "nextjs-store.jsonl"} {
+	for _, name := range []string{"plans.json", "nextjs.jsonl"} {
 		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
 	}
-	os.WriteFile(filepath.Join(dir, "STAMP-store"), []byte("tree js abc\nsite store\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "STAMP"), []byte("tree js abc\nsite shop\n"), 0o644)
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sc := mustScenario("store-w5")
+	sc := mustScenario("shop")
 	var log strings.Builder
 	b := &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: &log, Rounds: 3, TraceDir: dir, Stamp: "from browse.sh", ServerCPUs: "0", LoadCPUs: "1,5", TrialWindow: 45e9, RateFile: filepath.Join(dir, "rates.json")},
 		servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
@@ -110,7 +110,7 @@ func TestTheSustainPhaseReadsTheFileOrRefuses(t *testing.T) {
 	if err := b.sustain(t.Context(), sc); err != nil {
 		t.Fatal(err)
 	}
-	if s := b.res.Sustain["store-w5/nextjs"]; s == nil || s.Rate != 21.5 || !s.Done || s.From == nil || len(s.Trials) != 0 {
+	if s := b.res.Sustain["shop/nextjs"]; s == nil || s.Rate != 21.5 || !s.Done || s.From == nil || len(s.Trials) != 0 {
 		t.Errorf("the rate from the file: %+v", s)
 	}
 	// A run by hand cannot tell the sources of its traces: it is refused too.
@@ -131,7 +131,7 @@ func TestTheSustainPhaseReadsTheFileOrRefuses(t *testing.T) {
 func TestALimitedRateIsNotWritten(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rates.json")
 	b := &browse{o: BrowseOptions{RateFile: path, Log: &strings.Builder{}}, res: &BrowseResult{}}
-	if err := b.keepRate(mustScenario("store-w5"), &Sustain{Rate: 20, Limited: true, Done: true, Under: under()}); err != nil {
+	if err := b.keepRate(mustScenario("shop"), &Sustain{Rate: 20, Limited: true, Done: true, Under: under()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err == nil {
@@ -201,20 +201,20 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 // checkout (one with a stamp): a run by hand cannot tell them, so it never reuses a rate.
 func TestTheSourcesOfTheTracesMustBeKnown(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "STAMP-store")
-	good := "tree js abc\ntree examples/shop def\nsite store\nplans 123\n"
+	path := filepath.Join(dir, "STAMP")
+	good := "tree js abc\ntree examples/shop def\nsite shop\nplans 123\n"
 	for _, tc := range []struct {
 		name, content string
 		known         bool
-	}{{"a good stamp", good, true}, {"an empty stamp", "", false}, {"another site", strings.Replace(good, "site store", "site workbench", 1), false},
-		{"no trees", "site store\n", false}, {"uncommitted sources", good + "dirty\n", false}} {
+	}{{"a good stamp", good, true}, {"an empty stamp", "", false}, {"another site", strings.Replace(good, "site shop", "site store", 1), false},
+		{"no trees", "site shop\n", false}, {"uncommitted sources", good + "dirty\n", false}} {
 		os.WriteFile(path, []byte(tc.content), 0o644)
-		if got := stampHash(path, SiteStore); (got != "") != tc.known {
+		if got := stampHash(path); (got != "") != tc.known {
 			t.Errorf("%s: %q", tc.name, got)
 		}
 	}
 	os.WriteFile(path, []byte(good), 0o644)
-	sc := mustScenario("store-w5")
+	sc := mustScenario("shop")
 	b := &browse{o: BrowseOptions{TraceDir: dir}, res: &BrowseResult{Version: map[string]string{}}}
 	if b.rateConditions(sc)["sources"] != "" {
 		t.Error("a run by hand knows the sources of its traces")
@@ -233,7 +233,7 @@ func TestTheSourcesOfTheTracesMustBeKnown(t *testing.T) {
 func TestTheRateFileIsCheckedWhenRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rates.json")
 	good := RateEntry{Rate: 21.5, Unit: rateUnit, Under: under(), Source: RateSource{Date: "2026-11-09"}}
-	if err := writeRate(path, "store-w5", good); err != nil {
+	if err := writeRate(path, "shop", good); err != nil {
 		t.Fatal(err)
 	}
 	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
@@ -249,7 +249,7 @@ func TestTheRateFileIsCheckedWhenRead(t *testing.T) {
 		e := good
 		e.Under = maps.Clone(good.Under)
 		mod(&e)
-		data, _ := json.Marshal(RateFile{"store-w5": e})
+		data, _ := json.Marshal(RateFile{"shop": e})
 		os.WriteFile(path, data, 0o644)
 		if _, err := readRates(path); err == nil {
 			t.Errorf("%s: the file is read", name)
@@ -316,12 +316,12 @@ func builtNext(t *testing.T, root string) string {
 // another method or another Next.js.
 func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"plans-store.json", "nextjs-store.jsonl"} {
+	for _, name := range []string{"plans.json", "nextjs.jsonl"} {
 		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
 	}
-	os.WriteFile(filepath.Join(dir, "STAMP-store"), []byte("tree js abc\nsite store\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "STAMP"), []byte("tree js abc\nsite shop\n"), 0o644)
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
-	sc := mustScenario("store-w5")
+	sc := mustScenario("shop")
 	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}
 	newBrowse := func(phases ...string) *browse {
 		return &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, Phases: phases, Scenarios: []BrowseScenario{sc}},
@@ -331,7 +331,7 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 	cfg := browseConfig(BrowseOptions{}, "AMD EPYC 7B13", "t1", methodHash(root))
 	saved := func(b *browse, mod func(*BrowseResult)) []byte {
 		res := &BrowseResult{Stamp: "s", Config: cfg, Version: version, Machine: Machine{CPU: "AMD EPYC 7B13"}, Scenarios: []BrowseScenario{sc},
-			Sustain: map[string]*Sustain{"store-w5/nextjs": {Rate: 20, Done: true, Under: b.rateConditions(sc)}}}
+			Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 20, Done: true, Under: b.rateConditions(sc)}}}
 		mod(res)
 		data, err := res.json()
 		if err != nil {
@@ -345,7 +345,7 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 			t.Fatalf("%s: the same conditions: %v", phase, err)
 		}
 		b = newBrowse(phase)
-		data := saved(b, func(r *BrowseResult) { r.Sustain["store-w5/nextjs"].Under["nextjs"] = "16.0.0" })
+		data := saved(b, func(r *BrowseResult) { r.Sustain["shop/nextjs"].Under["nextjs"] = "16.0.0" })
 		if err := b.restore(data, cfg, version); err == nil || !strings.Contains(err.Error(), "nextjs") {
 			t.Errorf("%s: a rate of another Next.js: %v", phase, err)
 		}

@@ -1,10 +1,13 @@
 package compare
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,14 +43,17 @@ type Round struct {
 	VisitsUnfinished int `json:"visitsUnfinished"`
 	// What the planned visits hold: page views, the clicks among them, and writes. The mix is checked
 	// on these. The ones below were done: a page view and a write count when they complete.
-	PageViewsPlanned int            `json:"pageViewsPlanned"`
-	ClicksPlanned    int            `json:"clicksPlanned"`
-	WritesPlanned    int            `json:"writesPlanned"`
-	PageViews        int            `json:"pageViews"`
-	FullLoads        int            `json:"fullLoads"`
-	Clicks           int            `json:"clicks"`
-	Writes           int            `json:"writes"`
-	Pages            map[string]int `json:"pagesByClass"`
+	PageViewsPlanned int `json:"pageViewsPlanned"`
+	ClicksPlanned    int `json:"clicksPlanned"`
+	WritesPlanned    int `json:"writesPlanned"`
+	// Mix is what the planned visits hold by role, which the mix of the scenario is checked on. A
+	// workload made by hand (a test's, with no cycle of the site) has no mix, and leaves it nil.
+	Mix       *PlannedMix    `json:"mixPlanned,omitempty"`
+	PageViews int            `json:"pageViews"`
+	FullLoads int            `json:"fullLoads"`
+	Clicks    int            `json:"clicks"`
+	Writes    int            `json:"writes"`
+	Pages     map[string]int `json:"pagesByClass"`
 
 	// The shares that the round achieved, over what completed: a diagnostic. A round whose visits
 	// failed achieves another mix than it planned.
@@ -85,6 +91,15 @@ type Round struct {
 	// GeneratorLimited says that the load generator, not the server, ended the round: it started
 	// visits late or used most of its cpus.
 	GeneratorLimited bool `json:"generatorLimited,omitempty"`
+	// SetupRequests is how many requests made the carts of the returning visitors before the clock, and
+	// SetupError why they could not be made, or an answer of them rendered a page.
+	SetupRequests int    `json:"setupRequests,omitempty"`
+	SetupError    string `json:"setupError,omitempty"`
+	// FirstRenders is, by kind of page, how Tifa answered the first answer of that kind in the round
+	// (X-Tifa-Render). PrivateHits counts the answers of the private pages, the cart and the checkout,
+	// that came from the render memo: with a cart of their own for every visitor they should be few.
+	FirstRenders map[string]string `json:"firstRenders,omitempty"`
+	PrivateHits  int               `json:"privateHits"`
 
 	// Renders counts the answers of Tifa by how it answered (X-Tifa-Render: vm, memo or shared), the
 	// documents and the navigation data alike, and PageRenders splits them by kind of page.
@@ -108,9 +123,9 @@ type Round struct {
 	// one is not valid.
 	Refused int `json:"refused,omitempty"`
 
-	// Valid says that the round is a valid experiment: the visits it planned have the mix it is named
-	// for (write share within one point, the share of clicks within one point and 4 page views a
-	// visit within 1%), the load generator did its work, and a closed round took the length it was
+	// Valid says that the round is a valid experiment: the visits it planned have the mix of its
+	// scenario (PlannedMix.why), the carts of the returning visitors were made, no kind of page was first
+	// answered from the render memo, the load generator did its work, and a closed round took the length it was
 	// sized for or failed the rule. A round that is not valid is run again. A server that fails or falls
 	// behind does not make a round invalid: that round is valid, and fails.
 	Valid      bool   `json:"valid"`
@@ -140,6 +155,13 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Failures, r.FirstErr = a.failures, a.firstErr
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
 	r.Renders, r.Responses, r.PageRenders = a.renders, a.responses, a.pageRenders
+	if len(a.firstRenders) > 0 {
+		r.FirstRenders = map[string]string{}
+		for kind, f := range a.firstRenders {
+			r.FirstRenders[kind] = f.how
+		}
+	}
+	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
 	r.WriteKinds, r.PoolEmpty = a.kinds, a.poolEmpty
 	r.Refused = a.refused
 	r.Seconds = end.Sub(start).Seconds()
@@ -166,8 +188,10 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 }
 
 // Judge sets Valid and Pass of a round. Valid is about the experiment: the visits it planned have
-// the mix of the scenario, and the load generator started every visit it was meant to (one that
-// fell behind or ran out of cpus is found by generatorFault). Pass is about the server, on what
+// the mix of the scenario, the carts of the returning visitors were made with answers that render
+// nothing, the first answer of every kind of page was rendered (not from the render memo, which
+// starts empty), and the load generator started every visit it was meant to (one that fell behind
+// or ran out of cpus is found by generatorFault). Pass is about the server, on what
 // it did: a server that fails visits or falls behind fails the rule, in a valid round.
 func (r *Round) Judge(sc BrowseScenario) {
 	r.Valid, r.WhyInvalid = true, ""
@@ -178,17 +202,17 @@ func (r *Round) Judge(sc BrowseScenario) {
 	}
 	if r.VisitsPlanned == 0 || r.PageViewsPlanned == 0 {
 		invalid("no visit planned")
-	} else {
-		share := float64(r.WritesPlanned) / float64(r.PageViewsPlanned+r.WritesPlanned)
-		clicks := float64(r.ClicksPlanned) / float64(r.PageViewsPlanned)
-		views := float64(r.PageViewsPlanned) / float64(r.VisitsPlanned)
-		switch {
-		case math.Abs(share-sc.Share) > 0.01:
-			invalid(fmt.Sprintf("the planned write share is %.3f, want %.2f within 0.01", share, sc.Share))
-		case math.Abs(clicks-0.75) > 0.01:
-			invalid(fmt.Sprintf("the planned click share is %.3f, want 0.75 within 0.01", clicks))
-		case math.Abs(views-4) > 0.04:
-			invalid(fmt.Sprintf("%.3f page views a visit planned, want 4 within 1%%", views))
+	} else if r.Mix != nil {
+		if why := r.Mix.why(sc); why != "" {
+			invalid(why)
+		}
+	}
+	if r.SetupError != "" {
+		invalid("the carts of the returning visitors were not made: " + r.SetupError)
+	}
+	for _, kind := range slices.Sorted(maps.Keys(r.FirstRenders)) {
+		if r.FirstRenders[kind] == RenderHit {
+			invalid(fmt.Sprintf("the first answer of a %s page came from the render memo: something filled it before the round", kind))
 		}
 	}
 	if r.Refused > 0 {
@@ -238,6 +262,11 @@ func (r *Round) Judge(sc BrowseScenario) {
 // next visit when it finishes one (zero think time), and each visit with at most six connections.
 // It starts at the first scheduled action and ends when the last visit has finished, or at timeout.
 func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout time.Duration) *Round {
+	round := &Round{Model: "closed", Sessions: sessions, Blocks: visits / r.wl.blockVisits()}
+	if !r.setupCarts(ctx, round, 0, visits) {
+		r.wl.plan(round, 0, visits, false)
+		return round
+	}
 	a := newAcc()
 	var next atomic.Int64
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -262,18 +291,16 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 	}
 	wg.Wait()
 	end := time.Now()
-	round := &Round{Model: "closed", Sessions: sessions, Blocks: visits / BlockVisits, TimedOut: ctx.Err() == context.DeadlineExceeded}
+	round.TimedOut = ctx.Err() == context.DeadlineExceeded
 	r.wl.plan(round, 0, visits, false)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	r.countOrders(round)
 	return round
 }
 
-// countOrders notes, after an admin round, how many orders each project holds.
+// countOrders notes, after a round, how many orders each project of the back office holds.
 func (r *runner) countOrders(round *Round) {
-	if r.mix() == MixAdmin {
-		round.Orders = r.pool.orderCounts()
-	}
+	round.Orders = r.pool.orderCounts()
 }
 
 // Warm plays the workload with sessions sessions for d, counting nothing, and returns how many visits a
@@ -318,9 +345,10 @@ func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p
 }
 
 // BlocksFor sizes a workload: the whole blocks (a multiple of the number of blocks of the plans,
-// at least that many) that a framework completing rate visits a second plays in about target.
-func BlocksFor(rate float64, target time.Duration, planBlocks int) int {
-	blocks := int(math.Ceil(rate * target.Seconds() / BlockVisits / float64(planBlocks)))
+// at least that many, of blockVisits visits each) that a framework completing rate visits a second
+// plays in about target.
+func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) int {
+	blocks := int(math.Ceil(rate * target.Seconds() / float64(blockVisits) / float64(planBlocks)))
 	return max(blocks, 1) * planBlocks
 }
 
@@ -330,20 +358,19 @@ func BlocksFor(rate float64, target time.Duration, planBlocks int) int {
 // the last visit has finished, or drain after the last planned action. The visits are the global
 // sequence from seq0. With reads set it sends no writes: a warm-up.
 func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int, reads bool) *Round {
+	round := &Round{Model: "open", Rate: rate}
+	if !reads && !r.setupCarts(ctx, round, seq0, n) {
+		r.wl.plan(round, seq0, n, reads)
+		return round
+	}
 	a := newAcc()
 	duration := time.Duration(float64(n) / rate * float64(time.Second))
 	tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 4096, MaxConnsPerHost: 0, IdleConnTimeout: idleConn}
 	defer tr.CloseIdleConnections()
 	last := 0 // the longest plan, in actions, for the drain deadline
-	for i := range min(n, len(r.wl.Plans)) {
+	for i := range min(n, r.wl.cycleLen()) {
 		p := r.wl.planFor(seq0 + i)
-		acts := len(p.Steps)
-		for j := range p.Steps {
-			if _, ok := r.wl.Writes[[2]int{p.ID, j}]; ok {
-				acts++
-			}
-		}
-		last = max(last, acts)
+		last = max(last, len(p.Steps)+len(r.wl.writesOf(seq0+i)))
 	}
 	// The visits in flight level off after about the longest visit; the samples before that are left out.
 	ramp := int(time.Duration(last)*ActionSpacing/(500*time.Millisecond)) + 2
@@ -403,7 +430,7 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	<-sampled
 	wg.Wait()
 	end := time.Now()
-	round := &Round{Model: "open", Rate: rate, TimedOut: timedOut.Load(), Backlog: Growing(visitsIn, ramp) || Growing(requestsIn, ramp)}
+	round.TimedOut, round.Backlog = timedOut.Load(), Growing(visitsIn, ramp) || Growing(requestsIn, ramp)
 	round.LagMs = ms(time.Duration(lag.Load()))
 	r.wl.plan(round, seq0, n, reads)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
@@ -430,4 +457,55 @@ func Growing(series []float64, skip int) bool {
 	}
 	slope := (m*sxy - sx*sy) / (m*sxx - sx*sx)
 	return slope*m > 0.2*(sy/m)+5
+}
+
+// PlannedMix is what the planned visits of a round hold: the shopper and staff visits, the page views
+// of the shopper visits, the returning visitors, and the writes by kind.
+type PlannedMix struct {
+	Shoppers     int `json:"shoppers"`
+	Staff        int `json:"staff"`
+	ShopperViews int `json:"shopperPageViews"`
+	Returning    int `json:"returning"`
+	Adds         int `json:"adds"`
+	Checkouts    int `json:"checkouts"`
+	Edits        int `json:"edits"`
+	Ships        int `json:"ships"`
+}
+
+// why says how a planned mix is not the mix of the scenario, or "" when it is: the share of staff
+// visits within half a point, the page views of a shopper visit within 1% of ShopperViewsMean, the
+// returning visitors within half a point of ReturningShare and, unless the scenario is read-only, the
+// adds and checkouts within 0.2 points of their shares and the edits and ships within 3 points of
+// theirs among the staff visits. A round of whole cycles has them exactly, up to the rounding of a
+// block.
+func (m PlannedMix) why(sc BrowseScenario) string {
+	off := func(what string, n, of int, want, within float64) string {
+		got := float64(n) / float64(max(of, 1))
+		if math.Abs(got-want) > within {
+			return fmt.Sprintf("the planned %s are %.4f, want %.4f within %v", what, got, want, within)
+		}
+		return ""
+	}
+	if m.Shoppers == 0 {
+		return "no shopper visit planned"
+	}
+	why := cmp.Or(
+		off("staff visits a visit", m.Staff, m.Shoppers+m.Staff, sc.Staff, 0.005),
+		off("page views a shopper visit", m.ShopperViews, m.Shoppers, ShopperViewsMean, 0.01*ShopperViewsMean),
+		off("returning visitors a shopper visit", m.Returning, m.Shoppers, ReturningShare, 0.005),
+	)
+	if why != "" || sc.ReadOnly {
+		return why
+	}
+	why = cmp.Or(
+		off("adds to the cart a shopper visit", m.Adds, m.Shoppers, AddToCartShare, 0.002),
+		off("checkouts a shopper visit", m.Checkouts, m.Shoppers, CheckoutShare, 0.002),
+	)
+	if why != "" || m.Staff == 0 {
+		return why
+	}
+	return cmp.Or(
+		off("product edits a staff visit", m.Edits, m.Staff, sc.Edit, 0.03),
+		off("ships a staff visit", m.Ships, m.Staff, sc.Ship, 0.03),
+	)
 }

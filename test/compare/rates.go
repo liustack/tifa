@@ -172,30 +172,25 @@ func fileHash(path string) string {
 
 // rateConditions are the conditions the rate of Next.js on a scenario is measured under in this
 // run: the method (the code that shapes the load and the verdicts) and the sources of the Next.js
-// app, the scenario and the seed of its writes, the plans and the Next.js traces of its site, the
+// app, the scenario and the seed of its writes, the plans and the Next.js traces of the site, the
 // sources the traces were recorded from (the stamp browse.sh writes: the shop, the apps, the shared
 // domain code, the framework versions; "" when the traces have none), the cpu model and the pinning,
 // the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation.
 func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
-	site := sc.site()
-	stamp := "STAMP"
-	if site == SiteStore {
-		stamp = "STAMP-store"
-	}
 	scenario, _ := json.Marshal(sc)
 	// The sources of the traces are known only in a run that browse.sh checked against this checkout
 	// (one with a stamp): a run by hand cannot tell what its traces were recorded from.
 	sources := ""
 	if b.o.Stamp != "" {
-		sources = stampHash(filepath.Join(b.o.TraceDir, stamp), site)
+		sources = stampHash(filepath.Join(b.o.TraceDir, "STAMP"))
 	}
 	sum := sha256.Sum256(fmt.Appendf(scenario, " seed %d", b.o.Seed))
 	return map[string]string{
 		"method":        methodHash(b.e.Root),
 		"nextjsApp":     appHash(b.e.Root),
 		"scenario":      hex.EncodeToString(sum[:8]),
-		"plans":         fileHash(PlansPath(b.o.TraceDir, site)),
-		"trace":         fileHash(TracePath(b.o.TraceDir, openBase, site)),
+		"plans":         fileHash(PlansPath(b.o.TraceDir)),
+		"trace":         fileHash(TracePath(b.o.TraceDir, openBase)),
 		"sources":       sources,
 		"cpu":           b.res.Machine.CPU,
 		"serverCpus":    b.o.ServerCPUs,
@@ -238,7 +233,7 @@ func (b *browse) keepRate(sc BrowseScenario, s *Sustain) error {
 // gives: the plans, the replay and its writes, the pinning and the start of the servers, the rule, the
 // search and the confirmation, the percentiles and the decisions of the steps. The report is not among
 // them: it only writes what those decided.
-var methodFiles = []string{"browse.go", "load.go", "plan.go", "rates.go", "replay.go", "serve.go", "specs.go", "stats.go", "store_plan.go", "store_writes.go", "throughput.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
+var methodFiles = []string{"browse.go", "load.go", "mix.go", "plan.go", "rates.go", "render.go", "replay.go", "serve.go", "setup.go", "specs.go", "stats.go", "store_links.json", "store_plan.go", "store_writes.go", "throughput.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {
@@ -300,15 +295,15 @@ func appHash(root string) string {
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
-// stampHash is a short hash of the stamp of the traces of a site, or "" when it does not say what
-// they were recorded from: no tree, another site, or sources with changes that were not committed.
-func stampHash(path, site string) string {
+// stampHash is a short hash of the stamp of the traces, or "" when it does not say what they were
+// recorded from: no tree, another site, or sources with changes that were not committed.
+func stampHash(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	lines := strings.Split(string(data), "\n")
-	if !slices.Contains(lines, "site "+siteName(site)) || slices.Contains(lines, "dirty") ||
+	if !slices.Contains(lines, "site "+SiteShop) || slices.Contains(lines, "dirty") ||
 		!slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "tree ") }) {
 		return ""
 	}

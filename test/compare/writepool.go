@@ -15,16 +15,20 @@ import (
 	"time"
 )
 
-// The writes of the admin mix go to orders that exist on the server at that moment, which only the
+// The writes of the staff go to orders that exist on the server at that moment, which only the
 // server knows: shipping uses an order up, and a new order exists once its create is answered. So
 // each runner keeps a pool of the orders that have not shipped, per project. It starts with the
 // orders of the data that wait to ship and lives as long as the server does.
 //
 //   - create adds the id that the server answered with,
 //   - ship takes the oldest order of the pool out and ships it,
-//   - note and recipient pick one order of the pool at random and leave it there.
+//   - an edit (productEdit, for now) picks one order of the pool at random and leaves it there.
 //
 // A write that finds no order to go to is sent as a create instead, and counted.
+//
+// TODO(shop-merge): the orders that shoppers place at checkout do not reach the pool, so ships drain
+// it and the creates refill it. Once the back office lists the orders of the storefront, add each
+// checkout's order to the pool instead.
 type pool struct {
 	mu        sync.Mutex
 	unshipped map[string][]*poolOrder // oldest first
@@ -151,50 +155,39 @@ func (r *runner) request(ctx context.Context, v *visitState, method, path string
 	return a, start, end, err
 }
 
-// doWrite sends a write of the plan and times it from when it was scheduled. In the store mix it
-// sends the request of the plan to the path of this app, with the cookies of the visit, and the
-// status must be the one the plan says (a redirect is not followed). In the rename mix it renames a
-// customer of one of the three orders of the data. In the admin mix it goes to an order of the
-// pool, or is a create when the pool has none.
+// doWrite sends a write of the plan and times it from when it was scheduled. A write of a shopper
+// sends the request of the plan to the path of this app, with the cookies of the visit, and the status
+// must be the one the plan says (a redirect is not followed). A write of the staff goes to an order of
+// the pool (productEdit, ship), or is a create when the pool has none.
 func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWrite, scheduled time.Time) error {
 	kind, empty := w.Kind, false
 	var method, path string
 	var body []byte
-	var entry *poolOrder
 	want := 200 // the status the shop answers with
 	switch {
-	case r.mix() == MixStore:
+	case w.Store != nil:
 		st := w.Store
 		method, path, body, want = st.Method, r.storeWrite(st.Path), st.Body, st.Status
-	case r.mix() == MixRename:
-		st := WriteStep(r.write, w.Order, int(r.writes.Add(1)), true)
-		method, path, body = st.Method, st.Path, st.Body
-	default:
-		switch kind {
-		case WriteShip:
-			entry = r.pool.take(r.seed, w.Project)
-		case WriteNote, WriteRecipient:
-			entry = r.pool.borrow(r.seed, w.Project)
-			if entry != nil {
-				defer r.pool.release(entry)
-			}
-		}
-		if entry == nil && kind != WriteCreate {
+	case kind == WriteEdit:
+		m, p, b, done, ok := r.productEdit(w)
+		if !ok {
 			kind, empty = WriteCreate, true
+			break
 		}
-		payload := AdminBody(r.seed, w.Plan, w.After, kind, w.Project)
-		switch kind {
-		case WriteCreate:
-			method, path = http.MethodPost, r.create(w.Project)
-		case WriteShip:
-			method, path = http.MethodPost, r.write(w.Project, entry.ID)
-		case WriteNote:
-			method, path = http.MethodPut, r.write(w.Project, entry.ID)
-		case WriteRecipient:
-			method, path = http.MethodPatch, r.write(w.Project, entry.ID)
-			payload.(map[string]any)["customer"] = entry.Customer
+		defer done()
+		method, path, body = m, p, b
+	case kind == WriteShip:
+		entry := r.pool.take(r.seed, w.Project)
+		if entry == nil {
+			kind, empty = WriteCreate, true
+			break
 		}
-		body = mustJSON(payload)
+		method, path, body = http.MethodPost, r.write(w.Project, entry.ID), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
+	case kind != WriteCreate:
+		panic("no write of the staff of the kind " + kind)
+	}
+	if kind == WriteCreate {
+		method, path, body = http.MethodPost, r.create(w.Project), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
 	}
 	ans, _, end, err := r.request(ctx, v, method, path, body)
 	// The status counts once it arrives, even when the body that follows cannot be read.
@@ -251,4 +244,21 @@ func (p *pool) holds(seed uint64, project, id string) bool {
 		}
 	}
 	return false
+}
+
+// productEdit is the request of a staff visit that edits a product, and done gives back what it took.
+// ok is false when there is nothing to send it to.
+//
+// TODO(shop-merge): the back office has no product edit yet. Until it does, this is the closest write
+// it has: it changes the recipient of an order of the pool (the phone and the address, the name is
+// the order's own), and ok is false when the pool of the project has no order. Swap the body of this
+// function for the product edit once the shop has it.
+func (r *runner) productEdit(w PlannedWrite) (method, path string, body []byte, done func(), ok bool) {
+	entry := r.pool.borrow(r.seed, w.Project)
+	if entry == nil {
+		return "", "", nil, nil, false
+	}
+	payload := AdminBody(r.seed, w.Seq, w.After, WriteEdit, w.Project).(map[string]any)
+	payload["customer"] = entry.Customer
+	return http.MethodPatch, r.write(w.Project, entry.ID), mustJSON(payload), func() { r.pool.release(entry) }, true
 }

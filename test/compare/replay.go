@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand/v2"
 	"mime"
 	"net/http"
 	"net/http/cookiejar"
@@ -18,55 +20,54 @@ import (
 	"time"
 )
 
-// BrowseScenario is one workload of the browse comparison: a site, a share of the user actions (a
-// page view or a write) that are writes, and which writes they are. The shares are those of the
-// TPC-W mixes (https://www.tpc.org/tpcw/): browsing 5%, shopping 20% and ordering 50% of the actions
-// are writes. Which writes they are is the Mix: "admin" (place, ship, annotate and fix the delivery
-// of orders, MixAdmin), "rename" (every write gives an order a new customer name, which the lists,
-// the stats and the other orders of that customer show: the harder case for a cache, MixRename) or
-// "store" (a visitor of the storefront fills a cart and checks out, MixStore). Throughput says that
-// the scenario has the closed tables, and Latency the open run (the search for the rate of Next.js
-// and every server at half of it).
+// BrowseScenario is one traffic mix of the site: shopper and staff visits on the same server. What a
+// shopper visit does is the plan's (mix.go, the same in every scenario). Staff is the share of the
+// visits made by the staff, and Edit and Ship the shares of the staff visits that edit a product and
+// that ship an order. Throughput says that the scenario has the closed tables, and Latency the open
+// run (the search for the rate of Next.js and every server at half of it). ReadOnly is the read-only
+// control: the same visits with no writes.
 type BrowseScenario struct {
 	Name       string  `json:"name"`
 	Title      string  `json:"title"`
-	Share      float64 `json:"writeShare"`
-	Mix        string  `json:"mix"`
+	Staff      float64 `json:"staffShare"`
+	Edit       float64 `json:"staffEditShare"`
+	Ship       float64 `json:"staffShipShare"`
 	Throughput bool    `json:"throughput"`
 	Latency    bool    `json:"latency"`
+	ReadOnly   bool    `json:"readOnly,omitempty"`
 }
 
-// site is the site the scenario replays visits to: the storefront for the store mix, else the
-// workbench.
-func (s BrowseScenario) site() string {
-	if s.Mix == MixStore {
-		return SiteStore
-	}
-	return SiteWorkbench
+// staffVisits is how many staff visits a cycle plays for each block of shopper plans: the share
+// Staff of all the visits, rounded to a whole number.
+func (s BrowseScenario) staffVisits() int {
+	return int(math.Round(ShopperBlockVisits * s.Staff / (1 - s.Staff)))
+}
+
+// blockVisits is the visits of a cycle for each block of plans: every shopper plan of the block once
+// and the staff visits.
+func (s BrowseScenario) blockVisits() int { return ShopperBlockVisits + s.staffVisits() }
+
+// viewsPerVisit is the page views a visit of the scenario plans on average, by the mix.
+func (s BrowseScenario) viewsPerVisit() float64 {
+	return (ShopperViewsMean*ShopperBlockVisits + StaffViewsMean*float64(s.staffVisits())) / float64(s.blockVisits())
 }
 
 // openBase is the server whose sustainable rate sets the rate of an open run: half of it, for every
 // server of the scenario.
 const openBase = "nextjs"
 
-// BrowseScenarios are the scenarios, in the order they are measured. A visit is 4 page views on
-// average (one full load in four, 75% client navigations), an assumption and not a measurement.
+// BrowseScenarios are the scenarios, in the order they are measured. "shop" is the mix of mix.go.
+// "shop-staff-x2" doubles the share of staff visits and the share of them that edit a product, to
+// see how much the result depends on the two assumptions a cache is most sensitive to.
 var BrowseScenarios = []BrowseScenario{
-	{"store-w5", "storefront, reads 95% / writes 5%", 0.05, MixStore, true, true},
-	{"admin-w20", "shop admin, reads 80% / writes 20%", 0.20, MixAdmin, false, true},
-	{"store-w20", "a storefront with more writes, reads 80% / writes 20%", 0.20, MixStore, true, false},
-	{"admin-w50", "shop admin, reads 50% / writes 50%", 0.50, MixAdmin, false, true},
-	{"store-w50", "storefront, reads 50% / writes 50%", 0.50, MixStore, true, false},
-	{"r95w5", "reads 95% / writes 5%, every write renames a customer", 0.05, MixRename, true, true},
-	{"r50w50", "reads 50% / writes 50%, every write renames a customer", 0.50, MixRename, true, false},
+	{Name: "shop", Title: "the shop: shoppers and staff", Staff: StaffShare, Edit: StaffEditShare, Ship: StaffShipShare, Throughput: true, Latency: true},
+	{Name: "shop-staff-x2", Title: "the shop with twice the staff visits and product edits", Staff: 2 * StaffShare, Edit: 2 * StaffEditShare, Ship: StaffShipShare, Throughput: true, Latency: true},
 }
 
 // ScenarioGroups are the lists of scenarios that a name stands for. "default" runs when none is
-// asked for: the storefront at 5% writes (throughput and latency) and the admin at 20% (latency).
-// "extra" is run on demand: the storefront at 20% (throughput) and the admin at 50% (latency).
+// asked for: both scenarios.
 var ScenarioGroups = map[string][]string{
-	"default": {"store-w5", "admin-w20"},
-	"extra":   {"store-w20", "admin-w50"},
+	"default": {"shop", "shop-staff-x2"},
 }
 
 // DefaultScenarios is the list of scenarios that runs when none is asked for.
@@ -89,7 +90,7 @@ func ParseScenarios(list string) ([]BrowseScenario, error) {
 	add := func(name string) error {
 		sc, ok := BrowseScenarioByName(name)
 		if !ok {
-			return fmt.Errorf("no scenario %q: have the groups default and extra and %v", name, browseScenarioNames())
+			return fmt.Errorf("no scenario %q: have the group default and %v", name, browseScenarioNames())
 		}
 		if !slices.ContainsFunc(out, func(s BrowseScenario) bool { return s.Name == name }) {
 			out = append(out, sc)
@@ -127,57 +128,147 @@ const maxConns = 6
 const ActionSpacing = time.Second
 
 // A Workload is what is replayed for one framework and one scenario: the plans and their traces, and
-// the writes that the scenario puts after some page views. A run plays visits in the order of a
-// global sequence: visit s is plan s mod len(Plans), so a whole block is played before the next and a
-// plan is played many times in a round. Where a plan has writes is fixed by the plan. In the store
-// mix what they are is drawn per visit s (writesOf), so the plays of a plan have different carts.
+// the order visits play them in. A run plays visits in the order of one sequence of cycles. A cycle
+// plays every shopper plan once, block by block, and among the shopper visits of each block the
+// staff visits of the scenario (BrowseScenario.staffVisits) at places of a seeded shuffle. The k-th
+// staff visit of the run plays the staff plans in turn, so the cycles play other staff plans. A
+// cycle has the mix exactly, and a round plays whole cycles.
+//
+// The writes of a shopper visit are the plan's, with what they put in the cart drawn for each visit
+// (storeWritesOf). Whether a staff visit edits a product, ships an order or only reads is dealt by
+// quota among the staff visits of each block of a cycle, and the page view the write follows is drawn
+// for each visit.
+//
+// A workload made by hand with no cycle (the tests' own) plays its plans in order, with the writes of
+// Writes, by plan and page view.
 type Workload struct {
 	Plans    []Plan
 	Traces   map[int]Trace // by plan ID
 	Writes   map[[2]int]PlannedWrite
 	Scenario BrowseScenario
-	Seed     uint64 // the seed the writes were drawn from
+	Seed     uint64 // the seed the writes are drawn from
+	cycle    []slot
+	staff    []int // the indexes in Plans of the staff plans
+	perCycle int   // the staff visits of a cycle
 }
 
-// planFor is the plan that visit seq of the global sequence plays: the plans in order, over and over.
-func (w *Workload) planFor(seq int) Plan { return w.Plans[seq%len(w.Plans)] }
+// slot is a place of a cycle: a shopper plan (its index in Plans), or the staff visit k of the cycle
+// and the write it makes (WriteEdit, WriteShip or none).
+type slot struct {
+	plan  int
+	staff int
+	kind  string
+}
 
-// plan sets in a round what visits seq0 to seq0+n-1 of the global sequence plan: the visits, their
-// page views, the clicks among them and, unless reads, the writes the scenario puts after them.
+// visit is the plan that visit seq of the run plays, and the write of a staff visit.
+func (w *Workload) visit(seq int) (Plan, slot) {
+	if len(w.cycle) == 0 {
+		return w.Plans[seq%len(w.Plans)], slot{plan: -1}
+	}
+	s := w.cycle[seq%len(w.cycle)]
+	if s.plan >= 0 {
+		return w.Plans[s.plan], s
+	}
+	k := seq/len(w.cycle)*w.perCycle + s.staff
+	return w.Plans[w.staff[k%len(w.staff)]], s
+}
+
+// planFor is the plan that visit seq of the run plays.
+func (w *Workload) planFor(seq int) Plan {
+	p, _ := w.visit(seq)
+	return p
+}
+
+// cycleLen is the number of visits of a cycle.
+func (w *Workload) cycleLen() int {
+	if len(w.cycle) == 0 {
+		return len(w.Plans)
+	}
+	return len(w.cycle)
+}
+
+// blockVisits is the visits of a cycle for each block of plans.
+func (w *Workload) blockVisits() int {
+	if len(w.cycle) == 0 {
+		return len(w.Plans)
+	}
+	return w.Scenario.blockVisits()
+}
+
+// plan sets in a round what visits seq0 to seq0+n-1 of the run plan: the visits by role, their page
+// views, the clicks among them, the returning visitors, and, unless reads, the writes.
 func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
 	r.VisitsPlanned, r.PageViewsPlanned, r.ClicksPlanned, r.WritesPlanned = n, 0, 0, 0
+	// A workload made by hand has no mix to check: its counts are made and dropped.
+	m := &PlannedMix{}
+	r.Mix = nil
+	if len(w.cycle) > 0 {
+		r.Mix = m
+	}
+	reads = reads || w.Scenario.ReadOnly
 	for s := seq0; s < seq0+n; s++ {
 		p := w.planFor(s)
-		for j, st := range p.Steps {
-			r.PageViewsPlanned++
-			if st.Kind == StepClick {
-				r.ClicksPlanned++
-			}
-			if _, ok := w.Writes[[2]int{p.ID, j}]; ok && !reads {
-				r.WritesPlanned++
+		var c PlanCounts
+		c.Add(p)
+		r.PageViewsPlanned += c.Views
+		r.ClicksPlanned += c.Clicks
+		m.Shoppers, m.Staff, m.ShopperViews, m.Returning = m.Shoppers+c.Shoppers, m.Staff+c.Staff, m.ShopperViews+c.ShopperViews, m.Returning+c.Returning
+		if reads {
+			continue
+		}
+		for _, x := range w.writesOf(s) {
+			r.WritesPlanned++
+			switch x.Kind {
+			case WriteAdd:
+				m.Adds++
+			case WriteCheckout:
+				m.Checkouts++
+			case WriteEdit:
+				m.Edits++
+			case WriteShip:
+				m.Ships++
 			}
 		}
 	}
 }
 
-// NewWorkload puts the writes of a scenario into the plans, block by block, and fails if a plan has
-// no trace.
+// NewWorkload lays out the cycle of a scenario over the plans of the site, and fails if a plan has no
+// trace.
 func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uint64) (*Workload, error) {
-	w := &Workload{Plans: set.Plans, Traces: traces, Writes: map[[2]int]PlannedWrite{}, Scenario: sc, Seed: seed}
+	w := &Workload{Plans: set.Plans, Traces: traces, Scenario: sc, Seed: seed}
 	for _, p := range set.Plans {
 		if _, ok := traces[p.ID]; !ok {
 			return nil, fmt.Errorf("plan %d has no trace", p.ID)
 		}
 	}
+	if len(set.Plans) != set.Blocks*SiteBlockPlans {
+		return nil, fmt.Errorf("%d plans for %d blocks of %d", len(set.Plans), set.Blocks, SiteBlockPlans)
+	}
+	staff := sc.staffVisits()
+	k := 0
 	for b := range set.Blocks {
-		ws, err := BlockWrites(seed, set.Plans[b*BlockVisits:(b+1)*BlockVisits], sc)
-		if err != nil {
-			return nil, err
+		rng := rand.New(rand.NewPCG(seed^0x1f83d9abfb41bd6b, uint64(b)))
+		kinds := quota(rng, staff, []string{WriteEdit, WriteShip, ""}, []float64{sc.Edit, sc.Ship, 1 - sc.Edit - sc.Ship})
+		at := map[int]bool{}
+		for _, i := range rng.Perm(ShopperBlockVisits + staff)[:staff] {
+			at[i] = true
 		}
-		for _, x := range ws {
-			w.Writes[[2]int{x.Plan, x.After}] = x
+		shopper, st := b*SiteBlockPlans, 0
+		for i := range ShopperBlockVisits + staff {
+			if at[i] {
+				w.cycle = append(w.cycle, slot{plan: -1, staff: k, kind: kinds[st]})
+				k++
+				st++
+			} else {
+				w.cycle = append(w.cycle, slot{plan: shopper})
+				shopper++
+			}
+		}
+		for i := range StaffBlockPlans {
+			w.staff = append(w.staff, b*SiteBlockPlans+ShopperBlockVisits+i)
 		}
 	}
+	w.perCycle = k
 	return w, nil
 }
 
@@ -195,11 +286,11 @@ type runner struct {
 	cpu      func() float64 // processor seconds of the server so far
 	rss      func() int64   // its peak resident size in bytes
 	writes   atomic.Int64   // the number of writes made, which gives each rename its address
-	pool     pool           // the orders that admin writes go to, kept as long as the server lives
+	pool     pool           // the orders that staff writes go to, kept as long as the server lives
+	// carts are the cookies of the returning visits of the round, by visit, made by setupCarts before
+	// the clock.
+	carts map[int]http.CookieJar
 }
-
-// mix is the mix of writes the runner plays.
-func (r *runner) mix() string { return r.wl.Scenario.Mix }
 
 var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)
 
@@ -230,6 +321,17 @@ type acc struct {
 	refused int
 	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
+	// firstRenders is, by kind of page, how the answer of that kind that was sent first was made.
+	firstRenders map[string]firstAnswer
+}
+
+// firstAnswer is how the answer to a request sent at a time was made. The first request of a kind
+// is the one sent first, not the first to be answered: under load a hit on a page that another
+// request has just rendered can arrive before the answer of that render, but it cannot have been
+// sent before it.
+type firstAnswer struct {
+	sent time.Time
+	how  string
 }
 
 // refuse counts an answer with the status status as refused when it is 409 or 422. After the
@@ -244,7 +346,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, firstRenders: map[string]firstAnswer{}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -456,6 +558,9 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 			a.pageRenders[kind] = map[string]int{}
 		}
 		a.pageRenders[kind][rd]++
+		if f, ok := a.firstRenders[kind]; !ok || start.Before(f.sent) {
+			a.firstRenders[kind] = firstAnswer{start, rd}
+		}
 	}
 	if q.Class == "prefetch" {
 		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))
@@ -588,7 +693,13 @@ func (p pacer) at(j int) time.Time {
 func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq int, p pacer) bool {
 	plan := r.wl.planFor(seq)
 	trace := r.wl.Traces[plan.ID]
-	jar, _ := cookiejar.New(nil)
+	// A returning visitor comes back with the cookies of their cart, everyone else with none.
+	var jar http.CookieJar
+	if j, ok := r.carts[seq]; ok && plan.Returning && !p.reads {
+		jar = j
+	} else {
+		jar, _ = cookiejar.New(nil)
+	}
 	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns)}
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
@@ -671,26 +782,33 @@ func selfCPU() float64 {
 	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
 }
 
-// writesOf is the writes that visit seq of the global sequence sends, by the index of the page view
-// they follow. A plan has its writes at the same page views in every play, but in the store mix what
-// is written is drawn again for each visit (storeWritesAt), from the seed and seq. It is worked out
-// when the visit starts, not kept: it takes a few dozen random draws, and a round of any length
-// needs no table.
+// writesOf is the writes that visit seq of the run sends, by the page view they follow. They are
+// worked out when the visit starts, not kept: a round of any length needs no table. A shopper visit
+// sends the writes of its plan (storeWritesOf). A staff visit that edits or ships makes its write
+// after a page view drawn from the seed and seq, in the studio shop, whose orders the storefront
+// shows. A read-only scenario sends none.
 func (w *Workload) writesOf(seq int) map[int]PlannedWrite {
-	p := w.planFor(seq)
 	out := map[int]PlannedWrite{}
-	var afters []int
-	for j := range p.Steps {
-		if x, ok := w.Writes[[2]int{p.ID, j}]; ok {
-			out[j] = x
-			afters = append(afters, j)
-		}
+	if w.Scenario.ReadOnly {
+		return out
 	}
-	if w.Scenario.Mix == MixStore {
-		out = map[int]PlannedWrite{}
-		for _, x := range storeWritesOf(w.Seed, seq, p, afters) {
+	p, s := w.visit(seq)
+	switch {
+	case len(w.cycle) == 0:
+		for j := range p.Steps {
+			if x, ok := w.Writes[[2]int{p.ID, j}]; ok {
+				x.Seq = seq
+				out[j] = x
+			}
+		}
+	case p.Role == RoleShopper:
+		for _, x := range storeWritesOf(w.Seed, seq, p) {
 			out[x.After] = x
 		}
+	case s.kind != "":
+		rng := rand.New(rand.NewPCG(w.Seed^0x9b05688c2b3e6c1f, uint64(seq)))
+		after := rng.IntN(len(p.Steps))
+		out[after] = PlannedWrite{After: after, Seq: seq, Kind: s.kind, Project: "studio"}
 	}
 	return out
 }

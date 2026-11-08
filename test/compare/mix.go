@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -277,4 +278,87 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		}
 	}
 	return set
+}
+
+// PlanCounts says what a set of plans, or the visits of a round, hold.
+type PlanCounts struct {
+	Visits    int `json:"visits"`
+	Shoppers  int `json:"shoppers"`
+	Staff     int `json:"staff"`
+	Views     int `json:"pageViews"`
+	Loads     int `json:"fullLoads"`
+	Clicks    int `json:"clicks"`
+	Returning int `json:"returning"`
+	Adds      int `json:"adds"`
+	Checkouts int `json:"checkouts"`
+	// ShopperViews are the page views of the shopper visits.
+	ShopperViews int `json:"shopperPageViews"`
+	// Pages counts the page views by class (pageClass).
+	Pages map[string]int `json:"pagesByClass"`
+}
+
+// Add counts a plan.
+func (c *PlanCounts) Add(p Plan) {
+	c.Visits++
+	c.Views += len(p.Steps)
+	if c.Pages == nil {
+		c.Pages = map[string]int{}
+	}
+	switch p.Role {
+	case RoleShopper:
+		c.Shoppers++
+		c.ShopperViews += len(p.Steps)
+		if p.Returning {
+			c.Returning++
+		}
+		for _, w := range p.Writes {
+			switch w.Kind {
+			case WriteAdd:
+				c.Adds++
+			case WriteCheckout:
+				c.Checkouts++
+			}
+		}
+	case RoleStaff:
+		c.Staff++
+	}
+	for _, s := range p.Steps {
+		if s.Kind == StepLoad {
+			c.Loads++
+		} else {
+			c.Clicks++
+		}
+		c.Pages[pageClass(s.Page)]++
+	}
+}
+
+// MixFact is one number of the mix as the report lists it: what it is, its value, and where it comes
+// from ("assumption" when nothing published backs it).
+type MixFact struct {
+	What, Value, Source string
+}
+
+// MixFacts are the numbers of the mix of mix.go, with their sources, for the report.
+func MixFacts() []MixFact {
+	pct := func(v float64) string { return strconv.FormatFloat(100*v, 'f', -1, 64) + "%" }
+	littledata := "median of 438 Shopify stores, 2026-08-03 to 2026-10-31 (Littledata, https://www.littledata.io/benchmarks)"
+	var landing []string
+	for _, l := range LandingShares {
+		landing = append(landing, fmt.Sprintf("%s %s", l.Kind, pct(l.Share)))
+	}
+	return []MixFact{
+		{"page views of a shopper visit", fmt.Sprintf("%.1f on average", ShopperViewsMean), littledata},
+		{"most page views of a shopper visit", strconv.Itoa(ShopperViewsMax), "assumption (the top 10% of the same stores have 5.0)"},
+		{"shopper visits that add to the cart", pct(AddToCartShare), littledata},
+		{"shopper visits that check out (among those that add)", pct(CheckoutShare), littledata + ", conversion rate"},
+		{"shopper visits by a returning visitor, who comes back to a cart of their own", pct(ReturningShare), "assumption, within the published 17% (Top Growth Marketing) to 53% (Contentsquare 2025)"},
+		{"first page of a shopper visit", strings.Join(landing, ", "), "assumption"},
+		{"language of a shopper visit", "half English, half Chinese", "assumption"},
+		{"popularity of the products", fmt.Sprintf("Zipf, exponent %.1f, by rank in the catalogue", ProductZipf), "inference: sales follow a power law (Brynjolfsson, Hu and Simester, Management Science 2011)"},
+		{"links a shopper clicks", "a share for each kind of link of the page (store_plan.go)", "assumption"},
+		{"visits made by the staff in the back office", pct(StaffShare), "assumption"},
+		{"page views of a staff visit", fmt.Sprintf("%d on average, at most %d", StaffViewsMean, StaffViewsMax), "assumption"},
+		{"staff visits that edit a product", pct(StaffEditShare), "assumption"},
+		{"staff visits that ship an order", pct(StaffShipShare), "assumption"},
+	}
 }

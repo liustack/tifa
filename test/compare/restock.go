@@ -25,29 +25,27 @@ const stockMargin = 2
 // maxStock is the most stock the back office takes for a product (Edit.Validate in the shop).
 const maxStock = 99_999
 
-// StockFor returns the stock each product of each shop needs for visits visits of plans with writes
-// (the plans in order, over and over, as a run plays them), by project and then slug: stockMargin
-// times the pieces of it that the orders of those visits can take at most. A product no order can
-// take is not in it. Every order takes its pieces from the stock: a checkout of the storefront from
-// studio, and an order staff place from its shop.
+// VisitWrites is what one visit sends that can take stock: the adds that make its cart before the
+// round (a returning visit), then the writes of the visit.
+type VisitWrites struct {
+	Setup  []StoreRequest
+	Writes []PlannedWrite
+}
+
+// StockFor returns the stock each product of each shop needs for the visits given, by project and
+// then slug: stockMargin times the pieces of it that the orders of those visits can take at most. A
+// product no order can take is not in it. Every order takes its pieces from the stock: a checkout of
+// the storefront from studio, and an order staff place from its shop.
 //
 // The cart of a visit is followed as the shop keeps it: it starts with the demonstration cart, an
 // add puts at most maxLine of one line in it, a quantity change sets a line and a checkout empties
-// it. Any write of the back office may place an order, because one that finds no order in the pool
-// places one instead, so each counts with the items AdminBody gives its create (seed is the seed of
-// the workload, as the replay passes it).
-func StockFor(seed uint64, plans []Plan, writes []PlannedWrite, visits int) map[string]map[string]int {
-	byPlan := map[int][]PlannedWrite{}
-	for _, w := range writes {
-		byPlan[w.Plan] = append(byPlan[w.Plan], w)
-	}
-	bought := map[int]map[string]map[string]int{} // by plan
-	for _, p := range plans {
-		bought[p.ID] = boughtBy(seed, byPlan[p.ID])
-	}
+// it. A write of the back office that may place an order (a ship that finds the pool empty places
+// one instead) counts with the items AdminBody gives its create (seed is the seed of the workload,
+// as the replay passes it).
+func StockFor(seed uint64, visits []VisitWrites) map[string]map[string]int {
 	need := map[string]map[string]int{}
-	for s := range visits {
-		for project, n := range bought[plans[s%len(plans)].ID] {
+	for _, v := range visits {
+		for project, n := range boughtBy(seed, v) {
 			if need[project] == nil {
 				need[project] = map[string]int{}
 			}
@@ -59,10 +57,37 @@ func StockFor(seed uint64, plans []Plan, writes []PlannedWrite, visits int) map[
 	return need
 }
 
+// stockOf is what visits seq0 to seq0+n-1 of a workload send that can take stock, for StockFor.
+func (w *Workload) stockOf(seq0, n int) []VisitWrites {
+	var out []VisitWrites
+	for s := seq0; s < seq0+n; s++ {
+		var v VisitWrites
+		if p := w.planFor(s); p.Role == RoleShopper && p.Returning {
+			v.Setup, _ = returningCart(w.Seed, s, p)
+		}
+		for _, x := range w.writesOf(s) {
+			v.Writes = append(v.Writes, x)
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// placesOrder says whether a write of the back office of a kind can place an order.
+func placesOrder(kind string) bool {
+	return kind == WriteCreate || kind == WriteShip || kind == WriteEdit
+}
+
 // boughtBy is the pieces of each product of each shop that the orders of one visit take at most.
-func boughtBy(seed uint64, writes []PlannedWrite) map[string]map[string]int {
-	writes = slices.Clone(writes)
-	slices.SortFunc(writes, func(a, b PlannedWrite) int { return a.After - b.After })
+func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
+	// The adds of the setup come first, then the writes of the visit in the order it sends them.
+	var writes []PlannedWrite
+	for i := range v.Setup {
+		writes = append(writes, PlannedWrite{After: -1, Kind: v.Setup[i].Kind, Store: &v.Setup[i]})
+	}
+	visit := slices.Clone(v.Writes)
+	slices.SortFunc(visit, func(a, b PlannedWrite) int { return a.After - b.After })
+	writes = append(writes, visit...)
 	cart := demoCart()
 	out := map[string]map[string]int{}
 	take := func(project, slug string, n int) {
@@ -73,7 +98,10 @@ func boughtBy(seed uint64, writes []PlannedWrite) map[string]map[string]int {
 	}
 	for _, w := range writes {
 		if w.Store == nil {
-			for _, l := range AdminBody(seed, w.Plan, w.After, WriteCreate, w.Project).(map[string]any)["items"].([]adminLine) {
+			if !placesOrder(w.Kind) {
+				continue
+			}
+			for _, l := range AdminBody(seed, w.Seq, w.After, WriteCreate, w.Project).(map[string]any)["items"].([]adminLine) {
 				take(w.Project, l.Slug, l.Quantity)
 			}
 			continue
@@ -196,19 +224,17 @@ func restockShop(send func(method, path string, body []byte) ([]byte, error), sp
 // storefrontShop is the shop of the back office whose products the storefront sells.
 const storefrontShop = "studio"
 
-// prepare restocks the server of r for a run of visits visits of its workload, before the run starts
-// its clock (see with). A run of -1 visits plays for a time, as the sizing run does, and cannot know
+// prepare restocks the server of r for a run of visits visits of its workload (visits 0 to visits-1,
+// as a round plays them: their checkouts, the carts of the returning visitors among them, and the
+// orders staff may place), before the run makes those carts and starts its clock (see with). A run of
+// -1 visits plays for a time, as the sizing run does, and cannot know
 // how many visits it plays: it gets as much stock as the shop takes of every product its plans buy.
 func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) error {
-	var writes []PlannedWrite
-	for _, w := range r.wl.Writes {
-		writes = append(writes, w)
-	}
 	n := visits
 	if n < 0 {
-		n = len(r.wl.Plans)
+		n = r.wl.cycleLen()
 	}
-	need := StockFor(r.seed, r.wl.Plans, writes, n)
+	need := StockFor(r.seed, r.wl.stockOf(0, n))
 	if visits < 0 {
 		for _, shop := range need {
 			for slug := range shop {
