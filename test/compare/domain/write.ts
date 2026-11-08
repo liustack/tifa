@@ -2,7 +2,7 @@ import { Invalid, Locked, NotFound } from './errors.ts'
 import { addNote, postOrder, shipOrder, updateRecipient } from './orders.ts'
 import type { NewOrder } from './orders.ts'
 import { Fields } from './store/errors.ts'
-import { checkEdit, getEntry, update } from './store/products/edit.ts'
+import { checkEdit, entries, getEntry, update } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 import type { Edit } from './store/products/edit.ts'
 
@@ -90,4 +90,12 @@ export function editProduct(request: Request, project: string, product: string):
     update(product, e)
     return getEntry(product)
   })
+}
+
+// listProducts answers the products of the storefront as Tifa answers the data of the product list
+// of the back office (its Load, by the ID of its route), without rendering a page. The restock
+// before a run reads it (restock.go).
+export function listProducts(project: string): Response {
+  if (project !== storefrontProject) return Response.json({ error: 'not found' }, { status: 404 })
+  return Response.json({ routes: { 'app/projects/project+/products/route': { status: 200, data: entries() } } })
 }

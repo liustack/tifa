@@ -29,6 +29,7 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	set := compare.GenerateStorePlanSet(1, 2)
 	sc, _ := compare.BrowseScenarioByName("store-w50")
 	writes := map[int][]compare.PlannedWrite{}
+	var all []compare.PlannedWrite
 	for blk := range set.Blocks {
 		ws, err := compare.BlockWrites(1, set.Plans[blk*compare.BlockVisits:(blk+1)*compare.BlockVisits], sc)
 		if err != nil {
@@ -37,7 +38,11 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 		for _, w := range ws {
 			writes[w.Plan] = append(writes[w.Plan], w)
 		}
+		all = append(all, ws...)
 	}
+	// The plans buy more than the shop has in stock, so each server is restocked first, as a run is.
+	need := compare.StockFor(set.Plans, all, len(set.Plans))
+	buildID := shopBuildID(t, env)
 	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SH-[0-9]+$`)
 	for _, name := range []string{"tifa-nocache", "nextjs", "start", "reactrouter"} {
 		var spec compare.Spec
@@ -49,6 +54,13 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 		server, err := spec.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
+		}
+		id := ""
+		if spec.Framework == "tifa" {
+			id = buildID
+		}
+		if err := compare.Restock(ctx, http.DefaultClient, server.Base, spec, id, need); err != nil {
+			t.Fatalf("%s: %v", name, err)
 		}
 		sent := map[string]int{}
 		for _, p := range set.Plans {

@@ -36,6 +36,7 @@ export default [
   route('compare-counts', 'routes/compare-counts.ts'),
   route('compare-write/:project', 'routes/compare-write-create.ts'),
   route('compare-write/:project/:order', 'routes/compare-write.ts'),
+  route('compare-write/:project/products', 'routes/compare-write-products.ts'),
   route('compare-write/:project/products/:product', 'routes/compare-write-product.ts'),
   // The handlers of the storefront (see compare/store-wire.ts for why they are not on the URLs
   // of the pages).
