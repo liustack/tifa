@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,15 +21,19 @@ import (
 // BrowseScenario is one workload of the browse comparison: a site, a share of the user actions (a
 // page view or a write) that are writes, and which writes they are. The shares are those of the
 // TPC-W mixes (https://www.tpc.org/tpcw/): browsing 5%, shopping 20% and ordering 50% of the actions
-// are writes. Which writes they are is the Mix: "office" (place, ship, annotate and fix the delivery
-// of orders, MixOffice), "rename" (every write gives an order a new customer name, which the lists,
+// are writes. Which writes they are is the Mix: "admin" (place, ship, annotate and fix the delivery
+// of orders, MixAdmin), "rename" (every write gives an order a new customer name, which the lists,
 // the stats and the other orders of that customer show: the harder case for a cache, MixRename) or
-// "store" (a visitor of the storefront fills a cart and checks out, MixStore).
+// "store" (a visitor of the storefront fills a cart and checks out, MixStore). Throughput says that
+// the scenario has the closed tables, and Latency the open run (the search for the rate of Next.js
+// and every server at half of it).
 type BrowseScenario struct {
-	Name  string  `json:"name"`
-	Title string  `json:"title"`
-	Share float64 `json:"writeShare"`
-	Mix   string  `json:"mix"`
+	Name       string  `json:"name"`
+	Title      string  `json:"title"`
+	Share      float64 `json:"writeShare"`
+	Mix        string  `json:"mix"`
+	Throughput bool    `json:"throughput"`
+	Latency    bool    `json:"latency"`
 }
 
 // site is the site the scenario replays visits to: the storefront for the store mix, else the
@@ -40,10 +45,6 @@ func (s BrowseScenario) site() string {
 	return SiteWorkbench
 }
 
-// open says whether the scenario has the open run (the search for the rate of Next.js and the
-// latency at half of it): the 95/5 mixes. Its closed runs also have more numbers of users.
-func (s BrowseScenario) open() bool { return s.Share == 0.05 }
-
 // openBase is the server whose sustainable rate sets the rate of an open run: half of it, for every
 // server of the scenario.
 const openBase = "nextjs"
@@ -51,21 +52,25 @@ const openBase = "nextjs"
 // BrowseScenarios are the scenarios, in the order they are measured. A visit is 4 page views on
 // average (one full load in four, 75% client navigations), an assumption and not a measurement.
 var BrowseScenarios = []BrowseScenario{
-	{"office-w5", "back office, reads 95% / writes 5%", 0.05, MixOffice},
-	{"office-w20", "back office, reads 80% / writes 20%", 0.20, MixOffice},
-	{"office-w50", "back office, reads 50% / writes 50%", 0.50, MixOffice},
-	{"r95w5", "reads 95% / writes 5%, every write renames a customer", 0.05, MixRename},
-	{"r80w20", "reads 80% / writes 20%, every write renames a customer", 0.20, MixRename},
-	{"r50w50", "reads 50% / writes 50%, every write renames a customer", 0.50, MixRename},
-	{"store-w5", "storefront, reads 95% / writes 5%", 0.05, MixStore},
-	{"store-w20", "storefront, reads 80% / writes 20%", 0.20, MixStore},
-	{"store-w50", "storefront, reads 50% / writes 50%", 0.50, MixStore},
+	{"store-w5", "storefront, reads 95% / writes 5%", 0.05, MixStore, true, true},
+	{"admin-w20", "shop admin, reads 80% / writes 20%", 0.20, MixAdmin, false, true},
+	{"store-w20", "a storefront with more writes, reads 80% / writes 20%", 0.20, MixStore, true, false},
+	{"admin-w50", "shop admin, reads 50% / writes 50%", 0.50, MixAdmin, false, true},
+	{"store-w50", "storefront, reads 50% / writes 50%", 0.50, MixStore, true, false},
+	{"r95w5", "reads 95% / writes 5%, every write renames a customer", 0.05, MixRename, true, true},
+	{"r50w50", "reads 50% / writes 50%, every write renames a customer", 0.50, MixRename, true, false},
 }
 
-// DefaultScenarios are the scenarios that run when none is asked for: the back office at the three
-// rates, the rename stress at 20% only and the storefront at 5% (the open run of the storefront) and
-// 20%.
-const DefaultScenarios = "office-w5,office-w20,office-w50,r80w20,store-w5,store-w20"
+// ScenarioGroups are the lists of scenarios that a name stands for. "default" runs when none is
+// asked for: the storefront at 5% writes (throughput and latency) and the admin at 20% (latency).
+// "extra" is run on demand: the storefront at 20% (throughput) and the admin at 50% (latency).
+var ScenarioGroups = map[string][]string{
+	"default": {"store-w5", "admin-w20"},
+	"extra":   {"store-w20", "admin-w50"},
+}
+
+// DefaultScenarios is the list of scenarios that runs when none is asked for.
+const DefaultScenarios = "default"
 
 // BrowseScenarioByName finds a scenario of the browse comparison.
 func BrowseScenarioByName(name string) (BrowseScenario, bool) {
@@ -75,6 +80,43 @@ func BrowseScenarioByName(name string) (BrowseScenario, bool) {
 		}
 	}
 	return BrowseScenario{}, false
+}
+
+// ParseScenarios reads a comma separated list of scenarios and groups, in order, each scenario
+// once.
+func ParseScenarios(list string) ([]BrowseScenario, error) {
+	var out []BrowseScenario
+	add := func(name string) error {
+		sc, ok := BrowseScenarioByName(name)
+		if !ok {
+			return fmt.Errorf("no scenario %q: have the groups default and extra and %v", name, browseScenarioNames())
+		}
+		if !slices.ContainsFunc(out, func(s BrowseScenario) bool { return s.Name == name }) {
+			out = append(out, sc)
+		}
+		return nil
+	}
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		names, group := ScenarioGroups[name]
+		if !group {
+			names = []string{name}
+		}
+		for _, n := range names {
+			if err := add(n); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
+func browseScenarioNames() []string {
+	var out []string
+	for _, s := range BrowseScenarios {
+		out = append(out, s.Name)
+	}
+	return out
 }
 
 // maxConns is how many connections a browser opens to one host (HTTP/1.1): a visit never has more
@@ -96,6 +138,24 @@ type Workload struct {
 
 // planFor is the plan that visit seq of the global sequence plays: the plans in order, over and over.
 func (w *Workload) planFor(seq int) Plan { return w.Plans[seq%len(w.Plans)] }
+
+// plan sets in a round what visits seq0 to seq0+n-1 of the global sequence plan: the visits, their
+// page views, the clicks among them and, unless reads, the writes the scenario puts after them.
+func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
+	r.VisitsPlanned, r.PageViewsPlanned, r.ClicksPlanned, r.WritesPlanned = n, 0, 0, 0
+	for s := seq0; s < seq0+n; s++ {
+		p := w.planFor(s)
+		for j, st := range p.Steps {
+			r.PageViewsPlanned++
+			if st.Kind == StepClick {
+				r.ClicksPlanned++
+			}
+			if _, ok := w.Writes[[2]int{p.ID, j}]; ok && !reads {
+				r.WritesPlanned++
+			}
+		}
+	}
+}
 
 // NewWorkload puts the writes of a scenario into the plans, block by block, and fails if a plan has
 // no trace.
@@ -132,7 +192,7 @@ type runner struct {
 	cpu      func() float64 // processor seconds of the server so far
 	rss      func() int64   // its peak resident size in bytes
 	writes   atomic.Int64   // the number of writes made, which gives each rename its address
-	pool     pool           // the orders that office writes go to, kept as long as the server lives
+	pool     pool           // the orders that admin writes go to, kept as long as the server lives
 }
 
 // mix is the mix of writes the runner plays.
@@ -145,6 +205,12 @@ var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)
 type acc struct {
 	mu                                  sync.Mutex
 	visits, views, loads, clicks, wrote int
+	// started counts the visits begun, and failedVisits the ones an action of which failed.
+	started, failedVisits int
+	// cutOff counts the actions in flight when the round was cut off, cutLate the ones in flight for
+	// longer than the rule, and cutOldest how long the oldest was, in ms.
+	cutOff, cutLate                     int
+	cutOldest                           float64
 	failures, requests, cancelled, n304 int
 	bytes                               int64
 	firstErr                            string
@@ -152,11 +218,11 @@ type acc struct {
 	renders, responses                  map[string]int
 	lat                                 map[string][]float64
 	lastAction                          time.Time
-	// kinds counts the writes by kind, and poolEmpty the office writes that found no order to go to
+	// kinds counts the writes by kind, and poolEmpty the admin writes that found no order to go to
 	// and were sent as a create instead (they are among the creates).
 	kinds     map[string]int
 	poolEmpty int
-	// pageRenders counts the renders of full loads (X-Tifa-Render on the documents) by kind of page.
+	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
 }
 
@@ -164,13 +230,32 @@ func newAcc() *acc {
 	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}}
 }
 
+// fail counts a visit that failed, and the error that ended it.
 func (a *acc) fail(err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.failures++
+	a.failedVisits++
 	if a.firstErr == "" {
 		a.firstErr = err.Error()
 	}
+}
+
+// cut counts an action that the end of the round cut off, scheduled at sched: how long it had been in
+// flight when the context ended (at its deadline, when it has one that passed).
+func (a *acc) cut(ctx context.Context, sched time.Time) {
+	at := time.Now()
+	if d, ok := ctx.Deadline(); ok && d.Before(at) {
+		at = d
+	}
+	age := ms(at.Sub(sched))
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cutOff++
+	if age > LatencyLimit {
+		a.cutLate++
+	}
+	a.cutOldest = max(a.cutOldest, age)
 }
 
 func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
@@ -230,8 +315,9 @@ var errNotSent = errors.New("cancelled before it was sent")
 
 // send plays one recorded request. A request the browser cancelled is cancelled at the recorded
 // offset from the start of its step: the connection is released and the rest of the answer is not
-// read. cancelAt is that time (zero for a request the browser let finish).
-func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, cancelAt time.Time) outcome {
+// read. cancelAt is that time (zero for a request the browser let finish). page is the page of the
+// page view the request belongs to.
+func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, page string, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	responded, sent := false, false
@@ -342,15 +428,16 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	if rd := res.Header.Get("X-Remix-Reload-Document"); rd != "" {
 		a.responses["reload-document header"]++
 	}
-	if q.Class == "doc" {
-		if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
-			a.renders[rd]++
-			kind := pageClass(q.URL)
-			if a.pageRenders[kind] == nil {
-				a.pageRenders[kind] = map[string]int{}
-			}
-			a.pageRenders[kind][rd]++
+	// Tifa says how it answered a page: a document, and also the navigation data of a page, which can
+	// render the page in a VM too (one from the whole-page cache). Every answer that says so is counted,
+	// by the kind of page of the page view.
+	if rd := res.Header.Get("X-Tifa-Render"); rd != "" && rd != "none" {
+		a.renders[rd]++
+		kind := pageClass(page)
+		if a.pageRenders[kind] == nil {
+			a.pageRenders[kind] = map[string]int{}
 		}
+		a.pageRenders[kind][rd]++
 	}
 	if q.Class == "prefetch" {
 		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))
@@ -403,7 +490,7 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 					return
 				}
 			}
-			outs[j] = r.send(ctx, v, a, q, cancelAt)
+			outs[j] = r.send(ctx, v, a, q, s.Page, cancelAt)
 			if q.Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
 				v.fail(outs[j].err) // a prefetch that fails is a failure of the visit
 			}
@@ -477,7 +564,8 @@ func (p pacer) at(j int) time.Time {
 
 // runVisit plays plan number seq of the global sequence: its page views in turn, the writes of the
 // scenario after the page views the plan puts them after, and at the end the background requests
-// the browser still had. It reports whether the visit completed.
+// the browser still had. It reports whether the visit completed. A visit that a failed action ends
+// counts as failed. One that the context ends (the round was cut off) counts as neither.
 func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq int, p pacer) bool {
 	plan := r.wl.planFor(seq)
 	trace := r.wl.Traces[plan.ID]
@@ -486,6 +574,9 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()
+	a.mu.Lock()
+	a.started++
+	a.mu.Unlock()
 	action := 0
 	wait := func() time.Time {
 		sched := p.at(action)
@@ -509,6 +600,8 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 		if _, err := r.runStep(ctx, v, a, s, sched); err != nil {
 			if ctx.Err() == nil {
 				a.fail(err)
+			} else {
+				a.cut(ctx, sched)
 			}
 			return false
 		}
@@ -517,6 +610,8 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 			if err := r.doWrite(ctx, v, a, w, sched); err != nil {
 				if ctx.Err() == nil {
 					a.fail(err)
+				} else {
+					a.cut(ctx, sched)
 				}
 				return false
 			}

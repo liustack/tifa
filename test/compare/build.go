@@ -47,6 +47,12 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 	if err := run(ctx, log, dir, env, "pnpm", "build"); err != nil {
 		return err
 	}
+	// The rate of Next.js is bound to the sources of its app, so its build says what it was made from.
+	if dir == e.Next {
+		if err := writeNextSource(e.Root, dir); err != nil {
+			return err
+		}
+	}
 	return run(ctx, log, dir, env, "pnpm", "exec", "tsc", "--noEmit")
 }
 

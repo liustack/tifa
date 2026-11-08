@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// fakeShop is the part of the shop that the office writes touch, in memory: the orders of the data
+// fakeShop is the part of the shop that the admin writes touch, in memory: the orders of the data
 // that matter (SH-1039 and SH-1040 shipped, SH-1041, SH-1042 and WK-0201 waiting), the four writes
 // with the status codes of the shop, and pages that show what was written.
 type fakeShop struct {
@@ -23,12 +23,12 @@ type fakeShop struct {
 	// stale makes the pages ignore shipments, as a cache that is not cleared would, and staleStats
 	// only the stats page.
 	stale, staleStats bool
-	log   []string
+	log               []string
 }
 
 type fakeOrder struct {
 	project, customer, address, note, tracking, carrier string
-	notes                                      []string
+	notes                                               []string
 }
 
 func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
@@ -152,13 +152,13 @@ func (f *fakeShop) page(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s %s %s %s %s %s", r.PathValue("order"), o.customer, o.address, o.note, strings.Join(o.notes, ","), o.tracking)
 }
 
-func officeRunner(t *testing.T) (*runner, *fakeShop) {
+func adminRunner(t *testing.T) (*runner, *fakeShop) {
 	f, srv := newFakeShop(t)
-	return newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixOffice}), f
+	return newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixAdmin}), f
 }
 
-func TestOfficeWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) {
-	r, f := officeRunner(t)
+func TestAdminWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) {
+	r, f := adminRunner(t)
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
 	n := 0
@@ -196,8 +196,8 @@ func TestOfficeWritesShipTheOldestPickTheRestAndFallBackToACreate(t *testing.T) 
 
 // Writes of a visit run while other users write: a recipient write must not meet an order that a
 // ship write took at the same moment.
-func TestOfficeWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
-	r, _ := officeRunner(t)
+func TestAdminWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
+	r, _ := adminRunner(t)
 	kinds := []string{WriteCreate, WriteShip, WriteNote, WriteRecipient, WriteCreate, WriteRecipient, WriteShip}
 	var wg sync.WaitGroup
 	errs := make(chan error, 400)
@@ -222,9 +222,9 @@ func TestOfficeWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 	}
 }
 
-func TestVerifyOfficeChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
-	r, f := officeRunner(t)
-	if err := r.verifyOffice(context.Background()); err != nil {
+func TestVerifyAdminChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
+	r, f := adminRunner(t)
+	if err := r.verifyAdmin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	// The pool is what it was: the order that the check placed was shipped by it.
@@ -238,17 +238,17 @@ func TestVerifyOfficeChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
 		t.Errorf("the check left the data of SH-1040 and SH-1041 as %+v and %+v", f.orders["SH-1040"], f.orders["SH-1041"])
 	}
 	f.staleStats = true
-	if err := r.verifyOffice(context.Background()); err == nil || !strings.Contains(err.Error(), "carrier table") {
+	if err := r.verifyAdmin(context.Background()); err == nil || !strings.Contains(err.Error(), "carrier table") {
 		t.Errorf("a server whose stats page ignores shipments: %v", err)
 	}
 	f.stale = true
-	if err := r.verifyOffice(context.Background()); err == nil {
+	if err := r.verifyAdmin(context.Background()); err == nil {
 		t.Error("a server whose pages ignore shipments passed")
 	}
 }
 
 // The replayer asks for compression, as a browser does, and the id of a placed order is in the answer.
-func TestOfficeWritesReadACompressedAnswer(t *testing.T) {
+func TestAdminWritesReadACompressedAnswer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Encoding", "gzip")
 		zw := gzip.NewWriter(w)
@@ -256,7 +256,7 @@ func TestOfficeWritesReadACompressedAnswer(t *testing.T) {
 		zw.Close()
 	}))
 	defer srv.Close()
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixOffice})
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.5, Mix: MixAdmin})
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
 	if err := r.doWrite(context.Background(), v, a, PlannedWrite{Kind: WriteCreate, Project: "studio"}, time.Now()); err != nil {
@@ -269,8 +269,8 @@ func TestOfficeWritesReadACompressedAnswer(t *testing.T) {
 
 // After a round the writes have shipped the orders of the data that waited, and the check must
 // not count on them.
-func TestVerifyOfficeAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
-	r, f := officeRunner(t)
+func TestVerifyAdminAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
+	r, f := adminRunner(t)
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
 	for i := range 2 {
@@ -278,7 +278,7 @@ func TestVerifyOfficeAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := r.verifyOffice(context.Background()); err != nil {
+	if err := r.verifyAdmin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if o := f.orders["SH-1043"]; o == nil || o.address == "" || o.tracking == "" {

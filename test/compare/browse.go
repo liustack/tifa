@@ -3,10 +3,13 @@ package compare
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -33,26 +36,24 @@ type BrowseOptions struct {
 	ServerCPUs   string
 	LoadCPUs     string
 	LoadCPUCount int // how many cpus the load may use, to tell a saturated generator
-	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the users used them
-	// (none when it is not pinned: then the saturation phase does nothing).
+	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the sessions used them
+	// (none when it is not pinned: then no server is stepped up).
 	ServerCPUCount int
-	// Probe measures again the users at which each server saturates, and rewrites SaturationFile.
+	// Probe searches the rate of Next.js again, and writes it into RateFile.
 	Probe bool
-	// SaturationFile holds those users, per scenario and server (test/compare/saturation.json when
-	// empty).
-	SaturationFile string
-	Scenarios      []BrowseScenario // the default ones when empty
-	Phases         []string         // "closed", "saturation", "sustain" and "latency"; all of them when empty
-	Users          int              // the users of the throughput table, 32
-	ExtraUsers     []int            // more users, for the scenarios with 5% writes only: 8 and 16
-	Rounds         int
-	Warm           time.Duration // the warm-up of a closed round, apart from it
-	Target         time.Duration // how long a closed round should take, about
-	TrialWindow    time.Duration // an open trial of the search for the sustainable rate
-	FinalWindow    time.Duration // an open round of the latency table, at least
-	MaxRate        float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
-	Stamp          string        // what the traces and the builds belong to, kept in the result
-	Log            io.Writer
+	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
+	RateFile    string
+	Scenarios   []BrowseScenario // the default ones when empty
+	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
+	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
+	Rounds      int
+	Warm        time.Duration // the warm-up of a closed round, apart from it
+	Target      time.Duration // how long a closed round should take, about
+	TrialWindow time.Duration // an open trial of the search for the sustainable rate
+	FinalWindow time.Duration // an open round of the latency table, at least
+	MaxRate     float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
+	Stamp       string        // what the traces and the builds belong to, kept in the result
+	Log         io.Writer
 }
 
 // PlanInfo is what the plans of a site hold.
@@ -74,12 +75,13 @@ type BrowseResult struct {
 	Scenarios []BrowseScenario    `json:"scenarios"`
 	// Servers is, per scenario, the specs it runs, in the order of the tables.
 	Servers map[string][]string `json:"servers"`
-	// Closed holds every round at a fixed number of users, the invalid ones that were run again too.
+	// Closed holds every closed round, at every number of concurrent sessions, the invalid ones that
+	// were run again too.
 	Closed []Round `json:"closed"`
-	// Blocks is the size of the measured workload of each scenario, number of users and spec (whole
+	// Blocks is the size of the measured workload of each scenario, number of sessions and spec (whole
 	// blocks), taken from the warm-up of its first round.
 	Blocks map[string]int `json:"blocks"`
-	// Sustain is, per scenario and spec ("office-w5/tifa"), the search for the arrival rate it
+	// Sustain is, per scenario and spec ("admin-w5/tifa"), the search for the arrival rate it
 	// sustains in the open model.
 	Sustain map[string]*Sustain `json:"sustain"`
 	// LatencyRate is, per scenario, the rate that all its servers were run at: half of the lowest
@@ -87,14 +89,11 @@ type BrowseResult struct {
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
-	// Control is the read-only control of office-w5: Tifa at the users of the closed runs with the
-	// same traces and no writes, one short round, to show what the writes do to its render cache.
+	// Control is the read-only control of each site: Tifa at the sessions of the closed runs with the
+	// same traces and no writes, one short round, to show which pages its render cache answers.
 	Control []Round `json:"control,omitempty"`
-	// Saturation holds the rounds above the users of every server, for the servers that did not use
-	// their cpus there: the steps of a probe, or the users from SaturationFile.
-	Saturation []Round `json:"saturation,omitempty"`
-	// Saturated is, per scenario and server ("office-w5/tifa"), the users at which it saturated.
-	Saturated map[string]*Saturated `json:"saturated,omitempty"`
+	// Throughput is, per scenario and server ("store-w5/tifa"), what the steps of its sessions found.
+	Throughput map[string]*Throughput `json:"throughput,omitempty"`
 }
 
 // Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
@@ -107,6 +106,10 @@ type Sustain struct {
 	Limited bool   `json:"generatorLimited,omitempty"`
 	Done    bool   `json:"done"`
 	Note    string `json:"note,omitempty"`
+	// Under is what the rate was measured under (see rateConditions), and From the run it came from
+	// when it was read from the file of rates rather than searched in this run.
+	Under map[string]string `json:"under,omitempty"`
+	From  *RateSource       `json:"fromFile,omitempty"`
 }
 
 // siteName is how a site is named in the result.
@@ -186,29 +189,88 @@ func LoadTraces(dir, site string, names []string) (*PlanSet, map[string]map[int]
 	return set, out, nil
 }
 
-// browseConfig is the settings of a run that its result keeps.
-func browseConfig(o BrowseOptions) map[string]string {
+// browseConfig is the settings of a run that its result keeps, and that a run must have to continue
+// it: the options that change what a round plays or how it is judged, the cpu model of the machine,
+// a hash of the trace and plan files the run loaded (traces) and the method (see methodHash).
+func browseConfig(o BrowseOptions, cpu, traces, method string) map[string]string {
 	return map[string]string{
-		"users": fmt.Sprint(o.Users), "extraUsers": fmt.Sprint(o.ExtraUsers), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
+		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"probe": fmt.Sprint(o.Probe),
+		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "traces": traces, "method": method,
 	}
 }
 
-// canContinue says whether a result can be continued by a run with these options: the same stamp
-// and the same settings, so that a probe asked for again, or other cpus or windows, never reuse the
-// rounds of another run.
-func canContinue(res *BrowseResult, o BrowseOptions) error {
-	if res.Stamp != o.Stamp {
-		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, o.Stamp)
+// canContinue says whether a result can be continued by a run with this stamp, settings (cfg, see
+// browseConfig) and versions: all the same, so that a probe asked for again, other cpus, windows,
+// traces, a seed, another machine or other versions never reuse the rounds of another run. The commit
+// of Tifa is not compared: what of the checkout a round depends on is in the stamp, and in the
+// conditions of a rate.
+func canContinue(res *BrowseResult, stamp string, cfg, version map[string]string) error {
+	if res.Stamp != stamp {
+		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, stamp)
 	}
-	want := browseConfig(o)
-	for _, k := range sortedKeys(want) {
-		if res.Config[k] != want[k] {
-			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Config[k], want[k])
+	for _, k := range sortedKeys(cfg) {
+		if res.Config[k] != cfg[k] {
+			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Config[k], cfg[k])
+		}
+	}
+	for _, k := range slices.Sorted(mapKeys(res.Version, version)) {
+		if k != "tifa" && res.Version[k] != version[k] {
+			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Version[k], version[k])
 		}
 	}
 	return nil
+}
+
+// restore reads back a result to continue, and checks it in one place before any phase runs, whatever
+// the phases: its format, its settings and versions (canContinue, the method among them), and every
+// rate it holds, searched or read from the file, against the conditions of this run and the build of
+// Next.js that runs.
+func (b *browse) restore(data []byte, cfg, version map[string]string) error {
+	if err := checkFormat(data); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, b.res); err != nil {
+		return err
+	}
+	if err := canContinue(b.res, b.o.Stamp, cfg, version); err != nil {
+		return err
+	}
+	for _, key := range slices.Sorted(maps.Keys(b.res.Sustain)) {
+		name, fw, _ := strings.Cut(key, "/")
+		i := slices.IndexFunc(b.res.Scenarios, func(s BrowseScenario) bool { return s.Name == name })
+		if i < 0 {
+			return fmt.Errorf("holds a rate of %s, which is not one of its scenarios: remove it to start again", name)
+		}
+		if diff := conditionDiff(b.res.Sustain[key].Under, b.rateConditions(b.res.Scenarios[i])); len(diff) > 0 {
+			return fmt.Errorf("the rate of %s on %s was measured under other conditions than this run (%s): remove it to start again", BrowseLabel(fw), name, strings.Join(diff, "; "))
+		}
+		if err := b.checkNextBuild(); err != nil {
+			return fmt.Errorf("holds a rate of %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// tracesHash is a short hash of the plan and trace files a run loads: for each site, its plans and
+// the traces of names.
+func tracesHash(dir string, names map[string][]string) string {
+	h := sha256.New()
+	for _, site := range slices.Sorted(maps.Keys(names)) {
+		for _, path := range append([]string{PlansPath(dir, site)}, tracePaths(dir, site, names[site])...) {
+			fmt.Fprintf(h, "%s %s\n", filepath.Base(path), fileHash(path))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// tracePaths are the trace files of names on a site, sorted.
+func tracePaths(dir, site string, names []string) []string {
+	var out []string
+	for _, n := range slices.Sorted(slices.Values(names)) {
+		out = append(out, TracePath(dir, n, site))
+	}
+	return out
 }
 
 // Browse runs the browse comparison and returns what it measured. Prepare must have run.
@@ -223,19 +285,16 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		o.Servers = BrowseFrameworks
 	}
 	if len(o.Scenarios) == 0 {
-		for _, name := range strings.Split(DefaultScenarios, ",") {
-			sc, _ := BrowseScenarioByName(name)
-			o.Scenarios = append(o.Scenarios, sc)
-		}
+		o.Scenarios, _ = ParseScenarios(DefaultScenarios)
 	}
 	if len(o.Phases) == 0 {
-		o.Phases = []string{"closed", "saturation", "sustain", "latency"}
+		o.Phases = []string{"throughput", "control", "sustain", "latency"}
 	}
-	if o.SaturationFile == "" {
-		o.SaturationFile = filepath.Join(e.Root, "test", "compare", "saturation.json")
+	if o.RateFile == "" {
+		o.RateFile = filepath.Join(e.Root, "test", "compare", "rates.json")
 	}
-	if o.Users == 0 {
-		o.Users = 32
+	if o.Sessions == 0 {
+		o.Sessions = 8
 	}
 	if o.Rounds == 0 {
 		o.Rounds = 3
@@ -277,18 +336,17 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	if b.bid, err = e.tifaBuildID(); err != nil {
 		return nil, err
 	}
+	mach, version := machine(), e.versions(specs)
+	cfg := browseConfig(o, mach.CPU, tracesHash(o.TraceDir, names), methodHash(e.Root))
 	b.res = &BrowseResult{}
 	if data, err := os.ReadFile(o.OutJSON); err == nil && o.OutJSON != "" {
-		if err := json.Unmarshal(data, b.res); err != nil {
+		if err := b.restore(data, cfg, version); err != nil {
 			return nil, fmt.Errorf("%s: %w", o.OutJSON, err)
-		}
-		if err := canContinue(b.res, o); err != nil {
-			return nil, fmt.Errorf("%s %w", o.OutJSON, err)
 		}
 		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
 	} else {
 		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
-		b.res.Machine, b.res.Place, b.res.Version = machine(), placement, e.versions(specs)
+		b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
 		b.res.Scenarios, b.res.Servers = o.Scenarios, b.servers
 		b.res.Plans = map[string]PlanInfo{}
 		for site, set := range b.sets {
@@ -298,7 +356,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 			}
 			b.res.Plans[siteName(site)] = info
 		}
-		b.res.Config = browseConfig(o)
+		b.res.Config = cfg
 		b.res.Blocks = map[string]int{}
 		b.res.Sustain = map[string]*Sustain{}
 		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
@@ -308,7 +366,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	for _, phase := range []struct {
 		name string
 		run  func(context.Context, BrowseScenario) error
-	}{{"closed", b.closed}, {"saturation", b.saturation}, {"sustain", b.sustain}, {"latency", b.latency}} {
+	}{{"throughput", b.throughput}, {"control", b.control}, {"sustain", b.sustain}, {"latency", b.latency}} {
 		if !has(phase.name) {
 			continue
 		}
@@ -355,6 +413,10 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 		}
 	}
 	out := f(r)
+	// A run that was stopped (an interrupt) leaves a round that is not a result, and it is not kept.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	out.Framework, out.Scenario = name, sc.Name
 	out.Judge(sc)
 	if out.Pass && sc.Share > 0 {
@@ -365,131 +427,79 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 	return out, nil
 }
 
-// usersFor are the numbers of users of the closed rounds of a scenario: o.Users, and o.ExtraUsers
-// too for a scenario with the open run (5% writes).
-func (b *browse) usersFor(sc BrowseScenario) []int {
-	users := []int{b.o.Users}
-	if sc.open() {
-		users = append(slices.Clone(b.o.ExtraUsers), users...)
-	}
-	return users
+// controlWindow is about how long the one round of the read-only control takes (the target of the
+// closed rounds when that is shorter).
+const controlWindow = 30 * time.Second
+
+// controlled says whether the read-only control runs on a scenario of a list: on the first
+// scenario of each site, once.
+func controlled(list []BrowseScenario, sc BrowseScenario) bool {
+	i := slices.IndexFunc(list, func(s BrowseScenario) bool { return s.site() == sc.site() })
+	return i >= 0 && list[i].Name == sc.Name
 }
 
-func (b *browse) closedDone(fw, sc string, users, round int) bool {
-	return slices.ContainsFunc(b.res.Closed, func(r Round) bool {
-		return r.Framework == fw && r.Scenario == sc && r.Users == users && r.Round == round && r.Valid
-	})
-}
-
-// closed is the throughput table of a scenario: every server at the same number of users, three
-// rounds in a rotating order with fresh servers.
-func (b *browse) closed(ctx context.Context, sc BrowseScenario) error {
-	for _, users := range b.usersFor(sc) {
-		failed := map[string]bool{}
-		for round := 1; round <= b.o.Rounds; round++ {
-			for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-				if b.closedDone(fw, sc.Name, users, round) {
-					continue
-				}
-				if failed[fw] && round > 1 && b.o.Rounds > 1 {
-					// A hung round is reported as failed; the other rounds of that cell are skipped.
-					if hung(b.lastClosed(fw, sc.Name, users)) {
-						continue
-					}
-				}
-				r, err := b.closedRound(ctx, fw, sc, users, round, &b.res.Closed)
-				if err != nil {
-					return err
-				}
-				if !r.Pass {
-					failed[fw] = true
-				}
-			}
-		}
-	}
-	return b.control(ctx, sc)
-}
-
-// controlScenario is the scenario of the read-only control, and controlWindow about how long its
-// one round takes (the target of the closed rounds when that is shorter).
-const (
-	controlScenario = "office-w5"
-	controlWindow   = 30 * time.Second
-)
-
-// control is a diagnostic, not a result: on office-w5, one closed round of Tifa (with its caches as
-// it ships) at the users of the closed runs, with the same traces and no writes. Against the closed
-// rounds it shows what the writes do to the render cache of each kind of page.
+// control is a diagnostic, not a result: once for each site, one closed round of Tifa (with its
+// caches as it ships) at the sessions of the closed runs, with the traces of the first scenario of the
+// site and no writes. It shows which kinds of page the render cache answers when nothing changes,
+// and against the rounds with writes what the writes do to it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
-	if sc.Name != controlScenario || !slices.Contains(b.servers[sc.Name], "tifa") || len(b.res.Control) > 0 {
+	if !controlled(b.o.Scenarios, sc) || !slices.Contains(b.servers[sc.Name], "tifa") || slices.ContainsFunc(b.res.Control, func(x Round) bool { return x.Scenario == sc.Name }) {
 		return nil
 	}
 	reads := sc
 	reads.Share = 0
 	window := min(b.o.Target, controlWindow)
 	out, err := b.with(ctx, "tifa", reads, func(r *runner) *Round {
-		rate := r.Warm(ctx, b.o.Users, b.o.Warm)
+		rate := r.Warm(ctx, b.o.Sessions, b.o.Warm)
 		blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
-		return r.RunClosed(ctx, b.o.Users, blocks*BlockVisits, 2*window)
+		return r.RunClosed(ctx, b.o.Sessions, blocks*BlockVisits, 2*window)
 	})
 	if err != nil {
 		return err
 	}
 	out.Model, out.Round = "control", 1
 	b.res.Control = append(b.res.Control, *out)
-	b.logf("control %-10s %2d users tifa, no writes: %.1f page views/s, renders by page %v, pass %v %s\n", sc.Name, out.Users, float64(out.PageViews)/out.Seconds, out.PageRenders, out.Pass, out.Why)
+	b.logf("control %-10s %2d sessions tifa, no writes: %.1f page views/s, renders by page %v, pass %v %s\n", sc.Name, out.Sessions, float64(out.PageViews)/out.Seconds, out.PageRenders, out.Pass, out.Why)
 	return b.commit()
 }
 
-func (b *browse) lastClosed(fw, sc string, users int) *Round {
-	for i := len(b.res.Closed) - 1; i >= 0; i-- {
-		r := &b.res.Closed[i]
-		if r.Framework == fw && r.Scenario == sc && r.Users == users {
-			return r
-		}
-	}
-	return nil
-}
-
-func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, users, round int, into *[]Round) (*Round, error) {
-	key := fmt.Sprintf("%s/%d/%s", sc.Name, users, fw)
+// closedRound plays one round of a cell, again (up to three tries) while it is not valid, and keeps
+// every try.
+func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, sessions, round int) (*Round, error) {
+	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
 	planBlocks := b.sets[sc.site()].Blocks
 	if _, ok := b.res.Blocks[key]; !ok {
-		rate, err := b.size(ctx, fw, sc, users)
+		rate, err := b.size(ctx, fw, sc, sessions)
 		if err != nil {
 			return nil, err
 		}
 		b.res.Blocks[key] = BlocksFor(rate, b.o.Target, planBlocks)
-		b.logf("size   %-10s %2d users %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, users, fw, rate, b.res.Blocks[key])
+		b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
 		if err := b.commit(); err != nil {
 			return nil, err
 		}
 	}
 	for attempt := 1; ; attempt++ {
 		out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-			r.Warm(ctx, users, b.o.Warm)
+			r.Warm(ctx, sessions, b.o.Warm)
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
-			return r.RunClosed(ctx, users, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
+			return r.RunClosed(ctx, sessions, b.res.Blocks[key]*BlockVisits, 2*b.o.Target)
 		})
 		if err != nil {
 			return nil, err
 		}
 		out.Round, out.Attempt = round, attempt
-		// A round takes 0.8 to 1.6 times the target (60 to 120 seconds by default). Outside that it is
-		// invalid: the workload is resized from what this round did, and the round is run again.
-		if blocks, ok := resize(out, b.o.Target, planBlocks); ok {
-			lo, hi := roundLength(b.o.Target)
-			out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
+		if blocks := judgeClosed(out, b.o.Target, planBlocks, b.o.LoadCPUCount); blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
-		*into = append(*into, *out)
+		b.res.Closed = append(b.res.Closed, *out)
 		if err := b.commit(); err != nil {
 			return nil, err
 		}
-		b.logf("closed %-10s %2d users %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
-			sc.Name, users, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
-		if out.Valid || attempt >= 3 {
+		b.logf("closed %-10s %2d sessions %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
+			sc.Name, sessions, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
+		if out.Valid || attempt >= maxTries {
 			return out, nil
 		}
 	}
@@ -500,31 +510,57 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 // of a cell is sized from it: the warm-up of a round sends no writes (so that every round starts with
 // the same data), and a server that writes make slower (a cache that they clear) would be sized too
 // large from that.
-func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, users int) (float64, error) {
+func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
 	_, err := b.with(ctx, fw, sc, func(r *runner) *Round {
-		rate = r.Size(ctx, users, b.o.Warm)
+		rate = r.Size(ctx, sessions, b.o.Warm)
 		return &Round{}
 	})
 	return rate, err
 }
 
-// hung says whether a closed round hung: it was stopped and nothing completed in it. A round cut off
-// for running too long completed visits, and is resized from them.
-func hung(r *Round) bool { return r != nil && r.TimedOut && r.Visits == 0 }
-
-// resize says whether a closed round took a length outside the window, and then the blocks the next
-// round of its cell gets, from the visits a second of this one, whatever else made it invalid: a
-// round stopped at twice the target played only part of its blocks, so its mix is off too.
-func resize(out *Round, target time.Duration, planBlocks int) (int, bool) {
-	lo, hi := roundLength(target)
-	// Every visit it played sets its length, the failed ones too. A result written before Played was
-	// counted has only the visits that completed.
-	played := cmp.Or(out.Played, out.Visits)
-	if played == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
-		return 0, false
+// judgeClosed finishes the judgement of a closed round: a load generator that ran out of cpus makes it
+// invalid, whatever the server did (a closed round has no schedule, so only the cpus are checked, and
+// only when the generator has cpus of its own, loadCPUs). Then its length is checked (calibrate), and
+// it returns the blocks of the next round of its cell, 0 for no change.
+func judgeClosed(out *Round, target time.Duration, planBlocks, loadCPUs int) int {
+	if why := generatorFault(out, loadCPUs); why != "" {
+		out.GeneratorLimited, out.Valid, out.WhyInvalid = true, false, why
 	}
-	return BlocksFor(float64(played)/out.Seconds, target, planBlocks), true
+	return calibrate(out, target, planBlocks)
+}
+
+// calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
+// times the target (60 to 120 seconds by default). Outside that it returns the blocks the next round
+// of its cell gets, from the visits a second this one ended (the failed ones too: a 503 ends a visit
+// fast, and the completed visits alone would size a server that refuses load far too small), and 0
+// when the round was in the window. A round outside the window that passed the rule is invalid and is
+// run again. One that failed the rule stays a valid round that failed: the length is a matter of
+// calibration, and never discards a failure the server showed.
+func calibrate(out *Round, target time.Duration, planBlocks int) int {
+	lo, hi := roundLength(target)
+	ended := out.Visits + out.VisitsFailed
+	if ended == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
+		return 0
+	}
+	if out.Pass && out.Valid {
+		out.Valid, out.WhyInvalid = false, fmt.Sprintf("the round took %.0f s, outside %.0f to %.0f s: resized", out.Seconds, lo, hi)
+	}
+	return BlocksFor(float64(ended)/out.Seconds, target, planBlocks)
+}
+
+// generatorFault says why the load generator, not the server, limited a round, or "" when it did not:
+// visits of an open round must start on time, and it must have processor time to spare (checked only
+// when it has cpus of its own, loadCPUs).
+func generatorFault(out *Round, loadCPUs int) string {
+	why := ""
+	if out.LagMs > 250 {
+		why = fmt.Sprintf("the load generator started a visit %.0f ms late", out.LagMs)
+	}
+	if loadCPUs > 0 && out.Seconds > 0 && out.ClientCPU/out.Seconds > 0.8*float64(loadCPUs) {
+		why = fmt.Sprintf("the load generator used %.2f cores of %d", out.ClientCPU/out.Seconds, loadCPUs)
+	}
+	return why
 }
 
 // roundLength is the shortest and the longest a closed round may take, in seconds, for a target.
@@ -551,17 +587,10 @@ func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, ra
 	if err != nil {
 		return nil, err
 	}
-	// The load generator is checked first, so that a generator that cannot keep up is never reported
-	// as a limit of the server: visits must start on time and it must have processor time to spare.
-	why := ""
-	if out.LagMs > 250 {
-		why = fmt.Sprintf("the load generator started a visit %.0f ms late", out.LagMs)
-	}
-	if b.o.LoadCPUCount > 0 && out.Seconds > 0 && out.ClientCPU/out.Seconds > 0.8*float64(b.o.LoadCPUCount) {
-		why = fmt.Sprintf("the load generator used %.2f cores of %d", out.ClientCPU/out.Seconds, b.o.LoadCPUCount)
-	}
-	if why != "" {
-		out.GeneratorLimited, out.Pass, out.Why = true, false, why
+	// A generator that cannot keep up makes the round invalid, so that it is never reported as a limit
+	// of the server.
+	if why := generatorFault(out, b.o.LoadCPUCount); why != "" {
+		out.GeneratorLimited, out.Valid, out.WhyInvalid = true, false, why
 	}
 	return out, nil
 }
@@ -569,83 +598,126 @@ func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, ra
 // sustainKey names the search of one spec in one scenario.
 func sustainKey(sc, spec string) string { return sc + "/" + spec }
 
+// maxRate is the cap of the search of the rate.
+func (b *browse) maxRate() float64 { return cmp.Or(b.o.MaxRate, 16384) }
+
 // sustain finds the arrival rate that Next.js sustains in the open model on a scenario with the open
 // run: double the rate while the rule holds, narrow it to within 10%, then require the rule over the
 // rounds, stepping down 10% until it holds. Only Next.js is searched: half of its rate is the rate of
 // the open run for every server.
 func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
-	if !sc.open() {
+	if !sc.Latency {
 		return nil
 	}
 	if !slices.Contains(b.servers[sc.Name], openBase) {
 		return fmt.Errorf("%s: the open run is set by %s, which is not among the servers", sc.Name, BrowseLabel(openBase))
 	}
+	// A rate is reused, searched and written only on a build of the sources it is bound to.
+	if err := b.checkNextBuild(); err != nil {
+		return fmt.Errorf("%s: %w", sc.Name, err)
+	}
 	for _, fw := range []string{openBase} {
 		key := sustainKey(sc.Name, fw)
 		s := b.res.Sustain[key]
 		if s != nil && s.Done {
-			continue
+			continue // restore checked it against the conditions of this run
 		}
-		s = &Sustain{}
-		b.res.Sustain[key] = s
-		trial := func(rate float64) (bool, error) {
-			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
-			if err != nil {
-				return false, err
-			}
-			s.Trials = append(s.Trials, *r)
-			b.logf("sustain %-10s %-12s %8.2f visits/s: pass %v %s (%d visits, load P99 %.0f, click P99 %.0f ms, client %.2f cores)\n", sc.Name, fw, rate, r.Pass, r.Why, r.Visits, r.Types["load"].P99, r.Types["click"].P99, r.ClientCPU/math.Max(r.Seconds, 1))
-			if r.GeneratorLimited {
-				s.Limited = true
-			}
-			return r.Pass, b.commit()
-		}
-		maxRate := cmp.Or(b.o.MaxRate, 16384)
-		lo, hi, err := searchRate(maxRate, trial)
+		under := b.rateConditions(sc)
+		file, err := readRates(b.o.RateFile)
 		if err != nil {
 			return err
 		}
-		if lo == 0 {
-			s.Note, s.Done = fmt.Sprintf("it does not sustain %.2f visits a second, the lowest rate tried", hi), true
+		entry, err := fileRate(file, sc.Name, under, b.o.Probe)
+		if err != nil {
+			return err
+		}
+		if entry != nil {
+			b.logf("sustain %-10s %-12s %.2f visits/s from %s, confirmed on %s (Tifa %s)\n", sc.Name, fw, entry.Rate, b.o.RateFile, entry.Source.Date, entry.Source.Tifa)
+			b.res.Sustain[key] = &Sustain{Rate: entry.Rate, Done: true, Under: under, From: &entry.Source}
 			if err := b.commit(); err != nil {
 				return err
 			}
 			continue
 		}
-		for hi > 0 && hi-lo > 0.1*lo {
+		s = &Sustain{Under: under}
+		b.res.Sustain[key] = s
+		// A trial that is not valid is played again at its rate: only a valid one moves the search.
+		trial := func(rate float64) (string, error) {
+			r, err := retryInvalid(func(try int) (*Round, error) {
+				r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
+				if err != nil {
+					return nil, err
+				}
+				r.Attempt = try
+				s.Trials = append(s.Trials, *r)
+				b.logf("sustain %-10s %-12s %8.2f visits/s (try %d): pass %v %s valid %v %s (%d visits, load P99 %.0f, click P99 %.0f ms, client %.2f cores)\n", sc.Name, fw, rate, try, r.Pass, r.Why, r.Valid, r.WhyInvalid, r.Visits, r.Types["load"].P99, r.Types["click"].P99, r.ClientCPU/math.Max(r.Seconds, 1))
+				return r, b.commit()
+			})
+			if err != nil {
+				return "", err
+			}
+			return trialOf(r), nil
+		}
+		maxRate := b.maxRate()
+		lo, hi, limited, err := searchRate(maxRate, trial)
+		if err != nil {
+			return err
+		}
+		s.Limited = limited
+		if lo == 0 {
+			s.Note, s.Done = fmt.Sprintf("it does not sustain %.2f visits a second, the lowest rate tried", hi), true
+			if limited {
+				s.Note = "the load generator could not play a valid trial, so the search found no rate"
+			}
+			if err := b.commit(); err != nil {
+				return err
+			}
+			continue
+		}
+		for !s.Limited && hi > 0 && hi-lo > 0.1*lo {
 			mid := math.Round((lo+hi)/2*100) / 100
-			ok, err := trial(mid)
+			got, err := trial(mid)
 			if err != nil {
 				return err
 			}
-			if ok {
+			switch got {
+			case trialPass:
 				lo = mid
-			} else {
+			case trialFail:
 				hi = mid
+			default:
+				s.Limited = true
 			}
 		}
-		// Only a rate that passed all its confirmation rounds is published. Every round stays in the record.
-		confirmed, rounds, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
+		// Only a rate that passed all its confirmation rounds, each of them valid, is published. Every
+		// round stays in the record.
+		confirmed, rounds, limited, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
 			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow*2, b.o.TrialWindow/3)
 			if err != nil {
 				return nil, err
 			}
-			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why)
+			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s valid %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why, r.Valid, r.WhyInvalid)
 			s.Confirm = append(s.Confirm, *r)
 			return r, b.commit()
 		}, maxRate)
 		if err != nil {
 			return err
 		}
+		s.Limited = s.Limited || limited
 		s.Confirm = rounds
 		s.Rate, s.Done = confirmed, true
-		if confirmed == 0 {
+		switch {
+		case confirmed == 0 && limited:
+			s.Note = fmt.Sprintf("the load generator could not play valid confirmation rounds at %.2f visits a second, so no rate is confirmed", lo)
+		case confirmed == 0:
 			s.Note = fmt.Sprintf("no sustainable rate in range: no rate from %.2f down in four steps of 10%% passed %d rounds", lo, b.o.Rounds)
-		}
-		if hi == 0 && confirmed > 0 {
+		case hi == 0 && !s.Limited:
 			s.Note = "the search reached its cap without failing"
 		}
 		if err := b.commit(); err != nil {
+			return err
+		}
+		if err := b.keepRate(sc, s); err != nil {
 			return err
 		}
 	}
@@ -669,7 +741,7 @@ func openRate(res *BrowseResult, sc BrowseScenario) (float64, error) {
 // cannot hold the rate fails at it, and its rounds are kept as they are: the rate is never lowered
 // for it.
 func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
-	if !sc.open() {
+	if !sc.Latency {
 		return nil
 	}
 	if s := b.res.Sustain[sustainKey(sc.Name, openBase)]; s != nil && s.Done && s.Rate == 0 {
@@ -693,18 +765,30 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 	window := max(b.o.FinalWindow, time.Duration(1100/rate*float64(time.Second)))
 	for round := 1; round <= b.o.Rounds; round++ {
 		for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-			if slices.ContainsFunc(b.res.Latency, func(r Round) bool { return r.Framework == fw && r.Scenario == sc.Name && r.Round == round }) {
-				continue
-			}
-			r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
-			if err != nil {
-				return err
-			}
-			r.Round = round
-			b.res.Latency = append(b.res.Latency, *r)
-			b.logf("latency %-10s %-12s round %d: %d visits, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s\n", sc.Name, fw, round, r.Visits, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why)
-			if err := b.commit(); err != nil {
-				return err
+			// A round that is not valid (the load generator fell behind) is run again, up to three tries.
+			for {
+				tries := 0
+				for _, x := range b.res.Latency {
+					if x.Framework == fw && x.Scenario == sc.Name && x.Round == round {
+						tries++
+						if x.Valid {
+							tries = maxTries
+						}
+					}
+				}
+				if tries >= maxTries {
+					break
+				}
+				r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
+				if err != nil {
+					return err
+				}
+				r.Round, r.Attempt = round, tries+1
+				b.res.Latency = append(b.res.Latency, *r)
+				b.logf("latency %-10s %-12s round %d (try %d): %d of %d visits succeeded, %d failed, %d unfinished, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s valid %v %s\n", sc.Name, fw, round, r.Attempt, r.Visits, r.VisitsPlanned, r.VisitsFailed, r.VisitsUnfinished, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why, r.Valid, r.WhyInvalid)
+				if err := b.commit(); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -749,7 +833,7 @@ func (r *runner) verifyWrites(ctx context.Context) error {
 	case MixRename:
 		return r.verifyRename(ctx)
 	}
-	return r.verifyOffice(ctx)
+	return r.verifyAdmin(ctx)
 }
 
 // get reads a page or the navigation data of a page.
@@ -825,7 +909,7 @@ func (r *runner) shows(ctx context.Context, what, page string, texts ...string) 
 	return nil
 }
 
-// verifyOffice makes each write of the office mix once and checks what it changes.
+// verifyAdmin makes each write of the admin mix once and checks what it changes.
 //
 //  1. Place an order with a note of its own: its page, the list of the project and the data of the
 //     list show it.
@@ -838,7 +922,7 @@ func (r *runner) shows(ctx context.Context, what, page string, texts ...string) 
 // The data of an order that was placed here has no trace to ask a navigation request from, so it is
 // read as a document. The order of step 1 is shipped in step 4, so the pool of the writes is what it
 // was.
-func (r *runner) verifyOffice(ctx context.Context) error {
+func (r *runner) verifyAdmin(ctx context.Context) error {
 	v := &visitState{client: &http.Client{}}
 	call := func(method, path string, body any) ([]byte, error) {
 		a, _, _, err := r.request(ctx, v, method, path, mustJSON(body))
@@ -1004,8 +1088,12 @@ func (r *runner) navRequest(page string) (TraceReq, bool) {
 	return TraceReq{}, false
 }
 
-// ReadBrowseResult parses a result written by `compare browse`.
+// ReadBrowseResult parses a result written by `compare browse`. A result of the old format (users
+// and not sessions, no planned visits) is refused: nothing reads it.
 func ReadBrowseResult(data []byte) (*BrowseResult, error) {
+	if err := checkFormat(data); err != nil {
+		return nil, err
+	}
 	var r BrowseResult
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, err
@@ -1026,48 +1114,100 @@ func raiseFileLimit() {
 	}
 }
 
-// ConfirmRate looks for a rate at which the rule holds in all the rounds, starting at start and
-// stepping down 10% for up to attempts tries. run plays one round at a rate. It returns the rate that
-// passed all its rounds, or 0 if none did in range, and every round it ran, in order: a failing round
-// ends its try, and the rounds of the failed tries are kept. If the first try passes, one step 10%
-// above it is tried too, since the search can underestimate and nothing else would correct that: the
-// rate above is published if it passes all its rounds, and the first one otherwise. The step up is
-// not tried when it would pass maxRate, the cap of the search (none when 0).
-func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error), maxRate float64) (float64, []Round, error) {
+// The outcomes of a round of the search of a rate: valid and passing the rule, valid and failing
+// it, or not valid (the load generator did not do its work), which says nothing about the server.
+const (
+	trialPass    = "pass"
+	trialFail    = "fail"
+	trialInvalid = "invalid"
+)
+
+// trialOf is the outcome of a round.
+func trialOf(r *Round) string {
+	switch {
+	case !r.Valid:
+		return trialInvalid
+	case r.Pass:
+		return trialPass
+	}
+	return trialFail
+}
+
+// maxTries is how many times a round that is not valid is played, at the same rate or sessions.
+const maxTries = 3
+
+// retryInvalid plays a round (try counts from 1) until one is valid, up to maxTries, and returns the
+// last one.
+func retryInvalid(play func(try int) (*Round, error)) (*Round, error) {
+	var r *Round
+	for try := 1; try <= maxTries; try++ {
+		var err error
+		if r, err = play(try); err != nil {
+			return nil, err
+		}
+		if r.Valid {
+			break
+		}
+	}
+	return r, nil
+}
+
+// ConfirmRate looks for a rate at which the rule holds in all the rounds, each of them valid, starting
+// at start and stepping down 10% for up to attempts tries. run plays one round at a rate. A round that
+// is not valid is played again at its rate (up to maxTries): it never steps the rate down. It returns
+// the rate that passed all its rounds, or 0 if none did in range, every round it ran, in order (a
+// failing round ends its try, and the rounds of the failed tries are kept), and whether the load
+// generator limited it: a round stayed invalid, which ends the confirmation there. If the first try
+// passes, one step 10% above it is tried too, since the search can underestimate and nothing else
+// would correct that: the rate above is published if it passes all its rounds, and the first one
+// otherwise. The step up is not tried when it would pass maxRate, the cap of the search (none when 0).
+func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error), maxRate float64) (float64, []Round, bool, error) {
 	var all []Round
-	try := func(n int, rate float64) (bool, error) {
+	try := func(n int, rate float64) (string, error) {
 		for round := 1; round <= rounds; round++ {
-			r, err := run(rate, round)
+			r, err := retryInvalid(func(int) (*Round, error) {
+				r, err := run(rate, round)
+				if err != nil {
+					return nil, err
+				}
+				r.Round, r.Attempt = round, n
+				all = append(all, *r)
+				return r, nil
+			})
 			if err != nil {
-				return false, err
+				return "", err
 			}
-			r.Round, r.Attempt = round, n
-			all = append(all, *r)
-			if !r.Pass {
-				return false, nil
+			if got := trialOf(r); got != trialPass {
+				return got, nil
 			}
 		}
-		return true, nil
+		return trialPass, nil
 	}
 	rate := start
 	for n := 1; n <= attempts; n++ {
-		ok, err := try(n, rate)
+		got, err := try(n, rate)
 		if err != nil {
-			return 0, all, err
+			return 0, all, false, err
 		}
-		if ok {
+		switch got {
+		case trialInvalid:
+			return 0, all, true, nil
+		case trialPass:
 			if up := math.Round(rate*1.1*100) / 100; n == 1 && (maxRate == 0 || up <= maxRate) {
-				if ok, err := try(n+1, up); err != nil {
-					return 0, all, err
-				} else if ok {
-					return up, all, nil
+				got, err := try(n+1, up)
+				if err != nil {
+					return 0, all, false, err
 				}
+				if got == trialPass {
+					return up, all, false, nil
+				}
+				return rate, all, got == trialInvalid, nil
 			}
-			return rate, all, nil
+			return rate, all, false, nil
 		}
 		rate = math.Round(rate*0.9*100) / 100
 	}
-	return 0, all, nil
+	return 0, all, false, nil
 }
 
 // IsBrowseResult says whether a JSON file is a result of `compare browse` rather than a record of
@@ -1088,16 +1228,21 @@ func (r *BrowseResult) json() ([]byte, error) { return json.Marshal(r) }
 const minRate = 0.5
 
 // searchRate brackets the rate the rule holds at: it doubles from 4 visits a second (or from maxRate
-// when that is lower) while the rule holds, or, if the first fails, halves until one holds. lo is the highest rate that passed (0 if none did)
-// and hi the lowest that failed above it (0 if none did, within maxRate).
-func searchRate(maxRate float64, trial func(rate float64) (bool, error)) (lo, hi float64, err error) {
+// when that is lower) while the rule holds, or, if the first fails, halves until one holds. lo is the
+// highest rate that passed (0 if none did) and hi the lowest that failed above it (0 if none did,
+// within maxRate). A trial that stayed invalid ends the search where it is, limited by the load
+// generator: it is neither a pass nor a failure of the server.
+func searchRate(maxRate float64, trial func(rate float64) (string, error)) (lo, hi float64, limited bool, err error) {
 	rate := min(4, maxRate)
 	for rate <= maxRate {
-		ok, err := trial(rate)
+		got, err := trial(rate)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, false, err
 		}
-		if !ok {
+		if got == trialInvalid {
+			return lo, hi, true, nil
+		}
+		if got == trialFail {
 			hi = rate
 			if lo == 0 && rate > minRate {
 				rate /= 2
@@ -1111,5 +1256,46 @@ func searchRate(maxRate float64, trial func(rate float64) (bool, error)) (lo, hi
 		}
 		lo, rate = rate, rate*2
 	}
-	return lo, hi, nil
+	return lo, hi, false, nil
+}
+
+// errOldFormat is the error for a result written by an older version of `compare browse`.
+var errOldFormat = fmt.Errorf("written by an older version of compare browse (users and not sessions, or no planned visits): it cannot be reported or continued, run it again")
+
+// checkFormat refuses a result of the old format: one whose settings or rounds count users, a round
+// of which has no planned visits (closed, control, latency, or a trial or confirmation of a rate), or
+// that has the saturation phase.
+func checkFormat(data []byte) error {
+	type rounds = []map[string]jsontext.Value
+	var top struct {
+		Settings map[string]string `json:"settings"`
+		Closed   rounds            `json:"closed"`
+		Control  rounds            `json:"control"`
+		Latency  rounds            `json:"latency"`
+		Sustain  map[string]struct {
+			Trials  rounds `json:"trials"`
+			Confirm rounds `json:"confirm"`
+		} `json:"sustain"`
+		Saturated  jsontext.Value `json:"saturated"`
+		Saturation jsontext.Value `json:"saturation"`
+	}
+	if err := json.Unmarshal(data, &top); err != nil {
+		return err
+	}
+	if _, ok := top.Settings["users"]; ok || top.Saturated != nil || top.Saturation != nil {
+		return errOldFormat
+	}
+	all := slices.Concat(top.Closed, top.Control, top.Latency)
+	for _, s := range top.Sustain {
+		all = slices.Concat(all, s.Trials, s.Confirm)
+	}
+	for _, x := range all {
+		if _, users := x["users"]; users {
+			return errOldFormat
+		}
+		if _, planned := x["visitsPlanned"]; !planned {
+			return errOldFormat
+		}
+	}
+	return nil
 }

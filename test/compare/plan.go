@@ -251,12 +251,12 @@ var WritableOrders = []WriteOrder{
 	{"weekend", "WK-0201", "苏禾", "13500135004"},
 }
 
-// The mixes of writes. In "office" the staff of the shop place, ship and annotate orders and fix a
+// The mixes of writes. In "admin" the staff of the shop place, ship and annotate orders and fix a
 // delivery address. In "rename" every write gives one of the three orders that can still change a
 // new customer name, which the lists, the stats and the other orders of that customer show: the
 // harder case for a cache. "store" is the writes of a visitor to the storefront (store_writes.go).
 const (
-	MixOffice = "office"
+	MixAdmin  = "admin"
 	MixRename = "rename"
 	MixStore  = "store"
 )
@@ -270,14 +270,14 @@ const (
 	WriteRename    = "rename"
 )
 
-// OfficeShares are the shares of the kinds of write in the office mix. They are assumptions, not
+// AdminShares are the shares of the kinds of write in the admin mix. They are assumptions, not
 // measurements.
-var OfficeShares = []struct {
+var AdminShares = []struct {
 	Kind  string
 	Share float64
 }{{WriteCreate, 0.4}, {WriteShip, 0.3}, {WriteNote, 0.2}, {WriteRecipient, 0.1}}
 
-// PlannedWrite is a write after the page view After of a plan (counted from 0). In the office mix it
+// PlannedWrite is a write after the page view After of a plan (counted from 0). In the admin mix it
 // has a kind and a project and no order: the order is taken from the pool of the server when the
 // write is sent. In the rename mix Order is the order and Kind is WriteRename. In the store mix Store
 // is the whole request, since the cart it goes to is the visit's own.
@@ -360,7 +360,7 @@ func quota(rng *rand.Rand, n int, kinds []string, shares []float64) []string {
 
 // BlockWrites puts into a block the writes of a scenario, at the page views blockSlots picks. In the
 // rename mix they go to the writable orders in turn, so that none has more than one write more than
-// another. In the office mix the kinds are dealt by OfficeShares and the projects half and half, by
+// another. In the admin mix the kinds are dealt by AdminShares and the projects half and half, by
 // quota (quota). In the store mix a visit's writes follow its cart (storeWritesAt).
 func BlockWrites(seed uint64, plans []Plan, sc BrowseScenario) ([]PlannedWrite, error) {
 	slots, rng, err := blockSlots(seed, plans, sc.Share)
@@ -376,10 +376,10 @@ func BlockWrites(seed uint64, plans []Plan, sc BrowseScenario) ([]PlannedWrite, 
 			o := WritableOrders[which[i]%len(WritableOrders)]
 			out = append(out, PlannedWrite{Plan: s.plan, After: s.after, Kind: WriteRename, Order: o, Project: o.Project})
 		}
-	case MixOffice:
+	case MixAdmin:
 		var kinds []string
 		var shares []float64
-		for _, s := range OfficeShares {
+		for _, s := range AdminShares {
 			kinds, shares = append(kinds, s.Kind), append(shares, s.Share)
 		}
 		k := quota(rng, n, kinds, shares)
@@ -450,33 +450,33 @@ var shopProducts = map[string][]string{
 
 var carrierCodes = []string{"SF", "JD", "ZTO", "YTO", "EMS"}
 
-// OfficeAddress is the address that the write after view after of plan plan gives an order. It is
+// AdminAddress is the address that the write after view after of plan plan gives an order. It is
 // unique and always as long.
-func OfficeAddress(plan, after int) string { return fmt.Sprintf("演示地址 %05d-%02d", plan, after) }
+func AdminAddress(plan, after int) string { return fmt.Sprintf("演示地址 %05d-%02d", plan, after) }
 
-// OfficeNoteText is the text of the note of a write.
-func OfficeNoteText(plan, after int) string {
+// AdminNoteText is the text of the note of a write.
+func AdminNoteText(plan, after int) string {
 	return fmt.Sprintf("跟进记录 %05d-%02d", plan, after)
 }
 
-// officeLine is a product of a new order.
-type officeLine struct {
+// adminLine is a product of a new order.
+type adminLine struct {
 	Slug     string `json:"slug"`
 	Quantity int    `json:"quantity"`
 }
 
-// OfficeBody is the body of a write of the office mix of one kind, for the write after view after of
+// AdminBody is the body of a write of the admin mix of one kind, for the write after view after of
 // plan plan. It depends on the seed, the plan, the view and the project only, so every framework gets
 // the same. The recipient also needs the name of the order it goes to, which the runner adds.
-func OfficeBody(seed uint64, plan, after int, kind, project string) any {
+func AdminBody(seed uint64, plan, after int, kind, project string) any {
 	rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(plan)<<20|uint64(after)))
 	switch kind {
 	case WriteCreate:
 		c := shopCustomers[rng.IntN(len(shopCustomers))]
-		var items []officeLine
+		var items []adminLine
 		slugs := shopProducts[project]
 		for _, i := range rng.Perm(len(slugs))[:1+rng.IntN(3)] {
-			items = append(items, officeLine{slugs[i], 1 + rng.IntN(5)})
+			items = append(items, adminLine{slugs[i], 1 + rng.IntN(5)})
 		}
 		note := ""
 		if rng.IntN(4) == 0 {
@@ -487,9 +487,9 @@ func OfficeBody(seed uint64, plan, after int, kind, project string) any {
 		code := carrierCodes[rng.IntN(len(carrierCodes))]
 		return map[string]any{"carrier": code, "trackingNo": fmt.Sprintf("%s%010d", code, rng.Int64N(1e10))}
 	case WriteNote:
-		return map[string]any{"text": OfficeNoteText(plan, after)}
+		return map[string]any{"text": AdminNoteText(plan, after)}
 	}
 	// recipient: the phone and the address; the name is the order's own.
 	c := shopCustomers[rng.IntN(len(shopCustomers))]
-	return map[string]any{"phone": c.Phone, "address": OfficeAddress(plan, after)}
+	return map[string]any{"phone": c.Phone, "address": AdminAddress(plan, after)}
 }

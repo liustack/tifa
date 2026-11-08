@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
-// A result is continued only under the settings it was started with: a probe asked for again, or
-// other server cpus, must not reuse the rounds and the saturation counts of another run.
+// A result is continued only under the settings it was started with: a probe asked for again, other
+// server cpus, another seed or cap of the rate, another cpu model, other traces or other versions
+// must not reuse the rounds of another run, nor a probe the rate of a run without one.
 func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
-	o := BrowseOptions{Users: 32, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1}
-	res := &BrowseResult{Config: browseConfig(o)}
-	if err := canContinue(res, o); err != nil {
+	o := BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1, Seed: 1}
+	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}
+	res := &BrowseResult{Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Version: version}
+	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), version); err != nil {
 		t.Fatalf("the same settings: %v", err)
 	}
 	probe := o
@@ -23,11 +25,22 @@ func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	cpus.ServerCPUs, cpus.ServerCPUCount = "0,2", 2
 	target := o
 	target.Target = 30 * time.Second
-	for name, other := range map[string]BrowseOptions{"-probe": probe, "-server-cpus": cpus, "-target": target} {
-		err := canContinue(res, other)
+	seed := o
+	seed.Seed = 2
+	capped := o
+	capped.MaxRate = 64
+	for name, cfg := range map[string]map[string]string{
+		"-probe": browseConfig(probe, "AMD EPYC 7B13", "t1", "m1"), "-server-cpus": browseConfig(cpus, "AMD EPYC 7B13", "t1", "m1"), "-target": browseConfig(target, "AMD EPYC 7B13", "t1", "m1"),
+		"-seed": browseConfig(seed, "AMD EPYC 7B13", "t1", "m1"), "-max-rate": browseConfig(capped, "AMD EPYC 7B13", "t1", "m1"),
+		"another cpu": browseConfig(o, "Intel Xeon", "t1", "m1"), "other traces": browseConfig(o, "AMD EPYC 7B13", "t2", "m1"), "another method": browseConfig(o, "AMD EPYC 7B13", "t1", "m2"),
+	} {
+		err := canContinue(res, o.Stamp, cfg, version)
 		if err == nil || !strings.Contains(err.Error(), "remove it to start again") {
 			t.Errorf("%s: continued a result of other settings: %v", name, err)
 		}
+	}
+	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), map[string]string{"node": "v24.2.0", "nextjs": "16.0.1"}); err == nil || !strings.Contains(err.Error(), "node") {
+		t.Errorf("another Node: %v", err)
 	}
 }
 
@@ -46,11 +59,11 @@ func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
 		{16384, 1, []float64{4, 2, 1}, 1, 2},
 	} {
 		var tried []float64
-		lo, hi, err := searchRate(tc.max, func(rate float64) (bool, error) {
+		lo, hi, limited, err := searchRate(tc.max, func(rate float64) (string, error) {
 			tried = append(tried, rate)
-			return rate <= tc.passes, nil
+			return map[bool]string{true: trialPass, false: trialFail}[rate <= tc.passes], nil
 		})
-		if err != nil || lo != tc.lo || hi != tc.hi || !reflect.DeepEqual(tried, tc.tried) {
+		if err != nil || limited || lo != tc.lo || hi != tc.hi || !reflect.DeepEqual(tried, tc.tried) {
 			t.Errorf("cap %v, passing up to %v: lo %v hi %v tried %v (%v), want %v %v %v", tc.max, tc.passes, lo, hi, tried, err, tc.lo, tc.hi, tc.tried)
 		}
 	}
@@ -62,7 +75,7 @@ func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
 // A scenario where Next.js has no sustainable rate in range has no open run: that is its result, and
 // the latency phase goes on with the other scenarios.
 func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
-	sc, _ := BrowseScenarioByName("office-w5")
+	sc, _ := BrowseScenarioByName("store-w5")
 	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3}, servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, res: &BrowseResult{
 		Sustain:     map[string]*Sustain{sustainKey(sc.Name, openBase): {Done: true, Note: "no rate passed its confirmation rounds"}},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{},
@@ -85,9 +98,9 @@ func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
 	}
 }
 
-// A closed round outside the length window resizes its cell from what it did, whatever else made it
-// invalid: a round stopped at twice the target played only part of its blocks, so its mix is off
-// too, and the next round must not get the same blocks again.
+// A closed round outside the length window resizes its cell from what it did, a round stopped at
+// twice the target too: it played only part of its blocks, and the next round must not get the same
+// blocks again.
 func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 	target := 75 * time.Second
 	for _, tc := range []struct {
@@ -95,44 +108,19 @@ func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 		out  Round
 		want bool
 	}{
-		{"stopped at twice the target, its partial mix off", Round{Seconds: 150, Visits: 3555, TimedOut: true, WhyInvalid: "4.046 page views a visit, want 4 within 1%"}, true},
-		{"stopped at twice the target", Round{Seconds: 150, Visits: 3555, TimedOut: true, Valid: true}, true},
-		{"too short", Round{Seconds: 40, Visits: 3800, Valid: true}, true},
-		{"too short with its mix off", Round{Seconds: 40, Visits: 3800, WhyInvalid: "write share 0.060, want 0.05 within 0.01"}, true},
-		{"in the window", Round{Seconds: 90, Visits: 3800, Valid: true}, false},
-		{"nothing completed", Round{Seconds: 150, WhyInvalid: "no visit completed"}, false},
+		{"stopped at twice the target", Round{Seconds: 150, Visits: 3555, TimedOut: true}, true},
+		{"too short", Round{Seconds: 40, Visits: 3800}, true},
+		{"in the window", Round{Seconds: 90, Visits: 3800}, false},
+		{"nothing ended", Round{Seconds: 150, TimedOut: true}, false},
 	} {
-		blocks, ok := resize(&tc.out, target, 4)
-		if ok != tc.want {
-			t.Errorf("%s: resized %v, want %v", tc.name, ok, tc.want)
+		tc.out.Pass, tc.out.Valid = true, true
+		blocks := calibrate(&tc.out, target, 4)
+		if (blocks > 0) != tc.want || tc.out.Valid == tc.want {
+			t.Errorf("%s: %d blocks, valid %v", tc.name, blocks, tc.out.Valid)
 		}
-		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4); ok && blocks != want {
+		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4); tc.want && blocks != want {
 			t.Errorf("%s: %d blocks, want %d", tc.name, blocks, want)
 		}
-	}
-}
-
-// Only a round in which nothing completed is a hang that skips the rest of its cell. A round cut off
-// for running too long completed visits: it is resized, and the cell goes on.
-func TestARoundCutOffForItsLengthIsNoHang(t *testing.T) {
-	if hung(&Round{TimedOut: true, Seconds: 150, Visits: 3555, WhyInvalid: "the round took 150 s, outside 60 to 120 s: resized"}) {
-		t.Error("a round cut off for its length is taken for a hang")
-	}
-	if !hung(&Round{TimedOut: true, Seconds: 150, WhyInvalid: "no visit completed"}) {
-		t.Error("a round in which nothing completed is not taken for a hang")
-	}
-	if hung(&Round{Seconds: 90, Visits: 3555, Valid: true}) || hung(nil) {
-		t.Error("a round that ended is taken for a hang")
-	}
-}
-
-// A round's length is set by every visit it played, the failed ones too (a 503 ends a visit fast),
-// so it resizes from them and not from the visits that completed.
-func TestAResizeCountsTheVisitsThatFailed(t *testing.T) {
-	out := Round{Seconds: 59, Visits: 1900, Played: 2660, Blocks: 28, Valid: true}
-	blocks, ok := resize(&out, 75*time.Second, 4)
-	if want := BlocksFor(2660.0/59, 75*time.Second, 4); !ok || blocks != want {
-		t.Errorf("resized %v to %d blocks, want %d", ok, blocks, want)
 	}
 }
 
@@ -148,7 +136,33 @@ func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 		r.Closed = append(r.Closed, bad)
 	}
 	md := r.Markdown()
-	if want := "failed (no valid round of 3: 630 failures (GET /zh-CN/store/cart: status 503); the round took 59 s, outside 60 to 120 s: resized) |"; !strings.Contains(md, want) {
+	if want := "not decided (no valid round of 3: 630 failures (GET /zh-CN/store/cart: status 503); the round took 59 s, outside 60 to 120 s: resized) |"; !strings.Contains(md, want) {
 		t.Errorf("the report lacks %q:\n%s", want, md)
+	}
+}
+
+// A result of the old format, which counted users and had no planned visits, is refused with a clear
+// error, by the report and by a run that would continue it: there is no reading of it.
+func TestAResultOfTheOldFormatIsRefused(t *testing.T) {
+	cur := &BrowseResult{Config: browseConfig(BrowseOptions{Sessions: 8}, "", "", ""), Closed: []Round{{VisitsPlanned: 4}}, Sustain: map[string]*Sustain{}}
+	data, err := cur.json()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadBrowseResult(data); err != nil {
+		t.Fatalf("the current format: %v", err)
+	}
+	for name, old := range map[string]string{
+		"users in the settings": `{"settings":{"users":"32","rounds":"3"},"closed":[],"sustain":{}}`,
+		"users in a round":      `{"settings":{"sessions":"8"},"closed":[{"users":32,"visits":10}],"sustain":{}}`,
+		"a saturation file":     `{"settings":{"sessions":"8"},"closed":[],"sustain":{},"saturated":{}}`,
+		"an old latency round":  `{"settings":{"sessions":"8"},"closed":[],"latency":[{"visits":10}],"sustain":{}}`,
+		"an old control round":  `{"settings":{"sessions":"8"},"closed":[],"control":[{"users":32,"visitsPlanned":4}],"sustain":{}}`,
+		"an old trial":          `{"settings":{"sessions":"8"},"closed":[],"sustain":{"store-w5/nextjs":{"trials":[{"visits":10}],"confirm":[]}}}`,
+		"an old confirmation":   `{"settings":{"sessions":"8"},"closed":[],"sustain":{"store-w5/nextjs":{"trials":[],"confirm":[{"visits":10}]}}}`,
+	} {
+		if _, err := ReadBrowseResult([]byte(old)); err == nil || !strings.Contains(err.Error(), "older version") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

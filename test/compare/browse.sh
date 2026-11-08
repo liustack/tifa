@@ -8,6 +8,7 @@
 #   test/compare/browse.sh run       replay the traces at load and write the JSON and the report
 #   test/compare/browse.sh report    write the report again from the JSON
 #   test/compare/browse.sh stamp [site]   print what the traces of a site are bound to (runstamp: the results)
+#   test/compare/browse.sh scenarios       print the scenarios SCENARIOS stands for
 #
 # Recording and running can be done on two machines: `record` where Chromium works, copy the folder
 # $BROWSE_TRACES to the machine that runs the load, and `run` there from the same commit. `run`
@@ -25,15 +26,15 @@
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
 #   LOCKS             files to flock while running, space separated, first taken first   none
 #   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
-#   SCENARIOS         office-w5, office-w20, office-w50 (back office writes),       office-w5,office-w20,office-w50,r80w20,store-w5,store-w20
-#                     r95w5, r80w20, r50w50 (every write renames a customer),
-#                     store-w5, store-w20, store-w50 (the storefront)
-#   PHASES            closed (throughput at equal users), saturation (the users at   closed,saturation,sustain,latency
-#                     which each server saturates), sustain (the rate of Next.js), latency
-#                     (sustain and latency run only for the scenarios with 5% writes)
-#   PROBE=1           probe the users at which each server saturates again, and rewrite
-#                     test/compare/saturation.json (else it is read, and probed where it has none)
-#   USERS EXTRA_USERS users of every scenario; more users for the 5% write scenarios   32, 8,16
+#   SCENARIOS         scenarios and groups: default (store-w5, admin-w20),          default
+#                     extra (store-w20, admin-w50), store-w50, r95w5, r50w50
+#   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
+#                     (Tifa with no writes, once a site), sustain (the rate of Next.js),
+#                     latency (each for the scenarios that have that table)
+#   PROBE=1           search the rate of Next.js again and write it into
+#                     test/compare/rates.json (else the file is used, and a run whose
+#                     conditions differ from the file is refused)
+#   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
 #   BLOCKS            blocks of 95 visits to record for each site (the plans)       4
@@ -46,7 +47,24 @@ cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
 servers=${SERVERS:-tifa,nextjs,start,reactrouter}
-scenarios=${SCENARIOS:-office-w5,office-w20,office-w50,r80w20,store-w5,store-w20}
+# expand_groups replaces the groups of scenarios in a list by their scenarios (ScenarioGroups in
+# replay.go, which a test keeps the same).
+expand_groups() {
+  local s list=""
+  for s in $(echo "$1" | tr "," " "); do
+    case "$s" in
+      default) s=store-w5,admin-w20 ;;
+      extra) s=store-w20,admin-w50 ;;
+    esac
+    list="${list:+$list,}$s"
+  done
+  echo "$list"
+}
+scenarios=$(expand_groups "${SCENARIOS:-default}")
+# The names before sessions are refused, so that an old command line does not run another method.
+for old in USERS EXTRA_USERS; do
+  if [ -n "${!old+set}" ]; then echo "$old is gone: the throughput counts concurrent sessions, set SESSIONS (8 by default)" >&2; exit 2; fi
+done
 blocks=${BLOCKS:-4}
 mkdir -p "$out" "$traces"
 compare=$out/compare
@@ -125,7 +143,7 @@ run_stamp() {
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
-  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} users=${USERS:-} extra=${EXTRA_USERS-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # traces_current is true when the traces of a site were recorded from these sources, with these
@@ -201,8 +219,7 @@ do_run() {
   local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
   [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
-  [ -n "${USERS:-}" ] && cmd+=(-users "$USERS")
-  [ "${EXTRA_USERS+set}" = set ] && cmd+=(-extra-users "$EXTRA_USERS")
+  [ -n "${SESSIONS:-}" ] && cmd+=(-sessions "$SESSIONS")
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")
   [ -n "${WARM:-}" ] && cmd+=(-warm "$WARM")
   [ -n "${TARGET:-}" ] && cmd+=(-target "$TARGET")
@@ -235,5 +252,6 @@ case "${1:-}" in
   report) do_report ;;
   stamp) trace_stamp "${2:-workbench}" ;;
   runstamp) run_stamp ;;
+  scenarios) echo "$scenarios" ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 2 ;;
 esac

@@ -292,12 +292,9 @@ func TestVerifyStoreFailsOnAWrongStatus(t *testing.T) {
 }
 
 func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
-	store, office := BrowseScenarios[len(BrowseScenarios)-2], BrowseScenarios[0]
-	if store.Name != "store-w20" || office.Name != "office-w5" {
-		t.Fatalf("scenarios %s and %s", store.Name, office.Name)
-	}
 	env := Env{Shop: "/shop"}
-	for _, sc := range []BrowseScenario{store, office} {
+	for _, name := range []string{"store-w20", "admin-w20"} {
+		sc, _ := BrowseScenarioByName(name)
 		specs, err := env.browseSpecs(sc, BrowseFrameworks)
 		if err != nil {
 			t.Fatal(err)
@@ -310,36 +307,59 @@ func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
 			t.Errorf("%s runs %s", sc.Name, got)
 		}
 	}
-	var stores []string
-	for _, name := range strings.Split(DefaultScenarios, ",") {
-		if strings.HasPrefix(name, "store-") {
-			stores = append(stores, name)
+}
+
+// The default group is the storefront at 5% writes, with its throughput and its latency, and the
+// admin at 20%, with its latency. The extra group, run on demand, is the storefront at 20%
+// (throughput) and the admin at 50% (latency). The admin at 5% and the rename at 20% are gone.
+func TestTheScenarioGroupsAndTheirTables(t *testing.T) {
+	tables := func(list []BrowseScenario) string {
+		var out []string
+		for _, sc := range list {
+			s := sc.Name
+			if sc.Throughput {
+				s += " throughput"
+			}
+			if sc.Latency {
+				s += " latency"
+			}
+			out = append(out, s)
+		}
+		return strings.Join(out, ", ")
+	}
+	for _, tc := range []struct{ list, want string }{
+		{"default", "store-w5 throughput latency, admin-w20 latency"},
+		{"extra", "store-w20 throughput, admin-w50 latency"},
+		{"default,extra", "store-w5 throughput latency, admin-w20 latency, store-w20 throughput, admin-w50 latency"},
+		{"r95w5, store-w5", "r95w5 throughput latency, store-w5 throughput latency"},
+		{"store-w5,default", "store-w5 throughput latency, admin-w20 latency"},
+	} {
+		got, err := ParseScenarios(tc.list)
+		if err != nil || tables(got) != tc.want {
+			t.Errorf("%q: %s (%v), want %s", tc.list, tables(got), err, tc.want)
 		}
 	}
-	if strings.Join(stores, ",") != "store-w5,store-w20" {
-		t.Errorf("the storefront scenarios that run by default: %v", stores)
+	for _, gone := range []string{"admin-w5", "r80w20", "office-w20", ""} {
+		if _, err := ParseScenarios(gone); err == nil {
+			t.Errorf("%q is a scenario", gone)
+		}
+	}
+	if sc, _ := BrowseScenarioByName("store-w20"); !strings.Contains(sc.Title, "a storefront with more writes") {
+		t.Errorf("store-w20 is titled %q", sc.Title)
 	}
 }
 
-// The open run is for the 95/5 mix of each site only, and those scenarios have 8 and 16 users
-// besides 32 in the closed runs.
-func TestTheFivePercentScenariosHaveTheOpenRunAndMoreUsers(t *testing.T) {
-	b := &browse{o: BrowseOptions{Users: 32, ExtraUsers: []int{8, 16}}}
-	open := map[string]bool{}
-	for _, name := range strings.Split(DefaultScenarios, ",") {
-		sc, _ := BrowseScenarioByName(name)
-		users := fmt.Sprint(b.usersFor(sc))
-		if sc.open() {
-			open[name] = true
-			if users != "[8 16 32]" {
-				t.Errorf("%s: users %s", name, users)
-			}
-		} else if users != "[32]" {
-			t.Errorf("%s: users %s", name, users)
+// The read-only control runs once for each site of a run, on the first scenario of that site.
+func TestTheControlRunsOnTheFirstScenarioOfEachSite(t *testing.T) {
+	list, _ := ParseScenarios("default,extra")
+	var got []string
+	for _, sc := range list {
+		if controlled(list, sc) {
+			got = append(got, sc.Name)
 		}
 	}
-	if len(open) != 2 || !open["office-w5"] || !open["store-w5"] {
-		t.Errorf("the default scenarios with an open run: %v", open)
+	if strings.Join(got, ",") != "store-w5,admin-w20" {
+		t.Errorf("the control runs on %v", got)
 	}
 }
 
