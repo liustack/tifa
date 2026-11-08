@@ -24,9 +24,6 @@ type renderMemo struct {
 	pages map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
-	// bodies counts, for the pages that share their body, how many pages use each, so the bytes
-	// count once.
-	bodies map[*bodyID]*bodyUse
 	// entries counts the pages kept, under mu. hits, misses and shared count what fetch found. Every
 	// request counts, so these are atomic, and Stats reads them without the lock.
 	entries              int
@@ -47,15 +44,6 @@ type flight struct {
 	err  error
 }
 
-// bodyID stands for the body one render made. It is not empty, because Go may
-// give every pointer to an empty value the same address, and the pages would count as one.
-type bodyID struct{ _ byte }
-
-type bodyUse struct {
-	refs  int
-	bytes int64
-}
-
 type cached struct {
 	key  string
 	page cachedPage
@@ -74,9 +62,6 @@ type cachedPage struct {
 	// policy is the Content-Security-Policy of the page with the hashes of its inline scripts and
 	// styles, "" with server.csp off (see renderedPolicy).
 	policy string
-	// body is shared by the pages made from one render, see renderMemo.bodies. Nil for a page that
-	// shares nothing.
-	body *bodyID
 	// redirect is set for a render that the router ended with a redirect: the page is that
 	// redirect and has no HTML.
 	redirect *ssr.RedirectError
@@ -112,7 +97,7 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 
 func newRenderMemo(size int64) *renderMemo {
 	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
-	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bodies: map[*bodyID]*bodyUse{}}
+	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}}
 }
 
 func (c *renderMemo) get(key string) (cachedPage, bool) {
@@ -156,45 +141,15 @@ func (c *renderMemo) putLocked(key string, page cachedPage) {
 	}
 	c.pages[key] = c.order.PushFront(&cached{key: key, page: page})
 	c.entries++
-	c.charge(page)
+	c.used += page.size()
 	for c.used > c.size {
 		c.removeLocked(c.order.Back().Value.(*cached).key)
 	}
 }
 
-// charge counts a page that enters the cache. Its body counts once for all the
-// pages that share them.
-func (c *renderMemo) charge(p cachedPage) {
-	c.used += p.meta()
-	if p.body == nil {
-		c.used += p.bodySize()
-		return
-	}
-	if u := c.bodies[p.body]; u != nil {
-		u.refs++
-		return
-	}
-	c.bodies[p.body] = &bodyUse{refs: 1, bytes: p.bodySize()}
-	c.used += p.bodySize()
-}
-
-// refund undoes charge for a page that leaves.
-func (c *renderMemo) refund(p cachedPage) {
-	c.used -= p.meta()
-	if p.body == nil {
-		c.used -= p.bodySize()
-		return
-	}
-	u := c.bodies[p.body]
-	if u.refs--; u.refs == 0 {
-		c.used -= u.bytes
-		delete(c.bodies, p.body)
-	}
-}
-
 func (c *renderMemo) removeLocked(key string) {
 	if e, ok := c.pages[key]; ok {
-		c.refund(e.Value.(*cached).page)
+		c.used -= e.Value.(*cached).page.size()
 		c.order.Remove(e)
 		delete(c.pages, key)
 		c.entries--

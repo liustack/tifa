@@ -983,7 +983,6 @@ func (s *server) newPage(html, policy string) (cachedPage, bool) {
 	if !s.memo.holds(page) {
 		return page, false
 	}
-	page.body = new(bodyID)
 	return page, true
 }
 
