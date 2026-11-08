@@ -50,7 +50,7 @@ type Cart struct {
 }
 
 // Delivery is a way to get an order. Earliest and Latest are the days it may arrive between, each
-// as midnight in the time zone of the store (see Deliveries).
+// a date carried as noon in the time zone of the store (see Deliveries).
 type Delivery struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
@@ -314,11 +314,11 @@ var deliveries = []deliveryRecord{
 // Deliveries returns the ways the cart can be delivered from now, with their prices for the
 // subtotal: standard delivery is free from FreeShippingCents.
 //
-// A date is a whole day: midnight, in the time zone of the locale, of the day of now plus the days
-// the way takes. The pages show only the month and the day, in that same zone (hooks.ts formats
-// dates with the zone of the language, on the server and in the browser, so both show the same
-// day). With the time of the request in it, the data of a page would be new on every request and
-// the render cache could never reuse the page.
+// A date is a calendar day of the store: noon, in the time zone of the locale, of the day of now plus
+// the days the way takes (so "next day" is tomorrow on the store's calendar). The pages show only
+// the month and the day, in that same zone (hooks.ts formats dates with the zone of the language, on
+// the server and in the browser, so both show the same day). With the time of the request in it, the
+// data of a page would be new on every request and the render cache could never reuse the page.
 func Deliveries(cart Cart, now time.Time, l storekit.Locale) []Delivery {
 	today := now.In(zone(l))
 	var out []Delivery
@@ -329,18 +329,21 @@ func Deliveries(cart Cart, now time.Time, l storekit.Locale) []Delivery {
 		}
 		out = append(out, Delivery{
 			ID: d.id, Name: d.name.In(l), PriceCents: price,
-			Earliest: midnight(today, d.earliestDays),
-			Latest:   midnight(today, d.latestDays),
+			Earliest: noon(today, d.earliestDays),
+			Latest:   noon(today, d.latestDays),
 		})
 	}
 	return out
 }
 
-// midnight is 00:00 of the day that is days after the day of t, in the zone of t, as an instant in UTC
-// (the text of a time in JSON then does not depend on the zone of the machine).
-func midnight(t time.Time, days int) time.Time {
+// noon is 12:00 of the day that is days after the day of t, in the zone of t, as an instant in UTC
+// (the text of a time in JSON then does not depend on the zone of the machine). A delivery date is
+// a date, carried as noon in the store zone: noon is never skipped or repeated by a change of the
+// clock, so the pages can add whole 24 hour steps to it (the table of regions on a product page does)
+// and still land on the right calendar day.
+func noon(t time.Time, days int) time.Time {
 	y, m, d := t.Date()
-	return time.Date(y, m, d+days, 0, 0, 0, 0, t.Location()).UTC()
+	return time.Date(y, m, d+days, 12, 0, 0, 0, t.Location()).UTC()
 }
 
 var zones sync.Map // time zone name to *time.Location

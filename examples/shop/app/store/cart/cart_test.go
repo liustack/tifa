@@ -103,7 +103,7 @@ func TestCouponsAndDelivery(t *testing.T) {
 	if d := Deliveries(cheap, now, zh); d[0].ID != "standard" || d[0].PriceCents != 1500 || !d[1].Earliest.Equal(d[1].Latest) {
 		t.Errorf("deliveries of a small cart %+v", d)
 	}
-	if d := Deliveries(dear, now, zh); d[0].PriceCents != 0 || !d[0].Earliest.Equal(time.Date(2026, 10, 22, 16, 0, 0, 0, time.UTC)) {
+	if d := Deliveries(dear, now, zh); d[0].PriceCents != 0 || !d[0].Earliest.Equal(time.Date(2026, 10, 23, 4, 0, 0, 0, time.UTC)) {
 		t.Errorf("deliveries of a large cart %+v", d)
 	}
 }
@@ -457,7 +457,7 @@ func TestOffersListTheCouponsAndWhetherTheSubtotalReachesThem(t *testing.T) {
 
 // A delivery date is a day of the store's time zone, so the Load data of a page does not change
 // within the day. Two times of the same day in Shanghai give the same deliveries, the next day
-// gives other ones, and the dates are midnights of that zone.
+// gives other ones, and the dates are noons of that zone.
 func TestDeliveryDatesAreWholeDaysOfTheStoreZone(t *testing.T) {
 	cart := Cart{FreeShippingCents: 1}
 	morning := time.Date(2026, 10, 20, 0, 5, 0, 123456789, zoneOf(t, "Asia/Shanghai"))
@@ -466,7 +466,7 @@ func TestDeliveryDatesAreWholeDaysOfTheStoreZone(t *testing.T) {
 	if fmt.Sprint(a) != fmt.Sprint(b) {
 		t.Errorf("the same day gives other deliveries:\n%v\n%v", a, b)
 	}
-	if want := time.Date(2026, 10, 23, 0, 0, 0, 0, zoneOf(t, "Asia/Shanghai")); !a[0].Earliest.Equal(want) {
+	if want := time.Date(2026, 10, 23, 12, 0, 0, 0, zoneOf(t, "Asia/Shanghai")); !a[0].Earliest.Equal(want) {
 		t.Errorf("earliest of standard delivery %v, want %v", a[0].Earliest, want)
 	}
 	if c := Deliveries(cart, night.Add(time.Second), zh); fmt.Sprint(c) == fmt.Sprint(a) {
@@ -475,7 +475,7 @@ func TestDeliveryDatesAreWholeDaysOfTheStoreZone(t *testing.T) {
 	// The US store counts its days in Los Angeles, not in Shanghai: the same instant is on
 	// another day there.
 	instant := time.Date(2026, 10, 20, 20, 0, 0, 0, time.UTC) // 04:00 on the 21st in Shanghai, 13:00 on the 20th in Los Angeles
-	if got, want := Deliveries(cart, instant, en)[2].Earliest, time.Date(2026, 10, 20, 0, 0, 0, 0, zoneOf(t, "America/Los_Angeles")); !got.Equal(want) {
+	if got, want := Deliveries(cart, instant, en)[2].Earliest, time.Date(2026, 10, 20, 12, 0, 0, 0, zoneOf(t, "America/Los_Angeles")); !got.Equal(want) {
 		t.Errorf("pickup in Los Angeles %v, want %v", got, want)
 	}
 }
@@ -487,4 +487,66 @@ func zoneOf(t *testing.T, name string) *time.Location {
 		t.Fatal(err)
 	}
 	return z
+}
+
+// A delivery date is a calendar day of the store, carried as noon in its zone, and the days are
+// those of the store's calendar also where the clock changes. These are the times at which a
+// midnight or a 24 hour step used to land on the wrong day. The want times are the noons of the
+// days, written in UTC.
+func TestDeliveryDatesAcrossAClockChange(t *testing.T) {
+	la := zoneOf(t, "America/Los_Angeles")
+	sh := zoneOf(t, "Asia/Shanghai")
+	cart := Cart{FreeShippingCents: 1}
+	for _, c := range []struct {
+		name     string
+		now      time.Time
+		l        storekit.Locale
+		way      int // index of the delivery: 0 standard, 1 express, 2 pickup
+		earliest string
+		latest   string
+	}{
+		// Daylight saving time starts on 2026-03-08: next day from 23:30 on the 7th is the 8th.
+		{"LA next day over the spring change", time.Date(2026, 3, 7, 23, 30, 0, 0, la), en, 1, "2026-03-08T19:00:00Z", "2026-03-08T19:00:00Z"},
+		{"LA on the day of the spring change", time.Date(2026, 3, 8, 12, 0, 0, 0, la), en, 1, "2026-03-09T19:00:00Z", "2026-03-09T19:00:00Z"},
+		{"LA standard over the spring change", time.Date(2026, 3, 5, 23, 30, 0, 0, la), en, 0, "2026-03-08T19:00:00Z", "2026-03-10T19:00:00Z"},
+		// It ends on 2026-11-01: next day from 00:30 on the 1st is the 2nd.
+		{"LA next day over the autumn change", time.Date(2026, 11, 1, 0, 30, 0, 0, la), en, 1, "2026-11-02T20:00:00Z", "2026-11-02T20:00:00Z"},
+		{"LA standard over the autumn change", time.Date(2026, 10, 30, 0, 30, 0, 0, la), en, 0, "2026-11-02T20:00:00Z", "2026-11-04T20:00:00Z"},
+		{"LA standard from the 29th", time.Date(2026, 10, 29, 12, 0, 0, 0, la), en, 0, "2026-11-01T20:00:00Z", "2026-11-03T20:00:00Z"},
+		// Shanghai has no clock change: the edges of its day.
+		{"Shanghai at the last millisecond of a day", time.Date(2026, 11, 8, 23, 59, 59, 999000000, sh), zh, 1, "2026-11-09T04:00:00Z", "2026-11-09T04:00:00Z"},
+		{"Shanghai at the first instant of the next day", time.Date(2026, 11, 9, 0, 0, 0, 0, sh), zh, 1, "2026-11-10T04:00:00Z", "2026-11-10T04:00:00Z"},
+	} {
+		d := Deliveries(cart, c.now, c.l)[c.way]
+		if got := d.Earliest.Format(time.RFC3339); got != c.earliest {
+			t.Errorf("%s: earliest %s, want %s", c.name, got, c.earliest)
+		}
+		if got := d.Latest.Format(time.RFC3339); got != c.latest {
+			t.Errorf("%s: latest %s, want %s", c.name, got, c.latest)
+		}
+	}
+}
+
+// The table of regions on a product page adds whole 24 hour steps to the earliest date and shows
+// the day in the store zone (product+/page.tsx). From noon, that is the right calendar day also
+// when the clock changes in between.
+func TestRegionDatesStayOnTheirCalendarDay(t *testing.T) {
+	la := zoneOf(t, "America/Los_Angeles")
+	steps := []int{0, 1, 1, 2, 3} // east, north, south, west, far
+	for _, c := range []struct {
+		now  time.Time
+		want []string
+	}{
+		// Standard delivery from 2026-10-29 arrives from 11-01, the day the clock goes back.
+		{time.Date(2026, 10, 29, 12, 0, 0, 0, la), []string{"11-01", "11-02", "11-02", "11-03", "11-04"}},
+		// And from 2026-03-05 it arrives from 03-08, the day the clock goes forward.
+		{time.Date(2026, 3, 5, 12, 0, 0, 0, la), []string{"03-08", "03-09", "03-09", "03-10", "03-11"}},
+	} {
+		first := Deliveries(Cart{FreeShippingCents: 1}, c.now, en)[0].Earliest
+		for i, n := range steps {
+			if got := first.Add(time.Duration(n) * 24 * time.Hour).In(la).Format("01-02"); got != c.want[i] {
+				t.Errorf("from %v, region %d: %s, want %s", c.now, i, got, c.want[i])
+			}
+		}
+	}
 }
