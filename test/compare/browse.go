@@ -1239,14 +1239,22 @@ func searchRate(maxRate float64, trial func(rate float64) (string, error)) (lo, 
 // errOldFormat is the error for a result written by an older version of `compare browse`.
 var errOldFormat = fmt.Errorf("written by an older version of compare browse (users and not sessions, or no planned visits): it cannot be reported or continued, run it again")
 
-// checkFormat refuses a result of the old format: one whose settings or rounds count users, or that
-// has the saturation phase.
+// checkFormat refuses a result of the old format: one whose settings or rounds count users, a round
+// of which has no planned visits (closed, control, latency, or a trial or confirmation of a rate), or
+// that has the saturation phase.
 func checkFormat(data []byte) error {
+	type rounds = []map[string]jsontext.Value
 	var top struct {
-		Settings   map[string]string           `json:"settings"`
-		Closed     []map[string]jsontext.Value `json:"closed"`
-		Saturated  jsontext.Value              `json:"saturated"`
-		Saturation jsontext.Value              `json:"saturation"`
+		Settings map[string]string `json:"settings"`
+		Closed   rounds            `json:"closed"`
+		Control  rounds            `json:"control"`
+		Latency  rounds            `json:"latency"`
+		Sustain  map[string]struct {
+			Trials  rounds `json:"trials"`
+			Confirm rounds `json:"confirm"`
+		} `json:"sustain"`
+		Saturated  jsontext.Value `json:"saturated"`
+		Saturation jsontext.Value `json:"saturation"`
 	}
 	if err := json.Unmarshal(data, &top); err != nil {
 		return err
@@ -1254,7 +1262,11 @@ func checkFormat(data []byte) error {
 	if _, ok := top.Settings["users"]; ok || top.Saturated != nil || top.Saturation != nil {
 		return errOldFormat
 	}
-	for _, x := range top.Closed {
+	all := slices.Concat(top.Closed, top.Control, top.Latency)
+	for _, s := range top.Sustain {
+		all = slices.Concat(all, s.Trials, s.Confirm)
+	}
+	for _, x := range all {
 		if _, users := x["users"]; users {
 			return errOldFormat
 		}

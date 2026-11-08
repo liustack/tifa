@@ -156,6 +156,10 @@ func TestAResultOfTheOldFormatIsRefused(t *testing.T) {
 		"users in the settings": `{"settings":{"users":"32","rounds":"3"},"closed":[],"sustain":{}}`,
 		"users in a round":      `{"settings":{"sessions":"8"},"closed":[{"users":32,"visits":10}],"sustain":{}}`,
 		"a saturation file":     `{"settings":{"sessions":"8"},"closed":[],"sustain":{},"saturated":{}}`,
+		"an old latency round":  `{"settings":{"sessions":"8"},"closed":[],"latency":[{"visits":10}],"sustain":{}}`,
+		"an old control round":  `{"settings":{"sessions":"8"},"closed":[],"control":[{"users":32,"visitsPlanned":4}],"sustain":{}}`,
+		"an old trial":          `{"settings":{"sessions":"8"},"closed":[],"sustain":{"store-w5/nextjs":{"trials":[{"visits":10}],"confirm":[]}}}`,
+		"an old confirmation":   `{"settings":{"sessions":"8"},"closed":[],"sustain":{"store-w5/nextjs":{"trials":[],"confirm":[{"visits":10}]}}}`,
 	} {
 		if _, err := ReadBrowseResult([]byte(old)); err == nil || !strings.Contains(err.Error(), "older version") {
 			t.Errorf("%s: %v", name, err)
