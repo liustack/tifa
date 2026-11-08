@@ -192,6 +192,12 @@ func (b *browse) saturation(ctx context.Context, sc BrowseScenario) error {
 			continue
 		}
 		at := b.res.cellRounds(fw, sc.Name, b.o.Users)
+		if len(at) == 0 && len(b.res.tries(fw, sc.Name, b.o.Users)) > 0 {
+			// The cell was played and failed, which the closed table reports: there is nothing to step
+			// up from, and nothing measured to write into the file.
+			b.logf("saturation %-10s %-12s not probed: no valid round at %d users\n", sc.Name, fw, b.o.Users)
+			continue
+		}
 		if len(at) == 0 {
 			return fmt.Errorf("%s: the probe of %s needs its closed rounds at %d users: run the closed phase first", sc.Name, BrowseLabel(fw), b.o.Users)
 		}
