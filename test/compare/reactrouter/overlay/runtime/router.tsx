@@ -33,6 +33,17 @@ function queryOf(search: Search = {}) {
   return text ? '?' + text : ''
 }
 
+// searchOf reads a query string the way tifa's router does: every value a string, a key given more than
+// once an array.
+function searchOf(query: string): Search {
+  const search: Search = {}
+  for (const [key, value] of new URLSearchParams(query)) {
+    const previous = search[key]
+    search[key] = previous === undefined ? value : Array.isArray(previous) ? [...previous, value] : [previous, value]
+  }
+  return search
+}
+
 function isActive(pathname: string, href: string, exact?: boolean) {
   if (pathname === href) return true
   return !exact && pathname.startsWith(href.endsWith('/') ? href : href + '/')
@@ -66,13 +77,13 @@ export function Link({ to, params, search, activeOptions, activeProps, className
 }
 
 interface RouterState {
-  location: { pathname: string }
+  location: { pathname: string; search: Search }
   isLoading: boolean
 }
 
 export function useRouterState<T>({ select }: { select: (state: RouterState) => T }): T {
-  const { pathname } = useLocation()
-  return select({ location: { pathname }, isLoading: false })
+  const { pathname, search } = useLocation()
+  return select({ location: { pathname, search: searchOf(search) }, isLoading: false })
 }
 
 export function useMatchRoute() {
@@ -82,9 +93,11 @@ export function useMatchRoute() {
 
 export function useNavigate() {
   const navigate = useRouterNavigate()
-  const { pathname } = useLocation()
-  return (options: { to: string; params?: Params; search?: Search; replace?: boolean }) =>
-    navigate(inLanguage(buildPath(options.to, options.params), languageOf(pathname)) + queryOf(options.search), { replace: options.replace })
+  const { pathname, search } = useLocation()
+  return (options: { to: string; params?: Params; search?: Search | ((previous: Search) => Search); replace?: boolean }) => {
+    const next = typeof options.search === 'function' ? options.search(searchOf(search)) : options.search
+    return navigate(inLanguage(buildPath(options.to, options.params), languageOf(pathname)) + queryOf(next), { replace: options.replace })
+  }
 }
 
 // The router's events the pages subscribe to. TanStack Router tells onResolved after every
