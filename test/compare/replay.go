@@ -323,6 +323,10 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	n, err := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	end := time.Now()
+	// The bytes read before a cancel or an error were read by the client too.
+	a.mu.Lock()
+	a.bytes += n
+	a.mu.Unlock()
 	if err != nil {
 		return cancelled(err)
 	}
@@ -331,7 +335,6 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	}
 	a.mu.Lock()
 	a.requests++
-	a.bytes += n
 	if res.StatusCode == 304 {
 		a.n304++
 	}

@@ -710,3 +710,14 @@ func TestRendersOfFullLoadsAreCountedByKindOfPage(t *testing.T) {
 		t.Errorf("renders by page %s", got)
 	}
 }
+
+// The body a request read before its cancel is counted: the client read those bytes.
+func TestTheBytesReadBeforeACancelAreCounted(t *testing.T) {
+	srv, _ := fakeServer(t)
+	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/stream-1", "nav", 0, 10, 14)}}
+	plans, traces := onePlan(step)
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.Cancelled != 1 || round.Bytes != int64(len("start")) {
+		t.Fatalf("cancelled %d, bytes %d, want 1 and %d", round.Cancelled, round.Bytes, len("start"))
+	}
+}
