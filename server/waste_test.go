@@ -367,3 +367,32 @@ func TestRenderKeyCopiesNothing(t *testing.T) {
 		t.Errorf("renderKey allocates %d bytes for 500 KB of input", perCall)
 	}
 }
+
+// A page larger than the cache is compressed once, and a client that takes gzip gets that form.
+func TestPageLargerThanTheCacheIsCompressedOnce(t *testing.T) {
+	e := newWorkEnv(t, 100) // the page gzips to a few hundred bytes
+	for range 2 {
+		w := e.do("GET", "/plain")
+		if w.w.Code != 200 || w.renders != 1 || w.compress != 1 || w.w.Header().Get("Content-Encoding") != "gzip" {
+			t.Fatalf("%s, Content-Encoding %q", w, w.w.Header().Get("Content-Encoding"))
+		}
+		// Compressing the HTML as it goes out gives the same bytes, without a length.
+		if html := e.r.inputs[len(e.r.inputs)-1]; w.w.Body.String() != string(compressPage(e.lastHTML(t, html))) || w.w.Header().Get("Content-Length") != fmt.Sprint(w.w.Body.Len()) {
+			t.Errorf("the answer is not the gzip form the render made: Content-Length %q", w.w.Header().Get("Content-Length"))
+		}
+	}
+	// A client that takes no gzip gets the HTML.
+	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Header().Get("Content-Encoding") != "" || !strings.HasPrefix(w.w.Body.String(), "<html>") {
+		t.Errorf("identity: %s, %q", w, w.w.Header().Get("Content-Encoding"))
+	}
+}
+
+// lastHTML renders in again with the fake bundle, for a test to compare.
+func (e *workEnv) lastHTML(t *testing.T, in ssr.Input) string {
+	t.Helper()
+	html, err := e.r.result(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return html
+}

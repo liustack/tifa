@@ -952,9 +952,6 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	}
 	setDataAge(c.Writer().Header(), time.Since(since))
 	s.setPagePolicy(c.Writer().Header(), got.page.policy)
-	if !got.held {
-		return writeHTML(c, status, got.page.html)
-	}
 	return writeCached(c, status, got.page, s.formEncoding(c))
 }
 
@@ -986,8 +983,8 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 // server.compress a page of at least gzhttp's minimum size is compressed here, once, whatever the
 // request that caused the render takes, since the cache keeps the gzip form alone. The page keeps
 // the HTML too for the requests that wait for the render and for the tag of the whole-page cache:
-// the cache drops it when it stores the page. A page the cache cannot hold is only the HTML, which
-// goes out as it comes.
+// the cache drops it when it stores the page. A page the cache cannot hold keeps both forms too,
+// for the requests that wait for its render, so none of them compresses it again.
 func (s *server) newPage(html, policy string) (cachedPage, bool) {
 	page := cachedPage{html: html, n: len(html), policy: policy}
 	if s.cache.off() {
@@ -997,7 +994,6 @@ func (s *server) newPage(html, policy string) (cachedPage, bool) {
 		page.gzip = compressPage(html)
 	}
 	if !s.cache.holds(page) {
-		page.gzip = nil
 		return page, false
 	}
 	page.body = new(bodyID)
