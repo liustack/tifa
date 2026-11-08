@@ -929,7 +929,7 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 // goes out as it comes.
 func (s *server) newPage(html, policy string) (cachedPage, bool) {
 	page := cachedPage{html: html, n: len(html), policy: policy}
-	if s.cache.size == 0 {
+	if s.cache.off() {
 		return page, false
 	}
 	if s.cfg.Compress {

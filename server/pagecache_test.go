@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -746,5 +747,227 @@ func TestSetCookieOfAHitIsNeverSent(t *testing.T) {
 		if w := get(e.s, "/news"); len(w.Result().Cookies()) != 0 {
 			t.Errorf("cookies %v", w.Result().Cookies())
 		}
+	}
+}
+
+// noRenderEnv is a session app with the page /news (Cache = 1m, a layout above it) at the cache size
+// given. Its renderer fails the test: with cache.size 0, navigation data never reaches it.
+type noRenderEnv struct {
+	s     *server
+	r     *renders
+	loads atomic.Int64
+	after atomic.Value // the query OnRequest saw after next
+}
+
+func newNoRenderEnv(t *testing.T, size int64, onRequest func(*tifa.Ctx), load func(*tifa.Ctx) (any, error)) *noRenderEnv {
+	t.Helper()
+	useCacheClock(t)
+	e := &noRenderEnv{}
+	cfg := config.Default()
+	cfg.Cache.Size = size
+	app := wireApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		if onRequest != nil {
+			onRequest(c)
+		}
+		err := next(c)
+		e.after.Store(c.Request().URL.RawQuery)
+		return err
+	}
+	app.Routes = append(app.Routes, Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+		Load: func(c *tifa.Ctx) (any, error) {
+			e.loads.Add(1)
+			if load != nil {
+				return load(c)
+			}
+			return map[string]int{"n": 1}, nil
+		}})
+	e.s = newServer(cfg, app.Hooks)
+	t.Cleanup(e.s.close)
+	e.s.register(app.Layouts, app.Routes)
+	e.r = &renders{}
+	if size == 0 {
+		e.r.result = func(ssr.Input) (string, error) { return "", errors.New("rendered for navigation data at cache size 0") }
+	}
+	if err := e.s.setFront(dist, e.r.render); err != nil {
+		t.Fatal(err)
+	}
+	e.s.enableSessions(app.Session)
+	e.s.sess.store = newStore(t)
+	return e
+}
+
+// sameAnswer fails unless the navigation data of target at cache size 0 is the answer a server with the
+// default size gives, except for the headers that say how the page was made.
+func sameAnswer(t *testing.T, target string, onRequest func(*tifa.Ctx), load func(*tifa.Ctx) (any, error)) *httptest.ResponseRecorder {
+	t.Helper()
+	zero := newNoRenderEnv(t, 0, onRequest, load)
+	kept := newNoRenderEnv(t, config.Default().Cache.Size, onRequest, load)
+	w, want := get(zero.s, target), get(kept.s, target)
+	if w.Code != want.Code || w.Body.String() != want.Body.String() {
+		t.Errorf("%s: %d %s, with a cache %d %s", target, w.Code, w.Body.String(), want.Code, want.Body.String())
+	}
+	for _, name := range []string{"Content-Type", "Cache-Control", "Vary", "Set-Cookie", "Location"} {
+		if got, want := w.Header().Values(name), want.Header().Values(name); !slices.Equal(got, want) {
+			t.Errorf("%s: %s %q, with a cache %q", target, name, got, want)
+		}
+	}
+	if zero.r.count() != 0 {
+		t.Errorf("%s: %d renders", target, zero.r.count())
+	}
+	return w
+}
+
+func TestNavigationDataAtCacheSizeZeroDoesNotRender(t *testing.T) {
+	// The query carries a parameter the cache ignores. Every bitmap of the two routes is answered as with a cache.
+	for _, layers := range []string{"11", "01", "10", "00"} {
+		w := sameAnswer(t, dataURL("/news?utm_source=x", "b1", layers), nil, nil)
+		if w.Code != 200 || w.Header().Get("X-Tifa-Render") != "none" {
+			t.Errorf("%s: %d, X-Tifa-Render %q", layers, w.Code, w.Header().Get("X-Tifa-Render"))
+		}
+	}
+}
+
+func TestNavigationDataAtCacheSizeZeroKeepsTheHeaderRules(t *testing.T) {
+	data := dataURL("/news", "b1", "11")
+	// The Load of an anonymous page cannot make a session answer public: the headers it sets are filtered.
+	w := sameAnswer(t, data, nil, func(c *tifa.Ctx) (any, error) {
+		c.SetHeader("Cache-Control", "public, max-age=60")
+		return 1, nil
+	})
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "private, no-cache" {
+		t.Errorf("public from a Load: %d %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+	// no-store of OnRequest stays.
+	w = sameAnswer(t, data, func(c *tifa.Ctx) { c.SetHeader("Cache-Control", "no-store") }, func(c *tifa.Ctx) (any, error) {
+		c.SetHeader("Cache-Control", "private, no-cache")
+		return 1, nil
+	})
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("no-store: %q", got)
+	}
+	// Vary of both is kept.
+	w = sameAnswer(t, data, func(c *tifa.Ctx) { c.Writer().Header().Add("Vary", "Origin") }, func(c *tifa.Ctx) (any, error) {
+		c.Writer().Header().Add("Vary", "X-Tenant")
+		return 1, nil
+	})
+	if got := strings.Join(w.Header().Values("Vary"), ","); !strings.Contains(got, "Origin") || !strings.Contains(got, "X-Tenant") {
+		t.Errorf("Vary %q", got)
+	}
+}
+
+func TestNavigationDataAtCacheSizeZeroLeavesTheRequestAlone(t *testing.T) {
+	e := newNoRenderEnv(t, 0, nil, func(c *tifa.Ctx) (any, error) { return c.Request().URL.RawQuery, nil })
+	w := get(e.s, dataURL("/news?utm_source=x&page=2", "b1", "11"))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"page=2"`) {
+		t.Errorf("the Load saw the cleaned query: %d %s", w.Code, w.Body.String())
+	}
+	if got, _ := e.after.Load().(string); got != "utm_source=x&page=2" {
+		t.Errorf("OnRequest saw %q after next", got)
+	}
+}
+
+func TestNavigationDataAtCacheSizeZeroAnswersALoadRedirect(t *testing.T) {
+	w := sameAnswer(t, dataURL("/news", "b1", "11"), nil, func(c *tifa.Ctx) (any, error) { return nil, tifa.Redirect("/to", 302) })
+	if !strings.Contains(w.Body.String(), `"redirect":"/to"`) {
+		t.Errorf("%d %s", w.Code, w.Body.String())
+	}
+}
+
+// The control of the tests below: with a cache, navigation data and the document share one entry.
+func TestNavigationDataWithACacheFeedsTheDocument(t *testing.T) {
+	e := newNoRenderEnv(t, config.Default().Cache.Size, nil, nil)
+	get(e.s, dataURL("/news", "b1", "11"))
+	if w := get(e.s, "/news"); w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/html") || e.r.count() != 1 {
+		t.Errorf("%d %q, %d renders", w.Code, w.Header().Get("Content-Type"), e.r.count())
+	}
+}
+
+// At cache size 0 the navigation renders nothing and leaves nothing behind, and the document that
+// follows is rendered on its own.
+func TestNavigationDataAtCacheSizeZeroLeavesNothingForTheDocument(t *testing.T) {
+	e := newNoRenderEnv(t, 0, nil, nil)
+	if w := get(e.s, dataURL("/news", "b1", "11")); w.Code != 200 || e.r.count() != 0 {
+		t.Fatalf("data: %d, %d renders", w.Code, e.r.count())
+	}
+	e.s.cache.mu.Lock()
+	kept := len(e.s.cache.pages)
+	e.s.cache.mu.Unlock()
+	if kept != 0 {
+		t.Errorf("%d pages kept", kept)
+	}
+	e.r.result = nil // the document stage renders
+	w := get(e.s, "/news")
+	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/html") || e.r.count() != 1 {
+		t.Fatalf("page: %d %q, %d renders", w.Code, w.Header().Get("Content-Type"), e.r.count())
+	}
+	if body := w.Body.String(); !strings.HasPrefix(body, "<html>/news ") || !strings.Contains(body, `"n":1`) {
+		t.Errorf("body %q", body)
+	}
+}
+
+// A navigation and a document in flight together each run their own Loads: the document neither
+// waits for the navigation nor takes its result.
+func TestNavigationDataAtCacheSizeZeroIsNotSharedWithTheDocument(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	e := newNoRenderEnv(t, 0, nil, func(c *tifa.Ctx) (any, error) {
+		kind := "page"
+		if c.IsData() {
+			kind = "data"
+		}
+		started <- kind
+		<-release
+		return map[string]string{"for": kind}, nil
+	})
+	e.r.result = nil // only the document renders
+	var data, page *httptest.ResponseRecorder
+	var wg sync.WaitGroup
+	wg.Go(func() { data = get(e.s, dataURL("/news", "b1", "11")) })
+	if k := <-started; k != "data" {
+		t.Fatalf("first Load for %q", k)
+	}
+	wg.Go(func() { page = get(e.s, "/news") })
+	select {
+	case k := <-started:
+		if k != "page" {
+			t.Errorf("second Load for %q", k)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the document waits for the navigation")
+	}
+	close(release)
+	wg.Wait()
+	if e.loads.Load() != 2 || e.r.count() != 1 {
+		t.Errorf("%d Loads, %d renders", e.loads.Load(), e.r.count())
+	}
+	if !strings.Contains(page.Header().Get("Content-Type"), "text/html") || !strings.Contains(page.Body.String(), `"for":"page"`) {
+		t.Errorf("page: %q %q", page.Header().Get("Content-Type"), page.Body.String())
+	}
+	if !strings.Contains(data.Body.String(), `"for":"data"`) || strings.Contains(data.Body.String(), "<html>") {
+		t.Errorf("data: %q", data.Body.String())
+	}
+}
+
+// A negative cache size, which a config built in Go can hold, is off like 0.
+func TestNegativeCacheSizeIsOff(t *testing.T) {
+	if !newHTMLCache(-1).off() || newHTMLCache(-1).size != 0 || !newHTMLCache(0).off() || newHTMLCache(1).off() {
+		t.Fatal("off")
+	}
+	e := newNoRenderEnv(t, -1, nil, nil)
+	if w := get(e.s, dataURL("/news", "b1", "11")); w.Code != 200 || e.r.count() != 0 || w.Header().Get("X-Tifa-Render") != "none" {
+		t.Fatalf("data: %d, %d renders, %q", w.Code, e.r.count(), w.Header().Get("X-Tifa-Render"))
+	}
+	e.s.cache.mu.Lock()
+	kept := len(e.s.cache.pages)
+	e.s.cache.mu.Unlock()
+	e.r.result = nil
+	w := get(e.s, "/news")
+	get(e.s, "/news")
+	e.s.cache.mu.Lock()
+	kept += len(e.s.cache.pages)
+	e.s.cache.mu.Unlock()
+	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "<html>/news ") || e.r.count() != 2 || kept != 0 {
+		t.Errorf("page: %d %q, %d renders, %d kept", w.Code, w.Body.String(), e.r.count(), kept)
 	}
 }

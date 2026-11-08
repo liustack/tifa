@@ -126,17 +126,24 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	base := rq.WithContext(rq.Context())
 	pattern := c.Pattern()
 	language := c.Language()
-	generate := func(ctx context.Context) (cachedPage, bool, error) {
-		return s.generate(ctx, base, pattern, route, chain, f, ttl, language)
+	generate := func(ctx context.Context, renderless bool) (cachedPage, bool, error) {
+		return s.generate(ctx, base, pattern, route, chain, f, ttl, language, renderless)
 	}
 	alone := func() (fetched, error) {
-		page, _, err := generate(rq.Context())
+		page, _, err := generate(rq.Context(), false)
 		return fetched{page: page, how: "vm"}, err
 	}
 	var got fetched
 	var err error
 	status := "tifa; hit"
 	switch {
+	case c.IsData() && s.cache.off():
+		// Nothing can be kept, so the HTML of the entry would be thrown away. The Loads run and the
+		// answer is made as for the entry, without the render. This entry is never stored, and a
+		// request for the document does not wait for it.
+		var page cachedPage
+		page, _, err = generate(rq.Context(), true)
+		got, status = fetched{page: page, how: "none"}, "tifa; fwd=miss"
 	case own || s.cache.bypassed(key, cacheNow()):
 		s.cache.misses[pageKind].Add(1)
 		got, err = alone()
@@ -145,7 +152,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 		unheard := func(err error) {
 			core.Logger().ErrorContext(c.Context(), "tifa: a page was being made for the cache and no request waits for it", "method", rq.Method, "path", rq.URL.Path, "err", err)
 		}
-		got, err = s.cache.fetch(rq.Context(), key, unheard, generate)
+		got, err = s.cache.fetch(rq.Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) { return generate(ctx, false) })
 		if got.how == "retry" {
 			// What the request that made the page got is not for everyone, so this one makes its own.
 			got, err = alone()
@@ -435,7 +442,7 @@ func (s *server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 // returns it, and whether the cache keeps it. A result that is not the page, a 404 or another
 // answer of the app, is returned as an error for each request to answer with. Requests skip the
 // cache of key for a while after a result that cannot be stored.
-func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string) (cachedPage, bool, error) {
+func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string, renderless bool) (cachedPage, bool, error) {
 	rq := base.Clone(ctx)
 	rq.URL.RawQuery = s.ignore.clean(rq.URL.RawQuery, s.pageQuery[pattern])
 	rq.RequestURI = rq.URL.RequestURI()
@@ -493,14 +500,17 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		k := s.sessionKey()
 		sess = pageSession{key: k, head: sessionHead(k)}
 	}
-	if !route.SSR {
+	switch {
+	case renderless:
+		// The entry has no HTML: it is for one navigation data answer and is never stored.
+	case !route.SSR:
 		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), language, carried, sess)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
 		page, held = s.newPage(doc, s.documentPolicy(doc))
 		entry.etag = contentTag(doc, s.policyKey())
-	} else {
+	default:
 		data, texts, pageTexts, err := renderInput(items)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})

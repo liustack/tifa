@@ -227,7 +227,8 @@ func (c *htmlCache) stats() (render, page core.CacheStats, used int64) {
 }
 
 func newHTMLCache(size int64) *htmlCache {
-	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}, bodies: map[*bodyID]*bodyUse{}}
+	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
+	return &htmlCache{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}, bodies: map[*bodyID]*bodyUse{}}
 }
 
 func (c *htmlCache) get(key string) (cachedPage, bool) {
@@ -249,9 +250,12 @@ func (p cachedPage) kept() cachedPage {
 	return p
 }
 
+// off reports that the cache stores nothing: cache.size is below 1.
+func (c *htmlCache) off() bool { return c.size < 1 }
+
 // holds reports whether the cache can keep the page, in the form it keeps it. A page it cannot hold
 // is sent as it comes.
-func (c *htmlCache) holds(p cachedPage) bool { return p.kept().size() <= c.size }
+func (c *htmlCache) holds(p cachedPage) bool { return !c.off() && p.kept().size() <= c.size }
 
 // put stores a page in its one form, or does not when that does not fit.
 func (c *htmlCache) put(key string, page cachedPage) {
