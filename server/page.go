@@ -785,9 +785,16 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	// The ETag and the 304 before the render stand on the HTML being a function of the key. A page
 	// with RenderCache = false says it is not, and a request with a clock is not either, so they get
 	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
+	//
+	// A 404 or an error page is kept by the render cache like any page, but gets neither an ETag
+	// nor a 304: a precondition only applies to an answer that would be 2xx (RFC 9110 section
+	// 13.2.1). The status is not part of the key, and need not be: the render does not see it, and
+	// what an error page shows, the status and public message of each failed Load, is in its data.
 	var tag string
-	if status == http.StatusOK && cache {
+	if cache {
 		tag = renderKey(in, f.build.bundle, s.policyKey())
+	}
+	if status == http.StatusOK && cache {
 		etag := tag
 		if s.cfg.Compress {
 			etag = "W/" + tag
@@ -804,7 +811,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 		}
 	}
 	failed.start = time.Now()
-	if cache && tag != "" {
+	if cache {
 		return s.renderCached(c, f, in, tag, status, failed, since)
 	}
 	page, err := f.render(r.Context(), in)
@@ -1198,7 +1205,9 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 	}
 	var renderErr error
 	if ssrOn {
-		renderErr = s.renderPage(c, items, loads, e.Status, false, key)
+		// The page goes through the render cache unless its page turned it off. The key of the
+		// Layout of a URL that matches no page is never a path of a page.
+		renderErr = s.renderPage(c, items, loads, e.Status, !s.uncached[key], key)
 	} else {
 		renderErr = s.dataOnly(c, items, e.Status, key)
 	}

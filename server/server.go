@@ -44,6 +44,9 @@ type server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
+	// uncached holds the paths of the pages with RenderCache = false: none of their pages, their
+	// error pages included, goes through the render cache.
+	uncached map[string]bool
 	// pageCache holds the whole-page cache time of the pages that have one, by path. It stays empty
 	// with cache.whole_page false (wholePage).
 	pageCache map[string]time.Duration
@@ -92,7 +95,7 @@ type server struct {
 func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery), wholePage: cfg.Cache.WholePage,
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery), wholePage: cfg.Cache.WholePage,
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
