@@ -45,6 +45,10 @@ func StoreBase(l string) string {
 	return "/" + l + "/store"
 }
 
+// ShopCatalogue is the catalogue file of the shop, from the root of the repository: the products the
+// shop starts with, which the TypeScript port in domain/ imports too.
+const ShopCatalogue = "examples/shop/app/store/products/catalogue.json"
+
 // StoreProducts are every product of the catalogue, in its order. TestStoreDomainMatchesGo checks
 // that the list is the catalogue.
 var StoreProducts = []string{

@@ -273,12 +273,13 @@ func methodHash(root string) string {
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
-// appHash is a short hash of the sources of the Next.js app and of the domain code it shares: the
-// files git tracks there, as they are on disk (so a change not committed yet counts), and the pages
-// that Sync copied from the shop into the app (shop/, which git ignores), without the installed
-// packages and the build. It is "" when git cannot list them.
+// appHash is a short hash of the sources of the Next.js app, of the domain code it shares and of the
+// catalogue file of the shop that the domain code imports (ShopCatalogue): the files git tracks
+// there, as they are on disk (so a change not committed yet counts), and the pages that Sync copied
+// from the shop into the app (shop/, which git ignores), without the installed packages and the
+// build. It is "" when git cannot list them.
 func appHash(root string) string {
-	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", "test/compare/nextjs", "test/compare/domain").Output()
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", "test/compare/nextjs", "test/compare/domain", ShopCatalogue).Output()
 	if err != nil {
 		return ""
 	}

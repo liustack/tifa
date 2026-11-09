@@ -1,8 +1,9 @@
 import path from 'node:path'
 import type { NextConfig } from 'next'
 
-// The shared domain code lives next to the app, so the root of the build is the folder above it.
-const root = path.resolve(process.cwd(), '..')
+// The shared domain code lives next to the app and imports the catalogue file of the shop, so the root
+// of the build is the root of the repository.
+const root = path.resolve(process.cwd(), '../../..')
 
 const config: NextConfig = {
   turbopack: { root },
