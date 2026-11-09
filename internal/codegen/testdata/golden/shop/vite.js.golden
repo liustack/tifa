@@ -4,7 +4,10 @@ import { tifa } from "./vite/plugin.js"
 // The settings of tifa.yaml the plugins use.
 const settings = { target: ["es2020"], i18nextCache: true }
 
+// The query parameters the server renders the page and the Layout of each folder with.
+const query = {"app":{"layout":["lang"],"page":["lang"]},"app/auth":{"layout":["lang"]},"app/auth/login":{"page":["lang"]},"app/auth/register":{"page":["lang"]},"app/projects/projectId+":{"layout":["currency","lang"],"page":["currency","lang","sort","tag"]},"app/projects/projectId+/orders/orderId+":{"page":["currency","lang"]}}
+
 // The Vite plugins of tifa, for the plugins of vite.config.ts.
 export default function (options = {}) {
-  return tifa({ ...settings, markdown: options.markdown })
+  return tifa({ ...settings, query, markdown: options.markdown })
 }
