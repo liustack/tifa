@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +52,23 @@ func TestTheReportListsEveryNumberOfTheMix(t *testing.T) {
 		if !slices.Contains(declared, n) {
 			t.Errorf("mix.go does not declare %s", n)
 		}
+	}
+}
+
+// The click tables are relative weights, made shares only among the kinds of link a page has (a
+// product page has six that add up to 1.1), so the report writes them as weights, not as percents.
+func TestTheReportWritesTheClicksAsRelativeWeights(t *testing.T) {
+	facts := map[string]MixFact{}
+	for _, f := range MixFacts() {
+		facts[f.Name] = f
+	}
+	for _, name := range []string{"StoreClicks", "StaffClicks"} {
+		f := facts[name]
+		if strings.Contains(f.Value, "%") || !strings.Contains(f.What, "relative weights") || !strings.Contains(f.What, "only among the links the page has") {
+			t.Errorf("%s is listed as %q: %q, want relative weights made shares among the links a page has", name, f.What, f.Value)
+		}
+	}
+	if want := "from product: product 30 : cart 25 : list 25 : checkout 10 : home 10 : journal 10"; !strings.Contains(facts["StoreClicks"].Value, want) {
+		t.Errorf("StoreClicks is %q, want it to hold %q", facts["StoreClicks"].Value, want)
 	}
 }

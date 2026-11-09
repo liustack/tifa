@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"math"
@@ -94,8 +95,8 @@ const ReturningCartLines = 3
 // assumption.
 var LanguageShares = map[string]float64{"en-US": 0.5, "zh-CN": 0.5}
 
-// StoreClicks says, for the kind of page a visitor is on, how likely a click is to go to a link of
-// each kind. They are assumptions, shares of the links the page has: a visitor on a list picks a
+// StoreClicks says, for the kind of page a visitor is on, the relative weight of a click on a link of
+// each kind. They are assumptions, made shares among the links the page has: a visitor on a list picks a
 // product, on a product looks at a related one, goes back to the list, to the cart or to the
 // checkout (the link of the cart drawer), and from the cart to the checkout. A kind the page has no
 // link to is left out, and the rest count for the whole. Among the links of a kind, a product is
@@ -117,8 +118,8 @@ var StaffLandingShares = []struct {
 	Share float64
 }{{"hub", 0.5}, {"order", 0.5}}
 
-// StaffClicks says, for the kind of page of the back office a member of staff is on, how likely a
-// click is to go to a link of each kind (Links): from a list to its stats, to the list of the other
+// StaffClicks says, for the kind of page of the back office a member of staff is on, the relative
+// weight of a click on a link of each kind (Links): from a list to its stats, to the list of the other
 // shop or to one of its newest orders (alike), from an order to its list, its stats or the other
 // shop, and from the stats to its list or the other shop. Assumptions.
 var StaffClicks = map[string]map[string]float64{
@@ -426,10 +427,19 @@ func MixFacts() []MixFact {
 		}
 		return strings.Join(out, ", ")
 	}
+	// clicks writes a click table as the relative weights it holds, the heaviest first: a page
+	// makes them shares among the kinds of link it has, so they are not percents of anything.
 	clicks := func(m map[string]map[string]float64) string {
 		var out []string
 		for _, k := range slices.Sorted(maps.Keys(m)) {
-			out = append(out, "from "+k+": "+shares(m[k]))
+			kinds := slices.SortedFunc(maps.Keys(m[k]), func(a, b string) int {
+				return cmp.Or(cmp.Compare(m[k][b], m[k][a]), cmp.Compare(a, b))
+			})
+			var ws []string
+			for _, kind := range kinds {
+				ws = append(ws, kind+" "+strconv.FormatFloat(math.Round(m[k][kind]*100), 'f', -1, 64))
+			}
+			out = append(out, "from "+k+": "+strings.Join(ws, " : "))
 		}
 		return strings.Join(out, "; ")
 	}
@@ -453,13 +463,13 @@ func MixFacts() []MixFact {
 		{"LandingShares", "first page of a shopper visit", strings.Join(landing, ", "), "assumption"},
 		{"LanguageShares", "language of a shopper visit", shares(LanguageShares), "assumption"},
 		{"ProductZipf", "popularity of the products", fmt.Sprintf("Zipf, exponent %.1f, by rank in the catalogue", ProductZipf), "inference: sales follow a power law (Brynjolfsson, Hu and Simester, Management Science 2011)"},
-		{"StoreClicks", "links a shopper clicks, by the kind of page and of link", clicks(StoreClicks), "assumption"},
+		{"StoreClicks", "links a shopper clicks, by the kind of page and of link: relative weights, made shares only among the links the page has, and among its products by popularity", clicks(StoreClicks), "assumption"},
 		{"StaffShare", "visits made by the staff in the back office", pct(StaffShare), "assumption"},
 		{"StaffViewsMean", "page views of a staff visit on average", strconv.Itoa(StaffViewsMean), "assumption"},
 		{"StaffViewsMax", "most page views of a staff visit", strconv.Itoa(StaffViewsMax), "assumption"},
 		{"StaffViewsMore", "chance a staff visit goes on to one more page, in the first draw of the lengths", pct(StaffViewsMore), "assumption"},
 		{"StaffLandingShares", "first page of a staff visit (hub: a list or a stats page)", strings.Join(staffLanding, ", "), "assumption"},
-		{"StaffClicks", "links a member of staff clicks, by the kind of page and of link", clicks(StaffClicks), "assumption"},
+		{"StaffClicks", "links a member of staff clicks, by the kind of page and of link: relative weights, made shares only among the links the page has", clicks(StaffClicks), "assumption"},
 		{"StaffEditShare", "staff visits that edit a product", pct(StaffEditShare), "assumption"},
 		{"StaffShipShare", "staff visits that ship an order", pct(StaffShipShare), "assumption"},
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
