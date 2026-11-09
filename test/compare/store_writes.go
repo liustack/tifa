@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -179,7 +180,7 @@ func storeWritesOf(seed uint64, seq int, p Plan) []PlannedWrite {
 		case WriteAdd:
 			req = storeAdd(rng, base, pageProduct(p.Steps[w.After].Page))
 		case WriteCheckout:
-			req = StoreRequest{Kind: WriteCheckout, Method: "POST", Path: base + "/checkout", Body: []byte(storeOrder(lang)), Status: 303}
+			req = StoreRequest{Kind: WriteCheckout, Method: "POST", Path: base + "/checkout", Body: []byte(storeOrder(lang, storeShopper(seed, seq, lang))), Status: 303}
 		default:
 			panic("no storefront write " + w.Kind)
 		}
@@ -196,4 +197,36 @@ func StoreVisitWrites(seed uint64, seq int, p Plan) (setup []StoreRequest, write
 		setup = returningCart(seed, seq, p)
 	}
 	return setup, storeWritesOf(seed, seq, p)
+}
+
+// The names and streets the checkouts of the storefront are filled with, in each language.
+var (
+	shopperNames = map[string][2][]string{ // first names (or surnames), then last names (or given names)
+		"en-US": {{"Emma", "Liam", "Olivia", "Noah", "Ava", "Mason", "Sophia", "Lucas", "Mia", "Ethan"}, {"Walker", "Chen", "Garcia", "Patel", "Kim", "Nguyen", "Brown", "Lopez", "Singh", "Rivera"}},
+		"zh-CN": {{"林", "陈", "王", "李", "张", "刘", "周", "吴", "赵", "孙"}, {"夏", "默", "思远", "雨桐", "子涵", "一诺", "浩然", "欣怡", "宇航", "静"}},
+	}
+	shopperStreets = map[string][]string{
+		"en-US": {"Market Street", "Mission Street", "Valencia Street", "Hayes Street", "Divisadero Street"},
+		"zh-CN": {"徐汇区武康路", "静安区愚园路", "长宁区新华路", "黄浦区复兴中路", "普陀区长寿路"},
+	}
+)
+
+// storeShopper fills the checkout of visit seq, in the language lang, with a visitor of its own: a
+// name and a street drawn from the seed and seq, and an email and a second address line with the
+// visit number in them, so that no two checkouts of a round place the order of the same visitor and
+// every server gets the same order from a visit.
+func storeShopper(seed uint64, seq int, lang string) func(map[string]any) {
+	rng := rand.New(rand.NewPCG(seed^0x6a09e667f3bcc908, uint64(seq)))
+	names, streets := shopperNames[lang], shopperStreets[lang]
+	first, last := names[0][rng.IntN(len(names[0]))], names[1][rng.IntN(len(names[1]))]
+	street, number := streets[rng.IntN(len(streets))], 1+rng.IntN(999)
+	return func(m map[string]any) {
+		a := m["address"].(map[string]any)
+		m["email"] = fmt.Sprintf("shopper%d@example.com", seq)
+		if lang == "zh-CN" {
+			a["name"], a["line1"], a["line2"] = first+last, fmt.Sprintf("%s %d 号", street, number), fmt.Sprintf("%d 室", seq)
+			return
+		}
+		a["name"], a["line1"], a["line2"] = first+" "+last, fmt.Sprintf("%d %s", number, street), fmt.Sprintf("Unit %d", seq)
+	}
 }

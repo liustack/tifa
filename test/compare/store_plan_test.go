@@ -292,3 +292,42 @@ func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 		t.Errorf("planned %d writes, the visits send %d", r.WritesPlanned, sent)
 	}
 }
+
+// Every checkout of a round places the order of a visitor of its own: the name, the email and the
+// address come from the seed and the visit, in the language of the visit, so no two checkouts of a
+// round send the same order, and the same visit sends the same order to every server.
+func TestEveryCheckoutHasAVisitorOfItsOwn(t *testing.T) {
+	w := siteWorkload(t, 3, 2, "shop")
+	seen := map[string]int{}
+	checkouts := 0
+	for s := range 2 * w.cycleLen() {
+		for _, x := range w.writesOf(s) {
+			if x.Kind != WriteCheckout {
+				continue
+			}
+			checkouts++
+			var o struct {
+				Email   string         `json:"email"`
+				Address map[string]any `json:"address"`
+			}
+			if err := json.Unmarshal(x.Store.Body, &o); err != nil {
+				t.Fatal(err)
+			}
+			name, line1 := o.Address["name"].(string), o.Address["line1"].(string)
+			if name == "" || len(name) > 100 || line1 == "" || !strings.HasSuffix(o.Email, "@example.com") {
+				t.Fatalf("visit %d checks out as %q <%s> at %q", s, name, o.Email, line1)
+			}
+			who := name + "|" + o.Email + "|" + line1 + "|" + o.Address["line2"].(string)
+			if prev, ok := seen[who]; ok {
+				t.Fatalf("visits %d and %d check out as the same visitor %s", prev, s, who)
+			}
+			seen[who] = s
+			if again := w.writesOf(s)[x.After]; string(again.Store.Body) != string(x.Store.Body) {
+				t.Fatalf("visit %d sends another order on a second look", s)
+			}
+		}
+	}
+	if checkouts < 20 {
+		t.Fatalf("%d checkouts", checkouts)
+	}
+}
