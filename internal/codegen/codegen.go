@@ -53,7 +53,7 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 	if err != nil {
 		return nil, err
 	}
-	tsFiles, err := generateTS(root, m, dev, exports, viteSettings{target, settings.Build.I18nextCache}, public)
+	tsFiles, err := generateTS(root, m, dev, exports, viteSettings{target: target, i18nextCache: settings.Build.I18nextCache}, public)
 	if err != nil {
 		return nil, err
 	}

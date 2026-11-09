@@ -1,11 +1,11 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type { ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
 import { createMemoryHistory, isRedirect, RouterProvider } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
-import { createAppRouter, load, unmatched, type Dehydrated } from './.tifa/runtime/router'
+import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { alternateTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
@@ -95,6 +95,32 @@ test('sibling Layouts load only their own data', async () => {
   assert(JSON.stringify(ids) === '["app/b/layout","app/layout"]', `loaded ${ids}`)
   contains(await render('/a/one', { ...appData, 'app/a/layout': ok('a') }), 'LAYOUT_A', 'PAGE_A_ONE')
   contains(await render('/b/four', { ...appData, 'app/b/layout': ok('b') }), 'LAYOUT_B', 'PAGE_B_FOUR')
+})
+
+// query-cases.json is the table server/renderurl_test.go reads too: what Go reads from each query,
+// and the URL the server renders when the Loads read the names in keep, those of /q.
+const queryCases = JSON.parse(readFileSync('query-cases.json', 'utf8')) as {
+  path: string
+  cases: Array<{ query: string; values: Record<string, string[]>; render: string }>
+}
+
+test('the browser reads a query as Go does and hydrates from the page of the render URL', async () => {
+  const entries = (search: Record<string, string | string[]>) =>
+    JSON.stringify(Object.keys(search).sort().map((k) => [k, [search[k]].flat()]))
+  for (const c of queryCases.cases) {
+    const read = parseSearch(c.query === '' ? '' : '?' + c.query)
+    assert(entries(read) === entries(c.values), `?${c.query} reads ${entries(read)}, Go ${entries(c.values)}`)
+    // The server renders the URL with the parameters the Loads read only. The browser opens the URL
+    // as it came, and the matches it finds are the ones of the page: it asks for no data.
+    const url = queryCases.path + (c.query === '' ? '' : '?' + c.query)
+    const html = await render(c.render, { ...appData, 'app/q/route': ok('Q') })
+    const { router, calls } = await hydrateFrom(html, url)
+    const server = (await client(c.render)).router.state.matches.map((m: any) => m.id)
+    const ids = router.state.matches.map((m: any) => m.id)
+    assert(JSON.stringify(ids) === JSON.stringify(server), `?${c.query}: matches ${JSON.stringify(ids)}, the server rendered ${JSON.stringify(server)}`)
+    assert(router.state.matches.every((m: any) => m.status === 'success'), `?${c.query}: ${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
+    assert(calls.length === 0, `?${c.query} asked for ${JSON.stringify(calls)}`)
+  }
 })
 
 test('query values stay the strings Go reads', async () => {

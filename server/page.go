@@ -15,6 +15,7 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"reflect"
 	"slices"
@@ -483,6 +484,8 @@ type renderError struct {
 	start time.Time
 	loads time.Time
 	key   string
+	// query is the list of the query parameters the render saw (renderURL).
+	query []string
 }
 
 func (e *renderError) Error() string { return "tifa: render page: " + e.err.Error() }
@@ -726,9 +729,10 @@ type dataRedirect struct {
 // random number makes its page differ from one render to the next. tifa dev renders each page
 // twice to say so, and Memo = false turns the render memo off for such a page.
 //
-// The URL in the key is the request URI as it came, so two spellings of the same query, or a
-// tracking parameter, make two entries. That costs hits and never serves a wrong page, since the
-// render reads the same URI.
+// The URL in the key is the one the render reads: the path and the query parameters the Loads of
+// the page read (renderURL), so a tracking parameter, ?x=random or another order of the parameters
+// makes no new entry. A parameter the Loads do not read cannot change their data, and the render
+// does not see it.
 func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
 	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL} {
@@ -807,9 +811,9 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	if err != nil {
 		return err
 	}
-	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: c.Request().URL.RequestURI(), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
-	failed := &renderError{f: f, in: in, key: key, loads: since}
+	failed := &renderError{f: f, in: in, key: key, loads: since, query: s.query[key]}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
 	// neither reads the cache nor writes to it, and shares no render.
 	if core.RenderClock(r.Context()) != nil {
@@ -819,10 +823,11 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	// with Memo = false says it is not, and a request with a clock is not either, so they get
 	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
 	//
-	// A 404 or an error page is kept by the render memo like any page, but gets neither an ETag
-	// nor a 304: a precondition only applies to an answer that would be 2xx (RFC 9110 section
-	// 13.2.1). The status is not part of the key, and need not be: the render does not see it, and
-	// what an error page shows, the status and public message of each failed Load, is in its data.
+	// A 404 or an error page is not kept by the render memo, though requests for it at the same time
+	// share one render (renderOne), and gets neither an ETag nor a 304: a precondition only applies
+	// to an answer that would be 2xx (RFC 9110 section 13.2.1). The status is not part of the key, and
+	// need not be: the render does not see it, and what an error page shows, the status and public
+	// message of each failed Load, is in its data.
 	var tag string
 	if cache {
 		tag = renderKey(in, f.build.bundle, s.policyKey())
@@ -924,7 +929,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
 	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
-		return s.renderOne(ctx, f, in, true, method, path)
+		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled) {
@@ -934,7 +939,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	}
 	c.SetHeader(renderHeader, got.how)
 	if got.page.redirect != nil {
-		writeRenderRedirect(c, got.page.redirect)
+		writeRenderRedirect(c, got.page.redirect, failed.query)
 		return nil
 	}
 	setDataAge(c.Writer().Header(), time.Since(since))
@@ -944,26 +949,28 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 
 // renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
 // it. A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
-// the input as the HTML does. twice has tifa dev render a page the render memo keeps once more to
-// find out whether it reads the time or a random number, see devRenderTwice.
-func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
+// the input as the HTML does. keep is false for a 404 or an error page: the memo keeps none of them,
+// so that URLs a visitor makes up do not fill it, while the requests that wait for the render still
+// share it. tifa dev renders a page the memo keeps once more to find out whether it reads the time
+// or a random number, see devRenderTwice.
+func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, keep bool, method, path string) (cachedPage, bool, error) {
 	rendered, err := f.render(ctx, in)
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		page := cachedPage{redirect: redirect}
-		return page, s.memo.holds(page), nil
+		return page, keep && s.memo.holds(page), nil
 	}
 	if err != nil {
 		return cachedPage{html: rendered.HTML}, false, err
 	}
-	if twice && s.dev != nil {
+	if keep && s.dev != nil {
 		if warned, differs := s.devRenderTwice(ctx, f, in, rendered, method, path); differs {
 			return cachedPage{html: warned.HTML, policy: s.renderedPolicy(f, in, warned)}, false, nil
 		}
 	}
 	html, policy := rendered.HTML, s.renderedPolicy(f, in, rendered)
 	page, held := s.newPage(html, policy)
-	return page, held, nil
+	return page, held && keep, nil
 }
 
 // newPage makes the page of html for the cache, and says whether the cache can keep it. With
@@ -1056,7 +1063,7 @@ func around(html string, i int) string {
 func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
-		writeRenderRedirect(c, redirect)
+		writeRenderRedirect(c, redirect, failed.query)
 		return nil
 	}
 	failed.err = err
@@ -1067,9 +1074,12 @@ func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 // differently, /%61 for /a, and sends the browser there. The redirect carries no ETag. The render
 // is a function of the build, the URL and the data, so an ETag a client got with a 200 for this URL
 // never belongs to a redirect, and 304 is only answered to a client that made its If-None-Match up.
-func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError) {
+// The router built the URL from the one it rendered, so the query parameters renderURL left out,
+// those not in keep, are put back as the request spelled them: the render memo hands the same
+// redirect to requests with other such parameters.
+func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError, keep []string) {
 	c.Writer().Header().Del("ETag")
-	http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
+	http.Redirect(c.Writer(), c.Request(), withDropped(redirect.Location, c.Request().URL, keep), redirect.Status)
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
@@ -1388,4 +1398,76 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, page)
+}
+
+// renderURL is the URL a server render gets: the path of the request and only the query
+// parameters in keep, the ones the Loads of the page read, by name, each with its values in the
+// order of the request. Every other parameter, a tracking one or ?x=random, cannot change what
+// the Loads return, so the render and its memo key leave it out. The values are spelled as
+// url.QueryEscape writes them, and what url.ParseQuery drops, and so c.Query never sees, is left out
+// too. The path stays as it came, so the router still redirects another spelling of it.
+func renderURL(u *url.URL, keep []string) string {
+	p := u.EscapedPath()
+	if len(keep) == 0 || u.RawQuery == "" {
+		return p
+	}
+	values := map[string][]string{}
+	for part := range strings.SplitSeq(u.RawQuery, "&") {
+		if k, v, ok := keptPart(part, keep); ok {
+			values[k] = append(values[k], v)
+		}
+	}
+	var b strings.Builder
+	for _, k := range keep {
+		for _, v := range values[k] {
+			if b.Len() == 0 {
+				b.WriteByte('?')
+			} else {
+				b.WriteByte('&')
+			}
+			b.WriteString(url.QueryEscape(k) + "=" + url.QueryEscape(v))
+		}
+	}
+	return p + b.String()
+}
+
+// keptPart decodes one name=value part of a query and reports whether renderURL keeps it: it
+// parses as url.ParseQuery would take it, and keep, which is sorted, has its name. An empty part,
+// as between two & signs, is no parameter, while =x is one with an empty name.
+func keptPart(part string, keep []string) (name, value string, ok bool) {
+	if part == "" {
+		return "", "", false
+	}
+	rawName, rawValue, _ := strings.Cut(part, "=")
+	name, err1 := url.QueryUnescape(rawName)
+	value, err2 := url.QueryUnescape(rawValue)
+	if err1 != nil || err2 != nil || strings.Contains(part, ";") {
+		return "", "", false
+	}
+	_, ok = slices.BinarySearch(keep, name)
+	return name, value, ok
+}
+
+// withDropped is location with the parts of the query of u that renderURL left out added at the
+// end, in their order and spelling.
+func withDropped(location string, u *url.URL, keep []string) string {
+	var b strings.Builder
+	for part := range strings.SplitSeq(u.RawQuery, "&") {
+		if part == "" {
+			continue
+		}
+		if _, _, ok := keptPart(part, keep); ok {
+			continue
+		}
+		b.WriteByte('&')
+		b.WriteString(part)
+	}
+	if b.Len() == 0 {
+		return location
+	}
+	dropped := b.String()
+	if !strings.Contains(location, "?") {
+		dropped = "?" + dropped[1:]
+	}
+	return location + dropped
 }

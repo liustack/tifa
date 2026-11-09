@@ -205,7 +205,7 @@ flowchart TD
   FL -- "否" --> VMR["在 VM 里渲染 (vm)，保存 HTML"]
 ```
 
-- **渲染记忆**（[详情](memo.zh-CN.md)）。键是 build ID、SSR bundle、URL、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。
+- **渲染记忆**（[详情](memo.zh-CN.md)）。键是 build ID、SSR bundle、路径和各个 `Load` 读的查询参数、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。
 - **共享渲染。** 同时没命中同一个键的请求只等一次渲染，`ssr.memo_size` 为 0 时也一样。这次渲染跑在一个不属于任何请求的 goroutine 里，所以某个客户端走掉不会取消它。
 - **ETag。** 它是和渲染键同样那些东西的哈希。匹配的 `If-None-Match` 在问渲染记忆之前就得到回答。ETag 省的是发给浏览器的传输，渲染记忆省的是给其他人的渲染。
 - **带 `Cache` 的页面。** Tifa 为它们留下的只有渲染记忆。请求被变成匿名的（`anonymize`），`Load` 每个请求都跑，跑完后设上给共享缓存的 Cache-Control（`setShared`），除非 OnRequest、`Load` 或 `Layout` 已让回答变成私有的。留住页面的是前面的 CDN，不是 Tifa。

@@ -73,10 +73,58 @@ func (n *tsNode) tsxFile() string {
 func (n *tsNode) exported(name string) bool { return slices.Contains(n.exports, name) }
 
 // viteSettings is what .tifa/vite.js passes to the tifa plugin: build.target as Vite's target
-// and build.i18next_cache.
+// and build.i18next_cache, and query, the query parameters the server renders each page and
+// Layout with (see queryTable).
 type viteSettings struct {
 	target       []string
 	i18nextCache bool
+	query        map[string]map[string][]string
+}
+
+// queryTable gives, by folder, the query parameters the server renders the page of page.tsx with,
+// those its Load and the Loads of its Layouts read, under "page", and those a Layout of layout.tsx
+// is rendered with, its own and those of the Layouts above, under "layout". The server keeps these
+// only (renderURL in server/page.go). The plugin checks the query reads of the app against it.
+func queryTable(m *analyze.Manifest) map[string]map[string][]string {
+	byID := map[string]analyze.Layout{}
+	for _, l := range m.Layouts {
+		byID[l.ID] = l
+	}
+	read := func(names []string, load *analyze.Load) []string {
+		if load != nil {
+			names = append(names, load.AllQuery...)
+		}
+		return names
+	}
+	table := map[string]map[string][]string{}
+	add := func(dir, kind string, names []string) {
+		if table[dir] == nil {
+			table[dir] = map[string][]string{}
+		}
+		slices.Sort(names)
+		table[dir][kind] = append([]string{}, slices.Compact(names)...)
+	}
+	for _, l := range m.Layouts {
+		if !l.TSX {
+			continue
+		}
+		var names []string
+		for at, ok := l, true; ok; at, ok = byID[at.Parent] {
+			names = read(names, at.Load)
+		}
+		add(l.Dir, "layout", names)
+	}
+	for _, r := range m.Routes {
+		if !r.Page {
+			continue
+		}
+		names := read(nil, r.Load)
+		for _, id := range r.Layouts {
+			names = read(names, byID[id].Load)
+		}
+		add(r.Dir, "page", names)
+	}
+	return table
 }
 
 // publicPaths lists the URL paths of the regular files under the public folder of the build,
@@ -121,6 +169,7 @@ func (s viteSettings) js() (string, error) {
 // An application without pages has no TypeScript and gets none, apart from the Vite plugin when it
 // has content collections, whose Markdown the plugin turns into HTML.
 func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, vite viteSettings, public []string) (map[string][]byte, error) {
+	vite.query = queryTable(m)
 	hooks, err := hooksOf(root, exportsOf)
 	if err != nil {
 		return nil, err
@@ -232,14 +281,21 @@ func viteFiles(files map[string][]byte, vite viteSettings) error {
 	if err != nil {
 		return err
 	}
+	query, err := json.Marshal(vite.query, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
 	files["vite.js"] = []byte(tsHeader + `import { tifa } from "./vite/plugin.js"
 
 // The settings of tifa.yaml the plugins use.
 const settings = ` + settingsJS + `
 
+// The query parameters the server renders the page and the Layout of each folder with.
+const query = ` + string(query) + `
+
 // The Vite plugins of tifa, for the plugins of vite.config.ts.
 export default function (options = {}) {
-  return tifa({ ...settings, markdown: options.markdown })
+  return tifa({ ...settings, query, markdown: options.markdown })
 }
 `)
 	files["vite.d.ts"] = []byte(tsHeader + `import type { PluginOption } from "vite"

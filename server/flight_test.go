@@ -576,3 +576,40 @@ func TestFailureNoRequestWaitsForIsLogged(t *testing.T) {
 		})
 	}
 }
+
+// errorApp has a page whose Load fails with a 503 for every request.
+func errorApp() App {
+	app := frontApp()
+	app.Routes = append(app.Routes, Route{ID: "app/down", Path: "/down", Page: true, SSR: true, Layouts: []string{"app/layout"},
+		Load: func(c *tifa.Ctx) (any, error) { return nil, tifa.Error{Status: 503, Message: "Come back later"} }})
+	return app
+}
+
+// A 404 and the page of a failed Load are rendered for each request and never kept, so URLs a
+// visitor makes up do not fill the render memo. Requests for one such page at the same time still
+// wait for one render.
+func TestErrorPagesStayOutOfTheRenderMemo(t *testing.T) {
+	s, r := newFrontServer(t, errorApp())
+	for i := range 5 {
+		for _, target := range []string{fmt.Sprintf("/missing-%d", i), fmt.Sprintf("/down?x=%d", i), "/down", "/missing-0"} {
+			w := get(s, target)
+			if w.Code != 404 && w.Code != 503 || w.Header().Get("X-Tifa-Render") != "vm" || w.Header().Get("ETag") != "" {
+				t.Fatalf("%s: %d %v", target, w.Code, w.Header())
+			}
+		}
+	}
+	if stats, _ := s.memo.stats(); stats.Entries != 0 || r.count() != 20 {
+		t.Errorf("memo %+v after %d renders", stats, r.count())
+	}
+
+	for _, path := range []string{"/missing-x", "/down"} {
+		s, g := newHeldServer(t, config.Default(), errorApp())
+		out := burst(t, s, g, 10, path, nil)
+		if by := renderedBy(out); g.renders() != 1 || by["vm"] != 1 || by["shared"] != 9 {
+			t.Errorf("%s: %d renders, rendered by %v", path, g.renders(), by)
+		}
+		if stats, _ := s.memo.stats(); stats.Entries != 0 {
+			t.Errorf("%s: memo %+v", path, stats)
+		}
+	}
+}

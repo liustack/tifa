@@ -130,7 +130,12 @@ export default function OrdersPage() {
   // The search box keeps what the visitor types and asks the server once they pause. urlQ is the search
   // the router has now, which is ahead of the data on screen while a change loads. A search that the box
   // did not put there, such as the one the back button brings, replaces the text.
-  const urlQ = useRouterState({ select: (s) => trimSearch(filterOf(s.location.search as Record<string, unknown>).q) })
+  const urlQ = useRouterState({
+    select: (s) => {
+      const q = [(s.location.search as Record<string, unknown>).q].flat()[0]
+      return trimSearch(typeof q === 'string' ? q : '')
+    },
+  })
   const [text, setText] = useState(urlQ)
   const sent = useRef(urlQ)
   useEffect(() => {

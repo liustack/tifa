@@ -298,16 +298,55 @@ export function missing(Error: ComponentType<ErrorComponentProps> & { preload?: 
 
 // parseSearch reads the query the way c.Query does: every value is a string, and a key given
 // more than once holds the array of its values. The object has no prototype, so a key such as
-// __proto__ is a parameter like any other.
+// __proto__ is a parameter like any other. Like Go's url.ParseQuery it skips an empty part, a part
+// with a semicolon and a part with a % that two hex digits do not follow, so the server, which
+// renders with what Go reads, and the browser find the same matches. Bytes that are no UTF-8 read
+// as U+FFFD, as URLSearchParams reads them, where Go keeps the bytes.
 export function parseSearch(searchStr: string): Record<string, string | string[]> {
   const search: Record<string, string | string[]> = Object.create(null)
-  for (const [key, value] of new URLSearchParams(searchStr)) {
+  for (const part of (searchStr.startsWith('?') ? searchStr.slice(1) : searchStr).split('&')) {
+    if (part === '' || part.includes(';')) continue
+    const at = part.indexOf('=')
+    const key = unescapeQuery(at < 0 ? part : part.slice(0, at))
+    const value = unescapeQuery(at < 0 ? '' : part.slice(at + 1))
+    if (key === undefined || value === undefined) continue
     const previous = search[key]
     if (previous === undefined) search[key] = value
     else if (Array.isArray(previous)) previous.push(value)
     else search[key] = [previous, value]
   }
   return search
+}
+
+const badEscape = /%(?![0-9A-Fa-f]{2})/
+
+let utf8: TextDecoder | undefined
+
+// unescapeQuery decodes one name or value of a query as url.QueryUnescape does, undefined where Go
+// gives an error.
+function unescapeQuery(text: string): string | undefined {
+  if (badEscape.test(text)) return undefined
+  text = text.replace(/\+/g, ' ')
+  if (!text.includes('%')) return text
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    // Escapes of bytes that are no UTF-8.
+    const bytes: number[] = []
+    const encoder = new TextEncoder()
+    for (let i = 0; i < text.length; ) {
+      if (text[i] === '%') {
+        bytes.push(parseInt(text.slice(i + 1, i + 3), 16))
+        i += 3
+        continue
+      }
+      const char = String.fromCodePoint(text.codePointAt(i)!)
+      bytes.push(...encoder.encode(char))
+      i += char.length
+    }
+    utf8 ??= new TextDecoder()
+    return utf8.decode(new Uint8Array(bytes))
+  }
 }
 
 // stringifySearch writes a query parseSearch reads back as the same values, spelled the way

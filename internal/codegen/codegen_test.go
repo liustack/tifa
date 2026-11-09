@@ -899,3 +899,34 @@ func TestGoGenWritesTheCacheOfARoute(t *testing.T) {
 		t.Errorf("generated code:\n%s", got)
 	}
 }
+
+// .tifa/vite.js gives the plugin the query parameters the server renders each page and Layout
+// with, by folder: those the Load and the Layouts above read. A route without page.tsx has none.
+func TestQueryTableReachesVite(t *testing.T) {
+	str := types.Typ[types.String]
+	m := &analyze.Manifest{
+		Module: "example.com/x",
+		Layouts: []analyze.Layout{
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Load: &analyze.Load{AllQuery: []string{"page"}, Result: str}},
+			{ID: "app/news/layout", Dir: "app/news", Parent: "app/layout", Path: "/news", TSX: true, SSR: true, Load: &analyze.Load{AllQuery: []string{"tab", "page"}, Result: str}},
+			{ID: "app/bare/layout", Dir: "app/bare", Parent: "app/layout", Path: "/bare", TSX: true, SSR: true},
+		},
+		Routes: []analyze.Route{
+			{ID: "app/news/route", Dir: "app/news", Path: "/news", Page: true, SSR: true, Layouts: []string{"app/layout", "app/news/layout"}, Load: &analyze.Load{AllQuery: []string{"q"}, Result: str}},
+			{ID: "app/plain/route", Dir: "app/plain", Path: "/plain", Page: true, SSR: true, Layouts: []string{"app/layout"}},
+			{ID: "app/api/route", Dir: "app/api", Path: "/api", Layouts: []string{"app/layout"}, Load: &analyze.Load{AllQuery: []string{"x"}, Result: str}},
+		},
+	}
+	root := t.TempDir()
+	for _, dir := range []string{"app/news", "app/plain"} {
+		writeFile(t, filepath.Join(root, dir, "page.tsx"), "export default function P() { return null }\n")
+	}
+	files, err := Generate(root, m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `const query = {"app":{"layout":["page"]},"app/bare":{"layout":["page"]},"app/news":{"layout":["page","tab"],"page":["page","q","tab"]},"app/plain":{"page":["page"]}}`
+	if vite := string(files["vite.js"]); !strings.Contains(vite, want) || !strings.Contains(vite, "tifa({ ...settings, query, markdown: options.markdown })") {
+		t.Errorf("vite.js lacks %s:\n%s", want, vite)
+	}
+}

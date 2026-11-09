@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、hooks.ts 及其在首次渲染前运行的准备、404 和错误、多语言网站、SSR、Memo 与 Cache 开关和给 CDN 用的 Cache（对所有人一样、CDN 可以留一段时间的页面）、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、hooks.ts 及其在首次渲染前运行的准备、404 和错误、多语言网站、SSR、Memo 与 Cache 开关、服务端渲染看得到哪些查询参数和给 CDN 用的 Cache（对所有人一样、CDN 可以留一段时间的页面）、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 Tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -287,7 +287,7 @@ const sort = [search.sort].flat()[0] // 第一个值，和 c.Query 读的一样
 ```
 
 - URL 里一个键可以出现多次，所以读的时候值是 `string` 或 `string[]`，不管 Go 用 `c.Query` 还是 `c.QueryValues` 读。Go 的 `c.Query` 取第一个值。写的时候传一个字符串就行。每个键都可以不写。
-- 其他键放开：页面可以在 URL 里放 Go 不读的自己的参数，比如面板当前打开的标签。它们也是字符串或字符串数组。所以拼错键名不算类型错误，只有 Go 读的键给错了类型才算。
+- 其他键放开：页面可以在 URL 里放 Go 不读的自己的参数，比如面板当前打开的标签。它们也是字符串或字符串数组。所以拼错键名不算类型错误，只有 Go 读的键给错了类型才算。服务端渲染看不到这些参数，见[服务端渲染里的查询参数](#服务端渲染里的查询参数)。
 - 只收字符串。路由器把每个值都写成文本，Go 读的也是文本，所以写 `'2'` 不写 `2`，布尔值写成你的 Go 代码比较的 `'1'` 或 `'true'`。
 - 类型来自 Go 读的名字，经过辅助函数和别的包读的也算，每个路由只挂它自己的 `Load` 或 `Layout` 读的。外层 Layout 的由 TanStack 加上。不读查询参数的 `Load` 没有这个类型，它的路由和以前一样什么键都收。
 - 浏览器里不运行任何检查：路由只拿到类型（`searchTypes` 返回 `undefined`，TanStack 就照原样读查询参数）。
@@ -535,14 +535,25 @@ const LayoutSSR = false        // 本目录的 Layout，默认 true
 `SSR`、`Memo` 和 `Cache` 只作用于 `page.tsx` 的页面。没有 `page.tsx` 的 `route.go` 里写了它们，构建会报错。`Memo` 只能写 `false`：渲染记忆默认就是开的，不用写 `true`。`Cache` 是 `true`、`false` 或至少一秒的 `time.Duration` 常量，见[给 CDN 用的 Cache](#给-cdn-用的-cache)。名字要照上面的大小写写，包级常量叫 `ssr`、`cache`、`memo` 或 `layoutssr` 会构建报错，因为它们会被悄悄跳过。
 
 - `SSR = false`：中间件和所有 `Load` 照常执行，但跳过 QuickJS，响应是带数据的最小文档，由浏览器渲染。`LayoutSSR = false` 作用于该 Layout 包着的所有页面。
-- 所有页面都开着渲染记忆（为什么叫记忆、为什么对登录后的页面也安全、它管不到什么，见[渲染记忆](memo.zh-CN.md)）。每个请求照样跑自己的中间件、`Load` 和 Layout，然后把渲染出的 HTML 按构建版本、SSR 包、URL、每个 `Load` 和 Layout 的数据、浏览器拿到的会话记下来，记忆的大小是 `ssr.memo_size`（见 [config.zh-CN.md](config.zh-CN.md)）。这些都没变时，不渲染直接返回 HTML。响应头 `X-Tifa-Render` 说明是哪种：`vm` 是这个请求自己渲染，`memo` 是命中，`shared` 是共用了别的请求发起的渲染（见[页面请求](build.zh-CN.md#页面请求)）。`ssr.memo_size` 为 0 时渲染记忆关闭，共用渲染照旧。
+- 所有页面都开着渲染记忆（为什么叫记忆、为什么对登录后的页面也安全、它管不到什么，见[渲染记忆](memo.zh-CN.md)）。每个请求照样跑自己的中间件、`Load` 和 Layout，然后把渲染出的 HTML 按构建版本、SSR 包、路径和各个 `Load` 读的查询参数（见[服务端渲染里的查询参数](#服务端渲染里的查询参数)）、每个 `Load` 和 Layout 的数据、浏览器拿到的会话记下来，记忆的大小是 `ssr.memo_size`（见 [config.zh-CN.md](config.zh-CN.md)）。这些都没变时，不渲染直接返回 HTML。响应头 `X-Tifa-Render` 说明是哪种：`vm` 是这个请求自己渲染，`memo` 是命中，`shared` 是共用了别的请求发起的渲染（见[页面请求](build.zh-CN.md#页面请求)）。`ssr.memo_size` 为 0 时渲染记忆关闭，共用渲染照旧。
 - 组件不能把每次渲染都不同的值写进 HTML，比如 `Date.now()` 或 `Math.random()`。hydration 也要求这样，而且渲染记忆会把这样的值固定下来给之后的访客。`tifa dev` 下每个页面再渲染一次，第二次把时钟往后拨 36 小时，两次不同时终端和 dev 浮层会提示，给出第一处不同的位置，并列出你的代码里读时间或随机数的位置，这个页面在改好之前不进渲染记忆。如果页面就是要显示这样的值，比如服务器时间，就在它的 `route.go` 里写 `const Memo = false`，这个页面每个请求都渲染。这个检查在构建出的程序里不做。
 - 带渲染时钟（`tifa.WithRenderClock`）的请求跳过渲染记忆：不读也不存，因为它的 HTML 取决于 key 里没有的时间。
 - 多个请求同时没命中渲染记忆，并且构建版本、URL 和数据都相同时（比如刚部署完涌进来一批访客），它们共用一次渲染。每个请求照样跑自己的中间件和 `Load`，保留它们设的响应头（比如 `Set-Cookie` 和 `Vary`），拿到自己接受的编码。`ssr.memo_size` 为 0、页面大到记忆放不下、在 `tifa dev` 下也都这样。数据或会话不同的请求各自渲染，写了 `Memo = false` 的页面每个请求都渲染。
 - 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不留，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进渲染记忆。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
-- 页面响应都带 ETag，它是和记忆 key 同样内容的哈希。这些都没变的第二次请求带 `If-None-Match` 时答 304，不渲染，也不问渲染记忆。ETag 和渲染记忆是两件事：ETag 省下已经有这个页面的浏览器的传输，渲染记忆省下其他人的渲染。写了 `Memo = false` 的页面和带渲染时钟的请求没有 ETag，因为它们的 HTML 不由这些内容决定，总是重新渲染。404 页和 `Load` 失败时的错误页也像普通页面一样进渲染记忆，但不带 ETag：304 只代表 200。
+- 页面响应都带 ETag，它是和记忆 key 同样内容的哈希。这些都没变的第二次请求带 `If-None-Match` 时答 304，不渲染，也不问渲染记忆。ETag 和渲染记忆是两件事：ETag 省下已经有这个页面的浏览器的传输，渲染记忆省下其他人的渲染。写了 `Memo = false` 的页面和带渲染时钟的请求没有 ETag，因为它们的 HTML 不由这些内容决定，总是重新渲染。404 页和 `Load` 失败时的错误页每个请求都渲染，从不存下，所以随手编的 URL 不会把记忆填满。同时到达的同一个错误页请求仍共用一次渲染。它们不带 ETag：304 只代表 200。
 - 页面里不带数据加载的时间，同样的数据总是得到同样的 HTML。页面的响应（渲染、304、应用渲染的 404 页面）改在 `Server-Timing: tifa-age;dur=<毫秒>` 里说明数据可能有多旧，从第一个 `Load` 开始时算起。只有任何缓存都不能不问服务器就重用的响应才带它：`Cache-Control` 里有 `no-cache` 或 `no-store`，默认的 `private, no-cache` 就是。开了 `Cache` 的页面，以及你把 `Cache-Control` 设成允许缓存存下来的页面（比如 `public, max-age=60`），都不带它，因为缓存过一阵会把同一个时长原样发出去。浏览器的路由器把浏览器发出请求的时间减去这个时长，当作数据加载的时间，`staleTime` 和 `gcTime` 从这里算。它在第一次加载或预加载之前才把这个时间写进页面的各个 match，在那之前 `updatedAt` 是 0，和服务器渲染的一样，显示它的组件水合时不会对不上。响应不带它或浏览器读不到它时（Firefox 走普通 HTTP，或者从前进后退历史打开的页面），数据按旧数据处理，回到这个页面时重新加载。导航数据不带它：路由器自己取的数据由它自己记时间。
 - 应用的每个回答（页面、304、404 页面、导航数据、方法处理函数、重定向）默认带 `Cache-Control: private, no-cache`，你自己设过 `Cache-Control` 的除外。开了 `Cache` 的页面是例外，见[给 CDN 用的 Cache](#给-cdn-用的-cache)。CDN 和代理不会存它，因为页面可能只属于某一位访客。浏览器可以存下来，下次带着 ETag 回来问，页面没变就答 304。要改的话，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")`，你设的值原样发出，只有导航数据（带 `_tifa` 的请求）例外，它永远不是 public：不是 `no-store`、也不是同时有 `private` 和 `no-cache` 的值会换成 `private, no-cache`。JSON 错误（包括 405 和关机时的 503）、Go 写的纯错误页、渲染失败后带错误重新渲染的页面和过载回答都是 `no-store`，你在出错之前设过 `Cache-Control` 的除外。应用渲染的 404 页面仍用默认值。`/assets/` 下的文件保持长期缓存，`public/` 里的文件保持 `no-cache`（见[页面请求](build.zh-CN.md#页面请求)）。渲染记忆只在进程内存渲染结果，不改这个头。
+
+### 服务端渲染里的查询参数
+
+页面看得到的查询参数，是它的 `Load` 和上面各层 Layout 用 `c.Query` 或 `c.QueryValues` 读过的那些，由 `tifa build` 找出来。服务端渲染只拿到路径和这些参数，按名字排序，同名的多个值保持请求里的顺序，记忆的 key 里也是这些。其他参数在渲染前就丢掉，也不进 key。浏览器地址栏保留每个参数和它的值，只是路由器可能换一种写法（开了多语言时 `a%20b` 可能变成 `a+b`）。`OnRequest`、各个 `Load` 和方法处理函数看到的还是完整的请求。
+
+- 追踪参数不增加渲染记忆的 key，也不增加服务端渲染次数。带上 `?utm_source=mail`、`?fbclid=...` 或 `?x=random`，key 和不带时一样，记忆直接回答。各个 `Load` 照常每个请求都运行。参数换个顺序 key 也一样。
+- 要按参数渲染，就在 `Load` 里读它。没有 `Load` 读的参数改变不了数据，渲染也用不着它。组件里按名字读，比如用 `route.gen` 里路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带着各个 `Load` 读的参数的类型，但别的参数也照样放行，所以它不能让别的参数变安全，见 [Link 和 navigate 里的查询参数](#link-和-navigate-里的查询参数)。
+- 组件渲染时读别的参数会水合不一致：服务端渲染时没有这个参数，浏览器里有，React 会报水合错误，并在浏览器里重新渲染那一块。`tifa build` 会警告渲染时读到服务端渲染这段代码时没有的参数，并给出文件和行号：从 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 按名字读的参数，以及整个 location 的 `search`、`searchStr` 或 `href`。`page.tsx` 和 `layout.tsx` 按它们自己的参数检查，其他模块可能在任何页面下渲染，这类读法一律警告。`useEffect` 或 `useLayoutEffect` 里的读取只在浏览器里运行，不警告。检查一次只看一个模块，它调用的辅助函数里的读取看不到。这类参数在 `Load` 里读，或者只有浏览器要用时放进 effect 里读。
+- 404 页和 `Load` 失败时的错误页不进记忆，所以随机参数和随机 slug 不会让它变大。
+- 路由器把 URL 的另一种写法（比如 `/%6Eews` 或 `/news/`）转到它自己的写法时，重定向会把丢掉的参数接回去。
+- 写了 `SSR = false` 的页面不在服务端渲染，它的文档带的是收到时的原样 URL。
 
 ### 给 CDN 用的 Cache
 

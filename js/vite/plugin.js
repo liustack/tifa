@@ -1021,7 +1021,8 @@ function devState() {
  * tifa returns the plugins of a tifa application.
  *
  * settings.target is build.target of the project configuration, the browsers the browser bundle
- * runs in. settings.i18nextCache is build.i18next_cache, see ssrPlugin.
+ * runs in. settings.i18nextCache is build.i18next_cache, see ssrPlugin. settings.query gives the query
+ * parameters the server renders the page and the Layout of each folder with, see rawQueryReads.
  */
 export function tifa(settings = {}) {
   let root = ''
@@ -1099,7 +1100,7 @@ export function tifa(settings = {}) {
     generated(),
     lazyRoutes(),
     markdownPlugin(() => root, settings.markdown),
-    ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache }),
+    ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache, query: settings.query }),
     localesPlugin(() => root),
   ]
 }
@@ -1921,6 +1922,7 @@ function resolveRouteModule(ctx, root, source, importer) {
 // where it may load a module at run time. Its source map names sources
 // relative to the application root. It comes with serovalPlugin, which changes seroval. With
 // settings.i18nextCache, build.i18next_cache, it also adds a cache to i18next, see i18nextCache.
+// With settings.query it warns of the query reads rawQueryReads finds.
 // TIFA_EMIT_CHECK=1 in the environment of the build builds the test hook of the start and end tags
 // (see emitInEngine and docs/testing.md), which no build of an app is to have.
 export function ssrPlugin(getRoot, loadVite, settings = {}) {
@@ -1934,6 +1936,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
   let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
+  let rawQueryWarned // the places of the reads of the raw query the build has warned about
   const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -1945,6 +1948,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       serverActions = new Set()
       lucide = new Map()
       jsxRuntimes = new Map()
+      rawQueryWarned = new Set()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -1996,9 +2000,32 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       },
     },
     transform: {
-      filter: { code: /\$\$FORM_ACTION|\.formatter\b/ },
+      filter: { code: /\$\$FORM_ACTION|\.formatter\b|\buse(?:Search|Location|RouterState)\b/ },
       async handler(code, id) {
         if (code.includes('$$FORM_ACTION') && packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
+        // A component of the app that reads, while rendering, a query parameter the server may not
+        // render it with gets a warning (see rawQueryReads): the server renders with the parameters
+        // the Loads read only (renderURL in server/page.go), so another one renders differently in
+        // the browser.
+        if (!id.includes('?') && !id.startsWith('\0') && packageName(id) === '' && /\.(?:tsx?|jsx?|mjs)$/.test(id) && /\buse(?:Search|Location|RouterState)\b/.test(code) && fs.existsSync(id)) {
+          const source = fs.readFileSync(id, 'utf8')
+          const lang = path.extname(id).slice(1)
+          const parsed = (await loadVite()).parseSync(id, source, { lang: lang === 'mjs' ? 'js' : lang, sourceType: 'module' })
+          const file = path.relative(getRoot(), id).split(path.sep).join('/')
+          for (const r of parsed.errors.length > 0 ? [] : rawQueryReads(parsed.program, file, settings.query)) {
+            const before = source.slice(0, r.offset)
+            const place = `${file}:${before.split('\n').length}:${r.offset - before.lastIndexOf('\n')}`
+            if (rawQueryWarned.has(place)) continue
+            rawQueryWarned.add(place)
+            const where =
+              r.names === undefined
+                ? ', in a module that is no page.tsx or layout.tsx and so renders under pages that read other parameters. The server renders a page with the query parameters its Load and the Loads of its Layouts read only'
+                : `, and the server renders this code with ${r.names.length === 0 ? 'no query parameters' : `the query parameters ${r.names.join(', ')}`} only, those the Load of the page and the Loads of its Layouts read`
+            this.warn(
+              `${place}: ${r.read} is read while rendering${where}. Another parameter is missing on the server, so the page hydrates differently in the browser. To render by a parameter, read it in the Load and here by its name. The useSearch of a route gives the types of those parameters and lets any other through, so it does not make a read safe. A read only the browser needs goes in a useEffect.`,
+            )
+          }
+        }
         // A formatter of the app that reads the clock fails the build. Its source is read again,
         // as the code here has lost its types and with them its lines. An id with a query, such as
         // ?raw, or one of a virtual module is not that source run as it is.
@@ -4867,6 +4894,309 @@ function clockReads(program) {
       for (const read in reads) if (reads[read](inner)) found.push({ offset: inner.start, name: name?.type === 'Literal' ? String(name.value) : undefined, read })
     })
   })
+  return found
+}
+
+// rawQueryReads finds where a program reads, while rendering, query parameters of the URL that the
+// server may not render with. The server renders a page with the parameters the Loads of the page
+// and of its Layouts read only (renderURL in server/page.go), and query, from .tifa/vite.js, gives
+// them by folder: query[dir].page for the page of page.tsx, query[dir].layout for the Layout of
+// layout.tsx (see queryTable in internal/codegen). file is the module, relative to the root.
+//
+// It follows the hooks of @tanstack/react-router the module imports, by name or through a namespace:
+// useLocation, useRouterState (its location or resolvedLocation), useSearch({ strict: false }), and
+// the useSearch of a route imported from a route.gen module, in their select or from what they
+// return, through names kept in the scope they are declared in. A parameter read by a name it can
+// tell, as search.q or search['q'], is fine when the server renders with it: in page.tsx or
+// layout.tsx those of the table, and for the useSearch of a route those of that route. Anything else
+// that reads the search of the location is reported: the whole of it, a name it cannot tell,
+// searchStr, href, and a parameter in a module that is no page.tsx or layout.tsx, which can render
+// under any page. The useSearch of a route gives the types of its parameters and lets any other
+// through, so only the members read from it are checked. What runs in a callback given to useEffect
+// or useLayoutEffect of react runs in the browser only and is left alone. It is a check of one
+// module, not of what a function it calls does. It returns where each read is, what it reads and
+// the parameters the server renders that code with, undefined when that depends on the page.
+function rawQueryReads(program, file, query = {}) {
+  const dir = path.posix.dirname(file)
+  const base = path.posix.basename(file)
+  const kind = /^page\.[jt]sx?$/.test(base) ? 'page' : /^layout_?\.[jt]sx?$/.test(base) ? 'layout' : undefined
+  const own = kind ? query[dir]?.[kind] : undefined
+  const routerHooks = new Set(['useSearch', 'useLocation', 'useRouterState'])
+  const effects = new Set(['useEffect', 'useLayoutEffect'])
+  const bare = (node) => {
+    while (
+      node &&
+      (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSNonNullExpression' || node.type === 'TSTypeAssertion' || node.type === 'ParenthesizedExpression' || node.type === 'ChainExpression')
+    )
+      node = node.expression
+    return node
+  }
+  const isFunction = (node) => node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression' || node?.type === 'FunctionDeclaration'
+  // The name of a member or a key when it is written out: a.b, a['b'], a[`b`], { b: ... }.
+  const nameOf = (key, computed) => {
+    key = bare(key)
+    if (!computed) return key?.type === 'Identifier' ? key.name : key?.type === 'Literal' ? String(key.value) : undefined
+    if (key?.type === 'Literal' && (typeof key.value === 'string' || typeof key.value === 'number')) return String(key.value)
+    if (key?.type === 'TemplateLiteral' && key.expressions.length === 0) return key.quasis[0].value.cooked
+  }
+
+  // The values followed. A search has the names the server renders it with, undefined when that
+  // depends on the page, and raw when it is the whole query of the location.
+  const LOCATION = { kind: 'location' }
+  const STATE = { kind: 'state' }
+  const rawSearch = (what) => ({ kind: 'search', raw: true, names: own, what })
+
+  class Scope {
+    constructor(parent) {
+      this.parent = parent
+      this.names = new Map()
+    }
+    get(name) {
+      for (let s = this; s; s = s.parent) if (s.names.has(name)) return s.names.get(name)
+    }
+  }
+  // declared adds to scope the names a pattern binds, as nothing followed.
+  const declare = (pattern, scope) => {
+    pattern = bare(pattern)
+    if (!pattern) return
+    if (pattern.type === 'Identifier') scope.names.set(pattern.name, null)
+    else if (pattern.type === 'ObjectPattern') for (const p of pattern.properties) declare(p.type === 'RestElement' ? p.argument : p.value, scope)
+    else if (pattern.type === 'ArrayPattern') for (const e of pattern.elements) declare(e, scope)
+    else if (pattern.type === 'AssignmentPattern') declare(pattern.left, scope)
+    else if (pattern.type === 'RestElement') declare(pattern.argument, scope)
+    else if (pattern.type === 'TSParameterProperty') declare(pattern.parameter, scope)
+  }
+  // hoist declares the names the statements of a block declare.
+  const hoist = (statements, scope) => {
+    for (let s of statements) {
+      if (s.type === 'ExportNamedDeclaration' || s.type === 'ExportDefaultDeclaration') s = s.declaration
+      if (!s) continue
+      if (s.type === 'VariableDeclaration') for (const d of s.declarations) declare(d.id, scope)
+      else if ((s.type === 'FunctionDeclaration' || s.type === 'ClassDeclaration') && s.id) scope.names.set(s.id.name, null)
+    }
+  }
+
+  const module = new Scope()
+  for (const node of program.body) {
+    if (node.type !== 'ImportDeclaration' || node.importKind === 'type') continue
+    const from = node.source.value
+    for (const s of node.specifiers) {
+      if (s.importKind === 'type') continue
+      const imported = s.type === 'ImportSpecifier' ? (s.imported.name ?? s.imported.value) : s.type === 'ImportDefaultSpecifier' ? 'default' : '*'
+      let value = null
+      if (from === '@tanstack/react-router') value = imported === '*' ? { kind: 'router' } : routerHooks.has(imported) ? { kind: 'hook', hook: imported } : null
+      else if (from === 'react') value = imported === '*' || imported === 'default' ? { kind: 'react' } : effects.has(imported) ? { kind: 'effect' } : null
+      else if (from.startsWith('.') && /(^|\/)route\.gen(\.[jt]sx?)?$/.test(from) && (imported === 'page' || imported === 'layout')) {
+        const names = query[path.posix.join(dir, path.posix.dirname(from))]?.[imported]
+        if (names) value = { kind: 'route', names }
+      }
+      module.names.set(s.local.name, value)
+    }
+  }
+
+  // call says what a call is: a hook of the router, the useSearch of a route or an effect.
+  const call = (node, scope) => {
+    const callee = bare(node.callee)
+    let target
+    if (callee?.type === 'Identifier') target = scope.get(callee.name)
+    else if (callee?.type === 'MemberExpression') {
+      const object = bare(callee.object)
+      const of = object?.type === 'Identifier' ? scope.get(object.name) : undefined
+      const name = nameOf(callee.property, callee.computed)
+      if (of?.kind === 'router' && routerHooks.has(name)) target = { kind: 'hook', hook: name }
+      else if (of?.kind === 'react' && effects.has(name)) target = { kind: 'effect' }
+      else if (of?.kind === 'route' && name === 'useSearch') target = { kind: 'hook', hook: 'route', names: of.names }
+    }
+    if (target?.kind === 'effect') return { effect: true }
+    if (target?.kind !== 'hook') return
+    const options = bare(node.arguments[0])
+    const option = (name) => (options?.type === 'ObjectExpression' ? options.properties.find((p) => p.type === 'Property' && nameOf(p.key, p.computed) === name) : undefined)
+    const select = option('select')
+    let value
+    if (target.hook === 'useLocation') value = LOCATION
+    else if (target.hook === 'useRouterState') value = STATE
+    else if (target.hook === 'route') value = { kind: 'search', raw: false, names: target.names }
+    else {
+      const strict = bare(option('strict')?.value)
+      if (strict?.type === 'Literal' && strict.value === false) value = rawSearch('useSearch({ strict: false })')
+    }
+    const fn = bare(select?.value)
+    return isFunction(fn) ? { select: fn, given: value } : { value }
+  }
+
+  // valueOf is the value an expression has, of those followed.
+  const valueOf = (node, scope) => {
+    node = bare(node)
+    if (node?.type === 'Identifier') return scope.get(node.name) ?? undefined
+    if (node?.type === 'MemberExpression') return member(valueOf(node.object, scope), nameOf(node.property, node.computed))
+    if (node?.type === 'CallExpression') return call(node, scope)?.value
+  }
+  const member = (value, name) => {
+    if (value?.kind === 'location' && name === 'search') return rawSearch('location.search')
+    if (value?.kind === 'state' && (name === 'location' || name === 'resolvedLocation')) return LOCATION
+  }
+
+  const found = []
+  const report = (node, read, names, ctx) => {
+    if (!ctx.effect) found.push({ offset: node.start, read, names })
+  }
+  // read checks reading name, undefined when it cannot be told, of value at node.
+  const read = (node, value, name, ctx) => {
+    if (value?.kind === 'location' && (name === 'searchStr' || name === 'href' || name === undefined)) report(node, name === undefined ? 'a member of the location' : `location.${name}`, own, ctx)
+    if (value?.kind !== 'search') return
+    if (name === undefined) {
+      if (value.raw) report(node, `${value.what}[...]`, value.names, ctx)
+    } else if (!value.names?.includes(name)) report(node, `the query parameter ${JSON.stringify(name)}`, value.names, ctx)
+  }
+  // whole reports a raw search used as a whole, which carries every parameter, where it is not
+  // read a member of or kept in a name, which the reads of the name then check.
+  const whole = (node, value, ctx, parent, key) => {
+    if ((parent?.type === 'MemberExpression' && key === 'object') || (parent?.type === 'VariableDeclarator' && key === 'init')) return
+    if (value?.kind === 'search' && value.raw) report(node, value.what, value.names, ctx)
+  }
+  // bind binds the names of a pattern to the parts of value it takes.
+  const bind = (pattern, value, scope, ctx) => {
+    pattern = bare(pattern)
+    if (!pattern) return
+    if (pattern.type === 'Identifier') scope.names.set(pattern.name, value ?? null)
+    else if (pattern.type === 'ObjectPattern') {
+      for (const p of pattern.properties) {
+        if (p.type === 'RestElement') {
+          bind(p.argument, value, scope, ctx)
+          continue
+        }
+        if (p.computed) visit(p.key, scope, ctx, p, 'key')
+        const name = nameOf(p.key, p.computed)
+        read(p, value, name, ctx)
+        bind(p.value, member(value, name), scope, ctx)
+      }
+    } else if (pattern.type === 'AssignmentPattern') {
+      visit(pattern.right, scope, ctx, pattern, 'right')
+      bind(pattern.left, value, scope, ctx)
+    } else if (pattern.type === 'ArrayPattern') for (const e of pattern.elements) bind(e, undefined, scope, ctx)
+    else if (pattern.type === 'RestElement') bind(pattern.argument, undefined, scope, ctx)
+    else if (pattern.type === 'TSParameterProperty') bind(pattern.parameter, undefined, scope, ctx)
+  }
+  const fn = (node, scope, ctx, given) => {
+    const inner = new Scope(scope)
+    for (const p of node.params) declare(p, inner)
+    node.params.forEach((p, i) => bind(p, i === 0 ? given : undefined, inner, ctx))
+    if (node.body?.type === 'BlockStatement') {
+      hoist(node.body.body, inner)
+      for (const s of node.body.body) visit(s, inner, ctx, node.body, 'body')
+    } else if (node.body) visit(node.body, inner, ctx, node, 'body')
+  }
+  const skipped = new Set(['type', 'start', 'end', 'range', 'loc', 'parent', 'typeAnnotation', 'returnType', 'typeParameters', 'typeArguments', 'superTypeArguments', 'superTypeParameters', 'decorators'])
+  const children = (node, scope, ctx) => {
+    for (const key in node) {
+      if (skipped.has(key)) continue
+      const child = node[key]
+      if (Array.isArray(child)) for (const c of child) visit(c, scope, ctx, node, key)
+      else visit(child, scope, ctx, node, key)
+    }
+  }
+  // visit goes through node in scope, parent and key saying where it is.
+  const visit = (node, scope, ctx, parent, key) => {
+    if (node === null || typeof node !== 'object' || typeof node.type !== 'string') return
+    switch (node.type) {
+      case 'TSAsExpression':
+      case 'TSSatisfiesExpression':
+      case 'TSNonNullExpression':
+      case 'TSTypeAssertion':
+      case 'ParenthesizedExpression':
+      case 'ChainExpression':
+        return visit(node.expression, scope, ctx, parent, key)
+      case 'Identifier':
+        return whole(node, scope.get(node.name), ctx, parent, key)
+      case 'MemberExpression': {
+        visit(node.object, scope, ctx, node, 'object')
+        if (node.computed) visit(node.property, scope, ctx, node, 'property')
+        const name = nameOf(node.property, node.computed)
+        read(node, valueOf(node.object, scope), name, ctx)
+        return whole(node, valueOf(node, scope), ctx, parent, key)
+      }
+      case 'CallExpression': {
+        const c = call(node, scope)
+        visit(node.callee, scope, ctx, node, 'callee')
+        node.arguments.forEach((a, i) => {
+          if (c?.effect && i === 0) return visit(a, scope, { ...ctx, effect: true }, node, 'arguments')
+          const options = bare(a)
+          if (c?.select && i === 0 && options.type === 'ObjectExpression') {
+            for (const p of options.properties) {
+              if (p.type === 'Property' && bare(p.value) === c.select) fn(c.select, scope, ctx, c.given)
+              else visit(p, scope, ctx, options, 'properties')
+            }
+            return
+          }
+          visit(a, scope, ctx, node, 'arguments')
+        })
+        return whole(node, c?.value, ctx, parent, key)
+      }
+      case 'VariableDeclarator':
+        visit(node.init, scope, ctx, node, 'init')
+        return bind(node.id, valueOf(node.init, scope), scope, ctx)
+      case 'ArrowFunctionExpression':
+      case 'FunctionExpression':
+      case 'FunctionDeclaration':
+        return fn(node, scope, ctx)
+      case 'Program':
+      case 'BlockStatement':
+      case 'StaticBlock': {
+        const inner = node.type === 'Program' ? new Scope(module) : new Scope(scope)
+        hoist(node.body, inner)
+        for (const s of node.body) visit(s, inner, ctx, node, 'body')
+        return
+      }
+      case 'ForStatement':
+      case 'ForInStatement':
+      case 'ForOfStatement':
+      case 'SwitchStatement': {
+        const inner = new Scope(scope)
+        for (const d of [node.init, node.left]) if (d?.type === 'VariableDeclaration') hoist([d], inner)
+        if (node.type === 'SwitchStatement') for (const c of node.cases) hoist(c.consequent, inner)
+        return children(node, inner, ctx)
+      }
+      case 'CatchClause': {
+        const inner = new Scope(scope)
+        declare(node.param, inner)
+        bind(node.param, undefined, inner, ctx)
+        return visit(node.body, inner, ctx, node, 'body')
+      }
+      case 'Property':
+      case 'MethodDefinition':
+      case 'PropertyDefinition':
+      case 'AccessorProperty':
+        if (node.computed) visit(node.key, scope, ctx, node, 'key')
+        return visit(node.value, scope, ctx, node, 'value')
+      case 'AssignmentExpression':
+        if (bare(node.left)?.type === 'MemberExpression') visit(node.left, scope, ctx, node, 'left')
+        return visit(node.right, scope, ctx, node, 'right')
+      case 'LabeledStatement':
+        return visit(node.body, scope, ctx, node, 'body')
+      case 'ClassDeclaration':
+      case 'ClassExpression':
+        visit(node.superClass, scope, ctx, node, 'superClass')
+        return visit(node.body, scope, ctx, node, 'body')
+      case 'ExportNamedDeclaration':
+      case 'ExportDefaultDeclaration':
+        return visit(node.declaration, scope, ctx, node, 'declaration')
+      case 'ImportDeclaration':
+      case 'ExportAllDeclaration':
+      case 'BreakStatement':
+      case 'ContinueStatement':
+      case 'MetaProperty':
+      case 'TSInterfaceDeclaration':
+      case 'TSTypeAliasDeclaration':
+      case 'TSEnumDeclaration':
+      case 'TSModuleDeclaration':
+      case 'TSDeclareFunction':
+      case 'TSImportEqualsDeclaration':
+        return
+      default:
+        return children(node, scope, ctx)
+    }
+  }
+  visit(program, module, { effect: false })
   return found
 }
 

@@ -181,6 +181,22 @@ func TestPageCacheApp(t *testing.T) {
 		}
 	})
 
+	t.Run("the render sees only the query parameters the Loads read", func(t *testing.T) {
+		_, _, body := cacheSend(t, "GET", base+"/news?utm_source=mail&x=r4nd&page=2", "")
+		if !regexp.MustCompile(`page=(<!-- -->)?2`).MatchString(body) || strings.Contains(body, "r4nd") || strings.Contains(body, "utm_source") {
+			t.Errorf("%.2000s", body)
+		}
+		// A redirect to the URL the router spells keeps the parameters the render did not see.
+		for target, want := range map[string]string{
+			"/%6Eews?utm_source=mail&page=2": "/news?page=2&utm_source=mail",
+			"/news/?utm_source=mail&page=2":  "/news?utm_source=mail&page=2",
+		} {
+			if status, h, _ := cacheSend(t, "GET", base+target, ""); status != http.StatusPermanentRedirect || h.Get("Location") != want {
+				t.Errorf("%s: %d %q, want %q", target, status, h.Get("Location"), want)
+			}
+		}
+	})
+
 	t.Run("hydration and requests in a browser", func(t *testing.T) { pageCacheInBrowser(t, base) })
 }
 
@@ -191,19 +207,21 @@ func sep(path string) string {
 	return "?"
 }
 
-// pageCacheInBrowser opens a page with Cache under a tracking parameter in a real browser: it must
-// hydrate without a warning and without asking for its data again.
+// pageCacheInBrowser opens a page with Cache under tracking parameters and a random one in a real
+// browser: it must hydrate without a warning and without asking for its data again, with every
+// parameter still in the address bar.
 func pageCacheInBrowser(t *testing.T, base string) {
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
 		t.Skip("playwright-cli is not installed")
 	}
 	pw, _ := openBrowser(t, "tifa-e2e-pc")
-	pw("open", base+"/news?utm_source=mail&fbclid=abc&page=2")
+	target := base + "/news?utm_source=mail&fbclid=abc&x=r4nd&page=2"
+	pw("open", target)
 	waitFor(t, "the page to load", func() bool {
 		return strings.Contains(pw("eval", `() => document.readyState + (document.getElementById("news")?.textContent ?? "")`), "complete")
 	})
 	time.Sleep(500 * time.Millisecond)
-	if out := pw("console", "warning"); strings.Contains(strings.ToLower(out), "hydrat") || strings.Contains(out, "did not match") {
+	if out := pw("console", "warning"); strings.Contains(strings.ToLower(out), "hydrat") || strings.Contains(out, "did not match") || strings.Contains(out, "Minified React error") {
 		t.Errorf("console: %s", out)
 	}
 	if out := pw("network"); strings.Contains(out, "_tifa=") {
@@ -211,6 +229,10 @@ func pageCacheInBrowser(t *testing.T, base string) {
 	}
 	if out := pw("eval", `() => document.getElementById("news")?.textContent ?? ""`); !strings.Contains(out, "page=2") {
 		t.Errorf("page text %s", out)
+	}
+	// The address bar keeps every parameter.
+	if out := pw("eval", "() => location.href"); !strings.Contains(out, `"`+target+`"`) {
+		t.Errorf("address bar %s", out)
 	}
 	// A page with Cache may come from a CDN, so it carries no age and stays undated.
 	expectDatesInBrowser(t, "tifa-e2e-ca", base+"/news", false)

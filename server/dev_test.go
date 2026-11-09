@@ -401,11 +401,11 @@ func TestDevMainKeepsRequestErrors(t *testing.T) {
 	if broken.URL != "/broken?x=1" || broken.Status != 503 || broken.Message != "Come back later" || !strings.Contains(broken.Error, "the orders table is gone") || broken.Count != 1 {
 		t.Errorf("second = %+v", broken)
 	}
-	// The error page of /broken goes through the render memo like a page, so it is checked too.
-	if len(got.Renders) != 2 {
+	// The error page of /broken is not kept by the render memo, so only /stats is rendered twice.
+	if len(got.Renders) != 1 {
 		t.Fatalf("renders = %+v", got.Renders)
 	}
-	for i, url := range []string{"/broken?x=1", "/stats"} {
+	for i, url := range []string{"/stats"} {
 		if r := got.Renders[i]; r.URL != url || r.Method != "GET" || !strings.Contains(r.Text, "read the time or a random number") || r.Count != 1 {
 			t.Errorf("render %d = %+v", i, r)
 		}
