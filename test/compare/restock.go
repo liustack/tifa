@@ -43,8 +43,8 @@ type VisitWrites struct {
 //
 // The cart of a visit is followed as the shop keeps it: it starts with the demonstration cart, an
 // add puts at most maxLine of one line in it, a quantity change sets a line and a checkout empties
-// it. A write of the back office that may place an order (a ship that finds the pool empty places
-// one instead) counts with the items AdminBody gives its create (seed is the seed of the workload,
+// it. A write of the back office that places an order (a create, and a ship, whose order is placed
+// before the clock) counts with the items AdminBody gives its create (seed is the seed of the workload,
 // as the replay passes it).
 func StockFor(seed uint64, visits []VisitWrites) map[string]map[string]int {
 	need := map[string]map[string]int{}
@@ -77,8 +77,8 @@ func (w *Workload) stockOf(seq0, n int) []VisitWrites {
 	return out
 }
 
-// placesOrder says whether a write of the back office of a kind can place an order: a create, and a
-// ship that finds the pool empty. An edit of a product places none.
+// placesOrder says whether a write of the back office of a kind places an order: a create, and a ship,
+// whose order setupOrders places before the clock. An edit of a product places none.
 func placesOrder(kind string) bool { return kind == WriteCreate || kind == WriteShip }
 
 // boughtBy is the pieces of each product of each shop that the orders of one visit take at most.
@@ -244,13 +244,13 @@ const storefrontShop = "studio"
 
 // prepare restocks the server of r for a run of visits visits of its workload (visits 0 to visits-1,
 // as a round plays them: their checkouts, the carts of the returning visitors among them, and the
-// orders staff may place), before the run makes those carts and starts its clock (see with). A run of
-// -1 visits plays for a time, as the sizing run does, and cannot know
-// how many visits it plays: it gets as much stock as the shop takes of every product its plans buy.
+// orders staff place), before the run makes its orders and carts and starts its clock (see with). A
+// run of -1 visits is a sizing run, which plays sizingVisits visits at most: it gets as much stock as
+// the shop takes of every product its plans buy.
 func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) error {
 	n := visits
 	if n < 0 {
-		n = r.wl.cycleLen()
+		n = sizingVisits(b.o.Warm)
 	}
 	need := StockFor(r.seed, r.wl.stockOf(0, n))
 	if visits < 0 {

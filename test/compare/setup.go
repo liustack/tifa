@@ -3,22 +3,101 @@ package compare
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
+	"slices"
 	"sync"
 )
 
-// The carts of the returning visitors are data the shop already holds when a round starts, like the
-// rows of a database before a benchmark: a returning visitor comes back to a cart of their own. After
-// the server starts and before the clock, the runner makes one cart for each returning visit of the
-// round, through the shop's own cart API (returningCart), the same on every framework. Making them must
-// put nothing into a render memo: every answer of the setup must render no page (X-Tifa-Render
-// absent or none), or the round is not valid. Each cart is used by exactly one returning visit.
+// The data a round needs is made after the server starts and before the clock, like the rows of a
+// database before a benchmark, the same on every framework:
+//
+//   - the restock (prepare, restock.go) gives every product the stock the round can buy,
+//   - then one order of the back office for each ship the round plans (setupOrders), placed with the
+//     create of the staff, so that each ship of the plan has an order of its own to ship,
+//   - then one cart for each returning visit of the round (setupCarts), through the shop's own cart
+//     API (returningCart): a returning visitor comes back to a cart of their own, used by that visit
+//     alone.
+//
+// Making them must put nothing into a render memo: every answer must be the status planned and render
+// no page (X-Tifa-Render absent or none), or the round is not valid.
 
 // setupWorkers is how many carts are made at once.
 const setupWorkers = 8
+
+// setup makes the orders of the ships and the carts of the returning visitors among visits seq0 to
+// seq0+n-1, after the restock. It reports whether they were made: when not, round says why, and the
+// round is not played.
+func (r *runner) setup(ctx context.Context, round *Round, seq0, n int) bool {
+	return r.setupOrders(ctx, round, seq0, n) && r.setupCarts(ctx, round, seq0, n)
+}
+
+// noRedirect is the CheckRedirect of the clients of the setup: an answer is checked as the server
+// sent it, and a redirect is not followed to a page that would render.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// sendSetup sends one request of the setup with c and returns the body of its answer. It fails on an
+// answer with another status than want or one that rendered a page.
+func sendSetup(ctx context.Context, c *http.Client, base, method, path string, body []byte, want int) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	defer res.Body.Close()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	if res.StatusCode != want {
+		return nil, fmt.Errorf("%s %s: status %d, want %d: %.200s", method, path, res.StatusCode, want, data)
+	}
+	if how := res.Header.Get(RenderHeader); how != "" && how != RenderNone {
+		return nil, fmt.Errorf("%s %s rendered a page (%s %s): the setup must put nothing into the render memo", method, path, RenderHeader, how)
+	}
+	return data, nil
+}
+
+// setupOrders places, for each ship of visits seq0 to seq0+n-1 in the order of the plan, an order of
+// the project of the ship with the create of the staff and the items AdminBody gives it, and keeps it
+// for that ship (pool.made). It notes in round how many requests it took, and reports whether they
+// were placed: when not, round says why.
+func (r *runner) setupOrders(ctx context.Context, round *Round, seq0, n int) bool {
+	c := &http.Client{CheckRedirect: noRedirect}
+	for s := seq0; s < seq0+n; s++ {
+		writes := r.wl.writesOf(s)
+		for _, after := range slices.Sorted(maps.Keys(writes)) {
+			w := writes[after]
+			if w.Kind != WriteShip {
+				continue
+			}
+			round.SetupRequests++
+			data, err := sendSetup(ctx, c, r.base, http.MethodPost, r.create(w.Project), mustJSON(AdminBody(r.seed, w.Seq, w.After, WriteCreate, w.Project)), 200)
+			var placed struct {
+				ID string `json:"id"`
+			}
+			if err == nil {
+				if err = json.Unmarshal(data, &placed); err == nil && placed.ID == "" {
+					err = fmt.Errorf("no order id in the answer: %.200s", data)
+				}
+			}
+			if err != nil {
+				round.SetupError = fmt.Sprintf("the order of the ship of visit %d after view %d: %v", w.Seq, w.After, err)
+				return false
+			}
+			r.pool.made(w, placed.ID)
+		}
+	}
+	return true
+}
 
 // setupCarts makes the carts of the returning visitors among visits seq0 to seq0+n-1, keeps the
 // cookies of each for its visit, and notes in round how many requests it took. It reports whether
@@ -51,7 +130,7 @@ func (r *runner) setupCarts(ctx context.Context, round *Round, seq0, n int) bool
 			defer wg.Done()
 			for j := range next {
 				jar, _ := cookiejar.New(nil)
-				c := &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+				c := &http.Client{Transport: tr, Jar: jar, CheckRedirect: noRedirect}
 				err := r.makeCart(ctx, c, j.reqs)
 				mu.Lock()
 				if err != nil && firstErr == nil {
@@ -79,23 +158,8 @@ func (r *runner) setupCarts(ctx context.Context, round *Round, seq0, n int) bool
 // than the plan's or on an answer that rendered a page.
 func (r *runner) makeCart(ctx context.Context, c *http.Client, reqs []StoreRequest) error {
 	for _, q := range reqs {
-		path := r.storeWrite(q.Path)
-		req, err := http.NewRequestWithContext(ctx, q.Method, r.base+path, bytes.NewReader(q.Body))
-		if err != nil {
+		if _, err := sendSetup(ctx, c, r.base, q.Method, r.storeWrite(q.Path), q.Body, q.Status); err != nil {
 			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		res, err := c.Do(req)
-		if err != nil {
-			return err
-		}
-		io.Copy(io.Discard, res.Body)
-		res.Body.Close()
-		if res.StatusCode != q.Status {
-			return fmt.Errorf("%s %s: status %d, want %d", q.Method, path, res.StatusCode, q.Status)
-		}
-		if how := res.Header.Get(RenderHeader); how != "" && how != RenderNone {
-			return fmt.Errorf("%s %s rendered a page (%s %s): the setup must put nothing into the render memo", q.Method, path, RenderHeader, how)
 		}
 	}
 	return nil

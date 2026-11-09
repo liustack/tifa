@@ -111,12 +111,10 @@ type Round struct {
 	// round went as the cache filled or the JIT warmed.
 	Series []SeriesStep `json:"series,omitempty"`
 
-	// WriteKinds counts the writes by kind. PoolEmpty counts the admin writes that found no order to
-	// go to and were sent as a create instead (they are among the creates). Orders is, for each
-	// project, how many orders the server held at the end of an admin round: those of the data and
-	// every order placed since it started.
+	// WriteKinds counts the writes by kind. Orders is, for each project, how many orders the server held
+	// at the end of a round: those of the data, the ones placed for its ships before the clock and
+	// every order placed since.
 	WriteKinds map[string]int `json:"writeKinds,omitempty"`
-	PoolEmpty  int            `json:"poolEmpty,omitempty"`
 	Orders     map[string]int `json:"orders,omitempty"`
 	// Refused counts the requests, writes and pages, that the shop refused with 409 or 422. Given the
 	// stock the run was restocked with, the plan makes every write one the shop takes, so a round with
@@ -162,7 +160,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 		}
 	}
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
-	r.WriteKinds, r.PoolEmpty = a.kinds, a.poolEmpty
+	r.WriteKinds = a.kinds
 	r.Refused = a.refused
 	r.Seconds = end.Sub(start).Seconds()
 	if !a.lastAction.IsZero() && a.lastAction.After(start) {
@@ -263,7 +261,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 // It starts at the first scheduled action and ends when the last visit has finished, or at timeout.
 func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout time.Duration) *Round {
 	round := &Round{Model: "closed", Sessions: sessions, Blocks: visits / r.wl.blockVisits()}
-	if !r.setupCarts(ctx, round, 0, visits) {
+	if !r.setup(ctx, round, 0, visits) {
 		r.wl.plan(round, 0, visits, false)
 		return round
 	}
@@ -307,18 +305,29 @@ func (r *runner) countOrders(round *Round) {
 // second it completed. It is the warm-up of a framework, apart from the measured round. It sends no
 // writes (see pacer), so the data the round starts with is the same for every framework.
 func (r *runner) Warm(ctx context.Context, sessions int, d time.Duration) float64 {
-	return r.closedFor(ctx, sessions, d, pacer{reads: true})
+	rate, _ := r.closedFor(ctx, sessions, d, pacer{reads: true}, -1)
+	return rate
 }
 
-// Size plays the scenario with its writes for d, on sessions concurrent sessions, and returns the visits a second: what the
-// first round of a cell is sized from.
-func (r *runner) Size(ctx context.Context, sessions int, d time.Duration) float64 {
-	return r.closedFor(ctx, sessions, d, pacer{})
+// Size plays visits 0 to visits-1 of the scenario with their writes, on sessions concurrent sessions,
+// for d or until they have all ended, and returns the visits a second: what the first round of a cell
+// is sized from. Before it the setup makes the orders of their ships and the carts of their
+// returning visitors, as before a round. The round it returns says why the setup failed, and counts
+// the failures and the refusals of the run.
+func (r *runner) Size(ctx context.Context, sessions int, d time.Duration, visits int) (float64, *Round) {
+	round := &Round{}
+	if !r.setup(ctx, round, 0, visits) {
+		return 0, round
+	}
+	rate, a := r.closedFor(ctx, sessions, d, pacer{}, visits)
+	round.Failures, round.Refused = a.failures, a.refused
+	return rate, round
 }
 
-// closedFor plays visits on sessions concurrent sessions, each starting the next as soon as one ends, for d, and returns
-// the visits a second that ended, completed or failed.
-func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p pacer) float64 {
+// closedFor plays visits on sessions concurrent sessions, each starting the next as soon as one ends,
+// for d or until visits have started (no limit when visits is negative), and returns the visits a
+// second that ended, completed or failed, and what it saw.
+func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p pacer, visits int) (float64, *acc) {
 	a := newAcc()
 	var next, ended atomic.Int64
 	wctx, cancel := context.WithTimeout(ctx, d)
@@ -332,16 +341,20 @@ func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p
 			tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: maxConns, MaxConnsPerHost: maxConns, IdleConnTimeout: idleConn}
 			defer tr.CloseIdleConnections()
 			for wctx.Err() == nil {
+				s := int(next.Add(1)) - 1
+				if visits >= 0 && s >= visits {
+					return
+				}
 				// Visits that failed count too (a 503 ends a visit fast): the rate sizes rounds, whose length
 				// every visit sets.
-				if r.runVisit(wctx, tr, a, int(next.Add(1))-1, p) || wctx.Err() == nil {
+				if r.runVisit(wctx, tr, a, s, p) || wctx.Err() == nil {
 					ended.Add(1)
 				}
 			}
 		}()
 	}
 	wg.Wait()
-	return float64(ended.Load()) / time.Since(start).Seconds()
+	return float64(ended.Load()) / time.Since(start).Seconds(), a
 }
 
 // BlocksFor sizes a workload: the whole blocks (a multiple of the number of blocks of the plans,
@@ -359,7 +372,7 @@ func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) 
 // sequence from seq0. With reads set it sends no writes: a warm-up.
 func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int, reads bool) *Round {
 	round := &Round{Model: "open", Rate: rate}
-	if !reads && !r.setupCarts(ctx, round, seq0, n) {
+	if !reads && !r.setup(ctx, round, seq0, n) {
 		r.wl.plan(round, seq0, n, reads)
 		return round
 	}

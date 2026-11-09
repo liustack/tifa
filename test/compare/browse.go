@@ -405,8 +405,8 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // show in its pages runs on a server of its own that is thrown away (checkWrites, once for a spec and a
 // scenario), so that a server of Tifa starts its round with an empty render memo. A run with writes
 // first restocks the server (prepare), which renders nothing, for visits visits (-1 for a run that
-// plays for a time, the sizing run), and f then makes the carts of the returning visitors before its
-// clock (setupCarts), which render nothing either. A run whose restock fails is an invalid round, and f does not
+// plays for a time, the sizing run), and f then makes the orders of its ships and the carts of the
+// returning visitors before its clock (setup), which render nothing either. A run whose restock fails is an invalid round, and f does not
 // run. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
@@ -537,18 +537,32 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 // included, on a fresh server that is then thrown away, for the length of a warm-up. The first round
 // of a cell is sized from it: the warm-up of a round sends no writes (so that every round starts with
 // the same data), and a server that writes make slower (a cache that they clear) would be sized too
-// large from that.
+// large from that. It plays sizingVisits visits at most, with their setup made before it as for a
+// round, and a setup that fails is an error.
 func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
+	sized := &Round{}
 	out, err := b.with(ctx, fw, sc, -1, func(r *runner) *Round {
-		rate = r.Size(ctx, sessions, b.o.Warm)
+		rate, sized = r.Size(ctx, sessions, b.o.Warm, sizingVisits(b.o.Warm))
 		return &Round{}
 	})
 	if err == nil && !out.Valid && strings.HasPrefix(out.WhyInvalid, "restock") {
 		return 0, fmt.Errorf("%s/%s, sizing: %s", sc.Name, fw, out.WhyInvalid)
 	}
+	if err == nil && sized.SetupError != "" {
+		return 0, fmt.Errorf("%s/%s, sizing: the setup: %s", sc.Name, fw, sized.SetupError)
+	}
 	return rate, err
 }
+
+// sizingRate is the most visits a second a sizing run is made for: it plays sizingRate visits for
+// each second of its length at most, so that the orders of their ships and the carts of their
+// returning visitors can be made before it. A server faster than that ends the run early, and its
+// rate is still the visits over the time they took.
+const sizingRate = 1000
+
+// sizingVisits is how many visits a sizing run of length d plays at most.
+func sizingVisits(d time.Duration) int { return max(1, int(math.Ceil(sizingRate*d.Seconds()))) }
 
 // judgeClosed finishes the judgement of a closed round: a load generator that ran out of cpus makes it
 // invalid, whatever the server did (a closed round has no schedule, so only the cpus are checked, and
@@ -957,8 +971,7 @@ func (r *runner) shows(ctx context.Context, what, page string, texts ...string) 
 //     stats page is not what it was.
 //
 // The data of an order that was placed here has no trace to ask a navigation request from, so it is
-// read as a document. The order of step 1 is shipped in step 4, so the pool of the writes is what it
-// was.
+// read as a document. The order of step 1 is shipped in step 4.
 func (r *runner) verifyAdmin(ctx context.Context) error {
 	v := &visitState{client: &http.Client{}}
 	call := func(method, path string, body any) ([]byte, error) {
@@ -1001,12 +1014,9 @@ func (r *runner) verifyAdmin(ctx context.Context) error {
 		return err
 	}
 
-	// The recipient of an order that waits: SH-1041 when the pool still holds it (before any write of a
-	// round, and its page has a trace), else the order placed above.
-	target, customer, phone := order.ID, "林夏", "13800138000"
-	if r.pool.holds("studio", "SH-1041") {
-		target, customer, phone = "SH-1041", WritableOrders[1].Customer, WritableOrders[1].Phone
-	}
+	// The recipient of an order of the data that waits, which no ship of a round takes (its page has a
+	// trace).
+	target, customer, phone := "SH-1041", WritableOrders[1].Customer, WritableOrders[1].Phone
 	if _, err := call(http.MethodPatch, r.write("studio", target), map[string]any{"customer": customer, "phone": phone, "address": Address(n)}); err != nil {
 		return err
 	}

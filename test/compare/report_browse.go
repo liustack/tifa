@@ -294,7 +294,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessi
 // given by rounds.
 func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
 	fw := r.Servers[sc.Name]
-	b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | add to cart | check out | edit a product | ship | sent as a place-an-order write for lack of an order | write P50 ms: add / check out / edit / ship / place | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhat the writes of a round were (median of the rounds, the range in brackets):\n\n| | add to cart | check out | edit a product | ship | write P50 ms: add / check out / edit / ship | orders at the end, studio / weekend |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := rounds(f)
 		if len(rs) == 0 {
@@ -304,9 +304,9 @@ func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rou
 			return fmtCell(each(rs, func(x *Round) float64 { return float64(get(x)) }), "%.0f")
 		}
 		kind := func(k string) string { return n(func(x *Round) int { return x.WriteKinds[k] }) }
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s / %s / %s / %s / %s | %s / %s |\n", BrowseLabel(f),
-			kind(WriteAdd), kind(WriteCheckout), kind(WriteEdit), kind(WriteShip), n(func(x *Round) int { return x.PoolEmpty }),
-			p50Cell(rs, "write "+WriteAdd), p50Cell(rs, "write "+WriteCheckout), p50Cell(rs, "write "+WriteEdit), p50Cell(rs, "write "+WriteShip), p50Cell(rs, "write "+WriteCreate),
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s / %s / %s / %s | %s / %s |\n", BrowseLabel(f),
+			kind(WriteAdd), kind(WriteCheckout), kind(WriteEdit), kind(WriteShip),
+			p50Cell(rs, "write "+WriteAdd), p50Cell(rs, "write "+WriteCheckout), p50Cell(rs, "write "+WriteEdit), p50Cell(rs, "write "+WriteShip),
 			n(func(x *Round) int { return x.Orders["studio"] }), n(func(x *Round) int { return x.Orders["weekend"] }))
 	}
 }

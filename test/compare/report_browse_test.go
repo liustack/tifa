@@ -148,9 +148,8 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 		}
 		for _, f := range servers {
 			x := closedRound(f, sc.Name, 32, 1, 4000, 10, true)
-			x.WriteKinds = map[string]int{WriteCreate: 40, WriteShip: 30, WriteAdd: 50, WriteCheckout: 20}
+			x.WriteKinds = map[string]int{WriteShip: 30, WriteAdd: 50, WriteCheckout: 20}
 			x.Orders = map[string]int{"studio": 82, "weekend": 12}
-			x.PoolEmpty = 21 // of 210 writes
 			if sc.Throughput {
 				r.Closed = append(r.Closed, x)
 			}
@@ -193,7 +192,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 				t.Errorf("%s has no row for %s", sc.Name, f)
 			}
 		}
-		if !strings.Contains(sec, "| add to cart | check out | edit a product | ship |") || !strings.Contains(sec, "| 82 / 12 |") || !strings.Contains(sec, "| 50 | 20 | 0 | 30 | 21 |") {
+		if !strings.Contains(sec, "| add to cart | check out | edit a product | ship |") || !strings.Contains(sec, "| 82 / 12 |") || !strings.Contains(sec, "| 50 | 20 | 0 | 30 | ") {
 			t.Errorf("%s lacks the table of writes:\n%s", sc.Name, sec)
 		}
 	}

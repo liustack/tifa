@@ -814,7 +814,7 @@ func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
 	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
 	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
 	r.wl.Writes[[2]int{0, 0}] = testWrite()
-	if rate := r.Size(context.Background(), 2, 100*time.Millisecond); rate <= 0 {
+	if rate, _ := r.Size(context.Background(), 2, 100*time.Millisecond, 1000); rate <= 0 {
 		t.Fatalf("the sizing run completed no visit")
 	}
 	writes := 0

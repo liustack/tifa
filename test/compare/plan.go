@@ -140,9 +140,8 @@ var WritableOrders = []WriteOrder{
 	{"weekend", "WK-0201", "苏禾", "13500135004"},
 }
 
-// The kinds of a write of the back office. A staff visit edits a product or ships an order, and a
-// ship that finds no order to go to in the pool (writepool.go) places one instead. The checks of the
-// back office (domain.go, verifyAdmin) also add notes and change recipients.
+// The kinds of a write of the back office. A staff visit edits a product or ships an order (the order
+// placed for that ship before the clock, setupOrders). The checks of the back office (domain.go, verifyAdmin) also add notes and change recipients.
 const (
 	WriteEdit      = "edit"
 	WriteShip      = "ship"
@@ -156,8 +155,8 @@ const (
 
 // PlannedWrite is a write of visit Seq of a run after its page view After (counted from 0). A write
 // of the storefront has Store, the whole request, since the cart it goes to is the visit's own. A
-// write of the back office has a kind and a project and no order: the order is taken from the pool
-// of the server when the write is sent.
+// write of the back office has a kind and a project and no order: a ship ships the order placed for
+// it before the clock (setupOrders).
 type PlannedWrite struct {
 	After   int
 	Seq     int

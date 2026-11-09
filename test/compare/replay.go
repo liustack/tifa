@@ -319,10 +319,8 @@ type acc struct {
 	lat                                 map[string][]float64
 	samples                             []viewSample // every page view that completed, for the series
 	lastAction                          time.Time
-	// kinds counts the writes by kind, and poolEmpty the admin writes that found no order to go to
-	// and were sent as a create instead (they are among the creates).
-	kinds     map[string]int
-	poolEmpty int
+	// kinds counts the writes by kind.
+	kinds map[string]int
 	// refused counts the requests the shop refused with 409 or 422 (see refuse).
 	refused int
 	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.

@@ -29,8 +29,8 @@ func TestStockForCountsWhatTheCheckoutsOfARunBuy(t *testing.T) {
 		store(3, WriteCoupon, "/store/cart", map[string]any{"code": "SHANHAI10"}),
 		store(4, WriteAdd, "/store/products/oak-tray", map[string]any{"color": "oak", "quantity": 3}),
 	}}
-	// The demonstration cart as it is, and a ship of the staff, which places the order AdminBody
-	// gives its create when the pool is empty.
+	// The demonstration cart as it is, and a ship of the staff, whose order the setup places with the
+	// items AdminBody gives its create.
 	ship := PlannedWrite{After: 1, Seq: 1, Kind: WriteShip, Project: "studio"}
 	b := VisitWrites{Writes: []PlannedWrite{store(2, WriteCheckout, "/zh-CN/store/checkout", map[string]any{"email": "a@b.c"}), ship}}
 	// A returning visit buys the cart its setup made, and a note places no order.

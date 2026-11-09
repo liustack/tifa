@@ -78,9 +78,12 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 				return
 			}
 			l.hits.Add(1)
-			if r.Method == "POST" && strings.Contains(r.URL.Path, "/store/products/") {
+			switch {
+			case r.Method == "POST" && (r.URL.Path == "/compare-write/studio" || r.URL.Path == "/compare-write/weekend"):
+				l.seq.add('O') // an order staff place: the setup places one for each ship
+			case r.Method == "POST" && strings.Contains(r.URL.Path, "/store/products/"):
 				l.seq.add('A')
-			} else {
+			default:
 				l.seq.add('T')
 			}
 			if r.Method == "GET" {
@@ -131,9 +134,9 @@ func warmSpecs() (tifa, nocache, node Spec) {
 // what the memo holds there before the clock starts. Before a measured round of Tifa, with or
 // without the cache, nothing that renders reaches its server: it gets the GETs of the round and no
 // other, and besides the writes of the round only the writes that make the carts of the returning
-// visitors. Both kinds of setup happen, in this order: the restock (Restock, which renders nothing), then
-// the carts of the returning visitors, then the round. The Node servers keep their warm-up (their JIT
-// needs it).
+// visitors. Every kind of setup happens, in this order: the restock (Restock, which renders nothing),
+// then an order for each ship of the round, then the carts of the returning visitors, then the round.
+// The Node servers keep their warm-up (their JIT needs it).
 func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 	tifa, nocache, node := warmSpecs()
 	sc := mustScenario("shop")
@@ -144,8 +147,9 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 		edits := out.WriteKinds[WriteEdit]
 		return int(l.gets.Load()) == out.Requests-out.Writes-edits && int(l.hits.Load()) == out.Requests+out.SetupRequests-2*edits
 	}
-	// setUp checks that a server of a round was restocked, then got the carts of the setup, then the
-	// round, with nothing between (Tifa), or the warm-up between the restock and the carts (Node).
+	// setUp checks that a server of a round was restocked, then got the orders and the carts of the
+	// setup, then the round, with nothing between (Tifa), or the warm-up between the restock and the
+	// orders (Node).
 	setUp := func(t *testing.T, l *launched, out *Round, warmed bool) {
 		t.Helper()
 		o := l.seq.order()
@@ -156,9 +160,10 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 		if warmed {
 			return
 		}
-		carts := strings.Repeat("A", out.SetupRequests)
-		if out.SetupRequests == 0 || !strings.HasPrefix(rest, carts+"T") {
-			t.Errorf("after the restock the server got %.40s..., want the %d adds of the carts, then the round", rest, out.SetupRequests)
+		ships := out.Mix.Ships
+		setup := strings.Repeat("O", ships) + strings.Repeat("A", out.SetupRequests-ships)
+		if ships == 0 || out.SetupRequests <= ships || !strings.HasPrefix(rest, setup+"T") {
+			t.Errorf("after the restock the server got %.40s..., want the %d orders of the ships, then the %d adds of the carts, then the round", rest, ships, out.SetupRequests-ships)
 		}
 	}
 	for _, tc := range []struct {
@@ -322,8 +327,8 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					}
 					checks, after := 0, 0
 					for i, l := range list {
-						// An add, the carts of the setup among them, is traffic here.
-						o := strings.ReplaceAll(l.seq.order(), "A", "T")
+						// An add and an order, those of the setup among them, are traffic here.
+						o := strings.NewReplacer("A", "T", "O", "T").Replace(l.seq.order())
 						// Every server of traffic is restocked before it (the edits of products of the traffic are
 						// "R" too: TestNothingThatRendersPrecedesTheTrafficOfTifa counts them).
 						if i := strings.IndexByte(o, 'T'); i >= 0 {

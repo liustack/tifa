@@ -9,63 +9,57 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// The ships of the staff go to orders that exist on the server at that moment, which only the
-// server knows: shipping uses an order up, and a new order exists once its create is answered. So
-// each runner keeps a pool of the orders that have not shipped, per project. It starts with the
-// orders of the data that wait to ship and lives as long as the server does.
-//
-//   - a checkout of the storefront adds the order it placed (a studio order, SH- and its number, from
-//     the page of the order it sends the visitor to), which waits to ship like any other,
-//   - create adds the id that the server answered with,
-//   - ship takes the oldest order of the pool out and ships it.
-//
-// A ship that finds no order to go to is sent as a create instead, and counted. An edit of a
-// product needs no order.
+// The ships of the staff go to orders placed for them before the clock (setupOrders): each ship of
+// the plan, by its visit and its page view, has an order of its own, so the order a ship ships is
+// the same on every framework and never depends on which answers came first. The orders of the data
+// that wait to ship are left to the checks (verifyAdmin), and the orders a checkout of the
+// storefront places are orders of the back office that no ship takes. An edit of a product needs no
+// order.
 type pool struct {
-	mu        sync.Mutex
-	unshipped map[string][]string // ids, oldest first
-	created   map[string]int      // orders placed since the server started
+	mu      sync.Mutex
+	ships   map[shipKey]string // the order made for each ship
+	created map[string]int     // orders placed since the server started, by project
 }
 
-// start fills the pool on first use. The caller holds mu.
-func (p *pool) start() {
-	if p.unshipped != nil {
-		return
-	}
-	p.unshipped, p.created = map[string][]string{}, map[string]int{}
-	// WritableOrders are newest first, the pool is oldest first.
-	for i := len(WritableOrders) - 1; i >= 0; i-- {
-		o := WritableOrders[i]
-		p.unshipped[o.Project] = append(p.unshipped[o.Project], o.Order)
-	}
-}
+// shipKey is a ship of the plan: of visit seq, after page view after.
+type shipKey struct{ seq, after int }
 
-// take removes the oldest order of a project, or returns "" when it has none.
-func (p *pool) take(project string) string {
+// made keeps the order id placed for the ship w.
+func (p *pool) made(w PlannedWrite, id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.start()
-	if len(p.unshipped[project]) == 0 {
-		return ""
+	if p.ships == nil {
+		p.ships = map[shipKey]string{}
 	}
-	id := p.unshipped[project][0]
-	p.unshipped[project] = p.unshipped[project][1:]
-	return id
+	p.ships[shipKey{w.Seq, w.After}] = id
+	p.countLocked(w.Project)
 }
 
-// add puts an order that the server answered for into the pool.
-func (p *pool) add(project, id string) {
+// ship returns the order made for the ship w, or false when the setup made none.
+func (p *pool) ship(w PlannedWrite) (string, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.start()
-	p.unshipped[project] = append(p.unshipped[project], id)
+	id, ok := p.ships[shipKey{w.Seq, w.After}]
+	return id, ok
+}
+
+// countCreated notes an order placed in a project.
+func (p *pool) countCreated(project string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.countLocked(project)
+}
+
+func (p *pool) countLocked(project string) {
+	if p.created == nil {
+		p.created = map[string]int{}
+	}
 	p.created[project]++
 }
 
@@ -129,11 +123,11 @@ func (r *runner) request(ctx context.Context, v *visitState, method, path string
 
 // doWrite sends a write of the plan and times it from when it was scheduled. A write of a shopper
 // sends the request of the plan to the path of this app, with the cookies of the visit, and the status
-// must be the one the plan says (a redirect is not followed), and a checkout adds its order to the pool.
-// A ship of the staff takes an order of the pool, or is a create when the pool has none, and an edit
+// must be the one the plan says (a redirect is not followed). A ship of the staff ships the order made
+// for it before the clock (setupOrders), and an edit
 // reads the products of its shop and sends one back changed (productChange).
 func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWrite, scheduled time.Time) error {
-	kind, empty := w.Kind, false
+	kind := w.Kind
 	var method, path string
 	var body []byte
 	want := 200       // the status the shop answers with
@@ -164,10 +158,9 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 		e := productChange(r.seed, w, list)
 		method, path, body = http.MethodPatch, r.editProduct(w.Project, e.Slug), productBody(e)
 	case kind == WriteShip:
-		id := r.pool.take(w.Project)
-		if id == "" {
-			kind, empty = WriteCreate, true
-			break
+		id, ok := r.pool.ship(w)
+		if !ok {
+			return fmt.Errorf("write %s of visit %d after view %d: no order was made for it before the clock", kind, w.Seq, w.After)
 		}
 		method, path, body = http.MethodPost, r.write(w.Project, id), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
 	case kind != WriteCreate:
@@ -192,15 +185,14 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 		if err := json.Unmarshal(ans.body, &created); err != nil || created.ID == "" {
 			return fmt.Errorf("write %s %s: no order id in the answer: %v %.200s", method, path, err, ans.body)
 		}
-		r.pool.add(w.Project, created.ID)
+		r.pool.countCreated(w.Project)
 	}
-	// A checkout places a studio order that waits to ship, as staff see it in the back office.
+	// A checkout places a studio order of the back office, which no ship takes.
 	if kind == WriteCheckout {
-		m := placedLocationOf.FindStringSubmatch(ans.location)
-		if m == nil {
+		if !placedLocationOf.MatchString(ans.location) {
 			return fmt.Errorf("write %s %s: the checkout sent the visitor to %q, not to the page of an order", method, path, ans.location)
 		}
-		r.pool.add(storefrontShop, m[1])
+		r.pool.countCreated(storefrontShop)
 	}
 	took := ms(end.Sub(scheduled))
 	a.mu.Lock()
@@ -213,30 +205,10 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 	a.wrote++
 	a.responses["write "+kind+" "+strconv.Itoa(ans.status)+" "+ans.kind]++
 	a.kinds[kind]++
-	if empty {
-		a.poolEmpty++
-	}
 	a.lat["write"] = append(a.lat["write"], took)
 	a.lat["write "+kind] = append(a.lat["write "+kind], took)
 	a.mu.Unlock()
 	return nil
-}
-
-// countCreated notes an order that was placed outside the pool, so that the counts of orders stay
-// right.
-func (p *pool) countCreated(project string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.start()
-	p.created[project]++
-}
-
-// holds says whether the pool still has the order of a project.
-func (p *pool) holds(project, id string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.start()
-	return slices.Contains(p.unshipped[project], id)
 }
 
 // productChange is what the edit w of a staff visit makes of a product of the list of its shop, as
