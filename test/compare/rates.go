@@ -175,7 +175,8 @@ func fileHash(path string) string {
 // rateConditions are the conditions the rate of Next.js on a scenario is measured under in this
 // run, what that rate depends on and nothing else: the method (the files of test/compare that
 // prepare, replay, judge and start a run, methodHash), the server of Next.js (nextjsServer) and the
-// sources of its app, the Go the load generator is built with, the scenario and
+// sources of its app, the Go the load generator is built with and the settings of its runtime
+// (loadGo), the scenario and
 // the seed of its writes, the plans and the Next.js trace of the site, the sources that trace was
 // recorded from (the lines of the stamp browse.sh writes that bear on it, stampHash; "" when the
 // traces have none), the cpu model and the pinning, with the number of cpus of the load the run
@@ -193,7 +194,7 @@ func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 	return map[string]string{
 		"method":        methodHash(b.e.Root),
 		"nextjsServer":  nextjsServer(b.e.Specs(), os.Environ()),
-		"go":            runtime.Version(),
+		"go":            loadGo(os.Environ()),
 		"nextjsApp":     appHash(b.e.Root),
 		"scenario":      hex.EncodeToString(sum[:8]),
 		"plans":         fileHash(PlansPath(b.o.TraceDir)),
@@ -374,14 +375,40 @@ func (b *browse) checkNextBuild() error {
 	return nil
 }
 
-// nodeReads are the variables of the environment that change what a Node server does, by name or by
-// the start of a name: the options of Node and V8, the pool of libuv, the settings of Next.js, the
-// allocator of libc, the time zone and the locale.
-var nodeReads = []string{"NODE_", "UV_", "V8_", "NEXT_", "__NEXT", "MALLOC_", "GLIBC_TUNABLES", "LD_PRELOAD", "TZ", "LANG", "LC_"}
+// nodeReads are the variables of the environment that change what a Node server does, by name
+// (nodeNames) or by the start of a name (nodePrefixes): the options of Node and V8, the pool of
+// libuv, the settings of Next.js, the allocator of libc, the time zone and the locale.
+var (
+	nodeNames    = []string{"GLIBC_TUNABLES", "LD_PRELOAD", "TZ", "LANG"}
+	nodePrefixes = []string{"NODE_", "UV_", "V8_", "NEXT_", "__NEXT", "MALLOC_", "LC_"}
+)
+
+// goReads are the variables of the environment that change what the Go runtime of the load
+// generator does. GOMAXPROCS is not among them: a pinned run sets it to its cpus.
+var goReads = []string{"GODEBUG", "GOGC", "GOMEMLIMIT"}
+
+// reads is the variables of env with one of names, or a name that starts with one of prefixes, sorted.
+func reads(env, names, prefixes []string) []string {
+	var out []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(names, name) || slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(name, p) }) {
+			out = append(out, kv)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// loadGo is the Go of the load generator: its version and the settings of its runtime that env
+// gives (goReads), as written.
+func loadGo(env []string) string {
+	return strings.Join(append([]string{runtime.Version()}, reads(env, goReads, nil)...), " ")
+}
 
 // nextjsServer is the server of Next.js a rate is bound to: the program, its arguments, and of the
 // environment it starts with (Target.environ, the one it inherits and its own) every variable Node
-// reads (nodeReads). The folder of the app is where it is on that machine and its sources are
+// reads (nodeNames, nodePrefixes). The folder of the app is where it is on that machine and its sources are
 // nextjsApp. It is "" when no spec is Next.js as it ships.
 func nextjsServer(specs []Spec, inherited []string) string {
 	i := slices.IndexFunc(specs, func(s Spec) bool { return s.Name == openBase })
@@ -389,14 +416,7 @@ func nextjsServer(specs []Spec, inherited []string) string {
 		return ""
 	}
 	t := specs[i].Target
-	var env []string
-	for _, kv := range t.environ(inherited) {
-		name, _, _ := strings.Cut(kv, "=")
-		if slices.ContainsFunc(nodeReads, func(p string) bool { return name == p || strings.HasSuffix(p, "_") && strings.HasPrefix(name, p) }) {
-			env = append(env, kv)
-		}
-	}
-	slices.Sort(env)
+	env := reads(t.environ(inherited), nodeNames, nodePrefixes)
 	data, err := json.Marshal(struct {
 		Prog string   `json:"prog"`
 		Args []string `json:"args"`

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -503,5 +504,36 @@ func TestTheRateIsBoundToTheCpusOfTheLoad(t *testing.T) {
 	}
 	if !slices.Contains(rateKeys, "loadCpuCount") {
 		t.Error("an entry of the file need not have the cpus of the load")
+	}
+}
+
+// The environment a run starts in is a condition through the one the Next.js server is started
+// with (a private variable of Next.js such as __NEXT_PRIVATE_X among it, by its prefix) and through
+// the settings of the Go runtime of the load generator, read as written.
+func TestTheRateIsBoundToTheEnvironmentOfTheRun(t *testing.T) {
+	b := &browse{e: Env{Next: "/next", Start: "/start", Shop: "/shop"}, o: BrowseOptions{LoadCPUs: "1,5", LoadCPUCount: 2}, res: &BrowseResult{Version: map[string]string{}}}
+	sc := mustScenario("shop")
+	for _, v := range []string{"__NEXT_PRIVATE_X", "GOGC", "GOMEMLIMIT", "GODEBUG", "NODE_OPTIONS"} {
+		t.Setenv(v, "")
+		os.Unsetenv(v)
+	}
+	before := b.rateConditions(sc)
+	if before["go"] != runtime.Version() {
+		t.Errorf("the Go of the load is %q with no setting", before["go"])
+	}
+	t.Setenv("__NEXT_PRIVATE_X", "1")
+	if b.rateConditions(sc)["nextjsServer"] == before["nextjsServer"] {
+		t.Error("an inherited __NEXT_PRIVATE_X is the same server of Next.js")
+	}
+	os.Unsetenv("__NEXT_PRIVATE_X")
+	t.Setenv("HOME", "/elsewhere")
+	if got := b.rateConditions(sc); got["nextjsServer"] != before["nextjsServer"] || got["go"] != before["go"] {
+		t.Error("HOME changes the conditions")
+	}
+	t.Setenv("GOGC", "50")
+	t.Setenv("GOMEMLIMIT", "512MiB")
+	t.Setenv("GODEBUG", "gctrace=1")
+	if got := b.rateConditions(sc)["go"]; got != runtime.Version()+" GODEBUG=gctrace=1 GOGC=50 GOMEMLIMIT=512MiB" {
+		t.Errorf("the Go of the load is %q", got)
 	}
 }
