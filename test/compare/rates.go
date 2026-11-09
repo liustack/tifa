@@ -250,14 +250,14 @@ var methodDirs = []string{".", "cmd/compare", "../../internal/testproc"}
 // the search and the confirmation, and every file they call into. A change to any of them is
 // another method, even when the code a search runs is the same: the hash may take in more than
 // runs, never less.
-var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "../../internal/testproc/bind_darwin.go", "../../internal/testproc/bind_linux.go", "../../internal/testproc/bind_other.go", "../../internal/testproc/files_other.go", "../../internal/testproc/files_unix.go", "../../internal/testproc/testproc.go", "browse.go", "build.go", "build_store_next.go", "compare.go", "domain.go", "load.go", "measure.go", "mix.go", "plan.go", "rates.go", "record.go", "recorder.go", "render.go", "replay.go", "restock.go", "scenario.go", "serve.go", "setup.go", "series.go", "spec.go", "stats.go", "store.go", "store_links.json", "store_paths.go", "store_plan.go", "store_writes.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
+var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "../../internal/testproc/bind_darwin.go", "../../internal/testproc/bind_linux.go", "../../internal/testproc/bind_other.go", "../../internal/testproc/files_other.go", "../../internal/testproc/files_unix.go", "../../internal/testproc/testproc.go", "browse.go", "build.go", "build_store_next.go", "compare.go", "domain.go", "load.go", "measure.go", "mix.go", "nocache.go", "plan.go", "rates.go", "record.go", "recorder.go", "render.go", "replay.go", "restock.go", "scenario.go", "serve.go", "setup.go", "series.go", "spec.go", "stats.go", "store.go", "store_links.json", "store_paths.go", "store_plan.go", "store_writes.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
 
 // rateExcluded are the files of test/compare the rate of Next.js is not bound to: the report, which
 // only writes what a run decided, the table of the servers of every framework (specs.go) and the
 // sources of the other apps, the closed-loop steps of the throughput, and what only the other
 // comparisons and the tests use. Every source file is in methodFiles or here
 // (TestEverySourceOfCompareIsInOrOutOfTheMethod).
-var rateExcluded = []string{"attrs.go", "conns.go", "counted.go", "filters.go", "nocache.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go"}
+var rateExcluded = []string{"attrs.go", "conns.go", "counted.go", "filters.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {

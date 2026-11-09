@@ -395,7 +395,7 @@ func TestEverySourceOfCompareIsInOrOutOfTheMethod(t *testing.T) {
 			t.Errorf("%s is listed and is not there", f)
 		}
 	}
-	for _, f := range []string{"browse.go", "load.go", "replay.go", "restock.go", "setup.go", "serve.go", "spec.go", "store_writes.go", "writepool.go", "store_paths.go", "store_links.json", "cmd/compare/browse_cmd.go", "../../internal/testproc/testproc.go"} {
+	for _, f := range []string{"browse.go", "load.go", "replay.go", "restock.go", "setup.go", "serve.go", "spec.go", "store_writes.go", "writepool.go", "store_paths.go", "store_links.json", "nocache.go", "cmd/compare/browse_cmd.go", "../../internal/testproc/testproc.go"} {
 		if !slices.Contains(methodFiles, f) {
 			t.Errorf("the method leaves out %s", f)
 		}

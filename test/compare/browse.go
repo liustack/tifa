@@ -384,6 +384,15 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
 	}
 	b.logf("placement: %s\n", placement.Note)
+	// No Node app may send an answer a cache could keep: the run stops before its first round if one
+	// does.
+	for _, s := range specs {
+		if s.Framework != "tifa" {
+			if err := b.checkNoCache(ctx, s, o.Scenarios[0]); err != nil {
+				return b.res, err
+			}
+		}
+	}
 	has := func(p string) bool { return slices.Contains(o.Phases, p) }
 	for _, phase := range []struct {
 		name string
@@ -1414,6 +1423,27 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 		r.buildID = b.bid
 	}
 	return r, nil
+}
+
+// checkNoCache asks a fresh server of a spec, thrown away after, for the documents and the
+// navigation data its traces replay in a scenario, and fails when an answer has a sign that a cache
+// could keep it (CheckNoCache).
+func (b *browse) checkNoCache(ctx context.Context, spec Spec, sc BrowseScenario) error {
+	server, err := b.start(ctx, spec)
+	if err != nil {
+		return err
+	}
+	defer server.stop()
+	r, err := b.runnerFor(spec.Name, sc, server)
+	if err != nil {
+		return err
+	}
+	reqs := replayedGets(r.wl)
+	if err := CheckNoCache(ctx, r.base, reqs); err != nil {
+		return fmt.Errorf("%s: %w", BrowseLabel(spec.Name), err)
+	}
+	b.logf("no cache   %-12s %d documents and navigation data asked twice, none a cache could keep\n", spec.Name, len(reqs))
+	return nil
 }
 
 // checkWrites checks that the writes of a scenario show in the pages of a spec, on a fresh server that
