@@ -109,6 +109,6 @@ The memo keeps one gzip form of each page and sends it in the encoding each visi
 
 - `X-Tifa-Render` on a page: `vm` is a render for this request, `memo` a hit, `shared` a render another request started at the same time, `none` a 304 or an answer that did not go through the VM.
 - A request with `If-None-Match` gets 304 when the inputs did not change, before the memo is asked. The ETag saves the transfer to a browser that has the page, the memo saves the render for everyone else.
-- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses` and `Shared`, and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](deploy.md) for a route that writes them for Prometheus.
+- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped, least recently used first, to make room for another), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](deploy.md) for a route that writes them for Prometheus.
 
 For numbers, see [Performance](performance.md).

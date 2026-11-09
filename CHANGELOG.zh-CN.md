@@ -14,6 +14,7 @@
 - 示例商店的两面共用一份数据。工作台的第一家店铺在 `/projects/studio/products` 管着店面的商品，店员可以改价格、库存和中英文的标题与介绍，店面的下一次请求就能看到：数据变了，渲染记忆重新渲染这一页，之后又从渲染记忆里给。第二家店铺也有自己的商品列表和编辑页。店面结账后，订单成为第一家店铺的下一单（从 `SH-1043` 起，原来是随机的 `SS-` 编号）。每张订单都从所在店铺的库存里扣掉相应件数，店面结账和店员建单都一样，买的比剩下的多会返回 409。对比用的三个应用也照此改了。
 - 示例商店有了 `/metrics`，按 [部署](docs/deploy.zh-CN.md) 的写法以 Prometheus 文本格式给出 `tifa.Stats()` 的计数，只对登录的店员开放。商品的 PATCH 只改它发来的字段（一个字段都没发的返回 422），商店最多保留 100,000 个购物车，原来是 10,000 个，对比用的应用在这两点上也一样。
 - 应用代码在渲染时读到服务端渲染它时没有的查询参数，`tifa build` 会警告并给出文件和行号：从 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 按名字读的参数，以及整个 location 的 `search`、`searchStr` 或 `href`。`page.tsx` 和 `layout.tsx` 按它们的 `Load` 和各层 Layout 读的参数检查，这张表现在由 `.tifa/vite.js` 交给插件，其他模块的这类读法一律警告，`useEffect` 或 `useLayoutEffect` 里的读取不警告。服务端渲染只拿到各个 `Load` 读的参数，所以这样读可能水合不一致。构建照常继续（[服务端渲染里的查询参数](docs/app.zh-CN.md#服务端渲染里的查询参数)）。
+- `tifa.Stats().Memo.Evictions` 数渲染记忆为腾地方挤掉的页面，最久没用的先挤，渲染记忆装不下被请求的页面时就看得出来。示例商店在 `/metrics` 里把它写成 `tifa_memo_evictions_total`（[部署](docs/deploy.zh-CN.md)）。
 
 ### 变更
 

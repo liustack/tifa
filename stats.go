@@ -25,10 +25,11 @@ type SSRStats = core.SSRStats
 
 // MemoStats is the render memo in ServerStats.
 //
-//	Entries  entries kept now
-//	Hits     answered from an entry
-//	Misses   rendered by the request
-//	Shared   waited for the same page another request was rendering at the time
+//	Entries    entries kept now
+//	Hits       answered from an entry
+//	Misses     rendered by the request
+//	Shared     waited for the same page another request was rendering at the time
+//	Evictions  entries dropped, the least recently used first, to make room for another
 type MemoStats = core.MemoStats
 
 // Stats returns the state of the server now. It is cheap and safe to call from many requests at
