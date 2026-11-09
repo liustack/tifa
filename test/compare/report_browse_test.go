@@ -625,33 +625,71 @@ func TestTheReportDescribesTheWritesAsTheyAreMade(t *testing.T) {
 	}
 }
 
-// A round that played every visit prepared for it (Capped) is shorter than the target, and the
-// report says so: its cell of the body has a mark with a note under the table, and the table of what
-// the rounds did gives the capped rounds and their lengths.
-func TestTheReportMarksTheRoundsCappedAtThePreparedVisits(t *testing.T) {
+// A capped round (Capped) played every visit prepared for it. The body marks a cell whose rounds
+// include one and says under the table that their visits reached the cap of the prepared visits,
+// without saying that they were short. The appendix lists every capped try of the scenario, at any
+// number of sessions and valid or not, with how long it took against the window of the target.
+func TestTheReportListsEveryCappedTry(t *testing.T) {
 	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
-		Config: map[string]string{"sessions": "8", "rounds": "3"},
+		Config: map[string]string{"sessions": "8", "rounds": "3", "target": "1m15s"},
 		Throughput: map[string]*Throughput{
-			"shop/tifa":   {Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}},
+			"shop/tifa":   {Result: ThroughputPlateau, Sessions: 10, Steps: []int{8, 10, 13}},
 			"shop/nextjs": {Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}},
 		}}
 	for round := 1; round <= 3; round++ {
-		x := closedRound("tifa", sc.Name, 8, round, 4000, 48, true)
-		x.Capped = round == 2
-		r.Closed = append(r.Closed, x, closedRound("nextjs", sc.Name, 8, round, 400, 10, true))
+		at10 := closedRound("tifa", sc.Name, 10, round, 4000, 90, true)
+		at10.Capped = round == 2 // in the window of the target: 60 to 120 s
+		at13 := closedRound("tifa", sc.Name, 13, round, 4000, 40, true)
+		at13.Capped = true // a step that is not the result, short
+		r.Closed = append(r.Closed, closedRound("tifa", sc.Name, 8, round, 4000, 80, true), at10, at13, closedRound("nextjs", sc.Name, 8, round, 400, 80, true))
 	}
-	md := r.Markdown()
-	body, appendix, _ := strings.Cut(md, "\n## Appendix\n")
-	for _, want := range []string{"| Tifa | core used | 8 | 83.3¹ |", "¹ A round played every visit prepared for it, so it is shorter than the target."} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the body lacks %q:\n%s", want, body)
+	bad := closedRound("tifa", sc.Name, 13, 1, 4000, 40, true)
+	bad.Capped, bad.Valid, bad.Attempt, bad.WhyInvalid = true, false, 2, "the load generator used 1.90 cores of 2"
+	r.Closed = append(r.Closed, bad)
+	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	row := func(text, start string) string {
+		for _, l := range strings.Split(text, "\n") {
+			if strings.HasPrefix(l, start) {
+				return l
+			}
+		}
+		return ""
+	}
+	if tifa := row(body, "| Tifa | plateau"); !strings.Contains(tifa, cappedMark) {
+		t.Errorf("the body row of Tifa has no mark of its capped round: %q", tifa)
+	}
+	if next := row(body, "| Next.js | core used"); strings.Contains(next, cappedMark) {
+		t.Errorf("the body marks Next.js, none of whose rounds was capped: %q", next)
+	}
+	note := row(body, cappedMark+" ")
+	if !strings.Contains(note, "prepared") || strings.Contains(note, "shorter") {
+		t.Errorf("the note under the table is %q: it must say that the visits reached the prepared ones, and not that the round was short", note)
+	}
+	// Every capped try: Tifa at 10 sessions (in the window), at 13 sessions three valid (short) and
+	// one not valid.
+	var tries []string
+	for _, l := range strings.Split(appendix, "\n") {
+		if strings.HasPrefix(l, "| Tifa |") && strings.Contains(l, " s |") && (strings.Contains(l, "window") || strings.Contains(l, "target")) {
+			tries = append(tries, l)
 		}
 	}
-	if strings.Contains(body, "| Next.js | core used | 8 | 40.0¹") {
-		t.Errorf("the body marks a server none of whose rounds was capped:\n%s", body)
+	if len(tries) != 5 {
+		t.Fatalf("the appendix lists %d capped tries, want 5:\n%s", len(tries), strings.Join(tries, "\n"))
 	}
-	if !strings.Contains(appendix, "| capped rounds |") || !strings.Contains(appendix, "| round 2, 48 s |") {
-		t.Errorf("the appendix does not give the capped round and its length:\n%s", appendix)
+	inWindow, short, invalid := 0, 0, 0
+	for _, l := range tries {
+		switch {
+		case strings.Contains(l, "| 10 |") && strings.Contains(l, "90 s") && strings.Contains(l, "in the window"):
+			inWindow++
+		case strings.Contains(l, "| 13 |") && strings.Contains(l, "40 s") && strings.Contains(l, "shorter than the window"):
+			short++
+			if strings.Contains(l, "not valid") {
+				invalid++
+			}
+		}
+	}
+	if inWindow != 1 || short != 4 || invalid != 1 {
+		t.Errorf("capped tries: %d in the window, %d short, %d of them not valid, want 1, 4 and 1:\n%s", inWindow, short, invalid, strings.Join(tries, "\n"))
 	}
 }

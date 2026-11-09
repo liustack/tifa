@@ -1,11 +1,13 @@
 package compare
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func fmtCell(values []float64, format string) string {
@@ -156,6 +158,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the throughput\n", diagnosticsAnchor(sc, "throughput"), sc.Title)
 	if len(r.sessionsOf(sc.Name)) > 0 {
 		r.throughputMethodMarkdown(b, sc, rounds)
+		r.cappedMarkdown(b, sc)
 	}
 	if len(sessions) > 0 {
 		b.WriteString("\n#### Page views a second at each number of concurrent sessions\n\nClosed loop: N concurrent sessions, no think time, each playing the next visit as soon as it ends one, with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule there (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog). A cell stops at its first failed round, which decides it. A page view counts when it completes. Prefetches and writes are not page views. `-` is a number of sessions the server was not stepped to.\n\n| |")
@@ -233,7 +236,50 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 		}
 	}
 	if marked {
-		b.WriteString("\n" + cappedMark + " A round played every visit prepared for it, so it is shorter than the target.\n")
+		b.WriteString("\n" + cappedMark + " The visits of a round of this cell reached the cap of the prepared visits: every server of the scenario gets the data of the same visits before the clock, and a round plays no more. The appendix gives how long each such round took.\n")
+	}
+}
+
+// cappedMarkdown lists, in the appendix, every closed try of a scenario whose visits reached the
+// cap of the prepared visits (Round.Capped), at any number of sessions and valid or not, with how
+// long it took against the window of the target.
+func (r *BrowseResult) cappedMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var tries []Round
+	for _, f := range r.Servers[sc.Name] {
+		for _, x := range r.Closed {
+			if x.Framework == f && x.Scenario == sc.Name && x.Capped {
+				tries = append(tries, x)
+			}
+		}
+	}
+	if len(tries) == 0 {
+		return
+	}
+	window := func(seconds float64) string {
+		target, err := time.ParseDuration(r.Config["target"])
+		if err != nil {
+			return "-"
+		}
+		lo, hi := roundLength(target)
+		span := fmt.Sprintf("%.0f to %.0f s", lo, hi)
+		switch {
+		case seconds < lo:
+			return "shorter than the window, " + span
+		case seconds > hi:
+			return "longer than the window, " + span
+		}
+		return "in the window, " + span
+	}
+	b.WriteString("\n#### Rounds at the cap of the prepared visits\n\nEvery server of a scenario gets the data of the same visits before the clock of a closed round, and a round plays no more of them. These tries were sized to that many visits or more. One that took less than the window of the target was kept, since it could not be made longer.\n\n| | sessions | round | try | visits planned / ended | seconds | against the target | valid |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	slices.SortStableFunc(tries, func(x, y Round) int {
+		return cmp.Or(cmp.Compare(x.Sessions, y.Sessions), cmp.Compare(x.Round, y.Round), cmp.Compare(x.Attempt, y.Attempt))
+	})
+	for _, x := range tries {
+		valid := "valid"
+		if !x.Valid {
+			valid = "not valid: " + x.WhyInvalid
+		}
+		fmt.Fprintf(b, "| %s | %d | %d | %d | %d / %d | %.0f s | %s | %s |\n", BrowseLabel(x.Framework), x.Sessions, x.Round, x.Attempt, x.VisitsPlanned, x.Visits+x.VisitsFailed, x.Seconds, window(x.Seconds), valid)
 	}
 }
 
@@ -354,26 +400,16 @@ func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rou
 // by rounds: the first of them, and the length of all.
 func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
 	fw := r.Servers[sc.Name]
-	b.WriteString("\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan 2.6 page views within 1% and 20% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain | capped rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan 2.6 page views within 1% and 20% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := rounds(f)
 		if len(rs) == 0 {
 			continue
 		}
 		x := rs[0]
-		// A round that played every visit prepared for it is named, with its length.
-		var capped []string
-		for _, y := range rs {
-			if y.Capped {
-				capped = append(capped, fmt.Sprintf("round %d, %.0f s", y.Round, y.Seconds))
-			}
-		}
-		if len(capped) == 0 {
-			capped = []string{"-"}
-		}
-		fmt.Fprintf(b, "| %s | %d | %d / %d / %d / %d / %d | %d / %d | %d | %d / %d | %d / %d | %.2f%% | %s | %s | %s |\n", BrowseLabel(f), x.Blocks,
+		fmt.Fprintf(b, "| %s | %d | %d / %d / %d / %d / %d | %d / %d | %d | %d / %d | %d / %d | %.2f%% | %s | %s |\n", BrowseLabel(f), x.Blocks,
 			x.VisitsPlanned, x.VisitsStarted, x.Visits, x.VisitsFailed, x.VisitsUnfinished, x.PageViewsPlanned, x.PageViews, x.FullLoads, x.ClicksPlanned, x.Clicks, x.WritesPlanned, x.Writes, 100*x.WriteShare,
-			fmtCell(each(rs, func(x *Round) float64 { return x.Seconds }), "%.0f"), fmtCell(each(rs, func(x *Round) float64 { return x.DrainSeconds }), "%.1f"), strings.Join(capped, "; "))
+			fmtCell(each(rs, func(x *Round) float64 { return x.Seconds }), "%.0f"), fmtCell(each(rs, func(x *Round) float64 { return x.DrainSeconds }), "%.1f"))
 	}
 }
 
