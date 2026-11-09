@@ -294,8 +294,9 @@ type runner struct {
 	// carts are the cookies of the returning visits of the round, by visit, made by setupCarts before
 	// the clock.
 	carts map[int]http.CookieJar
-	// editing holds the edits of the products of a shop one at a time (doWrite), by project.
-	editing sync.Map // of *sync.Mutex
+	// restocked is the stock the restock gave each product of the storefront it raised, by slug, set
+	// before the clock (prepare). An edit of the stock sets more than that (productChange).
+	restocked map[string]int
 }
 
 var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)

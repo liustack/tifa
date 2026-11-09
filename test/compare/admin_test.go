@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,8 @@ type fakeShop struct {
 	// staleProducts makes the pages that show them keep the titles of the data.
 	products      map[string]map[string]*shopEntry
 	staleProducts bool
+	// edits are the edits of products the fake took, each the slug and the body.
+	edits []string
 	// createRenders makes the answer of a create say that it rendered a page.
 	createRenders bool
 }
@@ -45,7 +49,7 @@ func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
 		"SH-1042": {project: "studio", customer: "林夏"},
 		"WK-0201": {project: "weekend", customer: "苏禾"},
 	}, next: map[string]int{"studio": 1043, "weekend": 202}, products: map[string]map[string]*shopEntry{}}
-	for project, slugs := range shopProducts {
+	for project, slugs := range fakeCatalogue() {
 		f.products[project] = map[string]*shopEntry{}
 		for i, slug := range slugs {
 			f.products[project][slug] = &shopEntry{Slug: slug, PriceCents: 10000 + 100*i, Stock: 5, NameEN: "N " + slug, NameZH: "名" + slug, DescriptionEN: "D.", DescriptionZH: "述。"}
@@ -155,7 +159,7 @@ func (f *fakeShop) productList(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	project := r.PathValue("project")
 	var list []shopEntry
-	for _, slug := range shopProducts[project] {
+	for _, slug := range fakeCatalogue()[project] {
 		list = append(list, *f.products[project][slug])
 	}
 	f.log = append(f.log, "list "+project)
@@ -163,25 +167,63 @@ func (f *fakeShop) productList(w http.ResponseWriter, r *http.Request) {
 	json.MarshalWrite(w, map[string]any{"routes": map[string]any{productsRoute: map[string]any{"status": 200, "data": list}}})
 }
 
-// editProduct takes an edit of a product with all its fields. It refuses with 409 one that changes
-// no field or takes stock away, which no edit of a run may do.
+// fakeCatalogue is the slugs of the products of each shop of the fake: the studio shop sells the
+// catalogue of the storefront, the weekend shop its own.
+func fakeCatalogue() map[string][]string {
+	var studio []string
+	for _, v := range StoreVariants {
+		studio = append(studio, v.Slug)
+	}
+	return map[string][]string{"studio": studio, "weekend": shopProducts["weekend"]}
+}
+
+// fakeChange is an edit of a product as the PATCH of the shop takes it: a field that is missing keeps
+// its value.
+type fakeChange struct {
+	PriceCents    *int    `json:"priceCents"`
+	Stock         *int    `json:"stock"`
+	NameEN        *string `json:"nameEn"`
+	NameZH        *string `json:"nameZh"`
+	DescriptionEN *string `json:"descriptionEn"`
+	DescriptionZH *string `json:"descriptionZh"`
+}
+
+// editProduct takes an edit of a product as the shop does: the fields it has change and the others
+// keep their value. It refuses with 422 an edit with no field, or a price or a stock the shop does
+// not take, and keeps each edit it took in edits.
 func (f *fakeShop) editProduct(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	project := r.PathValue("project")
 	p := f.products[project][r.PathValue("product")]
-	var in shopEntry
-	if err := json.UnmarshalRead(r.Body, &in); err != nil || p == nil {
+	var in fakeChange
+	body, _ := io.ReadAll(r.Body)
+	if err := json.Unmarshal(body, &in, json.RejectUnknownMembers(true)); err != nil || p == nil {
 		http.Error(w, "bad", 400)
 		return
 	}
-	in.Slug = p.Slug
-	if in == *p || in.Stock < p.Stock {
-		http.Error(w, "refused", 409)
+	if in == (fakeChange{}) || in.PriceCents != nil && (*in.PriceCents < 100 || *in.PriceCents > maxPrice) || in.Stock != nil && (*in.Stock < 0 || *in.Stock > maxStock) {
+		http.Error(w, "refused", 422)
 		return
 	}
-	*p = in
+	set := func(dst *int, src *int) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	text := func(dst *string, src *string) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	set(&p.PriceCents, in.PriceCents)
+	set(&p.Stock, in.Stock)
+	text(&p.NameEN, in.NameEN)
+	text(&p.NameZH, in.NameZH)
+	text(&p.DescriptionEN, in.DescriptionEN)
+	text(&p.DescriptionZH, in.DescriptionZH)
 	f.log = append(f.log, "edit "+project)
+	f.edits = append(f.edits, p.Slug+" "+string(body))
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{}`))
 }
@@ -228,8 +270,7 @@ func adminRunner(t *testing.T) (*runner, *fakeShop) {
 	return newTestRunner(srv.URL, BrowseScenario{Name: "x"}), f
 }
 
-// An edit reads the products of its shop and sends one back with a new price or more stock, and
-// needs no order. A create places an order.
+// An edit of a product of the storefront needs no order, and a create places one.
 func TestStaffWritesEditAProductAndPlaceOrders(t *testing.T) {
 	r, f := adminRunner(t)
 	v := &visitState{client: &http.Client{}}
@@ -243,11 +284,11 @@ func TestStaffWritesEditAProductAndPlaceOrders(t *testing.T) {
 		}
 	}
 	send(WriteCreate, "studio")
-	send(WriteEdit, "studio") // reads the products, then edits one
 	send(WriteEdit, "studio")
-	send(WriteEdit, "weekend")
+	send(WriteEdit, "studio")
+	send(WriteEdit, "studio")
 	send(WriteCreate, "weekend")
-	want := []string{"create SH-1043", "list studio", "edit studio", "list studio", "edit studio", "list weekend", "edit weekend", "create WK-0202"}
+	want := []string{"create SH-1043", "edit studio", "edit studio", "edit studio", "create WK-0202"}
 	if strings.Join(f.log, "|") != strings.Join(want, "|") {
 		t.Fatalf("the shop saw %v, want %v", f.log, want)
 	}
@@ -265,14 +306,14 @@ func TestStaffWritesEditAProductAndPlaceOrders(t *testing.T) {
 	if got := r.pool.orderCounts(); got["studio"] != 43 || got["weekend"] != 13 {
 		t.Errorf("orders %v", got)
 	}
-	// An edit is one write of two requests, the list and the edit.
-	if len(a.lat["write"]) != 5 || len(a.lat["write create"]) != 2 || len(a.lat["write edit"]) != 3 || a.requests != 8 {
+	// An edit is one write of one request.
+	if len(a.lat["write"]) != 5 || len(a.lat["write create"]) != 2 || len(a.lat["write edit"]) != 3 || a.requests != 5 {
 		t.Errorf("latencies %v, responses %v, %d requests", a.lat, a.responses, a.requests)
 	}
 }
 
 // Writes of a visit run while other users write: a ship never meets an order that another ship took
-// at the same moment, and an edit never takes stock away, though edits of one shop run at once.
+// at the same moment, and edits of one shop run at once.
 func TestStaffWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 	r, _ := adminRunner(t)
 	kinds := []string{WriteCreate, WriteShip, WriteEdit, WriteEdit, WriteCreate, WriteEdit, WriteShip}
@@ -280,7 +321,11 @@ func TestStaffWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 	for u := range 8 {
 		r.wl.Plans = append(r.wl.Plans, Plan{ID: u, Steps: make([]PlanStep, 50)})
 		for i := range 50 {
-			r.wl.Writes[[2]int{u, i}] = PlannedWrite{After: i, Kind: kinds[(u+i)%len(kinds)], Project: []string{"studio", "weekend"}[(u+i/3)%2]}
+			kind, project := kinds[(u+i)%len(kinds)], []string{"studio", "weekend"}[(u+i/3)%2]
+			if kind == WriteEdit {
+				project = storefrontShop
+			}
+			r.wl.Writes[[2]int{u, i}] = PlannedWrite{After: i, Kind: kind, Project: project}
 		}
 	}
 	round := &Round{}
@@ -456,7 +501,7 @@ func (f *fakeShop) productPage(w http.ResponseWriter, r *http.Request) {
 		show(*p)
 		return
 	}
-	for _, slug := range shopProducts[r.PathValue("project")] {
+	for _, slug := range fakeCatalogue()[r.PathValue("project")] {
 		show(*f.products[r.PathValue("project")][slug])
 	}
 }
@@ -499,5 +544,60 @@ func TestTheSizingRunShipsTheOrdersMadeBeforeIt(t *testing.T) {
 	}
 	if creates != 6 || ships != 6 || !strings.HasPrefix(strings.Join(f.log, "|"), "create SH-1043|create SH-1044|create SH-1045|create SH-1046|create SH-1047|create SH-1048|POST ") {
 		t.Errorf("the shop saw %v, want the 6 orders placed first, then their 6 ships", f.log)
+	}
+}
+
+// An edit sends one field, set by the seed, the visit and its page view alone, so that what a
+// framework is sent never depends on what it answered before: half the time a price, half the time
+// a stock at or above what the restock gave the product (its stock in the data, or more for the
+// round). It reads nothing first, and the same plan sends the same edits to every server.
+func TestAnEditSendsOneFieldThePlanSets(t *testing.T) {
+	edits := func() ([]string, *fakeShop, *acc) {
+		r, f := adminRunner(t)
+		r.restocked = map[string]int{"oak-tray": 500}
+		v := &visitState{client: &http.Client{}}
+		a := newAcc()
+		for seq := range 60 {
+			if err := r.doWrite(context.Background(), v, a, PlannedWrite{Seq: seq, After: 2, Kind: WriteEdit, Project: "studio"}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return f.edits, f, a
+	}
+	got, f, a := edits()
+	if len(f.log) != 60 || slices.ContainsFunc(f.log, func(l string) bool { return l != "edit studio" }) || a.requests != 60 {
+		t.Fatalf("the shop saw %v in %d requests, want 60 edits and nothing else", f.log, a.requests)
+	}
+	prices, stocks := 0, 0
+	for _, e := range got {
+		slug, body, _ := strings.Cut(e, " ")
+		var m map[string]int
+		if err := json.Unmarshal([]byte(body), &m); err != nil || len(m) != 1 {
+			t.Fatalf("an edit of %s sent %s, want one field", slug, body)
+		}
+		v := StoreVariants[slices.IndexFunc(StoreVariants, func(v StoreProduct) bool { return v.Slug == slug })]
+		target := v.Stock
+		if slug == "oak-tray" {
+			target = 500
+		}
+		if p, ok := m["priceCents"]; ok {
+			prices++
+			if p < EditPriceFen[0] || p > EditPriceFen[1] || p%100 != 0 {
+				t.Errorf("an edit of %s sent the price %d", slug, p)
+			}
+		} else if s, ok := m["stock"]; ok {
+			stocks++
+			if s < target+EditDelivery[0] || s > min(target+EditDelivery[1], maxStock) {
+				t.Errorf("an edit of %s sent the stock %d, its restock gave it %d", slug, s, target)
+			}
+		} else {
+			t.Errorf("an edit of %s sent %s", slug, body)
+		}
+	}
+	if prices < 15 || stocks < 15 {
+		t.Errorf("%d price edits and %d stock edits of 60", prices, stocks)
+	}
+	if again, _, _ := edits(); !slices.Equal(again, got) {
+		t.Errorf("the same plan sent other edits:\n%v\n%v", got, again)
 	}
 }

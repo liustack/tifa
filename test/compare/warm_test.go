@@ -142,10 +142,10 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 	sc := mustScenario("shop")
 	// own says whether a server got the requests of its round and no other: the GETs of the round, and
 	// its writes and those of its setup. The fake counts the requests of the product list and its
-	// edits apart ("R"), and an edit of a round is two of them, the list and the edit.
+	// edits apart ("R"), and an edit of a round is one of them.
 	own := func(l *launched, out *Round) bool {
 		edits := out.WriteKinds[WriteEdit]
-		return int(l.gets.Load()) == out.Requests-out.Writes-edits && int(l.hits.Load()) == out.Requests+out.SetupRequests-2*edits
+		return int(l.gets.Load()) == out.Requests-out.Writes && int(l.hits.Load()) == out.Requests+out.SetupRequests-edits
 	}
 	// setUp checks that a server of a round was restocked, then got the orders and the carts of the
 	// setup, then the round, with nothing between (Tifa), or the warm-up between the restock and the
@@ -154,7 +154,7 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 		t.Helper()
 		o := l.seq.order()
 		rest := strings.TrimLeft(o, "R")
-		if len(o)-len(rest) < 2 || strings.Count(rest, "R") != 2*out.WriteKinds[WriteEdit] {
+		if len(o)-len(rest) < 2 || strings.Count(rest, "R") != out.WriteKinds[WriteEdit] {
 			t.Errorf("the server of the round got %.40s... with %d edits of products in the round, want the restock (a list and its edits) before anything else", o, out.WriteKinds[WriteEdit])
 		}
 		if warmed {

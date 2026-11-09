@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,39 +125,23 @@ func (r *runner) request(ctx context.Context, v *visitState, method, path string
 // doWrite sends a write of the plan and times it from when it was scheduled. A write of a shopper
 // sends the request of the plan to the path of this app, with the cookies of the visit, and the status
 // must be the one the plan says (a redirect is not followed). A ship of the staff ships the order made
-// for it before the clock (setupOrders), and an edit
-// reads the products of its shop and sends one back changed (productChange).
+// for it before the clock (setupOrders), and an edit sends the one field of a product its plan sets
+// (productChange), with no read first.
 func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWrite, scheduled time.Time) error {
 	kind := w.Kind
 	var method, path string
 	var body []byte
-	want := 200       // the status the shop answers with
-	var read answered // the list of products an edit reads first
+	want := 200 // the status the shop answers with
 	switch {
 	case w.Store != nil:
 		st := w.Store
 		method, path, body, want = st.Method, r.storeWrite(st.Path), st.Body, st.Status
 	case kind == WriteEdit:
-		// The edits of a shop go one at a time, so that two never read the same stock and the later
-		// sends the smaller.
-		mu, _ := r.editing.LoadOrStore(w.Project, &sync.Mutex{})
-		mu.(*sync.Mutex).Lock()
-		defer mu.(*sync.Mutex).Unlock()
-		var err error
-		read, _, _, err = r.request(ctx, v, http.MethodGet, r.products(w.Project, r.buildID), nil)
-		a.refuse(read.status)
-		if err != nil {
-			return err
+		if w.Project != storefrontShop {
+			panic("an edit of a product of " + w.Project + ": the plan edits the products of the storefront alone")
 		}
-		if read.status != 200 {
-			return fmt.Errorf("write %s: the list of products answered %d: %.200s", kind, read.status, read.body)
-		}
-		list, err := productList(w.Project, read.body)
-		if err != nil {
-			return fmt.Errorf("write %s: %w", kind, err)
-		}
-		e := productChange(r.seed, w, list)
-		method, path, body = http.MethodPatch, r.editProduct(w.Project, e.Slug), productBody(e)
+		slug, change := productChange(r.seed, w, r.stockTarget)
+		method, path, body = http.MethodPatch, r.editProduct(w.Project, slug), mustJSON(change)
 	case kind == WriteShip:
 		id, ok := r.pool.ship(w)
 		if !ok {
@@ -198,10 +183,6 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 	a.mu.Lock()
 	a.requests++
 	a.bytes += int64(ans.wire)
-	if read.status != 0 {
-		a.requests++
-		a.bytes += int64(read.wire)
-	}
 	a.wrote++
 	a.responses["write "+kind+" "+strconv.Itoa(ans.status)+" "+ans.kind]++
 	a.kinds[kind]++
@@ -211,20 +192,26 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 	return nil
 }
 
-// productChange is what the edit w of a staff visit makes of a product of the list of its shop, as
-// staff do on the edit page of a product: one product, drawn from the seed, the visit and the view,
-// with every field as listed but one change, half the time a price one yuan higher and half the
-// time a delivery of 5 to 50 pieces on top of the stock it has. The stock never goes down, so the
-// checkouts and orders after it still find what the restock gave them, and no edit gives a product
-// a price it had before.
-func productChange(seed uint64, w PlannedWrite, list []shopEntry) shopEntry {
+// productChange is the edit w of a staff visit, as staff make it on the edit page of a product: one
+// product of the storefront and one field of it, drawn from the seed, the visit and the view alone,
+// so that every server is sent the same edit whatever it answered before. EditPriceShare of the
+// edits set a price, in whole yuan within EditPriceFen. The others set a stock: what the restock
+// gave the product (target) and a delivery within EditDelivery on top, at most maxStock. The stock
+// an edit sets is never below what the restock gave, which covers what the orders of the round take,
+// so no checkout or order after it is refused for lack of stock.
+func productChange(seed uint64, w PlannedWrite, target func(slug string) int) (string, map[string]any) {
 	rng := rand.New(rand.NewPCG(seed^0x2545f4914f6cdd1d, uint64(w.Seq)<<20|uint64(w.After)))
-	e := list[rng.IntN(len(list))]
-	delivery := 5 + rng.IntN(46)
-	if (rng.IntN(2) == 0 || e.Stock >= maxStock) && e.PriceCents < maxPrice {
-		e.PriceCents = min(e.PriceCents+100, maxPrice)
-	} else {
-		e.Stock = min(e.Stock+delivery, maxStock)
+	slug := StoreVariants[rng.IntN(len(StoreVariants))].Slug
+	if rng.Float64() < EditPriceShare {
+		lo, hi := EditPriceFen[0]/100, EditPriceFen[1]/100
+		return slug, map[string]any{"priceCents": 100 * (lo + rng.IntN(hi-lo+1))}
 	}
-	return e
+	return slug, map[string]any{"stock": min(target(slug)+EditDelivery[0]+rng.IntN(EditDelivery[1]-EditDelivery[0]+1), maxStock)}
+}
+
+// stockTarget is the stock the restock gave a product of the storefront: its stock in the data
+// (StoreVariants), or what prepare raised it to.
+func (r *runner) stockTarget(slug string) int {
+	i := slices.IndexFunc(StoreVariants, func(v StoreProduct) bool { return v.Slug == slug })
+	return max(StoreVariants[i].Stock, r.restocked[slug])
 }

@@ -60,6 +60,17 @@ const (
 	// neither.
 	StaffEditShare = 0.20
 	StaffShipShare = 0.30
+	// EditPriceShare is the share of the edits of a product that change its price. The others change
+	// its stock. An assumption.
+	EditPriceShare = 0.5
+)
+
+// EditPriceFen is the lowest and the highest price an edit of a price sets, in fen, in whole yuan, and
+// EditDelivery the fewest and the most pieces an edit of the stock sets above what the restock gave
+// the product. Assumptions.
+var (
+	EditPriceFen = [2]int{1_900, 99_900}
+	EditDelivery = [2]int{5, 50}
 )
 
 // LandingShares are the shares of the kinds of page a shopper visit lands on. An assumption: no

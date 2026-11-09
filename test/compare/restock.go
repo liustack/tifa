@@ -260,5 +260,7 @@ func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) 
 			}
 		}
 	}
+	// An edit of the stock in the round sets more than the restock gives (productChange).
+	r.restocked = need[storefrontShop]
 	return Restock(ctx, http.DefaultClient, r.base, spec, r.buildID, need)
 }
