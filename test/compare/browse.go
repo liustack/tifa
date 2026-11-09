@@ -995,22 +995,31 @@ func (r *runner) getAs(ctx context.Context, c *http.Client, url string, headers 
 }
 
 // nav reads the data a client navigation fetches for a page, as a trace recorded the browser asking
-// for it. ok is false when no trace has a click to that page.
+// for it: the answers of every data request of the click, one after the other (TanStack Start, going
+// from one project to another, asks for the project of the layout and then for the page). ok is
+// false when no trace has a click to that page.
 func (r *runner) nav(ctx context.Context, page string) (data string, ok bool, err error) {
 	return r.navAs(ctx, http.DefaultClient, page)
 }
 
 // navAs is nav with a client of its own.
 func (r *runner) navAs(ctx context.Context, c *http.Client, page string) (data string, ok bool, err error) {
-	q, ok := r.navRequest(page)
-	if !ok {
+	qs := r.navRequests(page)
+	if len(qs) == 0 {
 		return "", false, nil
 	}
-	if r.buildID != "" {
-		q.URL = tifaBuild.ReplaceAllString(q.URL, "_tifa="+r.buildID+".")
+	var all strings.Builder
+	for _, q := range qs {
+		if r.buildID != "" {
+			q.URL = tifaBuild.ReplaceAllString(q.URL, "_tifa="+r.buildID+".")
+		}
+		data, err := r.getAs(ctx, c, q.URL, q.Headers)
+		if err != nil {
+			return "", true, err
+		}
+		all.WriteString(data)
 	}
-	data, err = r.getAs(ctx, c, q.URL, q.Headers)
-	return data, true, err
+	return all.String(), true, nil
 }
 
 // shows checks that the document of a page, and the navigation data of it when a trace has them,
@@ -1162,22 +1171,26 @@ func CarrierParcels(doc, name string) (int, error) {
 	return found[0], nil
 }
 
-// navRequest finds, in the traces, the data request of a click to a page that the browser let
-// finish.
-func (r *runner) navRequest(page string) (TraceReq, bool) {
+// navRequests finds, in the traces, the first click to a page and returns its data requests that
+// the browser let finish.
+func (r *runner) navRequests(page string) []TraceReq {
 	for _, p := range r.wl.Plans {
 		for _, s := range r.wl.Traces[p.ID].Steps {
 			if s.Kind != StepClick || s.Page != page {
 				continue
 			}
+			var qs []TraceReq
 			for _, q := range s.Reqs {
 				if q.Class == "nav" && q.Cancel == "" && q.Method == "GET" && !strings.Contains(q.URL, "__manifest") {
-					return q, true
+					qs = append(qs, q)
 				}
+			}
+			if len(qs) > 0 {
+				return qs
 			}
 		}
 	}
-	return TraceReq{}, false
+	return nil
 }
 
 // ReadBrowseResult parses a result written by `compare browse`. A result of the old format (users

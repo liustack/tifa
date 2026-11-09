@@ -495,3 +495,28 @@ func TestTheSiteReplaysOnlyAWholeSetOfItsTraces(t *testing.T) {
 		t.Errorf("a set without plan 9 for Next.js: %v", err)
 	}
 }
+
+// A click can fetch more than one piece of data: TanStack Start, going from one project to another,
+// asks for the project of the layout and then for the orders of the page. The navigation data of a
+// page is all of it, so the order of a checkout shows in the second answer and the check passes.
+func TestTheNavigationDataOfAPageIsEveryRequestOfItsClick(t *testing.T) {
+	f, srv := newFakeStore(t, SameStorePath)
+	f.placed = []string{"SH-1043"}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /fn/project", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"project":"studio"}`) })
+	mux.Handle("/", srv.Config.Handler)
+	srv.Config.Handler = mux
+	click := TraceStep{Kind: StepClick, Page: "/projects/studio", Reqs: []TraceReq{
+		{Method: "GET", URL: "/fn/project", Class: "nav", End: 1, Status: 200},
+		{Method: "GET", URL: "/projects/studio", Class: "nav", End: 2, Status: 200},
+	}}
+	load := TraceStep{Kind: StepLoad, Page: "/projects/weekend", Reqs: []TraceReq{{Method: "GET", URL: "/projects/weekend", Class: "doc", End: 1, Status: 200}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "s"}, Trace{Steps: []TraceStep{load, click}})
+	if err := r.shows(context.Background(), "check out, in the back office", "/projects/studio", "SH-1043"); err != nil {
+		t.Fatal(err)
+	}
+	f.staleOffice = true
+	if err := r.shows(context.Background(), "check out, in the back office", "/projects/studio", "SH-1043"); err == nil {
+		t.Error("a back office that does not show the order passed")
+	}
+}
