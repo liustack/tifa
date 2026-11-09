@@ -48,7 +48,7 @@ go tool tifa check
 ## 目录
 
 ```text
-hooks.go                       OnRequest 把没登录的访客挡在工作台外，OnError 记录意外错误
+hooks.go                       OnRequest 把没登录的访客挡在工作台和指标外，OnError 记录意外错误
 session.go                     会话类型、演示账号和密码校验
 components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
 app/
@@ -56,6 +56,7 @@ app/
   account.tsx                  顶栏里显示谁登录了，以及退出按钮
   login/                       /login：不带工作台的 layout_.tsx、登录表单，和负责登录的 POST
   logout/                      /logout：负责退出的 POST
+  metrics/                     /metrics：按 Tifa 的 docs/deploy.md 写的 Prometheus 指标（来自 tifa.Stats），登录后才能看
   styles.css                   Tailwind CSS 和店铺的主题
   format.ts                    英文的金额和时间，按店铺时区
   animated-number.tsx          数据变化时补间的数字

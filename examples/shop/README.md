@@ -48,7 +48,7 @@ To look at the workbench without signing in, start the program with `SHOP_OPEN=1
 ## Folders
 
 ```text
-hooks.go                       OnRequest keeps visitors who are not signed in out of the workbench, OnError logs unexpected errors
+hooks.go                       OnRequest keeps visitors who are not signed in out of the workbench and the metrics, OnError logs unexpected errors
 session.go                     the session type, the demo account and the password check
 components/                    shadcn/ui components in ui/ and the hooks they use in hooks/, imported as @/components/...
 app/
@@ -56,6 +56,7 @@ app/
   account.tsx                  who is signed in, in the top bar, and the sign-out button
   login/                       /login: layout_.tsx without the workbench around it, the form, and the POST that signs in
   logout/                      /logout: the POST that signs out
+  metrics/                     /metrics: tifa.Stats for Prometheus, as docs/deploy.md of Tifa writes it, for signed-in staff
   styles.css                   Tailwind CSS and the shop's theme
   format.ts                    money and times in English, in the shop's time zone
   animated-number.tsx          numbers that tween when the data changes

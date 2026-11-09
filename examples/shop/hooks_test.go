@@ -37,6 +37,8 @@ func TestWorkbenchNeedsSignIn(t *testing.T) {
 		{"/zh-CN/store", "", false},
 		{"/login", "", false},
 		{"/projectsx", "", false},
+		{"/metrics", "/login?next=%2Fmetrics", false},
+		{"/metrics", "", true},
 	} {
 		redirect, reached := request(t, tc.path, tc.signedIn)
 		if redirect != tc.redirect || reached != (tc.redirect == "") {

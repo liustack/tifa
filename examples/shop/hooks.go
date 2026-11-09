@@ -9,11 +9,11 @@ import (
 	"github.com/liustack/tifa"
 )
 
-// OnRequest keeps visitors who are not signed in out of the workbench and sends them to the
-// sign-in page, which sends them back afterwards. The storefront needs no sign-in.
+// OnRequest keeps visitors who are not signed in out of the workbench and the metrics and sends
+// them to the sign-in page, which sends them back afterwards. The storefront needs no sign-in.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	path := c.Request().URL.Path
-	if !Open && (path == "/projects" || strings.HasPrefix(path, "/projects/")) && tifa.Session[Session](c) == nil {
+	if !Open && (path == "/projects" || strings.HasPrefix(path, "/projects/") || path == "/metrics") && tifa.Session[Session](c) == nil {
 		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
 	}
 	return next(c)
