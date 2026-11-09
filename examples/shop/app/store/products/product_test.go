@@ -17,15 +17,16 @@ var (
 
 func TestSearchFiltersSortsAndPages(t *testing.T) {
 	all := Search(Filter{}, zh)
-	if all.Total != len(catalogue) || len(all.Products) != PageSize || all.Pages != 2 || all.Filter.Sort != "featured" || all.Filter.Page != 1 {
+	if all.Total != len(catalogue) || len(all.Products) != PageSize || all.Pages != pages() || all.Filter.Sort != "featured" || all.Filter.Page != 1 {
 		t.Fatalf("no filter: %d of %d on %d pages, sort %q", len(all.Products), all.Total, all.Pages, all.Filter.Sort)
 	}
-	if second := Search(Filter{Page: 2}, zh); len(second.Products) != len(catalogue)-PageSize {
+	if second := Search(Filter{Page: 2}, zh); len(second.Products) != min(PageSize, len(catalogue)-PageSize) {
 		t.Errorf("second page holds %d", len(second.Products))
 	}
 	moss := Search(Filter{Colors: []string{"moss"}, Sort: "price-asc"}, en)
-	if moss.Total != 11 || moss.Products[0].Slug != "dot-notebook" {
-		t.Fatalf("moss by price: %d, first %s", moss.Total, moss.Products[0].Slug)
+	isMoss := func(p productRecord) bool { return slices.Contains(p.colors, "moss") }
+	if moss.Total != count(isMoss) || moss.Total < 2 {
+		t.Fatalf("moss by price: %d, the catalogue has %d", moss.Total, count(isMoss))
 	}
 	for i, p := range moss.Products[1:] {
 		if p.PriceCents < moss.Products[i].PriceCents || !slices.ContainsFunc(p.Colors, func(c Color) bool { return c.ID == "moss" }) {
@@ -34,7 +35,7 @@ func TestSearchFiltersSortsAndPages(t *testing.T) {
 	}
 	// A facet counts what the other filters leave: the colour facet ignores the colour filter.
 	for _, f := range moss.Colors {
-		if f.ID == "moss" && f.Count != 11 {
+		if f.ID == "moss" && f.Count != count(isMoss) {
 			t.Errorf("moss facet %d", f.Count)
 		}
 	}
@@ -82,9 +83,9 @@ func TestProductsAndVariants(t *testing.T) {
 
 func TestSearchKeepsNumbersWithinRange(t *testing.T) {
 	// A page past the last shows the last, also one so large that its offset would overflow.
-	for _, page := range []int{3, math.MaxInt} {
+	for _, page := range []int{pages() + 1, math.MaxInt} {
 		r := Search(Filter{Page: page}, zh)
-		if r.Filter.Page != r.Pages || len(r.Products) != len(catalogue)-PageSize {
+		if r.Filter.Page != r.Pages || len(r.Products) != len(catalogue)-(pages()-1)*PageSize {
 			t.Errorf("page %d: shows page %d of %d with %d products", page, r.Filter.Page, r.Pages, len(r.Products))
 		}
 	}
@@ -124,10 +125,10 @@ func TestSearchFiltersByMaterialRatingAndBadge(t *testing.T) {
 			t.Errorf("%s has %.1f", p.Slug, p.Rating)
 		}
 	}
-	if r := Search(Filter{Badges: []string{"sale"}}, zh); r.Total != 4 {
+	if r := Search(Filter{Badges: []string{"sale"}}, zh); r.Total != count(func(p productRecord) bool { return p.badge == "sale" }) || r.Total == 0 {
 		t.Errorf("sale leaves %d", r.Total)
 	}
-	if r := Search(Filter{Badges: []string{"sale", "new"}}, zh); r.Total != 6 {
+	if r := Search(Filter{Badges: []string{"sale", "new"}}, zh); r.Total != count(func(p productRecord) bool { return p.badge == "sale" || p.badge == "new" }) {
 		t.Errorf("sale or new leaves %d", r.Total)
 	}
 	// A facet ignores its own filter and keeps the others.
@@ -195,4 +196,18 @@ func BenchmarkMaterialFamilies(b *testing.B) {
 			materialFamilies(p)
 		}
 	}
+}
+
+// pages is how many pages the whole catalogue takes.
+func pages() int { return (len(catalogue) + PageSize - 1) / PageSize }
+
+// count is how many products of the catalogue keep keeps.
+func count(keep func(productRecord) bool) int {
+	n := 0
+	for _, p := range catalogue {
+		if keep(p) {
+			n++
+		}
+	}
+	return n
 }

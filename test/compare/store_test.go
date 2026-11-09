@@ -36,7 +36,7 @@ func TestStorePagesAreAPlainList(t *testing.T) {
 			t.Errorf("scenario %s has no steps", s.Name)
 		}
 	}
-	if len(compare.StoreProducts()) != 28 {
+	if len(compare.StoreProducts()) != 150 {
 		t.Errorf("%d products", len(compare.StoreProducts()))
 	}
 }
