@@ -624,3 +624,34 @@ func TestTheReportDescribesTheWritesAsTheyAreMade(t *testing.T) {
 		}
 	}
 }
+
+// A round that played every visit prepared for it (Capped) is shorter than the target, and the
+// report says so: its cell of the body has a mark with a note under the table, and the table of what
+// the rounds did gives the capped rounds and their lengths.
+func TestTheReportMarksTheRoundsCappedAtThePreparedVisits(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+		Config: map[string]string{"sessions": "8", "rounds": "3"},
+		Throughput: map[string]*Throughput{
+			"shop/tifa":   {Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}},
+			"shop/nextjs": {Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}},
+		}}
+	for round := 1; round <= 3; round++ {
+		x := closedRound("tifa", sc.Name, 8, round, 4000, 48, true)
+		x.Capped = round == 2
+		r.Closed = append(r.Closed, x, closedRound("nextjs", sc.Name, 8, round, 400, 10, true))
+	}
+	md := r.Markdown()
+	body, appendix, _ := strings.Cut(md, "\n## Appendix\n")
+	for _, want := range []string{"| Tifa | core used | 8 | 83.3¹ |", "¹ A round played every visit prepared for it, so it is shorter than the target."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the body lacks %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "| Next.js | core used | 8 | 40.0¹") {
+		t.Errorf("the body marks a server none of whose rounds was capped:\n%s", body)
+	}
+	if !strings.Contains(appendix, "| capped rounds |") || !strings.Contains(appendix, "| round 2, 48 s |") {
+		t.Errorf("the appendix does not give the capped round and its length:\n%s", appendix)
+	}
+}

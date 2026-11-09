@@ -212,6 +212,7 @@ func peopleCell(views float64) string {
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up, %d rounds a step. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured.\n\n", r.baseSessions(), rounds)
 	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	marked := false
 	for _, f := range r.Servers[sc.Name] {
 		t := r.Throughput[sustainKey(sc.Name, f)]
 		switch {
@@ -222,11 +223,23 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 		default:
 			rs := r.cellRounds(f, sc.Name, t.Sessions)
 			views := each(rs, pageViewsPerSecond)
-			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, fmtCell(views, "%.1f"), peopleCell(Median(views)),
+			cell := fmtCell(views, "%.1f")
+			if slices.ContainsFunc(rs, func(x Round) bool { return x.Capped }) {
+				cell += cappedMark
+				marked = true
+			}
+			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, cell, peopleCell(Median(views)),
 				typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"))
 		}
 	}
+	if marked {
+		b.WriteString("\n" + cappedMark + " A round played every visit prepared for it, so it is shorter than the target.\n")
+	}
 }
+
+// cappedMark marks a cell of the body with a round that played every visit the data before its clock
+// was made for (Round.Capped).
+const cappedMark = "¹"
 
 // throughputMethodMarkdown is, in the appendix, how the steps of the sessions ran and why they
 // stopped where the throughput table says, with the server cores of each server there.
@@ -341,16 +354,26 @@ func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rou
 // by rounds: the first of them, and the length of all.
 func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
 	fw := r.Servers[sc.Name]
-	b.WriteString("\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan 2.6 page views within 1% and 20% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan 2.6 page views within 1% and 20% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain | capped rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := rounds(f)
 		if len(rs) == 0 {
 			continue
 		}
 		x := rs[0]
-		fmt.Fprintf(b, "| %s | %d | %d / %d / %d / %d / %d | %d / %d | %d | %d / %d | %d / %d | %.2f%% | %s | %s |\n", BrowseLabel(f), x.Blocks,
+		// A round that played every visit prepared for it is named, with its length.
+		var capped []string
+		for _, y := range rs {
+			if y.Capped {
+				capped = append(capped, fmt.Sprintf("round %d, %.0f s", y.Round, y.Seconds))
+			}
+		}
+		if len(capped) == 0 {
+			capped = []string{"-"}
+		}
+		fmt.Fprintf(b, "| %s | %d | %d / %d / %d / %d / %d | %d / %d | %d | %d / %d | %d / %d | %.2f%% | %s | %s | %s |\n", BrowseLabel(f), x.Blocks,
 			x.VisitsPlanned, x.VisitsStarted, x.Visits, x.VisitsFailed, x.VisitsUnfinished, x.PageViewsPlanned, x.PageViews, x.FullLoads, x.ClicksPlanned, x.Clicks, x.WritesPlanned, x.Writes, 100*x.WriteShare,
-			fmtCell(each(rs, func(x *Round) float64 { return x.Seconds }), "%.0f"), fmtCell(each(rs, func(x *Round) float64 { return x.DrainSeconds }), "%.1f"))
+			fmtCell(each(rs, func(x *Round) float64 { return x.Seconds }), "%.0f"), fmtCell(each(rs, func(x *Round) float64 { return x.DrainSeconds }), "%.1f"), strings.Join(capped, "; "))
 	}
 }
 
