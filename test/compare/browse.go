@@ -1344,7 +1344,7 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 	if err != nil {
 		return nil, err
 	}
-	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}

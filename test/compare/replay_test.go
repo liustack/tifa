@@ -728,34 +728,38 @@ func TestRendersAreCountedByKindOfPage(t *testing.T) {
 	}
 }
 
-// Tifa starts every round with an empty render memo, so the first answer of each kind of page is a
-// render: a round whose first answer of a kind came from the memo is not valid (something filled it
-// before the round). The answers of the private pages, the cart and the checkout, that came from the
-// memo are counted apart.
-func TestTheFirstAnswerOfEachKindOfPageMustBeARender(t *testing.T) {
+// Before its clock a round of Tifa reads the metrics of the shop (Spec.Metrics): its render memo
+// must hold nothing then, or something filled it before the round, and the round is not played.
+// After the round it reads them again, and the hits of the memo over the round are what the server
+// counted. Neither read is traffic of the round. The answers of the private pages, the cart and the
+// checkout, that came from the memo are counted apart.
+func TestARoundOfTifaReadsItsMemoBeforeAndAfter(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		answer func(path string, n int) string // how the n-th answer of a path is made
-		valid  bool
-	}{
-		{"renders first", func(_ string, n int) string { return map[bool]string{true: RenderVM, false: RenderHit}[n == 1] }, true},
-		{"shared first", func(_ string, n int) string { return map[bool]string{true: RenderShared, false: RenderHit}[n == 1] }, true},
-		{"a hit first", func(path string, n int) string {
-			if path == "/store/cart" {
-				return RenderHit
-			}
-			return RenderVM
-		}, false},
-	} {
+		name    string
+		entries int // in the memo before the round
+	}{{"empty", 0}, {"filled before", 3}} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
-			seen := map[string]int{}
+			seen := map[string]bool{}
+			entries, hits, misses, reads := tc.entries, 0, 0, 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mu.Lock()
-				seen[r.URL.Path]++
-				n := seen[r.URL.Path]
-				mu.Unlock()
-				w.Header().Set(RenderHeader, tc.answer(r.URL.Path, n))
+				defer mu.Unlock()
+				if r.URL.Path == "/metrics" {
+					reads++
+					w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+					fmt.Fprintf(w, "# HELP tifa_memo_entries Pages in the render memo.\n# TYPE tifa_memo_entries gauge\ntifa_memo_entries %d\ntifa_memo_hits_total %g\ntifa_memo_misses_total %d\ntifa_memo_shared_total 0\ntifa_vms 1\n", entries, float64(hits), misses)
+					return
+				}
+				if seen[r.URL.Path] {
+					hits++
+					w.Header().Set(RenderHeader, RenderHit)
+				} else {
+					seen[r.URL.Path] = true
+					misses++
+					entries++
+					w.Header().Set(RenderHeader, RenderVM)
+				}
 				w.Write([]byte("ok"))
 			}))
 			defer srv.Close()
@@ -763,12 +767,19 @@ func TestTheFirstAnswerOfEachKindOfPageMustBeARender(t *testing.T) {
 				return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{req(page, "doc", 0, 1)}}, {Kind: StepClick, Page: page, Reqs: []TraceReq{req(page, "nav", 0, 1)}}}}
 			}
 			r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, load("/store/cart"), load("/store/products/oak-tray"), load("/store/checkout"))
+			r.metrics = "/metrics"
 			round := r.RunClosed(context.Background(), 1, 3, 10*time.Second)
 			round.Judge(BrowseScenario{})
-			if round.Valid != tc.valid || !tc.valid && !strings.Contains(round.WhyInvalid, "first answer of a cart page") {
-				t.Errorf("first answers %v: valid %v (%s)", round.FirstRenders, round.Valid, round.WhyInvalid)
+			if tc.entries > 0 {
+				if round.Valid || !strings.Contains(round.WhyInvalid, "the render memo held 3 pages") || round.Requests != 0 || reads != 1 {
+					t.Errorf("a memo filled before the round: valid %v (%s), %d requests, %d reads of the metrics", round.Valid, round.WhyInvalid, round.Requests, reads)
+				}
+				return
 			}
-			// The second answers of the cart and of the checkout, or both answers of the cart.
+			if round.Memo == nil || round.Memo.Start.Entries != 0 || round.Memo.Hits() != 3 || round.Memo.End.Misses != 3 || reads != 2 || round.Requests != 6 {
+				t.Errorf("memo %+v, %d reads of the metrics, %d requests in the round", round.Memo, reads, round.Requests)
+			}
+			// The second answers of the cart and of the checkout.
 			if round.PrivateHits != 2 {
 				t.Errorf("%d answers of the cart and the checkout came from the memo, want 2: %v", round.PrivateHits, round.PageRenders)
 			}

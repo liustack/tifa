@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -30,10 +33,10 @@ import (
 const setupWorkers = 8
 
 // setup makes the orders of the ships and the carts of the returning visitors among visits seq0 to
-// seq0+n-1, after the restock. It reports whether they were made: when not, round says why, and the
+// seq0+n-1, after the restock, and reads the render memo of Tifa last (startMemo). It reports whether they were made: when not, round says why, and the
 // round is not played.
 func (r *runner) setup(ctx context.Context, round *Round, seq0, n int) bool {
-	return r.setupOrders(ctx, round, seq0, n) && r.setupCarts(ctx, round, seq0, n)
+	return r.setupOrders(ctx, round, seq0, n) && r.setupCarts(ctx, round, seq0, n) && r.startMemo(ctx, round)
 }
 
 // noRedirect is the CheckRedirect of the clients of the setup: an answer is checked as the server
@@ -200,4 +203,94 @@ func (w *Workload) cartsFit(seq0, n, keep int) error {
 		return fmt.Errorf("%d visits make up to %d carts, more than the %d the shop keeps", n, c, keep)
 	}
 	return nil
+}
+
+// MemoCounts is what the render memo of Tifa counted, as the metrics route of the shop answers it
+// (tifa.Stats().Memo): the pages it holds, and its hits, misses and shared renders since the server
+// started.
+type MemoCounts struct {
+	Entries int64 `json:"entries"`
+	Hits    int64 `json:"hits"`
+	Misses  int64 `json:"misses"`
+	Shared  int64 `json:"shared"`
+}
+
+// MemoRound is the render memo of Tifa at the start of a round, after its setup and right before its
+// clock, and at its end.
+type MemoRound struct {
+	Start MemoCounts `json:"start"`
+	End   MemoCounts `json:"end"`
+}
+
+// Hits is the hits of the memo over the round, as the server counted them.
+func (m *MemoRound) Hits() int64 { return m.End.Hits - m.Start.Hits }
+
+// memoMetrics are the lines of the metrics route that MemoCounts reads, by name.
+var memoMetrics = map[string]func(*MemoCounts) *int64{
+	"tifa_memo_entries":      func(m *MemoCounts) *int64 { return &m.Entries },
+	"tifa_memo_hits_total":   func(m *MemoCounts) *int64 { return &m.Hits },
+	"tifa_memo_misses_total": func(m *MemoCounts) *int64 { return &m.Misses },
+	"tifa_memo_shared_total": func(m *MemoCounts) *int64 { return &m.Shared },
+}
+
+// readMemo reads the counts of the render memo from the metrics route of the server (Spec.Metrics),
+// which renders nothing.
+func (r *runner) readMemo(ctx context.Context) (MemoCounts, error) {
+	var m MemoCounts
+	data, err := sendSetup(ctx, &http.Client{CheckRedirect: noRedirect}, r.base, http.MethodGet, r.metrics, nil, 200)
+	if err != nil {
+		return m, err
+	}
+	found := 0
+	for line := range strings.Lines(string(data)) {
+		name, value, ok := strings.Cut(strings.TrimSpace(line), " ")
+		field := memoMetrics[name]
+		if !ok || field == nil || strings.HasPrefix(name, "#") {
+			continue
+		}
+		// The route writes a value as Prometheus does, a float (%g): a million is 1e+06.
+		n, err := strconv.ParseFloat(value, 64)
+		if err != nil || n != math.Trunc(n) {
+			return m, fmt.Errorf("%s: %s is not a count: %q", r.metrics, name, value)
+		}
+		*field(&m) = int64(n)
+		found++
+	}
+	if found != len(memoMetrics) {
+		return m, fmt.Errorf("%s: %d of the %d counts of the render memo: %.200s", r.metrics, found, len(memoMetrics), data)
+	}
+	return m, nil
+}
+
+// startMemo reads the render memo of Tifa right before the clock of a round, when the server has
+// the metrics route. It must hold nothing then: a page in it was put there before the round. It
+// reports whether the round can start: when not, round says why.
+func (r *runner) startMemo(ctx context.Context, round *Round) bool {
+	if r.metrics == "" {
+		return true
+	}
+	m, err := r.readMemo(ctx)
+	switch {
+	case err != nil:
+		round.SetupError = "the metrics: " + err.Error()
+	case m.Entries != 0:
+		round.SetupError = fmt.Sprintf("the render memo held %d pages before the clock: something filled it before the round", m.Entries)
+	default:
+		round.Memo = &MemoRound{Start: m}
+		return true
+	}
+	return false
+}
+
+// endMemo reads the render memo of Tifa at the end of a round that read it at its start.
+func (r *runner) endMemo(ctx context.Context, round *Round) {
+	if round.Memo == nil {
+		return
+	}
+	m, err := r.readMemo(ctx)
+	if err != nil {
+		round.MemoError = err.Error()
+		return
+	}
+	round.Memo.End = m
 }

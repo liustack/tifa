@@ -232,6 +232,7 @@ func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"list": {"memo": 55, "vm": 45}, "stats": {"memo": 11, "vm": 9}, "order": {"memo": 1, "vm": 99}, "cart": {"memo": 3, "vm": 7}}
 	x.PrivateHits = 3
+	x.Memo = &MemoRound{Start: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits
 	n := closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)
 	c := closedRound("tifa", sc.Name, 32, 1, 8000, 10, true)
 	c.Model, c.Writes, c.WriteShare = "control", 0, 0
@@ -245,6 +246,7 @@ func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 		"#### Read-only control",
 		"| Tifa, no writes | 800.0 | - | 98.0% of 100 | 97.0% of 100 | 95.0% of 20 |",
 		"| Tifa, with writes | 400.0 | 30.0% of 10 | 55.0% of 100 | 1.0% of 100 | 55.0% of 20 |",
+		"| renders | cache hits | shared renders | memo hits Tifa counted |",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
@@ -505,5 +507,21 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 		if !strings.Contains(appendix, diag) {
 			t.Errorf("the appendix lacks the diagnostic %q", diag)
 		}
+	}
+}
+
+// The cost of a visit gives, for Tifa, the hits its render memo counted itself over the round, per
+// visit, from its metrics before and after the round.
+func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
+	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
+	x.Memo = &MemoRound{Start: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits
+	r.Closed = []Round{x, closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)}
+	md := r.Markdown()
+	if !strings.Contains(md, "| memo hits Tifa counted |") || !slices.ContainsFunc(strings.Split(md, "\n"), func(l string) bool {
+		return strings.HasPrefix(l, "| Tifa |") && strings.HasSuffix(l, " | 0.250 |")
+	}) {
+		t.Errorf("the report lacks the hits Tifa counted:\n%s", md)
 	}
 }

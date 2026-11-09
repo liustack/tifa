@@ -294,7 +294,7 @@ func TestASetupAnswerThatRendersMakesTheRoundInvalid(t *testing.T) {
 		if renders != (round.SetupError != "") || renders && round.Valid {
 			t.Errorf("setup answered %q: setup error %q, valid %v (%s)", how, round.SetupError, round.Valid, round.WhyInvalid)
 		}
-		if renders && (gets.Load() != 0 || !strings.Contains(round.WhyInvalid, "carts of the returning visitors")) {
+		if renders && (gets.Load() != 0 || !strings.Contains(round.WhyInvalid, "the setup before the clock failed")) {
 			t.Errorf("setup answered %q: %d GETs were played after it, why %q", how, gets.Load(), round.WhyInvalid)
 		}
 	}

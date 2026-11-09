@@ -4,10 +4,8 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"maps"
 	"math"
 	"net/http"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,15 +89,18 @@ type Round struct {
 	// GeneratorLimited says that the load generator, not the server, ended the round: it started
 	// visits late or used most of its cpus.
 	GeneratorLimited bool `json:"generatorLimited,omitempty"`
-	// SetupRequests is how many requests made the carts of the returning visitors before the clock, and
-	// SetupError why they could not be made, or an answer of them rendered a page.
+	// SetupRequests is how many requests the setup before the clock took (the orders of the ships and
+	// the carts of the returning visitors), and SetupError why the setup failed: a request of it failed
+	// or rendered a page, or the render memo of Tifa held pages before the clock.
 	SetupRequests int    `json:"setupRequests,omitempty"`
 	SetupError    string `json:"setupError,omitempty"`
-	// FirstRenders is, by kind of page, how Tifa answered the first answer of that kind in the round
-	// (X-Tifa-Render). PrivateHits counts the answers of the private pages, the cart and the checkout,
-	// that came from the render memo: with a cart of their own for every visitor they should be few.
-	FirstRenders map[string]string `json:"firstRenders,omitempty"`
-	PrivateHits  int               `json:"privateHits"`
+	// Memo is the render memo of Tifa as its metrics route counted it, before the clock and at the end
+	// (Tifa alone has it), and MemoError why it could not be read at the end.
+	Memo      *MemoRound `json:"memo,omitempty"`
+	MemoError string     `json:"memoError,omitempty"`
+	// PrivateHits counts the answers of the private pages, the cart and the checkout, that came from
+	// the render memo: with a cart of their own for every visitor they should be few.
+	PrivateHits int `json:"privateHits"`
 
 	// Renders counts the answers of Tifa by how it answered (X-Tifa-Render: vm, memo or shared), the
 	// documents and the navigation data alike, and PageRenders splits them by kind of page.
@@ -153,12 +154,6 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Failures, r.FirstErr = a.failures, a.firstErr
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
 	r.Renders, r.Responses, r.PageRenders = a.renders, a.responses, a.pageRenders
-	if len(a.firstRenders) > 0 {
-		r.FirstRenders = map[string]string{}
-		for kind, f := range a.firstRenders {
-			r.FirstRenders[kind] = f.how
-		}
-	}
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
 	r.WriteKinds = a.kinds
 	r.Refused = a.refused
@@ -186,9 +181,9 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 }
 
 // Judge sets Valid and Pass of a round. Valid is about the experiment: the visits it planned have
-// the mix of the scenario, the carts of the returning visitors were made with answers that render
-// nothing, the first answer of every kind of page was rendered (not from the render memo, which
-// starts empty), and the load generator started every visit it was meant to (one that fell behind
+// the mix of the scenario, its setup before the clock (the orders of its ships, the carts of its
+// returning visitors, and for Tifa a render memo that held nothing then) was made with answers that
+// render nothing, the render memo of Tifa was read again at its end, and the load generator started every visit it was meant to (one that fell behind
 // or ran out of cpus is found by generatorFault). Pass is about the server, on what
 // it did: a server that fails visits or falls behind fails the rule, in a valid round.
 func (r *Round) Judge(sc BrowseScenario) {
@@ -206,12 +201,10 @@ func (r *Round) Judge(sc BrowseScenario) {
 		}
 	}
 	if r.SetupError != "" {
-		invalid("the carts of the returning visitors were not made: " + r.SetupError)
+		invalid("the setup before the clock failed: " + r.SetupError)
 	}
-	for _, kind := range slices.Sorted(maps.Keys(r.FirstRenders)) {
-		if r.FirstRenders[kind] == RenderHit {
-			invalid(fmt.Sprintf("the first answer of a %s page came from the render memo: something filled it before the round", kind))
-		}
+	if r.MemoError != "" {
+		invalid("the render memo could not be read after the round: " + r.MemoError)
 	}
 	if r.Refused > 0 {
 		invalid(fmt.Sprintf("the shop refused %d requests with 409 or 422", r.Refused))
@@ -267,6 +260,7 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 	}
 	a := newAcc()
 	var next atomic.Int64
+	parent := ctx // the render memo is read after the round, which the timeout may have ended
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cpu0, client0 := r.cpu(), selfCPU()
@@ -293,6 +287,7 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 	r.wl.plan(round, 0, visits, false)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	r.countOrders(round)
+	r.endMemo(parent, round)
 	return round
 }
 
@@ -448,6 +443,7 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	r.wl.plan(round, seq0, n, reads)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	r.countOrders(round)
+	r.endMemo(ctx, round)
 	return round
 }
 

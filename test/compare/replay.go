@@ -283,8 +283,10 @@ type runner struct {
 	products    func(project, buildID string) string
 	editProduct func(project, product string) string
 	buildID     string // of Tifa, put into the navigation requests it recorded
-	wl          *Workload
-	seed        uint64
+	// metrics is the path of the metrics route of Tifa (Spec.Metrics), "" for a server without one.
+	metrics string
+	wl      *Workload
+	seed    uint64
 	// inflight counts the requests sent and not yet answered, for the check that no backlog grows.
 	inflight atomic.Int64
 	cpu      func() float64 // processor seconds of the server so far
@@ -326,17 +328,6 @@ type acc struct {
 	refused int
 	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
-	// firstRenders is, by kind of page, how the answer of that kind that was sent first was made.
-	firstRenders map[string]firstAnswer
-}
-
-// firstAnswer is how the answer to a request sent at a time was made. The first request of a kind
-// is the one sent first, not the first to be answered: under load a hit on a page that another
-// request has just rendered can arrive before the answer of that render, but it cannot have been
-// sent before it.
-type firstAnswer struct {
-	sent time.Time
-	how  string
 }
 
 // refuse counts an answer with the status status as refused when it is 409 or 422. After the
@@ -351,7 +342,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, firstRenders: map[string]firstAnswer{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -563,9 +554,6 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 			a.pageRenders[kind] = map[string]int{}
 		}
 		a.pageRenders[kind][rd]++
-		if f, ok := a.firstRenders[kind]; !ok || start.Before(f.sent) {
-			a.firstRenders[kind] = firstAnswer{start, rd}
-		}
 	}
 	if q.Class == "prefetch" {
 		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))
