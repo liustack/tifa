@@ -287,7 +287,7 @@ func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 		}
 	}
 	var r Round
-	w.plan(&r, 0, n, false)
+	w.plan(&r, 0, n)
 	if r.WritesPlanned != sent {
 		t.Errorf("planned %d writes, the visits send %d", r.WritesPlanned, sent)
 	}

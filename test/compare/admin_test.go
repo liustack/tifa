@@ -414,12 +414,14 @@ func shipPlan(r *runner) {
 // Before the clock the runner places one order for each ship the round plans, in the order of the
 // plan, and the ship of the plan takes its own order, whenever its answer comes: what a framework
 // ships never depends on how fast it answers. A checkout places an order of the back office, which
-// no ship takes, and no ship is ever sent as a create.
+// no ship takes, and no ship is ever sent as a create. The orders are placed for the ships of the
+// warm-up too, which plays the visits after the prepared ones and takes orders of its own.
 func TestShipsTakeTheOrdersMadeBeforeTheClock(t *testing.T) {
 	r, f := adminRunner(t)
 	shipPlan(r)
 	round := &Round{}
-	if !r.setupOrders(context.Background(), round, 0, 3) {
+	r.prepared, r.warm = 2, 1 // visit 2 is the warm-up
+	if !r.setup(context.Background(), round, 0, 2) {
 		t.Fatal(round.SetupError)
 	}
 	want := []string{"create SH-1043", "create SH-1044", "create SH-1045", "create SH-1046", "create SH-1047", "create SH-1048"}
@@ -610,9 +612,9 @@ func TestAnEditSendsOneFieldThePlanSets(t *testing.T) {
 func TestTheSizingRunRestocksEveryProductToTheCap(t *testing.T) {
 	r, f := adminRunner(t)
 	r.wl.Plans = []Plan{{ID: 0, Steps: make([]PlanStep, 2)}}
-	b := &browse{o: BrowseOptions{Warm: 10 * time.Millisecond}}
+	b := &browse{o: BrowseOptions{Sizing: 10 * time.Millisecond}}
 	spec := Spec{Products: nodeProducts, EditProduct: nodeEditProduct}
-	if err := b.prepare(context.Background(), r, spec, -1, sizingVisits(b.o.Warm)); err != nil {
+	if err := b.prepare(context.Background(), r, spec, -1, sizingVisits(b.o.Sizing)); err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range StoreVariants {

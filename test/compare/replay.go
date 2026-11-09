@@ -148,8 +148,8 @@ func (w *Workload) blockVisits() int {
 }
 
 // plan sets in a round what visits seq0 to seq0+n-1 of the run plan: the visits by role, their page
-// views, the clicks among them, the returning visitors, and, unless reads, the writes.
-func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
+// views, the clicks among them, the returning visitors, and the writes.
+func (w *Workload) plan(r *Round, seq0, n int) {
 	r.VisitsPlanned, r.PageViewsPlanned, r.ClicksPlanned, r.WritesPlanned = n, 0, 0, 0
 	// A workload made by hand has no mix to check: its counts are made and dropped.
 	m := &PlannedMix{}
@@ -157,7 +157,6 @@ func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
 	if len(w.cycle) > 0 {
 		r.Mix = m
 	}
-	reads = reads || w.Scenario.ReadOnly
 	for s := seq0; s < seq0+n; s++ {
 		p := w.planFor(s)
 		var c PlanCounts
@@ -165,9 +164,6 @@ func (w *Workload) plan(r *Round, seq0, n int, reads bool) {
 		r.PageViewsPlanned += c.Views
 		r.ClicksPlanned += c.Clicks
 		m.Shoppers, m.Staff, m.ShopperViews, m.Returning = m.Shoppers+c.Shoppers, m.Staff+c.Staff, m.ShopperViews+c.ShopperViews, m.Returning+c.Returning
-		if reads {
-			continue
-		}
 		for _, x := range w.writesOf(s) {
 			r.WritesPlanned++
 			switch x.Kind {
@@ -248,10 +244,13 @@ type runner struct {
 	// carts are the cookies of the returning visits of the round, by visit, made by setupCarts before
 	// the clock.
 	carts map[int]http.CookieJar
-	// prepared is how many visits from the first the data before the clock is made for: the restock,
-	// the orders of the ships and the carts of the returning visitors (browse.with). It is at least
-	// the visits the run plays, and the same for every server of a scenario.
-	prepared int
+	// prepared is how many visits from the first the data before the clock is made for, besides the
+	// warm-up: the restock, the orders of the ships and the carts of the returning visitors
+	// (browse.with). It is at least the visits the run plays, and the same for every server of a
+	// scenario. warm is how many visits the warm-up before the clock plays, the ones after those
+	// (visits prepared to prepared+warm-1, warmUp), and the data is made for them too: 0 for a run
+	// with no warm-up (a sizing run).
+	prepared, warm int
 	// restocked is the stock the restock gave each product of the storefront it raised, by slug, set
 	// before the clock (prepare). An edit of the stock sets more than that (productChange).
 	restocked map[string]int
@@ -636,13 +635,9 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 // pacer says when each action of a visit is meant to start. In the closed model an action starts
 // when the one before it is done, so it is scheduled when it starts. In the open model action j of a
 // visit that starts at t is scheduled at t + j * ActionSpacing, whatever happened before.
-//
-// A warm-up plays its visits with reads set: it sends no writes, so that the data a measured run
-// starts with is the same for every framework, whatever the warm-up did.
 type pacer struct {
 	open  bool
 	start time.Time
-	reads bool
 }
 
 func (p pacer) at(j int) time.Time {
@@ -661,7 +656,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	trace := r.wl.Traces[plan.ID]
 	// A returning visitor comes back with the cookies of their cart, everyone else with none.
 	var jar http.CookieJar
-	if j, ok := r.carts[seq]; ok && plan.Returning && !p.reads {
+	if j, ok := r.carts[seq]; ok && plan.Returning {
 		jar = j
 	} else {
 		jar, _ = cookiejar.New(nil)
@@ -702,7 +697,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 			}
 			return false
 		}
-		if w, ok := writes[i]; ok && !p.reads {
+		if w, ok := writes[i]; ok {
 			sched := wait()
 			if err := r.doWrite(ctx, v, a, w, sched); err != nil {
 				if ctx.Err() == nil {

@@ -41,7 +41,7 @@ func TestARoundHoldsItsSeries(t *testing.T) {
 	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}})
 	r := testRunner(srv, plans, traces, nil)
 	closed := r.RunClosed(context.Background(), 2, 20, 10*time.Second)
-	open := r.RunOpen(context.Background(), 50, 10, time.Second, 0, false)
+	open := r.RunOpen(context.Background(), 50, 10, time.Second, 0)
 	for name, round := range map[string]*Round{"closed": closed, "open": open} {
 		sum := 0
 		for _, s := range round.Series {

@@ -13,7 +13,7 @@ import (
 // server cpus, another seed or cap of the rate, another cpu model, other traces or other versions
 // must not reuse the rounds of another run, nor a probe the rate of a run without one.
 func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
-	o := BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1, Seed: 1}
+	o := BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1, Seed: 1}
 	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}
 	res := &BrowseResult{Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Version: version}
 	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), version); err != nil {

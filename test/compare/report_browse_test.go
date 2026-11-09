@@ -231,7 +231,7 @@ func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"list": {"memo": 55, "vm": 45}, "stats": {"memo": 11, "vm": 9}, "order": {"memo": 1, "vm": 99}, "cart": {"memo": 3, "vm": 7}}
 	x.PrivateHits = 3
-	x.Memo = &MemoRound{Start: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits
+	x.Memo = &MemoRound{Start: MemoCounts{Hits: 4}, Warm: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits after the warm-up
 	n := closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)
 	c := closedRound("tifa", sc.Name, 32, 1, 8000, 10, true)
 	c.Model, c.Writes, c.WriteShare = "control", 0, 0
@@ -537,7 +537,7 @@ func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
 	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
-	x.Memo = &MemoRound{Start: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits
+	x.Memo = &MemoRound{Start: MemoCounts{Hits: 4}, Warm: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits after the warm-up
 	r.Closed = []Round{x, closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)}
 	md := r.Markdown()
 	if !strings.Contains(md, "| memo hits Tifa counted |") || !slices.ContainsFunc(strings.Split(md, "\n"), func(l string) bool {
@@ -849,14 +849,33 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 		t.Errorf("a formal run says it is not one:\n%s", md)
 	}
 	r := formal()
-	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"] = "1", "30s", ""
+	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"], r.Config["sizing"] = "1", "30s", "", "3s"
 	r.Stamp = ""
 	r.Servers[sc.Name] = []string{"tifa", "nextjs"}
 	md := r.Markdown()
 	top, _, _ := strings.Cut(md, "### ")
-	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
+	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "sizing 3s (formal 15s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("the top of the report lacks %q:\n%s", want, top)
+		}
+	}
+}
+
+// browse.sh refuses the names of settings that are gone, so that an old command line does not run
+// another method: USERS and EXTRA_USERS (the throughput counts sessions), SCENARIOS (one scenario)
+// and WARM (the warm-up is the same for every server, and SIZING is the length of a sizing run).
+func TestBrowseShRefusesTheSettingsThatAreGone(t *testing.T) {
+	env, err := NewEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"USERS", "EXTRA_USERS", "SCENARIOS", "WARM"} {
+		cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), "stamp")
+		cmd.Dir = env.Root
+		cmd.Env = append(os.Environ(), "BROWSE_OUT="+t.TempDir(), name+"=3s")
+		data, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(data), name+" is gone") {
+			t.Errorf("browse.sh with %s: %v\n%s", name, err, data)
 		}
 	}
 }

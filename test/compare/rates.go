@@ -208,7 +208,7 @@ func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 		"nextjs":        b.res.Version[openBase],
 		"actionSpacing": ActionSpacing.String(),
 		"rule":          LatencyRule,
-		"search":        fmt.Sprintf("doubling from 4 visits/s up to %v, narrowed to 10%%, trials of %s after a warm-up of %s", b.maxRate(), b.o.TrialWindow, b.o.TrialWindow/3),
+		"search":        fmt.Sprintf("doubling from 4 visits/s up to %v, narrowed to 10%%, trials of %s, each after a warm-up of as many visits with their writes", b.maxRate(), b.o.TrialWindow),
 		"confirm":       fmt.Sprintf("%d rounds of %s at the rate found, then up to 3 rates 10%% lower, and one 10%% above when the first passes", b.o.Rounds, 2*b.o.TrialWindow),
 	}
 }
