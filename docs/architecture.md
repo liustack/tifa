@@ -205,7 +205,7 @@ flowchart TD
   FL -- "no" --> VMR["Render in a VM (vm), keep the HTML"]
 ```
 
-- **Render memo** ([details](memo.md)). The key is a hash of the build ID, the SSR bundle, the URL, the data of every `Load`, the session the browser gets and the policy of `server.csp`. The same key always gives the same HTML, so a hit skips the VM. Each request still runs `OnRequest` and its `Load`s, so data is never stale. The page is kept in one form: gzip with `server.compress` on, HTML otherwise.
+- **Render memo** ([details](memo.md)). The key is a hash of the build ID, the SSR bundle, the path with the query parameters the `Load`s read, the data of every `Load`, the session the browser gets and the policy of `server.csp`. The same key always gives the same HTML, so a hit skips the VM. Each request still runs `OnRequest` and its `Load`s, so data is never stale. The page is kept in one form: gzip with `server.compress` on, HTML otherwise.
 - **Shared renders.** Requests that miss the same key at the same time wait for one render, even when `ssr.memo_size` is 0. The render runs in a goroutine that belongs to none of them, so one client leaving does not cancel it.
 - **ETag.** It is a hash of the same things as the render key. A matching `If-None-Match` is answered before the memo is asked. The ETag saves the transfer to a browser, and the memo saves the render for everyone else.
 - **Pages with `Cache`.** The memo is all Tifa keeps for them. The request is made anonymous (`anonymize`), the Loads run on every request, and once they are done the Cache-Control for shared caches is set (`setShared`), unless OnRequest, a Load or a Layout made the answer private. A CDN in front holds the page, not Tifa.

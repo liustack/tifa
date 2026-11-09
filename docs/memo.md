@@ -1,5 +1,5 @@
 ---
-summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, its limits, why a page has one key that is also its ETag, and how to see it work'
+summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, and how to see it work'
 read_when:
   - Wondering why it is called a memo and not a cache, or whether it can show an old page
   - Wondering whether a memoized page could show one visitor's data to another, or reach a CDN
@@ -7,6 +7,7 @@ read_when:
   - Setting Cache-Control on a page, a Load or a handler of an app that has signed-in pages
   - Reading cookies or the Authorization header in your own code instead of using Tifa sessions
   - A page shows a stale time or random value, or you want to know why a request did or did not hit the memo
+  - A component reads a query parameter and the page hydrates differently, or you wonder whether tracking parameters cost renders
   - Wondering why a write to Layout data makes other pages render again, or whether parts of a page could be kept
 ---
 
@@ -43,9 +44,19 @@ Tifa itself keeps nothing for a page with `Cache`. Its `Load`s run on every requ
 
 ## Why it is safe on every page
 
-Tifa reuses a render only when every input is the same: the build, the SSR bundle, the URL, the data of every `Load` and Layout, and the session the browser gets (with `server.csp`, also the policy). The React render cannot read cookies or headers and does no I/O. Everything it shows comes from Go, through that data. So a reused render is byte for byte what a new render would give for that request.
+Tifa reuses a render only when every input is the same: the build, the SSR bundle, the URL the render sees (see [Query parameters](#query-parameters)), the data of every `Load` and Layout, and the session the browser gets (with `server.csp`, also the policy). The React render cannot read cookies or headers and does no I/O. Everything it shows comes from Go, through that data. So a reused render is byte for byte what a new render would give for that request.
 
-The 404 page and the page a failed `Load` shows are kept the same way. The status and public message of each failed `Load` are part of the data, and `OnError` still sees every failure. They carry no `ETag`, since a 304 only stands for a 200. A redirect the router makes while rendering, such as `/%61` to `/a`, is kept too.
+The 404 page and the page a failed `Load` shows are rendered for every request and never kept, so URLs a visitor makes up, such as a random slug, do not fill the memo. Requests for one of them at the same time still share one render. The status and public message of each failed `Load` are part of the data, and `OnError` still sees every failure. They carry no `ETag`, since a 304 only stands for a 200. A redirect the router makes while rendering a page, such as `/%61` to `/a`, is kept.
+
+## Query parameters
+
+A page sees the query parameters that its `Load` and the Layout functions above it read with `c.Query` or `c.QueryValues`. `tifa build` finds them. The server render gets the path and those parameters only, sorted by name, with the values of a name in the order of the request, and the key holds the same. Every other parameter is dropped before the render and is not in the key. The address bar of the browser keeps the URL as it is, and `OnRequest`, the `Load`s and the method handlers see the request as it came.
+
+- **Tracking parameters cost nothing.** `?utm_source=mail`, `?fbclid=...` or `?x=random` on a page give the same key as the page without them, and the memo answers them. Another order of the parameters gives the same key too.
+- **To render by a parameter, read it in the `Load`.** A parameter no `Load` reads cannot change the data, so the render does not need it. Read it in the component with the `useSearch` of the route (`page.useSearch()` from `route.gen`), which has the types of the parameters the `Load`s read. See [Query parameters in Link and navigate](app.md#query-parameters-in-link-and-navigate).
+- **A component that reads another parameter hydrates differently.** The server renders it without the parameter and the browser with it, so React reports a hydration error and renders that part again in the browser. `tifa build` warns, with the file and line, of `useSearch({ strict: false })` and of `useLocation` or `useRouterState` picking `search`, `searchStr` or `href` of the location. Read such a parameter in the `Load`, or in an effect if only the browser needs it.
+- **A redirect keeps the URL.** When the router sends another spelling of a URL, such as `/%61`, to its own, the redirect puts back the parameters the render did not see.
+- **A page without SSR** (`SSR = false`) is not rendered on the server, and its document carries the URL as it came.
 
 ## Signed-in and private pages
 
@@ -85,7 +96,6 @@ Behind a CDN, keep the defaults and let it follow the headers of the origin. See
 - **A component that reads the time or a random number** (`Date.now()`, `Math.random()`) puts a value into the HTML that is not in the input, and so not in the key, and the memo would give it to later visitors. `tifa dev` renders each page twice and warns when the two differ. For a page that must show such a value, write `const Memo = false` in its `route.go`: it renders for every request and gets no `ETag`.
 - **A request with a render clock** (`tifa.WithRenderClock`) neither reads nor stores a page.
 - **`ssr.memo_size`** is the memory of the render memo, 64 MiB by default. When it is full the least recently used pages go. `0` turns it off, and requests that miss the same page at the same time still share one render. See [Configuration](config.md).
-- **The URL is the request URI as it came.** Two spellings of the same query, or a tracking parameter, make two entries. That costs hits and never serves a wrong page.
 
 ## One key per page
 
