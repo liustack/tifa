@@ -833,3 +833,30 @@ func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 		t.Error("the split has a row for Next.js, which says nothing of its renders")
 	}
 }
+
+// A run with the formal settings (FormalBrowse, the cpus of the server and the load pinned, run by
+// browse.sh, every server) says nothing about them. Any other run says at the top of the report that
+// it is not a formal run, and how it differs.
+func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
+	sc := mustScenario("shop")
+	formal := func() *BrowseResult {
+		o := FormalBrowse
+		o.ServerCPUs, o.LoadCPUs = "0", "1,5"
+		return &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
+			Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}}
+	}
+	if md := formal().Markdown(); strings.Contains(md, "Not a formal run") {
+		t.Errorf("a formal run says it is not one:\n%s", md)
+	}
+	r := formal()
+	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"] = "1", "30s", ""
+	r.Stamp = ""
+	r.Servers[sc.Name] = []string{"tifa", "nextjs"}
+	md := r.Markdown()
+	top, _, _ := strings.Cut(md, "### ")
+	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("the top of the report lacks %q:\n%s", want, top)
+		}
+	}
+}

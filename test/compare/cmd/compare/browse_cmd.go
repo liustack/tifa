@@ -27,14 +27,14 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 	flags.StringVar(&o.loadCPUs, "load-cpus", "", "browse: cpus for the load generator")
-	flags.Float64Var(&o.maxRate, "max-rate", 16384, "browse: the search for the sustainable rate stops here, visits a second")
+	flags.Float64Var(&o.maxRate, "max-rate", compare.FormalBrowse.MaxRate, "browse: the search for the sustainable rate stops here, visits a second")
 	flags.BoolVar(&o.probe, "probe", false, "browse: search the rate Next.js sustains again, even where test/compare/rates.json has it, and write it into the file")
-	flags.IntVar(&o.sessions, "sessions", 8, "browse: the concurrent sessions (no think time) every server starts the throughput at")
-	flags.IntVar(&o.rounds, "rounds", 3, "browse: rounds of every cell, in a rotating order with fresh servers")
-	flags.DurationVar(&o.warm, "warm", 15*time.Second, "browse: warm-up of a closed round, apart from it")
-	flags.DurationVar(&o.target, "target", 75*time.Second, "browse: about how long a closed round should take")
-	flags.DurationVar(&o.trial, "trial-window", 45*time.Second, "browse: an open trial of the search for the sustainable rate")
-	flags.DurationVar(&o.final, "final-window", 240*time.Second, "browse: an open round of the latency table, at least")
+	flags.IntVar(&o.sessions, "sessions", compare.FormalBrowse.Sessions, "browse: the concurrent sessions (no think time) every server starts the throughput at")
+	flags.IntVar(&o.rounds, "rounds", compare.FormalBrowse.Rounds, "browse: rounds of every cell, in a rotating order with fresh servers")
+	flags.DurationVar(&o.warm, "warm", compare.FormalBrowse.Warm, "browse: warm-up of a closed round, apart from it")
+	flags.DurationVar(&o.target, "target", compare.FormalBrowse.Target, "browse: about how long a closed round should take")
+	flags.DurationVar(&o.trial, "trial-window", compare.FormalBrowse.TrialWindow, "browse: an open trial of the search for the sustainable rate")
+	flags.DurationVar(&o.final, "final-window", compare.FormalBrowse.FinalWindow, "browse: an open round of the latency table, at least")
 }
 
 func countCPUs(list string) int {

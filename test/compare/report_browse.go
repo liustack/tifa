@@ -115,6 +115,9 @@ func (r *BrowseResult) Markdown() string {
 		}
 	}
 	fmt.Fprintf(&b, ". %s, %s. Placement: %s.\n", r.Machine.CPU, r.Machine.Kernel, r.Place.Note)
+	if off := r.notFormal(); len(off) > 0 {
+		fmt.Fprintf(&b, "\n**Not a formal run.** It differs from a formal run (FormalBrowse, pinned, by browse.sh, every server) in: %s. Its numbers are not results of the comparison.\n", strings.Join(off, ", "))
+	}
 	rounds := r.rounds()
 	for _, sc := range r.Scenarios {
 		r.resultsMarkdown(&b, sc, rounds)
@@ -924,4 +927,30 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 	for _, row := range rows {
 		b.WriteString(row)
 	}
+}
+
+// notFormal is how a run differs from a formal one (FormalBrowse): its settings, the pinning of the
+// server and the load, whether browse.sh ran it, and its servers. It is empty for a formal run.
+func (r *BrowseResult) notFormal() []string {
+	var off []string
+	formal := browseConfig(FormalBrowse, "", "", "")
+	for _, k := range []string{"sessions", "rounds", "warm", "target", "trialWindow", "finalWindow", "maxRate", "seed"} {
+		if v, ok := r.Config[k]; !ok {
+			off = append(off, fmt.Sprintf("%s not recorded (formal %s)", k, formal[k]))
+		} else if v != formal[k] {
+			off = append(off, fmt.Sprintf("%s %s (formal %s)", k, v, formal[k]))
+		}
+	}
+	if r.Config["serverCpus"] == "" || r.Config["loadCpus"] == "" {
+		off = append(off, "the server and the load not pinned to cpus of their own")
+	}
+	if r.Stamp == "" {
+		off = append(off, "not run by browse.sh, so its traces were not checked against the checkout")
+	}
+	for _, sc := range r.Scenarios {
+		if !slices.Equal(r.Servers[sc.Name], BrowseFrameworks) {
+			off = append(off, fmt.Sprintf("servers %s (formal %s)", strings.Join(r.Servers[sc.Name], ", "), strings.Join(BrowseFrameworks, ", ")))
+		}
+	}
+	return off
 }

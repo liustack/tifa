@@ -23,6 +23,12 @@ import (
 	"time"
 )
 
+// FormalBrowse are the settings of a formal run of the browse comparison, the defaults of `compare
+// browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
+// pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
+// its report says so at the top, with how it differs.
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
+
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
 type BrowseOptions struct {
