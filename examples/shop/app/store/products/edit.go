@@ -115,8 +115,17 @@ func (c Change) Over(e Edit) Edit {
 // validEdit passes Validate: a change over it fails only on the fields the change has.
 var validEdit = Edit{PriceCents: minPriceFen, NameEN: "-", NameZH: "-", DescriptionEN: "-", DescriptionZH: "-"}
 
-// Validate checks the fields the change has, with the rules of Edit.Validate.
-func (c Change) Validate() error { return c.Over(validEdit).Validate() }
+// noField is the message of every field of a change that sets none, which changes nothing.
+const noField = "Change at least one field"
+
+// Validate checks the fields the change has, with the rules of Edit.Validate. A change that has no
+// field (a body of null or {}) is refused, with noField on every field.
+func (c Change) Validate() error {
+	if c == (Change{}) {
+		return tifa.Fields{"priceCents": noField, "stock": noField, "nameEn": noField, "nameZh": noField, "descriptionEn": noField, "descriptionZh": noField}
+	}
+	return c.Over(validEdit).Validate()
+}
 
 // Apply changes the fields of a product that a change has, under the lock that checkouts take
 // their stock under, or returns tifa.ErrNotFound. The change must have passed Validate. The next

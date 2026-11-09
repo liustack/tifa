@@ -71,8 +71,15 @@ export function over(c: Change, e: Edit): Edit {
   return out
 }
 
-// checkChange returns the message of each field of a change that fails, as Change.Validate does.
+// noField is the message of every field of a change that sets none, as in Go.
+const noField = 'Change at least one field'
+
+// checkChange returns the message of each field of a change that fails, as Change.Validate does: a
+// change that has no field is refused on every field.
 export function checkChange(c: Change): Record<string, string> {
+  if (Object.values(c).every((v) => v === undefined)) {
+    return { priceCents: noField, stock: noField, nameEn: noField, nameZh: noField, descriptionEn: noField, descriptionZh: noField }
+  }
   return checkEdit(over(c, validEdit))
 }
 

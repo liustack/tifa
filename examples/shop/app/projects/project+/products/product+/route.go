@@ -19,8 +19,8 @@ func Load(c *tifa.Ctx) (catalogue.Entry, error) {
 }
 
 // PATCH changes the fields of the product that the body has and answers with the product. The edit
-// page sends every field, and a field that is missing or null keeps its value. The change checks
-// itself with Validate before it gets here.
+// page sends every field, a field that is missing or null keeps its value, and a body with no field
+// at all is refused (422). The change checks itself with Validate before it gets here.
 func PATCH(c *tifa.Ctx, in catalogue.Change) (catalogue.Entry, error) {
 	if err := orders.UpdateShopProduct(c.Param("project"), c.Param("product"), in); err != nil {
 		return catalogue.Entry{}, err
