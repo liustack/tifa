@@ -51,7 +51,8 @@ func TestACheckoutBecomesAnOrderOfTheStudioShop(t *testing.T) {
 	c, _ := visit(t, id)
 	in := goodOrder()
 	in.Notes = "请附手写卡片"
-	now := time.Date(2026, 11, 9, 9, 30, 0, 0, time.UTC)
+	// Other tests of the package place orders at time.Now(), and the list puts the newest first.
+	now := time.Now()
 	number, err := PlaceOrder(c, zh, in, now)
 	if err != nil {
 		t.Fatal(err)
