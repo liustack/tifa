@@ -44,6 +44,10 @@ func TestEveryServerOfAScenarioGetsTheSameDataBeforeTheClock(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Twice the visits of the longest round a server was sized to: three blocks.
+		if want := 2 * 3 * bv; prepared != want {
+			t.Fatalf("the data is made for %d visits, want %d", prepared, want)
+		}
 		visits := b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, fw)] * bv
 		if _, err := b.with(context.Background(), fw, sc, visits, prepared, func(r *runner) *Round {
 			round := &Round{}
