@@ -608,7 +608,7 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 // a product, every ship ships an order placed for it before the clock, and a new visitor sees the
 // demonstration cart, the same for every new visitor. What an earlier version did is not said.
 func TestTheReportDescribesTheWritesAsTheyAreMade(t *testing.T) {
-	for _, old := range []string{"no product edit yet", "changes the recipient of an order for now", "oldest order that has not shipped", "places one instead", "Every visit has data of its own"} {
+	for _, old := range []string{"no product edit yet", "changes the recipient of an order for now", "oldest order that has not shipped", "places one instead", "Every visit has data of its own", "differs from visit to visit"} {
 		if strings.Contains(siteText, old) {
 			t.Errorf("the report still says %q", old)
 		}
@@ -616,7 +616,8 @@ func TestTheReportDescribesTheWritesAsTheyAreMade(t *testing.T) {
 	for _, want := range []string{
 		"an edit is one PATCH of one field of a product",
 		"each ship ships an order of its own, placed for it before the clock",
-		"the data of every visit with private data of its own (the cart of a returning visitor, a checkout) differs from visit to visit",
+		"the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit",
+		"the time of an order is the clock of the server when it is placed",
 		"a new visitor sees the demonstration cart, the same for every new visitor",
 	} {
 		if !strings.Contains(siteText, want) {
