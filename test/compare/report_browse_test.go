@@ -40,7 +40,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"#### The arrival rate Next.js sustains",
 		"| Next.js | 16.00 | 42 |",
 		"#### Latency at the same arrival rate, half of Next.js's confirmed rate",
-		"not half of each server's own capacity",
+		"not half of its own capacity",
 		"The writes are requests inserted into the recorded visits",
 		"the refresh after a write is not replayed",
 		"Every server gets 8.00 visits/s",
@@ -79,7 +79,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 		"| Next.js | 4.0 (4.0 to 3000.0) / 30 (30 to 3000) (205) |", "| 20 |",
 		"failed the rule in 1 of 3 rounds: round 2 failed: the workload did not finish in time",
 		// A server that fails at the rate in every round is a result, with its numbers.
-		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 0 |", "failed the rule in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms"} {
+		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | failed the rule in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms", "| Tifa | 0 |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
@@ -281,9 +281,10 @@ func TestBrowseReportTypesTheThroughputOfEachServer(t *testing.T) {
 	md := r.Markdown()
 	for _, want := range []string{
 		"#### Throughput",
-		"| | result | sessions | page views/s | active people at one page per 5 to 10 s | server cores |",
-		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 2500 to 5000 | 0.50 |",
-		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 200 to 400 | 0.50 |",
+		"| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) |",
+		"| | server cores | why the steps stopped | sessions played |",
+		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 2500 to 5000 |", "| Tifa | 0.50 |",
+		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 200 to 400 |", "| Next.js | 0.50 |",
 		"| TanStack Start | no passing step | - | - |",
 		"| | 4 sessions | 6 sessions | 8 sessions | 10 sessions | 13 sessions |",
 		"| Next.js | - | - | 40.0 (39.0 to 41.0) | failed (click P99 1200 ms over 1000 ms) | - |",
@@ -456,6 +457,35 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	body, appendix, ok := strings.Cut(md, "\n## Appendix\n")
 	if !ok {
 		t.Fatalf("the report has no appendix:\n%s", md)
+	}
+	// The tables of the body have the columns of the results alone: what each server reached and its
+	// latency. The server cores, why the steps stopped, the sessions played, the failures, the
+	// processor time and how steps and rounds are judged are in the appendix.
+	var heads []string
+	for _, l := range strings.Split(body, "\n") {
+		if strings.HasPrefix(l, "| |") {
+			heads = append(heads, l)
+		}
+	}
+	var want []string
+	for range scs {
+		want = append(want, "| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |",
+			"| | full loads | clicks | writes | rounds |")
+	}
+	want = append(want, "| | value | source |")
+	if !slices.Equal(heads, want) {
+		t.Errorf("the tables of the body have the columns\n%s\nwant\n%s", strings.Join(heads, "\n"), strings.Join(want, "\n"))
+	}
+	for _, method := range []string{
+		"| | server cores | why the steps stopped | sessions played |",
+		"| | failures | visits failed / unfinished, of planned | server CPU ms/page view | not valid, run again |",
+		"is stepped up about 25% a step",
+		"A round in which the load generator used over 0.8 of its cpus is not valid",
+		"A server that cannot hold that rate fails at it",
+	} {
+		if strings.Contains(body, method) || !strings.Contains(appendix, method) {
+			t.Errorf("%q is not in the appendix alone", method)
+		}
 	}
 	// The body: the four result tables in order, each with its link, then the mix.
 	at := 0

@@ -154,6 +154,9 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	fw := r.Servers[sc.Name]
 	sessions := r.sessionsOf(sc.Name)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the throughput\n", diagnosticsAnchor(sc, "throughput"), sc.Title)
+	if len(r.sessionsOf(sc.Name)) > 0 {
+		r.throughputMethodMarkdown(b, sc, rounds)
+	}
 	if len(sessions) > 0 {
 		b.WriteString("\n#### Page views a second at each number of concurrent sessions\n\nClosed loop: N concurrent sessions, no think time, each playing the next visit as soon as it ends one, with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule there (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog). A cell stops at its first failed round, which decides it. A page view counts when it completes. Prefetches and writes are not page views. `-` is a number of sessions the server was not stepped to.\n\n| |")
 		for _, n := range sessions {
@@ -189,6 +192,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	r.controlMarkdown(b, sc)
 	r.seriesMarkdown(b, sc)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
+	r.latencyMethodMarkdown(b, sc)
 	r.sustainMarkdown(b, sc)
 	if rs := func(f string) []Round { return r.latencyRounds(f, sc.Name) }; slices.ContainsFunc(fw, func(f string) bool { return len(rs(f)) > 0 }) {
 		b.WriteString("\n#### The rounds at the same arrival rate\n")
@@ -203,29 +207,47 @@ func peopleCell(views float64) string {
 	return fmt.Sprintf("%.0f to %.0f", 5*views, 10*views)
 }
 
-// throughputMarkdown is the table of what the steps of the sessions found for each server.
+// throughputMarkdown is the table of what the steps of the sessions found for each server: the
+// results alone (throughputMethodMarkdown in the appendix says how the steps ran).
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
+	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up, %d rounds a step. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured.\n\n", r.baseSessions(), rounds)
+	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, f := range r.Servers[sc.Name] {
+		t := r.Throughput[sustainKey(sc.Name, f)]
+		switch {
+		case t == nil:
+			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - |\n", BrowseLabel(f))
+		case t.Sessions == 0:
+			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - |\n", BrowseLabel(f), t.Result)
+		default:
+			rs := r.cellRounds(f, sc.Name, t.Sessions)
+			views := each(rs, pageViewsPerSecond)
+			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, fmtCell(views, "%.1f"), peopleCell(Median(views)),
+				typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"))
+		}
+	}
+}
+
+// throughputMethodMarkdown is, in the appendix, how the steps of the sessions ran and why they
+// stopped where the throughput table says, with the server cores of each server there.
+func (r *BrowseResult) throughputMethodMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	base := r.baseSessions()
-	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions, no think time, %d rounds. A server whose median server cores stay under 0.95 of its cpus, with every round passing, is stepped up about 25%% a step (%d, %d, %d and so on), and one that fails at %d is stepped down to %s. A step passes, fails (a valid round failed the rule) or is not decided (too few valid rounds, none failed): only a failure steps down. The result says how the steps ended: `%s` (every round passed and the median server cores reached 0.95, even when the gain over the step below is within the spread of the rounds), `%s` (no reliable gain was measured: the slowest round of the step up was not faster than the fastest round of the step below, which is reported), `%s` (the next step failed the rule, so this is the step below it), `%s` (the next step was not decided, so this is the step below it), `%s` (the server's cores were not measured at a step that passed, so the steps stopped there: on a Mac, or without `-server-cpus`), `%s` (every step failed), `%s` (a step was not decided and none below it passed). Each row gives the sessions it was measured at, so servers are compared at their own working points, not at the same concurrency. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured (it holds no long sessions open and no memory for them). A round in which the load generator used over 0.8 of its cpus is not valid and is played again, so a limit of the generator is never read as one of the server.\n\n", base, rounds, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))), base, joinSessions(stepsDown(base)), ThroughputCoreUsed, ThroughputPlateau, ThroughputHighestPassing, ThroughputNextUndecided, ThroughputCoresUnknown, ThroughputNone, ThroughputUndecided)
+	fmt.Fprintf(b, "\n#### How the steps of the sessions ran\n\nEvery server starts at %d concurrent sessions, no think time, %d rounds. A server whose median server cores stay under 0.95 of its cpus, with every round passing, is stepped up about 25%% a step (%d, %d, %d and so on), and one that fails at %d is stepped down to %s. A step passes, fails (a valid round failed the rule) or is not decided (too few valid rounds, none failed): only a failure steps down. The result says how the steps ended: `%s` (every round passed and the median server cores reached 0.95, even when the gain over the step below is within the spread of the rounds), `%s` (no reliable gain was measured: the slowest round of the step up was not faster than the fastest round of the step below, which is reported), `%s` (the next step failed the rule, so this is the step below it), `%s` (the next step was not decided, so this is the step below it), `%s` (the server's cores were not measured at a step that passed, so the steps stopped there: on a Mac, or without `-server-cpus`), `%s` (every step failed), `%s` (a step was not decided and none below it passed). Active people holds no long sessions open and no memory for them. A round in which the load generator used over 0.8 of its cpus is not valid and is played again, so a limit of the generator is never read as one of the server.\n\n", base, rounds, stepUp(base), stepUp(stepUp(base)), stepUp(stepUp(stepUp(base))), base, joinSessions(stepsDown(base)), ThroughputCoreUsed, ThroughputPlateau, ThroughputHighestPassing, ThroughputNextUndecided, ThroughputCoresUnknown, ThroughputNone, ThroughputUndecided)
 	if r.Config["loadCpus"] == "" {
 		b.WriteString("The load generator was not pinned to cpus of its own (`-load-cpus`), so whether it had cpus to spare was not checked.\n\n")
 	}
-	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | server cores | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | why the steps stopped | sessions played |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | server cores | why the steps stopped | sessions played |\n| --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		t := r.Throughput[sustainKey(sc.Name, f)]
-		if t == nil {
-			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - | - | - | - |\n", BrowseLabel(f))
-			continue
+		switch {
+		case t == nil:
+			fmt.Fprintf(b, "| %s | - | not measured | - |\n", BrowseLabel(f))
+		case t.Sessions == 0:
+			fmt.Fprintf(b, "| %s | - | %s | %v |\n", BrowseLabel(f), t.Why, t.Steps)
+		default:
+			rs := r.cellRounds(f, sc.Name, t.Sessions)
+			fmt.Fprintf(b, "| %s | %s | %s | %v |\n", BrowseLabel(f), coresCell(rs, func(x *Round) float64 { return x.CPUSeconds }), t.Why, t.Steps)
 		}
-		steps := fmt.Sprint(t.Steps)
-		if t.Sessions == 0 {
-			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - | - | %s | %s |\n", BrowseLabel(f), t.Result, t.Why, steps)
-			continue
-		}
-		rs := r.cellRounds(f, sc.Name, t.Sessions)
-		views := each(rs, pageViewsPerSecond)
-		fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, fmtCell(views, "%.1f"), peopleCell(Median(views)),
-			coresCell(rs, func(x *Round) float64 { return x.CPUSeconds }), typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"), t.Why, steps)
 	}
 }
 
@@ -377,40 +399,59 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		return false
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets the same arrival rate, half of the rate %s was confirmed to sustain on this scenario, not half of each server's own capacity. Every server gets %.2f visits/s (%.0f page views/s planned). A server that cannot hold that rate fails at it: the rate is not lowered for it. A row gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named in the row. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds.\n\n| | full loads | clicks | writes | failures | visits failed / unfinished, of planned | server CPU ms/page view | rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n| | full loads | clicks | writes | rounds |\n| --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
 		shown := r.latencyRounds(f, sc.Name)
-		var notes, invalid []string
-		for _, x := range r.Latency {
-			if x.Framework == f && x.Scenario == sc.Name && !x.Valid {
-				invalid = append(invalid, fmt.Sprintf("round %d try %d: %s", x.Round, x.Attempt, x.WhyInvalid))
-			}
+		if len(shown) == 0 {
+			continue
 		}
+		var notes []string
 		for _, x := range shown {
 			if !x.Pass {
 				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, x.Why))
 			}
 		}
-		if len(shown) == 0 && len(invalid) == 0 {
-			continue
-		}
 		note := fmt.Sprintf("%d of %d rounds passed", len(shown)-len(notes), len(shown))
 		if len(notes) > 0 {
 			note = fmt.Sprintf("failed the rule in %d of %d rounds: %s", len(notes), len(shown), strings.Join(notes, "; "))
 		}
-		if len(invalid) > 0 {
-			note += fmt.Sprintf("; not valid, run again: %s", strings.Join(invalid, "; "))
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), note)
+	}
+	return true
+}
+
+// latencyMethodMarkdown is, in the appendix, how the rounds at the same arrival rate ran: the rule,
+// and for each server its failures, the visits that failed or did not finish, its processor time
+// and the rounds that were not valid and were run again.
+func (r *BrowseResult) latencyMethodMarkdown(b *strings.Builder, sc BrowseScenario) {
+	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
+		return
+	}
+	b.WriteString("\n#### How the rounds at the same arrival rate ran\n\nEvery server gets the same arrival rate, not half of its own capacity. A server that cannot hold that rate fails at it: the rate is not lowered for it. The latency table gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named here.\n\n| | failures | visits failed / unfinished, of planned | server CPU ms/page view | not valid, run again |\n| --- | --- | --- | --- | --- |\n")
+	for _, f := range r.Servers[sc.Name] {
+		shown := r.latencyRounds(f, sc.Name)
+		var invalid []string
+		for _, x := range r.Latency {
+			if x.Framework == f && x.Scenario == sc.Name && !x.Valid {
+				invalid = append(invalid, fmt.Sprintf("round %d try %d: %s", x.Round, x.Attempt, x.WhyInvalid))
+			}
+		}
+		if len(shown) == 0 && len(invalid) == 0 {
+			continue
 		}
 		fails, failed, unfinished, planned := 0, 0, 0, 0
 		for _, x := range shown {
 			fails, failed, unfinished, planned = fails+x.Failures, failed+x.VisitsFailed, unfinished+x.VisitsUnfinished, planned+x.VisitsPlanned
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %d / %d of %d | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), fails, failed, unfinished, planned,
-			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), note)
+		again := "none"
+		if len(invalid) > 0 {
+			again = strings.Join(invalid, "; ")
+		}
+		fmt.Fprintf(b, "| %s | %d | %d / %d of %d | %s | %s |\n", BrowseLabel(f), fails, failed, unfinished, planned,
+			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), again)
 	}
-	return true
 }
 
 // latencyRounds are the valid rounds a server played at the rate of the open run of a scenario.
