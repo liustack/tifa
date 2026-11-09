@@ -1,0 +1,23 @@
+{
+  "path": "/q",
+  "keep": ["__proto__", "q", "tag"],
+  "cases": [
+    { "query": "", "values": {}, "render": "/q" },
+    { "query": "q=a&utm=x&tag=1&q=b&tag=2", "values": { "q": ["a", "b"], "utm": ["x"], "tag": ["1", "2"] }, "render": "/q?q=a&q=b&tag=1&tag=2" },
+    { "query": "&q=a&&tag=&", "values": { "q": ["a"], "tag": [""] }, "render": "/q?q=a&tag=" },
+    { "query": "q", "values": { "q": [""] }, "render": "/q?q=" },
+    { "query": "q=a+b%20c", "values": { "q": ["a b c"] }, "render": "/q?q=a+b+c" },
+    { "query": "q=a%3Bb", "values": { "q": ["a;b"] }, "render": "/q?q=a%3Bb" },
+    { "query": "q=a;b", "values": {}, "render": "/q" },
+    { "query": "q=1;&q=2", "values": { "q": ["2"] }, "render": "/q?q=2" },
+    { "query": "q=%zz", "values": {}, "render": "/q" },
+    { "query": "q=%2", "values": {}, "render": "/q" },
+    { "query": "q=%zz&q=ok", "values": { "q": ["ok"] }, "render": "/q?q=ok" },
+    { "query": "a%zz=1&q=2", "values": { "q": ["2"] }, "render": "/q?q=2" },
+    { "query": "q=%E4%B8%AD&tag=%e4%b8%ad", "values": { "q": ["中"], "tag": ["中"] }, "render": "/q?q=%E4%B8%AD&tag=%E4%B8%AD" },
+    { "query": "q=%FF", "values": { "q": ["�"] }, "render": "/q?q=%FF" },
+    { "query": "q=%C3%28&utm=%FF", "values": { "q": ["�("], "utm": ["�"] }, "render": "/q?q=%C3%28" },
+    { "query": "=x&q=1&=", "values": { "": ["x", ""], "q": ["1"] }, "render": "/q?q=1" },
+    { "query": "__proto__=x&q=1", "values": { "__proto__": ["x"], "q": ["1"] }, "render": "/q?__proto__=x&q=1" }
+  ]
+}

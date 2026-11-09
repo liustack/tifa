@@ -1,8 +1,13 @@
 package server
 
 import (
+	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -123,6 +128,50 @@ func TestCanonicalRedirectKeepsTheDroppedParameters(t *testing.T) {
 		w := get(s, tc.target)
 		if w.Code != http.StatusPermanentRedirect || w.Header().Get("Location") != tc.want {
 			t.Errorf("%s: %d %q, want %q", tc.target, w.Code, w.Header().Get("Location"), tc.want)
+		}
+	}
+}
+
+// queryCases is the table of queries that the router test of internal/codegen reads too: what
+// url.ParseQuery, and so c.Query, takes from each query, which the browser must read the same, and
+// the URL the server renders when the Loads read the names in keep. The browser reads a byte that
+// is no UTF-8 as U+FFFD, where Go keeps the byte.
+type queryCases struct {
+	Path  string
+	Keep  []string
+	Cases []struct {
+		Query  string
+		Values map[string][]string
+		Render string
+	}
+}
+
+func TestQueryCasesAreWhatGoReads(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "internal", "codegen", "testdata", "router", "query-cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table queryCases
+	if err := json.Unmarshal(data, &table); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range table.Cases {
+		values, _ := url.ParseQuery(tc.Query)
+		got := map[string][]string{}
+		for k, vs := range values {
+			for _, v := range vs {
+				got[strings.ToValidUTF8(k, "�")] = append(got[strings.ToValidUTF8(k, "�")], strings.ToValidUTF8(v, "�"))
+			}
+		}
+		if !maps.EqualFunc(got, tc.Values, slices.Equal) {
+			t.Errorf("%q: Go reads %q, the table says %q", tc.Query, got, tc.Values)
+		}
+		u, err := url.ParseRequestURI(table.Path + "?" + tc.Query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if render := renderURL(u, table.Keep); render != tc.Render {
+			t.Errorf("%q: renders %q, the table says %q", tc.Query, render, tc.Render)
 		}
 	}
 }
