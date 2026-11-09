@@ -72,7 +72,65 @@ func (e Edit) Validate() error {
 
 // Update changes a product to what an edit says, or returns tifa.ErrNotFound. The edit must have
 // passed Validate. The next request of every storefront page shows the change.
-func Update(slug string, e Edit) error {
+func Update(slug string, e Edit) error { return Apply(slug, ChangeOf(e)) }
+
+// Change is an edit that changes only the fields it has, as the PATCH of the back office takes it:
+// a field that is missing or null keeps its value. So an edit of the price leaves the stock as the
+// checkouts since left it, and two edits of other fields never undo each other.
+type Change struct {
+	PriceCents    *int    `json:"priceCents"`
+	Stock         *int    `json:"stock"`
+	NameEN        *string `json:"nameEn"`
+	NameZH        *string `json:"nameZh"`
+	DescriptionEN *string `json:"descriptionEn"`
+	DescriptionZH *string `json:"descriptionZh"`
+}
+
+// ChangeOf is the change that sets every field to what e says.
+func ChangeOf(e Edit) Change {
+	return Change{&e.PriceCents, &e.Stock, &e.NameEN, &e.NameZH, &e.DescriptionEN, &e.DescriptionZH}
+}
+
+// Over returns e with the fields the change has in place of its own.
+func (c Change) Over(e Edit) Edit {
+	set := func(dst *int, src *int) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	text := func(dst *string, src *string) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	set(&e.PriceCents, c.PriceCents)
+	set(&e.Stock, c.Stock)
+	text(&e.NameEN, c.NameEN)
+	text(&e.NameZH, c.NameZH)
+	text(&e.DescriptionEN, c.DescriptionEN)
+	text(&e.DescriptionZH, c.DescriptionZH)
+	return e
+}
+
+// validEdit passes Validate: a change over it fails only on the fields the change has.
+var validEdit = Edit{PriceCents: minPriceFen, NameEN: "-", NameZH: "-", DescriptionEN: "-", DescriptionZH: "-"}
+
+// noField is the message of every field of a change that sets none, which changes nothing.
+const noField = "Change at least one field"
+
+// Validate checks the fields the change has, with the rules of Edit.Validate. A change that has no
+// field (a body of null or {}) is refused, with noField on every field.
+func (c Change) Validate() error {
+	if c == (Change{}) {
+		return tifa.Fields{"priceCents": noField, "stock": noField, "nameEn": noField, "nameZh": noField, "descriptionEn": noField, "descriptionZh": noField}
+	}
+	return c.Over(validEdit).Validate()
+}
+
+// Apply changes the fields of a product that a change has, under the lock that checkouts take
+// their stock under, or returns tifa.ErrNotFound. The change must have passed Validate. The next
+// request of every storefront page shows it.
+func Apply(slug string, c Change) error {
 	catalogueMu.Lock()
 	defer catalogueMu.Unlock()
 	i := slices.IndexFunc(catalogue, func(p productRecord) bool { return p.slug == slug })
@@ -80,6 +138,7 @@ func Update(slug string, e Edit) error {
 		return tifa.ErrNotFound
 	}
 	p := &catalogue[i]
+	e := c.Over(p.entry().Edit)
 	p.priceFen, p.stock = e.PriceCents, e.Stock
 	p.name = T{strings.TrimSpace(e.NameZH), strings.TrimSpace(e.NameEN)}
 	p.description = T{strings.TrimSpace(e.DescriptionZH), strings.TrimSpace(e.DescriptionEN)}

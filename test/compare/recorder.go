@@ -11,27 +11,22 @@ import (
 	"strconv"
 )
 
-// WritePlans writes the plans of the workbench and of the storefront (blocks blocks of BlockVisits
-// visits each) to dir, where the recorder reads them and the replay finds them again.
+// WritePlans writes the plans of the site (blocks blocks of SiteBlockPlans visits each) to dir,
+// where the recorder reads them and the replay finds them again.
 func WritePlans(dir string, seed uint64, blocks int) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	for _, set := range []PlanSet{GeneratePlanSet(seed, blocks), GenerateStorePlanSet(seed, blocks)} {
-		data, err := json.Marshal(set)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(PlansPath(dir, set.Site), data, 0o644); err != nil {
-			return err
-		}
+	data, err := json.Marshal(GenerateSitePlanSet(seed, blocks))
+	if err != nil {
+		return err
 	}
-	return nil
+	return os.WriteFile(PlansPath(dir), data, 0o644)
 }
 
-// ReadPlans reads the plans of a site from dir.
-func ReadPlans(dir, site string) (*PlanSet, error) {
-	data, err := os.ReadFile(PlansPath(dir, site))
+// ReadPlans reads the plans of the site from dir.
+func ReadPlans(dir string) (*PlanSet, error) {
+	data, err := os.ReadFile(PlansPath(dir))
 	if err != nil {
 		return nil, err
 	}
@@ -39,11 +34,11 @@ func ReadPlans(dir, site string) (*PlanSet, error) {
 	if err := json.Unmarshal(data, &set); err != nil {
 		return nil, err
 	}
-	if len(set.Plans) != set.Blocks*BlockVisits {
-		return nil, fmt.Errorf("%s holds %d plans, %d blocks need %d", PlansPath(dir, site), len(set.Plans), set.Blocks, set.Blocks*BlockVisits)
+	if len(set.Plans) != set.Blocks*SiteBlockPlans {
+		return nil, fmt.Errorf("%s holds %d plans, %d blocks need %d", PlansPath(dir), len(set.Plans), set.Blocks, set.Blocks*SiteBlockPlans)
 	}
-	if set.Site != site {
-		return nil, fmt.Errorf("%s holds the plans of the site %q", PlansPath(dir, site), set.Site)
+	if set.Site != SiteShop {
+		return nil, fmt.Errorf("%s holds the plans of the site %q, not of %q: make them again", PlansPath(dir), set.Site, SiteShop)
 	}
 	return &set, nil
 }
@@ -58,17 +53,13 @@ func traceName(s Spec) string {
 	return s.Name
 }
 
-// Record plays the plans of dir for a site in a real browser against each framework and writes the
+// Record plays the plans of dir in a real browser against each framework and writes the
 // traces to dir. The recorder is test/compare/recorder (Node with Playwright). Every framework is
 // started fresh, unpinned: recording is not timed.
-func (e Env) Record(ctx context.Context, log io.Writer, dir, site string, servers []string, workers, limit int) error {
+func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []string, workers, limit int) error {
 	recorder := filepath.Join(e.Root, "test", "compare", "recorder")
 	if err := run(ctx, log, recorder, nil, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
-	}
-	area := "workbench"
-	if site == SiteStore {
-		area = "store"
 	}
 	for _, name := range servers {
 		i := slices.IndexFunc(e.Specs(), func(s Spec) bool { return s.Name == name })
@@ -80,7 +71,7 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir, site string, server
 		if err != nil {
 			return err
 		}
-		args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", PlansPath(dir, site), "--out", TracePath(dir, traceName(spec), site), "--workers", strconv.Itoa(workers), "--area", area}
+		args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", PlansPath(dir), "--out", TracePath(dir, traceName(spec)), "--workers", strconv.Itoa(workers)}
 		if limit > 0 {
 			args = append(args, "--limit", strconv.Itoa(limit))
 		}

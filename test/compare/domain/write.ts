@@ -4,10 +4,10 @@ import type { NewOrder } from './orders.ts'
 import { Fields } from './store/errors.ts'
 import { BadJSON, Num, asInt, parseBody } from './store/json.ts'
 import type { Value } from './store/json.ts'
-import { checkEdit } from './store/products/edit.ts'
+import { checkChange } from './store/products/edit.ts'
 import { shopEntries, shopEntry, updateShopProduct } from './weekend.ts'
 import { storefrontProject } from './store/store.ts'
-import type { Edit } from './store/products/edit.ts'
+import type { Change } from './store/products/edit.ts'
 
 // The write endpoints of the three Node apps, which the measuring sends between reads: each takes
 // the body and gives the answer and the status of the handler of the same method in the shop
@@ -111,12 +111,15 @@ export function writeOrder(request: Request, project: string, order: string): Pr
   return Promise.resolve(Response.json({ error: 'method not allowed' }, { status: 405 }))
 }
 
-// editOf is the body of a product edit as Go decodes it into an Edit.
-export function editOf(b: any): Edit {
-  return {
-    priceCents: whole(b.priceCents), stock: whole(b.stock), nameEn: text(b.nameEn), nameZh: text(b.nameZh),
-    descriptionEn: text(b.descriptionEn), descriptionZh: text(b.descriptionZh),
-  }
+// changeOf is the body of a product edit as Go decodes it into a Change: a field that is missing or
+// null is not in it, and one of another type is a body Go cannot decode.
+export function changeOf(b: any): Change {
+  const c: Change = {}
+  const ints = ['priceCents', 'stock'] as const
+  const texts = ['nameEn', 'nameZh', 'descriptionEn', 'descriptionZh'] as const
+  for (const k of ints) if (b[k] !== undefined && b[k] !== null) c[k] = whole(b[k])
+  for (const k of texts) if (b[k] !== undefined && b[k] !== null) c[k] = text(b[k])
+  return c
 }
 
 // editProduct changes a product of the shop of a project, as the PATCH of products/product+/route.go:
@@ -124,10 +127,10 @@ export function editOf(b: any): Edit {
 export function editProduct(request: Request, project: string, product: string): Promise<Response> {
   if (request.method !== 'PATCH') return Promise.resolve(Response.json({ error: 'method not allowed' }, { status: 405 }))
   return answer(request, (b) => {
-    const e = editOf(b)
-    const fields = checkEdit(e)
+    const c = changeOf(b)
+    const fields = checkChange(c)
     if (Object.keys(fields).length > 0) throw new Fields(fields)
-    updateShopProduct(project, product, e)
+    updateShopProduct(project, product, c)
     return shopEntry(project, product)
   })
 }

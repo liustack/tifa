@@ -1,9 +1,9 @@
 // Plays visit plans in Chromium against one server and writes what the browser sent to it, one JSON
-// line per visit. Dynamic traffic only: documents and fetches, no scripts, styles, images or fonts,
-// and nothing outside the area being recorded: the workbench (/projects) or the store (/store and
-// /zh-CN/store). A request that carries a body is kept with the body the browser sent.
+// line per visit. Dynamic traffic only: documents and fetches, no scripts, styles, images or fonts.
+// The plans are of the whole site: the storefront (/store and /zh-CN/store) and the back office
+// (/projects). A request that carries a body is kept with the body the browser sent.
 //
-//   node record.mjs --base http://127.0.0.1:3000 --plans plans.json --out trace.jsonl [--workers 4] [--limit 100] [--area workbench|store]
+//   node record.mjs --base http://127.0.0.1:3000 --plans plans.json --out trace.jsonl [--workers 4] [--limit 100]
 //   node record.mjs --base http://127.0.0.1:3000 --crawl pages.json --out links.json
 //
 // --crawl opens each page of the list in pages.json (an array of URL paths) and writes, for each, the
@@ -24,8 +24,6 @@ const arg = (name, dflt) => {
   return i > 0 ? process.argv[i + 1] : dflt
 }
 const base = arg('base')
-const area = arg('area', 'workbench')
-if (!['workbench', 'store'].includes(area)) throw new Error('--area is workbench or store')
 const crawl = arg('crawl')
 const plans = crawl ? [] : JSON.parse(fs.readFileSync(arg('plans'), 'utf8')).plans
 const workers = Number(arg('workers', '4'))
@@ -38,12 +36,10 @@ const QUIET_MS = 450
 const CAP_MS = 6000
 const NAV_WINDOW_MS = 200
 
-const inStore = (path) => /^(\/zh-CN)?\/store(\/|$)/.test(path)
 const wanted = (req) => {
   if (!['document', 'fetch', 'xhr'].includes(req.resourceType())) return false
   const path = new URL(req.url()).pathname
-  if (path.startsWith('/_next/') || path.startsWith('/assets/') || path.includes('favicon')) return false
-  return area === 'store' ? inStore(path) : !inStore(path)
+  return !(path.startsWith('/_next/') || path.startsWith('/assets/') || path.includes('favicon'))
 }
 
 async function visit(browser, plan) {

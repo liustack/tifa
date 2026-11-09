@@ -3,18 +3,15 @@ package compare
 import (
 	_ "embed"
 	"encoding/json/v2"
-	"math/rand/v2"
-	"slices"
 	"strings"
 	"sync"
 )
 
-// Visits to the storefront. A visitor loads one page, then clicks the links of the page on screen
-// as on the workbench (plan.go), in blocks of the same size, but the pages, the links and
-// what a visitor does next are those of a shop. A visit stays in one language.
+// The pages of the storefront that a shopper visit is on, and the links it clicks. A visit stays in
+// one language.
 //
-// Which pages a visit starts on, and how likely a link is to be clicked, are assumptions (see
-// StoreFirstShares and storeClicks). Which links exist is not: store_links.json holds, for each
+// Which pages a visit lands on, and how likely a link is to be clicked, are assumptions (see
+// LandingShares and StoreClicks in mix.go). Which links exist is not: store_links.json holds, for each
 // page, the links of that page that lead to another page of the visit, as a browser reads them. Make
 // it again with `compare links` after the pages of the storefront change.
 
@@ -100,31 +97,6 @@ func StoreVisitPages() []string {
 	return out
 }
 
-// StoreFirstShares are the shares of the kinds of page that a visit starts on. They are
-// assumptions: most visitors arrive on a product (from a search or an advert), many on the home.
-var StoreFirstShares = []struct {
-	Kind  string
-	Share float64
-}{
-	{StoreKindHome, 0.25}, {StoreKindProduct, 0.35}, {StoreKindList, 0.15},
-	{StoreKindJournal, 0.05}, {StoreKindPost, 0.10}, {StoreKindCart, 0.10},
-}
-
-// storeClicks says, for the kind of page a visitor is on, how likely a click is to go to a link of
-// each kind. They are assumptions, shares of the links the page has: a visitor on a list picks a
-// product, on a product looks at a related one, goes back to the list or goes to the cart, and
-// from the cart to the checkout. A kind the page has no link to is left out, and the rest count
-// for the whole.
-var storeClicks = map[string]map[string]float64{
-	StoreKindHome:     {StoreKindList: 0.3, StoreKindProduct: 0.4, StoreKindJournal: 0.15, StoreKindCart: 0.1, StoreKindPost: 0.05},
-	StoreKindList:     {StoreKindProduct: 0.7, StoreKindList: 0.1, StoreKindHome: 0.1, StoreKindCart: 0.1},
-	StoreKindProduct:  {StoreKindProduct: 0.3, StoreKindList: 0.25, StoreKindCart: 0.25, StoreKindHome: 0.1, StoreKindJournal: 0.1},
-	StoreKindJournal:  {StoreKindPost: 0.7, StoreKindHome: 0.15, StoreKindList: 0.15},
-	StoreKindPost:     {StoreKindJournal: 0.4, StoreKindProduct: 0.3, StoreKindHome: 0.15, StoreKindList: 0.15},
-	StoreKindCart:     {StoreKindCheckout: 0.4, StoreKindProduct: 0.3, StoreKindList: 0.2, StoreKindHome: 0.1},
-	StoreKindCheckout: {StoreKindCart: 0.4, StoreKindHome: 0.3, StoreKindList: 0.3},
-}
-
 var storeLinkGraph = sync.OnceValue(func() map[string][]string {
 	var g map[string][]string
 	if err := json.Unmarshal(storeLinksJSON, &g); err != nil {
@@ -140,7 +112,7 @@ func StoreLinks(url string) []Link {
 	var kinds []string
 	by := map[string][]string{}
 	for _, to := range storeLinkGraph()[url] {
-		if l, k := StorePageKind(to); l == lang && storeClicks[kind][k] > 0 {
+		if l, k := StorePageKind(to); l == lang && StoreClicks[kind][k] > 0 {
 			if len(by[k]) == 0 {
 				kinds = append(kinds, k)
 			}
@@ -149,54 +121,21 @@ func StoreLinks(url string) []Link {
 	}
 	var total float64
 	for _, k := range kinds {
-		total += storeClicks[kind][k]
+		total += StoreClicks[kind][k]
 	}
 	var out []Link
 	for _, k := range kinds {
+		weight := func(string) float64 { return 1 }
+		if k == StoreKindProduct {
+			weight = func(to string) float64 { return productWeight(productOf(to)) }
+		}
+		var sum float64
 		for _, to := range by[k] {
-			out = append(out, Link{to, storeClicks[kind][k] / total / float64(len(by[k]))})
+			sum += weight(to)
+		}
+		for _, to := range by[k] {
+			out = append(out, Link{to, StoreClicks[kind][k] / total * weight(to) / sum})
 		}
 	}
 	return out
-}
-
-// GenerateStorePlanSet makes blocks blocks of plans of the storefront (see generateBlocks). The
-// first pages of a block are dealt by quota: the languages half and half (48 and 47, the larger
-// share going to each language in turn from block to block), and the kinds of page by
-// StoreFirstShares. A language and a kind are paired at random, and the page among those of that
-// language and kind is the next of a shuffle of them, so none repeats before all have been used.
-func GenerateStorePlanSet(seed uint64, blocks int) PlanSet {
-	byKind := map[string]map[string][]string{}
-	for _, url := range StoreVisitPages() {
-		l, k := StorePageKind(url)
-		if byKind[l] == nil {
-			byKind[l] = map[string][]string{}
-		}
-		byKind[l][k] = append(byKind[l][k], url)
-	}
-	var kinds []string
-	var shares []float64
-	for _, s := range StoreFirstShares {
-		kinds, shares = append(kinds, s.Kind), append(shares, s.Share)
-	}
-	return generateBlocks(seed, SiteStore, blocks, StoreLinks, func(rng *rand.Rand, block int) []string {
-		langs := slices.Clone(StoreLangs)
-		if block%2 == 1 {
-			slices.Reverse(langs)
-		}
-		ls := quota(rng, BlockVisits, langs, []float64{0.5, 0.5})
-		ks := quota(rng, BlockVisits, kinds, shares)
-		next := map[string][]string{}
-		var out []string
-		for i := range BlockVisits {
-			key := ls[i] + " " + ks[i]
-			if len(next[key]) == 0 {
-				next[key] = slices.Clone(byKind[ls[i]][ks[i]])
-				rng.Shuffle(len(next[key]), func(a, b int) { next[key][a], next[key][b] = next[key][b], next[key][a] })
-			}
-			out = append(out, next[key][0])
-			next[key] = next[key][1:]
-		}
-		return out
-	})
 }

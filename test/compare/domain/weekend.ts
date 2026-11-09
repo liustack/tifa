@@ -4,8 +4,8 @@ import { weekendCatalogue, weekendStock } from './demo.ts'
 import { Invalid, NotFound, OutOfStock } from './errors.ts'
 import type { ItemRecord } from './records.ts'
 import type { NewLine } from './storage.ts'
-import { entries, getEntry, trim, update } from './store/products/edit.ts'
-import type { Edit, Entry } from './store/products/edit.ts'
+import { apply, entries, getEntry, over, trim } from './store/products/edit.ts'
+import type { Change, Edit, Entry } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 
 interface WeekendProduct extends Edit {
@@ -49,9 +49,12 @@ export function getWeekendEntry(slug: string): Entry {
   return e
 }
 
-export function updateWeekend(slug: string, e: Edit): void {
+// updateWeekend changes the fields of a product of the weekend shop that a change has, as Go's
+// UpdateWeekend does.
+export function updateWeekend(slug: string, c: Change): void {
   const p = shelf.find((p) => p.slug === slug)
   if (!p) throw new NotFound(slug)
+  const e = over(c, p)
   p.priceCents = e.priceCents
   p.stock = e.stock
   p.nameEn = trim(e.nameEn)
@@ -97,8 +100,8 @@ export function shopEntry(projectId: string, slug: string): Entry {
   throw new NotFound(projectId)
 }
 
-export function updateShopProduct(projectId: string, slug: string, e: Edit): void {
-  if (projectId === storefrontProject) return update(slug, e)
-  if (projectId === 'weekend') return updateWeekend(slug, e)
+export function updateShopProduct(projectId: string, slug: string, c: Change): void {
+  if (projectId === storefrontProject) return apply(slug, c)
+  if (projectId === 'weekend') return updateWeekend(slug, c)
   throw new NotFound(projectId)
 }

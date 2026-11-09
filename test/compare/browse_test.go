@@ -75,7 +75,7 @@ func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
 // A scenario where Next.js has no sustainable rate in range has no open run: that is its result, and
 // the latency phase goes on with the other scenarios.
 func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
-	sc, _ := BrowseScenarioByName("store-w5")
+	sc, _ := BrowseScenarioByName("shop")
 	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3}, servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, res: &BrowseResult{
 		Sustain:     map[string]*Sustain{sustainKey(sc.Name, openBase): {Done: true, Note: "no rate passed its confirmation rounds"}},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{},
@@ -114,11 +114,11 @@ func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 		{"nothing ended", Round{Seconds: 150, TimedOut: true}, false},
 	} {
 		tc.out.Pass, tc.out.Valid = true, true
-		blocks := calibrate(&tc.out, target, 4)
+		blocks := calibrate(&tc.out, target, 4, 95)
 		if (blocks > 0) != tc.want || tc.out.Valid == tc.want {
 			t.Errorf("%s: %d blocks, valid %v", tc.name, blocks, tc.out.Valid)
 		}
-		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4); tc.want && blocks != want {
+		if want := BlocksFor(float64(tc.out.Visits)/tc.out.Seconds, target, 4, 95); tc.want && blocks != want {
 			t.Errorf("%s: %d blocks, want %d", tc.name, blocks, want)
 		}
 	}
@@ -126,7 +126,7 @@ func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 
 // A cell with no valid round says why its rounds failed, not only how many there were.
 func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
-	sc, _ := BrowseScenarioByName("store-w5")
+	sc, _ := BrowseScenarioByName("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("nextjs", sc.Name, 32, round, 400, 10, true))
@@ -158,8 +158,8 @@ func TestAResultOfTheOldFormatIsRefused(t *testing.T) {
 		"a saturation file":     `{"settings":{"sessions":"8"},"closed":[],"sustain":{},"saturated":{}}`,
 		"an old latency round":  `{"settings":{"sessions":"8"},"closed":[],"latency":[{"visits":10}],"sustain":{}}`,
 		"an old control round":  `{"settings":{"sessions":"8"},"closed":[],"control":[{"users":32,"visitsPlanned":4}],"sustain":{}}`,
-		"an old trial":          `{"settings":{"sessions":"8"},"closed":[],"sustain":{"store-w5/nextjs":{"trials":[{"visits":10}],"confirm":[]}}}`,
-		"an old confirmation":   `{"settings":{"sessions":"8"},"closed":[],"sustain":{"store-w5/nextjs":{"trials":[],"confirm":[{"visits":10}]}}}`,
+		"an old trial":          `{"settings":{"sessions":"8"},"closed":[],"sustain":{"shop/nextjs":{"trials":[{"visits":10}],"confirm":[]}}}`,
+		"an old confirmation":   `{"settings":{"sessions":"8"},"closed":[],"sustain":{"shop/nextjs":{"trials":[],"confirm":[{"visits":10}]}}}`,
 	} {
 		if _, err := ReadBrowseResult([]byte(old)); err == nil || !strings.Contains(err.Error(), "older version") {
 			t.Errorf("%s: %v", name, err)

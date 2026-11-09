@@ -120,27 +120,12 @@ func checkRouterHeaders(r TraceReq) error {
 	return nil
 }
 
-// The sites that visits are made on. The workbench is the pages under /projects, the store the
-// storefront. The files of the workbench have no site in their names.
-const (
-	SiteWorkbench = ""
-	SiteStore     = "store"
-)
-
-// siteTag is what a site adds to the names of its files: "-store", or nothing for the workbench.
-func siteTag(site string) string {
-	if site == SiteWorkbench {
-		return ""
-	}
-	return "-" + site
+// TracePath is the file of the traces of one framework.
+func TracePath(dir, framework string) string {
+	return fmt.Sprintf("%s/%s.jsonl", strings.TrimRight(dir, "/"), framework)
 }
 
-// TracePath is the file of the traces of one framework on a site.
-func TracePath(dir, framework, site string) string {
-	return fmt.Sprintf("%s/%s%s.jsonl", strings.TrimRight(dir, "/"), framework, siteTag(site))
-}
-
-// PlansPath is the file of the plans of a site.
-func PlansPath(dir, site string) string {
-	return fmt.Sprintf("%s/plans%s.json", strings.TrimRight(dir, "/"), siteTag(site))
+// PlansPath is the file of the plans of the site.
+func PlansPath(dir string) string {
+	return fmt.Sprintf("%s/plans.json", strings.TrimRight(dir, "/"))
 }

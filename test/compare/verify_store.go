@@ -26,8 +26,9 @@ type cartRead struct {
 //  1. Add a product to the cart: the cart page is not what it was.
 //  2. Put a coupon on it: the page shows the code.
 //  3. Change the quantity of the line added: the page is not what it was.
-//  4. Check out: the server answers 303 to the page of the order, which shows the order number, and
-//     the cart page is not what it was (the cart is empty).
+//  4. Check out: the server answers 303 to the page of the order, which shows the order number, the
+//     cart page is not what it was (the cart is empty), and the back office shows the order, on its
+//     page and in the order list of the studio shop.
 func (r *runner) verifyStore(ctx context.Context) error {
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -114,7 +115,12 @@ func (r *runner) verifyStore(ctx context.Context) error {
 	if _, err := changed("check out", p3); err != nil {
 		return err
 	}
-	return nil
+	// The order of the checkout is a studio order of the back office: its page and the order list of
+	// the shop show it.
+	if err := r.shows(ctx, "check out, in the back office", "/projects/"+storefrontShop+"/orders/"+order, order); err != nil {
+		return err
+	}
+	return r.shows(ctx, "check out, in the back office", "/projects/"+storefrontShop, order)
 }
 
 // checkout places the order of the cart of a visitor and returns where the server sends them (the
@@ -140,4 +146,45 @@ func (r *runner) checkout(ctx context.Context, c *http.Client, base string) (str
 		return "", fmt.Errorf("check out: POST %s answered %d with Location %q, want 303 to the page of the order", path, res.StatusCode, loc)
 	}
 	return loc, nil
+}
+
+// verifyProduct edits a product of the storefront once, as staff do in the back office, and checks
+// that the next answers show it: the storefront page of the product (its document and the data of a
+// client navigation, when a trace has one) and the product list of the back office. The edit gives
+// the first product of the list a title of its own and a price one yuan higher.
+func (r *runner) verifyProduct(ctx context.Context) error {
+	v := &visitState{client: http.DefaultClient}
+	read, _, _, err := r.request(ctx, v, http.MethodGet, r.products(storefrontShop, r.buildID), nil)
+	if err == nil && read.status != 200 {
+		err = fmt.Errorf("the list of products answered %d: %.200s", read.status, read.body)
+	}
+	if err != nil {
+		return fmt.Errorf("edit a product: %w", err)
+	}
+	list, err := productList(storefrontShop, read.body)
+	if err != nil {
+		return fmt.Errorf("edit a product: %w", err)
+	}
+	e := list[0]
+	e.NameEN, e.PriceCents = "Checked "+e.Slug, min(e.PriceCents+100, maxPrice)
+	path := r.editProduct(storefrontShop, e.Slug)
+	ans, _, _, err := r.request(ctx, v, http.MethodPatch, path, productBody(e))
+	if err == nil && ans.status != 200 {
+		err = fmt.Errorf("PATCH %s answered %d: %.200s", path, ans.status, ans.body)
+	}
+	if err != nil {
+		return fmt.Errorf("edit a product: %w", err)
+	}
+	if err := r.shows(ctx, "edit a product", "/store/products/"+e.Slug, e.NameEN); err != nil {
+		return err
+	}
+	return r.shows(ctx, "edit a product", "/projects/"+storefrontShop+"/products", e.NameEN)
+}
+
+// VerifyWrites makes every kind of write of the site once against the server of spec at base, as the
+// check before and after a round does (runner.verifyWrites), with no trace to ask navigation data
+// from: only the documents are read. buildID is the build of Tifa, empty for the other apps.
+func VerifyWrites(ctx context.Context, spec Spec, base, buildID string) error {
+	r := &runner{base: base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, buildID: buildID, wl: &Workload{}}
+	return r.verifyWrites(ctx)
 }

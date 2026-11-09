@@ -7,15 +7,15 @@
 #   test/compare/browse.sh record    record the traces in a real browser (needs a working Chromium)
 #   test/compare/browse.sh run       replay the traces at load and write the JSON and the report
 #   test/compare/browse.sh report    write the report again from the JSON
-#   test/compare/browse.sh stamp [site]   print what the traces of a site are bound to (runstamp: the results)
-#   test/compare/browse.sh scenarios       print the scenarios SCENARIOS stands for
+#   test/compare/browse.sh stamp     print what the traces are bound to (runstamp: the results)
+#   test/compare/browse.sh scenarios print the scenarios SCENARIOS stands for
 #
 # Recording and running can be done on two machines: `record` where Chromium works, copy the folder
 # $BROWSE_TRACES to the machine that runs the load, and `run` there from the same commit. `run`
 # refuses traces that belong to other sources, plans or recorder than this checkout, and traces that
-# do not hold every plan for every framework. The workbench and the storefront are two sites, each
-# with its plans, its traces and its stamp (STAMP and STAMP-store in $BROWSE_TRACES), and only the
-# sites the scenarios need are recorded and checked. A result is bound to the traces, the builds,
+# do not hold every plan for every framework. The shop is one site, shoppers and staff, with one set
+# of plans (plans.json), one trace a framework (<server>.jsonl) and one stamp (STAMP in
+# $BROWSE_TRACES), which every scenario replays. A result is bound to the traces, the builds,
 # the toolchain and the settings: `run` continues a result that stopped (it is written after every
 # round) only if all of that is the same, and otherwise asks you to remove it.
 #
@@ -26,10 +26,9 @@
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
 #   LOCKS             files to flock while running, space separated, first taken first   none
 #   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
-#   SCENARIOS         scenarios and groups: default (store-w5, admin-w20),          default
-#                     extra (store-w20, admin-w50), store-w50, r95w5, r50w50
+#   SCENARIOS         scenarios and groups: default (shop, shop-staff-x2)           default
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
-#                     (Tifa with no writes, once a site), sustain (the rate of Next.js),
+#                     (Tifa with no writes), sustain (the rate of Next.js),
 #                     latency (each for the scenarios that have that table)
 #   PROBE=1           search the rate of Next.js again and write it into
 #                     test/compare/rates.json (else the file is used, and a run whose
@@ -37,7 +36,7 @@
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
-#   BLOCKS            blocks of 95 visits to record for each site (the plans)       4
+#   BLOCKS            blocks of 1050 visits to record (the plans)                   1
 #   WORKERS           browser contexts at once while recording                      6
 #   FORCE_RECORD=1    record again even if the traces are current
 set -euo pipefail
@@ -53,8 +52,7 @@ expand_groups() {
   local s list=""
   for s in $(echo "$1" | tr "," " "); do
     case "$s" in
-      default) s=store-w5,admin-w20 ;;
-      extra) s=store-w20,admin-w50 ;;
+      default) s=shop,shop-staff-x2 ;;
     esac
     list="${list:+$list,}$s"
   done
@@ -65,7 +63,7 @@ scenarios=$(expand_groups "${SCENARIOS:-default}")
 for old in USERS EXTRA_USERS; do
   if [ -n "${!old+set}" ]; then echo "$old is gone: the throughput counts concurrent sessions, set SESSIONS (8 by default)" >&2; exit 2; fi
 done
-blocks=${BLOCKS:-4}
+blocks=${BLOCKS:-1}
 mkdir -p "$out" "$traces"
 compare=$out/compare
 
@@ -81,33 +79,17 @@ pkgver() { # version of a package in an app's node_modules
 
 build_tool() { go build -o "$compare" ./test/compare/cmd/compare; }
 
-# sites lists the sites the scenarios need traces of: "workbench" for any scenario but the
-# storefront ones, "store" for the storefront ones.
-sites() {
-  local s list=""
-  for s in $(echo "$scenarios" | tr ',' ' '); do
-    case "$s" in
-      store-*) case "$list" in *store*) ;; *) list="$list store" ;; esac ;;
-      *) case "$list" in *workbench*) ;; *) list="$list workbench" ;; esac ;;
-    esac
-  done
-  echo $list
-}
+stamp_file=$traces/STAMP
+plans_file=$traces/plans.json
 
-# site_tag is what a site adds to the names of its files: plans.json and <server>.jsonl for the
-# workbench, plans-store.json and <server>-store.jsonl for the storefront. site_stamp is its stamp.
-site_tag() { if [ "$1" = store ]; then echo "-store"; fi; }
-site_stamp() { echo "$traces/STAMP$(site_tag "$1")"; }
-
-# trace_stamp lists what the traces of a site depend on, one thing a line: the trees of the shop,
+# trace_stamp lists what the traces depend on, one thing a line: the trees of the shop,
 # the three apps, the shared domain code, the overlays, the recorder and the plan generators
 # (committed content, and "dirty" when any of it has uncommitted changes), the framework versions
 # that were installed, the recorder's browser, the site and its plans.
 trace_stamp() {
-  local site=${1:-workbench}
   # The shop, the three apps and everything that builds or serves the shop: Tifa's runtime, server,
   # command and the Go and JavaScript the build is made from.
-  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/store_plan.go test/compare/store_links.json js internal server cmd go.mod go.sum"
+  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/mix.go test/compare/store_plan.go test/compare/store_links.json js internal server cmd go.mod go.sum"
   local p
   for p in $paths; do echo "tree $p $(git rev-parse HEAD:"$p")"; done
   echo "tree root-go $(git ls-tree HEAD | awk '$4 ~ /\.go$/' | sha)"
@@ -116,20 +98,17 @@ trace_stamp() {
   echo "start $(pkgver test/compare/start @tanstack/react-start)"
   echo "reactrouter $(pkgver test/compare/reactrouter react-router)"
   echo "playwright $(sed -n 's/^    "playwright": "\(.*\)"$/\1/p' test/compare/recorder/package.json)"
-  echo "site $site"
-  local plans
-  plans="$traces/plans$(site_tag "$site").json"
-  echo "plans $( [ -f "$plans" ] && sha <"$plans" || echo none)"
+  echo "site shop"
+  echo "plans $( [ -f "$plans_file" ] && sha <"$plans_file" || echo none)"
 }
 
 # run_stamp adds what a result depends on besides the traces: the toolchain, the builds that were
 # started and the settings.
 run_stamp() {
-  local site f
-  echo "traces $(for site in $(sites); do trace_stamp "$site"; done | sha)"
-  # What is replayed: the contents of the trace files of the sites, and the replayer, the report and
-  # this script.
-  echo "trace-files $(for site in $(sites); do for f in $(echo "$servers" | tr ',' ' '); do cat "$traces/$f$(site_tag "$site").jsonl" 2>/dev/null || true; done; done | sha)"
+  local f
+  echo "traces $(trace_stamp | sha)"
+  # What is replayed: the contents of the trace files, and the replayer, the report and this script.
+  echo "trace-files $(for f in $(echo "$servers" | tr ',' ' '); do cat "$traces/$f.jsonl" 2>/dev/null || true; done | sha)"
   echo "replayer $(git ls-tree HEAD test/compare/ | awk '$4 ~ /\.go$|browse\.sh$/' | sha)"
   echo "replayer-cmd $(git rev-parse HEAD:test/compare/cmd)"
   if [ -n "$(git status --porcelain --untracked-files=no -- test/compare/*.go test/compare/cmd test/compare/browse.sh)" ]; then echo "replayer-dirty"; fi
@@ -146,37 +125,23 @@ run_stamp() {
   echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
-# traces_current is true when the traces of a site were recorded from these sources, with these
-# plans and recorder, and hold a trace for every plan of every server.
+# traces_current is true when the traces were recorded from these sources, with these plans and
+# recorder, and hold a trace for every plan of every server.
 traces_current() {
-  local site=$1 tag stamp plans n f
-  tag=$(site_tag "$site")
-  stamp=$(site_stamp "$site")
-  [ -s "$stamp" ] || { echo "no $(basename "$stamp") in $traces"; return 1; }
-  if ! diff <(trace_stamp "$site") "$stamp" >"$out/stamp.diff"; then
-    echo "the $site traces belong to other sources than this checkout:"; sed 's/^/  /' "$out/stamp.diff"; return 1
+  local n f
+  [ -s "$stamp_file" ] || { echo "no STAMP in $traces"; return 1; }
+  if ! diff <(trace_stamp) "$stamp_file" >"$out/stamp.diff"; then
+    echo "the traces belong to other sources than this checkout:"; sed 's/^/  /' "$out/stamp.diff"; return 1
   fi
-  if trace_stamp "$site" | grep -q '^dirty'; then echo "the sources have uncommitted changes"; return 1; fi
-  plans=$traces/plans$tag.json
-  n=$(sed -n 's/.*"blocks": *\([0-9]*\).*/\1/p' "$plans" | head -1)
-  n=$((${n:-0} * 95))
+  if trace_stamp | grep -q '^dirty'; then echo "the sources have uncommitted changes"; return 1; fi
+  n=$(sed -n 's/.*"blocks": *\([0-9]*\).*/\1/p' "$plans_file" | head -1)
+  n=$((${n:-0} * 1050))
   for f in $(echo "$servers" | tr ',' ' '); do
-    f=$traces/$f$tag.jsonl
+    f=$traces/$f.jsonl
     [ -s "$f" ] || { echo "no $(basename "$f")"; return 1; }
     [ "$(wc -l <"$f" | tr -d ' ')" = "$n" ] || { echo "$(basename "$f") does not hold $n visits"; return 1; }
     if grep -q '"error"' "$f"; then echo "$(basename "$f") has visits that failed to record"; return 1; fi
   done
-}
-
-# stale lists the sites whose traces must be recorded.
-stale() {
-  local site list=""
-  for site in $(sites); do
-    if [ -n "${FORCE_RECORD:-}" ] || ! traces_current "$site" >"$out/traces-$site.why" 2>&1; then
-      list="$list $site"
-    fi
-  done
-  echo $list
 }
 
 do_build() {
@@ -186,36 +151,27 @@ do_build() {
 
 do_record() {
   build_tool
-  local todo site
-  todo=$(stale)
-  if [ -z "$todo" ]; then
+  if [ -z "${FORCE_RECORD:-}" ] && traces_current >"$out/traces.why" 2>&1; then
     echo "the traces in $traces are current"
     return
   fi
-  # The plans of both sites are written again. They are the same for the same blocks and seed, so a
-  # site whose traces were current stays current unless BLOCKS changed.
   "$compare" plans -dir "$traces" -blocks "$blocks"
-  todo=$(stale)
   (cd test/compare/recorder && pnpm install --frozen-lockfile && pnpm exec playwright install chromium)
-  for site in $todo; do
-    # An empty stamp is never current: a recording that stops leaves the site to be recorded again.
-    : >"$(site_stamp "$site")"
-    "$compare" record -dir "$traces" -skip-build -servers "$servers" -site "$site" -workers "${WORKERS:-6}"
-    trace_stamp "$site" >"$(site_stamp "$site")"
-    traces_current "$site" || { echo "the $site traces just recorded are not complete" >&2; exit 1; }
-  done
+  # An empty stamp is never current: a recording that stops leaves the traces to be recorded again.
+  : >"$stamp_file"
+  "$compare" record -dir "$traces" -skip-build -servers "$servers" -workers "${WORKERS:-6}"
+  trace_stamp >"$stamp_file"
+  traces_current || { echo "the traces just recorded are not complete" >&2; exit 1; }
 }
 
 do_run() {
   build_tool
-  local site why
-  for site in $(sites); do
-    if ! why=$(traces_current "$site"); then
-      echo "$why" >&2
-      echo "record the traces with '$0 record' (on a machine with Chromium), from this commit, and copy the folder here" >&2
-      exit 1
-    fi
-  done
+  local why
+  if ! why=$(traces_current); then
+    echo "$why" >&2
+    echo "record the traces with '$0 record' (on a machine with Chromium), from this commit, and copy the folder here" >&2
+    exit 1
+  fi
   local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
   [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
@@ -250,7 +206,7 @@ case "${1:-}" in
   record) do_record ;;
   run) do_run ;;
   report) do_report ;;
-  stamp) trace_stamp "${2:-workbench}" ;;
+  stamp) trace_stamp ;;
   runstamp) run_stamp ;;
   scenarios) echo "$scenarios" ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 2 ;;

@@ -188,7 +188,7 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 	m.First1000 = mean(first.Cold[:min(1000, len(first.Cold))])
 	m.Settle = settleOf(first.Cold, first.ColdPage, steady, steadyPage)
 	m.RSSPeak = float64(server.PeakRSS()) / (1 << 20)
-	if hits, total := d.Renders["memo"]+d.Renders["shared"], d.Renders["vm"]+d.Renders["memo"]+d.Renders["shared"]; total > 0 {
+	if hits, total := d.Renders[RenderHit]+d.Renders[RenderShared], d.Renders[RenderVM]+d.Renders[RenderHit]+d.Renders[RenderShared]; total > 0 {
 		m.HitRate = float64(hits) / float64(total)
 		run.Renders = d.Renders
 	}
@@ -267,7 +267,7 @@ func (c *client) do(ctx context.Context, st Step) (answer, error) {
 	}
 	n, err := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
-	a := answer{Latency: time.Since(start), Render: res.Header.Get("X-Tifa-Render"), Bytes: n, Encoding: res.Header.Get("Content-Encoding")}
+	a := answer{Latency: time.Since(start), Render: res.Header.Get(RenderHeader), Bytes: n, Encoding: res.Header.Get("Content-Encoding")}
 	if err != nil {
 		return answer{}, err
 	}

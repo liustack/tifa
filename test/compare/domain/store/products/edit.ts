@@ -52,8 +52,43 @@ export function checkEdit(e: Edit): Record<string, string> {
 // update changes a product to what an edit says, or throws NotFound. The edit must have passed
 // checkEdit. Go calls it Update.
 export function update(slug: string, e: Edit): void {
+  apply(slug, e)
+}
+
+// Change is an edit that changes only the fields it has, as the PATCH of the back office takes it:
+// a field that is missing (or null in a body) keeps its value. Go calls it Change.
+export type Change = Partial<Edit>
+
+// validEdit passes checkEdit: a change over it fails only on the fields the change has.
+const validEdit: Edit = { priceCents: 100, stock: 0, nameEn: '-', nameZh: '-', descriptionEn: '-', descriptionZh: '-' }
+
+// over returns e with the fields the change has in place of its own. Go calls it Change.Over.
+export function over(c: Change, e: Edit): Edit {
+  const out = { ...e }
+  for (const k of Object.keys(c) as (keyof Edit)[]) {
+    if (c[k] !== undefined) (out as any)[k] = c[k]
+  }
+  return out
+}
+
+// noField is the message of every field of a change that sets none, as in Go.
+const noField = 'Change at least one field'
+
+// checkChange returns the message of each field of a change that fails, as Change.Validate does: a
+// change that has no field is refused on every field.
+export function checkChange(c: Change): Record<string, string> {
+  if (Object.values(c).every((v) => v === undefined)) {
+    return { priceCents: noField, stock: noField, nameEn: noField, nameZh: noField, descriptionEn: noField, descriptionZh: noField }
+  }
+  return checkEdit(over(c, validEdit))
+}
+
+// apply changes the fields of a product that a change has, or throws NotFound. The change must have
+// passed checkChange. Go calls it Apply.
+export function apply(slug: string, c: Change): void {
   const p = catalogue.find((p) => p.slug === slug)
   if (!p) throw new NotFound(slug)
+  const e = over(c, entry(p))
   p.priceFen = e.priceCents
   p.stock = e.stock
   p.name = [trim(e.nameZh), trim(e.nameEn)]

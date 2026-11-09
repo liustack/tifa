@@ -415,6 +415,12 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 		"priceCents": 52000, "stock": 5, "nameEn": " Oak Tray, Large ", "nameZh": "橡木大托盘", "descriptionEn": "White oak, carved from one block.", "descriptionZh": "整块白橡木挖制。"}})
 	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "weekend", Order: "postcards", Body: map[string]any{
 		"priceCents": 3800, "stock": 40, "nameEn": " Postcards of Cities ", "nameZh": "城市明信片", "descriptionEn": "Six cards.", "descriptionZh": "六张。"}})
+	// An edit changes only the fields it has, and a null one keeps its value: the price alone, the
+	// stock alone, and a stock with a null title.
+	writes = append(writes,
+		compare.DomainWrite{Kind: compare.WriteProduct, Project: "studio", Order: "oak-tray", Body: map[string]any{"priceCents": 53000}},
+		compare.DomainWrite{Kind: compare.WriteProduct, Project: "weekend", Order: "postcards", Body: map[string]any{"stock": 41}},
+		compare.DomainWrite{Kind: compare.WriteProduct, Project: "studio", Order: "glass-carafe", Body: map[string]any{"stock": 33, "nameZh": nil}})
 	writes = append(writes, adminWrites()...)
 	want, timed, err := env.GoData(ctx, writes...)
 	if err != nil {
@@ -612,4 +618,64 @@ func dig(v any, keys ...string) any {
 		v = m[k]
 	}
 	return v
+}
+
+// TestTheNodeAppsCacheNothing guards that the three Node apps keep no page: two identical GETs of the
+// pages of the site, the workbench and the storefront in both languages, have nothing that lets a
+// cache keep them or ask for them again cheaply (compare.CacheSigns). An upgrade of a framework or a
+// change of its config that turns on a cache fails here.
+func TestTheNodeAppsCacheNothing(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	pages := slices.Concat(compare.Pages, compare.StorePages())
+	for _, name := range []string{"nextjs", "start", "reactrouter"} {
+		target := mustTarget(t, env, name)
+		server, err := target.Start(context.Background(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, page := range pages {
+			for try := range 2 {
+				_, header, err := compare.FetchWithHeader(server.Base, page)
+				if err != nil {
+					t.Errorf("%s: %v", name, err)
+					break
+				}
+				if signs := compare.CacheSigns(header); len(signs) > 0 {
+					t.Errorf("%s: GET %s (%d of 2) has %v", name, page.URL, try+1, signs)
+				}
+			}
+		}
+		server.Stop()
+	}
+}
+
+// TestTheWritesShowOnEveryServer makes every kind of write of the site once against Tifa and the
+// three apps, as the check before and after a round does: each must show next where the check reads
+// it (the cart, the order of a checkout in the back office, an edited product on its storefront page
+// and in the product list, and the orders staff place and ship).
+func TestTheWritesShowOnEveryServer(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	buildID := shopBuildID(t, env)
+	for _, name := range []string{"tifa", "nextjs", "start", "reactrouter"} {
+		var spec compare.Spec
+		for _, s := range env.Specs() {
+			if s.Name == name {
+				spec = s
+			}
+		}
+		server, err := spec.Start(context.Background(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := ""
+		if spec.Framework == "tifa" {
+			id = buildID
+		}
+		if err := compare.VerifyWrites(context.Background(), spec, server.Base, id); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		server.Stop()
+	}
 }

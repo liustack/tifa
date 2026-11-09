@@ -43,7 +43,10 @@ type Spec struct {
 	StoreWrite     func(path string) string             // the path in this app of a write of the storefront, from its path in the shop
 	EditProduct    func(project, product string) string // the path that takes the PATCH which changes a product of the storefront
 	Products       func(project, buildID string) string // the path whose GET lists the products of the storefront without rendering, as Tifa answers the data of the product list (buildID is the build of Tifa)
-	Version        string                               // package.json, from Dir, of the framework package whose version the record keeps
+	// Metrics is the path of the metrics route of the app, which renders nothing and counts the render
+	// memo (Tifa alone has one), and "" for none.
+	Metrics string
+	Version string // package.json, from Dir, of the framework package whose version the record keeps
 }
 
 // Specs are the servers to measure, in the order of a round before it is rotated. Tifa runs one
@@ -58,6 +61,7 @@ func (e Env) Specs() []Spec {
 			},
 			Framework: "tifa", Label: "Tifa", Configs: configs, Write: func(project, order string) string { return "/projects/" + project + "/orders/" + order },
 			Create:      func(project string) string { return "/projects/" + project + "/orders" },
+			Metrics:     "/metrics",
 			StoreWrite:  SameStorePath,
 			EditProduct: func(project, product string) string { return "/projects/" + project + "/products/" + product },
 			// The data of the product list alone (the page, not its Layouts), as the browser router asks.

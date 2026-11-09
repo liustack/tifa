@@ -2,6 +2,7 @@ package products
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -205,5 +206,22 @@ func TestTakesAtOnceNeverSellMoreThanTheStock(t *testing.T) {
 	wg.Wait()
 	if e, _ := GetEntry("oak-tray"); sold != 6 || e.Stock != 0 {
 		t.Errorf("sold %d, %d left", sold, e.Stock)
+	}
+}
+
+// A change that sets no field changes nothing, so it is refused: a PATCH of null or {} is a mistake
+// of its sender, not an edit. Each field is named, as for a form that sent none of them.
+func TestAChangeOfNoFieldIsRefused(t *testing.T) {
+	fields, ok := (Change{}).Validate().(tifa.Fields)
+	if !ok {
+		t.Fatalf("Validate of a change of no field: %v, want tifa.Fields", (Change{}).Validate())
+	}
+	want := []string{"descriptionEn", "descriptionZh", "nameEn", "nameZh", "priceCents", "stock"}
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, want) {
+		t.Errorf("fields %v, want %v", got, want)
+	}
+	stock := 3
+	if err := (Change{Stock: &stock}).Validate(); err != nil {
+		t.Errorf("a change of the stock alone: %v", err)
 	}
 }

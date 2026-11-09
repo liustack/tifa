@@ -1,15 +1,20 @@
 package compare
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
+	"sync"
 )
 
 // The writes of a visit to the storefront. All the state of a visit is in its cookies (the cart), so
 // there is nothing shared between visits and every framework gets exactly the same requests. To
 // make each write valid when it is sent, the plan follows the cart of the visit while it picks the
-// writes: a visit starts with the demonstration cart of the shop, the same as the server holds for a
-// visitor with no cart, and a checkout empties it.
+// writes: a new visitor starts with the demonstration cart of the shop, the same as the server holds
+// for a visitor with no cart, a returning visitor with the cart made for them before the round, and
+// a checkout empties it. The visits add to the cart and check out. The quantity and coupon writes
+// are sent by the check of the writes (verifyStore) only.
 
 // The kinds of a storefront write.
 const (
@@ -18,14 +23,6 @@ const (
 	WriteCoupon   = "coupon"   // POST /store/cart: put a coupon on the cart, or take it off
 	WriteCheckout = "checkout" // POST /store/checkout: place the order of the cart
 )
-
-// StoreShares are the shares of the kinds of write in a visit to the storefront. They are
-// assumptions, not measurements. A quantity write and a checkout need a cart that holds a line, and
-// are an add to the cart when it does not (after a checkout), so the shares sent differ a little.
-var StoreShares = []struct {
-	Kind  string
-	Share float64
-}{{WriteAdd, 0.5}, {WriteQuantity, 0.2}, {WriteCoupon, 0.1}, {WriteCheckout, 0.2}}
 
 // StoreRequest is a write of the storefront: the request, as it goes to the shop, and the status
 // the shop answers with. Status is 200 for an add and a quantity change (the cart), 204 for a coupon
@@ -99,11 +96,6 @@ func storeLineID(slug, color, size string) string {
 	return slug + "." + color + "." + size
 }
 
-func storeStock(slug string) int {
-	i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
-	return StoreVariants[i].Stock
-}
-
 // demoCart is the cart that a visitor with no cart has in the shop, in its order.
 func demoCart() []cartLine {
 	return []cartLine{
@@ -114,77 +106,122 @@ func demoCart() []cartLine {
 	}
 }
 
-// storeWritesAt makes the writes of a plan of the storefront that follow its page views afters (in
-// order), where BlockWrites put them. The writes follow the cart of the visit, so a write is always
-// one the shop takes. The kind of each is drawn by StoreShares from the seed, the plan and the page
-// view.
-func storeWritesAt(seed uint64, p Plan, afters []int) []PlannedWrite {
-	lang, _ := StorePageKind(p.Steps[0].Page)
-	base := StoreBase(lang)
-	cart := demoCart()
-	var out []PlannedWrite
-	for _, i := range afters {
-		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(p.ID)<<20|uint64(i)))
-		kind, k := WriteAdd, rng.Float64()
-		for _, s := range StoreShares {
-			if k -= s.Share; k < 0 {
-				kind = s.Kind
-				break
-			}
+// inStock are the products a write can put in a cart.
+var inStock = sync.OnceValue(func() []StoreProduct {
+	var out []StoreProduct
+	for _, v := range StoreVariants {
+		if v.Stock > 0 {
+			out = append(out, v)
 		}
-		if (kind == WriteQuantity || kind == WriteCheckout) && len(cart) == 0 {
-			kind = WriteAdd
-		}
-		req := StoreRequest{Kind: kind}
-		switch kind {
-		case WriteAdd:
-			var inStock []StoreProduct
-			for _, v := range StoreVariants {
-				if v.Stock > 0 {
-					inStock = append(inStock, v)
-				}
-			}
-			v := inStock[rng.IntN(len(inStock))]
-			color := v.Colors[rng.IntN(len(v.Colors))]
-			size := ""
-			if len(v.Sizes) > 0 {
-				size = v.Sizes[rng.IntN(len(v.Sizes))]
-			}
-			quantity := 1 + rng.IntN(min(3, v.Stock))
-			id := storeLineID(v.Slug, color, size)
-			if j := slices.IndexFunc(cart, func(l cartLine) bool { return l.id == id }); j >= 0 {
-				cart[j].quantity = min(cart[j].quantity+quantity, maxLine, v.Stock)
-			} else {
-				cart = append(cart, cartLine{id, v.Slug, min(quantity, v.Stock)})
-			}
-			req.Method, req.Path, req.Status = "POST", base+"/products/"+v.Slug, 200
-			req.Body = mustJSON(map[string]any{"color": color, "size": size, "quantity": quantity})
-		case WriteQuantity:
-			j := rng.IntN(len(cart))
-			quantity := 1 + rng.IntN(min(4, storeStock(cart[j].slug)))
-			if rng.IntN(5) == 0 {
-				quantity = 0
-			}
-			req.Method, req.Path, req.Status = "PATCH", base+"/cart", 200
-			req.Body = mustJSON(map[string]any{"line": cart[j].id, "quantity": quantity})
-			if quantity == 0 {
-				cart = slices.Delete(cart, j, j+1)
-			} else {
-				cart[j].quantity = quantity
-			}
-		case WriteCoupon:
-			code := StoreCoupons[rng.IntN(len(StoreCoupons))]
-			if rng.IntN(4) == 0 {
-				code = ""
-			}
-			req.Method, req.Path, req.Status = "POST", base+"/cart", 204
-			req.Body = mustJSON(map[string]any{"code": code})
-		case WriteCheckout:
-			req.Method, req.Path, req.Status = "POST", base+"/checkout", 303
-			req.Body = []byte(storeOrder(lang))
-			cart = nil
-		}
-		out = append(out, PlannedWrite{After: i, Plan: p.ID, Kind: kind, Store: &req})
 	}
 	return out
+})
+
+// storeAdd is an add to the cart of the product v, in a colour, a size and a quantity drawn from rng.
+func storeAdd(rng *rand.Rand, base string, v StoreProduct) StoreRequest {
+	color := v.Colors[rng.IntN(len(v.Colors))]
+	size := ""
+	if len(v.Sizes) > 0 {
+		size = v.Sizes[rng.IntN(len(v.Sizes))]
+	}
+	quantity := AddPieces[0] + rng.IntN(AddPieces[1]-AddPieces[0]+1)
+	req := StoreRequest{Kind: WriteAdd, Method: "POST", Path: base + "/products/" + v.Slug, Status: 200}
+	req.Body = mustJSON(map[string]any{"color": color, "size": size, "quantity": quantity})
+	return req
+}
+
+// pageProduct is the product of the storefront page url, which must be the page of a product.
+func pageProduct(url string) StoreProduct {
+	if _, kind := StorePageKind(url); kind != StoreKindProduct {
+		panic("an add after the page " + url + ", which is not the page of a product") // the plans put adds after product pages
+	}
+	path, _, _ := strings.Cut(url, "?")
+	slug := path[strings.LastIndex(path, "/")+1:]
+	i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
+	if i < 0 {
+		panic("no product " + slug + " in StoreVariants")
+	}
+	return StoreVariants[i]
+}
+
+// returningCart is the adds that make the cart a returning visitor, visit seq of the run, comes back
+// to, on the server before the round (runner.setup): products in stock in the data, drawn from the
+// seed and seq, so every framework gets the same carts.
+func returningCart(seed uint64, seq int, p Plan) []StoreRequest {
+	lang, _ := StorePageKind(p.Steps[0].Page)
+	rng := rand.New(rand.NewPCG(seed^0x510e527fade682d1, uint64(seq)))
+	var reqs []StoreRequest
+	for range ReturningCartLines {
+		list := inStock()
+		reqs = append(reqs, storeAdd(rng, StoreBase(lang), list[rng.IntN(len(list))]))
+	}
+	return reqs
+}
+
+// storeWritesOf makes the writes that visit seq of the run sends, which plays the shopper plan p:
+// the writes of the plan, after their page views. An add buys the product of the page it follows, in
+// a colour, a size and a quantity drawn from the seed, seq and the page view, so a plan played again
+// sends other writes: carts differ from visitor to visitor, and a cart page that were the same in
+// every play of a plan would be answered from a render memo every time. The restock gives every
+// product an add puts in a cart stock enough (StockFor), so the shop takes every write.
+func storeWritesOf(seed uint64, seq int, p Plan) []PlannedWrite {
+	lang, _ := StorePageKind(p.Steps[0].Page)
+	base := StoreBase(lang)
+	var out []PlannedWrite
+	for _, w := range p.Writes {
+		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(seq)<<20|uint64(w.After)))
+		var req StoreRequest
+		switch w.Kind {
+		case WriteAdd:
+			req = storeAdd(rng, base, pageProduct(p.Steps[w.After].Page))
+		case WriteCheckout:
+			req = StoreRequest{Kind: WriteCheckout, Method: "POST", Path: base + "/checkout", Body: []byte(storeOrder(lang, storeShopper(seed, seq, lang))), Status: 303}
+		default:
+			panic("no storefront write " + w.Kind)
+		}
+		out = append(out, PlannedWrite{After: w.After, Seq: seq, Kind: w.Kind, Store: &req})
+	}
+	return out
+}
+
+// StoreVisitWrites is what visit seq of the run, which plays the shopper plan p, sends to the
+// storefront: the adds that make its cart before the round when it is a returning visit, then the
+// writes of its visit.
+func StoreVisitWrites(seed uint64, seq int, p Plan) (setup []StoreRequest, writes []PlannedWrite) {
+	if p.Returning {
+		setup = returningCart(seed, seq, p)
+	}
+	return setup, storeWritesOf(seed, seq, p)
+}
+
+// The names and streets the checkouts of the storefront are filled with, in each language.
+var (
+	shopperNames = map[string][2][]string{ // first names (or surnames), then last names (or given names)
+		"en-US": {{"Emma", "Liam", "Olivia", "Noah", "Ava", "Mason", "Sophia", "Lucas", "Mia", "Ethan"}, {"Walker", "Chen", "Garcia", "Patel", "Kim", "Nguyen", "Brown", "Lopez", "Singh", "Rivera"}},
+		"zh-CN": {{"林", "陈", "王", "李", "张", "刘", "周", "吴", "赵", "孙"}, {"夏", "默", "思远", "雨桐", "子涵", "一诺", "浩然", "欣怡", "宇航", "静"}},
+	}
+	shopperStreets = map[string][]string{
+		"en-US": {"Market Street", "Mission Street", "Valencia Street", "Hayes Street", "Divisadero Street"},
+		"zh-CN": {"徐汇区武康路", "静安区愚园路", "长宁区新华路", "黄浦区复兴中路", "普陀区长寿路"},
+	}
+)
+
+// storeShopper fills the checkout of visit seq, in the language lang, with a visitor of its own: a
+// name and a street drawn from the seed and seq, and an email and a second address line with the
+// visit number in them, so that no two checkouts of a round place the order of the same visitor and
+// every server gets the same order from a visit.
+func storeShopper(seed uint64, seq int, lang string) func(map[string]any) {
+	rng := rand.New(rand.NewPCG(seed^0x6a09e667f3bcc908, uint64(seq)))
+	names, streets := shopperNames[lang], shopperStreets[lang]
+	first, last := names[0][rng.IntN(len(names[0]))], names[1][rng.IntN(len(names[1]))]
+	street, number := streets[rng.IntN(len(streets))], 1+rng.IntN(999)
+	return func(m map[string]any) {
+		a := m["address"].(map[string]any)
+		m["email"] = fmt.Sprintf("shopper%d@example.com", seq)
+		if lang == "zh-CN" {
+			a["name"], a["line1"], a["line2"] = first+last, fmt.Sprintf("%s %d 号", street, number), fmt.Sprintf("%d 室", seq)
+			return
+		}
+		a["name"], a["line1"], a["line2"] = first+" "+last, fmt.Sprintf("%d %s", number, street), fmt.Sprintf("Unit %d", seq)
+	}
 }
