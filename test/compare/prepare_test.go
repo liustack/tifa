@@ -7,10 +7,13 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Every server of a scenario starts its closed rounds with the same data, whatever its own sizing
@@ -138,5 +141,75 @@ func (l *setupLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"id":"SH-%d"}`, 9000+l.orders)
 	default:
 		w.Write([]byte("ok"))
+	}
+}
+
+// playable caps the visits a closed round is sized to at the prepared ones, and a round that plays
+// every prepared visit is capped: one sized to fewer is not, to as many or more is.
+func TestARoundThatPlaysEveryPreparedVisitIsCapped(t *testing.T) {
+	for _, tc := range []struct {
+		sized, prepared, visits int
+		capped                  bool
+	}{
+		{1020, 2040, 1020, false},
+		{2040, 2040, 2040, true},
+		{3060, 2040, 2040, true},
+	} {
+		if visits, capped := playable(tc.sized, tc.prepared); visits != tc.visits || capped != tc.capped {
+			t.Errorf("sized to %d of %d prepared: %d visits, capped %v, want %d, %v", tc.sized, tc.prepared, visits, capped, tc.visits, tc.capped)
+		}
+	}
+}
+
+// A closed round sized to exactly the prepared visits cannot be made longer either: when it ends
+// early it is kept. Here its first two tries are not valid (the setup of their servers fails), and
+// the third, the last, plays every prepared visit in less than the window: it is the valid result.
+func TestTheLastTryOfARoundAtThePreparedVisitsIsKeptWhenShort(t *testing.T) {
+	sc := mustScenario("shop")
+	_, _, node := warmSpecs()
+	b, _ := warmBrowse(t, sc, node)
+	b.o.Target = time.Minute
+	bv := sc.blockVisits()
+	b.res.Prepared = map[string]int{sc.Name: bv}
+	b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, "nextjs")] = 1
+	launch := b.launch
+	var mu sync.Mutex
+	failed := 0
+	b.launch = func(ctx context.Context, spec Spec) (*liveServer, error) {
+		s, err := launch(ctx, spec)
+		if err != nil {
+			return nil, err
+		}
+		target, _ := url.Parse(s.base)
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		fail := false // this server refuses the orders of the setup
+		front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "POST" && (r.URL.Path == "/compare-write/studio" || r.URL.Path == "/compare-write/weekend") {
+				mu.Lock()
+				if !fail && failed < 2 {
+					fail, failed = true, failed+1
+				}
+				refuse := fail
+				mu.Unlock()
+				if refuse {
+					http.Error(w, "down", http.StatusInternalServerError)
+					return
+				}
+			}
+			proxy.ServeHTTP(w, r)
+		}))
+		stop := s.stop
+		s.base, s.stop = front.URL, func() { front.Close(); stop() }
+		return s, nil
+	}
+	out, err := b.closedRound(context.Background(), "nextjs", sc, b.o.Sessions, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.res.Closed) != maxTries || b.res.Closed[0].Valid || b.res.Closed[1].Valid {
+		t.Fatalf("%d tries, want %d with the first two not valid: %+v", len(b.res.Closed), maxTries, b.res.Closed)
+	}
+	if out.Attempt != maxTries || !out.Capped || !out.Valid || !out.Pass {
+		t.Errorf("the last try: attempt %d, capped %v, valid %v %s, pass %v, %.2f s", out.Attempt, out.Capped, out.Valid, out.WhyInvalid, out.Pass, out.Seconds)
 	}
 }

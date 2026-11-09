@@ -568,11 +568,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 	for attempt := 1; ; attempt++ {
 		// A round never plays more visits than every server gets the data of: one sized to more
 		// plays them all, and is kept when that ends it early (calibrate).
-		visits := b.res.Blocks[key] * sc.blockVisits()
-		capped := visits > prepared
-		if capped {
-			visits = prepared
-		}
+		visits, capped := playable(b.res.Blocks[key]*sc.blockVisits(), prepared)
 		out, err := b.with(ctx, fw, sc, visits, prepared, func(r *runner) *Round {
 			if b.specs[fw].WarmsUp() {
 				r.Warm(ctx, sessions, b.o.Warm)
@@ -1426,4 +1422,10 @@ func (b *browse) checkWrites(ctx context.Context, name string, sc BrowseScenario
 		return fmt.Errorf("%s/%s: %w", sc.Name, name, err)
 	}
 	return nil
+}
+
+// playable is how many visits a closed round sized to sized visits plays, and whether that is every
+// visit prepared for it (capped): it cannot be made longer.
+func playable(sized, prepared int) (visits int, capped bool) {
+	return min(sized, prepared), sized >= prepared
 }
