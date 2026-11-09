@@ -139,11 +139,11 @@ func (e *workEnv) do(method, target string, header ...string) work {
 	return work{w: w, loads: e.loads.Load() - l, renders: int64(e.r.count() - r), encodes: e.encodes.Load() - j, compress: e.compress.Load() - c, errors: e.onError.Load() - o}
 }
 
-// A 404 page and an error page from a failed Load are a function of their render input as every
-// page is, so the render memo keeps them. They carry no ETag, and a request with If-None-Match gets
-// the page, since a precondition only applies to an answer that would be 2xx (RFC 9110 13.2.1).
-// OnError still sees every failure.
-func TestErrorPagesComeFromTheMemo(t *testing.T) {
+// A 404 page and an error page from a failed Load are rendered for each request: the render memo
+// keeps none of them, so URLs a visitor makes up do not fill it. They carry no ETag, and a request
+// with If-None-Match gets the page, since a precondition only applies to an answer that would be 2xx
+// (RFC 9110 13.2.1). OnError sees every failure.
+func TestErrorPagesRenderForEachRequest(t *testing.T) {
 	e := newWorkEnv(t, 64<<20)
 	e.fail("/plain", tifa.ErrNotFound)
 	e.fail("/live", tifa.ErrNotFound)
@@ -159,26 +159,26 @@ func TestErrorPagesComeFromTheMemo(t *testing.T) {
 		if first.w.Code != tc.status || first.renders != 1 || first.w.Header().Get(renderHeader) != "vm" {
 			t.Errorf("%s: first %s", tc.name, first)
 		}
-		if second.w.Code != tc.status || second.renders != 0 || second.w.Header().Get(renderHeader) != "memo" || second.w.Body.String() != first.w.Body.String() {
+		if second.w.Code != tc.status || second.renders != 1 || second.w.Header().Get(renderHeader) != "vm" || second.w.Body.String() != first.w.Body.String() {
 			t.Errorf("%s: second %s", tc.name, second)
 		}
 		if etag := first.w.Header().Get("ETag") + second.w.Header().Get("ETag"); etag != "" {
 			t.Errorf("%s: ETag %q", tc.name, etag)
 		}
-		if w := e.do("GET", tc.target, "If-None-Match", "*"); w.w.Code != tc.status || w.renders != 0 || w.w.Body.Len() == 0 {
+		if w := e.do("GET", tc.target, "If-None-Match", "*"); w.w.Code != tc.status || w.renders != 1 || w.w.Body.Len() == 0 {
 			t.Errorf("%s: with If-None-Match: %s", tc.name, w)
 		}
-		if w := e.do("HEAD", tc.target); w.w.Code != tc.status || w.renders != 0 {
+		if w := e.do("HEAD", tc.target); w.w.Code != tc.status || w.renders != 1 {
 			t.Errorf("%s: HEAD %s", tc.name, w)
 		}
 	}
-	// An unexpected error: OnError runs each time, the page renders once.
+	// An unexpected error: OnError runs and the page renders each time.
 	e.fail("/plain", fmt.Errorf("db down"))
 	first, second := e.do("GET", "/plain"), e.do("GET", "/plain")
-	if first.w.Code != 500 || first.renders != 1 || first.errors != 1 || second.w.Code != 500 || second.renders != 0 || second.errors != 1 || second.w.Body.String() != first.w.Body.String() {
+	if first.w.Code != 500 || first.renders != 1 || first.errors != 1 || second.w.Code != 500 || second.renders != 1 || second.errors != 1 || second.w.Body.String() != first.w.Body.String() {
 		t.Errorf("Load fails: %s, OnError %d, then %s, OnError %d", first, first.errors, second, second.errors)
 	}
-	// What the page shows of the error is in the key: another status or message is another page.
+	// What the page shows of the error is in the render input: another status or message shows.
 	e.fail("/plain", tifa.Error{Status: 503, Message: "come back later"})
 	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back later") {
 		t.Errorf("another error: %s", w)
@@ -187,13 +187,13 @@ func TestErrorPagesComeFromTheMemo(t *testing.T) {
 	if w := e.do("GET", "/plain", "Accept-Encoding", "identity"); w.w.Code != 503 || w.renders != 1 || !strings.Contains(w.w.Body.String(), "come back tomorrow") {
 		t.Errorf("another message: %s", w)
 	}
-	// A page with Cache has the 404 page of the render memo like any page.
+	// The 404 of a page with Cache renders each time like any 404.
 	e.fail("/cached", tifa.ErrNotFound)
 	first, second = e.do("GET", "/cached"), e.do("GET", "/cached")
-	if first.w.Code != 404 || first.renders != 1 || second.w.Code != 404 || second.renders != 0 {
+	if first.w.Code != 404 || first.renders != 1 || second.w.Code != 404 || second.renders != 1 {
 		t.Errorf("404 of a page with Cache: %s, then %s", first, second)
 	}
-	// Memo = false keeps its 404 page out of the cache too.
+	// So does the 404 of a page with Memo = false.
 	for range 2 {
 		if w := e.do("GET", "/live"); w.w.Code != 404 || w.renders != 1 || w.w.Header().Get(renderHeader) != "vm" {
 			t.Errorf("404 of a page with Memo = false: %s", w)

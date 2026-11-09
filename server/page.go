@@ -823,10 +823,11 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	// with Memo = false says it is not, and a request with a clock is not either, so they get
 	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
 	//
-	// A 404 or an error page is kept by the render memo like any page, but gets neither an ETag
-	// nor a 304: a precondition only applies to an answer that would be 2xx (RFC 9110 section
-	// 13.2.1). The status is not part of the key, and need not be: the render does not see it, and
-	// what an error page shows, the status and public message of each failed Load, is in its data.
+	// A 404 or an error page is not kept by the render memo, though requests for it at the same time
+	// share one render (renderOne), and gets neither an ETag nor a 304: a precondition only applies
+	// to an answer that would be 2xx (RFC 9110 section 13.2.1). The status is not part of the key, and
+	// need not be: the render does not see it, and what an error page shows, the status and public
+	// message of each failed Load, is in its data.
 	var tag string
 	if cache {
 		tag = renderKey(in, f.build.bundle, s.policyKey())
@@ -928,7 +929,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
 	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
-		return s.renderOne(ctx, f, in, true, method, path)
+		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled) {
@@ -948,26 +949,28 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 
 // renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
 // it. A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
-// the input as the HTML does. twice has tifa dev render a page the render memo keeps once more to
-// find out whether it reads the time or a random number, see devRenderTwice.
-func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
+// the input as the HTML does. keep is false for a 404 or an error page: the memo keeps none of them,
+// so that URLs a visitor makes up do not fill it, while the requests that wait for the render still
+// share it. tifa dev renders a page the memo keeps once more to find out whether it reads the time
+// or a random number, see devRenderTwice.
+func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, keep bool, method, path string) (cachedPage, bool, error) {
 	rendered, err := f.render(ctx, in)
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		page := cachedPage{redirect: redirect}
-		return page, s.memo.holds(page), nil
+		return page, keep && s.memo.holds(page), nil
 	}
 	if err != nil {
 		return cachedPage{html: rendered.HTML}, false, err
 	}
-	if twice && s.dev != nil {
+	if keep && s.dev != nil {
 		if warned, differs := s.devRenderTwice(ctx, f, in, rendered, method, path); differs {
 			return cachedPage{html: warned.HTML, policy: s.renderedPolicy(f, in, warned)}, false, nil
 		}
 	}
 	html, policy := rendered.HTML, s.renderedPolicy(f, in, rendered)
 	page, held := s.newPage(html, policy)
-	return page, held, nil
+	return page, held && keep, nil
 }
 
 // newPage makes the page of html for the cache, and says whether the cache can keep it. With
