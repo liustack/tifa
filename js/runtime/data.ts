@@ -124,10 +124,14 @@ export function injected(input: Injected): Source {
   }
 }
 
-// The router may encode the query differently (%20 or +) from the request URL.
+// The router may encode the query differently (%20 or +) from the request URL, and writes the
+// values of a key together where the request may have other keys between them (?x=1&y=2&x=3). The
+// order of the keys does not change what the router reads, the order of the values of one key does.
 export function sameURL(a: string, b: string) {
   const canonical = (url: string) => {
     const value = new URL(url, 'http://tifa.invalid')
+    // A stable sort by key: the values of a key keep their order.
+    value.searchParams.sort()
     return value.pathname + '?' + value.searchParams.toString()
   }
   return a === b || canonical(a) === canonical(b)
