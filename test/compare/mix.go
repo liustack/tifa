@@ -155,7 +155,7 @@ const (
 // productWeight is the weight of a product by its rank in the catalogue (StoreProducts), by the Zipf
 // law of ProductZipf.
 func productWeight(slug string) float64 {
-	i := slices.Index(StoreProducts, slug)
+	i := slices.Index(StoreProducts(), slug)
 	if i < 0 {
 		panic("no product " + slug)
 	}

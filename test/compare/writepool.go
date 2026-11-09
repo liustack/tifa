@@ -211,7 +211,7 @@ func (r *runner) writeRequest(w PlannedWrite) (method, path string, body []byte,
 // so no checkout or order after it is refused for lack of stock.
 func productChange(seed uint64, w PlannedWrite, target func(slug string) int) (string, map[string]any) {
 	rng := rand.New(rand.NewPCG(seed^0x2545f4914f6cdd1d, uint64(w.Seq)<<20|uint64(w.After)))
-	slug := StoreVariants[rng.IntN(len(StoreVariants))].Slug
+	slug := StoreVariants()[rng.IntN(len(StoreVariants()))].Slug
 	if rng.Float64() < EditPriceShare {
 		lo, hi := EditPriceFen[0]/100, EditPriceFen[1]/100
 		return slug, map[string]any{"priceCents": 100 * (lo + rng.IntN(hi-lo+1))}
@@ -222,6 +222,6 @@ func productChange(seed uint64, w PlannedWrite, target func(slug string) int) (s
 // stockTarget is the stock the restock gave a product of the storefront: its stock in the data
 // (StoreVariants), or what prepare raised it to.
 func (r *runner) stockTarget(slug string) int {
-	i := slices.IndexFunc(StoreVariants, func(v StoreProduct) bool { return v.Slug == slug })
-	return max(StoreVariants[i].Stock, r.restocked[slug])
+	i := slices.IndexFunc(StoreVariants(), func(v StoreProduct) bool { return v.Slug == slug })
+	return max(StoreVariants()[i].Stock, r.restocked[slug])
 }

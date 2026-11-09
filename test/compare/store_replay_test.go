@@ -109,12 +109,12 @@ func (f *fakeStoreServer) write(kind string) http.HandlerFunc {
 		switch kind {
 		case WriteAdd:
 			slug := r.PathValue("slug")
-			i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
+			i := slices.IndexFunc(StoreVariants(), func(p StoreProduct) bool { return p.Slug == slug })
 			if i < 0 || in.Quantity < 1 || in.Quantity > 10 {
 				refuse("no such variant")
 				return
 			}
-			p := StoreVariants[i]
+			p := StoreVariants()[i]
 			if !slices.Contains(p.Colors, in.Color) || len(p.Sizes) == 0 && in.Size != "" || len(p.Sizes) > 0 && !slices.Contains(p.Sizes, in.Size) {
 				refuse("no such variant")
 				return

@@ -173,7 +173,7 @@ func (f *fakeShop) productList(w http.ResponseWriter, r *http.Request) {
 // catalogue of the storefront, the weekend shop its own.
 func fakeCatalogue() map[string][]string {
 	var studio []string
-	for _, v := range StoreVariants {
+	for _, v := range StoreVariants() {
 		studio = append(studio, v.Slug)
 	}
 	return map[string][]string{"studio": studio, "weekend": shopProducts["weekend"]}
@@ -579,7 +579,7 @@ func TestAnEditSendsOneFieldThePlanSets(t *testing.T) {
 		if err := json.Unmarshal([]byte(body), &m); err != nil || len(m) != 1 {
 			t.Fatalf("an edit of %s sent %s, want one field", slug, body)
 		}
-		v := StoreVariants[slices.IndexFunc(StoreVariants, func(v StoreProduct) bool { return v.Slug == slug })]
+		v := StoreVariants()[slices.IndexFunc(StoreVariants(), func(v StoreProduct) bool { return v.Slug == slug })]
 		target := v.Stock
 		if slug == "oak-tray" {
 			target = 500
@@ -617,7 +617,7 @@ func TestTheSizingRunRestocksEveryProductToTheCap(t *testing.T) {
 	if err := b.prepare(context.Background(), r, spec, -1, sizingVisits(b.o.Sizing)); err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range StoreVariants {
+	for _, v := range StoreVariants() {
 		if got := f.products["studio"][v.Slug].Stock; got != maxStock {
 			t.Errorf("%s has %d in stock after the restock of a sizing run, want %d", v.Slug, got, maxStock)
 		}

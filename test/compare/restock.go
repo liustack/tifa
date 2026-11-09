@@ -250,7 +250,7 @@ func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits, data
 		if need[storefrontShop] == nil {
 			need[storefrontShop] = map[string]int{}
 		}
-		for _, v := range StoreVariants {
+		for _, v := range StoreVariants() {
 			need[storefrontShop][v.Slug] = maxStock
 		}
 		for _, shop := range need {

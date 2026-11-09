@@ -44,38 +44,9 @@ type StoreProduct struct {
 	Sizes  []string
 }
 
-// StoreVariants are the products of the catalogue of the shop, TestStoreVariantsAreTheShops checks
-// them against the shop.
-var StoreVariants = []StoreProduct{
-	{"pour-over-kettle", 23, []string{"mist", "charcoal"}, nil},
-	{"ceramic-cup", 58, []string{"moss", "mist", "clay"}, nil},
-	{"glass-carafe", 12, []string{"mist"}, nil},
-	{"oak-tray", 6, []string{"oat"}, []string{"M", "L"}},
-	{"tea-canister", 0, []string{"brass", "charcoal"}, nil},
-	{"linen-coasters", 80, []string{"oat", "moss", "charcoal"}, nil},
-	{"linen-apron", 34, []string{"oat", "ink"}, []string{"S", "M", "L"}},
-	{"wool-throw", 9, []string{"oat", "charcoal", "moss"}, nil},
-	{"tea-towels", 120, []string{"moss", "clay", "ink"}, nil},
-	{"canvas-tote", 45, []string{"oat", "ink", "charcoal"}, nil},
-	{"brass-bookmarks", 200, []string{"brass"}, nil},
-	{"dot-notebook", 300, []string{"ink", "clay", "moss"}, nil},
-	{"walnut-pen", 14, []string{"brass", "charcoal"}, nil},
-	{"desk-tray", 27, []string{"clay", "mist"}, nil},
-	{"reading-candle", 40, []string{"mist", "charcoal"}, nil},
-	{"forest-diffuser", 18, []string{"moss"}, nil},
-	{"incense-set", 31, []string{"clay", "ink"}, nil},
-	{"folding-stool", 52, []string{"moss", "charcoal"}, nil},
-	{"picnic-blanket", 66, []string{"ink", "clay"}, nil},
-	{"insulated-bottle", 75, []string{"ink", "mist", "moss"}, nil},
-	{"enamel-mug", 140, []string{"mist", "ink"}, nil},
-	{"stoneware-vase", 11, []string{"clay", "mist"}, []string{"S", "M"}},
-	{"cotton-napkins", 0, []string{"oat", "moss", "clay"}, nil},
-	{"pocket-journal", 260, []string{"clay", "ink", "oat"}, nil},
-	{"hinoki-spray", 22, []string{"mist"}, nil},
-	{"camp-lantern", 8, []string{"brass", "moss", "charcoal"}, nil},
-	{"copper-cups", 19, []string{"brass"}, nil},
-	{"wax-cloth", 95, []string{"oat", "moss"}, nil},
-}
+// StoreVariants returns the products of the catalogue of the shop with their stock, colours and
+// sizes, in its order (ShopCatalogue).
+func StoreVariants() []StoreProduct { return storeCatalogue().variants }
 
 // maxLine is the most of one line that the cart of the shop takes.
 const maxLine = 10
@@ -109,7 +80,7 @@ func demoCart() []cartLine {
 // inStock are the products a write can put in a cart.
 var inStock = sync.OnceValue(func() []StoreProduct {
 	var out []StoreProduct
-	for _, v := range StoreVariants {
+	for _, v := range StoreVariants() {
 		if v.Stock > 0 {
 			out = append(out, v)
 		}
@@ -137,11 +108,11 @@ func pageProduct(url string) StoreProduct {
 	}
 	path, _, _ := strings.Cut(url, "?")
 	slug := path[strings.LastIndex(path, "/")+1:]
-	i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
+	i := slices.IndexFunc(StoreVariants(), func(p StoreProduct) bool { return p.Slug == slug })
 	if i < 0 {
 		panic("no product " + slug + " in StoreVariants")
 	}
-	return StoreVariants[i]
+	return StoreVariants()[i]
 }
 
 // returningCart is the adds that make the cart a returning visitor, visit seq of the run, comes back

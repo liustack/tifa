@@ -129,10 +129,10 @@ func TestLandingProductsFollowTheZipfLaw(t *testing.T) {
 		t.Fatalf("%d visits land on a product", n)
 	}
 	var h float64
-	for k := range StoreProducts {
+	for k := range StoreProducts() {
 		h += math.Pow(float64(k+1), -ProductZipf)
 	}
-	for k, slug := range StoreProducts[:5] {
+	for k, slug := range StoreProducts()[:5] {
 		want := math.Pow(float64(k+1), -ProductZipf) / h
 		if got := float64(count[slug]) / float64(n); math.Abs(got-want) > 0.25*want {
 			t.Errorf("%s, rank %d, lands %.3f of the product visits, want %.3f", slug, k+1, got, want)
