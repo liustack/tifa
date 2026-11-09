@@ -89,7 +89,7 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 			// A write is answered as the shop answers it: a checkout with a 303, a created order with its id.
 			switch {
 			case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/checkout"):
-				w.Header().Set("Location", "/store/orders/1")
+				w.Header().Set("Location", "/store/checkout?placed=SH-9001")
 				w.WriteHeader(303)
 				return
 			case r.Method == "POST" && r.URL.Path == "/store/cart":

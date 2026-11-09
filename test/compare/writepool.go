@@ -21,15 +21,13 @@ import (
 // each runner keeps a pool of the orders that have not shipped, per project. It starts with the
 // orders of the data that wait to ship and lives as long as the server does.
 //
+//   - a checkout of the storefront adds the order it placed (a studio order, SH- and its number, from
+//     the page of the order it sends the visitor to), which waits to ship like any other,
 //   - create adds the id that the server answered with,
 //   - ship takes the oldest order of the pool out and ships it.
 //
 // A ship that finds no order to go to is sent as a create instead, and counted. An edit of a
 // product needs no order.
-//
-// TODO(shop-merge): the orders that shoppers place at checkout do not reach the pool, so ships drain
-// it and the creates refill it. Once the back office lists the orders of the storefront, add each
-// checkout's order to the pool instead.
 type pool struct {
 	mu        sync.Mutex
 	unshipped map[string][]string // ids, oldest first
@@ -88,6 +86,8 @@ type answered struct {
 	kind   string // the media type of the answer, "-" for none
 	body   []byte // as sent, with the compression removed
 	wire   int    // bytes on the wire
+	// location is the Location header, where a checkout sends the visitor.
+	location string
 }
 
 // request sends a JSON write and reads the whole answer. It takes one of the connections of the
@@ -117,7 +117,7 @@ func (r *runner) request(ctx context.Context, v *visitState, method, path string
 	b, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	end := time.Now()
-	a := answered{status: res.StatusCode, kind: mediaType(res.Header.Get("Content-Type")), body: b, wire: len(b)}
+	a := answered{status: res.StatusCode, kind: mediaType(res.Header.Get("Content-Type")), body: b, wire: len(b), location: res.Header.Get("Location")}
 	if err == nil && res.Header.Get("Content-Encoding") == "gzip" {
 		var zr *gzip.Reader
 		if zr, err = gzip.NewReader(bytes.NewReader(b)); err == nil {
@@ -193,6 +193,14 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 			return fmt.Errorf("write %s %s: no order id in the answer: %v %.200s", method, path, err, ans.body)
 		}
 		r.pool.add(w.Project, created.ID)
+	}
+	// A checkout places a studio order that waits to ship, as staff see it in the back office.
+	if kind == WriteCheckout {
+		m := placedLocationOf.FindStringSubmatch(ans.location)
+		if m == nil {
+			return fmt.Errorf("write %s %s: the checkout sent the visitor to %q, not to the page of an order", method, path, ans.location)
+		}
+		r.pool.add(storefrontShop, m[1])
 	}
 	took := ms(end.Sub(scheduled))
 	a.mu.Lock()

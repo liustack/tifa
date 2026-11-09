@@ -50,6 +50,7 @@ func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /compare-write/{project}/products", f.productList)
 	mux.HandleFunc("PATCH /compare-write/{project}/products/{product}", f.editProduct)
+	mux.HandleFunc("POST /zh-CN/store/checkout", f.checkout)
 	mux.HandleFunc("POST /compare-write/{project}", f.create)
 	mux.HandleFunc("POST /compare-write/{project}/{order}", f.write)
 	mux.HandleFunc("PUT /compare-write/{project}/{order}", f.write)
@@ -123,6 +124,19 @@ func (f *fakeShop) write(w http.ResponseWriter, r *http.Request) {
 	f.log = append(f.log, r.Method+" "+id)
 	w.Header().Set("Content-Type", "application/json")
 	json.MarshalWrite(w, map[string]string{"id": id})
+}
+
+// checkout places a storefront order as a studio order, with the next number of studio, and sends
+// the visitor to the page of the order, as the shop does.
+func (f *fakeShop) checkout(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := fmt.Sprintf("SH-%04d", f.next["studio"])
+	f.next["studio"]++
+	f.orders[id] = &fakeOrder{project: "studio", customer: "顾客"}
+	f.log = append(f.log, "checkout "+id)
+	w.Header().Set("Location", "/zh-CN/store/checkout?placed="+id)
+	w.WriteHeader(303)
 }
 
 // productList lists the products of a shop as the back office does, in the envelope of the data of
@@ -334,5 +348,31 @@ func TestVerifyAdminAfterARoundHasShippedTheOrdersOfTheData(t *testing.T) {
 	}
 	if o := f.orders["SH-1043"]; o == nil || o.address == "" || o.tracking == "" {
 		t.Errorf("the order of the check: %+v", o)
+	}
+}
+
+// The order a checkout of the storefront places is a studio order that waits to ship, so it joins
+// the pool: a ship takes it once the older orders are gone, and no create stands in for it.
+func TestACheckoutOrderJoinsThePoolAndAShipTakesIt(t *testing.T) {
+	r, f := adminRunner(t)
+	v := &visitState{client: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	a := newAcc()
+	checkout := PlannedWrite{Kind: WriteCheckout, Store: &StoreRequest{Kind: WriteCheckout, Method: "POST", Path: "/zh-CN/store/checkout", Body: []byte(`{}`), Status: 303}}
+	ship := PlannedWrite{Kind: WriteShip, Project: "studio"}
+	for _, w := range []PlannedWrite{checkout, ship, ship, ship, ship} {
+		w.After++
+		if err := r.doWrite(context.Background(), v, a, w, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"checkout SH-1043", "POST SH-1041", "POST SH-1042", "POST SH-1043", "create SH-1044"}
+	if strings.Join(f.log, "|") != strings.Join(want, "|") {
+		t.Fatalf("the shop saw %v, want %v", f.log, want)
+	}
+	if a.poolEmpty != 1 {
+		t.Errorf("%d ships found the pool empty, want 1", a.poolEmpty)
+	}
+	if got := r.pool.orderCounts(); got["studio"] != 44 {
+		t.Errorf("orders %v, want 44 in studio: the 42 of the data, the checkout and the create", got)
 	}
 }
