@@ -14,7 +14,7 @@ import (
 )
 
 func under() map[string]string {
-	return map[string]string{"method": "m1", "nextjsApp": "n1", "nextjsServer": "s1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "serverCpus": "0", "loadCpus": "1,5",
+	return map[string]string{"method": "m1", "nextjsApp": "n1", "nextjsServer": "s1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "go": "go1.27", "serverCpus": "0", "loadCpus": "1,5",
 		"node": "v24.1.0", "nextjs": "16.0.1", "actionSpacing": "1s", "rule": LatencyRule, "search": "trial 45s", "confirm": "3 rounds"}
 }
 
@@ -189,7 +189,7 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 	if methodHash(root) != "" {
 		t.Error("a missing file of the method gives a method")
 	}
-	for _, f := range []string{"load.go", "replay.go", "stats.go", "store_writes.go", "writepool.go", "browse.go", "throughput.go"} {
+	for _, f := range []string{"load.go", "replay.go", "stats.go", "store_writes.go", "writepool.go", "browse.go"} {
 		if !slices.Contains(methodFiles, f) {
 			t.Errorf("the method leaves out %s", f)
 		}
@@ -366,61 +366,50 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 	}
 }
 
-// The method a rate of Next.js is bound to is the code the search of that rate runs, from
-// (*browse).sustain down, not whole files: a change to the report, to the servers of other
-// frameworks, to the list of servers or scenarios or to a comment leaves it as it is, and a change
-// to what the search runs (its search, its rule, the replay) does not.
-func TestTheRateMethodIsTheCodeTheSearchRuns(t *testing.T) {
-	src, err := filepath.Abs(".")
+// Every source file of test/compare is either part of the method a rate of Next.js is bound to or
+// left out of it, by name: a new file that is neither fails here until it is put in one list. The
+// report and the table of the servers of every framework are out, what prepares, replays, judges
+// and starts a run is in, the server of Next.js among it.
+func TestEverySourceOfCompareIsInOrOutOfTheMethod(t *testing.T) {
+	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
-	dir := filepath.Join(root, "test", "compare")
-	os.MkdirAll(dir, 0o755)
-	for _, f := range methodFiles {
-		data, err := os.ReadFile(filepath.Join(src, f))
-		if err != nil {
-			t.Fatal(err)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
 		}
-		os.WriteFile(filepath.Join(dir, f), data, 0o644)
-	}
-	method := rateMethodHash(root)
-	if method == "" {
-		t.Fatal("no method")
-	}
-	edit := func(file, old, new string) func() {
-		path := filepath.Join(dir, file)
-		data, _ := os.ReadFile(path)
-		if !strings.Contains(string(data), old) {
-			t.Fatalf("%s has no %q", file, old)
+		in, out := slices.Contains(methodFiles, f), slices.Contains(rateExcluded, f)
+		if in == out {
+			t.Errorf("%s is in the method %v and left out %v: put it in methodFiles or in rateExcluded", f, in, out)
 		}
-		os.WriteFile(path, []byte(strings.Replace(string(data), old, new, 1)), 0o644)
-		return func() { os.WriteFile(path, data, 0o644) }
 	}
-	for _, tc := range []struct {
-		what, file, old, new string
-		same                 bool
-	}{
-		{"another server of Start", "specs.go", `start("start", "TanStack Start", false, both),`, `start("start", "TanStack Start", false, both), start("start-x", "x", true, engine, "--x"),`, true},
-		{"the servers of browse", "browse.go", `"tifa-nocache"}`, `"tifa-nocache", "start-x"}`, true},
-		{"the scenarios", "replay.go", `Title: "the shop: shoppers and staff"`, `Title: "the shop"`, true},
-		{"a comment of the replay", "replay.go", "// acc collects what a run saw", "// acc keeps what a run saw", true},
-		{"the search", "browse.go", "hi-lo > 0.1*lo", "hi-lo > 0.2*lo", false},
-		{"the rule", "load.go", "const LatencyLimit = 1000.0", "const LatencyLimit = 900.0", false},
-		{"the replay", "replay.go", `req.Header.Set("Accept-Encoding", "gzip")`, `req.Header.Set("Accept-Encoding", "br")`, false},
-		{"the kinds of the writes", "store_writes.go", `WriteAdd      = "add"`, `WriteAdd      = "put"`, false},
-		{"the paths of the writes of Next.js", "specs.go", "StoreWrite: NextStorePath, EditProduct: nodeEditProduct", "StoreWrite: SameStorePath, EditProduct: nodeEditProduct", false},
-	} {
-		undo := edit(tc.file, tc.old, tc.new)
-		if got := rateMethodHash(root) == method; got != tc.same {
-			t.Errorf("%s: the method is the same: %v, want %v", tc.what, got, tc.same)
+	for _, f := range append(slices.Clone(methodFiles), rateExcluded...) {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("%s is listed and is not there", f)
 		}
-		undo()
 	}
-	os.Remove(filepath.Join(dir, "load.go"))
-	if rateMethodHash(root) != "" {
-		t.Error("a missing file of the method gives a method")
+	for _, f := range []string{"browse.go", "load.go", "replay.go", "restock.go", "setup.go", "serve.go", "spec.go", "store_writes.go", "writepool.go", "store_paths.go", "store_links.json"} {
+		if !slices.Contains(methodFiles, f) {
+			t.Errorf("the method leaves out %s", f)
+		}
+	}
+	for _, f := range []string{"report.go", "report_browse.go", "specs.go"} {
+		if slices.Contains(methodFiles, f) {
+			t.Errorf("the method holds %s", f)
+		}
+	}
+	// The servers of the other frameworks and the list of servers live in the file left out, and the
+	// server of Next.js in one that is in.
+	for file, want := range map[string]string{"specs.go": "func (e Env) Specs() []Spec", "spec.go": "func (e Env) nextSpec("} {
+		data, _ := os.ReadFile(file)
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s has no %q", file, want)
+		}
+	}
+	data, _ := os.ReadFile("specs.go")
+	if !strings.Contains(string(data), "var BrowseFrameworks") {
+		t.Error("the servers of browse are not in specs.go")
 	}
 }
 
@@ -429,7 +418,8 @@ func TestTheRateMethodIsTheCodeTheSearchRuns(t *testing.T) {
 // recorded from: not the trees of Tifa, Start or React Router.
 func TestTheRateIsBoundToTheNextjsServerAndItsTrace(t *testing.T) {
 	e := Env{Next: "/next", Start: "/start", Shop: "/shop"}
-	before := nextjsServer(e.Specs())
+	home := []string{"HOME=/a", "PATH=/bin"}
+	before := nextjsServer(e.Specs(), home)
 	if before == "" {
 		t.Fatalf("the server of Next.js is %q", before)
 	}
@@ -439,15 +429,28 @@ func TestTheRateIsBoundToTheNextjsServerAndItsTrace(t *testing.T) {
 			specs[i].Args = append(specs[i].Args, "--other")
 		}
 	}
-	if nextjsServer(specs) != before {
+	if nextjsServer(specs, home) != before {
 		t.Error("another Start changes the server of Next.js")
+	}
+	if nextjsServer(specs, []string{"HOME=/b", "PATH=/usr/bin"}) != before {
+		t.Error("a variable Node does not read changes the server of Next.js")
+	}
+	// The variables Node reads come from the environment the server inherits as well as from its spec,
+	// and the spec wins over the inherited one, as it does when the server starts (Target.environ).
+	for _, v := range []string{"NODE_OPTIONS=--max-old-space-size=64", "UV_THREADPOOL_SIZE=8", "TZ=Asia/Tokyo", "LC_ALL=de_DE.UTF-8", "MALLOC_ARENA_MAX=2"} {
+		if nextjsServer(specs, append(slices.Clone(home), v)) == before {
+			t.Errorf("an inherited %s is the same server", v)
+		}
+	}
+	if nextjsServer(specs, append(slices.Clone(home), "NODE_ENV=development")) != before {
+		t.Error("an inherited NODE_ENV counts though the spec of Next.js sets its own")
 	}
 	for i := range specs {
 		if specs[i].Name == "nextjs" {
 			specs[i].Env = append(specs[i].Env, "NODE_OPTIONS=--max-old-space-size=64")
 		}
 	}
-	if nextjsServer(specs) == before {
+	if nextjsServer(specs, home) == before {
 		t.Error("another environment of Next.js is the same server")
 	}
 	dir := t.TempDir()
@@ -469,5 +472,16 @@ func TestTheRateIsBoundToTheNextjsServerAndItsTrace(t *testing.T) {
 	os.WriteFile(path, []byte(strings.Replace(string(data), "tree test/compare/nextjs b", "tree test/compare/nextjs b2", 1)), 0o644)
 	if stampHash(path) == base {
 		t.Error("another Next.js app is the same sources")
+	}
+}
+
+// A server starts with the environment it inherits and then its own, and of two values of a name
+// the last is the one it sees.
+func TestAServerStartsWithTheEnvironmentItInheritsAndItsOwn(t *testing.T) {
+	tg := Target{Env: []string{"NODE_ENV=production", "PORT=%PORT%"}}
+	got := tg.environ([]string{"HOME=/a", "NODE_ENV=development", "PORT=1"})
+	want := []string{"HOME=/a", "NODE_ENV=production", "PORT=%PORT%"}
+	if !slices.Equal(got, want) {
+		t.Errorf("environ = %q, want %q", got, want)
 	}
 }

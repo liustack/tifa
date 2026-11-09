@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,24 @@ type Target struct {
 	Prog string
 	Args []string
 	Env  []string
+}
+
+// environ is the environment the server of t starts with: the one it inherits, then its own (Env),
+// with one value a name, the last one given, in the place of the first. The rate of Next.js is bound
+// to the same environment (nextjsServer).
+func (t Target) environ(inherited []string) []string {
+	var env []string
+	at := map[string]int{}
+	for _, kv := range append(slices.Clone(inherited), t.Env...) {
+		name, _, _ := strings.Cut(kv, "=")
+		if i, ok := at[name]; ok {
+			env[i] = kv
+			continue
+		}
+		at[name] = len(env)
+		env = append(env, kv)
+	}
+	return env
 }
 
 // Server is a running Target.
@@ -78,7 +97,7 @@ func (t Target) Launch(cpus string) (*Server, error) {
 	}
 	cmd := exec.Command(prog, args...)
 	cmd.Dir = t.Dir
-	cmd.Env = append(os.Environ(), t.Env...)
+	cmd.Env = t.environ(os.Environ())
 	for i := range cmd.Env {
 		cmd.Env[i] = strings.ReplaceAll(cmd.Env[i], "%PORT%", strconv.Itoa(port))
 	}
