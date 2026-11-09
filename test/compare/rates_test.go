@@ -14,7 +14,7 @@ import (
 )
 
 func under() map[string]string {
-	return map[string]string{"method": "m1", "nextjsApp": "n1", "nextjsServer": "s1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "go": "go1.27", "serverCpus": "0", "loadCpus": "1,5",
+	return map[string]string{"method": "m1", "nextjsApp": "n1", "nextjsServer": "s1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "go": "go1.27", "serverCpus": "0", "loadCpus": "1,5", "loadCpuCount": "2",
 		"node": "v24.1.0", "nextjs": "16.0.1", "actionSpacing": "1s", "rule": LatencyRule, "search": "trial 45s", "confirm": "3 rounds"}
 }
 
@@ -369,11 +369,16 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 // Every source file of test/compare is either part of the method a rate of Next.js is bound to or
 // left out of it, by name: a new file that is neither fails here until it is put in one list. The
 // report and the table of the servers of every framework are out, what prepares, replays, judges
-// and starts a run is in, the server of Next.js among it.
+// and starts a run is in, the server of Next.js among it. The folders are test/compare, its command
+// and the package that starts the servers (methodDirs).
 func TestEverySourceOfCompareIsInOrOutOfTheMethod(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
+	var files []string
+	for _, dir := range methodDirs {
+		fs, err := filepath.Glob(filepath.Join(dir, "*.go"))
+		if err != nil || len(fs) == 0 {
+			t.Fatalf("%s: %v %v", dir, fs, err)
+		}
+		files = append(files, fs...)
 	}
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
@@ -389,7 +394,7 @@ func TestEverySourceOfCompareIsInOrOutOfTheMethod(t *testing.T) {
 			t.Errorf("%s is listed and is not there", f)
 		}
 	}
-	for _, f := range []string{"browse.go", "load.go", "replay.go", "restock.go", "setup.go", "serve.go", "spec.go", "store_writes.go", "writepool.go", "store_paths.go", "store_links.json"} {
+	for _, f := range []string{"browse.go", "load.go", "replay.go", "restock.go", "setup.go", "serve.go", "spec.go", "store_writes.go", "writepool.go", "store_paths.go", "store_links.json", "cmd/compare/browse_cmd.go", "../../internal/testproc/testproc.go"} {
 		if !slices.Contains(methodFiles, f) {
 			t.Errorf("the method leaves out %s", f)
 		}
@@ -483,5 +488,20 @@ func TestAServerStartsWithTheEnvironmentItInheritsAndItsOwn(t *testing.T) {
 	want := []string{"HOME=/a", "NODE_ENV=production", "PORT=%PORT%"}
 	if !slices.Equal(got, want) {
 		t.Errorf("environ = %q, want %q", got, want)
+	}
+}
+
+// The number of cpus the load may use decides when a round is the generator's fault, so a rate is
+// bound to it as the run counted it, not only to the list it was counted from.
+func TestTheRateIsBoundToTheCpusOfTheLoad(t *testing.T) {
+	b := &browse{o: BrowseOptions{LoadCPUs: "1,5", LoadCPUCount: 2}, res: &BrowseResult{Version: map[string]string{}}}
+	two := b.rateConditions(mustScenario("shop"))
+	b.o.LoadCPUCount = 3
+	three := b.rateConditions(mustScenario("shop"))
+	if two["loadCpuCount"] != "2" || three["loadCpuCount"] != "3" {
+		t.Errorf("the cpus of the load are %q and %q", two["loadCpuCount"], three["loadCpuCount"])
+	}
+	if !slices.Contains(rateKeys, "loadCpuCount") {
+		t.Error("an entry of the file need not have the cpus of the load")
 	}
 }

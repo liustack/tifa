@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -65,7 +66,7 @@ var LatencyRule = fmt.Sprintf("P99 of full loads, clicks and writes at most %.0f
 const rateUnit = "visits/s"
 
 // rateKeys are the conditions every entry of the file has (see rateConditions).
-var rateKeys = []string{"actionSpacing", "confirm", "cpu", "go", "loadCpus", "method", "nextjs", "nextjsApp", "nextjsServer", "node", "plans", "rule", "scenario", "search", "serverCpus", "sources", "trace"}
+var rateKeys = []string{"actionSpacing", "confirm", "cpu", "go", "loadCpuCount", "loadCpus", "method", "nextjs", "nextjsApp", "nextjsServer", "node", "plans", "rule", "scenario", "search", "serverCpus", "sources", "trace"}
 
 // readRates reads the file, which is empty when it does not exist yet. A file of another format is
 // refused, and so is an entry in another unit than visits/s, with a rate of 0 or less, or without
@@ -177,7 +178,8 @@ func fileHash(path string) string {
 // sources of its app, the Go the load generator is built with, the scenario and
 // the seed of its writes, the plans and the Next.js trace of the site, the sources that trace was
 // recorded from (the lines of the stamp browse.sh writes that bear on it, stampHash; "" when the
-// traces have none), the cpu model and the pinning,
+// traces have none), the cpu model and the pinning, with the number of cpus of the load the run
+// counted (which judges the generator),
 // the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation.
 func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 	scenario, _ := json.Marshal(sc)
@@ -200,6 +202,7 @@ func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 		"cpu":           b.res.Machine.CPU,
 		"serverCpus":    b.o.ServerCPUs,
 		"loadCpus":      b.o.LoadCPUs,
+		"loadCpuCount":  strconv.Itoa(b.o.LoadCPUCount),
 		"node":          b.res.Version["node"],
 		"nextjs":        b.res.Version[openBase],
 		"actionSpacing": ActionSpacing.String(),
@@ -234,13 +237,19 @@ func (b *browse) keepRate(sc BrowseScenario, s *Sustain) error {
 	return writeRate(b.o.RateFile, sc.Name, RateEntry{Rate: s.Rate, Unit: rateUnit, Under: s.Under, Source: src})
 }
 
-// methodFiles are the files of test/compare a rate of Next.js is bound to, whole: what builds and
-// prepares the apps and the data, the plans and the traces, the replay and its writes, the start,
-// pinning and control of the servers (the server of Next.js among them, spec.go), the rule, the
-// search and the confirmation, and every file they call into. A change to any of them is another
-// method, even when the code a search runs is the same: the hash may take in more than runs, never
-// less.
-var methodFiles = []string{"browse.go", "build.go", "build_store_next.go", "compare.go", "domain.go", "load.go", "measure.go", "mix.go", "plan.go", "rates.go", "record.go", "recorder.go", "render.go", "replay.go", "restock.go", "scenario.go", "serve.go", "setup.go", "series.go", "spec.go", "stats.go", "store.go", "store_links.json", "store_paths.go", "store_plan.go", "store_writes.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
+// methodDirs are the folders of the code a run is made of, from test/compare: the package, its
+// command (which reads the settings and counts the cpus) and the package that starts the servers.
+// Every source file in them is in methodFiles or rateExcluded.
+var methodDirs = []string{".", "cmd/compare", "../../internal/testproc"}
+
+// methodFiles are the files of methodDirs a rate of Next.js is bound to, whole, by their path from
+// test/compare: what builds and prepares the apps and the data, the plans and the traces, the replay
+// and its writes, the start, pinning and control of the servers (the server of Next.js among them,
+// spec.go, and how a process starts, internal/testproc), the command that sets a run up, the rule,
+// the search and the confirmation, and every file they call into. A change to any of them is
+// another method, even when the code a search runs is the same: the hash may take in more than
+// runs, never less.
+var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "../../internal/testproc/bind_darwin.go", "../../internal/testproc/bind_linux.go", "../../internal/testproc/bind_other.go", "../../internal/testproc/files_other.go", "../../internal/testproc/files_unix.go", "../../internal/testproc/testproc.go", "browse.go", "build.go", "build_store_next.go", "compare.go", "domain.go", "load.go", "measure.go", "mix.go", "plan.go", "rates.go", "record.go", "recorder.go", "render.go", "replay.go", "restock.go", "scenario.go", "serve.go", "setup.go", "series.go", "spec.go", "stats.go", "store.go", "store_links.json", "store_paths.go", "store_plan.go", "store_writes.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
 
 // rateExcluded are the files of test/compare the rate of Next.js is not bound to: the report, which
 // only writes what a run decided, the table of the servers of every framework (specs.go) and the
