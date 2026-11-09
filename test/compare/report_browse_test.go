@@ -707,8 +707,11 @@ func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
 		if !strings.Contains(table, "| Tifa, memo off (reference) |") {
 			t.Errorf("the %s table has no reference row of Tifa with its memo off:\n%s", name, table)
 		}
-		if !strings.Contains(table, "Tifa, memo off (reference) is Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders") ||
-			!strings.Contains(table, "still share a render in progress") || !strings.Contains(table, "answer 304") || !strings.Contains(table, "not one of the frameworks compared") {
+		if strings.Contains(table, "every request") || strings.Contains(table, "every page") {
+			t.Errorf("the %s table says the memo-off Tifa renders every page:\n%s", name, table)
+		}
+		if !strings.Contains(table, "Tifa, memo off (reference) is Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders") || !strings.Contains(table, "navigation data") ||
+			!strings.Contains(table, "share a render in progress") || !strings.Contains(table, "answer 304") || !strings.Contains(table, "not one of the frameworks compared") {
 			t.Errorf("the %s table does not say what the reference is:\n%s", name, table)
 		}
 	}
@@ -814,6 +817,7 @@ func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 		"in the order their answers completed",
 		"(counted as shared",
 		"canceled",
+		"received whole with `X-Tifa-Render`",
 	} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
@@ -821,6 +825,9 @@ func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 		if strings.Contains(body, want) {
 			t.Errorf("the body has %q", want)
 		}
+	}
+	if strings.Contains(appendix, "every page renders") {
+		t.Error("the appendix says that with the memo off every page renders")
 	}
 	if strings.Contains(appendix, "| Next.js | product |") {
 		t.Error("the split has a row for Next.js, which says nothing of its renders")
