@@ -20,10 +20,25 @@ func fmtCell(values []float64, format string) string {
 // browseLabels name the specs in the tables.
 var browseLabels = map[string]string{
 	"tifa":         "Tifa",
-	"tifa-nocache": "Tifa (cache off)",
+	"tifa-nocache": "Tifa, memo off (reference)",
 	"nextjs":       "Next.js",
 	"start":        "TanStack Start",
 	"reactrouter":  "React Router",
+}
+
+// browseReferences are the specs of the browse comparison that are references, not frameworks
+// compared, with what each stands for, as the tables say it under their rows.
+var browseReferences = map[string]string{
+	"tifa-nocache": "Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders. It may still answer navigation data with no render, share a render in progress between requests of a page at the same time, and answer 304. It is what Tifa costs when no finished render is kept, not one of the frameworks compared, and no result is read against it",
+}
+
+// referencesMarkdown says, under a table of the body, what each reference among its rows stands for.
+func (r *BrowseResult) referencesMarkdown(b *strings.Builder, sc BrowseScenario) {
+	for _, f := range r.Servers[sc.Name] {
+		if what, ok := browseReferences[f]; ok {
+			fmt.Fprintf(b, "\n%s is %s.\n", BrowseLabel(f), what)
+		}
+	}
 }
 
 // BrowseLabel is how a spec is named in the tables.
@@ -100,6 +115,9 @@ func (r *BrowseResult) Markdown() string {
 		}
 	}
 	fmt.Fprintf(&b, ". %s, %s. Placement: %s.\n", r.Machine.CPU, r.Machine.Kernel, r.Place.Note)
+	if off := r.notFormal(); len(off) > 0 {
+		fmt.Fprintf(&b, "\n**Not a formal run.** It differs from a formal run (FormalBrowse, pinned, by browse.sh, every server) in: %s. Its numbers are not results of the comparison.\n", strings.Join(off, ", "))
+	}
 	rounds := r.rounds()
 	for _, sc := range r.Scenarios {
 		r.resultsMarkdown(&b, sc, rounds)
@@ -214,6 +232,12 @@ func peopleCell(views float64) string {
 // results alone (throughputMethodMarkdown in the appendix says how the steps ran).
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up, %d rounds a step. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured.\n\n", r.baseSessions(), rounds)
+	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round {
+		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+			return r.cellRounds(f, sc.Name, t.Sessions)
+		}
+		return nil
+	})
 	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	marked := false
 	for _, f := range r.Servers[sc.Name] {
@@ -238,6 +262,7 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 	if marked {
 		b.WriteString("\n" + cappedMark + " The visits of a round of this cell reached the cap of the prepared visits: every server of the scenario gets the data of the same visits before the clock, and a round plays no more. The appendix gives how long each such round took.\n")
 	}
+	r.referencesMarkdown(b, sc)
 }
 
 // cappedMarkdown lists, in the appendix, every closed try of a scenario whose visits reached the
@@ -400,7 +425,7 @@ func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rou
 // by rounds: the first of them, and the length of all.
 func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
 	fw := r.Servers[sc.Name]
-	b.WriteString("\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan 2.6 page views within 1% and 20% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	fmt.Fprintf(b, "\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan %g page views within 1%% and 20%% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", ShopperViewsMean)
 	for _, f := range fw {
 		rs := rounds(f)
 		if len(rs) == 0 {
@@ -458,7 +483,9 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		return false
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n| | full loads | clicks | writes | rounds |\n| --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
+	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
+	b.WriteString("| | full loads | clicks | writes | rounds |\n| --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
@@ -485,6 +512,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), note)
 	}
+	r.referencesMarkdown(b, sc)
 	return true
 }
 
@@ -684,6 +712,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 		}
 		fmt.Fprintf(b, " %s |\n", privateCell(rs))
 	}
+	r.renderWhyMarkdown(b, rows, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 }
 
 // privateCell is how many answers of the private pages, the cart and the checkout, the render memo
@@ -809,12 +838,119 @@ func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
 	for _, f := range MixFacts() {
 		fmt.Fprintf(b, "| %s | %s | %s |\n", f.What, f.Value, f.Source)
 	}
-	for _, sc := range r.Scenarios {
-		fmt.Fprintf(b, "| scenario %s | staff %.0f%% of the visits, %.0f%% of their visits edit a product, %.0f%% ship an order | the staff numbers above", sc.Name, 100*sc.Staff, 100*sc.Edit, 100*sc.Ship)
-		if sc.Staff != StaffShare || sc.Edit != StaffEditShare {
-			b.WriteString(", with the staff share and the edit share doubled to see how much the result moves with them")
-		}
-		b.WriteString(" |\n")
-	}
 	b.WriteString("\n")
+}
+
+// compressionMarkdown names, above a table of the body, each server that compressed no answer in the
+// rounds of the table, with the body it sent a page view against the frameworks compared that
+// compressed (a reference is not one of them): every server answers as its framework ships, so what
+// goes over the wire differs with it. A server whose rounds did not count their encodings (a result
+// of an older run) is left out.
+func compressionMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
+	type sent struct {
+		label string
+		kb    float64
+	}
+	var plain, packed []sent
+	used := map[string]bool{}
+	for _, f := range servers {
+		rs := rounds(f)
+		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.Encodings == nil }) {
+			continue
+		}
+		s := sent{BrowseLabel(f), Median(each(rs, func(x *Round) float64 { return float64(x.Bytes) / 1024 / float64(max(1, x.PageViews)) }))}
+		compressed := false
+		for _, x := range rs {
+			for e, n := range x.Encodings {
+				if e != "identity" && n > 0 {
+					compressed, used[e] = true, true
+				}
+			}
+		}
+		if compressed {
+			if _, ref := browseReferences[f]; !ref {
+				packed = append(packed, s)
+			}
+		} else {
+			plain = append(plain, s)
+		}
+	}
+	for _, p := range plain {
+		fmt.Fprintf(b, "**%s compresses no answer: %.1f KB of body a page view", p.label, p.kb)
+		if len(packed) > 0 {
+			lo, hi := packed[0].kb, packed[0].kb
+			for _, s := range packed {
+				lo, hi = min(lo, s.kb), max(hi, s.kb)
+			}
+			fmt.Fprintf(b, ", against %.1f to %.1f KB for the others, which send %s", lo, hi, strings.Join(slices.Sorted(maps.Keys(used)), " and "))
+		}
+		b.WriteString(".** Every server answers as its framework ships.\n\n")
+	}
+}
+
+// renderWhyMarkdown splits, for each Tifa server, its answers by kind of page into those the render
+// memo gave and those it rendered in a VM, and these by why, as far as the client can tell (renderWhy),
+// over the rounds. A server whose rounds did not split them (a result of an older run) is left out.
+func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
+	var rows []string
+	for _, f := range servers {
+		rs := rounds(f)
+		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.VMWhy == nil }) {
+			continue
+		}
+		for _, k := range pageKinds(rs) {
+			hits, all := cacheHits(rs, k)
+			why := map[string]int{}
+			for _, x := range rs {
+				for w, n := range x.VMWhy[k] {
+					why[w] += n
+				}
+			}
+			cell := func(w string, private bool) string {
+				if private != privateKind(k) {
+					return "-"
+				}
+				return strconv.Itoa(why[w])
+			}
+			shared := 0
+			for _, x := range rs {
+				shared += x.PageRenders[k][RenderShared]
+			}
+			rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d | %d | %s | %s | %s | %s |\n", BrowseLabel(f), k, all, hits, shared,
+				cell(RenderFirst, false), cell(RenderAgain, false), cell(RenderPrivate, true), cell(RenderPrivateCart, true)))
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, the answers that shared a render in progress of the same page, and the renders in a VM, split by why as far as the client can tell from the URL, the cookies it sent and `X-Tifa-Render`, so that the three add up to the answers. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Another page is the first request of its URL that Tifa answered in the round, or a URL it had answered before: the client classes them by URL, and Tifa does not say which it was. The client does not see the data of the Loads, so a URL answered before holds a page whose data changed since (a write, or data that changes by itself, such as the dates of a day) and one the memo dropped when it was full alike. The split made on the client has three limits. Requests of a page at the same time share a render in progress (counted as shared, and the one that rendered as first or answered before). The first and the URL answered before go in the order their answers completed, not the order Tifa started them. A request the client canceled (its round ended) is not counted though Tifa may have rendered it, so a later request of its URL can be counted as the first. The answers counted are those received whole with `X-Tifa-Render` saying vm, memo or shared. With the memo off nothing comes from the memo, and the split says how much the workload repeats its URLs.\n\n| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
+}
+
+// notFormal is how a run differs from a formal one (FormalBrowse): its settings, the pinning of the
+// server and the load, whether browse.sh ran it, and its servers. It is empty for a formal run.
+func (r *BrowseResult) notFormal() []string {
+	var off []string
+	formal := browseConfig(FormalBrowse, "", "", "")
+	for _, k := range []string{"sessions", "rounds", "warm", "target", "trialWindow", "finalWindow", "maxRate", "seed"} {
+		if v, ok := r.Config[k]; !ok {
+			off = append(off, fmt.Sprintf("%s not recorded (formal %s)", k, formal[k]))
+		} else if v != formal[k] {
+			off = append(off, fmt.Sprintf("%s %s (formal %s)", k, v, formal[k]))
+		}
+	}
+	if r.Config["serverCpus"] == "" || r.Config["loadCpus"] == "" {
+		off = append(off, "the server and the load not pinned to cpus of their own")
+	}
+	if r.Stamp == "" {
+		off = append(off, "not run by browse.sh, so its traces were not checked against the checkout")
+	}
+	for _, sc := range r.Scenarios {
+		if !slices.Equal(r.Servers[sc.Name], BrowseFrameworks) {
+			off = append(off, fmt.Sprintf("servers %s (formal %s)", strings.Join(r.Servers[sc.Name], ", "), strings.Join(BrowseFrameworks, ", ")))
+		}
+	}
+	return off
 }

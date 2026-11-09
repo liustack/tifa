@@ -26,14 +26,19 @@ const (
 )
 
 const (
-	// ShopperViewsMean is the page views of a shopper visit on average: the median of 438 Shopify
+	// ShopperViewsMean is the page views of a shopper visit on average, exactly in every block: one
+	// full load and three clicks, so that the full loads are a quarter of the page views. A rule of the
+	// comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025 Digital
+	// Experience Benchmarks: 389 billion page views in 90 billion sessions,
+	// https://contentsquare.com/press/2025-digital-experience-benchmarks/), with a click of a
+	// single-page app a page view as a full load is, as Chrome now measures each one that changes the
+	// URL as a navigation of its own (https://web.dev/blog/crux-experimental-soft-navs).
+	ShopperViewsMean = 4.0
+	// ShopperViewsMax is the most page views of a shopper visit: the lengths are geometric of mean
+	// ShopperViewsMean (ShopperViewsMore), cut at 12.
+	ShopperViewsMax = 12
+	// AddToCartShare is the share of shopper visits that add to the cart: the median of 438 Shopify
 	// stores, 2026-08-03 to 2026-10-31 (Littledata benchmarks, https://www.littledata.io/benchmarks).
-	ShopperViewsMean = 2.6
-	// ShopperViewsMax is the most page views of a shopper visit, an assumption: the top 10% of the
-	// stores of the same source have 5.0 pages a session.
-	ShopperViewsMax = 5
-	// AddToCartShare is the share of shopper visits that add to the cart: the median of the same
-	// source.
 	AddToCartShare = 0.066
 	// CheckoutShare is the share of shopper visits that place an order: the median conversion rate of
 	// the same source. A visit that checks out has added to the cart first, so these are among the
@@ -80,9 +85,9 @@ var (
 // ShopperViewsMore and StaffViewsMore are how likely a shopper and a staff visit go on to one more
 // page view, in the first draw of the lengths of the visits of a block, before the lengths are moved
 // one view at a time to the mean exactly (visitLengths). They shape how the lengths spread around the
-// mean. Assumptions.
+// mean: 0.75 is a geometric length of mean 4. Assumptions.
 const (
-	ShopperViewsMore = 0.665
+	ShopperViewsMore = 0.75
 	StaffViewsMore   = 0.75
 )
 
@@ -452,9 +457,10 @@ func MixFacts() []MixFact {
 		staffLanding = append(staffLanding, fmt.Sprintf("%s %s", l.Kind, pct(l.Share)))
 	}
 	return []MixFact{
-		{"ShopperViewsMean", "page views of a shopper visit", fmt.Sprintf("%.1f on average", ShopperViewsMean), littledata},
-		{"ShopperViewsMax", "most page views of a shopper visit", strconv.Itoa(ShopperViewsMax), "assumption (the top 10% of the same stores have 5.0)"},
-		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "assumption"},
+		{"ShopperViewsMean", "page views of a shopper visit", fmt.Sprintf("%g on average, exactly in every block: 1 full load and %g clicks", ShopperViewsMean, ShopperViewsMean-1),
+			"a rule of the comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), a click of a single-page app counted as a page view as Chrome measures it (web.dev, https://web.dev/blog/crux-experimental-soft-navs)"},
+		{"ShopperViewsMax", "most page views of a shopper visit", strconv.Itoa(ShopperViewsMax), "rule: geometric lengths of mean 4, cut at 12"},
+		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "rule: a geometric length of mean 4"},
 		{"AddToCartShare", "shopper visits that add to the cart", pct(AddToCartShare), littledata},
 		{"CheckoutShare", "shopper visits that check out (among those that add)", pct(CheckoutShare), littledata + ", conversion rate"},
 		{"ReturningShare", "shopper visits by a returning visitor, who comes back to a cart of their own", pct(ReturningShare), "assumption, within the published 17% (Top Growth Marketing) to 53% (Contentsquare 2025)"},

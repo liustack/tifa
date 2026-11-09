@@ -38,7 +38,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
 		"#### The arrival rate Next.js sustains",
-		"| Next.js | 16.00 | 42 |",
+		"| Next.js | 16.00 | 64 |",
 		"#### Latency at the same arrival rate, half of Next.js's confirmed rate",
 		"not half of its own capacity",
 		"The writes are requests inserted into the recorded visits",
@@ -95,17 +95,17 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := t.TempDir()
-	run := func(scenarios string, args ...string) string {
+	run := func(args ...string) string {
 		cmd := exec.Command("bash", append([]string{filepath.Join(env.Root, "test", "compare", "browse.sh")}, args...)...)
 		cmd.Dir = env.Root
-		cmd.Env = append(os.Environ(), "BROWSE_OUT="+out, "SCENARIOS="+scenarios)
+		cmd.Env = append(os.Environ(), "BROWSE_OUT="+out)
 		data, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("browse.sh %s: %v\n%s", args, err, data)
 		}
 		return string(data)
 	}
-	trace := run("shop", "stamp")
+	trace := run("stamp")
 	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site shop\n", "plans none\n"} {
 		if !strings.Contains(trace, want) {
 			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
@@ -114,21 +114,20 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 	// The stamp is bound to the plans of the site.
 	os.MkdirAll(filepath.Join(out, "traces"), 0o755)
 	os.WriteFile(filepath.Join(out, "traces", "plans.json"), []byte("{}"), 0o644)
-	if strings.Contains(run("shop", "stamp"), "plans none") {
+	if strings.Contains(run("stamp"), "plans none") {
 		t.Error("the stamp is not bound to the plans")
 	}
-	results := run("shop-staff-x2", "runstamp")
-	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "scenarios=shop-staff-x2 ", "go ", "node "} {
+	results := run("runstamp")
+	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "go ", "node "} {
 		if !strings.Contains(results, want) {
 			t.Errorf("the result stamp lacks %q:\n%s", want, results)
 		}
 	}
-	// The script names the scenarios of the groups as replay.go does.
-	for group := range ScenarioGroups {
-		scs, _ := ParseScenarios(group)
-		if got, want := strings.TrimSpace(run(group, "scenarios")), strings.Join(scenarioNamesOf(scs), ","); got != want {
-			t.Errorf("browse.sh expands %s to %s, replay.go to %s", group, got, want)
-		}
+	// There is one scenario: a command line that still picks one is refused, not run on the shop.
+	cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), "stamp")
+	cmd.Dir, cmd.Env = env.Root, append(os.Environ(), "BROWSE_OUT="+out, "SCENARIOS=shop-staff-x2")
+	if data, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(data), "SCENARIOS is gone") {
+		t.Errorf("SCENARIOS is taken: %v\n%s", err, data)
 	}
 }
 
@@ -136,7 +135,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 // throughput, the search and the latency for one with latency, each with its own rate. The writes of
 // a round are given for the rounds a scenario has.
 func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
-	scs, _ := ParseScenarios("default")
+	scs := BrowseScenarios
 	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
 	for i, sc := range scs {
@@ -196,7 +195,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			t.Errorf("%s lacks the table of writes:\n%s", sc.Name, sec)
 		}
 	}
-	for _, want := range []string{"The comparison plays the shop as one site", "\n### The mix\n", "| scenario shop-staff-x2 | staff 4% of the visits, 40% of their visits edit a product, 30% ship an order |"} {
+	for _, want := range []string{"The comparison plays the shop as one site", "\n### The mix\n", "| visits made by the staff in the back office | 2% | assumption |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q", want)
 		}
@@ -326,19 +325,11 @@ func mustScenario(name string) BrowseScenario {
 	return sc
 }
 
-func scenarioNamesOf(list []BrowseScenario) []string {
-	var out []string
-	for _, sc := range list {
-		out = append(out, sc.Name)
-	}
-	return out
-}
-
 // A kind of page that the render memo never or seldom answers in the read-only control, where
 // nothing changes, is a red flag: something in its data changes on every request (a clock, a
 // random value). It is flagged above the control table, and a kind with few answers is not.
 func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
-	sc := mustScenario("shop-staff-x2")
+	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes = "control", 0
@@ -371,9 +362,9 @@ func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 // rounds grow their orders and memory (not a claim of heavier reads), and a page the control
 // seldom hits is flagged to look into, with no cause named.
 func TestTheReportClaimsOnlyWhatItMeasures(t *testing.T) {
-	sc := mustScenario("shop-staff-x2")
+	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
-		Sustain: map[string]*Sustain{"shop-staff-x2/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop-staff-x2": 8}, LatencyBase: map[string]string{"shop-staff-x2": "nextjs"}}
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes, c.PageRenders = "control", 0, map[string]map[string]int{"order": {"vm": 300}}
 	l := closedRound("tifa", sc.Name, 0, 1, 1000, 100, true)
@@ -431,7 +422,7 @@ func TestBrowseReportShowsTheSeriesOfEachServer(t *testing.T) {
 // latency table, then the mix with the source of every number. Every diagnostic is in the appendix
 // after it, and each result table links to the diagnostics behind it.
 func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) {
-	scs, _ := ParseScenarios("default")
+	scs := BrowseScenarios
 	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}, Throughput: map[string]*Throughput{}}
 	for _, sc := range scs {
@@ -692,5 +683,180 @@ func TestTheReportListsEveryCappedTry(t *testing.T) {
 	}
 	if inWindow != 1 || short != 4 || invalid != 1 {
 		t.Errorf("capped tries: %d in the window, %d short, %d of them not valid, want 1, 4 and 1:\n%s", inWindow, short, invalid, strings.Join(tries, "\n"))
+	}
+}
+
+// Tifa with its render memo off is a reference in both tables of the body, named as one and kept out
+// of the comparison: what Tifa costs when nothing repeats.
+func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
+	sc := mustScenario("shop")
+	servers := []string{"tifa", "nextjs", "tifa-nocache"}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+	for _, f := range servers {
+		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
+		r.Closed = append(r.Closed, x)
+		l := x
+		l.Model, l.Rate, l.Sessions = "open", 8, 0
+		r.Latency = append(r.Latency, l)
+	}
+	body, _, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	tput, lat, _ := strings.Cut(body, "#### Latency at the same arrival rate")
+	for name, table := range map[string]string{"throughput": tput, "latency": lat} {
+		if !strings.Contains(table, "| Tifa, memo off (reference) |") {
+			t.Errorf("the %s table has no reference row of Tifa with its memo off:\n%s", name, table)
+		}
+		if strings.Contains(table, "every request") || strings.Contains(table, "every page") {
+			t.Errorf("the %s table says the memo-off Tifa renders every page:\n%s", name, table)
+		}
+		if !strings.Contains(table, "Tifa, memo off (reference) is Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders") || !strings.Contains(table, "navigation data") ||
+			!strings.Contains(table, "share a render in progress") || !strings.Contains(table, "answer 304") || !strings.Contains(table, "not one of the frameworks compared") {
+			t.Errorf("the %s table does not say what the reference is:\n%s", name, table)
+		}
+	}
+	// The reference comes after the frameworks compared.
+	if i, j := strings.Index(tput, "| Tifa, memo off (reference) |"), strings.Index(tput, "| Next.js |"); i < j {
+		t.Errorf("the reference is listed before Next.js:\n%s", tput)
+	}
+}
+
+// The browse comparison runs Tifa as it ships, the three Node frameworks, and Tifa with its render memo
+// off as a reference, which replays the trace recorded against Tifa: recording records each trace
+// once, from the spec of the framework, and browse.sh names the same trace files.
+func TestTheBrowseServersAndTheirTraces(t *testing.T) {
+	if got := strings.Join(BrowseFrameworks, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache" {
+		t.Errorf("the browse servers are %s", got)
+	}
+	env := Env{Shop: "/shop"}
+	for _, s := range env.Specs() {
+		if fw, _, _ := strings.Cut(s.Name, "-"); fw != s.Framework || traceName(s) != fw {
+			t.Errorf("spec %s of framework %s has the trace %s: browse.sh names the trace of a spec by its id before the first dash", s.Name, s.Framework, traceName(s))
+		}
+	}
+	got, err := env.recorded([]string{"tifa-nocache", "nextjs", "tifa", "start"})
+	if err != nil || strings.Join(got, ",") != "tifa,nextjs,start" {
+		t.Errorf("records %v (%v), want tifa,nextjs,start", got, err)
+	}
+	if _, err := env.recorded([]string{"nope"}); err == nil {
+		t.Error("an unknown spec is recorded")
+	}
+	data, err := os.ReadFile(filepath.Join("browse.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "servers=${SERVERS:-"+strings.Join(BrowseFrameworks, ",")+"}") {
+		t.Error("browse.sh does not run the servers of BrowseFrameworks by default")
+	}
+}
+
+// A server that compressed no answer is named above both tables of the body, with its body bytes a
+// page view against those of the servers that compressed, as the rounds measured them: the numbers
+// come from the result.
+func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
+	sc := mustScenario("shop")
+	// The reference sends the least, and is not one of the frameworks the range is of.
+	servers := []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache"}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+	kb := map[string]int64{"tifa": 14, "nextjs": 16, "start": 208, "reactrouter": 87, "tifa-nocache": 2}
+	for _, f := range servers {
+		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
+		x.Bytes = kb[f] * 1024 * int64(x.PageViews)
+		x.Encodings = map[string]int{"gzip": 900, "identity": 100}
+		if f == "start" {
+			x.Encodings = map[string]int{"identity": 1000}
+		}
+		r.Closed = append(r.Closed, x)
+		l := x
+		l.Model, l.Rate, l.Sessions = "open", 8, 0
+		l.Bytes = l.Bytes / 2
+		r.Latency = append(r.Latency, l)
+	}
+	body, _, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	tput, lat, _ := strings.Cut(body, "#### Latency at the same arrival rate")
+	for name, tc := range map[string]struct{ table, want string }{
+		"throughput": {tput, "**TanStack Start compresses no answer: 208.0 KB of body a page view, against 14.0 to 87.0 KB for the others, which send gzip.**"},
+		"latency":    {lat, "**TanStack Start compresses no answer: 104.0 KB of body a page view, against 7.0 to 43.5 KB for the others, which send gzip.**"},
+	} {
+		if i, j := strings.Index(tc.table, tc.want), strings.Index(tc.table, "| --- |"); i < 0 || i > j {
+			t.Errorf("the %s table does not say above its rows %q:\n%s", name, tc.want, tc.table)
+		}
+	}
+	// A result without the encodings (an older one) says nothing about them.
+	for i := range r.Closed {
+		r.Closed[i].Encodings = nil
+	}
+	for i := range r.Latency {
+		r.Latency[i].Encodings = nil
+	}
+	if md := r.Markdown(); strings.Contains(md, "compresses no answer") {
+		t.Errorf("a result without encodings names a server that compresses nothing")
+	}
+}
+
+// The appendix splits, for each Tifa server, what it rendered in a VM by kind of page and why, next to
+// the hits, with what the client cannot tell. The body has none of it.
+func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	for round := 1; round <= 2; round++ {
+		x := closedRound("tifa", sc.Name, 8, round, 4000, 10, true)
+		x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 60, "shared": 10}, StoreKindCart: {"vm": 10}}
+		x.VMWhy = map[string]map[string]int{"product": {RenderFirst: 20, RenderAgain: 10}, StoreKindCart: {RenderPrivate: 4, RenderPrivateCart: 6}}
+		r.Closed = append(r.Closed, x, closedRound("nextjs", sc.Name, 8, round, 400, 10, true))
+	}
+	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	for _, want := range []string{
+		"| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |",
+		"| Tifa | cart | 20 | 0 | 0 | - | - | 8 | 12 |",
+		"| Tifa | product | 200 | 120 | 20 | 40 | 20 | - | - |",
+		"does not see the data of the Loads",
+		"the client classes them by URL",
+		"in the order their answers completed",
+		"(counted as shared",
+		"canceled",
+		"received whole with `X-Tifa-Render`",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+		if strings.Contains(body, want) {
+			t.Errorf("the body has %q", want)
+		}
+	}
+	if strings.Contains(appendix, "every page renders") {
+		t.Error("the appendix says that with the memo off every page renders")
+	}
+	if strings.Contains(appendix, "| Next.js | product |") {
+		t.Error("the split has a row for Next.js, which says nothing of its renders")
+	}
+}
+
+// A run with the formal settings (FormalBrowse, the cpus of the server and the load pinned, run by
+// browse.sh, every server) says nothing about them. Any other run says at the top of the report that
+// it is not a formal run, and how it differs.
+func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
+	sc := mustScenario("shop")
+	formal := func() *BrowseResult {
+		o := FormalBrowse
+		o.ServerCPUs, o.LoadCPUs = "0", "1,5"
+		return &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
+			Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}}
+	}
+	if md := formal().Markdown(); strings.Contains(md, "Not a formal run") {
+		t.Errorf("a formal run says it is not one:\n%s", md)
+	}
+	r := formal()
+	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"] = "1", "30s", ""
+	r.Stamp = ""
+	r.Servers[sc.Name] = []string{"tifa", "nextjs"}
+	md := r.Markdown()
+	top, _, _ := strings.Cut(md, "### ")
+	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("the top of the report lacks %q:\n%s", want, top)
+		}
 	}
 }

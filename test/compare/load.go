@@ -110,8 +110,14 @@ type Round struct {
 	// documents and the navigation data alike, and PageRenders splits them by kind of page.
 	Renders     map[string]int            `json:"renders,omitempty"`
 	PageRenders map[string]map[string]int `json:"pageRenders,omitempty"`
-	Responses   map[string]int            `json:"responses,omitempty"`
-	Types       map[string]TypeStat       `json:"types"`
+	// Encodings counts the answers of the page views (documents, navigation data and prefetches) by
+	// their Content-Encoding, identity for none.
+	Encodings map[string]int `json:"encodings,omitempty"`
+	// VMWhy splits the answers Tifa rendered in a VM by kind of page and why (RenderFirst, RenderAgain,
+	// RenderPrivate, RenderPrivateCart).
+	VMWhy     map[string]map[string]int `json:"vmWhy,omitempty"`
+	Responses map[string]int            `json:"responses,omitempty"`
+	Types     map[string]TypeStat       `json:"types"`
 	// Series is page views a second and their P99 in steps of SeriesLength from the first request: how the
 	// round went as the cache filled or the JIT warmed.
 	Series []SeriesStep `json:"series,omitempty"`
@@ -158,6 +164,8 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Failures, r.FirstErr = a.failures, a.firstErr
 	r.Requests, r.Cancelled, r.Bytes, r.N304 = a.requests, a.cancelled, a.bytes, a.n304
 	r.Renders, r.Responses, r.PageRenders = a.renders, a.responses, a.pageRenders
+	r.Encodings = a.encodings
+	r.VMWhy = a.vmWhy
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
 	r.WriteKinds = a.kinds
 	r.Refused = a.refused

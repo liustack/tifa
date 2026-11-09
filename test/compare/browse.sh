@@ -8,14 +8,13 @@
 #   test/compare/browse.sh run       replay the traces at load and write the JSON and the report
 #   test/compare/browse.sh report    write the report again from the JSON
 #   test/compare/browse.sh stamp     print what the traces are bound to (runstamp: the results)
-#   test/compare/browse.sh scenarios print the scenarios SCENARIOS stands for
 #
 # Recording and running can be done on two machines: `record` where Chromium works, copy the folder
 # $BROWSE_TRACES to the machine that runs the load, and `run` there from the same commit. `run`
 # refuses traces that belong to other sources, plans or recorder than this checkout, and traces that
 # do not hold every plan for every framework. The shop is one site, shoppers and staff, with one set
 # of plans (plans.json), one trace a framework (<server>.jsonl) and one stamp (STAMP in
-# $BROWSE_TRACES), which every scenario replays. A result is bound to the traces, the builds,
+# $BROWSE_TRACES), which the one scenario, shop, replays. A result is bound to the traces, the builds,
 # the toolchain and the settings: `run` continues a result that stopped (it is written after every
 # round) only if all of that is the same, and otherwise asks you to remove it.
 #
@@ -25,11 +24,11 @@
 #   SERVER_CPUS       cpus of the server, as taskset -c takes them (Linux)          none: not pinned
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
 #   LOCKS             files to flock while running, space separated, first taken first   none
-#   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
-#   SCENARIOS         scenarios and groups: default (shop, shop-staff-x2)           default
+#   SERVERS           spec ids (tifa-nocache: Tifa with its render memo off,         tifa,nextjs,start,reactrouter,tifa-nocache
+#                     a reference that replays the trace of tifa)
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
 #                     (Tifa with no writes), sustain (the rate of Next.js),
-#                     latency (each for the scenarios that have that table)
+#                     latency (every server at half of that rate)
 #   PROBE=1           search the rate of Next.js again and write it into
 #                     test/compare/rates.json (else the file is used, and a run whose
 #                     conditions differ from the file is refused)
@@ -45,24 +44,15 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
-servers=${SERVERS:-tifa,nextjs,start,reactrouter}
-# expand_groups replaces the groups of scenarios in a list by their scenarios (ScenarioGroups in
-# replay.go, which a test keeps the same).
-expand_groups() {
-  local s list=""
-  for s in $(echo "$1" | tr "," " "); do
-    case "$s" in
-      default) s=shop,shop-staff-x2 ;;
-    esac
-    list="${list:+$list,}$s"
-  done
-  echo "$list"
-}
-scenarios=$(expand_groups "${SCENARIOS:-default}")
+servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache}
+# trace_names are the trace files the servers replay, each once: a spec replays the trace of its
+# framework, its id before the first dash (traceName in recorder.go), so tifa-nocache replays tifa.jsonl.
+trace_names() { echo "$servers" | tr "," "\n" | sed "s/-.*//" | awk "!seen[\$0]++"; }
 # The names before sessions are refused, so that an old command line does not run another method.
 for old in USERS EXTRA_USERS; do
   if [ -n "${!old+set}" ]; then echo "$old is gone: the throughput counts concurrent sessions, set SESSIONS (8 by default)" >&2; exit 2; fi
 done
+if [ -n "${SCENARIOS+set}" ]; then echo "SCENARIOS is gone: the comparison has one scenario, the shop" >&2; exit 2; fi
 blocks=${BLOCKS:-1}
 mkdir -p "$out" "$traces"
 compare=$out/compare
@@ -108,7 +98,7 @@ run_stamp() {
   local f
   echo "traces $(trace_stamp | sha)"
   # What is replayed: the contents of the trace files, and the replayer, the report and this script.
-  echo "trace-files $(for f in $(echo "$servers" | tr ',' ' '); do cat "$traces/$f.jsonl" 2>/dev/null || true; done | sha)"
+  echo "trace-files $(for f in $(trace_names); do cat "$traces/$f.jsonl" 2>/dev/null || true; done | sha)"
   echo "replayer $(git ls-tree HEAD test/compare/ | awk '$4 ~ /\.go$|browse\.sh$/' | sha)"
   echo "replayer-cmd $(git rev-parse HEAD:test/compare/cmd)"
   if [ -n "$(git status --porcelain --untracked-files=no -- test/compare/*.go test/compare/cmd test/compare/browse.sh)" ]; then echo "replayer-dirty"; fi
@@ -122,7 +112,7 @@ run_stamp() {
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
-  echo "settings servers=$servers scenarios=$scenarios phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # traces_current is true when the traces were recorded from these sources, with these plans and
@@ -136,7 +126,7 @@ traces_current() {
   if trace_stamp | grep -q '^dirty'; then echo "the sources have uncommitted changes"; return 1; fi
   n=$(sed -n 's/.*"blocks": *\([0-9]*\).*/\1/p' "$plans_file" | head -1)
   n=$((${n:-0} * 1050))
-  for f in $(echo "$servers" | tr ',' ' '); do
+  for f in $(trace_names); do
     f=$traces/$f.jsonl
     [ -s "$f" ] || { echo "no $(basename "$f")"; return 1; }
     [ "$(wc -l <"$f" | tr -d ' ')" = "$n" ] || { echo "$(basename "$f") does not hold $n visits"; return 1; }
@@ -172,7 +162,7 @@ do_run() {
     echo "record the traces with '$0 record' (on a machine with Chromium), from this commit, and copy the folder here" >&2
     exit 1
   fi
-  local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -scenarios "$scenarios" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
+  local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -out "$out/browse.json" -stamp "$(run_stamp | sha)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
   [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
   [ -n "${SESSIONS:-}" ] && cmd+=(-sessions "$SESSIONS")
@@ -208,6 +198,5 @@ case "${1:-}" in
   report) do_report ;;
   stamp) trace_stamp ;;
   runstamp) run_stamp ;;
-  scenarios) echo "$scenarios" ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 2 ;;
 esac

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -430,7 +431,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 	for _, tc := range []struct {
 		name               string
 		staff, edits, ship int
-	}{{"shop", 20, 4, 6}, {"shop-staff-x2", 42, 17, 13}} {
+	}{{"shop", 20, 4, 6}, {moreStaff.Name, 42, 17, 13}} {
 		w := siteWorkload(t, 5, 2, tc.name)
 		bv := w.blockVisits()
 		if bv != ShopperBlockVisits+tc.staff || w.cycleLen() != 2*bv {
@@ -441,7 +442,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 			var r Round
 			w.plan(&r, b*bv, bv, false)
 			m := r.Mix
-			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 2600, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
+			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 4000, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
 			if m == nil || *m != want {
 				t.Fatalf("%s block %d of the run plans %+v, want %+v", tc.name, b, m, want)
 			}
@@ -878,5 +879,58 @@ func TestARefusedAnswerMakesItsRoundInvalid(t *testing.T) {
 				t.Errorf("refused %d, valid %v (%s): want one refused answer and an invalid round", round.Refused, round.Valid, round.WhyInvalid)
 			}
 		})
+	}
+}
+
+// Every answer of a page view is counted by its Content-Encoding, identity when it has none, so that
+// the report can tell a server that compresses nothing.
+func TestTheAnswersAreCountedByTheirEncoding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/gz-") {
+			w.Header().Set("Content-Encoding", "gzip")
+		}
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/gz-doc", "doc", 0, 10), req("/plain", "nav", 11, 20), req("/gz-data", "prefetch", 21, 30)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.Failures != 0 || !reflect.DeepEqual(round.Encodings, map[string]int{"gzip": 2, "identity": 1}) {
+		t.Errorf("encodings %v, %d failures (%s)", round.Encodings, round.Failures, round.FirstErr)
+	}
+}
+
+// The answers Tifa rendered in a VM are split by why, as far as the client can tell: the first
+// request of its URL in the round, a URL asked before (its data changed since, or the memo dropped
+// it), and the private pages (the cart and the checkout, whose data is the visitor's cart and the
+// products they looked at), with or without a cart cookie, counted apart whatever their URL.
+func TestTheRendersOfTifaAreSplitByWhy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		how := RenderVM
+		if r.URL.Query().Get("hit") != "" {
+			how = RenderHit
+		}
+		w.Header().Set(RenderHeader, how)
+		if r.URL.Path == "/store/products/oak-tray" {
+			http.SetCookie(w, &http.Cookie{Name: StoreCartCookie, Value: "c1", Path: "/"})
+		}
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	plans, traces := onePlan(
+		TraceStep{Kind: StepLoad, Page: "/store", Reqs: []TraceReq{req("/store", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store/cart", Reqs: []TraceReq{req("/store/cart", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store", Reqs: []TraceReq{req("/store?hit=1", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store", Reqs: []TraceReq{req("/store", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store/products/oak-tray", Reqs: []TraceReq{req("/store/products/oak-tray", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store/cart", Reqs: []TraceReq{req("/store/cart", "doc", 0, 10)}},
+	)
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	want := map[string]map[string]int{
+		"home":        {RenderFirst: 1, RenderAgain: 1},
+		StoreKindCart: {RenderPrivate: 1, RenderPrivateCart: 1},
+		"product":     {RenderFirst: 1},
+	}
+	if round.Failures != 0 || !reflect.DeepEqual(round.VMWhy, want) {
+		t.Errorf("renders by why %v, want %v (%d failures: %s)", round.VMWhy, want, round.Failures, round.FirstErr)
 	}
 }

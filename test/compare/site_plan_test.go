@@ -164,3 +164,53 @@ func TestStoreLinksPickProductsByTheirPopularity(t *testing.T) {
 		t.Fatal("no page has two product links")
 	}
 }
+
+// A shopper visit is 4 page views on average, one full load and three clicks, exactly in every block,
+// so that the full loads are a quarter of the page views. Its length is geometric, from 1 to 12, and
+// the mix table of the report names the sources of the 4.
+func TestAShopperVisitIsFourPageViews(t *testing.T) {
+	if ShopperViewsMean != 4 || ShopperViewsMax != 12 {
+		t.Fatalf("a shopper visit is %v page views on average and %d at most", ShopperViewsMean, ShopperViewsMax)
+	}
+	set := GenerateSitePlanSet(1, 3)
+	for blk := range 3 {
+		lengths := map[int]int{}
+		visits, views := 0, 0
+		for _, p := range set.Plans[blk*SiteBlockPlans : (blk+1)*SiteBlockPlans] {
+			if p.Role == RoleShopper {
+				visits++
+				views += len(p.Steps)
+				lengths[len(p.Steps)]++
+			}
+		}
+		if views != 4*visits {
+			t.Errorf("block %d: %d page views in %d shopper visits, not 4 each", blk, views, visits)
+		}
+		// A geometric length of mean 4 ends after the first page a quarter of the time and reaches 9
+		// pages or more in about one visit in ten.
+		long := 0
+		for n := 9; n <= ShopperViewsMax; n++ {
+			long += lengths[n]
+		}
+		if one := float64(lengths[1]) / float64(visits); one < 0.18 || one > 0.32 || long < visits/20 {
+			t.Errorf("block %d: lengths %v are not geometric of mean 4", blk, lengths)
+		}
+	}
+	var facts []string
+	for _, f := range MixFacts() {
+		if strings.HasPrefix(f.Name, "ShopperViews") {
+			facts = append(facts, f.Value+" "+f.Source)
+		}
+	}
+	all := strings.Join(facts, "\n")
+	for _, want := range []string{"1 full load and 3 clicks", "https://web.dev/blog/crux-experimental-soft-navs", "Contentsquare", "4.3"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the page views of a shopper visit in the mix table lack %q:\n%s", want, all)
+		}
+	}
+	for _, gone := range []string{"2.6", "top 10%", "66.5%"} {
+		if strings.Contains(all, gone) {
+			t.Errorf("the page views of a shopper visit in the mix table still say %q:\n%s", gone, all)
+		}
+	}
+}

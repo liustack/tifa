@@ -364,10 +364,9 @@ func TestVerifyStoreFailsOnAWrongStatus(t *testing.T) {
 	}
 }
 
-func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
+func TestEveryScenarioRunsEachServerOnce(t *testing.T) {
 	env := Env{Shop: "/shop"}
-	for _, name := range []string{"shop", "shop-staff-x2"} {
-		sc, _ := BrowseScenarioByName(name)
+	for _, sc := range BrowseScenarios {
 		specs, err := env.browseSpecs(sc, BrowseFrameworks)
 		if err != nil {
 			t.Fatal(err)
@@ -376,53 +375,33 @@ func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
 		for _, s := range specs {
 			names = append(names, s.Name)
 		}
-		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter" {
+		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache" {
 			t.Errorf("%s runs %s", sc.Name, got)
 		}
 	}
 }
 
-// The default group is the shop with the mix of mix.go and the shop with twice the staff share and
-// twice the edits, each with its throughput and its latency. The scenarios of the two sites are gone.
-func TestTheScenarioGroupsAndTheirTables(t *testing.T) {
-	tables := func(list []BrowseScenario) string {
-		var out []string
-		for _, sc := range list {
-			s := sc.Name
-			if sc.Throughput {
-				s += " throughput"
-			}
-			if sc.Latency {
-				s += " latency"
-			}
-			out = append(out, s)
-		}
-		return strings.Join(out, ", ")
+// The browse comparison has one scenario: the shop with the mix of mix.go, shoppers and staff on one
+// server, with its throughput and its latency. The scenario with twice the staff and the scenarios of
+// the two sites are gone.
+func TestThereIsOneScenario(t *testing.T) {
+	if len(BrowseScenarios) != 1 {
+		t.Fatalf("%d scenarios", len(BrowseScenarios))
 	}
-	for _, tc := range []struct{ list, want string }{
-		{"default", "shop throughput latency, shop-staff-x2 throughput latency"},
-		{"shop-staff-x2, shop", "shop-staff-x2 throughput latency, shop throughput latency"},
-		{"shop,default", "shop throughput latency, shop-staff-x2 throughput latency"},
-	} {
-		got, err := ParseScenarios(tc.list)
-		if err != nil || tables(got) != tc.want {
-			t.Errorf("%q: %s (%v), want %s", tc.list, tables(got), err, tc.want)
-		}
+	sc := BrowseScenarios[0]
+	if sc.Name != "shop" || sc.Staff != StaffShare || sc.Edit != StaffEditShare || sc.Ship != StaffShipShare || !sc.Throughput || !sc.Latency || sc.ReadOnly {
+		t.Errorf("the scenario is %+v", sc)
 	}
-	for _, gone := range []string{"store-w5", "admin-w20", "r95w5", "extra", ""} {
-		if _, err := ParseScenarios(gone); err == nil {
+	for _, gone := range []string{"shop-staff-x2", "default", "store-w5", "admin-w20", "r95w5", ""} {
+		if _, ok := BrowseScenarioByName(gone); ok {
 			t.Errorf("%q is a scenario", gone)
 		}
-	}
-	x2 := mustScenario("shop-staff-x2")
-	if x2.Staff != 2*StaffShare || x2.Edit != 2*StaffEditShare || x2.Ship != StaffShipShare {
-		t.Errorf("shop-staff-x2 is %+v", x2)
 	}
 }
 
 // The read-only control runs once, on the first scenario of a run.
 func TestTheControlRunsOnTheFirstScenario(t *testing.T) {
-	list, _ := ParseScenarios("default")
+	list := []BrowseScenario{BrowseScenarios[0], moreStaff}
 	var got []string
 	for _, sc := range list {
 		if controlled(list, sc) {

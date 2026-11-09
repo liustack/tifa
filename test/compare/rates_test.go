@@ -8,13 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 )
 
 func under() map[string]string {
-	return map[string]string{"method": "m1", "nextjsApp": "n1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "serverCpus": "0", "loadCpus": "1,5",
+	return map[string]string{"method": "m1", "nextjsApp": "n1", "nextjsServer": "s1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "go": "go1.27", "serverCpus": "0", "loadCpus": "1,5", "loadCpuCount": "2",
 		"node": "v24.1.0", "nextjs": "16.0.1", "actionSpacing": "1s", "rule": LatencyRule, "search": "trial 45s", "confirm": "3 rounds"}
 }
 
@@ -26,7 +27,7 @@ func TestTheRateFileIsUsedOnlyUnderTheSameConditions(t *testing.T) {
 	if e, err := fileRate(file, "shop", under(), false); err != nil || e == nil || e.Rate != 21.5 {
 		t.Fatalf("the same conditions: %+v %v", e, err)
 	}
-	if e, err := fileRate(file, "shop-staff-x2", under(), false); err != nil || e != nil {
+	if e, err := fileRate(file, "other", under(), false); err != nil || e != nil {
 		t.Errorf("no entry: %+v %v, want a search", e, err)
 	}
 	if e, err := fileRate(file, "shop", under(), true); err != nil || e != nil {
@@ -62,13 +63,13 @@ func TestTheRateFileKeepsEachScenario(t *testing.T) {
 	for _, e := range []struct {
 		sc string
 		e  RateEntry
-	}{{"shop", a}, {"shop-staff-x2", a}, {"shop-staff-x2", b}} {
+	}{{"shop", a}, {"other", a}, {"other", b}} {
 		if err := writeRate(path, e.sc, e.e); err != nil {
 			t.Fatal(err)
 		}
 	}
 	f, err = readRates(path)
-	if err != nil || !reflect.DeepEqual(f, RateFile{"shop": a, "shop-staff-x2": b}) {
+	if err != nil || !reflect.DeepEqual(f, RateFile{"shop": a, "other": b}) {
 		t.Errorf("file %+v (%v)", f, err)
 	}
 	os.WriteFile(path, []byte(`{"shop": {"users": 32}}`), 0o644)
@@ -79,10 +80,10 @@ func TestTheRateFileKeepsEachScenario(t *testing.T) {
 
 // The report says where a rate read from the file was confirmed.
 func TestTheReportSaysWhereARateFromTheFileWasConfirmed(t *testing.T) {
-	sc := mustScenario("shop-staff-x2")
+	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{
-		"shop-staff-x2/nextjs": {Rate: 20, Done: true, From: &RateSource{Date: "2026-11-09 10:00:00 UTC", Tifa: "abc1234", Result: "browse.json", Confirm: []RateRound{{Pass: true, Valid: true}, {Pass: true, Valid: true}, {Pass: true, Valid: true}}}}}}
-	if md := r.Markdown(); !strings.Contains(md, "| Next.js | 20.00 | 53 | from test/compare/rates.json: confirmed on 2026-11-09 10:00:00 UTC with Tifa abc1234 (browse.json), 3 of 3 confirmation rounds passed |") {
+		"shop/nextjs": {Rate: 20, Done: true, From: &RateSource{Date: "2026-11-09 10:00:00 UTC", Tifa: "abc1234", Result: "browse.json", Confirm: []RateRound{{Pass: true, Valid: true}, {Pass: true, Valid: true}, {Pass: true, Valid: true}}}}}}
+	if md := r.Markdown(); !strings.Contains(md, "| Next.js | 20.00 | 80 | from test/compare/rates.json: confirmed on 2026-11-09 10:00:00 UTC with Tifa abc1234 (browse.json), 3 of 3 confirmation rounds passed |") {
 		t.Errorf("the report:\n%s", md)
 	}
 }
@@ -189,7 +190,7 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 	if methodHash(root) != "" {
 		t.Error("a missing file of the method gives a method")
 	}
-	for _, f := range []string{"load.go", "replay.go", "stats.go", "store_writes.go", "writepool.go", "browse.go", "throughput.go"} {
+	for _, f := range []string{"load.go", "replay.go", "stats.go", "store_writes.go", "writepool.go", "browse.go"} {
 		if !slices.Contains(methodFiles, f) {
 			t.Errorf("the method leaves out %s", f)
 		}
@@ -363,5 +364,176 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 		if err := b.restore(saved(b, func(*BrowseResult) {}), cfg, version); err == nil || !strings.Contains(err.Error(), "Next.js build") {
 			t.Errorf("%s: a rate on a build of other sources: %v", phase, err)
 		}
+	}
+}
+
+// Every source file of test/compare is either part of the method a rate of Next.js is bound to or
+// left out of it, by name: a new file that is neither fails here until it is put in one list. The
+// report and the table of the servers of every framework are out, what prepares, replays, judges
+// and starts a run is in, the server of Next.js among it. The folders are test/compare, its command
+// and the package that starts the servers (methodDirs).
+func TestEverySourceOfCompareIsInOrOutOfTheMethod(t *testing.T) {
+	var files []string
+	for _, dir := range methodDirs {
+		fs, err := filepath.Glob(filepath.Join(dir, "*.go"))
+		if err != nil || len(fs) == 0 {
+			t.Fatalf("%s: %v %v", dir, fs, err)
+		}
+		files = append(files, fs...)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		in, out := slices.Contains(methodFiles, f), slices.Contains(rateExcluded, f)
+		if in == out {
+			t.Errorf("%s is in the method %v and left out %v: put it in methodFiles or in rateExcluded", f, in, out)
+		}
+	}
+	for _, f := range append(slices.Clone(methodFiles), rateExcluded...) {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("%s is listed and is not there", f)
+		}
+	}
+	for _, f := range []string{"browse.go", "load.go", "replay.go", "restock.go", "setup.go", "serve.go", "spec.go", "store_writes.go", "writepool.go", "store_paths.go", "store_links.json", "nocache.go", "cmd/compare/browse_cmd.go", "../../internal/testproc/testproc.go"} {
+		if !slices.Contains(methodFiles, f) {
+			t.Errorf("the method leaves out %s", f)
+		}
+	}
+	for _, f := range []string{"report.go", "report_browse.go", "specs.go"} {
+		if slices.Contains(methodFiles, f) {
+			t.Errorf("the method holds %s", f)
+		}
+	}
+	// The servers of the other frameworks and the list of servers live in the file left out, and the
+	// server of Next.js in one that is in.
+	for file, want := range map[string]string{"specs.go": "func (e Env) Specs() []Spec", "spec.go": "func (e Env) nextSpec("} {
+		data, _ := os.ReadFile(file)
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s has no %q", file, want)
+		}
+	}
+	data, _ := os.ReadFile("specs.go")
+	if !strings.Contains(string(data), "var BrowseFrameworks") {
+		t.Error("the servers of browse are not in specs.go")
+	}
+}
+
+// The server of Next.js that a rate is bound to is its program, arguments and environment, not the
+// other servers, and the sources of the traces are the lines of the stamp the Next.js trace was
+// recorded from: not the trees of Tifa, Start or React Router.
+func TestTheRateIsBoundToTheNextjsServerAndItsTrace(t *testing.T) {
+	e := Env{Next: "/next", Start: "/start", Shop: "/shop"}
+	home := []string{"HOME=/a", "PATH=/bin"}
+	before := nextjsServer(e.Specs(), home)
+	if before == "" {
+		t.Fatalf("the server of Next.js is %q", before)
+	}
+	specs := e.Specs()
+	for i := range specs {
+		if specs[i].Name == "start" {
+			specs[i].Args = append(specs[i].Args, "--other")
+		}
+	}
+	if nextjsServer(specs, home) != before {
+		t.Error("another Start changes the server of Next.js")
+	}
+	if nextjsServer(specs, []string{"HOME=/b", "PATH=/usr/bin"}) != before {
+		t.Error("a variable Node does not read changes the server of Next.js")
+	}
+	// The variables Node reads come from the environment the server inherits as well as from its spec,
+	// and the spec wins over the inherited one, as it does when the server starts (Target.environ).
+	for _, v := range []string{"NODE_OPTIONS=--max-old-space-size=64", "UV_THREADPOOL_SIZE=8", "TZ=Asia/Tokyo", "LC_ALL=de_DE.UTF-8", "MALLOC_ARENA_MAX=2"} {
+		if nextjsServer(specs, append(slices.Clone(home), v)) == before {
+			t.Errorf("an inherited %s is the same server", v)
+		}
+	}
+	if nextjsServer(specs, append(slices.Clone(home), "NODE_ENV=development")) != before {
+		t.Error("an inherited NODE_ENV counts though the spec of Next.js sets its own")
+	}
+	for i := range specs {
+		if specs[i].Name == "nextjs" {
+			specs[i].Env = append(specs[i].Env, "NODE_OPTIONS=--max-old-space-size=64")
+		}
+	}
+	if nextjsServer(specs, home) == before {
+		t.Error("another environment of Next.js is the same server")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "STAMP")
+	stamp := func(lines ...string) string {
+		os.WriteFile(path, []byte(strings.Join(append([]string{"tree examples/shop a", "tree test/compare/nextjs b", "tree test/compare/start c", "tree internal d", "next 16.4.2", "start 1.169.3", "playwright 1.57.0", "site shop", "plans p"}, lines...), "\n")+"\n"), 0o644)
+		return stampHash(path)
+	}
+	base := stamp()
+	if base == "" {
+		t.Fatal("no sources")
+	}
+	b := strings.NewReplacer("tree test/compare/start c", "tree test/compare/start c2", "tree internal d", "tree internal d2", "start 1.169.3", "start 1.170.0")
+	data, _ := os.ReadFile(path)
+	os.WriteFile(path, []byte(b.Replace(string(data))), 0o644)
+	if stampHash(path) != base {
+		t.Error("the trees of Start or Tifa change the sources of the Next.js trace")
+	}
+	os.WriteFile(path, []byte(strings.Replace(string(data), "tree test/compare/nextjs b", "tree test/compare/nextjs b2", 1)), 0o644)
+	if stampHash(path) == base {
+		t.Error("another Next.js app is the same sources")
+	}
+}
+
+// A server starts with the environment it inherits and then its own, and of two values of a name
+// the last is the one it sees.
+func TestAServerStartsWithTheEnvironmentItInheritsAndItsOwn(t *testing.T) {
+	tg := Target{Env: []string{"NODE_ENV=production", "PORT=%PORT%"}}
+	got := tg.environ([]string{"HOME=/a", "NODE_ENV=development", "PORT=1"})
+	want := []string{"HOME=/a", "NODE_ENV=production", "PORT=%PORT%"}
+	if !slices.Equal(got, want) {
+		t.Errorf("environ = %q, want %q", got, want)
+	}
+}
+
+// The number of cpus the load may use decides when a round is the generator's fault, so a rate is
+// bound to it as the run counted it, not only to the list it was counted from.
+func TestTheRateIsBoundToTheCpusOfTheLoad(t *testing.T) {
+	b := &browse{o: BrowseOptions{LoadCPUs: "1,5", LoadCPUCount: 2}, res: &BrowseResult{Version: map[string]string{}}}
+	two := b.rateConditions(mustScenario("shop"))
+	b.o.LoadCPUCount = 3
+	three := b.rateConditions(mustScenario("shop"))
+	if two["loadCpuCount"] != "2" || three["loadCpuCount"] != "3" {
+		t.Errorf("the cpus of the load are %q and %q", two["loadCpuCount"], three["loadCpuCount"])
+	}
+	if !slices.Contains(rateKeys, "loadCpuCount") {
+		t.Error("an entry of the file need not have the cpus of the load")
+	}
+}
+
+// The environment a run starts in is a condition through the one the Next.js server is started
+// with (a private variable of Next.js such as __NEXT_PRIVATE_X among it, by its prefix) and through
+// the settings of the Go runtime of the load generator, read as written.
+func TestTheRateIsBoundToTheEnvironmentOfTheRun(t *testing.T) {
+	b := &browse{e: Env{Next: "/next", Start: "/start", Shop: "/shop"}, o: BrowseOptions{LoadCPUs: "1,5", LoadCPUCount: 2}, res: &BrowseResult{Version: map[string]string{}}}
+	sc := mustScenario("shop")
+	for _, v := range []string{"__NEXT_PRIVATE_X", "GOGC", "GOMEMLIMIT", "GODEBUG", "NODE_OPTIONS"} {
+		t.Setenv(v, "")
+		os.Unsetenv(v)
+	}
+	before := b.rateConditions(sc)
+	if before["go"] != runtime.Version() {
+		t.Errorf("the Go of the load is %q with no setting", before["go"])
+	}
+	t.Setenv("__NEXT_PRIVATE_X", "1")
+	if b.rateConditions(sc)["nextjsServer"] == before["nextjsServer"] {
+		t.Error("an inherited __NEXT_PRIVATE_X is the same server of Next.js")
+	}
+	os.Unsetenv("__NEXT_PRIVATE_X")
+	t.Setenv("HOME", "/elsewhere")
+	if got := b.rateConditions(sc); got["nextjsServer"] != before["nextjsServer"] || got["go"] != before["go"] {
+		t.Error("HOME changes the conditions")
+	}
+	t.Setenv("GOGC", "50")
+	t.Setenv("GOMEMLIMIT", "512MiB")
+	t.Setenv("GODEBUG", "gctrace=1")
+	if got := b.rateConditions(sc)["go"]; got != runtime.Version()+" GODEBUG=gctrace=1 GOGC=50 GOMEMLIMIT=512MiB" {
+		t.Errorf("the Go of the load is %q", got)
 	}
 }

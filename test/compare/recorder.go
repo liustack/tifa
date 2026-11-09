@@ -66,17 +66,20 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []st
 	if err := run(ctx, log, recorder, nil, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
 	}
-	for _, name := range servers {
-		i := slices.IndexFunc(e.Specs(), func(s Spec) bool { return s.Name == name })
-		if i < 0 {
-			return fmt.Errorf("no spec named %q", name)
+	names, err := e.recorded(servers)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		spec, err := e.Target(name)
+		if err != nil {
+			return err
 		}
-		spec := e.Specs()[i]
 		server, err := spec.Start(ctx, "")
 		if err != nil {
 			return err
 		}
-		args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", PlansPath(dir), "--out", TracePath(dir, traceName(spec)), "--workers", strconv.Itoa(workers)}
+		args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", PlansPath(dir), "--out", TracePath(dir, name), "--workers", strconv.Itoa(workers)}
 		if limit > 0 {
 			args = append(args, "--limit", strconv.Itoa(limit))
 		}
@@ -129,4 +132,21 @@ func (e Env) CrawlStoreLinks(ctx context.Context, log io.Writer, out string) err
 	}
 	defer server.Stop()
 	return run(ctx, log, recorder, nil, "pnpm", "exec", "node", "record.mjs", "--base", server.Base, "--crawl", pages, "--out", out)
+}
+
+// recorded are the specs a recording of servers records, in order: one for each trace, the spec of
+// its framework. A spec that replays the trace of another (Tifa with its render memo off replays the
+// trace of Tifa) is recorded through that one, since the browser sends the same requests to both.
+func (e Env) recorded(servers []string) ([]string, error) {
+	var out []string
+	for _, name := range servers {
+		i := slices.IndexFunc(e.Specs(), func(s Spec) bool { return s.Name == name })
+		if i < 0 {
+			return nil, fmt.Errorf("no spec named %q", name)
+		}
+		if t := traceName(e.Specs()[i]); !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }

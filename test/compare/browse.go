@@ -23,8 +23,11 @@ import (
 	"time"
 )
 
-// BrowseFrameworks are the specs the browse comparison runs: each framework as shipped.
-var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter"}
+// FormalBrowse are the settings of a formal run of the browse comparison, the defaults of `compare
+// browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
+// pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
+// its report says so at the top, with how it differs.
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
@@ -43,7 +46,7 @@ type BrowseOptions struct {
 	Probe bool
 	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
 	RateFile    string
-	Scenarios   []BrowseScenario // the default ones when empty
+	Scenarios   []BrowseScenario // BrowseScenarios when empty (the tests set others)
 	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
 	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
 	Rounds      int
@@ -315,7 +318,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		o.Servers = BrowseFrameworks
 	}
 	if len(o.Scenarios) == 0 {
-		o.Scenarios, _ = ParseScenarios(DefaultScenarios)
+		o.Scenarios = BrowseScenarios
 	}
 	if len(o.Phases) == 0 {
 		o.Phases = []string{"throughput", "control", "sustain", "latency"}
@@ -387,6 +390,15 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
 	}
 	b.logf("placement: %s\n", placement.Note)
+	// No Node app may send an answer a cache could keep: the run stops before its first round if one
+	// does.
+	for _, s := range specs {
+		if s.Framework != "tifa" {
+			if err := b.checkNoCache(ctx, s, o.Scenarios[0]); err != nil {
+				return b.res, err
+			}
+		}
+	}
 	has := func(p string) bool { return slices.Contains(o.Phases, p) }
 	for _, phase := range []struct {
 		name string
@@ -1417,6 +1429,27 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 		r.buildID = b.bid
 	}
 	return r, nil
+}
+
+// checkNoCache asks a fresh server of a spec, thrown away after, for the documents and the
+// navigation data its traces replay in a scenario, and fails when an answer has a sign that a cache
+// could keep it (CheckNoCache).
+func (b *browse) checkNoCache(ctx context.Context, spec Spec, sc BrowseScenario) error {
+	server, err := b.start(ctx, spec)
+	if err != nil {
+		return err
+	}
+	defer server.stop()
+	r, err := b.runnerFor(spec.Name, sc, server)
+	if err != nil {
+		return err
+	}
+	reqs := replayedGets(r.wl)
+	if err := CheckNoCache(ctx, r.base, reqs); err != nil {
+		return fmt.Errorf("%s: %w", BrowseLabel(spec.Name), err)
+	}
+	b.logf("no cache   %-12s %d documents and navigation data asked twice, none a cache could keep\n", spec.Name, len(reqs))
+	return nil
 }
 
 // checkWrites checks that the writes of a scenario show in the pages of a spec, on a fresh server that

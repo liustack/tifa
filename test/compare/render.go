@@ -3,10 +3,13 @@ package compare
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -83,3 +86,41 @@ const (
 	RenderNone   = "none"
 	RenderHit    = "memo"
 )
+
+// Why Tifa rendered a page in a VM, as far as the client can tell from the URL, the cookies it sent
+// and X-Tifa-Render. The client does not see the data of the Loads, so RenderAgain holds a page whose
+// data changed since (a write, or data that changes by itself, such as the dates of a day) and one
+// the memo dropped when it was full alike.
+const (
+	RenderFirst       = "first"        // the first request of its URL that Tifa answered in the round
+	RenderAgain       = "again"        // a URL Tifa had answered before in the round
+	RenderPrivate     = "private"      // a private page, the visit without a cart cookie
+	RenderPrivateCart = "private cart" // a private page, the visit with a cart cookie
+)
+
+// StoreCartCookie is the cookie of the shop that holds the ID of the visitor's cart (cart.CookieName
+// in examples/shop).
+const StoreCartCookie = "store_cart"
+
+// privateKind says whether a kind of page is private: its data is the visitor's own. In the shop the
+// cart and the checkout are the pages whose Loads read cookies (the cart and the products looked at).
+func privateKind(kind string) bool { return kind == StoreKindCart || kind == StoreKindCheckout }
+
+// renderWhy says why Tifa rendered a page of a kind in a VM: a private page by its cart cookie, any
+// other by whether Tifa had answered its URL before in the round.
+func renderWhy(kind string, seen, cart bool) string {
+	switch {
+	case privateKind(kind) && cart:
+		return RenderPrivateCart
+	case privateKind(kind):
+		return RenderPrivate
+	case seen:
+		return RenderAgain
+	}
+	return RenderFirst
+}
+
+// hasCookie says whether a jar sends a cookie of that name to a URL.
+func hasCookie(jar http.CookieJar, u *url.URL, name string) bool {
+	return slices.ContainsFunc(jar.Cookies(u), func(c *http.Cookie) bool { return c.Name == name })
+}
