@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,22 +55,11 @@ func (s BrowseScenario) viewsPerVisit() float64 {
 // server of the scenario.
 const openBase = "nextjs"
 
-// BrowseScenarios are the scenarios, in the order they are measured. "shop" is the mix of mix.go.
-// "shop-staff-x2" doubles the share of staff visits and the share of them that edit a product, to
-// see how much the result depends on the two assumptions a cache is most sensitive to.
+// BrowseScenarios are the scenarios of the browse comparison: one, the shop with the mix of mix.go,
+// shoppers and staff on the same server.
 var BrowseScenarios = []BrowseScenario{
 	{Name: "shop", Title: "the shop: shoppers and staff", Staff: StaffShare, Edit: StaffEditShare, Ship: StaffShipShare, Throughput: true, Latency: true},
-	{Name: "shop-staff-x2", Title: "the shop with twice the staff visits and product edits", Staff: 2 * StaffShare, Edit: 2 * StaffEditShare, Ship: StaffShipShare, Throughput: true, Latency: true},
 }
-
-// ScenarioGroups are the lists of scenarios that a name stands for. "default" runs when none is
-// asked for: both scenarios.
-var ScenarioGroups = map[string][]string{
-	"default": {"shop", "shop-staff-x2"},
-}
-
-// DefaultScenarios is the list of scenarios that runs when none is asked for.
-const DefaultScenarios = "default"
 
 // BrowseScenarioByName finds a scenario of the browse comparison.
 func BrowseScenarioByName(name string) (BrowseScenario, bool) {
@@ -81,43 +69,6 @@ func BrowseScenarioByName(name string) (BrowseScenario, bool) {
 		}
 	}
 	return BrowseScenario{}, false
-}
-
-// ParseScenarios reads a comma separated list of scenarios and groups, in order, each scenario
-// once.
-func ParseScenarios(list string) ([]BrowseScenario, error) {
-	var out []BrowseScenario
-	add := func(name string) error {
-		sc, ok := BrowseScenarioByName(name)
-		if !ok {
-			return fmt.Errorf("no scenario %q: have the group default and %v", name, browseScenarioNames())
-		}
-		if !slices.ContainsFunc(out, func(s BrowseScenario) bool { return s.Name == name }) {
-			out = append(out, sc)
-		}
-		return nil
-	}
-	for _, name := range strings.Split(list, ",") {
-		name = strings.TrimSpace(name)
-		names, group := ScenarioGroups[name]
-		if !group {
-			names = []string{name}
-		}
-		for _, n := range names {
-			if err := add(n); err != nil {
-				return nil, err
-			}
-		}
-	}
-	return out, nil
-}
-
-func browseScenarioNames() []string {
-	var out []string
-	for _, s := range BrowseScenarios {
-		out = append(out, s.Name)
-	}
-	return out
 }
 
 // maxConns is how many connections a browser opens to one host (HTTP/1.1): a visit never has more

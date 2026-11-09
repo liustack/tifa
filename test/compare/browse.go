@@ -43,7 +43,7 @@ type BrowseOptions struct {
 	Probe bool
 	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
 	RateFile    string
-	Scenarios   []BrowseScenario // the default ones when empty
+	Scenarios   []BrowseScenario // BrowseScenarios when empty (the tests set others)
 	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
 	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
 	Rounds      int
@@ -315,7 +315,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		o.Servers = BrowseFrameworks
 	}
 	if len(o.Scenarios) == 0 {
-		o.Scenarios, _ = ParseScenarios(DefaultScenarios)
+		o.Scenarios = BrowseScenarios
 	}
 	if len(o.Phases) == 0 {
 		o.Phases = []string{"throughput", "control", "sustain", "latency"}

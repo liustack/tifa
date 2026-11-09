@@ -13,18 +13,17 @@ import (
 )
 
 var browseOpts struct {
-	out, scenarios, phases, stamp, serverCPUs, loadCPUs string
-	sessions, rounds                                    int
-	probe                                               bool
-	maxRate                                             float64
-	warm, target, trial, final                          time.Duration
+	out, phases, stamp, serverCPUs, loadCPUs string
+	sessions, rounds                         int
+	probe                                    bool
+	maxRate                                  float64
+	warm, target, trial, final               time.Duration
 }
 
 func browseFlags(flags *flag.FlagSet) {
 	o := &browseOpts
 	flags.StringVar(&o.out, "out", "browse.json", "browse: the result, written after every round and continued if it exists")
-	flags.StringVar(&o.scenarios, "scenarios", compare.DefaultScenarios, "browse: comma separated scenarios and groups: default (shop and shop-staff-x2), shop (the mix of mix.go), shop-staff-x2 (twice the staff visits and product edits)")
-	flags.StringVar(&o.phases, "phases", "throughput,control,sustain,latency", "browse: the parts to run: throughput (every server at -sessions concurrent sessions, then each stepped up while it does not use its cpus, or down when it fails), control (Tifa with no writes), sustain (the arrival rate Next.js sustains) and latency (every server at half of it), each for the scenarios that have that table")
+	flags.StringVar(&o.phases, "phases", "throughput,control,sustain,latency", "browse: the parts to run: throughput (every server at -sessions concurrent sessions, then each stepped up while it does not use its cpus, or down when it fails), control (Tifa with no writes), sustain (the arrival rate Next.js sustains) and latency (every server at half of it)")
 	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 	flags.StringVar(&o.loadCPUs, "load-cpus", "", "browse: cpus for the load generator")
@@ -59,11 +58,6 @@ func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, se
 	o := &browseOpts
 	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs), Probe: o.probe,
 		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Warm: o.warm, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, MaxRate: o.maxRate, Log: os.Stderr}
-	scs, err := compare.ParseScenarios(o.scenarios)
-	if err != nil {
-		fatal(err)
-	}
-	opts.Scenarios = scs
 	res, err := env.Browse(ctx, opts)
 	if err != nil {
 		fatal(err)

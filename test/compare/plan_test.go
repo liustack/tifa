@@ -9,8 +9,15 @@ import (
 	"testing"
 )
 
+// moreStaff is a scenario of the tests alone, with twice the staff share and edits of the shop, to check
+// the quotas with other numbers than those of the one scenario.
+var moreStaff = BrowseScenario{Name: "more-staff", Title: "more staff", Staff: 2 * StaffShare, Edit: 2 * StaffEditShare, Ship: StaffShipShare, Throughput: true, Latency: true}
+
 func scenario(t *testing.T, name string) BrowseScenario {
 	t.Helper()
+	if name == moreStaff.Name {
+		return moreStaff
+	}
 	sc, ok := BrowseScenarioByName(name)
 	if !ok {
 		t.Fatalf("no scenario %q", name)

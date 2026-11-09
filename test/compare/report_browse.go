@@ -809,12 +809,5 @@ func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
 	for _, f := range MixFacts() {
 		fmt.Fprintf(b, "| %s | %s | %s |\n", f.What, f.Value, f.Source)
 	}
-	for _, sc := range r.Scenarios {
-		fmt.Fprintf(b, "| scenario %s | staff %.0f%% of the visits, %.0f%% of their visits edit a product, %.0f%% ship an order | the staff numbers above", sc.Name, 100*sc.Staff, 100*sc.Edit, 100*sc.Ship)
-		if sc.Staff != StaffShare || sc.Edit != StaffEditShare {
-			b.WriteString(", with the staff share and the edit share doubled to see how much the result moves with them")
-		}
-		b.WriteString(" |\n")
-	}
 	b.WriteString("\n")
 }

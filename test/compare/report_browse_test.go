@@ -95,17 +95,17 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := t.TempDir()
-	run := func(scenarios string, args ...string) string {
+	run := func(args ...string) string {
 		cmd := exec.Command("bash", append([]string{filepath.Join(env.Root, "test", "compare", "browse.sh")}, args...)...)
 		cmd.Dir = env.Root
-		cmd.Env = append(os.Environ(), "BROWSE_OUT="+out, "SCENARIOS="+scenarios)
+		cmd.Env = append(os.Environ(), "BROWSE_OUT="+out)
 		data, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("browse.sh %s: %v\n%s", args, err, data)
 		}
 		return string(data)
 	}
-	trace := run("shop", "stamp")
+	trace := run("stamp")
 	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site shop\n", "plans none\n"} {
 		if !strings.Contains(trace, want) {
 			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
@@ -114,21 +114,20 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 	// The stamp is bound to the plans of the site.
 	os.MkdirAll(filepath.Join(out, "traces"), 0o755)
 	os.WriteFile(filepath.Join(out, "traces", "plans.json"), []byte("{}"), 0o644)
-	if strings.Contains(run("shop", "stamp"), "plans none") {
+	if strings.Contains(run("stamp"), "plans none") {
 		t.Error("the stamp is not bound to the plans")
 	}
-	results := run("shop-staff-x2", "runstamp")
-	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "scenarios=shop-staff-x2 ", "go ", "node "} {
+	results := run("runstamp")
+	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "go ", "node "} {
 		if !strings.Contains(results, want) {
 			t.Errorf("the result stamp lacks %q:\n%s", want, results)
 		}
 	}
-	// The script names the scenarios of the groups as replay.go does.
-	for group := range ScenarioGroups {
-		scs, _ := ParseScenarios(group)
-		if got, want := strings.TrimSpace(run(group, "scenarios")), strings.Join(scenarioNamesOf(scs), ","); got != want {
-			t.Errorf("browse.sh expands %s to %s, replay.go to %s", group, got, want)
-		}
+	// There is one scenario: a command line that still picks one is refused, not run on the shop.
+	cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), "stamp")
+	cmd.Dir, cmd.Env = env.Root, append(os.Environ(), "BROWSE_OUT="+out, "SCENARIOS=shop-staff-x2")
+	if data, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(data), "SCENARIOS is gone") {
+		t.Errorf("SCENARIOS is taken: %v\n%s", err, data)
 	}
 }
 
@@ -136,7 +135,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 // throughput, the search and the latency for one with latency, each with its own rate. The writes of
 // a round are given for the rounds a scenario has.
 func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
-	scs, _ := ParseScenarios("default")
+	scs := BrowseScenarios
 	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
 	for i, sc := range scs {
@@ -196,7 +195,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			t.Errorf("%s lacks the table of writes:\n%s", sc.Name, sec)
 		}
 	}
-	for _, want := range []string{"The comparison plays the shop as one site", "\n### The mix\n", "| scenario shop-staff-x2 | staff 4% of the visits, 40% of their visits edit a product, 30% ship an order |"} {
+	for _, want := range []string{"The comparison plays the shop as one site", "\n### The mix\n", "| visits made by the staff in the back office | 2% | assumption |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q", want)
 		}
@@ -326,19 +325,11 @@ func mustScenario(name string) BrowseScenario {
 	return sc
 }
 
-func scenarioNamesOf(list []BrowseScenario) []string {
-	var out []string
-	for _, sc := range list {
-		out = append(out, sc.Name)
-	}
-	return out
-}
-
 // A kind of page that the render memo never or seldom answers in the read-only control, where
 // nothing changes, is a red flag: something in its data changes on every request (a clock, a
 // random value). It is flagged above the control table, and a kind with few answers is not.
 func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
-	sc := mustScenario("shop-staff-x2")
+	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes = "control", 0
@@ -371,9 +362,9 @@ func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 // rounds grow their orders and memory (not a claim of heavier reads), and a page the control
 // seldom hits is flagged to look into, with no cause named.
 func TestTheReportClaimsOnlyWhatItMeasures(t *testing.T) {
-	sc := mustScenario("shop-staff-x2")
+	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
-		Sustain: map[string]*Sustain{"shop-staff-x2/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop-staff-x2": 8}, LatencyBase: map[string]string{"shop-staff-x2": "nextjs"}}
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes, c.PageRenders = "control", 0, map[string]map[string]int{"order": {"vm": 300}}
 	l := closedRound("tifa", sc.Name, 0, 1, 1000, 100, true)
@@ -431,7 +422,7 @@ func TestBrowseReportShowsTheSeriesOfEachServer(t *testing.T) {
 // latency table, then the mix with the source of every number. Every diagnostic is in the appendix
 // after it, and each result table links to the diagnostics behind it.
 func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) {
-	scs, _ := ParseScenarios("default")
+	scs := BrowseScenarios
 	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}, Throughput: map[string]*Throughput{}}
 	for _, sc := range scs {

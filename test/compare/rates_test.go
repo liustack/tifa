@@ -26,7 +26,7 @@ func TestTheRateFileIsUsedOnlyUnderTheSameConditions(t *testing.T) {
 	if e, err := fileRate(file, "shop", under(), false); err != nil || e == nil || e.Rate != 21.5 {
 		t.Fatalf("the same conditions: %+v %v", e, err)
 	}
-	if e, err := fileRate(file, "shop-staff-x2", under(), false); err != nil || e != nil {
+	if e, err := fileRate(file, "other", under(), false); err != nil || e != nil {
 		t.Errorf("no entry: %+v %v, want a search", e, err)
 	}
 	if e, err := fileRate(file, "shop", under(), true); err != nil || e != nil {
@@ -62,13 +62,13 @@ func TestTheRateFileKeepsEachScenario(t *testing.T) {
 	for _, e := range []struct {
 		sc string
 		e  RateEntry
-	}{{"shop", a}, {"shop-staff-x2", a}, {"shop-staff-x2", b}} {
+	}{{"shop", a}, {"other", a}, {"other", b}} {
 		if err := writeRate(path, e.sc, e.e); err != nil {
 			t.Fatal(err)
 		}
 	}
 	f, err = readRates(path)
-	if err != nil || !reflect.DeepEqual(f, RateFile{"shop": a, "shop-staff-x2": b}) {
+	if err != nil || !reflect.DeepEqual(f, RateFile{"shop": a, "other": b}) {
 		t.Errorf("file %+v (%v)", f, err)
 	}
 	os.WriteFile(path, []byte(`{"shop": {"users": 32}}`), 0o644)
@@ -79,9 +79,9 @@ func TestTheRateFileKeepsEachScenario(t *testing.T) {
 
 // The report says where a rate read from the file was confirmed.
 func TestTheReportSaysWhereARateFromTheFileWasConfirmed(t *testing.T) {
-	sc := mustScenario("shop-staff-x2")
+	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{
-		"shop-staff-x2/nextjs": {Rate: 20, Done: true, From: &RateSource{Date: "2026-11-09 10:00:00 UTC", Tifa: "abc1234", Result: "browse.json", Confirm: []RateRound{{Pass: true, Valid: true}, {Pass: true, Valid: true}, {Pass: true, Valid: true}}}}}}
+		"shop/nextjs": {Rate: 20, Done: true, From: &RateSource{Date: "2026-11-09 10:00:00 UTC", Tifa: "abc1234", Result: "browse.json", Confirm: []RateRound{{Pass: true, Valid: true}, {Pass: true, Valid: true}, {Pass: true, Valid: true}}}}}}
 	if md := r.Markdown(); !strings.Contains(md, "| Next.js | 20.00 | 53 | from test/compare/rates.json: confirmed on 2026-11-09 10:00:00 UTC with Tifa abc1234 (browse.json), 3 of 3 confirmation rounds passed |") {
 		t.Errorf("the report:\n%s", md)
 	}

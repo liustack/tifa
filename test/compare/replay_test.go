@@ -430,7 +430,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 	for _, tc := range []struct {
 		name               string
 		staff, edits, ship int
-	}{{"shop", 20, 4, 6}, {"shop-staff-x2", 42, 17, 13}} {
+	}{{"shop", 20, 4, 6}, {moreStaff.Name, 42, 17, 13}} {
 		w := siteWorkload(t, 5, 2, tc.name)
 		bv := w.blockVisits()
 		if bv != ShopperBlockVisits+tc.staff || w.cycleLen() != 2*bv {
