@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import {
+  createBrowserHistory,
   createMemoryHistory,
   createRouter,
   createSerializationAdapter,
@@ -7,6 +8,7 @@ import {
   type AnyRoute,
   type AnyRouter,
   type ErrorComponentProps,
+  type HistoryLocation,
   type RouterHistory,
 } from '@tanstack/react-router'
 import { goJSON, RouteError, type Source } from './data'
@@ -78,7 +80,9 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     context,
     isServer: serverURL !== undefined,
     rewrite: options.rewrite,
-    history: serverURL ? createMemoryHistory({ initialEntries: [options.rewrite ? withRouterQuery(serverURL) : serverURL] }) : options.history,
+    history: serverURL
+      ? createMemoryHistory({ initialEntries: [options.rewrite ? withRouterQuery(serverURL) : serverURL] })
+      : (options.history ?? (options.rewrite ? browserHistory() : undefined)),
     // ServeMux matches paths case-sensitively and reads query values as strings.
     caseSensitive: true,
     parseSearch,
@@ -363,13 +367,48 @@ export function stringifySearch(search: Record<string, unknown>): string {
   return parts.length > 0 ? '?' + parts.join('&') : ''
 }
 
-// withRouterQuery is url with its query spelled the way stringifySearch writes it. A server render
-// compares the URL of the request with the one the router builds for it, and redirects to that one
-// when they differ. Without a rewrite the router reads the query of the request in its own spelling
-// first, with one it keeps the URL as given: /store?next=%2Fa would redirect to /store?next=/a.
+// routerQuery is a query spelled the way stringifySearch writes it.
+function routerQuery(search: string) {
+  return stringifySearch(parseSearch(search))
+}
+
+// A router with a rewrite takes the URL its history gives as the public URL of the location, where
+// one without a rewrite takes the URL with the query in its own spelling (parseLocation in
+// @tanstack/router-core). A server render, and in the browser the Transitioner of
+// @tanstack/react-router, compare that URL with the one the router builds for the location, and go
+// to the built one when they differ. So with a rewrite another spelling of the same query, such as
+// %20 for + or %2F for /, would look like another URL.
+// The histories of a router with a rewrite give it the query in its own spelling, as the router
+// without one reads it, and a URL that differs in its path still goes to the router's own.
+
+// withRouterQuery is url with its query in the router's spelling, for the history of a server
+// render. Without it /store?next=%2Fa would redirect to /store?next=/a.
 function withRouterQuery(url: string) {
   const at = url.indexOf('?')
-  return at < 0 ? url : url.slice(0, at) + stringifySearch(parseSearch(url.slice(at)))
+  return at < 0 ? url : url.slice(0, at) + routerQuery(url.slice(at))
+}
+
+// browserHistory is the history of the browser with the query of the address bar read in the
+// router's spelling, for a router with a rewrite. The address bar keeps the URL as the visitor wrote
+// it: without this the router would replace it with its own spelling right after hydration, and load
+// the page again. It reads the location as the default one of @tanstack/history does (parseHref),
+// which it does not export: a path that starts with several slashes keeps one, and a state without
+// a key gets a new one.
+export function browserHistory(win: Window = window): RouterHistory {
+  return createBrowserHistory({
+    window: win,
+    parseLocation: (): HistoryLocation => {
+      const pathname = win.location.pathname.replace(/^\/{2,}/, '/')
+      const search = routerQuery(win.location.search)
+      const hash = win.location.hash
+      let state = win.history.state as HistoryLocation['state'] | null
+      if (!state) {
+        const key = Math.random().toString(36).slice(2, 10)
+        state = { __TSR_index: 0, key, __TSR_key: key }
+      }
+      return { href: pathname + search + hash, pathname, search, hash, state }
+    },
+  })
 }
 
 // The characters encodeURIComponent escapes that browsers send as they are and Go's

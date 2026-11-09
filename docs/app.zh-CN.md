@@ -546,7 +546,7 @@ const LayoutSSR = false        // 本目录的 Layout，默认 true
 
 ### 服务端渲染里的查询参数
 
-页面看得到的查询参数，是它的 `Load` 和上面各层 Layout 用 `c.Query` 或 `c.QueryValues` 读过的那些，由 `tifa build` 找出来。服务端渲染只拿到路径和这些参数，按名字排序，同名的多个值保持请求里的顺序，记忆的 key 里也是这些。其他参数在渲染前就丢掉，也不进 key。浏览器地址栏保留每个参数和它的值，只是路由器可能换一种写法（开了多语言时 `a%20b` 可能变成 `a+b`）。`OnRequest`、各个 `Load` 和方法处理函数看到的还是完整的请求。
+页面看得到的查询参数，是它的 `Load` 和上面各层 Layout 用 `c.Query` 或 `c.QueryValues` 读过的那些，由 `tifa build` 找出来。服务端渲染只拿到路径和这些参数，按名字排序，同名的多个值保持请求里的顺序，记忆的 key 里也是这些。其他参数在渲染前就丢掉，也不进 key。地址栏里的每个参数都保持访客写的样子（`a%20b` 还是 `a%20b`），单语言和多语言都一样。`OnRequest`、各个 `Load` 和方法处理函数看到的还是完整的请求。
 
 - 追踪参数不增加渲染记忆的 key，也不增加服务端渲染次数。带上 `?utm_source=mail`、`?fbclid=...` 或 `?x=random`，key 和不带时一样，记忆直接回答。各个 `Load` 照常每个请求都运行。参数换个顺序 key 也一样。
 - 要按参数渲染，就在 `Load` 里读它。没有 `Load` 读的参数改变不了数据，渲染也用不着它。组件里按名字读，比如用 `route.gen` 里路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带着各个 `Load` 读的参数的类型，但别的参数也照样放行，所以它不能让别的参数变安全，见 [Link 和 navigate 里的查询参数](#link-和-navigate-里的查询参数)。

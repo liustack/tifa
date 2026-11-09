@@ -5,7 +5,7 @@
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { routeTree, htmlAttributes } from './.tifa/routes'
 import { i18n } from './.tifa/i18n.gen'
-import { createAppRouter, load, type RouterContext } from './.tifa/runtime/router'
+import { browserHistory, createAppRouter, load, type RouterContext } from './.tifa/runtime/router'
 import { makeRewrite, reaches } from './.tifa/runtime/prefix'
 import { routerHref, type Click } from './.tifa/runtime/html'
 import { serve } from './.tifa/runtime/server'
@@ -299,6 +299,63 @@ test('a query spelled another way than the router writes it is rendered, not red
     ['/projects?next=%2Fa', 'zh-CN'],
   ])
     await render(url, language)
+})
+
+// browserAt puts a window at url: an address bar and the history entries the browser keeps, which
+// the router reads through browserHistory. It returns the URLs written to the history.
+function browserAt(url: string) {
+  const at = new URL(url, 'http://shop.test')
+  const written: string[] = []
+  const write = function (this: { state: unknown }, state: unknown, _title: string, href?: string) {
+    this.state = state
+    if (href !== undefined) written.push(href)
+  }
+  ;(globalThis as any).window = {
+    origin: at.origin,
+    location: { href: at.href, origin: at.origin, pathname: at.pathname, search: at.search, hash: at.hash, assign() {} },
+    history: { state: null, length: 1, pushState: write, replaceState: write },
+    document: { baseURI: at.href },
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  return written
+}
+
+// mounted is what TanStack's Transitioner compares when it mounts in the browser at url: the public
+// URL of the location the router reads, and the one it builds for that location. When they differ
+// it replaces the address bar with the built one and loads the page again.
+function mounted(url: string, language: string, always = false) {
+  const written = browserAt(url)
+  const router = createAppRouter(routeTree, async (): Promise<RouteResult> => ({ status: 200, data: null }), {
+    history: browserHistory(),
+    rewrite: makeRewrite({ ...languages, always }, language),
+  })
+  router.updateLatestLocation()
+  const location = router.latestLocation
+  const built = router.buildLocation({ to: location.pathname, search: true, params: true, hash: true, state: true, _includeValidateSearch: true } as never)
+  router.history.destroy()
+  return { read: location.publicHref, built: built.publicHref, search: location.search, written }
+}
+
+test('a query spelled another way than the router writes it is the URL the router builds, under a prefix', async () => {
+  // %20 for +, %2F for /, an empty value, a key given twice around another.
+  for (const [url, language, always] of [
+    ['/en-US/store?q=x&utm=a%20b', 'en-US', false],
+    ['/en-US/store?utm=a%2Fb', 'en-US', false],
+    ['/en-US/store?a=1&b=&a=%2F2#top', 'en-US', false],
+    ['/store?next=%2Fprojects&q=a%20b', 'zh-CN', false],
+    ['/projects?next=%2Fa', 'zh-CN', false],
+    ['/zh-CN/store?q=a%20b&q=c', 'zh-CN', true],
+  ] as Array<[string, string, boolean]>) {
+    const { read, built, written } = mounted(url, language, always)
+    assert(read === built, `${url}: the router reads ${read} and builds ${built}`)
+    assert(written.length === 0, `${url}: wrote ${written.join()}`)
+  }
+  const { search } = mounted('/en-US/store?a=1&b=&a=%2F2&c=a%20b', 'en-US')
+  assert(JSON.stringify(search) === '{"a":["1","/2"],"b":"","c":"a b"}', JSON.stringify(search))
+  // A path the router spells another way still goes to its own spelling.
+  const path = mounted('/en-US/%73tore?q=a%20b', 'en-US')
+  assert(path.read === '/en-US/%73tore?q=a+b' && path.built === '/en-US/store?q=a+b', `${path.read} ${path.built}`)
 })
 
 let failed = 0
