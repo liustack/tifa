@@ -39,7 +39,8 @@ var App = server.App{
 			Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_files_path__.Load) },
 			SSR:     true,
 			Layouts: []string{},
+			Query:   []string{"rev"},
 		},
 	},
-	Fingerprint: "36092d53d827b1f439a032357771f0f7",
+	Fingerprint: "6346f5c5b58b4d0c4bd32691c9a40270",
 }

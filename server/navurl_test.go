@@ -24,7 +24,7 @@ func TestNavigationParameterIsInvisibleToTheApp(t *testing.T) {
 		mu.Unlock()
 		return next(c)
 	}
-	app.Routes = append(app.Routes, Route{ID: "app/seen", Path: "/seen", Page: true, SSR: true, Layouts: []string{"app/layout"},
+	app.Routes = append(app.Routes, Route{ID: "app/seen", Path: "/seen", Page: true, SSR: true, Layouts: []string{"app/layout"}, Query: []string{"a"},
 		Load: func(c *tifa.Ctx) (any, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -45,7 +45,8 @@ func TestNavigationParameterIsInvisibleToTheApp(t *testing.T) {
 			t.Errorf("%s: %d %s", target, w.Code, w.Body.String())
 		}
 	}
-	if page.Code != 200 || r.inputs[0].URL != "/seen?a=1&b=2" {
+	// The render sees the parameter the Load reads, OnRequest and the Load see the request as it came.
+	if page.Code != 200 || r.inputs[0].URL != "/seen?a=1" {
 		t.Errorf("page: %d %q", page.Code, r.inputs[0].URL)
 	}
 	mu.Lock()

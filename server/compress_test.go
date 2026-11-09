@@ -525,6 +525,8 @@ func TestFlushBeforeTheBodySendsTheHeader(t *testing.T) {
 // get the HTML.
 func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 	app := frontApp()
+	// The Load of /stats reads plain, so /stats?plain=1 is a page of its own.
+	readsQuery(app, "app/stats", "plain")
 	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Request().URL.Query().Has("plain") {
 			c.SetHeader(gzhttp.HeaderNoCompression, "1")
@@ -547,8 +549,8 @@ func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 		{"/stats", "zstd;q=0.5, gzip", "gzip"},
 		{"/stats", "br", ""},
 		{"/stats", "", ""},
-		{"/stats?plain", "gzip", ""},
-		{"/stats?plain", "gzip", ""},
+		{"/stats?plain=1", "gzip", ""},
+		{"/stats?plain=1", "gzip", ""},
 	} {
 		w := get(s, tc.path, "Accept-Encoding", tc.accept)
 		h := w.Header()

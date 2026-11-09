@@ -101,6 +101,9 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 			if l.Load.HTML {
 				app.WriteString("HTML: true,\n")
 			}
+			if len(l.Load.AllQuery) > 0 {
+				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(l.Load.AllQuery))
+			}
 		}
 		fmt.Fprintf(&app, "SSR: %t,\n", l.SSR)
 		if len(l.Languages) > 0 {
@@ -137,6 +140,9 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		fmt.Fprintf(&app, "Layouts: %s,\n", stringSlice(r.Layouts))
 		if r.Load != nil && r.Load.HTML {
 			app.WriteString("HTML: true,\n")
+		}
+		if r.Load != nil && len(r.Load.AllQuery) > 0 {
+			fmt.Fprintf(&app, "Query: %s,\n", stringSlice(r.Load.AllQuery))
 		}
 		if len(r.Languages) > 0 {
 			fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(r.Languages))

@@ -15,6 +15,7 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"reflect"
 	"slices"
@@ -726,9 +727,10 @@ type dataRedirect struct {
 // random number makes its page differ from one render to the next. tifa dev renders each page
 // twice to say so, and Memo = false turns the render memo off for such a page.
 //
-// The URL in the key is the request URI as it came, so two spellings of the same query, or a
-// tracking parameter, make two entries. That costs hits and never serves a wrong page, since the
-// render reads the same URI.
+// The URL in the key is the one the render reads: the path and the query parameters the Loads of
+// the page read (renderURL), so a tracking parameter, ?x=random or another order of the parameters
+// makes no new entry. A parameter the Loads do not read cannot change their data, and the render
+// does not see it.
 func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
 	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL} {
@@ -807,7 +809,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	if err != nil {
 		return err
 	}
-	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: c.Request().URL.RequestURI(), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -1388,4 +1390,41 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, page)
+}
+
+// renderURL is the URL a server render gets: the path of the request and only the query
+// parameters in keep, the ones the Loads of the page read, by name, each with its values in the
+// order of the request. Every other parameter, a tracking one or ?x=random, cannot change what
+// the Loads return, so the render and its memo key leave it out. The values are spelled as
+// url.QueryEscape writes them, and what url.ParseQuery drops, and so c.Query never sees, is left out
+// too. The path stays as it came, so the router still redirects another spelling of it.
+func renderURL(u *url.URL, keep []string) string {
+	p := u.EscapedPath()
+	if len(keep) == 0 || u.RawQuery == "" {
+		return p
+	}
+	values := map[string][]string{}
+	for part := range strings.SplitSeq(u.RawQuery, "&") {
+		key, value, _ := strings.Cut(part, "=")
+		k, err1 := url.QueryUnescape(key)
+		v, err2 := url.QueryUnescape(value)
+		if err1 != nil || err2 != nil || strings.Contains(part, ";") {
+			continue
+		}
+		if _, ok := slices.BinarySearch(keep, k); ok {
+			values[k] = append(values[k], v)
+		}
+	}
+	var b strings.Builder
+	for _, k := range keep {
+		for _, v := range values[k] {
+			if b.Len() == 0 {
+				b.WriteByte('?')
+			} else {
+				b.WriteByte('&')
+			}
+			b.WriteString(url.QueryEscape(k) + "=" + url.QueryEscape(v))
+		}
+	}
+	return p + b.String()
 }

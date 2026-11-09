@@ -146,7 +146,8 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 		t.Errorf("headers %v", w.Header())
 	}
 	in := r.inputs[0]
-	if in.BuildID != "b1" || in.URL != "/projects/p1?x=1" {
+	// No Load of the page reads x, so the render does not see it.
+	if in.BuildID != "b1" || in.URL != "/projects/p1" {
 		t.Errorf("input %+v", in)
 	}
 	data := r.last(t)
@@ -859,4 +860,16 @@ func TestPagesAndJSONCarryTheirLength(t *testing.T) {
 	if got, want := w.Header().Get("Content-Length"), strconv.Itoa(w.Body.Len()); got != want {
 		t.Errorf("plain error page: Content-Length %q, body %s bytes", got, want)
 	}
+}
+
+// readsQuery has the route id of app read the query parameters names in its Load, as tifa build
+// finds them, so that they reach the render and make pages of their own.
+func readsQuery(app App, id string, names ...string) {
+	for i := range app.Routes {
+		if app.Routes[i].ID == id {
+			app.Routes[i].Query = names
+			return
+		}
+	}
+	panic("no route " + id)
 }

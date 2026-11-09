@@ -102,6 +102,7 @@ func TestSharedRequestsTakeOnePoolWaitSlot(t *testing.T) {
 		go func() { _, err := pool.Render(ctx, ssr.Input{}); held <- err }()
 		synctest.Wait()
 		app := frontApp()
+		readsQuery(app, "app/stats", "other")
 		s := newServer(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
 		if err := s.setFront(dist, pool.RenderPage); err != nil {
@@ -116,7 +117,7 @@ func TestSharedRequestsTakeOnePoolWaitSlot(t *testing.T) {
 			t.Fatalf("%d shared waiters, want %d", n, cap(answers))
 		}
 		other := make(chan *httptest.ResponseRecorder, 1)
-		go func() { other <- get(s, "/stats?other") }()
+		go func() { other <- get(s, "/stats?other=1") }()
 		synctest.Wait()
 		select {
 		case w := <-other:

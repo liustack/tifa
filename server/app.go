@@ -68,6 +68,8 @@ type Layout struct {
 	// Languages are the languages of the area the Layout is in, the default one first, nil for a
 	// Layout outside every area.
 	Languages []string
+	// Query lists the query parameters the Layout function reads (AllQuery), sorted.
+	Query []string
 }
 
 // Route is one directory holding page.tsx, or a route.go that declares a method handler, or both.
@@ -107,6 +109,8 @@ type Route struct {
 	// Languages are the languages of the area the route is in, the default one first. A route
 	// outside every area has none: it is never prefixed, in both prefix modes.
 	Languages []string
+	// Query lists the query parameters the Load reads (AllQuery), sorted.
+	Query []string
 }
 
 // register adds the Layouts and routes of an application. Like http.ServeMux it panics on an
@@ -141,6 +145,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			s.limits[r.Path] = routeLimits{body: r.BodyLimit, read: r.ReadTimeout}
 		}
 		var chain []load
+		var query []string
 		ssrOn := true
 		for i, id := range r.Layouts {
 			l, ok := byID[id]
@@ -150,14 +155,20 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			if l.Load != nil {
 				chain = append(chain, load{id: l.ID, run: l.Load, html: l.HTML})
 			}
+			query = append(query, l.Query...)
 			ssrOn = ssrOn && l.SSR
 			if _, ok := s.layouts[id]; !ok {
 				s.layouts[id] = layoutChain{chain: slices.Clone(chain), ssr: ssrOn}
 				s.modules[id] = slices.Clone(r.Layouts[:i+1])
+				s.query[id] = sortedSet(query)
 			}
 		}
 		if r.Load != nil {
 			chain = append(chain, load{id: r.ID, run: r.Load, html: r.HTML})
+		}
+		query = append(query, r.Query...)
+		if r.Page {
+			s.query[r.Path] = sortedSet(query)
 		}
 		s.path(r.Path)
 		switch {
@@ -223,4 +234,10 @@ func runLoads(c *tifa.Ctx, chain []load) ([]any, []error) {
 	}
 	wg.Wait()
 	return values, errs
+}
+
+func sortedSet(list []string) []string {
+	out := slices.Clone(list)
+	slices.Sort(out)
+	return slices.Compact(out)
 }

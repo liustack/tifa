@@ -405,7 +405,8 @@ func TestDevMainKeepsRequestErrors(t *testing.T) {
 	if len(got.Renders) != 2 {
 		t.Fatalf("renders = %+v", got.Renders)
 	}
-	for i, url := range []string{"/broken?x=1", "/stats"} {
+	// A render is listed by the URL it renders, without the parameter the Loads do not read.
+	for i, url := range []string{"/broken", "/stats"} {
 		if r := got.Renders[i]; r.URL != url || r.Method != "GET" || !strings.Contains(r.Text, "read the time or a random number") || r.Count != 1 {
 			t.Errorf("render %d = %+v", i, r)
 		}
