@@ -685,3 +685,63 @@ func TestTheReportListsEveryCappedTry(t *testing.T) {
 		t.Errorf("capped tries: %d in the window, %d short, %d of them not valid, want 1, 4 and 1:\n%s", inWindow, short, invalid, strings.Join(tries, "\n"))
 	}
 }
+
+// Tifa with its render memo off is a reference in both tables of the body, named as one and kept out
+// of the comparison: what Tifa costs when nothing repeats.
+func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
+	sc := mustScenario("shop")
+	servers := []string{"tifa", "nextjs", "tifa-nocache"}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+	for _, f := range servers {
+		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
+		r.Closed = append(r.Closed, x)
+		l := x
+		l.Model, l.Rate, l.Sessions = "open", 8, 0
+		r.Latency = append(r.Latency, l)
+	}
+	body, _, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	tput, lat, _ := strings.Cut(body, "#### Latency at the same arrival rate")
+	for name, table := range map[string]string{"throughput": tput, "latency": lat} {
+		if !strings.Contains(table, "| Tifa, memo off (reference) |") {
+			t.Errorf("the %s table has no reference row of Tifa with its memo off:\n%s", name, table)
+		}
+		if !strings.Contains(table, "Tifa, memo off (reference) is Tifa with `--ssr-memo-size 0`") || !strings.Contains(table, "not one of the frameworks compared") {
+			t.Errorf("the %s table does not say what the reference is:\n%s", name, table)
+		}
+	}
+	// The reference comes after the frameworks compared.
+	if i, j := strings.Index(tput, "| Tifa, memo off (reference) |"), strings.Index(tput, "| Next.js |"); i < j {
+		t.Errorf("the reference is listed before Next.js:\n%s", tput)
+	}
+}
+
+// The browse comparison runs Tifa as it ships, the three Node frameworks, and Tifa with its render memo
+// off as a reference, which replays the trace recorded against Tifa: recording records each trace
+// once, from the spec of the framework, and browse.sh names the same trace files.
+func TestTheBrowseServersAndTheirTraces(t *testing.T) {
+	if got := strings.Join(BrowseFrameworks, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache" {
+		t.Errorf("the browse servers are %s", got)
+	}
+	env := Env{Shop: "/shop"}
+	for _, s := range env.Specs() {
+		if fw, _, _ := strings.Cut(s.Name, "-"); fw != s.Framework || traceName(s) != fw {
+			t.Errorf("spec %s of framework %s has the trace %s: browse.sh names the trace of a spec by its id before the first dash", s.Name, s.Framework, traceName(s))
+		}
+	}
+	got, err := env.recorded([]string{"tifa-nocache", "nextjs", "tifa", "start"})
+	if err != nil || strings.Join(got, ",") != "tifa,nextjs,start" {
+		t.Errorf("records %v (%v), want tifa,nextjs,start", got, err)
+	}
+	if _, err := env.recorded([]string{"nope"}); err == nil {
+		t.Error("an unknown spec is recorded")
+	}
+	data, err := os.ReadFile(filepath.Join("browse.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "servers=${SERVERS:-"+strings.Join(BrowseFrameworks, ",")+"}") {
+		t.Error("browse.sh does not run the servers of BrowseFrameworks by default")
+	}
+}

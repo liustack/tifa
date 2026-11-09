@@ -24,7 +24,8 @@
 #   SERVER_CPUS       cpus of the server, as taskset -c takes them (Linux)          none: not pinned
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
 #   LOCKS             files to flock while running, space separated, first taken first   none
-#   SERVERS           spec ids                                                      tifa,nextjs,start,reactrouter
+#   SERVERS           spec ids (tifa-nocache: Tifa with its render memo off,         tifa,nextjs,start,reactrouter,tifa-nocache
+#                     a reference that replays the trace of tifa)
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
 #                     (Tifa with no writes), sustain (the rate of Next.js),
 #                     latency (every server at half of that rate)
@@ -43,7 +44,10 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
-servers=${SERVERS:-tifa,nextjs,start,reactrouter}
+servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache}
+# trace_names are the trace files the servers replay, each once: a spec replays the trace of its
+# framework, its id before the first dash (traceName in recorder.go), so tifa-nocache replays tifa.jsonl.
+trace_names() { echo "$servers" | tr "," "\n" | sed "s/-.*//" | awk "!seen[\$0]++"; }
 # The names before sessions are refused, so that an old command line does not run another method.
 for old in USERS EXTRA_USERS; do
   if [ -n "${!old+set}" ]; then echo "$old is gone: the throughput counts concurrent sessions, set SESSIONS (8 by default)" >&2; exit 2; fi
@@ -94,7 +98,7 @@ run_stamp() {
   local f
   echo "traces $(trace_stamp | sha)"
   # What is replayed: the contents of the trace files, and the replayer, the report and this script.
-  echo "trace-files $(for f in $(echo "$servers" | tr ',' ' '); do cat "$traces/$f.jsonl" 2>/dev/null || true; done | sha)"
+  echo "trace-files $(for f in $(trace_names); do cat "$traces/$f.jsonl" 2>/dev/null || true; done | sha)"
   echo "replayer $(git ls-tree HEAD test/compare/ | awk '$4 ~ /\.go$|browse\.sh$/' | sha)"
   echo "replayer-cmd $(git rev-parse HEAD:test/compare/cmd)"
   if [ -n "$(git status --porcelain --untracked-files=no -- test/compare/*.go test/compare/cmd test/compare/browse.sh)" ]; then echo "replayer-dirty"; fi
@@ -122,7 +126,7 @@ traces_current() {
   if trace_stamp | grep -q '^dirty'; then echo "the sources have uncommitted changes"; return 1; fi
   n=$(sed -n 's/.*"blocks": *\([0-9]*\).*/\1/p' "$plans_file" | head -1)
   n=$((${n:-0} * 1050))
-  for f in $(echo "$servers" | tr ',' ' '); do
+  for f in $(trace_names); do
     f=$traces/$f.jsonl
     [ -s "$f" ] || { echo "no $(basename "$f")"; return 1; }
     [ "$(wc -l <"$f" | tr -d ' ')" = "$n" ] || { echo "$(basename "$f") does not hold $n visits"; return 1; }

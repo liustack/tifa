@@ -20,10 +20,25 @@ func fmtCell(values []float64, format string) string {
 // browseLabels name the specs in the tables.
 var browseLabels = map[string]string{
 	"tifa":         "Tifa",
-	"tifa-nocache": "Tifa (cache off)",
+	"tifa-nocache": "Tifa, memo off (reference)",
 	"nextjs":       "Next.js",
 	"start":        "TanStack Start",
 	"reactrouter":  "React Router",
+}
+
+// browseReferences are the specs of the browse comparison that are references, not frameworks
+// compared, with what each stands for, as the tables say it under their rows.
+var browseReferences = map[string]string{
+	"tifa-nocache": "Tifa with `--ssr-memo-size 0`: it renders every page in a VM, what Tifa costs when no render repeats. It is not one of the frameworks compared, and no result is read against it",
+}
+
+// referencesMarkdown says, under a table of the body, what each reference among its rows stands for.
+func (r *BrowseResult) referencesMarkdown(b *strings.Builder, sc BrowseScenario) {
+	for _, f := range r.Servers[sc.Name] {
+		if what, ok := browseReferences[f]; ok {
+			fmt.Fprintf(b, "\n%s is %s.\n", BrowseLabel(f), what)
+		}
+	}
 }
 
 // BrowseLabel is how a spec is named in the tables.
@@ -238,6 +253,7 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 	if marked {
 		b.WriteString("\n" + cappedMark + " The visits of a round of this cell reached the cap of the prepared visits: every server of the scenario gets the data of the same visits before the clock, and a round plays no more. The appendix gives how long each such round took.\n")
 	}
+	r.referencesMarkdown(b, sc)
 }
 
 // cappedMarkdown lists, in the appendix, every closed try of a scenario whose visits reached the
@@ -485,6 +501,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), note)
 	}
+	r.referencesMarkdown(b, sc)
 	return true
 }
 

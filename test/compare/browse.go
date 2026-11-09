@@ -23,8 +23,9 @@ import (
 	"time"
 )
 
-// BrowseFrameworks are the specs the browse comparison runs: each framework as shipped.
-var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter"}
+// BrowseFrameworks are the specs the browse comparison runs: each framework as shipped, then Tifa
+// with its render memo off, a reference that is not compared (browseReferences).
+var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache"}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.

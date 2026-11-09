@@ -364,7 +364,7 @@ func TestVerifyStoreFailsOnAWrongStatus(t *testing.T) {
 	}
 }
 
-func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
+func TestEveryScenarioRunsEachServerOnce(t *testing.T) {
 	env := Env{Shop: "/shop"}
 	for _, sc := range BrowseScenarios {
 		specs, err := env.browseSpecs(sc, BrowseFrameworks)
@@ -375,7 +375,7 @@ func TestEveryScenarioRunsOneTifaAndTheOthersOnce(t *testing.T) {
 		for _, s := range specs {
 			names = append(names, s.Name)
 		}
-		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter" {
+		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache" {
 			t.Errorf("%s runs %s", sc.Name, got)
 		}
 	}
