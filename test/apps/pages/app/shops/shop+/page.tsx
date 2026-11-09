@@ -4,6 +4,8 @@ import { page, type PageData, type Params } from './route.gen'
 export default function Overview() {
   const overview: PageData = page.useLoaderData()
   const params: Params = page.useParams()
+  // The sort the Load reads, as the router reads it from the URL.
+  const sort = [page.useSearch().sort ?? []].flat().join(',')
   return (
     <>
       <ul>
@@ -15,6 +17,7 @@ export default function Overview() {
           </li>
         ))}
       </ul>
+      <p id="sort">{sort}</p>
       <Loaded />
     </>
   )

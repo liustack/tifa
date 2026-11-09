@@ -606,6 +606,14 @@ func TestPagesApp(t *testing.T) {
 	if first.Get("X-Tifa-Render") != "vm" || second.Get("X-Tifa-Render") != "memo" {
 		t.Errorf("render memo: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
 	}
+	// The router in the VM reads a query parameter as the browser does: the escape of a byte
+	// that is no UTF-8 is U+FFFD, the same as query-cases.json says the browser reads.
+	for query, want := range map[string]string{"%FF": "\uFFFD", "%C3%28": "\uFFFD("} {
+		status, header, body := get(t, base+"/shops/south?sort="+query)
+		if status != 200 || header.Get("X-Tifa-Render") != "vm" || !strings.Contains(body, `<p id="sort">`+want+`</p>`) {
+			t.Errorf("?sort=%s: %d %s, want <p id=\"sort\">%s</p>:\n%s", query, status, header.Get("X-Tifa-Render"), want, body)
+		}
+	}
 	// Memo = false renders on every request.
 	_, roll1, rollBody1 := get(t, base+"/dice")
 	_, roll2, rollBody2 := get(t, base+"/dice")
