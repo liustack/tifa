@@ -144,11 +144,6 @@ func pageProduct(url string) StoreProduct {
 	return StoreVariants[i]
 }
 
-// returningLines is how many products the cart of a returning visitor holds besides the lines of the
-// demonstration cart: three draws of a product, a colour, a size and a quantity, so that two returning
-// visitors almost never hold the same cart.
-const returningLines = 3
-
 // returningCart is the adds that make the cart a returning visitor, visit seq of the run, comes back
 // to, on the server before the round (runner.setup): products in stock in the data, drawn from the
 // seed and seq, so every framework gets the same carts.
@@ -156,7 +151,7 @@ func returningCart(seed uint64, seq int, p Plan) []StoreRequest {
 	lang, _ := StorePageKind(p.Steps[0].Page)
 	rng := rand.New(rand.NewPCG(seed^0x510e527fade682d1, uint64(seq)))
 	var reqs []StoreRequest
-	for range returningLines {
+	for range ReturningCartLines {
 		list := inStock()
 		reqs = append(reqs, storeAdd(rng, StoreBase(lang), list[rng.IntN(len(list))]))
 	}

@@ -228,7 +228,7 @@ func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
 				t.Fatalf("%d failures (%s), %d visits, setup %q", round.Failures, round.FirstErr, round.Visits, round.SetupError)
 			}
 			planned := 66 + 13
-			if round.SetupRequests != returningLines*returning || len(f.log) != planned+round.SetupRequests || round.Writes != planned || round.WritesPlanned != planned {
+			if round.SetupRequests != ReturningCartLines*returning || len(f.log) != planned+round.SetupRequests || round.Writes != planned || round.WritesPlanned != planned {
 				t.Fatalf("the shop saw %d writes, the round counted %d and %d of setup, %d were planned", len(f.log), round.Writes, round.SetupRequests, round.WritesPlanned)
 			}
 			for _, line := range f.log {

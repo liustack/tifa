@@ -95,7 +95,7 @@ const listPageSize = 25
 
 var otherProject = map[string]string{"studio": "weekend", "weekend": "studio"}
 
-// Links lists the links of a page, with weights that sum to 1.
+// Links lists the links of a page, with weights that sum to 1 (StaffClicks).
 func Links(url string) []Link {
 	kind, project, _ := PageKind(url)
 	list, stats, other := "/projects/"+project, "/projects/"+project+"/stats", "/projects/"+otherProject[project]
@@ -103,15 +103,18 @@ func Links(url string) []Link {
 	case "list":
 		r := OrderIDs[project]
 		n := min(r[1]-r[0]+1, listPageSize)
-		out := []Link{{stats, 0.2}, {other, 0.2}}
+		w := StaffClicks[kind]
+		out := []Link{{stats, w["stats"]}, {other, w["other"]}}
 		for id := r[1]; id > r[1]-n; id-- {
-			out = append(out, Link{fmt.Sprintf("%s/orders/%s%04d", list, orderPrefix[project], id), 0.6 / float64(n)})
+			out = append(out, Link{fmt.Sprintf("%s/orders/%s%04d", list, orderPrefix[project], id), w["order"] / float64(n)})
 		}
 		return out
 	case "order":
-		return []Link{{list, 0.5}, {stats, 0.25}, {other, 0.25}}
+		w := StaffClicks[kind]
+		return []Link{{list, w["list"]}, {stats, w["stats"]}, {other, w["other"]}}
 	case "stats":
-		return []Link{{list, 0.7}, {other, 0.3}}
+		w := StaffClicks[kind]
+		return []Link{{list, w["list"]}, {other, w["other"]}}
 	}
 	return nil
 }
