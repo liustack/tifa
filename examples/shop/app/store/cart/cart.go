@@ -70,9 +70,12 @@ type cartRecord struct {
 }
 
 // A cart nobody has used for cartIdle is forgotten, as its cookie expires then too, and at most
-// maxCarts are kept, so visitors cannot fill the memory with carts.
+// maxCarts are kept, so visitors cannot fill the memory with carts. The store stands for the
+// database of a real shop, so the cap is high enough that a load test of the comparison drops no
+// cart: a cart of seven lines takes about 700 bytes with its ID and its place in the list, so a full
+// store holds about 70 MB.
 const (
-	maxCarts = 10_000
+	maxCarts = 100_000
 	cartIdle = 30 * 24 * time.Hour
 )
 

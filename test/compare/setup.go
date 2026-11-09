@@ -100,3 +100,8 @@ func (r *runner) makeCart(ctx context.Context, c *http.Client, reqs []StoreReque
 	}
 	return nil
 }
+
+// shopMaxCarts is how many carts the shop keeps (maxCarts in its cart store, and in the ports).
+// Beyond it the shop drops the cart used longest ago, so a run that makes more would lose carts it
+// counts on: the cart store stands for the database of a real shop, which drops none.
+const shopMaxCarts = 100_000

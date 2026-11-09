@@ -68,8 +68,9 @@ export interface CartRecord {
 }
 
 // A cart nobody has used for cartIdle is forgotten, as its cookie expires then too, and at most
-// maxCarts are kept, so visitors cannot fill the memory with carts.
-const maxCarts = 10_000
+// maxCarts are kept, so visitors cannot fill the memory with carts. As in Go, the cap is high
+// enough that a load test of the comparison drops no cart.
+const maxCarts = 100_000
 const cartIdle = 30 * DAY
 
 // carts are the carts by ID. Only IDs this module made are keys.
