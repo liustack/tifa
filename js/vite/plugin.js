@@ -1934,6 +1934,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
   let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
+  let rawQueryWarned // the places of the reads of the raw query the build has warned about
   const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -1945,6 +1946,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       serverActions = new Set()
       lucide = new Map()
       jsxRuntimes = new Map()
+      rawQueryWarned = new Set()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -1996,9 +1998,26 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       },
     },
     transform: {
-      filter: { code: /\$\$FORM_ACTION|\.formatter\b/ },
+      filter: { code: /\$\$FORM_ACTION|\.formatter\b|\buse(?:Search|Location|RouterState)\b/ },
       async handler(code, id) {
         if (code.includes('$$FORM_ACTION') && packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
+        // A component of the app that reads the query of the URL in a way that is not tied to the
+        // parameters of its route gets a warning: the server renders with the parameters the Loads
+        // read only (renderURL in server/page.go), so another one renders differently in the browser.
+        if (!id.includes('?') && !id.startsWith('\0') && packageName(id) === '' && /\.(?:tsx?|jsx?|mjs)$/.test(id) && /\buse(?:Search|Location|RouterState)\b/.test(code) && fs.existsSync(id)) {
+          const source = fs.readFileSync(id, 'utf8')
+          const lang = path.extname(id).slice(1)
+          const parsed = (await loadVite()).parseSync(id, source, { lang: lang === 'mjs' ? 'js' : lang, sourceType: 'module' })
+          for (const r of parsed.errors.length > 0 ? [] : rawQueryReads(parsed.program)) {
+            const before = source.slice(0, r.offset)
+            const place = `${path.relative(getRoot(), id).split(path.sep).join('/')}:${before.split('\n').length}:${r.offset - before.lastIndexOf('\n')}`
+            if (rawQueryWarned.has(place)) continue
+            rawQueryWarned.add(place)
+            this.warn(
+              `${place}: ${r.read} reads the query of the URL while rendering. A query parameter read while rendering must be one the Load of the page or of a Layout reads: the server renders with those only, so another one is empty on the server and the page hydrates differently in the browser. To render by a parameter, read it in the Load, and read it here with the useSearch of the route.`,
+            )
+          }
+        }
         // A formatter of the app that reads the clock fails the build. Its source is read again,
         // as the code here has lost its types and with them its lines. An id with a query, such as
         // ?raw, or one of a virtual module is not that source run as it is.
@@ -4866,6 +4885,108 @@ function clockReads(program) {
     walk(fn.body, (inner) => {
       for (const read in reads) if (reads[read](inner)) found.push({ offset: inner.start, name: name?.type === 'Literal' ? String(name.value) : undefined, read })
     })
+  })
+  return found
+}
+
+// rawQueryReads finds the reads of the query of the URL in a program that are not tied to the
+// parameters of a route, through the hooks of @tanstack/react-router the program imports:
+// useSearch({ strict: false }), and useLocation or useRouterState where they pick search, searchStr
+// or href of the location, in their select or from what they return. The useSearch of a route reads
+// the parameters the route declares, which its Load reads, and is left alone, and so is a hook of
+// the same name the module declares itself. It returns where each read is and what it is.
+function rawQueryReads(program) {
+  const hooks = new Map() // local name to the name the router exports
+  for (const node of program.body) {
+    if (node.type !== 'ImportDeclaration' || node.source.value !== '@tanstack/react-router' || node.importKind === 'type') continue
+    for (const s of node.specifiers) {
+      const name = s.type === 'ImportSpecifier' && s.importKind !== 'type' ? (s.imported.name ?? s.imported.value) : undefined
+      if (name === 'useSearch' || name === 'useLocation' || name === 'useRouterState') hooks.set(s.local.name, name)
+    }
+  }
+  if (hooks.size === 0) return []
+  const fields = new Set(['search', 'searchStr', 'href'])
+  const bare = (node) => {
+    while (node && (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSNonNullExpression' || node.type === 'ParenthesizedExpression' || node.type === 'ChainExpression'))
+      node = node.expression
+    return node
+  }
+  // walk visits every node with the nodes it is in, outermost first.
+  const walk = (node, visit, ancestors = []) => {
+    if (Array.isArray(node)) return node.forEach((child) => walk(child, visit, ancestors))
+    if (node === null || typeof node !== 'object' || typeof node.type !== 'string') return
+    visit(node, ancestors)
+    ancestors.push(node)
+    for (const key in node) if (key !== 'parent') walk(node[key], visit, ancestors)
+    ancestors.pop()
+  }
+  const isFunction = (node) => node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression' || node.type === 'FunctionDeclaration'
+  const keyName = (p) => (p.type !== 'Property' ? undefined : p.key?.type === 'Identifier' && !p.computed ? p.key.name : p.key?.type === 'Literal' ? String(p.key.value) : undefined)
+  const property = (object, name) => (object?.type === 'ObjectExpression' ? object.properties.find((p) => keyName(p) === name) : undefined)
+  // field says whether node reads search, searchStr or href of what location says is a location.
+  const field = (node, location) => {
+    node = bare(node)
+    return node?.type === 'MemberExpression' && !node.computed && fields.has(node.property.name) && location(bare(node.object))
+  }
+  // picks says whether a pattern takes search, searchStr or href out of a location.
+  const picks = (pattern) => bare(pattern)?.type === 'ObjectPattern' && bare(pattern).properties.some((p) => fields.has(keyName(p)))
+  const named = (name) => (node) => node?.type === 'Identifier' && node.name === name
+  // The location in the state of the router is its location or resolvedLocation.
+  const ofState = (state) => (node) =>
+    node?.type === 'MemberExpression' && !node.computed && (node.property.name === 'location' || node.property.name === 'resolvedLocation') && state(bare(node.object))
+  const reads = (scope, location) => {
+    let hit = false
+    walk(scope, (inner) => {
+      hit ||= field(inner, location)
+    })
+    return hit
+  }
+  // A pattern of the state: { location } or { location: { search } }, and what it names the location.
+  const stateReads = (pattern, scope) =>
+    pattern?.type === 'ObjectPattern' &&
+    pattern.properties.some((p) => {
+      const k = keyName(p)
+      if (k !== 'location' && k !== 'resolvedLocation') return false
+      const value = bare(p.value)
+      return picks(value) || (value?.type === 'Identifier' && reads(scope, named(value.name)))
+    })
+  const found = []
+  walk(program, (node, ancestors) => {
+    if (node.type !== 'CallExpression') return
+    const callee = bare(node.callee)
+    const hook = callee?.type === 'Identifier' ? hooks.get(callee.name) : undefined
+    if (!hook) return
+    const options = bare(node.arguments[0])
+    if (hook === 'useSearch') {
+      const strict = bare(property(options, 'strict')?.value)
+      if (strict?.type === 'Literal' && strict.value === false) found.push({ offset: node.start, read: 'useSearch({ strict: false })' })
+      return
+    }
+    const report = () => found.push({ offset: node.start, read: hook === 'useLocation' ? 'useLocation' : 'useRouterState' })
+    const select = bare(property(options, 'select')?.value)
+    if (select?.type === 'ArrowFunctionExpression' || select?.type === 'FunctionExpression') {
+      const param = bare(select.params[0])
+      const hit =
+        hook === 'useLocation'
+          ? picks(param) || (param?.type === 'Identifier' && reads(select.body, named(param.name)))
+          : (param?.type === 'Identifier' && reads(select.body, ofState(named(param.name)))) || stateReads(param, select.body)
+      if (hit) report()
+      return
+    }
+    // Without a select, the hook returns the location, or the state of the router: read on the spot,
+    // or kept in a name the function it is in reads.
+    const self = (n) => n === node
+    const parent = ancestors.at(-1)
+    const grandparent = ancestors.at(-2)
+    if (hook === 'useLocation' ? field(parent, self) : field(grandparent, ofState(self))) return report()
+    if (parent?.type !== 'VariableDeclarator' || bare(parent.init) !== node) return
+    const scope = ancestors.findLast(isFunction) ?? program
+    const id = parent.id
+    const hit =
+      hook === 'useLocation'
+        ? picks(id) || (id.type === 'Identifier' && reads(scope, named(id.name)))
+        : (id.type === 'Identifier' && reads(scope, ofState(named(id.name)))) || stateReads(id, scope)
+    if (hit) report()
   })
   return found
 }
