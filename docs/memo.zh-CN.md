@@ -50,11 +50,11 @@ read_when:
 
 ## 查询参数
 
-页面看得到的查询参数，是它的 `Load` 和上面各层 Layout 函数用 `c.Query` 或 `c.QueryValues` 读过的那些，由 `tifa build` 找出来。服务端渲染只拿到路径和这些参数，按名字排序，同名的多个值保持请求里的顺序，key 里也是这些。其他参数在渲染前就丢掉，也不进 key。浏览器地址栏里的 URL 不动，`OnRequest`、各个 `Load` 和方法处理函数看到的也还是收到的原样请求。
+页面看得到的查询参数，是它的 `Load` 和上面各层 Layout 函数用 `c.Query` 或 `c.QueryValues` 读过的那些，由 `tifa build` 找出来。服务端渲染只拿到路径和这些参数，按名字排序，同名的多个值保持请求里的顺序，key 里也是这些。其他参数在渲染前就丢掉，也不进 key。浏览器地址栏保留每个参数和它的值，只是路由器可能换一种写法（开了多语言时 `a%20b` 可能变成 `a+b`）。`OnRequest`、各个 `Load` 和方法处理函数看到的还是收到的原样请求。
 
-- **追踪参数没有开销。** 页面带上 `?utm_source=mail`、`?fbclid=...` 或 `?x=random`，key 和不带时一样，记忆直接回答。参数换个顺序 key 也一样。
-- **要按参数渲染，就在 `Load` 里读它。** 没有 `Load` 读的参数改变不了数据，渲染也就用不着它。组件里用路由自己的 `useSearch`（`route.gen` 的 `page.useSearch()`）读，它带着各个 `Load` 读的参数的类型。见 [Link 和 navigate 里的查询参数](app.zh-CN.md#link-和-navigate-里的查询参数)。
-- **组件读别的参数会水合不一致。** 服务端渲染时没有这个参数，浏览器里有，React 会报水合错误，并在浏览器里重新渲染那一块。`tifa build` 遇到 `useSearch({ strict: false })`，以及 `useLocation` 或 `useRouterState` 取 location 的 `search`、`searchStr` 或 `href` 时会警告，并给出文件和行号。这类参数在 `Load` 里读，或者只有浏览器要用时放进 effect 里读。
+- **追踪参数不增加渲染记忆的 key，也不增加服务端渲染次数。** 页面带上 `?utm_source=mail`、`?fbclid=...` 或 `?x=random`，key 和不带时一样，记忆直接回答。各个 `Load` 照常每个请求都运行。参数换个顺序 key 也一样。
+- **要按参数渲染，就在 `Load` 里读它。** 没有 `Load` 读的参数改变不了数据，渲染也就用不着它。组件里按名字读，比如用 `route.gen` 里路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带着各个 `Load` 读的参数的类型，但别的参数也照样放行，所以它不能让别的参数变安全。见 [Link 和 navigate 里的查询参数](app.zh-CN.md#link-和-navigate-里的查询参数)。
+- **组件读别的参数会水合不一致。** 服务端渲染时没有这个参数，浏览器里有，React 会报水合错误，并在浏览器里重新渲染那一块。`tifa build` 会警告渲染时读到服务端渲染这段代码时没有的参数，并给出文件和行号：从 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 按名字读的参数，以及整个 location 的 `search`、`searchStr` 或 `href`。`page.tsx` 和 `layout.tsx` 按它们自己的参数检查，其他模块可能在任何页面下渲染，这类读法一律警告。`useEffect` 或 `useLayoutEffect` 里的读取只在浏览器里运行，不警告。检查一次只看一个模块，它调用的辅助函数里的读取看不到。这类参数在 `Load` 里读，或者只有浏览器要用时放进 effect 里读。
 - **重定向保留 URL。** 路由器把 URL 的另一种写法（比如 `/%61`）转到它自己的写法时，重定向会把渲染没看到的参数接回去。
 - **不做 SSR 的页面**（`SSR = false`）不在服务端渲染，它的文档带的是收到时的原样 URL。
 
