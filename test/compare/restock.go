@@ -22,8 +22,12 @@ import (
 // stockMargin is how many times what a run can buy at most a product gets in stock.
 const stockMargin = 2
 
-// maxStock is the most stock the back office takes for a product (Edit.Validate in the shop).
-const maxStock = 99_999
+// maxStock is the most stock the back office takes for a product, and maxPrice the highest price in
+// fen (Edit.Validate in the shop).
+const (
+	maxStock = 99_999
+	maxPrice = 9_999_900
+)
 
 // VisitWrites is what one visit sends that can take stock: the adds that make its cart before the
 // round (a returning visit), then the writes of the visit.
@@ -73,10 +77,9 @@ func (w *Workload) stockOf(seq0, n int) []VisitWrites {
 	return out
 }
 
-// placesOrder says whether a write of the back office of a kind can place an order.
-func placesOrder(kind string) bool {
-	return kind == WriteCreate || kind == WriteShip || kind == WriteEdit
-}
+// placesOrder says whether a write of the back office of a kind can place an order: a create, and a
+// ship that finds the pool empty. An edit of a product places none.
+func placesOrder(kind string) bool { return kind == WriteCreate || kind == WriteShip }
 
 // boughtBy is the pieces of each product of each shop that the orders of one visit take at most.
 func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
@@ -195,7 +198,22 @@ func restockShop(send func(method, path string, body []byte) ([]byte, error), sp
 	if err != nil {
 		return err
 	}
-	// The list comes as Tifa answers the data of a page: by the ID of its route.
+	entries, err := productList(project, data)
+	if err != nil {
+		return fmt.Errorf("restock: %w", err)
+	}
+	for _, e := range entries {
+		e.Stock = max(e.Stock, need[e.Slug])
+		if _, err := send(http.MethodPatch, spec.EditProduct(project, e.Slug), productBody(e)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// productList reads the list of the products of a shop, as Spec.Products answers it: as Tifa
+// answers the data of a page, by the ID of its route. It fails on an empty list.
+func productList(project string, data []byte) ([]shopEntry, error) {
 	var list struct {
 		Routes map[string]struct {
 			Status int         `json:"status"`
@@ -203,22 +221,22 @@ func restockShop(send func(method, path string, body []byte) ([]byte, error), sp
 		} `json:"routes"`
 	}
 	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("restock: the list of products of %s: %w", project, err)
+		return nil, fmt.Errorf("the list of products of %s: %w", project, err)
 	}
 	entries := list.Routes[productsRoute].Data
 	if len(entries) == 0 {
-		return fmt.Errorf("restock: the list of products of %s is empty: %.200s", project, data)
+		return nil, fmt.Errorf("the list of products of %s is empty: %.200s", project, data)
 	}
-	for _, e := range entries {
-		edit := map[string]any{
-			"priceCents": e.PriceCents, "stock": max(e.Stock, need[e.Slug]), "nameEn": e.NameEN, "nameZh": e.NameZH,
-			"descriptionEn": e.DescriptionEN, "descriptionZh": e.DescriptionZH,
-		}
-		if _, err := send(http.MethodPatch, spec.EditProduct(project, e.Slug), mustJSON(edit)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return entries, nil
+}
+
+// productBody is the body of the edit of a product (Spec.EditProduct): every field the back office
+// edits, as e has them.
+func productBody(e shopEntry) []byte {
+	return mustJSON(map[string]any{
+		"priceCents": e.PriceCents, "stock": e.Stock, "nameEn": e.NameEN, "nameZh": e.NameZH,
+		"descriptionEn": e.DescriptionEN, "descriptionZh": e.DescriptionZH,
+	})
 }
 
 // storefrontShop is the shop of the back office whose products the storefront sells.

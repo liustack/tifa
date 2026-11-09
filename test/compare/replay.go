@@ -278,9 +278,13 @@ type runner struct {
 	write      Writer
 	create     func(project string) string // the path that places an order in a project
 	storeWrite func(path string) string    // the path in this app of a write of the storefront
-	buildID    string                      // of Tifa, put into the navigation requests it recorded
-	wl         *Workload
-	seed       uint64
+	// products and editProduct are the paths of the product list of the back office and of the
+	// edit of a product (Spec.Products, Spec.EditProduct).
+	products    func(project, buildID string) string
+	editProduct func(project, product string) string
+	buildID     string // of Tifa, put into the navigation requests it recorded
+	wl          *Workload
+	seed        uint64
 	// inflight counts the requests sent and not yet answered, for the check that no backlog grows.
 	inflight atomic.Int64
 	cpu      func() float64 // processor seconds of the server so far
@@ -290,6 +294,8 @@ type runner struct {
 	// carts are the cookies of the returning visits of the round, by visit, made by setupCarts before
 	// the clock.
 	carts map[int]http.CookieJar
+	// editing holds the edits of the products of a shop one at a time (doWrite), by project.
+	editing sync.Map // of *sync.Mutex
 }
 
 var tifaBuild = regexp.MustCompile(`_tifa=[0-9a-f]+\.`)

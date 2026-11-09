@@ -984,7 +984,7 @@ func (r *runner) verifyAdmin(ctx context.Context) error {
 	if err := json.Unmarshal(placed, &order); err != nil || order.ID == "" {
 		return fmt.Errorf("the order placed has no id: %v %.200s", err, placed)
 	}
-	r.pool.countCreated(r.seed, "studio")
+	r.pool.countCreated("studio")
 	if err := r.shows(ctx, "place an order", "/projects/studio/orders/"+order.ID, note); err != nil {
 		return err
 	}
@@ -1003,7 +1003,7 @@ func (r *runner) verifyAdmin(ctx context.Context) error {
 	// The recipient of an order that waits: SH-1041 when the pool still holds it (before any write of a
 	// round, and its page has a trace), else the order placed above.
 	target, customer, phone := order.ID, "林夏", "13800138000"
-	if r.pool.holds(r.seed, "studio", "SH-1041") {
+	if r.pool.holds("studio", "SH-1041") {
 		target, customer, phone = "SH-1041", WritableOrders[1].Customer, WritableOrders[1].Phone
 	}
 	if _, err := call(http.MethodPatch, r.write("studio", target), map[string]any{"customer": customer, "phone": phone, "address": Address(n)}); err != nil {
@@ -1311,7 +1311,7 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 	if err != nil {
 		return nil, err
 	}
-	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}

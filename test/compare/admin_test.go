@@ -24,6 +24,8 @@ type fakeShop struct {
 	// only the stats page.
 	stale, staleStats bool
 	log               []string
+	// products are the products of each shop as the back office lists them, by slug.
+	products map[string]map[string]*shopEntry
 }
 
 type fakeOrder struct {
@@ -38,8 +40,16 @@ func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
 		"SH-1041": {project: "studio", customer: "陈默"},
 		"SH-1042": {project: "studio", customer: "林夏"},
 		"WK-0201": {project: "weekend", customer: "苏禾"},
-	}, next: map[string]int{"studio": 1043, "weekend": 202}}
+	}, next: map[string]int{"studio": 1043, "weekend": 202}, products: map[string]map[string]*shopEntry{}}
+	for project, slugs := range shopProducts {
+		f.products[project] = map[string]*shopEntry{}
+		for i, slug := range slugs {
+			f.products[project][slug] = &shopEntry{Slug: slug, PriceCents: 10000 + 100*i, Stock: 5, NameEN: "N " + slug, NameZH: "名" + slug, DescriptionEN: "D.", DescriptionZH: "述。"}
+		}
+	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /compare-write/{project}/products", f.productList)
+	mux.HandleFunc("PATCH /compare-write/{project}/products/{product}", f.editProduct)
 	mux.HandleFunc("POST /compare-write/{project}", f.create)
 	mux.HandleFunc("POST /compare-write/{project}/{order}", f.write)
 	mux.HandleFunc("PUT /compare-write/{project}/{order}", f.write)
@@ -115,6 +125,44 @@ func (f *fakeShop) write(w http.ResponseWriter, r *http.Request) {
 	json.MarshalWrite(w, map[string]string{"id": id})
 }
 
+// productList lists the products of a shop as the back office does, in the envelope of the data of
+// a page.
+func (f *fakeShop) productList(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	project := r.PathValue("project")
+	var list []shopEntry
+	for _, slug := range shopProducts[project] {
+		list = append(list, *f.products[project][slug])
+	}
+	f.log = append(f.log, "list "+project)
+	w.Header().Set("Content-Type", "application/json")
+	json.MarshalWrite(w, map[string]any{"routes": map[string]any{productsRoute: map[string]any{"status": 200, "data": list}}})
+}
+
+// editProduct takes an edit of a product with all its fields. It refuses with 409 one that changes
+// no field, changes a text or takes stock away, which no staff edit of a run may do.
+func (f *fakeShop) editProduct(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	project := r.PathValue("project")
+	p := f.products[project][r.PathValue("product")]
+	var in shopEntry
+	if err := json.UnmarshalRead(r.Body, &in); err != nil || p == nil {
+		http.Error(w, "bad", 400)
+		return
+	}
+	in.Slug = p.Slug
+	if in == *p || in.NameEN != p.NameEN || in.NameZH != p.NameZH || in.DescriptionEN != p.DescriptionEN || in.DescriptionZH != p.DescriptionZH || in.Stock < p.Stock {
+		http.Error(w, "refused", 409)
+		return
+	}
+	*p = in
+	f.log = append(f.log, "edit "+project)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{}`))
+}
+
 // stats is the carrier table of the stats page, as React renders it, with the parcels of each
 // carrier. A stale one counts only those of the data.
 func (f *fakeShop) stats(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +205,9 @@ func adminRunner(t *testing.T) (*runner, *fakeShop) {
 	return newTestRunner(srv.URL, BrowseScenario{Name: "x"}), f
 }
 
-func TestStaffWritesShipTheOldestEditAnyAndFallBackToACreate(t *testing.T) {
+// A ship takes the oldest order of the pool, or places one when the pool is empty. An edit reads the
+// products of its shop and sends one back with a new price or more stock, and needs no order.
+func TestStaffWritesShipTheOldestEditAProductAndFallBackToACreate(t *testing.T) {
 	r, f := adminRunner(t)
 	v := &visitState{client: &http.Client{}}
 	a := newAcc()
@@ -171,30 +221,32 @@ func TestStaffWritesShipTheOldestEditAnyAndFallBackToACreate(t *testing.T) {
 	}
 	send(WriteShip, "studio")
 	send(WriteShip, "studio")
-	send(WriteShip, "studio") // the pool of studio is empty now
-	send(WriteEdit, "studio") // goes to the order that the last write placed
+	send(WriteShip, "studio") // the pool of studio is empty now: a create
+	send(WriteEdit, "studio") // reads the products, then edits one
 	send(WriteEdit, "studio")
 	send(WriteShip, "studio") // takes the order placed, which is the only one left
 	send(WriteShip, "weekend")
-	send(WriteEdit, "weekend") // the pool of weekend is empty: a create
+	send(WriteEdit, "weekend") // an edit needs no order
+	send(WriteShip, "weekend") // the pool of weekend is empty: a create
 	send(WriteCreate, "weekend")
-	want := []string{"POST SH-1041", "POST SH-1042", "create SH-1043", "PATCH SH-1043", "PATCH SH-1043", "POST SH-1043", "POST WK-0201", "create WK-0202", "create WK-0203"}
+	want := []string{"POST SH-1041", "POST SH-1042", "create SH-1043", "list studio", "edit studio", "list studio", "edit studio", "POST SH-1043", "POST WK-0201", "list weekend", "edit weekend", "create WK-0202", "create WK-0203"}
 	if strings.Join(f.log, "|") != strings.Join(want, "|") {
 		t.Fatalf("the shop saw %v, want %v", f.log, want)
 	}
-	if a.kinds[WriteCreate] != 3 || a.kinds[WriteShip] != 4 || a.kinds[WriteEdit] != 2 || a.poolEmpty != 2 {
+	if a.kinds[WriteCreate] != 3 || a.kinds[WriteShip] != 4 || a.kinds[WriteEdit] != 3 || a.poolEmpty != 2 {
 		t.Errorf("writes %v, %d with an empty pool", a.kinds, a.poolEmpty)
 	}
 	if got := r.pool.orderCounts(); got["studio"] != 43 || got["weekend"] != 14 {
 		t.Errorf("orders %v", got)
 	}
-	if len(a.lat["write"]) != 9 || len(a.lat["write create"]) != 3 || a.responses["write ship 200 application/json"] != 4 {
-		t.Errorf("latencies %v, responses %v", a.lat, a.responses)
+	// An edit is one write of two requests, the list and the edit.
+	if len(a.lat["write"]) != 10 || len(a.lat["write create"]) != 3 || len(a.lat["write edit"]) != 3 || a.responses["write ship 200 application/json"] != 4 || a.requests != 13 {
+		t.Errorf("latencies %v, responses %v, %d requests", a.lat, a.responses, a.requests)
 	}
 }
 
-// Writes of a visit run while other users write: an edit must not meet an order that a ship write
-// took at the same moment.
+// Writes of a visit run while other users write: a ship never meets an order that another ship took
+// at the same moment, and an edit never takes stock away, though edits of one shop run at once.
 func TestStaffWritesOfManyUsersNeverMeetAShippedOrder(t *testing.T) {
 	r, _ := adminRunner(t)
 	kinds := []string{WriteCreate, WriteShip, WriteEdit, WriteEdit, WriteCreate, WriteEdit, WriteShip}

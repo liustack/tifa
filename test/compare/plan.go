@@ -242,10 +242,6 @@ var shopProducts = map[string][]string{
 
 var carrierCodes = []string{"SF", "JD", "ZTO", "YTO", "EMS"}
 
-// AdminAddress is the address that the write after page view after of visit seq gives an order. It
-// is unique.
-func AdminAddress(seq, after int) string { return fmt.Sprintf("演示地址 %08d-%02d", seq, after) }
-
 // adminLine is a product of a new order.
 type adminLine struct {
 	Slug     string `json:"slug"`
@@ -254,8 +250,7 @@ type adminLine struct {
 
 // AdminBody is the body of a write of the back office of one kind, for the write after page view
 // after of visit seq. It depends on the seed, the visit, the view and the project only, so every
-// framework gets the same. The edit (productEdit) also needs the name of the order it goes to, which
-// the runner adds.
+// framework gets the same. It is the body of a create or a ship.
 func AdminBody(seed uint64, seq, after int, kind, project string) any {
 	rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(seq)<<20|uint64(after)))
 	switch kind {
@@ -275,9 +270,5 @@ func AdminBody(seed uint64, seq, after int, kind, project string) any {
 		code := carrierCodes[rng.IntN(len(carrierCodes))]
 		return map[string]any{"carrier": code, "trackingNo": fmt.Sprintf("%s%010d", code, rng.Int64N(1e10))}
 	}
-	// TODO(shop-merge): the edit of a product. Until the back office has its product edit page, it is
-	// the closest write it has: the recipient of an order, the phone and the address (the name is the
-	// order's own).
-	c := shopCustomers[rng.IntN(len(shopCustomers))]
-	return map[string]any{"phone": c.Phone, "address": AdminAddress(seq, after)}
+	panic("no body of the back office for a write of the kind " + kind) // an edit of a product is productChange
 }

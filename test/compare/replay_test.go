@@ -63,7 +63,7 @@ func cancelled(url, class string, s, e float64) TraceReq {
 }
 
 func testRunner(srv *httptest.Server, plans []Plan, traces map[int]Trace, writes map[[2]int]PlannedWrite) *runner {
-	return &runner{base: srv.URL, write: nodePath, create: nodeCreate, storeWrite: samePath, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }, seed: 1,
+	return &runner{base: srv.URL, write: nodePath, create: nodeCreate, storeWrite: samePath, products: nodeProducts, editProduct: nodeEditProduct, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }, seed: 1,
 		wl: &Workload{Plans: plans, Traces: traces, Writes: writes, Scenario: BrowseScenario{Name: "x"}}}
 }
 
@@ -88,7 +88,7 @@ func newTestRunner(base string, sc BrowseScenario, traces ...Trace) *runner {
 		}
 		wl.Plans = append(wl.Plans, p)
 	}
-	return &runner{base: base, write: nodePath, create: nodeCreate, storeWrite: samePath, wl: wl, seed: 1, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
+	return &runner{base: base, write: nodePath, create: nodeCreate, storeWrite: samePath, products: nodeProducts, editProduct: nodeEditProduct, wl: wl, seed: 1, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }}
 }
 
 // visitOnce plays visit seq of the runner's sequence and returns what it saw, with the error of the

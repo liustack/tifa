@@ -67,14 +67,8 @@ func TestAdminBodiesAreValidAndTheSameEveryTime(t *testing.T) {
 				if s := AdminBody(7, plan, after, WriteShip, project).(map[string]any); !tracking.MatchString(s["trackingNo"].(string)) || !slices.Contains(carrierCodes, s["carrier"].(string)) {
 					t.Fatalf("ship %v", s)
 				}
-				if r := AdminBody(7, plan, after, WriteEdit, project).(map[string]any); !phone.MatchString(r["phone"].(string)) || len([]rune(r["address"].(string))) > 100 {
-					t.Fatalf("edit %v", r)
-				}
 			}
 		}
-	}
-	if AdminAddress(1, 2) == AdminAddress(1, 3) || AdminAddress(1, 2) == AdminAddress(2, 2) {
-		t.Error("addresses repeat")
 	}
 }
 

@@ -138,9 +138,11 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 	tifa, nocache, node := warmSpecs()
 	sc := mustScenario("shop")
 	// own says whether a server got the requests of its round and no other: the GETs of the round, and
-	// its writes and those of its setup.
+	// its writes and those of its setup. The fake counts the requests of the product list and its
+	// edits apart ("R"), and an edit of a round is two of them, the list and the edit.
 	own := func(l *launched, out *Round) bool {
-		return int(l.gets.Load()) == out.Requests-out.Writes && int(l.hits.Load()) == out.Requests+out.SetupRequests
+		edits := out.WriteKinds[WriteEdit]
+		return int(l.gets.Load()) == out.Requests-out.Writes-edits && int(l.hits.Load()) == out.Requests+out.SetupRequests-2*edits
 	}
 	// setUp checks that a server of a round was restocked, then got the carts of the setup, then the
 	// round, with nothing between (Tifa), or the warm-up between the restock and the carts (Node).
@@ -148,8 +150,8 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 		t.Helper()
 		o := l.seq.order()
 		rest := strings.TrimLeft(o, "R")
-		if len(o)-len(rest) < 2 || strings.Contains(rest, "R") {
-			t.Errorf("the server of the round got %.40s..., want the restock (a list and its edits) before anything else", o)
+		if len(o)-len(rest) < 2 || strings.Count(rest, "R") != 2*out.WriteKinds[WriteEdit] {
+			t.Errorf("the server of the round got %.40s... with %d edits of products in the round, want the restock (a list and its edits) before anything else", o, out.WriteKinds[WriteEdit])
 		}
 		if warmed {
 			return
@@ -322,13 +324,11 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					for i, l := range list {
 						// An add, the carts of the setup among them, is traffic here.
 						o := strings.ReplaceAll(l.seq.order(), "A", "T")
-						// Every server of traffic is restocked before it, and only then.
+						// Every server of traffic is restocked before it (the edits of products of the traffic are
+						// "R" too: TestNothingThatRendersPrecedesTheTrafficOfTifa counts them).
 						if i := strings.IndexByte(o, 'T'); i >= 0 {
 							if i == 0 || strings.Trim(o[:i], "R") != "" {
 								t.Errorf("server of %s: %s, want the restock and nothing else before the traffic", spec.Name, o)
-							}
-							if strings.Contains(o[i:], "R") {
-								t.Errorf("server of %s: %s, a restock among the traffic", spec.Name, o)
 							}
 						}
 						o = strings.ReplaceAll(o, "R", "")
