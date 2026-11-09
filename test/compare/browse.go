@@ -81,6 +81,9 @@ type BrowseResult struct {
 	// Blocks is the size of the measured workload of each scenario, number of sessions and spec (whole
 	// blocks), taken from the warm-up of its first round.
 	Blocks map[string]int `json:"blocks"`
+	// Prepared is, per scenario, the visits whose data every server of the scenario gets before the
+	// clock of a closed round (prepared): the same for all, whatever each was sized to.
+	Prepared map[string]int `json:"prepared,omitempty"`
 	// Sustain is, per scenario and spec ("shop/tifa"), the search for the arrival rate it
 	// sustains in the open model.
 	Sustain map[string]*Sustain `json:"sustain"`
@@ -379,6 +382,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		}
 		b.res.Config = cfg
 		b.res.Blocks = map[string]int{}
+		b.res.Prepared = map[string]int{}
 		b.res.Sustain = map[string]*Sustain{}
 		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
 	}
@@ -404,15 +408,16 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // The server gets no request before f that renders a page: the check that the writes of the scenario
 // show in its pages runs on a server of its own that is thrown away (checkWrites, once for a spec and a
 // scenario), so that a server of Tifa starts its round with an empty render memo. A run with writes
-// first restocks the server (prepare), which renders nothing, for visits visits (-1 for a run that
-// plays for a time, the sizing run), and f then makes the orders of its ships and the carts of the
-// returning visitors before its clock (setup), which render nothing either. A run whose restock fails is an invalid round, and f does not
+// first restocks the server (prepare), which renders nothing, for prepared visits, at least the visits
+// it plays (-1 for both in a run that plays for a time, the sizing run), and f then makes the orders
+// of the ships and the carts of the returning visitors of those visits before its clock (setup), which
+// render nothing either. A run whose restock fails is an invalid round, and f does not
 // run. A run that can make more carts than the shop keeps (cartsFit) is an error before it sends
 // anything. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
-func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visits int, f func(*runner) *Round) (*Round, error) {
+func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visits, prepared int, f func(*runner) *Round) (*Round, error) {
 	// A round with no writes (the read-only control) has none to check, and writes nothing.
 	if key := sc.Name + "/" + name; !sc.ReadOnly && !b.checked[key] {
 		if err := b.checkWrites(ctx, name, sc); err != nil {
@@ -432,16 +437,20 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 	if err != nil {
 		return nil, err
 	}
-	// The shop keeps shopMaxCarts carts: a round that can make more fails before it sends anything.
-	played := visits
-	if played < 0 {
-		played = sizingVisits(b.o.Warm)
+	// The data before the clock is made for prepared visits, at least the visits played. The shop
+	// keeps shopMaxCarts carts: a run that can make more fails before it sends anything.
+	if prepared < 0 {
+		prepared = sizingVisits(b.o.Warm)
 	}
-	if err := r.wl.cartsFit(0, played, shopMaxCarts); err != nil {
+	if visits > prepared {
+		panic(fmt.Sprintf("a run of %d visits with the data of %d", visits, prepared))
+	}
+	r.prepared = prepared
+	if err := r.wl.cartsFit(0, prepared, shopMaxCarts); err != nil {
 		return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
 	}
 	if !sc.ReadOnly {
-		if err := b.prepare(ctx, r, b.specs[name], visits); err != nil {
+		if err := b.prepare(ctx, r, b.specs[name], visits, prepared); err != nil {
 			return &Round{Framework: name, Scenario: sc.Name, WhyInvalid: err.Error()}, nil
 		}
 	}
@@ -486,7 +495,7 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 		return err
 	}
 	blocks := BlocksFor(rate, window, b.set.Blocks, reads.blockVisits())
-	out, err := b.with(ctx, "tifa", reads, blocks*reads.blockVisits(), func(r *runner) *Round {
+	out, err := b.with(ctx, "tifa", reads, blocks*reads.blockVisits(), blocks*reads.blockVisits(), func(r *runner) *Round {
 		return r.RunClosed(ctx, b.o.Sessions, blocks*reads.blockVisits(), 2*window)
 	})
 	if err != nil {
@@ -498,35 +507,84 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	return b.commit()
 }
 
+// prepareHeadroom is how many times the visits of the longest round a server of a scenario was sized
+// to at the base sessions the data before the clock of its closed rounds is made for. A server that
+// steps up to more sessions, or whose rounds are resized, can be sized to more visits: a round never
+// plays more than the data was made for (Round.Capped).
+const prepareHeadroom = 2
+
+// prepared is how many visits of a scenario every server gets the data of before the clock of a
+// closed round: the restock, the orders of the ships and the carts of the returning visitors. It is
+// the same for every server of the scenario, so that each starts its rounds with the same data and
+// is sent the same writes (an edit of the stock is worked out from what the restock gave): it is
+// prepareHeadroom times the visits of the longest round a server of the scenario was sized to at the
+// base sessions. Every server is sized first, and the number is kept in the result.
+func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (int, error) {
+	if n := b.res.Prepared[sc.Name]; n > 0 {
+		return n, nil
+	}
+	most := 0
+	for _, fw := range b.servers[sc.Name] {
+		if err := b.sizeCell(ctx, fw, sc, b.o.Sessions); err != nil {
+			return 0, err
+		}
+		most = max(most, b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, fw)])
+	}
+	if b.res.Prepared == nil {
+		b.res.Prepared = map[string]int{}
+	}
+	b.res.Prepared[sc.Name] = prepareHeadroom * most * sc.blockVisits()
+	b.logf("prepare %-10s the data of %d visits before the clock of every closed round, for every server\n", sc.Name, b.res.Prepared[sc.Name])
+	return b.res.Prepared[sc.Name], b.commit()
+}
+
+// sizeCell sizes the closed rounds of a server at a number of sessions, once (size).
+func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, sessions int) error {
+	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
+	if _, ok := b.res.Blocks[key]; ok {
+		return nil
+	}
+	rate, err := b.size(ctx, fw, sc, sessions)
+	if err != nil {
+		return err
+	}
+	b.res.Blocks[key] = BlocksFor(rate, b.o.Target, b.set.Blocks, sc.blockVisits())
+	b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
+	return b.commit()
+}
+
 // closedRound plays one round of a cell, again (up to three tries) while it is not valid, and keeps
 // every try.
 func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, sessions, round int) (*Round, error) {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
 	planBlocks := b.set.Blocks
-	if _, ok := b.res.Blocks[key]; !ok {
-		rate, err := b.size(ctx, fw, sc, sessions)
-		if err != nil {
-			return nil, err
-		}
-		b.res.Blocks[key] = BlocksFor(rate, b.o.Target, planBlocks, sc.blockVisits())
-		b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
-		if err := b.commit(); err != nil {
-			return nil, err
-		}
+	prepared, err := b.prepared(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.sizeCell(ctx, fw, sc, sessions); err != nil {
+		return nil, err
 	}
 	for attempt := 1; ; attempt++ {
-		out, err := b.with(ctx, fw, sc, b.res.Blocks[key]*sc.blockVisits(), func(r *runner) *Round {
+		// A round never plays more visits than every server gets the data of: one sized to more
+		// plays them all, and is kept when that ends it early (calibrate).
+		visits := b.res.Blocks[key] * sc.blockVisits()
+		capped := visits > prepared
+		if capped {
+			visits = prepared
+		}
+		out, err := b.with(ctx, fw, sc, visits, prepared, func(r *runner) *Round {
 			if b.specs[fw].WarmsUp() {
 				r.Warm(ctx, sessions, b.o.Warm)
 			}
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
-			return r.RunClosed(ctx, sessions, b.res.Blocks[key]*sc.blockVisits(), 2*b.o.Target)
+			return r.RunClosed(ctx, sessions, visits, 2*b.o.Target)
 		})
 		if err != nil {
 			return nil, err
 		}
-		out.Round, out.Attempt = round, attempt
+		out.Round, out.Attempt, out.Capped = round, attempt, capped
 		if blocks := judgeClosed(out, b.o.Target, planBlocks, sc.blockVisits(), b.o.LoadCPUCount); blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
@@ -534,8 +592,8 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		if err := b.commit(); err != nil {
 			return nil, err
 		}
-		b.logf("closed %-10s %2d sessions %-12s round %d (try %d): %d blocks, %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
-			sc.Name, sessions, fw, round, attempt, out.Blocks, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
+		b.logf("closed %-10s %2d sessions %-12s round %d (try %d): %d blocks (capped %v), %.1f page views/s, %.2f ms CPU/page view, writes %.1f%%, %d failures, pass %v %s valid %v %s\n",
+			sc.Name, sessions, fw, round, attempt, out.Blocks, out.Capped, float64(out.PageViews)/out.Seconds, 1000*out.CPUSeconds/math.Max(1, float64(out.PageViews)), 100*out.WriteShare, out.Failures, out.Pass, out.Why, out.Valid, out.WhyInvalid)
 		if out.Valid || attempt >= maxTries {
 			return out, nil
 		}
@@ -551,7 +609,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
 	sized := &Round{}
-	out, err := b.with(ctx, fw, sc, -1, func(r *runner) *Round {
+	out, err := b.with(ctx, fw, sc, -1, -1, func(r *runner) *Round {
 		rate, sized = r.Size(ctx, sessions, b.o.Warm, sizingVisits(b.o.Warm))
 		return &Round{}
 	})
@@ -607,7 +665,8 @@ func judgeClosed(out *Round, target time.Duration, planBlocks, blockVisits, load
 func calibrate(out *Round, target time.Duration, planBlocks, blockVisits int) int {
 	lo, hi := roundLength(target)
 	ended := out.Visits + out.VisitsFailed
-	if ended == 0 || (out.Seconds >= lo && out.Seconds <= hi) {
+	// A round that played every prepared visit cannot be made longer: short, it is kept as it is.
+	if ended == 0 || (out.Seconds >= lo || out.Capped) && out.Seconds <= hi {
 		return 0
 	}
 	if out.Pass && out.Valid {
@@ -648,7 +707,7 @@ func visitsFor(rate float64, window time.Duration, cycle int) int {
 func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
 	cycle := b.set.Blocks * sc.blockVisits()
 	visits := visitsFor(rate, window, cycle)
-	out, err := b.with(ctx, fw, sc, visits, func(r *runner) *Round {
+	out, err := b.with(ctx, fw, sc, visits, visits, func(r *runner) *Round {
 		if b.specs[fw].WarmsUp() {
 			r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0, true) // discarded
 		}

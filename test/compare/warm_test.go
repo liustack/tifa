@@ -160,9 +160,10 @@ func TestNothingThatRendersPrecedesTheTrafficOfTifa(t *testing.T) {
 		if warmed {
 			return
 		}
-		ships := out.Mix.Ships
+		// The orders are of the ships of the visits the data is made for, at least those of the round.
+		ships := len(rest) - len(strings.TrimLeft(rest, "O"))
 		setup := strings.Repeat("O", ships) + strings.Repeat("A", out.SetupRequests-ships)
-		if ships == 0 || out.SetupRequests <= ships || !strings.HasPrefix(rest, setup+"T") {
+		if ships < max(1, out.Mix.Ships) || out.SetupRequests <= ships || !strings.HasPrefix(rest, setup+"T") {
 			t.Errorf("after the restock the server got %.40s..., want the %d orders of the ships, then the %d adds of the carts, then the round", rest, ships, out.SetupRequests-ships)
 		}
 	}

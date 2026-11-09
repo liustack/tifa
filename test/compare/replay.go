@@ -296,6 +296,10 @@ type runner struct {
 	// carts are the cookies of the returning visits of the round, by visit, made by setupCarts before
 	// the clock.
 	carts map[int]http.CookieJar
+	// prepared is how many visits from the first the data before the clock is made for: the restock,
+	// the orders of the ships and the carts of the returning visitors (browse.with). It is at least
+	// the visits the run plays, and the same for every server of a scenario.
+	prepared int
 	// restocked is the stock the restock gave each product of the storefront it raised, by slug, set
 	// before the clock (prepare). An edit of the stock sets more than that (productChange).
 	restocked map[string]int

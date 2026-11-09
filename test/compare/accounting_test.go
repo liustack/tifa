@@ -353,3 +353,20 @@ func TestAClosedRoundChecksTheHeadroomOfTheLoadGenerator(t *testing.T) {
 		t.Error("the report says a pinned load generator was not checked")
 	}
 }
+
+// A closed round that played every visit the data before the clock was made for (Capped) cannot be
+// made longer: when it ends before the window it stays valid and is not resized. Too long, it is
+// resized as any other.
+func TestARoundCappedAtThePreparedVisitsIsKeptWhenShort(t *testing.T) {
+	target := 75 * time.Second
+	short := plannedRound()
+	short.Seconds, short.Visits, short.Pass, short.Valid, short.Capped = 40, 3800, true, true, true
+	if blocks := calibrate(short, target, 4, 95); blocks != 0 || !short.Valid {
+		t.Errorf("a capped round that ended early: %d blocks, valid %v %s", blocks, short.Valid, short.WhyInvalid)
+	}
+	long := plannedRound()
+	long.Seconds, long.Visits, long.Pass, long.Valid, long.Capped = 200, 3800, true, true, true
+	if blocks := calibrate(long, target, 4, 95); blocks == 0 || long.Valid {
+		t.Errorf("a capped round that ran too long: %d blocks, valid %v", blocks, long.Valid)
+	}
+}

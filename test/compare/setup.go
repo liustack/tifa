@@ -36,6 +36,10 @@ const setupWorkers = 8
 // seq0+n-1, after the restock, and reads the render memo of Tifa last (startMemo). It reports whether they were made: when not, round says why, and the
 // round is not played.
 func (r *runner) setup(ctx context.Context, round *Round, seq0, n int) bool {
+	// The data is made for the visits the run was prepared for (browse.with), when they are more.
+	if seq0 == 0 && r.prepared > n {
+		n = r.prepared
+	}
 	return r.setupOrders(ctx, round, seq0, n) && r.setupCarts(ctx, round, seq0, n) && r.startMemo(ctx, round)
 }
 

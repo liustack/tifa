@@ -30,6 +30,9 @@ type Round struct {
 	Rate      float64 `json:"visitsPerSecond,omitempty"` // open: visits started a second
 	Round     int     `json:"round"`
 	Blocks    int     `json:"blocks"`
+	// Capped says that a closed round played every visit the data before its clock was made for
+	// (browse.prepared), fewer than its sizing asked: it cannot be made longer.
+	Capped bool `json:"capped,omitempty"`
 
 	// The visits of the round: planned (what its workload holds), started by the load generator,
 	// succeeded (Visits: every action of it did), failed (an action failed, which ends the visit) and

@@ -612,7 +612,7 @@ func TestTheSizingRunRestocksEveryProductToTheCap(t *testing.T) {
 	r.wl.Plans = []Plan{{ID: 0, Steps: make([]PlanStep, 2)}}
 	b := &browse{o: BrowseOptions{Warm: 10 * time.Millisecond}}
 	spec := Spec{Products: nodeProducts, EditProduct: nodeEditProduct}
-	if err := b.prepare(context.Background(), r, spec, -1); err != nil {
+	if err := b.prepare(context.Background(), r, spec, -1, sizingVisits(b.o.Warm)); err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range StoreVariants {
