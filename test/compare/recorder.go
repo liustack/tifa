@@ -57,6 +57,11 @@ func traceName(s Spec) string {
 // traces to dir. The recorder is test/compare/recorder (Node with Playwright). Every framework is
 // started fresh, unpinned: recording is not timed.
 func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []string, workers, limit int) error {
+	// The recorder runs in its own folder, so it gets absolute paths.
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
 	recorder := filepath.Join(e.Root, "test", "compare", "recorder")
 	if err := run(ctx, log, recorder, nil, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
@@ -96,6 +101,10 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []st
 // Tifa, and writes to out which of the others each page links to (store_links.json). The pages of
 // the other frameworks are the same text, so one crawl serves all.
 func (e Env) CrawlStoreLinks(ctx context.Context, log io.Writer, out string) error {
+	out, err := filepath.Abs(out)
+	if err != nil {
+		return err
+	}
 	recorder := filepath.Join(e.Root, "test", "compare", "recorder")
 	if err := run(ctx, log, recorder, nil, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
