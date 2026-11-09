@@ -29,7 +29,7 @@ var browseLabels = map[string]string{
 // browseReferences are the specs of the browse comparison that are references, not frameworks
 // compared, with what each stands for, as the tables say it under their rows.
 var browseReferences = map[string]string{
-	"tifa-nocache": "Tifa with `--ssr-memo-size 0`: it renders every page in a VM, what Tifa costs when no render repeats. It is not one of the frameworks compared, and no result is read against it",
+	"tifa-nocache": "Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders: it renders a page again for every request, though requests of a page at the same time may still share a render in progress, and it may still answer 304. It is what Tifa costs when no finished render is kept, not one of the frameworks compared, and no result is read against it",
 }
 
 // referencesMarkdown says, under a table of the body, what each reference among its rows stands for.
@@ -839,9 +839,10 @@ func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
 }
 
 // compressionMarkdown names, above a table of the body, each server that compressed no answer in the
-// rounds of the table, with the body it sent a page view against the servers that compressed: every
-// server answers as its framework ships, so what goes over the wire differs with it. A server whose
-// rounds did not count their encodings (a result of an older run) is left out.
+// rounds of the table, with the body it sent a page view against the frameworks compared that
+// compressed (a reference is not one of them): every server answers as its framework ships, so what
+// goes over the wire differs with it. A server whose rounds did not count their encodings (a result
+// of an older run) is left out.
 func compressionMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
 	type sent struct {
 		label string
@@ -864,7 +865,9 @@ func compressionMarkdown(b *strings.Builder, servers []string, rounds func(f str
 			}
 		}
 		if compressed {
-			packed = append(packed, s)
+			if _, ref := browseReferences[f]; !ref {
+				packed = append(packed, s)
+			}
 		} else {
 			plain = append(plain, s)
 		}
@@ -906,14 +909,18 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 				}
 				return strconv.Itoa(why[w])
 			}
-			rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d | %s | %s | %s | %s |\n", BrowseLabel(f), k, all, hits,
+			shared := 0
+			for _, x := range rs {
+				shared += x.PageRenders[k][RenderShared]
+			}
+			rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d | %d | %s | %s | %s | %s |\n", BrowseLabel(f), k, all, hits, shared,
 				cell(RenderFirst, false), cell(RenderAgain, false), cell(RenderPrivate, true), cell(RenderPrivateCart, true)))
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, and the renders in a VM, split by why as far as the client can tell from the URL, the cookies it sent and `X-Tifa-Render`. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Another page is the first request of its URL that Tifa answered in the round, or a URL it had answered before. The client does not see the data of the Loads, so a URL answered before holds a page whose data changed since (a write, or data that changes by itself, such as the dates of a day) and one the memo dropped when it was full alike. With the memo off every page renders, and the split says how much the workload repeats its URLs.\n\n| | kind of page | answers | from the memo | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, the answers that shared a render in progress of the same page, and the renders in a VM, split by why as far as the client can tell from the URL, the cookies it sent and `X-Tifa-Render`, so that the three add up to the answers. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Another page is the first request of its URL that Tifa answered in the round, or a URL it had answered before: the client classes them by URL, and Tifa does not say which it was. The client does not see the data of the Loads, so a URL answered before holds a page whose data changed since (a write, or data that changes by itself, such as the dates of a day) and one the memo dropped when it was full alike. The split made on the client has three limits. Requests of a page at the same time share a render in progress (counted as shared, and the one that rendered as first or answered before). The first and the URL answered before go in the order their answers completed, not the order Tifa started them. A request the client canceled (its round ended) is not counted though Tifa may have rendered it, so a later request of its URL can be counted as the first. With the memo off every page renders, and the split says how much the workload repeats its URLs.\n\n| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}

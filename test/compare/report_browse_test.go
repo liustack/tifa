@@ -707,7 +707,8 @@ func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
 		if !strings.Contains(table, "| Tifa, memo off (reference) |") {
 			t.Errorf("the %s table has no reference row of Tifa with its memo off:\n%s", name, table)
 		}
-		if !strings.Contains(table, "Tifa, memo off (reference) is Tifa with `--ssr-memo-size 0`") || !strings.Contains(table, "not one of the frameworks compared") {
+		if !strings.Contains(table, "Tifa, memo off (reference) is Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders") ||
+			!strings.Contains(table, "still share a render in progress") || !strings.Contains(table, "answer 304") || !strings.Contains(table, "not one of the frameworks compared") {
 			t.Errorf("the %s table does not say what the reference is:\n%s", name, table)
 		}
 	}
@@ -751,10 +752,11 @@ func TestTheBrowseServersAndTheirTraces(t *testing.T) {
 // come from the result.
 func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
 	sc := mustScenario("shop")
-	servers := []string{"tifa", "nextjs", "start", "reactrouter"}
+	// The reference sends the least, and is not one of the frameworks the range is of.
+	servers := []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache"}
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
 		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
-	kb := map[string]int64{"tifa": 14, "nextjs": 16, "start": 208, "reactrouter": 87}
+	kb := map[string]int64{"tifa": 14, "nextjs": 16, "start": 208, "reactrouter": 87, "tifa-nocache": 2}
 	for _, f := range servers {
 		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
 		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
@@ -798,16 +800,20 @@ func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
 	for round := 1; round <= 2; round++ {
 		x := closedRound("tifa", sc.Name, 8, round, 4000, 10, true)
-		x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 70}, StoreKindCart: {"vm": 10}}
+		x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 60, "shared": 10}, StoreKindCart: {"vm": 10}}
 		x.VMWhy = map[string]map[string]int{"product": {RenderFirst: 20, RenderAgain: 10}, StoreKindCart: {RenderPrivate: 4, RenderPrivateCart: 6}}
 		r.Closed = append(r.Closed, x, closedRound("nextjs", sc.Name, 8, round, 400, 10, true))
 	}
 	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | kind of page | answers | from the memo | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |",
-		"| Tifa | cart | 20 | 0 | - | - | 8 | 12 |",
-		"| Tifa | product | 200 | 140 | 40 | 20 | - | - |",
+		"| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |",
+		"| Tifa | cart | 20 | 0 | 0 | - | - | 8 | 12 |",
+		"| Tifa | product | 200 | 120 | 20 | 40 | 20 | - | - |",
 		"does not see the data of the Loads",
+		"the client classes them by URL",
+		"in the order their answers completed",
+		"(counted as shared",
+		"canceled",
 	} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
