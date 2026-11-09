@@ -129,30 +129,9 @@ func (r *runner) request(ctx context.Context, v *visitState, method, path string
 // (productChange), with no read first.
 func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWrite, scheduled time.Time) error {
 	kind := w.Kind
-	var method, path string
-	var body []byte
-	want := 200 // the status the shop answers with
-	switch {
-	case w.Store != nil:
-		st := w.Store
-		method, path, body, want = st.Method, r.storeWrite(st.Path), st.Body, st.Status
-	case kind == WriteEdit:
-		if w.Project != storefrontShop {
-			panic("an edit of a product of " + w.Project + ": the plan edits the products of the storefront alone")
-		}
-		slug, change := productChange(r.seed, w, r.stockTarget)
-		method, path, body = http.MethodPatch, r.editProduct(w.Project, slug), mustJSON(change)
-	case kind == WriteShip:
-		id, ok := r.pool.ship(w)
-		if !ok {
-			return fmt.Errorf("write %s of visit %d after view %d: no order was made for it before the clock", kind, w.Seq, w.After)
-		}
-		method, path, body = http.MethodPost, r.write(w.Project, id), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
-	case kind != WriteCreate:
-		panic("no write of the staff of the kind " + kind)
-	}
-	if kind == WriteCreate {
-		method, path, body = http.MethodPost, r.create(w.Project), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
+	method, path, body, want, err := r.writeRequest(w)
+	if err != nil {
+		return err
 	}
 	ans, _, end, err := r.request(ctx, v, method, path, body)
 	// The status counts once it arrives, even when the body that follows cannot be read.
@@ -190,6 +169,37 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 	a.lat["write "+kind] = append(a.lat["write "+kind], took)
 	a.mu.Unlock()
 	return nil
+}
+
+// writeRequest is the request of the write w of the plan as this server takes it: its method, its
+// path, its body and the status the shop answers it with. A ship goes to the order made for it before
+// the clock, and fails when none was.
+func (r *runner) writeRequest(w PlannedWrite) (method, path string, body []byte, want int, err error) {
+	kind := w.Kind
+	want = 200 // the status the shop answers with
+	switch {
+	case w.Store != nil:
+		st := w.Store
+		method, path, body, want = st.Method, r.storeWrite(st.Path), st.Body, st.Status
+	case kind == WriteEdit:
+		if w.Project != storefrontShop {
+			panic("an edit of a product of " + w.Project + ": the plan edits the products of the storefront alone")
+		}
+		slug, change := productChange(r.seed, w, r.stockTarget)
+		method, path, body = http.MethodPatch, r.editProduct(w.Project, slug), mustJSON(change)
+	case kind == WriteShip:
+		id, ok := r.pool.ship(w)
+		if !ok {
+			return "", "", nil, 0, fmt.Errorf("write %s of visit %d after view %d: no order was made for it before the clock", kind, w.Seq, w.After)
+		}
+		method, path, body = http.MethodPost, r.write(w.Project, id), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
+	case kind != WriteCreate:
+		panic("no write of the staff of the kind " + kind)
+	}
+	if kind == WriteCreate {
+		method, path, body = http.MethodPost, r.create(w.Project), mustJSON(AdminBody(r.seed, w.Seq, w.After, kind, w.Project))
+	}
+	return method, path, body, want, nil
 }
 
 // productChange is the edit w of a staff visit, as staff make it on the edit page of a product: one
