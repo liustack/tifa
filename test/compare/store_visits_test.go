@@ -51,7 +51,7 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 		if spec.Framework == "tifa" {
 			id = buildID
 		}
-		if err := compare.Restock(ctx, http.DefaultClient, server.Base, spec, id, need); err != nil {
+		if err := compare.Restock(ctx, server.Base, spec, id, need); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		sent := map[string]int{}

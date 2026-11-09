@@ -1,11 +1,9 @@
 package compare
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -157,30 +155,15 @@ type shopEntry struct {
 // Restock reads the products of each shop in need (by project, as StockFor gives it) from the
 // server at base and gives each the stock need says, or keeps its stock when that is more. It makes
 // one request for the list of a shop and one edit of each of its products, at the paths of spec
-// (Spec.Products and Spec.EditProduct), and fails when an answer is not a 200, or says that the
-// server rendered a page for it (X-Tifa-Render other than none): a run whose restock failed is not
-// valid. buildID is the build of Tifa, which its request for a list names.
-func Restock(ctx context.Context, client *http.Client, base string, spec Spec, buildID string, need map[string]map[string]int) error {
+// (Spec.Products and Spec.EditProduct), follows no redirect, and fails when an answer is not a 200,
+// or says that the server rendered a page for it (X-Tifa-Render other than none): a run whose
+// restock failed is not valid. buildID is the build of Tifa, which its request for a list names.
+func Restock(ctx context.Context, base string, spec Spec, buildID string, need map[string]map[string]int) error {
+	c := &http.Client{CheckRedirect: noRedirect}
 	send := func(method, path string, body []byte) ([]byte, error) {
-		req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(body))
+		data, err := sendSetup(ctx, c, base, method, path, body, 200)
 		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		res, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("restock: %s %s: %w", method, path, err)
-		}
-		defer res.Body.Close()
-		data, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil, fmt.Errorf("restock: %s %s: %w", method, path, err)
-		}
-		if res.StatusCode != 200 {
-			return nil, fmt.Errorf("restock: %s %s answered %d: %.200s", method, path, res.StatusCode, data)
-		}
-		if how := res.Header.Get("X-Tifa-Render"); how != "" && how != "none" {
-			return nil, fmt.Errorf("restock: %s %s rendered a page (X-Tifa-Render: %s)", method, path, how)
+			return nil, fmt.Errorf("restock: %w", err)
 		}
 		return data, nil
 	}
@@ -262,5 +245,5 @@ func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) 
 	}
 	// An edit of the stock in the round sets more than the restock gives (productChange).
 	r.restocked = need[storefrontShop]
-	return Restock(ctx, http.DefaultClient, r.base, spec, r.buildID, need)
+	return Restock(ctx, r.base, spec, r.buildID, need)
 }

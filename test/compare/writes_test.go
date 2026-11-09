@@ -359,7 +359,7 @@ func TestPagesStayTheSizeOfAPageAsOrdersGrow(t *testing.T) {
 			if spec.Framework == "tifa" {
 				id = buildID
 			}
-			if err := compare.Restock(ctx, http.DefaultClient, server.Base, spec, id, map[string]map[string]int{"studio": {"oak-tray": 40}}); err != nil {
+			if err := compare.Restock(ctx, server.Base, spec, id, map[string]map[string]int{"studio": {"oak-tray": 40}}); err != nil {
 				t.Fatal(err)
 			}
 			body := `{"customer":"林夏","phone":"13800138000","email":"linxia@example.com","address":"上海市徐汇区","note":"","items":[{"slug":"oak-tray","quantity":1}]}`

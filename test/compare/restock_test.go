@@ -105,7 +105,7 @@ func TestRestockEditsEveryProductAndRendersNothing(t *testing.T) {
 
 	srv, edits := serve("none", 200)
 	defer srv.Close()
-	if err := Restock(ctx, http.DefaultClient, srv.URL, spec, "b1", map[string]map[string]int{"studio": {"oak-tray": 500, "ceramic-cup": 10}, "weekend": {"postcards": 300}}); err != nil {
+	if err := Restock(ctx, srv.URL, spec, "b1", map[string]map[string]int{"studio": {"oak-tray": 500, "ceramic-cup": 10}, "weekend": {"postcards": 300}}); err != nil {
 		t.Fatal(err)
 	}
 	got := edits()
@@ -122,12 +122,38 @@ func TestRestockEditsEveryProductAndRendersNothing(t *testing.T) {
 		render string
 		status int
 		why    string
-	}{{"vm", 200, "rendered a page"}, {"memo", 200, "rendered a page"}, {"", 422, "answered 422"}, {"none", 409, "answered 409"}} {
+	}{{"vm", 200, "rendered a page"}, {"memo", 200, "rendered a page"}, {"", 422, "status 422"}, {"none", 409, "status 409"}} {
 		srv, _ := serve(tc.render, tc.status)
-		err := Restock(ctx, http.DefaultClient, srv.URL, spec, "b1", map[string]map[string]int{"studio": {}})
+		err := Restock(ctx, srv.URL, spec, "b1", map[string]map[string]int{"studio": {}})
 		srv.Close()
 		if err == nil || !strings.HasPrefix(err.Error(), "restock: ") || !strings.Contains(err.Error(), tc.why) {
 			t.Errorf("an edit answered %d with X-Tifa-Render %q: %v, want an error saying %q", tc.status, tc.render, err, tc.why)
 		}
+	}
+}
+
+// The restock follows no redirect: an answer is checked as the server sent it, so a 302 that
+// rendered a page fails the restock, though the page it leads to is a list that would pass.
+func TestRestockFollowsNoRedirect(t *testing.T) {
+	list := `{"routes":{"app/projects/project+/products/route":{"status":200,"data":[{"slug":"oak-tray","priceCents":58000,"stock":6,"nameEn":"Oak Tray","nameZh":"原木托盘","descriptionEn":"Oak.","descriptionZh":"橡木。"}]}}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/projects/studio/products":
+			w.Header().Set("X-Tifa-Render", "vm")
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+		case "/elsewhere":
+			w.Write([]byte(list))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	spec := Spec{
+		EditProduct: func(project, product string) string { return "/projects/" + project + "/products/" + product },
+		Products:    func(project, buildID string) string { return "/projects/" + project + "/products" },
+	}
+	err := Restock(context.Background(), srv.URL, spec, "b1", map[string]map[string]int{"studio": {"oak-tray": 9}})
+	if err == nil || !strings.Contains(err.Error(), "status 302") {
+		t.Errorf("a list that answered a redirect: %v", err)
 	}
 }
