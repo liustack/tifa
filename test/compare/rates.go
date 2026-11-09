@@ -8,6 +8,10 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"io/fs"
 	"maps"
 	"os"
@@ -64,7 +68,7 @@ var LatencyRule = fmt.Sprintf("P99 of full loads, clicks and writes at most %.0f
 const rateUnit = "visits/s"
 
 // rateKeys are the conditions every entry of the file has (see rateConditions).
-var rateKeys = []string{"actionSpacing", "confirm", "cpu", "loadCpus", "method", "nextjs", "nextjsApp", "node", "plans", "rule", "scenario", "search", "serverCpus", "sources", "trace"}
+var rateKeys = []string{"actionSpacing", "confirm", "cpu", "loadCpus", "method", "nextjs", "nextjsApp", "nextjsServer", "node", "plans", "rule", "scenario", "search", "serverCpus", "sources", "trace"}
 
 // readRates reads the file, which is empty when it does not exist yet. A file of another format is
 // refused, and so is an entry in another unit than visits/s, with a rate of 0 or less, or without
@@ -171,10 +175,11 @@ func fileHash(path string) string {
 }
 
 // rateConditions are the conditions the rate of Next.js on a scenario is measured under in this
-// run: the method (the code that shapes the load and the verdicts) and the sources of the Next.js
-// app, the scenario and the seed of its writes, the plans and the Next.js traces of the site, the
-// sources the traces were recorded from (the stamp browse.sh writes: the shop, the apps, the shared
-// domain code, the framework versions; "" when the traces have none), the cpu model and the pinning,
+// run, what that rate depends on and nothing else: the method (the code the search runs,
+// rateMethodHash), the server of Next.js (nextjsServer) and the sources of its app, the scenario and
+// the seed of its writes, the plans and the Next.js trace of the site, the sources that trace was
+// recorded from (the lines of the stamp browse.sh writes that bear on it, stampHash; "" when the
+// traces have none), the cpu model and the pinning,
 // the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation.
 func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 	scenario, _ := json.Marshal(sc)
@@ -186,7 +191,8 @@ func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 	}
 	sum := sha256.Sum256(fmt.Appendf(scenario, " seed %d", b.o.Seed))
 	return map[string]string{
-		"method":        methodHash(b.e.Root),
+		"method":        rateMethodHash(b.e.Root),
+		"nextjsServer":  nextjsServer(b.e.Specs()),
 		"nextjsApp":     appHash(b.e.Root),
 		"scenario":      hex.EncodeToString(sum[:8]),
 		"plans":         fileHash(PlansPath(b.o.TraceDir)),
@@ -295,8 +301,15 @@ func appHash(root string) string {
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
-// stampHash is a short hash of the stamp of the traces, or "" when it does not say what they were
-// recorded from: no tree, another site, or sources with changes that were not committed.
+// nextTraceSources are the lines of the stamp of the traces that the trace of Next.js was recorded
+// from: the trees of the shop (whose pages are copied into the app), the Next.js app, the domain code
+// and the overlays it shares, the recorder and the plan generators, and the version of Next.js, the
+// browser, the site and the plans. The trees of Tifa, Start and React Router are not among them.
+var nextTraceSources = []string{"tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/domain ", "tree test/compare/overlay ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "next ", "playwright ", "site ", "plans "}
+
+// stampHash is a short hash of the lines of the stamp of the traces that the trace of Next.js was
+// recorded from (nextTraceSources), or "" when the stamp does not say what they were recorded from: no
+// tree, another site, or sources with changes that were not committed.
 func stampHash(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -307,8 +320,13 @@ func stampHash(path string) string {
 		!slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "tree ") }) {
 		return ""
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:8])
+	h := sha256.New()
+	for _, l := range lines {
+		if slices.ContainsFunc(nextTraceSources, func(p string) bool { return strings.HasPrefix(l, p) }) {
+			fmt.Fprintln(h, l)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 // nextSourceFile is where the build of the Next.js app records the sources it was made from (appHash),
@@ -337,4 +355,169 @@ func (b *browse) checkNextBuild() error {
 		return fmt.Errorf("the Next.js build was made from other sources than the checkout (built from %q, the sources are %q): build it again (compare build, or browse.sh build)", built, now)
 	}
 	return nil
+}
+
+// rateRoots are the code a search of the rate of Next.js starts from: the sustain phase, which runs
+// the trials and the confirmation on fresh servers and judges them, and the server of Next.js
+// (nextSpec, with the paths of its writes).
+var rateRoots = []string{"sustain", "nextSpec"}
+
+// rateSkips are names the hash does not follow: Specs is the table of every server, and the one of
+// Next.js is nextSpec, a root, with its arguments in nextjsServer. rateConditions and keepRate write
+// down what a rate was measured under, which every condition holds, and do not shape the search.
+var rateSkips = []string{"Specs", "rateConditions", "keepRate"}
+
+// rateMethodHash is a short hash of the code a search of the rate of Next.js runs: the declarations of
+// the method files reached from rateRoots by name (a function, a method of any type, a type, a
+// variable or a constant of that name), as gofmt prints them without comments, and the files they
+// embed. So a change to the report, to the servers of other frameworks or to a comment is the same
+// method, and a change to the replay, the writes, the setup, the rule or the search is another. A name
+// is followed whatever it names, so the hash can take in more code than runs, never less. It is ""
+// when a file cannot be read or parsed.
+func rateMethodHash(root string) string {
+	dir := filepath.Join(root, "test", "compare")
+	fset := token.NewFileSet()
+	type decl struct {
+		key   string // file and name, to sort by
+		node  ast.Node
+		embed []string
+	}
+	byName := map[string][]*decl{}
+	for _, f := range methodFiles {
+		if !strings.HasSuffix(f, ".go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, f), nil, parser.ParseComments)
+		if err != nil {
+			return ""
+		}
+		embeds := func(groups ...*ast.CommentGroup) []string {
+			var out []string
+			for _, g := range groups {
+				for _, c := range g.List {
+					if rest, ok := strings.CutPrefix(c.Text, "//go:embed "); ok {
+						out = append(out, strings.Fields(rest)...)
+					}
+				}
+			}
+			return out
+		}
+		for _, d := range file.Decls {
+			switch d := d.(type) {
+			case *ast.FuncDecl:
+				name := d.Name.Name
+				if d.Recv != nil && len(d.Recv.List) > 0 {
+					name = fmt.Sprintf("%s.%s", types(d.Recv.List[0].Type), d.Name.Name)
+				}
+				d.Doc = nil
+				byName[d.Name.Name] = append(byName[d.Name.Name], &decl{key: f + " " + name, node: d})
+			case *ast.GenDecl:
+				for _, s := range d.Specs {
+					var names []string
+					var groups []*ast.CommentGroup
+					switch s := s.(type) {
+					case *ast.TypeSpec:
+						names = []string{s.Name.Name}
+						s.Doc, s.Comment = nil, nil
+					case *ast.ValueSpec:
+						for _, n := range s.Names {
+							names = append(names, n.Name)
+						}
+						groups = []*ast.CommentGroup{d.Doc, s.Doc}
+						s.Doc, s.Comment = nil, nil
+					}
+					groups = slices.DeleteFunc(groups, func(g *ast.CommentGroup) bool { return g == nil })
+					x := &decl{key: f + " " + strings.Join(names, ","), node: &ast.GenDecl{Tok: d.Tok, Specs: []ast.Spec{s}}, embed: embeds(groups...)}
+					for _, n := range names {
+						byName[n] = append(byName[n], x)
+					}
+				}
+			}
+		}
+	}
+	// Comments are not code: a field or a line of a declaration may have one too.
+	for _, list := range byName {
+		for _, d := range list {
+			ast.Inspect(d.node, func(n ast.Node) bool {
+				if f, ok := n.(*ast.Field); ok {
+					f.Doc, f.Comment = nil, nil
+				}
+				return true
+			})
+		}
+	}
+	seen := map[*decl]bool{}
+	queue := slices.Clone(rateRoots)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if slices.Contains(rateSkips, name) {
+			continue
+		}
+		for _, d := range byName[name] {
+			if seen[d] {
+				continue
+			}
+			seen[d] = true
+			ast.Inspect(d.node, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok && len(byName[id.Name]) > 0 {
+					queue = append(queue, id.Name)
+				}
+				return true
+			})
+		}
+	}
+	reached := slices.Collect(maps.Keys(seen))
+	slices.SortFunc(reached, func(a, b *decl) int { return strings.Compare(a.key, b.key) })
+	h := sha256.New()
+	for _, d := range reached {
+		var buf strings.Builder
+		if err := printer.Fprint(&buf, fset, d.node); err != nil {
+			return ""
+		}
+		fmt.Fprintf(h, "%s %d\n%s\n", d.key, buf.Len(), buf.String())
+		for _, e := range d.embed {
+			data, err := os.ReadFile(filepath.Join(dir, e))
+			if err != nil {
+				return ""
+			}
+			fmt.Fprintf(h, "embed %s %d\n", e, len(data))
+			h.Write(data)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// types names the receiver type of a method, without its pointer.
+func types(x ast.Expr) string {
+	switch x := x.(type) {
+	case *ast.StarExpr:
+		return types(x.X)
+	case *ast.Ident:
+		return x.Name
+	case *ast.IndexExpr:
+		return types(x.X)
+	}
+	return "?"
+}
+
+// nextjsServer is the server of Next.js a rate is bound to: the program, its arguments and its
+// environment as the spec starts it (the folder of the app is where it is on that machine, and its
+// sources are nextjsApp), and "" when no spec is Next.js as it ships.
+func nextjsServer(specs []Spec) string {
+	i := slices.IndexFunc(specs, func(s Spec) bool { return s.Name == openBase })
+	if i < 0 {
+		return ""
+	}
+	t := specs[i].Target
+	data, err := json.Marshal(struct {
+		Prog string   `json:"prog"`
+		Args []string `json:"args"`
+		Env  []string `json:"env"`
+	}{t.Prog, t.Args, t.Env})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:8])
 }

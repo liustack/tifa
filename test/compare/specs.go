@@ -70,18 +70,7 @@ func (e Env) Specs() []Spec {
 			},
 		}
 	}
-	next := func(name, label string, reference bool, configs []string, flags ...string) Spec {
-		nextBin := filepath.Join("node_modules", "next", "dist", "bin", "next")
-		return Spec{
-			Target: Target{
-				Name: name, Dir: e.Next, Prog: "node",
-				Args: append(slices.Clone(flags), nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"),
-				Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
-			},
-			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: NextStorePath, EditProduct: nodeEditProduct, Products: nodeProducts,
-			Version: filepath.Join("node_modules", "next", "package.json"),
-		}
-	}
+	next := e.nextSpec
 	start := func(name, label string, reference bool, configs []string, flags ...string) Spec {
 		return Spec{
 			Target: Target{
@@ -198,4 +187,19 @@ func nodeProducts(project, _ string) string { return "/compare-write/" + project
 // nodeEditProduct is the path that changes a product of the storefront in the three Node apps.
 func nodeEditProduct(project, product string) string {
 	return "/compare-write/" + project + "/products/" + product
+}
+
+// nextSpec is a server of the Next.js app. It is a function of its own, out of the table of Specs, so
+// that the rate of Next.js is bound to it and not to the servers of the other frameworks (rateMethodHash).
+func (e Env) nextSpec(name, label string, reference bool, configs []string, flags ...string) Spec {
+	nextBin := filepath.Join("node_modules", "next", "dist", "bin", "next")
+	return Spec{
+		Target: Target{
+			Name: name, Dir: e.Next, Prog: "node",
+			Args: append(slices.Clone(flags), nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"),
+			Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
+		},
+		Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: NextStorePath, EditProduct: nodeEditProduct, Products: nodeProducts,
+		Version: filepath.Join("node_modules", "next", "package.json"),
+	}
 }

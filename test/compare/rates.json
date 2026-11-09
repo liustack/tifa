@@ -1,0 +1,72 @@
+{
+  "shop": {
+    "rate": 12,
+    "unit": "visits/s",
+    "under": {
+      "nextjs": "16.4.2",
+      "method": "4d98f0feac1f0ae0",
+      "scenario": "c43bea43da265d0b",
+      "trace": "20fbdb272cf9fbfa",
+      "actionSpacing": "1s",
+      "rule": "P99 of full loads, clicks and writes at most 1000 ms; no failure; no growing backlog; no visit started over 250 ms late; the load generator under 0.8 of its cpus",
+      "confirm": "3 rounds of 1m30s at the rate found, then up to 3 rates 10% lower, and one 10% above when the first passes",
+      "cpu": "AMD EPYC 7B13",
+      "search": "doubling from 4 visits/s up to 16384, narrowed to 10%, trials of 45s after a warm-up of 15s",
+      "plans": "7235d91894ff014b",
+      "serverCpus": "0",
+      "sources": "b658cdb6a6c8d980",
+      "node": "v24.13.0",
+      "loadCpus": "1,5",
+      "nextjsApp": "a3e9af53ffbe3988",
+      "nextjsServer": "f2af9bcae7368825"
+    },
+    "source": {
+      "date": "2026-11-09 04:08:33 UTC",
+      "tifa": "15fdd78c",
+      "result": "browse.json",
+      "confirm": [
+        {
+          "rate": 12,
+          "attempt": 1,
+          "round": 1,
+          "pass": true,
+          "valid": true,
+          "loadP99Ms": 372.106455,
+          "clickP99Ms": 508.851074,
+          "writeP99Ms": 101.534383
+        },
+        {
+          "rate": 12,
+          "attempt": 1,
+          "round": 2,
+          "pass": true,
+          "valid": true,
+          "loadP99Ms": 281.91286,
+          "clickP99Ms": 410.711621,
+          "writeP99Ms": 114.025748
+        },
+        {
+          "rate": 12,
+          "attempt": 1,
+          "round": 3,
+          "pass": true,
+          "valid": true,
+          "loadP99Ms": 326.140745,
+          "clickP99Ms": 485.246951,
+          "writeP99Ms": 124.218016
+        },
+        {
+          "rate": 13.2,
+          "attempt": 2,
+          "round": 1,
+          "pass": false,
+          "valid": true,
+          "loadP99Ms": 1129.370973,
+          "clickP99Ms": 1357.173803,
+          "writeP99Ms": 594.636102,
+          "why": "load P99 1129 ms over 1000 ms"
+        }
+      ]
+    }
+  }
+}

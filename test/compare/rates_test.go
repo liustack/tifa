@@ -14,7 +14,7 @@ import (
 )
 
 func under() map[string]string {
-	return map[string]string{"method": "m1", "nextjsApp": "n1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "serverCpus": "0", "loadCpus": "1,5",
+	return map[string]string{"method": "m1", "nextjsApp": "n1", "nextjsServer": "s1", "scenario": "a1", "plans": "b2", "trace": "c3", "sources": "d4", "cpu": "AMD EPYC 7B13", "serverCpus": "0", "loadCpus": "1,5",
 		"node": "v24.1.0", "nextjs": "16.0.1", "actionSpacing": "1s", "rule": LatencyRule, "search": "trial 45s", "confirm": "3 rounds"}
 }
 
@@ -363,5 +363,111 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 		if err := b.restore(saved(b, func(*BrowseResult) {}), cfg, version); err == nil || !strings.Contains(err.Error(), "Next.js build") {
 			t.Errorf("%s: a rate on a build of other sources: %v", phase, err)
 		}
+	}
+}
+
+// The method a rate of Next.js is bound to is the code the search of that rate runs, from
+// (*browse).sustain down, not whole files: a change to the report, to the servers of other
+// frameworks, to the list of servers or scenarios or to a comment leaves it as it is, and a change
+// to what the search runs (its search, its rule, the replay) does not.
+func TestTheRateMethodIsTheCodeTheSearchRuns(t *testing.T) {
+	src, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "test", "compare")
+	os.MkdirAll(dir, 0o755)
+	for _, f := range methodFiles {
+		data, err := os.ReadFile(filepath.Join(src, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(dir, f), data, 0o644)
+	}
+	method := rateMethodHash(root)
+	if method == "" {
+		t.Fatal("no method")
+	}
+	edit := func(file, old, new string) func() {
+		path := filepath.Join(dir, file)
+		data, _ := os.ReadFile(path)
+		if !strings.Contains(string(data), old) {
+			t.Fatalf("%s has no %q", file, old)
+		}
+		os.WriteFile(path, []byte(strings.Replace(string(data), old, new, 1)), 0o644)
+		return func() { os.WriteFile(path, data, 0o644) }
+	}
+	for _, tc := range []struct {
+		what, file, old, new string
+		same                 bool
+	}{
+		{"another server of Start", "specs.go", `start("start", "TanStack Start", false, both),`, `start("start", "TanStack Start", false, both), start("start-x", "x", true, engine, "--x"),`, true},
+		{"the servers of browse", "browse.go", `"tifa-nocache"}`, `"tifa-nocache", "start-x"}`, true},
+		{"the scenarios", "replay.go", `Title: "the shop: shoppers and staff"`, `Title: "the shop"`, true},
+		{"a comment of the replay", "replay.go", "// acc collects what a run saw", "// acc keeps what a run saw", true},
+		{"the search", "browse.go", "hi-lo > 0.1*lo", "hi-lo > 0.2*lo", false},
+		{"the rule", "load.go", "const LatencyLimit = 1000.0", "const LatencyLimit = 900.0", false},
+		{"the replay", "replay.go", `req.Header.Set("Accept-Encoding", "gzip")`, `req.Header.Set("Accept-Encoding", "br")`, false},
+		{"the kinds of the writes", "store_writes.go", `WriteAdd      = "add"`, `WriteAdd      = "put"`, false},
+		{"the paths of the writes of Next.js", "specs.go", "StoreWrite: NextStorePath, EditProduct: nodeEditProduct", "StoreWrite: SameStorePath, EditProduct: nodeEditProduct", false},
+	} {
+		undo := edit(tc.file, tc.old, tc.new)
+		if got := rateMethodHash(root) == method; got != tc.same {
+			t.Errorf("%s: the method is the same: %v, want %v", tc.what, got, tc.same)
+		}
+		undo()
+	}
+	os.Remove(filepath.Join(dir, "load.go"))
+	if rateMethodHash(root) != "" {
+		t.Error("a missing file of the method gives a method")
+	}
+}
+
+// The server of Next.js that a rate is bound to is its program, arguments and environment, not the
+// other servers, and the sources of the traces are the lines of the stamp the Next.js trace was
+// recorded from: not the trees of Tifa, Start or React Router.
+func TestTheRateIsBoundToTheNextjsServerAndItsTrace(t *testing.T) {
+	e := Env{Next: "/next", Start: "/start", Shop: "/shop"}
+	before := nextjsServer(e.Specs())
+	if before == "" {
+		t.Fatalf("the server of Next.js is %q", before)
+	}
+	specs := e.Specs()
+	for i := range specs {
+		if specs[i].Name == "start" {
+			specs[i].Args = append(specs[i].Args, "--other")
+		}
+	}
+	if nextjsServer(specs) != before {
+		t.Error("another Start changes the server of Next.js")
+	}
+	for i := range specs {
+		if specs[i].Name == "nextjs" {
+			specs[i].Env = append(specs[i].Env, "NODE_OPTIONS=--max-old-space-size=64")
+		}
+	}
+	if nextjsServer(specs) == before {
+		t.Error("another environment of Next.js is the same server")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "STAMP")
+	stamp := func(lines ...string) string {
+		os.WriteFile(path, []byte(strings.Join(append([]string{"tree examples/shop a", "tree test/compare/nextjs b", "tree test/compare/start c", "tree internal d", "next 16.4.2", "start 1.169.3", "playwright 1.57.0", "site shop", "plans p"}, lines...), "\n")+"\n"), 0o644)
+		return stampHash(path)
+	}
+	base := stamp()
+	if base == "" {
+		t.Fatal("no sources")
+	}
+	b := strings.NewReplacer("tree test/compare/start c", "tree test/compare/start c2", "tree internal d", "tree internal d2", "start 1.169.3", "start 1.170.0")
+	data, _ := os.ReadFile(path)
+	os.WriteFile(path, []byte(b.Replace(string(data))), 0o644)
+	if stampHash(path) != base {
+		t.Error("the trees of Start or Tifa change the sources of the Next.js trace")
+	}
+	os.WriteFile(path, []byte(strings.Replace(string(data), "tree test/compare/nextjs b", "tree test/compare/nextjs b2", 1)), 0o644)
+	if stampHash(path) == base {
+		t.Error("another Next.js app is the same sources")
 	}
 }
