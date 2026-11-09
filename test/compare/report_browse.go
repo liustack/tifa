@@ -210,6 +210,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	for _, n := range r.detailSessions(sc.Name) {
 		r.closedDetail(b, sc, n)
 	}
+	r.memoMarkdown(b, sc)
 	r.controlMarkdown(b, sc)
 	r.seriesMarkdown(b, sc)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
@@ -953,4 +954,36 @@ func (r *BrowseResult) notFormal() []string {
 		}
 	}
 	return off
+}
+
+// memoMarkdown writes, for every round of a Tifa server of a scenario that read its metrics (the
+// closed rounds, the latency rounds and the read-only control, valid or not), what its render memo
+// held after the warm-up and at the end, the pages it dropped to make room in the round and the hits
+// it counted from the clock on, all from its metrics route.
+func (r *BrowseResult) memoMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var rows []string
+	add := func(what string, x *Round) {
+		if x.Scenario != sc.Name || !isTifa(x.Framework) || x.Memo == nil {
+			return
+		}
+		m := x.Memo
+		mib := func(n int64) string { return fmt.Sprintf("%.1f", float64(n)/(1<<20)) }
+		rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %d | %s | %d | %s | %d | %d |\n", BrowseLabel(x.Framework), what, x.Round, m.Warm.Entries, mib(m.Warm.Bytes), m.End.Entries, mib(m.End.Bytes), m.End.Evictions-m.Warm.Evictions, m.Hits()))
+	}
+	for i := range r.Closed {
+		add(fmt.Sprintf("closed, %d sessions", r.Closed[i].Sessions), &r.Closed[i])
+	}
+	for i := range r.Latency {
+		add(fmt.Sprintf("open, %.2f visits/s", r.Latency[i].Rate), &r.Latency[i])
+	}
+	for i := range r.Control {
+		add("read-only control", &r.Control[i])
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\n#### What the render memo of Tifa held\n\nFrom the metrics route of each Tifa server, every round that read it: the pages and bytes the render memo held after the warm-up (right before the clock) and at the end, the pages it dropped to make room for others in the round (least recently used first, `ssr.memo_size`), and the hits it counted itself in the round, its count at the end less the one after the warm-up. Its memo was empty before the warm-up.\n\n| | round | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
 }

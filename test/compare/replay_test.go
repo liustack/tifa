@@ -772,7 +772,7 @@ func TestARoundOfTifaReadsItsMemoBeforeAndAfterTheWarmUp(t *testing.T) {
 				if r.URL.Path == "/metrics" {
 					reads++
 					w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-					fmt.Fprintf(w, "# HELP tifa_memo_entries Pages in the render memo.\n# TYPE tifa_memo_entries gauge\ntifa_memo_entries %d\ntifa_memo_hits_total %g\ntifa_memo_misses_total %d\ntifa_memo_shared_total 0\ntifa_vms 1\n", entries, float64(hits), misses)
+					fmt.Fprintf(w, "# HELP tifa_memo_entries Pages in the render memo.\n# TYPE tifa_memo_entries gauge\ntifa_memo_entries %d\ntifa_memo_hits_total %g\ntifa_memo_misses_total %d\ntifa_memo_shared_total 0\ntifa_memo_bytes %d\ntifa_memo_evictions_total 0\ntifa_vms 1\n", entries, float64(hits), misses, entries*4096)
 					return
 				}
 				if seen[r.URL.Path] {

@@ -879,3 +879,24 @@ func TestBrowseShRefusesTheSettingsThatAreGone(t *testing.T) {
 		}
 	}
 }
+
+// The appendix gives, for each round of Tifa, what its render memo held after the warm-up and at the
+// end (pages and bytes), the pages it dropped to make room in the round, and the hits it counted
+// from the clock on, the end less the read after the warm-up, from its metrics.
+func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	x.Memo = &MemoRound{Start: MemoCounts{}, Warm: MemoCounts{Entries: 812, Bytes: 9 << 20, Hits: 3000, Evictions: 5}, End: MemoCounts{Entries: 900, Bytes: 10 << 20, Hits: 5500, Evictions: 12}}
+	r.Closed = []Round{x, closedRound("nextjs", sc.Name, 8, 1, 400, 10, true)}
+	md := r.Markdown()
+	_, appendix, _ := strings.Cut(md, "## Appendix")
+	for _, want := range []string{
+		"| | round | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |",
+		"| Tifa | closed, 8 sessions, round 1 | 812 | 9.0 | 900 | 10.0 | 7 | 2500 |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+}

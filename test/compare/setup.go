@@ -211,13 +211,15 @@ func (w *Workload) cartsFit(seq0, n, keep int) error {
 }
 
 // MemoCounts is what the render memo of Tifa counted, as the metrics route of the shop answers it
-// (tifa.Stats().Memo): the pages it holds, and its hits, misses and shared renders since the server
-// started.
+// (tifa.Stats().Memo and MemoBytes): the pages it holds and their bytes, and its hits, misses,
+// shared renders and the pages it dropped to make room since the server started.
 type MemoCounts struct {
-	Entries int64 `json:"entries"`
-	Hits    int64 `json:"hits"`
-	Misses  int64 `json:"misses"`
-	Shared  int64 `json:"shared"`
+	Entries   int64 `json:"entries"`
+	Bytes     int64 `json:"bytes"`
+	Hits      int64 `json:"hits"`
+	Misses    int64 `json:"misses"`
+	Shared    int64 `json:"shared"`
+	Evictions int64 `json:"evictions"`
 }
 
 // MemoRound is the render memo of Tifa at the start of a round, after its setup and before its
@@ -234,10 +236,12 @@ func (m *MemoRound) Hits() int64 { return m.End.Hits - m.Warm.Hits }
 
 // memoMetrics are the lines of the metrics route that MemoCounts reads, by name.
 var memoMetrics = map[string]func(*MemoCounts) *int64{
-	"tifa_memo_entries":      func(m *MemoCounts) *int64 { return &m.Entries },
-	"tifa_memo_hits_total":   func(m *MemoCounts) *int64 { return &m.Hits },
-	"tifa_memo_misses_total": func(m *MemoCounts) *int64 { return &m.Misses },
-	"tifa_memo_shared_total": func(m *MemoCounts) *int64 { return &m.Shared },
+	"tifa_memo_entries":         func(m *MemoCounts) *int64 { return &m.Entries },
+	"tifa_memo_hits_total":      func(m *MemoCounts) *int64 { return &m.Hits },
+	"tifa_memo_misses_total":    func(m *MemoCounts) *int64 { return &m.Misses },
+	"tifa_memo_shared_total":    func(m *MemoCounts) *int64 { return &m.Shared },
+	"tifa_memo_bytes":           func(m *MemoCounts) *int64 { return &m.Bytes },
+	"tifa_memo_evictions_total": func(m *MemoCounts) *int64 { return &m.Evictions },
 }
 
 // readMemo reads the counts of the render memo from the metrics route of the server (Spec.Metrics),

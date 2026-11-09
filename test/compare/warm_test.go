@@ -84,7 +84,7 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 			// The metrics route of Tifa (Spec.Metrics), with a render memo that holds nothing.
 			if r.URL.Path == "/metrics" {
 				l.seq.add('M')
-				w.Write([]byte("tifa_memo_entries 0\ntifa_memo_hits_total 0\ntifa_memo_misses_total 0\ntifa_memo_shared_total 0\n"))
+				w.Write([]byte("tifa_memo_entries 0\ntifa_memo_hits_total 0\ntifa_memo_misses_total 0\ntifa_memo_shared_total 0\ntifa_memo_bytes 0\ntifa_memo_evictions_total 0\n"))
 				return
 			}
 			if r.Header.Get(verifyHeader) != "" {
