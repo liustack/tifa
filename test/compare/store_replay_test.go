@@ -31,6 +31,9 @@ type fakeStoreServer struct {
 	// answer, when set, is the status that replaces the right one for a kind of write.
 	answer map[string]int
 	posted []string
+	// placed are the orders of the checkouts, which the back office shows unless staleOffice.
+	placed      []string
+	staleOffice bool
 }
 
 func newFakeStore(t *testing.T, write func(string) string) (*fakeStoreServer, *httptest.Server) {
@@ -51,6 +54,15 @@ func newFakeStore(t *testing.T, write func(string) string) (*fakeStoreServer, *h
 		mux.HandleFunc("GET "+base+"/cart", f.page)
 		mux.HandleFunc("GET "+base+"/checkout", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "order ", r.URL.Query().Get("placed")) })
 	}
+	office := func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if !f.staleOffice {
+			fmt.Fprint(w, strings.Join(f.placed, " "))
+		}
+	}
+	mux.HandleFunc("GET /projects/studio", office)
+	mux.HandleFunc("GET /projects/studio/orders/{order}", office)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -137,6 +149,7 @@ func (f *fakeStoreServer) write(kind string) http.HandlerFunc {
 			}
 			c.lines, c.coupon = nil, ""
 			w.Header().Set("Location", "/store/checkout?placed=SH-1043")
+			f.placed = append(f.placed, "SH-1043")
 		}
 		f.log = append(f.log, kind)
 		if s, ok := f.answer[kind]; ok {
@@ -329,6 +342,11 @@ func TestVerifyStoreChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
 			if got := strings.Join(f.log, ","); got != "add,coupon,quantity,checkout" {
 				t.Errorf("the shop saw %s", got)
 			}
+			f.staleOffice = true
+			if err := r.verifyStore(context.Background()); err == nil || !strings.Contains(err.Error(), "back office") {
+				t.Errorf("a server whose back office does not show the order of a checkout passed: %v", err)
+			}
+			f.staleOffice = false
 			f.stale = true
 			if err := r.verifyStore(context.Background()); err == nil || !strings.Contains(err.Error(), "same after the write") {
 				t.Errorf("a server whose cart page ignores the cart passed: %v", err)

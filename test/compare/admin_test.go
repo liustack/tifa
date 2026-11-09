@@ -24,8 +24,10 @@ type fakeShop struct {
 	// only the stats page.
 	stale, staleStats bool
 	log               []string
-	// products are the products of each shop as the back office lists them, by slug.
-	products map[string]map[string]*shopEntry
+	// products are the products of each shop as the back office lists them, by slug, and
+	// staleProducts makes the pages that show them keep the titles of the data.
+	products      map[string]map[string]*shopEntry
+	staleProducts bool
 }
 
 type fakeOrder struct {
@@ -58,6 +60,8 @@ func newFakeShop(t *testing.T) (*fakeShop, *httptest.Server) {
 	mux.HandleFunc("GET /projects/{project}", f.list)
 	mux.HandleFunc("GET /projects/{project}/orders/{order}", f.page)
 	mux.HandleFunc("GET /projects/{project}/stats", f.stats)
+	mux.HandleFunc("GET /store/products/{slug}", f.productPage)
+	mux.HandleFunc("GET /projects/{project}/products", f.productPage)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -155,7 +159,7 @@ func (f *fakeShop) productList(w http.ResponseWriter, r *http.Request) {
 }
 
 // editProduct takes an edit of a product with all its fields. It refuses with 409 one that changes
-// no field, changes a text or takes stock away, which no staff edit of a run may do.
+// no field or takes stock away, which no edit of a run may do.
 func (f *fakeShop) editProduct(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -167,7 +171,7 @@ func (f *fakeShop) editProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Slug = p.Slug
-	if in == *p || in.NameEN != p.NameEN || in.NameZH != p.NameZH || in.DescriptionEN != p.DescriptionEN || in.DescriptionZH != p.DescriptionZH || in.Stock < p.Stock {
+	if in == *p || in.Stock < p.Stock {
 		http.Error(w, "refused", 409)
 		return
 	}
@@ -249,6 +253,14 @@ func TestStaffWritesShipTheOldestEditAProductAndFallBackToACreate(t *testing.T) 
 	}
 	if a.kinds[WriteCreate] != 3 || a.kinds[WriteShip] != 4 || a.kinds[WriteEdit] != 3 || a.poolEmpty != 2 {
 		t.Errorf("writes %v, %d with an empty pool", a.kinds, a.poolEmpty)
+	}
+	// An edit changes a price or the stock, never a text.
+	for project, products := range f.products {
+		for slug, p := range products {
+			if p.NameEN != "N "+slug || p.NameZH != "名"+slug || p.DescriptionEN != "D." || p.DescriptionZH != "述。" {
+				t.Errorf("an edit changed the texts of %s/%s: %+v", project, slug, *p)
+			}
+		}
 	}
 	if got := r.pool.orderCounts(); got["studio"] != 43 || got["weekend"] != 14 {
 		t.Errorf("orders %v", got)
@@ -374,5 +386,46 @@ func TestACheckoutOrderJoinsThePoolAndAShipTakesIt(t *testing.T) {
 	}
 	if got := r.pool.orderCounts(); got["studio"] != 44 {
 		t.Errorf("orders %v, want 44 in studio: the 42 of the data, the checkout and the create", got)
+	}
+}
+
+// productPage is the storefront page of a product and the back office list, as far as an edit
+// shows on them: the English title and the price. A stale one shows them as the data had them.
+func (f *fakeShop) productPage(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	show := func(p shopEntry) {
+		if f.staleProducts {
+			p.NameEN = "N " + p.Slug
+		}
+		fmt.Fprintf(w, "%s %d\n", p.NameEN, p.PriceCents)
+	}
+	if slug := r.PathValue("slug"); slug != "" {
+		p := f.products["studio"][slug]
+		if p == nil {
+			http.NotFound(w, r)
+			return
+		}
+		show(*p)
+		return
+	}
+	for _, slug := range shopProducts[r.PathValue("project")] {
+		show(*f.products[r.PathValue("project")][slug])
+	}
+}
+
+// An edit of a product shows next on its storefront page and in the list of the back office, and a
+// server whose pages keep the old product fails the check.
+func TestVerifyProductChecksAnEditShowsAndFailsOnAStalePage(t *testing.T) {
+	r, f := adminRunner(t)
+	if err := r.verifyProduct(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(f.log, ","); got != "list studio,edit studio" {
+		t.Errorf("the shop saw %s", got)
+	}
+	f.staleProducts = true
+	if err := r.verifyProduct(context.Background()); err == nil || !strings.Contains(err.Error(), "edit a product") {
+		t.Errorf("a server whose pages keep the old product passed: %v", err)
 	}
 }

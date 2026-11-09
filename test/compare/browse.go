@@ -860,13 +860,14 @@ func (e Env) tifaBuildID() (string, error) {
 // what the server shows next: in the document of a page and in the data a client navigation fetches
 // for it (as the browser asked for it in a trace). It uses addresses and ids of its own, so the
 // server is not what it was, but alike on every server.
-// The site has both: the writes of the storefront (verifyStore) and of the back office
-// (verifyAdmin).
-//
-// TODO(shop-merge): once the back office edits products, check that an edit shows on the product
-// page, the list and the home, and that a checkout shows in the orders of the back office.
+// The site has the writes of the storefront (verifyStore: the cart, and a checkout that the back
+// office shows as an order), the edit of a product, which the storefront shows (verifyProduct), and
+// the orders of the back office (verifyAdmin).
 func (r *runner) verifyWrites(ctx context.Context) error {
 	if err := r.verifyStore(ctx); err != nil {
+		return err
+	}
+	if err := r.verifyProduct(ctx); err != nil {
 		return err
 	}
 	return r.verifyAdmin(ctx)

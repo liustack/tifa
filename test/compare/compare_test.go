@@ -643,3 +643,33 @@ func TestTheNodeAppsCacheNothing(t *testing.T) {
 		server.Stop()
 	}
 }
+
+// TestTheWritesShowOnEveryServer makes every kind of write of the site once against Tifa and the
+// three apps, as the check before and after a round does: each must show next where the check reads
+// it (the cart, the order of a checkout in the back office, an edited product on its storefront page
+// and in the product list, and the orders staff place and ship).
+func TestTheWritesShowOnEveryServer(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	buildID := shopBuildID(t, env)
+	for _, name := range []string{"tifa", "nextjs", "start", "reactrouter"} {
+		var spec compare.Spec
+		for _, s := range env.Specs() {
+			if s.Name == name {
+				spec = s
+			}
+		}
+		server, err := spec.Start(context.Background(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := ""
+		if spec.Framework == "tifa" {
+			id = buildID
+		}
+		if err := compare.VerifyWrites(context.Background(), spec, server.Base, id); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		server.Stop()
+	}
+}
