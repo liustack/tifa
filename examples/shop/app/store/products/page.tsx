@@ -279,7 +279,7 @@ export default function ProductList() {
           {shell.menu.map((g) => (
             <li key={g.id} className="border-r border-b bg-card">
               <Link to="/store/products" search={{ category: g.id }} className="flex h-full flex-col gap-3 p-4 hover:bg-secondary/40">
-                <ProductImage slug={g.featured[0]?.slug ?? ''} view="scene" alt="" sizes="(min-width: 1024px) 18vw, 45vw" />
+                <ProductImage photo={g.featured[0]?.photo ?? ''} view="scene" alt="" sizes="(min-width: 1024px) 18vw, 45vw" />
                 <span className="flex items-baseline justify-between">
                   <span className="font-heading text-lg">{g.name}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{t('shell.menuCount', { count: g.count })}</span>

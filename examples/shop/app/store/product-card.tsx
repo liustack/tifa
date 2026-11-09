@@ -13,6 +13,7 @@ import { refreshMine } from './mine'
 
 export type Card = {
   slug: string
+  photo: string
   name: string
   category: string
   priceCents: number
@@ -55,9 +56,9 @@ export function Stars({ rating, className }: { rating: number; className?: strin
 
 // ProductImage is a photo of a product on the pale backdrop all of them are taken on. sizes is
 // how wide it is on the page, for the browser to pick the file. A thumbnail takes the 160 pixel
-// file alone.
+// file alone. photo is the folder of the photos, which products can share.
 export function ProductImage({
-  slug,
+  photo: folder,
   alt,
   view = 'main',
   width,
@@ -65,7 +66,7 @@ export function ProductImage({
   eager,
   className,
 }: {
-  slug: string
+  photo: string
   alt: string
   view?: View
   width?: Width
@@ -73,13 +74,13 @@ export function ProductImage({
   eager?: boolean
   className?: string
 }) {
-  const src = photo(slug, view, width ?? 480)
+  const src = photo(folder, view, width ?? 480)
   return (
     <div className={cn('relative aspect-square overflow-hidden bg-[#d3dbe2] dark:bg-[#273240]', className)}>
       {src && (
         <img
           src={src}
-          srcSet={width ? undefined : photoSet(slug, view)}
+          srcSet={width ? undefined : photoSet(folder, view)}
           sizes={width ? undefined : sizes}
           alt={alt}
           width={width ?? 480}
@@ -187,9 +188,9 @@ export function ProductCard({
           className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t('card.quickAdd', { name: product.name })}
         >
-          <ProductImage slug={product.slug} alt={product.name} sizes={list ? '224px' : sizes} />
+          <ProductImage photo={product.photo} alt={product.name} sizes={list ? '224px' : sizes} />
           <ProductImage
-            slug={product.slug}
+            photo={product.photo}
             view="scene"
             alt=""
             sizes={list ? '224px' : sizes}
@@ -233,7 +234,7 @@ function ProductTile({ product, sizes }: { product: Card; sizes: string }) {
   return (
     <article className="group relative flex flex-col gap-3 border-r border-b bg-card p-3 md:p-4">
       <Link to="/store/products/$product" params={{ product: product.slug }} className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t('card.quickAdd', { name: product.name })}>
-        <ProductImage slug={product.slug} alt={product.name} sizes={sizes} />
+        <ProductImage photo={product.photo} alt={product.name} sizes={sizes} />
         <CardBadges product={product} />
       </Link>
       <div className="flex flex-col gap-1.5">
@@ -284,7 +285,7 @@ function QuickView({ product }: { product: Card }) {
       </DialogTrigger>
       <DialogContent className="max-w-2xl gap-0 p-0 sm:max-w-2xl">
         <div className="grid sm:grid-cols-2">
-          <ProductImage slug={product.slug} view="scene" alt={product.name} sizes="(min-width: 640px) 336px, 100vw" />
+          <ProductImage photo={product.photo} view="scene" alt={product.name} sizes="(min-width: 640px) 336px, 100vw" />
           <div className="flex flex-col gap-3 p-6">
             <DialogHeader>
               <span className="font-mono text-[11px] tracking-wider text-muted-foreground">

@@ -34,7 +34,7 @@ export default function OrderItems() {
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <img
-                      src={photo(item.slug, 'main', 160)}
+                      src={photo(item.photo, 'main', 160)}
                       alt=""
                       width={56}
                       height={56}
@@ -47,7 +47,7 @@ export default function OrderItems() {
                       <ul className="flex gap-1">
                         {(['detail', 'scene'] as const).map((v) => (
                           <li key={v}>
-                            <img src={photo(item.slug, v, 160)} alt="" width={24} height={24} loading="lazy" decoding="async" className="size-6 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
+                            <img src={photo(item.photo, v, 160)} alt="" width={24} height={24} loading="lazy" decoding="async" className="size-6 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
                           </li>
                         ))}
                       </ul>

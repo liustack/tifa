@@ -56,7 +56,7 @@ func WeekendEntries() []products.Entry {
 	defer weekendMu.Unlock()
 	var out []products.Entry
 	for i, p := range weekendShelf {
-		out = append(out, products.Entry{Edit: p.Edit, Slug: p.slug, Number: i + 1})
+		out = append(out, products.Entry{Edit: p.Edit, Slug: p.slug, Photo: p.slug, Number: i + 1})
 	}
 	return out
 }
@@ -107,7 +107,7 @@ func weekendBuy(lines []NewLine) ([]itemRecord, error) {
 			return nil, errNoStock
 		}
 		p := weekendShelf[i]
-		out = append(out, itemRecord{Slug: p.slug, Name: p.NameEN, Description: p.variant, Quantity: l.Quantity, PriceCents: p.PriceCents, Color: p.color})
+		out = append(out, itemRecord{Slug: p.slug, Photo: p.slug, Name: p.NameEN, Description: p.variant, Quantity: l.Quantity, PriceCents: p.PriceCents, Color: p.color})
 	}
 	for i, n := range want {
 		weekendShelf[i].Stock -= n
@@ -161,4 +161,11 @@ func UpdateShopProduct(projectID, slug string, c products.Change) error {
 		return UpdateWeekend(slug, c)
 	}
 	return tifa.ErrNotFound
+}
+
+// weekendPhoto is the folder of the photos of the product slug of the weekend shop: the photos the
+// storefront has under the same name.
+func weekendPhoto(slug string) (string, bool) {
+	_, err := GetWeekendEntry(slug)
+	return slug, err == nil
 }

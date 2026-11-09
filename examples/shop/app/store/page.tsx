@@ -53,7 +53,7 @@ export default function StoreHome() {
                 <span className="hidden text-sm text-muted-foreground md:block">{g.kinds.join(' · ')}</span>
                 <span className="hidden gap-1.5 md:flex">
                   {g.featured.map((p) => (
-                    <ProductImage key={p.slug} slug={p.slug} alt="" width={160} className="size-11" />
+                    <ProductImage key={p.slug} photo={p.photo} alt="" width={160} className="size-11" />
                   ))}
                 </span>
                 <span className="font-mono text-xs text-muted-foreground">{t('shell.menuCount', { count: g.count })}</span>
@@ -76,7 +76,7 @@ export default function StoreHome() {
           {home.picks.map((p) => (
             <article key={p.slug} className="flex flex-col gap-4 border-r border-b bg-card p-5">
               <Link to="/store/products/$product" params={{ product: p.slug }} className="block">
-                <ProductImage slug={p.slug} view="scene" alt={p.name} sizes="(min-width: 768px) 33vw, 100vw" />
+                <ProductImage photo={p.photo} view="scene" alt={p.name} sizes="(min-width: 768px) 33vw, 100vw" />
               </Link>
               <div className="flex items-baseline justify-between gap-3">
                 <h3 className="font-heading text-xl">
@@ -141,7 +141,7 @@ export default function StoreHome() {
         <ul className="grid gap-x-8 gap-y-6 md:grid-cols-2 lg:grid-cols-3">
           {home.reviews.map((r) => (
             <li key={r.product.slug} className="grid grid-cols-[88px_1fr] gap-4 border-b pb-6">
-              <ProductImage slug={r.product.slug} view={(r.photos?.[0] as 'scene' | 'detail' | undefined) ?? 'scene'} alt={t('product.reviewPhoto', { name: r.product.name })} width={160} />
+              <ProductImage photo={r.product.photo} view={(r.photos?.[0] as 'scene' | 'detail' | undefined) ?? 'scene'} alt={t('product.reviewPhoto', { name: r.product.name })} width={160} />
               <div className="flex flex-col gap-1.5">
                 <Stars rating={r.rating} />
                 <p className="font-heading text-base">{r.title}</p>
@@ -244,7 +244,7 @@ function Hero() {
       kicker: t('home.saleKicker'),
       title: t('home.saleTitle'),
       body: t('home.saleBody'),
-      slug: sale.slug,
+      photo: sale.photo,
       caption: `${catalogueNo(sale.number)} · ${sale.name}`,
       cta: (
         <Link to="/store/products" search={{ sort: 'price-desc' }}>
@@ -290,8 +290,8 @@ function Hero() {
                 fetchPriority="high"
                 className="aspect-video w-full object-cover object-[75%_50%]"
               />
-            ) : 'slug' in s && s.slug ? (
-              <ProductImage slug={s.slug} view="scene" alt="" sizes="70vw" className="aspect-video" />
+            ) : 'photo' in s && s.photo ? (
+              <ProductImage photo={s.photo} view="scene" alt="" sizes="70vw" className="aspect-video" />
             ) : 'cover' in s && s.cover ? (
               <JournalCover slug={s.cover} alt="" sizes="70vw" />
             ) : null}

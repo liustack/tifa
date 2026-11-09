@@ -213,7 +213,7 @@ function CartLine({ line }: { line: Line }) {
     <TableRow aria-busy={busy}>
       <TableCell>
         <div className="flex items-center gap-3">
-          <ProductImage slug={line.slug} alt="" width={160} className="size-20 shrink-0 border" />
+          <ProductImage photo={line.photo} alt="" width={160} className="size-20 shrink-0 border" />
           <div className="flex flex-col">
             <Link
               to="/store/products/$product"

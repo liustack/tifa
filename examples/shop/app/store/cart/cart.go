@@ -28,6 +28,7 @@ const MaxQuantity = 10
 type Line struct {
 	ID         string `json:"id"`
 	Slug       string `json:"slug"`
+	Photo      string `json:"photo"` // the folder of the photos of the product
 	Name       string `json:"name"`
 	Color      string `json:"color"`
 	ColorName  string `json:"colorName"`
@@ -123,7 +124,7 @@ func price(lines []lineRecord, coupon string, l storekit.Locale, get func(string
 			continue
 		}
 		line := Line{
-			ID: lineID(r.slug, r.color, r.size), Slug: r.slug, Name: p.Name, Color: r.color,
+			ID: lineID(r.slug, r.color, r.size), Slug: r.slug, Photo: p.Photo, Name: p.Name, Color: r.color,
 			ColorName: products.ColorName(r.color, l), Size: r.size, Quantity: r.quantity,
 			PriceCents: p.PriceCents, Stock: p.Stock,
 		}

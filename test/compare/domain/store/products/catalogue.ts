@@ -6,6 +6,7 @@ import type { Locale, Text } from '../store.ts'
 
 export interface ProductRecord {
   slug: string
+  photo: string // the folder of its photos under images/
   name: Text
   category: string
   priceFen: number
@@ -64,7 +65,7 @@ export const careNotes: Record<string, Text[]> = {	"drinkware": [
 	],}
 
 // FileProduct is a record of catalogue.json, as products/catalogue_file.go of the shop reads it.
-type FileProduct = Partial<Omit<ProductRecord, 'added'>> & Pick<ProductRecord, 'slug' | 'name' | 'category' | 'priceFen' | 'rating' | 'stock' | 'colors' | 'tags' | 'summary' | 'description' | 'materials' | 'specs'> & { added: string }
+type FileProduct = Partial<Omit<ProductRecord, 'added'>> & Pick<ProductRecord, 'slug' | 'photo' | 'name' | 'category' | 'priceFen' | 'rating' | 'stock' | 'colors' | 'tags' | 'summary' | 'description' | 'materials' | 'specs'> & { added: string }
 
 // The catalogue, made when the process starts and changed by the edits of staff and the stock
 // that orders take, as Go keeps it in memory. It lives on globalThis, like the orders, since

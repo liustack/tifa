@@ -29,6 +29,7 @@ export interface Spec {
 // A list Go leaves nil is an empty list in its JSON (encoding/json/v2 writes a nil slice as []).
 export interface Card {
   slug: string
+  photo: string // the folder of its photos, which another product can share
   name: string
   category: string
   priceCents: number
@@ -231,7 +232,7 @@ export { colorName }
 export function card(p: ProductRecord, l: Locale): Card {
   const cat = categories.find((c) => c.id === p.category)
   return {
-    slug: p.slug, name: inLocale(p.name, l), category: cat ? inLocale(cat.name, l) : '',
+    slug: p.slug, photo: p.photo, name: inLocale(p.name, l), category: cat ? inLocale(cat.name, l) : '',
     priceCents: price(p.priceFen, l), compareAtCents: p.compareFen > 0 ? price(p.compareFen, l) : 0,
     rating: p.rating, reviews: reviewCount(p),
     colors: p.colors.flatMap((id) => colors.filter((c) => c.id === id).map((c) => ({ id, name: inLocale(c.name, l), hex: c.hex }))),

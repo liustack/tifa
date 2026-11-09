@@ -17,6 +17,7 @@ var catalogueFile []byte
 // badge, no sizes. added is an RFC 3339 instant.
 type fileProduct struct {
 	Slug        string    `json:"slug"`
+	Photo       string    `json:"photo"`
 	Name        T         `json:"name"`
 	Category    string    `json:"category"`
 	PriceFen    int       `json:"priceFen"`
@@ -58,7 +59,7 @@ func readCatalogue(data []byte) ([]productRecord, error) {
 			return nil, fmt.Errorf("product %d (%q): %w", i+1, f.Slug, err)
 		}
 		list[i] = productRecord{
-			slug: f.Slug, name: f.Name, category: f.Category, priceFen: f.PriceFen, compareFen: f.CompareFen,
+			slug: f.Slug, photo: f.Photo, name: f.Name, category: f.Category, priceFen: f.PriceFen, compareFen: f.CompareFen,
 			rating: f.Rating, stock: f.Stock, badge: f.Badge, colors: f.Colors, sizes: f.Sizes, tags: f.Tags,
 			summary: f.Summary, description: f.Description, materials: f.Materials, specs: f.Specs,
 			added: f.Added, number: i + 1,
@@ -69,8 +70,8 @@ func readCatalogue(data []byte) ([]productRecord, error) {
 
 // check fails on a record the pages could not show.
 func (f fileProduct) check() error {
-	if f.Slug == "" || f.Added.IsZero() || len(f.Colors) == 0 {
-		return fmt.Errorf("no slug, date added or colour")
+	if f.Slug == "" || f.Photo == "" || f.Added.IsZero() || len(f.Colors) == 0 {
+		return fmt.Errorf("no slug, photo, date added or colour")
 	}
 	texts := append([]T{f.Name, f.Summary, f.Description}, f.Materials...)
 	for _, s := range f.Specs {

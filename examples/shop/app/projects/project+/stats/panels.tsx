@@ -45,7 +45,7 @@ export function ProductTable() {
                 <TableCell className="font-mono text-xs text-muted-foreground">{String(i + 1).padStart(2, '0')}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-3">
-                    <img src={photo(p.slug, 'main', 160)} alt="" width={32} height={32} loading="lazy" decoding="async" className="size-8 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
+                    <img src={photo(p.photo, 'main', 160)} alt="" width={32} height={32} loading="lazy" decoding="async" className="size-8 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
                     <span className="text-sm">{p.name}</span>
                   </div>
                 </TableCell>

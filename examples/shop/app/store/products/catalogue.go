@@ -16,6 +16,7 @@ type T = storekit.Text
 
 type productRecord struct {
 	slug        string
+	photo       string // the folder of its photos under images/
 	name        T
 	category    string
 	priceFen    int

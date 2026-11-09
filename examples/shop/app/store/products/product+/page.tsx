@@ -233,7 +233,7 @@ function Gallery() {
   return (
     <div className="flex flex-col gap-3 lg:sticky lg:top-24" aria-label={t('product.gallery')} role="group">
       <div className="relative border bg-card">
-        <ProductImage slug={product.slug} view={views[shown]} alt={product.name} sizes="(min-width: 1024px) 55vw, 100vw" eager />
+        <ProductImage photo={product.photo} view={views[shown]} alt={product.name} sizes="(min-width: 1024px) 55vw, 100vw" eager />
         <CardBadges product={product} />
       </div>
       <div className="grid grid-cols-3 gap-3">
@@ -246,7 +246,7 @@ function Gallery() {
             onClick={() => setShown(i)}
             className="flex flex-col gap-1.5 border p-1.5 text-left opacity-70 outline-none hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-foreground aria-pressed:opacity-100"
           >
-            <ProductImage slug={product.slug} view={v} alt="" width={160} />
+            <ProductImage photo={product.photo} view={v} alt="" width={160} />
             <span className="font-mono text-[11px] text-muted-foreground">
               0{i + 1} · {t(`product.view.${v}`)}
             </span>
@@ -459,7 +459,7 @@ function Bundle() {
             <li key={p.slug} className="flex items-center gap-3">
               {i > 0 && <Plus className="size-4 text-muted-foreground" aria-hidden />}
               <Link to="/store/products/$product" params={{ product: p.slug }} className="flex w-40 flex-col gap-2 border bg-card p-2.5">
-                <ProductImage slug={p.slug} alt="" width={160} className="w-full" />
+                <ProductImage photo={p.photo} alt="" width={160} className="w-full" />
                 <span className="font-mono text-[11px] text-muted-foreground">{i === 0 ? t('product.bundleThis') : catalogueNo(p.number)}</span>
                 <span className="font-heading text-[15px] leading-snug">{p.name}</span>
                 <span className="font-mono text-sm">{money(p.priceCents)}</span>
@@ -520,13 +520,13 @@ function Details() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             {(['detail', 'scene'] as const).map((v) => {
-              const src = photo(product.slug, v, 1200)
+              const src = photo(product.photo, v, 1200)
               return (
                 <figure key={v} className="m-0 border bg-card">
                   {src && (
                     <img
-                      src={photo(product.slug, v, 480)}
-                      srcSet={photoSet(product.slug, v)}
+                      src={photo(product.photo, v, 480)}
+                      srcSet={photoSet(product.photo, v)}
                       sizes="(min-width: 1024px) 30vw, 50vw"
                       alt={`${product.name} · ${t(`product.view.${v}`)}`}
                       width={480}
@@ -613,7 +613,7 @@ function Compare() {
               {cols.map((p, i) => (
                 <th key={p.slug} scope="col" className={cn('border-x border-t bg-card p-3 text-left font-normal', i === 0 && 'border-primary')}>
                   <Link to="/store/products/$product" params={{ product: p.slug }} className="flex flex-col gap-2">
-                    <ProductImage slug={p.slug} alt="" width={160} className="w-24" />
+                    <ProductImage photo={p.photo} alt="" width={160} className="w-24" />
                     <span className="font-heading text-[15px] leading-snug">{p.name}</span>
                     {i === 0 && <span className="font-mono text-[11px] text-primary">{t('product.bundleThis')}</span>}
                   </Link>
@@ -652,7 +652,7 @@ function Ranking() {
           <li key={p.slug} className="border-b">
             <Link to="/store/products/$product" params={{ product: p.slug }} className="flex items-center gap-4 py-3 hover:bg-card">
               <span className="w-6 font-mono text-sm text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
-              <ProductImage slug={p.slug} alt="" width={160} className="size-14 shrink-0" />
+              <ProductImage photo={p.photo} alt="" width={160} className="size-14 shrink-0" />
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate font-heading text-base">{p.name}</span>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -757,7 +757,7 @@ function Reviews() {
           <ul className="flex flex-wrap gap-2 border-b py-4" aria-label={t('product.reviewPhotos')}>
             {withPhotos.flatMap((r, i) => r.photos.map((v) => (
               <li key={`${i}-${v}`}>
-                <ProductImage slug={product.slug} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-16 border" />
+                <ProductImage photo={product.photo} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-16 border" />
               </li>
             )))}
           </ul>
@@ -787,7 +787,7 @@ function Reviews() {
                 <ul className="flex gap-2">
                   {r.photos.map((v) => (
                     <li key={v}>
-                      <ProductImage slug={product.slug} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-20 border" />
+                      <ProductImage photo={product.photo} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-20 border" />
                     </li>
                   ))}
                 </ul>

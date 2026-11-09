@@ -99,7 +99,7 @@ export default function ProductPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <img
-            src={photo(product.slug, 'main', 160)}
+            src={photo(product.photo, 'main', 160)}
             alt=""
             width={64}
             height={64}

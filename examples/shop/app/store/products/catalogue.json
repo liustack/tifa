@@ -1,6 +1,7 @@
 [
   {
     "slug": "pour-over-kettle",
+    "photo": "pour-over-kettle",
     "name": ["晨间手冲壶","Morning Pour-Over Kettle"],
     "category": "drinkware",
     "priceFen": 32800,
@@ -16,6 +17,7 @@
   },
   {
     "slug": "ceramic-cup",
+    "photo": "ceramic-cup",
     "name": ["手作陶瓷杯","Handmade Ceramic Cup"],
     "category": "drinkware",
     "priceFen": 13400,
@@ -31,6 +33,7 @@
   },
   {
     "slug": "glass-carafe",
+    "photo": "glass-carafe",
     "name": ["玻璃冷水壶","Glass Carafe"],
     "category": "drinkware",
     "priceFen": 15800,
@@ -48,6 +51,7 @@
   },
   {
     "slug": "oak-tray",
+    "photo": "oak-tray",
     "name": ["原木托盘","Oak Serving Tray"],
     "category": "drinkware",
     "priceFen": 58000,
@@ -65,6 +69,7 @@
   },
   {
     "slug": "tea-canister",
+    "photo": "tea-canister",
     "name": ["锡制茶叶罐","Tin Tea Canister"],
     "category": "drinkware",
     "priceFen": 21800,
@@ -80,6 +85,7 @@
   },
   {
     "slug": "linen-coasters",
+    "photo": "linen-coasters",
     "name": ["亚麻杯垫","Linen Coasters"],
     "category": "textiles",
     "priceFen": 10000,
@@ -95,6 +101,7 @@
   },
   {
     "slug": "linen-apron",
+    "photo": "linen-apron",
     "name": ["棉麻围裙","Cotton Linen Apron"],
     "category": "textiles",
     "priceFen": 16800,
@@ -111,6 +118,7 @@
   },
   {
     "slug": "wool-throw",
+    "photo": "wool-throw",
     "name": ["羊毛盖毯","Wool Throw"],
     "category": "textiles",
     "priceFen": 69800,
@@ -128,6 +136,7 @@
   },
   {
     "slug": "tea-towels",
+    "photo": "tea-towels",
     "name": ["格纹茶巾","Checked Tea Towels"],
     "category": "textiles",
     "priceFen": 8800,
@@ -143,6 +152,7 @@
   },
   {
     "slug": "canvas-tote",
+    "photo": "canvas-tote",
     "name": ["帆布托特包","Canvas Tote"],
     "category": "textiles",
     "priceFen": 15800,
@@ -158,6 +168,7 @@
   },
   {
     "slug": "brass-bookmarks",
+    "photo": "brass-bookmarks",
     "name": ["黄铜书签","Brass Bookmarks"],
     "category": "stationery",
     "priceFen": 6800,
@@ -173,6 +184,7 @@
   },
   {
     "slug": "dot-notebook",
+    "photo": "dot-notebook",
     "name": ["点阵笔记本","Dot Grid Notebook"],
     "category": "stationery",
     "priceFen": 5800,
@@ -188,6 +200,7 @@
   },
   {
     "slug": "walnut-pen",
+    "photo": "walnut-pen",
     "name": ["胡桃木钢笔","Walnut Fountain Pen"],
     "category": "stationery",
     "priceFen": 42800,
@@ -204,6 +217,7 @@
   },
   {
     "slug": "desk-tray",
+    "photo": "desk-tray",
     "name": ["桌面收纳盘","Desk Tray"],
     "category": "stationery",
     "priceFen": 12800,
@@ -219,6 +233,7 @@
   },
   {
     "slug": "reading-candle",
+    "photo": "reading-candle",
     "name": ["阅读香薰","Reading Candle"],
     "category": "fragrance",
     "priceFen": 19600,
@@ -234,6 +249,7 @@
   },
   {
     "slug": "forest-diffuser",
+    "photo": "forest-diffuser",
     "name": ["森林扩香","Forest Diffuser"],
     "category": "fragrance",
     "priceFen": 22800,
@@ -249,6 +265,7 @@
   },
   {
     "slug": "incense-set",
+    "photo": "incense-set",
     "name": ["线香礼盒","Incense Gift Set"],
     "category": "fragrance",
     "priceFen": 16800,
@@ -266,6 +283,7 @@
   },
   {
     "slug": "folding-stool",
+    "photo": "folding-stool",
     "name": ["露营折叠凳","Folding Camp Stool"],
     "category": "outdoor",
     "priceFen": 13900,
@@ -281,6 +299,7 @@
   },
   {
     "slug": "picnic-blanket",
+    "photo": "picnic-blanket",
     "name": ["野餐垫","Picnic Blanket"],
     "category": "outdoor",
     "priceFen": 8900,
@@ -296,6 +315,7 @@
   },
   {
     "slug": "insulated-bottle",
+    "photo": "insulated-bottle",
     "name": ["保温水壶","Insulated Bottle"],
     "category": "outdoor",
     "priceFen": 12800,
@@ -311,6 +331,7 @@
   },
   {
     "slug": "enamel-mug",
+    "photo": "enamel-mug",
     "name": ["搪瓷马克杯","Enamel Camp Mug"],
     "category": "outdoor",
     "priceFen": 6800,
@@ -326,6 +347,7 @@
   },
   {
     "slug": "stoneware-vase",
+    "photo": "stoneware-vase",
     "name": ["粗陶花器","Stoneware Vase"],
     "category": "drinkware",
     "priceFen": 24800,
@@ -343,6 +365,7 @@
   },
   {
     "slug": "cotton-napkins",
+    "photo": "cotton-napkins",
     "name": ["棉麻餐巾","Cotton Linen Napkins"],
     "category": "textiles",
     "priceFen": 9800,
@@ -358,6 +381,7 @@
   },
   {
     "slug": "pocket-journal",
+    "photo": "pocket-journal",
     "name": ["口袋手账","Pocket Journal"],
     "category": "stationery",
     "priceFen": 3800,
@@ -373,6 +397,7 @@
   },
   {
     "slug": "hinoki-spray",
+    "photo": "hinoki-spray",
     "name": ["桧木喷雾","Hinoki Room Spray"],
     "category": "fragrance",
     "priceFen": 12800,
@@ -388,6 +413,7 @@
   },
   {
     "slug": "camp-lantern",
+    "photo": "camp-lantern",
     "name": ["复古营灯","Camp Lantern"],
     "category": "outdoor",
     "priceFen": 26800,
@@ -405,6 +431,7 @@
   },
   {
     "slug": "copper-cups",
+    "photo": "copper-cups",
     "name": ["紫铜小杯","Copper Tasting Cups"],
     "category": "drinkware",
     "priceFen": 18800,
@@ -420,6 +447,7 @@
   },
   {
     "slug": "wax-cloth",
+    "photo": "wax-cloth",
     "name": ["蜂蜡保鲜布","Beeswax Wraps"],
     "category": "textiles",
     "priceFen": 7800,

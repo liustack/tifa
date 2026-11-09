@@ -2,9 +2,12 @@ package products
 
 import (
 	"encoding/json/v2"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/liustack/tifa/examples/shop/app/store/storekit"
 )
 
 // The records the shop starts with are catalogue.json, member for member, in its order.
@@ -20,7 +23,7 @@ func TestTheCatalogueFileIsTheCatalogue(t *testing.T) {
 			t.Errorf("%s is number %d, at place %d", p.slug, p.number, i+1)
 		}
 		back[i] = fileProduct{
-			Slug: p.slug, Name: p.name, Category: p.category, PriceFen: p.priceFen, CompareFen: p.compareFen,
+			Slug: p.slug, Photo: p.photo, Name: p.name, Category: p.category, PriceFen: p.priceFen, CompareFen: p.compareFen,
 			Rating: p.rating, Stock: p.stock, Badge: p.badge, Colors: p.colors, Sizes: p.sizes, Tags: p.tags,
 			Summary: p.summary, Description: p.description, Materials: p.materials, Specs: p.specs, Added: p.added,
 		}
@@ -45,7 +48,7 @@ func TestTheCatalogueFileIsTheCatalogue(t *testing.T) {
 
 // A record the pages could not show stops the shop before it serves a page.
 func TestTheCatalogueRefusesARecordItCannotShow(t *testing.T) {
-	good := `{"slug":"cup","name":["杯","Cup"],"category":"drinkware","priceFen":100,"rating":4,"stock":1,"colors":["mist"],"tags":[],"summary":["好","Good"],"description":["好","Good"],"materials":[],"specs":[],"added":"2026-09-02T10:00:00Z"}`
+	good := `{"slug":"cup","photo":"ceramic-cup","name":["杯","Cup"],"category":"drinkware","priceFen":100,"rating":4,"stock":1,"colors":["mist"],"tags":[],"summary":["好","Good"],"description":["好","Good"],"materials":[],"specs":[],"added":"2026-09-02T10:00:00Z"}`
 	if list, err := readCatalogue([]byte("[" + good + "]")); err != nil || len(list) != 1 || list[0].number != 1 {
 		t.Fatalf("a good record: %v, %v", list, err)
 	}
@@ -61,5 +64,24 @@ func TestTheCatalogueRefusesARecordItCannotShow(t *testing.T) {
 		if _, err := readCatalogue([]byte("[" + bad + "]")); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+// Two products can show the same photos: a record names the folder of its photos, which need not be
+// its slug.
+func TestTwoProductsCanShareAPhotoSet(t *testing.T) {
+	one := `{"slug":"%s","photo":"ceramic-cup","name":["杯","Cup"],"category":"drinkware","priceFen":100,"rating":4,"stock":1,"colors":["mist"],"tags":[],"summary":["好","Good"],"description":["好","Good"],"materials":[],"specs":[],"added":"2026-09-02T10:00:00Z"}`
+	list, err := readCatalogue([]byte("[" + fmt.Sprintf(one, "cup") + "," + fmt.Sprintf(one, "mug") + "]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, _ := storekit.FindLocale("en-US")
+	for _, p := range list {
+		if c, e := p.product(en), p.entry(); c.Photo != "ceramic-cup" || e.Photo != "ceramic-cup" {
+			t.Errorf("%s: the page shows the photos of %q, the back office %q, want ceramic-cup", p.slug, c.Photo, e.Photo)
+		}
+	}
+	if _, err := readCatalogue([]byte("[" + strings.Replace(fmt.Sprintf(one, "cup"), `"photo":"ceramic-cup",`, "", 1) + "]")); err == nil {
+		t.Error("a record without photos: no error")
 	}
 }

@@ -18,6 +18,7 @@ export interface Edit {
 // Entry is a product as the back office lists and edits it.
 export interface Entry extends Edit {
   slug: string
+  photo: string // the folder of its photos
   number: number
   // category is the name of the category in English, the language of the back office.
   category: string
@@ -98,7 +99,7 @@ export function apply(slug: string, c: Change): void {
 function entry(p: ProductRecord): Entry {
   return {
     priceCents: p.priceFen, stock: p.stock, nameEn: p.name[1], nameZh: p.name[0], descriptionEn: p.description[1], descriptionZh: p.description[0],
-    slug: p.slug, number: catalogue.indexOf(p) + 1, category: categories.find((c) => c.id === p.category)?.name[1] ?? '',
+    slug: p.slug, photo: p.photo, number: catalogue.indexOf(p) + 1, category: categories.find((c) => c.id === p.category)?.name[1] ?? '',
   }
 }
 
@@ -123,6 +124,12 @@ export function stockOf(slug: string): number | undefined {
 // (the back office is in English), or undefined. Go calls it OrderName.
 export function orderName(slug: string): string | undefined {
   return catalogue.find((p) => p.slug === slug)?.name[1]
+}
+
+// photoOf is the folder of the photos of the product slug, which order lines show, or undefined. Go
+// calls it Photo.
+export function photoOf(slug: string): string | undefined {
+  return catalogue.find((p) => p.slug === slug)?.photo
 }
 
 // NoStock is what buy throws when a product has fewer pieces than a checkout takes, as Go's
@@ -167,6 +174,7 @@ export function buy(takes: Take[]): Purchase {
 // calls it Line, a name the cart has here.
 export interface ProductLine {
   slug: string
+  photo: string // the folder of its photos
   name: string
   variant: string
   color: string
@@ -183,5 +191,5 @@ function lineOf(p: ProductRecord, color: string, size: string): ProductLine {
   }
   let variant = colors.find((c) => c.id === color)?.name[1] ?? color
   if (size !== '') variant += ' / ' + size
-  return { slug: p.slug, name: p.name[1], variant, color, priceFen: p.priceFen, quantity: 0 }
+  return { slug: p.slug, photo: p.photo, name: p.name[1], variant, color, priceFen: p.priceFen, quantity: 0 }
 }

@@ -7,8 +7,8 @@ import { counts } from './counts.ts'
 import { demoOrders } from './demo.ts'
 import { Invalid, NotFound, OutOfStock } from './errors.ts'
 import { Fields } from './store/errors.ts'
-import { buy, NoStock, orderName, stockOf } from './store/products/edit.ts'
-import { weekendBuy, weekendName, weekendStockOf } from './weekend.ts'
+import { buy, NoStock, orderName, photoOf, stockOf } from './store/products/edit.ts'
+import { weekendBuy, weekendName, weekendPhoto, weekendStockOf } from './weekend.ts'
 import type { ProductLine } from './store/products/edit.ts'
 import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
@@ -39,19 +39,20 @@ function storefrontBuy(lines: NewLine[]): ItemRecord[] {
 }
 
 export function storefrontItem(p: ProductLine): ItemRecord {
-  return { slug: p.slug, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color }
+  return { slug: p.slug, photo: p.photo, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color }
 }
 
 // The form of the order numbers of a project and how it buys the lines of an order, as shops in
 // create.go: the studio shop sells the products of the storefront, the weekend shop has its own.
 // name is the name of a product it sells, as order lines keep it, or undefined. stock is how many of
-// it the shop has to sell now, the orders that wait to ship taken out, or undefined.
+// it the shop has to sell now, the orders that wait to ship taken out, or undefined. photo is the
+// folder of the photos of a product it sells, or undefined.
 export const shops: Record<
   string,
-  { prefix: string; width: number; buy: (lines: NewLine[]) => ItemRecord[]; name: (slug: string) => string | undefined; stock: (slug: string) => number | undefined }
+  { prefix: string; width: number; buy: (lines: NewLine[]) => ItemRecord[]; name: (slug: string) => string | undefined; stock: (slug: string) => number | undefined; photo: (slug: string) => string | undefined }
 > = {
-  [storefrontProject]: { prefix: 'SH', width: 0, buy: storefrontBuy, name: orderName, stock: stockOf },
-  weekend: { prefix: 'WK', width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf },
+  [storefrontProject]: { prefix: 'SH', width: 0, buy: storefrontBuy, name: orderName, stock: stockOf, photo: photoOf },
+  weekend: { prefix: 'WK', width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf, photo: weekendPhoto },
 }
 
 // productStock is how many of the product slug the shop of a project has to sell now, as in Go: a
@@ -60,6 +61,14 @@ export function productStock(projectId: string, slug: string): number {
   const n = shops[projectId].stock(slug)
   if (n === undefined) throw new Error(`orders of ${projectId} hold ${slug}, which the shop does not sell`)
   return n
+}
+
+// productPhoto is the folder of the photos of the product slug in the shop of a project, as in Go:
+// a photo that is not there is a bug.
+export function productPhoto(projectId: string, slug: string): string {
+  const photo = shops[projectId].photo(slug)
+  if (photo === undefined) throw new Error(`orders of ${projectId} hold ${slug}, which the shop does not sell`)
+  return photo
 }
 
 export interface CustomerOrders {
