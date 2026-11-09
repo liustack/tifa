@@ -38,7 +38,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
 		"#### The arrival rate Next.js sustains",
-		"| Next.js | 16.00 | 42 |",
+		"| Next.js | 16.00 | 64 |",
 		"#### Latency at the same arrival rate, half of Next.js's confirmed rate",
 		"not half of its own capacity",
 		"The writes are requests inserted into the recorded visits",

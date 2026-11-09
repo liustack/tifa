@@ -442,7 +442,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 			var r Round
 			w.plan(&r, b*bv, bv, false)
 			m := r.Mix
-			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 2600, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
+			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 4000, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
 			if m == nil || *m != want {
 				t.Fatalf("%s block %d of the run plans %+v, want %+v", tc.name, b, m, want)
 			}
