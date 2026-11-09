@@ -361,7 +361,7 @@ func TestVerifyAdminChecksEachWriteShowsAndFailsOnAStalePage(t *testing.T) {
 	if err := r.verifyAdmin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// The pool is what it was: the order that the check placed was shipped by it.
+	// The check placed one order of studio (SH-1043, counted with the 42 of the data) and shipped it.
 	if got := r.pool.orderCounts(); got["studio"] != 43 {
 		t.Errorf("orders %v", got)
 	}

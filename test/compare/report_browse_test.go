@@ -603,3 +603,24 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 		}
 	}
 }
+
+// The appendix says how the writes work as the runner makes them: an edit is a PATCH of one field of
+// a product, every ship ships an order placed for it before the clock, and a new visitor sees the
+// demonstration cart, the same for every new visitor. What an earlier version did is not said.
+func TestTheReportDescribesTheWritesAsTheyAreMade(t *testing.T) {
+	for _, old := range []string{"no product edit yet", "changes the recipient of an order for now", "oldest order that has not shipped", "places one instead", "Every visit has data of its own"} {
+		if strings.Contains(siteText, old) {
+			t.Errorf("the report still says %q", old)
+		}
+	}
+	for _, want := range []string{
+		"an edit is one PATCH of one field of a product",
+		"each ship ships an order of its own, placed for it before the clock",
+		"the data of every visit with private data of its own (the cart of a returning visitor, a checkout) differs from visit to visit",
+		"a new visitor sees the demonstration cart, the same for every new visitor",
+	} {
+		if !strings.Contains(siteText, want) {
+			t.Errorf("the report does not say %q", want)
+		}
+	}
+}
