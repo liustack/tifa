@@ -403,8 +403,10 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
-		shown := r.latencyRounds(f, sc.Name)
+		// Every server is listed: having no valid round, or too few to decide, is its result too.
+		shown, want := r.latencyRounds(f, sc.Name), r.rounds()
 		if len(shown) == 0 {
+			fmt.Fprintf(b, "| %s | - | - | - | no valid result: 0 of %d rounds valid |\n", BrowseLabel(f), want)
 			continue
 		}
 		var notes []string
@@ -413,9 +415,14 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, x.Why))
 			}
 		}
-		note := fmt.Sprintf("%d of %d rounds passed", len(shown)-len(notes), len(shown))
-		if len(notes) > 0 {
+		var note string
+		switch {
+		case len(notes) > 0: // a valid round that failed decides it, however many were valid
 			note = fmt.Sprintf("failed the rule in %d of %d rounds: %s", len(notes), len(shown), strings.Join(notes, "; "))
+		case len(shown) < want:
+			note = fmt.Sprintf("not decided: %d of %d rounds valid, %d of %d passed", len(shown), want, len(shown), len(shown))
+		default:
+			note = fmt.Sprintf("%d of %d rounds passed", len(shown), len(shown))
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), note)
 	}

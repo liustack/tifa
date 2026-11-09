@@ -555,3 +555,51 @@ func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
 		t.Errorf("the report lacks the hits Tifa counted:\n%s", md)
 	}
 }
+
+// The latency table of the body lists every server of the scenario, whatever its rounds were: one
+// with no valid round has no valid result, one with fewer valid rounds than the run plays is not
+// decided, one whose valid rounds all passed passed, and one with a valid round that failed failed.
+func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
+	mix := mustScenario("shop")
+	fws := []string{"tifa", "nextjs", "start", "reactrouter"}
+	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: fws}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"},
+		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Config: map[string]string{"rounds": "3"},
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}}
+	open := func(fw string, round int, valid, pass bool) Round {
+		x := closedRound(fw, mix.Name, 0, round, 1000, 100, pass)
+		x.Model, x.Rate, x.Valid = "open", 8, valid
+		if !valid {
+			x.WhyInvalid = "the load generator started a visit 400 ms late"
+		}
+		return x
+	}
+	for round := 1; round <= 3; round++ {
+		for try := 1; try <= 3; try++ {
+			x := open("tifa", round, false, true) // every try of every round not valid
+			x.Attempt = try
+			r.Latency = append(r.Latency, x)
+		}
+		r.Latency = append(r.Latency, open("nextjs", round, true, true), open("reactrouter", round, true, round != 3))
+		r.Latency = append(r.Latency, open("start", round, round == 1, true)) // one valid round of three
+	}
+	md := r.Markdown()
+	body, _, _ := strings.Cut(md, "\n## Appendix\n")
+	row := func(label string) string {
+		for _, l := range strings.Split(body, "\n") {
+			if strings.HasPrefix(l, "| "+label+" |") && strings.Contains(l, "round") || strings.HasPrefix(l, "| "+label+" |") && strings.Contains(l, "no valid result") {
+				return l
+			}
+		}
+		return ""
+	}
+	for label, want := range map[string]string{
+		"Tifa":           "| Tifa | - | - | - | no valid result: 0 of 3 rounds valid |",
+		"TanStack Start": "not decided: 1 of 3 rounds valid, 1 of 1 passed |",
+		"Next.js":        "3 of 3 rounds passed |",
+		"React Router":   "failed the rule in 1 of 3 rounds: round 3 failed: click P99 1200 ms over 1000 ms |",
+	} {
+		if got := row(label); !strings.Contains(got, want) {
+			t.Errorf("the latency row of %s is %q, want it to hold %q:\n%s", label, got, want, body)
+		}
+	}
+}
