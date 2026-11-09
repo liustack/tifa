@@ -316,22 +316,25 @@ func mustJSON(v any) []byte {
 	return data
 }
 
-// WithoutInstants drops every instant from page data: the keys "at" and those that end in "At".
-// The port makes its writes at the instants the shop made them (DomainWrite.At), but writes an
-// instant as text in its own way.
-func WithoutInstants(v any) any {
+// InstantsAsMillis turns every instant of page data, the values of the keys "at" and those that
+// end in "At", into its Unix milliseconds (a float64, as JSON numbers decode), so that the shop
+// and the port, which write an instant as text in their own ways, compare by the instant. A value
+// that is not an RFC 3339 text is left as it is, for the comparison to show.
+func InstantsAsMillis(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, e := range x {
-			if k == "at" || strings.HasSuffix(k, "At") {
-				delete(x, k)
+			if s, ok := e.(string); ok && (k == "at" || strings.HasSuffix(k, "At")) {
+				if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+					x[k] = float64(t.UnixMilli())
+				}
 				continue
 			}
-			x[k] = WithoutInstants(e)
+			x[k] = InstantsAsMillis(e)
 		}
 	case []any:
 		for i := range x {
-			x[i] = WithoutInstants(x[i])
+			x[i] = InstantsAsMillis(x[i])
 		}
 	}
 	return v

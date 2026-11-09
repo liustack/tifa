@@ -17,10 +17,14 @@ export function at(month: number, day: number, hour: number, minute: number): nu
 
 const pad = (n: number, width = 2) => String(n).padStart(width, '0')
 
-// rfc3339 writes an instant as Go's time.Time does for a time made in China: 2026-10-13T14:32:00+08:00.
+// rfc3339 writes an instant as Go's time.Time does for a time made in China: 2026-10-13T14:32:00+08:00,
+// with the milliseconds as a fraction without its trailing zeros when there are any
+// (2026-11-09T07:20:42.308+08:00), as RFC3339Nano writes them.
 export function rfc3339(ms: number): string {
   const d = new Date(ms + china)
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}+08:00`
+  const milli = d.getUTCMilliseconds()
+  const fraction = milli === 0 ? '' : '.' + pad(milli, 3).replace(/0+$/, '')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}${fraction}+08:00`
 }
 
 // hours is Go's Duration.Hours: whole hours plus the rest as a fraction, so the float is the same.

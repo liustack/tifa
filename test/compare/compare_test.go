@@ -3,11 +3,13 @@ package compare_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -393,7 +395,8 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 // ship, note, change the recipient), to the Go shop and applies them in the port, and checks that the
 // data of every page, with the pages of the orders placed, is still the same. The port makes each
 // write at the instant the shop made it, so what follows from the instants (the dispatch hours, the
-// heatmap) is the same too. Instants are left out, as the two write them as text in their own ways.
+// heatmap) is the same too. Instants are compared as their Unix milliseconds, and each order placed,
+// shipment and note must show at the instant the shop made it.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	env := setup(t)
 	if why := compare.NodeRunsTypeScript(); why != "" {
@@ -427,8 +430,40 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	if len(got) != len(want) || len(want) != len(compare.CheckedPages())+3 {
 		t.Fatalf("%d pages in the shop, %d in the port, want %d", len(want), len(got), len(compare.CheckedPages())+3)
 	}
-	for _, d := range compare.DiffData(compare.WithoutInstants(toAny(t, want)), compare.WithoutInstants(toAny(t, got)), 20) {
+	wantData, gotData := compare.InstantsAsMillis(toAny(t, want)), compare.InstantsAsMillis(toAny(t, got))
+	for _, d := range compare.DiffData(wantData, gotData, 20) {
 		t.Error(d)
+	}
+	// Each order placed, shipment and note shows at the instant the shop made it, in both.
+	placed := map[string]int{"studio": compare.OrderIDs["studio"][1], "weekend": compare.OrderIDs["weekend"][1]}
+	prefix := map[string]string{"studio": "SH-%04d", "weekend": "WK-%04d"}
+	for _, w := range timed {
+		id := w.Order
+		if w.Kind == compare.WriteCreate {
+			placed[w.Project]++
+			id = fmt.Sprintf(prefix[w.Project], placed[w.Project])
+		}
+		if w.At == 0 {
+			continue
+		}
+		for side, data := range map[string]any{"the shop": wantData, "the port": gotData} {
+			o, _ := dig(data, "/projects/"+w.Project+"/orders/"+id, "app/projects/project+/orders/order+/route", "order").(map[string]any)
+			var at []any
+			switch w.Kind {
+			case compare.WriteCreate:
+				at = []any{o["placedAt"]}
+			case compare.WriteShip:
+				at = []any{dig(o, "shipment", "shippedAt")}
+			case compare.WriteNote:
+				notes, _ := o["notes"].([]any)
+				for _, n := range notes {
+					at = append(at, dig(n, "at"))
+				}
+			}
+			if !slices.Contains(at, any(float64(w.At))) {
+				t.Errorf("%s: the %s of %s is not at %d, the instant the shop made it: %v", side, w.Kind, id, w.At, at)
+			}
+		}
 	}
 	last := recipients[len(recipients)-1]
 	text, _ := json.Marshal(want)
@@ -568,4 +603,13 @@ func indexOf(pages []compare.Page, name string) int {
 		}
 	}
 	return -1
+}
+
+// dig follows keys down nested maps, and gives nil where one is missing.
+func dig(v any, keys ...string) any {
+	for _, k := range keys {
+		m, _ := v.(map[string]any)
+		v = m[k]
+	}
+	return v
 }
