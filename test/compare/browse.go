@@ -407,7 +407,8 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // first restocks the server (prepare), which renders nothing, for visits visits (-1 for a run that
 // plays for a time, the sizing run), and f then makes the orders of its ships and the carts of the
 // returning visitors before its clock (setup), which render nothing either. A run whose restock fails is an invalid round, and f does not
-// run. The round f returns is judged, and when
+// run. A run that can make more carts than the shop keeps (cartsFit) is an error before it sends
+// anything. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
@@ -430,6 +431,14 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 	r, err := b.runnerFor(name, sc, server)
 	if err != nil {
 		return nil, err
+	}
+	// The shop keeps shopMaxCarts carts: a round that can make more fails before it sends anything.
+	played := visits
+	if played < 0 {
+		played = sizingVisits(b.o.Warm)
+	}
+	if err := r.wl.cartsFit(0, played, shopMaxCarts); err != nil {
+		return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
 	}
 	if !sc.ReadOnly {
 		if err := b.prepare(ctx, r, b.specs[name], visits); err != nil {
@@ -477,7 +486,7 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 		return err
 	}
 	blocks := BlocksFor(rate, window, b.set.Blocks, reads.blockVisits())
-	out, err := b.with(ctx, "tifa", reads, 0, func(r *runner) *Round {
+	out, err := b.with(ctx, "tifa", reads, blocks*reads.blockVisits(), func(r *runner) *Round {
 		return r.RunClosed(ctx, b.o.Sessions, blocks*reads.blockVisits(), 2*window)
 	})
 	if err != nil {

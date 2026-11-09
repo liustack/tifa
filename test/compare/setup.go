@@ -169,3 +169,35 @@ func (r *runner) makeCart(ctx context.Context, c *http.Client, reqs []StoreReque
 // Beyond it the shop drops the cart used longest ago, so a run that makes more would lose carts it
 // counts on: the cart store stands for the database of a real shop, which drops none.
 const shopMaxCarts = 100_000
+
+// checkCarts is how many carts the check after a round makes on its server (verifyStore).
+const checkCarts = 1
+
+// cartsOf is the most carts visits seq0 to seq0+n-1 make on a fresh server, with the check after
+// them: one for each returning visit, made before the clock, one for each other visit that writes
+// to its cart (its first write turns the demonstration cart into a cart of its own), and checkCarts.
+func (w *Workload) cartsOf(seq0, n int) int {
+	carts := checkCarts
+	for s := seq0; s < seq0+n; s++ {
+		if p := w.planFor(s); p.Role == RoleShopper && p.Returning {
+			carts++
+			continue
+		}
+		for _, x := range w.writesOf(s) {
+			if x.Store != nil {
+				carts++
+				break
+			}
+		}
+	}
+	return carts
+}
+
+// cartsFit fails when visits seq0 to seq0+n-1 can make more carts than a shop that keeps keep: the
+// shop would drop carts the round counts on.
+func (w *Workload) cartsFit(seq0, n, keep int) error {
+	if c := w.cartsOf(seq0, n); c > keep {
+		return fmt.Errorf("%d visits make up to %d carts, more than the %d the shop keeps", n, c, keep)
+	}
+	return nil
+}
