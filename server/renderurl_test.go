@@ -1,10 +1,13 @@
 package server
 
 import (
+	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 func TestRenderURLKeepsTheParametersTheLoadsRead(t *testing.T) {
@@ -79,5 +82,40 @@ func TestServerRenderSeesOnlyTheQueryItsLoadsRead(t *testing.T) {
 	}
 	if entries, _ := s.memo.stats(); entries.Entries != 3 {
 		t.Errorf("memo %+v", entries)
+	}
+}
+
+// The router redirects another spelling of a URL to the one it builds from the URL it rendered,
+// which lacks the parameters the Loads do not read: the redirect puts them back as they came.
+func TestCanonicalRedirectKeepsTheDroppedParameters(t *testing.T) {
+	s, r := newFrontServer(t, queryApp())
+	// What the router does: it builds the URL from the path and the query it was given.
+	r.result = func(in ssr.Input) (string, error) {
+		u, err := url.ParseRequestURI(in.URL)
+		if err != nil {
+			return "", err
+		}
+		clean := strings.TrimSuffix(strings.ReplaceAll(u.EscapedPath(), "%6C", "l"), "/")
+		if clean != u.EscapedPath() {
+			if u.RawQuery != "" {
+				clean += "?" + u.RawQuery
+			}
+			return "", &ssr.RedirectError{Location: clean, Status: http.StatusPermanentRedirect}
+		}
+		return "<html>" + in.URL + "</html>", nil
+	}
+	for _, tc := range []struct{ target, want string }{
+		{"/%6Cist?utm_source=mail&page=2&sort=name", "/list?page=2&sort=name&utm_source=mail"},
+		// The second request gets the redirect from the render memo, with its own parameters.
+		{"/%6Cist?page=2&sort=name&fbclid=a%20b&x", "/list?page=2&sort=name&fbclid=a%20b&x"},
+		{"/%6Cist?page=2&sort=name", "/list?page=2&sort=name"},
+		// A URL that matches no page renders the 404 inside the root Layout, which reads page.
+		{"/list/?utm_source=mail&page=2", "/list?page=2&utm_source=mail"},
+		{"/plain/?sort=a", "/plain?sort=a"},
+	} {
+		w := get(s, tc.target)
+		if w.Code != http.StatusPermanentRedirect || w.Header().Get("Location") != tc.want {
+			t.Errorf("%s: %d %q, want %q", tc.target, w.Code, w.Header().Get("Location"), tc.want)
+		}
 	}
 }

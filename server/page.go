@@ -484,6 +484,8 @@ type renderError struct {
 	start time.Time
 	loads time.Time
 	key   string
+	// query is the list of the query parameters the render saw (renderURL).
+	query []string
 }
 
 func (e *renderError) Error() string { return "tifa: render page: " + e.err.Error() }
@@ -811,7 +813,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	}
 	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
-	failed := &renderError{f: f, in: in, key: key, loads: since}
+	failed := &renderError{f: f, in: in, key: key, loads: since, query: s.query[key]}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
 	// neither reads the cache nor writes to it, and shares no render.
 	if core.RenderClock(r.Context()) != nil {
@@ -936,7 +938,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	}
 	c.SetHeader(renderHeader, got.how)
 	if got.page.redirect != nil {
-		writeRenderRedirect(c, got.page.redirect)
+		writeRenderRedirect(c, got.page.redirect, failed.query)
 		return nil
 	}
 	setDataAge(c.Writer().Header(), time.Since(since))
@@ -1058,7 +1060,7 @@ func around(html string, i int) string {
 func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
-		writeRenderRedirect(c, redirect)
+		writeRenderRedirect(c, redirect, failed.query)
 		return nil
 	}
 	failed.err = err
@@ -1069,9 +1071,12 @@ func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 // differently, /%61 for /a, and sends the browser there. The redirect carries no ETag. The render
 // is a function of the build, the URL and the data, so an ETag a client got with a 200 for this URL
 // never belongs to a redirect, and 304 is only answered to a client that made its If-None-Match up.
-func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError) {
+// The router built the URL from the one it rendered, so the query parameters renderURL left out,
+// those not in keep, are put back as the request spelled them: the render memo hands the same
+// redirect to requests with other such parameters.
+func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError, keep []string) {
 	c.Writer().Header().Del("ETag")
-	http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
+	http.Redirect(c.Writer(), c.Request(), withDropped(redirect.Location, c.Request().URL, keep), redirect.Status)
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
@@ -1405,13 +1410,7 @@ func renderURL(u *url.URL, keep []string) string {
 	}
 	values := map[string][]string{}
 	for part := range strings.SplitSeq(u.RawQuery, "&") {
-		key, value, _ := strings.Cut(part, "=")
-		k, err1 := url.QueryUnescape(key)
-		v, err2 := url.QueryUnescape(value)
-		if err1 != nil || err2 != nil || strings.Contains(part, ";") {
-			continue
-		}
-		if _, ok := slices.BinarySearch(keep, k); ok {
+		if k, v, ok := keptPart(part, keep); ok {
 			values[k] = append(values[k], v)
 		}
 	}
@@ -1427,4 +1426,41 @@ func renderURL(u *url.URL, keep []string) string {
 		}
 	}
 	return p + b.String()
+}
+
+// keptPart decodes one name=value part of a query and reports whether renderURL keeps it: it
+// parses as url.ParseQuery would take it, and keep, which is sorted, has its name.
+func keptPart(part string, keep []string) (name, value string, ok bool) {
+	rawName, rawValue, _ := strings.Cut(part, "=")
+	name, err1 := url.QueryUnescape(rawName)
+	value, err2 := url.QueryUnescape(rawValue)
+	if err1 != nil || err2 != nil || strings.Contains(part, ";") {
+		return "", "", false
+	}
+	_, ok = slices.BinarySearch(keep, name)
+	return name, value, ok
+}
+
+// withDropped is location with the parts of the query of u that renderURL left out added at the
+// end, in their order and spelling.
+func withDropped(location string, u *url.URL, keep []string) string {
+	var b strings.Builder
+	for part := range strings.SplitSeq(u.RawQuery, "&") {
+		if part == "" {
+			continue
+		}
+		if _, _, ok := keptPart(part, keep); ok {
+			continue
+		}
+		b.WriteByte('&')
+		b.WriteString(part)
+	}
+	if b.Len() == 0 {
+		return location
+	}
+	dropped := b.String()
+	if !strings.Contains(location, "?") {
+		dropped = "?" + dropped[1:]
+	}
+	return location + dropped
 }
