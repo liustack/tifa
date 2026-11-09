@@ -20,7 +20,7 @@ func TestStockForCountsWhatTheCheckoutsOfARunBuy(t *testing.T) {
 		return PlannedWrite{After: after, Kind: kind, Store: &StoreRequest{Kind: kind, Path: path, Body: mustJSON(body)}}
 	}
 	// Given out of order: two more of the kettle in the cart, the cups taken out, 12 of an apron
-	// capped at 10 of a line, a checkout, and an add after it that is not bought.
+	// capped at 10 of a line, a checkout, and an add after it, whose line the cart still holds at the end.
 	a := VisitWrites{Writes: []PlannedWrite{
 		store(3, WriteCheckout, "/store/checkout", map[string]any{"email": "a@b.c"}),
 		store(0, WriteAdd, "/store/products/pour-over-kettle", map[string]any{"color": "mist", "quantity": 2}),
@@ -45,7 +45,7 @@ func TestStockForCountsWhatTheCheckoutsOfARunBuy(t *testing.T) {
 			"ceramic-cup":      stockMargin * (2 + 2),
 			"linen-apron":      stockMargin * (11 + 1 + 11 + 1),
 			"reading-candle":   stockMargin * (1 + 1 + 1 + 1),
-			"oak-tray":         stockMargin * 2,
+			"oak-tray":         stockMargin * (3 + 3 + 2),
 		},
 	}
 	for _, l := range AdminBody(7, ship.Seq, ship.After, WriteCreate, ship.Project).(map[string]any)["items"].([]adminLine) {

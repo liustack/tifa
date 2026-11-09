@@ -41,9 +41,11 @@ type VisitWrites struct {
 //
 // The cart of a visit is followed as the shop keeps it: it starts with the demonstration cart, an
 // add puts at most maxLine of one line in it, a quantity change sets a line and a checkout empties
-// it. A write of the back office that places an order (a create, and a ship, whose order is placed
-// before the clock) counts with the items AdminBody gives its create (seed is the seed of the workload,
-// as the replay passes it).
+// it. The lines adds put in the cart that are still there at the end of the visit count too, since
+// the shop takes an add of a product only while it is in stock (an add buys the product of its page,
+// which may be sold out in the data). A write of the back office that places an order (a create, and
+// a ship, whose order is placed before the clock) counts with the items AdminBody gives its create
+// (seed is the seed of the workload, as the replay passes it).
 func StockFor(seed uint64, visits []VisitWrites) map[string]map[string]int {
 	need := map[string]map[string]int{}
 	for _, v := range visits {
@@ -65,7 +67,7 @@ func (w *Workload) stockOf(seq0, n int) []VisitWrites {
 	for s := seq0; s < seq0+n; s++ {
 		var v VisitWrites
 		if p := w.planFor(s); p.Role == RoleShopper && p.Returning {
-			v.Setup, _ = returningCart(w.Seed, s, p)
+			v.Setup = returningCart(w.Seed, s, p)
 		}
 		for _, x := range w.writesOf(s) {
 			v.Writes = append(v.Writes, x)
@@ -90,6 +92,7 @@ func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
 	slices.SortFunc(visit, func(a, b PlannedWrite) int { return a.After - b.After })
 	writes = append(writes, visit...)
 	cart := demoCart()
+	added := map[string]bool{} // the lines an add put in the cart
 	out := map[string]map[string]int{}
 	take := func(project, slug string, n int) {
 		if out[project] == nil {
@@ -118,6 +121,7 @@ func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
 		case WriteAdd:
 			slug := w.Store.Path[strings.LastIndex(w.Store.Path, "/")+1:]
 			id := storeLineID(slug, body.Color, body.Size)
+			added[id] = true
 			if j := slices.IndexFunc(cart, func(l cartLine) bool { return l.id == id }); j >= 0 {
 				cart[j].quantity = min(cart[j].quantity+body.Quantity, maxLine)
 			} else {
@@ -136,6 +140,13 @@ func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
 				take(storefrontShop, l.slug, l.quantity)
 			}
 			cart = nil
+		}
+	}
+	// A line an add put in the cart and no checkout bought holds pieces too: the shop takes an add of a
+	// product only while it is in stock.
+	for _, l := range cart {
+		if added[l.id] {
+			take(storefrontShop, l.slug, l.quantity)
 		}
 	}
 	return out

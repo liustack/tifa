@@ -110,7 +110,7 @@ func (r *runner) setupCarts(ctx context.Context, round *Round, seq0, n int) bool
 	var jobs []job
 	for s := seq0; s < seq0+n; s++ {
 		if p := r.wl.planFor(s); p.Role == RoleShopper && p.Returning {
-			reqs, _ := returningCart(r.wl.Seed, s, p)
+			reqs := returningCart(r.wl.Seed, s, p)
 			jobs = append(jobs, job{s, reqs})
 		}
 	}

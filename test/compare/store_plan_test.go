@@ -97,7 +97,8 @@ func TestEveryStoreVisitPageHasLinks(t *testing.T) {
 // shopCart is the cart of the shop as examples/shop/app/store/cart keeps it, written again to check
 // that the writes of a plan are always ones the shop takes: a visitor starts with the demonstration
 // cart, a product is added in a colour and size it has, a quantity is set on a line the cart holds
-// and is at most 10 and at most the stock, a checkout needs a line and empties the cart.
+// and is at most 10, a checkout needs a line and empties the cart. It holds no stock: the restock
+// gives every product an add puts in a cart stock enough (StockFor).
 type shopCart struct {
 	lines  []cartLine
 	coupon string
@@ -128,21 +129,21 @@ func (c *shopCart) apply(t *testing.T, w PlannedWrite) {
 		if !slices.Contains(p.Colors, in.Color) || !sizeOK {
 			t.Fatalf("visit %d write %d: %s has no variant %q %q", w.Seq, w.After, slug, in.Color, in.Size)
 		}
-		if p.Stock == 0 || in.Quantity < 1 || in.Quantity > 10 {
-			t.Fatalf("visit %d write %d: add %d of %s with %d in stock", w.Seq, w.After, in.Quantity, slug, p.Stock)
+		if in.Quantity < 1 || in.Quantity > 10 {
+			t.Fatalf("visit %d write %d: add %d of %s", w.Seq, w.After, in.Quantity, slug)
 		}
 		id := storeLineID(slug, in.Color, in.Size)
 		if j := slices.IndexFunc(c.lines, func(l cartLine) bool { return l.id == id }); j >= 0 {
-			c.lines[j].quantity = min(c.lines[j].quantity+in.Quantity, 10, p.Stock)
+			c.lines[j].quantity = min(c.lines[j].quantity+in.Quantity, 10)
 		} else {
-			c.lines = append(c.lines, cartLine{id, slug, min(in.Quantity, p.Stock)})
+			c.lines = append(c.lines, cartLine{id, slug, min(in.Quantity, 10)})
 		}
 	case WriteQuantity:
 		j := slices.IndexFunc(c.lines, func(l cartLine) bool { return l.id == in.Line })
 		if j < 0 {
 			t.Fatalf("visit %d write %d: the cart has no line %s", w.Seq, w.After, in.Line)
 		}
-		if in.Quantity < 0 || in.Quantity > 10 || in.Quantity > storeStock(c.lines[j].slug) {
+		if in.Quantity < 0 || in.Quantity > 10 {
 			t.Fatalf("visit %d write %d: quantity %d of %s", w.Seq, w.After, in.Quantity, in.Line)
 		}
 		if in.Quantity == 0 {
@@ -200,7 +201,10 @@ func siteWorkload(t *testing.T, seed uint64, blocks int, name string) *Workload 
 }
 
 // A plan is played again and again over a round, and a cart page that is the same every time is
-// answered from a render memo every time. So two plays of one plan must send other writes.
+// answered from a render memo every time. So what a play writes is drawn for the play: an add buys
+// the product of its page, in a colour, a size and a quantity drawn from the visit. Two plays of a
+// plan send the same writes only when that draw comes out the same, about one time in three for a
+// product of one colour and no size.
 func TestStoreWritesDifferOnEveryPlayOfAPlan(t *testing.T) {
 	w := siteWorkload(t, 3, 2, "shop")
 	n := w.cycleLen()
@@ -227,7 +231,7 @@ func TestStoreWritesDifferOnEveryPlayOfAPlan(t *testing.T) {
 			same++
 		}
 	}
-	if withWrites == 0 || same*20 > withWrites {
+	if withWrites == 0 || same*3 > withWrites {
 		t.Errorf("%d of %d plans with writes send the same writes on their next play", same, withWrites)
 	}
 	if a, b := w.writesOf(5), w.writesOf(5); !maps.EqualFunc(a, b, func(x, y PlannedWrite) bool {
@@ -239,8 +243,8 @@ func TestStoreWritesDifferOnEveryPlayOfAPlan(t *testing.T) {
 
 // Over the visits of a few cycles every shopper write is one the shop takes against the cart of its
 // visit (the demonstration cart, or the cart made for a returning visit), in the language of the
-// visit, with the method and status of its kind. A shopper visit sends the writes its plan names, and
-// the writes a round plans are the ones it sends.
+// visit, with the method and status of its kind. An add buys the product of the page it follows. A
+// shopper visit sends the writes its plan names, and the writes a round plans are the ones it sends.
 func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 	wantStatus := map[string]int{WriteAdd: 200, WriteCheckout: 303}
 	wantMethod := map[string]string{WriteAdd: "POST", WriteCheckout: "POST"}
@@ -259,7 +263,9 @@ func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 		}
 		cart := &shopCart{lines: demoCart()}
 		if p.Returning {
-			_, cart.lines = returningCart(w.Seed, s, p)
+			for _, q := range returningCart(w.Seed, s, p) {
+				cart.apply(t, PlannedWrite{Kind: q.Kind, Store: &q})
+			}
 		}
 		lang, _ := StorePageKind(p.Steps[0].Page)
 		for _, pw := range p.Writes {
@@ -272,6 +278,9 @@ func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 			}
 			if !strings.HasPrefix(x.Store.Path, StoreBase(lang)+"/") {
 				t.Fatalf("visit %d write %d: path %s is not in the language of the visit (%s)", s, x.After, x.Store.Path, lang)
+			}
+			if page := p.Steps[x.After].Page; x.Kind == WriteAdd && x.Store.Path != page {
+				t.Fatalf("visit %d: an add after the page %s puts %s in the cart", s, page, x.Store.Path)
 			}
 			cart.apply(t, x)
 			sent++

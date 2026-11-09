@@ -3,6 +3,7 @@ package compare
 import (
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -94,11 +95,6 @@ func storeLineID(slug, color, size string) string {
 	return slug + "." + color + "." + size
 }
 
-func storeStock(slug string) int {
-	i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
-	return StoreVariants[i].Stock
-}
-
 // demoCart is the cart that a visitor with no cart has in the shop, in its order.
 func demoCart() []cartLine {
 	return []cartLine{
@@ -120,25 +116,31 @@ var inStock = sync.OnceValue(func() []StoreProduct {
 	return out
 })
 
-// storeAdd is an add to the cart of a product in stock, drawn from rng, and what it does to cart.
-func storeAdd(rng *rand.Rand, base string, cart []cartLine) (StoreRequest, []cartLine) {
-	list := inStock()
-	v := list[rng.IntN(len(list))]
+// storeAdd is an add to the cart of the product v, in a colour, a size and a quantity drawn from rng.
+func storeAdd(rng *rand.Rand, base string, v StoreProduct) StoreRequest {
 	color := v.Colors[rng.IntN(len(v.Colors))]
 	size := ""
 	if len(v.Sizes) > 0 {
 		size = v.Sizes[rng.IntN(len(v.Sizes))]
 	}
-	quantity := 1 + rng.IntN(min(3, v.Stock))
-	id := storeLineID(v.Slug, color, size)
-	if j := slices.IndexFunc(cart, func(l cartLine) bool { return l.id == id }); j >= 0 {
-		cart[j].quantity = min(cart[j].quantity+quantity, maxLine, v.Stock)
-	} else {
-		cart = append(cart, cartLine{id, v.Slug, min(quantity, v.Stock)})
-	}
+	quantity := AddPieces[0] + rng.IntN(AddPieces[1]-AddPieces[0]+1)
 	req := StoreRequest{Kind: WriteAdd, Method: "POST", Path: base + "/products/" + v.Slug, Status: 200}
 	req.Body = mustJSON(map[string]any{"color": color, "size": size, "quantity": quantity})
-	return req, cart
+	return req
+}
+
+// pageProduct is the product of the storefront page url, which must be the page of a product.
+func pageProduct(url string) StoreProduct {
+	if _, kind := StorePageKind(url); kind != StoreKindProduct {
+		panic("an add after the page " + url + ", which is not the page of a product") // the plans put adds after product pages
+	}
+	path, _, _ := strings.Cut(url, "?")
+	slug := path[strings.LastIndex(path, "/")+1:]
+	i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
+	if i < 0 {
+		panic("no product " + slug + " in StoreVariants")
+	}
+	return StoreVariants[i]
 }
 
 // returningLines is how many products the cart of a returning visitor holds besides the lines of the
@@ -146,45 +148,38 @@ func storeAdd(rng *rand.Rand, base string, cart []cartLine) (StoreRequest, []car
 // visitors almost never hold the same cart.
 const returningLines = 3
 
-// returningCart is the cart a returning visitor, visit seq of the run, comes back to, and the adds
-// that make it on the server before the round (runner.setup). It is drawn from the seed and seq, so
-// every framework gets the same carts.
-func returningCart(seed uint64, seq int, p Plan) ([]StoreRequest, []cartLine) {
+// returningCart is the adds that make the cart a returning visitor, visit seq of the run, comes back
+// to, on the server before the round (runner.setup): products in stock in the data, drawn from the
+// seed and seq, so every framework gets the same carts.
+func returningCart(seed uint64, seq int, p Plan) []StoreRequest {
 	lang, _ := StorePageKind(p.Steps[0].Page)
 	rng := rand.New(rand.NewPCG(seed^0x510e527fade682d1, uint64(seq)))
-	cart := demoCart()
 	var reqs []StoreRequest
 	for range returningLines {
-		var req StoreRequest
-		req, cart = storeAdd(rng, StoreBase(lang), cart)
-		reqs = append(reqs, req)
+		list := inStock()
+		reqs = append(reqs, storeAdd(rng, StoreBase(lang), list[rng.IntN(len(list))]))
 	}
-	return reqs, cart
+	return reqs
 }
 
 // storeWritesOf makes the writes that visit seq of the run sends, which plays the shopper plan p:
-// the writes of the plan, after their page views. What an add puts in the cart is drawn from the
-// seed, seq and the page view, so a plan played again sends other writes: carts differ from visitor
-// to visitor, and a cart page that were the same in every play of a plan would be answered from a
-// render memo every time. The writes follow the cart of the visit, the one it comes back to when it
-// is a returning visit (returningCart), so a write is always one the shop takes.
+// the writes of the plan, after their page views. An add buys the product of the page it follows, in
+// a colour, a size and a quantity drawn from the seed, seq and the page view, so a plan played again
+// sends other writes: carts differ from visitor to visitor, and a cart page that were the same in
+// every play of a plan would be answered from a render memo every time. The restock gives every
+// product an add puts in a cart stock enough (StockFor), so the shop takes every write.
 func storeWritesOf(seed uint64, seq int, p Plan) []PlannedWrite {
 	lang, _ := StorePageKind(p.Steps[0].Page)
 	base := StoreBase(lang)
-	cart := demoCart()
-	if p.Returning {
-		_, cart = returningCart(seed, seq, p)
-	}
 	var out []PlannedWrite
 	for _, w := range p.Writes {
 		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(seq)<<20|uint64(w.After)))
 		var req StoreRequest
 		switch w.Kind {
 		case WriteAdd:
-			req, cart = storeAdd(rng, base, cart)
+			req = storeAdd(rng, base, pageProduct(p.Steps[w.After].Page))
 		case WriteCheckout:
 			req = StoreRequest{Kind: WriteCheckout, Method: "POST", Path: base + "/checkout", Body: []byte(storeOrder(lang)), Status: 303}
-			cart = nil
 		default:
 			panic("no storefront write " + w.Kind)
 		}
@@ -198,7 +193,7 @@ func storeWritesOf(seed uint64, seq int, p Plan) []PlannedWrite {
 // writes of its visit.
 func StoreVisitWrites(seed uint64, seq int, p Plan) (setup []StoreRequest, writes []PlannedWrite) {
 	if p.Returning {
-		setup, _ = returningCart(seed, seq, p)
+		setup = returningCart(seed, seq, p)
 	}
 	return setup, storeWritesOf(seed, seq, p)
 }

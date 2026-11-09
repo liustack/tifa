@@ -110,7 +110,7 @@ func (f *fakeStoreServer) write(kind string) http.HandlerFunc {
 		case WriteAdd:
 			slug := r.PathValue("slug")
 			i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
-			if i < 0 || StoreVariants[i].Stock == 0 || in.Quantity < 1 || in.Quantity > 10 {
+			if i < 0 || in.Quantity < 1 || in.Quantity > 10 {
 				refuse("no such variant")
 				return
 			}
@@ -121,13 +121,13 @@ func (f *fakeStoreServer) write(kind string) http.HandlerFunc {
 			}
 			id := storeLineID(slug, in.Color, in.Size)
 			if j := slices.IndexFunc(c.lines, func(l cartLine) bool { return l.id == id }); j >= 0 {
-				c.lines[j].quantity = min(c.lines[j].quantity+in.Quantity, 10, p.Stock)
+				c.lines[j].quantity = min(c.lines[j].quantity+in.Quantity, 10)
 			} else {
-				c.lines = append(c.lines, cartLine{id, slug, min(in.Quantity, p.Stock)})
+				c.lines = append(c.lines, cartLine{id, slug, min(in.Quantity, 10)})
 			}
 		case WriteQuantity:
 			j := slices.IndexFunc(c.lines, func(l cartLine) bool { return l.id == in.Line })
-			if j < 0 || in.Quantity < 0 || in.Quantity > 10 || in.Quantity > storeStock(c.lines[j].slug) {
+			if j < 0 || in.Quantity < 0 || in.Quantity > 10 {
 				refuse("bad line or quantity")
 				return
 			}

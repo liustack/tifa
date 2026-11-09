@@ -71,6 +71,8 @@ const (
 var (
 	EditPriceFen = [2]int{1_900, 99_900}
 	EditDelivery = [2]int{5, 50}
+	// AddPieces is the fewest and the most pieces an add puts in the cart. An assumption.
+	AddPieces = [2]int{1, 3}
 )
 
 // LandingShares are the shares of the kinds of page a shopper visit lands on. An assumption: no
