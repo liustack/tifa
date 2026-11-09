@@ -109,6 +109,17 @@ Tifa 没有 JIT。`--jitless` 那几行是把 Node 的 JIT 也关掉，作为参
 
 每个服务器只用 Google Cloud `c2d-standard-8` 虚拟机（AMD EPYC 7B13）的一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
 
+整站访问，在示例商店上回放真实浏览器的访问：顾客和员工同时打在一台服务器上，Tifa 的渲染记忆从空开始（2026-11-09）：
+
+| | 每秒页面数 | 整页加载 P50 / P99 |
+| :-- | --: | --: |
+| Tifa | 79.8 | 2.8 / 110 ms |
+| Next.js | 34.6 | 42.2 / 91 ms |
+| TanStack Start（不压缩） | 87.6 | 29.3 / 53 ms |
+| React Router | 54.8 | 51.8 / 85 ms |
+
+每秒页面数是 8 个访客同时访问、页面之间不停顿时测的。延迟是在每秒 6 次访问时测的，即 Next.js 稳定速率的一半。访问配比和这些数字的含义见[整站访问](docs/performance.zh-CN.md#整站访问2026-11-09)。
+
 ## 新建应用
 
 需要 Go 1.27、Node 20.19 或 22.12 及以上（Vite 8 的要求）和 pnpm（npm 也行）。页面需要 React 19.3 及以上，`tifa new` 装的就是。Node 只用来构建前端，部署出去的程序不需要它。`tifa dev` 暂不支持 Windows，请用 WSL。
