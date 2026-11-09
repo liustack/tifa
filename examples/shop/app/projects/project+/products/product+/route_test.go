@@ -1,6 +1,7 @@
 package product
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"net/http/httptest"
 	"testing"
@@ -39,7 +40,7 @@ func TestPATCHChangesTheProductOfTheStorefront(t *testing.T) {
 	t.Cleanup(func() { _ = catalogue.Update("glass-carafe", before.Edit) })
 	edit := before.Edit
 	edit.NameEN, edit.PriceCents, edit.Stock = "Tall Carafe", 16800, 40
-	got, err := PATCH(productCtx(t, "PATCH", "studio", "glass-carafe"), edit)
+	got, err := PATCH(productCtx(t, "PATCH", "studio", "glass-carafe"), catalogue.ChangeOf(edit))
 	if err != nil || got.NameEN != "Tall Carafe" || got.PriceCents != 16800 || got.Stock != 40 {
 		t.Fatalf("PATCH: %+v, %v", got, err)
 	}
@@ -48,7 +49,7 @@ func TestPATCHChangesTheProductOfTheStorefront(t *testing.T) {
 		t.Errorf("the storefront shows %q with %d in stock", p.Name, p.Stock)
 	}
 	for _, tc := range [][2]string{{"studio", "no-such-product"}, {"weekend", "glass-carafe"}} {
-		if _, err := PATCH(productCtx(t, "PATCH", tc[0], tc[1]), edit); !errors.Is(err, tifa.ErrNotFound) {
+		if _, err := PATCH(productCtx(t, "PATCH", tc[0], tc[1]), catalogue.ChangeOf(edit)); !errors.Is(err, tifa.ErrNotFound) {
 			t.Errorf("%s in %s: %v", tc[1], tc[0], err)
 		}
 	}
@@ -63,11 +64,55 @@ func TestPATCHChangesAProductOfTheWeekendShop(t *testing.T) {
 	if err != nil || before.NameZH != "手绘明信片" {
 		t.Fatalf("Load: %+v, %v", before, err)
 	}
-	t.Cleanup(func() { _, _ = PATCH(productCtx(t, "PATCH", "weekend", "postcards"), before.Edit) })
+	t.Cleanup(func() { _, _ = PATCH(productCtx(t, "PATCH", "weekend", "postcards"), catalogue.ChangeOf(before.Edit)) })
 	edit := before.Edit
 	edit.Stock, edit.NameZH = 9, " 城市明信片 "
-	got, err := PATCH(productCtx(t, "PATCH", "weekend", "postcards"), edit)
+	got, err := PATCH(productCtx(t, "PATCH", "weekend", "postcards"), catalogue.ChangeOf(edit))
 	if err != nil || got.Stock != 9 || got.NameZH != "城市明信片" {
 		t.Fatalf("PATCH: %+v, %v", got, err)
+	}
+}
+
+// A PATCH changes only the fields it has: one with the price alone leaves the stock as the
+// checkouts left it, one with the stock alone leaves the price, and one with every field changes
+// them all. A field that is null keeps its value too.
+func TestPATCHChangesOnlyTheFieldsItHas(t *testing.T) {
+	for _, project := range []string{"studio", "weekend"} {
+		slug := map[string]string{"studio": "glass-carafe", "weekend": "postcards"}[project]
+		before, err := tifa.Use(productCtx(t, "GET", project, slug), Load)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = PATCH(productCtx(t, "PATCH", project, slug), catalogue.ChangeOf(before.Edit)) })
+		price, stock := before.PriceCents+100, before.Stock+7
+		got, err := PATCH(productCtx(t, "PATCH", project, slug), catalogue.Change{PriceCents: &price})
+		want := before.Edit
+		want.PriceCents = price
+		if err != nil || got.Edit != want {
+			t.Fatalf("%s, the price alone: %+v, %v, want %+v", project, got.Edit, err, want)
+		}
+		got, err = PATCH(productCtx(t, "PATCH", project, slug), catalogue.Change{Stock: &stock})
+		want.Stock = stock
+		if err != nil || got.Edit != want {
+			t.Fatalf("%s, the stock alone: %+v, %v, want %+v", project, got.Edit, err, want)
+		}
+		all := before.Edit
+		all.NameEN, all.DescriptionZH = "Changed", "改了。"
+		got, err = PATCH(productCtx(t, "PATCH", project, slug), catalogue.ChangeOf(all))
+		if err != nil || got.Edit != all {
+			t.Fatalf("%s, every field: %+v, %v, want %+v", project, got.Edit, err, all)
+		}
+		// A body binds as encoding/json/v2 reads it, as Tifa does: null is a field that is not there.
+		var c catalogue.Change
+		if err := json.Unmarshal([]byte(`{"priceCents":null,"stock":3}`), &c); err != nil || c.PriceCents != nil || c.Stock == nil || *c.Stock != 3 || c.NameEN != nil {
+			t.Errorf("a body with a null price binds as %+v, %v", c, err)
+		}
+		bad := -1
+		if err := (catalogue.Change{Stock: &bad}).Validate(); err == nil {
+			t.Errorf("%s: a stock below 0 passes", project)
+		}
+		if err := (catalogue.Change{PriceCents: &price}).Validate(); err != nil {
+			t.Errorf("%s: a change of the price alone fails: %v", project, err)
+		}
 	}
 }

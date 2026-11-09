@@ -71,16 +71,17 @@ func GetWeekendEntry(slug string) (products.Entry, error) {
 	return products.Entry{}, tifa.ErrNotFound
 }
 
-// UpdateWeekend changes a product of the weekend shop to what an edit says, or returns
-// tifa.ErrNotFound. The edit must have passed Validate. Orders placed before keep what they were
-// sold at.
-func UpdateWeekend(slug string, e products.Edit) error {
+// UpdateWeekend changes the fields of a product of the weekend shop that a change has, under the lock
+// that orders take their stock under, or returns tifa.ErrNotFound. The change must have passed
+// Validate. Orders placed before keep what they were sold at.
+func UpdateWeekend(slug string, c products.Change) error {
 	weekendMu.Lock()
 	defer weekendMu.Unlock()
 	i := slices.IndexFunc(weekendShelf, func(p weekendProduct) bool { return p.slug == slug })
 	if i < 0 {
 		return tifa.ErrNotFound
 	}
+	e := c.Over(weekendShelf[i].Edit)
 	e.NameEN, e.NameZH = strings.TrimSpace(e.NameEN), strings.TrimSpace(e.NameZH)
 	e.DescriptionEN, e.DescriptionZH = strings.TrimSpace(e.DescriptionEN), strings.TrimSpace(e.DescriptionZH)
 	weekendShelf[i].Edit = e
@@ -150,14 +151,14 @@ func ShopEntry(projectID, slug string) (products.Entry, error) {
 	return products.Entry{}, tifa.ErrNotFound
 }
 
-// UpdateShopProduct changes the product slug of the shop of a project to what an edit says, or
-// returns tifa.ErrNotFound. The edit must have passed Validate.
-func UpdateShopProduct(projectID, slug string, e products.Edit) error {
+// UpdateShopProduct changes the fields of the product slug of the shop of a project that a change
+// has, or returns tifa.ErrNotFound. The change must have passed Validate.
+func UpdateShopProduct(projectID, slug string, c products.Change) error {
 	switch projectID {
 	case storekit.Project:
-		return products.Update(slug, e)
+		return products.Apply(slug, c)
 	case "weekend":
-		return UpdateWeekend(slug, e)
+		return UpdateWeekend(slug, c)
 	}
 	return tifa.ErrNotFound
 }

@@ -3,9 +3,9 @@
 // Node 22.18 and later run TypeScript as it is, by removing its types, so this needs no build.
 import { loadOrder, loadOrderList, loadProductEntry, loadProducts, loadProject, loadShell, loadStats } from './loaders.ts'
 import { addNote, allRows, postOrder, shipOrder, updateRecipient } from './orders.ts'
-import { checkEdit } from './store/products/edit.ts'
+import { checkChange } from './store/products/edit.ts'
 import { updateShopProduct } from './weekend.ts'
-import { editOf, newOrder } from './write.ts'
+import { changeOf, newOrder } from './write.ts'
 
 // With a JSON list of writes as the argument, each write is made first, so that the data can be
 // compared with the shop after the same writes: [{kind, project, order, body, at}], where kind is
@@ -22,8 +22,8 @@ for (const w of JSON.parse(process.argv[2] ?? '[]')) {
       postOrder(w.project, newOrder(w.body), at(w))
       break
     case 'product': {
-      const e = editOf(w.body)
-      if (Object.keys(checkEdit(e)).length > 0) throw new Error(`an edit the shop refuses: ${JSON.stringify(w.body)}`)
+      const e = changeOf(w.body)
+      if (Object.keys(checkChange(e)).length > 0) throw new Error(`an edit the shop refuses: ${JSON.stringify(w.body)}`)
       updateShopProduct(w.project, w.order, e)
       break
     }
