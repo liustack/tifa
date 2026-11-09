@@ -709,6 +709,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 		}
 		fmt.Fprintf(b, " %s |\n", privateCell(rs))
 	}
+	r.renderWhyMarkdown(b, rows, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 }
 
 // privateCell is how many answers of the private pages, the cart and the checkout, the render memo
@@ -878,5 +879,42 @@ func compressionMarkdown(b *strings.Builder, servers []string, rounds func(f str
 			fmt.Fprintf(b, ", against %.1f to %.1f KB for the others, which send %s", lo, hi, strings.Join(slices.Sorted(maps.Keys(used)), " and "))
 		}
 		b.WriteString(".** Every server answers as its framework ships.\n\n")
+	}
+}
+
+// renderWhyMarkdown splits, for each Tifa server, its answers by kind of page into those the render
+// memo gave and those it rendered in a VM, and these by why, as far as the client can tell (renderWhy),
+// over the rounds. A server whose rounds did not split them (a result of an older run) is left out.
+func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
+	var rows []string
+	for _, f := range servers {
+		rs := rounds(f)
+		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.VMWhy == nil }) {
+			continue
+		}
+		for _, k := range pageKinds(rs) {
+			hits, all := cacheHits(rs, k)
+			why := map[string]int{}
+			for _, x := range rs {
+				for w, n := range x.VMWhy[k] {
+					why[w] += n
+				}
+			}
+			cell := func(w string, private bool) string {
+				if private != privateKind(k) {
+					return "-"
+				}
+				return strconv.Itoa(why[w])
+			}
+			rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d | %s | %s | %s | %s |\n", BrowseLabel(f), k, all, hits,
+				cell(RenderFirst, false), cell(RenderAgain, false), cell(RenderPrivate, true), cell(RenderPrivateCart, true)))
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, and the renders in a VM, split by why as far as the client can tell from the URL, the cookies it sent and `X-Tifa-Render`. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Another page is the first request of its URL that Tifa answered in the round, or a URL it had answered before. The client does not see the data of the Loads, so a URL answered before holds a page whose data changed since (a write, or data that changes by itself, such as the dates of a day) and one the memo dropped when it was full alike. With the memo off every page renders, and the split says how much the workload repeats its URLs.\n\n| | kind of page | answers | from the memo | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
 	}
 }

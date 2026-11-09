@@ -790,3 +790,33 @@ func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
 		t.Errorf("a result without encodings names a server that compresses nothing")
 	}
 }
+
+// The appendix splits, for each Tifa server, what it rendered in a VM by kind of page and why, next to
+// the hits, with what the client cannot tell. The body has none of it.
+func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	for round := 1; round <= 2; round++ {
+		x := closedRound("tifa", sc.Name, 8, round, 4000, 10, true)
+		x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 70}, StoreKindCart: {"vm": 10}}
+		x.VMWhy = map[string]map[string]int{"product": {RenderFirst: 20, RenderAgain: 10}, StoreKindCart: {RenderPrivate: 4, RenderPrivateCart: 6}}
+		r.Closed = append(r.Closed, x, closedRound("nextjs", sc.Name, 8, round, 400, 10, true))
+	}
+	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	for _, want := range []string{
+		"| | kind of page | answers | from the memo | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |",
+		"| Tifa | cart | 20 | 0 | - | - | 8 | 12 |",
+		"| Tifa | product | 200 | 140 | 40 | 20 | - | - |",
+		"does not see the data of the Loads",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+		if strings.Contains(body, want) {
+			t.Errorf("the body has %q", want)
+		}
+	}
+	if strings.Contains(appendix, "| Next.js | product |") {
+		t.Error("the split has a row for Next.js, which says nothing of its renders")
+	}
+}

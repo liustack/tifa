@@ -286,6 +286,10 @@ type acc struct {
 	pageRenders map[string]map[string]int
 	// encodings counts the answers of the page views by their Content-Encoding (identity for none).
 	encodings map[string]int
+	// seen holds the URLs Tifa has answered in the round (X-Tifa-Render), and vmWhy counts the answers it
+	// rendered in a VM by kind of page and why (renderWhy).
+	seen  map[string]bool
+	vmWhy map[string]map[string]int
 }
 
 // refuse counts an answer with the status status as refused when it is 409 or 422. After the
@@ -300,7 +304,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -459,6 +463,9 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		t := time.AfterFunc(time.Until(cancelAt), cancel)
 		defer t.Stop()
 	}
+	// A private page of Tifa rendered in a VM is counted by whether the visit sent a cart cookie with it.
+	kind := pageClass(page)
+	cart := privateKind(kind) && hasCookie(v.client.Jar, req.URL, StoreCartCookie)
 	start := time.Now()
 	sent = true
 	r.inflight.Add(1)
@@ -508,11 +515,18 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 	// by the kind of page of the page view.
 	if rd := res.Header.Get(RenderHeader); rd != "" && rd != RenderNone {
 		a.renders[rd]++
-		kind := pageClass(page)
 		if a.pageRenders[kind] == nil {
 			a.pageRenders[kind] = map[string]int{}
 		}
 		a.pageRenders[kind][rd]++
+		seen := a.seen[q.URL]
+		a.seen[q.URL] = true
+		if rd == RenderVM {
+			if a.vmWhy[kind] == nil {
+				a.vmWhy[kind] = map[string]int{}
+			}
+			a.vmWhy[kind][renderWhy(kind, seen, cart)]++
+		}
 	}
 	if q.Class == "prefetch" {
 		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))

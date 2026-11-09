@@ -898,3 +898,39 @@ func TestTheAnswersAreCountedByTheirEncoding(t *testing.T) {
 		t.Errorf("encodings %v, %d failures (%s)", round.Encodings, round.Failures, round.FirstErr)
 	}
 }
+
+// The answers Tifa rendered in a VM are split by why, as far as the client can tell: the first
+// request of its URL in the round, a URL asked before (its data changed since, or the memo dropped
+// it), and the private pages (the cart and the checkout, whose data is the visitor's cart and the
+// products they looked at), with or without a cart cookie, counted apart whatever their URL.
+func TestTheRendersOfTifaAreSplitByWhy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		how := RenderVM
+		if r.URL.Query().Get("hit") != "" {
+			how = RenderHit
+		}
+		w.Header().Set(RenderHeader, how)
+		if r.URL.Path == "/store/products/oak-tray" {
+			http.SetCookie(w, &http.Cookie{Name: StoreCartCookie, Value: "c1", Path: "/"})
+		}
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	plans, traces := onePlan(
+		TraceStep{Kind: StepLoad, Page: "/store", Reqs: []TraceReq{req("/store", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store/cart", Reqs: []TraceReq{req("/store/cart", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store", Reqs: []TraceReq{req("/store?hit=1", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store", Reqs: []TraceReq{req("/store", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store/products/oak-tray", Reqs: []TraceReq{req("/store/products/oak-tray", "doc", 0, 10)}},
+		TraceStep{Kind: StepClick, Page: "/store/cart", Reqs: []TraceReq{req("/store/cart", "doc", 0, 10)}},
+	)
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	want := map[string]map[string]int{
+		"home":        {RenderFirst: 1, RenderAgain: 1},
+		StoreKindCart: {RenderPrivate: 1, RenderPrivateCart: 1},
+		"product":     {RenderFirst: 1},
+	}
+	if round.Failures != 0 || !reflect.DeepEqual(round.VMWhy, want) {
+		t.Errorf("renders by why %v, want %v (%d failures: %s)", round.VMWhy, want, round.Failures, round.FirstErr)
+	}
+}
