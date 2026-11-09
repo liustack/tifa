@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -283,6 +284,8 @@ type acc struct {
 	refused int
 	// pageRenders counts the renders of documents and navigation data (X-Tifa-Render) by kind of page.
 	pageRenders map[string]map[string]int
+	// encodings counts the answers of the page views by their Content-Encoding (identity for none).
+	encodings map[string]int
 }
 
 // refuse counts an answer with the status status as refused when it is 409 or 422. After the
@@ -297,7 +300,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -496,6 +499,7 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		a.n304++
 	}
 	a.responses[q.Class+" "+strconv.Itoa(res.StatusCode)+" "+mediaType(res.Header.Get("Content-Type"))]++
+	a.encodings[cmp.Or(res.Header.Get("Content-Encoding"), "identity")]++
 	if rd := res.Header.Get("X-Remix-Reload-Document"); rd != "" {
 		a.responses["reload-document header"]++
 	}

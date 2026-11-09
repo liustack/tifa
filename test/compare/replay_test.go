@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -878,5 +879,22 @@ func TestARefusedAnswerMakesItsRoundInvalid(t *testing.T) {
 				t.Errorf("refused %d, valid %v (%s): want one refused answer and an invalid round", round.Refused, round.Valid, round.WhyInvalid)
 			}
 		})
+	}
+}
+
+// Every answer of a page view is counted by its Content-Encoding, identity when it has none, so that
+// the report can tell a server that compresses nothing.
+func TestTheAnswersAreCountedByTheirEncoding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/gz-") {
+			w.Header().Set("Content-Encoding", "gzip")
+		}
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/gz-doc", "doc", 0, 10), req("/plain", "nav", 11, 20), req("/gz-data", "prefetch", 21, 30)}})
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.Failures != 0 || !reflect.DeepEqual(round.Encodings, map[string]int{"gzip": 2, "identity": 1}) {
+		t.Errorf("encodings %v, %d failures (%s)", round.Encodings, round.Failures, round.FirstErr)
 	}
 }

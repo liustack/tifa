@@ -229,6 +229,12 @@ func peopleCell(views float64) string {
 // results alone (throughputMethodMarkdown in the appendix says how the steps ran).
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up, %d rounds a step. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured.\n\n", r.baseSessions(), rounds)
+	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round {
+		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+			return r.cellRounds(f, sc.Name, t.Sessions)
+		}
+		return nil
+	})
 	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	marked := false
 	for _, f := range r.Servers[sc.Name] {
@@ -474,7 +480,9 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		return false
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n| | full loads | clicks | writes | rounds |\n| --- | --- | --- | --- | --- |\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
+	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
+	b.WriteString("| | full loads | clicks | writes | rounds |\n| --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
@@ -827,4 +835,48 @@ func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
 		fmt.Fprintf(b, "| %s | %s | %s |\n", f.What, f.Value, f.Source)
 	}
 	b.WriteString("\n")
+}
+
+// compressionMarkdown names, above a table of the body, each server that compressed no answer in the
+// rounds of the table, with the body it sent a page view against the servers that compressed: every
+// server answers as its framework ships, so what goes over the wire differs with it. A server whose
+// rounds did not count their encodings (a result of an older run) is left out.
+func compressionMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
+	type sent struct {
+		label string
+		kb    float64
+	}
+	var plain, packed []sent
+	used := map[string]bool{}
+	for _, f := range servers {
+		rs := rounds(f)
+		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.Encodings == nil }) {
+			continue
+		}
+		s := sent{BrowseLabel(f), Median(each(rs, func(x *Round) float64 { return float64(x.Bytes) / 1024 / float64(max(1, x.PageViews)) }))}
+		compressed := false
+		for _, x := range rs {
+			for e, n := range x.Encodings {
+				if e != "identity" && n > 0 {
+					compressed, used[e] = true, true
+				}
+			}
+		}
+		if compressed {
+			packed = append(packed, s)
+		} else {
+			plain = append(plain, s)
+		}
+	}
+	for _, p := range plain {
+		fmt.Fprintf(b, "**%s compresses no answer: %.1f KB of body a page view", p.label, p.kb)
+		if len(packed) > 0 {
+			lo, hi := packed[0].kb, packed[0].kb
+			for _, s := range packed {
+				lo, hi = min(lo, s.kb), max(hi, s.kb)
+			}
+			fmt.Fprintf(b, ", against %.1f to %.1f KB for the others, which send %s", lo, hi, strings.Join(slices.Sorted(maps.Keys(used)), " and "))
+		}
+		b.WriteString(".** Every server answers as its framework ships.\n\n")
+	}
 }

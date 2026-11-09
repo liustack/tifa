@@ -745,3 +745,48 @@ func TestTheBrowseServersAndTheirTraces(t *testing.T) {
 		t.Error("browse.sh does not run the servers of BrowseFrameworks by default")
 	}
 }
+
+// A server that compressed no answer is named above both tables of the body, with its body bytes a
+// page view against those of the servers that compressed, as the rounds measured them: the numbers
+// come from the result.
+func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
+	sc := mustScenario("shop")
+	servers := []string{"tifa", "nextjs", "start", "reactrouter"}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
+		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+	kb := map[string]int64{"tifa": 14, "nextjs": 16, "start": 208, "reactrouter": 87}
+	for _, f := range servers {
+		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
+		x.Bytes = kb[f] * 1024 * int64(x.PageViews)
+		x.Encodings = map[string]int{"gzip": 900, "identity": 100}
+		if f == "start" {
+			x.Encodings = map[string]int{"identity": 1000}
+		}
+		r.Closed = append(r.Closed, x)
+		l := x
+		l.Model, l.Rate, l.Sessions = "open", 8, 0
+		l.Bytes = l.Bytes / 2
+		r.Latency = append(r.Latency, l)
+	}
+	body, _, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	tput, lat, _ := strings.Cut(body, "#### Latency at the same arrival rate")
+	for name, tc := range map[string]struct{ table, want string }{
+		"throughput": {tput, "**TanStack Start compresses no answer: 208.0 KB of body a page view, against 14.0 to 87.0 KB for the others, which send gzip.**"},
+		"latency":    {lat, "**TanStack Start compresses no answer: 104.0 KB of body a page view, against 7.0 to 43.5 KB for the others, which send gzip.**"},
+	} {
+		if i, j := strings.Index(tc.table, tc.want), strings.Index(tc.table, "| --- |"); i < 0 || i > j {
+			t.Errorf("the %s table does not say above its rows %q:\n%s", name, tc.want, tc.table)
+		}
+	}
+	// A result without the encodings (an older one) says nothing about them.
+	for i := range r.Closed {
+		r.Closed[i].Encodings = nil
+	}
+	for i := range r.Latency {
+		r.Latency[i].Encodings = nil
+	}
+	if md := r.Markdown(); strings.Contains(md, "compresses no answer") {
+		t.Errorf("a result without encodings names a server that compresses nothing")
+	}
+}
