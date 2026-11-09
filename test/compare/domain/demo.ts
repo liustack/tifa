@@ -38,28 +38,31 @@ const customers: Customer[] = [
   { name: '陆川', phone: '19900199015', email: 'luchuan@example.com', address: '深圳市南山区 · 演示地址' },
 ]
 
-function product(slug: string, name: string, description: string, priceCents: number, color: string, stock: number): ItemRecord {
-  return { slug, name, description, quantity: 0, priceCents, color, stock }
+function product(slug: string, name: string, description: string, priceCents: number, color: string): ItemRecord {
+  return { slug, name, description, quantity: 0, priceCents, color }
 }
 
 export const studioCatalogue: ItemRecord[] = [
-  product('pour-over-kettle', '晨间手冲壶', '雾白 / 600 ml', 32800, 'sand', 23),
-  product('linen-coasters', '亚麻杯垫', '原色 / 两件装', 10000, 'olive', 80),
-  product('ceramic-cup', '手作陶瓷杯', '青苔绿 / 280 ml', 13400, 'olive', 58),
-  product('oak-tray', '原木托盘', '白橡木 / 大号', 58000, 'sand', 6),
-  product('reading-candle', '阅读香薰', '雪松与纸张 / 180 g', 19600, 'clay', 40),
-  product('brass-bookmarks', '黄铜书签', '哑光 / 两枚装', 6800, 'sand', 200),
-  product('stoneware-vase', '粗陶花器', '灰白 / 中号', 24800, 'clay', 11),
-  product('linen-apron', '棉麻围裙', '燕麦色 / 均码', 16800, 'olive', 34),
+  product('pour-over-kettle', 'Morning Pour-Over Kettle', 'Mist / 600 ml', 32800, 'sand'),
+  product('linen-coasters', 'Linen Coasters', 'Natural / Set of 2', 10000, 'olive'),
+  product('ceramic-cup', 'Handmade Ceramic Cup', 'Moss / 280 ml', 13400, 'olive'),
+  product('oak-tray', 'Oak Serving Tray', 'White oak / Large', 58000, 'sand'),
+  product('reading-candle', 'Reading Candle', 'Cedar and paper / 180 g', 19600, 'clay'),
+  product('brass-bookmarks', 'Brass Bookmarks', 'Matte / Set of 2', 6800, 'sand'),
+  product('stoneware-vase', 'Stoneware Vase', 'Ash white / Medium', 24800, 'clay'),
+  product('linen-apron', 'Cotton Linen Apron', 'Oat / One size', 16800, 'olive'),
 ]
 
 export const weekendCatalogue: ItemRecord[] = [
-  product('canvas-tote', '周末帆布袋', '深蓝 / 标准款', 15800, 'blue', 45),
-  product('folding-stool', '露营折叠凳', '军绿 / 承重 120 kg', 13900, 'olive', 52),
-  product('picnic-blanket', '野餐垫', '格纹 / 2 × 2 m', 8900, 'blue', 66),
-  product('insulated-bottle', '保温水壶', '雾蓝 / 750 ml', 12800, 'blue', 75),
-  product('postcards', '手绘明信片', '城市系列 / 6 张', 3600, 'clay', 260),
+  product('canvas-tote', 'Weekend Canvas Tote', 'Navy / Standard', 15800, 'blue'),
+  product('folding-stool', 'Camping Folding Stool', 'Army green / Holds 120 kg', 13900, 'olive'),
+  product('picnic-blanket', 'Picnic Blanket', 'Check / 2 × 2 m', 8900, 'blue'),
+  product('insulated-bottle', 'Insulated Bottle', 'Mist blue / 750 ml', 12800, 'blue'),
+  product('postcards', 'Hand-drawn Postcards', 'Cities / 6 cards', 3600, 'clay'),
 ]
+
+// weekendStock is how many of each product the weekend shop has to sell, as in demo.go.
+export const weekendStock: Record<string, number> = { 'canvas-tote': 45, 'folding-stool': 52, 'picnic-blanket': 66, 'insulated-bottle': 75, postcards: 260 }
 
 // notes are what some customers write at checkout.
 const notes = [

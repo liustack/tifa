@@ -268,6 +268,9 @@ const (
 	WriteNote      = "note"
 	WriteRecipient = "recipient"
 	WriteRename    = "rename"
+	// WriteProduct changes a product of the storefront in the back office. Only the checks send it:
+	// no mix of the measuring has it.
+	WriteProduct = "product"
 )
 
 // AdminShares are the shares of the kinds of write in the admin mix. They are assumptions, not

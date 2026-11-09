@@ -106,14 +106,16 @@ func Get(id string, l storekit.Locale) Cart {
 		lines, coupon = slices.Clone(rec.lines), rec.coupon
 	}
 	carts.mu.Unlock()
-	return price(lines, coupon, l)
+	return price(lines, coupon, l, products.GetProduct)
 }
 
-// price returns the cart of lines and a coupon, with its totals in the language of l.
-func price(lines []lineRecord, coupon string, l storekit.Locale) Cart {
+// price returns the cart of lines and a coupon, with its totals in the language of l, from the
+// products that get returns: the catalogue as it is (products.GetProduct), or as a checkout bought
+// them (products.Purchase).
+func price(lines []lineRecord, coupon string, l storekit.Locale, get func(string, storekit.Locale) (products.Product, error)) Cart {
 	cart := Cart{Lines: []Line{}, Coupon: coupon, FreeShippingCents: FreeShipping(l)}
 	for _, r := range lines {
-		p, err := products.GetProduct(r.slug, l)
+		p, err := get(r.slug, l)
 		if err != nil {
 			continue
 		}

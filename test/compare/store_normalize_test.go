@@ -70,7 +70,7 @@ func TestStorePlacedAtIsMeasuredFromTheOrder(t *testing.T) {
 	order := time.Date(2026, 11, 6, 10, 30, 0, 0, time.UTC)
 	run := func(readAfter time.Duration, placed time.Duration) [][]compare.StoreResult {
 		return [][]compare.StoreResult{{
-			{Status: 303, At: order.UnixMilli(), Location: "/zh-CN/store/checkout?placed=SS-ABCDEFGHIJ"},
+			{Status: 303, At: order.UnixMilli(), Location: "/zh-CN/store/checkout?placed=SH-1043"},
 			{Status: 200, At: order.Add(readAfter).UnixMilli(), Body: map[string]any{"placedAt": order.Add(placed).Format(time.RFC3339Nano)}},
 		}}
 	}
@@ -97,7 +97,7 @@ func TestStorePlacedDeliveryIsMeasuredFromTheOrder(t *testing.T) {
 	run := func(readAfter time.Duration, quote time.Duration) [][]compare.StoreResult {
 		read := order.Add(readAfter)
 		return [][]compare.StoreResult{{
-			{Status: 303, At: order.UnixMilli(), Location: "/zh-CN/store/checkout?placed=SS-ABCDEFGHIJ"},
+			{Status: 303, At: order.UnixMilli(), Location: "/zh-CN/store/checkout?placed=SH-1043"},
 			{Status: 200, At: read.UnixMilli(), Body: map[string]any{
 				"placed": map[string]any{
 					"placedAt": order.Add(30 * time.Millisecond).Format(time.RFC3339Nano),

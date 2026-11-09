@@ -47,7 +47,6 @@ type itemRecord struct {
 	Quantity    int
 	PriceCents  int
 	Color       string
-	Stock       int
 }
 
 // projectOrders are the orders of one project with what its pages read. Lists of orders are
@@ -110,14 +109,15 @@ type zoneDays struct {
 
 type dayTotals struct {
 	orders, revenueCents, pending, shipped, pieces int
-	products                                       map[string]*dayProduct // by name
+	products                                       map[string]*dayProduct // by slug
 }
 
-// dayProduct is what the orders of a day hold of one product. A product's name and slug go
-// together, as in the catalogues.
+// dayProduct is what the orders of a day hold of one product. It has no name: a product can be
+// renamed, and its orders keep the name they were placed under, so the stats name it as its shop
+// does now.
 type dayProduct struct {
-	slug                          string
-	quantity, lines, revenueCents int
+	quantity, revenueCents int
+	orders                 int // the orders that hold the product, in one line or more
 }
 
 var (
@@ -334,14 +334,18 @@ func (z *zoneDays) add(o *orderRecord) {
 	} else {
 		d.shipped++
 	}
+	counted := map[string]bool{} // the products of the order, which counts once for each
 	for _, item := range o.Items {
-		pr := d.products[item.Name]
+		pr := d.products[item.Slug]
 		if pr == nil {
-			pr = &dayProduct{slug: item.Slug}
-			d.products[item.Name] = pr
+			pr = &dayProduct{}
+			d.products[item.Slug] = pr
 		}
 		pr.quantity += item.Quantity
-		pr.lines++
+		if !counted[item.Slug] {
+			counted[item.Slug] = true
+			pr.orders++
+		}
 		pr.revenueCents += item.Quantity * item.PriceCents
 		d.pieces += item.Quantity
 	}

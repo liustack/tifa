@@ -73,23 +73,17 @@ type Product struct {
 
 // GetProduct returns the product slug in the language of l, or tifa.ErrNotFound.
 func GetProduct(slug string, l storekit.Locale) (Product, error) {
-	for _, p := range catalogue {
-		if p.slug == slug {
-			return p.product(l), nil
-		}
+	p, ok := record(slug)
+	if !ok {
+		return Product{}, tifa.ErrNotFound
 	}
-	return Product{}, tifa.ErrNotFound
+	return p.product(l), nil
 }
 
 // Related returns up to n other products of the same category, then of others, best rated first.
 func Related(slug string, n int, l storekit.Locale) []Card {
-	var self productRecord
-	for _, p := range catalogue {
-		if p.slug == slug {
-			self = p
-		}
-	}
-	others := slices.DeleteFunc(slices.Clone(catalogue), func(p productRecord) bool { return p.slug == slug })
+	self, _ := record(slug)
+	others := slices.DeleteFunc(records(), func(p productRecord) bool { return p.slug == slug })
 	slices.SortStableFunc(others, func(a, b productRecord) int {
 		if (a.category == self.category) != (b.category == self.category) {
 			if a.category == self.category {
@@ -108,7 +102,7 @@ func Related(slug string, n int, l storekit.Locale) []Card {
 
 // Featured returns the n products the home page shows: the newest first.
 func Featured(n int, l storekit.Locale) []Card {
-	list := slices.Clone(catalogue)
+	list := records()
 	slices.SortStableFunc(list, func(a, b productRecord) int { return b.added.Compare(a.added) })
 	var out []Card
 	for _, p := range list[:min(n, len(list))] {
@@ -226,8 +220,9 @@ func Search(f Filter, l storekit.Locale) Results {
 		}
 		return !f.InStock || p.stock > 0
 	}
+	all := records()
 	var found []productRecord
-	for _, p := range catalogue {
+	for _, p := range all {
 		r.PriceMax = max(r.PriceMax, (storekit.Price(p.priceFen, l)+99)/100)
 		if match(p, "") {
 			found = append(found, p)
@@ -236,7 +231,7 @@ func Search(f Filter, l storekit.Locale) Results {
 	// count is how many products pass the other filters and also satisfy in.
 	count := func(skip string, in func(productRecord) bool) int {
 		n := 0
-		for _, p := range catalogue {
+		for _, p := range all {
 			if in(p) && match(p, skip) {
 				n++
 			}
@@ -298,13 +293,12 @@ func Search(f Filter, l storekit.Locale) Results {
 
 // HasVariant reports whether a product comes in the colour and size, and how many are in stock.
 func HasVariant(slug, color, size string) (stock int, ok bool) {
-	for _, p := range catalogue {
-		if p.slug == slug {
-			sizeOK := len(p.sizes) == 0 && size == "" || slices.Contains(p.sizes, size)
-			return p.stock, slices.Contains(p.colors, color) && sizeOK
-		}
+	p, found := record(slug)
+	if !found {
+		return 0, false
 	}
-	return 0, false
+	sizeOK := len(p.sizes) == 0 && size == "" || slices.Contains(p.sizes, size)
+	return p.stock, slices.Contains(p.colors, color) && sizeOK
 }
 
 // ColorName returns the name of a colour in the language of l.
@@ -321,7 +315,7 @@ func (p productRecord) card(l storekit.Locale) Card {
 	c := Card{
 		Slug: p.slug, Name: p.name.In(l), Rating: p.rating, Reviews: reviewCount(p),
 		PriceCents: storekit.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Stock: p.stock, Summary: p.summary.In(l), Sized: len(p.sizes) > 0,
-		Number: slices.IndexFunc(catalogue, func(r productRecord) bool { return r.slug == p.slug }) + 1,
+		Number: p.number,
 	}
 	if p.compareFen > 0 {
 		c.CompareAtCents = storekit.Price(p.compareFen, l)
@@ -364,7 +358,7 @@ func (p productRecord) product(l storekit.Locale) Product {
 
 // TopRated returns the n best rated products, the cheaper first among equals.
 func TopRated(n int, l storekit.Locale) []Card {
-	list := slices.Clone(catalogue)
+	list := records()
 	slices.SortStableFunc(list, func(a, b productRecord) int {
 		return cmp.Or(compareRating(b, a), cmp.Compare(a.priceFen, b.priceFen))
 	})
@@ -377,9 +371,9 @@ func TopRated(n int, l storekit.Locale) []Card {
 
 // BestInCategory returns the n best rated products of the category of slug, leaving slug out.
 func BestInCategory(slug string, n int, l storekit.Locale) []Card {
-	self := productBySlug(slug)
+	self, _ := record(slug)
 	var in []productRecord
-	for _, p := range catalogue {
+	for _, p := range records() {
 		if p.category == self.category && p.slug != slug {
 			in = append(in, p)
 		}

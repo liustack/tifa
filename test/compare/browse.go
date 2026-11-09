@@ -422,13 +422,16 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 }
 
 // with starts a fresh server of a spec and calls f with a runner for the workload of the scenario.
-// The server gets no request before f: the check that the writes of the scenario show in its pages runs
-// on a server of its own that is thrown away (checkWrites, once for a spec and a scenario), so that a
-// server of Tifa starts its round with an empty render memo. The round f returns is judged, and when
+// The server gets no request before f that renders a page: the check that the writes of the scenario
+// show in its pages runs on a server of its own that is thrown away (checkWrites, once for a spec and a
+// scenario), so that a server of Tifa starts its round with an empty render memo. A run with writes
+// first restocks the server (prepare), which renders nothing, for visits visits (-1 for a run that
+// plays for a time, the sizing run). A run whose restock fails is an invalid round, and f does not
+// run. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
-func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f func(*runner) *Round) (*Round, error) {
+func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visits int, f func(*runner) *Round) (*Round, error) {
 	// A round with no writes (the read-only control) has none to check, and writes nothing.
 	if key := sc.Name + "/" + name; sc.Share > 0 && !b.checked[key] {
 		if err := b.checkWrites(ctx, name, sc); err != nil {
@@ -447,6 +450,11 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, f fun
 	r, err := b.runnerFor(name, sc, server)
 	if err != nil {
 		return nil, err
+	}
+	if sc.Share > 0 {
+		if err := b.prepare(ctx, r, b.specs[name], visits); err != nil {
+			return &Round{Framework: name, Scenario: sc.Name, WhyInvalid: err.Error()}, nil
+		}
 	}
 	out := f(r)
 	// A run that was stopped (an interrupt) leaves a round that is not a result, and it is not kept.
@@ -491,7 +499,7 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 		return err
 	}
 	blocks := BlocksFor(rate, window, b.sets[sc.site()].Blocks)
-	out, err := b.with(ctx, "tifa", reads, func(r *runner) *Round {
+	out, err := b.with(ctx, "tifa", reads, 0, func(r *runner) *Round {
 		return r.RunClosed(ctx, b.o.Sessions, blocks*BlockVisits, 2*window)
 	})
 	if err != nil {
@@ -520,7 +528,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		}
 	}
 	for attempt := 1; ; attempt++ {
-		out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
+		out, err := b.with(ctx, fw, sc, b.res.Blocks[key]*BlockVisits, func(r *runner) *Round {
 			if b.specs[fw].WarmsUp() {
 				r.Warm(ctx, sessions, b.o.Warm)
 			}
@@ -554,10 +562,13 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 // large from that.
 func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
-	_, err := b.with(ctx, fw, sc, func(r *runner) *Round {
+	out, err := b.with(ctx, fw, sc, -1, func(r *runner) *Round {
 		rate = r.Size(ctx, sessions, b.o.Warm)
 		return &Round{}
 	})
+	if err == nil && !out.Valid && strings.HasPrefix(out.WhyInvalid, "restock") {
+		return 0, fmt.Errorf("%s/%s, sizing: %s", sc.Name, fw, out.WhyInvalid)
+	}
 	return rate, err
 }
 
@@ -622,11 +633,12 @@ func visitsFor(rate float64, window time.Duration, cycle int) int {
 // at the same rate with no writes, apart, then whole cycles of all the plans.
 func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
 	cycle := len(b.sets[sc.site()].Plans)
-	out, err := b.with(ctx, fw, sc, func(r *runner) *Round {
+	visits := visitsFor(rate, window, cycle)
+	out, err := b.with(ctx, fw, sc, visits, func(r *runner) *Round {
 		if b.specs[fw].WarmsUp() {
 			r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0, true) // discarded
 		}
-		return r.RunOpen(ctx, rate, visitsFor(rate, window, cycle), 30*time.Second, 0, false)
+		return r.RunOpen(ctx, rate, visits, 30*time.Second, 0, false)
 	})
 	if err != nil {
 		return nil, err

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var placedLocationOf = regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=(SS-[A-Z0-9]{10})$`)
+var placedLocationOf = regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=(SH-[0-9]+)$`)
 
 // cartRead is the cart page as a visitor sees it: its document and, when a trace has a click to it,
 // the data a client navigation fetches for it.

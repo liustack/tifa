@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 import type { Ctx } from '../ctx.ts'
 import { Fields, NotFound } from '../errors.ts'
 import { colorName, getProductOrNull, hasVariant } from '../products/index.ts'
+import type { Product } from '../products/index.ts'
 import { inLocale, price } from '../store.ts'
 import type { Locale } from '../store.ts'
 import { DAY, iso } from '../time.ts'
@@ -98,14 +99,15 @@ export function cartId(c: Ctx): string {
 // Go calls it Get.
 export function getCart(id: string, l: Locale, now = Date.now()): Cart {
   const rec = carts.get(id, now)
-  return priceCart(rec ? rec.lines.map((r) => ({ ...r })) : demoLines(), rec ? rec.coupon : '', l)
+  return priceCart(rec ? rec.lines.map((r) => ({ ...r })) : demoLines(), rec ? rec.coupon : '', l, getProductOrNull)
 }
 
-// priceCart returns the cart of lines and a coupon, with its totals in the language of l.
-export function priceCart(lines: LineRecord[], coupon: string, l: Locale): Cart {
+// priceCart returns the cart of lines and a coupon, with its totals in the language of l, from the
+// products that get returns: the catalogue as it is, or as a checkout bought them. Go calls it price.
+export function priceCart(lines: LineRecord[], coupon: string, l: Locale, get: (slug: string, l: Locale) => Product | null): Cart {
   const cart: Cart = { lines: [], count: 0, subtotalCents: 0, coupon, discountCents: 0, freeShippingCents: freeShipping(l) }
   for (const r of lines) {
-    const p = getProductOrNull(r.slug, l)
+    const p = get(r.slug, l)
     if (!p) continue
     cart.lines.push({
       id: lineId(r.slug, r.color, r.size), slug: r.slug, name: p.name, color: r.color, colorName: colorName(r.color, l),

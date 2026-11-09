@@ -55,6 +55,20 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 				w.Write([]byte("ok"))
 				return
 			}
+			// The restock before a run with writes: the list of the products of a shop and an edit of
+			// each, as the shop answers them, with no render.
+			if r.URL.Path == "/compare-write/studio/products" || r.URL.Path == "/compare-write/weekend/products" {
+				l.seq.add('R')
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"routes":{"app/projects/project+/products/route":{"status":200,"data":[{"slug":"oak-tray","priceCents":58000,"stock":6,"nameEn":"Oak Tray","nameZh":"原木托盘","descriptionEn":"Oak.","descriptionZh":"橡木。"}]}}}`))
+				return
+			}
+			if r.Method == "PATCH" && (strings.HasPrefix(r.URL.Path, "/compare-write/studio/products/") || strings.HasPrefix(r.URL.Path, "/compare-write/weekend/products/")) {
+				l.seq.add('R')
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{}`))
+				return
+			}
 			l.hits.Add(1)
 			l.seq.add('T')
 			// A write is answered as the shop answers it: a checkout with a 303, a created order with its id.
@@ -87,7 +101,7 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 
 func warmSpecs() (tifa, nocache, node Spec) {
 	mk := func(name, fw string) Spec {
-		return Spec{Target: Target{Name: name}, Framework: fw, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath}
+		return Spec{Target: Target{Name: name}, Framework: fw, Write: nodeWrite, Create: nodeCreate, StoreWrite: SameStorePath, EditProduct: nodeEditProduct, Products: nodeProducts}
 	}
 	return mk("tifa", "tifa"), mk("tifa-nocache", "tifa"), mk("nextjs", "nextjs")
 }
@@ -174,8 +188,9 @@ func TestSizingNeverReachesAMeasuredServer(t *testing.T) {
 // A request of a check that a fake server tells from the traffic of a round by this header.
 const verifyHeader = "X-Test-Verify"
 
-// seq is what one server got, in order: "V" for a request of the write check and "T" for the traffic
-// of a round (a warm-up, a sizing run or a measured round).
+// seq is what one server got, in order: "V" for a request of the write check, "R" for one of the
+// restock before a run with writes, and "T" for the traffic of a round (a warm-up, a sizing run or a
+// measured round).
 type seq struct {
 	mu   sync.Mutex
 	kind []byte
@@ -204,10 +219,11 @@ func (s *seq) has(k byte) bool {
 	return slices.Contains(s.kind, k)
 }
 
-// The write check of a scenario sends requests, so it must not run on the server of a measured round
-// nor on the one of a sizing run: both start with the first request of their traffic, and the check
-// runs on a server of its own. That holds for every attempt, closed and open, in every mix with
-// writes, for Tifa with and without the cache. The check after a round stays on the server of the
+// The write check of a scenario renders pages, so it must not run on the server of a measured round
+// nor on the one of a sizing run: no request that renders comes before their traffic, and the check
+// runs on a server of its own. The restock comes before the traffic on both, and it renders nothing
+// (Restock checks every answer for that). That holds for every attempt, closed and open, in every mix
+// with writes, for Tifa with and without the cache. The check after a round stays on the server of the
 // round, once its timing has ended.
 func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 	tifa, nocache, node := warmSpecs()
@@ -250,6 +266,16 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					checks, after := 0, 0
 					for i, l := range list {
 						o := l.seq.order()
+						// Every server of traffic is restocked before it, and only then.
+						if i := strings.IndexByte(o, 'T'); i >= 0 {
+							if i == 0 || strings.Trim(o[:i], "R") != "" {
+								t.Errorf("server of %s: %s, want the restock and nothing else before the traffic", spec.Name, o)
+							}
+							if strings.Contains(o[i:], "R") {
+								t.Errorf("server of %s: %s, a restock among the traffic", spec.Name, o)
+							}
+						}
+						o = strings.ReplaceAll(o, "R", "")
 						switch {
 						case o != "" && strings.Trim(o, "V") == "":
 							checks++ // a server of the check alone

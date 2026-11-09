@@ -13,7 +13,7 @@
 //   /store/products                 app/store/products/route             loadList(params, query)
 //   /store/products/{product}       app/store/products/product+/route    loadProduct(params, query)
 //   /store/cart                     app/store/cart/route                 loadCart(c, params)
-//   /store/checkout[?placed=SS-..]  app/store/checkout/route             loadCheckout(c, params, query)
+//   /store/checkout[?placed=SH-..]  app/store/checkout/route             loadCheckout(c, params, query)
 //   /store/journal                  app/store/journal/route              loadJournal(params)
 //   /store/journal/{post}           app/store/journal/post+/route        loadPost(params)
 //   GET /store/mine  (JSON)         app/store/mine/route (GET)           getMine(c, params)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
-import { Bell, ChartColumn, ExternalLink, LayoutGrid, ReceiptText, Search, SearchX, ShoppingBag } from 'lucide-react'
+import { Bell, ChartColumn, ExternalLink, LayoutGrid, Package, ReceiptText, Search, SearchX, ShoppingBag } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Breadcrumb,
@@ -63,11 +63,12 @@ export const documentHead = {
 
 type Project = LayoutData['projects'][number]
 
-// where reads the shop, the page and the order a workbench URL is at.
+// where reads the shop, the page and the order or product a workbench URL is at.
 function where(pathname: string) {
-  const [, , project, page, order] = pathname.split('/')
-  const name: 'orders' | 'stats' | 'order' = page === 'stats' ? 'stats' : page === 'orders' && order ? 'order' : 'orders'
-  return { project, page: name, order }
+  const [, , project, page, item] = pathname.split('/')
+  const name: keyof typeof pageNames =
+    page === 'stats' ? 'stats' : page === 'products' ? (item ? 'product' : 'products') : page === 'orders' && item ? 'order' : 'orders'
+  return { project, page: name, item }
 }
 
 export default function AppLayout() {
@@ -139,7 +140,7 @@ export default function AppLayout() {
                 <nav aria-label="Shop pages">
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild isActive={at.page !== 'stats'} tooltip="Orders" className={active}>
+                      <SidebarMenuButton asChild isActive={at.page === 'orders' || at.page === 'order'} tooltip="Orders" className={active}>
                         <Link to="/projects/$project" params={{ project: current.id }}>
                           <ReceiptText />
                           <span>Orders</span>
@@ -155,6 +156,17 @@ export default function AppLayout() {
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+                    {current.id === 'studio' && (
+                      // The studio shop sells the products of the storefront, and only it has a product list.
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild isActive={at.page === 'products' || at.page === 'product'} tooltip="Products" className={active}>
+                          <Link to="/projects/$project/products" params={{ project: current.id }}>
+                            <Package />
+                            <span>Products</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )}
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild tooltip="Storefront">
                         <Link to="/store">
@@ -221,7 +233,7 @@ export default function AppLayout() {
 const active = 'data-[active=true]:shadow-[inset_2px_0_0_var(--sidebar-primary)]'
 const pill = 'rounded-none border border-sidebar-border font-mono text-[11px]'
 
-const pageNames = { orders: 'Orders', stats: 'Stats', order: 'Order' }
+const pageNames = { orders: 'Orders', stats: 'Stats', order: 'Order', products: 'Products', product: 'Products' }
 
 function Crumbs({ current, at }: { current?: Project; at: ReturnType<typeof where> }) {
   return (
@@ -252,15 +264,21 @@ function Crumbs({ current, at }: { current?: Project; at: ReturnType<typeof wher
                     {pageNames.order}
                   </Link>
                 </BreadcrumbLink>
+              ) : at.page === 'product' ? (
+                <BreadcrumbLink asChild>
+                  <Link to="/projects/$project/products" params={{ project: current.id }}>
+                    {pageNames.product}
+                  </Link>
+                </BreadcrumbLink>
               ) : (
                 <BreadcrumbPage>{pageNames[at.page]}</BreadcrumbPage>
               )}
             </BreadcrumbItem>
-            {at.page === 'order' && (
+            {(at.page === 'order' || at.page === 'product') && (
               <>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
-                  <BreadcrumbPage className="font-mono">{at.order}</BreadcrumbPage>
+                  <BreadcrumbPage className="font-mono">{at.item}</BreadcrumbPage>
                 </BreadcrumbItem>
               </>
             )}

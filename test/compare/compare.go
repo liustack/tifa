@@ -65,11 +65,13 @@ type Page struct {
 }
 
 const (
-	shellRoute = "app/layout"
-	listRoute  = "app/projects/project+/route"
-	orderRoute = "app/projects/project+/orders/order+/route"
-	statsRoute = "app/projects/project+/stats/route"
-	projLayout = "app/projects/project+/layout"
+	shellRoute    = "app/layout"
+	listRoute     = "app/projects/project+/route"
+	orderRoute    = "app/projects/project+/orders/order+/route"
+	statsRoute    = "app/projects/project+/stats/route"
+	productsRoute = "app/projects/project+/products/route"
+	productRoute  = "app/projects/project+/products/product+/route"
+	projLayout    = "app/projects/project+/layout"
 )
 
 func chain(page string) string { return shellRoute + "," + projLayout + "," + page }
@@ -90,6 +92,19 @@ var Pages = []Page{
 var OrderIDs = map[string][2]int{"studio": {1001, 1042}, "weekend": {190, 201}}
 
 var orderPrefix = map[string]string{"studio": "SH-", "weekend": "WK-"}
+
+// ProductPages are the product pages of the back office: the list of the products of each shop
+// (studio sells the catalogue of the storefront) and the edit page of one of each. The checks read
+// them with the other pages, the measuring does not.
+var ProductPages = []Page{
+	{"products studio", "/projects/studio/products", chain(productsRoute)},
+	{"product oak-tray", "/projects/studio/products/oak-tray", chain(productRoute)},
+	{"products weekend", "/projects/weekend/products", chain(productsRoute)},
+	{"product postcards", "/projects/weekend/products/postcards", chain(productRoute)},
+}
+
+// CheckedPages are the pages the checks read: AllPages and then ProductPages.
+func CheckedPages() []Page { return append(AllPages(), ProductPages...) }
 
 // AllPages are the workbench pages the apps serve: the six of Pages first, in their order, then
 // the order page of every other order of the shop (54 order pages in all).

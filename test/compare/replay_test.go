@@ -770,3 +770,43 @@ func TestTheSizingRunSendsTheWritesOfItsMix(t *testing.T) {
 }
 
 // A closed round counts the visits it played, the ones that failed too.
+
+// A write or a page that the shop answers with 409 or 422 counts as refused as soon as its status
+// arrives, even when its body then cannot be read, and the round it is in is not valid.
+func TestARefusedAnswerMakesItsRoundInvalid(t *testing.T) {
+	for _, tc := range []struct{ name, refuse string }{{"a write whose body is cut", "PATCH"}, {"a page", "GET"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != tc.refuse {
+					w.Write([]byte("ok"))
+					return
+				}
+				if r.Method == "GET" {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+				// A 422 that says it is gzip and is not: reading its body fails.
+				w.Header().Set("Content-Encoding", "gzip")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				w.Write([]byte("not gzip"))
+			}))
+			defer srv.Close()
+			tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{
+				{Method: "GET", URL: "/projects/studio", Class: "doc", End: 5, Status: 200},
+			}}}}
+			r := newTestRunner(srv.URL, BrowseScenario{Name: "x", Share: 0.2, Mix: MixRename}, tr)
+			r.wl.Writes[[2]int{0, 0}] = PlannedWrite{Plan: 0, After: 0, Kind: WriteRename, Order: WritableOrders[0], Project: "studio"}
+			a := newAcc()
+			if err := visitOnce(r, a, 0); err == nil {
+				t.Fatal("the visit did not fail")
+			}
+			round := plannedRound()
+			now := time.Now()
+			a.round(round, 0, 0, 0, 0, now, now.Add(time.Second), 0)
+			round.Judge(BrowseScenario{Share: 2.0 / 42})
+			if round.Refused != 1 || round.Valid || !strings.Contains(round.WhyInvalid, "refused 1 requests") {
+				t.Errorf("refused %d, valid %v (%s): want one refused answer and an invalid round", round.Refused, round.Valid, round.WhyInvalid)
+			}
+		})
+	}
+}

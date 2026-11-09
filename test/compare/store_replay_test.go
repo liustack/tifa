@@ -135,7 +135,7 @@ func (f *fakeStoreServer) write(kind string) http.HandlerFunc {
 				return
 			}
 			c.lines, c.coupon = nil, ""
-			w.Header().Set("Location", "/store/checkout?placed=SS-ABCDEFGHJK")
+			w.Header().Set("Location", "/store/checkout?placed=SH-1043")
 		}
 		f.log = append(f.log, kind)
 		if s, ok := f.answer[kind]; ok {

@@ -22,3 +22,5 @@ export function query(searchParams: Record<string, string | string[] | undefined
 export const loadOrderList = cache((project: domain.Project, q: string) => domain.loadOrderList(project, new URLSearchParams(q)))
 export const loadOrder = cache((project: domain.Project, order: string) => domain.loadOrder(project, order))
 export const loadStats = cache((project: domain.Project) => domain.loadStats(project))
+export const loadProducts = cache((project: domain.Project) => domain.loadProducts(project))
+export const loadProductEntry = cache((project: domain.Project, product: string) => domain.loadProductEntry(project, product))

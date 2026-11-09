@@ -250,7 +250,7 @@ func TestShopRendersReadyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"SH-1042", "林夏", "晨间手冲壶", ">山海工作室</h1>", "2</span> to ship", "data-tsr-stream-part", "Confirm shipment"} {
+	for _, text := range []string{"SH-1042", "林夏", "Morning Pour-Over Kettle", ">山海工作室</h1>", "2</span> to ship", "data-tsr-stream-part", "Confirm shipment"} {
 		if !strings.Contains(html, text) {
 			t.Errorf("missing %q", text)
 		}
@@ -570,6 +570,11 @@ func TestShopSlotsAtTheLengthWhereTheyStart(t *testing.T) {
 	if target < 0 {
 		t.Fatal("no text holds the customer")
 	}
+	// The order must start under 4,095 code units to be padded to each length. Its products and
+	// those of the orders it lists are named in English, which is longer than Chinese, so the long
+	// name of the kettle it holds is cut short first: the pool and the VM get the same data anyway.
+	detail.Texts = slices.Clone(detail.Texts)
+	detail.Texts[target] = strings.ReplaceAll(detail.Texts[target], "Morning Pour-Over Kettle", "Kettle")
 	inString := func(s string) string {
 		quoted, _ := json.Marshal(s)
 		return string(quoted[1 : len(quoted)-1])

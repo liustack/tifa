@@ -43,24 +43,30 @@ var customers = []customer{
 	{"陆川", "19900199015", "luchuan@example.com", "深圳市南山区 · 演示地址"},
 }
 
+// studioCatalogue are the products of the storefront that the demonstration orders of studio hold, as
+// they were sold. New orders of studio take their products from the storefront (see shops).
 var studioCatalogue = []itemRecord{
-	{Slug: "pour-over-kettle", Name: "晨间手冲壶", Description: "雾白 / 600 ml", PriceCents: 32800, Color: "sand", Stock: 23},
-	{Slug: "linen-coasters", Name: "亚麻杯垫", Description: "原色 / 两件装", PriceCents: 10000, Color: "olive", Stock: 80},
-	{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿 / 280 ml", PriceCents: 13400, Color: "olive", Stock: 58},
-	{Slug: "oak-tray", Name: "原木托盘", Description: "白橡木 / 大号", PriceCents: 58000, Color: "sand", Stock: 6},
-	{Slug: "reading-candle", Name: "阅读香薰", Description: "雪松与纸张 / 180 g", PriceCents: 19600, Color: "clay", Stock: 40},
-	{Slug: "brass-bookmarks", Name: "黄铜书签", Description: "哑光 / 两枚装", PriceCents: 6800, Color: "sand", Stock: 200},
-	{Slug: "stoneware-vase", Name: "粗陶花器", Description: "灰白 / 中号", PriceCents: 24800, Color: "clay", Stock: 11},
-	{Slug: "linen-apron", Name: "棉麻围裙", Description: "燕麦色 / 均码", PriceCents: 16800, Color: "olive", Stock: 34},
+	{Slug: "pour-over-kettle", Name: "Morning Pour-Over Kettle", Description: "Mist / 600 ml", PriceCents: 32800, Color: "sand"},
+	{Slug: "linen-coasters", Name: "Linen Coasters", Description: "Natural / Set of 2", PriceCents: 10000, Color: "olive"},
+	{Slug: "ceramic-cup", Name: "Handmade Ceramic Cup", Description: "Moss / 280 ml", PriceCents: 13400, Color: "olive"},
+	{Slug: "oak-tray", Name: "Oak Serving Tray", Description: "White oak / Large", PriceCents: 58000, Color: "sand"},
+	{Slug: "reading-candle", Name: "Reading Candle", Description: "Cedar and paper / 180 g", PriceCents: 19600, Color: "clay"},
+	{Slug: "brass-bookmarks", Name: "Brass Bookmarks", Description: "Matte / Set of 2", PriceCents: 6800, Color: "sand"},
+	{Slug: "stoneware-vase", Name: "Stoneware Vase", Description: "Ash white / Medium", PriceCents: 24800, Color: "clay"},
+	{Slug: "linen-apron", Name: "Cotton Linen Apron", Description: "Oat / One size", PriceCents: 16800, Color: "olive"},
 }
 
 var weekendCatalogue = []itemRecord{
-	{Slug: "canvas-tote", Name: "周末帆布袋", Description: "深蓝 / 标准款", PriceCents: 15800, Color: "blue", Stock: 45},
-	{Slug: "folding-stool", Name: "露营折叠凳", Description: "军绿 / 承重 120 kg", PriceCents: 13900, Color: "olive", Stock: 52},
-	{Slug: "picnic-blanket", Name: "野餐垫", Description: "格纹 / 2 × 2 m", PriceCents: 8900, Color: "blue", Stock: 66},
-	{Slug: "insulated-bottle", Name: "保温水壶", Description: "雾蓝 / 750 ml", PriceCents: 12800, Color: "blue", Stock: 75},
-	{Slug: "postcards", Name: "手绘明信片", Description: "城市系列 / 6 张", PriceCents: 3600, Color: "clay", Stock: 260},
+	{Slug: "canvas-tote", Name: "Weekend Canvas Tote", Description: "Navy / Standard", PriceCents: 15800, Color: "blue"},
+	{Slug: "folding-stool", Name: "Camping Folding Stool", Description: "Army green / Holds 120 kg", PriceCents: 13900, Color: "olive"},
+	{Slug: "picnic-blanket", Name: "Picnic Blanket", Description: "Check / 2 × 2 m", PriceCents: 8900, Color: "blue"},
+	{Slug: "insulated-bottle", Name: "Insulated Bottle", Description: "Mist blue / 750 ml", PriceCents: 12800, Color: "blue"},
+	{Slug: "postcards", Name: "Hand-drawn Postcards", Description: "Cities / 6 cards", PriceCents: 3600, Color: "clay"},
 }
+
+// weekendStock is how many of each product the weekend shop has to sell, the orders that wait to
+// ship taken out.
+var weekendStock = map[string]int{"canvas-tote": 45, "folding-stool": 52, "picnic-blanket": 66, "insulated-bottle": 75, "postcards": 260}
 
 func demoOrders() []orderRecord {
 	list := []orderRecord{

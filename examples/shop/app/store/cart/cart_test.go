@@ -194,7 +194,7 @@ func TestPlacingAnOrderEmptiesTheCart(t *testing.T) {
 	c, _ = visit(t, id)
 	now := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
 	order, err := PlaceOrder(c, zh, goodOrder(), now)
-	if err != nil || !strings.HasPrefix(order, "SS-") {
+	if err != nil || !strings.HasPrefix(order, "SH-") {
 		t.Fatalf("PlaceOrder: %q %v", order, err)
 	}
 	if n := Count(id); n != 0 {
@@ -227,8 +227,9 @@ func TestOnlyTheCartThatPlacedAnOrderSeesIt(t *testing.T) {
 		}
 		orders, ids = append(orders, order), append(ids, cookie.Value)
 	}
-	// Order numbers are random, so one order says nothing about the number of the next.
-	pattern := regexp.MustCompile(`^SS-[A-Z2-7]{10}$`)
+	// An order of the storefront is an order of the studio shop, numbered like the others. The
+	// numbers can be guessed, so only the cart that placed an order sees it.
+	pattern := regexp.MustCompile(`^SH-[0-9]+$`)
 	for _, order := range orders {
 		if !pattern.MatchString(order) {
 			t.Errorf("order number %q", order)

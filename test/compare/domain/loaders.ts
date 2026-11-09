@@ -1,4 +1,4 @@
-// What the Go Layout and Load functions of the six workbench pages return, ported function by
+// What the Go Layout and Load functions of the workbench pages return, ported function by
 // function. A framework calls these once for each request that needs the data, as tifa runs the
 // Go ones.
 //
@@ -7,14 +7,19 @@
 //   app/projects/project+/route.go (Load)           loadOrderList
 //   app/projects/project+/orders/order+/route.go    loadOrder
 //   app/projects/project+/stats/route.go            loadStats
+//   app/projects/project+/products/route.go         loadProducts
+//   app/projects/project+/products/product+/route.go loadProductEntry
 //
 // A page's Load reads the project through its Layout, which tifa runs once for a request. Here
 // the caller passes the project it loaded, so no request loads it twice.
 import { counts } from './counts.ts'
+import { NotFound } from './errors.ts'
 import { customerOrders, getOrder, listOrders, ordersWith } from './orders.ts'
 import type { ListQuery } from './orders.ts'
 import type { Order, OrderList, OrderRow } from './orders.ts'
 import { getProject, listProjects } from './projects.ts'
+import { shopEntries, shopEntry } from './weekend.ts'
+import type { Entry } from './store/products/edit.ts'
 import type { Project } from './projects.ts'
 import { carriers } from './shipping.ts'
 import type { Carrier } from './shipping.ts'
@@ -79,4 +84,16 @@ export function loadOrder(project: Project, orderId: string): Detail {
 export function loadStats(project: Project): Sales {
   counts.page++
   return salesStats(project.id, project.timeZone)
+}
+
+// The studio shop sells the products of the storefront, and only it has the product pages.
+
+export function loadProducts(project: Project): Entry[] {
+  counts.page++
+  return shopEntries(project.id)
+}
+
+export function loadProductEntry(project: Project, slug: string): Entry {
+  counts.page++
+  return shopEntry(project.id, slug)
 }

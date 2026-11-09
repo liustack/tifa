@@ -25,6 +25,8 @@ export default [
       index('routes/orders.tsx', { id: '/_app/projects/$project/' }),
       route('stats', 'routes/stats.tsx', { id: '/_app/projects/$project/stats' }),
       route('orders/:order', 'routes/order.tsx', { id: '/_app/projects/$project/orders/$order' }),
+      route('products', 'routes/products.tsx', { id: '/_app/projects/$project/products' }),
+      route('products/:product', 'routes/product.tsx', { id: '/_app/projects/$project/products/$product' }),
     ]),
   ]),
   // The storefront: /store is the Layout without the workbench (app/store/layout_.tsx) and the pages
@@ -34,6 +36,8 @@ export default [
   route('compare-counts', 'routes/compare-counts.ts'),
   route('compare-write/:project', 'routes/compare-write-create.ts'),
   route('compare-write/:project/:order', 'routes/compare-write.ts'),
+  route('compare-write/:project/products', 'routes/compare-write-products.ts'),
+  route('compare-write/:project/products/:product', 'routes/compare-write-product.ts'),
   // The handlers of the storefront (see compare/store-wire.ts for why they are not on the URLs
   // of the pages).
   route('store/mine', 'routes/store-mine.ts', { id: 'mine' }),

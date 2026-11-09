@@ -13,3 +13,7 @@ export class Invalid extends Error {
 
 // Locked is what a write throws when the order has shipped, as Go returns ErrRecipientLocked.
 export class Locked extends Error {}
+
+// OutOfStock is what placing an order of more than the stock throws, as Go's 409 "Not enough in
+// stock".
+export class OutOfStock extends Error {}

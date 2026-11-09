@@ -133,6 +133,8 @@ func (e Env) Sync(dir, kind string) error {
 		case "next":
 			to += "x" // route.gen.tsx: it holds JSX through the loader context
 			edit = nextRoute
+		case "start":
+			edit = startWorkbenchRoute
 		case "reactrouter":
 			edit = reactRouterRoute
 		}
@@ -226,6 +228,14 @@ func writeImages(path string, files []string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
+// startWorkbenchRoute edits a generated module of the workbench for the file routes of the Start
+// app, as startRoute does for the storefront: the product list has the product below it as a page of
+// its own, so it is an index route here, with the trailing slash in its ID.
+func startWorkbenchRoute(src []byte) []byte {
+	const id = "/_app/projects/$project/products"
+	return []byte(strings.Replace(string(src), `getRouteApi("`+id+`")`, `getRouteApi("`+id+`/")`, 1))
 }
 
 // reactRouterRoute turns a generated module of the shop into one for React Router: getRouteApi

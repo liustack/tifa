@@ -197,6 +197,8 @@ func (r *runner) doWrite(ctx context.Context, v *visitState, a *acc, w PlannedWr
 		body = mustJSON(payload)
 	}
 	ans, _, end, err := r.request(ctx, v, method, path, body)
+	// The status counts once it arrives, even when the body that follows cannot be read.
+	a.refuse(ans.status)
 	if err != nil {
 		return err
 	}

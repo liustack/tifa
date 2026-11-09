@@ -66,8 +66,17 @@ export const careNotes: Record<string, Text[]> = {	"drinkware": [
 
 type Raw = Partial<ProductRecord> & Pick<ProductRecord, 'slug' | 'name' | 'category' | 'priceFen' | 'rating' | 'stock' | 'colors' | 'tags' | 'summary' | 'description' | 'materials' | 'specs' | 'added'>
 
-// A field left out is the zero value of Go: no sale price, no badge, no sizes.
-export const catalogue: ProductRecord[] = ([	{
+// The catalogue, made when the process starts and changed by the edits of staff and the stock
+// that orders take, as Go keeps it in memory. It lives on globalThis, like the orders, since
+// Next.js loads this module once for its pages and once for the write routes. Edits change the
+// records in place.
+const g = globalThis as typeof globalThis & { __compareCatalogue?: ProductRecord[] }
+export const catalogue: ProductRecord[] = (g.__compareCatalogue ??= demoCatalogue())
+
+// demoCatalogue returns the products the shop starts with. A field left out is the zero value of
+// Go: no sale price, no badge, no sizes.
+function demoCatalogue(): ProductRecord[] {
+  return ([	{
 		slug: "pour-over-kettle", name: ["晨间手冲壶", "Morning Pour-Over Kettle"], category: "drinkware",
 		priceFen: 32800, rating: 4.8, stock: 23, badge: "", colors: ["mist", "charcoal"],
 		tags:    ["coffee", "咖啡", "kettle"],
@@ -431,6 +440,7 @@ export const catalogue: ProductRecord[] = ([	{
 		specs:     [[["尺寸", "Sizes"], ["20、25、33 厘米", "20, 25 and 33 cm"]]],
 		added:     day(2, 14),
 	},] as Raw[]).map((r) => ({ compareFen: 0, badge: '', sizes: [], ...r }))
+}
 
 // materialGroups are the families of materials the product list filters by. A product belongs to
 // every family one of its materials names, in either language, with one of the words.

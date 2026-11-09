@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 )
 
 // shanghai is the zone the demonstration shops trade in.
@@ -173,7 +175,7 @@ func TestSalesStatsRankEveryProductWithItsDays(t *testing.T) {
 			t.Errorf("rank %d is %s, the chart has %s", i, s.Products[i].Name, p.Name)
 		}
 	}
-	if k := byName["晨间手冲壶"]; k.Orders < 3 || k.Orders > k.Quantity {
+	if k := byName["Morning Pour-Over Kettle"]; k.Orders < 3 || k.Orders > k.Quantity {
 		t.Errorf("kettle %+v", k)
 	}
 }
@@ -237,4 +239,70 @@ func firstOrderOf(projectID, customer string) string {
 		}
 	}
 	return ""
+}
+
+// A product renamed in the back office is still one product: the stats keep one row for it, with
+// its slug and its name as the catalogue has it now, though its orders were placed under two names.
+func TestSalesStatsKeepARenamedProductInOneRow(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	before, err := products.GetEntry("ceramic-cup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = products.Update("ceramic-cup", before.Edit) })
+	edit := before.Edit
+	edit.NameEN = "New Ceramic Cup"
+	if err := products.Update("ceramic-cup", edit); err != nil {
+		t.Fatal(err)
+	}
+	in := newOrder()
+	in.Items = []NewLine{{Slug: "ceramic-cup", Quantity: 1}}
+	if _, err := CreateOrder("studio", in, time.Date(2026, 10, 15, 10, 0, 0, 0, shanghai)); err != nil {
+		t.Fatal(err)
+	}
+	var rows []ProductRow
+	for _, r := range SalesStats("studio", shanghai).Products {
+		if r.Slug == "ceramic-cup" {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) != 1 || rows[0].Name != "New Ceramic Cup" {
+		t.Fatalf("the rows of the renamed product: %+v", rows)
+	}
+	for _, p := range SalesStats("studio", shanghai).TopProducts {
+		if p.Slug == "ceramic-cup" && p.Name != "New Ceramic Cup" {
+			t.Errorf("the best sellers name it %q", p.Name)
+		}
+	}
+}
+
+// An order that holds a product in two variants counts as one order of the product, with the pieces
+// and the revenue of both lines.
+func TestAnOrderOfTwoVariantsIsOneOrderOfTheProduct(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	row := func() ProductRow {
+		for _, r := range SalesStats("studio", shanghai).Products {
+			if r.Slug == "oak-tray" {
+				return r
+			}
+		}
+		return ProductRow{}
+	}
+	before := row()
+	in := newOrder()
+	in.Items = []NewLine{{Slug: "oak-tray", Color: "oat", Size: "M", Quantity: 1}, {Slug: "oak-tray", Color: "oat", Size: "L", Quantity: 2}}
+	// An hour before the newest order, so the days of the stats stay the same.
+	newest, _ := GetOrder("studio", "SH-1042")
+	id, err := CreateOrder("studio", in, newest.PlacedAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, _ := GetOrder("studio", id)
+	after := row()
+	if after.Orders != before.Orders+1 || after.Quantity != before.Quantity+3 || after.RevenueCents != before.RevenueCents+o.TotalCents {
+		t.Errorf("the tray row went from %d orders, %d pieces, %d cents to %d, %d, %d: want one order more, 3 pieces and %d cents",
+			before.Orders, before.Quantity, before.RevenueCents, after.Orders, after.Quantity, after.RevenueCents, o.TotalCents)
+	}
 }

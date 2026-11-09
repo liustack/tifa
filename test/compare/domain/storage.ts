@@ -4,16 +4,62 @@
 // and the order page show. Every write updates them with the order, so a read of the pages costs
 // about the same with 50 orders as with 5000. They start with the demonstration data.
 import { counts } from './counts.ts'
-import { demoOrders, studioCatalogue, weekendCatalogue } from './demo.ts'
+import { demoOrders } from './demo.ts'
+import { Invalid, NotFound, OutOfStock } from './errors.ts'
+import { Fields } from './store/errors.ts'
+import { buy, NoStock, orderName, stockOf } from './store/products/edit.ts'
+import { weekendBuy, weekendName, weekendStockOf } from './weekend.ts'
+import type { ProductLine } from './store/products/edit.ts'
+import { storefrontProject } from './store/store.ts'
 import { carrierName, carriers } from './shipping.ts'
 import { total } from './records.ts'
 import type { ItemRecord, OrderRecord, ShipmentRecord } from './records.ts'
 import { HOUR, local } from './time.ts'
 
-// The form of the order numbers of a project and its products, as shops in create.go.
-export const shops: Record<string, { prefix: string; width: number; catalogue: ItemRecord[] }> = {
-  studio: { prefix: 'SH', width: 0, catalogue: studioCatalogue },
-  weekend: { prefix: 'WK', width: 4, catalogue: weekendCatalogue },
+// A NewLine is one product of a new order in a colour and size, as in create.go. Staff leave the
+// colour and size empty.
+export interface NewLine {
+  slug: string
+  color: string
+  size: string
+  quantity: number
+}
+
+// storefrontBuy buys the lines of a new order of the studio shop from the catalogue of the
+// storefront, as a checkout does (storefrontBuy in Go).
+function storefrontBuy(lines: NewLine[]): ItemRecord[] {
+  try {
+    return buy(lines.map((l) => ({ slug: l.slug, color: l.color, size: l.size, quantity: l.quantity }))).lines.map(storefrontItem)
+  } catch (e) {
+    if (e instanceof NoStock) throw new OutOfStock()
+    if (e instanceof NotFound) throw new Invalid(['items'])
+    if (e instanceof Fields) throw new Invalid(Object.keys(e.fields))
+    throw e
+  }
+}
+
+export function storefrontItem(p: ProductLine): ItemRecord {
+  return { slug: p.slug, name: p.name, description: p.variant, quantity: p.quantity, priceCents: p.priceFen, color: p.color }
+}
+
+// The form of the order numbers of a project and how it buys the lines of an order, as shops in
+// create.go: the studio shop sells the products of the storefront, the weekend shop has its own.
+// name is the name of a product it sells, as order lines keep it, or undefined. stock is how many of
+// it the shop has to sell now, the orders that wait to ship taken out, or undefined.
+export const shops: Record<
+  string,
+  { prefix: string; width: number; buy: (lines: NewLine[]) => ItemRecord[]; name: (slug: string) => string | undefined; stock: (slug: string) => number | undefined }
+> = {
+  [storefrontProject]: { prefix: 'SH', width: 0, buy: storefrontBuy, name: orderName, stock: stockOf },
+  weekend: { prefix: 'WK', width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf },
+}
+
+// productStock is how many of the product slug the shop of a project has to sell now, as in Go: a
+// stock that is not there is a bug.
+export function productStock(projectId: string, slug: string): number {
+  const n = shops[projectId].stock(slug)
+  if (n === undefined) throw new Error(`orders of ${projectId} hold ${slug}, which the shop does not sell`)
+  return n
 }
 
 export interface CustomerOrders {
@@ -35,12 +81,12 @@ export interface CarrierTotals {
   transit: number // from shipping to signing, added up over the parcels signed for
 }
 
-// DayProduct is what the orders of a day hold of one product. A product's name and slug go
-// together, as in the catalogues.
+// DayProduct is what the orders of a day hold of one product. It has no name: a product can be
+// renamed, and its orders keep the name they were placed under, so the stats name it as its shop
+// does now.
 export interface DayProduct {
-  slug: string
   quantity: number
-  lines: number
+  orders: number // the orders that hold the product, in one line or more
   revenueCents: number
 }
 
@@ -50,7 +96,7 @@ export interface DayTotals {
   pending: number
   shipped: number
   pieces: number
-  products: Map<string, DayProduct> // by name
+  products: Map<string, DayProduct> // by slug
 }
 
 // ZoneDays are the orders of a project counted by the day they were placed on and the hour of the
@@ -256,14 +302,18 @@ function addToZone(z: ZoneDays, o: OrderRecord): void {
   d.revenueCents += total(o)
   if (o.shipment) d.shipped++
   else d.pending++
+  const counted = new Set<string>() // the products of the order, which counts once for each
   for (const item of o.items) {
-    let pr = d.products.get(item.name)
+    let pr = d.products.get(item.slug)
     if (!pr) {
-      pr = { slug: item.slug, quantity: 0, lines: 0, revenueCents: 0 }
-      d.products.set(item.name, pr)
+      pr = { quantity: 0, orders: 0, revenueCents: 0 }
+      d.products.set(item.slug, pr)
     }
     pr.quantity += item.quantity
-    pr.lines++
+    if (!counted.has(item.slug)) {
+      counted.add(item.slug)
+      pr.orders++
+    }
     pr.revenueCents += item.quantity * item.priceCents
     d.pieces += item.quantity
   }

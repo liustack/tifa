@@ -66,12 +66,7 @@ var questions = map[string][][2]T{
 
 // Questions returns the questions asked about a product, newest first.
 func Questions(slug string, l storekit.Locale) []Question {
-	var p productRecord
-	for _, r := range catalogue {
-		if r.slug == slug {
-			p = r
-		}
-	}
+	p, _ := record(slug)
 	var out []Question
 	for i, qa := range questions[p.category] {
 		out = append(out, Question{

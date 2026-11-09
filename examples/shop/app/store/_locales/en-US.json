@@ -53,6 +53,7 @@
     "wishTip": "Save for later",
     "wishOn": "Saved",
     "ships": "Ships within 48 hours",
+    "stockLeft_one": "Only {{count}} left, ships within 48 hours",
     "stockLeft_other": "Only {{count}} left, ships within 48 hours",
     "restock": "Restocking, order when it is back"
   },
@@ -248,7 +249,9 @@
     },
     "bundle": "Bought together",
     "bundleThis": "This item",
+    "bundleCount_one": "{{count}} item",
     "bundleCount_other": "{{count}} items together",
+    "bundleAdd_one": "Add it to cart",
     "bundleAdd_other": "Add all {{count}} to cart",
     "bundleAdded": "Added to your cart",
     "writeReview": "Write a review",
@@ -457,7 +460,8 @@
     "price": "The minimum cannot be above the maximum",
     "network": "Something went wrong with the network. Please try again",
     "emptyCart": "Your cart is empty",
-    "cartExpired": "Your cart expired, so the page has been refreshed. Please check the items and place the order again"
+    "cartExpired": "Your cart expired, so the page has been refreshed. Please check the items and place the order again",
+    "cartStock": "Not that many of some items in your cart are left in stock. Please change the quantities and place the order again"
   },
   "journal": {
     "title": "Journal",

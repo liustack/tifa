@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 	"github.com/liustack/tifa/examples/shop/app/store/cart"
 	"github.com/liustack/tifa/examples/shop/app/store/products"
 	"github.com/liustack/tifa/examples/shop/app/store/storekit"
@@ -55,7 +56,7 @@ func POST(c *tifa.Ctx, in cart.Order) error {
 	if err != nil {
 		return err
 	}
-	id, err := cart.PlaceOrder(c, l, in, time.Now())
+	id, err := cart.PlaceOrder(c, l, in, orders.Now())
 	if err != nil {
 		return err
 	}

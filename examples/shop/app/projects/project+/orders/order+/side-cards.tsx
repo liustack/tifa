@@ -291,26 +291,28 @@ export function StockCheck() {
     <Card>
       <CardHeader>
         <CardTitle className={title}>Stock check</CardTitle>
-        <CardDescription>How many the orders to ship need in all, and how many the warehouse has.</CardDescription>
+        <CardDescription>How many the orders to ship need in all, and how many are left to sell.</CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="divide-y">
           {order.items.map((item) => {
-            const left = item.stock - item.demand
+            // The stock is what is left to sell: the orders to ship have been taken out of it, so the
+            // warehouse holds both.
+            const shelf = item.stock + item.demand
             return (
               <li key={item.name} className="space-y-2 py-3 first:pt-0 last:pb-0">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span>{item.name}</span>
-                  <Badge variant={left < 0 ? "destructive" : "secondary"} className="rounded-none">
-                    {left < 0 ? "Out of stock" : left <= 10 ? "Low stock" : "Enough"}
+                  <Badge variant={item.stock === 0 ? "destructive" : "secondary"} className="rounded-none">
+                    {item.stock === 0 ? "Out of stock" : item.stock <= 10 ? "Low stock" : "Enough"}
                   </Badge>
                 </div>
-                <div className="h-1.5 bg-muted" role="img" aria-label={`${item.demand} to ship, ${item.stock} in stock`}>
-                  <span className="block h-full bg-primary" style={{ width: `${Math.min(100, Math.round((item.demand / Math.max(item.stock, 1)) * 100))}%` }} />
+                <div className="h-1.5 bg-muted" role="img" aria-label={`${item.demand} to ship, ${shelf} in the warehouse`}>
+                  <span className="block h-full bg-primary" style={{ width: `${Math.min(100, Math.round((item.demand / Math.max(shelf, 1)) * 100))}%` }} />
                 </div>
                 <p className="flex justify-between font-mono text-xs text-muted-foreground">
                   <span>{item.demand} to ship</span>
-                  <span>{item.stock} in stock, {left} left after shipping</span>
+                  <span>{shelf} in the warehouse, {item.stock} left to sell</span>
                 </p>
               </li>
             )

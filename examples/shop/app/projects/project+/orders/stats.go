@@ -113,14 +113,14 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 		if d := z.days[date]; d != nil {
 			day.Orders, day.RevenueCents, day.Shipped, day.Pieces = d.orders, d.revenueCents, d.shipped, d.pieces
 			s.Totals.Pieces += d.pieces
-			for name, dp := range d.products {
-				r := products[name]
+			for slug, dp := range d.products {
+				r := products[slug]
 				if r == nil {
-					r = &ProductRow{Slug: dp.slug, Name: name, Daily: make([]int, statsDays)}
-					products[name] = r
+					r = &ProductRow{Slug: slug, Name: productName(projectID, slug), Daily: make([]int, statsDays)}
+					products[slug] = r
 				}
 				r.Quantity += dp.quantity
-				r.Orders += dp.lines
+				r.Orders += dp.orders
 				r.RevenueCents += dp.revenueCents
 				r.Daily[i] += dp.quantity
 			}
@@ -132,10 +132,10 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 		s.TopProducts = append(s.TopProducts, ProductSales{Slug: r.Slug, Name: r.Name, Quantity: r.Quantity, RevenueCents: r.RevenueCents})
 	}
 	slices.SortFunc(s.Products, func(a, b ProductRow) int {
-		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name))
+		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name), cmp.Compare(a.Slug, b.Slug))
 	})
 	slices.SortFunc(s.TopProducts, func(a, b ProductSales) int {
-		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name))
+		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name), cmp.Compare(a.Slug, b.Slug))
 	})
 	s.TopProducts = s.TopProducts[:min(5, len(s.TopProducts))]
 

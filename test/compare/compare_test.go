@@ -3,11 +3,13 @@ package compare_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -78,7 +80,7 @@ func TestDomainMatchesGo(t *testing.T) {
 	}
 	buildShop(t, env)
 	ctx := context.Background()
-	want, err := env.GoData(ctx)
+	want, _, err := env.GoData(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,13 +96,13 @@ func TestDomainMatchesGo(t *testing.T) {
 	if len(diffs) > 0 {
 		t.Error("the TypeScript port in test/compare/domain no longer matches the Go code of examples/shop: port the change")
 	}
-	for _, p := range compare.AllPages() {
+	for _, p := range compare.CheckedPages() {
 		if len(want[p.URL]) == 0 || len(got[p.URL]) != len(want[p.URL]) {
 			t.Errorf("%s: Go answered %d routes, Node %d", p.URL, len(want[p.URL]), len(got[p.URL]))
 		}
 	}
-	if len(want) != len(compare.AllPages()) || len(got) != len(want) {
-		t.Errorf("AllPages lists %d pages, Go answered %d, Node %d", len(compare.AllPages()), len(want), len(got))
+	if len(want) != len(compare.CheckedPages()) || len(got) != len(want) {
+		t.Errorf("CheckedPages lists %d pages, Go answered %d, Node %d", len(compare.CheckedPages()), len(want), len(got))
 	}
 	// The orders AllPages assumes are the orders the shop has: every order counted by the lists has a page.
 	for _, project := range []string{"studio", "weekend"} {
@@ -145,7 +147,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, page := range compare.AllPages() {
+		for _, page := range compare.CheckedPages() {
 			body, err := compare.Fetch(server.Base, page)
 			if err != nil {
 				t.Errorf("%s: %v", target.Name, err)
@@ -159,7 +161,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 	}
 	tifa := views["tifa"]
 	for _, name := range names[1:] {
-		for i, page := range compare.AllPages() {
+		for i, page := range compare.CheckedPages() {
 			if len(views[name]) <= i || len(tifa) <= i {
 				continue
 			}
@@ -219,7 +221,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 			counts = "http://" + countsAddr
 		}
 		perPage[target.Name] = map[string]int64{}
-		for _, page := range compare.AllPages() {
+		for _, page := range compare.CheckedPages() {
 			before := readCounts(t, counts)
 			render := fetchRender(t, server.Base, page)
 			one := diffCounts(before, readCounts(t, counts))
@@ -258,7 +260,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 		perStore[target.Name] = storeComputes(t, target.Name, server.Base, countBases, node, storeWriteOf(target.Name))
 		server.Stop()
 	}
-	for _, page := range compare.AllPages() {
+	for _, page := range compare.CheckedPages() {
 		a, b, c, d := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name], perPage["reactrouter"][page.Name]
 		if a != b || a != c || a != d {
 			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d, React Router %d", page.Name, a, b, c, d)
@@ -388,10 +390,13 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 	return target
 }
 
-// TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes, and
-// then every kind of write of the shop's admin (place, ship, note, change the recipient), to the Go
-// shop and applies them in the port, and checks that the data of every page, with the pages of the
-// orders placed, is still the same. Instants are left out, since the two make them at different times.
+// TestDomainMatchesGoAfterWrites sends the writes of the first 60 reads of the scenario with writes,
+// and then a staff edit of a product of each shop and every kind of write of the shop's admin (place,
+// ship, note, change the recipient), to the Go shop and applies them in the port, and checks that the
+// data of every page, with the pages of the orders placed, is still the same. The port makes each
+// write at the instant the shop made it, so what follows from the instants (the dispatch hours, the
+// heatmap) is the same too. Instants are compared as their Unix milliseconds, and each order placed,
+// shipment and note must show at the instant the shop made it.
 func TestDomainMatchesGoAfterWrites(t *testing.T) {
 	env := setup(t)
 	if why := compare.NodeRunsTypeScript(); why != "" {
@@ -404,20 +409,61 @@ func TestDomainMatchesGoAfterWrites(t *testing.T) {
 		t.Fatalf("only %d writes", len(recipients))
 	}
 	writes := compare.RecipientWrites(recipients)
+	// The edit comes before the orders, so the order of the tray that adminWrites places takes its new
+	// name and price.
+	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "studio", Order: "oak-tray", Body: map[string]any{
+		"priceCents": 52000, "stock": 5, "nameEn": " Oak Tray, Large ", "nameZh": "橡木大托盘", "descriptionEn": "White oak, carved from one block.", "descriptionZh": "整块白橡木挖制。"}})
+	writes = append(writes, compare.DomainWrite{Kind: compare.WriteProduct, Project: "weekend", Order: "postcards", Body: map[string]any{
+		"priceCents": 3800, "stock": 40, "nameEn": " Postcards of Cities ", "nameZh": "城市明信片", "descriptionEn": "Six cards.", "descriptionZh": "六张。"}})
 	writes = append(writes, adminWrites()...)
-	want, err := env.GoData(ctx, writes...)
+	want, timed, err := env.GoData(ctx, writes...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := env.NodeData(ctx, writes...)
+	// The port must make each write at the instant the shop made it, not read a clock of its own: its
+	// clock runs an hour ahead here, so a write timed by it shows in the dispatch hours of the stats.
+	t.Setenv("NODE_OPTIONS", "--import=data:text/javascript,const%20now%3DDate.now%3BDate.now%3D()%3D%3Enow()%2B3600000")
+	got, err := env.NodeData(ctx, timed...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != len(want) || len(want) != len(compare.AllPages())+3 {
-		t.Fatalf("%d pages in the shop, %d in the port, want %d", len(want), len(got), len(compare.AllPages())+3)
+	if len(got) != len(want) || len(want) != len(compare.CheckedPages())+3 {
+		t.Fatalf("%d pages in the shop, %d in the port, want %d", len(want), len(got), len(compare.CheckedPages())+3)
 	}
-	for _, d := range compare.DiffData(compare.WithoutInstants(toAny(t, want)), compare.WithoutInstants(toAny(t, got)), 20) {
+	wantData, gotData := compare.InstantsAsMillis(toAny(t, want)), compare.InstantsAsMillis(toAny(t, got))
+	for _, d := range compare.DiffData(wantData, gotData, 20) {
 		t.Error(d)
+	}
+	// Each order placed, shipment and note shows at the instant the shop made it, in both.
+	placed := map[string]int{"studio": compare.OrderIDs["studio"][1], "weekend": compare.OrderIDs["weekend"][1]}
+	prefix := map[string]string{"studio": "SH-%04d", "weekend": "WK-%04d"}
+	for _, w := range timed {
+		id := w.Order
+		if w.Kind == compare.WriteCreate {
+			placed[w.Project]++
+			id = fmt.Sprintf(prefix[w.Project], placed[w.Project])
+		}
+		if w.At == 0 {
+			continue
+		}
+		for side, data := range map[string]any{"the shop": wantData, "the port": gotData} {
+			o, _ := dig(data, "/projects/"+w.Project+"/orders/"+id, "app/projects/project+/orders/order+/route", "order").(map[string]any)
+			var at []any
+			switch w.Kind {
+			case compare.WriteCreate:
+				at = []any{o["placedAt"]}
+			case compare.WriteShip:
+				at = []any{dig(o, "shipment", "shippedAt")}
+			case compare.WriteNote:
+				notes, _ := o["notes"].([]any)
+				for _, n := range notes {
+					at = append(at, dig(n, "at"))
+				}
+			}
+			if !slices.Contains(at, any(float64(w.At))) {
+				t.Errorf("%s: the %s of %s is not at %d, the instant the shop made it: %v", side, w.Kind, id, w.At, at)
+			}
+		}
 	}
 	last := recipients[len(recipients)-1]
 	text, _ := json.Marshal(want)
@@ -557,4 +603,13 @@ func indexOf(pages []compare.Page, name string) int {
 		}
 	}
 	return -1
+}
+
+// dig follows keys down nested maps, and gives nil where one is missing.
+func dig(v any, keys ...string) any {
+	for _, k := range keys {
+		m, _ := v.(map[string]any)
+		v = m[k]
+	}
+	return v
 }

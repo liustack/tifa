@@ -103,7 +103,7 @@ for (const sc of scenarios) {
       if (attrs.includes('Max-Age=0')) jar.delete(pair.slice(0, eq))
       else jar.set(pair.slice(0, eq), pair.slice(eq + 1))
     }
-    const m = /SS-[A-Z2-7]{10}/.exec(r.location ?? '')
+    const m = /SH-[0-9]+/.exec(r.location ?? '')
     if (m) order = m[0]
     results.push(r)
   }

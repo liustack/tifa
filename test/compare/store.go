@@ -427,7 +427,7 @@ func StoreStates() []StoreState {
 
 var (
 	cartIDValue = regexp.MustCompile(`^store_cart=[A-Z2-7]{26};`)
-	orderNumber = regexp.MustCompile(`SS-[A-Z2-7]{10}`)
+	orderNumber = regexp.MustCompile(`SH-[0-9]+`)
 )
 
 // RunStoreOnShop runs scenarios against a running shop, each with its own cookies, as a browser
@@ -546,8 +546,9 @@ const instantTolerance = 250 * time.Millisecond
 const instantPrefix = "@instant "
 
 // NormalizeStore removes what differs between two runs of the same scenario: the random cart
-// id and order number, and the instants counted from the time of the request. An instant becomes
-// its distance in milliseconds from the request that made it, written "@instant <ms>", for
+// id, the order number (the next of the studio shop, which depends on the orders placed before),
+// and the instants counted from the time of the request. An instant becomes its distance in
+// milliseconds from the request that made it, written "@instant <ms>", for
 // DiffStore to compare within instantTolerance: a run an hour later is the same. The time an order was
 // placed (under "placed") is counted from the request that placed it (the 303 of the checkout), not
 // from the request that reads it later. A delivery date ("earliest", "latest") is a day of the store,
@@ -589,7 +590,7 @@ func NormalizeStore(results [][]StoreResult) {
 				x[i] = walk(x[i], orderAt, at, placed)
 			}
 		case string:
-			return orderNumber.ReplaceAllString(x, "SS-<order>")
+			return orderNumber.ReplaceAllString(x, "SH-<order>")
 		}
 		return v
 	}
@@ -601,7 +602,7 @@ func NormalizeStore(results [][]StoreResult) {
 				orderAt = at
 			}
 			rs[i].Body = walk(rs[i].Body, orderAt, at, false)
-			rs[i].Location = orderNumber.ReplaceAllString(rs[i].Location, "SS-<order>")
+			rs[i].Location = orderNumber.ReplaceAllString(rs[i].Location, "SH-<order>")
 			for j, c := range rs[i].SetCookies {
 				rs[i].SetCookies[j] = cartIDValue.ReplaceAllString(c, "store_cart=<cart>;")
 			}

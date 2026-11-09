@@ -9,8 +9,11 @@ import type { ItemRecord, OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
 import type { LogEntry, PackLine, Payment } from './detail.ts'
 import { DAY, local, rfc3339 } from './time.ts'
-import { daysIn, findOrder, insert, orders, ordersOf, rename, ship, shops } from './storage.ts'
-import type { ProjectOrders } from './storage.ts'
+import { daysIn, findOrder, insert, orders, ordersOf, productStock, rename, ship, shops, storefrontItem } from './storage.ts'
+import { storefrontProject } from './store/store.ts'
+import { trim } from './store/products/edit.ts'
+import type { ProductLine } from './store/products/edit.ts'
+import type { NewLine, ProjectOrders } from './storage.ts'
 
 export interface LineItem {
   slug: string
@@ -288,7 +291,7 @@ function view(p: ProjectOrders, o: OrderRecord): Order {
     const product = p.products.get(item.slug)!
     order.items.push({
       slug: item.slug, name: item.name, description: item.description, quantity: item.quantity,
-      priceCents: item.priceCents, color: item.color, stock: item.stock, demand: product.waiting, sold: product.sold,
+      priceCents: item.priceCents, color: item.color, stock: productStock(o.projectId, item.slug), demand: product.waiting, sold: product.sold,
     })
   }
   return order
@@ -319,9 +322,9 @@ const normalPhone = (phone: string): string => phone.replace(/[ -]/g, '')
 // longer than 100 characters.
 export function checkRecipient(customer: string, phone: string, address: string): string[] {
   const fields: string[] = []
-  if (customer.trim() === '') fields.push('customer')
+  if (trim(customer) === '') fields.push('customer')
   if (!/^1[3-9][0-9]{9}$/.test(normalPhone(phone))) fields.push('phone')
-  const a = address.trim()
+  const a = trim(address)
   if (a === '' || Array.from(a).length > 100) fields.push('address')
   return fields
 }
@@ -335,9 +338,9 @@ export function updateRecipient(projectId: string, id: string, customer: string,
   if (!found) throw new NotFound(id)
   const [p, o] = found
   if (o.shipment) throw new Locked(id)
-  rename(p, o, customer.trim())
+  rename(p, o, trim(customer))
   o.phone = normalPhone(phone)
-  o.address = address.trim()
+  o.address = trim(address)
   return view(p, o)
 }
 
@@ -349,7 +352,7 @@ const trackingNo = /^[A-Za-z0-9]{8,20}$/
 export function checkShipment(carrier: string, tracking: string): string[] {
   const fields: string[] = []
   if (!carriers.some((c) => c.code === carrier)) fields.push('carrier')
-  if (!trackingNo.test(tracking.trim())) fields.push('trackingNo')
+  if (!trackingNo.test(trim(tracking))) fields.push('trackingNo')
   return fields
 }
 
@@ -363,7 +366,7 @@ export function shipOrder(projectId: string, id: string, carrier: string, tracki
   const [p, o] = found
   if (o.shipment) throw new Locked(id)
   ship(p, o, {
-    carrier, trackingNo: tracking.trim(), shippedAt: at,
+    carrier, trackingNo: trim(tracking), shippedAt: at,
     events: [{ at, place: warehouse, note: 'Courier collected the parcel' }],
   })
   return view(p, o)
@@ -371,7 +374,7 @@ export function shipOrder(projectId: string, id: string, carrier: string, tracki
 
 // checkNote lists the field of a note that the shop would refuse, as CheckNote does.
 export function checkNote(text: string): string[] {
-  const t = text.trim()
+  const t = trim(text)
   return t === '' || Array.from(t).length > 200 ? ['text'] : []
 }
 
@@ -382,7 +385,7 @@ export function addNote(projectId: string, id: string, text: string, at: number)
   const found = findOrder(projectId, id)
   if (!found) throw new NotFound(id)
   const [p, o] = found
-  ;(o.notes ??= []).push({ author: 'Owner', text: text.trim(), at })
+  ;(o.notes ??= []).push({ author: 'Owner', text: trim(text), at })
   return view(p, o)
 }
 
@@ -392,36 +395,47 @@ export interface NewOrder {
   email: string
   address: string
   note: string
-  items: { slug: string; quantity: number }[]
+  items: NewLine[]
 }
 
 // checkNewOrder lists the fields of a new order that the shop would refuse, as CheckNewOrder does.
 export function checkNewOrder(o: NewOrder): string[] {
   const fields = checkRecipient(o.customer, o.phone, o.address)
-  if (Array.from(o.note.trim()).length > 200) fields.push('note')
+  if (Array.from(trim(o.note)).length > 200) fields.push('note')
   if (o.items.length < 1 || o.items.length > 3 || o.items.some((l) => !Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 5)) {
     fields.push('items')
   }
   return fields
 }
 
-// createOrder places an order in a project at at, as CreateOrder does: its number is the one after
-// the highest of the project. It returns the new order.
-export function createOrder(projectId: string, input: NewOrder, at: number): Order {
+// postOrder is the POST of orders/route.go: it checks the order as Validate does, then places it.
+export function postOrder(projectId: string, input: NewOrder, at: number): Order {
   const fields = checkNewOrder(input)
   if (fields.length > 0) throw new Invalid(fields)
+  return createOrder(projectId, input, at)
+}
+
+// createOrder places an order in a project at at, as CreateOrder does: its number is the one after
+// the highest of the project, and its lines come from the products the project sells. The caller
+// checks the order first. It returns the new order.
+export function createOrder(projectId: string, input: NewOrder, at: number): Order {
   const s = shops[projectId]
   if (!s) throw new NotFound(projectId)
-  const items: ItemRecord[] = []
-  for (const l of input.items) {
-    const p = s.catalogue.find((p) => p.slug === l.slug)
-    if (!p) throw new Invalid(['items'])
-    items.push({ ...p, quantity: l.quantity })
-  }
+  return keep(projectId, s, input, s.buy(input.items), at)
+}
+
+// createStoreOrder places an order of the storefront in the studio shop with the lines its checkout
+// bought, as CreateStoreOrder does: they keep the names and prices the checkout totalled.
+export function createStoreOrder(input: NewOrder, lines: ProductLine[], at: number): Order {
+  return keep(storefrontProject, shops[storefrontProject], input, lines.map(storefrontItem), at)
+}
+
+// keep keeps a new order of the shop s of a project with its lines, as keep does in Go.
+function keep(projectId: string, s: (typeof shops)[string], input: NewOrder, items: ItemRecord[], at: number): Order {
   const last = orders.get(projectId)?.last ?? 0
   const o: OrderRecord = {
-    id: `${s.prefix}-${String(last + 1).padStart(s.width, '0')}`, projectId, customer: input.customer.trim(),
-    phone: normalPhone(input.phone), email: input.email.trim(), address: input.address.trim(), note: input.note.trim(),
+    id: `${s.prefix}-${String(last + 1).padStart(s.width, '0')}`, projectId, customer: trim(input.customer),
+    phone: normalPhone(input.phone), email: trim(input.email), address: trim(input.address), note: trim(input.note),
     placedAt: at, shipment: null, items, notes: null,
   }
   insert(orders, o)

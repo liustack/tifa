@@ -115,6 +115,8 @@ var shopPages = []string{
 	"/projects/studio/orders/SH-1041",
 	"/projects/studio/stats",
 	"/projects/weekend/stats",
+	"/projects/studio/products",
+	"/projects/studio/products/oak-tray",
 	"/login",
 }
 
@@ -160,7 +162,7 @@ func secondFromMemo(t *testing.T, label string, request func() (int, http.Header
 		return
 	}
 	if v := second.Get("X-Tifa-Render"); v != "memo" {
-		t.Errorf("%s: the second answer has X-Tifa-Render %q, it must be \"cache\"", label, v)
+		t.Errorf("%s: the second answer has X-Tifa-Render %q, it must be \"memo\"", label, v)
 	}
 }
 

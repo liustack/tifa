@@ -48,7 +48,8 @@ func TestTheMixIsCheckedOverThePlannedVisits(t *testing.T) {
 	}
 }
 
-// Only the load generator and a stop make a round invalid: a generator that started fewer visits
+// Apart from a request the shop refused (TestARefusedAnswerMakesItsRoundInvalid), only the load generator
+// and a stop make a round invalid: a generator that started fewer visits
 // than planned without the round being cut off, or one that fell behind or ran out of cpus in the
 // open model. A backlog of the server is a valid round that failed.
 func TestOnlyTheLoadGeneratorMakesARoundInvalid(t *testing.T) {

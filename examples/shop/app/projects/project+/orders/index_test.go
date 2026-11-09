@@ -94,7 +94,7 @@ func TestReadsMatchTheReferenceAfterEveryWrite(t *testing.T) {
 		}
 	}
 
-	a := create("studio", "林夏", day, NewLine{"oak-tray", 1}, NewLine{"ceramic-cup", 2})
+	a := create("studio", "林夏", day, NewLine{Slug: "oak-tray", Quantity: 1}, NewLine{Slug: "ceramic-cup", Quantity: 2})
 	checkReads(t, "a create")
 	must(ShipOrder("studio", a, "ZTO", "ZTO20261014001", day.Add(5*time.Hour)))
 	checkReads(t, "a ship")
@@ -118,26 +118,26 @@ func TestReadsMatchTheReferenceAfterEveryWrite(t *testing.T) {
 	}
 	checkReads(t, "a rename of a shipped order, refused")
 	// A customer with two orders who gives one away is no longer a repeat customer.
-	create("studio", "回头客", day, NewLine{"oak-tray", 1})
-	twice := create("studio", "回头客", day.Add(time.Minute), NewLine{"oak-tray", 1})
+	create("studio", "回头客", day, NewLine{Slug: "oak-tray", Quantity: 1})
+	twice := create("studio", "回头客", day.Add(time.Minute), NewLine{Slug: "oak-tray", Quantity: 1})
 	checkReads(t, "a second order of a customer")
 	must(UpdateRecipient("studio", twice, "新顾客 3", "13800138000", "北京市朝阳区"))
 	checkReads(t, "a rename of one of two orders")
 
 	// Across days: the next day, past the 14 days of the list and the 30 of the stats, two at the
 	// same time, one placed before the newest, and one that holds a product twice.
-	create("studio", "周宁", day.Add(24*time.Hour), NewLine{"linen-apron", 3})
+	create("studio", "周宁", day.Add(24*time.Hour), NewLine{Slug: "linen-apron", Quantity: 3})
 	checkReads(t, "a create the next day")
-	b := create("studio", "宋知秋", day.Add(40*24*time.Hour), NewLine{"pour-over-kettle", 1})
+	b := create("studio", "宋知秋", day.Add(40*24*time.Hour), NewLine{Slug: "pour-over-kettle", Quantity: 1})
 	checkReads(t, "a create 40 days later")
-	c1 := create("studio", "宋知秋", day.Add(40*24*time.Hour), NewLine{"brass-bookmarks", 1})
-	c2 := create("studio", "陆川", day.Add(40*24*time.Hour), NewLine{"brass-bookmarks", 2})
+	c1 := create("studio", "宋知秋", day.Add(40*24*time.Hour), NewLine{Slug: "brass-bookmarks", Quantity: 1})
+	c2 := create("studio", "陆川", day.Add(40*24*time.Hour), NewLine{Slug: "brass-bookmarks", Quantity: 2})
 	checkReads(t, "two creates at the same time")
-	create("studio", "叶青", day.Add(20*24*time.Hour), NewLine{"reading-candle", 1})
+	create("studio", "叶青", day.Add(20*24*time.Hour), NewLine{Slug: "reading-candle", Quantity: 1})
 	checkReads(t, "a create placed before the newest")
-	create("studio", "叶青", day.Add(41*24*time.Hour), NewLine{"reading-candle", 1}, NewLine{"reading-candle", 2})
+	create("studio", "叶青", day.Add(41*24*time.Hour), NewLine{Slug: "reading-candle", Quantity: 1}, NewLine{Slug: "reading-candle", Quantity: 2})
 	checkReads(t, "a create with a product twice")
-	create("weekend", "林夏", day, NewLine{"canvas-tote", 1})
+	create("weekend", "林夏", day, NewLine{Slug: "canvas-tote", Quantity: 1})
 	checkReads(t, "a create in the other shop")
 
 	// Shipping the oldest order waiting, the ones of the same time, and all of studio.
@@ -163,6 +163,7 @@ func TestReadsMatchTheReferenceAfterEveryWrite(t *testing.T) {
 func TestReadsAndWritesAtOnce(t *testing.T) {
 	reset()
 	t.Cleanup(reset)
+	stockUp()
 	zs := zones(t)
 	day := time.Date(2026, 10, 14, 9, 30, 0, 0, chinaTime)
 	var wg sync.WaitGroup
@@ -170,7 +171,7 @@ func TestReadsAndWritesAtOnce(t *testing.T) {
 		wg.Go(func() {
 			for i := range 50 {
 				at := day.Add(time.Duration(w*50+i) * time.Minute)
-				id, err := CreateOrder("studio", NewOrder{Customer: customers[i%len(customers)].name, Phone: "13800138000", Address: "上海市徐汇区", Items: []NewLine{{"ceramic-cup", 1 + i%3}}}, at)
+				id, err := CreateOrder("studio", NewOrder{Customer: customers[i%len(customers)].name, Phone: "13800138000", Address: "上海市徐汇区", Items: []NewLine{{Slug: "ceramic-cup", Quantity: 1 + i%3}}}, at)
 				if err != nil {
 					t.Error(err)
 					return

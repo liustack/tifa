@@ -63,19 +63,19 @@ var storeApps = []storeApp{
 }
 
 var (
-	orderNumber = regexp.MustCompile(`SS-[A-Z0-9]{10}`)
+	orderNumber = regexp.MustCompile(`SH-[0-9]+`)
 	cartCookie  = regexp.MustCompile(`store_cart=[^;]+`)
 	isoTime     = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
 	// deliveryDay is a delivery date: a day of the store, carried as noon in its zone, the same on both servers all day.
 	deliveryDay     = regexp.MustCompile(`((?:earliest|latest)\\?":\\?")(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d))`)
-	placedLocation  = regexp.MustCompile(`(?:/zh-CN)?/store/checkout\?placed=SS-[A-Z0-9]{10}`)
+	placedLocation  = regexp.MustCompile(`(?:/zh-CN)?/store/checkout\?placed=SH-[0-9]+`)
 	storeCallHeader = http.Header{"X-Tifa-Call": {"1"}, "Accept": {"application/json"}}
 )
 
-// mask takes out what differs by the request: the order number and the cart of the visitor, which
-// are random, and times, which come from the clock.
+// mask takes out what differs by the request: the order number, which depends on the orders placed
+// before, the cart of the visitor, which is random, and times, which come from the clock.
 func mask(s string) string {
-	s = orderNumber.ReplaceAllString(s, "SS-ORDER")
+	s = orderNumber.ReplaceAllString(s, "SH-ORDER")
 	return s
 }
 
@@ -455,19 +455,20 @@ func placedOrder(r reply) string {
 }
 
 // TestStorefront runs the checks of the storefront against each Node app. Tifa runs without its
-// render memo, as in the other comparisons, and is started once.
+// render memo, as in the other comparisons, and is started again for each app: a checkout takes
+// its pieces from the stock, so both servers of a pair start from the same stock.
 func TestStorefront(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	ctx := context.Background()
-	tifa, err := mustTarget(t, env, "tifa-nocache").Start(ctx, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tifa.Stop()
 
 	for _, app := range storeApps {
 		t.Run(app.name, func(t *testing.T) {
+			tifa, err := mustTarget(t, env, "tifa-nocache").Start(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tifa.Stop()
 			server, err := mustTarget(t, env, app.name).Start(ctx, "")
 			if err != nil {
 				t.Fatal(err)
