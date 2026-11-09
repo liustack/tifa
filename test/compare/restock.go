@@ -228,8 +228,8 @@ const storefrontShop = "studio"
 // prepare restocks the server of r for a run of visits visits of its workload (visits 0 to visits-1,
 // as a round plays them: their checkouts, the carts of the returning visitors among them, and the
 // orders staff place), before the run makes its orders and carts and starts its clock (see with). A
-// run of -1 visits is a sizing run, which plays sizingVisits visits at most: it gets as much stock as
-// the shop takes of every product its plans buy.
+// run of -1 visits is a sizing run, which plays sizingVisits visits at most: every product of the
+// storefront gets as much stock as the shop takes, those its plans never buy too.
 func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) error {
 	n := visits
 	if n < 0 {
@@ -237,6 +237,12 @@ func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits int) 
 	}
 	need := StockFor(r.seed, r.wl.stockOf(0, n))
 	if visits < 0 {
+		if need[storefrontShop] == nil {
+			need[storefrontShop] = map[string]int{}
+		}
+		for _, v := range StoreVariants {
+			need[storefrontShop][v.Slug] = maxStock
+		}
 		for _, shop := range need {
 			for slug := range shop {
 				shop[slug] = maxStock

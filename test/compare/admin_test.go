@@ -34,6 +34,8 @@ type fakeShop struct {
 	edits []string
 	// createRenders makes the answer of a create say that it rendered a page.
 	createRenders bool
+	// refuseShips makes every ship a 409, as for an order that has shipped.
+	refuseShips bool
 }
 
 type fakeOrder struct {
@@ -116,7 +118,7 @@ func (f *fakeShop) write(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case "POST":
-		if o.tracking != "" {
+		if o.tracking != "" || f.refuseShips {
 			http.Error(w, "shipped", 409)
 			return
 		}
@@ -599,5 +601,55 @@ func TestAnEditSendsOneFieldThePlanSets(t *testing.T) {
 	}
 	if again, _, _ := edits(); !slices.Equal(again, got) {
 		t.Errorf("the same plan sent other edits:\n%v\n%v", got, again)
+	}
+}
+
+// A sizing run plays for a time and cannot know what its visits buy, so its restock gives every
+// product of the storefront the most stock the shop takes, those its plans never buy too, and the
+// edits of its stock stay at that cap.
+func TestTheSizingRunRestocksEveryProductToTheCap(t *testing.T) {
+	r, f := adminRunner(t)
+	r.wl.Plans = []Plan{{ID: 0, Steps: make([]PlanStep, 2)}}
+	b := &browse{o: BrowseOptions{Warm: 10 * time.Millisecond}}
+	spec := Spec{Products: nodeProducts, EditProduct: nodeEditProduct}
+	if err := b.prepare(context.Background(), r, spec, -1); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range StoreVariants {
+		if got := f.products["studio"][v.Slug].Stock; got != maxStock {
+			t.Errorf("%s has %d in stock after the restock of a sizing run, want %d", v.Slug, got, maxStock)
+		}
+		if got := r.stockTarget(v.Slug); got != maxStock {
+			t.Errorf("an edit of the stock of %s sets more than %d, not the cap", v.Slug, got)
+		}
+	}
+}
+
+// A request the shop refuses with 409 or 422 in a sizing run is an error: the restock to the cap
+// and the plan rule them out, so a run that met one did not play the mix, and its rate must not
+// size a round. A setup that failed is an error too.
+func TestASizingRunThatWasRefusedSizesNothing(t *testing.T) {
+	for _, tc := range []struct {
+		sized *Round
+		want  string
+	}{
+		{&Round{}, ""},
+		{&Round{Failures: 3}, ""}, // a 503 ends a visit fast, and counts in the rate
+		{&Round{Refused: 1, Failures: 1}, "refused 1 of its requests"},
+		{&Round{SetupError: "POST /x: status 500"}, "the setup"},
+	} {
+		if got := sizingFault(tc.sized); tc.want == "" && got != "" || !strings.Contains(got, tc.want) {
+			t.Errorf("%d refused, %d failures, setup %q: %q, want %q", tc.sized.Refused, tc.sized.Failures, tc.sized.SetupError, got, tc.want)
+		}
+	}
+	// The run counts what the shop refused.
+	r, f := adminRunner(t)
+	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
+	r.wl = newTestRunner(r.base, BrowseScenario{Name: "x"}, tr).wl
+	r.wl.Writes[[2]int{0, 0}] = PlannedWrite{After: 0, Kind: WriteShip, Project: "studio"}
+	f.refuseShips = true
+	_, sized := r.Size(context.Background(), 1, 5*time.Second, 1)
+	if sized.SetupError != "" || sized.Refused == 0 {
+		t.Errorf("a ship refused with 409: setup %q, %d refused", sized.SetupError, sized.Refused)
 	}
 }

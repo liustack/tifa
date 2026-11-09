@@ -538,7 +538,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 // of a cell is sized from it: the warm-up of a round sends no writes (so that every round starts with
 // the same data), and a server that writes make slower (a cache that they clear) would be sized too
 // large from that. It plays sizingVisits visits at most, with their setup made before it as for a
-// round, and a setup that fails is an error.
+// round. A sizing run that cannot size a round (sizingFault) is an error.
 func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
 	sized := &Round{}
@@ -549,10 +549,23 @@ func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, session
 	if err == nil && !out.Valid && strings.HasPrefix(out.WhyInvalid, "restock") {
 		return 0, fmt.Errorf("%s/%s, sizing: %s", sc.Name, fw, out.WhyInvalid)
 	}
-	if err == nil && sized.SetupError != "" {
-		return 0, fmt.Errorf("%s/%s, sizing: the setup: %s", sc.Name, fw, sized.SetupError)
+	if why := sizingFault(sized); err == nil && why != "" {
+		return 0, fmt.Errorf("%s/%s, sizing: %s", sc.Name, fw, why)
 	}
 	return rate, err
+}
+
+// sizingFault says why a sizing run cannot size a round, or "" when it can: its setup failed, or the
+// shop refused a request of it with 409 or 422, which the restock to the cap and the plan rule out,
+// so the run did not play the mix. Failures of other kinds count in its rate (a 503 ends a visit fast).
+func sizingFault(sized *Round) string {
+	switch {
+	case sized.SetupError != "":
+		return "the setup: " + sized.SetupError
+	case sized.Refused > 0:
+		return fmt.Sprintf("the shop refused %d of its requests with 409 or 422", sized.Refused)
+	}
+	return ""
 }
 
 // sizingRate is the most visits a second a sizing run is made for: it plays sizingRate visits for
