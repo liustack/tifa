@@ -612,6 +612,27 @@ func TestI18nInBrowser(t *testing.T) {
 	open("/en-US/store/csr", "csr go=en-US react=en-US")
 	open("/store/csr", "csr go=zh-CN react=zh-CN")
 
+	// A query spelled another way than the router writes it (%20 for +, %2F for /), an empty value
+	// and a key given twice around another stay in the address bar as they were typed, with a
+	// prefix and without, and the page asks for no data after it hydrates.
+	for _, c := range []struct{ path, want string }{
+		{"/en-US/store?q=a%20b&utm=x%2Fy", "store go=en-US react=en-US path=/store q=a b"},
+		{"/en-US/store?utm=&q=a%2Fb&utm=c%20d", "store go=en-US react=en-US path=/store q=a/b"},
+		{"/store?q=a%20b&e=&q=c%2Fd", "store go=zh-CN react=zh-CN path=/store q=a b"},
+		{"/projects?next=%2Fa&q=a%20b", "projects go=zh-CN react=zh-CN"},
+	} {
+		open(c.path, c.want)
+		// The router replaces the address bar and loads the page again right after hydration.
+		time.Sleep(500 * time.Millisecond)
+		if got := eval(here); got != c.path {
+			t.Errorf("%s: the address bar shows %v", c.path, got)
+		}
+		if got := eval(`() => performance.getEntriesByType("resource").map((e) => e.name).filter((n) => n.includes("_tifa=")).join(" ")`); got != "" {
+			t.Errorf("%s: asked for data after hydrating: %v", c.path, got)
+		}
+		check(c.path)
+	}
+
 	// In en-US: a link to a page of the area stays in the document and gets the prefix, with the
 	// data request of that URL. Back and forward follow.
 	open("/en-US/store", "store go=en-US")
