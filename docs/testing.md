@@ -406,6 +406,48 @@ What is still not equal, and which way it leans, is in [the study](studies/nextj
 
 The page-by-page measurement above does not show what a visitor costs a server. A visit is a full load of one page, then clicks on links of the page on screen, and each framework does that differently: Tifa fetches JSON, Next.js fetches an RSC payload and prefetches the links in view, TanStack Start calls server functions, React Router fetches `.data` and discovers routes. The `browse` comparison plays visits that a real browser made against each framework. It is a replay of dynamic traffic (documents and the data requests of the client router: no scripts, styles, images or fonts, no rendering, no hydration), so it measures what a server does for a visitor, not how fast a browser shows a page. The mix of the visits takes published e-commerce numbers where there are some, and says which numbers are assumed.
 
+#### Rules
+
+These rules and the numbers in them change only with the explicit consent of the maintainer, and a proposed change first shows the old rule and the new one side by side. The principle: any gap with a real deployment that helps one side is cheating. The aim is an accurate test, not a winner.
+
+Site and traffic:
+
+- R1. One site, one scenario: the shop, shoppers and staff on the same server at once. Throughput is the page views of the whole site, a full load and a click each one page view.
+- R2. A shopper visit is 4 page views on average, one full load and three clicks, exactly in every block, so the full loads are a quarter of the page views. The lengths are geometric, from 1 to 12. Sources: about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), and a click of a single-page app counted as a page view as Chrome measures it (https://web.dev/blog/crux-experimental-soft-navs). 6.6% of shopper visits add to the cart and 1.3% check out (Littledata 2026). With no data, an assumption, listed as one: returning visitors 20%, landing on home, list, product 30/25/45, Zipf exponent 1.0, staff 2% of visits (4 page views on average, 20% of them edit a product, 30% ship an order).
+- R3. Every framework plays the same visits: the same seed, visits, writes and setup data. The browser behaviour of each comes from a real browser recorded against it.
+
+Data:
+
+- R4. Private data is drawn per visit from (seed, visit): the cart of a returning visitor, the name, email and address of a checkout. A new visitor sees the demo cart, the same for everyone, as the empty cart of a real shop is.
+- R5. At the clock every server has the same data. All frameworks are sized first, and every one is prepared for twice the largest size: restock, the orders the ships take, the returning carts. No setup request renders a page.
+- R6. What a run writes does not depend on how fast a server answers: a ship takes its pre-made order, an edit sends a value from the plan and reads nothing first. A 409 or 422 in a round makes it invalid.
+- R7. Data lives in process memory in all four, with the same algorithms. Order times come from the server clock.
+
+Deployment:
+
+- R8. Each framework runs as shipped: one process, no proxy, its default settings. Differences are measured and stated, not fixed. TanStack Start sends its answers uncompressed, and above the throughput and latency tables the report says so in bold, with the body it sent a page view against the others, from the rounds. React Router flushes a compressed block per chunk.
+- R9. No Node app sends anything a cache could keep (no `ETag`, `Last-Modified`, positive `max-age`, `x-nextjs-cache`), checked before a run.
+- R10. Tifa runs with its render memo on. A row of Tifa with the memo off is shown as a reference, not compared.
+- R11. Tifa gets no warm-up, and its memo must be empty at the clock (read from its metrics route). Node apps get a JIT warm-up that fills no cache.
+
+Measuring:
+
+- R12. Throughput: closed loop, 8 sessions without think time, more only while the server's core is not used up. Server on one core, load on other physical cores. 3 rounds a cell.
+- R13. Latency: open model at a fixed rate, half the rate Next.js sustains, rounds of at least 240 s. The Next.js rate is kept in `test/compare/rates.json` and searched again only when what it depends on changes (the method files, the Next.js server, app and version, the plans and the Next.js traces, the pass rule, the machine).
+- R14. A round counts only when it passes its checks: the mix it played, no refused setup or write, the load generator kept up, the memo was empty.
+- R15. Tifa's answers are reported per page kind: from the memo, shared with a render in progress, and rendered in a VM, which add up to the answers. The renders are split into the first request of a URL and a URL answered before, as the client tells by URL, and private pages with and without a cart cookie, and the report states the limits of a split made on the client (requests at the same time share a render, answers are counted in the order they completed, a canceled request is not counted).
+
+Report:
+
+- R16. Body: the throughput table, the latency table and the assumptions. Every diagnostic goes to an appendix. It says where differences come from, not who wins.
+
+Before a full run:
+
+- R17. A short end-to-end run on the Linux box (short rounds, every phase and the report) passes first.
+- R18. Every rule above has a check in code or a line in the report saying how it holds.
+
+#### How it runs
+
 - **One site.** The shop is played as one site: shoppers on the storefront (`/store` and `/zh-CN/store`) and staff in the back office (the workbench pages under `/projects`), at once on the same server. Throughput is the page views of the whole site. There is one set of plans (`plans.json`), one trace file for each framework (`<framework>.jsonl`) and one stamp (`STAMP`).
 - **Pages.** The staff visit all 58 workbench pages of the shop: the two lists, the two stats pages and the 54 order pages (`AllPages`). The shoppers visit the storefront pages (`StoreVisitPages`). `TestPagesShowTheSameText`, `TestDomainMatchesGo` and `TestEveryRequestComputesAndRenders` cover all of them in all four apps, and `TestFanOutWriteChangesListsStatsAndOtherOrders` checks that a customer-name write changes the list, the stats and the page of another order of the customer in all four.
 - **The mix** (`mix.go`). Every number of the mix is a constant there that names its source next to it, or says that it is an assumption, and the plans are made from those constants. The report lists each with its value and its source (`MixFacts`), and `TestTheReportListsEveryNumberOfTheMix` reads `mix.go` and fails when a constant of it is missing from that list. A shopper visit has 4 page views on average, exactly in every block, one full load and three clicks, so the full loads are a quarter of the page views: a rule of the comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), with a click counted as a page view as Chrome measures the client navigations of a single-page app (https://web.dev/blog/crux-experimental-soft-navs). The lengths are geometric, from 1 to 12. 6.6% of shopper visits add to the cart and 1.3% check out (the medians of 438 Shopify stores, Littledata, https://www.littledata.io/benchmarks). 20% of shopper visits are by a returning visitor (an assumption within the published 17% to 53%). A shopper lands on the home 30%, a product list 25% and a product 45% of the time, and half of the shoppers use English and half Chinese (assumptions). Products are seen by a Zipf law with exponent 1.0 over the order of the catalogue (an inference: sales follow a power law, and no data on product views was found). Staff visits are 2% of the visits, with 4 page views on average and at most 8, and of the staff visits 20% edit a product and 30% ship an order (assumptions).
