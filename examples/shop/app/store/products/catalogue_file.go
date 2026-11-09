@@ -1,9 +1,8 @@
 package products
 
 import (
-	"bytes"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 )
@@ -49,14 +48,9 @@ func demoCatalogue() []productRecord {
 // readCatalogue decodes the records of a catalogue file. It refuses a member it does not know, a
 // text without both languages, and a category, colour or badge the shop does not have.
 func readCatalogue(data []byte) ([]productRecord, error) {
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.DisallowUnknownFields()
 	var file []fileProduct
-	if err := d.Decode(&file); err != nil {
+	if err := json.Unmarshal(data, &file, json.RejectUnknownMembers(true)); err != nil {
 		return nil, err
-	}
-	if d.More() {
-		return nil, fmt.Errorf("more than one value")
 	}
 	list := make([]productRecord, len(file))
 	for i, f := range file {
