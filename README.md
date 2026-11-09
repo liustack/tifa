@@ -109,6 +109,17 @@ Every request asks for gzip. TanStack Start does not compress pages by default, 
 
 Each server on one core of a Google Cloud `c2d-standard-8` VM (AMD EPYC 7B13), default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
 
+Whole visits, played back from real browsers on the example shop: shoppers and staff on one server at once, Tifa's render memo empty at the start (2026-11-09):
+
+| | Page views/s | Full load P50 / P99 |
+| :-- | --: | --: |
+| Tifa | 79.8 | 2.8 / 110 ms |
+| Next.js | 34.6 | 42.2 / 91 ms |
+| TanStack Start, uncompressed | 87.6 | 29.3 / 53 ms |
+| React Router | 54.8 | 51.8 / 85 ms |
+
+Page views a second with 8 visitors at once and no pause between pages. The latencies are at 6 visits a second, half of what Next.js sustains. [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-09) has the mix and what the numbers mean.
+
 ## Start an app
 
 You need Go 1.27, Node 20.19 or 22.12 and later (what Vite 8 asks for) and pnpm (npm works too). Pages need React 19.3 or later, which `tifa new` installs. Node only builds the front end: the program you deploy never needs it. `tifa dev` does not run on Windows yet, use WSL.
