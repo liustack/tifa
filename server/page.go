@@ -1432,8 +1432,12 @@ func renderURL(u *url.URL, keep []string) string {
 }
 
 // keptPart decodes one name=value part of a query and reports whether renderURL keeps it: it
-// parses as url.ParseQuery would take it, and keep, which is sorted, has its name.
+// parses as url.ParseQuery would take it, and keep, which is sorted, has its name. An empty part,
+// as between two & signs, is no parameter, while =x is one with an empty name.
 func keptPart(part string, keep []string) (name, value string, ok bool) {
+	if part == "" {
+		return "", "", false
+	}
 	rawName, rawValue, _ := strings.Cut(part, "=")
 	name, err1 := url.QueryUnescape(rawName)
 	value, err2 := url.QueryUnescape(rawValue)

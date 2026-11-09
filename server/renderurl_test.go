@@ -28,6 +28,13 @@ func TestRenderURLKeepsTheParametersTheLoadsRead(t *testing.T) {
 		{"/s?q=&r", []string{"q", "r"}, "/s?q=&r="},
 		// What url.ParseQuery drops, c.Query does not see either.
 		{"/s?q=%zz&q=1&r;s=1", []string{"q", "r"}, "/s?q=1"},
+		// An empty part is no parameter, as url.ParseQuery skips it, and an empty name is one.
+		{"/s?", []string{""}, "/s"},
+		{"/s?&", []string{""}, "/s"},
+		{"/s?&&", []string{"", "q"}, "/s"},
+		{"/s?&q=1&&q=2&", []string{"q"}, "/s?q=1&q=2"},
+		{"/s?=x&", []string{""}, "/s?=x"},
+		{"/s?=x&&=y&=", []string{""}, "/s?=x&=y&="},
 		// The path stays as it came, so the router can redirect another spelling of it.
 		{"/%6Eews?page=2", []string{"page"}, "/%6Eews?page=2"},
 	} {
