@@ -83,6 +83,28 @@ func placesOrder(kind string) bool { return kind == WriteCreate || kind == Write
 
 // boughtBy is the pieces of each product of each shop that the orders of one visit take at most.
 func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
+	out := map[string]map[string]int{}
+	for _, t := range takesOf(seed, v) {
+		if out[t.project] == nil {
+			out[t.project] = map[string]int{}
+		}
+		out[t.project][t.slug] += t.pieces
+	}
+	return out
+}
+
+// take is pieces of a product that an order of a visit can take from the stock of a shop. The order is
+// placed by the write of kind Kind after the page view After, or it is a line left in the cart at the
+// end of the visit, which no order bought (Kind is empty).
+type take struct {
+	project, slug string
+	pieces        int
+	kind          string
+	after         int
+}
+
+// takesOf lists what the orders of one visit take, which boughtBy sums.
+func takesOf(seed uint64, v VisitWrites) []take {
 	// The adds of the setup come first, then the writes of the visit in the order it sends them.
 	var writes []PlannedWrite
 	for i := range v.Setup {
@@ -93,20 +115,14 @@ func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
 	writes = append(writes, visit...)
 	cart := demoCart()
 	added := map[string]bool{} // the lines an add put in the cart
-	out := map[string]map[string]int{}
-	take := func(project, slug string, n int) {
-		if out[project] == nil {
-			out[project] = map[string]int{}
-		}
-		out[project][slug] += n
-	}
+	var out []take
 	for _, w := range writes {
 		if w.Store == nil {
 			if !placesOrder(w.Kind) {
 				continue
 			}
 			for _, l := range AdminBody(seed, w.Seq, w.After, WriteCreate, w.Project).(map[string]any)["items"].([]adminLine) {
-				take(w.Project, l.Slug, l.Quantity)
+				out = append(out, take{w.Project, l.Slug, l.Quantity, w.Kind, w.After})
 			}
 			continue
 		}
@@ -137,7 +153,7 @@ func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
 			}
 		case WriteCheckout:
 			for _, l := range cart {
-				take(storefrontShop, l.slug, l.quantity)
+				out = append(out, take{storefrontShop, l.slug, l.quantity, w.Kind, w.After})
 			}
 			cart = nil
 		}
@@ -146,7 +162,7 @@ func boughtBy(seed uint64, v VisitWrites) map[string]map[string]int {
 	// product only while it is in stock.
 	for _, l := range cart {
 		if added[l.id] {
-			take(storefrontShop, l.slug, l.quantity)
+			out = append(out, take{storefrontShop, l.slug, l.quantity, "", -1})
 		}
 	}
 	return out
