@@ -271,9 +271,6 @@ func TestStorefrontCrawlerURLsFollowThePagesOfTheShop(t *testing.T) {
 	for _, url := range u {
 		path, query, _ := strings.Cut(url, "?")
 		q, _ := neturl.ParseQuery(query)
-		if strings.HasPrefix(path, "/zh-CN/") || path == "/zh-CN/store" {
-			continue // the pager of a Chinese page links to the English URLs, and the sizes are those of the English page
-		}
 		for _, param := range []string{"page", "reviews"} {
 			if n, _ := strconv.Atoi(q.Get(param)); n > 0 {
 				q.Del(param)
@@ -386,7 +383,7 @@ func TestStorefrontWhichCrawlerURLsNoLinkLeadsTo(t *testing.T) {
 	t.Logf("from the English home alone it reaches %d of them", len(alone))
 	// What the report relies on: the pages the HTML is built to link to are reached.
 	for _, url := range u {
-		if k := kindOf(url); (k == "home" || k == "product" || k == "post" || k == "journal") && !reached[canonicalURL(url)] {
+		if k := kindOf(url); (k == "home" || k == "product" || k == "reviews" || k == "post" || k == "journal") && !reached[canonicalURL(url)] {
 			t.Errorf("%s (%s) is not reached by a link", url, k)
 		}
 	}
