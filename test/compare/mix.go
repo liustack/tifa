@@ -124,8 +124,10 @@ const (
 	// were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only).
 	SearchUniqueShare = 0.05
 	// SearchUniqueLength is the characters of a search word of a visit's own, lower case letters and
-	// digits. An assumption: no data on the shape of such words was found.
-	SearchUniqueLength = 8
+	// digits: two letters that no name and no tag of the catalogue has, so that the word finds nothing,
+	// and eight that write the number of the visit, one-to-one (uniqueTerm in store_terms.go). An
+	// assumption: no data on the shape of such words was found.
+	SearchUniqueLength = 10
 	// SearchShare is the share of the shopper visits that search, once, with the search box of the
 	// header. An assumption below the one behavioural figure found: searchers are 24% of the visitors of
 	// 113 retail sites, October to December 2024 (Constructor, "Beyond Relevance", March 2025, as
@@ -761,7 +763,7 @@ func MixFacts() []MixFact {
 			"assumption: 10% to 15% is the figure most often given (Hello Retail, https://helloretail.com/en/blog/2026-02-24-ecommerce-search-statistics/, which names no source), with no sample that can be checked. The low end, for a small catalogue"},
 		{"SearchUniqueShare", "searches for a word that no other visit searches for, which finds nothing: they are among the searches that find nothing, and the rest of those search for a word of the list", pct(SearchUniqueShare),
 			"assumption, from one account of a shop where random tail queries with numbers were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only)"},
-		{"SearchUniqueLength", "characters of a search word of a visit's own, lower case letters and digits", strconv.Itoa(SearchUniqueLength), "assumption: no data on the shape of such words"},
+		{"SearchUniqueLength", "characters of a search word of a visit's own, lower case letters and digits: two letters that no name and no tag of the catalogue has, so that the word finds nothing by how it is made, and eight that write the number of the visit, one-to-one", strconv.Itoa(SearchUniqueLength), "assumption: no data on the shape of such words"},
 		{"SearchShare", "shopper visits that search, once, with the search box of the header", pct(SearchShare),
 			"assumption below the one behavioural figure found: searchers are 24% of the visitors of 113 retail sites, October to December 2024 (Constructor, \"Beyond Relevance\", March 2025, as reported by https://itbrief.co.uk/story/online-shopper-search-drives-44-of-ecommerce-revenue), taken lower for a shop of 150 products. One search a visit is an assumption too"},
 		{"ListFilterShare", "shopper visits that filter the list, of those that see a product list", pct(ListFilterShare), "assumption: the published ranges for the use of filters (20% to 60%) name no source that can be checked"},

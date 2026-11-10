@@ -175,9 +175,36 @@ func TestAMillionSearchTermsOfTheirOwnFindNothing(t *testing.T) {
 	if n := len(slices.Compact(words)); n != visits {
 		t.Errorf("%d visits have %d words: some share one", visits, n)
 	}
-	// A word that would find a product is drawn again. No visit of a run comes on one by chance, so
-	// the test asks the rule: a word of the alphabet that is in a name of the catalogue finds products.
+}
+
+// A word of a visit's own finds nothing by how it is made, and not because one that found a product
+// was drawn again: it starts with a mark that no name and no tag of the catalogue has, in either
+// language, and the search of the shop looks at nothing else. The rest is the number of the visit,
+// one-to-one. Drawing again is what let two visits share a word: with seed 0, visit 966845150756 drew
+// "handmade", which a product has in its name, and was given the word of visit 536705963581.
+func TestASearchTermOfAVisitsOwnFindsNothingByHowItIsMade(t *testing.T) {
+	// A catalogue with the mark in a name or a tag fails here: give uniqueTermMark other letters.
+	for _, r := range storeCatalogue().records {
+		for _, text := range slices.Concat(r.Name[:], r.Tags) {
+			if strings.Contains(strings.ToLower(text), uniqueTermMark) {
+				t.Fatalf("%q of %s has the mark %q of the search words of a visit's own: the mark must be letters no name and no tag has", text, r.Slug, uniqueTermMark)
+			}
+		}
+	}
 	if termFinds("handmade") == 0 {
-		t.Error("the model finds nothing for a word of eight letters that a product has in its name")
+		t.Fatal("the model finds nothing for a word that a product has in its name: the case below shows nothing")
+	}
+	a, b := uniqueTerm(0, 966845150756), uniqueTerm(0, 536705963581)
+	if a == b {
+		t.Errorf("visits 966845150756 and 536705963581 of seed 0 both search for %q", a)
+	}
+	for _, w := range []string{a, b, uniqueTerm(0, 0), uniqueTerm(7, 1<<40-1)} {
+		if !strings.HasPrefix(w, uniqueTermMark) || len(w) != SearchUniqueLength || termFinds(w) != 0 || w == SearchPlaceholder {
+			t.Errorf("the word %q does not start with the mark, is not %d characters, finds a product or is the placeholder", w, SearchUniqueLength)
+		}
+	}
+	// The placeholder of the plans is no word of a visit: it does not start with the mark.
+	if strings.HasPrefix(SearchPlaceholder, uniqueTermMark) {
+		t.Errorf("the placeholder %q starts with the mark, so a visit could have it for its word", SearchPlaceholder)
 	}
 }

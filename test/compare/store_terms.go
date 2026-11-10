@@ -223,7 +223,8 @@ func searchClasses(rng *rand.Rand, n int) []string {
 
 // SearchPlaceholder is what a plan and a trace hold in the place of the word of a search of the class
 // TermUnique. It has the length of a real one (SearchUniqueLength) and finds nothing, as a real one
-// does, so the page a browser records with it is the page of every such search.
+// does, so the page a browser records with it is the page of every such search. It does not start
+// with the mark of a real one (uniqueTermMark), so it is the word of no visit.
 var SearchPlaceholder = placeholderOf("tifaq", SearchUniqueLength)
 
 // drawSearchTerm draws the word of a search of a class in a language: a word of the list by the Zipf
@@ -244,25 +245,31 @@ func drawSearchTerm(rng *rand.Rand, lang, class string) string {
 // can put the word in place of the placeholder as text.
 const uniqueTermAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 
+// uniqueTermMark is what every word of the class TermUnique starts with: letters that no name and no
+// tag of the catalogue has, in either language. The search of the shop looks for a word in the names
+// and the tags alone, so a word with the mark finds nothing, whatever follows it, and nothing has to be
+// drawn again. TestASearchTermOfAVisitsOwnFindsNothingByHowItIsMade fails when a catalogue has the
+// mark in a name or a tag: give it other letters then.
+const uniqueTermMark = "zq"
+
 // uniqueTerm is the word that visit seq of a run searches for when its search is of the class
-// TermUnique: SearchUniqueLength characters from the seed and the visit, the same for every server.
-// It is a one-to-one function of the visit, so no two visits of a run search for the same, and it
-// finds nothing: a word that finds a product (one that is in a name or a tag of the catalogue) or is
-// the placeholder is drawn again, from the next number, which is the one case where two visits could
-// share a word.
+// TermUnique: the mark, and after it the number of the visit, mixed with the seed and written in
+// letters and digits, SearchUniqueLength characters in all. It is the same for every server, and a
+// one-to-one function of the visit over the 2^40 visits it takes: the mixing is one-to-one
+// (bijection40) and the eight characters after the mark write a number of 40 bits in full. So no two
+// visits of a run search for the same word, and it finds nothing by the mark it starts with.
 func uniqueTerm(seed uint64, seq int) string {
 	if seq < 0 || seq >= 1<<40 {
 		panic("visit out of range for a search term of its own")
 	}
-	for x := uint64(seq) ^ seed*0x9e3779b97f4a7c15; ; x += 0x632be59bd9b4e019 {
-		n := bijection40(x)
-		out := make([]byte, SearchUniqueLength)
-		for i := range out {
-			out[i] = uniqueTermAlphabet[n%uint64(len(uniqueTermAlphabet))]
-			n /= uint64(len(uniqueTermAlphabet))
-		}
-		if term := string(out); term != SearchPlaceholder && termFinds(term) == 0 {
-			return term
-		}
+	n := bijection40(uint64(seq) ^ seed*0x9e3779b97f4a7c15)
+	out := []byte(uniqueTermMark)
+	for len(out) < SearchUniqueLength {
+		out = append(out, uniqueTermAlphabet[n%uint64(len(uniqueTermAlphabet))])
+		n /= uint64(len(uniqueTermAlphabet))
 	}
+	if n != 0 {
+		panic("a search term of a visit's own is too short for the number of its visit")
+	}
+	return string(out)
 }
