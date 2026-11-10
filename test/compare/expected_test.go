@@ -193,8 +193,9 @@ func bruteForce(w *Workload, d *StoreDeps, restocked map[string]int, spans []exp
 			}
 			p := w.planFor(k)
 			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			trace, _ := w.traceOf(p)
 			for i, s := range p.Steps {
-				if w.Traces[p.ID].Steps[i].document() {
+				if trace.Steps[i].document() {
 					doc(s.Page, humans, pageClass(s.Page), sp.count)
 				}
 				for _, e := range effects {
@@ -236,10 +237,21 @@ func listClicks(p Plan) []int {
 // crawlers, not yet the lists a search or a filter leads to, so the others stay with the router here.
 func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	d := checkedDeps(t)
+	// A variant loads a document where the visit of its plan does, so a click loads one when the file
+	// has the list of every form of the plan.
+	forms := map[int][]Plan{}
+	for _, p := range GenerateSitePlanSet(1, 1).Plans {
+		for v := range 1 + len(p.Variants) {
+			forms[p.ID] = append(forms[p.ID], planForm(p, v))
+		}
+	}
 	known := func(p Plan) []int {
 		var out []int
 		for _, i := range listClicks(p) {
-			if _, ok := d.Pages[d.RenderURL(p.Steps[i].Page)]; ok && (!priceDecidesList(p.Steps[i].Page) || d.Lists[d.listBase(p.Steps[i].Page)] != nil) {
+			if !slices.ContainsFunc(forms[p.ID], func(f Plan) bool {
+				_, ok := d.Pages[d.RenderURL(f.Steps[i].Page)]
+				return !ok || priceDecidesList(f.Steps[i].Page) && d.Lists[d.listBase(f.Steps[i].Page)] == nil
+			}) {
 				out = append(out, i)
 			}
 		}

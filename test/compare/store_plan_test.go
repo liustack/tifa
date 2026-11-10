@@ -196,11 +196,7 @@ func siteWorkload(t *testing.T, seed uint64, blocks int, name string) *Workload 
 func siteWorkloadOf(t *testing.T, seed uint64, blocks int, name string, trace func(Plan) Trace) *Workload {
 	t.Helper()
 	set := GenerateSitePlanSet(seed, blocks)
-	traces := map[int]Trace{}
-	for _, p := range set.Plans {
-		traces[p.ID] = trace(p)
-	}
-	w, err := NewWorkload(&set, traces, scenario(t, name), seed)
+	w, err := NewWorkload(&set, formTraces(set.Plans, trace), scenario(t, name), seed)
 	if err != nil {
 		t.Fatal(err)
 	}

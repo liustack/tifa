@@ -102,12 +102,17 @@ type expectSpan struct {
 }
 
 // docSteps says which page views of a plan are documents, as the browser recorded them: the landing,
-// and each action the page did as a document load. It fails for a plan whose trace has not its page
-// views, since nothing else tells which they are.
+// and each action the page did as a document load. The plan is a form of a plan with variants when a
+// visit takes one (planForm), and the trace is the one of that form. It fails for a plan whose trace
+// has not its page views, since nothing else tells which they are.
 func (w *Workload) docSteps(p Plan) ([]bool, error) {
-	t, ok := w.Traces[p.ID]
+	t, ok := w.traceOf(p)
 	if !ok || len(t.Steps) != len(p.Steps) {
-		return nil, fmt.Errorf("plan %d has %d page views and its trace %d: the trace says which page views are documents", p.ID, len(p.Steps), len(t.Steps))
+		what := fmt.Sprintf("plan %d", p.ID)
+		if p.form > 0 {
+			what = fmt.Sprintf("variant %d of plan %d", p.form, p.ID)
+		}
+		return nil, fmt.Errorf("%s has %d page views and its trace %d: the trace says which page views are documents", what, len(p.Steps), len(t.Steps))
 	}
 	return t.documents(), nil
 }

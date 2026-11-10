@@ -57,13 +57,21 @@ func landingTrace(p Plan, docClicks ...int) Trace {
 	return t
 }
 
-// browserTraces are the traces of plans, each as browserTrace makes it.
-func browserTraces(plans []Plan) map[int]Trace {
+// formTraces are the traces of plans with their variants, each form as trace makes it, as LoadTraces
+// gives them: the trace of a plan is the one of its visit, with those of its variants.
+func formTraces(plans []Plan, trace func(Plan) Trace) map[int]Trace {
 	out := map[int]Trace{}
 	for _, p := range plans {
-		out[p.ID] = browserTrace(p)
+		forms := browserForms(p, trace)
+		forms[0].Variants = forms[1:]
+		out[p.ID] = forms[0]
 	}
 	return out
+}
+
+// browserTraces are the traces of plans, every form as browserTrace makes it.
+func browserTraces(plans []Plan) map[int]Trace {
+	return formTraces(plans, func(p Plan) Trace { return browserTrace(p) })
 }
 
 // The pages are the same source in every framework, so a page view that is a document in one is a

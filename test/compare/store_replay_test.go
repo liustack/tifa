@@ -204,10 +204,7 @@ func traceOf(p Plan) Trace {
 // it, not to a new one.
 func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
 	set := GenerateSitePlanSet(1, 1)
-	traces := map[int]Trace{}
-	for _, p := range set.Plans {
-		traces[p.ID] = traceOf(p)
-	}
+	traces := formTraces(set.Plans, traceOf)
 	sc := mustScenario("shop")
 	sc.Staff = 0 // the shopper visits alone: the fake has no back office
 	returning, newAdds := 0, 0
@@ -267,10 +264,7 @@ func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
 // setup got an answer that rendered a page is not valid, and is not played.
 func TestASetupAnswerThatRendersMakesTheRoundInvalid(t *testing.T) {
 	set := GenerateSitePlanSet(1, 1)
-	traces := map[int]Trace{}
-	for _, p := range set.Plans {
-		traces[p.ID] = traceOf(p)
-	}
+	traces := formTraces(set.Plans, traceOf)
 	sc := mustScenario("shop")
 	sc.Staff = 0
 	for _, how := range []string{"", RenderNone, RenderVM, RenderHit} {

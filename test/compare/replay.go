@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -127,8 +128,18 @@ type slot struct {
 	kind  string
 }
 
-// visit is the plan that visit seq of the run plays, and the write of a staff visit.
+// visit is the plan that visit seq of the run plays, and the write of a staff visit. A plan that
+// searches for a word of the list has variants, and the visit plays one form of it (formOf): the plan
+// returned has the page views of that form and no variants, so everything that follows the pages of a
+// visit follows the form it takes: its trace, its writes, the stock and the carts made for it before
+// the clock, the documents and the mix counted for it, and the expected hit rate.
 func (w *Workload) visit(seq int) (Plan, slot) {
+	p, s := w.slotOf(seq)
+	return planForm(p, w.formOf(seq, p)), s
+}
+
+// slotOf is the plan visit seq of the run plays, with its variants, and its slot of the cycle.
+func (w *Workload) slotOf(seq int) (Plan, slot) {
 	if len(w.cycle) == 0 {
 		return w.Plans[seq%len(w.Plans)], slot{plan: -1}
 	}
@@ -138,6 +149,34 @@ func (w *Workload) visit(seq int) (Plan, slot) {
 	}
 	k := seq/len(w.cycle)*w.perCycle + s.staff
 	return w.Plans[w.staff[k%len(w.staff)]], s
+}
+
+// formOf is the form of plan p that visit seq of the run takes: 0 for a plan with no variants, and else
+// one of the visit of the plan and its variants, all alike, by the seed and the number of the visit in
+// the global sequence. So the same plan takes other forms in other cycles, in the warm-up and in the
+// round, and every server, with the same seed, plays the same form for the same visit.
+func (w *Workload) formOf(seq int, p Plan) int {
+	if len(p.Variants) == 0 {
+		return 0
+	}
+	// A mix of the seed and the visit (the finalizer of splitmix64), so that neighbouring visits and
+	// seeds take forms that have nothing to do with each other.
+	x := w.Seed ^ 0xa0761d6478bd642f + uint64(seq)*0x9e3779b97f4a7c15
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	x ^= x >> 31
+	return int(x % uint64(1+len(p.Variants)))
+}
+
+// traceOf is the trace a visit of a plan replays: the one of the form the plan is (planForm).
+func (w *Workload) traceOf(p Plan) (Trace, bool) {
+	t, ok := w.Traces[p.ID]
+	if !ok || p.form > len(t.Variants) {
+		return Trace{}, false
+	}
+	return t.form(p.form), true
 }
 
 // planFor is the plan that visit seq of the run plays.
@@ -278,6 +317,17 @@ func (w *Workload) blockDocuments(blocks int) ([]int, error) {
 			steps, err := w.docSteps(p)
 			if err != nil {
 				return nil, err
+			}
+			// A played visit takes any form of its plan, and the crawler requests of the block are laid out
+			// once: every variant must load a document where the visit of the plan does.
+			for v := range p.Variants {
+				other, err := w.docSteps(planForm(p, v+1))
+				if err != nil {
+					return nil, err
+				}
+				if !slices.Equal(other, steps) {
+					return nil, fmt.Errorf("variant %d of plan %d loads a document at the page views %v and the visit of the plan at %v: the crawler requests of a block are counted from the visits of its plans", v+1, p.ID, other, steps)
+				}
 			}
 			switch n := countTrue(steps); {
 			case i < ShopperBlockVisits:
@@ -768,7 +818,7 @@ func (p pacer) at(j int) time.Time {
 // counts as failed. One that the context ends (the round was cut off) counts as neither.
 func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq int, p pacer) bool {
 	plan := r.wl.planFor(seq)
-	trace := r.wl.Traces[plan.ID]
+	trace, _ := r.wl.traceOf(plan)
 	// A returning visitor comes back with the cookies of their cart, everyone else with none.
 	var jar http.CookieJar
 	if j, ok := r.carts[seq]; ok && plan.Returning {

@@ -72,6 +72,9 @@ type Plan struct {
 	// another word, and the pages after the search as the list of that word leads to them (store_actions.go).
 	// Each is a whole visit, and with Steps they are PlanVariants. The writes are the same for all.
 	Variants [][]PlanStep `json:"variants,omitempty"`
+	// form says which form of a plan with variants this is, for a plan made by planForm: 0 the visit of
+	// the plan, n its n-th variant. The trace of that form is the one a visit of it replays.
+	form int
 }
 
 // planForm is form v of a plan as a plan of its own: the plan itself for 0, and for its v-th variant
@@ -81,7 +84,7 @@ func planForm(p Plan, v int) Plan {
 	if v > 0 {
 		p.Steps = p.Variants[v-1]
 	}
-	p.Variants = nil
+	p.Variants, p.form = nil, v
 	return p
 }
 
