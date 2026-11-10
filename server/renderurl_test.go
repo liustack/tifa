@@ -124,6 +124,9 @@ func TestCanonicalRedirectKeepsTheDroppedParameters(t *testing.T) {
 		// A URL that matches no page renders the 404 inside the root Layout, which reads page.
 		{"/list/?utm_source=mail&page=2", "/list?page=2&utm_source=mail"},
 		{"/plain/?sort=a", "/plain?sort=a"},
+		// A client can send bytes that a URL cannot hold as they are, and a % that starts no escape.
+		{"/plain/?q=<a>\"&bad=%zz&end=%&ok=%3C+1~'(*)", "/plain?q=%3Ca%3E%22&bad=%25zz&end=%25&ok=%3C+1~'(*)"},
+		{"/plain/?q=\xc3\xa9{|}^`\\", "/plain?q=%C3%A9%7B%7C%7D%5E%60%5C"},
 	} {
 		w := get(s, tc.target)
 		if w.Code != http.StatusPermanentRedirect || w.Header().Get("Location") != tc.want {
