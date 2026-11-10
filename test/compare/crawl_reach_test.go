@@ -329,8 +329,8 @@ func linksOfParam(page, body, param string) []int {
 }
 
 // A crawler that runs no JavaScript finds a page only by a link, so every URL of U must be reached by the
-// links of the HTML from the home of each language: the pages a plain crawler cannot get to (the price
-// sorts of the list, which are a form control and not a link) are not in U.
+// links of the HTML from the home of each language: the pages a plain crawler cannot get to (the sorts of
+// the list that are a form control and not a link: price-asc and rating) are not in U.
 func TestStorefrontEveryCrawlerURLIsReachedByALink(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
@@ -380,10 +380,10 @@ func TestStorefrontEveryCrawlerURLIsReachedByALink(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("from the English home alone it reaches %d of them", len(alone))
-	for _, price := range []string{"price-asc", "price-desc"} {
+	for _, price := range []string{"price-asc", "rating"} {
 		for _, url := range u {
 			if strings.Contains(url, "sort="+price) {
-				t.Errorf("%s is in U, and no link of the HTML leads to a price sort", url)
+				t.Errorf("%s is in U, and no link of the HTML leads to this sort", url)
 			}
 		}
 	}

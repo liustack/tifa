@@ -20,10 +20,11 @@ const (
 )
 
 // StoreSorts are the sorts of the product list that U has besides the default (featured), which has no
-// query: the two that a page links to (newest and rating, from the home). The shop has two more,
-// price-asc and price-desc, which are a form control of the list and have no plain link anywhere in
-// the HTML, so a crawler that runs no JavaScript cannot get to them and they are left out of U.
-var StoreSorts = []string{"newest", "rating"}
+// query: the two that the HTML of the home links to (newest and price-desc). The shop has two more,
+// price-asc and rating, which are a form control of the list and have no plain link anywhere in the
+// HTML (checked on the pages of the shop), so a crawler that runs no JavaScript cannot get to them and
+// they are left out of U.
+var StoreSorts = []string{"newest", "price-desc"}
 
 // reviewCount is how many reviews a product has, the formula of examples/shop (reviewCount in
 // app/store/products/review.go). The check against the pages of a running shop is
