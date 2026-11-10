@@ -922,12 +922,23 @@ func memoDropped(rounds []Round) (int64, bool) {
 	return n, read
 }
 
-// Where the memo of Tifa answers under what the plans allow by this many points, with this many
-// documents or more, the report flags the kind of page.
+// Where the memo of Tifa answers under what the plans allow by expectedGap points or more, with over
+// expectedLeast answers, the report flags the kind of page.
 const (
-	expectedGap   = 0.05
+	expectedGap   = 5
 	expectedLeast = 100
 )
+
+// underExpected says whether answered of answers, the share the memo gave or shared, is a red flag
+// against what the plans allow (c): over expectedLeast answers, and expectedGap points or more under
+// the expected share. It counts in whole numbers, so that a gap of exactly expectedGap points is one.
+func underExpected(answered, answers int, c ExpectedCell) bool {
+	if answers <= expectedLeast || c.Docs == 0 {
+		return false
+	}
+	// answered/answers + expectedGap/100 <= c.Hits/c.Docs
+	return 100*answered*c.Docs+expectedGap*answers*c.Docs <= 100*c.Hits*answers
+}
 
 // renderWhyMarkdown splits, for each Tifa server, its answers by kind of page into those the render
 // memo gave and those it rendered in a VM, and these by why, as far as the plans tell (Expect) or the
@@ -976,7 +987,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 				if read && dropped > 0 && !privateKind(k) {
 					allowed += fmt.Sprintf(" (the memo dropped %d pages)", dropped)
 				}
-				if f == "tifa" && all >= expectedLeast && float64(hits+shared)/float64(all) < c.Rate()-expectedGap {
+				if f == "tifa" && underExpected(hits+shared, all, c) {
 					flags = append(flags, fmt.Sprintf("%s, %s: the memo and shared renders answered %.1f%% of %d documents, the plans allow %.1f%%", BrowseLabel(f), k, 100*float64(hits+shared)/float64(all), all, 100*c.Rate()))
 				}
 			}

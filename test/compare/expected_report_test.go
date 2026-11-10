@@ -144,17 +144,29 @@ func TestTheAppendixSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 	if strings.Contains(appendix, "Red flag**: Tifa, product") || strings.Contains(appendix, "Red flag**: Tifa, memo off") {
 		t.Errorf("a red flag where the memo is within 5 points or off:\n%s", appendix)
 	}
-	// A kind with 100 documents or fewer is no red flag, however far under.
-	for i := range r.Closed {
-		if r.Closed[i].Framework == "tifa" {
-			x := r.Closed[i].Expected.Humans["home"]
-			x.Docs, x.Hits = 40, 40
-			r.Closed[i].Expected.Humans["home"] = x
-			r.Closed[i].PageRenders["home"] = map[string]int{"vm": 40}
+}
+
+// The red flag is for a kind of page with over 100 answers whose measured share is 5 points or more under
+// what the plans allow: 100 answers are too few, and a gap of exactly 5 points is enough.
+func TestTheRedFlagTakesOver100AnswersAndAGapOf5Points(t *testing.T) {
+	sc := mustScenario("shop")
+	for _, c := range []struct {
+		name                      string
+		answers, memo, docs, hits int
+		flag                      bool
+	}{
+		{"100 answers, 40 points under", 100, 50, 100, 90, false},
+		{"101 answers, 40 points under", 101, 50, 101, 91, true},
+		{"exactly 5 points under", 200, 170, 200, 180, true},
+		{"4.5 points under", 200, 171, 200, 180, false},
+		{"5 points under by a third of a point each way", 300, 185, 300, 200, true},
+		{"over what the plans allow", 200, 190, 200, 180, false},
+	} {
+		r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+		r.Closed = append(r.Closed, expectedRound("tifa", "home", c.docs, c.hits, c.answers-c.memo, c.memo, 0, map[string]int{RenderSame: c.answers - c.memo}))
+		if got := strings.Contains(r.Markdown(), "**Red flag**: Tifa, home"); got != c.flag {
+			t.Errorf("%s (the memo answered %d of %d, the plans allow %d of %d): red flag %v, want %v", c.name, c.memo, c.answers, c.hits, c.docs, got, c.flag)
 		}
-	}
-	if md := r.Markdown(); strings.Contains(md, "Red flag**: Tifa, home") {
-		t.Error("a red flag for a kind of 80 documents")
 	}
 }
 
