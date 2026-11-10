@@ -174,10 +174,12 @@ func (w *Workload) crawlersIn(seq0, n int) int { return w.slots(seq0, n) - n }
 // status. Their latency is in Types["crawler"]. Renders counts how Tifa answered them (X-Tifa-Render),
 // by set, language and kind of URL ("U|en-US|list").
 type CrawlStats struct {
-	Planned int   `json:"planned"`
-	Done    int   `json:"done"`
-	Failed  int   `json:"failed"`
-	Bytes   int64 `json:"bytes"`
+	Planned int `json:"planned"`
+	Done    int `json:"done"`
+	Failed  int `json:"failed"`
+	// Cancelled are the requests that the end of the round cut off after they were sent: the server got them.
+	Cancelled int   `json:"cancelled,omitempty"`
+	Bytes     int64 `json:"bytes"`
 	// OldBytes are the bytes of the answers to the old URLs (the set O), which are 404 pages.
 	OldBytes int64                     `json:"oldBytes,omitempty"`
 	Statuses map[string]int            `json:"statuses,omitempty"`
@@ -186,11 +188,11 @@ type CrawlStats struct {
 
 // crawlCounts are what an acc keeps of the crawler requests.
 type crawlCounts struct {
-	done, failed int
-	bytes        int64
-	oldBytes     int64
-	statuses     map[string]int
-	renders      map[string]map[string]int
+	done, failed, cancelled int
+	bytes                   int64
+	oldBytes                int64
+	statuses                map[string]int
+	renders                 map[string]map[string]int
 }
 
 // crawlKey is the key of a request in CrawlStats.Renders.
@@ -216,6 +218,18 @@ func (a *acc) crawlFail(err error) {
 	}
 }
 
+// crawlGone counts a request that ended with an error after it was sent: a failure, or, when the end
+// of the round cut it off, a cancelled request, which is no failure of the server.
+func (a *acc) crawlGone(ctx context.Context, err error) {
+	if ctx.Err() == nil {
+		a.crawlFail(err)
+		return
+	}
+	a.mu.Lock()
+	a.crawl.cancelled++
+	a.mu.Unlock()
+}
+
 // runCrawl plays crawler request number c of the stream: one GET of a document with the User-Agent of
 // its crawler, no cookie, no validator, gzip accepted, and no redirect followed. It is answered with
 // the status it expects or it is a failure. sched is when it was meant to start, from which its
@@ -231,13 +245,14 @@ func (r *runner) runCrawl(ctx context.Context, tr *http.Transport, a *acc, c int
 	req.Header.Set("User-Agent", q.Agent.UA)
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("Accept-Encoding", "gzip")
+	if ctx.Err() != nil {
+		return // the round is over: nothing was sent
+	}
 	r.inflight.Add(1)
 	defer r.inflight.Add(-1)
 	res, err := client.Do(req)
 	if err != nil {
-		if ctx.Err() == nil {
-			a.crawlFail(fmt.Errorf("crawler GET %s: %w", q.URL, err))
-		}
+		a.crawlGone(ctx, fmt.Errorf("crawler GET %s: %w", q.URL, err))
 		return
 	}
 	a.refuse(res.StatusCode)
@@ -259,9 +274,7 @@ func (r *runner) runCrawl(ctx context.Context, tr *http.Transport, a *acc, c int
 	res.Body.Close()
 	end := time.Now()
 	if err != nil {
-		if ctx.Err() == nil {
-			a.crawlFail(fmt.Errorf("crawler GET %s: %w", q.URL, err))
-		}
+		a.crawlGone(ctx, fmt.Errorf("crawler GET %s: %w", q.URL, err))
 		return
 	}
 	a.mu.Lock()

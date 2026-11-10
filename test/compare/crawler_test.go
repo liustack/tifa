@@ -453,3 +453,40 @@ func TestTheCrawlerClassesAreWhatCloudflareReports(t *testing.T) {
 		t.Error("the table still says that search engine crawlers are 4.5%")
 	}
 }
+
+// A crawler request that the end of the round cuts off, after it was sent, is counted as cancelled, not
+// as done or failed, as a request of a visit is: the server got it, and the counts of the round and
+// of the server then agree. One that was never sent (the round was over) is counted nowhere.
+func TestACrawlerRequestCutOffByTheEndOfTheRoundIsCountedAsCancelled(t *testing.T) {
+	sent := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent <- struct{}{}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	cs := newCrawlerShop(t)
+	cs.r.base = srv.URL
+	ctx, cancel := context.WithCancel(context.Background())
+	a := newAcc()
+	done := make(chan struct{})
+	go func() {
+		cs.r.runCrawl(ctx, http.DefaultTransport.(*http.Transport), a, 0, time.Now())
+		close(done)
+	}()
+	<-sent
+	cancel()
+	<-done
+	if a.crawl.cancelled != 1 || a.crawl.failed != 0 || a.crawl.done != 0 || a.failures != 0 {
+		t.Errorf("cancelled %d, failed %d, done %d, failures %d", a.crawl.cancelled, a.crawl.failed, a.crawl.done, a.failures)
+	}
+	a2 := newAcc()
+	cs.r.runCrawl(ctx, http.DefaultTransport.(*http.Transport), a2, 1, time.Now())
+	if a2.crawl.cancelled != 0 || a2.failures != 0 {
+		t.Errorf("a request never sent was counted: cancelled %d, failures %d", a2.crawl.cancelled, a2.failures)
+	}
+	var r Round
+	r.Crawler = &CrawlStats{Done: 3, Failed: 1, Cancelled: 2}
+	if r.crawlerRequests() != 6 {
+		t.Errorf("the requests the server got: %d, want 6", r.crawlerRequests())
+	}
+}

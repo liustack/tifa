@@ -180,7 +180,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.VMWhy = a.vmWhy
 	r.Landing = a.landing
 	if r.Crawler != nil {
-		r.Crawler.Done, r.Crawler.Failed, r.Crawler.Bytes, r.Crawler.OldBytes = a.crawl.done, a.crawl.failed, a.crawl.bytes, a.crawl.oldBytes
+		r.Crawler.Done, r.Crawler.Failed, r.Crawler.Cancelled, r.Crawler.Bytes, r.Crawler.OldBytes = a.crawl.done, a.crawl.failed, a.crawl.cancelled, a.crawl.bytes, a.crawl.oldBytes
 		r.Crawler.Statuses, r.Crawler.Renders = a.crawl.statuses, a.crawl.renders
 	}
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
@@ -720,7 +720,7 @@ func (r *Round) crawlerRequests() int {
 	if r.Crawler == nil {
 		return 0
 	}
-	return r.Crawler.Done + r.Crawler.Failed
+	return r.Crawler.Done + r.Crawler.Failed + r.Crawler.Cancelled
 }
 
 // flight counts what is in flight in the open model: the visits of people and the crawler requests
