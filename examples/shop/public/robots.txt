@@ -1,0 +1,11 @@
+# Search results and filtered lists are not for crawlers.
+# The lists of the categories, the sorts and the pages of a list are.
+User-agent: *
+Disallow: /*/products?*q=
+Disallow: /*/products?*color=
+Disallow: /*/products?*material=
+Disallow: /*/products?*badge=
+Disallow: /*/products?*rating=
+Disallow: /*/products?*min=
+Disallow: /*/products?*max=
+Disallow: /*/products?*stock=

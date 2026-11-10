@@ -182,7 +182,7 @@ func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expec
 					}
 					if sp.count {
 						e.human[[2]int{k, i}] = class
-						add(&e.Humans, pageClass(page), class)
+						add(&e.Humans, renderKind(page), class)
 						if i == 0 && isStorePage(page) {
 							add(&e.Groups, landingGroup(step.Page), class)
 						}

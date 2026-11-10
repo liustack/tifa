@@ -152,3 +152,100 @@ func TestTheKindsOfCrawlerURLs(t *testing.T) {
 		}
 	}
 }
+
+// robotsRefuses reads the robots.txt of the shop and says whether its rules for every crawler keep a
+// URL out: a Disallow pattern matches from the start of the path and the query, and a star in it
+// stands for any characters, as the crawlers of the large search engines read it.
+func robotsRefuses(t *testing.T) func(url string) bool {
+	t.Helper()
+	env, err := NewEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(env.Shop, "public", "robots.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var patterns [][]string
+	everyone := false
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line, _, _ = strings.Cut(line, "#")
+		name, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok {
+			continue
+		}
+		switch value = strings.TrimSpace(value); strings.ToLower(name) {
+		case "user-agent":
+			everyone = value == "*"
+		case "disallow":
+			if everyone && value != "" {
+				patterns = append(patterns, strings.Split(value, "*"))
+			}
+		case "allow":
+			t.Fatalf("robots.txt has an Allow rule, which this test does not read: %s", line)
+		}
+	}
+	if len(patterns) == 0 {
+		t.Fatal("robots.txt keeps every crawler out of nothing")
+	}
+	return func(url string) bool {
+		for _, parts := range patterns {
+			rest, ok := strings.CutPrefix(url, parts[0])
+			for _, part := range parts[1:] {
+				if !ok {
+					break
+				}
+				_, rest, ok = strings.Cut(rest, part)
+			}
+			if ok {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// The shop has a robots.txt that keeps crawlers out of the search results and the filtered lists, and
+// lets them into the lists of the categories, the sorts and the pages. So the URLs of the crawlers (U)
+// are all allowed, with the old URLs, and no search and no filter of the plans is: a crawler that
+// follows the plain links of the pages to a popular word, a quick filter or a price band is told to
+// stay out, which is why U has none of them.
+func TestTheCrawlersAskForWhatRobotsAllows(t *testing.T) {
+	refuses := robotsRefuses(t)
+	public, old := CrawlURLs()
+	for _, u := range slices.Concat(public, old) {
+		if refuses(u) {
+			t.Errorf("robots.txt keeps crawlers out of %s, which a crawler of the comparison asks for", u)
+		}
+	}
+	// Every page a visit can be on that is no list is allowed too: robots.txt is about the list alone.
+	for _, u := range StoreVisitPages() {
+		if _, kind := StorePageKind(u); kind != StoreKindList && refuses(u) {
+			t.Errorf("robots.txt keeps crawlers out of %s", u)
+		}
+	}
+	searches, filters, kept := 0, 0, 0
+	for _, p := range GenerateSitePlanSet(1, 1).Plans {
+		for _, s := range p.Steps {
+			if _, kind := StorePageKind(s.Page); kind != StoreKindList {
+				continue
+			}
+			f := listFilterOf(stripLanding(s.Page))
+			narrowed := f.Query != "" || len(f.Colors)+len(f.Materials)+len(f.Badges) > 0 || f.Rating > 0 || f.Min > 0 || f.Max > 0 || f.InStock
+			if refuses(s.Page) != narrowed {
+				t.Fatalf("robots.txt keeps crawlers out of %s: %v, and it has a search word or a filter other than the category: %v", s.Page, refuses(s.Page), narrowed)
+			}
+			switch {
+			case f.Query != "":
+				searches++
+			case narrowed:
+				filters++
+			default:
+				kept++
+			}
+		}
+	}
+	if searches < 100 || filters < 100 || kept < 100 {
+		t.Errorf("the plans have %d searches, %d filtered lists and %d other lists: too few to check robots.txt on", searches, filters, kept)
+	}
+}

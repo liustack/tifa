@@ -38,10 +38,65 @@ type versionTally struct{ changed, vain, missed int }
 
 func (c versionTally) share() float64 { return 100 * float64(c.vain) / float64(max(c.changed, 1)) }
 
+// versionLists are the URLs of the product list the check of the data versions asks for, each once, and
+// how many there are of each source. The model works out every list, so the check takes the lists the
+// run asks for and more: the lists a visit can land on and those of the crawlers (which the file had
+// before the model took the lists over), the search for every word of the word lists in both
+// languages and for a few words of a visit's own, every list a plan of the first block of the formal
+// seed is on in any of its forms (the lists after a search, the filters by a link, the forms, the
+// sorts, the pages), and 200 lists drawn from a seed (listSample), which have what the plans have not:
+// several values of a filter, values the shop does not have, ranges typed by hand, pages past the end.
+func versionLists() (urls []string, counts []string) {
+	seen := map[string]bool{}
+	add := func(what string, list []string) {
+		n := 0
+		for _, u := range list {
+			if u = stripLanding(u); !seen[u] {
+				seen[u] = true
+				urls = append(urls, u)
+				n++
+			}
+		}
+		counts = append(counts, fmt.Sprintf("%d %s", n, what))
+	}
+	var fixed, words, own, planned []string
+	public, _ := CrawlURLs()
+	for _, u := range slices.Concat(StoreVisitPages(), public) {
+		if _, kind := StorePageKind(u); kind == StoreKindList {
+			fixed = append(fixed, u)
+		}
+	}
+	for _, l := range StoreLangs {
+		terms := StoreSearchTerms()[l]
+		for _, term := range slices.Concat(terms.Found, terms.None) {
+			words = append(words, searchStep(l, term).Page)
+		}
+		for seq := range 5 {
+			own = append(own, searchStep(l, uniqueTerm(FormalBrowse.Seed, seq)).Page)
+		}
+	}
+	for _, p := range GenerateSitePlanSet(FormalBrowse.Seed, 1).Plans {
+		for v := range 1 + len(p.Variants) {
+			for _, s := range planForm(p, v).Steps {
+				if _, kind := StorePageKind(s.Page); kind == StoreKindList && !strings.Contains(s.Page, SearchPlaceholder) {
+					planned = append(planned, s.Page)
+				}
+			}
+		}
+	}
+	add("lists of the landings and of the crawlers", fixed)
+	add("searches for a word of the word lists", words)
+	add("searches for a word of a visit's own", own)
+	add("more lists of the plans of a block", planned)
+	add("more lists drawn from a seed", listSample(3, 200))
+	return urls, counts
+}
+
 // TestTheDataVersionsFollowTheShop makes the writes of the mix on a shop that runs, several of each
 // kind and in sequences where one write decides what the next one changes, and asks every page of
-// store_deps.json, and a few of the back office, for its data after each. The data version model
-// (versionModel, with the effects of the writes and store_deps.json) says which pages each write changes.
+// store_deps.json, the lists of versionLists and a few pages of the back office for its data after
+// each. The data version model (versionModel, with the effects of the writes, store_deps.json and the
+// list model) says which pages each write changes.
 //
 //   - A page the model says is unchanged must have the same data, and two requests of a page with one
 //     version must have the same data however many writes lie between them. Otherwise the model misses a
@@ -53,6 +108,10 @@ func (c versionTally) share() float64 { return 100 * float64(c.vain) / float64(m
 //     data does not. They are counted, by kind of write, and more than a tenth of the pairs of the
 //     storefront fails, to have the model made tighter. This share is of the writes picked here, one
 //     pair for each page and write: it is not weighted by the traffic and is no error of the hit rate.
+//     The tenth is of the pages the file has and the lists it had (those of the landings and of the
+//     crawlers). The other lists are counted apart, by class (ListClass), and printed: every list
+//     depends on the price of every product, since it shows the range of all the prices, so a price
+//     edit changes the version of a list of a search that shows nothing of that product.
 //   - A write that sets the value a product has, or puts back an earlier one, changes the version and
 //     not the data, or brings back data seen before. The model counts writes and does not look at the
 //     values, so the expected rate is low for them. They are counted apart and do not fail.
@@ -78,7 +137,20 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Stop()
-	pages := slices.Concat(depsURLs(), staffPages)
+	lists, listCounts := versionLists()
+	t.Logf("the lists asked for: %s", strings.Join(listCounts, ", "))
+	// The lists the tenth is not of: all but those of the landings and of the crawlers.
+	extra := map[string]bool{}
+	{
+		public, _ := CrawlURLs()
+		for _, u := range lists {
+			extra[u] = true
+		}
+		for _, u := range slices.Concat(StoreVisitPages(), public) {
+			delete(extra, stripLanding(u))
+		}
+	}
+	pages := slices.Concat(depsURLs(), lists, staffPages)
 	digits := func(u string) string {
 		if strings.HasPrefix(u, "/projects/") {
 			return ".111"
@@ -393,6 +465,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		}
 	}
 	shop, office, sameValue := map[string]*versionTally{}, versionTally{}, versionTally{}
+	more := map[string]*versionTally{ListSearch: {}, ListFilter: {}, ListOther: {}} // the lists the tenth is not of, by class
 	back, missed := 0, 0
 	var kinds []string
 	for _, s := range steps {
@@ -413,8 +486,13 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 			lost := old && had != sum
 			versions[u][at], stamps[u] = sum, at
 			tally := &c
-			if strings.HasPrefix(u, "/projects/") {
+			switch {
+			case strings.HasPrefix(u, "/projects/"):
 				tally = &office
+			case extra[u] && !s.same:
+				tally = more[ListClass(u)]
+			case extra[u]:
+				tally = &versionTally{} // a write of the value a product has, on a list the tenth is not of
 			}
 			switch {
 			case lost:
@@ -466,6 +544,18 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		t.Logf("the storefront, %s: of the %d (page, write) pairs the model says changed, the data of %d did not (%.1f%%), and the model missed %d", k, c.changed, c.vain, c.share(), c.missed)
 	}
 	t.Logf("the storefront, all the writes picked here but those of the same value: of the %d (page, write) pairs the model says changed, the data of %d did not (%.1f%%), and the model missed %d. This is a share of pairs for these writes, not weighted by the traffic, and no error of the hit rate", all.changed, all.vain, all.share(), all.missed)
+	moreMissed := 0
+	for _, class := range []string{ListSearch, ListFilter, ListOther} {
+		n := 0
+		for u := range extra {
+			if ListClass(u) == class {
+				n++
+			}
+		}
+		c := more[class]
+		moreMissed += c.missed
+		t.Logf("the other lists, class %s (%d lists): of the %d (page, write) pairs the model says changed, the data of %d did not (%.1f%%), and the model missed %d", class, n, c.changed, c.vain, c.share(), c.missed)
+	}
 	t.Logf("the storefront, writes of the value a product has: the model changed %d pairs and the data of %d was the same. Writes that put a value back: %d pairs had data the page had before under an older version. The expected rate is low for both", sameValue.changed, sameValue.vain, back)
 	t.Logf("the back office (a rough rule): of the %d (page, write) pairs the model says changed, the data of %d did not (%.1f%%), and the model missed %d. How low this makes its expected rate is not measured", office.changed, office.vain, office.share(), office.missed)
 	if wrongParts > 0 {
@@ -474,8 +564,8 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	if all.changed == 0 {
 		t.Fatal("the model changed no page of the storefront: the writes do nothing")
 	}
-	if all.missed+office.missed+sameValue.missed > 0 {
-		t.Errorf("the model missed %d changes of the storefront and %d of the back office", all.missed+sameValue.missed, office.missed)
+	if all.missed+office.missed+sameValue.missed+moreMissed+missed > 0 {
+		t.Errorf("the model missed %d changes of the storefront, %d of the other lists and %d of the back office (%d in all, with the writes of the same value)", all.missed+sameValue.missed, moreMissed, office.missed, missed)
 	}
 	if float64(all.vain) > 0.1*float64(all.changed) {
 		t.Errorf("of the %d (page, write) pairs the model says changed, the data of %d did not (%.1f%%), more than a tenth: tighten the model", all.changed, all.vain, all.share())

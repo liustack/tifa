@@ -38,7 +38,9 @@ import (
 // pieces from the stock, and staff change a price or a stock). store_deps.json says, for each URL a
 // visit can land on and each URL of a crawler, which products it shows and which of their fields. The
 // parts of a page whose products a price or a stock decides (decidedParts) are left out of it: the model
-// of the versions works those out as the writes come (versionModel in versions.go). Make
+// of the versions works those out as the writes come (versionModel in versions.go). The pages of the
+// product list are left out whole: a search, filters, a sort and a page make more URLs than a file can
+// hold, and the list model works out what any of them shows (store_list.go, pageKeys). Make
 // it again with `compare deps` after the pages, the catalogue or the URLs change. It carries a hash of
 // everything it was made from, and a file that does not match what is checked out is refused
 // (CheckStoreDeps), so it cannot go out of date silently.
@@ -68,14 +70,10 @@ type StoreDeps struct {
 	// those of its Layouts read, as the build of the shop has them. A render sees these and no other.
 	Query map[string][]string `json:"query"`
 	// Common are the dependencies every page has (the products the Layout of the storefront shows), and
-	// Pages the others, by the URL the render sees (RenderURL).
+	// Pages the others, by the URL the render sees (RenderURL). No page of the product list is in Pages:
+	// it has the common ones and what the list model works out for it.
 	Common []string            `json:"common"`
 	Pages  map[string][]string `json:"pages"`
-	// Lists are, for each product list whose products a price or a stock decides (it sorts by price, has a
-	// price range or has only what is in stock), the products that pass its other filters, in its order
-	// when it does not sort by price and else in the order of the catalogue. The key is the render URL of
-	// the list without the range, the stock, the sort by price and the page (listBase).
-	Lists map[string][]string `json:"lists"`
 	// Build is the build of the shop the file was made from.
 	Build BuildInfo `json:"build"`
 }
@@ -268,12 +266,13 @@ func routeQueries(src []byte) (map[string][]string, error) {
 }
 
 // depsURLs are the URLs the file has an entry for: every page of the storefront a visit can land on and
-// every URL of a crawler (U). The cart and the checkout are private and have none.
+// every URL of a crawler (U), but the pages of the product list, which the list model works out. The
+// cart and the checkout are private and have none.
 func depsURLs() []string {
 	set := map[string]bool{}
 	public, _ := CrawlURLs()
 	for _, u := range slices.Concat(StoreVisitPages(), public) {
-		if _, kind := StorePageKind(u); kind != StoreKindCart && kind != StoreKindCheckout {
+		if _, kind := StorePageKind(u); kind != StoreKindCart && kind != StoreKindCheckout && kind != StoreKindList {
 			set[u] = true
 		}
 	}
@@ -369,8 +368,10 @@ func CheckStoreDeps(root string) (*StoreDeps, error) {
 		if _, ok := d.Pages[d.RenderURL(u)]; !ok {
 			return nil, fmt.Errorf("store_deps.json has no entry for %s: %s", u, again)
 		}
-		if _, kind := StorePageKind(u); kind == StoreKindList && priceDecidesList(u) && d.Lists[d.listBase(u)] == nil {
-			return nil, fmt.Errorf("store_deps.json has no products for the list of %s: %s", u, again)
+	}
+	for key := range d.Pages {
+		if _, kind := StorePageKind(key); kind == StoreKindList {
+			return nil, fmt.Errorf("store_deps.json has an entry for %s, a page of the product list, which the list model works out: %s", key, again)
 		}
 	}
 	return d, nil
@@ -452,12 +453,16 @@ func depList(found map[string]string) []string {
 
 // collectStoreDeps asks the server at base (a Tifa with its memo off, with the data it starts with) for
 // the data of each URL the way the browser router does, with the build ID of the build, and makes the
-// dependencies of the pages. The keep table is the one RenderURL uses.
+// dependencies of the pages. The keep table is the one RenderURL uses. A page of the product list is
+// none of its URLs: the list model works those out.
 func collectStoreDeps(ctx context.Context, base, buildID string, query map[string][]string, urls []string) (*StoreDeps, error) {
 	d := &StoreDeps{Query: query, Pages: map[string][]string{}}
 	found := map[string]map[string]string{}
 	var common map[string]string
 	for _, u := range urls {
+		if _, kind := StorePageKind(u); kind == StoreKindList {
+			return nil, fmt.Errorf("%s is a page of the product list, which the list model works out", u)
+		}
 		data, err := fetchData(ctx, base, buildID, u)
 		if err != nil {
 			return nil, err
@@ -482,14 +487,6 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 		for k, v := range page {
 			page[k] = canonFields(v)
 		}
-		if _, kind := StorePageKind(u); kind == StoreKindList {
-			// A list shows the range of all the prices (the bands and the dearest price) and its best rated
-			// products are the cheaper first, and with only what is in stock it counts the products in stock.
-			page[allProducts] = depPrice
-			if listFilterOf(u).InStock {
-				page[allProducts] += depFlag
-			}
-		}
 		key := d.RenderURL(u)
 		if old, ok := found[key]; ok {
 			// Two URLs the render sees alike hold the same data.
@@ -513,19 +510,6 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 		}
 	}
 	d.Common = depList(common)
-	d.Lists = map[string][]string{}
-	for _, u := range urls {
-		if _, kind := StorePageKind(u); kind != StoreKindList || !priceDecidesList(u) {
-			continue
-		}
-		if b := d.listBase(u); d.Lists[b] == nil {
-			list, err := collectList(ctx, base, buildID, b)
-			if err != nil {
-				return nil, err
-			}
-			d.Lists[b] = list
-		}
-	}
 	for key, page := range found {
 		rest := map[string]string{}
 		for k, v := range page {
@@ -613,11 +597,6 @@ func marshalStoreDeps(d *StoreDeps) ([]byte, error) {
 	for i, k := range keys {
 		fmt.Fprintf(&b, "  %s: %s%s\n", line(k), line(d.Pages[k]), comma(i, len(keys)))
 	}
-	b.WriteString(" },\n \"lists\": {\n")
-	bases := slices.Sorted(maps.Keys(d.Lists))
-	for i, k := range bases {
-		fmt.Fprintf(&b, "  %s: %s%s\n", line(k), line(d.Lists[k]), comma(i, len(bases)))
-	}
 	b.WriteString(" }\n}\n")
 	return b.Bytes(), nil
 }
@@ -665,36 +644,6 @@ func fetchData(ctx context.Context, base, buildID, u string) (routesData, error)
 		return data, fmt.Errorf("GET %s: no data of routes: %v %.200s", u, err, body)
 	}
 	return data, nil
-}
-
-// collectList asks for every page of the list at base (StoreDeps.listBase: a list with no range, no
-// stock and no sort by price) and returns the products on them in order: the products that pass its
-// filters, in the order of the catalogue or of its sort.
-func collectList(ctx context.Context, server, buildID, base string) ([]string, error) {
-	var out []string
-	for page := 1; ; page++ {
-		u := base + "?page=" + strconv.Itoa(page)
-		if strings.Contains(base, "?") {
-			u = base + "&page=" + strconv.Itoa(page)
-		}
-		data, err := fetchData(ctx, server, buildID, u)
-		if err != nil {
-			return nil, err
-		}
-		list, ok := data.Routes[storeList].Data.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("GET %s: no data of the list", u)
-		}
-		products, _ := list["products"].([]any)
-		for _, p := range products {
-			card, _ := p.(map[string]any)
-			slug, _ := card["slug"].(string)
-			out = append(out, slug)
-		}
-		if pages, _ := list["pages"].(float64); float64(page) >= pages {
-			return out, nil
-		}
-	}
 }
 
 // Which build of the shop store_deps.json is of. The file is made by asking a running shop for the data

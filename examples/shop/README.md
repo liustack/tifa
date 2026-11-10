@@ -51,6 +51,7 @@ To look at the workbench without signing in, start the program with `SHOP_OPEN=1
 hooks.go                       OnRequest keeps visitors who are not signed in out of the workbench and the metrics, OnError logs unexpected errors
 session.go                     the session type, the demo account and the password check
 components/                    shadcn/ui components in ui/ and the hooks they use in hooks/, imported as @/components/...
+public/robots.txt              served at /robots.txt: keeps crawlers out of the search results and the filtered product lists
 app/
   route.go  layout.tsx         root Layout of the workbench: sidebar, top bar, document shell and site-wide 404, and a GET that redirects / to the first shop
   account.tsx                  who is signed in, in the top bar, and the sign-out button

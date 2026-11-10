@@ -15,7 +15,9 @@ import (
 // not all changed by a write that touches one order), "home:sale" which products are on the sale of the
 // home and "bundle:slug" which are in the bundle of a product page. What a page is made from, in the
 // storefront, is store_deps.json, with the products on the page that a price or a stock decides, which
-// the model works out from the prices and the stock as the writes leave them (versionModel).
+// the model works out from the prices and the stock as the writes leave them (versionModel). A page of
+// the product list is not in the file: the list has too many URLs to ask a shop for each, and the
+// model works out all of it (listKeys).
 //
 // A version counts writes, not the values written: an edit that sets the price a product has already, or
 // puts back the one it had, changes the version of its pages though their data is what it was. Tifa's
@@ -112,17 +114,33 @@ func sortedWrites(ws []PlannedWrite) []PlannedWrite {
 	return out
 }
 
+// listDeps are the dependencies of a page of the product list that are the same whatever the state of
+// the shop, beside those every page has (StoreDeps.Common). A list shows the range of all the prices
+// (the price bands with their counts and the dearest price, PriceMax in
+// examples/shop/app/store/products/product.go), so it depends on the price of every product, and a list
+// of what is in stock counts the products in stock, so it depends on whether each is. The products of
+// the page and the best rated below it are worked out as the writes come (decidedParts).
+func listDeps(page string) []string {
+	if listFilterOf(page).InStock {
+		return []string{allProducts + ":" + depPrice, allProducts + ":" + depFlag}
+	}
+	return []string{allProducts + ":" + depPrice}
+}
+
 // pageKeys are the version keys of a page URL that do not depend on the state of the shop: the entries
-// of the file for a page of the storefront, and the back office of both shops for a page of the staff.
-// ok is false for a URL the file has no entry for.
+// of the file for a page of the storefront, what every list depends on for a page of the product list
+// (listDeps: any URL of the list, with no entry in the file), and the back office of both shops for a
+// page of the staff. ok is false for a URL the file has no entry for.
 func (d *StoreDeps) pageKeys(page string) (keys []string, ok bool) {
 	if strings.HasPrefix(page, "/projects/") {
 		// A page of one shop shows something of the other (the project list links to it with its counts), so
 		// a write to either shop changes the pages of both.
 		return []string{adminKey("studio"), adminKey("weekend")}, true
 	}
-	list, ok := d.Pages[d.RenderURL(page)]
-	if !ok {
+	var list []string
+	if _, kind := StorePageKind(page); kind == StoreKindList {
+		list = listDeps(page)
+	} else if list, ok = d.Pages[d.RenderURL(page)]; !ok {
 		return nil, false
 	}
 	for _, dep := range slices.Concat(d.Common, list) {
@@ -161,22 +179,25 @@ func (d *StoreDeps) pageKeys(page string) (keys []string, ok bool) {
 //
 //   - The sale of the home (Load in route.go): of the first page of the list by price, the dearest
 //     first (products.Search, 24 products), those with a sale price.
-//   - The products of a page of the list (products.Search in products/product.go) that sorts by price,
-//     has a price range (min, max, in whole units of the currency of the language) or has only what is
-//     in stock (stock=1): the products that pass its other filters, which the file has (StoreDeps.Lists),
-//     filtered by the range and the stock, sorted by price when it sorts so (the order of the catalogue
-//     among equals), and cut into pages of 24. The list model does that part (listFilter.cut in
-//     store_list.go), here and for a list it works out whole.
+//   - The products of a page of the list (products.Search in products/product.go), for any URL of the
+//     list: the products that pass the filters no write changes (the search term, the category, the
+//     colours, the materials, the badges, the rating), filtered by the price range (min, max, in whole
+//     units of the currency of the language) and the stock (stock=1), sorted by price when the list
+//     sorts so (the order of the catalogue among equals), and cut into pages of 24. The list model does
+//     it (listFilter.narrowed and listFilter.cut in store_list.go). A search for a word no product has
+//     gives no product, so such a page depends on the best rated below it and on what every list
+//     depends on.
 //   - The best rated products below every list (products.TopRated in products/product.go, 6 of them):
 //     the cheaper first among products of one rating (topRatedOf in store_list.go).
 //   - The bundle of a product page (products.Bundle in products/menu.go): the two best rated products
 //     of its category that come in no sizes and are in stock.
 //
-// The other parts keep their products: the newest, the best rated of a category, the related products,
-// the menu, and a list in another order with no range.
+// The other parts keep their products: the newest, the best rated of a category, the related products
+// and the menu.
 type versionModel struct {
 	d       *StoreDeps
 	recs    []storeRecord
+	narrow  map[string][]string // the products that pass the filters of a list that no write changes, by its URL
 	by      map[string]storeRecord
 	price   map[string]int
 	inStock map[string]bool
@@ -193,7 +214,7 @@ type versionModel struct {
 // the restock before the clock gives the products it raises (runner.restocked), which are in stock
 // whatever the file says.
 func newVersionModel(d *StoreDeps, restocked map[string]int) *versionModel {
-	m := &versionModel{d: d, price: map[string]int{}, inStock: map[string]bool{}, ids: map[string]int{}, static: map[string][]int{}, by: map[string]storeRecord{}}
+	m := &versionModel{d: d, price: map[string]int{}, inStock: map[string]bool{}, ids: map[string]int{}, static: map[string][]int{}, by: map[string]storeRecord{}, narrow: map[string][]string{}}
 	m.recs = storeCatalogue().records
 	for _, r := range m.recs {
 		m.price[r.Slug] = r.PriceFen
@@ -328,28 +349,18 @@ func priceIn(fen int, lang string) int {
 	return int(math.Ceil(float64(fen)/7.1/10)) * 10 / 100
 }
 
-// listBase is the render URL of a list without what a price or a stock decides its products by: the
-// range, the stock, a sort by price and the page. It names the products that pass the other filters
-// of the list, in its order when it does not sort by price (StoreDeps.Lists).
-func (d *StoreDeps) listBase(page string) string {
-	path, query, _ := strings.Cut(page, "?")
-	var parts []string
-	for part := range strings.SplitSeq(query, "&") {
-		switch name, value, _ := strings.Cut(part, "="); {
-		case part == "", name == "page", name == "min", name == "max", name == "stock":
-		case name == "sort" && byPriceSort(value):
-		default:
-			parts = append(parts, part)
-		}
-	}
-	return renderedURL(path+"?"+strings.Join(parts, "&"), d.Query[storeList])
-}
-
-// listed are the products of a page of the list whose products a price or a stock decides: of the
-// products that pass its other filters, which the file has, those the list model keeps and shows with
-// the prices and the stock as they are (listFilter.cut in store_list.go).
+// listed are the products of a page of the list, as the list model works them out with the prices and
+// the stock as they are: of the products that pass the filters no write changes, which are kept for
+// the URL (listFilter.narrowed), those the range and the stock keep, in the order of the list, on the
+// page of the URL (listFilter.cut in store_list.go).
 func (m *versionModel) listed(page string) []string {
-	products, _, _, _ := listFilterOf(page).cut(m.d.Lists[m.d.listBase(page)], m.price, m.inStock)
+	f := listFilterOf(page)
+	narrowed, ok := m.narrow[page]
+	if !ok {
+		narrowed = f.narrowed(m.recs)
+		m.narrow[page] = narrowed
+	}
+	products, _, _, _ := f.cut(narrowed, m.price, m.inStock)
 	return products
 }
 
@@ -362,10 +373,7 @@ func decidedParts(page string) []string {
 	case StoreKindProduct:
 		return []string{"bundle"}
 	case StoreKindList:
-		if priceDecidesList(page) {
-			return []string{"picks", "products"}
-		}
-		return []string{"picks"}
+		return []string{"picks", "products"}
 	}
 	return nil
 }
@@ -391,9 +399,9 @@ func (m *versionModel) shown(page string) map[string][]string {
 }
 
 // decidedKeys are the version keys of the decidedParts of a page: the price and the stock of the
-// products in them now, and what decides which products those are where the file does not have it. The
-// file has all the prices for every list ("*:p") and whether each product is in stock for a list of
-// what is in stock ("*:f").
+// products in them now, and what decides which products those are where pageKeys does not have it. It
+// has all the prices for every list ("*:p") and whether each product is in stock for a list of what is
+// in stock ("*:f").
 func (m *versionModel) decidedKeys(page string) []string {
 	page = stripLanding(page)
 	var keys []string
@@ -423,9 +431,7 @@ func (m *versionModel) stampOf(page string) (int, error) {
 		if !found {
 			return 0, fmt.Errorf("the dependencies have no entry for %s: %s", page, again)
 		}
-		if slices.Contains(decidedParts(page), "products") && m.d.Lists[m.d.listBase(page)] == nil {
-			return 0, fmt.Errorf("the dependencies have no products for the list of %s: %s", page, again)
-		}
+
 		for _, k := range keys {
 			ids = append(ids, m.id(k))
 		}

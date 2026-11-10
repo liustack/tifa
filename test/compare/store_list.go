@@ -677,3 +677,24 @@ func byPriceSort(sort string) bool { return sort == "price-asc" || sort == "pric
 // priceDecidesList says whether a price or a stock decides which products a page of the list shows: it
 // sorts by price, has a price range, or has only what is in stock.
 func priceDecidesList(page string) bool { return listFilterOf(page).priceDecides() }
+
+// The classes of the URLs of the product list, for the tables that count them apart.
+const (
+	ListSearch = "search" // a search: the list of a search term, with whatever else
+	ListFilter = "filter" // a filtered list: no term, and a colour, a material, a badge, a rating, a price range or only what is in stock
+	ListOther  = "other"  // the others: the whole list and the list of a category, in any sort, on any page
+)
+
+// ListClass is the class of a URL of the product list. The lists of the class "other" are the ones a
+// crawler asks for and a visit lands on (the whole list, a category, a sort, a page): few URLs, asked
+// for again and again. The two other classes are the long tail: the robots.txt of the shop keeps
+// crawlers out of them, and a visit comes to one by an action on a page.
+func ListClass(page string) string {
+	switch f := listFilterOf(stripLanding(page)); {
+	case strings.TrimSpace(f.Query) != "":
+		return ListSearch
+	case len(f.Colors)+len(f.Materials)+len(f.Badges) > 0 || f.Rating > 0 || f.Min > 0 || f.Max > 0 || f.InStock:
+		return ListFilter
+	}
+	return ListOther
+}
