@@ -810,12 +810,10 @@ func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 	}
 	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |",
-		"| Tifa | cart | 20 | 0 | 0 | - | - | 8 | 12 |",
-		"| Tifa | product | 200 | 120 | 20 | 40 | 20 | - | - |",
-		"does not see the data of the Loads",
-		"the client classes them by URL",
-		"in the order their answers completed",
+		"| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same | VM: URL answered before, no data version | private page, no cart cookie | private page, cart cookie |",
+		"| Tifa | cart | 20 | 0 | 0 | 20 | - | 0.0% of 20 | - | - | - | - | 8 | 12 |",
+		"| Tifa | product | 200 | 120 | 20 | 60 | - | 70.0% of 200 | 40 | 0 | 0 | 20 | - | - |",
+		"the plans allow a memo that drops nothing",
 		"(counted as shared",
 		"canceled",
 		"received whole with `X-Tifa-Render`",
@@ -1024,10 +1022,10 @@ func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 		"Next.js answers an old URL with an error document and renders no page for it on the server",
 		"the other three servers render a whole page for it",
 		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |",
-		"| Tifa | U | 184 | 120 (65.2%) | 4 | 60 |",
-		"| Tifa | O | 10 | 0 (0.0%) | 0 | 10 |",
-		"| Tifa | zh-CN | 98 | 48 (49.0%) | 0 | 50 |",
-		"| Tifa | reviews | 80 | 40 (50.0%) | 0 | 40 |",
+		"| Tifa | U | 184 | 120 | 4 | 60 | - | 67.4% of 184 |",
+		"| Tifa | O | 10 | 0 | 0 | 10 | - | 0.0% of 10 |",
+		"| Tifa | U, zh-CN | 88 | 48 | 0 | 40 | - | 54.5% of 88 |",
+		"| Tifa | U, reviews | 80 | 40 | 0 | 40 | - | 50.0% of 80 |",
 		"| Tifa, memo off (reference) | U |",
 	} {
 		if !strings.Contains(appendix, want) {

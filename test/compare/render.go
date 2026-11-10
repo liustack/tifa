@@ -87,13 +87,18 @@ const (
 	RenderHit    = "memo"
 )
 
-// Why Tifa rendered a page in a VM, as far as the client can tell from the URL, the cookies it sent
-// and X-Tifa-Render. The client does not see the data of the Loads, so RenderAgain holds a page whose
-// data changed since (a write, or data that changes by itself, such as the dates of a day) and one
-// the memo dropped when it was full alike.
+// Why Tifa rendered a page in a VM. The client does not see the data of the Loads, so for a document
+// it takes the plans (Expect): RenderFirst is a page not asked for as a document before (the warm-up
+// counts), RenderChanged one asked for before whose data a write changed since, and RenderSame one
+// asked for before with the same data, which the memo should have held: it dropped it to make room, the
+// order of the requests differed from the plans (a write and a document next to it), or there is a bug.
+// Without the plans (a workload made by hand) the client has the URL alone, and RenderAgain is a URL
+// answered before, whatever its data. A private page is told by its cart cookie.
 const (
-	RenderFirst       = "first"        // the first request of its URL that Tifa answered in the round
-	RenderAgain       = "again"        // a URL Tifa had answered before in the round
+	RenderFirst       = "first"        // a page not asked for before
+	RenderChanged     = "changed"      // asked for before, with other data
+	RenderSame        = "same"         // asked for before, with the same data
+	RenderAgain       = "again"        // a URL Tifa had answered before in the round, with no data version to tell
 	RenderPrivate     = "private"      // a private page, the visit without a cart cookie
 	RenderPrivateCart = "private cart" // a private page, the visit with a cart cookie
 )
@@ -123,4 +128,15 @@ func renderWhy(kind string, seen, cart bool) string {
 // hasCookie says whether a jar sends a cookie of that name to a URL.
 func hasCookie(jar http.CookieJar, u *url.URL, name string) bool {
 	return slices.ContainsFunc(jar.Cookies(u), func(c *http.Cookie) bool { return c.Name == name })
+}
+
+// docWhy is the reason a render of a document in a VM has by the class the plans give it.
+func docWhy(c docClass) string {
+	switch c {
+	case docChanged:
+		return RenderChanged
+	case docSame:
+		return RenderSame
+	}
+	return RenderFirst
 }

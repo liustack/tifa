@@ -61,10 +61,11 @@ func TestTheAppendixSplitsTheLandingHitsOfTifaByTheirParameter(t *testing.T) {
 	}
 	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM |",
-		"| Tifa | with a click id | 80 | 60 (75.0%) | 8 | 12 |",
-		"| Tifa | with an email parameter | 20 | 18 (90.0%) | 0 | 2 |",
-		"| Tifa | with no parameter | 240 | 200 (83.3%) | 0 | 40 |",
+		"| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured |",
+		// The measured share is the answers the memo gave or shared, as in the table by kind of page.
+		"| Tifa | with a click id | 80 | 60 | 8 | 12 | - | 85.0% of 80 |",
+		"| Tifa | with an email parameter | 20 | 18 | 0 | 2 | - | 90.0% of 20 |",
+		"| Tifa | with no parameter | 240 | 200 | 0 | 40 | - | 83.3% of 240 |",
 	} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("the appendix lacks %q:\n%s", want, appendix)

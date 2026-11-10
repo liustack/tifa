@@ -31,6 +31,7 @@ const usage = `usage:
   compare plans [flags]
   compare record [flags]
   compare links [flags]
+  compare deps [flags]
   compare browse [flags]
   compare report out.json
   compare diff old.json new.json`
@@ -43,7 +44,7 @@ func main() {
 	switch os.Args[1] {
 	case "build", "measure":
 		measure(os.Args[1], os.Args[2:])
-	case "plans", "record", "links", "browse":
+	case "plans", "record", "links", "deps", "browse":
 		browseCmd(os.Args[1], os.Args[2:])
 	case "report":
 		if len(os.Args) != 3 {
@@ -170,10 +171,10 @@ func measure(cmd string, args []string) {
 	fmt.Println(rec.Markdown())
 }
 
-// browseCmd is plans, record, links and browse: the comparison of whole visits. plans writes the
+// browseCmd is plans, record, links, deps and browse: the comparison of whole visits. plans writes the
 // visit plans, record plays them in a browser against each framework and keeps what the browser
-// sent, links makes store_links.json, the links of the storefront pages, and browse replays those
-// traces at load and measures them.
+// sent, links makes store_links.json, the links of the storefront pages, deps makes store_deps.json,
+// which products each page shows, and browse replays those traces at load and measures them.
 func browseCmd(cmd string, args []string) {
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	var (
@@ -184,6 +185,7 @@ func browseCmd(cmd string, args []string) {
 		workers   = flags.Int("workers", 4, "record: browser contexts at once")
 		limit     = flags.Int("limit", 0, "record: play only the first plans")
 		linksOut  = flags.String("links-out", "", "links: where to write the links of the storefront pages (default test/compare/store_links.json)")
+		depsOut   = flags.String("deps-out", "", "deps: where to write which products each storefront page shows (default test/compare/store_deps.json)")
 		skipBuild = flags.Bool("skip-build", false, "record, browse: use the last build")
 	)
 	browseFlags(flags)
@@ -206,6 +208,10 @@ func browseCmd(cmd string, args []string) {
 	}
 	if why := compare.MissingTools(); why != "" {
 		fatal(fmt.Errorf("%s", why))
+	}
+	if cmd == "deps" {
+		depsCmd(ctx, env, *depsOut, *skipBuild)
+		return
 	}
 	if !*skipBuild {
 		if err := env.Prepare(ctx, os.Stderr); err != nil {
@@ -234,4 +240,20 @@ func browseCmd(cmd string, args []string) {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+// depsCmd makes store_deps.json: it builds the shop (not the Node apps, which it does not need), starts it
+// with its render memo off and asks it for the data of the pages.
+func depsCmd(ctx context.Context, env compare.Env, out string, skipBuild bool) {
+	if out == "" {
+		out = filepath.Join(env.Root, "test", "compare", "store_deps.json")
+	}
+	if !skipBuild {
+		if err := env.BuildShop(ctx, os.Stderr); err != nil {
+			fatal(err)
+		}
+	}
+	if err := env.WriteStoreDeps(ctx, os.Stderr, out); err != nil {
+		fatal(err)
+	}
 }

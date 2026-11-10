@@ -106,6 +106,11 @@ type Round struct {
 	// and at the end (Tifa alone has it), and MemoError why it could not be read at the end.
 	Memo      *MemoRound `json:"memo,omitempty"`
 	MemoError string     `json:"memoError,omitempty"`
+	// Expected is the hit rate the plans allow a render memo that drops nothing (Workload.Expect) for the
+	// documents of the round, its warm-up played first, and ExpectedError why it could not be worked out.
+	// Only Tifa has it.
+	Expected      *Expected `json:"expected,omitempty"`
+	ExpectedError string    `json:"expectedError,omitempty"`
 	// PrivateHits counts the answers of the private pages, the cart and the checkout, that came from
 	// the render memo: with a cart of their own for every visitor they should be few.
 	PrivateHits int `json:"privateHits"`
@@ -181,7 +186,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Landing = a.landing
 	if r.Crawler != nil {
 		r.Crawler.Done, r.Crawler.Failed, r.Crawler.Cancelled, r.Crawler.Bytes, r.Crawler.OldBytes = a.crawl.done, a.crawl.failed, a.crawl.cancelled, a.crawl.bytes, a.crawl.oldBytes
-		r.Crawler.Statuses, r.Crawler.Renders = a.crawl.statuses, a.crawl.renders
+		r.Crawler.Statuses, r.Crawler.Renders, r.Crawler.Why = a.crawl.statuses, a.crawl.renders, a.crawl.why
 	}
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
 	r.WriteKinds = a.kinds
@@ -302,6 +307,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 // starts at the first action of the round and ends when the last visit has finished, or at timeout.
 func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout time.Duration) *Round {
 	round := &Round{Model: "closed", Sessions: sessions, Blocks: visits / r.wl.blockVisits()}
+	r.expectRound(round, visits, 0)
 	ok := r.setup(ctx, round, 0, visits)
 	var seen map[string]bool
 	if ok {
@@ -517,6 +523,7 @@ func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) 
 // rate, with warmDrain.
 func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int) *Round {
 	round := &Round{Model: "open", Rate: rate}
+	r.expectRound(round, n, seq0)
 	ok := r.setup(ctx, round, seq0, n)
 	var seen map[string]bool
 	if ok {
