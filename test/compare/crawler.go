@@ -234,6 +234,20 @@ func (r *runner) runCrawl(ctx context.Context, tr *http.Transport, a *acc, c int
 		return
 	}
 	a.refuse(res.StatusCode)
+	set := "U"
+	if q.Old {
+		set = "O"
+	}
+	// The status is judged as soon as the headers arrive, as that of a visit is: a body that does not
+	// end before the round does cannot hide a status that was wrong, and the request is counted once.
+	if res.StatusCode != q.want() {
+		res.Body.Close()
+		a.mu.Lock()
+		a.crawl.statuses[set+" "+strconv.Itoa(res.StatusCode)]++
+		a.mu.Unlock()
+		a.crawlFail(fmt.Errorf("crawler GET %s: status %d, want %d", q.URL, res.StatusCode, q.want()))
+		return
+	}
 	n, err := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	end := time.Now()
@@ -241,17 +255,6 @@ func (r *runner) runCrawl(ctx context.Context, tr *http.Transport, a *acc, c int
 		if ctx.Err() == nil {
 			a.crawlFail(fmt.Errorf("crawler GET %s: %w", q.URL, err))
 		}
-		return
-	}
-	set := "U"
-	if q.Old {
-		set = "O"
-	}
-	if res.StatusCode != q.want() {
-		a.mu.Lock()
-		a.crawl.statuses[set+" "+strconv.Itoa(res.StatusCode)]++
-		a.mu.Unlock()
-		a.crawlFail(fmt.Errorf("crawler GET %s: status %d, want %d", q.URL, res.StatusCode, q.want()))
 		return
 	}
 	a.mu.Lock()

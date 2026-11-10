@@ -334,3 +334,42 @@ var oldURLs = sync.OnceValue(func() map[string]bool {
 	}
 	return set
 })
+
+// A status that is not the one expected is a failure as soon as the headers arrive, and a body that
+// then does not end before the round does is no reason to lose it, nor to count it twice. The server
+// sends the status and holds the body until the request is cancelled.
+func TestACrawlerStatusIsJudgedWhenTheHeadersArrive(t *testing.T) {
+	_, old := CrawlURLs()
+	for _, tc := range []struct {
+		name   string
+		status int
+		url    string
+	}{{"a 500 for a public URL", 500, "/store"}, {"a 200 for an old URL", 200, old[0]}, {"a redirect", 302, "/store"}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			w.Write([]byte("start"))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		}))
+		cs := newCrawlerShop(t)
+		cs.r.base = srv.URL
+		// Find the crawler request that asks for the URL of the case.
+		c := 0
+		for ; c < 1_000_000; c++ {
+			if q := cs.r.wl.crawlOf(c); q.URL == tc.url {
+				break
+			}
+		}
+		if c == 1_000_000 {
+			t.Fatalf("%s: no crawler request asks for %s", tc.name, tc.url)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		a := newAcc()
+		cs.r.runCrawl(ctx, http.DefaultTransport.(*http.Transport), a, c, time.Now())
+		cancel()
+		srv.Close()
+		if a.crawl.failed != 1 || a.failures != 1 || a.crawl.done != 0 || !strings.Contains(a.firstErr, "status") {
+			t.Errorf("%s: %d failed, %d failures, %d done (%s)", tc.name, a.crawl.failed, a.failures, a.crawl.done, a.firstErr)
+		}
+	}
+}
