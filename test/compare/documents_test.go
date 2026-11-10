@@ -107,11 +107,11 @@ func TestTheFrameworksAgreeOnWhichPageViewsAreDocuments(t *testing.T) {
 func TestExpectCountsADocumentThatAClickAsks(t *testing.T) {
 	list, pen := "/store/products?sort=newest", "/store/products/walnut-pen"
 	plans := []Plan{
-		{ID: 0, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store"}, {StepClick, list}}}, // the home is new, and so is the list, which the click loads as a document
+		{ID: 0, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: "/store"}, {Kind: StepClick, Page: list}}}, // the home is new, and so is the list, which the click loads as a document
 		landing(1, list), // a hit: the click of visit 0 made the page seen
-		{ID: 2, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store/products/oak-tray"}, {StepClick, pen + "?reviews=2"}}}, // the click gets data: no document, and the page is not seen
+		{ID: 2, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: "/store/products/oak-tray"}, {Kind: StepClick, Page: pen + "?reviews=2"}}}, // the click gets data: no document, and the page is not seen
 		landing(3, pen+"?reviews=2"), // new
-		{ID: 4, Role: RoleShopper, Steps: []PlanStep{{StepLoad, pen}, {StepClick, "/store/checkout"}, {StepClick, "/store"}}}, // the pen is new, the visit checks out, and then loads the home as a document: the kettle of its cart changed
+		{ID: 4, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: pen}, {Kind: StepClick, Page: "/store/checkout"}, {Kind: StepClick, Page: "/store"}}}, // the pen is new, the visit checks out, and then loads the home as a document: the kettle of its cart changed
 		landing(5, "/store"), // a hit: nothing changed since the last document of visit 4
 	}
 	w := handWorkload(plans, nil)
@@ -157,7 +157,7 @@ func TestExpectCountsADocumentThatAClickAsks(t *testing.T) {
 // The plans cannot tell which page views are documents without the trace of a plan, so the count fails
 // for a plan whose trace has not its page views, and does not take the landing alone.
 func TestExpectFailsForAPlanWithoutTheTraceOfItsPageViews(t *testing.T) {
-	plans := []Plan{{ID: 7, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store"}, {StepClick, "/store/products?sort=newest"}}}}
+	plans := []Plan{{ID: 7, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: "/store"}, {Kind: StepClick, Page: "/store/products?sort=newest"}}}}
 	w := handWorkload(plans, nil)
 	w.Traces = map[int]Trace{7: {Plan: 7, Steps: browserTrace(plans[0]).Steps[:1]}}
 	if _, err := w.Expect(handDeps(), nil, expectSpan{0, 1, true}); err == nil || !strings.Contains(err.Error(), "plan 7") {
@@ -174,7 +174,7 @@ func TestARenderInAVMOfADocumentAClickAsksIsSplitByItsClass(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
-	plan := Plan{Steps: []PlanStep{{StepLoad, "/store"}, {StepClick, "/store/products?sort=newest"}, {StepClick, "/store"}, {StepClick, "/store/products/oak-tray"}}}
+	plan := Plan{Steps: []PlanStep{{Kind: StepLoad, Page: "/store"}, {Kind: StepClick, Page: "/store/products?sort=newest"}, {Kind: StepClick, Page: "/store"}, {Kind: StepClick, Page: "/store/products/oak-tray"}}}
 	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, browserTrace(plan, 1, 2))
 	r.expect = &Expectation{human: map[[2]int]docClass{{0, 0}: docNew, {0, 1}: docChanged, {0, 2}: docSame}}
 	a := newAcc()

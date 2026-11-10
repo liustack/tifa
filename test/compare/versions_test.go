@@ -67,7 +67,7 @@ func TestStaffWritesChangeWhatTheyEdit(t *testing.T) {
 
 func TestAReturningVisitsCartIsInItsCheckout(t *testing.T) {
 	v := visitOf()
-	v.Setup = returningCart(1, 5, Plan{Steps: []PlanStep{{StepLoad, "/store"}}})
+	v.Setup = returningCart(1, 5, Plan{Steps: []PlanStep{{Kind: StepLoad, Page: "/store"}}})
 	eff := versionEffects(1, v)
 	got := map[string]bool{}
 	for _, k := range eff[0].Keys {

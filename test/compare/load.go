@@ -669,14 +669,21 @@ type PlannedMix struct {
 	Checkouts int `json:"checkouts"`
 	Edits     int `json:"edits"`
 	Ships     int `json:"ships"`
+	// ActionCounts are what the shopper visits do with the product list: the searches, the filters, the
+	// sorts and the pages, with the visits they are shares of (store_actions.go).
+	ActionCounts
 }
 
 // why says how a planned mix is not the mix of the scenario, or "" when it is: the share of staff
 // visits within half a point, the page views of a shopper visit within 1% of ShopperViewsMean, the
-// returning visitors within half a point of ReturningShare and, unless the scenario is read-only, the
-// adds and checkouts within 0.2 points of their shares and the edits and ships within 3 points of
-// theirs among the staff visits. A round of whole cycles has them exactly, up to the rounding of a
-// block.
+// returning visitors within half a point of ReturningShare, the searches within half a point of
+// SearchShare, with those that find nothing and those for a word of their own within 2 points of their
+// shares of the searches, the filters and the sorts within a point of their shares of the visits that
+// see a list, the filters of one, two and three conditions within 3 points of theirs, the visits to
+// the second page within a point and to the third within half a point of their shares of the visits
+// that see a list of several pages and, unless the scenario is read-only, the adds and checkouts
+// within 0.2 points of their shares and the edits and ships within 3 points of theirs among the staff
+// visits. A round of whole cycles has them exactly, up to the rounding of a block.
 func (m PlannedMix) why(sc BrowseScenario) string {
 	off := func(what string, n, of int, want, within float64) string {
 		got := float64(n) / float64(max(of, 1))
@@ -695,6 +702,16 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 		off("landings with a click id a shopper visit", m.ClickIDs, m.Shoppers, ClickIDShare, 0.005),
 		off("landings with an email parameter a shopper visit", m.EmailParams, m.Shoppers, EmailParamShare, 0.005),
 		m.crawlerShare(sc),
+		off("searches a shopper visit", m.Searches, m.Shoppers, SearchShare, 0.005),
+		off("searches that find nothing a search", m.SearchesNone, m.Searches, SearchNoResultShare, 0.02),
+		off("searches for a word of their own a search", m.SearchesUnique, m.Searches, SearchUniqueShare, 0.02),
+		off("filters a visit that sees a list", m.Filters, m.ListVisits, ListFilterShare, 0.01),
+		off("filters of one condition a filter", m.Conditions[0], m.Filters, FilterConditionShares[0], 0.03),
+		off("filters of two conditions a filter", m.Conditions[1], m.Filters, FilterConditionShares[1], 0.03),
+		off("filters of three conditions a filter", m.Conditions[2], m.Filters, FilterConditionShares[2], 0.03),
+		off("changes of the sort a visit that sees a list", m.Sorts, m.ListVisits, ListSortShare, 0.01),
+		off("visits to the second page a visit that sees a list of several pages", m.SecondPages, m.PagedVisits, ListPageShares[1], 0.01),
+		off("visits to the third page a visit that sees a list of several pages", m.ThirdPages, m.PagedVisits, ListPageShares[2], 0.005),
 	)
 	if why != "" || sc.ReadOnly {
 		return why

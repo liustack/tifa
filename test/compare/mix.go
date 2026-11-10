@@ -260,10 +260,12 @@ var LandingValueLengths = map[string]int{"gclid": 95, "fbclid": 61, "msclkid": 3
 // product, on a product looks at a related one, goes back to the list, to the cart or to the
 // checkout (the link of the cart drawer), and from the cart to the checkout. A kind the page has no
 // link to is left out, and the rest count for the whole. Among the links of a kind, a product is
-// picked by its popularity (productWeight), any other page alike.
+// picked by its popularity (productWeight), any other page alike. A list has no weight for a link to
+// another list: a visit gets from a list to a list by a filter, a sort, a page or a search, which are
+// dealt by quota (store_actions.go), and a click that did the same would count them twice.
 var StoreClicks = map[string]map[string]float64{
 	StoreKindHome:     {StoreKindList: 0.3, StoreKindProduct: 0.4, StoreKindJournal: 0.15, StoreKindCart: 0.1, StoreKindPost: 0.05},
-	StoreKindList:     {StoreKindProduct: 0.7, StoreKindList: 0.1, StoreKindHome: 0.1, StoreKindCart: 0.1},
+	StoreKindList:     {StoreKindProduct: 0.7, StoreKindHome: 0.1, StoreKindCart: 0.1},
 	StoreKindProduct:  {StoreKindProduct: 0.3, StoreKindList: 0.25, StoreKindCart: 0.25, StoreKindCheckout: 0.1, StoreKindHome: 0.1, StoreKindJournal: 0.1},
 	StoreKindJournal:  {StoreKindPost: 0.7, StoreKindHome: 0.15, StoreKindList: 0.15},
 	StoreKindPost:     {StoreKindJournal: 0.4, StoreKindProduct: 0.3, StoreKindHome: 0.15, StoreKindList: 0.15},
@@ -297,8 +299,9 @@ var LandingShares = []struct {
 }{{StoreKindHome, 0.30}, {StoreKindList, 0.25}, {StoreKindProduct, 0.45}}
 
 // A block of the plans holds ShopperBlockVisits shopper visits, which have the mix above exactly
-// (2600 page views, 66 adds to the cart of which 13 check out, 200 returning visitors, the landing
-// pages and languages by quota), and StaffBlockPlans staff visits. StaffBlockPlans is not a share:
+// (4000 page views, 66 adds to the cart of which 13 check out, 200 returning visitors, the landing
+// pages and languages, the searches, the filters, the sorts and the pages of the lists by quota), and
+// StaffBlockPlans staff visits. StaffBlockPlans is not a share:
 // it is how many different staff visits are recorded. How many staff visits a cycle of the site plays
 // is the scenario's (BrowseScenario.Staff).
 const (
@@ -363,6 +366,11 @@ func visitLengths(rng *rand.Rand, n, most, total int, more float64) []int {
 // AddToCartShare among the visits that see a product add to the cart after the first product they see.
 // ReturningShare of the visits are returning visitors.
 //
+// Besides clicking links a shopper visit searches, and filters, sorts and pages the product lists it
+// is on, by the quotas of the mix (SearchShare, ListFilterShare, ListSortShare, ListPageShares): the
+// order they are dealt in, and why it makes the quotas exact, is at the top of store_actions.go. The
+// lengths and the landings are drawn first, so they do not depend on any of it.
+//
 // A staff visit is 1 to StaffViewsMax page views of the back office, StaffViewsMean on average
 // exactly, landing on a list or a stats page for half of them and on an order for the other half, and
 // clicking the links every page of the back office has (Links).
@@ -420,11 +428,30 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			default:
 				first = pages[rng.IntN(len(pages))]
 			}
-			steps := []PlanStep{{StepLoad, first}}
-			for len(steps) < lens[i] {
-				steps = append(steps, PlanStep{StepClick, pick(rng, StoreLinks(steps[len(steps)-1].Page))})
-			}
+			steps := make([]PlanStep, lens[i])
+			steps[0] = PlanStep{Kind: StepLoad, Page: first}
 			shoppers = append(shoppers, Plan{ID: b*SiteBlockPlans + i, Block: b, Role: RoleShopper, Steps: steps})
+		}
+		// The searches, by quota, among the visits with a page view after the landing, in a shuffle of
+		// their own: which visits, at which page view, for a word of which class.
+		visits := make([]*draftVisit, ShopperBlockVisits)
+		for i := range shoppers {
+			visits[i] = &draftVisit{plan: &shoppers[i], search: -1}
+		}
+		srng := rand.New(rand.NewPCG(seed^0x510e527fade682d1, uint64(b)))
+		classes := searchClasses(srng, share(SearchShare))
+		for _, i := range srng.Perm(ShopperBlockVisits) {
+			if d := visits[i]; len(classes) > 0 && len(d.plan.Steps) >= 2 {
+				d.search, d.class, classes = 1+srng.IntN(len(d.plan.Steps)-1), classes[0], classes[1:]
+				d.plan.Steps[d.search] = searchStep(ls[i], drawSearchTerm(srng, ls[i], d.class))
+			}
+		}
+		if len(classes) > 0 {
+			panic(fmt.Sprintf("block %d of seed %d: %d searches found no visit of two page views", b, seed, len(classes)))
+		}
+		// The other page views: clicks on the links of the page before.
+		for _, d := range visits {
+			d.rewalk(rng, 1)
 		}
 		// The writes: the visits that can check out (a product, then the checkout) and the ones that can
 		// add to the cart (a product), in a seeded shuffle.
@@ -439,27 +466,33 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		}
 		checkouts, adds := share(CheckoutShare), share(AddToCartShare)
 		// A visit that checks out walks again, from the same page and for as many page views, until it
-		// sees a product and later the checkout: it can when it lands on a product and has two page
-		// views or more (the product, then the checkout from the cart drawer), or has three or more.
+		// sees a product and later the checkout. Its search stays where it is, so it needs the page views
+		// besides: one after a product it lands on (the product, then the checkout from the cart drawer),
+		// or two. A visit whose search leaves no such walk (the checkout cannot follow a list) is passed
+		// over after 2,000 tries, and the next of the shuffle is taken.
 		for _, i := range order {
-			p := &shoppers[i]
+			p, d := &shoppers[i], visits[i]
 			if checkouts == 0 {
 				break
 			}
-			if _, k := StorePageKind(p.Steps[0].Page); len(p.Steps) < 2 || len(p.Steps) == 2 && k != StoreKindProduct {
+			free := len(p.Steps) - 1
+			if d.search >= 0 {
+				free--
+			}
+			if _, k := StorePageKind(p.Steps[0].Page); free < 1 || free == 1 && k != StoreKindProduct {
 				continue
 			}
 			walk := rand.New(rand.NewPCG(seed^0xbb67ae8584caa73b, uint64(b)<<20|uint64(i)))
-			for try := 0; ; try++ {
+			kept := slices.Clone(p.Steps)
+			for try := 0; try < 2000; try++ {
 				if at := kindAt(*p, StoreKindProduct, 0); at >= 0 && kindAt(*p, StoreKindCheckout, at+1) >= 0 {
 					break
 				}
-				if try == 100_000 {
-					panic(fmt.Sprintf("block %d of seed %d: visit %d found no walk to the checkout", b, seed, i))
-				}
-				for j := 1; j < len(p.Steps); j++ {
-					p.Steps[j].Page = pick(walk, StoreLinks(p.Steps[j-1].Page))
-				}
+				d.rewalk(walk, 1)
+			}
+			if at := kindAt(*p, StoreKindProduct, 0); at < 0 || kindAt(*p, StoreKindCheckout, at+1) < 0 {
+				copy(p.Steps, kept)
+				continue
 			}
 			if at := kindAt(*p, StoreKindProduct, 0); at >= 0 {
 				if out := kindAt(*p, StoreKindCheckout, at+1); out >= 0 {
@@ -470,6 +503,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 						}
 					}
 					p.Writes = []PlanWrite{{at, WriteAdd}, {out, WriteCheckout}}
+					d.locked = out
 					checkouts--
 					adds--
 				}
@@ -482,6 +516,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			}
 			if at := kindAt(*p, StoreKindProduct, 0); at >= 0 && len(p.Writes) == 0 {
 				p.Writes = []PlanWrite{{at, WriteAdd}}
+				visits[i].locked = at
 				adds--
 			}
 		}
@@ -491,7 +526,15 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		for _, i := range rng.Perm(ShopperBlockVisits)[:share(ReturningShare)] {
 			shoppers[i].Returning = true
 		}
+		// The filters, the sorts and the pages of the lists, by quota, in a shuffle of their own, then the
+		// landing parameters, and last the variants of the visits that search, which are whole visits.
+		if err := planListActions(rand.New(rand.NewPCG(seed^0x9b05688c2b3e6c1f, uint64(b))), visits); err != nil {
+			panic(fmt.Sprintf("block %d of seed %d: %v", b, seed, err))
+		}
 		putLandingParams(seed, b, shoppers)
+		if err := planVariants(seed, b, visits); err != nil {
+			panic(fmt.Sprintf("block %d of seed %d: %v", b, seed, err))
+		}
 		set.Plans = append(set.Plans, shoppers...)
 		// The staff: half of the visits land on a list or a stats page, half on an order.
 		slens := visitLengths(rng, StaffBlockPlans, StaffViewsMax, StaffViewsMean*StaffBlockPlans, StaffViewsMore)
@@ -506,9 +549,9 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			if firsts[i] == "order" {
 				pages = orders
 			}
-			steps := []PlanStep{{StepLoad, pages[rng.IntN(len(pages))]}}
+			steps := []PlanStep{{Kind: StepLoad, Page: pages[rng.IntN(len(pages))]}}
 			for len(steps) < slens[i] {
-				steps = append(steps, PlanStep{StepClick, pick(rng, Links(steps[len(steps)-1].Page))})
+				steps = append(steps, linkStep(pick(rng, Links(steps[len(steps)-1].Page))))
 			}
 			set.Plans = append(set.Plans, Plan{ID: b*SiteBlockPlans + ShopperBlockVisits + i, Block: b, Role: RoleStaff, Steps: steps})
 		}
@@ -724,7 +767,7 @@ func MixFacts() []MixFact {
 		{"ListFilterShare", "shopper visits that filter the list, of those that see a product list", pct(ListFilterShare), "assumption: the published ranges for the use of filters (20% to 60%) name no source that can be checked"},
 		{"FilterConditionShares", "filters that set one, two and three conditions", sharesOf(FilterConditionShares), "assumption: no data on how many filters a visit uses"},
 		{"FilterKinds", "kinds of condition of a filter, as relative weights. A condition on the price is one of the four price bands of the page, never a range typed by hand", filterKinds(), "assumption: no data on which filters are used most, and the order is a judgment"},
-		{"ListSortShare", "shopper visits that change the sort of the list, of those that see a product list, to one of the other sorts, all alike", pct(ListSortShare), "assumption: nothing was found on sorting"},
+		{"ListSortShare", "shopper visits that change the sort of the list, of those that see a product list, to one of the four sorts that are not the default, all alike", pct(ListSortShare), "assumption: nothing was found on sorting"},
 		{"ListPageShares", "shopper visits that stay on the first page, go to the second and go on to the third, of those that see a product list of more than one page with no search term", sharesOf(ListPageShares),
 			"Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, with no date and no method), rounded. The figure is of search results, and it is used on the lists with no search term because a search of this shop never has a second page"},
 		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},

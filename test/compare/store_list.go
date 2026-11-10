@@ -323,16 +323,32 @@ func shopPrices() (price map[string]int, inStock map[string]bool) {
 // product is in stock as they are now (Search and TopRated in
 // examples/shop/app/store/products/product.go, called by Load in route.go).
 func ModelList(page string, price map[string]int, inStock map[string]bool) ListPage {
+	return modelList(page, price, inStock, topRatedOf(storeCatalogue().records, price, listPicks))
+}
+
+// modelList is ModelList with the best rated products given, which are the same for every list at the
+// same prices.
+func modelList(page string, price map[string]int, inStock map[string]bool, picks []string) ListPage {
 	recs := storeCatalogue().records
 	f := listFilterOf(page)
-	p := ListPage{Picks: topRatedOf(recs, price, listPicks)}
+	p := ListPage{Picks: picks}
 	p.Products, p.Total, p.Pages, f.Page = f.cut(f.narrowed(recs), price, inStock)
 	p.Filter = f
+	// passes says, for each filter a count leaves out, which products pass the others: worked out once
+	// for each of them, since every value of a filter counts over the same products.
+	passes := map[string][]bool{}
+	for _, skip := range []string{skipCategory, skipColors, skipMaterials, skipBadges, skipRating, skipPrice} {
+		list := make([]bool, len(recs))
+		for i, r := range recs {
+			list[i] = f.narrows(r, skip) && f.affords(price[r.Slug], inStock[r.Slug], skip)
+		}
+		passes[skip] = list
+	}
 	// count is how many products pass the other filters and are in.
 	count := func(skip string, in func(storeRecord) bool) int {
 		n := 0
-		for _, r := range recs {
-			if in(r) && f.narrows(r, skip) && f.affords(price[r.Slug], inStock[r.Slug], skip) {
+		for i, r := range recs {
+			if passes[skip][i] && in(r) {
 				n++
 			}
 		}

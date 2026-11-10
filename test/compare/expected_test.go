@@ -26,7 +26,7 @@ func handDeps() *StoreDeps {
 
 // landing is a plan of one visit that lands on page.
 func landing(id int, page string) Plan {
-	return Plan{ID: id, Role: RoleShopper, Steps: []PlanStep{{StepLoad, page}}}
+	return Plan{ID: id, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: page}}}
 }
 
 // handWorkload plays the plans in order, one visit each, with the writes it is given by plan ID. Its
@@ -47,7 +47,7 @@ func TestExpectedHitsFollowThePagesAndTheWritesOfAPlan(t *testing.T) {
 	plans := []Plan{
 		landing(0, "/store"),       // 0: new
 		landing(1, "/store"+click), // 1: the click id is no part of the page, so the same page: a hit
-		{ID: 2, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store/products/walnut-pen"}, {StepClick, "/store/checkout"}}}, // 2: new, and its visit checks out: the stock of the kettle and the pen change
+		{ID: 2, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: "/store/products/walnut-pen"}, {Kind: StepClick, Page: "/store/checkout"}}}, // 2: new, and its visit checks out: the stock of the kettle and the pen change
 		landing(3, "/store"),                      // 3: the kettle changed: seen before, another version
 		landing(4, "/store"),                      // 4: the same version: a hit
 		landing(5, "/store/products/oak-tray"),    // 5: new
@@ -230,14 +230,25 @@ func listClicks(p Plan) []int {
 	return out
 }
 
-// On the plans of the mix, with its writes and its crawlers, the count is the slow one. Some clicks
-// load a document, as in the browser: here every click to a product list.
+// On the plans of the mix, with its writes and its crawlers, the count is the slow one. Some page
+// views after the landing load a document, as in the browser: here every one that shows a product list
+// store_deps.json has an entry for. The file has the lists a visit can land on and those of the
+// crawlers, not yet the lists a search or a filter leads to, so the others stay with the router here.
 func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	d := checkedDeps(t)
-	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return browserTrace(p, listClicks(p)...) })
+	known := func(p Plan) []int {
+		var out []int
+		for _, i := range listClicks(p) {
+			if _, ok := d.Pages[d.RenderURL(p.Steps[i].Page)]; ok && (!priceDecidesList(p.Steps[i].Page) || d.Lists[d.listBase(p.Steps[i].Page)] != nil) {
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return browserTrace(p, known(p)...) })
 	clicks := 0
 	for _, p := range w.Plans {
-		clicks += len(listClicks(p))
+		clicks += len(known(p))
 	}
 	if clicks < 100 {
 		t.Fatalf("%d clicks of the plans load a document: too few to check them", clicks)

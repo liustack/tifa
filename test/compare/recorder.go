@@ -40,8 +40,16 @@ func ReadPlans(dir string) (*PlanSet, error) {
 	if set.Site != SiteShop {
 		return nil, fmt.Errorf("%s holds the plans of the site %q, not of %q: make them again", PlansPath(dir), set.Site, SiteShop)
 	}
+	const again = "make the plans again (`compare plans`) and record the traces again (`compare record`)"
 	if err := checkLandingQuotas(&set); err != nil {
-		return nil, fmt.Errorf("%s: %w: make the plans again (`compare plans`) and record the traces again (`compare record`)", PlansPath(dir), err)
+		return nil, fmt.Errorf("%s: %w: %s", PlansPath(dir), err, again)
+	}
+	// What the visits do on their pages, by the quotas of the mix, and the variants of those that search.
+	if err := checkActionQuotas(&set); err != nil {
+		return nil, fmt.Errorf("%s: %w: %s", PlansPath(dir), err, again)
+	}
+	if err := checkVariants(&set); err != nil {
+		return nil, fmt.Errorf("%s: a variant is not its visit with another word: %w: %s", PlansPath(dir), err, again)
 	}
 	return &set, nil
 }

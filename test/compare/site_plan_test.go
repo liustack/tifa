@@ -42,7 +42,9 @@ func TestSitePlanSetHasTheMixInEveryBlock(t *testing.T) {
 				if p.Role == RoleStaff {
 					links = Links
 				}
-				if s.Kind != StepClick || !slices.ContainsFunc(links(p.Steps[j].Page), func(l Link) bool { return l.To == s.Page }) {
+				// A click on a link goes to a link of the page. What a visit does besides is checked with the
+				// searches (TestEveryActionOfAPlanIsOneThePageHas).
+				if s.Kind != StepClick || s.Act == "" || s.Act == ActLink && !slices.ContainsFunc(links(p.Steps[j].Page), func(l Link) bool { return l.To == s.Page }) {
 					t.Fatalf("plan %d: %s -> %s is no click on a link", p.ID, p.Steps[j].Page, s.Page)
 				}
 			}

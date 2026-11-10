@@ -84,34 +84,6 @@ func TestTheListModelHasTheProductsOfStoreDeps(t *testing.T) {
 	}
 }
 
-// layoutLinks are the links of store_links.json that the Layout of the storefront puts on every page of
-// a language: those every page of the language has, but the page a link leads to, which the file leaves
-// out of its own links.
-func layoutLinks(lang string) map[string]bool {
-	graph := storeLinkGraph()
-	pages, has := 0, map[string]int{}
-	for page, links := range graph {
-		if l, _ := StorePageKind(page); l != lang {
-			continue
-		}
-		pages++
-		for _, to := range links {
-			has[to]++
-		}
-	}
-	out := map[string]bool{}
-	for to, n := range has {
-		want := pages
-		if l, _ := StorePageKind(to); l == lang && graph[to] != nil {
-			want--
-		}
-		if n == want {
-			out[to] = true
-		}
-	}
-	return out
-}
-
 // For the lists store_links.json was made for (a crawl of the pages in a browser), the links of the
 // model are the links of the file: the file has, of the links of a page, those that lead to another
 // page a visit can be on, and besides the links of the list itself those of the Layout, which every
@@ -121,7 +93,7 @@ func TestTheListModelHasTheLinksOfStoreLinks(t *testing.T) {
 	graph := storeLinkGraph()
 	checked := 0
 	for _, l := range StoreLangs {
-		layout := layoutLinks(l)
+		layout := layoutLinks()[l]
 		if len(layout) < 5 {
 			t.Fatalf("%s: %d links on every page: the Layout has more", l, len(layout))
 		}
@@ -139,7 +111,7 @@ func TestTheListModelHasTheLinksOfStoreLinks(t *testing.T) {
 				t.Fatalf("store_links.json has no links for %s", u)
 			}
 			set := map[string]bool{other + "/products": true} // the language switch of the Layout links to the path alone
-			for to := range layout {
+			for _, to := range layout {
 				set[to] = true
 			}
 			for _, link := range ModelList(u, price, inStock).Links() {
