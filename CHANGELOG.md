@@ -42,6 +42,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- The search box in the header of the example shop's Chinese storefront searches the Chinese list (`/zh-CN/store/products?q=`). It sent the visitor to the English one.
 - The pages of reviews on a product page of the example shop's Chinese storefront link to the Chinese URLs (`/zh-CN/store/products/<slug>?reviews=2`). They linked to the English page.
 - The redirects the router makes while rendering a page (`/%61` to `/a`) are now kept by the render memo like other pages, so a repeat is a hit (`X-Tifa-Render: memo`) and not a render. A 404 page and the page of a failed `Load` are rendered for each request and not kept, so random URLs do not fill the memo, and requests for the same one at the same time share one render. They carry no `ETag`, and `OnError` sees every failure ([The render memo](docs/memo.md#why-it-is-safe-on-every-page)).
 - A missing file under `/assets/`, such as a chunk of an older build that a tab opened before a deploy asks for, now gets a plain text 404 with `Cache-Control: no-store`. It used to go through `OnRequest`, run the `Load`s of the root Layout and render the app's 404 page ([Page requests](docs/build.md#page-requests)).

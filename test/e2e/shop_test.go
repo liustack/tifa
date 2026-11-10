@@ -279,7 +279,9 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		path  string
 		wants []string
 	}{
-		{"/zh-CN/store", []string{"<title>山海 · 日常器物</title>", "秋天的第一壶茶"}},
+		// The search of the header is a plain form, so its action carries the language.
+		{"/zh-CN/store", []string{"<title>山海 · 日常器物</title>", "秋天的第一壶茶", `action="/zh-CN/store/products"`}},
+		{"/store", []string{`action="/store/products"`}},
 		{"/store/products?color=moss&sort=price-asc", []string{"<title>All products · Shanhai</title>", "44 products", `products/mini-journal">Mini Journal</a>`}},
 		{"/store/products/pour-over-kettle", []string{"Morning Pour-Over Kettle", "$46.20", "63 reviews", "Order now and get it between"}},
 		{"/zh-CN/store/products/pour-over-kettle", []string{"晨间手冲壶", "¥328.00"}},
