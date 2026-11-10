@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -480,6 +482,7 @@ func TestStorefront(t *testing.T) {
 			t.Run("scenarios", p.scenarios)
 			t.Run("redirects", p.redirects)
 			t.Run("other requests", p.otherRequests)
+			t.Run("robots.txt", p.robots)
 			t.Run("forms", p.forms)
 			t.Run("refused bodies", p.refused)
 			t.Run("cookies", p.cookies)
@@ -631,6 +634,23 @@ func (p *pair) otherRequests(t *testing.T) {
 		}
 	}
 	q.views("checkout page with an empty order", "/zh-CN/store/checkout?placed=", [2]string{}, 200)
+}
+
+// robots: the robots.txt of the shop, which Tifa serves from the public folder of the shop and each app
+// from a copy of it in its own: the same text in both, as plain text, and the text of the file.
+func (p *pair) robots(t *testing.T) {
+	q := p.fresh()
+	q.t = t
+	want, err := os.ReadFile(filepath.Join(setup(t).Shop, "public", "robots.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, r := range map[string]reply{"Tifa": q.tifa.get("/robots.txt"), p.spec.label: q.app.get("/robots.txt")} {
+		kind, _, _ := strings.Cut(r.header.Get("Content-Type"), ";")
+		if r.status != 200 || kind != "text/plain" || string(r.body) != string(want) {
+			t.Errorf("%s answers /robots.txt with %d, %s and %d bytes, want 200, text/plain and the %d bytes of the file of the shop:\n%s", name, r.status, r.header.Get("Content-Type"), len(r.body), len(want), r.body)
+		}
+	}
 }
 
 // A valid order for the checkout, as the form sends it.

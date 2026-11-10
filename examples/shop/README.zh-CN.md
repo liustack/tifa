@@ -51,6 +51,7 @@ go tool tifa check
 hooks.go                       OnRequest 把没登录的访客挡在工作台和指标外，OnError 记录意外错误
 session.go                     会话类型、演示账号和密码校验
 components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
+public/robots.txt              在 /robots.txt 提供：不让爬虫进搜索结果和带筛选的商品列表
 app/
   route.go  layout.tsx         工作台的根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET
   account.tsx                  顶栏里显示谁登录了，以及退出按钮

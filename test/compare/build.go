@@ -56,6 +56,12 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 	return run(ctx, log, dir, env, "pnpm", "exec", "tsc", "--noEmit")
 }
 
+// isDir says whether path is a folder.
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 // Sync copies what the workbench pages are made of from the shop into dir/shop, where the app
 // imports it as `@/`. kind is "next", "start" or "reactrouter". The folder is made new every time. The data the
 // pages show is not copied: the apps compute it from the domain code in test/compare/domain.
@@ -64,7 +70,8 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 // formatting functions and everything under app/projects that is TypeScript. The generated
 // route.gen modules come from .tifa/app, with getRouteApi replaced for Next.js by a
 // context the server component fills. The photos the pages show (their 160 pixel size) go to
-// dir/public/images. Then the shared overlay (shims for what only tifa has, such as tifa/client)
+// dir/public/images, and the files of the public folder of the shop (robots.txt) to dir/public. Then
+// the shared overlay (shims for what only tifa has, such as tifa/client)
 // and the overlay of the app are copied over. The one change to a copied file: the stylesheet
 // gets an @source line, since Tailwind skips folders that git ignores and dir/shop is one.
 func (e Env) Sync(dir, kind string) error {
@@ -157,6 +164,13 @@ func (e Env) Sync(dir, kind string) error {
 	}
 	if err := writeImages(filepath.Join(dst, "app", "store", "images.ts"), photos); err != nil {
 		return err
+	}
+	// The files the shop serves from the root of the site as they are (its public folder: robots.txt) go
+	// to the public folder of the app, which each of the three serves the same way.
+	if public := filepath.Join(e.Shop, "public"); isDir(public) {
+		if err := copyTree(public, filepath.Join(dir, "public"), nil); err != nil {
+			return err
+		}
 	}
 	switch kind {
 	case "start":
