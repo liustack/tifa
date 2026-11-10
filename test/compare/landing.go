@@ -223,3 +223,30 @@ func checkLanding(p Plan, t Trace) error {
 	}
 	return fmt.Errorf("plan %d lands on %s and its document request lacks the landing parameter %s", p.ID, p.Steps[0].Page, name)
 }
+
+// The groups the landing documents of Tifa are counted in (Round.Landing).
+const (
+	LandingClickID = "click id"
+	LandingEmail   = "email parameter"
+	LandingNone    = "no parameter"
+)
+
+// LandingGroups are the groups of Round.Landing, in the order of the report.
+var LandingGroups = []string{LandingClickID, LandingEmail, LandingNone}
+
+// landingGroup is the group of a request URL by the landing parameter it carries.
+func landingGroup(url string) string {
+	switch name := landingParam(url); {
+	case name == "":
+		return LandingNone
+	case isClickID(name):
+		return LandingClickID
+	}
+	return LandingEmail
+}
+
+// isStorePage says whether a URL is a page of the storefront, and not of the back office.
+func isStorePage(url string) bool {
+	_, kind := StorePageKind(url)
+	return kind != ""
+}

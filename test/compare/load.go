@@ -119,7 +119,11 @@ type Round struct {
 	Encodings map[string]int `json:"encodings,omitempty"`
 	// VMWhy splits the answers Tifa rendered in a VM by kind of page and why (RenderFirst, RenderAgain,
 	// RenderPrivate, RenderPrivateCart).
-	VMWhy     map[string]map[string]int `json:"vmWhy,omitempty"`
+	VMWhy map[string]map[string]int `json:"vmWhy,omitempty"`
+	// Landing splits the documents of the landings of the storefront that Tifa answered by the parameter
+	// they carry (LandingGroups) and how it answered them: the render memo, a render in progress that it
+	// shared, or a render in a VM. A parameter is no part of the page, so the groups should be answered alike.
+	Landing   map[string]map[string]int `json:"landing,omitempty"`
 	Responses map[string]int            `json:"responses,omitempty"`
 	Types     map[string]TypeStat       `json:"types"`
 	// Series is page views a second and their P99 in steps of SeriesLength from the first request: how the
@@ -170,6 +174,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Renders, r.Responses, r.PageRenders = a.renders, a.responses, a.pageRenders
 	r.Encodings = a.encodings
 	r.VMWhy = a.vmWhy
+	r.Landing = a.landing
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
 	r.WriteKinds = a.kinds
 	r.Refused = a.refused

@@ -715,6 +715,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 		fmt.Fprintf(b, " %s |\n", privateCell(rs))
 	}
 	r.renderWhyMarkdown(b, rows, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
+	landingMarkdown(b, rows, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 }
 
 // privateCell is how many answers of the private pages, the cart and the checkout, the render memo
@@ -1042,3 +1043,47 @@ func (r *BrowseResult) memoMarkdown(b *strings.Builder, sc BrowseScenario) {
 		b.WriteString(row)
 	}
 }
+
+// landingMarkdown is a diagnostic for Tifa: how it answered the documents of the landings of the
+// storefront with a click id, with an email parameter and with none, over the rounds. The parameters
+// are no part of the page, so the three groups go to the same pages and should be answered alike.
+func landingMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
+	var rows []string
+	for _, f := range servers {
+		rs := rounds(f)
+		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.Landing == nil }) {
+			continue
+		}
+		for _, g := range LandingGroups {
+			var answers, memo, shared, vm int
+			for _, x := range rs {
+				for how, n := range x.Landing[g] {
+					answers += n
+					switch how {
+					case RenderHit:
+						memo += n
+					case RenderShared:
+						shared += n
+					case RenderVM:
+						vm += n
+					}
+				}
+			}
+			share := "-"
+			if answers > 0 {
+				share = fmt.Sprintf("%.1f%%", 100*float64(memo)/float64(answers))
+			}
+			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d (%s) | %d | %d |\n", BrowseLabel(f), landingLabels[g], answers, memo, share, shared, vm))
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\nThe documents of the landings of the storefront that Tifa answered, by the parameter their URL carries, over the rounds. A click id (`gclid`, `fbclid`, `msclkid`) is different for every click and an email parameter (`_kx`, `mc_eid`) for every recipient, and neither is part of the page, so the three groups ask for the same pages and should be answered alike. Only the documents of the storefront count (the back office has no landings with a parameter), and the warm-up is left out.\n\n| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM |\n| --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
+}
+
+// landingLabels say what the URL of a group carries.
+var landingLabels = map[string]string{LandingClickID: "a click id", LandingEmail: "an email parameter", LandingNone: "no parameter"}

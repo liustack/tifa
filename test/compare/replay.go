@@ -291,6 +291,9 @@ type acc struct {
 	// rendered in a VM by kind of page and why (renderWhy).
 	seen  map[string]bool
 	vmWhy map[string]map[string]int
+	// landing counts how Tifa answered the documents of the landings of the storefront (X-Tifa-Render), by
+	// the parameter the URL carries (landingGroup).
+	landing map[string]map[string]int
 }
 
 // refuse counts an answer with the status status as refused when it is 409 or 422. After the
@@ -305,7 +308,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}, landing: map[string]map[string]int{}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -528,6 +531,13 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		seenAt := stripLanding(q.URL)
 		seen := a.seen[seenAt]
 		a.seen[seenAt] = true
+		if q.Class == "doc" && isStorePage(page) {
+			g := landingGroup(q.URL)
+			if a.landing[g] == nil {
+				a.landing[g] = map[string]int{}
+			}
+			a.landing[g][rd]++
+		}
 		if rd == RenderVM {
 			if a.vmWhy[kind] == nil {
 				a.vmWhy[kind] = map[string]int{}
