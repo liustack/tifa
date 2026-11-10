@@ -232,39 +232,30 @@ func listClicks(p Plan) []int {
 	return out
 }
 
-// On the plans of the mix, with its writes and its crawlers, the count is the slow one. Some page
-// views after the landing load a document, as in the browser: here every one that shows a product list
-// store_deps.json has an entry for. The file has the lists a visit can land on and those of the
-// crawlers, not yet the lists a search or a filter leads to, so the others stay with the router here.
+// On the plans of the mix, with its writes and its crawlers, the count is the slow one. The page views
+// load a document where the browser does: the landings, the searches, the filters by a plain link and
+// the next pages of a list, in whatever form a visit takes of a plan that searches. The lists those
+// lead to are in no file: the list model works out what each shows, and a search for a word of the
+// visit's own is a page of its own.
 func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	d := checkedDeps(t)
-	// A variant loads a document where the visit of its plan does, so a click loads one when the file
-	// has the list of every form of the plan.
-	forms := map[int][]Plan{}
-	for _, p := range GenerateSitePlanSet(1, 1).Plans {
-		for v := range 1 + len(p.Variants) {
-			forms[p.ID] = append(forms[p.ID], planForm(p, v))
-		}
-	}
-	known := func(p Plan) []int {
-		var out []int
-		for _, i := range listClicks(p) {
-			if !slices.ContainsFunc(forms[p.ID], func(f Plan) bool {
-				_, ok := d.Pages[d.RenderURL(f.Steps[i].Page)]
-				return !ok || priceDecidesList(f.Steps[i].Page) && d.Lists[d.listBase(f.Steps[i].Page)] == nil
-			}) {
-				out = append(out, i)
+	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return browserTrace(p) })
+	clicks, searches, filters := 0, 0, 0
+	for _, p := range w.Plans {
+		for _, s := range p.Steps[1:] {
+			if doc, known := actLoads(s); known && doc {
+				clicks++
+				switch s.Act {
+				case ActSearch:
+					searches++
+				case ActFilter:
+					filters++
+				}
 			}
 		}
-		return out
 	}
-	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return landingTrace(p, known(p)...) })
-	clicks := 0
-	for _, p := range w.Plans {
-		clicks += len(known(p))
-	}
-	if clicks < 100 {
-		t.Fatalf("%d clicks of the plans load a document: too few to check them", clicks)
+	if clicks < 250 || searches < 150 || filters < 50 {
+		t.Fatalf("%d actions of the plans load a document, %d searches and %d filters: too few to check them", clicks, searches, filters)
 	}
 	n := w.Scenario.blockVisits()
 	spans := []expectSpan{{3 * n, n, false}, {0, 2 * n, true}}

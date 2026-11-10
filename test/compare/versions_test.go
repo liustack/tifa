@@ -4,6 +4,7 @@ import (
 	"math/rand/v2"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -82,15 +83,11 @@ func TestAReturningVisitsCartIsInItsCheckout(t *testing.T) {
 	}
 }
 
-// modelOf is a model over the real catalogue with the pages of handDeps and a list of every product (the
-// product list with no filter, whose pages hold 24 each).
+// modelOf is a model over the real catalogue with the pages of handDeps. The pages of the product list
+// need no entry: the model works them out.
 func modelOf(t *testing.T) *versionModel {
 	t.Helper()
 	d := handDeps()
-	d.Lists = map[string][]string{"/store/products": StoreProducts(), "/zh-CN/store/products": StoreProducts()}
-	d.Pages["/store/products?sort=price-desc"] = []string{"*:p"}
-	d.Pages["/store/products?sort=price-desc&page=2"] = []string{"*:p"}
-	d.Pages["/store/products?stock=1"] = []string{"*:p", "*:f"}
 	d.Pages["/store/products/oak-tray"] = []string{}
 	return newVersionModel(d, nil)
 }
@@ -348,32 +345,122 @@ func TestAPriceRangeIsInTheCurrencyOfTheLanguage(t *testing.T) {
 	}
 }
 
-// The products of a list are kept without what a price or a stock decides, and in the order of a sort
-// that is not by price, which a range filters and does not sort again.
-func TestTheBaseOfAListKeepsASortThatIsNotByPrice(t *testing.T) {
-	d := handDeps()
-	d.Query[storeList] = []string{"color", "max", "min", "page", "sort", "stock"}
-	for page, want := range map[string]string{
-		"/store/products?sort=price-desc":                          "/store/products",
-		"/store/products?color=moss&color=mist&sort=price-asc":     "/store/products?color=moss&color=mist",
-		"/store/products?max=300&min=100&sort=price-desc&stock=1":  "/store/products",
-		"/zh-CN/store/products?min=100&page=2&sort=newest&gclid=x": "/zh-CN/store/products?sort=newest",
-		"/store/products?sort=rating&stock=1":                      "/store/products?sort=rating",
-	} {
-		if got := d.listBase(page); got != want {
-			t.Errorf("the base of %s is %s, want %s", page, got, want)
+// A list of what is in stock keeps its order when it is not sorted by price, and a product that is sold
+// out in the catalogue and that the restock gives a stock is on it, at its place.
+func TestAListOfWhatIsInStockHasWhatTheRestockGaveAStock(t *testing.T) {
+	var out storeRecord
+	for _, r := range storeCatalogue().records {
+		if r.Stock == 0 {
+			out = r
+			break
 		}
 	}
-	d.Lists = map[string][]string{"/store/products?sort=rating": {"sketchbook", "tea-canister", "oak-tray"}}
-	d.Pages["/store/products?sort=rating&stock=1"] = []string{"*:p", "*:f"}
-	m := newVersionModel(d, nil)
-	// tea-canister is out of stock in the catalogue, and the restock can give it a stock.
-	if got := m.shown("/store/products?sort=rating&stock=1")["products"]; !slices.Equal(got, []string{"sketchbook", "oak-tray"}) {
-		t.Errorf("the list of what is in stock by rating is %v", got)
+	if out.Slug == "" {
+		t.Skip("no product of the catalogue is sold out")
 	}
-	m = newVersionModel(d, map[string]int{"tea-canister": 10})
-	if got := m.shown("/store/products?sort=rating&stock=1")["products"]; !slices.Equal(got, []string{"sketchbook", "tea-canister", "oak-tray"}) {
-		t.Errorf("after a restock of tea-canister the list of what is in stock by rating is %v", got)
+	all := "/store/products?category=" + out.Category + "&sort=rating"
+	// on is every product of the list at url, over all its pages.
+	on := func(m *versionModel, url string) []string {
+		var list []string
+		for page := 1; page <= ModelList(url, m.price, m.inStock).Pages; page++ {
+			list = append(list, m.shown(url + "&page=" + strconv.Itoa(page))["products"]...)
+		}
+		return list
+	}
+	m := newVersionModel(handDeps(), nil)
+	whole := on(m, all)
+	if !slices.Contains(whole, out.Slug) {
+		t.Fatalf("%s is not in the list of its category: %v", out.Slug, whole)
+	}
+	if got := on(m, all+"&stock=1"); slices.Contains(got, out.Slug) || len(got) >= len(whole) {
+		t.Errorf("%s is sold out and the list of what is in stock is %v", out.Slug, got)
+	}
+	m = newVersionModel(handDeps(), map[string]int{out.Slug: 10})
+	got := on(m, all+"&stock=1")
+	var want []string
+	for _, slug := range whole {
+		if m.inStock[slug] {
+			want = append(want, slug)
+		}
+	}
+	if !slices.Contains(got, out.Slug) || !slices.Equal(got, want) {
+		t.Errorf("after a restock of %s the list of what is in stock is %v, want %v, the list by rating without what is sold out", out.Slug, got, want)
+	}
+}
+
+// Any URL of the product list has its version from the model, with no entry in the file: a search, a
+// search for a word no product has, filters, a sort, a page. Every list depends on the price of every
+// product. A list depends on the stock of the products it shows and of the best rated below it, so an
+// order of a product that is on neither leaves it as it was, and one of a product it shows changes it.
+// A search that finds nothing shows the best rated alone.
+func TestAnyListHasItsVersionFromTheModel(t *testing.T) {
+	m := newVersionModel(handDeps(), nil)
+	found := "/store/products?q=cup&sort=newest"
+	none := "/zh-CN/store/products?q=" + uniqueTerm(1, 7)
+	filtered := "/store/products?category=textiles&color=oat&material=fabric&rating=44&page=2"
+	lists := []string{found, none, filtered, "/store/products?min=30&max=59&stock=1", "/zh-CN/store/products?badge=sale&sort=price-asc"}
+	at := func(page string) int {
+		t.Helper()
+		v, err := m.stampOf(page)
+		if err != nil {
+			t.Fatalf("%s: %v", page, err)
+		}
+		return v
+	}
+	for _, u := range lists {
+		keys, ok := m.d.pageKeys(u)
+		if !ok {
+			t.Fatalf("no version keys for %s", u)
+		}
+		for _, r := range m.recs {
+			if !slices.Contains(keys, priceKey(r.Slug)) {
+				t.Fatalf("%s does not depend on the price of %s", u, r.Slug)
+			}
+			if listFilterOf(u).InStock != slices.Contains(keys, flagKey(r.Slug)) {
+				t.Fatalf("%s is a list of what is in stock: %v, and depends on whether %s is in stock: %v", u, listFilterOf(u).InStock, r.Slug, slices.Contains(keys, flagKey(r.Slug)))
+			}
+		}
+		if got, want := m.shown(u)["products"], ModelList(u, m.price, m.inStock).Products; !slices.Equal(got, want) {
+			t.Errorf("%s shows %v, and the list model works out %v", u, got, want)
+		}
+		at(u)
+	}
+	shown := m.shown(found)["products"]
+	if len(shown) < 5 || len(m.shown(none)["products"]) != 0 || len(m.shown(none)["picks"]) != listPicks {
+		t.Fatalf("a search for cup shows %v, and one for a word of a visit %v with the best rated %v", shown, m.shown(none)["products"], m.shown(none)["picks"])
+	}
+	// A product the search shows that is not among the best rated, and one that is on neither.
+	var on, off string
+	for _, r := range m.recs {
+		switch picked := slices.Contains(m.picked(), r.Slug); {
+		case on == "" && !picked && slices.Contains(shown, r.Slug):
+			on = r.Slug
+		case off == "" && !picked && !slices.Contains(shown, r.Slug):
+			off = r.Slug
+		}
+	}
+	order := func(slug string) {
+		m.apply(effect{Kind: WriteCheckout, Keys: []string{stockKey(slug), adminKey(storefrontShop)}})
+	}
+	v, empty := at(found), at(none)
+	order(off)
+	if at(found) != v || at(none) != empty {
+		t.Errorf("an order of %s, which neither list shows, changed the search for cup: %v, the search that finds nothing: %v", off, at(found) != v, at(none) != empty)
+	}
+	order(on)
+	if at(found) == v || at(none) != empty {
+		t.Errorf("an order of %s, which the search for cup shows: it changed that list: %v, and the search that finds nothing: %v", on, at(found) != v, at(none) != empty)
+	}
+	// An order of one of the best rated changes every list, and so does any price.
+	v, empty = at(found), at(none)
+	order(m.picked()[0])
+	if at(found) == v || at(none) == empty {
+		t.Error("an order of one of the best rated did not change every list")
+	}
+	v, empty = at(found), at(none)
+	m.apply(editEffect(off, intp(recordOf(off).PriceFen+100), nil))
+	if at(found) == v || at(none) == empty {
+		t.Error("a price edit did not change every list")
 	}
 }
 

@@ -171,7 +171,7 @@ func TestTheDepsOfAPageAreTheProductsItsDataShows(t *testing.T) {
 	srv := fakeStorefront(t)
 	defer srv.Close()
 	query := map[string][]string{storeHome: nil, storeProduct: {"reviews"}, storeList: {"category", "sort"}}
-	urls := []string{"/store", "/store/products/oak-tray?reviews=2", "/store/products/oak-tray", "/store/products?sort=newest"}
+	urls := []string{"/store", "/store/products/oak-tray?reviews=2", "/store/products/oak-tray"}
 	d, err := collectStoreDeps(context.Background(), srv.URL, "b1", query, urls)
 	if err != nil {
 		t.Fatal(err)
@@ -186,28 +186,29 @@ func TestTheDepsOfAPageAreTheProductsItsDataShows(t *testing.T) {
 		"/store":                             {"wool-throw:p"},
 		"/store/products/oak-tray?reviews=2": {"wool-throw:s"},
 		"/store/products/oak-tray":           {"wool-throw:s"},
-		"/store/products?sort=newest":        {"*:p", "dot-notebook"},
 	}
 	if !reflect.DeepEqual(d.Pages, want) {
 		t.Errorf("pages %v, want %v", d.Pages, want)
 	}
-	if len(d.Lists) != 0 {
-		t.Errorf("lists %v, want none: no list here has its products decided by a price or a stock", d.Lists)
-	}
 }
 
 // The parts of a page whose products a price or a stock decides are not in the file: the sale of the
-// home, the bundle of a product page, the best rated below a list, and the products of a list by price.
-// The model works them out (versionModel). For such a list the file keeps the products that pass its
-// other filters, from all its pages, and whether each product is in stock for a list of what is in stock.
+// home and the bundle of a product page. The model works them out (versionModel). No page of the
+// product list is in the file at all: the list model works out what any URL of the list shows, and
+// making the file for one is refused.
 func TestTheFileLeavesOutThePartsAPriceOrAStockDecides(t *testing.T) {
 	srv := fakeStorefront(t)
 	defer srv.Close()
 	query := map[string][]string{storeHome: nil, storeProduct: {"reviews"}, storeList: {"page", "sort", "stock"}}
-	urls := []string{"/store", "/store/products/oak-tray", "/store/products?sort=price-desc", "/store/products?page=2&sort=price-desc", "/store/products?stock=1"}
+	urls := []string{"/store", "/store/products/oak-tray"}
 	d, err := collectStoreDeps(context.Background(), srv.URL, "b1", query, urls)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, list := range []string{"/store/products", "/store/products?sort=price-desc", "/zh-CN/store/products?q=cup"} {
+		if _, err := collectStoreDeps(context.Background(), srv.URL, "b1", query, append(slices.Clone(urls), list)); err == nil || !strings.Contains(err.Error(), "list model") {
+			t.Errorf("a file made with %s: %v, want a refusal that names the list model", list, err)
+		}
 	}
 	for page, deps := range d.Pages {
 		for _, dep := range slices.Concat(d.Common, deps) {
@@ -218,48 +219,63 @@ func TestTheFileLeavesOutThePartsAPriceOrAStockDecides(t *testing.T) {
 		}
 	}
 	want := map[string][]string{
-		"/store":                                 {"oak-tray", "wool-throw:p"},
-		"/store/products/oak-tray":               {"oak-tray", "wool-throw:s"},
-		"/store/products?sort=price-desc":        {"*:p"},
-		"/store/products?page=2&sort=price-desc": {"*:p"},
-		"/store/products?stock=1":                {"*:f", "*:p"},
+		"/store":                   {"wool-throw:p"},
+		"/store/products/oak-tray": {"wool-throw:s"},
 	}
 	if !reflect.DeepEqual(d.Pages, want) {
 		t.Errorf("pages %v, want %v", d.Pages, want)
 	}
-	if want := map[string][]string{"/store/products": {"oak-tray", "dot-notebook", "walnut-pen"}}; !reflect.DeepEqual(d.Lists, want) {
-		t.Errorf("lists %v, want %v", d.Lists, want)
-	}
 }
 
-// A list page shows the range of the prices of the whole catalogue, so a price edit changes it.
+// A list page shows the range of the prices of the whole catalogue, so a price edit changes it, and it
+// shows what the Layout shows on every page. Neither needs an entry of the file.
 func TestEveryListDependsOnThePriceOfEveryProduct(t *testing.T) {
-	srv := fakeStorefront(t)
-	defer srv.Close()
-	query := map[string][]string{storeList: {"category", "sort", "min"}}
-	d, err := collectStoreDeps(context.Background(), srv.URL, "b1", query, []string{"/store/products?sort=price-desc"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys, ok := d.pageKeys("/store/products?sort=price-desc")
-	if !ok {
-		t.Fatal("no keys")
-	}
-	for _, r := range storeCatalogue().records {
-		if !slices.Contains(keys, priceKey(r.Slug)) {
-			t.Errorf("a list does not depend on the price of %s", r.Slug)
-			break
+	d := &StoreDeps{Common: []string{"ceramic-cup"}, Pages: map[string][]string{}}
+	for _, list := range []string{"/store/products?sort=price-desc", "/zh-CN/store/products?q=no-such-word", "/store/products"} {
+		keys, ok := d.pageKeys(list)
+		if !ok {
+			t.Fatalf("no keys for %s", list)
+		}
+		for _, r := range storeCatalogue().records {
+			if !slices.Contains(keys, priceKey(r.Slug)) {
+				t.Errorf("%s does not depend on the price of %s", list, r.Slug)
+				break
+			}
+		}
+		if !slices.Contains(keys, stockKey("ceramic-cup")) {
+			t.Errorf("%s does not depend on the stock of a product the Layout shows", list)
 		}
 	}
 }
 
-// The file is the one this checkout makes: the sources of the shop, the URLs and every page in it.
+// The file is the one this checkout makes: the sources of the shop, the URLs and every page in it. It
+// has no page of the product list, and the lists a visit can land on and those of the crawlers have
+// their version keys all the same.
 func TestTheFileOfTheDepsIsTheOneOfThisCheckout(t *testing.T) {
 	d := checkedDeps(t)
 	for _, u := range depsURLs() {
 		if keys, ok := d.pageKeys(u); !ok || len(keys) == 0 {
 			t.Errorf("no version keys for %s", u)
 		}
+	}
+	for key := range d.Pages {
+		if _, kind := StorePageKind(key); kind == StoreKindList {
+			t.Errorf("the file has an entry for the list %s", key)
+		}
+	}
+	lists := 0
+	public, _ := CrawlURLs()
+	m := newVersionModel(d, nil)
+	for _, u := range slices.Concat(StoreVisitPages(), public) {
+		if _, kind := StorePageKind(u); kind == StoreKindList {
+			lists++
+			if _, err := m.stampOf(u); err != nil {
+				t.Errorf("%s: %v", u, err)
+			}
+		}
+	}
+	if lists < 60 {
+		t.Errorf("%d lists among the pages of the visits and of the crawlers: too few", lists)
 	}
 }
 
@@ -280,6 +296,7 @@ func TestAFileOfTheDepsMadeFromOtherSourcesIsRefused(t *testing.T) {
 		"sources": func(d *StoreDeps) { d.Sources = "0000000000000000" },
 		"urls":    func(d *StoreDeps) { d.URLs = "0000000000000000" },
 		"a page":  func(d *StoreDeps) { delete(d.Pages, d.RenderURL("/store")) },
+		"a list":  func(d *StoreDeps) { d.Pages["/store/products?sort=newest"] = []string{"*:p"} },
 	} {
 		c := *d
 		c.Pages = map[string][]string{}
