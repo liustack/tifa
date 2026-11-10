@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -153,6 +157,25 @@ func requestsByAct(plans map[int]Plan, traces []Trace) map[string]actRequests {
 	return out
 }
 
+// sampled keeps the sample the tests of this file record, so that they record it once.
+var sampled struct {
+	once   sync.Once
+	plans  map[int]Plan
+	traces map[string][]Trace
+}
+
+// recordedSample is the act sample of the first block of the formal seed, recorded in a browser
+// against the four frameworks once for the tests of a run: the plans by id and the traces of each
+// framework, every one checked against its plan.
+func recordedSample(t *testing.T, env Env) (map[int]Plan, map[string][]Trace) {
+	t.Helper()
+	sampled.once.Do(func() { sampled.plans, sampled.traces = recordSample(t, env, BrowseFrameworks[:4]) })
+	if sampled.traces == nil {
+		t.Fatal("the sample could not be recorded: see the test that recorded it")
+	}
+	return sampled.plans, sampled.traces
+}
+
 // recordSample records the plans of an act sample of the first block of the formal seed in a browser
 // against the frameworks, and returns the plans by id and the traces of each framework, every one
 // checked against its plan.
@@ -213,7 +236,7 @@ func recordSample(t *testing.T, env Env, frameworks []string) (map[int]Plan, map
 // does. The test logs what each browser sent for each act.
 func TestStorefrontRecorderDoesTheActsOfThePlans(t *testing.T) {
 	env := recordEnv(t)
-	plans, traces := recordSample(t, env, BrowseFrameworks[:4])
+	plans, traces := recordedSample(t, env)
 	acts := []string{"landing", ActLink, ActSearch, ActFilter, ActPage, ActForm, ActSort}
 	first := traces[BrowseFrameworks[0]]
 	for _, fw := range BrowseFrameworks[:4] {
@@ -244,5 +267,109 @@ func TestStorefrontRecorderDoesTheActsOfThePlans(t *testing.T) {
 				}
 			}
 		})))
+	}
+}
+
+// TestStorefrontEveryServerFindsNothingForTheWordOfAVisit replays, against each of the four
+// frameworks, the recorded visit of the sample that searches for a word of its own, with the word of
+// a visit put in place of the placeholder as the replay does it (subsFor), in every request: the URL,
+// the headers and the body. Every server must answer every request as it answered the recording, and
+// the document of the search must be the list of that word, which finds nothing: an HTML page that
+// has the word and the text of the empty list, and not the placeholder. The test logs where each
+// framework carries the word.
+func TestStorefrontEveryServerFindsNothingForTheWordOfAVisit(t *testing.T) {
+	env := recordEnv(t)
+	plans, traces := recordedSample(t, env)
+	buildID, err := env.ShopBuildID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := map[string]string{"en-US": "No products match", "zh-CN": "没有找到符合条件的商品"}
+	ctx := context.Background()
+	const seq = 123_456
+	for _, fw := range BrowseFrameworks[:4] {
+		target, err := env.Target(fw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		server, err := target.Start(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		played := 0
+		for _, tr := range traces[fw] {
+			plan := planForm(plans[tr.Plan], tr.Variant)
+			at := slices.IndexFunc(plan.Steps, func(s PlanStep) bool { return s.Term == SearchPlaceholder })
+			if at < 0 {
+				continue
+			}
+			played++
+			subs := subsFor(FormalBrowse.Seed, seq, plan)
+			word := uniqueTerm(FormalBrowse.Seed, seq)
+			jar, _ := cookiejar.New(nil)
+			client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			where := map[string]int{}
+			for i, s := range tr.Steps {
+				for _, q := range s.Reqs {
+					url := q.URL
+					if fw == "tifa" {
+						url = tifaBuild.ReplaceAllString(url, "_tifa="+buildID+".")
+					}
+					url = subs.apply(url)
+					var body io.Reader
+					if q.Body != "" {
+						body = strings.NewReader(subs.apply(q.Body))
+						if strings.Contains(q.Body, SearchPlaceholder) {
+							where["body"]++
+						}
+					}
+					req, err := http.NewRequestWithContext(ctx, q.Method, server.Base+url, body)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for k, val := range q.Headers {
+						req.Header.Set(k, subs.apply(val))
+						if strings.Contains(val, SearchPlaceholder) {
+							where["header "+k]++
+						}
+					}
+					if strings.Contains(q.URL, SearchPlaceholder) {
+						where[q.Class+" URL"]++
+					}
+					if q.Class != "doc" {
+						req.Header.Set("Sec-Fetch-Site", "same-origin")
+						req.Header.Set("Sec-Fetch-Mode", "cors")
+						req.Header.Set("Sec-Fetch-Dest", "empty")
+					}
+					res, err := client.Do(req)
+					if err != nil {
+						t.Fatalf("%s: %s %s: %v", fw, q.Method, url, err)
+					}
+					data, _ := io.ReadAll(res.Body)
+					res.Body.Close()
+					text := string(data)
+					if res.StatusCode != 200 && res.StatusCode != 204 {
+						t.Errorf("%s: %s %s answered %d, and %d when it was recorded", fw, q.Method, url, res.StatusCode, q.Status)
+					}
+					if strings.Contains(text, SearchPlaceholder) {
+						t.Errorf("%s: the answer to %s %s has the placeholder: the server was asked for it", fw, q.Method, url)
+					}
+					if i == at && q.Class == "doc" {
+						lang := langOf(plan.Steps[0].Page)
+						if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") || !strings.Contains(text, word) || !strings.Contains(text, empty[lang]) {
+							t.Errorf("%s: the document of the search for %s is %s, has the word %v and the text of the empty list %v", fw, word, ct, strings.Contains(text, word), strings.Contains(text, empty[lang]))
+						}
+					}
+				}
+			}
+			if where["doc URL"] == 0 {
+				t.Errorf("%s: no document of the visit of plan %d has the placeholder in its URL", fw, tr.Plan)
+			}
+			t.Logf("%-11s plan %d: the word of the visit is put into %v", fw, tr.Plan, where)
+		}
+		server.Stop()
+		if played == 0 {
+			t.Errorf("%s: the sample has no visit that searches for a word of its own", fw)
+		}
 	}
 }

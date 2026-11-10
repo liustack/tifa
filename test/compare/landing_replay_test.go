@@ -2,6 +2,8 @@ package compare
 
 import (
 	"encoding/json/v2"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -264,6 +266,111 @@ func TestPlansWithoutTheLandingParametersOfTheMixAreRefusedWhenLoaded(t *testing
 		err := write(set)
 		if err == nil || !strings.Contains(err.Error(), "make the plans again") || !strings.Contains(err.Error(), "record") {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A visit whose search is for a word of its own is recorded with the placeholder of the plans, and the
+// replay puts the word of the visit in its place in every request of the visit, as it does for a
+// landing parameter: in the URL of the search and of what follows, in the headers where a router
+// carries the URL of the page, and in a body. The word is letters and digits, written the same in
+// every encoding, so it is put in as text. No placeholder reaches the server, the word is the one of
+// the seed and the visit, and a visit that also lands with a click id sends both its values.
+func TestTheReplayPutsTheWordOfTheVisitInEveryRequestOfItsVisit(t *testing.T) {
+	click := placeholderOf("tifa-gclid-", 95)
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, r.URL.String()+"|"+r.Header.Get("next-router-state-tree")+"|"+string(body))
+		mu.Unlock()
+		w.Header().Set(RenderHeader, RenderVM)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	land, list := "/store?gclid="+click, "/store/products?q="+SearchPlaceholder
+	load := TraceStep{Kind: StepLoad, Page: land, Reqs: []TraceReq{{Method: "GET", URL: land, Class: "doc", End: 1, Status: 200}}}
+	search := TraceStep{Kind: StepClick, Page: list, Reqs: []TraceReq{
+		{Method: "GET", URL: list, Class: "doc", End: 1, Status: 200},
+		{Method: "GET", URL: "/store/products.data?q=" + SearchPlaceholder, Class: "nav", Start: 2, End: 3, Status: 200},
+	}}
+	after := TraceStep{Kind: StepClick, Page: "/store/products/oak-tray", Reqs: []TraceReq{
+		{Method: "GET", URL: "/store/products/oak-tray?_rsc=abc", Class: "nav", End: 1, Status: 200, Headers: map[string]string{"rsc": "1", "next-router-state-tree": "%5B%22products%22%2C%7B%22children%22%3A%5B%22__PAGE__%3F%7B%5C%22q%5C%22%3A%5C%22" + SearchPlaceholder + "%5C%22%7D%22"}},
+		{Method: "GET", URL: "/_serverFn/x?payload=%7B%22q%22%3A%7B%22t%22%3A1%2C%22s%22%3A%22" + SearchPlaceholder + "%22%7D%7D", Class: "nav", Start: 2, End: 3, Status: 200, Headers: map[string]string{"x-tsr-serverfn": "true"}},
+		{Method: "POST", URL: "/store/mine", Class: "nav", Start: 4, End: 5, Status: 200, Body: `{"from":"/store/products?q=` + SearchPlaceholder + `"}`},
+	}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, Trace{Steps: []TraceStep{load, search, after}})
+	r.wl.Plans[0].Steps[1].Act, r.wl.Plans[0].Steps[1].Term = ActSearch, SearchPlaceholder
+	words := map[string]bool{}
+	a := newAcc()
+	for seq := range 3 {
+		mu.Lock()
+		got = nil
+		mu.Unlock()
+		if err := visitOnce(r, a, seq); err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		sent := append([]string(nil), got...)
+		mu.Unlock()
+		word := uniqueTerm(r.seed, seq)
+		words[word] = true
+		if len(sent) != 6 {
+			t.Fatalf("visit %d sent %d requests: %v", seq, len(sent), sent)
+		}
+		for i, line := range sent {
+			if strings.Contains(line, SearchPlaceholder) || strings.Contains(line, "tifa-gclid") {
+				t.Errorf("visit %d sent a placeholder: %s", seq, line)
+			}
+			if i > 0 && !strings.Contains(line, word) {
+				t.Errorf("visit %d: %s lacks its word %s", seq, line, word)
+			}
+		}
+		if !slices.ContainsFunc(sent, func(line string) bool { return strings.HasPrefix(line, "/store/products?q="+word+"|") }) {
+			t.Errorf("visit %d did not ask for the list of its word %s: %v", seq, word, sent)
+		}
+		if value := landingFor(r.seed, seq, r.wl.planFor(seq)).value; !strings.HasPrefix(sent[0], "/store?gclid="+value+"|") {
+			t.Errorf("visit %d landed on %s, want its click id %s", seq, sent[0], value)
+		}
+	}
+	// The list of the word of a visit is a page of its own: the client's count of the pages Tifa had
+	// answered before takes the two requests of each of the three visits for pages it had not.
+	if got := a.vmWhy[StoreKindList]; got[RenderFirst] != 6 || len(got) != 1 {
+		t.Errorf("the lists of the words of three visits were rendered for %v, want six pages not answered before", got)
+	}
+	if len(words) != 3 {
+		t.Errorf("three visits searched for %d words", len(words))
+	}
+}
+
+// A set of traces in which a visit that searches for a word of its own was recorded with another word
+// than the placeholder is refused: the replay would have nothing to put the word of the visit in
+// place of.
+func TestATraceThatLostItsSearchPlaceholderIsRefused(t *testing.T) {
+	set := GenerateSitePlanSet(1, 1)
+	var with Plan
+	at := -1
+	for _, p := range set.Plans {
+		if at = slices.IndexFunc(p.Steps, func(s PlanStep) bool { return s.Term == SearchPlaceholder }); at >= 0 {
+			with = p
+			break
+		}
+	}
+	dir := writeTraces(t, set, []string{"reactrouter"}, func(_ string, form Plan) Trace {
+		tr := browserTrace(form)
+		if form.ID == with.ID {
+			tr.Steps[at].Reqs[0].URL = strings.Replace(tr.Steps[at].Reqs[0].URL, SearchPlaceholder, "kettle", 1)
+		}
+		return tr
+	})
+	_, _, err := LoadTraces(dir, []string{"reactrouter"})
+	if err == nil {
+		t.Fatal("a trace recorded with another word than the placeholder was loaded")
+	}
+	for _, want := range []string{fmt.Sprintf("plan %d", with.ID), fmt.Sprintf("page view %d", at), SearchPlaceholder, "reactrouter.jsonl"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error lacks %q: %v", want, err)
 		}
 	}
 }

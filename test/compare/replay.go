@@ -434,15 +434,15 @@ type visitState struct {
 	client *http.Client
 	// seq is the number of the visit in the sequence of visits.
 	seq int
-	// landing is what the visit puts in place of the placeholder of its landing parameter in every
-	// request it sends (landingSub).
-	landing landingSub
-	sem     chan struct{}
-	etagMu  sync.Mutex
-	etags   map[string]string // by URL
-	bg      sync.WaitGroup
-	errMu   sync.Mutex
-	err     error // the first background request that failed
+	// subs are what the visit puts in place of the placeholders of its plan in every request it sends:
+	// the value of its landing parameter and the word of its search (visitSubs).
+	subs   visitSubs
+	sem    chan struct{}
+	etagMu sync.Mutex
+	etags  map[string]string // by URL
+	bg     sync.WaitGroup
+	errMu  sync.Mutex
+	err    error // the first background request that failed
 }
 
 func (v *visitState) fail(err error) {
@@ -512,17 +512,17 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, st
 	if r.buildID != "" {
 		url = tifaBuild.ReplaceAllString(url, "_tifa="+r.buildID+".")
 	}
-	url = v.landing.apply(url)
+	url = v.subs.apply(url)
 	var body io.Reader
 	if q.Body != "" {
-		body = strings.NewReader(v.landing.apply(q.Body))
+		body = strings.NewReader(v.subs.apply(q.Body))
 	}
 	req, err := http.NewRequestWithContext(rctx, q.Method, r.base+url, body)
 	if err != nil {
 		return outcome{end: time.Now(), err: err}
 	}
 	for k, val := range q.Headers {
-		req.Header.Set(k, v.landing.apply(val)) // a router carries the URL of the page in a header too
+		req.Header.Set(k, v.subs.apply(val)) // a router carries the URL of the page in a header too
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	if q.INM {
@@ -617,7 +617,8 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, st
 		}
 		a.pageRenders[kind][rd]++
 		// A landing parameter is no part of the page: the URL it asks for is the one without it.
-		seenAt := stripLanding(q.URL)
+		// The word of a visit's own is part of the page it searches for: the URL is the one with the word.
+		seenAt := v.subs.apply(stripLanding(q.URL))
 		seen := a.seen[seenAt]
 		a.seen[seenAt] = true
 		// The table of the landings has the first document of a visit, not one a later action asks for.
@@ -775,7 +776,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	} else {
 		jar, _ = cookiejar.New(nil)
 	}
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), landing: landingFor(r.seed, seq, plan), seq: seq}
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), subs: subsFor(r.seed, seq, plan), seq: seq}
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()

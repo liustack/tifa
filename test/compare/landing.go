@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -206,6 +207,34 @@ func (s landingSub) apply(x string) string {
 		return x
 	}
 	return strings.ReplaceAll(x, s.placeholder, s.value)
+}
+
+// visitSubs are the values a visit puts in place of the placeholders of its plan in every request it
+// sends: the one of its landing parameter, and the word of its search when the search is for a word
+// of the visit's own. A visit can have both.
+type visitSubs []landingSub
+
+// subsFor are the substitutions of visit seq of a run, which plays plan p. The word of a search is
+// uniqueTerm of the seed and the visit: letters and digits, as the placeholder is, so both are written
+// the same wherever a request carries them (a query, the JSON of a server function call escaped into a
+// URL, the route tree Next.js sends in a header, a body), and the word is put in as text.
+func subsFor(seed uint64, seq int, p Plan) visitSubs {
+	var out visitSubs
+	if sub := landingFor(seed, seq, p); sub.placeholder != "" {
+		out = append(out, sub)
+	}
+	if slices.ContainsFunc(p.Steps, func(s PlanStep) bool { return s.Act == ActSearch && s.Term == SearchPlaceholder }) {
+		out = append(out, landingSub{SearchPlaceholder, uniqueTerm(seed, seq)})
+	}
+	return out
+}
+
+// apply puts every value in place of its placeholder in x.
+func (s visitSubs) apply(x string) string {
+	for _, sub := range s {
+		x = sub.apply(x)
+	}
+	return x
 }
 
 // checkLanding says whether the trace of a plan that lands with a parameter has, as the document
