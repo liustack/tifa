@@ -175,6 +175,9 @@ func TestCrawlerRequestsAreNotPageViews(t *testing.T) {
 	if why := round.Mix.why(cs.r.wl.Scenario); why != "" {
 		t.Error(why)
 	}
+	if want := int64(len("404 page not found\n") * round.Crawler.Statuses["O 404"]); round.Crawler.OldBytes != want || want == 0 {
+		t.Errorf("the old URLs read %d bytes, want %d", round.Crawler.OldBytes, want)
+	}
 	// The statuses: public URLs answer 200 and old ones 404, as expected.
 	for k := range round.Crawler.Statuses {
 		if k != "U 200" && k != "O 404" {

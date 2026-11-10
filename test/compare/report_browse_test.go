@@ -957,7 +957,7 @@ func TestTheSiteTextSaysEveryServerGetsTheSameWarmUp(t *testing.T) {
 // crawled is a round with the crawler requests of a block (101, in the proportion of the stream) done
 // in the seconds of the round.
 func crawled(x Round) Round {
-	x.Crawler = &CrawlStats{Planned: 101, Done: 101, Bytes: 101 * 60_000, Statuses: map[string]int{"U 200": 96, "O 404": 5},
+	x.Crawler = &CrawlStats{Planned: 101, Done: 101, Bytes: 101 * 60_000, OldBytes: 5 * 15_000, Statuses: map[string]int{"U 200": 96, "O 404": 5},
 		Renders: map[string]map[string]int{"U|en-US|list": {"memo": 6, "vm": 2}, "U|en-US|product": {"memo": 30, "shared": 2, "vm": 8}, "U|zh-CN|reviews": {"memo": 20, "vm": 20}, "U|zh-CN|home": {"memo": 4}, "O|zh-CN|product": {"vm": 5}}}
 	x.Types = maps.Clone(x.Types)
 	x.Types["crawler"] = TypeStat{N: 101, P50: 12, P99: 480}
@@ -1018,9 +1018,11 @@ func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 	for _, want := range []string{
 		fmt.Sprintf("U holds %d URLs", len(u)),
 		fmt.Sprintf("O holds %d old URLs", len(o)),
-		"| | crawler requests planned | answered as expected | failed | body KB/request | answers |",
-		"| Tifa | 202 | 202 | 0 | 58.6 | O 404 x10, U 200 x192 |",
-		"| Next.js | 202 | 202 | 0 | 58.6 | O 404 x10, U 200 x192 |",
+		"| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers |",
+		"| Tifa | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
+		"| Next.js | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
+		"Next.js answers an old URL with an error document and renders no page for it on the server",
+		"the other three servers render a whole page for it",
 		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |",
 		"| Tifa | U | 184 | 120 (65.2%) | 4 | 60 |",
 		"| Tifa | O | 10 | 0 (0.0%) | 0 | 10 |",

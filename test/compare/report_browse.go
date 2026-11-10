@@ -1132,15 +1132,15 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 	for _, k := range crawlerKinds {
 		by = append(by, fmt.Sprintf("%s %d", k, kinds[k]))
 	}
-	fmt.Fprintf(b, "\nThe crawler requests (they are no visits and no page views, so no count of people above has them, and the CPU of the server and its memory include them). U holds %d URLs, %d in each language (%s), and O holds %d old URLs that answer 404. Each request is drawn from U or O by its number in the stream of crawler requests, the same for every server, and is sent with the User-Agent of a crawler. The Node frameworks may read it. In the installed sources, TanStack Start and the default entry of React Router ask `isbot`, which names every User-Agent of the mix a bot (React Router then waits for the whole page), and Next.js takes Googlebot for a bot that runs JavaScript and does not know the AI User-Agents. What each does for a bot beyond that was not checked. Each answers a crawler as it ships, so a crawler document can cost more or less than a page view of a person: that is not a fault of the test. Over the rounds:\n\n| | crawler requests planned | answered as expected | failed | body KB/request | answers |\n| --- | --- | --- | --- | --- | --- |\n",
+	fmt.Fprintf(b, "\nThe crawler requests (they are no visits and no page views, so no count of people above has them, and the CPU of the server and its memory include them). U holds %d URLs, %d in each language (%s), and O holds %d old URLs that answer 404. Each request is drawn from U or O by its number in the stream of crawler requests, the same for every server, and is sent with the User-Agent of a crawler. The Node frameworks may read it. In the installed sources, TanStack Start and the default entry of React Router ask `isbot`, which names every User-Agent of the mix a bot (React Router then waits for the whole page), and Next.js takes Googlebot for a bot that runs JavaScript and does not know the AI User-Agents. What each does for a bot beyond that was not checked. Each answers a crawler as it ships, so a crawler document can cost more or less than a page view of a person: that is not a fault of the test. Over the rounds:\n\n| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers |\n| --- | --- | --- | --- | --- | --- | --- |\n",
 		len(public), len(public)/len(StoreLangs), strings.Join(by, ", "), len(old))
 	for _, f := range servers {
 		var planned, done, failed int
-		var bytes int64
+		var bytes, oldBytes int64
 		statuses := map[string]int{}
 		for _, x := range r.cellRounds(f, sc.Name, sessions) {
 			if c := x.Crawler; c != nil {
-				planned, done, failed, bytes = planned+c.Planned, done+c.Done, failed+c.Failed, bytes+c.Bytes
+				planned, done, failed, bytes, oldBytes = planned+c.Planned, done+c.Done, failed+c.Failed, bytes+c.Bytes, oldBytes+c.OldBytes
 				for k, n := range c.Statuses {
 					statuses[k] += n
 				}
@@ -1150,8 +1150,15 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 		for _, k := range slices.Sorted(maps.Keys(statuses)) {
 			answers = append(answers, fmt.Sprintf("%s x%d", k, statuses[k]))
 		}
-		fmt.Fprintf(b, "| %s | %d | %d | %d | %.1f | %s |\n", BrowseLabel(f), planned, done, failed, float64(bytes)/1024/float64(max(done, 1)), strings.Join(answers, ", "))
+		old := 0
+		for k, n := range statuses {
+			if strings.HasPrefix(k, "O ") {
+				old += n
+			}
+		}
+		fmt.Fprintf(b, "| %s | %d | %d | %d | %.1f | %.1f | %s |\n", BrowseLabel(f), planned, done, failed, float64(bytes)/1024/float64(max(done, 1)), float64(oldBytes)/1024/float64(max(old, 1)), strings.Join(answers, ", "))
 	}
+	b.WriteString("\nThe old URLs are 404 pages of the shop that every server answers with a 404, but not with the same work: Next.js answers an old URL with an error document and renders no page for it on the server (the browser would draw it from the payload, and a crawler runs no script), and the other three servers render a whole page for it, which the body of an old URL above shows. Real deployments of Next.js answer so, and it is measured as shipped, as the compression of TanStack Start is. The old URLs are 5% of the crawler requests, about 0.45% of all the HTML requests.\n")
 	// How Tifa answered them, by what they ask for: the set, the language and the kind of URL.
 	type tally struct{ answers, memo, shared, vm int }
 	var rows []string

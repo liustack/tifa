@@ -180,7 +180,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.VMWhy = a.vmWhy
 	r.Landing = a.landing
 	if r.Crawler != nil {
-		r.Crawler.Done, r.Crawler.Failed, r.Crawler.Bytes = a.crawl.done, a.crawl.failed, a.crawl.bytes
+		r.Crawler.Done, r.Crawler.Failed, r.Crawler.Bytes, r.Crawler.OldBytes = a.crawl.done, a.crawl.failed, a.crawl.bytes, a.crawl.oldBytes
 		r.Crawler.Statuses, r.Crawler.Renders = a.crawl.statuses, a.crawl.renders
 	}
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]

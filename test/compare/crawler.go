@@ -174,10 +174,12 @@ func (w *Workload) crawlersIn(seq0, n int) int { return w.slots(seq0, n) - n }
 // status. Their latency is in Types["crawler"]. Renders counts how Tifa answered them (X-Tifa-Render),
 // by set, language and kind of URL ("U|en-US|list").
 type CrawlStats struct {
-	Planned  int                       `json:"planned"`
-	Done     int                       `json:"done"`
-	Failed   int                       `json:"failed"`
-	Bytes    int64                     `json:"bytes"`
+	Planned int   `json:"planned"`
+	Done    int   `json:"done"`
+	Failed  int   `json:"failed"`
+	Bytes   int64 `json:"bytes"`
+	// OldBytes are the bytes of the answers to the old URLs (the set O), which are 404 pages.
+	OldBytes int64                     `json:"oldBytes,omitempty"`
 	Statuses map[string]int            `json:"statuses,omitempty"`
 	Renders  map[string]map[string]int `json:"renders,omitempty"`
 }
@@ -186,6 +188,7 @@ type CrawlStats struct {
 type crawlCounts struct {
 	done, failed int
 	bytes        int64
+	oldBytes     int64
 	statuses     map[string]int
 	renders      map[string]map[string]int
 }
@@ -265,6 +268,9 @@ func (r *runner) runCrawl(ctx context.Context, tr *http.Transport, a *acc, c int
 	defer a.mu.Unlock()
 	a.crawl.done++
 	a.crawl.bytes += n
+	if q.Old {
+		a.crawl.oldBytes += n
+	}
 	a.crawl.statuses[set+" "+strconv.Itoa(res.StatusCode)]++
 	a.lat["crawler"] = append(a.lat["crawler"], ms(end.Sub(sched)))
 	if how := res.Header.Get(RenderHeader); how != "" && how != RenderNone {
