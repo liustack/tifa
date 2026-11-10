@@ -402,3 +402,51 @@ func TestABacklogIsJudgedOnTheVisitsOfPeopleAlone(t *testing.T) {
 		t.Errorf("%d crawler requests and %d visits in flight", f.crawlers.Load(), f.visits())
 	}
 }
+
+// The classes of crawlers are what Cloudflare reports: Googlebot alone is 4.5% of the HTML requests
+// and the other AI crawlers together 4.2%. The search class is Googlebot only, with two User-Agents
+// (a smartphone and a desktop one) of half the requests each, which is an assumption, and no other
+// search engine is in the mix since the report has no figure for them. The two numbers are the relative
+// weights of the classes, since the total is fixed at CrawlerShare, and the table of the mix says so.
+func TestTheCrawlerClassesAreWhatCloudflareReports(t *testing.T) {
+	var search []CrawlerAgent
+	for _, a := range CrawlerAgents {
+		if a.Class == CrawlerSearch {
+			search = append(search, a)
+		}
+	}
+	if len(search) != 2 || !strings.Contains(search[0].UA, "Googlebot/2.1") || !strings.Contains(search[1].UA, "Googlebot/2.1") || search[0].UA == search[1].UA || search[0].Share != search[1].Share {
+		t.Errorf("the search class is %+v: want Googlebot twice, with a smartphone and a desktop User-Agent of half each", search)
+	}
+	for _, a := range CrawlerAgents {
+		for _, gone := range []string{"Bingbot", "bingbot", "Baiduspider", "YandexBot"} {
+			if strings.Contains(a.UA, gone) || strings.Contains(a.Name, gone) {
+				t.Errorf("%s is in the mix, and the report has no figure for it", gone)
+			}
+		}
+	}
+	if CrawlerClasses[0].Name != CrawlerSearch || CrawlerClasses[0].Share != 4.5 || CrawlerClasses[1].Name != CrawlerAI || CrawlerClasses[1].Share != 4.2 || CrawlerShare != 0.09 {
+		t.Errorf("classes %+v, share %v", CrawlerClasses, CrawlerShare)
+	}
+	facts := map[string]MixFact{}
+	for _, f := range MixFacts() {
+		facts[f.Name] = f
+	}
+	for _, name := range []string{"CrawlerShare", "CrawlerClasses"} {
+		all := facts[name].What + " " + facts[name].Value + " " + facts[name].Source
+		for _, want := range []string{"Googlebot", "https://blog.cloudflare.com/radar-2025-year-in-review/"} {
+			if !strings.Contains(all, want) {
+				t.Errorf("%s lacks %q: %s", name, want, all)
+			}
+		}
+	}
+	all := facts["CrawlerClasses"].What + " " + facts["CrawlerClasses"].Value + " " + facts["CrawlerClasses"].Source
+	for _, want := range []string{"relative weights", "other AI crawlers", "no data"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("CrawlerClasses lacks %q: %s", want, all)
+		}
+	}
+	if strings.Contains(all, "search engine crawlers 4.5") || strings.Contains(facts["CrawlerShare"].Source, "search engine crawlers 4.5%") {
+		t.Error("the table still says that search engine crawlers are 4.5%")
+	}
+}

@@ -18,10 +18,14 @@ import (
 // requests of crawlers among the visits (the slots of a cycle), and which URL and which crawler each
 // one is comes from the seed and its number in the stream, the same for every server.
 
-// CrawlerAgent is a crawler a request can come from: its class (search engine or AI), its name, its
-// share among the crawlers of its class, and the User-Agent it sends. The three Node frameworks tell
-// a crawler by its User-Agent and render for it in another way (Next.js does not stream the metadata,
-// React Router and TanStack Start wait for the whole page with `isbot`), as a real deployment does.
+// CrawlerAgent is a crawler a request can come from: its class (search, which is Googlebot, or AI), its
+// name, its share among the crawlers of its class, and the User-Agent it sends. The Node frameworks may
+// read it. What the installed sources show (React Router, TanStack Start, Next.js 16.4.2): the
+// default `entry.server` of React Router asks `isbot` and waits for the whole page (`onAllReady`) for a
+// bot, TanStack Start asks `isbot` in `renderRouterToStream`, and `isbot` says yes to every User-Agent
+// of the mix. Next.js reads it with its `is-bot`, which takes Googlebot for a "dom" bot, and no
+// User-Agent of the AI crawlers is in its `htmlLimitedBots` list or taken for Googlebot. What each
+// framework then does for a bot beyond that was not checked, and each answers as it ships.
 type CrawlerAgent struct {
 	Class, Name string
 	Share       float64

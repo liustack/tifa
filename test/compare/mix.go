@@ -79,9 +79,10 @@ const (
 	EmailParamShare = 0.05
 	// CrawlerShare is the share of the HTML requests that crawlers make: the documents of the shoppers and
 	// of the staff (each visit has one full load, and a click fetches data, not a document) and the
-	// requests of crawlers. Search engine crawlers are 4.5% and AI crawlers 4.2% of the HTML requests
-	// (Cloudflare Radar, 2025 year in review), which makes about 9%. A crawler request is not a visit and
-	// not a page view (crawler.go).
+	// requests of crawlers. Cloudflare reports Googlebot alone as 4.5% of the HTML requests and the other
+	// AI crawlers together as 4.2% (Cloudflare Radar, 2025 year in review,
+	// https://blog.cloudflare.com/radar-2025-year-in-review/), which makes about 9%. A crawler request is
+	// not a visit and not a page view (crawler.go).
 	CrawlerShare = 0.09
 	// CrawlOldShare is the share of the requests of a crawler for an old URL that the shop no longer has
 	// (it answers 404), and the rest are for the public pages, all alike. An assumption: crawlers go back
@@ -135,21 +136,23 @@ var (
 	}{{"_kx", 0.5}, {"mc_eid", 0.5}}
 )
 
-// CrawlerClasses are the classes of crawlers with the shares of the HTML requests of each
-// (CrawlerShare is their sum): search engines 4.5 and AI crawlers 4.2 (Cloudflare Radar, 2025).
+// CrawlerClasses are the classes of crawlers with their relative weights: the search class, which is
+// Googlebot alone, 4.5 and the AI class 4.2, as Cloudflare reports them as shares of the HTML requests
+// (https://blog.cloudflare.com/radar-2025-year-in-review/). Here they only weigh the classes against
+// each other, since the total is fixed at CrawlerShare. Cloudflare has no figure for the other search
+// engine crawlers, so none is in the mix.
 var CrawlerClasses = []struct {
 	Name  string
 	Share float64
 }{{CrawlerSearch, 4.5}, {CrawlerAI, 4.2}}
 
 // CrawlerAgents are the crawlers of each class, with their shares among the crawlers of the class and
-// the User-Agent each sends. The names and the shares are assumptions: Googlebot is by far the most
-// of the search engines, and no published share of the AI crawlers was found.
+// the User-Agent each sends. Googlebot sends a smartphone and a desktop User-Agent, half of its
+// requests each (an assumption). The AI crawlers, their shares and their User-Agents are assumptions
+// too: no published share of each was found.
 var CrawlerAgents = []CrawlerAgent{
-	{CrawlerSearch, "Googlebot", 75, "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.175 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
-	{CrawlerSearch, "Bingbot", 15, "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"},
-	{CrawlerSearch, "Baiduspider", 5, "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"},
-	{CrawlerSearch, "YandexBot", 5, "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"},
+	{CrawlerSearch, "Googlebot (smartphone)", 50, "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.175 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
+	{CrawlerSearch, "Googlebot (desktop)", 50, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/125.0.6422.175 Safari/537.36"},
 	{CrawlerAI, "GPTBot", 40, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot"},
 	{CrawlerAI, "ClaudeBot", 25, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"},
 	{CrawlerAI, "Meta-ExternalAgent", 20, "meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)"},
@@ -549,7 +552,7 @@ func MixFacts() []MixFact {
 	crawlerClasses := func() string {
 		var out []string
 		for _, k := range CrawlerClasses {
-			out = append(out, k.Name+" "+strconv.FormatFloat(k.Share, 'f', -1, 64)+"%")
+			out = append(out, k.Name+" "+strconv.FormatFloat(k.Share, 'f', -1, 64))
 		}
 		return strings.Join(out, ", ")
 	}
@@ -598,9 +601,9 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
-		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review: search engine crawlers 4.5% and AI crawlers 4.2% of the HTML requests"},
-		{"CrawlerClasses", "crawlers by class, as the shares of the HTML requests of each", crawlerClasses(), "Cloudflare Radar, 2025 year in review"},
-		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the names and the shares inside a class"},
+		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
+		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
+		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},
 		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog log file studies), with no figure published"},
 		{"OldProductsPerLanguage", "old URLs of products taken off the shop in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldProductsPerLanguage), "assumption"},
 		{"OldPostsPerLanguage", "old URLs of posts that were moved or deleted in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldPostsPerLanguage), "assumption"},
