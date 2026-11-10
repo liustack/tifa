@@ -1,0 +1,196 @@
+package compare
+
+import (
+	"encoding/json/v2"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// browserTrace is the trace of a plan as a browser with a client router leaves it: the landing is a
+// document and a click gets navigation data, but for the page views of docClicks, which the page does
+// as a document load (a plain link, a form with no router).
+func browserTrace(p Plan, docClicks ...int) Trace {
+	t := Trace{Plan: p.ID}
+	for i, s := range p.Steps {
+		class := "nav"
+		if s.Kind == StepLoad {
+			class = "doc"
+		}
+		for _, d := range docClicks {
+			if d == i {
+				class = "doc"
+			}
+		}
+		t.Steps = append(t.Steps, TraceStep{Kind: s.Kind, Page: s.Page, Reqs: []TraceReq{{Method: "GET", URL: s.Page, Class: class, End: 1, Status: 200}}})
+	}
+	return t
+}
+
+// browserTraces are the traces of plans, each as browserTrace makes it.
+func browserTraces(plans []Plan) map[int]Trace {
+	out := map[int]Trace{}
+	for _, p := range plans {
+		out[p.ID] = browserTrace(p)
+	}
+	return out
+}
+
+// The pages are the same source in every framework, so a page view that is a document in one is a
+// document in all four. The plans count the documents from the traces, and a set of traces that does
+// not agree on them is refused, with the plan, the page view and the framework that differs.
+func TestTheFrameworksAgreeOnWhichPageViewsAreDocuments(t *testing.T) {
+	dir := t.TempDir()
+	set := GenerateSitePlanSet(1, 1)
+	data, _ := json.Marshal(set)
+	os.WriteFile(PlansPath(dir), data, 0o644)
+	// A plan with a click: in the browser its second page view was a document load.
+	var with Plan
+	for _, p := range set.Plans {
+		if len(p.Steps) > 2 {
+			with = p
+			break
+		}
+	}
+	names := []string{"tifa", "nextjs", "start", "reactrouter"}
+	write := func(name string, docClicks ...int) {
+		var b strings.Builder
+		for _, p := range set.Plans {
+			tr := browserTrace(p)
+			if p.ID == with.ID {
+				tr = browserTrace(p, docClicks...)
+			}
+			line, _ := json.Marshal(tr)
+			b.Write(line)
+			b.WriteString("\n")
+		}
+		os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(b.String()), 0o644)
+	}
+	for _, n := range names {
+		write(n, 1)
+	}
+	_, traces, err := LoadTraces(dir, names)
+	if err != nil {
+		t.Fatalf("four traces that agree: %v", err)
+	}
+	for _, n := range names {
+		if got := traces[n][with.ID].documents(); len(got) != len(with.Steps) || !got[0] || !got[1] || got[2] {
+			t.Errorf("%s: the documents of plan %d are %v, want the landing and the first click", n, with.ID, got)
+		}
+	}
+	// TanStack Start got navigation data where the other three loaded a document.
+	write("start")
+	_, _, err = LoadTraces(dir, names)
+	if err == nil {
+		t.Fatal("traces that do not agree on the documents were loaded")
+	}
+	for _, want := range []string{fmt.Sprintf("plan %d", with.ID), "page view 1", "start", with.Steps[1].Page, "record"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error lacks %q: %v", want, err)
+		}
+	}
+	// One framework alone has nothing to disagree with.
+	if _, _, err := LoadTraces(dir, []string{"start"}); err != nil {
+		t.Errorf("the trace of one framework: %v", err)
+	}
+}
+
+// A click the page does as a document load asks for a document as a landing does: it is counted, it
+// hits or not as a landing would, and it makes its page seen. A click the router takes gets data and
+// no HTML, and counts for nothing. Which is which comes from the traces.
+func TestExpectCountsADocumentThatAClickAsks(t *testing.T) {
+	list, pen := "/store/products?sort=newest", "/store/products/walnut-pen"
+	plans := []Plan{
+		{ID: 0, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store"}, {StepClick, list}}}, // the home is new, and so is the list, which the click loads as a document
+		landing(1, list), // a hit: the click of visit 0 made the page seen
+		{ID: 2, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store/products/oak-tray"}, {StepClick, pen + "?reviews=2"}}}, // the click gets data: no document, and the page is not seen
+		landing(3, pen+"?reviews=2"), // new
+		{ID: 4, Role: RoleShopper, Steps: []PlanStep{{StepLoad, pen}, {StepClick, "/store/checkout"}, {StepClick, "/store"}}}, // the pen is new, the visit checks out, and then loads the home as a document: the kettle of its cart changed
+		landing(5, "/store"), // a hit: nothing changed since the last document of visit 4
+	}
+	w := handWorkload(plans, nil)
+	w.Traces[0] = browserTrace(plans[0], 1)
+	w.Traces[4] = browserTrace(plans[4], 2)
+	add, co := checkout(4)
+	w.Writes = map[[2]int]PlannedWrite{{4, 0}: add, {4, 1}: co}
+	got, err := w.Expect(handDeps(), nil, expectSpan{0, len(plans), true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]ExpectedCell{
+		"home":    {Docs: 3, Hits: 1, Changed: 1, New: 1},
+		"list":    {Docs: 2, Hits: 1, New: 1},
+		"product": {Docs: 3, New: 3},
+	}
+	if len(got.Humans) != len(want) {
+		t.Errorf("kinds %v, want %v", got.Humans, want)
+	}
+	for kind, c := range want {
+		if g := got.Humans[kind]; g != c {
+			t.Errorf("%s: %+v, want %+v", kind, g, c)
+		}
+	}
+	// The class of each document goes by the visit and the page view, and a page view that is no document
+	// has none.
+	for at, class := range map[[2]int]docClass{{0, 0}: docNew, {0, 1}: docNew, {1, 0}: docSame, {2, 0}: docNew, {3, 0}: docNew, {4, 0}: docNew, {4, 2}: docChanged, {5, 0}: docSame} {
+		if g, ok := got.humanClass(at[0], at[1]); !ok || g != class {
+			t.Errorf("page view %d of visit %d is %v, want %v", at[1], at[0], g, class)
+		}
+	}
+	for _, at := range [][2]int{{2, 1}, {4, 1}} {
+		if g, ok := got.humanClass(at[0], at[1]); ok {
+			t.Errorf("page view %d of visit %d got no document and has the class %v", at[1], at[0], g)
+		}
+	}
+	// The landings by the parameter they carry are the landings alone: 6 of the 8 documents.
+	if g := Total(got.Groups); g.Docs != 6 {
+		t.Errorf("%d landings counted by their parameter, want 6", g.Docs)
+	}
+}
+
+// The plans cannot tell which page views are documents without the trace of a plan, so the count fails
+// for a plan whose trace has not its page views, and does not take the landing alone.
+func TestExpectFailsForAPlanWithoutTheTraceOfItsPageViews(t *testing.T) {
+	plans := []Plan{{ID: 7, Role: RoleShopper, Steps: []PlanStep{{StepLoad, "/store"}, {StepClick, "/store/products?sort=newest"}}}}
+	w := handWorkload(plans, nil)
+	w.Traces = map[int]Trace{7: {Plan: 7, Steps: browserTrace(plans[0]).Steps[:1]}}
+	if _, err := w.Expect(handDeps(), nil, expectSpan{0, 1, true}); err == nil || !strings.Contains(err.Error(), "plan 7") {
+		t.Errorf("error %v, want one that names the plan", err)
+	}
+}
+
+// A render in a VM of any document of a visit is split by what the plans say of that document, by the
+// visit and the page view: a click that loads a document has a class of its own, and a page view that
+// shows the page of the landing again does not take the class of the landing.
+func TestARenderInAVMOfADocumentAClickAsksIsSplitByItsClass(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(RenderHeader, RenderVM)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	plan := Plan{Steps: []PlanStep{{StepLoad, "/store"}, {StepClick, "/store/products?sort=newest"}, {StepClick, "/store"}, {StepClick, "/store/products/oak-tray"}}}
+	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, browserTrace(plan, 1, 2))
+	r.expect = &Expectation{human: map[[2]int]docClass{{0, 0}: docNew, {0, 1}: docChanged, {0, 2}: docSame}}
+	a := newAcc()
+	if err := visitOnce(r, a, 0); err != nil {
+		t.Fatal(err)
+	}
+	// The last click got navigation data, which the plans do not count: the client's own split.
+	want := map[string]map[string]int{
+		"home":    {RenderFirst: 1, RenderSame: 1},
+		"list":    {RenderChanged: 1},
+		"product": {RenderFirst: 1},
+	}
+	if !reflect.DeepEqual(a.vmWhy, want) {
+		t.Errorf("renders by why %v, want %v", a.vmWhy, want)
+	}
+	// The table of the landings counts the landing alone, not the documents the clicks asked for.
+	if want := map[string]map[string]int{LandingNone: {RenderVM: 1}}; !reflect.DeepEqual(a.landing, want) {
+		t.Errorf("landing documents %v, want %v", a.landing, want)
+	}
+}

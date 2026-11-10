@@ -430,8 +430,8 @@ var errNotSent = errors.New("cancelled before it was sent")
 // send plays one recorded request. A request the browser cancelled is cancelled at the recorded
 // offset from the start of its step: the connection is released and the rest of the answer is not
 // read. cancelAt is that time (zero for a request the browser let finish). page is the page of the
-// page view the request belongs to.
-func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, page string, cancelAt time.Time) outcome {
+// page view the request belongs to, and step the number of that page view in the visit.
+func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, step int, page string, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	responded, sent := false, false
@@ -561,7 +561,8 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		seenAt := stripLanding(q.URL)
 		seen := a.seen[seenAt]
 		a.seen[seenAt] = true
-		if q.Class == "doc" && isStorePage(page) {
+		// The table of the landings has the first document of a visit, not one a later action asks for.
+		if q.Class == "doc" && step == 0 && isStorePage(page) {
 			g := landingGroup(q.URL)
 			if a.landing[g] == nil {
 				a.landing[g] = map[string]int{}
@@ -573,7 +574,8 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 				a.vmWhy[kind] = map[string]int{}
 			}
 			why := renderWhy(kind, seen, cart)
-			if class, ok := r.expect.humanClass(v.seq); ok && q.Class == "doc" && !privateKind(kind) && page == r.wl.planFor(v.seq).Steps[0].Page {
+			// A document the plans counted has the class they give it, by the visit and the page view.
+			if class, ok := r.expect.humanClass(v.seq, step); ok && q.Class == "doc" && !privateKind(kind) {
 				why = docWhy(class)
 			}
 			a.vmWhy[kind][why]++
@@ -590,9 +592,10 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 // request starts when every request that had finished (or had been cancelled) before it started in
 // the browser is done. It returns when the foreground requests are done; prefetches go on in the
 // background until the end of the visit. scheduled is when the action was meant to start, and the
-// latency is counted from it. It returns the time of the end of the page view, and whether it was
-// successful: no foreground request failed and at least one finished.
-func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep, scheduled time.Time) (time.Time, error) {
+// latency is counted from it. step is the number of the page view in the visit. It returns the time of
+// the end of the page view, and whether it was successful: no foreground request failed and at least
+// one finished.
+func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s TraceStep, scheduled time.Time) (time.Time, error) {
 	stepStart := time.Now()
 	n := len(s.Reqs)
 	done := make([]chan struct{}, n)
@@ -630,7 +633,7 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 					return
 				}
 			}
-			outs[j] = r.send(ctx, v, a, q, s.Page, cancelAt)
+			outs[j] = r.send(ctx, v, a, q, step, s.Page, cancelAt)
 			if q.Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
 				v.fail(outs[j].err) // a prefetch that fails is a failure of the visit
 			}
@@ -741,7 +744,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 		if ctx.Err() != nil {
 			return false
 		}
-		if _, err := r.runStep(ctx, v, a, s, sched); err != nil {
+		if _, err := r.runStep(ctx, v, a, i, s, sched); err != nil {
 			if ctx.Err() == nil {
 				a.fail(err)
 			} else {

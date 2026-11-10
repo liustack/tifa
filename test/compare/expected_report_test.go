@@ -23,7 +23,7 @@ func TestTheRendersInAVMAreSplitByTheClassOfTheirDocument(t *testing.T) {
 		return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{{Method: "GET", URL: page, Class: "doc", End: 1, Status: 200}}}}}
 	}
 	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, doc("/store"), doc("/store"), doc("/store/products/oak-tray"), doc("/store"))
-	r.expect = &Expectation{human: map[int]docClass{0: docNew, 1: docChanged, 2: docSame}}
+	r.expect = &Expectation{human: map[[2]int]docClass{{0, 0}: docNew, {1, 0}: docChanged, {2, 0}: docSame}}
 	a := newAcc()
 	for seq := range 4 {
 		if err := visitOnce(r, a, seq); err != nil {

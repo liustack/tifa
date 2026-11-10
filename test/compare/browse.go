@@ -202,7 +202,8 @@ func (b *browse) commit() error {
 
 // LoadTraces reads the plans of the site and the traces of the names given, and fails unless every
 // name has a trace for every plan: a replay on an incomplete set would not play the same visits on
-// every server.
+// every server. It also fails unless the traces agree on which page views are documents
+// (checkDocuments).
 func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
 	set, err := ReadPlans(dir)
 	if err != nil {
@@ -236,7 +237,38 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 		}
 		out[name] = m
 	}
+	if err := checkDocuments(set, out, names); err != nil {
+		return nil, nil, err
+	}
 	return set, out, nil
+}
+
+// checkDocuments fails unless the traces of every name agree, for every page view of every plan, on
+// whether it was a document load. The pages are the same source in every framework, so a plain link or
+// a form with no router loads a document in all of them, and a click the router takes in none. The
+// plans count the documents of people from the traces (Workload.docSteps): the expected hit rate and
+// the share of the crawlers are then the same whatever the framework whose trace is read. A set that
+// does not agree is not one recording of the same pages.
+func checkDocuments(set *PlanSet, traces map[string]map[int]Trace, names []string) error {
+	if len(names) < 2 {
+		return nil
+	}
+	first := names[0]
+	for _, p := range set.Plans {
+		want := traces[first][p.ID].documents()
+		for _, name := range names[1:] {
+			for i, doc := range traces[name][p.ID].documents() {
+				if doc != want[i] {
+					is, not := name, first
+					if want[i] {
+						is, not = first, name
+					}
+					return fmt.Errorf("the traces do not agree on which page views are documents: page view %d of plan %d (%s) is a document load in %s and not in %s: record the traces again (`compare record`)", i, p.ID, p.Steps[i].Page, is, not)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // browseConfig is the settings of a run that its result keeps, and that a run must have to continue

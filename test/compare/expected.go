@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 )
@@ -11,13 +12,18 @@ import (
 // to it. A document hits when the page it asks for (the URL a render sees, RenderURL) was asked for
 // before as a document, in the warm-up too, and none of the data it shows has changed since. A document
 // of a page not asked for before is new, and one of a page asked for with other data is changed. Only
-// documents count: a click gets the data of a page and no HTML, which no render memo holds, so it is not
-// a request that puts a page in the memo and it does not make a page seen. A 404 (an old URL of a
-// crawler) is rendered for every request and never kept: it is neither a hit nor seen, and is counted
-// apart.
+// documents count, and every document of a visit does: its landing, and every action the page does as
+// a document load (a plain link, a form with no router). A click the router takes gets the data of a
+// page and no HTML, which no render memo holds, so it is not a request that puts a page in the memo and
+// it does not make a page seen. Which page views are documents is what the browser did, read from the
+// trace of the plan (Trace.documents), the same in every framework (LoadTraces), and not an answer of a
+// server. A 404 (an old URL of a crawler) is rendered for every request and never kept: it is neither a
+// hit nor seen, and is counted apart. A document of a private page (the cart, the checkout) is left out:
+// it shows the cart of the visitor, which the pages of a plan do not tell, and the replay splits its
+// renders by the cart cookie.
 //
-// The writes and the documents are taken in the order of the plans, a visit's document first and then
-// its writes. The servers play them at once, so two writes or a write and a document next to it can
+// The writes and the documents are taken in the order of the plans, and within a visit in the order of
+// its page views, a write after the page view it follows. The servers play them at once, so two writes or a write and a document next to it can
 // come in another order, and a render memo of a size (ssr.memo_size) drops pages, so the rate Tifa
 // measures can be lower than this one. It is hardly ever higher.
 
@@ -78,12 +84,12 @@ type Expected struct {
 	Old      int                     `json:"old,omitempty"`
 }
 
-// Expectation is Expected with the class of each counted document: of the first page of each visit, by
-// its number in the sequence of visits, and of each crawler request, by its number in the stream of
+// Expectation is Expected with the class of each counted document: of each document of a visit, by the
+// number of the visit in the sequence of visits and the page view, and of each crawler request, by its number in the stream of
 // crawler requests. The replay counts what Tifa rendered in a VM by them.
 type Expectation struct {
 	Expected
-	human map[int]docClass
+	human map[[2]int]docClass
 	crawl map[int]docClass
 }
 
@@ -95,12 +101,23 @@ type expectSpan struct {
 	count   bool
 }
 
+// docSteps says which page views of a plan are documents, as the browser recorded them: the landing,
+// and each action the page did as a document load. It fails for a plan whose trace has not its page
+// views, since nothing else tells which they are.
+func (w *Workload) docSteps(p Plan) ([]bool, error) {
+	t, ok := w.Traces[p.ID]
+	if !ok || len(t.Steps) != len(p.Steps) {
+		return nil, fmt.Errorf("plan %d has %d page views and its trace %d: the trace says which page views are documents", p.ID, len(p.Steps), len(t.Steps))
+	}
+	return t.documents(), nil
+}
+
 // Expect works out the expected hits of the spans, played one after the other from nothing seen and
 // the data as it is at the start: the catalogue, with the stock the restock before the clock gave
 // (restocked, by slug: runner.restocked). It fails for a page the dependencies (store_deps.json) have no
 // entry for, which means the file is not the one of these plans.
 func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expectSpan) (*Expectation, error) {
-	e := &Expectation{human: map[int]docClass{}, crawl: map[int]docClass{}}
+	e := &Expectation{human: map[[2]int]docClass{}, crawl: map[int]docClass{}}
 	m := newVersionModel(d, restocked)
 	// A page's data is as old as the last change of anything it shows (a page changes when one of them
 	// changed since it was last asked for), and lastSeen is that time as of the last document.
@@ -143,20 +160,32 @@ func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expec
 				continue
 			}
 			plan := w.planFor(k)
-			page := stripLanding(plan.Steps[0].Page)
-			class, err := doc(page)
+			docs, err := w.docSteps(plan)
 			if err != nil {
 				return nil, err
 			}
-			if sp.count {
-				e.human[k] = class
-				add(&e.Humans, pageClass(page), class)
-				if isStorePage(page) {
-					add(&e.Groups, landingGroup(plan.Steps[0].Page), class)
+			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			for i, step := range plan.Steps {
+				if page := stripLanding(step.Page); docs[i] && !privateKind(pageClass(page)) {
+					class, err := doc(page)
+					if err != nil {
+						return nil, err
+					}
+					if sp.count {
+						e.human[[2]int{k, i}] = class
+						add(&e.Humans, pageClass(page), class)
+						if i == 0 && isStorePage(page) {
+							add(&e.Groups, landingGroup(step.Page), class)
+						}
+					}
+				}
+				for len(effects) > 0 && effects[0].After <= i {
+					m.apply(effects[0])
+					effects = effects[1:]
 				}
 			}
-			for _, eff := range versionEffects(w.Seed, w.stockOf(k, 1)[0]) {
-				m.apply(eff)
+			for _, eff := range effects {
+				m.apply(eff) // a write after a page view the plan has not: none in the plans of the mix
 			}
 		}
 	}
@@ -182,13 +211,14 @@ func Total(cells map[string]ExpectedCell) ExpectedCell {
 	return t
 }
 
-// humanClass is the class of the landing document of visit seq of the sequence. It is not there for a
-// visit the expectation did not count (a warm-up's), and for no expectation at all (e is nil).
-func (e *Expectation) humanClass(seq int) (docClass, bool) {
+// humanClass is the class of the document that page view step of visit seq of the sequence asks for. It
+// is not there for a page view that asks for none, for one of a private page, for a visit the
+// expectation did not count (a warm-up's), and for no expectation at all (e is nil).
+func (e *Expectation) humanClass(seq, step int) (docClass, bool) {
 	if e == nil {
 		return 0, false
 	}
-	c, ok := e.human[seq]
+	c, ok := e.human[[2]int{seq, step}]
 	return c, ok
 }
 
