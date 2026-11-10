@@ -1022,10 +1022,10 @@ func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 		"Next.js answers an old URL with an error document and renders no page for it on the server",
 		"the other three servers render a whole page for it",
 		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |",
-		"| Tifa | U | 184 | 120 (65.2%) | 4 | 60 |",
-		"| Tifa | O | 10 | 0 (0.0%) | 0 | 10 |",
-		"| Tifa | zh-CN | 98 | 48 (49.0%) | 0 | 50 |",
-		"| Tifa | reviews | 80 | 40 (50.0%) | 0 | 40 |",
+		"| Tifa | U | 184 | 120 | 4 | 60 | - | 67.4% of 184 |",
+		"| Tifa | O | 10 | 0 | 0 | 10 | - | 0.0% of 10 |",
+		"| Tifa | U, zh-CN | 88 | 48 | 0 | 40 | - | 54.5% of 88 |",
+		"| Tifa | U, reviews | 80 | 40 | 0 | 40 | - | 50.0% of 80 |",
 		"| Tifa, memo off (reference) | U |",
 	} {
 		if !strings.Contains(appendix, want) {

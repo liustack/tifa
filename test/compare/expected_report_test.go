@@ -180,7 +180,7 @@ func TestTheLandingTableSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 	x.Expected = &Expected{Groups: map[string]ExpectedCell{LandingClickID: {Docs: 40, Hits: 36}}}
 	r.Closed = append(r.Closed, x)
 	_, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
-	if want := "| Tifa | with a click id | 40 | 30 (75.0%) | 0 | 10 | 90.0% of 40 |"; !strings.Contains(appendix, want) {
+	if want := "| Tifa | with a click id | 40 | 30 | 0 | 10 | 90.0% of 40 | 75.0% of 40 |"; !strings.Contains(appendix, want) {
 		t.Errorf("the appendix lacks %q:\n%s", want, appendix)
 	}
 }
@@ -198,15 +198,25 @@ func TestTheCrawlerTableSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 	}
 	_, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same |",
-		"| Tifa | product | 90 | 60 (66.7%) | 4 | 26 | 87.5% of 80 | 4 | 2 | 10 |",
-		"| Tifa | list | 16 | 12 (75.0%) | 0 | 4 | 25.0% of 16 | 0 | 0 | 0 |",
+		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same | VM: old URL, a 404 |",
+		// A kind of URL counts the URLs of U alone, as the plans do: the 10 old product URLs are not in it,
+		// and the renders in a VM add up (4 + 2 + 10 = 16).
+		"| Tifa | U, product | 80 | 60 | 4 | 16 | 87.5% of 80 | 80.0% of 80 | 4 | 2 | 10 | 0 |",
+		"| Tifa | U, list | 16 | 12 | 0 | 4 | 25.0% of 16 | 75.0% of 16 | 0 | 0 | 0 | 0 |",
 		// U as a whole: the kinds the plans count, 96 documents of the crawlers in all.
-		"| Tifa | U | 184 | 120 (65.2%) | 4 | 60 | 77.1% of 96 | 4 | 2 | 10 |",
-		"| Tifa | zh-CN | 98 | 48 (49.0%) | 0 | 50 | - | 0 | 0 | 0 |",
+		"| Tifa | U | 184 | 120 | 4 | 60 | 77.1% of 96 | 67.4% of 184 | 4 | 2 | 10 | 0 |",
+		"| Tifa | U, zh-CN | 88 | 48 | 0 | 40 | - | 54.5% of 88 | 0 | 0 | 0 | 0 |",
+		// The old URLs have a row of their own: the plans count none, and every one is a 404 rendered in a VM.
+		"| Tifa | O | 10 | 0 | 0 | 10 | - | 0.0% of 10 | 0 | 0 | 0 | 10 |",
 	} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+	// No row mixes the old URLs with those of U.
+	for _, not := range []string{"| Tifa | product |", "| Tifa | zh-CN |", "| Tifa | U, product | 90 |"} {
+		if strings.Contains(appendix, not) {
+			t.Errorf("the appendix has a row %q, which counts the old URLs with the URLs of U", not)
 		}
 	}
 }

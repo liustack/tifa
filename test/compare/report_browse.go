@@ -977,10 +977,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 				}
 				return strconv.Itoa(why[w])
 			}
-			measured := "-"
-			if all > 0 {
-				measured = fmt.Sprintf("%.1f%% of %d", 100*float64(hits+shared)/float64(all), all)
-			}
+			measured := measuredShare(hits+shared, all)
 			allowed := "-"
 			if c, ok := expectedOf(rs, k); ok && c.Docs > 0 {
 				allowed = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
@@ -1167,20 +1164,25 @@ func landingMarkdown(b *strings.Builder, servers []string, rounds func(f string)
 			if c.Docs > 0 {
 				allowed = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
 			}
-			share := "-"
-			if answers > 0 {
-				share = fmt.Sprintf("%.1f%%", 100*float64(memo)/float64(answers))
-			}
-			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d (%s) | %d | %d | %s |\n", BrowseLabel(f), landingLabels[g], answers, memo, share, shared, vm, allowed))
+			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d | %d | %d | %s | %s |\n", BrowseLabel(f), landingLabels[g], answers, memo, shared, vm, allowed, measuredShare(memo+shared, answers)))
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nThe documents of the landings of the storefront that Tifa answered, by the parameter their URL carries, over the rounds. A click id (`gclid`, `fbclid`, `msclkid`) is different for every click and an email parameter (`_kx`, `mc_eid`) for every recipient, and neither is part of the page, so the three groups ask for the same pages and should be answered alike. Only the documents of the storefront count (the back office has no landings with a parameter), and the warm-up is left out. The last column is the hit rate the plans allow for the group (a landing parameter is no part of the page, so it is the same for the three).\n\n| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nThe documents of the landings of the storefront that Tifa answered, by the parameter their URL carries, over the rounds. A click id (`gclid`, `fbclid`, `msclkid`) is different for every click and an email parameter (`_kx`, `mc_eid`) for every recipient, and neither is part of the page, so the three groups ask for the same pages and should be answered alike. Only the documents of the storefront count (the back office has no landings with a parameter), and the warm-up is left out. The last two columns are the hit rate the plans allow for the group (a landing parameter is no part of the page, so the pages of the three are the same) and the share of the answers the memo gave or shared, as in the table by kind of page.\n\n| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
+}
+
+// measuredShare writes the share of the answers that the memo gave or a render in progress shared, the
+// measure every table sets beside what the plans allow, or "-" for no answer.
+func measuredShare(answered, answers int) string {
+	if answers == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f%% of %d", 100*float64(answered)/float64(answers), answers)
 }
 
 // landingLabels say what the URL of a group carries.
@@ -1272,8 +1274,15 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				continue
 			}
 			for key, hows := range x.Crawler.Renders {
+				// A request for a URL of U counts for U, for its language and for its kind of URL. One for an old
+				// URL counts for O alone: the plans count none, and a row that held both could not be set
+				// beside what the plans allow.
 				parts := strings.Split(key, "|")
-				for _, dim := range parts {
+				dims := []string{"O"}
+				if parts[0] == "U" {
+					dims = []string{"U", "U, " + parts[1], "U, " + parts[2]}
+				}
+				for _, dim := range dims {
 					if by[dim] == nil {
 						by[dim] = &tally{why: map[string]int{}}
 					}
@@ -1303,21 +1312,34 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				}
 			}
 		}
-		allowed["U"] = Total(allowed)
-		for _, dim := range slices.Concat([]string{"U", "O"}, StoreLangs, crawlerKinds) {
+		total := Total(allowed)
+		for _, k := range crawlerKinds {
+			allowed["U, "+k] = allowed[k]
+		}
+		allowed["U"] = total
+		dims := []string{"U"}
+		for _, d := range slices.Concat(StoreLangs, crawlerKinds) {
+			dims = append(dims, "U, "+d)
+		}
+		for _, dim := range append(dims, "O") {
 			if t := by[dim]; t != nil && t.answers > 0 {
 				cell := "-"
-				if c := allowed[dim]; c.Docs > 0 {
+				if c := allowed[dim]; c.Docs > 0 && dim != "O" {
 					cell = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
 				}
-				rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d (%.1f%%) | %d | %d | %s | %d | %d | %d |\n", BrowseLabel(f), dim, t.answers, t.memo, 100*float64(t.memo)/float64(t.answers), t.shared, t.vm, cell, t.why[RenderFirst], t.why[RenderChanged], t.why[RenderSame]))
+				// An old URL is a 404, which Tifa renders for every request and does not keep.
+				notFound := 0
+				if dim == "O" {
+					notFound = t.vm
+				}
+				rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d | %d | %d | %s | %s | %d | %d | %d | %d |\n", BrowseLabel(f), dim, t.answers, t.memo, t.shared, t.vm, cell, measuredShare(t.memo+t.shared, t.answers), t.why[RenderFirst], t.why[RenderChanged], t.why[RenderSame], notFound))
 			}
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nHow Tifa answered the crawler requests (`X-Tifa-Render` on the documents), by the set they were drawn from (U or O, the old URLs, which are 404 pages that the memo does not keep), by language and by kind of URL, over the rounds. A crawler request is asked once and has no cookie and no click behind it, so a hit here is a page that a visitor or an earlier crawler request had made. The plans allow column is the share of the documents of crawlers (the old URLs are not in it) whose page was asked for before, by a visitor or a crawler request, with the same data, as for people (see the expected hit rate in the method), and the last three columns split the renders in a VM by the class the plans give the document (a kind of URL also counts the old URLs, which the plans leave out):\n\n| | answers by | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nHow Tifa answered the crawler requests (`X-Tifa-Render` on the documents), over the rounds: the requests for the URLs of U, all of them, by language and by kind of URL, and in a row of their own the requests for the old URLs (O), which are 404 pages that the memo does not keep. A crawler request is asked once and has no cookie and no click behind it, so a hit here is a page that a visitor or an earlier crawler request had made. The plans allow column is the share of the documents of crawlers whose page was asked for before, by a visitor or a crawler request, with the same data, as for people (see the expected hit rate in the method). The plans count the URLs of U alone, so the rows of U hold no old URL, and the old URLs have no expected rate. Next to it is the share of the answers the memo gave or shared, as in the table by kind of page. The last four columns split the renders in a VM, and add up to them: by the class the plans give the document, and the 404 pages of the old URLs, which are rendered for every request:\n\n| | answers by | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same | VM: old URL, a 404 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
