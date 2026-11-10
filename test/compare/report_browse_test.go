@@ -887,13 +887,26 @@ func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
 	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
 	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	x.Attempt = 1
 	x.Memo = &MemoRound{Start: MemoCounts{}, Warm: MemoCounts{Entries: 812, Bytes: 9 << 20, Hits: 3000, Evictions: 5}, End: MemoCounts{Entries: 900, Bytes: 10 << 20, Hits: 5500, Evictions: 12}}
-	r.Closed = []Round{x, closedRound("nextjs", sc.Name, 8, 1, 400, 10, true)}
+	// A try whose metrics did not answer after the round: what it held at the end is not known, nor
+	// are the hits and pages dropped in the round.
+	lost := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	lost.Attempt, lost.Valid, lost.WhyInvalid, lost.MemoError = 2, false, "the render memo could not be read after the round: EOF", "EOF"
+	lost.Memo = &MemoRound{Warm: MemoCounts{Entries: 812, Bytes: 9 << 20, Hits: 3000, Evictions: 5}}
+	// A try that its warm-up stopped before the clock: neither read after the warm-up was made.
+	stopped := closedRound("tifa", sc.Name, 8, 1, 0, 0, true)
+	stopped.Attempt, stopped.Valid, stopped.SetupError = 3, false, "the shop refused 3 requests of the warm-up with 409 or 422"
+	stopped.WhyInvalid = "the setup before the clock failed: " + stopped.SetupError
+	stopped.Memo = &MemoRound{}
+	r.Closed = []Round{x, lost, stopped, closedRound("nextjs", sc.Name, 8, 1, 400, 10, true)}
 	md := r.Markdown()
 	_, appendix, _ := strings.Cut(md, "## Appendix")
 	for _, want := range []string{
-		"| | round | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |",
-		"| Tifa | closed, 8 sessions, round 1 | 812 | 9.0 | 900 | 10.0 | 7 | 2500 |",
+		"| | round | try | valid | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |",
+		"| Tifa | closed, 8 sessions, round 1 | 1 | yes | 812 | 9.0 | 900 | 10.0 | 7 | 2500 |",
+		"| Tifa | closed, 8 sessions, round 1 | 2 | no | 812 | 9.0 | not read | not read | not read | not read |",
+		"| Tifa | closed, 8 sessions, round 1 | 3 | no | not read | not read | not read | not read | not read | not read |",
 	} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("the appendix lacks %q:\n%s", want, appendix)

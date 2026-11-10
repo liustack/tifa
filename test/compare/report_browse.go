@@ -1011,7 +1011,19 @@ func (r *BrowseResult) memoMarkdown(b *strings.Builder, sc BrowseScenario) {
 		}
 		m := x.Memo
 		mib := func(n int64) string { return fmt.Sprintf("%.1f", float64(n)/(1<<20)) }
-		rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %d | %s | %d | %s | %d | %d |\n", BrowseLabel(x.Framework), what, x.Round, m.Warm.Entries, mib(m.Warm.Bytes), m.End.Entries, mib(m.End.Bytes), m.End.Evictions-m.Warm.Evictions, m.Hits()))
+		// A round that read the memo before its warm-up and then stopped before its clock (a setup
+		// error: the warm-up was refused, left requests in flight, or the read after it failed) has
+		// no read after the warm-up, and a round whose metrics did not answer at its end
+		// (MemoError) none at the end: what was not read is no number.
+		warm := []string{"not read", "not read"}
+		end := []string{"not read", "not read", "not read", "not read"}
+		if x.SetupError == "" {
+			warm = []string{strconv.FormatInt(m.Warm.Entries, 10), mib(m.Warm.Bytes)}
+			if x.MemoError == "" {
+				end = []string{strconv.FormatInt(m.End.Entries, 10), mib(m.End.Bytes), strconv.FormatInt(m.End.Evictions-m.Warm.Evictions, 10), strconv.FormatInt(m.Hits(), 10)}
+			}
+		}
+		rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %d | %s | %s | %s |\n", BrowseLabel(x.Framework), what, x.Round, x.Attempt, yesNo(x.Valid), strings.Join(warm, " | "), strings.Join(end, " | ")))
 	}
 	for i := range r.Closed {
 		add(fmt.Sprintf("closed, %d sessions", r.Closed[i].Sessions), &r.Closed[i])
@@ -1025,7 +1037,7 @@ func (r *BrowseResult) memoMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\n#### What the render memo of Tifa held\n\nFrom the metrics route of each Tifa server, every round that read it: the pages and bytes the render memo held after the warm-up (right before the clock) and at the end, the pages it dropped to make room for others in the round (least recently used first, `ssr.memo_size`), and the hits it counted itself in the round, its count at the end less the one after the warm-up. Its memo was empty before the warm-up.\n\n| | round | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\n#### What the render memo of Tifa held\n\nFrom the metrics route of each Tifa server, every round that read it: the pages and bytes the render memo held after the warm-up (right before the clock) and at the end, the pages it dropped to make room for others in the round (least recently used first, `ssr.memo_size`), and the hits it counted itself in the round, its count at the end less the one after the warm-up. Its memo was empty before the warm-up. Every try is listed, valid or not. A read that was not made or did not answer (in a round its warm-up stopped before the clock, or whose metrics route failed at its end) says not read, and nothing is worked out from it.\n\n| | round | try | valid | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
