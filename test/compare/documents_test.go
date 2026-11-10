@@ -160,9 +160,9 @@ func TestExpectCountsADocumentThatAClickAsks(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]ExpectedCell{
-		"home":    {Docs: 3, Hits: 1, Changed: 1, New: 1},
-		"list":    {Docs: 2, Hits: 1, New: 1},
-		"product": {Docs: 3, New: 3},
+		"home":        {Docs: 3, Hits: 1, Changed: 1, New: 1},
+		"list, other": {Docs: 2, Hits: 1, New: 1},
+		"product":     {Docs: 3, New: 3},
 	}
 	if len(got.Humans) != len(want) {
 		t.Errorf("kinds %v, want %v", got.Humans, want)
@@ -219,9 +219,9 @@ func TestARenderInAVMOfADocumentAClickAsksIsSplitByItsClass(t *testing.T) {
 	}
 	// The last click got navigation data, which the plans do not count: the client's own split.
 	want := map[string]map[string]int{
-		"home":    {RenderFirst: 1, RenderSame: 1},
-		"list":    {RenderChanged: 1},
-		"product": {RenderFirst: 1},
+		"home":        {RenderFirst: 1, RenderSame: 1},
+		"list, other": {RenderChanged: 1},
+		"product":     {RenderFirst: 1},
 	}
 	if !reflect.DeepEqual(a.vmWhy, want) {
 		t.Errorf("renders by why %v, want %v", a.vmWhy, want)

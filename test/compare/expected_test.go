@@ -63,9 +63,9 @@ func TestExpectedHitsFollowThePagesAndTheWritesOfAPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]ExpectedCell{
-		"home":    {Docs: 4, Hits: 2, Changed: 1, New: 1},
-		"product": {Docs: 3, Hits: 0, Changed: 1, New: 2},
-		"list":    {Docs: 2, Hits: 1, Changed: 0, New: 1},
+		"home":        {Docs: 4, Hits: 2, Changed: 1, New: 1},
+		"product":     {Docs: 3, Hits: 0, Changed: 1, New: 2},
+		"list, other": {Docs: 2, Hits: 1, Changed: 0, New: 1},
 	}
 	for kind, c := range want {
 		if g := got.Humans[kind]; g != c {
@@ -197,7 +197,7 @@ func bruteForce(w *Workload, d *StoreDeps, restocked map[string]int, spans []exp
 			subs := subsFor(w.Seed, k, p)
 			for i, s := range p.Steps {
 				if page := subs.apply(s.Page); trace.Steps[i].document() {
-					doc(page, humans, pageClass(page), sp.count)
+					doc(page, humans, renderKind(page), sp.count)
 				}
 				for _, e := range effects {
 					if e.After == i {
@@ -317,7 +317,7 @@ func TestExpectTakesASearchForAWordOfTheVisitForAPageOfItsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list := got.Humans["list"]; list.Docs != counted || list.New != counted || list.Hits != 0 || list.Changed != 0 {
+	if list := got.Humans["list, search"]; list.Docs != counted || list.New != counted || list.Hits != 0 || list.Changed != 0 {
 		t.Errorf("the searches of %d visits after a warm-up of %d: %+v, want every one a new page", counted, warm, list)
 	}
 	if home := got.Humans["home"]; home.Docs != counted || home.Hits != counted {

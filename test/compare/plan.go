@@ -145,6 +145,29 @@ func pageClass(url string) string {
 	return "staff " + kind
 }
 
+// renderKind is the kind of page that an answer of Tifa and a document of the plans are counted under
+// in the tables of the render memo: the kind of the page (pageClass), with the product list apart by
+// the class of its URL (ListClass), since a search or a filtered list is a page few visits ask for
+// and the other lists are asked for again and again.
+func renderKind(url string) string {
+	kind := pageClass(url)
+	if kind == StoreKindList {
+		return kind + ", " + ListClass(url)
+	}
+	return kind
+}
+
+// renderKindRank puts the kinds of page of renderKind in the order of the tables: by name, with the
+// three classes of the product list as searches, filtered lists and the others.
+func renderKindRank(kind string) string {
+	for i, class := range []string{ListSearch, ListFilter, ListOther} {
+		if kind == StoreKindList+", "+class {
+			return fmt.Sprintf("%s %d", StoreKindList, i)
+		}
+	}
+	return kind
+}
+
 // Link is a link on a page that a visitor can click, with how likely the visitor is to pick it among
 // those of the kind. The links are those every page has whatever the data: the lists link to their
 // newest 25 orders, an order and a stats page to their list, and every page to the stats of its shop and the

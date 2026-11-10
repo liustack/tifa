@@ -177,7 +177,7 @@ func TestALandingParameterIsNoPartOfTheURLTheRendersAreSplitBy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := a.vmWhy[StoreKindList]; got[RenderFirst] != 1 || got[RenderAgain] != 2 {
+	if got := a.vmWhy["list, other"]; got[RenderFirst] != 1 || got[RenderAgain] != 2 {
 		t.Errorf("the renders of the list by why: %v, want one first and two again", got)
 	}
 }
@@ -336,7 +336,7 @@ func TestTheReplayPutsTheWordOfTheVisitInEveryRequestOfItsVisit(t *testing.T) {
 	}
 	// The list of the word of a visit is a page of its own: the client's count of the pages Tifa had
 	// answered before takes the two requests of each of the three visits for pages it had not.
-	if got := a.vmWhy[StoreKindList]; got[RenderFirst] != 6 || len(got) != 1 {
+	if got := a.vmWhy["list, search"]; got[RenderFirst] != 6 || len(got) != 1 {
 		t.Errorf("the lists of the words of three visits were rendered for %v, want six pages not answered before", got)
 	}
 	if len(words) != 3 {

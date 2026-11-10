@@ -218,20 +218,20 @@ func TestExpectCountsTheDocumentsOfTheFormAVisitTakes(t *testing.T) {
 	want := map[string]int{}
 	for seq := range visits {
 		p := w.planFor(seq)
-		want[pageClass(p.Steps[1].Page)]++
+		want[renderKind(p.Steps[1].Page)]++
 	}
-	if want["list"] < 5 || want["product"] < 5 {
+	if want["list, other"] < 5 || want["product"] < 5 {
 		t.Fatalf("the %d visits take the forms %v: too few of one", visits, want)
 	}
 	got, err := w.Expect(handDeps(), nil, expectSpan{0, visits, true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Humans["home"].Docs != visits || got.Humans["list"].Docs != want["list"] || got.Humans["product"].Docs != want["product"] {
+	if got.Humans["home"].Docs != visits || got.Humans["list, other"].Docs != want["list, other"] || got.Humans["product"].Docs != want["product"] {
 		t.Errorf("the plans count %+v, want %d homes and the lists and products of the forms the visits take: %v", got.Humans, visits, want)
 	}
 	// Each page is new once, and a hit after that: nothing writes.
-	if got.Humans["list"].New != 1 || got.Humans["product"].New != 1 || got.Humans["home"].New != 1 {
+	if got.Humans["list, other"].New != 1 || got.Humans["product"].New != 1 || got.Humans["home"].New != 1 {
 		t.Errorf("the plans count %+v, want each page new once", got.Humans)
 	}
 }
