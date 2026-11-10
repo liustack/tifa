@@ -436,23 +436,13 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			shoppers = append(shoppers, Plan{ID: b*SiteBlockPlans + i, Block: b, Role: RoleShopper, Steps: steps})
 		}
 		// The searches, by quota, among the visits with a page view after the landing, in a shuffle of
-		// their own: which visits, at which page view, for a word of which class.
+		// their own: which visits, at which page view, and their words, those of the variants too, all
+		// dealt here before any page view is walked (dealSearches).
 		visits := make([]*draftVisit, ShopperBlockVisits)
-		for i := range shoppers {
-			visits[i] = &draftVisit{plan: &shoppers[i], search: -1}
+		for i, deal := range dealSearches(seed, b, lens, ls) {
+			visits[i] = newDraft(&shoppers[i], deal)
 		}
-		srng := rand.New(rand.NewPCG(seed^0x510e527fade682d1, uint64(b)))
-		classes := searchClasses(srng, share(SearchShare))
-		for _, i := range srng.Perm(ShopperBlockVisits) {
-			if d := visits[i]; len(classes) > 0 && len(d.plan.Steps) >= 2 {
-				d.search, d.class, classes = 1+srng.IntN(len(d.plan.Steps)-1), classes[0], classes[1:]
-				d.plan.Steps[d.search] = searchStep(ls[i], drawSearchTerm(srng, ls[i], d.class))
-			}
-		}
-		if len(classes) > 0 {
-			panic(fmt.Sprintf("block %d of seed %d: %d searches found no visit of two page views", b, seed, len(classes)))
-		}
-		// The other page views: clicks on the links of the page before.
+		// The page views: the searches where they were dealt, and clicks on the links of the page before.
 		for _, d := range visits {
 			d.rewalk(rng, 1)
 		}
@@ -486,7 +476,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 				continue
 			}
 			walk := rand.New(rand.NewPCG(seed^0xbb67ae8584caa73b, uint64(b)<<20|uint64(i)))
-			kept := slices.Clone(p.Steps)
+			kept := d.keep()
 			for try := 0; try < 2000; try++ {
 				if at := kindAt(*p, StoreKindProduct, 0); at >= 0 && kindAt(*p, StoreKindCheckout, at+1) >= 0 {
 					break
@@ -494,7 +484,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 				d.rewalk(walk, 1)
 			}
 			if at := kindAt(*p, StoreKindProduct, 0); at < 0 || kindAt(*p, StoreKindCheckout, at+1) < 0 {
-				copy(p.Steps, kept)
+				d.put(kept)
 				continue
 			}
 			if at := kindAt(*p, StoreKindProduct, 0); at >= 0 {
@@ -530,13 +520,13 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			shoppers[i].Returning = true
 		}
 		// The filters, the sorts and the pages of the lists, by quota, in a shuffle of their own, then the
-		// landing parameters, and last the variants of the visits that search, which are whole visits.
+		// landing parameters, and last the plans get their variants, which were walked with them.
 		if err := planListActions(rand.New(rand.NewPCG(seed^0x9b05688c2b3e6c1f, uint64(b))), visits); err != nil {
 			panic(fmt.Sprintf("block %d of seed %d: %v", b, seed, err))
 		}
 		putLandingParams(seed, b, shoppers)
-		if err := planVariants(seed, b, visits); err != nil {
-			panic(fmt.Sprintf("block %d of seed %d: %v", b, seed, err))
+		for _, d := range visits {
+			d.finish()
 		}
 		set.Plans = append(set.Plans, shoppers...)
 		// The staff: half of the visits land on a list or a stats page, half on an order.

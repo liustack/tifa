@@ -17,8 +17,9 @@ import (
 //  1. The lengths of the visits and where they land, as before.
 //  2. The searches: SearchShare of the shopper visits, among those of two page views or more, search
 //     once, at a page view after the landing drawn alike among them. The class of the word is dealt by
-//     quota and the word drawn in the class (store_terms.go). The search box is in the header of every
-//     page, so a search can follow any page.
+//     quota and the word drawn in the class (store_terms.go), with the words of the variants of the
+//     visit, each drawn on its own (dealSearches). The search box is in the header of every page, so a
+//     search can follow any page.
 //  3. The other page views: a click on a link of the page before, by StoreClicks. A product list has
 //     the links the model of the list gives it (ModelList), a search result as any other, and no link
 //     leads from a list to a list: only the actions here do.
@@ -29,7 +30,11 @@ import (
 //  6. The sorts: ListSortShare of the visits that see a list change the sort of one.
 //  7. The pages: of the visits that see a list of more than one page with no search term,
 //     ListPageShares go to the second page, and on to the third.
-//  8. The variants of the visits that search (PlanVariants).
+//
+// A visit that searches for a word of the list has PlanVariants forms, the visit and its variants,
+// which differ in the word. Their words are dealt in step 2 and never change: from step 3 on the
+// forms are walked together (draftVisit), and what follows the search is what the lists of all the
+// words allow. A filter or a sort that one of them does not allow is given to another visit.
 //
 // A filter, a sort or a page is an action on a list the visit is on: it takes the place of the page view
 // after that list, and the page views after it are walked again from the page it leads to, the search
@@ -239,13 +244,14 @@ func filterOptions(p ListPage, kind string) []PlanCondition {
 	return out
 }
 
-// drawFilter draws n conditions to add to the list p: the kinds by the weights of FilterKinds, each
-// kind once, and of a kind any value it offers alike. Each condition is drawn on the list the ones
-// before it leave, so the list after all of them shows a product. It reports false when the list
-// offers fewer than n kinds.
-func drawFilter(rng *rand.Rand, p ListPage, n int) ([]PlanCondition, bool) {
+// drawFilter draws n conditions to add to the lists, which are the lists of the forms of one visit (one
+// list for a visit with no variants): the kinds by the weights of FilterKinds, each kind once, and of a
+// kind any value alike that every one of the lists offers. Each condition is drawn on the lists the
+// ones before it leave, so every list shows a product after all of them. It reports false when the
+// lists offer fewer than n kinds in common.
+func drawFilter(rng *rand.Rand, lists []ListPage, n int) ([]PlanCondition, bool) {
 	var conds []PlanCondition
-	cur := p
+	cur := slices.Clone(lists)
 	for len(conds) < n {
 		var kinds [][]PlanCondition
 		var weights []float64
@@ -254,7 +260,12 @@ func drawFilter(rng *rand.Rand, p ListPage, n int) ([]PlanCondition, bool) {
 			if slices.ContainsFunc(conds, func(c PlanCondition) bool { return c.Kind == k.Kind }) {
 				continue
 			}
-			if opts := filterOptions(cur, k.Kind); len(opts) > 0 {
+			opts := filterOptions(cur[0], k.Kind)
+			for _, p := range cur[1:] {
+				other := filterOptions(p, k.Kind)
+				opts = slices.DeleteFunc(slices.Clone(opts), func(c PlanCondition) bool { return !slices.Contains(other, c) })
+			}
+			if len(opts) > 0 {
 				kinds, weights, total = append(kinds, opts), append(weights, k.Weight), total+k.Weight
 			}
 		}
@@ -269,7 +280,9 @@ func drawFilter(rng *rand.Rand, p ListPage, n int) ([]PlanCondition, bool) {
 			}
 		}
 		conds = append(conds, kinds[at][rng.IntN(len(kinds[at]))])
-		cur = planList(applyConditions(p.Filter, conds))
+		for v, p := range lists {
+			cur[v] = planList(applyConditions(p.Filter, conds))
+		}
 	}
 	return conds, true
 }
@@ -335,41 +348,216 @@ func isList(page string) bool {
 	return kind == StoreKindList
 }
 
+// searchDeal is the search a shopper visit is dealt: the page view it searches at (0 for a visit that
+// does not search), the class of its words, and the words: the one of the visit and then those of its
+// variants, PlanVariants in all, or the placeholder alone for a word of the visit's own.
+type searchDeal struct {
+	At    int
+	Class string
+	Terms []string
+}
+
+// dealSearches deals the searches of the shopper visits of block b (step 2 above), from the lengths
+// and the languages of the visits alone and in a shuffle of its own: which visits search, at which
+// page view, for words of which class, and the words, each drawn on its own (drawSearchTerm). Nothing
+// that is planned later changes a word: what follows a search is fitted to the words the visit has.
+func dealSearches(seed uint64, b int, lens []int, langs []string) []searchDeal {
+	out := make([]searchDeal, len(lens))
+	rng := rand.New(rand.NewPCG(seed^0x510e527fade682d1, uint64(b)))
+	classes := searchClasses(rng, int(math.Round(SearchShare*float64(len(lens)))))
+	for _, i := range rng.Perm(len(lens)) {
+		if len(classes) == 0 || lens[i] < 2 {
+			continue
+		}
+		deal := searchDeal{At: 1 + rng.IntN(lens[i]-1), Class: classes[0]}
+		words := PlanVariants
+		if deal.Class == TermUnique {
+			words = 1
+		}
+		for range words {
+			deal.Terms = append(deal.Terms, drawSearchTerm(rng, langs[i], deal.Class))
+		}
+		out[i], classes = deal, classes[1:]
+	}
+	if len(classes) > 0 {
+		panic(fmt.Sprintf("block %d of seed %d: %d searches found no visit of two page views", b, seed, len(classes)))
+	}
+	return out
+}
+
 // draftVisit is a shopper visit while its block is planned: its plan, the page view of its search (-1
-// for none) and the class of its word, the last page view a write follows (0 for none), and whether
+// for none) and the words it was dealt, the last page view a write follows (0 for none), and whether
 // it has filtered, sorted or paged.
+//
+// A visit that searches for a word of the list is planned in all its forms at once, the visit and its
+// variants: paths holds the page views of each, the Steps of the plan first. The forms have the same
+// page views up to the search, each its own word at the search, and after it they are walked
+// together: a page view after the search is one every form can make from the page it is on, a click
+// to a page of the same kind or the same action on its list. So a word is never given up for what a
+// later page view needs. A filter or a sort that the list of one of the words does not allow is not
+// given to this visit after its search, and goes to another visit. Any other visit has one path.
 type draftVisit struct {
 	plan   *Plan
+	paths  [][]PlanStep
 	search int
-	class  string
+	terms  []string
 	locked int
 	acted  bool
 }
 
+// newDraft is the draft of a plan with its landing and the search it was dealt.
+func newDraft(p *Plan, deal searchDeal) *draftVisit {
+	d := &draftVisit{plan: p, paths: [][]PlanStep{p.Steps}, search: -1}
+	if deal.At > 0 {
+		d.search, d.terms = deal.At, deal.Terms
+		for len(d.paths) < len(deal.Terms) {
+			d.paths = append(d.paths, slices.Clone(p.Steps))
+		}
+	}
+	return d
+}
+
+// set gives page view j of every form its step.
+func (d *draftVisit) set(j int, steps []PlanStep) {
+	for v, path := range d.paths {
+		path[j] = steps[v]
+	}
+}
+
+// keep is a copy of the page views of every form, and put brings one back.
+func (d *draftVisit) keep() [][]PlanStep {
+	out := make([][]PlanStep, len(d.paths))
+	for v, path := range d.paths {
+		out[v] = slices.Clone(path)
+	}
+	return out
+}
+
+func (d *draftVisit) put(kept [][]PlanStep) {
+	for v, path := range d.paths {
+		copy(path, kept[v])
+	}
+}
+
 // rewalk draws the page views of a visit again from the page view from on, each a click on a link of
-// the page before, and keeps its search where it is.
+// the page before, and keeps its search where it is. Before the search every form gets the same click.
+// After it the forms click together (clickTogether).
 func (d *draftVisit) rewalk(rng *rand.Rand, from int) {
-	steps := d.plan.Steps
-	for j := max(from, 1); j < len(steps); j++ {
-		if j != d.search {
-			steps[j] = linkStep(pick(rng, StoreLinks(steps[j-1].Page)))
+	lang := langOf(d.paths[0][0].Page)
+	for j := max(from, 1); j < len(d.paths[0]); j++ {
+		switch {
+		case j == d.search:
+			for v, path := range d.paths {
+				path[j] = searchStep(lang, d.terms[v])
+			}
+		case j < d.search || len(d.paths) == 1:
+			step := linkStep(pick(rng, StoreLinks(d.paths[0][j-1].Page)))
+			for _, path := range d.paths {
+				path[j] = step
+			}
+		default:
+			d.clickTogether(rng, j)
 		}
 	}
 }
 
-// spots are the page views of a visit an action on a list can take the place of: after a list the
-// action can be taken on, after the page views the writes follow, not the search, and with room page
-// views after it that are not the search either.
-func (d *draftVisit) spots(room int, can func(ListPage) bool) []int {
-	var out []int
-	steps := d.plan.Steps
-	for j := d.locked + 1; j+room < len(steps); j++ {
-		if j == d.search || room > 0 && j+room == d.search || !isList(steps[j-1].Page) || !can(planList(steps[j-1].Page)) {
+// clickTogether makes page view j of every form a click on a link of the page that form is on, all to
+// a page of the same kind: the kind is drawn by the weights of the links of the visit itself among
+// the kinds every form has a link to, which is how a single visit draws it when all have them. The
+// visit then draws its page among its links of the kind by their weights, and so does each variant
+// among its own, but for a page that is no product, where a variant takes the page of the visit when
+// it has a link to it: the same list, the home, the cart.
+func (d *draftVisit) clickTogether(rng *rand.Rand, j int) {
+	type group struct {
+		links []Link
+		sum   float64
+	}
+	by := make([]map[string]*group, len(d.paths))
+	for v, path := range d.paths {
+		by[v] = map[string]*group{}
+		for _, l := range StoreLinks(path[j-1].Page) {
+			_, kind := StorePageKind(l.To)
+			g := by[v][kind]
+			if g == nil {
+				g = &group{}
+				by[v][kind] = g
+			}
+			g.links, g.sum = append(g.links, l), g.sum+l.Weight
+		}
+	}
+	var kinds []string
+	var total float64
+	for _, l := range StoreLinks(d.paths[0][j-1].Page) {
+		_, kind := StorePageKind(l.To)
+		if slices.Contains(kinds, kind) || slices.ContainsFunc(by, func(m map[string]*group) bool { return m[kind] == nil }) {
 			continue
 		}
-		out = append(out, j)
+		kinds, total = append(kinds, kind), total+by[0][kind].sum
+	}
+	if len(kinds) == 0 {
+		panic(fmt.Sprintf("plan %d: the forms of the visit have no kind of link in common after %s", d.plan.ID, d.paths[0][j-1].Page))
+	}
+	kind := kinds[len(kinds)-1]
+	for x, i := rng.Float64()*total, 0; i < len(kinds); i++ {
+		if x -= by[0][kinds[i]].sum; x < 0 {
+			kind = kinds[i]
+			break
+		}
+	}
+	draw := func(g *group) string {
+		links := slices.Clone(g.links)
+		for i := range links {
+			links[i].Weight /= g.sum
+		}
+		return pick(rng, links)
+	}
+	page := draw(by[0][kind])
+	for v, path := range d.paths {
+		switch g := by[v][kind]; {
+		case v == 0, kind != StoreKindProduct && slices.ContainsFunc(g.links, func(l Link) bool { return l.To == page }):
+			path[j] = linkStep(page)
+		default:
+			path[j] = linkStep(draw(g))
+		}
+	}
+}
+
+// listsAt are the lists the forms of a visit are on at page view j, nil when one of them is on a page
+// that is no list.
+func (d *draftVisit) listsAt(j int) []ListPage {
+	out := make([]ListPage, len(d.paths))
+	for v, path := range d.paths {
+		if !isList(path[j].Page) {
+			return nil
+		}
+		out[v] = planList(path[j].Page)
 	}
 	return out
+}
+
+// spots are the page views of a visit an action on a list can take the place of: after a list of
+// every form that the action can be taken on, after the page views the writes follow, not the search,
+// and with room page views after it that are not the search either.
+func (d *draftVisit) spots(room int, can func(ListPage) bool) []int {
+	var out []int
+	for j := d.locked + 1; j+room < len(d.paths[0]); j++ {
+		if j == d.search || room > 0 && j+room == d.search {
+			continue
+		}
+		if lists := d.listsAt(j - 1); lists != nil && !slices.ContainsFunc(lists, func(p ListPage) bool { return !can(p) }) {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// finish gives the plan its variants: the other forms of the visit, each with the page views of the
+// visit before the search, the landing with its parameter among them.
+func (d *draftVisit) finish() {
+	for _, path := range d.paths[1:] {
+		copy(path[:d.search], d.paths[0][:d.search])
+		d.plan.Variants = append(d.plan.Variants, path)
+	}
 }
 
 // planListActions deals the filters, the sorts and the pages of the shopper visits of a block (steps
@@ -383,8 +571,9 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 	}
 	order := rng.Perm(len(visits))
 	// take gives the action to the first visit of the shuffle that has not acted and has a spot for it,
-	// at a spot drawn alike among them, and walks the page views after it again.
-	take := func(what string, room int, who func(*draftVisit) bool, can func(ListPage) bool, act func(d *draftVisit, at int, p ListPage) bool) error {
+	// at a spot drawn alike among them, and walks the page views after it again. The action is taken on
+	// the list of every form of the visit, and act reports false when one of them does not allow it.
+	take := func(what string, room int, who func(*draftVisit) bool, can func(ListPage) bool, act func(d *draftVisit, at int, lists []ListPage) bool) error {
 		for _, i := range order {
 			d := visits[i]
 			if d.acted || !who(d) {
@@ -393,7 +582,7 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 			spots := d.spots(room, can)
 			rng.Shuffle(len(spots), func(a, b int) { spots[a], spots[b] = spots[b], spots[a] })
 			for _, at := range spots {
-				if act(d, at, planList(d.plan.Steps[at-1].Page)) {
+				if act(d, at, d.listsAt(at-1)) {
 					d.acted = true
 					d.rewalk(rng, at+1+room)
 					return nil
@@ -402,16 +591,30 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 		}
 		return fmt.Errorf("no visit is left that can %s", what)
 	}
+	// each makes the step of every form from its list.
+	each := func(lists []ListPage, step func(ListPage) PlanStep) []PlanStep {
+		out := make([]PlanStep, len(lists))
+		for v, p := range lists {
+			out[v] = step(p)
+		}
+		return out
+	}
 	// The filters, those with the most conditions first, which the fewest lists can take.
 	filters := quotaCounts(int(math.Round(ListFilterShare*float64(lists))), FilterConditionShares)
 	for n := len(filters); n >= 1; n-- {
 		for range filters[n-1] {
-			err := take(fmt.Sprintf("filter a list by %d conditions", n), 0, anyVisit, func(ListPage) bool { return true }, func(d *draftVisit, at int, p ListPage) bool {
-				conds, ok := drawFilter(rng, p, n)
-				if ok {
-					d.plan.Steps[at] = filterStep(p, conds)
+			err := take(fmt.Sprintf("filter a list by %d conditions", n), 0, anyVisit, func(ListPage) bool { return true }, func(d *draftVisit, at int, lists []ListPage) bool {
+				conds, ok := drawFilter(rng, lists, n)
+				if !ok {
+					return false
 				}
-				return ok
+				steps := each(lists, func(p ListPage) PlanStep { return filterStep(p, conds) })
+				// The same control on every form: the plain link of the same part, or the form.
+				if slices.ContainsFunc(steps, func(s PlanStep) bool { return s.Act != steps[0].Act || s.Part != steps[0].Part }) {
+					return false
+				}
+				d.set(at, steps)
+				return true
 			})
 			if err != nil {
 				return err
@@ -419,9 +622,19 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 		}
 	}
 	for range int(math.Round(ListSortShare * float64(lists))) {
-		err := take("sort a list", 0, anyVisit, func(p ListPage) bool { return len(sortOptions(p)) > 0 }, func(d *draftVisit, at int, p ListPage) bool {
-			sorts := sortOptions(p)
-			d.plan.Steps[at] = sortStep(p, sorts[rng.IntN(len(sorts))])
+		err := take("sort a list", 0, anyVisit, func(p ListPage) bool { return len(sortOptions(p)) > 0 }, func(d *draftVisit, at int, lists []ListPage) bool {
+			// A sort every form can change to.
+			var sorts []string
+			for _, s := range sortOptions(lists[0]) {
+				if !slices.ContainsFunc(lists, func(p ListPage) bool { return !slices.Contains(sortOptions(p), s) }) {
+					sorts = append(sorts, s)
+				}
+			}
+			if len(sorts) == 0 {
+				return false
+			}
+			sort := sorts[rng.IntN(len(sorts))]
+			d.set(at, each(lists, func(p ListPage) PlanStep { return sortStep(p, sort) }))
 			return true
 		})
 		if err != nil {
@@ -445,9 +658,10 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 		return func(p ListPage) bool { return p.Filter.Page == 1 && pagesAhead(p) >= ahead }
 	}
 	for range third - have.ThirdPages {
-		err := take("go to the third page of a list", 1, shallow, first(2), func(d *draftVisit, at int, p ListPage) bool {
-			d.plan.Steps[at] = pageStep(p)
-			d.plan.Steps[at+1] = pageStep(planList(d.plan.Steps[at].Page))
+		err := take("go to the third page of a list", 1, shallow, first(2), func(d *draftVisit, at int, lists []ListPage) bool {
+			steps := each(lists, pageStep)
+			d.set(at, steps)
+			d.set(at+1, each(lists, func(p ListPage) PlanStep { return pageStep(planList(pageStep(p).Page)) }))
 			return true
 		})
 		if err != nil {
@@ -455,8 +669,8 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 		}
 	}
 	for range second - have.SecondPages {
-		err := take("go to the second page of a list", 0, shallow, first(1), func(d *draftVisit, at int, p ListPage) bool {
-			d.plan.Steps[at] = pageStep(p)
+		err := take("go to the second page of a list", 0, shallow, first(1), func(d *draftVisit, at int, lists []ListPage) bool {
+			d.set(at, each(lists, pageStep))
 			return true
 		})
 		if err != nil {
@@ -478,105 +692,6 @@ func termClass(term string) string {
 		return TermNone
 	}
 	return TermFound
-}
-
-// variantOf is the visit of a plan with another word in its search, at page view at: the page views
-// before it as they are, and each one after it reached by the same act from the page the variant is
-// on. A click on a link leads to a page of the same kind, the same page when the variant's page links
-// to it and it is no product, and else one drawn among the links of that kind. A filter adds the same
-// conditions, a sort sets the same sort, a page is the next page. It reports false when the pages of
-// the word do not allow one of them, and the caller draws another word.
-func variantOf(rng *rand.Rand, p Plan, at int, term string) ([]PlanStep, bool) {
-	lang, _ := StorePageKind(p.Steps[0].Page)
-	out := slices.Clone(p.Steps)
-	out[at] = searchStep(lang, term)
-	for j := at + 1; j < len(out); j++ {
-		base, prev := p.Steps[j], out[j-1].Page
-		if base.Act == ActLink {
-			_, kind := StorePageKind(base.Page)
-			var links []Link
-			var sum float64
-			same := false
-			for _, l := range StoreLinks(prev) {
-				if _, k := StorePageKind(l.To); k == kind {
-					links, sum = append(links, l), sum+l.Weight
-					same = same || l.To == base.Page
-				}
-			}
-			switch {
-			case len(links) == 0:
-				return nil, false
-			case same && kind != StoreKindProduct:
-				out[j] = linkStep(base.Page)
-			default:
-				for i := range links {
-					links[i].Weight /= sum
-				}
-				out[j] = linkStep(pick(rng, links))
-			}
-			continue
-		}
-		if !isList(prev) {
-			return nil, false
-		}
-		list := planList(prev)
-		var step PlanStep
-		switch base.Act {
-		case ActFilter, ActForm:
-			conds := conditionsOf(base.Set)
-			cur := list
-			for i, c := range conds {
-				if !slices.Contains(filterOptions(cur, c.Kind), c) {
-					return nil, false
-				}
-				cur = planList(applyConditions(list.Filter, conds[:i+1]))
-			}
-			step = filterStep(list, conds)
-		case ActSort:
-			if !slices.Contains(sortOptions(list), base.Sort) {
-				return nil, false
-			}
-			step = sortStep(list, base.Sort)
-		case ActPage:
-			if pagesAhead(list) < 1 {
-				return nil, false
-			}
-			step = pageStep(list)
-		default:
-			return nil, false
-		}
-		if step.Act != base.Act || step.Part != base.Part {
-			return nil, false
-		}
-		out[j] = step
-	}
-	return out, true
-}
-
-// planVariants gives the visits of a block that search for a word of the list their variants: for
-// each, PlanVariants-1 other words of the same class, drawn as the word of the visit was, so a word
-// can come twice and the words of the variants follow the same Zipf law.
-func planVariants(seed uint64, b int, visits []*draftVisit) error {
-	for i, d := range visits {
-		if d.search < 0 || d.class == TermUnique {
-			continue
-		}
-		lang, _ := StorePageKind(d.plan.Steps[0].Page)
-		rng := rand.New(rand.NewPCG(seed^0x3c6ef372fe94f82b, uint64(b)<<20|uint64(i)))
-		for len(d.plan.Variants) < PlanVariants-1 {
-			found := false
-			for range 1000 {
-				if v, ok := variantOf(rng, *d.plan, d.search, drawSearchTerm(rng, lang, d.class)); ok {
-					d.plan.Variants, found = append(d.plan.Variants, v), true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("visit %d found no other word its pages after the search allow", i)
-			}
-		}
-	}
-	return nil
 }
 
 // ActionCounts are what shopper visits do with the product list, counted from their plans: the

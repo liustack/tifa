@@ -514,3 +514,95 @@ func TestTheDepthOfAVisitIsTheDeepestPageItSees(t *testing.T) {
 		}
 	}
 }
+
+// The words of a visit that searches are dealt before anything that follows its search, the word of
+// the visit and those of its variants each drawn on its own, and what follows is fitted to the words,
+// never the words to it: a filter or a sort after the search is given to a visit only when the lists
+// of all its words allow it, and goes to another visit when they do not. So the words the plans keep
+// are exactly the ones dealt, also for the visits that filter or sort after their search, where a
+// word that finds one product could not be sorted and a word whose products are of one kind could not
+// be filtered by another.
+func TestTheWordsOfAVisitAreDealtBeforeWhatFollowsItsSearch(t *testing.T) {
+	followed := map[string]int{}
+	for _, seed := range []uint64{1, 2, 3} {
+		set := GenerateSitePlanSet(seed, 2)
+		for b := range set.Blocks {
+			plans := set.Plans[b*SiteBlockPlans : b*SiteBlockPlans+ShopperBlockVisits]
+			lens, langs := make([]int, len(plans)), make([]string, len(plans))
+			for i, p := range plans {
+				lens[i], langs[i] = len(p.Steps), langOf(p.Steps[0].Page)
+			}
+			for i, deal := range dealSearches(seed, b, lens, langs) {
+				p := plans[i]
+				at := slices.IndexFunc(p.Steps, func(s PlanStep) bool { return s.Act == ActSearch })
+				if deal.At == 0 {
+					if at >= 0 {
+						t.Fatalf("seed %d plan %d searches and was dealt no search", seed, p.ID)
+					}
+					continue
+				}
+				kept := []string{p.Steps[max(at, 0)].Term}
+				for _, v := range p.Variants {
+					kept = append(kept, v[at].Term)
+				}
+				if at != deal.At || !slices.Equal(kept, deal.Terms) {
+					t.Fatalf("seed %d plan %d was dealt the words %v at page view %d, and its plan keeps %v at %d", seed, p.ID, deal.Terms, deal.At, kept, at)
+				}
+				if at+1 < len(p.Steps) && len(p.Variants) > 0 {
+					followed[p.Steps[at+1].Act]++
+				}
+			}
+		}
+	}
+	if followed[ActSort] < 10 || followed[ActFilter]+followed[ActForm] < 20 || followed[ActLink] < 100 {
+		t.Errorf("after the search of a visit with variants come %v: too few sorts or filters to show that they do not choose the words", followed)
+	}
+}
+
+// Over many blocks, the words the plans keep for the searches that find a product, those of the
+// visits and of their variants alike, follow the Zipf law of the lists: the first word of a language
+// comes as often as the law says and the second half as often, and the words that find one product
+// alone, which a sort after the search cannot take, have the share the law gives them.
+func TestTheWordsThePlansKeepFollowTheZipfLaw(t *testing.T) {
+	count := map[string]map[string]int{}
+	total := map[string]int{}
+	for _, seed := range []uint64{11, 12, 13, 14, 15} {
+		set := GenerateSitePlanSet(seed, 2)
+		for _, p := range set.Plans {
+			at := slices.IndexFunc(p.Steps, func(s PlanStep) bool { return s.Act == ActSearch })
+			if at < 0 || termFinds(p.Steps[at].Term) == 0 {
+				continue
+			}
+			lang := langOf(p.Steps[0].Page)
+			if count[lang] == nil {
+				count[lang] = map[string]int{}
+			}
+			for _, steps := range append([][]PlanStep{p.Steps}, p.Variants...) {
+				count[lang][steps[at].Term]++
+				total[lang]++
+			}
+		}
+	}
+	for _, lang := range StoreLangs {
+		list := StoreSearchTerms()[lang].Found
+		var h, single float64
+		for k := range list {
+			h += 1 / float64(k+1)
+		}
+		gotSingle := 0
+		for k, w := range list {
+			if termFinds(w) == 1 {
+				single += 1 / float64(k+1) / h
+				gotSingle += count[lang][w]
+			}
+		}
+		n := float64(total[lang])
+		if n < 3000 {
+			t.Fatalf("%s: %v words kept: too few", lang, n)
+		}
+		first, second, one := float64(count[lang][list[0]])/n, float64(count[lang][list[1]])/n, float64(gotSingle)/n
+		if math.Abs(first-1/h) > 0.025 || math.Abs(second-1/h/2) > 0.02 || math.Abs(one-single) > 0.03 {
+			t.Errorf("%s: of %v words kept, the first is %.3f, the second %.3f and the words that find one product %.3f, want %.3f, %.3f and %.3f", lang, n, first, second, one, 1/h, 1/h/2, single)
+		}
+	}
+}
