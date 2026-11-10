@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from 'cn'
-import { LocaleContext, useStore } from './i18n'
+import { LocaleContext, useHref, useStore } from './i18n'
 import { refreshMine, useMine } from './mine'
 import { catalogueNo, Price, ProductImage } from './product-card'
 import { RouteError, useAlternates } from 'tifa/client'
@@ -213,9 +213,10 @@ function SearchBox({ menu }: { menu: Group[] }) {
   const { t } = useStore()
   const [focused, setFocused] = useState(false)
   const popular = menu.flatMap((g) => g.featured.slice(0, 1))
+  const href = useHref()
   return (
     <form
-      action={`/store/products`}
+      action={href('/store/products')}
       method="get"
       role="search"
       className="relative ml-auto hidden w-56 md:block"
