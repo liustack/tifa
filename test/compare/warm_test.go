@@ -235,18 +235,27 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 			}
 			list := busy(servers())
 			// The first server is the sizing run, thrown away. Then one server for each try of the round
-			// (a round of this fake is never valid, so it is tried again).
+			// (a try that is not valid is played again).
 			if len(list) != 1+len(b.res.Closed) || out.Requests == 0 {
 				t.Fatalf("%d servers for %d rounds, %d requests in the last", len(list), len(b.res.Closed), out.Requests)
 			}
-			out = &b.res.Closed[0]
+			// The requests of a try can be counted only when it ran whole. The sizing run is short, and when
+			// it sizes the round too long for this machine the warm-up or the round is cut off at twice the
+			// target: the server then got requests the client had in flight and did not count, and the try is
+			// not valid and is played again with fewer visits. So the check takes the first try that no
+			// timeout cut off, with the server of that try.
+			try := slices.IndexFunc(b.res.Closed, func(r Round) bool { return !r.TimedOut && r.WarmUp != nil && !r.WarmUp.TimedOut })
+			if try < 0 {
+				t.Fatalf("every one of the %d tries of the round was cut off by its timeout: none can be counted", len(b.res.Closed))
+			}
+			out, server := &b.res.Closed[try], list[1+try]
 			if out.SetupRequests == 0 {
 				t.Fatalf("the round made no cart for a returning visitor")
 			}
-			if !own(list[1], out) {
-				t.Errorf("the server of the round got %d requests (%d GETs), the warm-up and the round counted %+v and %d (%d writes, %d of setup)", list[1].hits.Load(), list[1].gets.Load(), out.WarmUp, out.Requests, out.Writes, out.SetupRequests)
+			if !own(server, out) {
+				t.Errorf("the server of the round got %d requests (%d GETs), the warm-up and the round counted %+v and %d (%d writes, %d of setup)", server.hits.Load(), server.gets.Load(), out.WarmUp, out.Requests, out.Writes, out.SetupRequests)
 			}
-			setUp(t, list[1], out, shipsIn(t, b, sc, spec.Name, b.res.Prepared[sc.Name]+b.res.WarmVisits[sc.Name]), metrics)
+			setUp(t, server, out, shipsIn(t, b, sc, spec.Name, b.res.Prepared[sc.Name]+b.res.WarmVisits[sc.Name]), metrics)
 			if list[0].hits.Load() == 0 {
 				t.Errorf("the sizing run sent nothing")
 			}
@@ -275,9 +284,18 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 	}
 	// The read-only control is Tifa: its server gets the same warm-up with no writes, then the
 	// round, and nothing else.
-	b, servers := warmBrowse(t, sc, tifa)
-	if err := b.control(context.Background(), sc); err != nil {
-		t.Fatal(err)
+	// The control is one try, sized by a short sizing run of its own as a closed round is, so one that a
+	// timeout cut off cannot be counted either: it is played again from the start, three times at most.
+	var b *browse
+	var servers func() []*launched
+	for attempt := 1; ; attempt++ {
+		b, servers = warmBrowse(t, sc, tifa)
+		if err := b.control(context.Background(), sc); err != nil {
+			t.Fatal(err)
+		}
+		if c := b.res.Control; attempt == 3 || len(c) != 1 || (!c[0].TimedOut && c[0].WarmUp != nil && !c[0].WarmUp.TimedOut) {
+			break
+		}
 	}
 	list := busy(servers())
 	if len(b.res.Control) != 1 || len(list) < 2 {
