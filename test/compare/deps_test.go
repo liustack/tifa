@@ -255,14 +255,7 @@ func TestEveryListDependsOnThePriceOfEveryProduct(t *testing.T) {
 
 // The file is the one this checkout makes: the sources of the shop, the URLs and every page in it.
 func TestTheFileOfTheDepsIsTheOneOfThisCheckout(t *testing.T) {
-	e, err := NewEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := CheckStoreDeps(e.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := checkedDeps(t)
 	for _, u := range depsURLs() {
 		if keys, ok := d.pageKeys(u); !ok || len(keys) == 0 {
 			t.Errorf("no version keys for %s", u)
@@ -272,6 +265,7 @@ func TestTheFileOfTheDepsIsTheOneOfThisCheckout(t *testing.T) {
 
 // A file that was made from other sources of the shop, or for other URLs, is refused.
 func TestAFileOfTheDepsMadeFromOtherSourcesIsRefused(t *testing.T) {
+	checkedDeps(t)
 	e, err := NewEnv()
 	if err != nil {
 		t.Fatal(err)

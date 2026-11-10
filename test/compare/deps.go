@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -17,12 +18,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/bundle"
+	"github.com/liustack/tifa/internal/codegen"
 )
 
 // What the data of a shared page of the storefront holds, so that the version of a page can follow the
@@ -69,6 +76,8 @@ type StoreDeps struct {
 	// when it does not sort by price and else in the order of the catalogue. The key is the render URL of
 	// the list without the range, the stock, the sort by price and the page (listBase).
 	Lists map[string][]string `json:"lists"`
+	// Build is the build of the shop the file was made from.
+	Build BuildInfo `json:"build"`
 }
 
 // The routes of the pages, as tifa names them.
@@ -331,8 +340,9 @@ func depsSourcesHash(root string) (string, error) {
 }
 
 // CheckStoreDeps loads store_deps.json and refuses it when it is not what the checkout at root makes:
-// another shop source, another set of URLs, or a URL it has no entry for. Make it again with
-// `compare deps`.
+// other query parameters than the build of the shop has its routes read, another shop source, another
+// set of URLs, or a URL it has no entry for. Make it again with `compare deps`. The shop must be built:
+// without its generated program the error is errShopNotBuilt.
 func CheckStoreDeps(root string) (*StoreDeps, error) {
 	d, err := parseStoreDeps(storeDepsJSON)
 	if err != nil {
@@ -343,7 +353,9 @@ func CheckStoreDeps(root string) (*StoreDeps, error) {
 		return nil, err
 	}
 	const again = "make it again with `compare deps`"
-
+	if err := checkQueryTable(filepath.Join(root, "examples", "shop"), d); err != nil {
+		return nil, fmt.Errorf("%w: %s", err, again)
+	}
 	if d.Sources != sources {
 		return nil, fmt.Errorf("store_deps.json was made from other sources of the shop (%s, now %s): %s", d.Sources, sources, again)
 	}
@@ -525,8 +537,12 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 }
 
 // WriteStoreDeps starts the shop with its render memo off and the data it starts with, makes
-// store_deps.json for it and writes it to out.
+// store_deps.json for it and writes it to out. It refuses a build of the shop that is not the one the
+// checkout makes (shopBuildCurrent), and writes which build it asked.
 func (e Env) WriteStoreDeps(ctx context.Context, log io.Writer, out string) error {
+	if err := e.shopBuildCurrent(ctx); err != nil {
+		return err
+	}
 	out, err := filepath.Abs(out)
 	if err != nil {
 		return err
@@ -566,7 +582,9 @@ func (e Env) WriteStoreDeps(ctx context.Context, log io.Writer, out string) erro
 		return err
 	}
 	d.URLs = hashOf(urls)
-
+	if d.Build, err = e.buildInfoOf(); err != nil {
+		return err
+	}
 	data, err := marshalStoreDeps(d)
 	if err != nil {
 		return err
@@ -582,7 +600,7 @@ func marshalStoreDeps(d *StoreDeps) ([]byte, error) {
 		return string(b)
 	}
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "{\n \"sources\": %s,\n \"urls\": %s,\n", line(d.Sources), line(d.URLs))
+	fmt.Fprintf(&b, "{\n \"sources\": %s,\n \"urls\": %s,\n \"build\": %s,\n", line(d.Sources), line(d.URLs), line(d.Build))
 	b.WriteString(" \"query\": {\n")
 	routes := slices.Sorted(maps.Keys(d.Query))
 	for i, r := range routes {
@@ -675,4 +693,198 @@ func collectList(ctx context.Context, server, buildID, base string) ([]string, e
 			return out, nil
 		}
 	}
+}
+
+// Which build of the shop store_deps.json is of. The file is made by asking a running shop for the data
+// of its pages, so it is only as good as the program that answered: `compare deps` refuses a program
+// that is not the one the checkout builds (shopBuildCurrent), with the build skipped too, and writes
+// which build it asked (BuildInfo). A run checks the file against the build it is about to measure
+// (checkQueryTable, from CheckStoreDeps).
+
+// BuildInfo says which build of the shop store_deps.json was asked of: the ID of its front end
+// (buildId in .tifa/dist/build.json) and the fingerprint of its table of routes, with the query
+// parameters each reads (App.Fingerprint in .tifa/tifaapp/app.go).
+type BuildInfo struct {
+	ID    string `json:"id"`
+	Table string `json:"table"`
+}
+
+// errShopNotBuilt says that the shop has no generated program to read the query parameters from.
+var errShopNotBuilt = errors.New("the shop is not built")
+
+// shopTable is the generated program of the shop, which holds its routes.
+func shopTable(shop string) string {
+	return filepath.Join(shop, ".tifa", "tifaapp", "app.go")
+}
+
+// checkQueryTable fails when the query parameters the file keeps for the routes are not those of the
+// generated program of the shop as it is built now. The parameters a render sees decide which
+// requests are one page, so a file with another table counts the hits of other pages.
+func checkQueryTable(shop string, d *StoreDeps) error {
+	src, err := os.ReadFile(shopTable(shop))
+	if err != nil {
+		return fmt.Errorf("%w: %v", errShopNotBuilt, err)
+	}
+	all, err := routeQueries(src)
+	if err != nil {
+		return err
+	}
+	if len(d.Query) != len(usedRoutes()) {
+		return fmt.Errorf("store_deps.json keeps the query parameters of %d routes, not %d", len(d.Query), len(usedRoutes()))
+	}
+	for _, r := range usedRoutes() {
+		if !slices.Equal(d.Query[r], all[r]) {
+			return fmt.Errorf("store_deps.json says %s reads the query parameters %v, and the build of the shop says %v", r, d.Query[r], all[r])
+		}
+	}
+	return nil
+}
+
+var fingerprintLine = regexp.MustCompile(`(?m)^\s*Fingerprint:\s*"([0-9a-f]+)",\s*$`)
+
+// tableFingerprint is App.Fingerprint of a generated program: the hash tifa build gives the table of
+// routes it wrote.
+func tableFingerprint(src []byte) (string, error) {
+	m := fingerprintLine.FindSubmatch(src)
+	if m == nil {
+		return "", errors.New("the generated program of the shop has no Fingerprint")
+	}
+	return string(m[1]), nil
+}
+
+// newerThan returns the first of files that changed after the file at built was written, by the times
+// of the files, and "" when none did.
+func newerThan(built string, files []string) (string, error) {
+	info, err := os.Stat(built)
+	if err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		x, err := os.Stat(f)
+		if err != nil {
+			return "", err
+		}
+		if x.ModTime().After(info.ModTime()) {
+			return f, nil
+		}
+	}
+	return "", nil
+}
+
+// programInputs are the files under root that go build compiles into the program of the shop: the Go
+// files and the embedded files (the front end in .tifa/dist) of every package of the program that is in
+// the checkout, and the go.mod and go.sum that pick the others. go list names them.
+func programInputs(ctx context.Context, root, shop string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-json=Dir,GoFiles,EmbedFiles,Standard", "./.tifa")
+	cmd.Dir = shop
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0") // as tifa build compiles it
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list of the program of the shop: %w: %s", err, &stderr)
+	}
+	var files []string
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var p struct {
+			Dir                 string
+			GoFiles, EmbedFiles []string
+			Standard            bool
+		}
+		if err := dec.Decode(&p); err != nil {
+			return nil, err
+		}
+		if rel, err := filepath.Rel(root, p.Dir); p.Standard || err != nil || strings.HasPrefix(rel, "..") {
+			continue // the standard library and the modules of the module cache, which do not change
+		}
+		for _, f := range slices.Concat(p.GoFiles, p.EmbedFiles) {
+			files = append(files, filepath.Join(p.Dir, f))
+		}
+	}
+	for _, dir := range []string{root, shop} {
+		for _, name := range []string{"go.mod", "go.sum"} {
+			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+				files = append(files, filepath.Join(dir, name))
+			}
+		}
+	}
+	if len(files) == 0 {
+		return nil, errors.New("go list names no file of the program of the shop")
+	}
+	return files, nil
+}
+
+// shopBuildCurrent fails unless the build of the shop in the checkout at root is the one its sources
+// make now, so that the program `compare deps` starts answers as the checkout would:
+//
+//   - the table of routes in .tifa/tifaapp/app.go has the fingerprint of a fresh analysis of the app
+//     (as tifatest checks a table), which a change of a route, of a query parameter a Load reads or of
+//     the analysis of tifa itself changes;
+//   - no file the front end in .tifa/dist was built from has changed since (bundle.ChangedInputs, by
+//     the hash of each file);
+//   - bin/shop is not older than any file go build compiles into it, the front end it embeds among
+//     them. go build keeps no hash of its sources in the program, so this one check goes by the times
+//     of the files: a checkout whose files were touched after the build is refused too, which is the
+//     safe way to be wrong, and the build fixes it.
+func (e Env) shopBuildCurrent(ctx context.Context) error {
+	const again = "build the shop again (run `compare deps` without -skip-build)"
+	src, err := os.ReadFile(shopTable(e.Shop))
+	if err != nil {
+		return fmt.Errorf("%w (%v): %s", errShopNotBuilt, err, again)
+	}
+	built, err := tableFingerprint(src)
+	if err != nil {
+		return err
+	}
+	m, err := analyze.Analyze(e.Shop)
+	if err != nil {
+		return fmt.Errorf("analyzing the shop: %w", err)
+	}
+	fresh, err := codegen.AppFingerprint(e.Shop, m)
+	if err != nil {
+		return err
+	}
+	if built != fresh {
+		return fmt.Errorf("the routes of the shop changed since its table in .tifa/tifaapp/app.go was generated (fingerprint %s, now %s): %s", built, fresh, again)
+	}
+	changed, err := bundle.ChangedInputs(e.Shop, filepath.Join(e.Shop, ".tifa", "dist"))
+	if err != nil {
+		return fmt.Errorf("the front end of the shop: %w: %s", err, again)
+	}
+	if len(changed) > 0 {
+		return fmt.Errorf("the front end of the shop was built before %s changed (%d files in all): %s", changed[0], len(changed), again)
+	}
+	inputs, err := programInputs(ctx, e.Root, e.Shop)
+	if err != nil {
+		return err
+	}
+	prog := filepath.Join(e.Shop, "bin", "shop")
+	newer, err := newerThan(prog, inputs)
+	if err != nil {
+		return fmt.Errorf("%w (%v): %s", errShopNotBuilt, err, again)
+	}
+	if newer != "" {
+		rel, _ := filepath.Rel(e.Root, newer)
+		return fmt.Errorf("bin/shop was built before %s changed: %s", filepath.ToSlash(rel), again)
+	}
+	return nil
+}
+
+// buildInfoOf is the build of the shop in the checkout: the ID of its front end and the fingerprint of
+// its table of routes.
+func (e Env) buildInfoOf() (BuildInfo, error) {
+	id, err := e.ShopBuildID()
+	if err != nil {
+		return BuildInfo{}, err
+	}
+	src, err := os.ReadFile(shopTable(e.Shop))
+	if err != nil {
+		return BuildInfo{}, err
+	}
+	table, err := tableFingerprint(src)
+	if err != nil {
+		return BuildInfo{}, err
+	}
+	return BuildInfo{ID: id, Table: table}, nil
 }

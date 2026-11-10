@@ -211,14 +211,7 @@ func anySeen(seen map[string]bool, prefix string) bool {
 
 // On the plans of the mix, with its writes and its crawlers, the count is the slow one.
 func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
-	e, err := NewEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := CheckStoreDeps(e.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := checkedDeps(t)
 	w := siteWorkload(t, 1, 1, "shop")
 	n := w.Scenario.blockVisits()
 	spans := []expectSpan{{3 * n, n, false}, {0, 2 * n, true}}
