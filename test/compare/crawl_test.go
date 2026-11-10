@@ -62,7 +62,7 @@ func TestTheCrawlerURLsFollowTheCatalogueAndThePageSizes(t *testing.T) {
 		for c, n := range byCategory {
 			list("category="+c, n)
 		}
-		for _, s := range []string{"newest", "price-asc", "price-desc", "rating"} {
+		for _, s := range []string{"newest", "rating"} {
 			list("sort="+s, len(file))
 		}
 		for _, p := range file {
@@ -121,6 +121,11 @@ func TestTheCrawlerURLsFollowTheCatalogueAndThePageSizes(t *testing.T) {
 		slug := url[strings.LastIndex(url, "/")+1:]
 		if _, kind := StorePageKind(url); kind != StoreKindProduct && kind != StoreKindPost || slices.Contains(StoreProducts(), slug) || slices.Contains(StorePosts, slug) {
 			t.Errorf("the old URL %s is a %s that the shop has", url, kind)
+		}
+	}
+	for _, url := range u {
+		if strings.Contains(url, "sort=price") {
+			t.Errorf("%s is in U: no plain link leads to a price sort", url)
 		}
 	}
 	t.Logf("U: %d URLs (%d for each language), O: %d", len(u), perLang, len(o))

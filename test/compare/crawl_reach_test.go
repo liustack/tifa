@@ -328,11 +328,10 @@ func linksOfParam(page, body, param string) []int {
 	return out
 }
 
-// A crawler that runs no JavaScript finds a page only by a link, so it reaches the URLs of U that the
-// links of the HTML lead to from the home of each language. This lists the ones it does not, which is
-// what the report of the batch shows to the maintainer: U keeps them, since a real crawler may know
-// them from a sitemap or from another site.
-func TestStorefrontWhichCrawlerURLsNoLinkLeadsTo(t *testing.T) {
+// A crawler that runs no JavaScript finds a page only by a link, so every URL of U must be reached by the
+// links of the HTML from the home of each language: the pages a plain crawler cannot get to (the price
+// sorts of the list, which are a form control and not a link) are not in U.
+func TestStorefrontEveryCrawlerURLIsReachedByALink(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	server, err := mustTarget(t, env, "tifa").Start(context.Background(), "")
@@ -381,11 +380,15 @@ func TestStorefrontWhichCrawlerURLsNoLinkLeadsTo(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("from the English home alone it reaches %d of them", len(alone))
-	// What the report relies on: the pages the HTML is built to link to are reached.
-	for _, url := range u {
-		if k := kindOf(url); (k == "home" || k == "product" || k == "reviews" || k == "post" || k == "journal") && !reached[canonicalURL(url)] {
-			t.Errorf("%s (%s) is not reached by a link", url, k)
+	for _, price := range []string{"price-asc", "price-desc"} {
+		for _, url := range u {
+			if strings.Contains(url, "sort="+price) {
+				t.Errorf("%s is in U, and no link of the HTML leads to a price sort", url)
+			}
 		}
+	}
+	if total > 0 {
+		t.Errorf("%d URLs of U are not reached by the links of the HTML from the homes", total)
 	}
 }
 
