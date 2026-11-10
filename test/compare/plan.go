@@ -6,10 +6,12 @@ import (
 	"strings"
 )
 
-// A visit plan says which pages one visitor sees, before any framework is involved: a full page
-// load of a first page, then clicks on links of the page on screen. There are no reloads, so the
-// full page loads are exactly the first pages. Every framework plays the same plans, which
-// GenerateSitePlanSet makes (mix.go) and the recorder plays in a browser.
+// A visit plan says which pages one visitor sees, before any framework is involved: a landing on a
+// first page (StepLoad), then clicks on links of the page on screen (StepClick). There are no reloads.
+// The landing loads a document. A click is done the way the page does it, which the plan does not say:
+// a client navigation for a link the router takes, and a document load too for a plain link, as the
+// traces show (Trace.documents). Every framework plays the same plans, which GenerateSitePlanSet makes
+// (mix.go) and the recorder plays in a browser.
 
 // The kinds of a step.
 const (

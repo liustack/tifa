@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -167,9 +165,10 @@ func (d *StoreDeps) pageKeys(page string) (keys []string, ok bool) {
 //     has a price range (min, max, in whole units of the currency of the language) or has only what is
 //     in stock (stock=1): the products that pass its other filters, which the file has (StoreDeps.Lists),
 //     filtered by the range and the stock, sorted by price when it sorts so (the order of the catalogue
-//     among equals), and cut into pages of 24.
+//     among equals), and cut into pages of 24. The list model does that part (listFilter.cut in
+//     store_list.go), here and for a list it works out whole.
 //   - The best rated products below every list (products.TopRated in products/product.go, 6 of them):
-//     the cheaper first among products of one rating.
+//     the cheaper first among products of one rating (topRatedOf in store_list.go).
 //   - The bundle of a product page (products.Bundle in products/menu.go): the two best rated products
 //     of its category that come in no sizes and are in stock.
 //
@@ -264,19 +263,6 @@ func (m *versionModel) apply(e effect) []string {
 	return bumped
 }
 
-// byPrice sorts slugs as products.Search sorts by price: by the price in fen, and in the order they
-// come in among equals.
-func (m *versionModel) byPrice(slugs []string, desc bool) []string {
-	out := slices.Clone(slugs)
-	slices.SortStableFunc(out, func(a, b string) int {
-		if desc {
-			return m.price[b] - m.price[a]
-		}
-		return m.price[a] - m.price[b]
-	})
-	return out
-}
-
 func (m *versionModel) allSlugs() []string {
 	out := make([]string, len(m.recs))
 	for i, r := range m.recs {
@@ -290,7 +276,7 @@ func (m *versionModel) allSlugs() []string {
 func (m *versionModel) sold() []string {
 	if m.onSale == nil {
 		m.onSale = []string{}
-		for _, slug := range m.byPrice(m.allSlugs(), true)[:min(PageSize, len(m.recs))] {
+		for _, slug := range sortByPrice(m.allSlugs(), m.price, true)[:min(PageSize, len(m.recs))] {
 			if m.by[slug].CompareFen > 0 {
 				m.onSale = append(m.onSale, slug)
 			}
@@ -299,30 +285,13 @@ func (m *versionModel) sold() []string {
 	return m.onSale
 }
 
-// picked are the best rated products below every list (Load in
-// examples/shop/app/store/products/route.go).
+// picked are the best rated products below every list, with the prices as they are (topRatedOf in
+// store_list.go).
 func (m *versionModel) picked() []string {
 	if m.picks == nil {
-		m.picks = m.topRated(6)
+		m.picks = topRatedOf(m.recs, m.price, listPicks)
 	}
 	return m.picks
-}
-
-// topRated are the n best rated products, the cheaper first among equals (products.TopRated in
-// examples/shop/app/store/products/product.go).
-func (m *versionModel) topRated(n int) []string {
-	out := m.allSlugs()
-	slices.SortStableFunc(out, func(a, b string) int {
-		ra, rb := m.by[a].Rating, m.by[b].Rating
-		switch {
-		case ra > rb:
-			return -1
-		case ra < rb:
-			return 1
-		}
-		return m.price[a] - m.price[b]
-	})
-	return out[:min(n, len(out))]
 }
 
 // bundle is the products a product page offers with the product slug: the two best rated of the others
@@ -359,31 +328,6 @@ func priceIn(fen int, lang string) int {
 	return int(math.Ceil(float64(fen)/7.1/10)) * 10 / 100
 }
 
-// listQuery reads the query of a list as its Load does (Load in
-// examples/shop/app/store/products/route.go): a number that does not parse is 0.
-func listQuery(page string) (sort string, pageNo, lo, hi int, inStock bool) {
-	_, query, _ := strings.Cut(page, "?")
-	v, _ := url.ParseQuery(query)
-	number := func(s string) int {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 0 {
-			return 0
-		}
-		return n
-	}
-	return v.Get("sort"), number(v.Get("page")), number(v.Get("min")), number(v.Get("max")), v.Get("stock") == "1"
-}
-
-// byPriceSort says whether a sort of the list is by price.
-func byPriceSort(sort string) bool { return sort == "price-asc" || sort == "price-desc" }
-
-// priceDecidesList says whether a price or a stock decides which products a page of the list shows: it
-// sorts by price, has a price range, or has only what is in stock.
-func priceDecidesList(page string) bool {
-	sort, _, lo, hi, inStock := listQuery(page)
-	return byPriceSort(sort) || lo > 0 || hi > 0 || inStock
-}
-
 // listBase is the render URL of a list without what a price or a stock decides its products by: the
 // range, the stock, a sort by price and the page. It names the products that pass the other filters
 // of the list, in its order when it does not sort by price (StoreDeps.Lists).
@@ -401,25 +345,12 @@ func (d *StoreDeps) listBase(page string) string {
 	return renderedURL(path+"?"+strings.Join(parts, "&"), d.Query[storeList])
 }
 
-// listed are the products of a page of the list whose products a price or a stock decides.
+// listed are the products of a page of the list whose products a price or a stock decides: of the
+// products that pass its other filters, which the file has, those the list model keeps and shows with
+// the prices and the stock as they are (listFilter.cut in store_list.go).
 func (m *versionModel) listed(page string) []string {
-	lang, _ := StorePageKind(page)
-	sort, pageNo, lo, hi, inStock := listQuery(page)
-	var found []string
-	for _, slug := range m.d.Lists[m.d.listBase(page)] {
-		p := priceIn(m.price[slug], lang)
-		if (lo > 0 && p < lo) || (hi > 0 && p > hi) || (inStock && !m.inStock[slug]) {
-			continue
-		}
-		found = append(found, slug)
-	}
-	if byPriceSort(sort) {
-		found = m.byPrice(found, sort == "price-desc")
-	}
-	pages := max(1, (len(found)+PageSize-1)/PageSize)
-	pageNo = min(max(pageNo, 1), pages)
-	from := (pageNo - 1) * PageSize
-	return found[from:min(from+PageSize, len(found))]
+	products, _, _, _ := listFilterOf(page).cut(m.d.Lists[m.d.listBase(page)], m.price, m.inStock)
+	return products
 }
 
 // decidedParts are the fields of the data of a page (of its own route, not of its Layout) whose

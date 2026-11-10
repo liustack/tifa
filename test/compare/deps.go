@@ -486,7 +486,7 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 			// A list shows the range of all the prices (the bands and the dearest price) and its best rated
 			// products are the cheaper first, and with only what is in stock it counts the products in stock.
 			page[allProducts] = depPrice
-			if _, _, _, _, inStock := listQuery(u); inStock {
+			if listFilterOf(u).InStock {
 				page[allProducts] += depFlag
 			}
 		}

@@ -468,6 +468,11 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	if !slices.Equal(heads, want) {
 		t.Errorf("the tables of the body have the columns\n%s\nwant\n%s", strings.Join(heads, "\n"), strings.Join(want, "\n"))
 	}
+	// The two tables keep the columns full load and click, which go by the step of the plan, and the text
+	// over each says that a click can be a document load in the browser.
+	if n := strings.Count(body, stepClassNote); n != 2*len(scs) || !strings.Contains(stepClassNote, "document load") {
+		t.Errorf("the body says %d times what a full load and a click are, want over each of its %d tables: %q", n, 2*len(scs), stepClassNote)
+	}
 	for _, method := range []string{
 		"| | server cores | why the steps stopped | sessions played |",
 		"| | failures | visits failed / unfinished, of planned | server CPU ms/page view | not valid, run again |",

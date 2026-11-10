@@ -257,7 +257,7 @@ var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "
 // sources of the other apps, the closed-loop steps of the throughput, and what only the other
 // comparisons and the tests use. Every source file is in methodFiles or here
 // (TestEverySourceOfCompareIsInOrOutOfTheMethod).
-var rateExcluded = []string{"attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
+var rateExcluded = []string{"attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_list.go", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {

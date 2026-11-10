@@ -2,6 +2,7 @@ package compare
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,8 @@ import (
 	"time"
 )
 
-// crawlerShop is a runner of the plans of one block of the site, with a trace of a document for every
-// page view, against a fake server that answers the old URLs of crawlers with 404 and everything else
+// crawlerShop is a runner of the plans of one block of the site, with a trace of one request for every
+// page view (a document for a landing, navigation data for a click), against a fake server that answers the old URLs of crawlers with 404 and everything else
 // with 200, and notes the requests of crawlers apart. The scenario has no writes.
 type crawlerShop struct {
 	r        *runner
@@ -32,9 +33,6 @@ func newCrawlerShop(t *testing.T) *crawlerShop {
 	t.Helper()
 	wl := siteWorkload(t, 2, 1, "shop")
 	wl.Scenario.ReadOnly = true
-	for _, p := range wl.Plans {
-		wl.Traces[p.ID] = traceOf(p)
-	}
 	_, old := CrawlURLs()
 	cs := &crawlerShop{}
 	cs.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,15 +58,17 @@ func newCrawlerShop(t *testing.T) *crawlerShop {
 	return cs
 }
 
-// Crawlers are 9% of the HTML requests: in every block of the cycle, the visits of people (each has one
-// full load) are 1020 and the crawler requests 101, at places of a shuffle, and the two keep their
-// order. Which slot a crawler request takes does not depend on how fast a server answers: the share
-// is exact in every block.
+// Crawlers are 9% of the HTML requests, which are the documents the browsers of people ask for and the
+// requests of crawlers. The documents are counted from the traces. With traces whose landings alone
+// are documents, every block of the cycle has 1020 documents, one for each visit, and 101 crawler
+// requests, at places of a shuffle, and the visits and the crawler requests keep their order. Which
+// slot a crawler request takes does not depend on how fast a server answers: the share is exact in
+// every block.
 func TestCrawlersAreNinePercentOfTheHTMLRequests(t *testing.T) {
 	w := siteWorkload(t, 2, 3, "shop")
 	bv := w.blockVisits()
-	if bv != 1020 || w.Scenario.crawlerSlots() != 101 {
-		t.Fatalf("a block has %d visits and %d crawler requests, want 1020 and 101", bv, w.Scenario.crawlerSlots())
+	if bv != 1020 || w.Scenario.crawlerSlots(1020) != 101 {
+		t.Fatalf("a block has %d visits, and 1020 documents go with %d crawler requests, want 1020 and 101", bv, w.Scenario.crawlerSlots(1020))
 	}
 	per := bv + 101
 	if share := 101.0 / float64(per); math.Abs(share-CrawlerShare) > 0.0005 {
@@ -105,12 +105,126 @@ func TestCrawlersAreNinePercentOfTheHTMLRequests(t *testing.T) {
 	}
 	var r Round
 	w.plan(&r, bv, 2*bv)
-	if r.Crawler == nil || r.Crawler.Planned != 202 || r.Mix.Crawlers != 202 {
-		t.Errorf("two blocks plan %+v crawler requests", r.Crawler)
+	if r.Crawler == nil || r.Crawler.Planned != 202 || r.Mix.Crawlers != 202 || r.Mix.Documents != 2040 {
+		t.Errorf("two blocks plan %+v crawler requests for %d documents of people", r.Crawler, r.Mix.Documents)
 	}
 	// A hand-made workload has no crawlers.
 	if h := (&Workload{Plans: []Plan{{}}}); h.slots(0, 5) != 5 {
 		t.Error("a workload with no cycle has crawler requests")
+	}
+}
+
+// A click that loads a document is an HTML request of a person, so the plans that have such clicks
+// bring more crawler requests: each block has the crawler requests that make 9% with the documents of
+// its own visits, counted from the traces, and the blocks differ when their documents do.
+func TestTheCrawlerRequestsOfABlockFollowTheDocumentsOfItsVisits(t *testing.T) {
+	const blocks = 3
+	w := siteWorkloadOf(t, 2, blocks, "shop", func(p Plan) Trace {
+		if p.Role != RoleShopper {
+			return browserTrace(p)
+		}
+		return browserTrace(p, listClicks(p)...)
+	})
+	bv := w.blockVisits()
+	staff := w.Scenario.staffVisits()
+	// The documents of each block, counted here from the plans: one for each visit, and one for each
+	// click of a shopper plan to a list.
+	docsOf := make([]int, blocks)
+	for _, p := range w.Plans {
+		if p.Role == RoleShopper {
+			docsOf[p.Block] += 1 + len(listClicks(p))
+		}
+	}
+	differ := false
+	t0, seq := 0, 0
+	for cycle := range 2 {
+		for b := range blocks {
+			docs := docsOf[b] + staff
+			want := int(math.Round(float64(docs) * CrawlerShare / (1 - CrawlerShare)))
+			if want <= 101 {
+				t.Fatalf("block %d has %d documents and %d crawler requests: no more than with the landings alone", b, docs, want)
+			}
+			differ = differ || b > 0 && docs != docsOf[0]+staff
+			if got := w.slots(seq, bv); got != bv+want {
+				t.Errorf("cycle %d block %d: %d slots for %d visits with %d documents, want %d crawler requests", cycle, b, got, bv, docs, want)
+			}
+			crawlers, visits := 0, 0
+			for range bv + want {
+				if crawler, _ := w.slot(t0); crawler {
+					crawlers++
+				} else {
+					visits++
+				}
+				t0++
+			}
+			if crawlers != want || visits != bv {
+				t.Errorf("cycle %d block %d: its slots hold %d visits and %d crawler requests, want %d and %d", cycle, b, visits, crawlers, bv, want)
+			}
+			if share := float64(want) / float64(docs+want); math.Abs(share-CrawlerShare) > 0.0005 {
+				t.Errorf("block %d: crawlers are %.4f of the HTML requests, want about %v", b, share, CrawlerShare)
+			}
+			// The round of the block plans its documents and its crawler requests, and has the mix.
+			var r Round
+			w.plan(&r, seq, bv)
+			if r.Mix.Documents != docs || r.Mix.Crawlers != want || r.Crawler.Planned != want {
+				t.Errorf("cycle %d block %d plans %d documents and %d crawler requests, want %d and %d", cycle, b, r.Mix.Documents, r.Mix.Crawlers, docs, want)
+			}
+			if why := r.Mix.why(w.Scenario); why != "" {
+				t.Errorf("cycle %d block %d: %s", cycle, b, why)
+			}
+			seq += bv
+		}
+	}
+	if !differ {
+		t.Error("every block has the documents of the first: the test does not show that a block has its own")
+	}
+	// The stream numbers the visits and the crawler requests in order over the cycles.
+	humans, crawls := 0, 0
+	for i := range t0 {
+		crawler, n := w.slot(i)
+		switch {
+		case crawler && n == crawls:
+			crawls++
+		case !crawler && n == humans:
+			humans++
+		default:
+			t.Fatalf("slot %d is a crawler %v number %d, want the next one (%d visits and %d crawler requests so far)", i, crawler, n, humans, crawls)
+		}
+	}
+}
+
+// The staff visits of a block play other staff plans in every cycle, so a staff plan with a click that
+// loads a document would give a block other documents from cycle to cycle. The crawler requests of a
+// block are the same in every cycle, so such a set of traces is refused.
+func TestAStaffPlanWithAClickThatLoadsADocumentIsRefused(t *testing.T) {
+	set := GenerateSitePlanSet(2, 1)
+	traces := browserTraces(set.Plans)
+	var staff Plan
+	for _, p := range set.Plans {
+		if p.Role == RoleStaff && len(p.Steps) > 1 {
+			staff = p
+			break
+		}
+	}
+	traces[staff.ID] = browserTrace(staff, 1)
+	_, err := NewWorkload(&set, traces, mustScenario("shop"), 2)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("plan %d", staff.ID)) || !strings.Contains(err.Error(), "staff") {
+		t.Errorf("error %v, want one that names the staff plan", err)
+	}
+	// A staff visit is one document, and that document is its landing: a staff plan whose landing is no
+	// document and one of whose clicks is asks for one document too, and is refused.
+	traces = browserTraces(set.Plans)
+	late := browserTrace(staff, 1)
+	late.Steps[0].Reqs[0].Class = "nav"
+	traces[staff.ID] = late
+	if _, err := NewWorkload(&set, traces, mustScenario("shop"), 2); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("plan %d", staff.ID)) || !strings.Contains(err.Error(), "staff") {
+		t.Errorf("a staff plan whose one document is not its landing: error %v, want one that names the staff plan", err)
+	}
+	// A plan without the trace of its page views cannot be counted.
+	traces = browserTraces(set.Plans)
+	traces[3] = Trace{Plan: 3}
+	if _, err := NewWorkload(&set, traces, mustScenario("shop"), 2); err == nil || !strings.Contains(err.Error(), "plan 3") {
+		t.Errorf("error %v, want one that names plan 3", err)
 	}
 }
 

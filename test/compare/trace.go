@@ -129,3 +129,23 @@ func TracePath(dir, framework string) string {
 func PlansPath(dir string) string {
 	return fmt.Sprintf("%s/plans.json", strings.TrimRight(dir, "/"))
 }
+
+// document says whether the page view was a document load: the browser asked for a document, as it
+// does for a landing and for an action the page does with no router (a plain link, a form).
+func (s TraceStep) document() bool {
+	for _, r := range s.Reqs {
+		if r.Class == "doc" {
+			return true
+		}
+	}
+	return false
+}
+
+// documents says, for each page view of the visit, whether it was a document load.
+func (t Trace) documents() []bool {
+	out := make([]bool, len(t.Steps))
+	for i, s := range t.Steps {
+		out[i] = s.document()
+	}
+	return out
+}

@@ -651,7 +651,8 @@ func Growing(series []float64, skip int) bool {
 }
 
 // PlannedMix is what the planned visits of a round hold: the shopper and staff visits, the page views
-// of the shopper visits, the returning visitors, and the writes by kind.
+// of the shopper visits, the returning visitors, the documents and the crawler requests, and the writes
+// by kind.
 type PlannedMix struct {
 	Shoppers     int `json:"shoppers"`
 	Staff        int `json:"staff"`
@@ -659,7 +660,10 @@ type PlannedMix struct {
 	Returning    int `json:"returning"`
 	ClickIDs     int `json:"clickIds"`
 	EmailParams  int `json:"emailParams"`
-	// Crawlers are the crawler requests among the slots of the planned visits.
+	// Documents are the documents the browsers of the planned visits ask for: the landing of each visit and
+	// each action the page does as a document load, counted from the traces (Workload.docSteps). Crawlers
+	// are the crawler requests among the slots of the planned visits.
+	Documents int `json:"documents"`
 	Crawlers  int `json:"crawlers"`
 	Adds      int `json:"adds"`
 	Checkouts int `json:"checkouts"`
@@ -709,13 +713,13 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 }
 
 // crawlerShare is the check of the crawler requests of a scenario that has them: among the HTML
-// requests of the planned slots (the full load of every visit, and the crawler requests) they are within
-// half a point of the share of the scenario.
+// requests of the planned slots (the documents the browsers of the visits ask for, and the crawler
+// requests) they are within half a point of the share of the scenario.
 func (m PlannedMix) crawlerShare(sc BrowseScenario) string {
 	if sc.Crawler <= 0 {
 		return ""
 	}
-	got := float64(m.Crawlers) / float64(max(m.Shoppers+m.Staff+m.Crawlers, 1))
+	got := float64(m.Crawlers) / float64(max(m.Documents+m.Crawlers, 1))
 	if math.Abs(got-sc.Crawler) > 0.005 {
 		return fmt.Sprintf("the planned crawler requests among the HTML requests are %.4f, want %.4f within 0.005", got, sc.Crawler)
 	}

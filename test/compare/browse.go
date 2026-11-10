@@ -12,8 +12,10 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"slices"
@@ -67,15 +69,17 @@ type PlanInfo struct {
 
 // BrowseResult is everything the browse comparison measured, round by round.
 type BrowseResult struct {
-	Stamp     string            `json:"stamp"`
-	Date      string            `json:"date"`
-	Seed      uint64            `json:"seed"`
-	Machine   Machine           `json:"machine"`
-	Place     Placement         `json:"placement"`
-	Version   map[string]string `json:"versions"`
-	Config    map[string]string `json:"settings"`
-	Plans     PlanInfo          `json:"plans"`
-	Scenarios []BrowseScenario  `json:"scenarios"`
+	Stamp   string            `json:"stamp"`
+	Date    string            `json:"date"`
+	Seed    uint64            `json:"seed"`
+	Machine Machine           `json:"machine"`
+	Place   Placement         `json:"placement"`
+	Version map[string]string `json:"versions"`
+	Config  map[string]string `json:"settings"`
+	// Traces are the frameworks whose traces the run loaded: one for each framework of its servers.
+	Traces    []string         `json:"traces,omitempty"`
+	Plans     PlanInfo         `json:"plans"`
+	Scenarios []BrowseScenario `json:"scenarios"`
 	// Servers is, per scenario, the specs it runs, in the order of the tables.
 	Servers map[string][]string `json:"servers"`
 	// Closed holds every closed round, at every number of concurrent sessions, the invalid ones that
@@ -202,7 +206,8 @@ func (b *browse) commit() error {
 
 // LoadTraces reads the plans of the site and the traces of the names given, and fails unless every
 // name has a trace for every plan: a replay on an incomplete set would not play the same visits on
-// every server.
+// every server. It also fails for a trace the documents cannot be counted from (checkTrace), and unless
+// the traces agree on which page views are documents (checkDocuments).
 func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
 	set, err := ReadPlans(dir)
 	if err != nil {
@@ -230,13 +235,117 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 			if len(t.Steps) != len(p.Steps) {
 				return nil, nil, fmt.Errorf("%s: plan %d has %d page views, its trace %d", path, p.ID, len(p.Steps), len(t.Steps))
 			}
+			// The landing parameter first, whose error says what of it is wrong, then the rest of the trace.
 			if err := checkLanding(p, t); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", path, err)
+			}
+			if err := checkTrace(p, t); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w: record the traces again (`compare record`)", path, err)
 			}
 		}
 		out[name] = m
 	}
+	if err := checkDocuments(set, out, names); err != nil {
+		return nil, nil, err
+	}
 	return set, out, nil
+}
+
+// checkTrace says whether the trace of a plan is one the documents of the plan can be counted from. It
+// looks at the one trace, with nothing of another framework to set it beside, so it holds for a run
+// that loads one framework too. The plans count one document for a page view whose trace has a
+// document, and take it for a document of the page of the plan (Workload.docSteps, Expect). So:
+//
+//   - Every page view of the trace is the one of the plan: the same kind and the same page.
+//   - A document of a page view is a GET of the page of the plan, with the same path and the same query
+//     as a server reads it, and a page view has one at most.
+//   - The landing has one.
+//   - No document was cancelled. The plans count the documents the browser asked for and the replay
+//     counts the answers it read whole, so the two are the same count only when every document was
+//     read whole. Requests that are no documents may be cancelled, as Next.js does with its RSC
+//     requests and its prefetches.
+func checkTrace(p Plan, t Trace) error {
+	if len(t.Steps) != len(p.Steps) {
+		return fmt.Errorf("plan %d has %d page views, its trace %d", p.ID, len(p.Steps), len(t.Steps))
+	}
+	for i, s := range t.Steps {
+		want := p.Steps[i]
+		if s.Kind != want.Kind || s.Page != want.Page {
+			return fmt.Errorf("plan %d: page view %d is a %s of %s in the plan and a %s of %s in the trace", p.ID, i, want.Kind, want.Page, s.Kind, s.Page)
+		}
+		docs := 0
+		for _, q := range s.Reqs {
+			if q.Class != "doc" {
+				continue
+			}
+			if q.Cancel != "" {
+				return fmt.Errorf("plan %d: the browser cancelled the document %s of page view %d (%s), so the plans cannot be set beside the answers", p.ID, q.URL, i, q.Cancel)
+			}
+			if q.Method != http.MethodGet || !samePage(q.URL, want.Page) {
+				return fmt.Errorf("plan %d: page view %d (%s) has the document %s %s, which is not a GET of its page", p.ID, i, want.Page, q.Method, q.URL)
+			}
+			docs++
+		}
+		if docs > 1 {
+			return fmt.Errorf("plan %d: page view %d (%s) has %d documents, and the plans count one for a page view", p.ID, i, want.Page, docs)
+		}
+		if i == 0 && docs == 0 {
+			return fmt.Errorf("plan %d: page view 0, the landing on %s, has no document", p.ID, want.Page)
+		}
+	}
+	return nil
+}
+
+// samePage says whether a request URL is the page: the same path, and the same query as a server reads
+// it, by whole names and whole values, whatever the order of the names.
+func samePage(requested, page string) bool {
+	got, err1 := url.Parse(requested)
+	want, err2 := url.Parse(page)
+	if err1 != nil || err2 != nil || got.Path != want.Path {
+		return false
+	}
+	gotQuery, err1 := url.ParseQuery(got.RawQuery)
+	wantQuery, err2 := url.ParseQuery(want.RawQuery)
+	return err1 == nil && err2 == nil && reflect.DeepEqual(gotQuery, wantQuery)
+}
+
+// oneTraceNote says what a run that loaded the traces of names lacks when they are of one framework: the
+// check that the frameworks agree on which page views are documents (checkDocuments) had nothing to
+// compare. It is "" for more. The run goes on: each trace is still checked against its plan
+// (checkTrace).
+func oneTraceNote(names []string) string {
+	if len(names) != 1 {
+		return ""
+	}
+	return fmt.Sprintf("the traces of %s alone were loaded, so nothing shows that the frameworks agree on which page views are documents", names[0])
+}
+
+// checkDocuments fails unless the traces of every name agree, for every page view of every plan, on
+// whether it was a document load. The pages are the same source in every framework, so a plain link or
+// a form with no router loads a document in all of them, and a click the router takes in none. The
+// plans count the documents of people from the traces (Workload.docSteps): the expected hit rate and
+// the share of the crawlers are then the same whatever the framework whose trace is read. A set that
+// does not agree is not one recording of the same pages.
+func checkDocuments(set *PlanSet, traces map[string]map[int]Trace, names []string) error {
+	if len(names) < 2 {
+		return nil
+	}
+	first := names[0]
+	for _, p := range set.Plans {
+		want := traces[first][p.ID].documents()
+		for _, name := range names[1:] {
+			for i, doc := range traces[name][p.ID].documents() {
+				if doc != want[i] {
+					is, not := name, first
+					if want[i] {
+						is, not = first, name
+					}
+					return fmt.Errorf("the traces do not agree on which page views are documents: page view %d of plan %d (%s) is a document load in %s and not in %s: record the traces again (`compare record`)", i, p.ID, p.Steps[i].Page, is, not)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // browseConfig is the settings of a run that its result keeps, and that a run must have to continue
@@ -374,6 +483,9 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	if b.set, b.trace, err = LoadTraces(o.TraceDir, names); err != nil {
 		return nil, err
 	}
+	if note := oneTraceNote(names); note != "" {
+		b.logf("%s\n", note)
+	}
 	if b.bid, err = e.tifaBuildID(); err != nil {
 		return nil, err
 	}
@@ -393,7 +505,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	} else {
 		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
 		b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
-		b.res.Scenarios, b.res.Servers = o.Scenarios, b.servers
+		b.res.Scenarios, b.res.Servers, b.res.Traces = o.Scenarios, b.servers, names
 		b.res.Plans = PlanInfo{Blocks: b.set.Blocks}
 		for _, p := range b.set.Plans {
 			b.res.Plans.PlanCounts.Add(p)

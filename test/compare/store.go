@@ -60,7 +60,8 @@ func StoreProducts() []string { return storeCatalogue().slugs }
 var storeCatalogue = sync.OnceValue(func() (c struct {
 	slugs    []string
 	variants []StoreProduct
-	// records are what the set of URLs of a crawler (crawl.go) needs to know of each product.
+	// records are what the set of URLs of a crawler (crawl.go), the data versions and the model of the
+	// product list need to know of each product.
 	records []storeRecord
 }) {
 	e, err := NewEnv()
@@ -72,14 +73,19 @@ var storeCatalogue = sync.OnceValue(func() (c struct {
 		panic(err)
 	}
 	var file []struct {
-		Slug       string   `json:"slug"`
-		Category   string   `json:"category"`
-		PriceFen   int      `json:"priceFen"`
-		CompareFen int      `json:"compareFen"`
-		Rating     float64  `json:"rating"`
-		Stock      int      `json:"stock"`
-		Colors     []string `json:"colors"`
-		Sizes      []string `json:"sizes"`
+		Slug       string      `json:"slug"`
+		Name       [2]string   `json:"name"`
+		Category   string      `json:"category"`
+		PriceFen   int         `json:"priceFen"`
+		CompareFen int         `json:"compareFen"`
+		Rating     float64     `json:"rating"`
+		Stock      int         `json:"stock"`
+		Badge      string      `json:"badge"`
+		Colors     []string    `json:"colors"`
+		Sizes      []string    `json:"sizes"`
+		Tags       []string    `json:"tags"`
+		Materials  [][2]string `json:"materials"`
+		Added      time.Time   `json:"added"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		panic(ShopCatalogue + ": " + err.Error())
@@ -87,14 +93,19 @@ var storeCatalogue = sync.OnceValue(func() (c struct {
 	for _, p := range file {
 		c.slugs = append(c.slugs, p.Slug)
 		c.variants = append(c.variants, StoreProduct{p.Slug, p.Stock, p.Colors, p.Sizes})
-		c.records = append(c.records, storeRecord{p.Slug, p.Category, p.Rating, p.PriceFen, p.CompareFen, p.Stock, len(p.Sizes) > 0})
+		c.records = append(c.records, storeRecord{
+			Slug: p.Slug, Category: p.Category, Rating: p.Rating, PriceFen: p.PriceFen, CompareFen: p.CompareFen, Stock: p.Stock, Sized: len(p.Sizes) > 0,
+			Name: p.Name, Tags: p.Tags, Colors: p.Colors, Badge: p.Badge, Families: materialFamiliesOf(p.Materials), Added: p.Added,
+		})
 	}
 	return c
 })
 
-// storeRecord is a product of the catalogue file as the URLs of a crawler and the data versions of the
-// pages need it: its slug, its category, its rating (which gives how many reviews it has), its price and
-// sale price in fen, its stock and whether it comes in sizes.
+// storeRecord is a product of the catalogue file as the URLs of a crawler, the data versions of the
+// pages and the model of the product list need it: its slug, its category, its rating (which gives how
+// many reviews it has), its price and sale price in fen, its stock and whether it comes in sizes, and
+// what the list searches and filters by (store_list.go): its name in Chinese and in English, its tags,
+// its colours, its badge, the families of its materials and when it was added.
 type storeRecord struct {
 	Slug, Category string
 	Rating         float64
@@ -102,6 +113,11 @@ type storeRecord struct {
 	CompareFen     int
 	Stock          int
 	Sized          bool
+	Name           [2]string
+	Tags, Colors   []string
+	Badge          string
+	Families       []string
+	Added          time.Time
 }
 
 // StoreSampleProducts are the products a check of the pages shows, one of each kind: with sizes,

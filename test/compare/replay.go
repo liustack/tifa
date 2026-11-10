@@ -36,7 +36,8 @@ type BrowseScenario struct {
 	Latency    bool    `json:"latency"`
 	ReadOnly   bool    `json:"readOnly,omitempty"`
 	// Crawler is the share of the HTML requests that crawlers make (CrawlerShare), 0 for a scenario with
-	// none. A block of the cycle then holds crawlerSlots requests of crawlers among its visits.
+	// none. A block of the cycle then holds, among its visits, the crawlerSlots requests of crawlers that
+	// go with the documents its visits ask for.
 	Crawler float64 `json:"crawlerShare,omitempty"`
 }
 
@@ -50,14 +51,14 @@ func (s BrowseScenario) staffVisits() int {
 // and the staff visits.
 func (s BrowseScenario) blockVisits() int { return ShopperBlockVisits + s.staffVisits() }
 
-// crawlerSlots is how many crawler requests a block of the cycle holds besides its blockVisits visits:
-// each visit has one full load, so crawlers are Crawler of the HTML requests when there are
-// blockVisits * Crawler / (1 - Crawler) of them, rounded to a whole number.
-func (s BrowseScenario) crawlerSlots() int {
+// crawlerSlots is how many crawler requests go with docs documents that the browsers of people ask
+// for. The HTML requests are those documents and the crawler requests, so crawlers are Crawler of them
+// when there are docs * Crawler / (1 - Crawler) crawler requests, rounded to a whole number.
+func (s BrowseScenario) crawlerSlots(docs int) int {
 	if s.Crawler <= 0 {
 		return 0
 	}
-	return int(math.Round(float64(s.blockVisits()) * s.Crawler / (1 - s.Crawler)))
+	return int(math.Round(float64(docs) * s.Crawler / (1 - s.Crawler)))
 }
 
 // viewsPerVisit is the page views a visit of the scenario plans on average, by the mix.
@@ -162,7 +163,8 @@ func (w *Workload) blockVisits() int {
 }
 
 // plan sets in a round what visits seq0 to seq0+n-1 of the run plan: the visits by role, their page
-// views, the clicks among them, the returning visitors, and the writes.
+// views, the clicks among them, the documents their browsers ask for, the returning visitors, and the
+// writes.
 func (w *Workload) plan(r *Round, seq0, n int) {
 	r.VisitsPlanned, r.PageViewsPlanned, r.ClicksPlanned, r.WritesPlanned = n, 0, 0, 0
 	r.Crawler = nil
@@ -184,6 +186,11 @@ func (w *Workload) plan(r *Round, seq0, n int) {
 		r.ClicksPlanned += c.Clicks
 		m.Shoppers, m.Staff, m.ShopperViews, m.Returning = m.Shoppers+c.Shoppers, m.Staff+c.Staff, m.ShopperViews+c.ShopperViews, m.Returning+c.Returning
 		m.ClickIDs, m.EmailParams = m.ClickIDs+c.ClickIDs, m.EmailParams+c.EmailParams
+		// NewWorkload made sure every plan of a cycle has the trace of its page views. A workload made by
+		// hand may have none, and has no mix.
+		if docs, err := w.docSteps(p); err == nil {
+			m.Documents += countTrue(docs)
+		}
 		for _, x := range w.writesOf(s) {
 			r.WritesPlanned++
 			switch x.Kind {
@@ -201,7 +208,8 @@ func (w *Workload) plan(r *Round, seq0, n int) {
 }
 
 // NewWorkload lays out the cycle of a scenario over the plans of the site, and fails if a plan has no
-// trace.
+// trace, or a trace that has not its page views: the trace says which page views are documents
+// (docSteps), which the crawler requests of a block are counted from (blockDocuments).
 func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uint64) (*Workload, error) {
 	w := &Workload{Plans: set.Plans, Traces: traces, Scenario: sc, Seed: seed}
 	for _, p := range set.Plans {
@@ -211,6 +219,10 @@ func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uin
 	}
 	if len(set.Plans) != set.Blocks*SiteBlockPlans {
 		return nil, fmt.Errorf("%d plans for %d blocks of %d", len(set.Plans), set.Blocks, SiteBlockPlans)
+	}
+	docs, err := w.blockDocuments(set.Blocks)
+	if err != nil {
+		return nil, err
 	}
 	staff := sc.staffVisits()
 	k := 0
@@ -237,10 +249,56 @@ func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uin
 		}
 	}
 	w.perCycle = k
-	if per := sc.crawlerSlots(); per > 0 {
-		w.crawlers = newCrawlLayout(seed, set.Blocks, sc.blockVisits(), per)
+	if sc.Crawler > 0 {
+		per := make([]int, set.Blocks)
+		for b := range per {
+			per[b] = sc.crawlerSlots(docs[b])
+		}
+		w.crawlers = newCrawlLayout(seed, sc.blockVisits(), per)
 	}
 	return w, nil
+}
+
+// blockDocuments counts, for each block of a cycle, the documents the browsers of its visits ask for:
+// for each shopper plan of the block, played once a cycle, its landing and every action the page did
+// as a document load, as the trace of the plan has them (docSteps), and one for each staff visit. The
+// traces of every framework agree on them (LoadTraces), so the count is the same for every server.
+//
+// The staff visits of a block play other staff plans in every cycle, while the crawler requests of a
+// block are laid out once for all cycles. So a scenario with crawlers and staff takes a staff visit
+// for one document, its landing, and refuses a staff plan whose trace has it otherwise (a landing that
+// is no document, or a later page view that is one): the pages of the back office have no plain link
+// among those a plan clicks.
+func (w *Workload) blockDocuments(blocks int) ([]int, error) {
+	staff := w.Scenario.staffVisits()
+	docs := make([]int, blocks)
+	for b := range docs {
+		for i, p := range w.Plans[b*SiteBlockPlans : (b+1)*SiteBlockPlans] {
+			steps, err := w.docSteps(p)
+			if err != nil {
+				return nil, err
+			}
+			switch n := countTrue(steps); {
+			case i < ShopperBlockVisits:
+				docs[b] += n
+			case (n != 1 || !steps[0]) && staff > 0 && w.Scenario.Crawler > 0:
+				return nil, fmt.Errorf("staff plan %d has the documents %v by page view: the crawler requests of a block are counted with one document for each staff visit, its landing", p.ID, steps)
+			}
+		}
+		docs[b] += staff
+	}
+	return docs, nil
+}
+
+// countTrue is how many of list are true.
+func countTrue(list []bool) int {
+	n := 0
+	for _, x := range list {
+		if x {
+			n++
+		}
+	}
+	return n
 }
 
 // runner plays a workload against one server.
@@ -430,8 +488,8 @@ var errNotSent = errors.New("cancelled before it was sent")
 // send plays one recorded request. A request the browser cancelled is cancelled at the recorded
 // offset from the start of its step: the connection is released and the rest of the answer is not
 // read. cancelAt is that time (zero for a request the browser let finish). page is the page of the
-// page view the request belongs to.
-func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, page string, cancelAt time.Time) outcome {
+// page view the request belongs to, and step the number of that page view in the visit.
+func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, step int, page string, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	responded, sent := false, false
@@ -561,7 +619,8 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 		seenAt := stripLanding(q.URL)
 		seen := a.seen[seenAt]
 		a.seen[seenAt] = true
-		if q.Class == "doc" && isStorePage(page) {
+		// The table of the landings has the first document of a visit, not one a later action asks for.
+		if q.Class == "doc" && step == 0 && isStorePage(page) {
 			g := landingGroup(q.URL)
 			if a.landing[g] == nil {
 				a.landing[g] = map[string]int{}
@@ -573,7 +632,8 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 				a.vmWhy[kind] = map[string]int{}
 			}
 			why := renderWhy(kind, seen, cart)
-			if class, ok := r.expect.humanClass(v.seq); ok && q.Class == "doc" && !privateKind(kind) && page == r.wl.planFor(v.seq).Steps[0].Page {
+			// A document the plans counted has the class they give it, by the visit and the page view.
+			if class, ok := r.expect.humanClass(v.seq, step); ok && q.Class == "doc" && !privateKind(kind) {
 				why = docWhy(class)
 			}
 			a.vmWhy[kind][why]++
@@ -590,9 +650,10 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 // request starts when every request that had finished (or had been cancelled) before it started in
 // the browser is done. It returns when the foreground requests are done; prefetches go on in the
 // background until the end of the visit. scheduled is when the action was meant to start, and the
-// latency is counted from it. It returns the time of the end of the page view, and whether it was
-// successful: no foreground request failed and at least one finished.
-func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep, scheduled time.Time) (time.Time, error) {
+// latency is counted from it. step is the number of the page view in the visit. It returns the time of
+// the end of the page view, and whether it was successful: no foreground request failed and at least
+// one finished.
+func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s TraceStep, scheduled time.Time) (time.Time, error) {
 	stepStart := time.Now()
 	n := len(s.Reqs)
 	done := make([]chan struct{}, n)
@@ -630,7 +691,7 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 					return
 				}
 			}
-			outs[j] = r.send(ctx, v, a, q, s.Page, cancelAt)
+			outs[j] = r.send(ctx, v, a, q, step, s.Page, cancelAt)
 			if q.Class == "prefetch" && outs[j].err != nil && ctx.Err() == nil {
 				v.fail(outs[j].err) // a prefetch that fails is a failure of the visit
 			}
@@ -741,7 +802,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 		if ctx.Err() != nil {
 			return false
 		}
-		if _, err := r.runStep(ctx, v, a, s, sched); err != nil {
+		if _, err := r.runStep(ctx, v, a, i, s, sched); err != nil {
 			if ctx.Err() == nil {
 				a.fail(err)
 			} else {

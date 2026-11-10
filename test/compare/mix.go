@@ -27,12 +27,17 @@ const (
 
 const (
 	// ShopperViewsMean is the page views of a shopper visit on average, exactly in every block: one
-	// full load and three clicks, so that the full loads are a quarter of the page views. A rule of the
-	// comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025 Digital
-	// Experience Benchmarks: 389 billion page views in 90 billion sessions,
-	// https://contentsquare.com/press/2025-digital-experience-benchmarks/), with a click of a
-	// single-page app a page view as a full load is, as Chrome now measures each one that changes the
-	// URL as a navigation of its own (https://web.dev/blog/crux-experimental-soft-navs).
+	// landing and three actions on the page, so that the landings are a quarter of the page views. The
+	// landing is the first step of a plan, and an action a click on a link of the page on screen, done
+	// the way the page does it: a client navigation for a link the router takes, a document load for a
+	// plain link. So the quarter is of the landings, not of the documents the browser asks for, which
+	// are counted from the traces (Workload.docSteps). A rule of the comparison, from about 4.3 page
+	// views a session over 6,000 sites (Contentsquare 2025 Digital Experience Benchmarks: 389 billion
+	// page views in 90 billion sessions,
+	// https://contentsquare.com/press/2025-digital-experience-benchmarks/), with a click that a
+	// single-page app takes as a client navigation a page view as a document load is, as Chrome now
+	// measures each one that changes the URL as a navigation of its own
+	// (https://web.dev/blog/crux-experimental-soft-navs).
 	ShopperViewsMean = 4.0
 	// ShopperViewsMax is the most page views of a shopper visit: the lengths are geometric of mean
 	// ShopperViewsMean (ShopperViewsMore), cut at 12.
@@ -79,9 +84,10 @@ const (
 	// each recipient.
 	ClickIDShare    = 0.15
 	EmailParamShare = 0.05
-	// CrawlerShare is the share of the HTML requests that crawlers make: the documents of the shoppers and
-	// of the staff (each visit has one full load, and a click fetches data, not a document) and the
-	// requests of crawlers. Cloudflare reports Googlebot alone as 4.5% of the HTML requests and the other
+	// CrawlerShare is the share of the HTML requests that crawlers make: the documents the browsers of the
+	// shoppers and of the staff ask for (the landing of each visit, and every action the page does as a
+	// document load: a click the router takes fetches data, not a document) and the requests of
+	// crawlers. Cloudflare reports Googlebot alone as 4.5% of the HTML requests and the other
 	// AI crawlers together as 4.2% (Cloudflare Radar, 2025 year in review,
 	// https://blog.cloudflare.com/radar-2025-year-in-review/), which makes about 9%. A crawler request is
 	// not a visit and not a page view (crawler.go).
@@ -575,8 +581,8 @@ func MixFacts() []MixFact {
 		staffLanding = append(staffLanding, fmt.Sprintf("%s %s", l.Kind, pct(l.Share)))
 	}
 	return []MixFact{
-		{"ShopperViewsMean", "page views of a shopper visit", fmt.Sprintf("%g on average, exactly in every block: 1 full load and %g clicks", ShopperViewsMean, ShopperViewsMean-1),
-			"a rule of the comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), a click of a single-page app counted as a page view as Chrome measures it (web.dev, https://web.dev/blog/crux-experimental-soft-navs)"},
+		{"ShopperViewsMean", "page views of a shopper visit", fmt.Sprintf("%g on average, exactly in every block: 1 landing and %g actions on the page (an action is a click on a link of the page, which the page does as a client navigation, or as a document load for a plain link)", ShopperViewsMean, ShopperViewsMean-1),
+			"a rule of the comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), a click that a single-page app takes as a client navigation counted as a page view as Chrome measures it (web.dev, https://web.dev/blog/crux-experimental-soft-navs)"},
 		{"ShopperViewsMax", "most page views of a shopper visit", strconv.Itoa(ShopperViewsMax), "rule: geometric lengths of mean 4, cut at 12"},
 		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "rule: a geometric length of mean 4"},
 		{"AddToCartShare", "shopper visits that add to the cart", pct(AddToCartShare), littledata},
@@ -604,7 +610,7 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
-		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
+		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
 		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},
 		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog, https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/), with no figure to take"},

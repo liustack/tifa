@@ -29,9 +29,10 @@ func landing(id int, page string) Plan {
 	return Plan{ID: id, Role: RoleShopper, Steps: []PlanStep{{StepLoad, page}}}
 }
 
-// handWorkload plays the plans in order, one visit each, with the writes it is given by plan ID.
+// handWorkload plays the plans in order, one visit each, with the writes it is given by plan ID. Its
+// traces are those of a browser whose landings alone are documents (browserTraces).
 func handWorkload(plans []Plan, writes map[[2]int]PlannedWrite) *Workload {
-	return &Workload{Plans: plans, Writes: writes, Seed: 3}
+	return &Workload{Plans: plans, Traces: browserTraces(plans), Writes: writes, Seed: 3}
 }
 
 func checkout(seq int) (PlannedWrite, PlannedWrite) {
@@ -80,7 +81,7 @@ func TestExpectedHitsFollowThePagesAndTheWritesOfAPlan(t *testing.T) {
 	}
 	// The class of each document is the one the replay counts the renders of Tifa by.
 	for seq, class := range map[int]docClass{0: docNew, 1: docSame, 2: docNew, 3: docChanged, 4: docSame, 6: docChanged, 8: docSame} {
-		if g := got.human[seq]; g != class {
+		if g, _ := got.humanClass(seq, 0); g != class {
 			t.Errorf("visit %d is %v, want %v", seq, g, class)
 		}
 	}
@@ -123,7 +124,7 @@ func TestTheWarmUpIsSeenAndNotCounted(t *testing.T) {
 	if c := got.Humans["product"]; c != (ExpectedCell{Docs: 1, New: 1}) {
 		t.Errorf("product: %+v, want one new page", c)
 	}
-	if _, ok := got.human[0]; ok {
+	if _, ok := got.humanClass(0, 0); ok {
 		t.Error("the warm-up has a class: it is no part of the round")
 	}
 }
@@ -191,9 +192,16 @@ func bruteForce(w *Workload, d *StoreDeps, restocked map[string]int, spans []exp
 				continue
 			}
 			p := w.planFor(k)
-			doc(p.Steps[0].Page, humans, pageClass(p.Steps[0].Page), sp.count)
-			for _, e := range versionEffects(w.Seed, w.stockOf(k, 1)[0]) {
-				bump(m.apply(e))
+			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			for i, s := range p.Steps {
+				if w.Traces[p.ID].Steps[i].document() {
+					doc(s.Page, humans, pageClass(s.Page), sp.count)
+				}
+				for _, e := range effects {
+					if e.After == i {
+						bump(m.apply(e))
+					}
+				}
 			}
 		}
 	}
@@ -209,10 +217,31 @@ func anySeen(seen map[string]bool, prefix string) bool {
 	return false
 }
 
-// On the plans of the mix, with its writes and its crawlers, the count is the slow one.
+// listClicks are the page views of a plan that a click to a product list makes. The plain links of the
+// shop lead to a list (the category bar, the quick filters, the pages), so the tests take these for the
+// clicks that load a document.
+func listClicks(p Plan) []int {
+	var out []int
+	for i, s := range p.Steps {
+		if _, kind := StorePageKind(s.Page); i > 0 && kind == StoreKindList {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// On the plans of the mix, with its writes and its crawlers, the count is the slow one. Some clicks
+// load a document, as in the browser: here every click to a product list.
 func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	d := checkedDeps(t)
-	w := siteWorkload(t, 1, 1, "shop")
+	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return browserTrace(p, listClicks(p)...) })
+	clicks := 0
+	for _, p := range w.Plans {
+		clicks += len(listClicks(p))
+	}
+	if clicks < 100 {
+		t.Fatalf("%d clicks of the plans load a document: too few to check them", clicks)
+	}
 	n := w.Scenario.blockVisits()
 	spans := []expectSpan{{3 * n, n, false}, {0, 2 * n, true}}
 	restocked := StockFor(w.Seed, w.stockOf(0, 4*n))[storefrontShop]
