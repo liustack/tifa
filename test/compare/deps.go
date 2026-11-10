@@ -29,7 +29,9 @@ import (
 // writes. A page of Tifa is rendered again when the data its Loads give has changed, and the data of a
 // storefront page changes with the price and the stock of the products it shows (a checkout takes
 // pieces from the stock, and staff change a price or a stock). store_deps.json says, for each URL a
-// visit can land on and each URL of a crawler, which products it shows and which of their fields. Make
+// visit can land on and each URL of a crawler, which products it shows and which of their fields. The
+// parts of a page whose products a price or a stock decides (decidedParts) are left out of it: the model
+// of the versions works those out as the writes come (versionModel in versions.go). Make
 // it again with `compare deps` after the pages, the catalogue or the URLs change. It carries a hash of
 // everything it was made from, and a file that does not match what is checked out is refused
 // (CheckStoreDeps), so it cannot go out of date silently.
@@ -37,14 +39,16 @@ import (
 //go:embed store_deps.json
 var storeDepsJSON []byte
 
-// allProducts stands in a dependency for every product of the catalogue: "*:p" is all the prices.
+// allProducts stands in a dependency for every product of the catalogue: "*:p" is all the prices, and
+// "*:f" whether each product is in stock.
 const allProducts = "*"
 
 // A dependency is written "slug" for the price and the stock of a product, "slug:p" for its price alone
-// and "slug:s" for its stock alone.
+// and "slug:s" for its stock alone. "f" is whether a product is in stock at all, which only "*:f" names.
 const (
 	depPrice = "p"
 	depStock = "s"
+	depFlag  = "f"
 )
 
 // StoreDeps is the content of store_deps.json.
@@ -60,6 +64,11 @@ type StoreDeps struct {
 	// Pages the others, by the URL the render sees (RenderURL).
 	Common []string            `json:"common"`
 	Pages  map[string][]string `json:"pages"`
+	// Lists are, for each product list whose products a price or a stock decides (it sorts by price, has a
+	// price range or has only what is in stock), the products that pass its other filters, in its order
+	// when it does not sort by price and else in the order of the catalogue. The key is the render URL of
+	// the list without the range, the stock, the sort by price and the page (listBase).
+	Lists map[string][]string `json:"lists"`
 }
 
 // The routes of the pages, as tifa names them.
@@ -334,6 +343,7 @@ func CheckStoreDeps(root string) (*StoreDeps, error) {
 		return nil, err
 	}
 	const again = "make it again with `compare deps`"
+
 	if d.Sources != sources {
 		return nil, fmt.Errorf("store_deps.json was made from other sources of the shop (%s, now %s): %s", d.Sources, sources, again)
 	}
@@ -344,6 +354,9 @@ func CheckStoreDeps(root string) (*StoreDeps, error) {
 	for _, u := range urls {
 		if _, ok := d.Pages[d.RenderURL(u)]; !ok {
 			return nil, fmt.Errorf("store_deps.json has no entry for %s: %s", u, again)
+		}
+		if _, kind := StorePageKind(u); kind == StoreKindList && priceDecidesList(u) && d.Lists[d.listBase(u)] == nil {
+			return nil, fmt.Errorf("store_deps.json has no products for the list of %s: %s", u, again)
 		}
 	}
 	return d, nil
@@ -392,6 +405,9 @@ func canonFields(f string) string {
 	if strings.Contains(f, depStock) {
 		out += depStock
 	}
+	if strings.Contains(f, depFlag) {
+		out += depFlag
+	}
 	return out
 }
 
@@ -399,6 +415,14 @@ func canonFields(f string) string {
 func depList(found map[string]string) []string {
 	out := []string{}
 	for slug, fields := range found {
+		if slug == allProducts {
+			for _, f := range []string{depPrice, depFlag} {
+				if strings.Contains(fields, f) {
+					out = append(out, slug+":"+f)
+				}
+			}
+			continue
+		}
 		switch {
 		case strings.Contains(fields, depPrice) && strings.Contains(fields, depStock):
 			out = append(out, slug)
@@ -412,15 +436,6 @@ func depList(found map[string]string) []string {
 	return out
 }
 
-// listsByPrice says whether a page is of the product list. Every page of it depends on the prices of every
-// product of the catalogue, not only of the ones it shows: it sorts by price or has a price range, and
-// its filters show the range of the prices (a price edit changed every list page in the check of the
-// versions, TestTheDataVersionsFollowTheShop). So the category does not narrow it.
-func listsByPrice(page string) bool {
-	_, kind := StorePageKind(page)
-	return kind == StoreKindList
-}
-
 // collectStoreDeps asks the server at base (a Tifa with its memo off, with the data it starts with) for
 // the data of each URL the way the browser router does, with the build ID of the build, and makes the
 // dependencies of the pages. The keep table is the one RenderURL uses.
@@ -429,45 +444,37 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 	found := map[string]map[string]string{}
 	var common map[string]string
 	for _, u := range urls {
-		sep := "?"
-		if strings.Contains(u, "?") {
-			sep = "&"
-		}
-		req, err := http.NewRequestWithContext(ctx, "GET", base+u+sep+"_tifa="+buildID+".11", nil)
+		data, err := fetchData(ctx, base, buildID, u)
 		if err != nil {
 			return nil, err
-		}
-		req.Header.Set("Sec-Fetch-Site", "same-origin")
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		body, err := io.ReadAll(res.Body)
-		res.Body.Close()
-		if err != nil || res.StatusCode != 200 {
-			return nil, fmt.Errorf("GET %s: %d %v %.200s", u, res.StatusCode, err, body)
-		}
-		var data struct {
-			Routes map[string]struct {
-				Status int `json:"status"`
-				Data   any `json:"data"`
-			} `json:"routes"`
-		}
-		if err := json.Unmarshal(body, &data); err != nil || len(data.Routes) == 0 {
-			return nil, fmt.Errorf("GET %s: no data of routes: %v %.200s", u, err, body)
 		}
 		page := map[string]string{}
 		for id, r := range data.Routes {
 			if r.Status != 200 {
 				return nil, fmt.Errorf("GET %s: the data of %s has status %d", u, id, r.Status)
 			}
+			if id == routeOf(u) {
+				// The parts whose products a price or a stock decides are the model's (versionModel).
+				fields, ok := r.Data.(map[string]any)
+				for _, part := range decidedParts(u) {
+					if _, has := fields[part]; !ok || !has {
+						return nil, fmt.Errorf("GET %s: the data of %s has no %s", u, id, part)
+					}
+					delete(fields, part)
+				}
+			}
 			productsIn(r.Data, page)
 		}
 		for k, v := range page {
 			page[k] = canonFields(v)
 		}
-		if listsByPrice(u) {
+		if _, kind := StorePageKind(u); kind == StoreKindList {
+			// A list shows the range of all the prices (the bands and the dearest price) and its best rated
+			// products are the cheaper first, and with only what is in stock it counts the products in stock.
 			page[allProducts] = depPrice
+			if _, _, _, _, inStock := listQuery(u); inStock {
+				page[allProducts] += depFlag
+			}
 		}
 		key := d.RenderURL(u)
 		if old, ok := found[key]; ok {
@@ -492,6 +499,19 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 		}
 	}
 	d.Common = depList(common)
+	d.Lists = map[string][]string{}
+	for _, u := range urls {
+		if _, kind := StorePageKind(u); kind != StoreKindList || !priceDecidesList(u) {
+			continue
+		}
+		if b := d.listBase(u); d.Lists[b] == nil {
+			list, err := collectList(ctx, base, buildID, b)
+			if err != nil {
+				return nil, err
+			}
+			d.Lists[b] = list
+		}
+	}
 	for key, page := range found {
 		rest := map[string]string{}
 		for k, v := range page {
@@ -546,6 +566,7 @@ func (e Env) WriteStoreDeps(ctx context.Context, log io.Writer, out string) erro
 		return err
 	}
 	d.URLs = hashOf(urls)
+
 	data, err := marshalStoreDeps(d)
 	if err != nil {
 		return err
@@ -572,6 +593,11 @@ func marshalStoreDeps(d *StoreDeps) ([]byte, error) {
 	for i, k := range keys {
 		fmt.Fprintf(&b, "  %s: %s%s\n", line(k), line(d.Pages[k]), comma(i, len(keys)))
 	}
+	b.WriteString(" },\n \"lists\": {\n")
+	bases := slices.Sorted(maps.Keys(d.Lists))
+	for i, k := range bases {
+		fmt.Fprintf(&b, "  %s: %s%s\n", line(k), line(d.Lists[k]), comma(i, len(bases)))
+	}
 	b.WriteString(" }\n}\n")
 	return b.Bytes(), nil
 }
@@ -585,3 +611,68 @@ func comma(i, n int) string {
 
 // storeDepsOnce is the embedded file, read once, with no check against a checkout.
 var storeDepsOnce = sync.OnceValues(func() (*StoreDeps, error) { return parseStoreDeps(storeDepsJSON) })
+
+// routesData is the answer to a request for the data of a page: the result of each route.
+type routesData struct {
+	Routes map[string]struct {
+		Status int `json:"status"`
+		Data   any `json:"data"`
+	} `json:"routes"`
+}
+
+// fetchData asks the server at base for the data of the Layout and the page of u, as the browser router does.
+func fetchData(ctx context.Context, base, buildID, u string) (routesData, error) {
+	var data routesData
+	sep := "?"
+	if strings.Contains(u, "?") {
+		sep = "&"
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", base+u+sep+"_tifa="+buildID+".11", nil)
+	if err != nil {
+		return data, err
+	}
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return data, err
+	}
+	body, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil || res.StatusCode != 200 {
+		return data, fmt.Errorf("GET %s: %d %v %.200s", u, res.StatusCode, err, body)
+	}
+	if err := json.Unmarshal(body, &data); err != nil || len(data.Routes) == 0 {
+		return data, fmt.Errorf("GET %s: no data of routes: %v %.200s", u, err, body)
+	}
+	return data, nil
+}
+
+// collectList asks for every page of the list at base (StoreDeps.listBase: a list with no range, no
+// stock and no sort by price) and returns the products on them in order: the products that pass its
+// filters, in the order of the catalogue or of its sort.
+func collectList(ctx context.Context, server, buildID, base string) ([]string, error) {
+	var out []string
+	for page := 1; ; page++ {
+		u := base + "?page=" + strconv.Itoa(page)
+		if strings.Contains(base, "?") {
+			u = base + "&page=" + strconv.Itoa(page)
+		}
+		data, err := fetchData(ctx, server, buildID, u)
+		if err != nil {
+			return nil, err
+		}
+		list, ok := data.Routes[storeList].Data.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("GET %s: no data of the list", u)
+		}
+		products, _ := list["products"].([]any)
+		for _, p := range products {
+			card, _ := p.(map[string]any)
+			slug, _ := card["slug"].(string)
+			out = append(out, slug)
+		}
+		if pages, _ := list["pages"].(float64); float64(page) >= pages {
+			return out, nil
+		}
+	}
+}

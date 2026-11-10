@@ -132,18 +132,37 @@ func fakeStorefront(t *testing.T) *httptest.Server {
 		var page any
 		switch r.URL.Path {
 		case "/store":
-			page = map[string]any{"featured": []any{card("oak-tray", true, true), card("wool-throw", true, false)}}
+			page = map[string]any{
+				"featured": []any{card("oak-tray", true, true), card("wool-throw", true, false)},
+				"sale":     []any{card("glass-carafe", true, true)},
+			}
 		case "/store/products/oak-tray":
-			page = map[string]any{"product": card("oak-tray", true, true), "related": []any{card("wool-throw", false, true)}}
+			page = map[string]any{
+				"product": card("oak-tray", true, true), "related": []any{card("wool-throw", false, true)},
+				"bundle": []any{card("tea-canister", true, true)},
+			}
 		case "/store/products":
-			page = map[string]any{"products": []any{card("oak-tray", true, true)}}
+			// A list of three products in pages of two, the dearest first when it sorts so.
+			all := []string{"oak-tray", "dot-notebook", "walnut-pen"}
+			if r.URL.Query().Get("sort") == "price-desc" {
+				all = []string{"walnut-pen", "oak-tray", "dot-notebook"}
+			}
+			from := 0
+			if r.URL.Query().Get("page") == "2" {
+				from = 2
+			}
+			var cards []any
+			for _, slug := range all[from:min(from+2, len(all))] {
+				cards = append(cards, card(slug, true, true))
+			}
+			page = map[string]any{"products": cards, "pages": 2.0, "picks": []any{card("sketchbook", true, true)}}
 		default:
 			http.Error(w, "no page", 404)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"routes": map[string]any{
-			"app/store/layout": map[string]any{"status": 200, "data": layout},
-			"page":             map[string]any{"status": 200, "data": page},
+			"app/store/layout":  map[string]any{"status": 200, "data": layout},
+			routeOf(r.URL.Path): map[string]any{"status": 200, "data": page},
 		}})
 	}))
 }
@@ -167,10 +186,49 @@ func TestTheDepsOfAPageAreTheProductsItsDataShows(t *testing.T) {
 		"/store":                             {"wool-throw:p"},
 		"/store/products/oak-tray?reviews=2": {"wool-throw:s"},
 		"/store/products/oak-tray":           {"wool-throw:s"},
-		"/store/products?sort=newest":        {"*:p"},
+		"/store/products?sort=newest":        {"*:p", "dot-notebook"},
 	}
 	if !reflect.DeepEqual(d.Pages, want) {
 		t.Errorf("pages %v, want %v", d.Pages, want)
+	}
+	if len(d.Lists) != 0 {
+		t.Errorf("lists %v, want none: no list here has its products decided by a price or a stock", d.Lists)
+	}
+}
+
+// The parts of a page whose products a price or a stock decides are not in the file: the sale of the
+// home, the bundle of a product page, the best rated below a list, and the products of a list by price.
+// The model works them out (versionModel). For such a list the file keeps the products that pass its
+// other filters, from all its pages, and whether each product is in stock for a list of what is in stock.
+func TestTheFileLeavesOutThePartsAPriceOrAStockDecides(t *testing.T) {
+	srv := fakeStorefront(t)
+	defer srv.Close()
+	query := map[string][]string{storeHome: nil, storeProduct: {"reviews"}, storeList: {"page", "sort", "stock"}}
+	urls := []string{"/store", "/store/products/oak-tray", "/store/products?sort=price-desc", "/store/products?page=2&sort=price-desc", "/store/products?stock=1"}
+	d, err := collectStoreDeps(context.Background(), srv.URL, "b1", query, urls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for page, deps := range d.Pages {
+		for _, dep := range slices.Concat(d.Common, deps) {
+			slug, _, _ := strings.Cut(dep, ":")
+			if slices.Contains([]string{"glass-carafe", "tea-canister", "sketchbook", "walnut-pen", "dot-notebook"}, slug) {
+				t.Errorf("%s depends on %s, which is on it by a price or a stock", page, dep)
+			}
+		}
+	}
+	want := map[string][]string{
+		"/store":                                 {"oak-tray", "wool-throw:p"},
+		"/store/products/oak-tray":               {"oak-tray", "wool-throw:s"},
+		"/store/products?sort=price-desc":        {"*:p"},
+		"/store/products?page=2&sort=price-desc": {"*:p"},
+		"/store/products?stock=1":                {"*:f", "*:p"},
+	}
+	if !reflect.DeepEqual(d.Pages, want) {
+		t.Errorf("pages %v, want %v", d.Pages, want)
+	}
+	if want := map[string][]string{"/store/products": {"oak-tray", "dot-notebook", "walnut-pen"}}; !reflect.DeepEqual(d.Lists, want) {
+		t.Errorf("lists %v, want %v", d.Lists, want)
 	}
 }
 

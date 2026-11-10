@@ -72,12 +72,14 @@ var storeCatalogue = sync.OnceValue(func() (c struct {
 		panic(err)
 	}
 	var file []struct {
-		Slug     string   `json:"slug"`
-		Category string   `json:"category"`
-		Rating   float64  `json:"rating"`
-		Stock    int      `json:"stock"`
-		Colors   []string `json:"colors"`
-		Sizes    []string `json:"sizes"`
+		Slug       string   `json:"slug"`
+		Category   string   `json:"category"`
+		PriceFen   int      `json:"priceFen"`
+		CompareFen int      `json:"compareFen"`
+		Rating     float64  `json:"rating"`
+		Stock      int      `json:"stock"`
+		Colors     []string `json:"colors"`
+		Sizes      []string `json:"sizes"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		panic(ShopCatalogue + ": " + err.Error())
@@ -85,16 +87,21 @@ var storeCatalogue = sync.OnceValue(func() (c struct {
 	for _, p := range file {
 		c.slugs = append(c.slugs, p.Slug)
 		c.variants = append(c.variants, StoreProduct{p.Slug, p.Stock, p.Colors, p.Sizes})
-		c.records = append(c.records, storeRecord{p.Slug, p.Category, p.Rating})
+		c.records = append(c.records, storeRecord{p.Slug, p.Category, p.Rating, p.PriceFen, p.CompareFen, p.Stock, len(p.Sizes) > 0})
 	}
 	return c
 })
 
-// storeRecord is a product of the catalogue file as the URLs of a crawler need it: its slug, its
-// category and its rating (which gives how many reviews it has).
+// storeRecord is a product of the catalogue file as the URLs of a crawler and the data versions of the
+// pages need it: its slug, its category, its rating (which gives how many reviews it has), its price and
+// sale price in fen, its stock and whether it comes in sizes.
 type storeRecord struct {
 	Slug, Category string
 	Rating         float64
+	PriceFen       int
+	CompareFen     int
+	Stock          int
+	Sized          bool
 }
 
 // StoreSampleProducts are the products a check of the pages shows, one of each kind: with sizes,

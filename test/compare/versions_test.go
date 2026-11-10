@@ -81,3 +81,336 @@ func TestAReturningVisitsCartIsInItsCheckout(t *testing.T) {
 		}
 	}
 }
+
+// modelOf is a model over the real catalogue with the pages of handDeps and a list of every product (the
+// product list with no filter, whose pages hold 24 each).
+func modelOf(t *testing.T) *versionModel {
+	t.Helper()
+	d := handDeps()
+	d.Lists = map[string][]string{"/store/products": StoreProducts(), "/zh-CN/store/products": StoreProducts()}
+	d.Pages["/store/products?sort=price-desc"] = []string{"*:p"}
+	d.Pages["/store/products?sort=price-desc&page=2"] = []string{"*:p"}
+	d.Pages["/store/products?stock=1"] = []string{"*:p", "*:f"}
+	d.Pages["/store/products/oak-tray"] = []string{}
+	return newVersionModel(d, nil)
+}
+
+func recordOf(slug string) storeRecord {
+	for _, r := range storeCatalogue().records {
+		if r.Slug == slug {
+			return r
+		}
+	}
+	panic("no product " + slug)
+}
+
+// byPrice are the slugs of the catalogue, the dearest first, the first of the catalogue first among equals.
+func byPrice() []string {
+	rs := slices.Clone(storeCatalogue().records)
+	slices.SortStableFunc(rs, func(a, b storeRecord) int { return b.PriceFen - a.PriceFen })
+	var out []string
+	for _, r := range rs {
+		out = append(out, r.Slug)
+	}
+	return out
+}
+
+// The sale on the home is the products with a sale price among the 24 dearest. A product that was not on
+// it and is made the dearest comes onto it, and then a change of its stock is a change of the home. A
+// product that stays off it changes nothing, and the price put back takes it off again.
+func TestAPriceEditThatBringsAProductIntoTheSaleChangesTheHomeAndItsLaterStock(t *testing.T) {
+	m := modelOf(t)
+	sale := func() []string { return m.shown("/store")["sale"] }
+	top := byPrice()[:24]
+	var out string // a product with a sale price below the 24 dearest
+	for _, r := range storeCatalogue().records {
+		if r.CompareFen > 0 && !slices.Contains(top, r.Slug) {
+			out = r.Slug
+			break
+		}
+	}
+	if out == "" {
+		t.Skip("every product with a sale price is among the 24 dearest")
+	}
+	if slices.Contains(sale(), out) {
+		t.Fatalf("%s is on the sale already", out)
+	}
+	at := func() int {
+		v, err := m.stampOf("/store")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	before := at()
+	// A price edit of a product that is off the sale, and stays off.
+	m.apply(editEffect(out, intp(recordOf(out).PriceFen+100), nil))
+	if at() != before {
+		t.Error("the price of a product off the sale changed the home")
+	}
+	// Made the dearest, it comes on.
+	m.apply(editEffect(out, intp(9_999_900), nil))
+	if !slices.Contains(sale(), out) {
+		t.Fatalf("%s is not on the sale at 99,999 yuan: %v", out, sale())
+	}
+	onSale := at()
+	if onSale == before {
+		t.Error("a product came onto the sale and the home did not change")
+	}
+	// Its stock is on the page now.
+	m.apply(editEffect(out, nil, intp(7000)))
+	if at() == onSale {
+		t.Error("the stock of a product on the sale did not change the home")
+	}
+	// Put back, it is off, and the home is not what it was with the product on it.
+	now := at()
+	m.apply(editEffect(out, intp(recordOf(out).PriceFen), nil))
+	if slices.Contains(sale(), out) || at() == now {
+		t.Errorf("the price put back: on the sale %v, home changed %v", slices.Contains(sale(), out), at() != now)
+	}
+}
+
+func intp(n int) *int { return &n }
+
+// A product that a price edit moves into the first page of the list by price is on it from then on: its
+// stock or an order changes the page, where the stock of a product that is not on it does not.
+func TestAProductThatAPriceEditMovesOntoAPageOfTheListHasItsStockOnIt(t *testing.T) {
+	m := modelOf(t)
+	page := "/store/products?sort=price-desc"
+	cheapest := byPrice()[len(byPrice())-1]
+	at := func() int {
+		v, err := m.stampOf(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if slices.Contains(m.shown(page)["products"], cheapest) {
+		t.Fatalf("%s is on the first page of the list by price", cheapest)
+	}
+	v0 := at()
+	m.apply(editEffect(cheapest, nil, intp(5000)))
+	if at() != v0 {
+		t.Error("the stock of a product that is not on the page changed it")
+	}
+	m.apply(editEffect(cheapest, intp(9_999_900), nil))
+	if !slices.Contains(m.shown(page)["products"], cheapest) {
+		t.Fatalf("the dearest product is not on the first page: %v", m.shown(page)["products"])
+	}
+	v1 := at()
+	m.apply(editEffect(cheapest, nil, intp(4000)))
+	if at() == v1 {
+		t.Error("the stock of a product that a price edit moved onto the page did not change it")
+	}
+	// A checkout of it is a change of its stock too.
+	v2 := at()
+	m.apply(effect{Kind: WriteCheckout, Keys: []string{stockKey(cheapest), adminKey(storefrontShop)}})
+	if at() == v2 {
+		t.Error("an order of a product on the page did not change it")
+	}
+}
+
+// The products a product page offers as a bundle are in stock, so a product that was sold out and is
+// in stock has a place among them if it is one of the best rated: the pages of its category change.
+func TestARestockedProductEntersTheBundleOfTheProductsOfItsCategory(t *testing.T) {
+	m := modelOf(t)
+	for _, z := range storeCatalogue().records {
+		if z.Stock != 0 || z.Sized {
+			continue
+		}
+		for _, p := range storeCatalogue().records {
+			if p.Slug == z.Slug || p.Category != z.Category {
+				continue
+			}
+			page := "/store/products/" + p.Slug
+			m.d.Pages[page] = []string{}
+			before := m.shown(page)["bundle"]
+			if slices.Contains(before, z.Slug) {
+				t.Fatalf("%s is out of stock and in the bundle of %s", z.Slug, p.Slug)
+			}
+			// The two best rated products of the category that are in stock and have no sizes.
+			var mates []storeRecord
+			for _, r := range storeCatalogue().records {
+				if r.Category == z.Category && r.Slug != p.Slug && !r.Sized && (r.Stock > 0 || r.Slug == z.Slug) {
+					mates = append(mates, r)
+				}
+			}
+			slices.SortStableFunc(mates, func(a, b storeRecord) int {
+				switch {
+				case a.Rating > b.Rating:
+					return -1
+				case a.Rating < b.Rating:
+					return 1
+				}
+				return 0
+			})
+			want := slices.Contains([]string{mates[0].Slug, mates[1].Slug}, z.Slug)
+			v0, _ := m.stampOf(page)
+			m.apply(editEffect(z.Slug, nil, intp(500)))
+			v1, _ := m.stampOf(page)
+			if got := slices.Contains(m.shown(page)["bundle"], z.Slug); got != want {
+				t.Errorf("%s in the bundle of %s after its restock: %v, want %v", z.Slug, p.Slug, got, want)
+			}
+			if want && v1 == v0 {
+				t.Errorf("%s joined the bundle of %s and the page did not change", z.Slug, p.Slug)
+			}
+			return
+		}
+	}
+	t.Skip("no product is out of stock")
+}
+
+// An edit that sets the stock of a product to none takes it out of the bundles it was in, and the pages
+// that offered it change. Its stock set again brings it back.
+func TestAnEditToNoStockTakesAProductOutOfTheBundles(t *testing.T) {
+	m := modelOf(t)
+	page := "/store/products/oak-tray"
+	before := m.shown(page)["bundle"]
+	if len(before) != 2 {
+		t.Fatalf("the bundle of oak-tray is %v, want two products", before)
+	}
+	v0, _ := m.stampOf(page)
+	m.apply(editEffect(before[0], nil, intp(0)))
+	v1, _ := m.stampOf(page)
+	if after := m.shown(page)["bundle"]; slices.Contains(after, before[0]) || len(after) != 2 || v1 == v0 {
+		t.Errorf("with %s sold out the bundle is %v (was %v), page changed %v", before[0], after, before, v1 != v0)
+	}
+	m.apply(editEffect(before[0], nil, intp(40)))
+	v2, _ := m.stampOf(page)
+	if after := m.shown(page)["bundle"]; !slices.Equal(after, before) || v2 == v1 {
+		t.Errorf("with %s in stock again the bundle is %v, want %v, page changed %v", before[0], after, before, v2 != v1)
+	}
+}
+
+// The best rated products below every list are the cheaper first among those of one rating, so a price
+// edit can bring a product among them, and then its stock is on every list.
+func TestAPriceEditCanBringAProductAmongTheBestRatedBelowTheLists(t *testing.T) {
+	m := modelOf(t)
+	page := "/store/products?sort=newest" // no product of its own in handDeps
+	picks := m.shown(page)["picks"]
+	if len(picks) != 6 {
+		t.Fatalf("the best rated are %v, want 6", picks)
+	}
+	// A product of the rating of the last pick that is not one, for being dearer.
+	last := recordOf(picks[5])
+	var next string
+	for _, r := range storeCatalogue().records {
+		if r.Rating == last.Rating && !slices.Contains(picks, r.Slug) {
+			next = r.Slug
+			break
+		}
+	}
+	if next == "" {
+		t.Skip("no other product has the rating of the last of the best rated")
+	}
+	v0, _ := m.stampOf(page)
+	m.apply(editEffect(next, nil, intp(300)))
+	if v, _ := m.stampOf(page); v != v0 {
+		t.Errorf("the stock of %s, which is not among the best rated, changed the list", next)
+	}
+	m.apply(editEffect(next, intp(100), nil))
+	if now := m.shown(page)["picks"]; now[0] != next {
+		t.Fatalf("at 1 yuan %s is not the first of the best rated: %v", next, now)
+	}
+	v1, _ := m.stampOf(page)
+	m.apply(editEffect(next, nil, intp(200)))
+	if v2, _ := m.stampOf(page); v2 == v1 {
+		t.Errorf("the stock of %s, now among the best rated, did not change the list", next)
+	}
+}
+
+// A list with a price range has the products whose price in the currency of its language is in it, in
+// whole units: yuan in Chinese, and dollars at 7.1 yuan each, rounded up to 10 cents, in English.
+func TestAPriceRangeIsInTheCurrencyOfTheLanguage(t *testing.T) {
+	for _, c := range []struct {
+		fen  int
+		lang string
+		want int
+	}{
+		{29_999, "zh-CN", 299}, {30_000, "zh-CN", 300},
+		{71_000, "en-US", 100}, {70_999, "en-US", 100}, {70_300, "en-US", 99}, {100, "en-US", 0},
+	} {
+		if got := priceIn(c.fen, c.lang); got != c.want {
+			t.Errorf("%d fen in %s is %d, want %d", c.fen, c.lang, got, c.want)
+		}
+	}
+	m := modelOf(t)
+	m.d.Query[storeList] = []string{"max", "min", "page", "sort", "stock"}
+	zh, en := "/zh-CN/store/products?max=300&min=100", "/store/products?max=300&min=100"
+	slug := byPrice()[0]
+	m.apply(editEffect(slug, intp(30_000), nil))
+	if !slices.Contains(m.shown(zh)["products"], slug) || slices.Contains(m.shown(en)["products"], slug) {
+		t.Errorf("at 300 yuan (42.3 dollars) %s is in the Chinese list of 100 to 300: %v, in the English one: %v", slug, slices.Contains(m.shown(zh)["products"], slug), slices.Contains(m.shown(en)["products"], slug))
+	}
+	m.apply(editEffect(slug, intp(30_100), nil))
+	if slices.Contains(m.shown(zh)["products"], slug) {
+		t.Errorf("at 301 yuan %s is in the list of 100 to 300 yuan", slug)
+	}
+}
+
+// The products of a list are kept without what a price or a stock decides, and in the order of a sort
+// that is not by price, which a range filters and does not sort again.
+func TestTheBaseOfAListKeepsASortThatIsNotByPrice(t *testing.T) {
+	d := handDeps()
+	d.Query[storeList] = []string{"color", "max", "min", "page", "sort", "stock"}
+	for page, want := range map[string]string{
+		"/store/products?sort=price-desc":                          "/store/products",
+		"/store/products?color=moss&color=mist&sort=price-asc":     "/store/products?color=moss&color=mist",
+		"/store/products?max=300&min=100&sort=price-desc&stock=1":  "/store/products",
+		"/zh-CN/store/products?min=100&page=2&sort=newest&gclid=x": "/zh-CN/store/products?sort=newest",
+		"/store/products?sort=rating&stock=1":                      "/store/products?sort=rating",
+	} {
+		if got := d.listBase(page); got != want {
+			t.Errorf("the base of %s is %s, want %s", page, got, want)
+		}
+	}
+	d.Lists = map[string][]string{"/store/products?sort=rating": {"sketchbook", "tea-canister", "oak-tray"}}
+	d.Pages["/store/products?sort=rating&stock=1"] = []string{"*:p", "*:f"}
+	m := newVersionModel(d, nil)
+	// tea-canister is out of stock in the catalogue, and the restock can give it a stock.
+	if got := m.shown("/store/products?sort=rating&stock=1")["products"]; !slices.Equal(got, []string{"sketchbook", "oak-tray"}) {
+		t.Errorf("the list of what is in stock by rating is %v", got)
+	}
+	m = newVersionModel(d, map[string]int{"tea-canister": 10})
+	if got := m.shown("/store/products?sort=rating&stock=1")["products"]; !slices.Equal(got, []string{"sketchbook", "tea-canister", "oak-tray"}) {
+		t.Errorf("after a restock of tea-canister the list of what is in stock by rating is %v", got)
+	}
+}
+
+// A product that gets a stock and is not among the two best rated of its category is in no bundle, so
+// the product pages of its category stay as they are.
+func TestAStockThatBringsAProductIntoNoBundleChangesNoProductPage(t *testing.T) {
+	m := modelOf(t)
+	checked := 0
+	for _, z := range storeCatalogue().records {
+		if z.Stock != 0 || z.Sized {
+			continue
+		}
+		var pages []string
+		stamps := map[string]int{}
+		bundles := map[string][]string{}
+		for _, p := range storeCatalogue().records {
+			if p.Category == z.Category && p.Slug != z.Slug {
+				page := "/store/products/" + p.Slug
+				m.d.Pages[page] = []string{}
+				pages = append(pages, page)
+				stamps[page], _ = m.stampOf(page)
+				bundles[page] = m.shown(page)["bundle"]
+			}
+		}
+		m.apply(editEffect(z.Slug, nil, intp(30)))
+		for _, page := range pages {
+			at, _ := m.stampOf(page)
+			same := slices.Equal(bundles[page], m.shown(page)["bundle"])
+			if same != (at == stamps[page]) {
+				t.Errorf("%s in stock: the bundle of %s is the same: %v, its version is the same: %v", z.Slug, page, same, at == stamps[page])
+			}
+			if same {
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Skip("no product out of stock leaves a bundle as it is")
+	}
+}

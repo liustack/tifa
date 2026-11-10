@@ -1,7 +1,6 @@
 package compare
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 )
@@ -96,59 +95,24 @@ type expectSpan struct {
 	count   bool
 }
 
-// pageInfo is what Expect keeps of a page URL: the URL a render sees and the version keys of its data.
-type pageInfo struct {
-	render string
-	keys   []int
-}
-
 // Expect works out the expected hits of the spans, played one after the other from nothing seen and
-// the data as it is at the start. It fails for a page the dependencies (store_deps.json) have no entry
-// for, which means the file is not the one of these plans.
-func (w *Workload) Expect(d *StoreDeps, spans ...expectSpan) (*Expectation, error) {
+// the data as it is at the start: the catalogue, with the stock the restock before the clock gave
+// (restocked, by slug: runner.restocked). It fails for a page the dependencies (store_deps.json) have no
+// entry for, which means the file is not the one of these plans.
+func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expectSpan) (*Expectation, error) {
 	e := &Expectation{human: map[int]docClass{}, crawl: map[int]docClass{}}
-	ids := map[string]int{}
-	var stamp []int // the last time (a count of writes) each key changed
-	id := func(key string) int {
-		i, ok := ids[key]
-		if !ok {
-			i = len(stamp)
-			ids[key] = i
-			stamp = append(stamp, 0)
-		}
-		return i
-	}
-	pages := map[string]pageInfo{}
-	info := func(page string) (pageInfo, error) {
-		if p, ok := pages[page]; ok {
-			return p, nil
-		}
-		keys, ok := d.pageKeys(page)
-		if !ok {
-			return pageInfo{}, fmt.Errorf("the dependencies have no entry for %s: make store_deps.json again with `compare deps`", page)
-		}
-		p := pageInfo{render: d.RenderURL(page)}
-		for _, k := range keys {
-			p.keys = append(p.keys, id(k))
-		}
-		pages[page] = p
-		return p, nil
-	}
+	m := newVersionModel(d, restocked)
 	// A page's data is as old as the last change of anything it shows (a page changes when one of them
 	// changed since it was last asked for), and lastSeen is that time as of the last document.
 	lastSeen := map[string]int{}
-	clock := 0
 	doc := func(page string) (docClass, error) {
-		p, err := info(page)
+		at, err := m.stampOf(page)
 		if err != nil {
 			return 0, err
 		}
-		at := 0
-		for _, k := range p.keys {
-			at = max(at, stamp[k])
-		}
-		before, seen := lastSeen[p.render]
-		lastSeen[p.render] = at
+		render := d.RenderURL(stripLanding(page))
+		before, seen := lastSeen[render]
+		lastSeen[render] = at
 		switch {
 		case !seen:
 			return docNew, nil
@@ -192,10 +156,7 @@ func (w *Workload) Expect(d *StoreDeps, spans ...expectSpan) (*Expectation, erro
 				}
 			}
 			for _, eff := range versionEffects(w.Seed, w.stockOf(k, 1)[0]) {
-				clock++
-				for _, key := range eff.Keys {
-					stamp[id(key)] = clock
-				}
+				m.apply(eff)
 			}
 		}
 	}
@@ -253,7 +214,7 @@ func (r *runner) expectRound(round *Round, visits, seq0 int) {
 		spans = append(spans, expectSpan{r.prepared, r.warm, false})
 	}
 	spans = append(spans, expectSpan{seq0, visits, true})
-	e, err := r.wl.Expect(r.deps, spans...)
+	e, err := r.wl.Expect(r.deps, r.restocked, spans...)
 	if err != nil {
 		round.ExpectedError = err.Error()
 		return

@@ -57,7 +57,7 @@ func TestExpectedHitsFollowThePagesAndTheWritesOfAPlan(t *testing.T) {
 	// Visit 2 adds the pen and checks out (the demonstration cart holds the kettle), on its page views 0 and 1.
 	add.Seq, co.Seq = 2, 2
 	w := handWorkload(plans, map[[2]int]PlannedWrite{{2, 0}: add, {2, 1}: co})
-	got, err := w.Expect(handDeps(), expectSpan{0, len(plans), true})
+	got, err := w.Expect(handDeps(), nil, expectSpan{0, len(plans), true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestThePriceOfAProductDoesNotChangeAPageThatShowsItsStockAlone(t *testing.T
 	}
 	plans := []Plan{landing(0, "/store"), landing(1, "/store")}
 	w := handWorkload(plans, map[[2]int]PlannedWrite{{0, 0}: edit})
-	got, err := w.Expect(d, expectSpan{0, 2, true})
+	got, err := w.Expect(d, nil, expectSpan{0, 2, true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestThePriceOfAProductDoesNotChangeAPageThatShowsItsStockAlone(t *testing.T
 func TestTheWarmUpIsSeenAndNotCounted(t *testing.T) {
 	plans := []Plan{landing(0, "/store"), landing(1, "/store"), landing(2, "/store/products/oak-tray")}
 	w := handWorkload(plans, nil)
-	got, err := w.Expect(handDeps(), expectSpan{0, 1, false}, expectSpan{1, 2, true})
+	got, err := w.Expect(handDeps(), nil, expectSpan{0, 1, false}, expectSpan{1, 2, true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestTheWarmUpIsSeenAndNotCounted(t *testing.T) {
 
 func TestAPageTheDepsDoNotKnowIsAnError(t *testing.T) {
 	w := handWorkload([]Plan{landing(0, "/store/products/never-seen")}, nil)
-	_, err := w.Expect(handDeps(), expectSpan{0, 1, true})
+	_, err := w.Expect(handDeps(), nil, expectSpan{0, 1, true})
 	if err == nil || !strings.Contains(err.Error(), "never-seen") {
 		t.Errorf("error %v, want one that names the page", err)
 	}
@@ -138,18 +138,20 @@ func TestAPageTheDepsDoNotKnowIsAnError(t *testing.T) {
 
 // bruteForce is the same count made the slow way: the version of a page is the list of the values of
 // what it depends on, and the pages seen before are kept with every version they had.
-func bruteForce(w *Workload, d *StoreDeps, spans []expectSpan) (map[string]ExpectedCell, map[string]ExpectedCell, int) {
+func bruteForce(w *Workload, d *StoreDeps, restocked map[string]int, spans []expectSpan) (map[string]ExpectedCell, map[string]ExpectedCell, int) {
 	values := map[string]int{}
 	seen := map[string]bool{}
 	humans, crawlers := map[string]ExpectedCell{}, map[string]ExpectedCell{}
 	old := 0
+	m := newVersionModel(d, restocked)
 	bump := func(keys []string) {
 		for _, k := range keys {
 			values[k]++
 		}
 	}
 	doc := func(url string, cells map[string]ExpectedCell, kind string, count bool) {
-		keys, _ := d.pageKeys(url)
+		keys, _ := d.pageKeys(stripLanding(url))
+		keys = append(keys, m.decidedKeys(url)...)
 		var v strings.Builder
 		v.WriteString(d.RenderURL(stripLanding(url)) + "|")
 		for _, k := range slices.Compact(slices.Sorted(slices.Values(keys))) {
@@ -191,7 +193,7 @@ func bruteForce(w *Workload, d *StoreDeps, spans []expectSpan) (map[string]Expec
 			p := w.planFor(k)
 			doc(p.Steps[0].Page, humans, pageClass(p.Steps[0].Page), sp.count)
 			for _, e := range versionEffects(w.Seed, w.stockOf(k, 1)[0]) {
-				bump(e.Keys)
+				bump(m.apply(e))
 			}
 		}
 	}
@@ -220,11 +222,12 @@ func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	w := siteWorkload(t, 1, 1, "shop")
 	n := w.Scenario.blockVisits()
 	spans := []expectSpan{{3 * n, n, false}, {0, 2 * n, true}}
-	got, err := w.Expect(d, spans...)
+	restocked := StockFor(w.Seed, w.stockOf(0, 4*n))[storefrontShop]
+	got, err := w.Expect(d, restocked, spans...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	humans, crawlers, old := bruteForce(w, d, spans)
+	humans, crawlers, old := bruteForce(w, d, restocked, spans)
 	if len(humans) == 0 || len(crawlers) == 0 {
 		t.Fatalf("no document counted: %v %v", humans, crawlers)
 	}
