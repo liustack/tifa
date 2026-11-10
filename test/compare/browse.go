@@ -1461,7 +1461,7 @@ func (b *browse) checkNoCache(ctx context.Context, spec Spec, sc BrowseScenario)
 	if err != nil {
 		return err
 	}
-	reqs := replayedGets(r.wl)
+	reqs := slices.Concat(replayedGets(r.wl), crawlerGets())
 	if err := CheckNoCache(ctx, r.base, reqs); err != nil {
 		return fmt.Errorf("%s: %w", BrowseLabel(spec.Name), err)
 	}

@@ -63,7 +63,11 @@ func newFakeStore(t *testing.T, write func(string) string) (*fakeStoreServer, *h
 	}
 	mux.HandleFunc("GET /projects/studio", office)
 	mux.HandleFunc("GET /projects/studio/orders/{order}", office)
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if !answerOld(w, r) {
+			w.Write([]byte("ok"))
+		}
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return f, srv

@@ -77,6 +77,17 @@ const (
 	// carries a parameter.
 	ClickIDShare    = 0.15
 	EmailParamShare = 0.05
+	// CrawlerShare is the share of the HTML requests that crawlers make: the documents of the shoppers and
+	// of the staff (each visit has one full load, and a click fetches data, not a document) and the
+	// requests of crawlers. Search engine crawlers are 4.5% and AI crawlers 4.2% of the HTML requests
+	// (Cloudflare Radar, 2025 year in review), which makes about 9%. A crawler request is not a visit and
+	// not a page view (crawler.go).
+	CrawlerShare = 0.09
+	// CrawlOldShare is the share of the requests of a crawler for an old URL that the shop no longer has
+	// (it answers 404), and the rest are for the public pages, all alike. An assumption: crawlers go back
+	// to old URLs and deep pages that people no longer visit, which the log studies of Screaming Frog
+	// show with no figure to take.
+	CrawlOldShare = 0.05
 	// EditPriceShare is the share of the edits of a product that change its price. The others change
 	// its stock. An assumption.
 	EditPriceShare = 0.5
@@ -123,6 +134,28 @@ var (
 		Share float64
 	}{{"_kx", 0.5}, {"mc_eid", 0.5}}
 )
+
+// CrawlerClasses are the classes of crawlers with the shares of the HTML requests of each
+// (CrawlerShare is their sum): search engines 4.5 and AI crawlers 4.2 (Cloudflare Radar, 2025).
+var CrawlerClasses = []struct {
+	Name  string
+	Share float64
+}{{CrawlerSearch, 4.5}, {CrawlerAI, 4.2}}
+
+// CrawlerAgents are the crawlers of each class, with their shares among the crawlers of the class and
+// the User-Agent each sends. The names and the shares are assumptions: Googlebot is by far the most
+// of the search engines, and no published share of the AI crawlers was found.
+var CrawlerAgents = []CrawlerAgent{
+	{CrawlerSearch, "Googlebot", 75, "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.175 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
+	{CrawlerSearch, "Bingbot", 15, "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"},
+	{CrawlerSearch, "Baiduspider", 5, "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"},
+	{CrawlerSearch, "YandexBot", 5, "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"},
+	{CrawlerAI, "GPTBot", 40, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot"},
+	{CrawlerAI, "ClaudeBot", 25, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"},
+	{CrawlerAI, "Meta-ExternalAgent", 20, "meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)"},
+	{CrawlerAI, "Bytespider", 10, "Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)"},
+	{CrawlerAI, "PerplexityBot", 5, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)"},
+}
 
 // OldProductsPerLanguage and OldPostsPerLanguage are how many old URLs of each kind the set O of a
 // crawler holds in a language (crawl.go): products taken off the shop and posts that were moved or
@@ -513,6 +546,20 @@ func MixFacts() []MixFact {
 		}
 		return strings.Join(out, ", ")
 	}
+	crawlerClasses := func() string {
+		var out []string
+		for _, k := range CrawlerClasses {
+			out = append(out, k.Name+" "+strconv.FormatFloat(k.Share, 'f', -1, 64)+"%")
+		}
+		return strings.Join(out, ", ")
+	}
+	crawlerAgents := func() string {
+		var out []string
+		for _, a := range CrawlerAgents {
+			out = append(out, fmt.Sprintf("%s %s %g%%", a.Class, a.Name, a.Share))
+		}
+		return strings.Join(out, "; ")
+	}
 	littledata := "median of 438 Shopify stores, 2026-08-03 to 2026-10-31 (Littledata, https://www.littledata.io/benchmarks)"
 	var landing, staffLanding []string
 	for _, l := range LandingShares {
@@ -551,6 +598,10 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
+		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review: search engine crawlers 4.5% and AI crawlers 4.2% of the HTML requests"},
+		{"CrawlerClasses", "crawlers by class, as the shares of the HTML requests of each", crawlerClasses(), "Cloudflare Radar, 2025 year in review"},
+		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the names and the shares inside a class"},
+		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog log file studies), with no figure published"},
 		{"OldProductsPerLanguage", "old URLs of products taken off the shop in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldProductsPerLanguage), "assumption"},
 		{"OldPostsPerLanguage", "old URLs of posts that were moved or deleted in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldPostsPerLanguage), "assumption"},
 		{"ShopperBlockVisits", "shopper visits of a block of the plans, which has the mix exactly", strconv.Itoa(ShopperBlockVisits), "a choice of the method"},

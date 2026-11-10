@@ -132,6 +132,9 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 				w.Write([]byte(`{"id":"SH-9000","customer":"x"}`))
 				return
 			}
+			if answerOld(w, r) {
+				return
+			}
 			w.Write([]byte("ok"))
 		}))
 		mu.Lock()
@@ -197,7 +200,8 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 			return false
 		}
 		edits := out.WriteKinds[WriteEdit] + w.WriteKinds[WriteEdit]
-		return int(l.gets.Load()) == out.Requests-out.Writes+w.Requests-w.Writes && int(l.hits.Load()) == out.Requests+w.Requests+out.SetupRequests-edits
+		crawls := out.crawlerRequests() + w.Crawlers // the crawler requests are GETs that no count of people has
+		return int(l.gets.Load()) == out.Requests-out.Writes+w.Requests-w.Writes+crawls && int(l.hits.Load()) == out.Requests+w.Requests+out.SetupRequests-edits+crawls
 	}
 	// setUp checks that a server of a round was restocked, then got the orders of the ships of the
 	// data, then the carts, then (Tifa) the read of its metrics, then the warm-up, with nothing

@@ -120,6 +120,10 @@ type Round struct {
 	// VMWhy splits the answers Tifa rendered in a VM by kind of page and why (RenderFirst, RenderAgain,
 	// RenderPrivate, RenderPrivateCart).
 	VMWhy map[string]map[string]int `json:"vmWhy,omitempty"`
+	// Crawler is what the crawler requests of the round did (nil for a round with none): they are no visits
+	// and no page views, so no count of people has them in it. Their latency is in Types["crawler"], which
+	// the rule of the round does not look at.
+	Crawler *CrawlStats `json:"crawler,omitempty"`
 	// Landing splits the documents of the landings of the storefront that Tifa answered by the parameter
 	// they carry (LandingGroups) and how it answered them: the render memo, a render in progress that it
 	// shared, or a render in a VM. A parameter is no part of the page, so the groups should be answered alike.
@@ -175,6 +179,10 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Encodings = a.encodings
 	r.VMWhy = a.vmWhy
 	r.Landing = a.landing
+	if r.Crawler != nil {
+		r.Crawler.Done, r.Crawler.Failed, r.Crawler.Bytes = a.crawl.done, a.crawl.failed, a.crawl.bytes
+		r.Crawler.Statuses, r.Crawler.Renders = a.crawl.statuses, a.crawl.renders
+	}
 	r.PrivateHits = a.pageRenders[StoreKindCart][RenderHit] + a.pageRenders[StoreKindCheckout][RenderHit]
 	r.WriteKinds = a.kinds
 	r.Refused = a.refused
@@ -318,6 +326,8 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 func (r *runner) playClosed(ctx context.Context, round *Round, sessions, seq0, n int, timeout time.Duration, seen map[string]bool) *acc {
 	a := newAcc()
 	maps.Copy(a.seen, seen)
+	// The slots of the stream that hold the visits seq0 to seq0+n-1 and the crawler requests among them.
+	t0, slots := r.wl.humanStart(seq0), r.wl.slots(seq0, n)
 	var next atomic.Int64
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -332,10 +342,10 @@ func (r *runner) playClosed(ctx context.Context, round *Round, sessions, seq0, n
 			defer tr.CloseIdleConnections()
 			for ctx.Err() == nil {
 				s := int(next.Add(1)) - 1
-				if s >= n {
+				if s >= slots {
 					return
 				}
-				r.runVisit(ctx, tr, a, seq0+s, pacer{})
+				r.playSlot(ctx, tr, a, t0+s, pacer{})
 			}
 		}()
 	}
@@ -364,9 +374,12 @@ type WarmUp struct {
 	WriteKinds    map[string]int `json:"writeKinds,omitempty"`
 	Requests      int            `json:"requests"`
 	Refused       int            `json:"refused,omitempty"`
-	Failures      int            `json:"failures"`
-	FirstErr      string         `json:"firstError,omitempty"`
-	Seconds       float64        `json:"seconds"`
+	// Crawlers are the crawler requests of the warm-up that were answered (they are no visits, and no
+	// request counted above).
+	Crawlers int     `json:"crawlers,omitempty"`
+	Failures int     `json:"failures"`
+	FirstErr string  `json:"firstError,omitempty"`
+	Seconds  float64 `json:"seconds"`
 	// TimedOut says that the warm-up was cut off before every visit of it ended: a server too slow
 	// for its round as well.
 	TimedOut bool `json:"timedOut,omitempty"`
@@ -419,7 +432,7 @@ func (r *runner) warmUp(ctx context.Context, round *Round, visits int, play func
 	w := &Round{}
 	a := play(w)
 	round.WarmUp = &WarmUp{FirstVisit: r.prepared, VisitsPlanned: w.VisitsPlanned, Visits: w.Visits, VisitsFailed: w.VisitsFailed, WritesPlanned: w.WritesPlanned, Writes: w.Writes,
-		WriteKinds: w.WriteKinds, Requests: w.Requests, Refused: w.Refused, Failures: w.Failures, FirstErr: w.FirstErr, Seconds: w.Seconds, TimedOut: w.TimedOut}
+		WriteKinds: w.WriteKinds, Requests: w.Requests, Crawlers: w.crawlerRequests(), Refused: w.Refused, Failures: w.Failures, FirstErr: w.FirstErr, Seconds: w.Seconds, TimedOut: w.TimedOut}
 	for wait := time.Now().Add(settleWait); r.inflight.Load() > 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(wait) {
 			round.SetupError = fmt.Sprintf("the warm-up left %d requests in flight %s after it ended", r.inflight.Load(), settleWait)
@@ -460,6 +473,7 @@ func (r *runner) Size(ctx context.Context, sessions int, d time.Duration, visits
 func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p pacer, visits int) (float64, *acc) {
 	a := newAcc()
 	var next, ended atomic.Int64
+	limit := r.wl.humanStart(max(visits, 0)) // the slots that hold the visits asked for
 	wctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	start := time.Now()
@@ -472,12 +486,12 @@ func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p
 			defer tr.CloseIdleConnections()
 			for wctx.Err() == nil {
 				s := int(next.Add(1)) - 1
-				if visits >= 0 && s >= visits {
+				if visits >= 0 && s >= limit {
 					return
 				}
 				// Visits that failed count too (a 503 ends a visit fast): the rate sizes rounds, whose length
-				// every visit sets.
-				if r.runVisit(wctx, tr, a, s, p) || wctx.Err() == nil {
+				// every visit sets. A crawler request is not a visit, and counts none.
+				if r.playSlot(wctx, tr, a, s, p) {
 					ended.Add(1)
 				}
 			}
@@ -571,8 +585,11 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 			}
 		}
 	}()
-	for k := 0; k < n && vctx.Err() == nil; k++ {
-		at := start.Add(time.Duration(float64(k) / rate * float64(time.Second)))
+	// The slots of the stream are offered evenly over the time the visits take at their rate, so people arrive
+	// at rate visits a second and the crawler requests arrive among them in the proportion of the stream.
+	t0, slots := r.wl.humanStart(seq0), r.wl.slots(seq0, n)
+	for k := 0; k < slots && vctx.Err() == nil; k++ {
+		at := start.Add(time.Duration(float64(k) / rate * float64(n) / float64(slots) * float64(time.Second)))
 		if d := time.Until(at); d > 0 {
 			select {
 			case <-time.After(d):
@@ -589,7 +606,7 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 				for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
 				}
 			}
-			r.runVisit(vctx, tr, a, seq0+k, pacer{open: true, start: at})
+			r.playSlot(vctx, tr, a, t0+k, pacer{open: true, start: at})
 		}()
 	}
 	close(offering)
@@ -633,10 +650,12 @@ type PlannedMix struct {
 	Returning    int `json:"returning"`
 	ClickIDs     int `json:"clickIds"`
 	EmailParams  int `json:"emailParams"`
-	Adds         int `json:"adds"`
-	Checkouts    int `json:"checkouts"`
-	Edits        int `json:"edits"`
-	Ships        int `json:"ships"`
+	// Crawlers are the crawler requests among the slots of the planned visits.
+	Crawlers  int `json:"crawlers"`
+	Adds      int `json:"adds"`
+	Checkouts int `json:"checkouts"`
+	Edits     int `json:"edits"`
+	Ships     int `json:"ships"`
 }
 
 // why says how a planned mix is not the mix of the scenario, or "" when it is: the share of staff
@@ -662,6 +681,7 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 		off("returning visitors a shopper visit", m.Returning, m.Shoppers, ReturningShare, 0.005),
 		off("landings with a click id a shopper visit", m.ClickIDs, m.Shoppers, ClickIDShare, 0.005),
 		off("landings with an email parameter a shopper visit", m.EmailParams, m.Shoppers, EmailParamShare, 0.005),
+		m.crawlerShare(sc),
 	)
 	if why != "" || sc.ReadOnly {
 		return why
@@ -677,4 +697,26 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 		off("product edits a staff visit", m.Edits, m.Staff, sc.Edit, 0.03),
 		off("ships a staff visit", m.Ships, m.Staff, sc.Ship, 0.03),
 	)
+}
+
+// crawlerShare is the check of the crawler requests of a scenario that has them: among the HTML
+// requests of the planned slots (the full load of every visit, and the crawler requests) they are within
+// half a point of the share of the scenario.
+func (m PlannedMix) crawlerShare(sc BrowseScenario) string {
+	if sc.Crawler <= 0 {
+		return ""
+	}
+	got := float64(m.Crawlers) / float64(max(m.Shoppers+m.Staff+m.Crawlers, 1))
+	if math.Abs(got-sc.Crawler) > 0.005 {
+		return fmt.Sprintf("the planned crawler requests among the HTML requests are %.4f, want %.4f within 0.005", got, sc.Crawler)
+	}
+	return ""
+}
+
+// crawlerRequests is how many crawler requests of the round were answered, with the status expected or not.
+func (r *Round) crawlerRequests() int {
+	if r.Crawler == nil {
+		return 0
+	}
+	return r.Crawler.Done + r.Crawler.Failed
 }
