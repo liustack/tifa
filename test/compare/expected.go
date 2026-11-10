@@ -170,8 +170,12 @@ func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expec
 				return nil, err
 			}
 			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			// The page of a step is the one the replay asks for: without the landing parameter, which no
+			// render sees, and with the word of the visit where the plan holds the placeholder of a search
+			// for a word of its own, which is a page no other visit asks for.
+			subs := subsFor(w.Seed, k, plan)
 			for i, step := range plan.Steps {
-				if page := stripLanding(step.Page); docs[i] && !privateKind(pageClass(page)) {
+				if page := subs.apply(stripLanding(step.Page)); docs[i] && !privateKind(pageClass(page)) {
 					class, err := doc(page)
 					if err != nil {
 						return nil, err
