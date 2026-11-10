@@ -122,7 +122,15 @@ async function act(page, step, i) {
 }
 
 const keepHeader = /^(accept|rsc|next-router-.*|next-url|x-tsr-.*|x-react-router.*|purpose|sec-purpose|content-type)$/i
-const within = (ms, p) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))])
+// within is p, or null when p takes longer than ms. The timer is dropped when p settles: a timer left
+// to run keeps the process alive after the last visit, for as long as the longest limit.
+const within = (ms, p) => {
+  let timer
+  const late = new Promise((r) => {
+    timer = setTimeout(() => r(null), ms)
+  })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
 const QUIET_MS = 450
 const CAP_MS = 6000
 const NAV_WINDOW_MS = 200
