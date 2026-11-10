@@ -901,6 +901,32 @@ func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
 	}
 }
 
+// The appendix gives, for each round of every server, what its warm-up did and the cores the server
+// used in the last second of the pause after it, where the cpu of the server was read.
+func TestTheAppendixGivesWhatEachWarmUpDid(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-10", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	cores := 0.03
+	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	x.Attempt = 1
+	x.WarmUp = &WarmUp{VisitsPlanned: 2000, Visits: 1999, VisitsFailed: 1, WritesPlanned: 60, Writes: 59, Failures: 1, Seconds: 30.2, IdleCores: &cores}
+	y := closedRound("nextjs", sc.Name, 8, 1, 400, 10, true)
+	y.Attempt, y.Valid = 2, false
+	y.WarmUp = &WarmUp{VisitsPlanned: 2000, Visits: 2000, WritesPlanned: 60, Writes: 60, Seconds: 301}
+	r.Closed = []Round{x, y}
+	_, appendix, _ := strings.Cut(r.Markdown(), "## Appendix")
+	for _, want := range []string{
+		"#### The warm-up before each round",
+		"| | round | try | valid | visits done | writes done | failures | seconds | server cores in the last second before the clock |",
+		"| Tifa | closed, 8 sessions, round 1 | 1 | yes | 1999 of 2000 | 59 of 60 | 1 | 30 | 0.03 |",
+		"| Next.js | closed, 8 sessions, round 1 | 2 | no | 2000 of 2000 | 60 of 60 | 0 | 301 | - |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+}
+
 // The text on the site says that every server gets the same warm-up, and that Tifa's memo is read
 // empty before it, not before the clock.
 func TestTheSiteTextSaysEveryServerGetsTheSameWarmUp(t *testing.T) {

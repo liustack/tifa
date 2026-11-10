@@ -499,6 +499,76 @@ func TestAWarmUpThatDidNotEndAsPlannedDecidesTheRound(t *testing.T) {
 	}
 }
 
+// The client is done with a request the trace cancelled long before the server is: every server is
+// left alone for settlePause after the last request of the warm-up ended, and only then is the memo
+// of Tifa read and the clock started, so the work of the warm-up stays out of the round. Where the
+// cpu of the server is read, the warm-up keeps the cores it used in the last second of the pause.
+func TestTheServerFinishesTheWarmUpBeforeTheClock(t *testing.T) {
+	for _, known := range []bool{true, false} {
+		var mu sync.Mutex
+		type work struct{ start, done time.Time }
+		var works []work
+		var reads []time.Time // when each read of the metrics was answered
+		var after []time.Time // the requests that started after the second read
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			now := time.Now()
+			mu.Lock()
+			if len(reads) >= 2 && r.URL.Path != "/metrics" {
+				after = append(after, now)
+			}
+			mu.Unlock()
+			switch r.URL.Path {
+			case "/metrics":
+				fmt.Fprint(w, "tifa_memo_entries 0\ntifa_memo_hits_total 0\ntifa_memo_misses_total 0\ntifa_memo_shared_total 0\ntifa_memo_bytes 0\ntifa_memo_evictions_total 0\n")
+				mu.Lock()
+				reads = append(reads, time.Now())
+				mu.Unlock()
+				return
+			case "/work":
+				// The work goes on after the client has gone, as a render in a VM does.
+				time.Sleep(time.Second)
+				mu.Lock()
+				works = append(works, work{now, time.Now()})
+				mu.Unlock()
+			}
+			w.Write([]byte("ok"))
+		}))
+		defer srv.Close()
+		tr := Trace{Steps: []TraceStep{
+			{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/p", "doc", 0, 1), cancelled("/work", "prefetch", 2, 12)}},
+			{Kind: StepClick, Page: "/p", Reqs: []TraceReq{req("/p", "nav", 0, 1)}},
+		}}
+		r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+		r.metrics = "/metrics"
+		r.prepared, r.warm = 1, 1
+		t0 := time.Now()
+		r.cpuKnown = known
+		r.cpu = func() float64 { return 0.5 * time.Since(t0).Seconds() }
+		round := r.RunClosed(context.Background(), 1, 1, 10*time.Second)
+		srv.Close() // it waits for every handler, the work of the round too
+		mu.Lock()
+		if len(reads) != 3 || len(after) == 0 || len(works) != 2 {
+			t.Fatalf("known %v: %d reads of the metrics, %d requests after the second, want 3 and the round (%d works, want 2)", known, len(reads), len(after), len(works))
+		}
+		for _, w := range works {
+			if w.start.Before(reads[1]) && !w.done.Before(reads[1]) {
+				t.Errorf("known %v: the work of the warm-up ended %v after the memo was read before the clock", known, w.done.Sub(reads[1]))
+			}
+			if w.start.Before(reads[1]) && !w.done.Before(after[0]) {
+				t.Errorf("known %v: the work of the warm-up ended %v after the first request of the round", known, w.done.Sub(after[0]))
+			}
+		}
+		mu.Unlock()
+		cores := round.WarmUp.IdleCores
+		if known && (cores == nil || *cores < 0.45 || *cores > 0.55) {
+			t.Errorf("the warm-up kept %v cores in the last second of the pause, want 0.5", cores)
+		}
+		if !known && cores != nil {
+			t.Errorf("the warm-up kept %v cores of a server whose cpu is not read", *cores)
+		}
+	}
+}
+
 // A warm-up that ended with fewer writes than it planned fails the round, though none of its
 // visits failed.
 func TestAWarmUpShortOfItsWritesFailsTheRound(t *testing.T) {

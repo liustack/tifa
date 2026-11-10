@@ -210,6 +210,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	for _, n := range r.detailSessions(sc.Name) {
 		r.closedDetail(b, sc, n)
 	}
+	r.warmUpMarkdown(b, sc)
 	r.memoMarkdown(b, sc)
 	r.controlMarkdown(b, sc)
 	r.seriesMarkdown(b, sc)
@@ -954,6 +955,48 @@ func (r *BrowseResult) notFormal() []string {
 		}
 	}
 	return off
+}
+
+// yesNo writes a bool in a cell of a table.
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+// warmUpMarkdown writes, for every round of a scenario that had a warm-up (the closed rounds, the
+// latency rounds and the read-only control, valid or not, of every server), what the warm-up did
+// and the cores the server used in the last second of the pause after it, where its cpu was read.
+func (r *BrowseResult) warmUpMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var rows []string
+	add := func(what string, x *Round) {
+		w := x.WarmUp
+		if x.Scenario != sc.Name || w == nil {
+			return
+		}
+		cores := "-"
+		if w.IdleCores != nil {
+			cores = fmt.Sprintf("%.2f", *w.IdleCores)
+		}
+		rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %d | %s | %d of %d | %d of %d | %d | %.0f | %s |\n", BrowseLabel(x.Framework), what, x.Round, x.Attempt, yesNo(x.Valid), w.Visits, w.VisitsPlanned, w.Writes, w.WritesPlanned, w.Failures, w.Seconds, cores))
+	}
+	for i := range r.Closed {
+		add(fmt.Sprintf("closed, %d sessions", r.Closed[i].Sessions), &r.Closed[i])
+	}
+	for i := range r.Latency {
+		add(fmt.Sprintf("open, %.2f visits/s", r.Latency[i].Rate), &r.Latency[i])
+	}
+	for i := range r.Control {
+		add("read-only control", &r.Control[i])
+	}
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n#### The warm-up before each round\n\nWhat the warm-up before the clock of each round did, every try: the visits and the writes it did of those it planned, its failures and how long it took. After its last request ended every server was left alone for %.0f seconds before the clock, so that it could end what it still did for a request the trace cancelled. The last column is the cores the server used in the last second of that pause (- where the cpu of the server was not read).\n\n| | round | try | valid | visits done | writes done | failures | seconds | server cores in the last second before the clock |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", settlePause.Seconds())
+	for _, row := range rows {
+		b.WriteString(row)
+	}
 }
 
 // memoMarkdown writes, for every round of a Tifa server of a scenario that read its metrics (the

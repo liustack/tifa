@@ -238,6 +238,7 @@ type runner struct {
 	// inflight counts the requests sent and not yet answered, for the check that no backlog grows.
 	inflight atomic.Int64
 	cpu      func() float64 // processor seconds of the server so far
+	cpuKnown bool           // cpu reads them (ReadsCPU): it is 0 where they are not read
 	rss      func() int64   // its peak resident size in bytes
 	writes   atomic.Int64   // the number of writes made, which gives each rename its address
 	pool     pool           // the orders that staff writes go to, kept as long as the server lives

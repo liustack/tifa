@@ -145,8 +145,10 @@ type browse struct {
 type liveServer struct {
 	base string
 	cpu  func() float64
-	rss  func() int64
-	stop func()
+	// cpuKnown says that cpu reads the processor time of the server (ReadsCPU), not a 0.
+	cpuKnown bool
+	rss      func() int64
+	stop     func()
 }
 
 // start waits for the cpus to be idle, starts a fresh server of a spec and waits until it listens.
@@ -165,7 +167,7 @@ func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 		server.Stop()
 		return nil, err
 	}
-	return &liveServer{base: server.Base, cpu: server.CPUSeconds, rss: server.PeakRSS, stop: server.Stop}, nil
+	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: server.Stop}, nil
 }
 
 // verifyWrites checks the writes of the scenario on the server of r.
@@ -1436,7 +1438,7 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 	if err != nil {
 		return nil, err
 	}
-	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, cpuKnown: server.cpuKnown, rss: server.rss}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}

@@ -365,16 +365,40 @@ type WarmUp struct {
 	// TimedOut says that the warm-up was cut off before every visit of it ended: a server too slow
 	// for its round as well.
 	TimedOut bool `json:"timedOut,omitempty"`
+	// IdleCores are the cores the server used in the last second of the pause after the warm-up
+	// (settlePause), where its cpu is read: what it still did with no request in flight.
+	IdleCores *float64 `json:"idleCores,omitempty"`
 }
 
 // settleWait is how long the end of a warm-up waits for its requests in flight to end.
 const settleWait = 30 * time.Second
 
+// settlePause is how long every server is left alone after the last request of a warm-up has
+// ended, before the metrics of Tifa are read and the clock starts. The client is done with a
+// request the trace cancelled when it cancels it, while the server may still be at work on it (a
+// render goes on in its VM and lands in the memo): the pause keeps that work out of the round. It is
+// the same for every server.
+const settlePause = 2 * time.Second
+
+// settle waits settlePause and returns the cores the server used in its last second, or nil where
+// the cpu of the server is not read.
+func (r *runner) settle() *float64 {
+	time.Sleep(settlePause - time.Second)
+	cpu0, t0 := r.cpu(), time.Now()
+	time.Sleep(time.Second)
+	if !r.cpuKnown {
+		return nil
+	}
+	cores := (r.cpu() - cpu0) / time.Since(t0).Seconds()
+	return &cores
+}
+
 // warmUp plays the warm-up of a round before its clock, when the run has one (r.warm visits from
 // visit r.prepared on, after the visits the data is prepared for), with play, which plays them as
 // the round plays its own (with its sessions, or at its rate) and with their writes, into a round of
 // their own. Then it waits until no request of it is in flight and reads the render memo of Tifa
-// again (Memo.Warm). It returns the URLs Tifa answered in it, and whether the round can start: a
+// again (Memo.Warm), after a pause that leaves the server time to end what it still does
+// (settle). It returns the URLs Tifa answered in it, and whether the round can start: a
 // warm-up the shop refused a request of with 409 or 422 (after the restock no write of the plan is
 // one it refuses), whose requests did not end, or after which the memo could not be read, makes the
 // round invalid (SetupError), since the servers would not start the clock with the same data. The
@@ -401,6 +425,7 @@ func (r *runner) warmUp(ctx context.Context, round *Round, visits int, play func
 		round.SetupError = fmt.Sprintf("the shop refused %d requests of the warm-up with 409 or 422", w.Refused)
 		return nil, false
 	}
+	round.WarmUp.IdleCores = r.settle()
 	if !r.warmMemo(ctx, round) {
 		return nil, false
 	}
