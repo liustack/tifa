@@ -24,7 +24,9 @@ func formWorkload(t *testing.T, seed uint64, blocks int, name string) *Workload 
 // A played visit of a plan that searches for a word of the list takes one of the forms of the plan,
 // the visit or one of its variants, by the seed and the number of the visit: every form about as
 // often, another one in another cycle and under another seed, and the same one whatever the traces,
-// so every server plays the same. A plan with no variant is played as it is.
+// so every server plays the same. A plan with no variant is played as it is. The other seed is of the
+// same workload, with the same plans in the same places: the seed alone moves the forms, for four
+// visits in five, since a draw of five falls on the same form once in five.
 func TestAPlayedVisitTakesOneFormOfItsPlanByTheSeedAndTheVisit(t *testing.T) {
 	w := formWorkload(t, 4, 1, "shop")
 	other := formWorkload(t, 4, 1, "shop")
@@ -35,7 +37,8 @@ func TestAPlayedVisitTakesOneFormOfItsPlanByTheSeedAndTheVisit(t *testing.T) {
 		}
 		other.Traces[id] = tr
 	}
-	seeded := formWorkload(t, 5, 1, "shop")
+	seeded := *w
+	seeded.Seed = w.Seed + 1
 	n := w.cycleLen()
 	count := map[int]int{}
 	moved, reseeded, withVariants := 0, 0, 0
@@ -62,7 +65,10 @@ func TestAPlayedVisitTakesOneFormOfItsPlanByTheSeedAndTheVisit(t *testing.T) {
 		if seq >= n && w.planFor(seq-n).form != p.form {
 			moved++
 		}
-		if seq < n && seeded.planFor(seq).ID == p.ID && seeded.planFor(seq).form != p.form {
+		switch q := seeded.planFor(seq); {
+		case q.ID != p.ID:
+			t.Fatalf("visit %d plays plan %d, and plan %d under another seed of the same workload", seq, p.ID, q.ID)
+		case q.form != p.form:
 			reseeded++
 		}
 	}
@@ -74,8 +80,8 @@ func TestAPlayedVisitTakesOneFormOfItsPlanByTheSeedAndTheVisit(t *testing.T) {
 	if moved < withVariants/2 {
 		t.Errorf("%d of %d visits play another form than the same plan a cycle before: too few", moved, withVariants)
 	}
-	if w.planFor(7).form != w.planFor(7).form {
-		t.Error("the form of a visit is not a function of the visit")
+	if share := float64(reseeded) / float64(withVariants); share < 0.75 || share > 0.85 {
+		t.Errorf("%d of %d visits play another form under another seed, %.3f, want about four in five", reseeded, withVariants, share)
 	}
 }
 
