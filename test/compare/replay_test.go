@@ -263,18 +263,15 @@ func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
 			if p.ID == skip {
 				continue
 			}
-			steps := ""
-			for i, s := range p.Steps {
-				if i > 0 {
-					steps += ","
+			// Every form of the plan, the visit and its variants, as the recorder writes them.
+			for _, tr := range browserForms(p, func(form Plan) Trace { return browserTrace(form) }) {
+				line, _ := json.Marshal(tr)
+				if bad && p.ID == 3 {
+					line = []byte(`{"plan":3,"variant":` + strconv.Itoa(tr.Variant) + `,"error":"timeout"}`)
 				}
-				steps += `{"kind":"` + s.Kind + `","page":"` + s.Page + `","reqs":[{"method":"GET","url":"` + s.Page + `","headers":{},"s":0,"e":1,"status":200,"class":"doc"}]}`
+				b.Write(line)
+				b.WriteString("\n")
 			}
-			line := `{"plan":` + strconv.Itoa(p.ID) + `,"steps":[` + steps + `]}`
-			if bad && p.ID == 3 {
-				line = `{"plan":3,"error":"timeout"}`
-			}
-			b.WriteString(line + "\n")
 		}
 		os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(b.String()), 0o644)
 	}

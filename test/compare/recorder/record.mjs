@@ -3,15 +3,21 @@
 // The plans are of the whole site: the storefront (/store and /zh-CN/store) and the back office
 // (/projects). A request that carries a body is kept with the body the browser sent.
 //
-//   node record.mjs --base http://127.0.0.1:3000 --plans plans.json --out trace.jsonl [--workers 4] [--limit 100]
+//   node record.mjs --base http://127.0.0.1:3000 --plans plans.json --out trace.jsonl [--workers 4] [--limit 100] [--only 3,17]
 //   node record.mjs --base http://127.0.0.1:3000 --crawl pages.json --out links.json
+//
+// A plan that searches for a word of the list has variants, the same visit with other words: each is
+// recorded as a visit of its own, and its line says which it is (variant, 0 for the visit of the
+// plan). --only records the plans with those ids alone.
 //
 // --crawl opens each page of the list in pages.json (an array of URL paths) and writes, for each, the
 // links on it that lead to another page of the list, as the href attribute reads, so that the plans
 // of the store click links that exist.
 //
 // Each visit gets a fresh browser context (no cookies, no cache), a 1280x800 viewport, no hover (the
-// mouse rests in a corner between steps) and real clicks on the links of the page. Requests are
+// mouse rests in a corner between steps) and real actions on the page: a step of a plan says what the
+// visitor does (act), and the recorder does it with the control of the page that does it, so the
+// browser sends what the page makes of it, a document load or a client navigation. Requests are
 // timed from the start of their step, so that the replay keeps the order and the parallelism the
 // browser had. A request the browser cancels is kept with when and why (cancel), so that the replay
 // cancels it at the same offset instead of reading it to the end. Anything that goes wrong while
@@ -25,10 +31,95 @@ const arg = (name, dflt) => {
 }
 const base = arg('base')
 const crawl = arg('crawl')
-const plans = crawl ? [] : JSON.parse(fs.readFileSync(arg('plans'), 'utf8')).plans
+const only = arg('only') ? new Set(arg('only').split(',').map(Number)) : null
+// The visits to record: every plan, and after it each of its variants.
+const visits = (crawl ? [] : JSON.parse(fs.readFileSync(arg('plans'), 'utf8')).plans)
+  .filter((p) => !only || only.has(p.id))
+  .flatMap((p) => [p.steps, ...(p.variants ?? [])].map((steps, variant) => ({ id: p.id, variant, steps })))
 const workers = Number(arg('workers', '4'))
-const limit = Number(arg('limit', String(plans.length)))
+const limit = Math.min(Number(arg('limit', '0')) || visits.length, visits.length)
 if (!base) throw new Error('--base is required')
+
+// The sorts of the product list, in the order of the sort box (sorts in the shop's filter-schema.ts).
+const SORTS = ['featured', 'newest', 'price-asc', 'price-desc', 'rating']
+
+// sameURL says whether two URLs of the site are the same page as a server reads them: the same path,
+// and the same query parameters with the same values, each name's values in the same order.
+const sameURL = (a, b) => {
+  const [ua, ub] = [new URL(a, base), new URL(b, base)]
+  if (ua.pathname !== ub.pathname) return false
+  const names = (u) => [...new Set(u.searchParams.keys())].sort()
+  const [na, nb] = [names(ua), names(ub)]
+  return na.length === nb.length && na.every((n, i) => n === nb[i] && JSON.stringify(ua.searchParams.getAll(n)) === JSON.stringify(ub.searchParams.getAll(n)))
+}
+
+// act does what a step of a plan says on the page on screen (the acts of plan.go).
+//
+//   link    a click on the first link to the page that the page shows
+//   search  the word typed into the search box of the header, and Enter: a plain form
+//   filter  a click on the plain link of the list that adds the condition (the category bar, the
+//           quick filters, the price bands), which is the first link to the page in the list itself
+//   page    a click on the link to the next page of the list, a plain link too
+//   form    the conditions set in the form of the sidebar of the list, then its apply button
+//   sort    the sort picked in the sort box of the list
+async function act(page, step, i) {
+  const none = (what) => new Error(`step ${i}: no ${what} on ${new URL(page.url()).pathname}${new URL(page.url()).search}`)
+  const click = async (selector, what) => {
+    const el = page.locator(selector).first()
+    if ((await el.count()) === 0) throw none(what)
+    await el.click()
+  }
+  // The form and the sort box work once the page has hydrated, which enables the apply button.
+  const hydrated = () => page.locator('form:has(#filter-query) button[type="submit"]:enabled').first().waitFor({ timeout: 10000 })
+  switch (step.act ?? 'link') {
+    case 'link':
+      await click(`a[href="${step.page}"]:visible`, `link to ${step.page}`)
+      break
+    case 'filter':
+    case 'page':
+      await click(`main a[href="${step.page}"]:visible`, `plain link to ${step.page}`)
+      break
+    case 'search': {
+      const box = page.locator('form[role="search"] input[name="q"]:visible').first()
+      if ((await box.count()) === 0) throw none('search box')
+      await box.fill(step.term)
+      await box.press('Enter')
+      break
+    }
+    case 'form':
+      await hydrated()
+      for (const cond of step.set.split(',')) {
+        const at = cond.indexOf(':')
+        const [kind, value] = [cond.slice(0, at), cond.slice(at + 1)]
+        const group = { category: 'category', rating: 'rating', colour: 'colors', material: 'materials', badge: 'badges' }[kind]
+        if (kind === 'price') {
+          const [lo, hi] = value.split('-')
+          await page.locator('#filter-min').fill(lo)
+          await page.locator('#filter-max').fill(hi)
+        } else if (kind === 'stock') {
+          await click('#filter-stock:enabled', 'in stock box')
+        } else if (group) {
+          await click(`#filter-${group}-${value}:enabled`, `${kind} ${value} in the form`)
+        } else {
+          throw new Error(`step ${i}: no control for the condition ${cond}`)
+        }
+      }
+      await click('form:has(#filter-query) button[type="submit"]:enabled', 'apply button')
+      break
+    case 'sort': {
+      if (!SORTS.includes(step.sort)) throw new Error(`step ${i}: no sort ${step.sort}`)
+      await hydrated()
+      await click('#sort-by', 'sort box')
+      const option = page.locator('[role="option"]').nth(SORTS.indexOf(step.sort))
+      await option.waitFor({ timeout: 5000 })
+      await option.click()
+      break
+    }
+    default:
+      throw new Error(`step ${i}: no act ${step.act}`)
+  }
+  await page.waitForURL((u) => sameURL(u.pathname + u.search, step.page), { timeout: 10000 })
+}
 
 const keepHeader = /^(accept|rsc|next-router-.*|next-url|x-tsr-.*|x-react-router.*|purpose|sec-purpose|content-type)$/i
 const within = (ms, p) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))])
@@ -144,15 +235,16 @@ async function visit(browser, plan) {
       if (step.kind === 'load') {
         await page.goto(base + step.page)
       } else {
-        const link = page.locator(`a[href="${step.page}"]:visible`).first()
-        if ((await link.count()) === 0) throw new Error(`step ${i}: no link to ${step.page} on ${new URL(page.url()).pathname}`)
-        await link.click()
-        await page.waitForURL((u) => u.pathname + u.search === step.page, { timeout: 10000 })
+        await act(page, step, i)
       }
       await settle()
       await page.mouse.move(1, 1)
+      // The page shown must be the one of the plan, as a server reads its URL. A URL that is the same
+      // page and is not written the same (another order of the parameters, another escape) is kept with
+      // the step, so that the difference can be counted.
       const shown = ((u) => u.pathname + u.search)(new URL(page.url()))
-      if (shown !== step.page) throw new Error(`step ${i}: shows ${shown}, want ${step.page}`)
+      if (!sameURL(shown, step.page)) throw new Error(`step ${i}: shows ${shown}, want ${step.page}`)
+      if (shown !== step.page) cur.shown = shown
     }
     over = true
     // A request the page started after its page view settled (while settle waited for headers,
@@ -170,15 +262,16 @@ async function visit(browser, plan) {
     const done = steps.map((s) => ({
       kind: s.kind,
       page: s.page,
+      ...(s.shown ? { shown: s.shown } : {}),
       reqs: s.reqs
         .map(({ step, ahead, open, ...r }) => r)
         .sort((a, b) => a.s - b.s),
     }))
     for (const s of done) for (const r of s.reqs) if (r.e === undefined) throw new Error(`a request of ${s.page} never ended`)
-    return { plan: plan.id, steps: done }
+    return { plan: plan.id, variant: plan.variant, steps: done }
   } catch (e) {
     over = true
-    return { plan: plan.id, error: String(e).slice(0, 300) }
+    return { plan: plan.id, variant: plan.variant, error: String(e).slice(0, 300) }
   } finally {
     await context.close()
   }
@@ -254,10 +347,10 @@ await Promise.all(
     for (;;) {
       const i = next++
       if (i >= limit) return
-      const v = (await within(120000, visit(browser, plans[i]))) ?? { plan: plans[i].id, error: 'timeout' }
+      const v = (await within(120000, visit(browser, visits[i]))) ?? { plan: visits[i].id, variant: visits[i].variant, error: 'timeout' }
       if (v.error) {
         bad++
-        console.error(`plan ${v.plan}: ${v.error}`)
+        console.error(`plan ${v.plan} variant ${v.variant}: ${v.error}`)
       }
       out.write(JSON.stringify(v) + '\n')
       if (++done % 25 === 0) console.error(`${done}/${limit} visits, ${bad} failed`)

@@ -205,7 +205,7 @@ func (b *browse) commit() error {
 }
 
 // LoadTraces reads the plans of the site and the traces of the names given, and fails unless every
-// name has a trace for every plan: a replay on an incomplete set would not play the same visits on
+// name has a trace for every plan and for every variant of a plan: a replay on an incomplete set would not play the same visits on
 // every server. It also fails for a trace the documents cannot be counted from (checkTrace), and unless
 // the traces agree on which page views are documents (checkDocuments).
 func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
@@ -220,28 +220,53 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 		if err != nil {
 			return nil, nil, err
 		}
-		m := map[int]Trace{}
+		// The forms of every plan, by plan and variant: the visit of the plan and each of its variants.
+		forms := map[[2]int]Trace{}
 		for _, t := range traces {
-			m[t.Plan] = t
+			forms[[2]int{t.Plan, t.Variant}] = t
 		}
-		if dropped > 0 || len(m) != len(set.Plans) {
-			return nil, nil, fmt.Errorf("%s holds %d of the %d plans (%d visits failed to record): record again", path, len(m), len(set.Plans), dropped)
-		}
+		visits := 0
 		for _, p := range set.Plans {
-			t, ok := m[p.ID]
-			if !ok {
-				return nil, nil, fmt.Errorf("%s has no trace for plan %d", path, p.ID)
+			visits += 1 + len(p.Variants)
+		}
+		if dropped > 0 || len(forms) != visits {
+			return nil, nil, fmt.Errorf("%s holds %d of the %d visits of the plans, the variants among them (%d visits failed to record): record again", path, len(forms), visits, dropped)
+		}
+		m := map[int]Trace{}
+		for _, p := range set.Plans {
+			var whole Trace
+			for v := range 1 + len(p.Variants) {
+				form, what := planForm(p, v), fmt.Sprintf("plan %d", p.ID)
+				if v > 0 {
+					what = fmt.Sprintf("variant %d of plan %d", v, p.ID)
+				}
+				t, ok := forms[[2]int{p.ID, v}]
+				if !ok {
+					return nil, nil, fmt.Errorf("%s has no trace for %s", path, what)
+				}
+				if len(t.Steps) != len(form.Steps) {
+					return nil, nil, fmt.Errorf("%s: %s has %d page views, its trace %d", path, what, len(form.Steps), len(t.Steps))
+				}
+				// The landing parameter first, whose error says what of it is wrong, then the rest of the trace.
+				if err := checkLanding(form, t); err != nil {
+					return nil, nil, fmt.Errorf("%s: %w", path, err)
+				}
+				if err := checkTrace(form, t); err != nil {
+					return nil, nil, fmt.Errorf("%s: %s: %w: record the traces again (`compare record`)", path, what, err)
+				}
+				if v == 0 {
+					whole = t
+					continue
+				}
+				// A variant is the visit with another word: the same acts, so the same page views load a
+				// document. The plans count the documents of a block from the visits of its plans, whichever
+				// form a played visit takes.
+				if !slices.Equal(t.documents(), whole.documents()) {
+					return nil, nil, fmt.Errorf("%s: %s loads a document at the page views %v and the visit of the plan at %v: record the traces again (`compare record`)", path, what, t.documents(), whole.documents())
+				}
+				whole.Variants = append(whole.Variants, t)
 			}
-			if len(t.Steps) != len(p.Steps) {
-				return nil, nil, fmt.Errorf("%s: plan %d has %d page views, its trace %d", path, p.ID, len(p.Steps), len(t.Steps))
-			}
-			// The landing parameter first, whose error says what of it is wrong, then the rest of the trace.
-			if err := checkLanding(p, t); err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", path, err)
-			}
-			if err := checkTrace(p, t); err != nil {
-				return nil, nil, fmt.Errorf("%s: %w: record the traces again (`compare record`)", path, err)
-			}
+			m[p.ID] = whole
 		}
 		out[name] = m
 	}
@@ -260,6 +285,9 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 //   - A document of a page view is a GET of the page of the plan, with the same path and the same query
 //     as a server reads it, and a page view has one at most.
 //   - The landing has one.
+//   - A page view whose act leaves the page no choice did what the act does (actLoads): a search, a
+//     filter by a link and the next page of a list loaded a document, and the form of the sidebar and
+//     the sort box loaded none.
 //   - No document was cancelled. The plans count the documents the browser asked for and the replay
 //     counts the answers it read whole, so the two are the same count only when every document was
 //     read whole. Requests that are no documents may be cancelled, as Next.js does with its RSC
@@ -291,6 +319,13 @@ func checkTrace(p Plan, t Trace) error {
 		}
 		if i == 0 && docs == 0 {
 			return fmt.Errorf("plan %d: page view 0, the landing on %s, has no document", p.ID, want.Page)
+		}
+		// The act of the page view, where it leaves the page no choice.
+		switch loads, known := actLoads(want); {
+		case known && loads && docs == 0:
+			return fmt.Errorf("plan %d: page view %d (%s) is a %s, which loads a document, and the browser loaded none", p.ID, i, want.Page, want.Act)
+		case known && !loads && docs > 0:
+			return fmt.Errorf("plan %d: page view %d (%s) is a %s, which the router takes, and the browser loaded a document", p.ID, i, want.Page, want.Act)
 		}
 	}
 	return nil
@@ -332,15 +367,18 @@ func checkDocuments(set *PlanSet, traces map[string]map[int]Trace, names []strin
 	}
 	first := names[0]
 	for _, p := range set.Plans {
-		want := traces[first][p.ID].documents()
-		for _, name := range names[1:] {
-			for i, doc := range traces[name][p.ID].documents() {
-				if doc != want[i] {
-					is, not := name, first
-					if want[i] {
-						is, not = first, name
+		for v := range 1 + len(p.Variants) {
+			form := planForm(p, v)
+			want := traces[first][p.ID].form(v).documents()
+			for _, name := range names[1:] {
+				for i, doc := range traces[name][p.ID].form(v).documents() {
+					if doc != want[i] {
+						is, not := name, first
+						if want[i] {
+							is, not = first, name
+						}
+						return fmt.Errorf("the traces do not agree on which page views are documents: page view %d of plan %d (%s) is a document load in %s and not in %s: record the traces again (`compare record`)", i, p.ID, form.Steps[i].Page, is, not)
 					}
-					return fmt.Errorf("the traces do not agree on which page views are documents: page view %d of plan %d (%s) is a document load in %s and not in %s: record the traces again (`compare record`)", i, p.ID, p.Steps[i].Page, is, not)
 				}
 			}
 		}

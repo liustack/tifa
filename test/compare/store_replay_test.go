@@ -462,9 +462,11 @@ func TestTheSiteReplaysOnlyAWholeSetOfItsTraces(t *testing.T) {
 			if p.ID == skip {
 				continue
 			}
-			line, _ := json.Marshal(traceOf(p))
-			b.Write(line)
-			b.WriteString("\n")
+			for _, tr := range browserForms(p, func(form Plan) Trace { return browserTrace(form) }) {
+				line, _ := json.Marshal(tr)
+				b.Write(line)
+				b.WriteString("\n")
+			}
 		}
 		os.WriteFile(filepath.Join(dir, framework+".jsonl"), []byte(b.String()), 0o644)
 	}

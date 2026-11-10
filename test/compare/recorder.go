@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // WritePlans writes the plans of the site (blocks blocks of SiteBlockPlans visits each) to dir,
@@ -66,8 +67,10 @@ func traceName(s Spec) string {
 
 // Record plays the plans of dir in a real browser against each framework and writes the
 // traces to dir. The recorder is test/compare/recorder (Node with Playwright). Every framework is
-// started fresh, unpinned: recording is not timed.
-func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []string, workers, limit int) error {
+// started fresh, unpinned: recording is not timed. limit records the first visits alone, and only the
+// plans with those ids, with their variants: a part of the plans, to try the recorder, which a run
+// refuses as a set of traces.
+func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []string, workers, limit int, only []int) error {
 	// The recorder runs in its own folder, so it gets absolute paths.
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -93,6 +96,13 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []st
 		args := []string{"exec", "node", "record.mjs", "--base", server.Base, "--plans", PlansPath(dir), "--out", TracePath(dir, name), "--workers", strconv.Itoa(workers)}
 		if limit > 0 {
 			args = append(args, "--limit", strconv.Itoa(limit))
+		}
+		if len(only) > 0 {
+			ids := make([]string, len(only))
+			for i, id := range only {
+				ids[i] = strconv.Itoa(id)
+			}
+			args = append(args, "--only", strings.Join(ids, ","))
 		}
 		err = run(ctx, log, recorder, nil, "pnpm", args...)
 		// A server that stopped during the recording fails every visit after it with a refused

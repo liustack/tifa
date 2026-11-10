@@ -245,7 +245,7 @@ func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 		}
 		return out
 	}
-	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return browserTrace(p, known(p)...) })
+	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return landingTrace(p, known(p)...) })
 	clicks := 0
 	for _, p := range w.Plans {
 		clicks += len(known(p))

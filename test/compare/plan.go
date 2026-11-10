@@ -74,6 +74,32 @@ type Plan struct {
 	Variants [][]PlanStep `json:"variants,omitempty"`
 }
 
+// planForm is form v of a plan as a plan of its own: the plan itself for 0, and for its v-th variant
+// the plan with the page views of that variant. The recorder plays each form as a visit, and a played
+// visit is one of them.
+func planForm(p Plan, v int) Plan {
+	if v > 0 {
+		p.Steps = p.Variants[v-1]
+	}
+	p.Variants = nil
+	return p
+}
+
+// actLoads says whether the act of a page view loads a document, where the page leaves no choice: the
+// landing, a search (the search box is a plain form), a filter by a link and the next page of a list
+// (plain links) load one, and the form of the sidebar and the sort box, which go through the router,
+// load none. A click on a link is not known from the plan: the page has a Link or a plain link there,
+// and the browser tells.
+func actLoads(s PlanStep) (doc, known bool) {
+	switch {
+	case s.Kind == StepLoad, s.Act == ActSearch, s.Act == ActFilter, s.Act == ActPage:
+		return true, true
+	case s.Act == ActForm, s.Act == ActSort:
+		return false, true
+	}
+	return false, false
+}
+
 // PlanWrite is a write of a shopper visit after its page view After (counted from 0).
 type PlanWrite struct {
 	After int    `json:"after"`

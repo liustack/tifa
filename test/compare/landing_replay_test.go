@@ -128,16 +128,17 @@ func TestATraceThatLostItsLandingParameterIsRefused(t *testing.T) {
 	write := func(drop bool) {
 		var b strings.Builder
 		for _, p := range set.Plans {
-			tr := traceOf(p)
 			if drop && lost < 0 && landingParam(p.Steps[0].Page) != "" {
 				lost = p.ID
 			}
-			if drop && p.ID == lost {
-				tr.Steps[0].Reqs[0].URL = stripLanding(tr.Steps[0].Reqs[0].URL)
+			for _, tr := range browserForms(p, func(form Plan) Trace { return browserTrace(form) }) {
+				if drop && p.ID == lost {
+					tr.Steps[0].Reqs[0].URL = stripLanding(tr.Steps[0].Reqs[0].URL)
+				}
+				line, _ := json.Marshal(tr)
+				b.Write(line)
+				b.WriteString("\n")
 			}
-			line, _ := json.Marshal(tr)
-			b.Write(line)
-			b.WriteString("\n")
 		}
 		os.WriteFile(filepath.Join(dir, "tifa.jsonl"), []byte(b.String()), 0o644)
 	}

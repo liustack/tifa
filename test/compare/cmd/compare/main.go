@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -183,7 +184,8 @@ func browseCmd(cmd string, args []string) {
 		blocks    = flags.Int("blocks", 1, "plans: blocks of 1050 visits, 1000 shoppers and 50 staff")
 		servers   = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter,tifa-nocache)")
 		workers   = flags.Int("workers", 4, "record: browser contexts at once")
-		limit     = flags.Int("limit", 0, "record: play only the first plans")
+		limit     = flags.Int("limit", 0, "record: play only the first visits")
+		only      = flags.String("only", "", "record: play only the plans with these ids, comma separated, with their variants")
 		linksOut  = flags.String("links-out", "", "links: where to write the links of the storefront pages (default test/compare/store_links.json)")
 		depsOut   = flags.String("deps-out", "", "deps: where to write which products each storefront page shows (default test/compare/store_deps.json)")
 		skipBuild = flags.Bool("skip-build", false, "record, browse: use the last build")
@@ -229,7 +231,18 @@ func browseCmd(cmd string, args []string) {
 		}
 		return
 	case "record":
-		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit); err != nil {
+		var ids []int
+		for _, s := range strings.Split(*only, ",") {
+			if s == "" {
+				continue
+			}
+			id, err := strconv.Atoi(s)
+			if err != nil {
+				fatal(fmt.Errorf("-only %s: %w", *only, err))
+			}
+			ids = append(ids, id)
+		}
+		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit, ids); err != nil {
 			fatal(err)
 		}
 		return
