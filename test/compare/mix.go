@@ -27,12 +27,17 @@ const (
 
 const (
 	// ShopperViewsMean is the page views of a shopper visit on average, exactly in every block: one
-	// full load and three clicks, so that the full loads are a quarter of the page views. A rule of the
-	// comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025 Digital
-	// Experience Benchmarks: 389 billion page views in 90 billion sessions,
-	// https://contentsquare.com/press/2025-digital-experience-benchmarks/), with a click of a
-	// single-page app a page view as a full load is, as Chrome now measures each one that changes the
-	// URL as a navigation of its own (https://web.dev/blog/crux-experimental-soft-navs).
+	// landing and three actions on the page, so that the landings are a quarter of the page views. The
+	// landing is the first step of a plan, and an action a click on a link of the page on screen, done
+	// the way the page does it: a client navigation for a link the router takes, a document load for a
+	// plain link. So the quarter is of the landings, not of the documents the browser asks for, which
+	// are counted from the traces (Workload.docSteps). A rule of the comparison, from about 4.3 page
+	// views a session over 6,000 sites (Contentsquare 2025 Digital Experience Benchmarks: 389 billion
+	// page views in 90 billion sessions,
+	// https://contentsquare.com/press/2025-digital-experience-benchmarks/), with a click that a
+	// single-page app takes as a client navigation a page view as a document load is, as Chrome now
+	// measures each one that changes the URL as a navigation of its own
+	// (https://web.dev/blog/crux-experimental-soft-navs).
 	ShopperViewsMean = 4.0
 	// ShopperViewsMax is the most page views of a shopper visit: the lengths are geometric of mean
 	// ShopperViewsMean (ShopperViewsMore), cut at 12.
@@ -576,8 +581,8 @@ func MixFacts() []MixFact {
 		staffLanding = append(staffLanding, fmt.Sprintf("%s %s", l.Kind, pct(l.Share)))
 	}
 	return []MixFact{
-		{"ShopperViewsMean", "page views of a shopper visit", fmt.Sprintf("%g on average, exactly in every block: 1 full load and %g clicks", ShopperViewsMean, ShopperViewsMean-1),
-			"a rule of the comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), a click of a single-page app counted as a page view as Chrome measures it (web.dev, https://web.dev/blog/crux-experimental-soft-navs)"},
+		{"ShopperViewsMean", "page views of a shopper visit", fmt.Sprintf("%g on average, exactly in every block: 1 landing and %g actions on the page (an action is a click on a link of the page, which the page does as a client navigation, or as a document load for a plain link)", ShopperViewsMean, ShopperViewsMean-1),
+			"a rule of the comparison, from about 4.3 page views a session over 6,000 sites (Contentsquare 2025, https://contentsquare.com/press/2025-digital-experience-benchmarks/), a click that a single-page app takes as a client navigation counted as a page view as Chrome measures it (web.dev, https://web.dev/blog/crux-experimental-soft-navs)"},
 		{"ShopperViewsMax", "most page views of a shopper visit", strconv.Itoa(ShopperViewsMax), "rule: geometric lengths of mean 4, cut at 12"},
 		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "rule: a geometric length of mean 4"},
 		{"AddToCartShare", "shopper visits that add to the cart", pct(AddToCartShare), littledata},

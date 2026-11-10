@@ -165,9 +165,10 @@ func TestStoreLinksPickProductsByTheirPopularity(t *testing.T) {
 	}
 }
 
-// A shopper visit is 4 page views on average, one full load and three clicks, exactly in every block,
-// so that the full loads are a quarter of the page views. Its length is geometric, from 1 to 12, and
-// the mix table of the report names the sources of the 4.
+// A shopper visit is 4 page views on average, one landing and three actions on the page, exactly in
+// every block, so that the landings are a quarter of the page views. The mix table says that an action
+// can be a document load, so the quarter is of the landings and not of the documents. Its length is
+// geometric, from 1 to 12, and the mix table of the report names the sources of the 4.
 func TestAShopperVisitIsFourPageViews(t *testing.T) {
 	if ShopperViewsMean != 4 || ShopperViewsMax != 12 {
 		t.Fatalf("a shopper visit is %v page views on average and %d at most", ShopperViewsMean, ShopperViewsMax)
@@ -203,7 +204,7 @@ func TestAShopperVisitIsFourPageViews(t *testing.T) {
 		}
 	}
 	all := strings.Join(facts, "\n")
-	for _, want := range []string{"1 full load and 3 clicks", "https://web.dev/blog/crux-experimental-soft-navs", "Contentsquare", "4.3"} {
+	for _, want := range []string{"1 landing and 3 actions on the page", "a document load for a plain link", "https://web.dev/blog/crux-experimental-soft-navs", "Contentsquare", "4.3"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("the page views of a shopper visit in the mix table lack %q:\n%s", want, all)
 		}
