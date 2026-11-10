@@ -5,8 +5,10 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -165,6 +167,106 @@ var sampled struct {
 	traces map[string][]Trace
 }
 
+// strayPreloads are the requests of the traces of Tifa or of TanStack Start for the data of a page
+// that is not the page of their step, each with its plan, its step and its URL. Both routers preload
+// the link a pointer lies on, and the recorder keeps the pointer off the page but for its clicks, so
+// there must be none: one means the pointer lay on a link that the page drew under it. For Tifa it is
+// a data request of the router (_tifa) for another URL than the page. TanStack Start marks a preload
+// in no way, so for it this finds the calls of server functions that their arguments tell from the
+// calls of the page: one for a product that is not the product of the page, and, on a product list,
+// one for a list of other conditions. A product card and a link to another list are what a pointer
+// comes to lie on there.
+func strayPreloads(t *testing.T, fw string, plans map[int]Plan, traces []Trace) []string {
+	t.Helper()
+	var out []string
+	for _, tr := range traces {
+		for i, s := range tr.Steps {
+			shown, err := url.Parse(s.Page)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page := shown.Path
+			act := "landing"
+			if i > 0 {
+				act = planForm(plans[tr.Plan], tr.Variant).Steps[i].Act
+			}
+			for _, q := range s.Reqs {
+				u, err := url.Parse(q.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				stray := false
+				switch {
+				case fw == "tifa" && u.Query().Has("_tifa"):
+					asked := u.Query()
+					asked.Del("_tifa")
+					stray = u.Path != page || !maps.EqualFunc(asked, shown.Query(), slices.Equal[[]string])
+				case fw == "start" && strings.HasPrefix(u.Path, "/_serverFn/"):
+					var payload any
+					if err := json.Unmarshal([]byte(u.Query().Get("payload")), &payload); err != nil {
+						t.Fatalf("%v: %s", err, q.URL)
+					}
+					args, _ := serovalValue(t, payload.(map[string]any)["t"]).(map[string]any)
+					data, _ := args["data"].(map[string]any)
+					product, ofProduct := data["product"].(string)
+					query, ofList := data["query"].(map[string]any)
+					switch _, kind := StorePageKind(s.Page); {
+					case ofProduct:
+						stray = !strings.HasSuffix(page, "/products/"+product)
+					case ofList && kind == StoreKindList:
+						asked := url.Values{}
+						for name, v := range query {
+							switch x := v.(type) {
+							case string:
+								asked.Add(name, x)
+							case []any:
+								for _, one := range x {
+									asked.Add(name, one.(string))
+								}
+							default:
+								t.Fatalf("the query of %s has %s as %v", q.URL, name, v)
+							}
+						}
+						stray = !maps.EqualFunc(asked, shown.Query(), slices.Equal[[]string])
+					}
+				}
+				if stray {
+					out = append(out, fmt.Sprintf("plan %d variant %d page view %d (%s, class %s): %s", tr.Plan, tr.Variant, i, act, q.Class, q.URL))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// serovalValue is the value of a node that seroval wrote, for the nodes the arguments of the server
+// functions of the shop are made of: a string (s), an array (a), and an object, which has its keys (k)
+// and its values (v) at the same places.
+func serovalValue(t *testing.T, node any) any {
+	t.Helper()
+	n, _ := node.(map[string]any)
+	switch {
+	case n["p"] != nil:
+		p := n["p"].(map[string]any)
+		keys, values := p["k"].([]any), p["v"].([]any)
+		out := map[string]any{}
+		for i, k := range keys {
+			out[k.(string)] = serovalValue(t, values[i])
+		}
+		return out
+	case n["a"] != nil:
+		var out []any
+		for _, one := range n["a"].([]any) {
+			out = append(out, serovalValue(t, one))
+		}
+		return out
+	case n["s"] != nil:
+		return n["s"]
+	}
+	t.Fatalf("a node of seroval this test does not read: %v", node)
+	return nil
+}
+
 // recordedSample is the act sample of the first block of the formal seed, recorded in a browser
 // against the four frameworks once for the tests of a run: the plans by id and the traces of each
 // framework, every one checked against its plan.
@@ -234,7 +336,9 @@ func recordSample(t *testing.T, env Env, frameworks []string) (map[int]Plan, map
 // leaves no choice (checkTrace): a document for a search, a filter by a link and the next page, and
 // none for the form and the sort box. The four frameworks serve the same pages, so they must agree on
 // which page views are documents, and a variant must load a document where the visit of its plan
-// does. The test logs what each browser sent for each act.
+// does. The recorder takes the pointer off the page after each click, so Tifa and TanStack Start,
+// which preload the link under a pointer, must ask for no page but those of the plans
+// (strayPreloads). The test logs what each browser sent for each act.
 func TestStorefrontRecorderDoesTheActsOfThePlans(t *testing.T) {
 	env := recordEnv(t)
 	plans, traces := recordedSample(t, env)
@@ -249,6 +353,10 @@ func TestStorefrontRecorderDoesTheActsOfThePlans(t *testing.T) {
 				t.Errorf("%s: the sample has no page view that is a %s", fw, act)
 			}
 			t.Logf("%-11s %-7s %3d page views, %3d with a document: %3d documents, %4d data requests, %4d prefetches, %3d cancelled, %d shown under another spelling", fw, act, c.Steps, c.WithDoc, c.Doc, c.Nav, c.Prefetch, c.Cancelled, c.Respelled)
+		}
+		// The pointer is off the page but for its clicks, so no router preloads a link under it.
+		if strays := strayPreloads(t, fw, plans, list); len(strays) > 0 {
+			t.Errorf("%s: %d requests preload a page that no act of the plans asked for, the first at %s", fw, len(strays), strays[0])
 		}
 		for i, tr := range list {
 			if tr.Plan != first[i].Plan || tr.Variant != first[i].Variant || !slices.Equal(tr.documents(), first[i].documents()) {

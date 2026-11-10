@@ -15,13 +15,14 @@
 // of the store click links that exist.
 //
 // Each visit gets a fresh browser context (no cookies, no cache), a 1280x800 viewport, no hover (the
-// mouse rests in a corner between steps) and real actions on the page: a step of a plan says what the
-// visitor does (act), and the recorder does it with the control of the page that does it, so the
-// browser sends what the page makes of it, a document load or a client navigation. Requests are
-// timed from the start of their step, so that the replay keeps the order and the parallelism the
-// browser had. A request the browser cancels is kept with when and why (cancel), so that the replay
-// cancels it at the same offset instead of reading it to the end. Anything that goes wrong while
-// recording a visit makes that visit's trace invalid: it is written with an error and left out.
+// pointer rests in the margin of the page but for its clicks, see REST) and real actions on the page:
+// a step of a plan says what the visitor does (act), and the recorder does it with the control of the
+// page that does it, so the browser sends what the page makes of it, a document load or a client
+// navigation. Requests are timed from the start of their step, so that the replay keeps the order and
+// the parallelism the browser had. A request the browser cancels is kept with when and why (cancel),
+// so that the replay cancels it at the same offset instead of reading it to the end. Anything that
+// goes wrong while recording a visit makes that visit's trace invalid: it is written with an error
+// and left out.
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 
@@ -53,7 +54,26 @@ const sameURL = (a, b) => {
   return na.length === nb.length && na.every((n, i) => n === nb[i] && JSON.stringify(ua.searchParams.getAll(n)) === JSON.stringify(ub.searchParams.getAll(n)))
 }
 
-// act does what a step of a plan says on the page on screen (the acts of plan.go).
+// REST is where the pointer rests between the acts of a visit: the left edge of the window at half
+// its height, in the margin of the page, where no page of the shop has a link or a control. Every
+// page view checks that (resting). A click moves the pointer onto its target, as a hand does, and the
+// pointer goes back to REST at once, before the page answers: left where it clicked, it would lie on
+// whatever the new page draws there, and a router that preloads the link under a pointer would fetch
+// a page that no act of the plan asked for.
+const REST = { x: 1, y: 400 }
+const rest = (page) => page.mouse.move(REST.x, REST.y)
+
+// resting is what the pointer at REST lies on when that is a link or a control, and '' when, as it
+// should, it is not.
+const resting = (page) =>
+  page.evaluate(({ x, y }) => {
+    const on = 'a,button,input,select,textarea,label,summary,[onclick],[tabindex]:not([tabindex="-1"]),' + ['button', 'link', 'option', 'menuitem', 'tab', 'checkbox', 'radio', 'switch', 'combobox'].map((r) => `[role="${r}"]`).join(',')
+    const hit = document.elementFromPoint(x, y)?.closest(on)
+    return hit ? hit.outerHTML.slice(0, 120) : ''
+  }, REST)
+
+// act does what a step of a plan says on the page on screen (the acts of plan.go), and takes the
+// pointer off the page as soon as the last click of the act is done.
 //
 //   link    a click on the first link to the page that the page shows
 //   search  the word typed into the search box of the header, and Enter: a plain form
@@ -74,10 +94,12 @@ async function act(page, step, i) {
   switch (step.act ?? 'link') {
     case 'link':
       await click(`a[href="${step.page}"]:visible`, `link to ${step.page}`)
+      await rest(page)
       break
     case 'filter':
     case 'page':
       await click(`main a[href="${step.page}"]:visible`, `plain link to ${step.page}`)
+      await rest(page)
       break
     case 'search': {
       const box = page.locator('form[role="search"] input[name="q"]:visible').first()
@@ -105,6 +127,7 @@ async function act(page, step, i) {
         }
       }
       await click('form:has(#filter-query) button[type="submit"]:enabled', 'apply button')
+      await rest(page)
       break
     case 'sort': {
       if (!SORTS.includes(step.sort)) throw new Error(`step ${i}: no sort ${step.sort}`)
@@ -113,6 +136,7 @@ async function act(page, step, i) {
       const option = page.locator('[role="option"]').nth(SORTS.indexOf(step.sort))
       await option.waitFor({ timeout: 5000 })
       await option.click()
+      await rest(page)
       break
     }
     default:
@@ -242,11 +266,13 @@ async function visit(browser, plan) {
       begin(step.kind, step.page)
       if (step.kind === 'load') {
         await page.goto(base + step.page)
+        await rest(page)
       } else {
         await act(page, step, i)
       }
       await settle()
-      await page.mouse.move(1, 1)
+      const on = await resting(page)
+      if (on) throw new Error(`step ${i}: the pointer rests on ${on}`)
       // The page shown must be the one of the plan, as a server reads its URL. A URL that is the same
       // page and is not written the same (another order of the parameters, another escape) is kept with
       // the step, so that the difference can be counted.
