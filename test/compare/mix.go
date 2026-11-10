@@ -124,6 +124,15 @@ var (
 	}{{"_kx", 0.5}, {"mc_eid", 0.5}}
 )
 
+// OldProductsPerLanguage and OldPostsPerLanguage are how many old URLs of each kind the set O of a
+// crawler holds in a language (crawl.go): products taken off the shop and posts that were moved or
+// deleted, which answer 404. Assumptions: no data on how many a shop that has existed for a few years
+// holds.
+const (
+	OldProductsPerLanguage = 15
+	OldPostsPerLanguage    = 15
+)
+
 // LandingValueLengths are the characters of a value of each parameter, which a request carries with
 // the same length as the real one: gclid about 95, fbclid about 61, msclkid 32 hexadecimal, mc_eid 10
 // hexadecimal and _kx about 40. The lengths are what the parameters are seen to have, and the
@@ -542,6 +551,8 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
+		{"OldProductsPerLanguage", "old URLs of products taken off the shop in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldProductsPerLanguage), "assumption"},
+		{"OldPostsPerLanguage", "old URLs of posts that were moved or deleted in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldPostsPerLanguage), "assumption"},
 		{"ShopperBlockVisits", "shopper visits of a block of the plans, which has the mix exactly", strconv.Itoa(ShopperBlockVisits), "a choice of the method"},
 		{"StaffBlockPlans", "different staff visits recorded for each block", strconv.Itoa(StaffBlockPlans), "a choice of the method"},
 	}
