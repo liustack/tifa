@@ -3,6 +3,8 @@ package compare
 import (
 	"fmt"
 	"math/rand/v2"
+	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -205,23 +207,39 @@ func (s landingSub) apply(x string) string {
 	return strings.ReplaceAll(x, s.placeholder, s.value)
 }
 
-// checkLanding says whether the trace of a plan that lands with a parameter has it in the document
-// request of its first page view: without it the visit would not be the one planned, as the replay
-// has nothing to put the value of the visit into.
+// checkLanding says whether the trace of a plan that lands with a parameter has, as the document
+// request of its first page view, the very page of the plan: the same path and the same parameters,
+// the landing parameter once with the whole placeholder as its value, read as a server reads a query
+// (by whole keys and whole values, not by a piece of text). Without it the visit would not be the one
+// planned, and the replay has nothing right to put the value of the visit into.
 func checkLanding(p Plan, t Trace) error {
 	name := landingParam(p.Steps[0].Page)
 	if name == "" {
 		return nil
 	}
-	v, _ := landingValueOf(name)
+	want, err := url.Parse(p.Steps[0].Page)
+	if err != nil {
+		return fmt.Errorf("plan %d: %w", p.ID, err)
+	}
+	wantQuery, err := url.ParseQuery(want.RawQuery)
+	if err != nil {
+		return fmt.Errorf("plan %d: %w", p.ID, err)
+	}
 	if len(t.Steps) > 0 {
 		for _, q := range t.Steps[0].Reqs {
-			if q.Class == "doc" && strings.Contains(q.URL, name+"="+v.Placeholder) {
+			if q.Class != "doc" {
+				continue
+			}
+			got, err := url.Parse(q.URL)
+			if err != nil || got.Path != want.Path {
+				continue
+			}
+			if gotQuery, err := url.ParseQuery(got.RawQuery); err == nil && reflect.DeepEqual(gotQuery, wantQuery) {
 				return nil
 			}
 		}
 	}
-	return fmt.Errorf("plan %d lands on %s and its document request lacks the landing parameter %s", p.ID, p.Steps[0].Page, name)
+	return fmt.Errorf("plan %d lands on %s and no document request of its first page view has that path and the landing parameter %s once, with its placeholder as the whole value", p.ID, p.Steps[0].Page, name)
 }
 
 // The groups the landing documents of Tifa are counted in (Round.Landing).

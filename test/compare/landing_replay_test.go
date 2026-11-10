@@ -177,3 +177,44 @@ func TestALandingParameterIsNoPartOfTheURLTheRendersAreSplitBy(t *testing.T) {
 		t.Errorf("the renders of the list by why: %v, want one first and two again", got)
 	}
 }
+
+// The landing parameter is checked as the server reads it, by its whole key and its whole value: a
+// key with another name, a value with something before or after the placeholder, a key given twice
+// and another parameter beside it are all refused, as is a document of another page.
+func TestTheLandingParameterIsCheckedByItsWholeKeyAndValue(t *testing.T) {
+	ph := placeholderOf("tifa-gclid-", LandingValueLengths["gclid"])
+	page := "/store/products?sort=newest&gclid=" + ph
+	plan := Plan{ID: 7, Steps: []PlanStep{{StepLoad, page}}}
+	trace := func(url string) Trace {
+		return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{{Method: "GET", URL: url, Class: "doc"}}}}}
+	}
+	for url, ok := range map[string]bool{
+		page: true,
+		"/store/products?gclid=" + ph + "&sort=newest":             true,
+		"/store/products?sort=newest&not_gclid=" + ph:              false,
+		"/store/products?sort=newest&xgclid=" + ph:                 false,
+		"/store/products?sort=newest&gclid=" + ph + "x":            false,
+		"/store/products?sort=newest&gclid=x" + ph:                 false,
+		"/store/products?sort=newest&gclid=other":                  false,
+		"/store/products?sort=newest&gclid=" + ph + "&gclid=" + ph: false,
+		"/store/products?sort=newest&gclid=other&gclid=" + ph:      false,
+		"/store/products?sort=newest&gclid=" + ph + "&q=cup":       false,
+		"/store/products?gclid=" + ph:                              false,
+		"/store/products/oak-tray?sort=newest&gclid=" + ph:         false,
+		"/store/products?sort=newest":                              false,
+	} {
+		err := checkLanding(plan, trace(url))
+		switch {
+		case ok && err != nil:
+			t.Errorf("%s was refused: %v", url, err)
+		case !ok && (err == nil || !strings.Contains(err.Error(), "landing parameter")):
+			t.Errorf("%s was accepted or refused with the wrong error: %v", url, err)
+		}
+	}
+	// Only a document counts: a data request with the parameter does not stand for it.
+	data := trace(page)
+	data.Steps[0].Reqs[0].Class = "nav"
+	if checkLanding(plan, data) == nil {
+		t.Error("a request that is not a document was taken for the landing document")
+	}
+}
