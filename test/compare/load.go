@@ -679,9 +679,10 @@ type PlannedMix struct {
 // returning visitors within half a point of ReturningShare, the searches within half a point of
 // SearchShare, with those that find nothing and those for a word of their own within 2 points of their
 // shares of the searches, the filters and the sorts within a point of their shares of the visits that
-// see a list, the filters of one, two and three conditions within 3 points of theirs, the visits to
-// the second page within a point and to the third within half a point of their shares of the visits
-// that see a list of several pages and, unless the scenario is read-only, the adds and checkouts
+// see a list, the filters of one, two and three conditions within 3 points of theirs, the visits whose
+// deepest page is the second within a point and those that see the third within half a point of their
+// quotas among the visits that see a list of several pages (pageShares) and, unless the scenario is
+// read-only, the adds and checkouts
 // within 0.2 points of their shares and the edits and ships within 3 points of theirs among the staff
 // visits. A round of whole cycles has them exactly, up to the rounding of a block.
 func (m PlannedMix) why(sc BrowseScenario) string {
@@ -710,8 +711,7 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 		off("filters of two conditions a filter", m.Conditions[1], m.Filters, FilterConditionShares[1], 0.03),
 		off("filters of three conditions a filter", m.Conditions[2], m.Filters, FilterConditionShares[2], 0.03),
 		off("changes of the sort a visit that sees a list", m.Sorts, m.ListVisits, ListSortShare, 0.01),
-		off("visits to the second page a visit that sees a list of several pages", m.SecondPages, m.PagedVisits, ListPageShares[1], 0.01),
-		off("visits to the third page a visit that sees a list of several pages", m.ThirdPages, m.PagedVisits, ListPageShares[2], 0.005),
+		m.pageShares(),
 	)
 	if why != "" || sc.ReadOnly {
 		return why
@@ -727,6 +727,22 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 		off("product edits a staff visit", m.Edits, m.Staff, sc.Edit, 0.03),
 		off("ships a staff visit", m.Ships, m.Staff, sc.Ship, 0.03),
 	)
+}
+
+// pageShares is the check of how deep the visits page: of those that see a list of several pages with
+// no search term, those whose deepest page is the second are within a point of their quota and those
+// that see the third or deeper within half a point of theirs. The quota is the share of the mix, or
+// the visits that land that deep when they are more (ActionCounts.pageQuotas).
+func (m PlannedMix) pageShares() string {
+	second, third := m.pageQuotas()
+	of := float64(max(m.PagedVisits, 1))
+	switch {
+	case math.Abs(float64(m.SecondPages-second))/of > 0.01:
+		return fmt.Sprintf("the planned visits whose deepest page of a list is the second are %d of %d that see a list of several pages, want %d within a point", m.SecondPages, m.PagedVisits, second)
+	case math.Abs(float64(m.ThirdPages-third))/of > 0.005:
+		return fmt.Sprintf("the planned visits that see the third page of a list or deeper are %d of %d that see a list of several pages, want %d within half a point", m.ThirdPages, m.PagedVisits, third)
+	}
+	return ""
 }
 
 // crawlerShare is the check of the crawler requests of a scenario that has them: among the HTML

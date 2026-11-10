@@ -167,8 +167,9 @@ var FilterKinds = []struct {
 	Weight float64
 }{{FilterPrice, 25}, {FilterCategory, 25}, {FilterRating, 12.5}, {FilterStock, 12.5}, {FilterColor, 8.3}, {FilterMaterial, 8.3}, {FilterBadge, 8.3}}
 
-// ListPageShares are the shares that stay on the first page, go to the second and go on to the third,
-// of the shopper visits that see a product list of more than one page with no search term. From
+// ListPageShares are the shares that stay on the first page, see the second and no deeper, and see the
+// third or deeper, of the shopper visits that see a product list of more than one page with no search
+// term: the deepest page a visit sees, however it got there, so a landing on a second page counts. From
 // Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go
 // to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, which says
 // neither when nor how it was counted), rounded. The figure is of search results, and it is used on
@@ -770,7 +771,7 @@ func MixFacts() []MixFact {
 		{"FilterConditionShares", "filters that set one, two and three conditions", sharesOf(FilterConditionShares), "assumption: no data on how many filters a visit uses"},
 		{"FilterKinds", "kinds of condition of a filter, as relative weights. A condition on the price is one of the four price bands of the page, never a range typed by hand", filterKinds(), "assumption: no data on which filters are used most, and the order is a judgment"},
 		{"ListSortShare", "shopper visits that change the sort of the list, of those that see a product list, to one of the four sorts that are not the default, all alike", pct(ListSortShare), "assumption: nothing was found on sorting"},
-		{"ListPageShares", "shopper visits that stay on the first page, go to the second and go on to the third, of those that see a product list of more than one page with no search term", sharesOf(ListPageShares),
+		{"ListPageShares", "shopper visits that stay on the first page, see the second and no deeper, and see the third or deeper, of those that see a product list of more than one page with no search term. It is the deepest page a visit sees, so a visit that lands on a second page counts with those that go there", sharesOf(ListPageShares),
 			"Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, with no date and no method), rounded. The figure is of search results, and it is used on the lists with no search term because a search of this shop never has a second page"},
 		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},

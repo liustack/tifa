@@ -5,8 +5,10 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,8 +21,9 @@ type blockActions struct {
 	filters                       int
 	conditions                    [4]int // filters by the number of conditions they set
 	sorts                         int
-	paged                         int // visits that see a list of more than one page with no search term
-	second, third                 int
+	paged                         int            // visits that see a list of more than one page with no search term
+	second, third                 int            // of them, those whose deepest page is the second, and the third or deeper
+	landedSecond, landedThird     int            // of those, the visits that got there with no page action: they landed there
 	document, router              map[string]int // the actions by act: document loads and client navigations
 }
 
@@ -32,12 +35,31 @@ func countBlock(t *testing.T, plans []Plan) blockActions {
 			continue
 		}
 		var searches, filters, sorts, pages int
-		list, paged := false, false
+		list, deepest := false, 0
 		for i, s := range p.Steps {
 			if _, kind := StorePageKind(s.Page); kind == StoreKindList {
 				list = true
-				m := planList(s.Page)
-				paged = paged || strings.TrimSpace(m.Filter.Query) == "" && m.Pages > 1
+				// The page of the list, read from its URL, and whether the list has several pages, which only
+				// the shop's rules tell: the model of the list, with the data the shop starts with.
+				_, query, _ := strings.Cut(stripLanding(s.Page), "?")
+				v, err := url.ParseQuery(query)
+				if err != nil {
+					t.Fatalf("plan %d: %s: %v", p.ID, s.Page, err)
+				}
+				page := 1
+				if v.Has("page") {
+					if page, err = strconv.Atoi(v.Get("page")); err != nil || page < 2 {
+						t.Fatalf("plan %d: %s has the page %q", p.ID, s.Page, v.Get("page"))
+					}
+				}
+				price, inStock := shopPrices()
+				m := ModelList(stripLanding(s.Page), price, inStock)
+				if m.Filter.Page != page {
+					t.Fatalf("plan %d: %s shows page %d of %d", p.ID, s.Page, m.Filter.Page, m.Pages)
+				}
+				if strings.TrimSpace(v.Get("q")) == "" && m.Pages > 1 {
+					deepest = max(deepest, page)
+				}
 			}
 			if i == 0 {
 				continue
@@ -83,14 +105,24 @@ func countBlock(t *testing.T, plans []Plan) blockActions {
 		if list {
 			c.lists++
 		}
-		if paged {
+		// The depth of a visit is the deepest page it sees of a list of several pages with no search word,
+		// however it got there: by a page action or by landing on that page.
+		switch {
+		case deepest == 0:
+		case deepest == 1:
 			c.paged++
-		}
-		switch pages {
-		case 1:
+		case deepest == 2:
+			c.paged++
 			c.second++
-		case 2:
+			if pages == 0 {
+				c.landedSecond++
+			}
+		default:
+			c.paged++
 			c.third++
+			if pages == 0 {
+				c.landedThird++
+			}
 		}
 	}
 	return c
@@ -123,14 +155,18 @@ func TestEveryBlockPlansTheSearchesFiltersSortsAndPagesByQuota(t *testing.T) {
 			if c.conditions[1] != want[0] || c.conditions[2] != want[1] || c.conditions[3] != want[2] {
 				t.Errorf("seed %d block %d: the filters set %v conditions, want %v", seed, b, c.conditions[1:], want)
 			}
-			if c.second != round(ListPageShares[1]*float64(c.paged)) || c.third != round(ListPageShares[2]*float64(c.paged)) {
-				t.Errorf("seed %d block %d: %d visits see a list of several pages, %d go to the second and %d to the third, want %d and %d", seed, b, c.paged, c.second, c.third, round(ListPageShares[1]*float64(c.paged)), round(ListPageShares[2]*float64(c.paged)))
+			// The depth is by the deepest page a visit sees. The visits that land on a second page count, and
+			// the page actions fill what is missing to the quota. Were more to land there than the quota,
+			// none would be taken away (the landings are a quota of their own) and no page action added.
+			wantSecond, wantThird := max(round(ListPageShares[1]*float64(c.paged)), c.landedSecond), max(round(ListPageShares[2]*float64(c.paged)), c.landedThird)
+			if c.second != wantSecond || c.third != wantThird {
+				t.Errorf("seed %d block %d: of %d visits that see a list of several pages, %d see the second page and no deeper (%d land there) and %d the third or deeper (%d land there), want %d and %d", seed, b, c.paged, c.second, c.landedSecond, c.third, c.landedThird, wantSecond, wantThird)
 			}
-			if c.lists < 500 || c.paged < 300 || c.third == 0 {
-				t.Errorf("seed %d block %d: %d visits see a list, %d one of several pages, %d go to a third page: too few to show the quotas", seed, b, c.lists, c.paged, c.third)
+			if c.lists < 500 || c.paged < 300 || c.third == 0 || c.landedSecond == 0 || c.landedSecond >= c.second {
+				t.Errorf("seed %d block %d: %d visits see a list, %d one of several pages, %d see a third page, %d of %d that stop at the second land there: too few to show the quotas", seed, b, c.lists, c.paged, c.third, c.landedSecond, c.second)
 			}
 			if seed == 1 && b == 0 {
-				t.Logf("a block: %d visits see a list, %d filter (%v conditions), %d sort, %d see a list of several pages, %d go to the second page and %d to the third. Document loads %v, client navigations %v", c.lists, c.filters, c.conditions[1:], c.sorts, c.paged, c.second, c.third, c.document, c.router)
+				t.Logf("a block: %d visits see a list, %d filter (%v conditions), %d sort, %d see a list of several pages, of which %d see the second page and no deeper (%d land there) and %d the third or deeper (%d land there). Document loads %v, client navigations %v", c.lists, c.filters, c.conditions[1:], c.sorts, c.paged, c.second, c.landedSecond, c.third, c.landedThird, c.document, c.router)
 			}
 		}
 	}
@@ -443,6 +479,38 @@ func TestTheStampOfTheTracesHasEveryFileThePlansAreMadeFrom(t *testing.T) {
 		}
 		if !slices.Contains(methodFiles, f) {
 			t.Errorf("the rate of Next.js is not bound to %s", f)
+		}
+	}
+}
+
+// How deep a visit pages is the deepest page it sees of a list of several pages with no search word,
+// not how many page actions it takes: a visit that lands on a second page has seen the second page,
+// and one that goes on from there has seen the third.
+func TestTheDepthOfAVisitIsTheDeepestPageItSees(t *testing.T) {
+	land := func(page string, more ...PlanStep) Plan {
+		return Plan{Role: RoleShopper, Steps: append([]PlanStep{{Kind: StepLoad, Page: page}}, more...)}
+	}
+	next := func(page string) PlanStep {
+		return PlanStep{Kind: StepClick, Page: page, Act: ActPage, Part: ListPartPage}
+	}
+	for _, tc := range []struct {
+		name                                   string
+		plan                                   Plan
+		paged, second, third, landed2, landed3 int
+	}{
+		{"the first page of the whole list", land("/store/products"), 1, 0, 0, 0, 0},
+		{"a product", land("/store/products/oak-tray"), 0, 0, 0, 0, 0},
+		{"a search, which has one page", land("/store/products?q=cup"), 0, 0, 0, 0, 0},
+		{"a landing on the second page", land("/store/products?page=2"), 1, 1, 0, 1, 0},
+		{"the first page, then the second", land("/store/products", next("/store/products?page=2")), 1, 1, 0, 0, 0},
+		{"a landing on the second page, then the third", land("/store/products?page=2", next("/store/products?page=3")), 1, 0, 1, 0, 0},
+		{"the first page, the second and the third", land("/zh-CN/store/products", next("/zh-CN/store/products?page=2"), next("/zh-CN/store/products?page=3")), 1, 0, 1, 0, 0},
+		{"a landing on the third page", land("/store/products?sort=newest&page=3"), 1, 0, 1, 0, 1},
+	} {
+		var c ActionCounts
+		c.Add(tc.plan)
+		if c.PagedVisits != tc.paged || c.SecondPages != tc.second || c.ThirdPages != tc.third || c.SecondPagesLanded != tc.landed2 || c.ThirdPagesLanded != tc.landed3 {
+			t.Errorf("%s: %+v, want %d visits that see a list of several pages, %d to the second page (%d landed) and %d to the third (%d landed)", tc.name, c, tc.paged, tc.second, tc.landed2, tc.third, tc.landed3)
 		}
 	}
 }

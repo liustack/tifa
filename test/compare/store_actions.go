@@ -384,10 +384,10 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 	order := rng.Perm(len(visits))
 	// take gives the action to the first visit of the shuffle that has not acted and has a spot for it,
 	// at a spot drawn alike among them, and walks the page views after it again.
-	take := func(what string, room int, can func(ListPage) bool, act func(d *draftVisit, at int, p ListPage) bool) error {
+	take := func(what string, room int, who func(*draftVisit) bool, can func(ListPage) bool, act func(d *draftVisit, at int, p ListPage) bool) error {
 		for _, i := range order {
 			d := visits[i]
-			if d.acted {
+			if d.acted || !who(d) {
 				continue
 			}
 			spots := d.spots(room, can)
@@ -406,7 +406,7 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 	filters := quotaCounts(int(math.Round(ListFilterShare*float64(lists))), FilterConditionShares)
 	for n := len(filters); n >= 1; n-- {
 		for range filters[n-1] {
-			err := take(fmt.Sprintf("filter a list by %d conditions", n), 0, func(ListPage) bool { return true }, func(d *draftVisit, at int, p ListPage) bool {
+			err := take(fmt.Sprintf("filter a list by %d conditions", n), 0, anyVisit, func(ListPage) bool { return true }, func(d *draftVisit, at int, p ListPage) bool {
 				conds, ok := drawFilter(rng, p, n)
 				if ok {
 					d.plan.Steps[at] = filterStep(p, conds)
@@ -419,7 +419,7 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 		}
 	}
 	for range int(math.Round(ListSortShare * float64(lists))) {
-		err := take("sort a list", 0, func(p ListPage) bool { return len(sortOptions(p)) > 0 }, func(d *draftVisit, at int, p ListPage) bool {
+		err := take("sort a list", 0, anyVisit, func(p ListPage) bool { return len(sortOptions(p)) > 0 }, func(d *draftVisit, at int, p ListPage) bool {
 			sorts := sortOptions(p)
 			d.plan.Steps[at] = sortStep(p, sorts[rng.IntN(len(sorts))])
 			return true
@@ -428,15 +428,24 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 			return err
 		}
 	}
-	// The pages, counted on the plans as the filters and the sorts left them.
-	paged := 0
+	// The pages, counted on the plans as the filters and the sorts left them, by the deepest page each
+	// visit sees. A visit that lands on a second page has seen it, so the visits that are that deep
+	// already count toward the quotas, and the page actions fill what is missing: two of them, from a
+	// first page, for a visit that is to see the third page, and one for a visit that is to stop at the
+	// second. They go to visits that have seen first pages alone, so a visit that landed deep stays where
+	// it is counted. When more visits land on a second page than the quota, none is taken away, and no
+	// page action is added.
+	var have ActionCounts
 	for _, d := range visits {
-		if seesPagedList(d.plan.Steps) {
-			paged++
-		}
+		have.Add(*d.plan)
 	}
-	for range int(math.Round(ListPageShares[2] * float64(paged))) {
-		err := take("go to the third page of a list", 1, func(p ListPage) bool { return pagesAhead(p) >= 2 }, func(d *draftVisit, at int, p ListPage) bool {
+	second, third := have.pageQuotas()
+	shallow := func(d *draftVisit) bool { return listDepth(d.plan.Steps) == 1 }
+	first := func(ahead int) func(ListPage) bool {
+		return func(p ListPage) bool { return p.Filter.Page == 1 && pagesAhead(p) >= ahead }
+	}
+	for range third - have.ThirdPages {
+		err := take("go to the third page of a list", 1, shallow, first(2), func(d *draftVisit, at int, p ListPage) bool {
 			d.plan.Steps[at] = pageStep(p)
 			d.plan.Steps[at+1] = pageStep(planList(d.plan.Steps[at].Page))
 			return true
@@ -445,8 +454,8 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 			return err
 		}
 	}
-	for range int(math.Round(ListPageShares[1] * float64(paged))) {
-		err := take("go to the second page of a list", 0, func(p ListPage) bool { return pagesAhead(p) >= 1 }, func(d *draftVisit, at int, p ListPage) bool {
+	for range second - have.SecondPages {
+		err := take("go to the second page of a list", 0, shallow, first(1), func(d *draftVisit, at int, p ListPage) bool {
 			d.plan.Steps[at] = pageStep(p)
 			return true
 		})
@@ -457,17 +466,8 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 	return nil
 }
 
-// seesPagedList says whether a visit sees a product list of more than one page with no search term,
-// at any of its pages.
-func seesPagedList(steps []PlanStep) bool {
-	return slices.ContainsFunc(steps, func(s PlanStep) bool {
-		if !isList(s.Page) {
-			return false
-		}
-		p := planList(s.Page)
-		return strings.TrimSpace(p.Filter.Query) == "" && p.Pages > 1
-	})
-}
+// anyVisit lets every visit take an action.
+func anyVisit(*draftVisit) bool { return true }
 
 // termClass is the class of the word of a search step.
 func termClass(term string) string {
@@ -593,8 +593,37 @@ type ActionCounts struct {
 	Conditions     [3]int `json:"filtersByConditions"`
 	Sorts          int    `json:"sorts"`
 	PagedVisits    int    `json:"visitsThatSeeAListOfSeveralPages"`
-	SecondPages    int    `json:"visitsToTheSecondPage"`
-	ThirdPages     int    `json:"visitsToTheThirdPage"`
+	// SecondPages are the visits whose deepest page of such a list is the second, and ThirdPages those
+	// that see the third or a deeper one, however they got there. SecondPagesLanded and ThirdPagesLanded
+	// are those of them that took no page action: they landed on that page.
+	SecondPages       int `json:"visitsToTheSecondPage"`
+	ThirdPages        int `json:"visitsToTheThirdPage"`
+	SecondPagesLanded int `json:"visitsThatLandOnASecondPage"`
+	ThirdPagesLanded  int `json:"visitsThatLandOnAThirdPage"`
+}
+
+// listDepth is the deepest page a visit sees of a product list of more than one page with no search
+// term: 0 when it sees no such list, 1 when it stays on first pages. It is what the visit saw, not how
+// many times it went to a next page: a visit that lands on a second page has seen the second page.
+func listDepth(steps []PlanStep) int {
+	deepest := 0
+	for _, s := range steps {
+		if isList(s.Page) {
+			if p := planList(s.Page); strings.TrimSpace(p.Filter.Query) == "" && p.Pages > 1 {
+				deepest = max(deepest, p.Filter.Page)
+			}
+		}
+	}
+	return deepest
+}
+
+// pageQuotas are how many of the visits that see a list of several pages stop at the second page and
+// how many see the third or deeper, by ListPageShares: the share of the visits, or the visits that
+// land that deep when they are more, since a landing is not taken away to make a quota.
+func (c ActionCounts) pageQuotas() (second, third int) {
+	second = max(int(math.Round(ListPageShares[1]*float64(c.PagedVisits))), c.SecondPagesLanded)
+	third = max(int(math.Round(ListPageShares[2]*float64(c.PagedVisits))), c.ThirdPagesLanded)
+	return second, third
 }
 
 // Add counts a shopper plan. The word of a search, and the pages of a list, are what the model of the
@@ -633,14 +662,22 @@ func (c *ActionCounts) Add(p Plan) {
 	if list {
 		c.ListVisits++
 	}
-	if seesPagedList(p.Steps) {
+	switch depth := listDepth(p.Steps); {
+	case depth == 0:
+	case depth == 1:
 		c.PagedVisits++
-	}
-	switch {
-	case pages == 1:
+	case depth == 2:
+		c.PagedVisits++
 		c.SecondPages++
-	case pages > 1:
+		if pages == 0 {
+			c.SecondPagesLanded++
+		}
+	default:
+		c.PagedVisits++
 		c.ThirdPages++
+		if pages == 0 {
+			c.ThirdPagesLanded++
+		}
 	}
 }
 
@@ -666,9 +703,10 @@ func (c ActionCounts) quotas(blocks int) string {
 		return fmt.Sprintf("of %d visits that see a list %d filter it, with %v conditions, the mix has %d with %v", c.ListVisits, c.Filters, c.Conditions, filters, conds)
 	case c.Sorts != round(ListSortShare*float64(c.ListVisits)):
 		return fmt.Sprintf("of %d visits that see a list %d change the sort, the mix has %d", c.ListVisits, c.Sorts, round(ListSortShare*float64(c.ListVisits)))
-	case c.SecondPages != round(ListPageShares[1]*float64(c.PagedVisits)) || c.ThirdPages != round(ListPageShares[2]*float64(c.PagedVisits)):
-		return fmt.Sprintf("of %d visits that see a list of several pages %d go to the second page and %d to the third, the mix has %d and %d", c.PagedVisits, c.SecondPages, c.ThirdPages,
-			round(ListPageShares[1]*float64(c.PagedVisits)), round(ListPageShares[2]*float64(c.PagedVisits)))
+	}
+	if second, third := c.pageQuotas(); c.SecondPages != second || c.ThirdPages != third {
+		return fmt.Sprintf("of %d visits that see a list of several pages %d see the second page and no deeper (%d land there) and %d the third or deeper (%d land there), the mix has %d and %d",
+			c.PagedVisits, c.SecondPages, c.SecondPagesLanded, c.ThirdPages, c.ThirdPagesLanded, second, third)
 	}
 	return ""
 }
