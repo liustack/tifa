@@ -900,3 +900,16 @@ func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
 		}
 	}
 }
+
+// The text on the site says that every server gets the same warm-up, and that Tifa's memo is read
+// empty before it, not before the clock.
+func TestTheSiteTextSaysEveryServerGetsTheSameWarmUp(t *testing.T) {
+	for _, want := range []string{"Then every server gets the same warm-up, counted in no result", "held a page right before the warm-up"} {
+		if !strings.Contains(siteText, want) {
+			t.Errorf("the site text lacks %q", want)
+		}
+	}
+	if strings.Contains(siteText, "right before the clock") {
+		t.Error("the site text still reads the memo right before the clock")
+	}
+}
