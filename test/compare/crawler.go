@@ -184,10 +184,14 @@ type CrawlStats struct {
 	OldBytes int64                     `json:"oldBytes,omitempty"`
 	Statuses map[string]int            `json:"statuses,omitempty"`
 	Renders  map[string]map[string]int `json:"renders,omitempty"`
+	// Why splits the renders in a VM by the same key and why (RenderFirst, RenderChanged, RenderSame).
+	Why map[string]map[string]int `json:"why,omitempty"`
 }
 
 // crawlCounts are what an acc keeps of the crawler requests.
 type crawlCounts struct {
+	// why splits the renders in a VM of a kind of URL (the key of renders) by the class of the document.
+	why                     map[string]map[string]int
 	done, failed, cancelled int
 	bytes                   int64
 	oldBytes                int64
@@ -292,6 +296,12 @@ func (r *runner) runCrawl(ctx context.Context, tr *http.Transport, a *acc, c int
 			a.crawl.renders[key] = map[string]int{}
 		}
 		a.crawl.renders[key][how]++
+		if class, ok := r.expect.crawlClass(c); ok && how == RenderVM {
+			if a.crawl.why[key] == nil {
+				a.crawl.why[key] = map[string]int{}
+			}
+			a.crawl.why[key][docWhy(class)]++
+		}
 	}
 }
 

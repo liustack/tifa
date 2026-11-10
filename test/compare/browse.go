@@ -132,6 +132,8 @@ type browse struct {
 	set   *PlanSet
 	trace map[string]map[int]Trace
 	bid   string
+	// deps are the products each page shows (store_deps.json), checked against the checkout.
+	deps *StoreDeps
 	// launch starts the server of a spec; the tests set it to serve from a fake (nil: start the real one).
 	launch func(ctx context.Context, spec Spec) (*liveServer, error)
 	// verify checks that the writes of a scenario show in the pages of a server; the tests replace it
@@ -373,6 +375,11 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		return nil, err
 	}
 	if b.bid, err = e.tifaBuildID(); err != nil {
+		return nil, err
+	}
+	// A store_deps.json that is not the one of this checkout stops the run: the expected hit rate would be of
+	// other pages.
+	if b.deps, err = CheckStoreDeps(e.Root); err != nil {
 		return nil, err
 	}
 	mach, version := machine(), e.versions(specs)
@@ -1441,7 +1448,7 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 	if err != nil {
 		return nil, err
 	}
-	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, cpuKnown: server.cpuKnown, rss: server.rss}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, cpuKnown: server.cpuKnown, rss: server.rss, deps: b.deps}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}

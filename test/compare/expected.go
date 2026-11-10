@@ -220,3 +220,43 @@ func Total(cells map[string]ExpectedCell) ExpectedCell {
 	}
 	return t
 }
+
+// humanClass is the class of the landing document of visit seq of the sequence. It is not there for a
+// visit the expectation did not count (a warm-up's), and for no expectation at all (e is nil).
+func (e *Expectation) humanClass(seq int) (docClass, bool) {
+	if e == nil {
+		return 0, false
+	}
+	c, ok := e.human[seq]
+	return c, ok
+}
+
+// crawlClass is the class of crawler request number n of the stream.
+func (e *Expectation) crawlClass(n int) (docClass, bool) {
+	if e == nil {
+		return 0, false
+	}
+	c, ok := e.crawl[n]
+	return c, ok
+}
+
+// expectRound works out the expected hit rate of a round of Tifa that plays visits visits from seq0 on,
+// after the warm-up that follows the prepared visits (r.warm of them, from r.prepared), and keeps it in
+// the round and for the split of its renders. A server with no metrics route is not Tifa and has none.
+func (r *runner) expectRound(round *Round, visits, seq0 int) {
+	r.expect = nil
+	if r.deps == nil || r.metrics == "" {
+		return
+	}
+	var spans []expectSpan
+	if r.warm > 0 {
+		spans = append(spans, expectSpan{r.prepared, r.warm, false})
+	}
+	spans = append(spans, expectSpan{seq0, visits, true})
+	e, err := r.wl.Expect(r.deps, spans...)
+	if err != nil {
+		round.ExpectedError = err.Error()
+		return
+	}
+	r.expect, round.Expected = e, &e.Expected
+}

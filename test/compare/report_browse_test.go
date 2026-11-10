@@ -810,12 +810,10 @@ func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 	}
 	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |",
-		"| Tifa | cart | 20 | 0 | 0 | - | - | 8 | 12 |",
-		"| Tifa | product | 200 | 120 | 20 | 40 | 20 | - | - |",
-		"does not see the data of the Loads",
-		"the client classes them by URL",
-		"in the order their answers completed",
+		"| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same | VM: URL answered before, no data version | private page, no cart cookie | private page, cart cookie |",
+		"| Tifa | cart | 20 | 0 | 0 | 20 | - | 0.0% of 20 | - | - | - | - | 8 | 12 |",
+		"| Tifa | product | 200 | 120 | 20 | 60 | - | 70.0% of 200 | 40 | 0 | 0 | 20 | - | - |",
+		"the plans allow a memo that drops nothing",
 		"(counted as shared",
 		"canceled",
 		"received whole with `X-Tifa-Render`",

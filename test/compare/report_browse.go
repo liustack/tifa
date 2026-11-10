@@ -892,23 +892,73 @@ func compressionMarkdown(b *strings.Builder, servers []string, rounds func(f str
 	}
 }
 
+// expectedOf is the documents of a kind of page that the plans count in rounds, with the hits they allow,
+// and false when no round has an expected hit rate (a result of an older run, or a round whose plans
+// could not be worked out).
+func expectedOf(rounds []Round, kind string) (ExpectedCell, bool) {
+	var c ExpectedCell
+	ok := false
+	for _, x := range rounds {
+		if x.Expected != nil {
+			ok = true
+			c = c.Sum(x.Expected.Humans[kind])
+		}
+	}
+	return c, ok
+}
+
+// memoDropped is the pages the render memo of Tifa dropped to make room in rounds, from the start of
+// the server on (the warm-up too, since a page it dropped is one the round misses), and false when no
+// round read it.
+func memoDropped(rounds []Round) (int64, bool) {
+	var n int64
+	read := false
+	for _, x := range rounds {
+		if x.Memo != nil && x.SetupError == "" && x.MemoError == "" {
+			read = true
+			n += x.Memo.End.Evictions - x.Memo.Start.Evictions
+		}
+	}
+	return n, read
+}
+
+// Where the memo of Tifa answers under what the plans allow by this many points, with this many
+// documents or more, the report flags the kind of page.
+const (
+	expectedGap   = 0.05
+	expectedLeast = 100
+)
+
 // renderWhyMarkdown splits, for each Tifa server, its answers by kind of page into those the render
-// memo gave and those it rendered in a VM, and these by why, as far as the client can tell (renderWhy),
-// over the rounds. A server whose rounds did not split them (a result of an older run) is left out.
+// memo gave and those it rendered in a VM, and these by why, as far as the plans tell (Expect) or the
+// client can tell (renderWhy), over the rounds, with the hit rate the plans allow beside the one
+// measured. A server whose rounds did not split them (a result of an older run) is left out.
 func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
-	var rows []string
+	var rows, flags []string
+	again := false // a round with no data versions has URLs answered before: a column for them
+	for _, f := range servers {
+		for _, x := range rounds(f) {
+			for _, why := range x.VMWhy {
+				again = again || why[RenderAgain] > 0
+			}
+		}
+	}
 	for _, f := range servers {
 		rs := rounds(f)
 		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.VMWhy == nil }) {
 			continue
 		}
+		dropped, read := memoDropped(rs)
 		for _, k := range pageKinds(rs) {
 			hits, all := cacheHits(rs, k)
 			why := map[string]int{}
+			vm, shared := 0, 0
 			for _, x := range rs {
 				for w, n := range x.VMWhy[k] {
 					why[w] += n
 				}
+				shared += x.PageRenders[k][RenderShared]
+				vm += x.PageRenders[k][RenderVM]
 			}
 			cell := func(w string, private bool) string {
 				if private != privateKind(k) {
@@ -916,18 +966,44 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 				}
 				return strconv.Itoa(why[w])
 			}
-			shared := 0
-			for _, x := range rs {
-				shared += x.PageRenders[k][RenderShared]
+			measured := "-"
+			if all > 0 {
+				measured = fmt.Sprintf("%.1f%% of %d", 100*float64(hits+shared)/float64(all), all)
 			}
-			rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d | %d | %s | %s | %s | %s |\n", BrowseLabel(f), k, all, hits, shared,
-				cell(RenderFirst, false), cell(RenderAgain, false), cell(RenderPrivate, true), cell(RenderPrivateCart, true)))
+			allowed := "-"
+			if c, ok := expectedOf(rs, k); ok && c.Docs > 0 {
+				allowed = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
+				if read && dropped > 0 && !privateKind(k) {
+					allowed += fmt.Sprintf(" (the memo dropped %d pages)", dropped)
+				}
+				if f == "tifa" && all >= expectedLeast && float64(hits+shared)/float64(all) < c.Rate()-expectedGap {
+					flags = append(flags, fmt.Sprintf("%s, %s: the memo and shared renders answered %.1f%% of %d documents, the plans allow %.1f%%", BrowseLabel(f), k, 100*float64(hits+shared)/float64(all), all, 100*c.Rate()))
+				}
+			}
+			row := fmt.Sprintf("| %s | %s | %d | %d | %d | %d | %s | %s | %s | %s | %s |", BrowseLabel(f), k, all, hits, shared, vm, allowed, measured,
+				cell(RenderFirst, false), cell(RenderChanged, false), cell(RenderSame, false))
+			if again {
+				row += " " + cell(RenderAgain, false) + " |"
+			}
+			rows = append(rows, row+" "+cell(RenderPrivate, true)+" | "+cell(RenderPrivateCart, true)+" |\n")
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, the answers that shared a render in progress of the same page, and the renders in a VM, split by why as far as the client can tell from the URL, the cookies it sent and `X-Tifa-Render`, so that the three add up to the answers. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Another page is the first request of its URL that Tifa answered in the round, or a URL it had answered before: the client classes them by URL, and Tifa does not say which it was. The client does not see the data of the Loads, so a URL answered before holds a page whose data changed since (a write, or data that changes by itself, such as the dates of a day) and one the memo dropped when it was full alike. The split made on the client has three limits. Requests of a page at the same time share a render in progress (counted as shared, and the one that rendered as first or answered before). The first and the URL answered before go in the order their answers completed, not the order Tifa started them. A request the client canceled (its round ended) is not counted though Tifa may have rendered it, so a later request of its URL can be counted as the first. The answers counted are those received whole with `X-Tifa-Render` saying vm, memo or shared. With the memo off nothing comes from the memo, and the split says how much the workload repeats its URLs.\n\n| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM: first request of its URL | URL answered before | private page, no cart cookie | private page, cart cookie |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, the answers that shared a render in progress of the same page, and the renders in a VM, which add up to the answers. Next to them, the hit rate the plans allow a memo that drops nothing (the share of the documents whose page was asked for before, in the warm-up too, with the same data, worked out from the plans, the writes and the crawler requests alone, so it is the same for every server: see the expected hit rate in the method), and the share of the answers the memo gave or shared that Tifa measured. The renders in a VM are split by why, as the plans tell them for the landing document of a visit: a page not asked for before, a page asked for before whose data a write changed since, and a page asked for before with the same data. The last should have been a hit, so it was dropped when the memo was full (the pages it dropped are noted next to the rate), came in another order than the plans (the servers play the writes and the documents at once), or is a bug. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Only documents are in the plans: a click gets the data of a page and no HTML, so it is no request that puts a page in the memo, and the plans count none. Pages of the back office follow a rough rule (a write to a shop changes all its pages), so their expected rate is a little low. The split has limits, which the report states: requests of a page at the same time share a render in progress (counted as shared, and the one that rendered as its class), a request the client canceled (its round ended) is not counted though Tifa may have rendered it, and the answers counted are those received whole with `X-Tifa-Render` saying vm, memo or shared. With the memo off nothing comes from the memo, and the rate the plans allow says how much the workload repeats its pages.\n\n")
+	for _, f := range flags {
+		fmt.Fprintf(b, "**Red flag**: %s.\n\n", f)
+	}
+	b.WriteString("| | kind of page | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | memo and shared, measured | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same |")
+	if again {
+		b.WriteString(" VM: URL answered before, no data version |")
+	}
+	b.WriteString(" private page, no cart cookie | private page, cart cookie |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	if again {
+		b.WriteString(" --- |")
+	}
+	b.WriteString(" --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
@@ -1070,17 +1146,27 @@ func landingMarkdown(b *strings.Builder, servers []string, rounds func(f string)
 					}
 				}
 			}
+			allowed := "-"
+			var c ExpectedCell
+			for _, x := range rs {
+				if x.Expected != nil {
+					c = c.Sum(x.Expected.Groups[g])
+				}
+			}
+			if c.Docs > 0 {
+				allowed = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
+			}
 			share := "-"
 			if answers > 0 {
 				share = fmt.Sprintf("%.1f%%", 100*float64(memo)/float64(answers))
 			}
-			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d (%s) | %d | %d |\n", BrowseLabel(f), landingLabels[g], answers, memo, share, shared, vm))
+			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d (%s) | %d | %d | %s |\n", BrowseLabel(f), landingLabels[g], answers, memo, share, shared, vm, allowed))
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nThe documents of the landings of the storefront that Tifa answered, by the parameter their URL carries, over the rounds. A click id (`gclid`, `fbclid`, `msclkid`) is different for every click and an email parameter (`_kx`, `mc_eid`) for every recipient, and neither is part of the page, so the three groups ask for the same pages and should be answered alike. Only the documents of the storefront count (the back office has no landings with a parameter), and the warm-up is left out.\n\n| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM |\n| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nThe documents of the landings of the storefront that Tifa answered, by the parameter their URL carries, over the rounds. A click id (`gclid`, `fbclid`, `msclkid`) is different for every click and an email parameter (`_kx`, `mc_eid`) for every recipient, and neither is part of the page, so the three groups ask for the same pages and should be answered alike. Only the documents of the storefront count (the back office has no landings with a parameter), and the warm-up is left out. The last column is the hit rate the plans allow for the group (a landing parameter is no part of the page, so it is the same for the three).\n\n| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
@@ -1160,7 +1246,10 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 	}
 	b.WriteString("\nThe old URLs are 404 pages of the shop that every server answers with a 404, but not with the same work: Next.js answers an old URL with an error document and renders no page for it on the server (the browser would draw it from the payload, and a crawler runs no script), and the other three servers render a whole page for it, which the body of an old URL above shows. Real deployments of Next.js answer so, and it is measured as shipped, as the compression of TanStack Start is. The old URLs are 5% of the crawler requests, about 0.45% of all the HTML requests.\n")
 	// How Tifa answered them, by what they ask for: the set, the language and the kind of URL.
-	type tally struct{ answers, memo, shared, vm int }
+	type tally struct {
+		answers, memo, shared, vm int
+		why                       map[string]int
+	}
 	var rows []string
 	for _, f := range servers {
 		if !isTifa(f) {
@@ -1175,7 +1264,10 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				parts := strings.Split(key, "|")
 				for _, dim := range parts {
 					if by[dim] == nil {
-						by[dim] = &tally{}
+						by[dim] = &tally{why: map[string]int{}}
+					}
+					for w, n := range x.Crawler.Why[key] {
+						by[dim].why[w] += n
 					}
 					for how, n := range hows {
 						by[dim].answers += n
@@ -1191,16 +1283,30 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				}
 			}
 		}
+		// What the plans allow, summed over the rounds: by kind of URL, and for U as the kinds together.
+		allowed := map[string]ExpectedCell{}
+		for _, x := range r.cellRounds(f, sc.Name, sessions) {
+			if x.Expected != nil {
+				for k, c := range x.Expected.Crawlers {
+					allowed[k] = allowed[k].Sum(c)
+				}
+			}
+		}
+		allowed["U"] = Total(allowed)
 		for _, dim := range slices.Concat([]string{"U", "O"}, StoreLangs, crawlerKinds) {
 			if t := by[dim]; t != nil && t.answers > 0 {
-				rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d (%.1f%%) | %d | %d |\n", BrowseLabel(f), dim, t.answers, t.memo, 100*float64(t.memo)/float64(t.answers), t.shared, t.vm))
+				cell := "-"
+				if c := allowed[dim]; c.Docs > 0 {
+					cell = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
+				}
+				rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d (%.1f%%) | %d | %d | %s | %d | %d | %d |\n", BrowseLabel(f), dim, t.answers, t.memo, 100*float64(t.memo)/float64(t.answers), t.shared, t.vm, cell, t.why[RenderFirst], t.why[RenderChanged], t.why[RenderSame]))
 			}
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nHow Tifa answered the crawler requests (`X-Tifa-Render` on the documents), by the set they were drawn from (U or O, the old URLs, which are 404 pages that the memo does not keep), by language and by kind of URL, over the rounds. A crawler request is asked once and has no cookie and no click behind it, so a hit here is a page that a visitor or an earlier crawler request had made:\n\n| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |\n| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nHow Tifa answered the crawler requests (`X-Tifa-Render` on the documents), by the set they were drawn from (U or O, the old URLs, which are 404 pages that the memo does not keep), by language and by kind of URL, over the rounds. A crawler request is asked once and has no cookie and no click behind it, so a hit here is a page that a visitor or an earlier crawler request had made. The plans allow column is the share of the documents of crawlers (the old URLs are not in it) whose page was asked for before, by a visitor or a crawler request, with the same data, as for people (see the expected hit rate in the method), and the last three columns split the renders in a VM by the class the plans give the document (a kind of URL also counts the old URLs, which the plans leave out):\n\n| | answers by | answers | from the memo | shared a render in progress | rendered in a VM | the plans allow from the memo | VM: URL not seen before | VM: URL seen, data changed | VM: URL seen, data the same |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}

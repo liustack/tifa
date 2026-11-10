@@ -275,6 +275,10 @@ type runner struct {
 	// (visits prepared to prepared+warm-1, warmUp), and the data is made for them too: 0 for a run
 	// with no warm-up (a sizing run).
 	prepared, warm int
+	// deps are the products each page shows (store_deps.json), which the expected hit rate of a round of Tifa
+	// is worked out from, and expect is that count for the round being played: the class of each document.
+	deps   *StoreDeps
+	expect *Expectation
 	// restocked is the stock the restock gave each product of the storefront it raised, by slug, set
 	// before the clock (prepare). An edit of the stock sets more than that (productChange).
 	restocked map[string]int
@@ -332,7 +336,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}, landing: map[string]map[string]int{}, crawl: crawlCounts{statuses: map[string]int{}, renders: map[string]map[string]int{}}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}, landing: map[string]map[string]int{}, crawl: crawlCounts{statuses: map[string]int{}, renders: map[string]map[string]int{}, why: map[string]map[string]int{}}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -369,6 +373,8 @@ func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond)
 // background work.
 type visitState struct {
 	client *http.Client
+	// seq is the number of the visit in the sequence of visits.
+	seq int
 	// landing is what the visit puts in place of the placeholder of its landing parameter in every
 	// request it sends (landingSub).
 	landing landingSub
@@ -566,7 +572,11 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 			if a.vmWhy[kind] == nil {
 				a.vmWhy[kind] = map[string]int{}
 			}
-			a.vmWhy[kind][renderWhy(kind, seen, cart)]++
+			why := renderWhy(kind, seen, cart)
+			if class, ok := r.expect.humanClass(v.seq); ok && q.Class == "doc" && !privateKind(kind) && page == r.wl.planFor(v.seq).Steps[0].Page {
+				why = docWhy(class)
+			}
+			a.vmWhy[kind][why]++
 		}
 	}
 	if q.Class == "prefetch" {
@@ -703,7 +713,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	} else {
 		jar, _ = cookiejar.New(nil)
 	}
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), landing: landingFor(r.seed, seq, plan)}
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), landing: landingFor(r.seed, seq, plan), seq: seq}
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()
