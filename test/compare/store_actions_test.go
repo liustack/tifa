@@ -172,10 +172,13 @@ func TestEveryBlockPlansTheSearchesFiltersSortsAndPagesByQuota(t *testing.T) {
 	}
 }
 
-// The lengths of the visits and where they land are drawn before anything a visit does with the list,
-// so they are what they were before the visits searched: the same lengths, landings of the same kind
-// in the same language, visit by visit, as the plans of the same seed with no search and no filter.
-func TestTheSearchesAndFiltersLeaveTheLengthsAndTheLandingsAsTheyWere(t *testing.T) {
+// The length of each visit, its language and the kind of page it lands on are drawn before anything
+// a visit does with the list, so each visit has the ones it had before the visits searched, for the
+// same seed. That is all this compares: those three of every shopper visit, by its number. The page a
+// visit lands on (which product, which list), whether it is a returning visitor and which visits
+// write are drawn in another order than before and are other ones: their numbers in a block are the
+// quotas, which TestSitePlanSetHasTheMixInEveryBlock checks.
+func TestEveryVisitKeepsItsLengthItsLanguageAndItsKindOfLanding(t *testing.T) {
 	// The lengths of block 0 of seed 1 as they were before the searches, and a hash of the length, the
 	// language and the kind of landing of every shopper visit of two blocks of three seeds, both taken
 	// from the plans the generator made before it dealt searches.
