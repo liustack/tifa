@@ -29,7 +29,10 @@ import (
 //
 // A search draws its word by its class first and then within the class (drawSearchTerm): the class by
 // the quota of the mix (SearchNoResultShare, SearchUniqueShare), the word by a Zipf law of exponent
-// SearchZipf over the words of the class, ranked in the order the catalogue first has them. So the
+// SearchZipf over the words of the class, ranked in the order the catalogue first has them. The rank
+// is an assumption: the order of the catalogue is not how often a word is searched for, and the rule
+// for Chinese names puts their cut-off endings high, such as 冲壶 and 记本, which a shopper would
+// hardly type. So the
 // share of the searches that find nothing is the quota, however many of the words of the list find
 // nothing: filling a list with misspellings makes more such words and not more such searches.
 

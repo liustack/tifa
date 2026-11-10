@@ -103,7 +103,8 @@ const (
 	EditPriceShare = 0.5
 	// SearchZipf is the exponent of the popularity of the search words of a language: the word of rank k
 	// is searched for about 1/k^s as often as the first, ranked in the order the catalogue first has them
-	// (store_terms.go). An assumption: the searches of a shop follow a power law with a long tail (at Best
+	// (store_terms.go), which is an assumption too: the order of the catalogue is not how often a word is
+	// searched for. An assumption: the searches of a shop follow a power law with a long tail (at Best
 	// Buy over 80% of the distinct queries were searched 3 times or fewer in 6 months, arXiv 2505.01946,
 	// https://arxiv.org/html/2505.01946v1), and no exponent was found.
 	SearchZipf = 1.0
@@ -753,7 +754,7 @@ func MixFacts() []MixFact {
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
 		{"SearchZipf", "exponent of the popularity of the search words of a language, ranked in the order the catalogue first has them", strconv.FormatFloat(SearchZipf, 'f', -1, 64),
-			"assumption: the searches of a shop follow a power law with a long tail (Best Buy: over 80% of the distinct queries searched 3 times or fewer in 6 months, arXiv 2505.01946, https://arxiv.org/html/2505.01946v1), and no exponent was found"},
+			"assumption: the searches of a shop follow a power law with a long tail (Best Buy: over 80% of the distinct queries searched 3 times or fewer in 6 months, arXiv 2505.01946, https://arxiv.org/html/2505.01946v1), and no exponent was found. The rank of a word is an assumption too: the order of the catalogue is not how often a word is searched for, and the rule for Chinese names ranks their cut-off endings high (冲壶, 记本), which a shopper would hardly type"},
 		{"SearchTermsMin", "fewest search words of a language, made from the catalogue (the names, the tags, the materials, the categories and the colours), and filled to this number with misspellings that find nothing", searchTermCounts(SearchTermsMin), "assumption for a shop of 150 products: no data on the distinct words a small shop is searched for"},
 		{"SearchTermsMax", "most search words of a language", strconv.Itoa(SearchTermsMax), "assumption, as above"},
 		{"SearchNoResultShare", "searches that find nothing, whatever the share of the words of a list that find nothing: the class of a search is dealt by this quota, and its word is drawn within the class", pct(SearchNoResultShare),
