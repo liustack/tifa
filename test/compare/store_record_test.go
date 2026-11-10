@@ -40,9 +40,9 @@ func recordEnv(t *testing.T) Env {
 
 // actSample picks a few plans of a set that between them do every act a plan can hold, the shortest
 // plan for each: a search for a word of the list (which has variants) in each language, a search for a
-// word of the visit's own, a filter by a plain link of each part of the list, the form with one
-// condition, with a price and another condition and with three, a sort, the next page once and twice,
-// and a filter and a sort after a search.
+// word of the visit's own with a page after it, a filter by a plain link of each part of the list, the
+// form with one condition, with a price and another condition and with three, a sort, the next page
+// once and twice, and a filter and a sort after a search.
 func actSample(set PlanSet) []int {
 	has := func(p Plan, ok func(PlanStep) bool) bool { return slices.ContainsFunc(p.Steps, ok) }
 	conds := func(s PlanStep) []PlanCondition { return conditionsOf(s.Set) }
@@ -50,7 +50,8 @@ func actSample(set PlanSet) []int {
 		func(p Plan) bool { return len(p.Variants) > 0 && langOf(p.Steps[0].Page) == "en-US" },
 		func(p Plan) bool { return len(p.Variants) > 0 && langOf(p.Steps[0].Page) == "zh-CN" },
 		func(p Plan) bool {
-			return has(p, func(s PlanStep) bool { return s.Term == SearchPlaceholder }) && len(p.Steps) > 2
+			at := slices.IndexFunc(p.Steps, func(s PlanStep) bool { return s.Term == SearchPlaceholder })
+			return at > 0 && at < len(p.Steps)-1
 		},
 		func(p Plan) bool {
 			return has(p, func(s PlanStep) bool { return s.Act == ActFilter && s.Part == ListPartCategory })
@@ -296,6 +297,7 @@ func TestStorefrontEveryServerFindsNothingForTheWordOfAVisit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(server.Stop)
 		played := 0
 		for _, tr := range traces[fw] {
 			plan := planForm(plans[tr.Plan], tr.Variant)
