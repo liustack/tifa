@@ -19,10 +19,41 @@ const (
 	StepClick = "click"
 )
 
-// PlanStep is one page view: how the visitor got to it and the page it shows.
+// The acts of a page view after the landing: what the visitor does on the page on screen to get to
+// the next page. The recorder does the same in a browser, so each says which control of the page it
+// uses, and the browser makes of it what the page does: a client navigation or a document load.
+const (
+	// ActLink is a click on a link to the page, the first one the page shows.
+	ActLink = "link"
+	// ActSearch types Term into the search box of the header and sends it. The box is a plain form, so
+	// the browser loads a document.
+	ActSearch = "search"
+	// ActFilter clicks the plain link of a product list that adds the one condition of Set, in the part
+	// of the page Part names: the category bar, the quick filters or the price bands. A document load.
+	ActFilter = "filter"
+	// ActForm sets the conditions of Set in the form of the sidebar of a product list and applies it:
+	// one condition no plain link sets, or two or three at once. The router of the page takes it.
+	ActForm = "form"
+	// ActSort picks the sort Sort in the sort box of a product list, which the router takes.
+	ActSort = "sort"
+	// ActPage clicks the link to the next page of a product list, a plain link: a document load.
+	ActPage = "page"
+)
+
+// PlanStep is one page view: how the visitor got to it and the page it shows. Kind is the step of the
+// plan, a landing (StepLoad) or an action on the page on screen (StepClick), and Act says what the
+// action is, with what it needs: the part of the list that holds the link, the word of a search, the
+// conditions of a filter, the sort.
 type PlanStep struct {
 	Kind string `json:"kind"`
 	Page string `json:"page"` // the URL path
+	Act  string `json:"act,omitempty"`
+	Part string `json:"part,omitempty"`
+	Term string `json:"term,omitempty"`
+	// Set is the conditions a filter adds, each a kind and a value, written "category:drinkware,colour:moss"
+	// (conditionsOf).
+	Set  string `json:"set,omitempty"`
+	Sort string `json:"sort,omitempty"`
 }
 
 // Plan is one visit. Block is the block it belongs to. Role says who makes it: a shopper on the
@@ -37,6 +68,10 @@ type Plan struct {
 	Returning bool        `json:"returning,omitempty"`
 	Writes    []PlanWrite `json:"writes,omitempty"`
 	Steps     []PlanStep  `json:"steps"`
+	// Variants are the other forms of a visit that searches for a word of the list: the same visit with
+	// another word, and the pages after the search as the list of that word leads to them (store_actions.go).
+	// Each is a whole visit, and with Steps they are PlanVariants. The writes are the same for all.
+	Variants [][]PlanStep `json:"variants,omitempty"`
 }
 
 // PlanWrite is a write of a shopper visit after its page view After (counted from 0).
@@ -170,12 +205,11 @@ type PlannedWrite struct {
 	Store   *StoreRequest
 }
 
-// quota deals n items of the kinds out by their shares: each kind gets its share of n rounded down,
-// and the rest go to the kinds with the largest remainders (the earlier kind on a tie). The result
-// is in a seeded shuffle.
-func quota(rng *rand.Rand, n int, kinds []string, shares []float64) []string {
-	counts := make([]int, len(kinds))
-	rest := make([]float64, len(kinds))
+// quotaCounts is how many of n items each share gets: its share of n rounded down, and the rest to the
+// shares with the largest remainders (the earlier one on a tie).
+func quotaCounts(n int, shares []float64) []int {
+	counts := make([]int, len(shares))
+	rest := make([]float64, len(shares))
 	left := n
 	for i, s := range shares {
 		x := float64(n) * s
@@ -193,6 +227,14 @@ func quota(rng *rand.Rand, n int, kinds []string, shares []float64) []string {
 		counts[best]++
 		rest[best] = -1
 	}
+	return counts
+}
+
+// quota deals n items of the kinds out by their shares: each kind gets its share of n rounded down,
+// and the rest go to the kinds with the largest remainders (the earlier kind on a tie). The result
+// is in a seeded shuffle.
+func quota(rng *rand.Rand, n int, kinds []string, shares []float64) []string {
+	counts := quotaCounts(n, shares)
 	var out []string
 	for i, k := range kinds {
 		for range counts[i] {

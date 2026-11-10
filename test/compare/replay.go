@@ -186,6 +186,7 @@ func (w *Workload) plan(r *Round, seq0, n int) {
 		r.ClicksPlanned += c.Clicks
 		m.Shoppers, m.Staff, m.ShopperViews, m.Returning = m.Shoppers+c.Shoppers, m.Staff+c.Staff, m.ShopperViews+c.ShopperViews, m.Returning+c.Returning
 		m.ClickIDs, m.EmailParams = m.ClickIDs+c.ClickIDs, m.EmailParams+c.EmailParams
+		m.ActionCounts.Add(p)
 		// NewWorkload made sure every plan of a cycle has the trace of its page views. A workload made by
 		// hand may have none, and has no mix.
 		if docs, err := w.docSteps(p); err == nil {

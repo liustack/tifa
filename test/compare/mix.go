@@ -101,7 +101,88 @@ const (
 	// EditPriceShare is the share of the edits of a product that change its price. The others change
 	// its stock. An assumption.
 	EditPriceShare = 0.5
+	// SearchZipf is the exponent of the popularity of the search words of a language: the word of rank k
+	// is searched for about 1/k^s as often as the first, ranked in the order the catalogue first has them
+	// (store_terms.go), which is an assumption too: the order of the catalogue is not how often a word is
+	// searched for. An assumption: the searches of a shop follow a power law with a long tail (at Best
+	// Buy over 80% of the distinct queries were searched 3 times or fewer in 6 months, arXiv 2505.01946,
+	// https://arxiv.org/html/2505.01946v1), and no exponent was found.
+	SearchZipf = 1.0
+	// SearchTermsMin and SearchTermsMax are the fewest and the most search words of a language. An
+	// assumption for a shop of 150 products: no data on how many distinct words a small shop is searched
+	// for was found. A list the catalogue leaves short of the fewest is filled with misspellings.
+	SearchTermsMin = 300
+	SearchTermsMax = 500
+	// SearchNoResultShare is the share of the searches that find nothing. An assumption: 10% to 15% is
+	// the figure most often given (Hello Retail, https://helloretail.com/en/blog/2026-02-24-ecommerce-search-statistics/,
+	// which names no source for it), and no sample that can be checked was found. The low end, for a
+	// small catalogue.
+	SearchNoResultShare = 0.10
+	// SearchUniqueShare is the share of the searches whose word no other visit searches for: a model
+	// number, a word with digits, a misspelt sentence. Such a word finds nothing in this shop, so these
+	// are among the searches of SearchNoResultShare, and the rest of those search for a word of the list
+	// that finds nothing. An assumption, from one account of a shop where random tail queries with numbers
+	// were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only).
+	SearchUniqueShare = 0.05
+	// SearchUniqueLength is the characters of a search word of a visit's own, lower case letters and
+	// digits: two letters that no name and no tag of the catalogue has, so that the word finds nothing,
+	// and eight that write the number of the visit, one-to-one (uniqueTerm in store_terms.go). An
+	// assumption: no data on the shape of such words was found.
+	SearchUniqueLength = 10
+	// SearchShare is the share of the shopper visits that search, once, with the search box of the
+	// header. An assumption below the one behavioural figure found: searchers are 24% of the visitors of
+	// 113 retail sites, October to December 2024 (Constructor, "Beyond Relevance", March 2025, as
+	// reported by https://itbrief.co.uk/story/online-shopper-search-drives-44-of-ecommerce-revenue),
+	// taken lower for a shop of 150 products, whose menu is enough to find them. One search a visit is an
+	// assumption too.
+	SearchShare = 0.20
+	// ListFilterShare is the share that filter the list, of the shopper visits that see a product list,
+	// and ListSortShare the share of them that change its sort. Assumptions: the ranges that are
+	// published for the use of filters (20% to 60%) name no source that can be checked, and nothing was
+	// found on sorting.
+	ListFilterShare = 0.25
+	ListSortShare   = 0.10
+	// ListActionsPerVisit is how many of the three a visit does with the product lists it is on, a
+	// filter, a change of the sort and going to a next page: one at most. So no visit sorts or pages a
+	// list after it filtered one, and none pages after it sorted: the shares of those are 0, where real
+	// visitors do some of each. An assumption: nothing was found on how the three go together, and one
+	// at most lets each quota come out exact in every block.
+	ListActionsPerVisit = 1
 )
+
+// The kinds of condition a filter of the product list sets.
+const (
+	FilterPrice    = "price"
+	FilterCategory = "category"
+	FilterRating   = "rating"
+	FilterStock    = "stock"
+	FilterColor    = "colour"
+	FilterMaterial = "material"
+	FilterBadge    = "badge"
+)
+
+// FilterConditionShares are the shares of the filters that set one, two and three conditions. An
+// assumption: no data on how many filters a visit uses was found.
+var FilterConditionShares = []float64{0.60, 0.30, 0.10}
+
+// FilterKinds are the kinds of condition with the relative weight each is chosen by. Assumptions: no
+// data on which filters are used most was found, and the order (price and category first, then rating
+// and stock, then colour, material and badge) is a judgment. A condition on the price is one of the
+// four price bands of the page, never a range typed by hand.
+var FilterKinds = []struct {
+	Kind   string
+	Weight float64
+}{{FilterPrice, 25}, {FilterCategory, 25}, {FilterRating, 12.5}, {FilterStock, 12.5}, {FilterColor, 8.3}, {FilterMaterial, 8.3}, {FilterBadge, 8.3}}
+
+// ListPageShares are the shares that stay on the first page, see the second and no deeper, and see the
+// third or deeper, of the shopper visits that see a product list of more than one page with no search
+// term: the deepest page a visit sees, however it got there, so a landing on a second page counts. From
+// Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go
+// to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, which says
+// neither when nor how it was counted), rounded. The figure is of search results, and it is used on
+// the lists with no search term because a search of this shop never has a second page: no word finds
+// more products than a page holds.
+var ListPageShares = []float64{0.90, 0.09, 0.01}
 
 // EditPriceFen is the lowest and the highest price an edit of a price sets, in fen, in whole yuan, and
 // EditDelivery the fewest and the most pieces an edit of the stock sets above what the restock gave
@@ -189,10 +270,12 @@ var LandingValueLengths = map[string]int{"gclid": 95, "fbclid": 61, "msclkid": 3
 // product, on a product looks at a related one, goes back to the list, to the cart or to the
 // checkout (the link of the cart drawer), and from the cart to the checkout. A kind the page has no
 // link to is left out, and the rest count for the whole. Among the links of a kind, a product is
-// picked by its popularity (productWeight), any other page alike.
+// picked by its popularity (productWeight), any other page alike. A list has no weight for a link to
+// another list: a visit gets from a list to a list by a filter, a sort, a page or a search, which are
+// dealt by quota (store_actions.go), and a click that did the same would count them twice.
 var StoreClicks = map[string]map[string]float64{
 	StoreKindHome:     {StoreKindList: 0.3, StoreKindProduct: 0.4, StoreKindJournal: 0.15, StoreKindCart: 0.1, StoreKindPost: 0.05},
-	StoreKindList:     {StoreKindProduct: 0.7, StoreKindList: 0.1, StoreKindHome: 0.1, StoreKindCart: 0.1},
+	StoreKindList:     {StoreKindProduct: 0.7, StoreKindHome: 0.1, StoreKindCart: 0.1},
 	StoreKindProduct:  {StoreKindProduct: 0.3, StoreKindList: 0.25, StoreKindCart: 0.25, StoreKindCheckout: 0.1, StoreKindHome: 0.1, StoreKindJournal: 0.1},
 	StoreKindJournal:  {StoreKindPost: 0.7, StoreKindHome: 0.15, StoreKindList: 0.15},
 	StoreKindPost:     {StoreKindJournal: 0.4, StoreKindProduct: 0.3, StoreKindHome: 0.15, StoreKindList: 0.15},
@@ -226,8 +309,9 @@ var LandingShares = []struct {
 }{{StoreKindHome, 0.30}, {StoreKindList, 0.25}, {StoreKindProduct, 0.45}}
 
 // A block of the plans holds ShopperBlockVisits shopper visits, which have the mix above exactly
-// (2600 page views, 66 adds to the cart of which 13 check out, 200 returning visitors, the landing
-// pages and languages by quota), and StaffBlockPlans staff visits. StaffBlockPlans is not a share:
+// (4000 page views, 66 adds to the cart of which 13 check out, 200 returning visitors, the landing
+// pages and languages, the searches, the filters, the sorts and the pages of the lists by quota), and
+// StaffBlockPlans staff visits. StaffBlockPlans is not a share:
 // it is how many different staff visits are recorded. How many staff visits a cycle of the site plays
 // is the scenario's (BrowseScenario.Staff).
 const (
@@ -292,6 +376,11 @@ func visitLengths(rng *rand.Rand, n, most, total int, more float64) []int {
 // AddToCartShare among the visits that see a product add to the cart after the first product they see.
 // ReturningShare of the visits are returning visitors.
 //
+// Besides clicking links a shopper visit searches, and filters, sorts and pages the product lists it
+// is on, by the quotas of the mix (SearchShare, ListFilterShare, ListSortShare, ListPageShares): the
+// order they are dealt in, and why it makes the quotas exact, is at the top of store_actions.go. The
+// lengths and the landings are drawn first, so they do not depend on any of it.
+//
 // A staff visit is 1 to StaffViewsMax page views of the back office, StaffViewsMean on average
 // exactly, landing on a list or a stats page for half of them and on an order for the other half, and
 // clicking the links every page of the back office has (Links).
@@ -349,11 +438,20 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			default:
 				first = pages[rng.IntN(len(pages))]
 			}
-			steps := []PlanStep{{StepLoad, first}}
-			for len(steps) < lens[i] {
-				steps = append(steps, PlanStep{StepClick, pick(rng, StoreLinks(steps[len(steps)-1].Page))})
-			}
+			steps := make([]PlanStep, lens[i])
+			steps[0] = PlanStep{Kind: StepLoad, Page: first}
 			shoppers = append(shoppers, Plan{ID: b*SiteBlockPlans + i, Block: b, Role: RoleShopper, Steps: steps})
+		}
+		// The searches, by quota, among the visits with a page view after the landing, in a shuffle of
+		// their own: which visits, at which page view, and their words, those of the variants too, all
+		// dealt here before any page view is walked (dealSearches).
+		visits := make([]*draftVisit, ShopperBlockVisits)
+		for i, deal := range dealSearches(seed, b, lens, ls) {
+			visits[i] = newDraft(&shoppers[i], deal)
+		}
+		// The page views: the searches where they were dealt, and clicks on the links of the page before.
+		for _, d := range visits {
+			d.rewalk(rng, 1)
 		}
 		// The writes: the visits that can check out (a product, then the checkout) and the ones that can
 		// add to the cart (a product), in a seeded shuffle.
@@ -368,27 +466,33 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		}
 		checkouts, adds := share(CheckoutShare), share(AddToCartShare)
 		// A visit that checks out walks again, from the same page and for as many page views, until it
-		// sees a product and later the checkout: it can when it lands on a product and has two page
-		// views or more (the product, then the checkout from the cart drawer), or has three or more.
+		// sees a product and later the checkout. Its search stays where it is, so it needs the page views
+		// besides: one after a product it lands on (the product, then the checkout from the cart drawer),
+		// or two. A visit whose search leaves no such walk (the checkout cannot follow a list) is passed
+		// over after 2,000 tries, and the next of the shuffle is taken.
 		for _, i := range order {
-			p := &shoppers[i]
+			p, d := &shoppers[i], visits[i]
 			if checkouts == 0 {
 				break
 			}
-			if _, k := StorePageKind(p.Steps[0].Page); len(p.Steps) < 2 || len(p.Steps) == 2 && k != StoreKindProduct {
+			free := len(p.Steps) - 1
+			if d.search >= 0 {
+				free--
+			}
+			if _, k := StorePageKind(p.Steps[0].Page); free < 1 || free == 1 && k != StoreKindProduct {
 				continue
 			}
 			walk := rand.New(rand.NewPCG(seed^0xbb67ae8584caa73b, uint64(b)<<20|uint64(i)))
-			for try := 0; ; try++ {
+			kept := d.keep()
+			for try := 0; try < 2000; try++ {
 				if at := kindAt(*p, StoreKindProduct, 0); at >= 0 && kindAt(*p, StoreKindCheckout, at+1) >= 0 {
 					break
 				}
-				if try == 100_000 {
-					panic(fmt.Sprintf("block %d of seed %d: visit %d found no walk to the checkout", b, seed, i))
-				}
-				for j := 1; j < len(p.Steps); j++ {
-					p.Steps[j].Page = pick(walk, StoreLinks(p.Steps[j-1].Page))
-				}
+				d.rewalk(walk, 1)
+			}
+			if at := kindAt(*p, StoreKindProduct, 0); at < 0 || kindAt(*p, StoreKindCheckout, at+1) < 0 {
+				d.put(kept)
+				continue
 			}
 			if at := kindAt(*p, StoreKindProduct, 0); at >= 0 {
 				if out := kindAt(*p, StoreKindCheckout, at+1); out >= 0 {
@@ -399,6 +503,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 						}
 					}
 					p.Writes = []PlanWrite{{at, WriteAdd}, {out, WriteCheckout}}
+					d.locked = out
 					checkouts--
 					adds--
 				}
@@ -411,6 +516,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			}
 			if at := kindAt(*p, StoreKindProduct, 0); at >= 0 && len(p.Writes) == 0 {
 				p.Writes = []PlanWrite{{at, WriteAdd}}
+				visits[i].locked = at
 				adds--
 			}
 		}
@@ -420,7 +526,15 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		for _, i := range rng.Perm(ShopperBlockVisits)[:share(ReturningShare)] {
 			shoppers[i].Returning = true
 		}
+		// The filters, the sorts and the pages of the lists, by quota, in a shuffle of their own, then the
+		// landing parameters, and last the plans get their variants, which were walked with them.
+		if err := planListActions(rand.New(rand.NewPCG(seed^0x9b05688c2b3e6c1f, uint64(b))), visits); err != nil {
+			panic(fmt.Sprintf("block %d of seed %d: %v", b, seed, err))
+		}
 		putLandingParams(seed, b, shoppers)
+		for _, d := range visits {
+			d.finish()
+		}
 		set.Plans = append(set.Plans, shoppers...)
 		// The staff: half of the visits land on a list or a stats page, half on an order.
 		slens := visitLengths(rng, StaffBlockPlans, StaffViewsMax, StaffViewsMean*StaffBlockPlans, StaffViewsMore)
@@ -435,9 +549,9 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 			if firsts[i] == "order" {
 				pages = orders
 			}
-			steps := []PlanStep{{StepLoad, pages[rng.IntN(len(pages))]}}
+			steps := []PlanStep{{Kind: StepLoad, Page: pages[rng.IntN(len(pages))]}}
 			for len(steps) < slens[i] {
-				steps = append(steps, PlanStep{StepClick, pick(rng, Links(steps[len(steps)-1].Page))})
+				steps = append(steps, linkStep(pick(rng, Links(steps[len(steps)-1].Page))))
 			}
 			set.Plans = append(set.Plans, Plan{ID: b*SiteBlockPlans + ShopperBlockVisits + i, Block: b, Role: RoleStaff, Steps: steps})
 		}
@@ -511,6 +625,35 @@ func (c *PlanCounts) Add(p Plan) {
 // as the plans use it, and where it comes from.
 type MixFact struct {
 	Name, What, Value, Source string
+}
+
+// searchTermCounts writes the fewest words of a list with the lists as they are: the words of each
+// language, those that find a product and those that find nothing.
+func searchTermCounts(fewest int) string {
+	out := strconv.Itoa(fewest)
+	for _, l := range StoreLangs {
+		t := StoreSearchTerms()[l]
+		out += fmt.Sprintf(". %s has %d: %d find a product and %d find nothing, %d of them misspellings", l, len(t.Found)+len(t.None), len(t.Found), len(t.None), t.Misspelt)
+	}
+	return out
+}
+
+// sharesOf writes shares as percents, in order.
+func sharesOf(shares []float64) string {
+	out := make([]string, len(shares))
+	for i, s := range shares {
+		out[i] = strconv.FormatFloat(math.Round(s*1e4)/100, 'f', -1, 64) + "%"
+	}
+	return strings.Join(out, ", ")
+}
+
+// filterKinds writes the kinds of condition with their weights, in order.
+func filterKinds() string {
+	out := make([]string, len(FilterKinds))
+	for i, k := range FilterKinds {
+		out[i] = k.Kind + " " + strconv.FormatFloat(k.Weight, 'f', -1, 64)
+	}
+	return strings.Join(out, ", ")
 }
 
 // MixFacts are the numbers of the mix of mix.go, with their sources, for the report. Each value is
@@ -610,6 +753,25 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
+		{"SearchZipf", "exponent of the popularity of the search words of a language, ranked in the order the catalogue first has them", strconv.FormatFloat(SearchZipf, 'f', -1, 64),
+			"assumption: the searches of a shop follow a power law with a long tail (Best Buy: over 80% of the distinct queries searched 3 times or fewer in 6 months, arXiv 2505.01946, https://arxiv.org/html/2505.01946v1), and no exponent was found. The rank of a word is an assumption too: the order of the catalogue is not how often a word is searched for, and the rule for Chinese names ranks their cut-off endings high (冲壶, 记本), which a shopper would hardly type"},
+		{"SearchTermsMin", "fewest search words of a language, made from the catalogue (the names, the tags, the materials, the categories and the colours), and filled to this number with misspellings that find nothing", searchTermCounts(SearchTermsMin), "assumption for a shop of 150 products: no data on the distinct words a small shop is searched for"},
+		{"SearchTermsMax", "most search words of a language", strconv.Itoa(SearchTermsMax), "assumption, as above"},
+		{"SearchNoResultShare", "searches that find nothing, whatever the share of the words of a list that find nothing: the class of a search is dealt by this quota, and its word is drawn within the class", pct(SearchNoResultShare),
+			"assumption: 10% to 15% is the figure most often given (Hello Retail, https://helloretail.com/en/blog/2026-02-24-ecommerce-search-statistics/, which names no source), with no sample that can be checked. The low end, for a small catalogue"},
+		{"SearchUniqueShare", "searches for a word that no other visit searches for, which finds nothing: they are among the searches that find nothing, and the rest of those search for a word of the list", pct(SearchUniqueShare),
+			"assumption, from one account of a shop where random tail queries with numbers were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only)"},
+		{"SearchUniqueLength", "characters of a search word of a visit's own, lower case letters and digits: two letters that no name and no tag of the catalogue has, so that the word finds nothing by how it is made, and eight that write the number of the visit, one-to-one", strconv.Itoa(SearchUniqueLength), "assumption: no data on the shape of such words"},
+		{"SearchShare", "shopper visits that search, once, with the search box of the header", pct(SearchShare),
+			"assumption below the one behavioural figure found: searchers are 24% of the visitors of 113 retail sites, October to December 2024 (Constructor, \"Beyond Relevance\", March 2025, as reported by https://itbrief.co.uk/story/online-shopper-search-drives-44-of-ecommerce-revenue), taken lower for a shop of 150 products. One search a visit is an assumption too"},
+		{"ListFilterShare", "shopper visits that filter the list, of those that see a product list", pct(ListFilterShare), "assumption: the published ranges for the use of filters (20% to 60%) name no source that can be checked"},
+		{"FilterConditionShares", "filters that set one, two and three conditions", sharesOf(FilterConditionShares), "assumption: no data on how many filters a visit uses"},
+		{"FilterKinds", "kinds of condition of a filter, as relative weights. A condition on the price is one of the four price bands of the page, never a range typed by hand", filterKinds(), "assumption: no data on which filters are used most, and the order is a judgment"},
+		{"ListActionsPerVisit", "most of the three a shopper visit does with the product lists it is on: a filter, a change of the sort, going to a next page (the two page actions of a visit that goes to a third page count as one). So no visit sorts or pages a list after it filtered one, and none pages after it sorted: the share of those is 0", strconv.Itoa(ListActionsPerVisit),
+			"assumption: nothing was found on how filters, sorts and pages go together, and real visitors do some of each. One at most lets each quota come out exact in every block"},
+		{"ListSortShare", "shopper visits that change the sort of the list, of those that see a product list, to one of the four sorts that are not the default, all alike", pct(ListSortShare), "assumption: nothing was found on sorting"},
+		{"ListPageShares", "shopper visits that stay on the first page, see the second and no deeper, and see the third or deeper, of those that see a product list of more than one page with no search term. It is the deepest page a visit sees, so a visit that lands on a second page counts with those that go there", sharesOf(ListPageShares),
+			"Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, with no date and no method), rounded. The figure is of search results, and it is used on the lists with no search term because a search of this shop never has a second page"},
 		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
 		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},

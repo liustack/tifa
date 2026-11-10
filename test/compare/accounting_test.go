@@ -52,16 +52,24 @@ func TestTheMixOfTheSiteIsChecked(t *testing.T) {
 		t.Fatalf("three blocks: %s", why)
 	}
 	for name, mod := range map[string]func(*PlannedMix){
-		"staff":          func(m *PlannedMix) { m.Staff += m.Staff/2 + 1 },
-		"page views":     func(m *PlannedMix) { m.ShopperViews += m.ShopperViews / 50 },
-		"returning":      func(m *PlannedMix) { m.Returning += m.Shoppers / 100 },
-		"adds":           func(m *PlannedMix) { m.Adds += m.Shoppers / 200 },
-		"checkouts":      func(m *PlannedMix) { m.Checkouts -= m.Checkouts / 2 },
-		"edits":          func(m *PlannedMix) { m.Edits += m.Staff / 10 },
-		"ships":          func(m *PlannedMix) { m.Ships = 0 },
-		"shopper visits": func(m *PlannedMix) { m.Shoppers = 0 },
-		"crawlers":       func(m *PlannedMix) { m.Crawlers += m.Crawlers / 4 },
-		"documents":      func(m *PlannedMix) { m.Documents -= m.Documents / 5 },
+		"staff":                            func(m *PlannedMix) { m.Staff += m.Staff/2 + 1 },
+		"page views":                       func(m *PlannedMix) { m.ShopperViews += m.ShopperViews / 50 },
+		"returning":                        func(m *PlannedMix) { m.Returning += m.Shoppers / 100 },
+		"adds":                             func(m *PlannedMix) { m.Adds += m.Shoppers / 200 },
+		"checkouts":                        func(m *PlannedMix) { m.Checkouts -= m.Checkouts / 2 },
+		"edits":                            func(m *PlannedMix) { m.Edits += m.Staff / 10 },
+		"ships":                            func(m *PlannedMix) { m.Ships = 0 },
+		"shopper visits":                   func(m *PlannedMix) { m.Shoppers = 0 },
+		"crawlers":                         func(m *PlannedMix) { m.Crawlers += m.Crawlers / 4 },
+		"documents":                        func(m *PlannedMix) { m.Documents -= m.Documents / 5 },
+		"searches":                         func(m *PlannedMix) { m.Searches -= m.Searches / 10 },
+		"searches that find nothing":       func(m *PlannedMix) { m.SearchesNone += m.Searches / 20 },
+		"searches for a word of their own": func(m *PlannedMix) { m.SearchesUnique += m.Searches / 20 },
+		"filters":                          func(m *PlannedMix) { m.Filters += m.ListVisits / 20 },
+		"conditions":                       func(m *PlannedMix) { m.Conditions[0], m.Conditions[2] = m.Conditions[2], m.Conditions[0] },
+		"sorts":                            func(m *PlannedMix) { m.Sorts += m.ListVisits / 20 },
+		"second pages":                     func(m *PlannedMix) { m.SecondPages += m.PagedVisits / 20 },
+		"third pages":                      func(m *PlannedMix) { m.ThirdPages += m.PagedVisits / 50 },
 	} {
 		m := *whole.Mix
 		mod(&m)

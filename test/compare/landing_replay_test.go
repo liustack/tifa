@@ -185,7 +185,7 @@ func TestALandingParameterIsNoPartOfTheURLTheRendersAreSplitBy(t *testing.T) {
 func TestTheLandingParameterIsCheckedByItsWholeKeyAndValue(t *testing.T) {
 	ph := placeholderOf("tifa-gclid-", LandingValueLengths["gclid"])
 	page := "/store/products?sort=newest&gclid=" + ph
-	plan := Plan{ID: 7, Steps: []PlanStep{{StepLoad, page}}}
+	plan := Plan{ID: 7, Steps: []PlanStep{{Kind: StepLoad, Page: page}}}
 	trace := func(url string) Trace {
 		return Trace{Steps: []TraceStep{{Kind: StepLoad, Page: page, Reqs: []TraceReq{{Method: "GET", URL: url, Class: "doc"}}}}}
 	}

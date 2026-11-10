@@ -85,7 +85,7 @@ func newTestRunner(base string, sc BrowseScenario, traces ...Trace) *runner {
 		wl.Traces[i] = tr
 		p := Plan{ID: i}
 		for _, s := range tr.Steps {
-			p.Steps = append(p.Steps, PlanStep{s.Kind, s.Page})
+			p.Steps = append(p.Steps, PlanStep{Kind: s.Kind, Page: s.Page})
 		}
 		wl.Plans = append(wl.Plans, p)
 	}
@@ -104,7 +104,7 @@ func visitOnce(r *runner, a *acc, seq int) error {
 func onePlan(steps ...TraceStep) ([]Plan, map[int]Trace) {
 	var ps []PlanStep
 	for _, s := range steps {
-		ps = append(ps, PlanStep{s.Kind, s.Page})
+		ps = append(ps, PlanStep{Kind: s.Kind, Page: s.Page})
 	}
 	return []Plan{{ID: 0, Steps: ps}}, map[int]Trace{0: {Plan: 0, Steps: steps}}
 }
@@ -616,7 +616,17 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 			w.plan(&r, b*bv, bv)
 			m := r.Mix
 			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 4000, Returning: 200, ClickIDs: 150, EmailParams: 50, Documents: ShopperBlockVisits + tc.staff, Crawlers: tc.crawlers, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
-			if m == nil || *m != want {
+			if m == nil {
+				t.Fatalf("%s block %d of the run plans no mix", tc.name, b)
+			}
+			// What the visits do with the list is counted from the plans of the block: 200 searches, of
+			// which 20 find nothing and 10 of those have a word of their own, and the quotas of the visits
+			// that see a list, which why checks below.
+			acts := m.ActionCounts
+			if acts.Searches != 200 || acts.SearchesNone != 20 || acts.SearchesUnique != 10 || acts.ListVisits < 500 || acts.Filters == 0 || acts.Sorts == 0 || acts.SecondPages == 0 {
+				t.Fatalf("%s block %d of the run plans %+v", tc.name, b, acts)
+			}
+			if want.ActionCounts = acts; *m != want {
 				t.Fatalf("%s block %d of the run plans %+v, want %+v", tc.name, b, m, want)
 			}
 			if why := m.why(w.Scenario); why != "" {

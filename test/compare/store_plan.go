@@ -3,6 +3,7 @@ package compare
 import (
 	_ "embed"
 	"encoding/json/v2"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -105,15 +106,86 @@ var storeLinkGraph = sync.OnceValue(func() map[string][]string {
 	return g
 })
 
+// layoutLinks are the links the Layout of the storefront puts on every page of a language, from
+// store_links.json: those every page of the language has, but the page a link leads to, which the file
+// leaves out of its own links. They are sorted.
+var layoutLinks = sync.OnceValue(func() map[string][]string {
+	graph := storeLinkGraph()
+	out := map[string][]string{}
+	for _, lang := range StoreLangs {
+		pages, has := 0, map[string]int{}
+		for page, links := range graph {
+			if l, _ := StorePageKind(page); l != lang {
+				continue
+			}
+			pages++
+			for _, to := range links {
+				has[to]++
+			}
+		}
+		for to, n := range has {
+			want := pages
+			if l, _ := StorePageKind(to); l == lang && graph[to] != nil {
+				want--
+			}
+			if n == want {
+				out[lang] = append(out[lang], to)
+			}
+		}
+		slices.Sort(out[lang])
+	}
+	return out
+})
+
+// storeTargets are the pages a storefront page links to. A product list has too many URLs to crawl
+// each (a search word, any filters, a sort, a page), so its links are the ones the model of the list
+// gives the page (ModelList, with the data the shop starts with, as a browser records it) and the
+// links of the Layout, which every page has. Any other page has the links store_links.json has for it.
+func storeTargets(url string) []string {
+	lang, kind := StorePageKind(url)
+	if kind != StoreKindList {
+		return storeLinkGraph()[url]
+	}
+	var out []string
+	seen := map[string]bool{url: true}
+	add := func(to string) {
+		if !seen[to] {
+			seen[to] = true
+			out = append(out, to)
+		}
+	}
+	for _, l := range planList(url).Links() {
+		add(l.To)
+	}
+	for _, to := range layoutLinks()[lang] {
+		add(to)
+	}
+	return out
+}
+
 // StoreLinks lists the links of a storefront page that a visit can click, with weights that sum to
-// 1: the links the browser found on the page that stay in the language of the page. A landing page with
-// a parameter of an ad or an email (landing.go) has those of the page without it.
+// 1: the links of the page that stay in the language of the page (storeTargets). A landing page with
+// a parameter of an ad or an email (landing.go) has those of the page without it. From a product list
+// no link to another list has a weight (StoreClicks): a visit gets from a list to a list by a filter,
+// a sort, a page or a search, which the plans deal by quota (store_actions.go).
 func StoreLinks(url string) []Link {
 	url = stripLanding(url) // a landing page has the links of the page without its parameter
+	if links, ok := storeLinksOf.Load(url); ok {
+		return links.([]Link)
+	}
+	links := storeLinks(url)
+	storeLinksOf.Store(url, links)
+	return links
+}
+
+// storeLinksOf keeps the links of each page StoreLinks was asked for. They are not to be changed.
+var storeLinksOf sync.Map
+
+func storeLinks(url string) []Link {
 	lang, kind := StorePageKind(url)
 	var kinds []string
 	by := map[string][]string{}
-	for _, to := range storeLinkGraph()[url] {
+	for _, to := range storeTargets(url) {
 		if l, k := StorePageKind(to); l == lang && StoreClicks[kind][k] > 0 {
 			if len(by[k]) == 0 {
 				kinds = append(kinds, k)

@@ -320,11 +320,17 @@ func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
 	// every spec has one here: what a warm-up sends does not depend on the spec.
 	node.Metrics = "/metrics"
 	sc := mustScenario("shop")
+	checked := map[bool]int{}
+	defer func() {
+		if checked[false] < 3 || checked[true] != 3 {
+			t.Errorf("%d warm-ups of closed rounds and %d of open rounds compared, want one for each of the three servers at least", checked[false], checked[true])
+		}
+	}()
 	for _, open := range []bool{false, true} {
 		b, servers := warmBrowse(t, sc, tifa, nocache, node)
 		var first []string
-		for i, spec := range []Spec{tifa, nocache, node} {
-			before := len(servers())
+		for _, spec := range []Spec{tifa, nocache, node} {
+			before, tried := len(servers()), len(b.res.Closed)
 			var out *Round
 			var err error
 			if open {
@@ -335,38 +341,63 @@ func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// The first server of the round the call started (closed: the sizing runs come before).
-			var l *launched
+			// The servers of the rounds the call started, one for each try (closed: the sizing runs come
+			// before, and a try that is not valid is played again).
+			var rounds []*launched
 			for _, s := range servers()[before:] {
 				if s.spec == spec.Name && len(s.phase(3)) == 0 && len(s.phase(2)) > 0 {
-					l = s
-					break
+					rounds = append(rounds, s)
 				}
 			}
-			if l == nil {
+			if len(rounds) == 0 {
 				t.Fatalf("open %v %s: no server of a round with a warm-up", open, spec.Name)
 			}
-			warm := l.phase(1)
-			slices.Sort(warm)
-			first0, n := b.res.Prepared[sc.Name], b.res.WarmVisits[sc.Name]
-			if open {
-				first0, n = out.VisitsPlanned, out.VisitsPlanned
+			// The tries whose warm-up is compared, each with its server. An open round is one try. A closed
+			// round is sized from a short sizing run, and one sized too long for this machine has its
+			// warm-up cut off at twice the target: the server then got a part of the warm-up, and the try
+			// is played again with fewer visits. Every try whose warm-up no timeout cut off is compared,
+			// whatever its round did after: a round that was cut off or failed had the same warm-up.
+			tries := []*Round{out}
+			if !open {
+				closed := b.res.Closed[tried:]
+				if len(closed) != len(rounds) {
+					t.Fatalf("closed %s: %d tries on %d servers", spec.Name, len(closed), len(rounds))
+				}
+				all := rounds
+				tries, rounds = nil, nil
+				for k := range closed {
+					if w := closed[k].WarmUp; w != nil && !w.TimedOut {
+						tries, rounds = append(tries, &closed[k]), append(rounds, all[k])
+					}
+				}
+				if len(tries) == 0 {
+					t.Fatalf("closed %s: the warm-up of every one of the %d tries was cut off by its timeout", spec.Name, len(closed))
+				}
 			}
-			if out.WarmUp == nil || out.WarmUp.FirstVisit != first0 || out.WarmUp.VisitsPlanned != n || n == 0 {
-				t.Errorf("open %v %s: the warm-up %+v, want %d visits from %d on", open, spec.Name, out.WarmUp, n, first0)
+			for k, out := range tries {
+				warm := rounds[k].phase(1)
+				slices.Sort(warm)
+				first0, n := b.res.Prepared[sc.Name], b.res.WarmVisits[sc.Name]
+				if open {
+					first0, n = out.VisitsPlanned, out.VisitsPlanned
+				}
+				if out.WarmUp == nil || out.WarmUp.FirstVisit != first0 || out.WarmUp.VisitsPlanned != n || n == 0 {
+					t.Errorf("open %v %s: the warm-up %+v, want %d visits from %d on", open, spec.Name, out.WarmUp, n, first0)
+				}
+				writes := slices.DeleteFunc(slices.Clone(warm), func(s string) bool { return strings.HasPrefix(s, "GET ") })
+				if len(writes) == 0 || out.WarmUp.Writes == 0 || out.WarmUp.Writes != out.WarmUp.WritesPlanned {
+					t.Errorf("open %v %s: the warm-up sent %d writes, %d of %d planned", open, spec.Name, len(writes), out.WarmUp.Writes, out.WarmUp.WritesPlanned)
+				}
+				if first == nil {
+					first = warm
+					continue
+				}
+				if !slices.Equal(first, warm) {
+					d := firstDiff(first, warm)
+					t.Errorf("open %v: the warm-up of %s (try %d) is not the first one of %s: %d and %d requests, first difference %q against %q", open, spec.Name, out.Attempt, tifa.Name, len(warm), len(first), at(warm, d), at(first, d))
+				}
 			}
-			writes := slices.DeleteFunc(slices.Clone(warm), func(s string) bool { return strings.HasPrefix(s, "GET ") })
-			if len(writes) == 0 || out.WarmUp.Writes == 0 || out.WarmUp.Writes != out.WarmUp.WritesPlanned {
-				t.Errorf("open %v %s: the warm-up sent %d writes, %d of %d planned", open, spec.Name, len(writes), out.WarmUp.Writes, out.WarmUp.WritesPlanned)
-			}
-			if i == 0 {
-				first = warm
-				continue
-			}
-			if !slices.Equal(first, warm) {
-				d := firstDiff(first, warm)
-				t.Errorf("open %v: the warm-up of %s is not the one of %s: %d and %d requests, first difference %q against %q", open, spec.Name, tifa.Name, len(warm), len(first), at(warm, d), at(first, d))
-			}
+			checked[open] += len(tries)
 		}
 	}
 }
