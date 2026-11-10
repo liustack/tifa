@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -115,6 +116,9 @@ func checkStep(s TraceStep) error {
 		if err := checkRouterHeaders(r); err != nil {
 			return err
 		}
+		if tifaPreload.MatchString(r.URL) && r.Class != "prefetch" {
+			return fmt.Errorf("%s %s is a preload of Tifa's router and has the class %s, not prefetch: record the traces again", r.Method, r.URL, r.Class)
+		}
 		if r.Status >= 400 {
 			return fmt.Errorf("%s %s answered %d", r.Method, r.URL, r.Status)
 		}
@@ -147,6 +151,13 @@ func checkRouterHeaders(r TraceReq) error {
 	}
 	return nil
 }
+
+// tifaPreload is a data request of Tifa's router that only preloads: .p after the digits of its _tifa
+// parameter (js/runtime/data.ts). The router fetches it ahead of a click, for the link under a pointer,
+// so it is a prefetch: the recorder gives it that class (preloadOfTifa in record.mjs), as it does a
+// prefetch of Next.js, and the replay sends it in the background of its page view. TanStack Start
+// marks its preloads in no way, so one of its preloads cannot be told from a call of the page.
+var tifaPreload = regexp.MustCompile(`[?&]_tifa=[^&]*\.p(?:&|$)`)
 
 // TracePath is the file of the traces of one framework.
 func TracePath(dir, framework string) string {

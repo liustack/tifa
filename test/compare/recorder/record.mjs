@@ -155,6 +155,11 @@ const within = (ms, p) => {
   })
   return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
+// A data request of Tifa's router that only preloads (the link under the pointer, or one a page asks
+// for ahead) says so in its URL: .p after the digits of _tifa (js/runtime/data.ts). It is fetched
+// ahead of a click, as a prefetch of Next.js is, and is recorded as one. TanStack Start marks its
+// preloads in no way: they are calls of the same server functions with the same headers.
+const preloadOfTifa = /[?&]_tifa=[^&]*\.p(?:&|$)/
 const QUIET_MS = 450
 const CAP_MS = 6000
 const NAV_WINDOW_MS = 200
@@ -181,7 +186,7 @@ async function visit(browser, plan) {
     if (over || !wanted(req) || !cur) return
     const step = cur
     // Prefetches do not hold the page back: the browser may keep one open for a long time.
-    const ahead = Boolean(req.headers()['next-router-prefetch'])
+    const ahead = Boolean(req.headers()['next-router-prefetch']) || preloadOfTifa.test(req.url())
     const rec = {
       method: req.method(),
       url: req.url().replace(new URL(req.url()).origin, ''),
