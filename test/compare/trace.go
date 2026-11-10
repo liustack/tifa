@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -38,19 +39,47 @@ type TraceReq struct {
 	Body string `json:"body,omitempty"`
 }
 
-// TraceStep is one page view of a visit and the requests it made.
+// TraceStep is one page view of a visit and the requests it made. Page is the page of the plan. Shown
+// is the URL the browser showed when that is the same page written otherwise (another order of the
+// parameters, another escape), and is empty when it is the URL of the plan to the letter.
 type TraceStep struct {
-	Kind string     `json:"kind"`
-	Page string     `json:"page"`
-	Reqs []TraceReq `json:"reqs"`
+	Kind  string     `json:"kind"`
+	Page  string     `json:"page"`
+	Shown string     `json:"shown,omitempty"`
+	Reqs  []TraceReq `json:"reqs"`
 }
 
 // Trace is what a browser sent in one visit of a plan. Error is set when the browser could not play
-// the plan, and such a trace is left out.
+// the plan, and such a trace is left out. A plan that searches for a word of the list is recorded in
+// every form (Plan.Variants): Variant says which form a recorded visit is, 0 for the visit of the plan
+// and n for its n-th variant, each a line of the file. Variants are the traces of the variants of the
+// plan, in order, which LoadTraces puts with the trace of the visit of the plan.
 type Trace struct {
-	Plan  int         `json:"plan"`
-	Steps []TraceStep `json:"steps"`
-	Error string      `json:"error,omitempty"`
+	Plan     int         `json:"plan"`
+	Variant  int         `json:"variant,omitempty"`
+	Steps    []TraceStep `json:"steps"`
+	Error    string      `json:"error,omitempty"`
+	Variants []Trace     `json:"-"`
+}
+
+// form is the trace of form v of the plan: the visit of the plan for 0, its v-th variant otherwise.
+func (t Trace) form(v int) Trace {
+	if v == 0 {
+		return t
+	}
+	return t.Variants[v-1]
+}
+
+// respelled is how many page views of the visit the browser showed under a URL that is the page of the
+// plan and is not written as the plan writes it.
+func (t Trace) respelled() int {
+	n := 0
+	for _, s := range t.Steps {
+		if s.Shown != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // ReadTraces reads the file the recorder wrote (one JSON line a visit) and drops the visits that
@@ -87,6 +116,9 @@ func checkStep(s TraceStep) error {
 		if err := checkRouterHeaders(r); err != nil {
 			return err
 		}
+		if tifaPreload.MatchString(r.URL) && r.Class != "prefetch" {
+			return fmt.Errorf("%s %s is a preload of Tifa's router and has the class %s, not prefetch: record the traces again", r.Method, r.URL, r.Class)
+		}
 		if r.Status >= 400 {
 			return fmt.Errorf("%s %s answered %d", r.Method, r.URL, r.Status)
 		}
@@ -119,6 +151,13 @@ func checkRouterHeaders(r TraceReq) error {
 	}
 	return nil
 }
+
+// tifaPreload is a data request of Tifa's router that only preloads: .p after the digits of its _tifa
+// parameter (js/runtime/data.ts). The router fetches it ahead of a click, for the link under a pointer,
+// so it is a prefetch: the recorder gives it that class (preloadOfTifa in record.mjs), as it does a
+// prefetch of Next.js, and the replay sends it in the background of its page view. TanStack Start
+// marks its preloads in no way, so one of its preloads cannot be told from a call of the page.
+var tifaPreload = regexp.MustCompile(`[?&]_tifa=[^&]*\.p(?:&|$)`)
 
 // TracePath is the file of the traces of one framework.
 func TracePath(dir, framework string) string {

@@ -193,9 +193,11 @@ func bruteForce(w *Workload, d *StoreDeps, restocked map[string]int, spans []exp
 			}
 			p := w.planFor(k)
 			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			trace, _ := w.traceOf(p)
+			subs := subsFor(w.Seed, k, p)
 			for i, s := range p.Steps {
-				if w.Traces[p.ID].Steps[i].document() {
-					doc(s.Page, humans, pageClass(s.Page), sp.count)
+				if page := subs.apply(s.Page); trace.Steps[i].document() {
+					doc(page, humans, pageClass(page), sp.count)
 				}
 				for _, e := range effects {
 					if e.After == i {
@@ -236,16 +238,27 @@ func listClicks(p Plan) []int {
 // crawlers, not yet the lists a search or a filter leads to, so the others stay with the router here.
 func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	d := checkedDeps(t)
+	// A variant loads a document where the visit of its plan does, so a click loads one when the file
+	// has the list of every form of the plan.
+	forms := map[int][]Plan{}
+	for _, p := range GenerateSitePlanSet(1, 1).Plans {
+		for v := range 1 + len(p.Variants) {
+			forms[p.ID] = append(forms[p.ID], planForm(p, v))
+		}
+	}
 	known := func(p Plan) []int {
 		var out []int
 		for _, i := range listClicks(p) {
-			if _, ok := d.Pages[d.RenderURL(p.Steps[i].Page)]; ok && (!priceDecidesList(p.Steps[i].Page) || d.Lists[d.listBase(p.Steps[i].Page)] != nil) {
+			if !slices.ContainsFunc(forms[p.ID], func(f Plan) bool {
+				_, ok := d.Pages[d.RenderURL(f.Steps[i].Page)]
+				return !ok || priceDecidesList(f.Steps[i].Page) && d.Lists[d.listBase(f.Steps[i].Page)] == nil
+			}) {
 				out = append(out, i)
 			}
 		}
 		return out
 	}
-	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return browserTrace(p, known(p)...) })
+	w := siteWorkloadOf(t, 1, 1, "shop", func(p Plan) Trace { return landingTrace(p, known(p)...) })
 	clicks := 0
 	for _, p := range w.Plans {
 		clicks += len(known(p))
@@ -279,5 +292,44 @@ func TestExpectedHitsAreWhatABruteForceCountsOnTheMix(t *testing.T) {
 	}
 	if len(got.Humans) != len(humans) || len(got.Crawlers) != len(crawlers) {
 		t.Errorf("kinds: %v %v, a brute force has %v %v", got.Humans, got.Crawlers, humans, crawlers)
+	}
+}
+
+// A search for a word of the visit's own asks for a page that no visit asked for before. The plan holds
+// the placeholder, and the replay asks for the page of the word of the visit (subsFor), so the
+// expectation takes that page too: played over and over, in the warm-up and in the round, the search
+// of the plan is a new page every time. The dependencies here have the page of the placeholder as
+// well, so that an expectation that forgot the word finds a page, the same for every visit, and
+// counts hits.
+func TestExpectTakesASearchForAWordOfTheVisitForAPageOfItsOwn(t *testing.T) {
+	search := "/store/products?q=" + SearchPlaceholder
+	plan := Plan{ID: 0, Role: RoleShopper, Steps: []PlanStep{
+		{Kind: StepLoad, Page: "/store"},
+		{Kind: StepClick, Page: search, Act: ActSearch, Term: SearchPlaceholder},
+	}}
+	w := handWorkload([]Plan{plan}, nil)
+	const warm, counted = 30, 50
+	d := handDeps()
+	d.Query[storeList] = []string{"page", "q", "sort"}
+	d.Pages[search] = []string{}
+	words := map[string]bool{}
+	for seq := range warm + counted {
+		word := uniqueTerm(w.Seed, seq)
+		words[word] = true
+		d.Pages["/store/products?q="+word] = []string{}
+	}
+	if len(words) != warm+counted {
+		t.Fatalf("%d visits have %d words", warm+counted, len(words))
+	}
+	// The warm-up plays the visits after those of the round, and counts in nothing.
+	got, err := w.Expect(d, nil, expectSpan{counted, warm, false}, expectSpan{0, counted, true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list := got.Humans["list"]; list.Docs != counted || list.New != counted || list.Hits != 0 || list.Changed != 0 {
+		t.Errorf("the searches of %d visits after a warm-up of %d: %+v, want every one a new page", counted, warm, list)
+	}
+	if home := got.Humans["home"]; home.Docs != counted || home.Hits != counted {
+		t.Errorf("the landings on the home: %+v, want every one a hit after the warm-up", home)
 	}
 }

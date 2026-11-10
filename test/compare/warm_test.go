@@ -43,8 +43,7 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 	var mu sync.Mutex
 	var all []*launched
 	set := GenerateSitePlanSet(1, 1)
-	traces := map[int]Trace{}
-	for _, p := range set.Plans {
+	traces := formTraces(set.Plans, func(p Plan) Trace {
 		tr := Trace{Plan: p.ID}
 		for _, s := range p.Steps {
 			class := "nav"
@@ -53,8 +52,8 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 			}
 			tr.Steps = append(tr.Steps, TraceStep{Kind: s.Kind, Page: s.Page, Reqs: []TraceReq{{Method: "GET", URL: s.Page, Class: class, End: 1, Status: 200}}})
 		}
-		traces[p.ID] = tr
-	}
+		return tr
+	})
 	b := &browse{
 		o:       BrowseOptions{Log: io.Discard, Sessions: 2, Rounds: 1, Sizing: 150 * time.Millisecond, Target: 200 * time.Millisecond, Scenarios: []BrowseScenario{sc}, Seed: 1},
 		specs:   map[string]Spec{},

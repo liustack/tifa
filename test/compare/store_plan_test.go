@@ -185,22 +185,18 @@ func TestStoreLinksAreRequestURLs(t *testing.T) {
 }
 
 // siteWorkload is a workload of a scenario over blocks blocks of the plans of the site. The traces are
-// those of a browser whose landings alone are documents (browserTrace): these tests look at the visits
+// those of a browser whose landings alone are documents (landingTrace): these tests look at the visits
 // and the writes only.
 func siteWorkload(t *testing.T, seed uint64, blocks int, name string) *Workload {
 	t.Helper()
-	return siteWorkloadOf(t, seed, blocks, name, func(p Plan) Trace { return browserTrace(p) })
+	return siteWorkloadOf(t, seed, blocks, name, func(p Plan) Trace { return landingTrace(p) })
 }
 
 // siteWorkloadOf is siteWorkload with the trace of each plan made by trace.
 func siteWorkloadOf(t *testing.T, seed uint64, blocks int, name string, trace func(Plan) Trace) *Workload {
 	t.Helper()
 	set := GenerateSitePlanSet(seed, blocks)
-	traces := map[int]Trace{}
-	for _, p := range set.Plans {
-		traces[p.ID] = trace(p)
-	}
-	w, err := NewWorkload(&set, traces, scenario(t, name), seed)
+	w, err := NewWorkload(&set, formTraces(set.Plans, trace), scenario(t, name), seed)
 	if err != nil {
 		t.Fatal(err)
 	}

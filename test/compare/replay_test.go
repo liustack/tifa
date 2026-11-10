@@ -263,18 +263,15 @@ func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
 			if p.ID == skip {
 				continue
 			}
-			steps := ""
-			for i, s := range p.Steps {
-				if i > 0 {
-					steps += ","
+			// Every form of the plan, the visit and its variants, as the recorder writes them.
+			for _, tr := range browserForms(p, func(form Plan) Trace { return browserTrace(form) }) {
+				line, _ := json.Marshal(tr)
+				if bad && p.ID == 3 {
+					line = []byte(`{"plan":3,"variant":` + strconv.Itoa(tr.Variant) + `,"error":"timeout"}`)
 				}
-				steps += `{"kind":"` + s.Kind + `","page":"` + s.Page + `","reqs":[{"method":"GET","url":"` + s.Page + `","headers":{},"s":0,"e":1,"status":200,"class":"doc"}]}`
+				b.Write(line)
+				b.WriteString("\n")
 			}
-			line := `{"plan":` + strconv.Itoa(p.ID) + `,"steps":[` + steps + `]}`
-			if bad && p.ID == 3 {
-				line = `{"plan":3,"error":"timeout"}`
-			}
-			b.WriteString(line + "\n")
 		}
 		os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(b.String()), 0o644)
 	}
@@ -862,6 +859,36 @@ func TestLoadingTracesFailsWhenARouterRequestLostItsHeaders(t *testing.T) {
 	}
 	if _, _, err := ReadTraces(write("tifa.jsonl", `{}`, "/projects/studio?_tifa=ab.001")); err != nil {
 		t.Errorf("a Tifa request needs no router header: %v", err)
+	}
+}
+
+// A data request of Tifa's router that only preloads says so in its URL (.p after the digits of
+// _tifa). It is fetched ahead of a click, so the recorder gives it the class of a prefetch, as it does
+// a prefetch of Next.js, and the replay does not hold the page view back for it. A trace in which one
+// is navigation data was recorded before the recorder told them apart, and is refused.
+func TestLoadingTracesFailsWhenAPreloadOfTifaIsNotAPrefetch(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, url, class string) string {
+		path := filepath.Join(dir, name)
+		line := `{"plan":0,"steps":[{"kind":"load","page":"/store","reqs":[{"method":"GET","url":"/store","headers":{},"s":0,"e":1,"status":200,"class":"doc"}]},{"kind":"click","page":"/store/products","reqs":[` +
+			`{"method":"GET","url":"/store/products?_tifa=ab12.01","headers":{},"s":0,"e":5,"status":200,"class":"nav"},` +
+			`{"method":"GET","url":"` + url + `","headers":{},"s":6,"e":9,"status":200,"class":"` + class + `"}]}]}` + "\n"
+		os.WriteFile(path, []byte(line), 0o644)
+		return path
+	}
+	for _, url := range []string{"/store/products/oak-tray?_tifa=ab12.01.p", "/store/products?sort=newest&_tifa=ab12.001.p", "/store/products?_tifa=ab12.01.p&sort=newest"} {
+		if _, _, err := ReadTraces(write("ahead.jsonl", url, "prefetch")); err != nil {
+			t.Errorf("a preload recorded as a prefetch: %v", err)
+		}
+		if _, _, err := ReadTraces(write("held.jsonl", url, "nav")); err == nil || !strings.Contains(err.Error(), "preload") || !strings.Contains(err.Error(), "record the traces again") {
+			t.Errorf("a preload recorded as navigation data: %v", err)
+		}
+	}
+	// A request that loads the page, and a query that only ends like the mark, are no preloads.
+	for _, url := range []string{"/store/products/oak-tray?_tifa=ab12.01", "/store/products?q=x.p&_tifa=ab12.01", "/store/products?size=1.p"} {
+		if _, _, err := ReadTraces(write("page.jsonl", url, "nav")); err != nil {
+			t.Errorf("%s is no preload: %v", url, err)
+		}
 	}
 }
 

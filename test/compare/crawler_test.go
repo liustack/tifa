@@ -121,9 +121,9 @@ func TestTheCrawlerRequestsOfABlockFollowTheDocumentsOfItsVisits(t *testing.T) {
 	const blocks = 3
 	w := siteWorkloadOf(t, 2, blocks, "shop", func(p Plan) Trace {
 		if p.Role != RoleShopper {
-			return browserTrace(p)
+			return landingTrace(p)
 		}
-		return browserTrace(p, listClicks(p)...)
+		return landingTrace(p, listClicks(p)...)
 	})
 	bv := w.blockVisits()
 	staff := w.Scenario.staffVisits()

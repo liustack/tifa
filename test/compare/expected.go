@@ -102,12 +102,17 @@ type expectSpan struct {
 }
 
 // docSteps says which page views of a plan are documents, as the browser recorded them: the landing,
-// and each action the page did as a document load. It fails for a plan whose trace has not its page
-// views, since nothing else tells which they are.
+// and each action the page did as a document load. The plan is a form of a plan with variants when a
+// visit takes one (planForm), and the trace is the one of that form. It fails for a plan whose trace
+// has not its page views, since nothing else tells which they are.
 func (w *Workload) docSteps(p Plan) ([]bool, error) {
-	t, ok := w.Traces[p.ID]
+	t, ok := w.traceOf(p)
 	if !ok || len(t.Steps) != len(p.Steps) {
-		return nil, fmt.Errorf("plan %d has %d page views and its trace %d: the trace says which page views are documents", p.ID, len(p.Steps), len(t.Steps))
+		what := fmt.Sprintf("plan %d", p.ID)
+		if p.form > 0 {
+			what = fmt.Sprintf("variant %d of plan %d", p.form, p.ID)
+		}
+		return nil, fmt.Errorf("%s has %d page views and its trace %d: the trace says which page views are documents", what, len(p.Steps), len(t.Steps))
 	}
 	return t.documents(), nil
 }
@@ -165,8 +170,12 @@ func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expec
 				return nil, err
 			}
 			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			// The page of a step is the one the replay asks for: without the landing parameter, which no
+			// render sees, and with the word of the visit where the plan holds the placeholder of a search
+			// for a word of its own, which is a page no other visit asks for.
+			subs := subsFor(w.Seed, k, plan)
 			for i, step := range plan.Steps {
-				if page := stripLanding(step.Page); docs[i] && !privateKind(pageClass(page)) {
+				if page := subs.apply(stripLanding(step.Page)); docs[i] && !privateKind(pageClass(page)) {
 					class, err := doc(page)
 					if err != nil {
 						return nil, err
