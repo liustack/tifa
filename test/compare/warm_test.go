@@ -324,7 +324,7 @@ func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
 		b, servers := warmBrowse(t, sc, tifa, nocache, node)
 		var first []string
 		for i, spec := range []Spec{tifa, nocache, node} {
-			before := len(servers())
+			before, tried := len(servers()), len(b.res.Closed)
 			var out *Round
 			var err error
 			if open {
@@ -335,16 +335,29 @@ func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// The first server of the round the call started (closed: the sizing runs come before).
-			var l *launched
+			// The servers of the rounds the call started, one for each try (closed: the sizing runs come
+			// before, and a try that is not valid is played again).
+			var rounds []*launched
 			for _, s := range servers()[before:] {
 				if s.spec == spec.Name && len(s.phase(3)) == 0 && len(s.phase(2)) > 0 {
-					l = s
-					break
+					rounds = append(rounds, s)
 				}
 			}
-			if l == nil {
+			if len(rounds) == 0 {
 				t.Fatalf("open %v %s: no server of a round with a warm-up", open, spec.Name)
+			}
+			l := rounds[0]
+			if !open {
+				// A closed round is sized from a short sizing run, and one sized too long for this machine
+				// has its warm-up cut off at twice the target: the server then got a part of the warm-up, and
+				// the try is played again with fewer visits. The warm-ups compared are those of the first
+				// try of each server that no timeout cut off.
+				tries := b.res.Closed[tried:]
+				whole := slices.IndexFunc(tries, func(r Round) bool { return !r.TimedOut && r.WarmUp != nil && !r.WarmUp.TimedOut })
+				if whole < 0 || len(tries) != len(rounds) {
+					t.Fatalf("closed %s: %d tries on %d servers, and none that no timeout cut off", spec.Name, len(tries), len(rounds))
+				}
+				l, out = rounds[whole], &tries[whole]
 			}
 			warm := l.phase(1)
 			slices.Sort(warm)
