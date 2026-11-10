@@ -79,9 +79,10 @@ const (
 	// each recipient.
 	ClickIDShare    = 0.15
 	EmailParamShare = 0.05
-	// CrawlerShare is the share of the HTML requests that crawlers make: the documents of the shoppers and
-	// of the staff (each visit has one full load, and a click fetches data, not a document) and the
-	// requests of crawlers. Cloudflare reports Googlebot alone as 4.5% of the HTML requests and the other
+	// CrawlerShare is the share of the HTML requests that crawlers make: the documents the browsers of the
+	// shoppers and of the staff ask for (the landing of each visit, and every action the page does as a
+	// document load: a click the router takes fetches data, not a document) and the requests of
+	// crawlers. Cloudflare reports Googlebot alone as 4.5% of the HTML requests and the other
 	// AI crawlers together as 4.2% (Cloudflare Radar, 2025 year in review,
 	// https://blog.cloudflare.com/radar-2025-year-in-review/), which makes about 9%. A crawler request is
 	// not a visit and not a page view (crawler.go).
@@ -604,7 +605,7 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
-		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
+		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
 		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},
 		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog, https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/), with no figure to take"},

@@ -16,7 +16,10 @@ import (
 // no write after it. A crawler request is not a visit and not a page view. The visits, their blocks,
 // the sizing and the data prepared before the clock all count people only. The stream puts the
 // requests of crawlers among the visits (the slots of a cycle), and which URL and which crawler each
-// one is comes from the seed and its number in the stream, the same for every server.
+// one is comes from the seed and its number in the stream, the same for every server. How many there
+// are comes from the documents the browsers of people ask for, counted from the traces
+// (Workload.blockDocuments), which every framework has alike: the two together are the HTML requests,
+// and crawlers are CrawlerShare of them.
 
 // CrawlerAgent is a crawler a request can come from: its class (search, which is Googlebot, or AI), its
 // name, its share among the crawlers of its class, and the User-Agent it sends. The Node frameworks may
@@ -96,22 +99,29 @@ func (w *Workload) crawlOf(c int) crawlReq {
 }
 
 // crawlLayout says which slots of a cycle are crawler requests. A cycle holds, for each block of the
-// plans, its visits (blockVisits) and the crawler requests of the block (per) among them, at places
-// of a seeded shuffle, so the share of crawlers is exact in every block. The visits keep their
-// order, and so do the crawler requests.
+// plans, its visits (blockVisits) and the crawler requests of the block among them, at places of a
+// seeded shuffle, so the share of crawlers is exact in every block. A block has the crawler requests
+// that go with the documents its own visits ask for (BrowseScenario.crawlerSlots), so the blocks can
+// hold other numbers of them. The visits keep their order, and so do the crawler requests.
 type crawlLayout struct {
-	blocks, visits, per int
-	crawl               []bool // by slot of the cycle
-	humanBefore         []int  // the visits in the slots before it
-	crawlBefore         []int  // the crawler requests in the slots before it
-	humanSlot           []int  // the slot of each visit of the cycle
+	blocks, visits int
+	total          int    // the crawler requests of a cycle
+	start          []int  // the first slot of each block of the cycle
+	crawl          []bool // by slot of the cycle
+	humanBefore    []int  // the visits in the slots before it
+	crawlBefore    []int  // the crawler requests in the slots before it
+	humanSlot      []int  // the slot of each visit of the cycle
 }
 
-func newCrawlLayout(seed uint64, blocks, visits, per int) *crawlLayout {
-	l := &crawlLayout{blocks: blocks, visits: visits, per: per}
-	n := visits + per
+// newCrawlLayout lays out a cycle of len(per) blocks of visits visits each, block b with per[b] crawler
+// requests.
+func newCrawlLayout(seed uint64, visits int, per []int) *crawlLayout {
+	l := &crawlLayout{blocks: len(per), visits: visits}
 	h, c := 0, 0
-	for b := range blocks {
+	for b, per := range per {
+		l.start = append(l.start, len(l.crawl))
+		l.total += per
+		n := visits + per
 		rng := rand.New(rand.NewPCG(seed^0x5be0cd19137e2179, uint64(b)))
 		at := make([]bool, n)
 		for _, i := range rng.Perm(n)[:per] {
@@ -140,7 +150,7 @@ func (w *Workload) slot(t int) (crawler bool, n int) {
 	}
 	cycle, i := t/len(l.crawl), t%len(l.crawl)
 	if l.crawl[i] {
-		return true, cycle*l.blocks*l.per + l.crawlBefore[i]
+		return true, cycle*l.total + l.crawlBefore[i]
 	}
 	return false, cycle*l.blocks*l.visits + l.humanBefore[i]
 }
@@ -156,7 +166,7 @@ func (w *Workload) humanStart(h int) int {
 	per := l.blocks * l.visits
 	cycle, r := h/per, h%per
 	if r%l.visits == 0 {
-		return cycle*len(l.crawl) + r/l.visits*(l.visits+l.per)
+		return cycle*len(l.crawl) + l.start[r/l.visits]
 	}
 	return cycle*len(l.crawl) + l.humanSlot[r]
 }

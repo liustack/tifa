@@ -61,6 +61,7 @@ func TestTheMixOfTheSiteIsChecked(t *testing.T) {
 		"ships":          func(m *PlannedMix) { m.Ships = 0 },
 		"shopper visits": func(m *PlannedMix) { m.Shoppers = 0 },
 		"crawlers":       func(m *PlannedMix) { m.Crawlers += m.Crawlers / 4 },
+		"documents":      func(m *PlannedMix) { m.Documents -= m.Documents / 5 },
 	} {
 		m := *whole.Mix
 		mod(&m)
