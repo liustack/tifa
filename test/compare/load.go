@@ -557,7 +557,8 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 	cpu0, client0 := r.cpu(), selfCPU()
 	start := time.Now()
 	var wg sync.WaitGroup
-	var lag, started, finished atomic.Int64
+	var lag atomic.Int64
+	var flying flight
 	vctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	deadline := start.Add(duration + time.Duration(last)*ActionSpacing + drain)
@@ -576,7 +577,7 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 		for {
 			select {
 			case <-tick.C:
-				visitsIn = append(visitsIn, float64(started.Load()-finished.Load()))
+				visitsIn = append(visitsIn, float64(flying.visits()))
 				requestsIn = append(requestsIn, float64(r.inflight.Load()))
 			case <-offering:
 				return
@@ -596,11 +597,12 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 			case <-vctx.Done():
 			}
 		}
-		started.Add(1)
+		crawler, _ := r.wl.slot(t0 + k)
+		flying.start(crawler)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			defer finished.Add(1)
+			defer flying.end(crawler)
 			// Lateness is measured when the visit actually starts to run, not when it was spawned.
 			if l := time.Since(at); l > 0 {
 				for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
@@ -720,3 +722,21 @@ func (r *Round) crawlerRequests() int {
 	}
 	return r.Crawler.Done + r.Crawler.Failed
 }
+
+// flight counts what is in flight in the open model: the visits of people and the crawler requests
+// apart. A backlog is the visits of people that keep piling up, so the count that is judged for it
+// (Growing) has people alone: crawler requests in flight, steady or not, would raise the mean the
+// growth is measured against and hide a backlog of people, or show a change of their own as one.
+type flight struct{ people, crawlers atomic.Int64 }
+
+func (f *flight) start(crawler bool) { f.count(crawler).Add(1) }
+func (f *flight) end(crawler bool)   { f.count(crawler).Add(-1) }
+func (f *flight) count(crawler bool) *atomic.Int64 {
+	if crawler {
+		return &f.crawlers
+	}
+	return &f.people
+}
+
+// visits is the visits of people in flight.
+func (f *flight) visits() int64 { return f.people.Load() }

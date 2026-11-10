@@ -373,3 +373,32 @@ func TestACrawlerStatusIsJudgedWhenTheHeadersArrive(t *testing.T) {
 		}
 	}
 }
+
+// The visits in flight that the backlog is judged on are those of people. With the crawler requests
+// in flight counted in, 400 steady ones raise the threshold of the growth so that a backlog of people
+// goes unseen, which counting people alone does not.
+func TestABacklogIsJudgedOnTheVisitsOfPeopleAlone(t *testing.T) {
+	var f flight
+	var people, mixed []float64
+	for i := range 60 {
+		// 400 crawler requests in flight all along, and a visit of people more in flight every sample.
+		if i == 0 {
+			for range 400 {
+				f.start(true)
+			}
+		}
+		f.start(false)
+		people = append(people, float64(f.visits()))
+		mixed = append(mixed, float64(f.visits()+f.crawlers.Load()))
+	}
+	if !Growing(people, 2) {
+		t.Error("a pile of visits of people that grows by 1 a sample is not a backlog")
+	}
+	if Growing(mixed, 2) {
+		t.Error("the check no longer shows why people alone are counted: the mixed series was judged growing")
+	}
+	f.end(true)
+	if f.crawlers.Load() != 399 || f.visits() != 60 {
+		t.Errorf("%d crawler requests and %d visits in flight", f.crawlers.Load(), f.visits())
+	}
+}
