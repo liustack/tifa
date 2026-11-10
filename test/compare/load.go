@@ -201,7 +201,8 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 // returning visitors, and for Tifa a render memo that held nothing then) was made with answers that
 // render nothing, the render memo of Tifa was read again at its end, and the load generator started every visit it was meant to (one that fell behind
 // or ran out of cpus is found by generatorFault). Pass is about the server, on what
-// it did: a server that fails visits or falls behind fails the rule, in a valid round.
+// it did in the round and in its warm-up: a server that fails visits or falls behind fails the rule,
+// in a valid round.
 func (r *Round) Judge(sc BrowseScenario) {
 	r.Valid, r.WhyInvalid = true, ""
 	invalid := func(why string) {
@@ -230,12 +231,29 @@ func (r *Round) Judge(sc BrowseScenario) {
 	if !r.TimedOut && r.VisitsStarted < r.VisitsPlanned {
 		invalid(fmt.Sprintf("the load generator started %d of the %d visits planned", r.VisitsStarted, r.VisitsPlanned))
 	}
+	// The warm-up is the same traffic as the round, so it is judged as the round is (below). A closed
+	// warm-up cut off by its timeout ran longer than the round was sized for: a matter of sizing.
+	w := r.WarmUp
+	if w != nil && w.TimedOut && r.Model != "open" {
+		invalid(fmt.Sprintf("the warm-up was cut off by its timeout after %.0f s, with %d of its %d visits done: the round was sized too long", w.Seconds, w.Visits, w.VisitsPlanned))
+	}
 	r.Pass, r.Why = true, ""
 	fail := func(why string) {
 		if r.Why == "" {
 			r.Why = why
 		}
 		r.Pass = false
+	}
+	if w != nil {
+		if w.TimedOut && r.Model == "open" {
+			fail("the warm-up: the workload did not finish in time: a backlog was left")
+		}
+		if w.VisitsFailed > 0 || w.Failures > 0 {
+			fail(fmt.Sprintf("the warm-up: %d failed visits of %d, %d failures (%s)", w.VisitsFailed, w.VisitsPlanned, w.Failures, w.FirstErr))
+		}
+		if !w.TimedOut && w.Writes < w.WritesPlanned {
+			fail(fmt.Sprintf("the warm-up: %d of its %d writes completed", w.Writes, w.WritesPlanned))
+		}
 	}
 	// A closed round cut off by its timeout ran longer than it was sized for, which is a matter of
 	// calibration (see calibrate), unless an action it cut off had waited past the rule (below). An
@@ -359,9 +377,9 @@ const settleWait = 30 * time.Second
 // again (Memo.Warm). It returns the URLs Tifa answered in it, and whether the round can start: a
 // warm-up the shop refused a request of with 409 or 422 (after the restock no write of the plan is
 // one it refuses), whose requests did not end, or after which the memo could not be read, makes the
-// round invalid (SetupError), since the servers would not start the clock with the same data. A
-// warm-up that was cut off or whose visits failed is kept as it is: that is the server, and the round
-// shows it.
+// round invalid (SetupError), since the servers would not start the clock with the same data. The
+// round is played after a warm-up that was cut off or whose visits or writes failed, and Judge
+// decides it from what the warm-up did, as from the round.
 func (r *runner) warmUp(ctx context.Context, round *Round, visits int, play func(w *Round) *acc) (map[string]bool, bool) {
 	if r.warm == 0 {
 		return nil, true
@@ -473,8 +491,8 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 }
 
 // warmDrain is how long after its last planned action the warm-up of an open round may run: its
-// visits end, or are cut off, before the clock of the round.
-const warmDrain = 20 * time.Second
+// visits end, or are cut off, before the clock of the round. Tests shorten it.
+var warmDrain = 20 * time.Second
 
 // playOpen plays visits seq0 to seq0+n-1 at rate a second, as RunOpen says, and fills round with
 // what they did. seen are the URLs Tifa answered before (the warm-up's), for the split of its

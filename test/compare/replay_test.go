@@ -429,6 +429,87 @@ func TestTheWarmUpSendsTheWritesOfItsVisits(t *testing.T) {
 	}
 }
 
+// A warm-up that did not end as planned decides the round as the round itself would, and the round
+// is played all the same: the warm-up is the same traffic. A server that fails a visit or a write of
+// it fails the rule, in a valid round. One cut off by its time fails it in the open model (it left a
+// backlog) and makes a closed round not valid (a matter of sizing, as a closed round cut off is).
+func TestAWarmUpThatDidNotEndAsPlannedDecidesTheRound(t *testing.T) {
+	defer func(d time.Duration) { warmDrain = d }(warmDrain)
+	warmDrain = 300 * time.Millisecond
+	for _, tc := range []struct {
+		name  string
+		open  bool
+		fault string // what the server does to the first GET or write it gets: "500", "drop" (the write), "hold"
+		valid bool
+		pass  bool
+		why   string // the start of Why, or of WhyInvalid for a round that is not valid
+	}{
+		{"closed, no fault", false, "", true, true, ""},
+		{"open, no fault", true, "", true, true, ""},
+		{"a GET answered 500", false, "500", true, false, "the warm-up: 1 failed visits of 2"},
+		{"a write whose connection broke", false, "drop", true, false, "the warm-up: 1 failed visits of 2"},
+		{"a closed warm-up cut off", false, "hold", false, true, "the warm-up was cut off by its timeout"},
+		{"an open warm-up cut off", true, "hold", true, false, "the warm-up: the workload did not finish in time"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var faulted atomic.Bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				write := r.Method != "GET"
+				if (tc.fault == "drop") == write && tc.fault != "" && faulted.CompareAndSwap(false, true) {
+					switch tc.fault {
+					case "500":
+						http.Error(w, "boom", 500)
+					case "drop":
+						conn, _, _ := w.(http.Hijacker).Hijack()
+						conn.Close()
+					case "hold":
+						select {
+						case <-r.Context().Done():
+						case <-time.After(5 * time.Second):
+						}
+					}
+					return
+				}
+				w.Write([]byte("ok"))
+			}))
+			defer srv.Close()
+			tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/p", "doc", 0, 1)}}, {Kind: StepClick, Page: "/p", Reqs: []TraceReq{req("/p", "nav", 0, 1)}}}}
+			r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+			r.wl.Writes[[2]int{0, 0}] = testWrite()
+			r.prepared, r.warm = 2, 2
+			var round *Round
+			if tc.open {
+				round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+			} else {
+				round = r.RunClosed(context.Background(), 1, 2, 500*time.Millisecond)
+			}
+			round.Judge(BrowseScenario{})
+			// The round itself played its two visits whatever its warm-up did.
+			if round.Visits != 2 || round.Writes != 2 || round.Failures != 0 {
+				t.Errorf("the round did %d visits, %d writes, %d failures, want its 2 visits and writes", round.Visits, round.Writes, round.Failures)
+			}
+			why := round.Why
+			if !tc.valid {
+				why = round.WhyInvalid
+			}
+			if round.Valid != tc.valid || (tc.valid && round.Pass != tc.pass) || !strings.HasPrefix(why, tc.why) || (tc.why == "" && why != "") {
+				t.Errorf("valid %v (%s), pass %v (%s), want valid %v, pass %v, %q: the warm-up %+v", round.Valid, round.WhyInvalid, round.Pass, round.Why, tc.valid, tc.pass, tc.why, round.WarmUp)
+			}
+		})
+	}
+}
+
+// A warm-up that ended with fewer writes than it planned fails the round, though none of its
+// visits failed.
+func TestAWarmUpShortOfItsWritesFailsTheRound(t *testing.T) {
+	round := &Round{Model: "closed", VisitsPlanned: 1, PageViewsPlanned: 1, VisitsStarted: 1, Types: map[string]TypeStat{"load": {N: 1}, "click": {N: 1}},
+		WarmUp: &WarmUp{VisitsPlanned: 2, Visits: 2, WritesPlanned: 3, Writes: 2}}
+	round.Judge(BrowseScenario{})
+	if !round.Valid || round.Pass || round.Why != "the warm-up: 2 of its 3 writes completed" {
+		t.Errorf("valid %v (%s), pass %v (%s)", round.Valid, round.WhyInvalid, round.Pass, round.Why)
+	}
+}
+
 func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 	if got := BlocksFor(800, 75*time.Second, 4, 95); got%4 != 0 || got < 4 || float64(got*95)/800 < 70 {
 		t.Errorf("blocks for 800 visits/s: %d", got)
