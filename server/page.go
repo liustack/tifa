@@ -1448,8 +1448,46 @@ func keptPart(part string, keep []string) (name, value string, ok bool) {
 	return name, value, ok
 }
 
+// queryPart is part, one part of a query as a client sent it, as a URL can hold it. A client can
+// send bytes that a query cannot hold as they are (a <, a quote, a byte above ASCII) and a % that
+// starts no escape: those are escaped, and the rest stays as it came.
+func queryPart(part string) string {
+	const hex = "0123456789ABCDEF"
+	isHex := func(c byte) bool {
+		return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+	}
+	// What RFC 3986 lets a query hold as it is, less the & that ends a part.
+	plain := func(i int) bool {
+		c := part[i]
+		switch {
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+			return true
+		case c == '%':
+			return i+2 < len(part) && isHex(part[i+1]) && isHex(part[i+2])
+		}
+		return strings.IndexByte("-._~!$'()*+,;=:@/?", c) >= 0
+	}
+	var b strings.Builder
+	from := 0
+	for i := 0; i < len(part); i++ {
+		if plain(i) {
+			continue
+		}
+		b.WriteString(part[from:i])
+		b.WriteByte('%')
+		b.WriteByte(hex[part[i]>>4])
+		b.WriteByte(hex[part[i]&15])
+		from = i + 1
+	}
+	if from == 0 {
+		return part
+	}
+	b.WriteString(part[from:])
+	return b.String()
+}
+
 // withDropped is location with the parts of the query of u that renderURL left out added at the
-// end, in their order and spelling.
+// end, in their order and spelling (queryPart).
 func withDropped(location string, u *url.URL, keep []string) string {
 	var b strings.Builder
 	for part := range strings.SplitSeq(u.RawQuery, "&") {
@@ -1460,7 +1498,7 @@ func withDropped(location string, u *url.URL, keep []string) string {
 			continue
 		}
 		b.WriteByte('&')
-		b.WriteString(part)
+		b.WriteString(queryPart(part))
 	}
 	if b.Len() == 0 {
 		return location
