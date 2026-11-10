@@ -266,8 +266,9 @@ func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uin
 //
 // The staff visits of a block play other staff plans in every cycle, while the crawler requests of a
 // block are laid out once for all cycles. So a scenario with crawlers and staff takes a staff visit
-// for one document, its landing, and refuses a staff plan whose trace has another number: the pages of
-// the back office have no plain link among those a plan clicks.
+// for one document, its landing, and refuses a staff plan whose trace has it otherwise (a landing that
+// is no document, or a later page view that is one): the pages of the back office have no plain link
+// among those a plan clicks.
 func (w *Workload) blockDocuments(blocks int) ([]int, error) {
 	staff := w.Scenario.staffVisits()
 	docs := make([]int, blocks)
@@ -280,8 +281,8 @@ func (w *Workload) blockDocuments(blocks int) ([]int, error) {
 			switch n := countTrue(steps); {
 			case i < ShopperBlockVisits:
 				docs[b] += n
-			case n != 1 && staff > 0 && w.Scenario.Crawler > 0:
-				return nil, fmt.Errorf("staff plan %d asks for %d documents: the crawler requests of a block are counted with one document for each staff visit, its landing", p.ID, n)
+			case (n != 1 || !steps[0]) && staff > 0 && w.Scenario.Crawler > 0:
+				return nil, fmt.Errorf("staff plan %d has the documents %v by page view: the crawler requests of a block are counted with one document for each staff visit, its landing", p.ID, steps)
 			}
 		}
 		docs[b] += staff

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -281,5 +282,93 @@ func TestATraceWithACancelledDocumentIsRefused(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// The documents of a plan are counted from its trace, so a trace is checked against its plan where it
+// is loaded, one framework alone too, with nothing of another framework to set it beside: every page
+// view is the one of the plan, the landing has one document, a GET of the page of the plan, and no
+// page view has more than one document or a document of another page. A trace that is not so would
+// change the documents counted, and with them the crawler requests and the expected hit rate, and
+// nothing later would tell.
+func TestATraceIsCheckedAgainstItsPlanWhenItIsLoaded(t *testing.T) {
+	set := GenerateSitePlanSet(1, 1)
+	var with Plan
+	for _, p := range set.Plans {
+		// A plan that lands with no parameter, which the check of the landing parameters does not look at.
+		if p.Role == RoleShopper && len(p.Steps) >= 3 && landingParam(p.Steps[0].Page) == "" {
+			with = p
+			break
+		}
+	}
+	doc := func(method, url string) TraceReq {
+		return TraceReq{Method: method, URL: url, Class: "doc", End: 1, Status: 200}
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(tr *Trace)
+		want   string // in the error, "" for a trace that loads
+	}{
+		{"the trace as a browser leaves it", func(tr *Trace) {}, ""},
+		{"a click that loads a document", func(tr *Trace) { tr.Steps[1].Reqs = []TraceReq{doc("GET", with.Steps[1].Page)} }, ""},
+		{"a click recorded as a load", func(tr *Trace) { tr.Steps[1].Kind = StepLoad }, "page view 1"},
+		{"a page view of another page", func(tr *Trace) { tr.Steps[2].Page = "/store/journal" }, "page view 2"},
+		{"a landing with no document", func(tr *Trace) { tr.Steps[0].Reqs[0].Class = "nav" }, "landing"},
+		{"a landing whose document is another page", func(tr *Trace) { tr.Steps[0].Reqs[0].URL = "/store/journal" }, "page view 0"},
+		{"a landing whose document is a POST", func(tr *Trace) { tr.Steps[0].Reqs[0].Method = "POST" }, "page view 0"},
+		{"a landing with two documents", func(tr *Trace) { tr.Steps[0].Reqs = append(tr.Steps[0].Reqs, doc("GET", with.Steps[0].Page)) }, "page view 0"},
+		{"a click with a document of another page", func(tr *Trace) {
+			tr.Steps[1].Reqs = append(tr.Steps[1].Reqs, doc("GET", "/store/journal"))
+		}, "page view 1"},
+		{"a click with two documents", func(tr *Trace) {
+			tr.Steps[2].Reqs = []TraceReq{doc("GET", with.Steps[2].Page), doc("GET", with.Steps[2].Page)}
+		}, "page view 2"},
+	} {
+		dir := writeTraces(t, set, []string{"tifa"}, func(_ string, p Plan) Trace {
+			tr := browserTrace(p)
+			if p.ID == with.ID {
+				tc.change(&tr)
+			}
+			return tr
+		})
+		_, _, err := LoadTraces(dir, []string{"tifa"})
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%s: refused: %v", tc.name, err)
+		case tc.want != "" && err == nil:
+			t.Errorf("%s: loaded", tc.name)
+		case tc.want != "":
+			for _, want := range []string{tc.want, fmt.Sprintf("plan %d", with.ID), "tifa.jsonl", "record"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%s: the error lacks %q: %v", tc.name, want, err)
+				}
+			}
+		}
+	}
+}
+
+// A run that loaded the traces of one framework has nothing that shows that the frameworks agree on
+// which page views are documents. It says so where it starts, and its report says so among the ways it
+// is not a formal run.
+func TestARunOnTheTracesOfOneFrameworkSaysThatNothingShowsTheyAgree(t *testing.T) {
+	if note := oneTraceNote([]string{"tifa", "nextjs", "start", "reactrouter"}); note != "" {
+		t.Errorf("four traces: %q", note)
+	}
+	note := oneTraceNote([]string{"tifa"})
+	if !strings.Contains(note, "tifa alone") || !strings.Contains(note, "agree") {
+		t.Fatalf("the traces of one framework: %q", note)
+	}
+	sc := mustScenario("shop")
+	o := FormalBrowse
+	o.ServerCPUs, o.LoadCPUs = "0", "1,5"
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
+		Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}, Traces: []string{"tifa", "nextjs", "start", "reactrouter"}}
+	if md := r.Markdown(); strings.Contains(md, "Not a formal run") {
+		t.Errorf("a formal run on four traces says it is not one")
+	}
+	r.Servers[sc.Name], r.Traces = []string{"tifa", "tifa-nocache"}, []string{"tifa"}
+	top, _, _ := strings.Cut(r.Markdown(), "### ")
+	if !strings.Contains(top, "**Not a formal run.**") || !strings.Contains(top, note) {
+		t.Errorf("the top of the report lacks %q:\n%s", note, top)
 	}
 }

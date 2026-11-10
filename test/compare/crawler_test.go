@@ -211,6 +211,15 @@ func TestAStaffPlanWithAClickThatLoadsADocumentIsRefused(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("plan %d", staff.ID)) || !strings.Contains(err.Error(), "staff") {
 		t.Errorf("error %v, want one that names the staff plan", err)
 	}
+	// A staff visit is one document, and that document is its landing: a staff plan whose landing is no
+	// document and one of whose clicks is asks for one document too, and is refused.
+	traces = browserTraces(set.Plans)
+	late := browserTrace(staff, 1)
+	late.Steps[0].Reqs[0].Class = "nav"
+	traces[staff.ID] = late
+	if _, err := NewWorkload(&set, traces, mustScenario("shop"), 2); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("plan %d", staff.ID)) || !strings.Contains(err.Error(), "staff") {
+		t.Errorf("a staff plan whose one document is not its landing: error %v, want one that names the staff plan", err)
+	}
 	// A plan without the trace of its page views cannot be counted.
 	traces = browserTraces(set.Plans)
 	traces[3] = Trace{Plan: 3}

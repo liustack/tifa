@@ -1021,7 +1021,9 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 }
 
 // notFormal is how a run differs from a formal one (FormalBrowse): its settings, the pinning of the
-// server and the load, whether browse.sh ran it, and its servers. It is empty for a formal run.
+// server and the load, whether browse.sh ran it, its servers, and traces of one framework alone, which
+// leave the documents of the plans with no check across frameworks (oneTraceNote). It is empty for a
+// formal run.
 func (r *BrowseResult) notFormal() []string {
 	var off []string
 	formal := browseConfig(FormalBrowse, "", "", "")
@@ -1042,6 +1044,9 @@ func (r *BrowseResult) notFormal() []string {
 		if !slices.Equal(r.Servers[sc.Name], BrowseFrameworks) {
 			off = append(off, fmt.Sprintf("servers %s (formal %s)", strings.Join(r.Servers[sc.Name], ", "), strings.Join(BrowseFrameworks, ", ")))
 		}
+	}
+	if note := oneTraceNote(r.Traces); note != "" {
+		off = append(off, note)
 	}
 	return off
 }
