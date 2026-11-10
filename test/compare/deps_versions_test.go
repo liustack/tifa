@@ -277,7 +277,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	var ranged []string
 	for _, u := range pages {
 		if lang, kind := StorePageKind(u); kind == StoreKindList && lang == "zh-CN" {
-			if _, _, lo, hi, _ := listQuery(u); lo == 100 && hi == 300 {
+			if f := listFilterOf(u); f.Min == 100 && f.Max == 300 {
 				ranged = append(ranged, u)
 			}
 		}
