@@ -202,8 +202,8 @@ func (b *browse) commit() error {
 
 // LoadTraces reads the plans of the site and the traces of the names given, and fails unless every
 // name has a trace for every plan: a replay on an incomplete set would not play the same visits on
-// every server. It also fails unless the traces agree on which page views are documents
-// (checkDocuments).
+// every server. It also fails for a trace the documents cannot be counted from (checkTrace), and unless
+// the traces agree on which page views are documents (checkDocuments).
 func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace, error) {
 	set, err := ReadPlans(dir)
 	if err != nil {
@@ -234,6 +234,9 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 			if err := checkLanding(p, t); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", path, err)
 			}
+			if err := checkTrace(p, t); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w: record the traces again (`compare record`)", path, err)
+			}
 		}
 		out[name] = m
 	}
@@ -241,6 +244,23 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 		return nil, nil, err
 	}
 	return set, out, nil
+}
+
+// checkTrace says whether the trace of a plan is one the documents of the plan can be counted from. The
+// plans count the documents the browser asked for (Workload.docSteps) and the replay counts the answers
+// it read whole, so the two are the same count only when every document was read whole. A document the
+// browser cancelled is refused: it would be in the plans, and in the answers only when the replay got
+// all of it before its own cancel. Requests that are no documents may be cancelled, as Next.js does
+// with its RSC requests and its prefetches.
+func checkTrace(p Plan, t Trace) error {
+	for i, s := range t.Steps {
+		for _, q := range s.Reqs {
+			if q.Class == "doc" && q.Cancel != "" {
+				return fmt.Errorf("plan %d: the browser cancelled the document %s of page view %d (%s), so the plans cannot be set beside the answers", p.ID, q.URL, i, q.Cancel)
+			}
+		}
+	}
+	return nil
 }
 
 // checkDocuments fails unless the traces of every name agree, for every page view of every plan, on

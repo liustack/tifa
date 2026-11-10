@@ -194,3 +194,92 @@ func TestARenderInAVMOfADocumentAClickAsksIsSplitByItsClass(t *testing.T) {
 		t.Errorf("landing documents %v, want %v", a.landing, want)
 	}
 }
+
+// writeTraces writes the plans of set and, for each name, the trace of every plan as trace makes it for
+// that name, to a folder that LoadTraces reads.
+func writeTraces(t *testing.T, set PlanSet, names []string, trace func(name string, p Plan) Trace) string {
+	t.Helper()
+	dir := t.TempDir()
+	data, _ := json.Marshal(set)
+	if err := os.WriteFile(PlansPath(dir), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		var b strings.Builder
+		for _, p := range set.Plans {
+			line, _ := json.Marshal(trace(name, p))
+			b.Write(line)
+			b.WriteString("\n")
+		}
+		if err := os.WriteFile(TracePath(dir, name), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// planWithClicks is the first plan of set with at least n page views.
+func planWithClicks(t *testing.T, set PlanSet, role string, n int) Plan {
+	t.Helper()
+	for _, p := range set.Plans {
+		if p.Role == role && len(p.Steps) >= n {
+			return p
+		}
+	}
+	t.Fatalf("no %s plan of %d page views", role, n)
+	return Plan{}
+}
+
+// The plans count a document the browser asked for, and the replay counts an answer it read whole. A
+// document the browser cancelled is one and not the other, so a round that plays it could not be set
+// beside the plans. No recording of the shop has one, and a set of traces with one is refused where
+// it is loaded, with the plan, the page view and the framework. Only documents: Next.js cancels its
+// RSC requests and its prefetches, and those load as before.
+func TestATraceWithACancelledDocumentIsRefused(t *testing.T) {
+	set := GenerateSitePlanSet(1, 1)
+	with := planWithClicks(t, set, RoleShopper, 3)
+	names := []string{"tifa", "nextjs"}
+	for _, tc := range []struct {
+		name   string
+		cancel func(tr *Trace)
+		ok     bool
+	}{
+		{"navigation data and a prefetch cancelled", func(tr *Trace) {
+			nav := cancelledAfterAnswer(with.Steps[1].Page+"?_rsc=1", "nav", 0, 1, 2)
+			pre := cancelled("/store?_rsc=2", "prefetch", 0, 3)
+			nav.Headers, pre.Headers = map[string]string{"rsc": "1"}, map[string]string{"rsc": "1"}
+			tr.Steps[1].Reqs = append(tr.Steps[1].Reqs, nav, pre)
+		}, true},
+		{"the document of a click cancelled after its answer began", func(tr *Trace) {
+			tr.Steps[1].Reqs = []TraceReq{cancelledAfterAnswer(with.Steps[1].Page, "doc", 0, 1, 2)}
+		}, false},
+		{"the document of a click cancelled before any answer, beside data that arrived", func(tr *Trace) {
+			tr.Steps[1].Reqs = []TraceReq{cancelled(with.Steps[1].Page, "doc", 0, 1), req(with.Steps[1].Page+"?_rsc=1", "nav", 1, 2)}
+		}, false},
+	} {
+		// The second page view of the plan is a document load in both frameworks.
+		dir := writeTraces(t, set, names, func(name string, p Plan) Trace {
+			if p.ID != with.ID {
+				return browserTrace(p)
+			}
+			tr := browserTrace(p, 1)
+			if name == "nextjs" {
+				tc.cancel(&tr)
+			}
+			return tr
+		})
+		_, _, err := LoadTraces(dir, names)
+		switch {
+		case tc.ok && err != nil:
+			t.Errorf("%s: refused: %v", tc.name, err)
+		case !tc.ok && err == nil:
+			t.Errorf("%s: loaded", tc.name)
+		case !tc.ok:
+			for _, want := range []string{"cancelled", fmt.Sprintf("plan %d", with.ID), "page view 1", "nextjs.jsonl", "record"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%s: the error lacks %q: %v", tc.name, want, err)
+				}
+			}
+		}
+	}
+}
