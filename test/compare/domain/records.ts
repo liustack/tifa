@@ -23,6 +23,7 @@ export interface ShipmentRecord {
 
 export interface ItemRecord {
   slug: string
+  photo: string // the folder of the photos of the product, as it was sold
   name: string
   description: string
   quantity: number

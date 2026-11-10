@@ -33,7 +33,8 @@
 #                     test/compare/rates.json (else the file is used, and a run whose
 #                     conditions differ from the file is refused)
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
-#   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
+#   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 75s
+#                     long a closed round takes
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
 #   BLOCKS            blocks of 1050 visits to record (the plans)                   1
 #   WORKERS           browser contexts at once while recording                      6
@@ -53,6 +54,7 @@ for old in USERS EXTRA_USERS; do
   if [ -n "${!old+set}" ]; then echo "$old is gone: the throughput counts concurrent sessions, set SESSIONS (8 by default)" >&2; exit 2; fi
 done
 if [ -n "${SCENARIOS+set}" ]; then echo "SCENARIOS is gone: the comparison has one scenario, the shop" >&2; exit 2; fi
+if [ -n "${WARM+set}" ]; then echo "WARM is gone: every server gets the same warm-up of the mix, and SIZING is the length of a sizing run (15s by default)" >&2; exit 2; fi
 blocks=${BLOCKS:-1}
 mkdir -p "$out" "$traces"
 compare=$out/compare
@@ -112,7 +114,7 @@ run_stamp() {
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
-  echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # traces_current is true when the traces were recorded from these sources, with these plans and
@@ -167,7 +169,7 @@ do_run() {
   [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
   [ -n "${SESSIONS:-}" ] && cmd+=(-sessions "$SESSIONS")
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")
-  [ -n "${WARM:-}" ] && cmd+=(-warm "$WARM")
+  [ -n "${SIZING:-}" ] && cmd+=(-sizing "$SIZING")
   [ -n "${TARGET:-}" ] && cmd+=(-target "$TARGET")
   [ -n "${TRIAL_WINDOW:-}" ] && cmd+=(-trial-window "$TRIAL_WINDOW")
   [ -n "${FINAL_WINDOW:-}" ] && cmd+=(-final-window "$FINAL_WINDOW")

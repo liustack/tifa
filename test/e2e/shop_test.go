@@ -280,7 +280,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		wants []string
 	}{
 		{"/zh-CN/store", []string{"<title>山海 · 日常器物</title>", "秋天的第一壶茶"}},
-		{"/store/products?color=moss&sort=price-asc", []string{"<title>All products · Shanhai</title>", "11 products", `products/dot-notebook">Dot Grid Notebook</a>`}},
+		{"/store/products?color=moss&sort=price-asc", []string{"<title>All products · Shanhai</title>", "44 products", `products/mini-journal">Mini Journal</a>`}},
 		{"/store/products/pour-over-kettle", []string{"Morning Pour-Over Kettle", "$46.20", "63 reviews", "Order now and get it between"}},
 		{"/zh-CN/store/products/pour-over-kettle", []string{"晨间手冲壶", "¥328.00"}},
 		{"/zh-CN/store/journal/stock-sync-api", []string{"用开放接口同步库存", "<table", `hljs language-go`, `class="hljs-keyword"`}},
@@ -449,7 +449,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if status != 200 || !strings.Contains(header.Get("Set-Cookie"), "store_cart=") || body != `{"count":7}` {
 		t.Errorf("add to cart: %d %s %v", status, body, header)
 	}
-	if status, _, body := do("PATCH", "/store/cart", `{"line":"pour-over-kettle.charcoal","quantity":3}`); status != 200 || !strings.Contains(body, `"id":"pour-over-kettle.charcoal","slug":"pour-over-kettle","name":"Morning Pour-Over Kettle","color":"charcoal","colorName":"Charcoal"`) || !strings.Contains(body, `"count":8,`) {
+	if status, _, body := do("PATCH", "/store/cart", `{"line":"pour-over-kettle.charcoal","quantity":3}`); status != 200 || !strings.Contains(body, `"id":"pour-over-kettle.charcoal","slug":"pour-over-kettle","photo":"pour-over-kettle","name":"Morning Pour-Over Kettle","color":"charcoal","colorName":"Charcoal"`) || !strings.Contains(body, `"count":8,`) {
 		t.Errorf("change a quantity: %d %s", status, body)
 	}
 	if status, _, body := do("POST", "/store/cart", `{"code":"NOPE"}`); status != 422 || !strings.Contains(body, `"code":"coupon"`) {
@@ -553,8 +553,8 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 			t.Errorf("the storefront carries %s, or the workbench lacks it", owner)
 		}
 	}
-	// A page past the last shows the last, from the 25th product on.
-	if status, _, list := get(t, base+"/zh-CN/store/products?page=9223372036854775807"); status != 200 || !strings.Contains(rendered(list), "第 25 到") {
+	// A page past the last shows the last, from the 145th product on.
+	if status, _, list := get(t, base+"/zh-CN/store/products?page=9223372036854775807"); status != 200 || !strings.Contains(rendered(list), "第 145 到") {
 		t.Errorf("a page past the last of the list: %d", status)
 	}
 

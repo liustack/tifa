@@ -24,6 +24,7 @@ export const maxQuantity = 10
 export interface Line {
   id: string
   slug: string
+  photo: string // the folder of the photos of the product
   name: string
   color: string
   colorName: string
@@ -111,7 +112,7 @@ export function priceCart(lines: LineRecord[], coupon: string, l: Locale, get: (
     const p = get(r.slug, l)
     if (!p) continue
     cart.lines.push({
-      id: lineId(r.slug, r.color, r.size), slug: r.slug, name: p.name, color: r.color, colorName: colorName(r.color, l),
+      id: lineId(r.slug, r.color, r.size), slug: r.slug, photo: p.photo, name: p.name, color: r.color, colorName: colorName(r.color, l),
       hex: p.colors?.find((col) => col.id === r.color)?.hex ?? '', size: r.size, quantity: r.quantity,
       priceCents: p.priceCents, stock: p.stock,
     })

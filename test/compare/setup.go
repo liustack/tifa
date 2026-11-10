@@ -33,12 +33,13 @@ import (
 const setupWorkers = 8
 
 // setup makes the orders of the ships and the carts of the returning visitors among visits seq0 to
-// seq0+n-1, after the restock, and reads the render memo of Tifa last (startMemo). It reports whether they were made: when not, round says why, and the
-// round is not played.
+// seq0+n-1, after the restock, and reads the render memo of Tifa last (startMemo), before the
+// warm-up. It reports whether they were made: when not, round says why, and the round is not played.
 func (r *runner) setup(ctx context.Context, round *Round, seq0, n int) bool {
-	// The data is made for the visits the run was prepared for (browse.with), when they are more.
-	if seq0 == 0 && r.prepared > n {
-		n = r.prepared
+	// The data is made for the visits the run was prepared for (browse.with) and those of its warm-up,
+	// which come after them, when they are more.
+	if seq0 == 0 {
+		n = max(n, r.prepared+r.warm)
 	}
 	return r.setupOrders(ctx, round, seq0, n) && r.setupCarts(ctx, round, seq0, n) && r.startMemo(ctx, round)
 }
@@ -210,31 +211,37 @@ func (w *Workload) cartsFit(seq0, n, keep int) error {
 }
 
 // MemoCounts is what the render memo of Tifa counted, as the metrics route of the shop answers it
-// (tifa.Stats().Memo): the pages it holds, and its hits, misses and shared renders since the server
-// started.
+// (tifa.Stats().Memo and MemoBytes): the pages it holds and their bytes, and its hits, misses,
+// shared renders and the pages it dropped to make room since the server started.
 type MemoCounts struct {
-	Entries int64 `json:"entries"`
-	Hits    int64 `json:"hits"`
-	Misses  int64 `json:"misses"`
-	Shared  int64 `json:"shared"`
+	Entries   int64 `json:"entries"`
+	Bytes     int64 `json:"bytes"`
+	Hits      int64 `json:"hits"`
+	Misses    int64 `json:"misses"`
+	Shared    int64 `json:"shared"`
+	Evictions int64 `json:"evictions"`
 }
 
-// MemoRound is the render memo of Tifa at the start of a round, after its setup and right before its
-// clock, and at its end.
+// MemoRound is the render memo of Tifa at the start of a round, after its setup and before its
+// warm-up, after the warm-up right before its clock (the same as Start in a run with no warm-up), and
+// at its end.
 type MemoRound struct {
 	Start MemoCounts `json:"start"`
+	Warm  MemoCounts `json:"warm"`
 	End   MemoCounts `json:"end"`
 }
 
-// Hits is the hits of the memo over the round, as the server counted them.
-func (m *MemoRound) Hits() int64 { return m.End.Hits - m.Start.Hits }
+// Hits is the hits of the memo over the round, from its clock on, as the server counted them.
+func (m *MemoRound) Hits() int64 { return m.End.Hits - m.Warm.Hits }
 
 // memoMetrics are the lines of the metrics route that MemoCounts reads, by name.
 var memoMetrics = map[string]func(*MemoCounts) *int64{
-	"tifa_memo_entries":      func(m *MemoCounts) *int64 { return &m.Entries },
-	"tifa_memo_hits_total":   func(m *MemoCounts) *int64 { return &m.Hits },
-	"tifa_memo_misses_total": func(m *MemoCounts) *int64 { return &m.Misses },
-	"tifa_memo_shared_total": func(m *MemoCounts) *int64 { return &m.Shared },
+	"tifa_memo_entries":         func(m *MemoCounts) *int64 { return &m.Entries },
+	"tifa_memo_hits_total":      func(m *MemoCounts) *int64 { return &m.Hits },
+	"tifa_memo_misses_total":    func(m *MemoCounts) *int64 { return &m.Misses },
+	"tifa_memo_shared_total":    func(m *MemoCounts) *int64 { return &m.Shared },
+	"tifa_memo_bytes":           func(m *MemoCounts) *int64 { return &m.Bytes },
+	"tifa_memo_evictions_total": func(m *MemoCounts) *int64 { return &m.Evictions },
 }
 
 // readMemo reads the counts of the render memo from the metrics route of the server (Spec.Metrics),
@@ -266,9 +273,9 @@ func (r *runner) readMemo(ctx context.Context) (MemoCounts, error) {
 	return m, nil
 }
 
-// startMemo reads the render memo of Tifa right before the clock of a round, when the server has
-// the metrics route. It must hold nothing then: a page in it was put there before the round. It
-// reports whether the round can start: when not, round says why.
+// startMemo reads the render memo of Tifa right before the warm-up of a round (right before the
+// clock in a run with none), when the server has the metrics route. It must hold nothing then: a
+// page in it was put there before. It reports whether the round can start: when not, round says why.
 func (r *runner) startMemo(ctx context.Context, round *Round) bool {
 	if r.metrics == "" {
 		return true
@@ -278,12 +285,28 @@ func (r *runner) startMemo(ctx context.Context, round *Round) bool {
 	case err != nil:
 		round.SetupError = "the metrics: " + err.Error()
 	case m.Entries != 0:
-		round.SetupError = fmt.Sprintf("the render memo held %d pages before the clock: something filled it before the round", m.Entries)
+		round.SetupError = fmt.Sprintf("the render memo held %d pages before the warm-up: something filled it before", m.Entries)
 	default:
-		round.Memo = &MemoRound{Start: m}
+		round.Memo = &MemoRound{Start: m, Warm: m}
 		return true
 	}
 	return false
+}
+
+// warmMemo reads the render memo of Tifa again after the warm-up of a round that read it before,
+// right before the clock: what the warm-up left in it. It reports whether the round can start: when
+// not, round says why.
+func (r *runner) warmMemo(ctx context.Context, round *Round) bool {
+	if round.Memo == nil {
+		return true
+	}
+	m, err := r.readMemo(ctx)
+	if err != nil {
+		round.SetupError = "the metrics after the warm-up: " + err.Error()
+		return false
+	}
+	round.Memo.Warm = m
+	return true
 }
 
 // endMemo reads the render memo of Tifa at the end of a round that read it at its start.

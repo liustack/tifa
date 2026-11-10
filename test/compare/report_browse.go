@@ -210,6 +210,8 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	for _, n := range r.detailSessions(sc.Name) {
 		r.closedDetail(b, sc, n)
 	}
+	r.warmUpMarkdown(b, sc)
+	r.memoMarkdown(b, sc)
 	r.controlMarkdown(b, sc)
 	r.seriesMarkdown(b, sc)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
@@ -820,17 +822,17 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from the start of the round (the last step is as long as the round has left). The steps show how throughput and latency change over the round. An open round includes the ramp at the start and the drain at the end, so its first and last steps differ from the middle whatever the server does. Tifa had no warm-up and starts with an empty render memo, the Node servers had one. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\n#### Page views a second and P99 in 10 second steps\n\nHow the first valid round of each server went, in steps of 10 seconds from the start of the round (the last step is as long as the round has left). The steps show how throughput and latency change over the round. An open round includes the ramp at the start and the drain at the end, so its first and last steps differ from the middle whatever the server does. Every server had the same warm-up before the round, so the render memo of Tifa starts with what the warm-up left in it. Page views a second, then the P99 in ms of the page views completed in the step.\n\n| | round | page views/s | P99 ms |\n| --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
 }
 
 // visitsText is what the report says about how the visits are played.
-const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Tifa gets no warm-up: it has no JIT, and its render memo starts empty in every round, so what the memo holds is earned inside the measured time. The Node servers get a warm-up with no writes, since their JIT needs one. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
+const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Before the clock of each round every server gets the same warm-up: the visits after those the data was made for, as many as the longest closed round any server was sized to (in an open round, as many as the round plays), with the mix and the writes of the round, played as the round plays (its sessions, or its rate). It counts in no result. The render memo of Tifa is empty before the warm-up, and the appendix gives what it held after it. The Node servers have no other warm-up: this one warms their JIT on the code the round runs. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
 // siteText is what the report says about the one site.
-const siteText = "The comparison plays the shop as one site: shoppers on the storefront (the home, the product list with its filters, 28 products, the cart, the checkout, the journal and its posts, in English or Chinese) and the staff in the back office, at once on the same server. Throughput is the page views of the whole site. A shopper visit stays in one language. A shopper who adds to the cart adds the product of the product page they are on, in a colour, a size and a quantity drawn from the seed and the visit, and one who checks out does so after the checkout page, with a name, an email and an address of the visit's own (it answers 303 to the page of the order, which is not followed). A returning visitor comes back to a cart of their own, made for that visit alone, so the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit, while a new visitor sees the demonstration cart, the same for every new visitor, as the empty cart of a real shop is the same for every anonymous visitor. A staff visit reads the orders, the stats and the projects of the back office, and some edit a product or ship an order: an edit is one PATCH of one field of a product, a price or a stock drawn from the seed and the visit, with nothing read first, and each ship ships an order of its own, placed for it before the clock. Before the clock every server of a scenario gets the same requests, none of which renders a page, made for the same visits whatever the server was sized to: a restock that gives every product the stock the orders can take, then the orders of the ships, then the carts of the returning visitors. The orders that checkouts place are orders of the back office that no ship takes. As in a real shop, the time of an order is the clock of the server when it is placed, before the clock of the round or in it. Orders and carts pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders of the back office each server held at the end of a round. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request: a check before the run makes sure none of them sends anything that lets an answer be kept (an ETag, a Last-Modified, a positive max-age, a Next.js cache header). Tifa keeps rendered pages in its render memo.\n\nPlans come in blocks of 1000 shopper visits with the mix below exactly (by quota) and a set of staff visits, so every round plans the mix of its scenario, whose share of staff visits and of edits is placed by quota in every cycle of the site. A round is not valid, and is played again, when the visits it planned miss the mix of its scenario, when the load generator did not start every visit, when a request of the setup before the clock (the restock, the orders of the ships, the carts of the returning visitors) rendered a page or got another status than planned, or, for Tifa, when its metrics route said that its render memo held a page right before the clock (something filled it before the round).\n\n"
+const siteText = "The comparison plays the shop as one site: shoppers on the storefront (the home, the product list with its filters, 150 products, the cart, the checkout, the journal and its posts, in English or Chinese) and the staff in the back office, at once on the same server. Throughput is the page views of the whole site. A shopper visit stays in one language. A shopper who adds to the cart adds the product of the product page they are on, in a colour, a size and a quantity drawn from the seed and the visit, and one who checks out does so after the checkout page, with a name, an email and an address of the visit's own (it answers 303 to the page of the order, which is not followed). A returning visitor comes back to a cart of their own, made for that visit alone, so the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit, while a new visitor sees the demonstration cart, the same for every new visitor, as the empty cart of a real shop is the same for every anonymous visitor. A staff visit reads the orders, the stats and the projects of the back office, and some edit a product or ship an order: an edit is one PATCH of one field of a product, a price or a stock drawn from the seed and the visit, with nothing read first, and each ship ships an order of its own, placed for it before the clock. Before the clock every server of a scenario gets the same requests, none of which renders a page, made for the same visits whatever the server was sized to: a restock that gives every product the stock the orders can take, then the orders of the ships, then the carts of the returning visitors. Then every server gets the same warm-up, counted in no result: visits of the mix after those of the round, with their writes, played as the round plays (its sessions, or its rate). The orders that checkouts place are orders of the back office that no ship takes. As in a real shop, the time of an order is the clock of the server when it is placed, before the clock of the round or in it. Orders and carts pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders of the back office each server held at the end of a round. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request: a check before the run makes sure none of them sends anything that lets an answer be kept (an ETag, a Last-Modified, a positive max-age, a Next.js cache header). Tifa keeps rendered pages in its render memo.\n\nPlans come in blocks of 1000 shopper visits with the mix below exactly (by quota) and a set of staff visits, so every round plans the mix of its scenario, whose share of staff visits and of edits is placed by quota in every cycle of the site. A round is not valid, and is played again, when the visits it planned miss the mix of its scenario, when the load generator did not start every visit, when a request of the setup before the clock (the restock, the orders of the ships, the carts of the returning visitors) rendered a page or got another status than planned, or, for Tifa, when its metrics route said that its render memo held a page right before the warm-up (something filled it before), or the shop refused a request of the warm-up with 409 or 422.\n\n"
 
 // assumptionsMarkdown lists the numbers of the mix with their sources, and what each scenario sets.
 func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
@@ -934,7 +936,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 func (r *BrowseResult) notFormal() []string {
 	var off []string
 	formal := browseConfig(FormalBrowse, "", "", "")
-	for _, k := range []string{"sessions", "rounds", "warm", "target", "trialWindow", "finalWindow", "maxRate", "seed"} {
+	for _, k := range []string{"sessions", "rounds", "sizing", "target", "trialWindow", "finalWindow", "maxRate", "seed"} {
 		if v, ok := r.Config[k]; !ok {
 			off = append(off, fmt.Sprintf("%s not recorded (formal %s)", k, formal[k]))
 		} else if v != formal[k] {
@@ -953,4 +955,90 @@ func (r *BrowseResult) notFormal() []string {
 		}
 	}
 	return off
+}
+
+// yesNo writes a bool in a cell of a table.
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+// warmUpMarkdown writes, for every round of a scenario that had a warm-up (the closed rounds, the
+// latency rounds and the read-only control, valid or not, of every server), what the warm-up did
+// and the cores the server used in the last second of the pause after it, where its cpu was read.
+func (r *BrowseResult) warmUpMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var rows []string
+	add := func(what string, x *Round) {
+		w := x.WarmUp
+		if x.Scenario != sc.Name || w == nil {
+			return
+		}
+		cores := "-"
+		if w.IdleCores != nil {
+			cores = fmt.Sprintf("%.2f", *w.IdleCores)
+		}
+		rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %d | %s | %d of %d | %d of %d | %d | %.0f | %s |\n", BrowseLabel(x.Framework), what, x.Round, x.Attempt, yesNo(x.Valid), w.Visits, w.VisitsPlanned, w.Writes, w.WritesPlanned, w.Failures, w.Seconds, cores))
+	}
+	for i := range r.Closed {
+		add(fmt.Sprintf("closed, %d sessions", r.Closed[i].Sessions), &r.Closed[i])
+	}
+	for i := range r.Latency {
+		add(fmt.Sprintf("open, %.2f visits/s", r.Latency[i].Rate), &r.Latency[i])
+	}
+	for i := range r.Control {
+		add("read-only control", &r.Control[i])
+	}
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n#### The warm-up before each round\n\nWhat the warm-up before the clock of each round did, every try: the visits and the writes it did of those it planned, its failures and how long it took. After its last request ended every server was left alone for %.0f seconds before the clock, so that it could end what it still did for a request the trace cancelled. The last column is the cores the server used in the last second of that pause (- where the cpu of the server was not read).\n\n| | round | try | valid | visits done | writes done | failures | seconds | server cores in the last second before the clock |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", settlePause.Seconds())
+	for _, row := range rows {
+		b.WriteString(row)
+	}
+}
+
+// memoMarkdown writes, for every round of a Tifa server of a scenario that read its metrics (the
+// closed rounds, the latency rounds and the read-only control, valid or not), what its render memo
+// held after the warm-up and at the end, the pages it dropped to make room in the round and the hits
+// it counted from the clock on, all from its metrics route.
+func (r *BrowseResult) memoMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var rows []string
+	add := func(what string, x *Round) {
+		if x.Scenario != sc.Name || !isTifa(x.Framework) || x.Memo == nil {
+			return
+		}
+		m := x.Memo
+		mib := func(n int64) string { return fmt.Sprintf("%.1f", float64(n)/(1<<20)) }
+		// A round that read the memo before its warm-up and then stopped before its clock (a setup
+		// error: the warm-up was refused, left requests in flight, or the read after it failed) has
+		// no read after the warm-up, and a round whose metrics did not answer at its end
+		// (MemoError) none at the end: what was not read is no number.
+		warm := []string{"not read", "not read"}
+		end := []string{"not read", "not read", "not read", "not read"}
+		if x.SetupError == "" {
+			warm = []string{strconv.FormatInt(m.Warm.Entries, 10), mib(m.Warm.Bytes)}
+			if x.MemoError == "" {
+				end = []string{strconv.FormatInt(m.End.Entries, 10), mib(m.End.Bytes), strconv.FormatInt(m.End.Evictions-m.Warm.Evictions, 10), strconv.FormatInt(m.Hits(), 10)}
+			}
+		}
+		rows = append(rows, fmt.Sprintf("| %s | %s, round %d | %d | %s | %s | %s |\n", BrowseLabel(x.Framework), what, x.Round, x.Attempt, yesNo(x.Valid), strings.Join(warm, " | "), strings.Join(end, " | ")))
+	}
+	for i := range r.Closed {
+		add(fmt.Sprintf("closed, %d sessions", r.Closed[i].Sessions), &r.Closed[i])
+	}
+	for i := range r.Latency {
+		add(fmt.Sprintf("open, %.2f visits/s", r.Latency[i].Rate), &r.Latency[i])
+	}
+	for i := range r.Control {
+		add("read-only control", &r.Control[i])
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\n#### What the render memo of Tifa held\n\nFrom the metrics route of each Tifa server, every round that read it: the pages and bytes the render memo held after the warm-up (right before the clock) and at the end, the pages it dropped to make room for others in the round (least recently used first, `ssr.memo_size`), and the hits it counted itself in the round, its count at the end less the one after the warm-up. Its memo was empty before the warm-up. Every try is listed, valid or not. A read that was not made or did not answer (in a round its warm-up stopped before the clock, or whose metrics route failed at its end) says not read, and nothing is worked out from it.\n\n| | round | try | valid | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
 }

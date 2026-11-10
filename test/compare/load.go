@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"sync"
@@ -98,8 +99,11 @@ type Round struct {
 	// or rendered a page, or the render memo of Tifa held pages before the clock.
 	SetupRequests int    `json:"setupRequests,omitempty"`
 	SetupError    string `json:"setupError,omitempty"`
-	// Memo is the render memo of Tifa as its metrics route counted it, before the clock and at the end
-	// (Tifa alone has it), and MemoError why it could not be read at the end.
+	// WarmUp is what the warm-up before the clock played, apart from the round (nil for a run with
+	// none).
+	WarmUp *WarmUp `json:"warmUp,omitempty"`
+	// Memo is the render memo of Tifa as its metrics route counted it, before the warm-up, at the clock
+	// and at the end (Tifa alone has it), and MemoError why it could not be read at the end.
 	Memo      *MemoRound `json:"memo,omitempty"`
 	MemoError string     `json:"memoError,omitempty"`
 	// PrivateHits counts the answers of the private pages, the cart and the checkout, that came from
@@ -197,7 +201,8 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 // returning visitors, and for Tifa a render memo that held nothing then) was made with answers that
 // render nothing, the render memo of Tifa was read again at its end, and the load generator started every visit it was meant to (one that fell behind
 // or ran out of cpus is found by generatorFault). Pass is about the server, on what
-// it did: a server that fails visits or falls behind fails the rule, in a valid round.
+// it did in the round and in its warm-up: a server that fails visits or falls behind fails the rule,
+// in a valid round.
 func (r *Round) Judge(sc BrowseScenario) {
 	r.Valid, r.WhyInvalid = true, ""
 	invalid := func(why string) {
@@ -226,12 +231,29 @@ func (r *Round) Judge(sc BrowseScenario) {
 	if !r.TimedOut && r.VisitsStarted < r.VisitsPlanned {
 		invalid(fmt.Sprintf("the load generator started %d of the %d visits planned", r.VisitsStarted, r.VisitsPlanned))
 	}
+	// The warm-up is the same traffic as the round, so it is judged as the round is (below). A closed
+	// warm-up cut off by its timeout ran longer than the round was sized for: a matter of sizing.
+	w := r.WarmUp
+	if w != nil && w.TimedOut && r.Model != "open" {
+		invalid(fmt.Sprintf("the warm-up was cut off by its timeout after %.0f s, with %d of its %d visits done: the round was sized too long", w.Seconds, w.Visits, w.VisitsPlanned))
+	}
 	r.Pass, r.Why = true, ""
 	fail := func(why string) {
 		if r.Why == "" {
 			r.Why = why
 		}
 		r.Pass = false
+	}
+	if w != nil {
+		if w.TimedOut && r.Model == "open" {
+			fail("the warm-up: the workload did not finish in time: a backlog was left")
+		}
+		if w.VisitsFailed > 0 || w.Failures > 0 {
+			fail(fmt.Sprintf("the warm-up: %d failed visits of %d, %d failures (%s)", w.VisitsFailed, w.VisitsPlanned, w.Failures, w.FirstErr))
+		}
+		if !w.TimedOut && w.Writes < w.WritesPlanned {
+			fail(fmt.Sprintf("the warm-up: %d of its %d writes completed", w.Writes, w.WritesPlanned))
+		}
 	}
 	// A closed round cut off by its timeout ran longer than it was sized for, which is a matter of
 	// calibration (see calibrate), unless an action it cut off had waited past the rule (below). An
@@ -263,16 +285,35 @@ func (r *Round) Judge(sc BrowseScenario) {
 
 // RunClosed plays visits seq 0..visits-1 of the global sequence with sessions concurrent sessions, each taking the
 // next visit when it finishes one (zero think time), and each visit with at most six connections.
-// It starts at the first scheduled action and ends when the last visit has finished, or at timeout.
+// Before its clock come the setup and the warm-up (warmUp), played with the same sessions. It
+// starts at the first action of the round and ends when the last visit has finished, or at timeout.
 func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout time.Duration) *Round {
 	round := &Round{Model: "closed", Sessions: sessions, Blocks: visits / r.wl.blockVisits()}
-	if !r.setup(ctx, round, 0, visits) {
-		r.wl.plan(round, 0, visits, false)
+	ok := r.setup(ctx, round, 0, visits)
+	var seen map[string]bool
+	if ok {
+		// The warm-up has as long for each visit as the round.
+		seen, ok = r.warmUp(ctx, round, visits, func(w *Round) *acc {
+			return r.playClosed(ctx, w, sessions, r.prepared, r.warm, time.Duration(float64(timeout)*max(1, float64(r.warm)/float64(max(visits, 1)))), nil)
+		})
+	}
+	if !ok {
+		r.wl.plan(round, 0, visits)
 		return round
 	}
+	r.playClosed(ctx, round, sessions, 0, visits, timeout, seen)
+	r.countOrders(round)
+	r.endMemo(ctx, round)
+	return round
+}
+
+// playClosed plays visits seq0 to seq0+n-1 with sessions concurrent sessions, as RunClosed says, and
+// fills round with what they did. seen are the URLs Tifa answered before (the warm-up's), for the
+// split of its renders by why.
+func (r *runner) playClosed(ctx context.Context, round *Round, sessions, seq0, n int, timeout time.Duration, seen map[string]bool) *acc {
 	a := newAcc()
+	maps.Copy(a.seen, seen)
 	var next atomic.Int64
-	parent := ctx // the render memo is read after the round, which the timeout may have ended
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cpu0, client0 := r.cpu(), selfCPU()
@@ -286,21 +327,19 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 			defer tr.CloseIdleConnections()
 			for ctx.Err() == nil {
 				s := int(next.Add(1)) - 1
-				if s >= visits {
+				if s >= n {
 					return
 				}
-				r.runVisit(ctx, tr, a, s, pacer{})
+				r.runVisit(ctx, tr, a, seq0+s, pacer{})
 			}
 		}()
 	}
 	wg.Wait()
 	end := time.Now()
 	round.TimedOut = ctx.Err() == context.DeadlineExceeded
-	r.wl.plan(round, 0, visits, false)
+	r.wl.plan(round, seq0, n)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
-	r.countOrders(round)
-	r.endMemo(parent, round)
-	return round
+	return a
 }
 
 // countOrders notes, after a round, how many orders each project of the back office holds.
@@ -308,12 +347,91 @@ func (r *runner) countOrders(round *Round) {
 	round.Orders = r.pool.orderCounts()
 }
 
-// Warm plays the workload with sessions sessions for d, counting nothing, and returns how many visits a
-// second it completed. It is the warm-up of a framework, apart from the measured round. It sends no
-// writes (see pacer), so the data the round starts with is the same for every framework.
-func (r *runner) Warm(ctx context.Context, sessions int, d time.Duration) float64 {
-	rate, _ := r.closedFor(ctx, sessions, d, pacer{reads: true}, -1)
-	return rate
+// WarmUp is what the warm-up before the clock of a round played (runner.warmUp): the visits from
+// FirstVisit on, with their writes. It counts in no result of the round.
+type WarmUp struct {
+	FirstVisit    int            `json:"firstVisit"`
+	VisitsPlanned int            `json:"visitsPlanned"`
+	Visits        int            `json:"visitsSucceeded"`
+	VisitsFailed  int            `json:"visitsFailed"`
+	WritesPlanned int            `json:"writesPlanned"`
+	Writes        int            `json:"writes"`
+	WriteKinds    map[string]int `json:"writeKinds,omitempty"`
+	Requests      int            `json:"requests"`
+	Refused       int            `json:"refused,omitempty"`
+	Failures      int            `json:"failures"`
+	FirstErr      string         `json:"firstError,omitempty"`
+	Seconds       float64        `json:"seconds"`
+	// TimedOut says that the warm-up was cut off before every visit of it ended: a server too slow
+	// for its round as well.
+	TimedOut bool `json:"timedOut,omitempty"`
+	// IdleCores are the cores the server used in the last second of the pause after the warm-up
+	// (settlePause), where its cpu is read: what it still did with no request in flight.
+	IdleCores *float64 `json:"idleCores,omitempty"`
+}
+
+// settleWait is how long the end of a warm-up waits for its requests in flight to end.
+const settleWait = 30 * time.Second
+
+// settlePause is how long every server is left alone after the last request of a warm-up has
+// ended, before the metrics of Tifa are read and the clock starts. The client is done with a
+// request the trace cancelled when it cancels it, while the server may still be at work on it (a
+// render goes on in its VM and lands in the memo): the pause keeps that work out of the round. It is
+// the same for every server.
+const settlePause = 2 * time.Second
+
+// settle waits settlePause and returns the cores the server used in its last second, or nil where
+// the cpu of the server is not read.
+func (r *runner) settle() *float64 {
+	time.Sleep(settlePause - time.Second)
+	cpu0, t0 := r.cpu(), time.Now()
+	time.Sleep(time.Second)
+	if !r.cpuKnown {
+		return nil
+	}
+	cores := (r.cpu() - cpu0) / time.Since(t0).Seconds()
+	return &cores
+}
+
+// warmUp plays the warm-up of a round before its clock, when the run has one (r.warm visits from
+// visit r.prepared on, after the visits the data is prepared for), with play, which plays them as
+// the round plays its own (with its sessions, or at its rate) and with their writes, into a round of
+// their own. Then it waits until no request of it is in flight and reads the render memo of Tifa
+// again (Memo.Warm), after a pause that leaves the server time to end what it still does
+// (settle). It returns the URLs Tifa answered in it, and whether the round can start: a
+// warm-up the shop refused a request of with 409 or 422 (after the restock no write of the plan is
+// one it refuses), whose requests did not end, or after which the memo could not be read, makes the
+// round invalid (SetupError), since the servers would not start the clock with the same data. The
+// round is played after a warm-up that was cut off or whose visits or writes failed, and Judge
+// decides it from what the warm-up did, as from the round.
+func (r *runner) warmUp(ctx context.Context, round *Round, visits int, play func(w *Round) *acc) (map[string]bool, bool) {
+	if r.warm == 0 {
+		return nil, true
+	}
+	if r.prepared < visits {
+		panic(fmt.Sprintf("a warm-up after %d prepared visits for a round of %d: it would play the visits of the round", r.prepared, visits))
+	}
+	w := &Round{}
+	a := play(w)
+	round.WarmUp = &WarmUp{FirstVisit: r.prepared, VisitsPlanned: w.VisitsPlanned, Visits: w.Visits, VisitsFailed: w.VisitsFailed, WritesPlanned: w.WritesPlanned, Writes: w.Writes,
+		WriteKinds: w.WriteKinds, Requests: w.Requests, Refused: w.Refused, Failures: w.Failures, FirstErr: w.FirstErr, Seconds: w.Seconds, TimedOut: w.TimedOut}
+	for wait := time.Now().Add(settleWait); r.inflight.Load() > 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(wait) {
+			round.SetupError = fmt.Sprintf("the warm-up left %d requests in flight %s after it ended", r.inflight.Load(), settleWait)
+			return nil, false
+		}
+	}
+	if w.Refused > 0 {
+		round.SetupError = fmt.Sprintf("the shop refused %d requests of the warm-up with 409 or 422", w.Refused)
+		return nil, false
+	}
+	round.WarmUp.IdleCores = r.settle()
+	if !r.warmMemo(ctx, round) {
+		return nil, false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.seen, true
 }
 
 // Size plays visits 0 to visits-1 of the scenario with their writes, on sessions concurrent sessions,
@@ -376,14 +494,37 @@ func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) 
 // n visits in all (a whole number of blocks, so that the mix comes out exact). The actions of a
 // visit are planned ActionSpacing apart, and latency is counted from the planned time. It ends when
 // the last visit has finished, or drain after the last planned action. The visits are the global
-// sequence from seq0. With reads set it sends no writes: a warm-up.
-func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int, reads bool) *Round {
+// sequence from seq0. Before its clock come the setup and the warm-up (warmUp), played at the same
+// rate, with warmDrain.
+func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int) *Round {
 	round := &Round{Model: "open", Rate: rate}
-	if !reads && !r.setup(ctx, round, seq0, n) {
-		r.wl.plan(round, seq0, n, reads)
+	ok := r.setup(ctx, round, seq0, n)
+	var seen map[string]bool
+	if ok {
+		seen, ok = r.warmUp(ctx, round, seq0+n, func(w *Round) *acc {
+			return r.playOpen(ctx, w, rate, r.warm, warmDrain, r.prepared, nil)
+		})
+	}
+	if !ok {
+		r.wl.plan(round, seq0, n)
 		return round
 	}
+	r.playOpen(ctx, round, rate, n, drain, seq0, seen)
+	r.countOrders(round)
+	r.endMemo(ctx, round)
+	return round
+}
+
+// warmDrain is how long after its last planned action the warm-up of an open round may run: its
+// visits end, or are cut off, before the clock of the round. Tests shorten it.
+var warmDrain = 20 * time.Second
+
+// playOpen plays visits seq0 to seq0+n-1 at rate a second, as RunOpen says, and fills round with
+// what they did. seen are the URLs Tifa answered before (the warm-up's), for the split of its
+// renders by why.
+func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int, drain time.Duration, seq0 int, seen map[string]bool) *acc {
 	a := newAcc()
+	maps.Copy(a.seen, seen)
 	duration := time.Duration(float64(n) / rate * float64(time.Second))
 	tr := &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 4096, MaxConnsPerHost: 0, IdleConnTimeout: idleConn}
 	defer tr.CloseIdleConnections()
@@ -443,7 +584,7 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 				for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
 				}
 			}
-			r.runVisit(vctx, tr, a, seq0+k, pacer{open: true, start: at, reads: reads})
+			r.runVisit(vctx, tr, a, seq0+k, pacer{open: true, start: at})
 		}()
 	}
 	close(offering)
@@ -452,11 +593,9 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	end := time.Now()
 	round.TimedOut, round.Backlog = timedOut.Load(), Growing(visitsIn, ramp) || Growing(requestsIn, ramp)
 	round.LagMs = ms(time.Duration(lag.Load()))
-	r.wl.plan(round, seq0, n, reads)
+	r.wl.plan(round, seq0, n)
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
-	r.countOrders(round)
-	r.endMemo(ctx, round)
-	return round
+	return a
 }
 
 // Growing says whether a series sampled at equal intervals kept growing. It leaves out the first

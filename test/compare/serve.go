@@ -286,11 +286,15 @@ func (s *Server) RSS() int64 {
 	return cur
 }
 
+// ReadsCPU says whether CPUSeconds reads the processor time of a server: it reads /proc, so only on
+// Linux.
+func ReadsCPU() bool { return runtime.GOOS == "linux" }
+
 // CPUSeconds is the processor time, user and system, that the server and its children have used so
-// far, in seconds. It reads /proc, so it is 0 off Linux. It includes children that have exited and
-// that the server has waited for.
+// far, in seconds. It is 0 where it is not read (ReadsCPU). It includes children that have exited
+// and that the server has waited for.
 func (s *Server) CPUSeconds() float64 {
-	if runtime.GOOS != "linux" {
+	if !ReadsCPU() {
 		return 0
 	}
 	var ticks float64

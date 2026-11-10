@@ -352,7 +352,7 @@ function Checkout({ view }: { view: PageData }) {
                 {lines.map((l) => (
                   <li key={l.id} className="flex items-center gap-3">
                     <div className="relative">
-                      <ProductImage slug={l.slug} alt="" width={160} className="size-14 border" />
+                      <ProductImage photo={l.photo} alt="" width={160} className="size-14 border" />
                       <Badge className="absolute -top-2 -right-2 h-5 min-w-5 rounded-none px-1 font-mono tabular-nums">{l.quantity}</Badge>
                     </div>
                     <span className="flex flex-1 flex-col">

@@ -47,7 +47,7 @@ func TestTheMixIsCheckedOverThePlannedVisits(t *testing.T) {
 func TestTheMixOfTheSiteIsChecked(t *testing.T) {
 	w := siteWorkload(t, 2, 1, "shop")
 	var whole Round
-	w.plan(&whole, 0, 3*w.blockVisits(), false)
+	w.plan(&whole, 0, 3*w.blockVisits())
 	if why := whole.Mix.why(w.Scenario); why != "" {
 		t.Fatalf("three blocks: %s", why)
 	}

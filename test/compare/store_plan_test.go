@@ -120,11 +120,11 @@ func (c *shopCart) apply(t *testing.T, w PlannedWrite) {
 	switch req.Kind {
 	case WriteAdd:
 		slug := strings.TrimPrefix(req.Path[strings.Index(req.Path, "/products/"):], "/products/")
-		i := slices.IndexFunc(StoreVariants, func(p StoreProduct) bool { return p.Slug == slug })
+		i := slices.IndexFunc(StoreVariants(), func(p StoreProduct) bool { return p.Slug == slug })
 		if i < 0 {
 			t.Fatalf("visit %d write %d: no product %s", w.Seq, w.After, slug)
 		}
-		p := StoreVariants[i]
+		p := StoreVariants()[i]
 		sizeOK := len(p.Sizes) == 0 && in.Size == "" || slices.Contains(p.Sizes, in.Size)
 		if !slices.Contains(p.Colors, in.Color) || !sizeOK {
 			t.Fatalf("visit %d write %d: %s has no variant %q %q", w.Seq, w.After, slug, in.Color, in.Size)
@@ -287,7 +287,7 @@ func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 		}
 	}
 	var r Round
-	w.plan(&r, 0, n, false)
+	w.plan(&r, 0, n)
 	if r.WritesPlanned != sent {
 		t.Errorf("planned %d writes, the visits send %d", r.WritesPlanned, sent)
 	}

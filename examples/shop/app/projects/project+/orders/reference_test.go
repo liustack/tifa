@@ -181,7 +181,7 @@ func refGetOrder(all []orderRecord, projectID, id string) (Order, error) {
 			}
 		}
 		order.Items = append(order.Items, LineItem{
-			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
+			Slug: item.Slug, Photo: item.Photo, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
 			PriceCents: item.PriceCents, Color: item.Color, Stock: productStock(projectID, item.Slug), Sold: sold, Demand: waiting,
 		})
 	}
@@ -285,9 +285,10 @@ func refSalesStats(all []orderRecord, projectID string, zone *time.Location) Sal
 			p := products[item.Slug]
 			if p == nil {
 				name := productName(projectID, item.Slug)
-				p = &ProductSales{Slug: item.Slug, Name: name}
+				photo := productPhoto(projectID, item.Slug)
+				p = &ProductSales{Slug: item.Slug, Photo: photo, Name: name}
 				products[item.Slug] = p
-				rows[item.Slug] = &ProductRow{Slug: item.Slug, Name: name, Daily: make([]int, statsDays)}
+				rows[item.Slug] = &ProductRow{Slug: item.Slug, Photo: photo, Name: name, Daily: make([]int, statsDays)}
 			}
 			p.Quantity += item.Quantity
 			p.RevenueCents += item.Quantity * item.PriceCents

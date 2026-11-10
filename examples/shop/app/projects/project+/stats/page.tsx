@@ -138,7 +138,7 @@ export default function StatsPage() {
                 <li key={p.name} className="flex items-center gap-3 py-2.5 first:pt-0">
                   <span className="w-5 font-mono text-xs text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
                   <img
-                    src={photo(p.slug, 'main', 160)}
+                    src={photo(p.photo, 'main', 160)}
                     alt=""
                     width={40}
                     height={40}

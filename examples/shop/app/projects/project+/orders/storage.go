@@ -42,6 +42,7 @@ type shipmentRecord struct {
 
 type itemRecord struct {
 	Slug        string
+	Photo       string // the folder of the photos of the product, as it was sold
 	Name        string
 	Description string
 	Quantity    int

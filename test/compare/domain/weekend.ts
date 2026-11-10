@@ -39,7 +39,7 @@ const shelf: WeekendProduct[] = (g.__compareWeekend ??= newWeekendShelf())
 export function weekendEntries(): Entry[] {
   return shelf.map((p, i) => ({
     priceCents: p.priceCents, stock: p.stock, nameEn: p.nameEn, nameZh: p.nameZh, descriptionEn: p.descriptionEn, descriptionZh: p.descriptionZh,
-    slug: p.slug, number: i + 1, category: '',
+    slug: p.slug, photo: p.slug, number: i + 1, category: '',
   }))
 }
 
@@ -73,7 +73,7 @@ export function weekendBuy(lines: NewLine[]): ItemRecord[] {
     if (!p || l.color !== '' || l.size !== '') throw new Invalid(['items'])
     want.set(p, (want.get(p) ?? 0) + l.quantity)
     if (want.get(p)! > p.stock) throw new OutOfStock()
-    out.push({ slug: p.slug, name: p.nameEn, description: p.variant, quantity: l.quantity, priceCents: p.priceCents, color: p.color })
+    out.push({ slug: p.slug, photo: p.slug, name: p.nameEn, description: p.variant, quantity: l.quantity, priceCents: p.priceCents, color: p.color })
   }
   for (const [p, n] of want) p.stock -= n
   return out
@@ -104,4 +104,10 @@ export function updateShopProduct(projectId: string, slug: string, c: Change): v
   if (projectId === storefrontProject) return apply(slug, c)
   if (projectId === 'weekend') return updateWeekend(slug, c)
   throw new NotFound(projectId)
+}
+
+// weekendPhoto is the folder of the photos of the product slug of the weekend shop, the photos the
+// storefront has under the same name, or undefined.
+export function weekendPhoto(slug: string): string | undefined {
+  return shelf.some((p) => p.slug === slug) ? slug : undefined
 }

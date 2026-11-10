@@ -46,13 +46,14 @@ type shop struct {
 	// stock is how many of a product it sells it has to sell now: the orders that wait to ship have
 	// been taken out of it.
 	stock func(slug string) (int, bool)
+	photo func(slug string) (string, bool) // the folder of the photos of a product it sells
 }
 
 // The studio shop sells the products of the storefront (storekit.Project), as the catalogue has them
 // at the time of the order. The weekend shop keeps a catalogue of its own.
 var shops = map[string]shop{
-	storekit.Project: {prefix: "SH", width: 0, buy: storefrontBuy, name: products.OrderName, stock: products.Stock},
-	"weekend":        {prefix: "WK", width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf},
+	storekit.Project: {prefix: "SH", width: 0, buy: storefrontBuy, name: products.OrderName, stock: products.Stock, photo: products.Photo},
+	"weekend":        {prefix: "WK", width: 4, buy: weekendBuy, name: weekendName, stock: weekendStockOf, photo: weekendPhoto},
 }
 
 // errNoStock is what placing an order of more than the stock answers, with the status a checkout
@@ -89,7 +90,7 @@ func storefrontBuy(lines []NewLine) ([]itemRecord, error) {
 
 func storefrontItem(p products.Line) itemRecord {
 	return itemRecord{
-		Slug: p.Slug, Name: p.Name, Description: p.Variant, Quantity: p.Quantity, PriceCents: p.PriceFen, Color: p.Color,
+		Slug: p.Slug, Photo: p.Photo, Name: p.Name, Description: p.Variant, Quantity: p.Quantity, PriceCents: p.PriceFen, Color: p.Color,
 	}
 }
 
@@ -112,6 +113,16 @@ func productStock(projectID, slug string) int {
 		panic("orders of " + projectID + " hold " + slug + ", which the shop does not sell")
 	}
 	return n
+}
+
+// productPhoto is the folder of the photos of the product slug in the shop of a project. Like a
+// name, a photo that is not there is a bug.
+func productPhoto(projectID, slug string) string {
+	photo, ok := shops[projectID].photo(slug)
+	if !ok {
+		panic("orders of " + projectID + " hold " + slug + ", which the shop does not sell")
+	}
+	return photo
 }
 
 // CheckNewOrder returns the fields of a new order that do not follow the rules, or nil. It cannot

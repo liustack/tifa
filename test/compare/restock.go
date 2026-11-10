@@ -236,20 +236,21 @@ func productBody(e shopEntry) []byte {
 // storefrontShop is the shop of the back office whose products the storefront sells.
 const storefrontShop = "studio"
 
-// prepare restocks the server of r for the prepared visits of its workload (visits 0 to prepared-1:
-// their checkouts, the carts of the returning visitors among them, and the orders of the ships),
-// before the run makes its orders and carts and starts its clock (see with). The prepared visits are
-// at least the visits the run plays, and the same for every server of a scenario (browse.prepared),
-// so every server gets the same stock. A run of -1 visits is a sizing run, which plays sizingVisits
-// visits at most: every product of the storefront gets as much stock as the shop takes, those its
-// plans never buy too.
-func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits, prepared int) error {
-	need := StockFor(r.seed, r.wl.stockOf(0, prepared))
+// prepare restocks the server of r for visits 0 to data-1 of its workload, the prepared visits and
+// those of the warm-up after them (their checkouts, the carts of the returning visitors among them,
+// and the orders of the ships), before the run makes its orders and carts, plays its warm-up and
+// starts its clock (see with). The prepared visits are at least the visits the run plays, and they
+// and the warm-up are the same for every server of a scenario (browse.prepared), so every server
+// gets the same stock. A run of -1 visits is a sizing run, which plays sizingVisits visits at most:
+// every product of the storefront gets as much stock as the shop takes, those its plans never buy
+// too.
+func (b *browse) prepare(ctx context.Context, r *runner, spec Spec, visits, data int) error {
+	need := StockFor(r.seed, r.wl.stockOf(0, data))
 	if visits < 0 {
 		if need[storefrontShop] == nil {
 			need[storefrontShop] = map[string]int{}
 		}
-		for _, v := range StoreVariants {
+		for _, v := range StoreVariants() {
 			need[storefrontShop][v.Slug] = maxStock
 		}
 		for _, shop := range need {

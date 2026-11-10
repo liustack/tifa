@@ -192,7 +192,7 @@ function MenuPanel({ group, open, onClose }: { group: Group; open: boolean; onCl
                   onClick={onClose}
                   className="grid grid-cols-[96px_1fr] items-start gap-4"
                 >
-                  <ProductImage slug={p.slug} alt="" width={160} />
+                  <ProductImage photo={p.photo} alt="" width={160} />
                   <span className="flex flex-col gap-1">
                     <span className="font-mono text-[11px] text-muted-foreground">{catalogueNo(p.number)}</span>
                     <span className="font-heading text-lg leading-snug">{p.name}</span>
@@ -237,7 +237,7 @@ function SearchBox({ menu }: { menu: Group[] }) {
                 className="flex items-center justify-between gap-3 py-1.5 text-sm hover:text-primary"
               >
                 <span className="flex items-center gap-2.5">
-                  <ProductImage slug={p.slug} alt="" width={160} className="size-8 shrink-0" />
+                  <ProductImage photo={p.photo} alt="" width={160} className="size-8 shrink-0" />
                   {p.name}
                 </span>
                 <span className="font-mono text-[11px] text-muted-foreground">{p.category}</span>
@@ -284,7 +284,7 @@ function CartDrawer() {
         <ul className="flex-1 overflow-y-auto">
           {lines.map((l) => (
             <li key={l.id} className="grid grid-cols-[64px_1fr_auto] items-start gap-3 border-b px-4 py-3">
-              <ProductImage slug={l.slug} alt="" width={160} />
+              <ProductImage photo={l.photo} alt="" width={160} />
               <div className="flex flex-col gap-0.5">
                 <Link to="/store/products/$product" params={{ product: l.slug }} className="font-heading text-base">
                   {l.name}

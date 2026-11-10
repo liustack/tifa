@@ -24,9 +24,11 @@ type renderMemo struct {
 	pages map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
-	// entries counts the pages kept, under mu. hits, misses and shared count what fetch found. Every
-	// request counts, so these are atomic, and Stats reads them without the lock.
+	// entries counts the pages kept and evictions the pages dropped to make room, under mu. hits,
+	// misses and shared count what fetch found. Every request counts, so these are atomic, and Stats
+	// reads them without the lock.
 	entries              int
+	evictions            uint64
 	hits, misses, shared atomic.Uint64
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
@@ -90,9 +92,9 @@ func (p cachedPage) meta() int64 {
 // stats returns what the cache holds and did, and the bytes it holds.
 func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 	c.mu.Lock()
-	entries, used := c.entries, c.used
+	entries, evictions, used := c.entries, c.evictions, c.used
 	c.mu.Unlock()
-	return core.MemoStats{Entries: entries, Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load()}, used
+	return core.MemoStats{Entries: entries, Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load(), Evictions: evictions}, used
 }
 
 func newRenderMemo(size int64) *renderMemo {
@@ -144,6 +146,7 @@ func (c *renderMemo) putLocked(key string, page cachedPage) {
 	c.used += page.size()
 	for c.used > c.size {
 		c.removeLocked(c.order.Back().Value.(*cached).key)
+		c.evictions++
 	}
 }
 

@@ -62,7 +62,7 @@ export default function ProductsPage() {
                       className="flex items-center gap-3 hover:underline"
                     >
                       <img
-                        src={photo(p.slug, 'main', 160)}
+                        src={photo(p.photo, 'main', 160)}
                         alt=""
                         width={40}
                         height={40}

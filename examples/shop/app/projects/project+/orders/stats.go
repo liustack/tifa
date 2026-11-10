@@ -24,6 +24,7 @@ type DaySales struct {
 // ProductSales is how much of one product the shop sold.
 type ProductSales struct {
 	Slug         string `json:"slug"`
+	Photo        string `json:"photo"`
 	Name         string `json:"name"`
 	Quantity     int    `json:"quantity"`
 	RevenueCents int    `json:"revenueCents"`
@@ -33,6 +34,7 @@ type ProductSales struct {
 // many orders, and the pieces on each of the days, oldest first.
 type ProductRow struct {
 	Slug         string `json:"slug"`
+	Photo        string `json:"photo"`
 	Name         string `json:"name"`
 	Quantity     int    `json:"quantity"`
 	Orders       int    `json:"orders"`
@@ -116,7 +118,7 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 			for slug, dp := range d.products {
 				r := products[slug]
 				if r == nil {
-					r = &ProductRow{Slug: slug, Name: productName(projectID, slug), Daily: make([]int, statsDays)}
+					r = &ProductRow{Slug: slug, Photo: productPhoto(projectID, slug), Name: productName(projectID, slug), Daily: make([]int, statsDays)}
 					products[slug] = r
 				}
 				r.Quantity += dp.quantity
@@ -129,7 +131,7 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 	}
 	for _, r := range products {
 		s.Products = append(s.Products, *r)
-		s.TopProducts = append(s.TopProducts, ProductSales{Slug: r.Slug, Name: r.Name, Quantity: r.Quantity, RevenueCents: r.RevenueCents})
+		s.TopProducts = append(s.TopProducts, ProductSales{Slug: r.Slug, Photo: r.Photo, Name: r.Name, Quantity: r.Quantity, RevenueCents: r.RevenueCents})
 	}
 	slices.SortFunc(s.Products, func(a, b ProductRow) int {
 		return cmp.Or(cmp.Compare(b.Quantity, a.Quantity), cmp.Compare(b.RevenueCents, a.RevenueCents), cmp.Compare(a.Name, b.Name), cmp.Compare(a.Slug, b.Slug))

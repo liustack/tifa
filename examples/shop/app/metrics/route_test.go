@@ -16,7 +16,7 @@ func TestGETWritesTheStatsOfTheProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := w.Body.String()
-	for _, line := range []string{"tifa_memo_entries 0\n", "tifa_memo_hits_total 0\n", "tifa_memo_misses_total 0\n", "tifa_memo_shared_total 0\n", "tifa_renders_total 0\n"} {
+	for _, line := range []string{"tifa_memo_entries 0\n", "tifa_memo_hits_total 0\n", "tifa_memo_misses_total 0\n", "tifa_memo_shared_total 0\n", "tifa_memo_evictions_total 0\n", "tifa_renders_total 0\n"} {
 		if !strings.Contains(body, line) {
 			t.Errorf("the metrics have no %q:\n%s", line, body)
 		}

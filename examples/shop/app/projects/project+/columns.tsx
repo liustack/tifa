@@ -148,7 +148,7 @@ function Product({ row }: { row: Row }) {
   return (
     <span className="flex items-center gap-2.5">
       <img
-        src={photo(row.slug, 'main', 160)}
+        src={photo(row.photo, 'main', 160)}
         alt=""
         width={40}
         height={40}

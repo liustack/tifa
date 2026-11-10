@@ -86,7 +86,7 @@ func StoreVisitPages() []string {
 				out = append(out, base+"/products?"+q)
 			}
 		}
-		for _, slug := range StoreProducts {
+		for _, slug := range StoreProducts() {
 			out = append(out, base+"/products/"+slug)
 		}
 		out = append(out, base+"/cart", base+"/checkout", base+"/journal")

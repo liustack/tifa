@@ -151,9 +151,9 @@ func TestStudioOrdersTakeTheProductsOfTheStorefront(t *testing.T) {
 	}
 	o, _ := GetOrder("studio", id)
 	want := []LineItem{
-		{Slug: "glass-carafe", Name: "Glass Carafe", Description: "Mist", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
-		{Slug: "linen-apron", Name: "Cotton Linen Apron", Description: "Ink / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
-		{Slug: "ceramic-cup", Name: "Handmade Ceramic Cup", Description: "Moss", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
+		{Slug: "glass-carafe", Photo: "glass-carafe", Name: "Glass Carafe", Description: "Mist", Quantity: 1, PriceCents: 15800, Color: "mist", Stock: 12 - 1, Sold: 1, Demand: 1},
+		{Slug: "linen-apron", Photo: "linen-apron", Name: "Cotton Linen Apron", Description: "Ink / M", Quantity: 2, PriceCents: 16800, Color: "ink", Stock: 34 - 2},
+		{Slug: "ceramic-cup", Photo: "ceramic-cup", Name: "Handmade Ceramic Cup", Description: "Moss", Quantity: 1, PriceCents: 13400, Color: "moss", Stock: 58 - 1},
 	}
 	for i, w := range want {
 		got := o.Items[i]

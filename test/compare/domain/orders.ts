@@ -17,6 +17,7 @@ import type { NewLine, ProjectOrders } from './storage.ts'
 
 export interface LineItem {
   slug: string
+  photo: string // the folder of its photos, which the pages show
   name: string
   description: string
   quantity: number
@@ -65,6 +66,7 @@ export interface OrderRow {
   lines: number // different products in the order
   product: string
   slug: string
+  photo: string
   carrier: string // the name of the carrier, empty until the order ships
   trackingNo: string
   totalCents: number
@@ -125,11 +127,12 @@ export interface OrderList {
 export function orderRow(o: OrderRecord): OrderRow {
   const row: OrderRow = {
     id: o.id, customer: o.customer, initials: initials(o.customer), placedAt: rfc3339(o.placedAt), status: status(o),
-    items: itemCount(o), lines: o.items.length, product: '', slug: '', carrier: '', trackingNo: '', totalCents: total(o),
+    items: itemCount(o), lines: o.items.length, product: '', slug: '', photo: '', carrier: '', trackingNo: '', totalCents: total(o),
   }
   if (o.items.length > 0) {
     row.product = o.items[0].name
     row.slug = o.items[0].slug
+    row.photo = o.items[0].photo
   }
   if (o.shipment) {
     row.carrier = carrierName(o.shipment.carrier)
@@ -290,7 +293,7 @@ function view(p: ProjectOrders, o: OrderRecord): Order {
   for (const item of o.items) {
     const product = p.products.get(item.slug)!
     order.items.push({
-      slug: item.slug, name: item.name, description: item.description, quantity: item.quantity,
+      slug: item.slug, photo: item.photo, name: item.name, description: item.description, quantity: item.quantity,
       priceCents: item.priceCents, color: item.color, stock: productStock(o.projectId, item.slug), demand: product.waiting, sold: product.sold,
     })
   }

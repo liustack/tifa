@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/store/products"
 	"github.com/liustack/tifa/tifatest"
 )
 
@@ -18,7 +19,7 @@ func listCtx(t *testing.T, project string) *tifa.Ctx {
 
 func TestTheStudioShopListsTheProductsOfTheStorefront(t *testing.T) {
 	list, err := tifa.Use(listCtx(t, "studio"), Load)
-	if err != nil || len(list) != 28 || list[0].Slug != "pour-over-kettle" || list[0].Number != 1 || list[0].NameEN == "" || list[0].Category != "Drinkware" {
+	if err != nil || len(list) != len(products.Entries()) || len(list) < 2 || list[0].Slug != "pour-over-kettle" || list[0].Number != 1 || list[0].NameEN == "" || list[0].Category != "Drinkware" {
 		t.Fatalf("Load: %d products, %v", len(list), err)
 	}
 	// The weekend shop lists its own products.

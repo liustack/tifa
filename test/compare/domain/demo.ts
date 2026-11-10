@@ -39,7 +39,7 @@ const customers: Customer[] = [
 ]
 
 function product(slug: string, name: string, description: string, priceCents: number, color: string): ItemRecord {
-  return { slug, name, description, quantity: 0, priceCents, color }
+  return { slug, photo: slug, name, description, quantity: 0, priceCents, color }
 }
 
 export const studioCatalogue: ItemRecord[] = [

@@ -42,7 +42,8 @@ type Order struct {
 }
 
 type LineItem struct {
-	Slug        string `json:"slug"` // the product in the storefront, whose photos the pages show
+	Slug        string `json:"slug"`  // the product in the storefront
+	Photo       string `json:"photo"` // the folder of its photos, which the pages show
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Quantity    int    `json:"quantity"`
@@ -68,6 +69,7 @@ type OrderRow struct {
 	Lines      int       `json:"lines"` // different products in the order
 	Product    string    `json:"product"`
 	Slug       string    `json:"slug"`
+	Photo      string    `json:"photo"`
 	Carrier    string    `json:"carrier"` // the name of the carrier, empty until the order ships
 	TrackingNo string    `json:"trackingNo"`
 	TotalCents int       `json:"totalCents"`
@@ -326,7 +328,7 @@ func orderRow(o *orderRecord) OrderRow {
 		TotalCents: total(*o), Items: itemCount(*o),
 	}
 	if len(o.Items) > 0 {
-		row.Product, row.Slug = o.Items[0].Name, o.Items[0].Slug
+		row.Product, row.Slug, row.Photo = o.Items[0].Name, o.Items[0].Slug, o.Items[0].Photo
 	}
 	if s := o.Shipment; s != nil {
 		row.Carrier, row.TrackingNo = carrierName(s.Carrier), s.TrackingNo
@@ -370,7 +372,7 @@ func view(p *projectOrders, o *orderRecord) Order {
 	for _, item := range o.Items {
 		product := p.products[item.Slug]
 		order.Items = append(order.Items, LineItem{
-			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
+			Slug: item.Slug, Photo: item.Photo, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
 			PriceCents: item.PriceCents, Color: item.Color, Stock: productStock(o.ProjectID, item.Slug), Sold: product.sold, Demand: product.waiting,
 		})
 	}

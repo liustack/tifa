@@ -4,7 +4,7 @@ import { newestFirst } from './orders.ts'
 import { initials } from './records.ts'
 import type { OrderRow } from './orders.ts'
 import { carriers } from './shipping.ts'
-import { byText, daysIn, ordersOf, shops } from './storage.ts'
+import { byText, daysIn, ordersOf, productPhoto, shops } from './storage.ts'
 import type { ProjectOrders } from './storage.ts'
 import { HOUR, hours, local } from './time.ts'
 
@@ -21,6 +21,7 @@ export interface DaySales {
 
 export interface ProductSales {
   slug: string
+  photo: string
   name: string
   quantity: number
   revenueCents: number
@@ -28,6 +29,7 @@ export interface ProductSales {
 
 export interface ProductRow {
   slug: string
+  photo: string
   name: string
   quantity: number
   orders: number
@@ -117,7 +119,7 @@ export function salesStats(projectId: string, zone: string): Sales {
       for (const [slug, dp] of d.products) {
         let r = products.get(slug)
         if (!r) {
-          r = { slug, name: productName(projectId, slug), quantity: 0, orders: 0, revenueCents: 0, daily: new Array<number>(statsDays).fill(0) }
+          r = { slug, photo: productPhoto(projectId, slug), name: productName(projectId, slug), quantity: 0, orders: 0, revenueCents: 0, daily: new Array<number>(statsDays).fill(0) }
           products.set(slug, r)
         }
         r.quantity += dp.quantity
@@ -130,7 +132,7 @@ export function salesStats(projectId: string, zone: string): Sales {
   }
   for (const r of products.values()) {
     s.products.push(r)
-    s.topProducts.push({ slug: r.slug, name: r.name, quantity: r.quantity, revenueCents: r.revenueCents })
+    s.topProducts.push({ slug: r.slug, photo: r.photo, name: r.name, quantity: r.quantity, revenueCents: r.revenueCents })
   }
   s.products.sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents || byText(a.name, b.name) || byText(a.slug, b.slug))
   s.topProducts.sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents || byText(a.name, b.name) || byText(a.slug, b.slug))

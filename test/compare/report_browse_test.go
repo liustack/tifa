@@ -231,7 +231,7 @@ func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"list": {"memo": 55, "vm": 45}, "stats": {"memo": 11, "vm": 9}, "order": {"memo": 1, "vm": 99}, "cart": {"memo": 3, "vm": 7}}
 	x.PrivateHits = 3
-	x.Memo = &MemoRound{Start: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits
+	x.Memo = &MemoRound{Start: MemoCounts{Hits: 4}, Warm: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits after the warm-up
 	n := closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)
 	c := closedRound("tifa", sc.Name, 32, 1, 8000, 10, true)
 	c.Model, c.Writes, c.WriteShare = "control", 0, 0
@@ -537,7 +537,7 @@ func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
 	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
-	x.Memo = &MemoRound{Start: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits
+	x.Memo = &MemoRound{Start: MemoCounts{Hits: 4}, Warm: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits after the warm-up
 	r.Closed = []Round{x, closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)}
 	md := r.Markdown()
 	if !strings.Contains(md, "| memo hits Tifa counted |") || !slices.ContainsFunc(strings.Split(md, "\n"), func(l string) bool {
@@ -849,14 +849,106 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 		t.Errorf("a formal run says it is not one:\n%s", md)
 	}
 	r := formal()
-	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"] = "1", "30s", ""
+	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"], r.Config["sizing"] = "1", "30s", "", "3s"
 	r.Stamp = ""
 	r.Servers[sc.Name] = []string{"tifa", "nextjs"}
 	md := r.Markdown()
 	top, _, _ := strings.Cut(md, "### ")
-	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
+	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "sizing 3s (formal 15s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("the top of the report lacks %q:\n%s", want, top)
 		}
+	}
+}
+
+// browse.sh refuses the names of settings that are gone, so that an old command line does not run
+// another method: USERS and EXTRA_USERS (the throughput counts sessions), SCENARIOS (one scenario)
+// and WARM (the warm-up is the same for every server, and SIZING is the length of a sizing run).
+func TestBrowseShRefusesTheSettingsThatAreGone(t *testing.T) {
+	env, err := NewEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"USERS", "EXTRA_USERS", "SCENARIOS", "WARM"} {
+		cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), "stamp")
+		cmd.Dir = env.Root
+		cmd.Env = append(os.Environ(), "BROWSE_OUT="+t.TempDir(), name+"=3s")
+		data, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(data), name+" is gone") {
+			t.Errorf("browse.sh with %s: %v\n%s", name, err, data)
+		}
+	}
+}
+
+// The appendix gives, for each round of Tifa, what its render memo held after the warm-up and at the
+// end (pages and bytes), the pages it dropped to make room in the round, and the hits it counted
+// from the clock on, the end less the read after the warm-up, from its metrics.
+func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	x.Attempt = 1
+	x.Memo = &MemoRound{Start: MemoCounts{}, Warm: MemoCounts{Entries: 812, Bytes: 9 << 20, Hits: 3000, Evictions: 5}, End: MemoCounts{Entries: 900, Bytes: 10 << 20, Hits: 5500, Evictions: 12}}
+	// A try whose metrics did not answer after the round: what it held at the end is not known, nor
+	// are the hits and pages dropped in the round.
+	lost := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	lost.Attempt, lost.Valid, lost.WhyInvalid, lost.MemoError = 2, false, "the render memo could not be read after the round: EOF", "EOF"
+	lost.Memo = &MemoRound{Warm: MemoCounts{Entries: 812, Bytes: 9 << 20, Hits: 3000, Evictions: 5}}
+	// A try that its warm-up stopped before the clock: neither read after the warm-up was made.
+	stopped := closedRound("tifa", sc.Name, 8, 1, 0, 0, true)
+	stopped.Attempt, stopped.Valid, stopped.SetupError = 3, false, "the shop refused 3 requests of the warm-up with 409 or 422"
+	stopped.WhyInvalid = "the setup before the clock failed: " + stopped.SetupError
+	stopped.Memo = &MemoRound{}
+	r.Closed = []Round{x, lost, stopped, closedRound("nextjs", sc.Name, 8, 1, 400, 10, true)}
+	md := r.Markdown()
+	_, appendix, _ := strings.Cut(md, "## Appendix")
+	for _, want := range []string{
+		"| | round | try | valid | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |",
+		"| Tifa | closed, 8 sessions, round 1 | 1 | yes | 812 | 9.0 | 900 | 10.0 | 7 | 2500 |",
+		"| Tifa | closed, 8 sessions, round 1 | 2 | no | 812 | 9.0 | not read | not read | not read | not read |",
+		"| Tifa | closed, 8 sessions, round 1 | 3 | no | not read | not read | not read | not read | not read | not read |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+}
+
+// The appendix gives, for each round of every server, what its warm-up did and the cores the server
+// used in the last second of the pause after it, where the cpu of the server was read.
+func TestTheAppendixGivesWhatEachWarmUpDid(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-10", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	cores := 0.03
+	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	x.Attempt = 1
+	x.WarmUp = &WarmUp{VisitsPlanned: 2000, Visits: 1999, VisitsFailed: 1, WritesPlanned: 60, Writes: 59, Failures: 1, Seconds: 30.2, IdleCores: &cores}
+	y := closedRound("nextjs", sc.Name, 8, 1, 400, 10, true)
+	y.Attempt, y.Valid = 2, false
+	y.WarmUp = &WarmUp{VisitsPlanned: 2000, Visits: 2000, WritesPlanned: 60, Writes: 60, Seconds: 301}
+	r.Closed = []Round{x, y}
+	_, appendix, _ := strings.Cut(r.Markdown(), "## Appendix")
+	for _, want := range []string{
+		"#### The warm-up before each round",
+		"| | round | try | valid | visits done | writes done | failures | seconds | server cores in the last second before the clock |",
+		"| Tifa | closed, 8 sessions, round 1 | 1 | yes | 1999 of 2000 | 59 of 60 | 1 | 30 | 0.03 |",
+		"| Next.js | closed, 8 sessions, round 1 | 2 | no | 2000 of 2000 | 60 of 60 | 0 | 301 | - |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+}
+
+// The text on the site says that every server gets the same warm-up, and that Tifa's memo is read
+// empty before it, not before the clock.
+func TestTheSiteTextSaysEveryServerGetsTheSameWarmUp(t *testing.T) {
+	for _, want := range []string{"Then every server gets the same warm-up, counted in no result", "held a page right before the warm-up"} {
+		if !strings.Contains(siteText, want) {
+			t.Errorf("the site text lacks %q", want)
+		}
+	}
+	if strings.Contains(siteText, "right before the clock") {
+		t.Error("the site text still reads the memo right before the clock")
 	}
 }

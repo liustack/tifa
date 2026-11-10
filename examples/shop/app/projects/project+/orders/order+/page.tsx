@@ -211,7 +211,7 @@ function Others() {
           <ul className="divide-y">
             {others.map((o) => (
               <li key={o.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                <img src={photo(o.slug, 'main', 160)} alt="" width={40} height={40} loading="lazy" decoding="async" className="size-10 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
+                <img src={photo(o.photo, 'main', 160)} alt="" width={40} height={40} loading="lazy" decoding="async" className="size-10 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
                 <Link to="/projects/$project/orders/$order" params={{ project: order.projectId, order: o.id }} className="font-mono text-sm hover:underline">
                   {o.id}
                 </Link>

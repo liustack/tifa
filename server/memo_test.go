@@ -75,3 +75,21 @@ func TestHTMLCacheChargesThePolicyOfAPage(t *testing.T) {
 		t.Errorf("%d used after the page left", c.used)
 	}
 }
+
+// Stats count the pages the memo dropped to make room for another, and not a page it replaced with
+// a newer render of its key or one too large to keep.
+func TestTheMemoCountsThePagesItDrops(t *testing.T) {
+	c := newRenderMemo(10)
+	c.put("a", cachedPage{html: "1234"})
+	c.put("b", cachedPage{html: "1234"})
+	c.put("a", cachedPage{html: "123"})           // a newer render of a: replaced, not dropped
+	c.put("big", cachedPage{html: "12345678901"}) // never kept
+	if s, _ := c.stats(); s.Evictions != 0 {
+		t.Fatalf("%d evictions before the memo was full", s.Evictions)
+	}
+	c.put("c", cachedPage{html: "1234"})     // 11 bytes: b goes
+	c.put("d", cachedPage{html: "12345678"}) // a and c go
+	if s, _ := c.stats(); s.Evictions != 3 || s.Entries != 1 {
+		t.Errorf("render memo %+v, want 3 evictions and 1 entry", s)
+	}
+}

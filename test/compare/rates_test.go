@@ -141,8 +141,10 @@ func TestALimitedRateIsNotWritten(t *testing.T) {
 }
 
 // The method of a rate is a hash of the code that shapes the load and the verdicts, and the app a
-// hash of the sources of the Next.js app and the domain code it shares (the files git tracks, as they
-// are on disk): a change to either is another condition. Caches and installed packages are not the app. A file that is missing makes the condition unknown.
+// hash of the sources of the Next.js app, the domain code it shares and the shop's catalogue file the
+// domain code imports (the files git tracks, as they are on disk): a change to either is another
+// condition. Caches and installed packages are not the app. A file that is missing makes the condition
+// unknown.
 func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 	root := t.TempDir()
 	write := func(name, s string) {
@@ -155,7 +157,8 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 	write("test/compare/nextjs/src/page.tsx", "a")
 	write("test/compare/nextjs/package.json", "{}")
 	write("test/compare/domain/orders.ts", "o")
-	for _, args := range [][]string{{"init", "-q"}, {"add", "test/compare/nextjs", "test/compare/domain"}} {
+	write(ShopCatalogue, "[]")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "test/compare/nextjs", "test/compare/domain", ShopCatalogue}} {
 		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -176,6 +179,11 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 	write("test/compare/domain/orders.ts", "changed")
 	if appHash(root) == app {
 		t.Error("a change to the shared domain code is the same app")
+	}
+	app = appHash(root)
+	write(ShopCatalogue, `[{"slug":"cup"}]`)
+	if appHash(root) == app {
+		t.Error("a change to the shop's catalogue, which the domain code imports, is the same app")
 	}
 	write("test/compare/replay.go", "changed")
 	if methodHash(root) == method {

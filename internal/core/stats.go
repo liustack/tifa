@@ -33,8 +33,9 @@ type SSRStats struct {
 type MemoStats struct {
 	Entries int
 	// Hits are answered from an entry. Misses made the page, and Shared waited for a page another
-	// request was making at the time.
-	Hits, Misses, Shared uint64
+	// request was making at the time. Evictions are the entries dropped, the least recently used
+	// first, to make room for another.
+	Hits, Misses, Shared, Evictions uint64
 }
 
 // Server is a server that runs, as ReadStats sees it.
@@ -95,5 +96,5 @@ func ReadStats() Stats {
 }
 
 func (a MemoStats) add(b MemoStats) MemoStats {
-	return MemoStats{Entries: a.Entries + b.Entries, Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared}
+	return MemoStats{Entries: a.Entries + b.Entries, Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared, Evictions: a.Evictions + b.Evictions}
 }

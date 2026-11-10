@@ -40,7 +40,7 @@ func TestEveryServerOfAScenarioGetsTheSameDataBeforeTheClock(t *testing.T) {
 	b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, "start")] = 3
 	runners := map[string]*runner{}
 	for _, fw := range []string{"nextjs", "start"} {
-		prepared, err := b.prepared(context.Background(), sc)
+		prepared, warm, err := b.prepared(context.Background(), sc)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestEveryServerOfAScenarioGetsTheSameDataBeforeTheClock(t *testing.T) {
 			t.Fatalf("the data is made for %d visits, want %d", prepared, want)
 		}
 		visits := b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, fw)] * bv
-		if _, err := b.with(context.Background(), fw, sc, visits, prepared, func(r *runner) *Round {
+		if _, err := b.with(context.Background(), fw, sc, visits, prepared, warm, func(r *runner) *Round {
 			round := &Round{}
 			if !r.setup(context.Background(), round, 0, visits) {
 				t.Errorf("%s: the setup failed: %s", fw, round.SetupError)
@@ -174,7 +174,7 @@ func TestTheLastTryOfARoundAtThePreparedVisitsIsKeptWhenShort(t *testing.T) {
 	b, _ := warmBrowse(t, sc, node)
 	b.o.Target = time.Minute
 	bv := sc.blockVisits()
-	b.res.Prepared = map[string]int{sc.Name: bv}
+	b.res.Prepared, b.res.WarmVisits = map[string]int{sc.Name: bv}, map[string]int{sc.Name: bv / prepareHeadroom}
 	b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, "nextjs")] = 1
 	launch := b.launch
 	var mu sync.Mutex
@@ -215,5 +215,75 @@ func TestTheLastTryOfARoundAtThePreparedVisitsIsKeptWhenShort(t *testing.T) {
 	}
 	if out.Attempt != maxTries || !out.Capped || !out.Valid || !out.Pass {
 		t.Errorf("the last try: attempt %d, capped %v, valid %v %s, pass %v, %.2f s", out.Attempt, out.Capped, out.Valid, out.WhyInvalid, out.Pass, out.Seconds)
+	}
+}
+
+// The data before the clock covers the warm-up as well as the prepared visits: the warm-up plays
+// the visits after them, so the restock gives what the orders of both can take, an order is placed
+// for every ship of both in the order of the plan (a ship of the warm-up takes its own, and the
+// first ship of the round still the first order), and a cart is made for every returning visit of
+// both. The warm-up of a closed round is as many visits as the longest round a server of the
+// scenario was sized to, the prepared visits divided by prepareHeadroom.
+func TestThePreparedDataCoversTheWarmUp(t *testing.T) {
+	sc := mustScenario("shop")
+	_, _, next := warmSpecs()
+	b, _ := warmBrowse(t, sc, next)
+	l := &setupLog{}
+	b.launch = func(ctx context.Context, spec Spec) (*liveServer, error) {
+		srv := httptest.NewServer(l)
+		return &liveServer{base: srv.URL, cpu: func() float64 { return 0 }, rss: func() int64 { return 0 }, stop: srv.Close}, nil
+	}
+	bv := sc.blockVisits()
+	b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, "nextjs")] = 1
+	prepared, warm, err := b.prepared(context.Background(), sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared != prepareHeadroom*bv || warm != bv || b.res.WarmVisits[sc.Name] != warm || b.res.Prepared[sc.Name] != prepared {
+		t.Fatalf("prepared %d and a warm-up of %d (kept %v %v), want %d and %d", prepared, warm, b.res.Prepared, b.res.WarmVisits, prepareHeadroom*bv, bv)
+	}
+	var r *runner
+	if _, err := b.with(context.Background(), "nextjs", sc, bv, prepared, warm, func(rr *runner) *Round {
+		r = rr
+		round := &Round{}
+		if !rr.setup(context.Background(), round, 0, bv) {
+			t.Errorf("the setup failed: %s", round.SetupError)
+		}
+		return round
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all := prepared + warm
+	if ships := shipsIn(t, b, sc, "nextjs", all); l.orders != ships || ships <= shipsIn(t, b, sc, "nextjs", prepared) {
+		t.Errorf("%d orders placed, want one for each of the %d ships of the prepared visits and the warm-up", l.orders, ships)
+	}
+	firstShip := true
+	adds := 0
+	for s := range all {
+		if p := r.wl.planFor(s); p.Role == RoleShopper && p.Returning {
+			adds += len(returningCart(r.wl.Seed, s, p))
+		}
+		writes := r.wl.writesOf(s)
+		for _, after := range slices.Sorted(maps.Keys(writes)) {
+			w := writes[after]
+			if w.Kind != WriteShip {
+				continue
+			}
+			id, ok := r.pool.ship(w)
+			if !ok {
+				t.Errorf("no order for the ship of visit %d after view %d", s, after)
+			}
+			if firstShip && id != "SH-9001" {
+				t.Errorf("the first ship of the round takes %s, want the first order placed", id)
+			}
+			firstShip = false
+		}
+	}
+	if len(l.carts) != adds {
+		t.Errorf("%d adds made the carts, want %d for the returning visits of the prepared visits and the warm-up", len(l.carts), adds)
+	}
+	need := StockFor(r.seed, r.wl.stockOf(0, all))[storefrontShop]
+	if !maps.Equal(r.restocked, need) || maps.Equal(need, StockFor(r.seed, r.wl.stockOf(0, prepared))[storefrontShop]) {
+		t.Errorf("the restock gave %v, want what the prepared visits and the warm-up can take: %v", r.restocked, need)
 	}
 }

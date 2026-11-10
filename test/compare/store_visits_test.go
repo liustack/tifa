@@ -195,15 +195,15 @@ func TestStoreVariantsAreTheShops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(compare.StoreVariants) != len(compare.StoreProducts) {
-		t.Errorf("%d variants for %d products", len(compare.StoreVariants), len(compare.StoreProducts))
+	if len(compare.StoreVariants()) != len(compare.StoreProducts()) {
+		t.Errorf("%d variants for %d products", len(compare.StoreVariants()), len(compare.StoreProducts()))
 	}
-	for _, slug := range compare.StoreProducts {
-		if !slices.ContainsFunc(compare.StoreVariants, func(v compare.StoreProduct) bool { return v.Slug == slug }) {
+	for _, slug := range compare.StoreProducts() {
+		if !slices.ContainsFunc(compare.StoreVariants(), func(v compare.StoreProduct) bool { return v.Slug == slug }) {
 			t.Errorf("StoreVariants lacks %s", slug)
 		}
 	}
-	for _, v := range compare.StoreVariants {
+	for _, v := range compare.StoreVariants() {
 		res, err := http.Get(server.Base + "/store/products/" + v.Slug + "?_tifa=" + id + ".11")
 		if err != nil {
 			t.Fatal(err)

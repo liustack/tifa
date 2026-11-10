@@ -35,6 +35,7 @@ type Spec struct {
 // Card is a product as a list shows it. Amounts are in the minor unit of the locale's currency.
 type Card struct {
 	Slug           string  `json:"slug"`
+	Photo          string  `json:"photo"` // the folder of its photos, which another product can share
 	Name           string  `json:"name"`
 	Category       string  `json:"category"`
 	PriceCents     int     `json:"priceCents"`
@@ -313,7 +314,7 @@ func ColorName(id string, l storekit.Locale) string {
 
 func (p productRecord) card(l storekit.Locale) Card {
 	c := Card{
-		Slug: p.slug, Name: p.name.In(l), Rating: p.rating, Reviews: reviewCount(p),
+		Slug: p.slug, Photo: p.photo, Name: p.name.In(l), Rating: p.rating, Reviews: reviewCount(p),
 		PriceCents: storekit.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Stock: p.stock, Summary: p.summary.In(l), Sized: len(p.sizes) > 0,
 		Number: p.number,
 	}

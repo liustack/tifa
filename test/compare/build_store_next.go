@@ -74,9 +74,9 @@ func writeStoreImages(path string, files []string) error {
 	}
 	b.WriteString("])\n\n")
 	b.WriteString("const url = (name: string) => (files.has(`${name}.avif`) ? `/images/${name}.avif` : undefined)\n\n")
-	b.WriteString("export function photo(slug: string, view: View = 'main', width: Width = 480): string | undefined {\n  return url(`${slug}/${view}-${width}`)\n}\n\n")
-	b.WriteString("export function photoSet(slug: string, view: View = 'main'): string | undefined {\n")
-	b.WriteString("  const small = photo(slug, view, 480)\n  const large = photo(slug, view, 1200)\n  return small && large ? `${small} 480w, ${large} 1200w` : undefined\n}\n\n")
+	b.WriteString("export function photo(folder: string, view: View = 'main', width: Width = 480): string | undefined {\n  return url(`${folder}/${view}-${width}`)\n}\n\n")
+	b.WriteString("export function photoSet(folder: string, view: View = 'main'): string | undefined {\n")
+	b.WriteString("  const small = photo(folder, view, 480)\n  const large = photo(folder, view, 1200)\n  return small && large ? `${small} 480w, ${large} 1200w` : undefined\n}\n\n")
 	b.WriteString("export function picture(name: string): string | undefined {\n  return url(name)\n}\n")
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }

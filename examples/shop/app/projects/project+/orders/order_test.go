@@ -134,7 +134,7 @@ func TestListRowsCountPiecesAndCents(t *testing.T) {
 	row := allRows("studio")[0]
 	want := OrderRow{
 		ID: "SH-1042", Customer: "林夏", Initials: "林", PlacedAt: time.Date(2026, 10, 13, 14, 32, 0, 0, chinaTime),
-		Status: StatusPending, Items: 2, Lines: 2, Product: "Morning Pour-Over Kettle", Slug: "pour-over-kettle", TotalCents: 42800,
+		Status: StatusPending, Items: 2, Lines: 2, Product: "Morning Pour-Over Kettle", Slug: "pour-over-kettle", Photo: "pour-over-kettle", TotalCents: 42800,
 	}
 	if row != want {
 		t.Fatalf("row %+v, want %+v", row, want)

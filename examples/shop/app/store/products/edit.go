@@ -28,6 +28,7 @@ type Edit struct {
 type Entry struct {
 	Edit
 	Slug   string `json:"slug"`
+	Photo  string `json:"photo"` // the folder of its photos
 	Number int    `json:"number"`
 	// Category is the name of the category in English, the language of the back office.
 	Category string `json:"category"`
@@ -169,7 +170,7 @@ func (p productRecord) entry() Entry {
 			PriceCents: p.priceFen, Stock: p.stock, NameEN: p.name[1], NameZH: p.name[0],
 			DescriptionEN: p.description[1], DescriptionZH: p.description[0],
 		},
-		Slug: p.slug, Number: p.number,
+		Slug: p.slug, Photo: p.photo, Number: p.number,
 	}
 	for _, c := range categories {
 		if c.id == p.category {
@@ -242,6 +243,7 @@ func Buy(takes []Take) (Purchase, error) {
 // name (the back office is in English), the colour and size as one text and the price in fen.
 type Line struct {
 	Slug     string
+	Photo    string // the folder of its photos
 	Name     string
 	Variant  string // such as "Ink / M"
 	Color    string // the ID of the colour
@@ -262,7 +264,7 @@ func (p productRecord) line(color, size string) (Line, error) {
 	if size != "" {
 		variant += " / " + size
 	}
-	return Line{Slug: p.slug, Name: p.name[1], Variant: variant, Color: color, PriceFen: p.priceFen}, nil
+	return Line{Slug: p.slug, Photo: p.photo, Name: p.name[1], Variant: variant, Color: color, PriceFen: p.priceFen}, nil
 }
 
 // Stock is how many of the product slug the shop has to sell now, and false for a product the
@@ -278,6 +280,13 @@ func Stock(slug string) (int, bool) {
 func OrderName(slug string) (string, bool) {
 	p, ok := record(slug)
 	return p.name[1], ok
+}
+
+// Photo is the folder of the photos of the product slug, which order lines show, and false for a
+// product the catalogue does not have.
+func Photo(slug string) (string, bool) {
+	p, ok := record(slug)
+	return p.photo, ok
 }
 
 // colorText is the name of a colour in both languages.

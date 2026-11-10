@@ -225,7 +225,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	plans, traces := onePlan(steps...)
 	r := testRunner(srv, plans, traces, nil)
 	// 8 visits a second for 1 s: the two actions of a visit are 1 s apart.
-	round := r.RunOpen(context.Background(), 8, 8, 5*time.Second, 0, false)
+	round := r.RunOpen(context.Background(), 8, 8, 5*time.Second, 0)
 	if round.Visits != 8 || round.PageViews != 16 || round.TimedOut {
 		t.Fatalf("%+v", round)
 	}
@@ -238,7 +238,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	// A server that holds everything: the visits cannot finish and the round times out.
 	plans, traces = onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/hold-x", "doc", 0, 5)}})
 	r = testRunner(srv, plans, traces, nil)
-	round = r.RunOpen(context.Background(), 4, 4, 300*time.Millisecond, 0, false)
+	round = r.RunOpen(context.Background(), 4, 4, 300*time.Millisecond, 0)
 	if !round.TimedOut || round.Visits != 0 {
 		t.Errorf("a hung server: %+v", round)
 	}
@@ -387,23 +387,196 @@ func TestReplayWritesAreTheirOwnRequestTypeAndTheTifaBuildIsSubstituted(t *testi
 	}
 }
 
-// A warm-up sends no writes, so every round starts with the data that a fresh server has.
-func TestAWarmUpSendsNoWrites(t *testing.T) {
-	srv, log := fakeApp(t)
-	tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
-	r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
-	r.wl.Writes[[2]int{0, 0}] = testWrite()
-	if rate := r.Warm(context.Background(), 2, 100*time.Millisecond); rate <= 0 {
-		t.Fatalf("the warm-up completed no visit")
-	}
-	r.RunOpen(context.Background(), 50, 5, time.Second, 0, true)
-	for _, s := range log() {
-		if s.method != "GET" {
-			t.Fatalf("a warm-up sent %+v", s)
+// The warm-up before the clock plays the visits after the prepared ones with their writes, as the
+// round plays its own (with its sessions, or at its rate), and none of it counts in the round.
+func TestTheWarmUpSendsTheWritesOfItsVisits(t *testing.T) {
+	for _, open := range []bool{false, true} {
+		srv, log := fakeApp(t)
+		tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/projects/studio", Reqs: []TraceReq{{Method: "GET", URL: "/projects/studio", Class: "doc", End: 1, Status: 200}}}}}
+		r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+		r.wl.Writes[[2]int{0, 0}] = testWrite()
+		r.prepared, r.warm = 2, 3
+		var round *Round
+		if open {
+			round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+		} else {
+			round = r.RunClosed(context.Background(), 1, 2, 10*time.Second)
+		}
+		w := round.WarmUp
+		if w == nil || w.FirstVisit != 2 || w.VisitsPlanned != 3 || w.Visits != 3 || w.WritesPlanned != 3 || w.Writes != 3 || w.WriteKinds[WriteAdd] != 3 || w.Requests != 6 {
+			t.Fatalf("open %v: the warm-up %+v, want 3 visits from 2 on with their 3 writes", open, w)
+		}
+		if round.VisitsPlanned != 2 || round.Visits != 2 || round.Writes != 2 || round.Requests != 4 {
+			t.Errorf("open %v: the round counted %d visits of %d, %d writes, %d requests, want its own 2 visits", open, round.Visits, round.VisitsPlanned, round.Writes, round.Requests)
+		}
+		// The warm-up ends before the round starts, so its 6 requests come first, though the visits of
+		// an open run overlap.
+		posts, early := 0, 0
+		for i, s := range log() {
+			if s.method == "POST" {
+				posts++
+				if i < 6 {
+					early++
+				}
+			}
+		}
+		if early != 3 {
+			t.Errorf("open %v: %d writes among the first 6 requests, want the 3 of the warm-up", open, early)
+		}
+		if posts != 5 {
+			t.Errorf("open %v: %d writes sent, want 3 in the warm-up and 2 in the round", open, posts)
 		}
 	}
-	if round := r.RunClosed(context.Background(), 1, 2, 10*time.Second); round.Writes != 2 {
-		t.Errorf("the round after it sent %d writes, want 2", round.Writes)
+}
+
+// A warm-up that did not end as planned decides the round as the round itself would, and the round
+// is played all the same: the warm-up is the same traffic. A server that fails a visit or a write of
+// it fails the rule, in a valid round. One cut off by its time fails it in the open model (it left a
+// backlog) and makes a closed round not valid (a matter of sizing, as a closed round cut off is).
+func TestAWarmUpThatDidNotEndAsPlannedDecidesTheRound(t *testing.T) {
+	defer func(d time.Duration) { warmDrain = d }(warmDrain)
+	warmDrain = 300 * time.Millisecond
+	for _, tc := range []struct {
+		name  string
+		open  bool
+		fault string // what the server does to the first GET or write it gets: "500", "drop" (the write), "hold"
+		valid bool
+		pass  bool
+		why   string // the start of Why, or of WhyInvalid for a round that is not valid
+	}{
+		{"closed, no fault", false, "", true, true, ""},
+		{"open, no fault", true, "", true, true, ""},
+		{"a GET answered 500", false, "500", true, false, "the warm-up: 1 failed visits of 2"},
+		{"a write whose connection broke", false, "drop", true, false, "the warm-up: 1 failed visits of 2"},
+		{"a closed warm-up cut off", false, "hold", false, true, "the warm-up was cut off by its timeout"},
+		{"an open warm-up cut off", true, "hold", true, false, "the warm-up: the workload did not finish in time"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var faulted atomic.Bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				write := r.Method != "GET"
+				if (tc.fault == "drop") == write && tc.fault != "" && faulted.CompareAndSwap(false, true) {
+					switch tc.fault {
+					case "500":
+						http.Error(w, "boom", 500)
+					case "drop":
+						conn, _, _ := w.(http.Hijacker).Hijack()
+						conn.Close()
+					case "hold":
+						select {
+						case <-r.Context().Done():
+						case <-time.After(5 * time.Second):
+						}
+					}
+					return
+				}
+				w.Write([]byte("ok"))
+			}))
+			defer srv.Close()
+			tr := Trace{Steps: []TraceStep{{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/p", "doc", 0, 1)}}, {Kind: StepClick, Page: "/p", Reqs: []TraceReq{req("/p", "nav", 0, 1)}}}}
+			r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+			r.wl.Writes[[2]int{0, 0}] = testWrite()
+			r.prepared, r.warm = 2, 2
+			var round *Round
+			if tc.open {
+				round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+			} else {
+				round = r.RunClosed(context.Background(), 1, 2, 500*time.Millisecond)
+			}
+			round.Judge(BrowseScenario{})
+			// The round itself played its two visits whatever its warm-up did.
+			if round.Visits != 2 || round.Writes != 2 || round.Failures != 0 {
+				t.Errorf("the round did %d visits, %d writes, %d failures, want its 2 visits and writes", round.Visits, round.Writes, round.Failures)
+			}
+			why := round.Why
+			if !tc.valid {
+				why = round.WhyInvalid
+			}
+			if round.Valid != tc.valid || (tc.valid && round.Pass != tc.pass) || !strings.HasPrefix(why, tc.why) || (tc.why == "" && why != "") {
+				t.Errorf("valid %v (%s), pass %v (%s), want valid %v, pass %v, %q: the warm-up %+v", round.Valid, round.WhyInvalid, round.Pass, round.Why, tc.valid, tc.pass, tc.why, round.WarmUp)
+			}
+		})
+	}
+}
+
+// The client is done with a request the trace cancelled long before the server is: every server is
+// left alone for settlePause after the last request of the warm-up ended, and only then is the memo
+// of Tifa read and the clock started, so the work of the warm-up stays out of the round. Where the
+// cpu of the server is read, the warm-up keeps the cores it used in the last second of the pause.
+func TestTheServerFinishesTheWarmUpBeforeTheClock(t *testing.T) {
+	for _, known := range []bool{true, false} {
+		var mu sync.Mutex
+		type work struct{ start, done time.Time }
+		var works []work
+		var reads []time.Time // when each read of the metrics was answered
+		var after []time.Time // the requests that started after the second read
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			now := time.Now()
+			mu.Lock()
+			if len(reads) >= 2 && r.URL.Path != "/metrics" {
+				after = append(after, now)
+			}
+			mu.Unlock()
+			switch r.URL.Path {
+			case "/metrics":
+				fmt.Fprint(w, "tifa_memo_entries 0\ntifa_memo_hits_total 0\ntifa_memo_misses_total 0\ntifa_memo_shared_total 0\ntifa_memo_bytes 0\ntifa_memo_evictions_total 0\n")
+				mu.Lock()
+				reads = append(reads, time.Now())
+				mu.Unlock()
+				return
+			case "/work":
+				// The work goes on after the client has gone, as a render in a VM does.
+				time.Sleep(time.Second)
+				mu.Lock()
+				works = append(works, work{now, time.Now()})
+				mu.Unlock()
+			}
+			w.Write([]byte("ok"))
+		}))
+		defer srv.Close()
+		tr := Trace{Steps: []TraceStep{
+			{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/p", "doc", 0, 1), cancelled("/work", "prefetch", 2, 12)}},
+			{Kind: StepClick, Page: "/p", Reqs: []TraceReq{req("/p", "nav", 0, 1)}},
+		}}
+		r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, tr)
+		r.metrics = "/metrics"
+		r.prepared, r.warm = 1, 1
+		t0 := time.Now()
+		r.cpuKnown = known
+		r.cpu = func() float64 { return 0.5 * time.Since(t0).Seconds() }
+		round := r.RunClosed(context.Background(), 1, 1, 10*time.Second)
+		srv.Close() // it waits for every handler, the work of the round too
+		mu.Lock()
+		if len(reads) != 3 || len(after) == 0 || len(works) != 2 {
+			t.Fatalf("known %v: %d reads of the metrics, %d requests after the second, want 3 and the round (%d works, want 2)", known, len(reads), len(after), len(works))
+		}
+		for _, w := range works {
+			if w.start.Before(reads[1]) && !w.done.Before(reads[1]) {
+				t.Errorf("known %v: the work of the warm-up ended %v after the memo was read before the clock", known, w.done.Sub(reads[1]))
+			}
+			if w.start.Before(reads[1]) && !w.done.Before(after[0]) {
+				t.Errorf("known %v: the work of the warm-up ended %v after the first request of the round", known, w.done.Sub(after[0]))
+			}
+		}
+		mu.Unlock()
+		cores := round.WarmUp.IdleCores
+		if known && (cores == nil || *cores < 0.45 || *cores > 0.55) {
+			t.Errorf("the warm-up kept %v cores in the last second of the pause, want 0.5", cores)
+		}
+		if !known && cores != nil {
+			t.Errorf("the warm-up kept %v cores of a server whose cpu is not read", *cores)
+		}
+	}
+}
+
+// A warm-up that ended with fewer writes than it planned fails the round, though none of its
+// visits failed.
+func TestAWarmUpShortOfItsWritesFailsTheRound(t *testing.T) {
+	round := &Round{Model: "closed", VisitsPlanned: 1, PageViewsPlanned: 1, VisitsStarted: 1, Types: map[string]TypeStat{"load": {N: 1}, "click": {N: 1}},
+		WarmUp: &WarmUp{VisitsPlanned: 2, Visits: 2, WritesPlanned: 3, Writes: 2}}
+	round.Judge(BrowseScenario{})
+	if !round.Valid || round.Pass || round.Why != "the warm-up: 2 of its 3 writes completed" {
+		t.Errorf("valid %v (%s), pass %v (%s)", round.Valid, round.WhyInvalid, round.Pass, round.Why)
 	}
 }
 
@@ -440,7 +613,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 		staffPlans := map[int]bool{}
 		for b := range 6 {
 			var r Round
-			w.plan(&r, b*bv, bv, false)
+			w.plan(&r, b*bv, bv)
 			m := r.Mix
 			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 4000, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
 			if m == nil || *m != want {
@@ -465,7 +638,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 		reads.ReadOnly = true
 		w.Scenario = reads
 		var r Round
-		w.plan(&r, 0, bv, false)
+		w.plan(&r, 0, bv)
 		if r.WritesPlanned != 0 || r.Mix.Adds+r.Mix.Edits+r.Mix.Ships+r.Mix.Checkouts != 0 {
 			t.Errorf("%s read-only: %d writes planned", tc.name, r.WritesPlanned)
 		}
@@ -729,12 +902,13 @@ func TestRendersAreCountedByKindOfPage(t *testing.T) {
 	}
 }
 
-// Before its clock a round of Tifa reads the metrics of the shop (Spec.Metrics): its render memo
-// must hold nothing then, or something filled it before the round, and the round is not played.
-// After the round it reads them again, and the hits of the memo over the round are what the server
-// counted. Neither read is traffic of the round. The answers of the private pages, the cart and the
+// Before its warm-up a round of Tifa reads the metrics of the shop (Spec.Metrics): its render memo
+// must hold nothing then, or something filled it before, and neither the warm-up nor the round is
+// played. After the warm-up it reads them again (what the warm-up left in the memo), and after the
+// round once more, and the hits of the memo over the round are what the server counted from the
+// clock on. No read is traffic of the round. The answers of the private pages, the cart and the
 // checkout, that came from the memo are counted apart.
-func TestARoundOfTifaReadsItsMemoBeforeAndAfter(t *testing.T) {
+func TestARoundOfTifaReadsItsMemoBeforeAndAfterTheWarmUp(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		entries int // in the memo before the round
@@ -749,7 +923,7 @@ func TestARoundOfTifaReadsItsMemoBeforeAndAfter(t *testing.T) {
 				if r.URL.Path == "/metrics" {
 					reads++
 					w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-					fmt.Fprintf(w, "# HELP tifa_memo_entries Pages in the render memo.\n# TYPE tifa_memo_entries gauge\ntifa_memo_entries %d\ntifa_memo_hits_total %g\ntifa_memo_misses_total %d\ntifa_memo_shared_total 0\ntifa_vms 1\n", entries, float64(hits), misses)
+					fmt.Fprintf(w, "# HELP tifa_memo_entries Pages in the render memo.\n# TYPE tifa_memo_entries gauge\ntifa_memo_entries %d\ntifa_memo_hits_total %g\ntifa_memo_misses_total %d\ntifa_memo_shared_total 0\ntifa_memo_bytes %d\ntifa_memo_evictions_total 0\ntifa_vms 1\n", entries, float64(hits), misses, entries*4096)
 					return
 				}
 				if seen[r.URL.Path] {
@@ -769,20 +943,25 @@ func TestARoundOfTifaReadsItsMemoBeforeAndAfter(t *testing.T) {
 			}
 			r := newTestRunner(srv.URL, BrowseScenario{Name: "x"}, load("/store/cart"), load("/store/products/oak-tray"), load("/store/checkout"))
 			r.metrics = "/metrics"
+			// The warm-up plays the three plans once, as the round does.
+			r.prepared, r.warm = 3, 3
 			round := r.RunClosed(context.Background(), 1, 3, 10*time.Second)
 			round.Judge(BrowseScenario{})
 			if tc.entries > 0 {
-				if round.Valid || !strings.Contains(round.WhyInvalid, "the render memo held 3 pages") || round.Requests != 0 || reads != 1 {
-					t.Errorf("a memo filled before the round: valid %v (%s), %d requests, %d reads of the metrics", round.Valid, round.WhyInvalid, round.Requests, reads)
+				if round.Valid || !strings.Contains(round.WhyInvalid, "the render memo held 3 pages before the warm-up") || round.Requests != 0 || round.WarmUp != nil || reads != 1 {
+					t.Errorf("a memo filled before the warm-up: valid %v (%s), %d requests, warm-up %+v, %d reads of the metrics", round.Valid, round.WhyInvalid, round.Requests, round.WarmUp, reads)
 				}
 				return
 			}
-			if round.Memo == nil || round.Memo.Start.Entries != 0 || round.Memo.Hits() != 3 || round.Memo.End.Misses != 3 || reads != 2 || round.Requests != 6 {
-				t.Errorf("memo %+v, %d reads of the metrics, %d requests in the round", round.Memo, reads, round.Requests)
+			// The warm-up rendered the three pages once and answered their second requests from the
+			// memo, and the round answered every request from it.
+			m := round.Memo
+			if m == nil || m.Start.Entries != 0 || m.Warm.Entries != 3 || m.Warm.Hits != 3 || m.Hits() != 6 || m.End.Misses != 3 || reads != 3 || round.Requests != 6 {
+				t.Errorf("memo %+v, %d reads of the metrics, %d requests in the round", m, reads, round.Requests)
 			}
-			// The second answers of the cart and of the checkout.
-			if round.PrivateHits != 2 {
-				t.Errorf("%d answers of the cart and the checkout came from the memo, want 2: %v", round.PrivateHits, round.PageRenders)
+			// Both answers of the cart and of the checkout in the round.
+			if round.PrivateHits != 4 {
+				t.Errorf("%d answers of the cart and the checkout came from the memo, want 4: %v", round.PrivateHits, round.PageRenders)
 			}
 		})
 	}
@@ -810,7 +989,7 @@ func TestAVisitEndedBetweenActionsWaitsForItsBackgroundRequests(t *testing.T) {
 		r := testRunner(srv, plans, traces, nil)
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		a := newAcc()
-		r.runVisit(ctx, http.DefaultTransport.(*http.Transport), a, 0, pacer{open: true, start: time.Now(), reads: true})
+		r.runVisit(ctx, http.DefaultTransport.(*http.Transport), a, 0, pacer{open: true, start: time.Now()})
 		left := r.inflight.Load()
 		cancel()
 		if left != 0 {
@@ -931,6 +1110,23 @@ func TestTheRendersOfTifaAreSplitByWhy(t *testing.T) {
 		"product":     {RenderFirst: 1},
 	}
 	if round.Failures != 0 || !reflect.DeepEqual(round.VMWhy, want) {
+		t.Errorf("renders by why %v, want %v (%d failures: %s)", round.VMWhy, want, round.Failures, round.FirstErr)
+	}
+}
+
+// A URL the warm-up asked for is a URL answered before in the round after it: the split by why
+// counts the warm-up, as the render memo does.
+func TestTheRendersAfterTheWarmUpCountItsURLsAsAnsweredBefore(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(RenderHeader, RenderVM)
+		w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	plans, traces := onePlan(TraceStep{Kind: StepLoad, Page: "/store", Reqs: []TraceReq{req("/store", "doc", 0, 10)}})
+	r := testRunner(srv, plans, traces, nil)
+	r.prepared, r.warm = 1, 1
+	round := r.RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if want := map[string]map[string]int{"home": {RenderAgain: 1}}; round.Failures != 0 || !reflect.DeepEqual(round.VMWhy, want) {
 		t.Errorf("renders by why %v, want %v (%d failures: %s)", round.VMWhy, want, round.Failures, round.FirstErr)
 	}
 }

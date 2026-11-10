@@ -109,6 +109,6 @@ read_when:
 
 - 页面上的 `X-Tifa-Render`：`vm` 是为这个请求渲染的，`memo` 是命中，`shared` 是等了另一个同时开始的请求的渲染，`none` 是 304 或没经过 VM 的回答。
 - 带 `If-None-Match` 的请求在输入没变时得到 304，发生在问渲染记忆之前。ETag 省的是已有这个页面的浏览器的传输，渲染记忆省的是其他人的渲染。
-- `tifa.Stats().Memo` 有 `Entries`、`Hits`、`Misses` 和 `Shared`，`MemoBytes` 对 `MemoSize` 显示渲染记忆有多满。把它们写给 Prometheus 的路由见[部署](deploy.zh-CN.md)。
+- `tifa.Stats().Memo` 有 `Entries`、`Hits`、`Misses`、`Shared` 和 `Evictions`（为腾地方挤掉的页面，最久没用的先挤），`MemoBytes` 对 `MemoSize` 显示渲染记忆有多满。把它们写给 Prometheus 的路由见[部署](deploy.zh-CN.md)。
 
 数字见[性能](performance.zh-CN.md)。

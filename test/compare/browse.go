@@ -27,7 +27,7 @@ import (
 // browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
 // pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
 // its report says so at the top, with how it differs.
-var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Warm: 15 * time.Second, Target: 75 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 75 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
@@ -50,7 +50,7 @@ type BrowseOptions struct {
 	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
 	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
 	Rounds      int
-	Warm        time.Duration // the warm-up of a closed round of a Node server, apart from it (see Spec.WarmsUp), and the length of a sizing run
+	Sizing      time.Duration // the length of a sizing run (browse.size)
 	Target      time.Duration // how long a closed round should take, about
 	TrialWindow time.Duration // an open trial of the search for the sustainable rate
 	FinalWindow time.Duration // an open round of the latency table, at least
@@ -82,11 +82,14 @@ type BrowseResult struct {
 	// were run again too.
 	Closed []Round `json:"closed"`
 	// Blocks is the size of the measured workload of each scenario, number of sessions and spec (whole
-	// blocks), taken from the warm-up of its first round.
+	// blocks), taken from the sizing run of its first round.
 	Blocks map[string]int `json:"blocks"`
 	// Prepared is, per scenario, the visits whose data every server of the scenario gets before the
-	// clock of a closed round (prepared): the same for all, whatever each was sized to.
-	Prepared map[string]int `json:"prepared,omitempty"`
+	// clock of a closed round (prepared): the same for all, whatever each was sized to. WarmVisits is
+	// the visits of the warm-up of every closed round of the scenario, the ones after those, which get
+	// their data too.
+	Prepared   map[string]int `json:"prepared,omitempty"`
+	WarmVisits map[string]int `json:"warmVisits,omitempty"`
 	// Sustain is, per scenario and spec ("shop/tifa"), the search for the arrival rate it
 	// sustains in the open model.
 	Sustain map[string]*Sustain `json:"sustain"`
@@ -142,8 +145,10 @@ type browse struct {
 type liveServer struct {
 	base string
 	cpu  func() float64
-	rss  func() int64
-	stop func()
+	// cpuKnown says that cpu reads the processor time of the server (ReadsCPU), not a 0.
+	cpuKnown bool
+	rss      func() int64
+	stop     func()
 }
 
 // start waits for the cpus to be idle, starts a fresh server of a spec and waits until it listens.
@@ -162,7 +167,7 @@ func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 		server.Stop()
 		return nil, err
 	}
-	return &liveServer{base: server.Base, cpu: server.CPUSeconds, rss: server.PeakRSS, stop: server.Stop}, nil
+	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: server.Stop}, nil
 }
 
 // verifyWrites checks the writes of the scenario on the server of r.
@@ -234,7 +239,7 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 // a hash of the trace and plan files the run loaded (traces) and the method (see methodHash).
 func browseConfig(o BrowseOptions, cpu, traces, method string) map[string]string {
 	return map[string]string{
-		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "warm": o.Warm.String(), "target": o.Target.String(),
+		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "sizing": o.Sizing.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
 		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "traces": traces, "method": method,
 	}
@@ -419,17 +424,19 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 // with starts a fresh server of a spec and calls f with a runner for the workload of the scenario.
 // The server gets no request before f that renders a page: the check that the writes of the scenario
 // show in its pages runs on a server of its own that is thrown away (checkWrites, once for a spec and a
-// scenario), so that a server of Tifa starts its round with an empty render memo. A run with writes
+// scenario), so that a server of Tifa starts its warm-up with an empty render memo. A run with writes
 // first restocks the server (prepare), which renders nothing, for prepared visits, at least the visits
-// it plays (-1 for both in a run that plays for a time, the sizing run), and f then makes the orders
-// of the ships and the carts of the returning visitors of those visits before its clock (setup), which
-// render nothing either. A run whose restock fails is an invalid round, and f does not
+// it plays (-1 for both in a run that plays for a time, the sizing run), and the warm visits after
+// them, which the warm-up before the clock plays (0 for none, as in a sizing run). f then makes the
+// orders of the ships and the carts of the returning visitors of those visits before its warm-up
+// (setup), which render nothing either, and plays the warm-up before its clock (warmUp): the same
+// visits and writes on every server. A run whose restock fails is an invalid round, and f does not
 // run. A run that can make more carts than the shop keeps (cartsFit) is an error before it sends
 // anything. The round f returns is judged, and when
 // it passed the writes are checked again, on the server it ran against, after its timing. The server is
 // stopped after. Every round starts a fresh server, so the data is the same at the start of every round:
 // the orders placed in one round are not there in the next.
-func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visits, prepared int, f func(*runner) *Round) (*Round, error) {
+func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visits, prepared, warm int, f func(*runner) *Round) (*Round, error) {
 	// A round with no writes (the read-only control) has none to check, and writes nothing.
 	if key := sc.Name + "/" + name; !sc.ReadOnly && !b.checked[key] {
 		if err := b.checkWrites(ctx, name, sc); err != nil {
@@ -449,20 +456,21 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 	if err != nil {
 		return nil, err
 	}
-	// The data before the clock is made for prepared visits, at least the visits played. The shop
-	// keeps shopMaxCarts carts: a run that can make more fails before it sends anything.
+	// The data before the clock is made for prepared visits, at least the visits played, and for the
+	// warm-up after them. The shop keeps shopMaxCarts carts: a run that can make more fails before it
+	// sends anything.
 	if prepared < 0 {
-		prepared = sizingVisits(b.o.Warm)
+		prepared = sizingVisits(b.o.Sizing)
 	}
 	if visits > prepared {
 		panic(fmt.Sprintf("a run of %d visits with the data of %d", visits, prepared))
 	}
-	r.prepared = prepared
-	if err := r.wl.cartsFit(0, prepared, shopMaxCarts); err != nil {
+	r.prepared, r.warm = prepared, warm
+	if err := r.wl.cartsFit(0, prepared+warm, shopMaxCarts); err != nil {
 		return nil, fmt.Errorf("%s/%s: %w", sc.Name, name, err)
 	}
 	if !sc.ReadOnly {
-		if err := b.prepare(ctx, r, b.specs[name], visits, prepared); err != nil {
+		if err := b.prepare(ctx, r, b.specs[name], visits, prepared+warm); err != nil {
 			return &Round{Framework: name, Scenario: sc.Name, WhyInvalid: err.Error()}, nil
 		}
 	}
@@ -490,10 +498,12 @@ func controlled(list []BrowseScenario, sc BrowseScenario) bool {
 	return len(list) > 0 && list[0].Name == sc.Name
 }
 
-// control is a diagnostic, not a result: once, one closed round of Tifa, with no warm-up
-// (with its caches as it ships) at the sessions of the closed runs, with the visits of the first scenario and no
-// writes (the carts of the returning visitors are made, as they are data). It shows which kinds of page the render memo answers when nothing changes,
-// and against the rounds with writes what the writes do to it.
+// control is a diagnostic, not a result: once, one closed round of Tifa as it ships at the sessions
+// of the closed runs, with the visits of the first scenario and no writes (the carts of the returning
+// visitors are made, as they are data), after the warm-up of the closed rounds of the scenario with
+// no writes either. So it differs from them in the writes alone. It shows which kinds of page the
+// render memo answers when nothing changes, and against the rounds with writes what the writes do to
+// it.
 func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	if !controlled(b.o.Scenarios, sc) || !slices.Contains(b.servers[sc.Name], "tifa") || slices.ContainsFunc(b.res.Control, func(x Round) bool { return x.Scenario == sc.Name }) {
 		return nil
@@ -501,14 +511,19 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	reads := sc
 	reads.ReadOnly = true
 	window := min(b.o.Target, controlWindow)
-	// Tifa gets no warm-up, so the length of the round is sized on a server that is thrown away.
+	// The warm-up is the one of the closed rounds: the same visits, numbered after the prepared ones.
+	prepared, warm, err := b.prepared(ctx, sc)
+	if err != nil {
+		return err
+	}
+	// The length of the round is sized on a server that is thrown away, with no writes.
 	rate, err := b.size(ctx, "tifa", reads, b.o.Sessions)
 	if err != nil {
 		return err
 	}
-	blocks := BlocksFor(rate, window, b.set.Blocks, reads.blockVisits())
-	out, err := b.with(ctx, "tifa", reads, blocks*reads.blockVisits(), blocks*reads.blockVisits(), func(r *runner) *Round {
-		return r.RunClosed(ctx, b.o.Sessions, blocks*reads.blockVisits(), 2*window)
+	visits, _ := playable(BlocksFor(rate, window, b.set.Blocks, reads.blockVisits())*reads.blockVisits(), prepared)
+	out, err := b.with(ctx, "tifa", reads, visits, prepared, warm, func(r *runner) *Round {
+		return r.RunClosed(ctx, b.o.Sessions, visits, 2*window)
 	})
 	if err != nil {
 		return err
@@ -530,24 +545,31 @@ const prepareHeadroom = 2
 // the same for every server of the scenario, so that each starts its rounds with the same data and
 // is sent the same writes (an edit of the stock is worked out from what the restock gave): it is
 // prepareHeadroom times the visits of the longest round a server of the scenario was sized to at the
-// base sessions. Every server is sized first, and the number is kept in the result.
-func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (int, error) {
+// base sessions. Every server is sized first, and the number is kept in the result. It also returns
+// the visits of the warm-up of every closed round of the scenario, at any sessions: as many as the
+// longest round a server was sized to (prepared / prepareHeadroom), the visits after the prepared
+// ones, whose data is made too.
+func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (prepared, warm int, err error) {
 	if n := b.res.Prepared[sc.Name]; n > 0 {
-		return n, nil
+		return n, b.res.WarmVisits[sc.Name], nil
 	}
 	most := 0
 	for _, fw := range b.servers[sc.Name] {
 		if err := b.sizeCell(ctx, fw, sc, b.o.Sessions); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		most = max(most, b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, fw)])
 	}
 	if b.res.Prepared == nil {
 		b.res.Prepared = map[string]int{}
 	}
-	b.res.Prepared[sc.Name] = prepareHeadroom * most * sc.blockVisits()
-	b.logf("prepare %-10s the data of %d visits before the clock of every closed round, for every server\n", sc.Name, b.res.Prepared[sc.Name])
-	return b.res.Prepared[sc.Name], b.commit()
+	if b.res.WarmVisits == nil {
+		b.res.WarmVisits = map[string]int{}
+	}
+	b.res.WarmVisits[sc.Name] = most * sc.blockVisits()
+	b.res.Prepared[sc.Name] = prepareHeadroom * b.res.WarmVisits[sc.Name]
+	b.logf("prepare %-10s the data of %d visits and a warm-up of the %d after them before the clock of every closed round, for every server\n", sc.Name, b.res.Prepared[sc.Name], b.res.WarmVisits[sc.Name])
+	return b.res.Prepared[sc.Name], b.res.WarmVisits[sc.Name], b.commit()
 }
 
 // sizeCell sizes the closed rounds of a server at a number of sessions, once (size).
@@ -570,7 +592,7 @@ func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, ses
 func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, sessions, round int) (*Round, error) {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
 	planBlocks := b.set.Blocks
-	prepared, err := b.prepared(ctx, sc)
+	prepared, warm, err := b.prepared(ctx, sc)
 	if err != nil {
 		return nil, err
 	}
@@ -581,10 +603,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		// A round never plays more visits than every server gets the data of: one sized to more
 		// plays them all, and is kept when that ends it early (calibrate).
 		visits, capped := playable(b.res.Blocks[key]*sc.blockVisits(), prepared)
-		out, err := b.with(ctx, fw, sc, visits, prepared, func(r *runner) *Round {
-			if b.specs[fw].WarmsUp() {
-				r.Warm(ctx, sessions, b.o.Warm)
-			}
+		out, err := b.with(ctx, fw, sc, visits, prepared, warm, func(r *runner) *Round {
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
 			return r.RunClosed(ctx, sessions, visits, 2*b.o.Target)
@@ -609,16 +628,14 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 }
 
 // size is how many visits a second a server completes with the mix of the scenario, writes
-// included, on a fresh server that is then thrown away, for the length of a warm-up. The first round
-// of a cell is sized from it: the warm-up of a round sends no writes (so that every round starts with
-// the same data), and a server that writes make slower (a cache that they clear) would be sized too
-// large from that. It plays sizingVisits visits at most, with their setup made before it as for a
-// round. A sizing run that cannot size a round (sizingFault) is an error.
+// included, on a fresh server with no warm-up that is then thrown away, for -sizing. The first round
+// of a cell is sized from it. It plays sizingVisits visits at most, with their setup made before it
+// as for a round. A sizing run that cannot size a round (sizingFault) is an error.
 func (b *browse) size(ctx context.Context, fw string, sc BrowseScenario, sessions int) (float64, error) {
 	var rate float64
 	sized := &Round{}
-	out, err := b.with(ctx, fw, sc, -1, -1, func(r *runner) *Round {
-		rate, sized = r.Size(ctx, sessions, b.o.Warm, sizingVisits(b.o.Warm))
+	out, err := b.with(ctx, fw, sc, -1, -1, 0, func(r *runner) *Round {
+		rate, sized = r.Size(ctx, sessions, b.o.Sizing, sizingVisits(b.o.Sizing))
 		return &Round{}
 	})
 	if err == nil && !out.Valid && strings.HasPrefix(out.WhyInvalid, "restock") {
@@ -710,16 +727,13 @@ func visitsFor(rate float64, window time.Duration, cycle int) int {
 	return max(1, int(math.Ceil(float64(n)/float64(cycle)))) * cycle
 }
 
-// openRound runs the open model on a fresh server: for a spec that warms up (Spec.WarmsUp) a warm-up
-// at the same rate with no writes, apart, then whole cycles of all the plans.
-func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
+// openRound runs the open model on a fresh server: whole cycles of all the plans, after a warm-up of
+// as many visits at the same rate with their writes, the visits after those of the round, apart.
+func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration) (*Round, error) {
 	cycle := b.set.Blocks * sc.blockVisits()
 	visits := visitsFor(rate, window, cycle)
-	out, err := b.with(ctx, fw, sc, visits, visits, func(r *runner) *Round {
-		if b.specs[fw].WarmsUp() {
-			r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0, true) // discarded
-		}
-		return r.RunOpen(ctx, rate, visits, 30*time.Second, 0, false)
+	out, err := b.with(ctx, fw, sc, visits, visits, visits, func(r *runner) *Round {
+		return r.RunOpen(ctx, rate, visits, 30*time.Second, 0)
 	})
 	if err != nil {
 		return nil, err
@@ -781,7 +795,7 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 		// A trial that is not valid is played again at its rate: only a valid one moves the search.
 		trial := func(rate float64) (string, error) {
 			r, err := retryInvalid(func(try int) (*Round, error) {
-				r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow, b.o.TrialWindow/3)
+				r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow)
 				if err != nil {
 					return nil, err
 				}
@@ -829,7 +843,7 @@ func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
 		// Only a rate that passed all its confirmation rounds, each of them valid, is published. Every
 		// round stays in the record.
 		confirmed, rounds, limited, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
-			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow*2, b.o.TrialWindow/3)
+			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow*2)
 			if err != nil {
 				return nil, err
 			}
@@ -916,7 +930,7 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 				if tries >= maxTries {
 					break
 				}
-				r, err := b.openRound(ctx, fw, sc, rate, window, b.o.TrialWindow/3)
+				r, err := b.openRound(ctx, fw, sc, rate, window)
 				if err != nil {
 					return err
 				}
@@ -1424,7 +1438,7 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 	if err != nil {
 		return nil, err
 	}
-	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, rss: server.rss}
+	r := &runner{base: server.base, write: spec.Write, create: spec.Create, storeWrite: spec.StoreWrite, products: spec.Products, editProduct: spec.EditProduct, metrics: spec.Metrics, wl: wl, seed: b.o.Seed, cpu: server.cpu, cpuKnown: server.cpuKnown, rss: server.rss}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
 	}

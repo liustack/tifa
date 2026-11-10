@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,14 +46,44 @@ func StoreBase(l string) string {
 	return "/" + l + "/store"
 }
 
-// StoreProducts are every product of the catalogue, in its order. TestStoreDomainMatchesGo checks
-// that the list is the catalogue.
-var StoreProducts = []string{
-	"pour-over-kettle", "ceramic-cup", "glass-carafe", "oak-tray", "tea-canister", "linen-coasters", "linen-apron", "wool-throw",
-	"tea-towels", "canvas-tote", "brass-bookmarks", "dot-notebook", "walnut-pen", "desk-tray", "reading-candle", "forest-diffuser",
-	"incense-set", "folding-stool", "picnic-blanket", "insulated-bottle", "enamel-mug", "stoneware-vase", "cotton-napkins",
-	"pocket-journal", "hinoki-spray", "camp-lantern", "copper-cups", "wax-cloth",
-}
+// ShopCatalogue is the catalogue file of the shop, from the root of the repository: the products the
+// shop starts with, which the plans (StoreProducts, StoreVariants) and the TypeScript port in domain/
+// read too.
+const ShopCatalogue = "examples/shop/app/store/products/catalogue.json"
+
+// StoreProducts returns the slug of every product of the catalogue, in its order (ShopCatalogue).
+func StoreProducts() []string { return storeCatalogue().slugs }
+
+// storeCatalogue reads the catalogue file of the shop once. The root module cannot embed a file of
+// the shop's module, so it reads it where the repository is. A file it cannot read is a bug of the
+// checkout, and it panics.
+var storeCatalogue = sync.OnceValue(func() (c struct {
+	slugs    []string
+	variants []StoreProduct
+}) {
+	e, err := NewEnv()
+	if err != nil {
+		panic(err)
+	}
+	data, err := os.ReadFile(filepath.Join(e.Root, ShopCatalogue))
+	if err != nil {
+		panic(err)
+	}
+	var file []struct {
+		Slug   string   `json:"slug"`
+		Stock  int      `json:"stock"`
+		Colors []string `json:"colors"`
+		Sizes  []string `json:"sizes"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		panic(ShopCatalogue + ": " + err.Error())
+	}
+	for _, p := range file {
+		c.slugs = append(c.slugs, p.Slug)
+		c.variants = append(c.variants, StoreProduct{p.Slug, p.Stock, p.Colors, p.Sizes})
+	}
+	return c
+})
 
 // StoreSampleProducts are the products a check of the pages shows, one of each kind: with sizes,
 // on sale, new, limited, sold out, and plain.
@@ -215,7 +246,7 @@ func StoreScenarios() []StoreScenario {
 				pages = append(pages, StoreStep{Name: p.Name, Method: "GET", URL: p.URL, Routes: p.Routes})
 			}
 		}
-		for _, slug := range StoreProducts {
+		for _, slug := range StoreProducts() {
 			pages = append(pages, storeGET(l, "/products/"+slug, storeProduct))
 		}
 		for _, n := range []string{"1", "2", "3", "99", "0", "-4", "x"} {
