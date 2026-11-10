@@ -126,7 +126,53 @@ const (
 	// SearchUniqueLength is the characters of a search word of a visit's own, lower case letters and
 	// digits. An assumption: no data on the shape of such words was found.
 	SearchUniqueLength = 8
+	// SearchShare is the share of the shopper visits that search, once, with the search box of the
+	// header. An assumption below the one behavioural figure found: searchers are 24% of the visitors of
+	// 113 retail sites, October to December 2024 (Constructor, "Beyond Relevance", March 2025, as
+	// reported by https://itbrief.co.uk/story/online-shopper-search-drives-44-of-ecommerce-revenue),
+	// taken lower for a shop of 150 products, whose menu is enough to find them. One search a visit is an
+	// assumption too.
+	SearchShare = 0.20
+	// ListFilterShare is the share that filter the list, of the shopper visits that see a product list,
+	// and ListSortShare the share of them that change its sort. Assumptions: the ranges that are
+	// published for the use of filters (20% to 60%) name no source that can be checked, and nothing was
+	// found on sorting.
+	ListFilterShare = 0.25
+	ListSortShare   = 0.10
 )
+
+// The kinds of condition a filter of the product list sets.
+const (
+	FilterPrice    = "price"
+	FilterCategory = "category"
+	FilterRating   = "rating"
+	FilterStock    = "stock"
+	FilterColor    = "colour"
+	FilterMaterial = "material"
+	FilterBadge    = "badge"
+)
+
+// FilterConditionShares are the shares of the filters that set one, two and three conditions. An
+// assumption: no data on how many filters a visit uses was found.
+var FilterConditionShares = []float64{0.60, 0.30, 0.10}
+
+// FilterKinds are the kinds of condition with the relative weight each is chosen by. Assumptions: no
+// data on which filters are used most was found, and the order (price and category first, then rating
+// and stock, then colour, material and badge) is a judgment. A condition on the price is one of the
+// four price bands of the page, never a range typed by hand.
+var FilterKinds = []struct {
+	Kind   string
+	Weight float64
+}{{FilterPrice, 25}, {FilterCategory, 25}, {FilterRating, 12.5}, {FilterStock, 12.5}, {FilterColor, 8.3}, {FilterMaterial, 8.3}, {FilterBadge, 8.3}}
+
+// ListPageShares are the shares that stay on the first page, go to the second and go on to the third,
+// of the shopper visits that see a product list of more than one page with no search term. From
+// Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go
+// to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, which says
+// neither when nor how it was counted), rounded. The figure is of search results, and it is used on
+// the lists with no search term because a search of this shop never has a second page: no word finds
+// more products than a page holds.
+var ListPageShares = []float64{0.90, 0.09, 0.01}
 
 // EditPriceFen is the lowest and the highest price an edit of a price sets, in fen, in whole yuan, and
 // EditDelivery the fewest and the most pieces an edit of the stock sets above what the restock gave
@@ -549,6 +595,24 @@ func searchTermCounts(fewest int) string {
 	return out
 }
 
+// sharesOf writes shares as percents, in order.
+func sharesOf(shares []float64) string {
+	out := make([]string, len(shares))
+	for i, s := range shares {
+		out[i] = strconv.FormatFloat(math.Round(s*1e4)/100, 'f', -1, 64) + "%"
+	}
+	return strings.Join(out, ", ")
+}
+
+// filterKinds writes the kinds of condition with their weights, in order.
+func filterKinds() string {
+	out := make([]string, len(FilterKinds))
+	for i, k := range FilterKinds {
+		out[i] = k.Kind + " " + strconv.FormatFloat(k.Weight, 'f', -1, 64)
+	}
+	return strings.Join(out, ", ")
+}
+
 // MixFacts are the numbers of the mix of mix.go, with their sources, for the report. Each value is
 // read from the constant the plans use, and TestTheReportListsEveryNumberOfTheMix checks that every
 // constant of mix.go is here.
@@ -655,6 +719,14 @@ func MixFacts() []MixFact {
 		{"SearchUniqueShare", "searches for a word that no other visit searches for, which finds nothing: they are among the searches that find nothing, and the rest of those search for a word of the list", pct(SearchUniqueShare),
 			"assumption, from one account of a shop where random tail queries with numbers were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only)"},
 		{"SearchUniqueLength", "characters of a search word of a visit's own, lower case letters and digits", strconv.Itoa(SearchUniqueLength), "assumption: no data on the shape of such words"},
+		{"SearchShare", "shopper visits that search, once, with the search box of the header", pct(SearchShare),
+			"assumption below the one behavioural figure found: searchers are 24% of the visitors of 113 retail sites, October to December 2024 (Constructor, \"Beyond Relevance\", March 2025, as reported by https://itbrief.co.uk/story/online-shopper-search-drives-44-of-ecommerce-revenue), taken lower for a shop of 150 products. One search a visit is an assumption too"},
+		{"ListFilterShare", "shopper visits that filter the list, of those that see a product list", pct(ListFilterShare), "assumption: the published ranges for the use of filters (20% to 60%) name no source that can be checked"},
+		{"FilterConditionShares", "filters that set one, two and three conditions", sharesOf(FilterConditionShares), "assumption: no data on how many filters a visit uses"},
+		{"FilterKinds", "kinds of condition of a filter, as relative weights. A condition on the price is one of the four price bands of the page, never a range typed by hand", filterKinds(), "assumption: no data on which filters are used most, and the order is a judgment"},
+		{"ListSortShare", "shopper visits that change the sort of the list, of those that see a product list, to one of the other sorts, all alike", pct(ListSortShare), "assumption: nothing was found on sorting"},
+		{"ListPageShares", "shopper visits that stay on the first page, go to the second and go on to the third, of those that see a product list of more than one page with no search term", sharesOf(ListPageShares),
+			"Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, with no date and no method), rounded. The figure is of search results, and it is used on the lists with no search term because a search of this shop never has a second page"},
 		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
 		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},
