@@ -72,9 +72,11 @@ const (
 	// (_kx, mc_eid). A visit carries at most one of them. A server that keeps a page by its URL meets a URL of its own
 	// on every one. Sources: of the visits to retail sites, 50.6% come from paid sources (Contentsquare
 	// 2025 Digital Experience Benchmarks), which is an upper bound, and paid search is 22% of the visits
-	// to a shop (gripsintelligence). ClickIDShare is a judgment below both. Email is 7.3% to 7.6% of the
-	// visits (gripsintelligence), and EmailParamShare is the lower end, since not every link of an email
-	// carries a parameter.
+	// to a shop, and email 7.6% (US, gripsintelligence,
+	// https://gripsintelligence.com/insights/web-statistics/channel-market-share/us). ClickIDShare is a
+	// judgment below the two upper bounds. EmailParamShare is an assumption below the 7.6% of the visits
+	// that come from email, since not every link of an email carries a parameter that is different for
+	// each recipient.
 	ClickIDShare    = 0.15
 	EmailParamShare = 0.05
 	// CrawlerShare is the share of the HTML requests that crawlers make: the documents of the shoppers and
@@ -86,8 +88,9 @@ const (
 	CrawlerShare = 0.09
 	// CrawlOldShare is the share of the requests of a crawler for an old URL that the shop no longer has
 	// (it answers 404), and the rest are for the public pages, all alike. An assumption: crawlers go back
-	// to old URLs and deep pages that people no longer visit, which the log studies of Screaming Frog
-	// show with no figure to take.
+	// to old URLs and deep pages that people no longer visit, which the log file analysis of Screaming Frog
+	// shows with no figure to take
+	// (https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/).
 	CrawlOldShare = 0.05
 	// EditPriceShare is the share of the edits of a product that change its price. The others change
 	// its stock. An assumption.
@@ -578,9 +581,9 @@ func MixFacts() []MixFact {
 		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "rule: a geometric length of mean 4"},
 		{"AddToCartShare", "shopper visits that add to the cart", pct(AddToCartShare), littledata},
 		{"CheckoutShare", "shopper visits that check out (among those that add)", pct(CheckoutShare), littledata + ", conversion rate"},
-		{"ClickIDShare", "shopper landings that carry a click id different for every click", pct(ClickIDShare), "assumption: a judgment below the published upper bounds, 50.6% of the visits of retail sites from paid sources (Contentsquare 2025) and 22% from paid search (gripsintelligence)"},
+		{"ClickIDShare", "shopper landings that carry a click id different for every click", pct(ClickIDShare), "assumption: a judgment below the published upper bounds, 50.6% of the visits of retail sites from paid sources (Contentsquare 2025) and 22% from paid search (US, gripsintelligence, https://gripsintelligence.com/insights/web-statistics/channel-market-share/us)"},
 		{"ClickIDNames", "click ids, by the share of the landings that carry one", ids(ClickIDNames), "assumption"},
-		{"EmailParamShare", "shopper landings that carry a parameter different for every recipient of an email", pct(EmailParamShare), "assumption: the lower end of the published 7.3% to 7.6% of the visits from email (gripsintelligence)"},
+		{"EmailParamShare", "shopper landings that carry a parameter different for every recipient of an email", pct(EmailParamShare), "assumption: below the 7.6% (US, gripsintelligence) of the visits that come from email (https://gripsintelligence.com/insights/web-statistics/channel-market-share/us), since not every link of an email carries a parameter that is different for each recipient"},
 		{"EmailParamNames", "email parameters, by the share of the landings that carry one", ids(EmailParamNames), "assumption"},
 		{"LandingValueLengths", "characters of the value of each parameter", lengths(LandingValueLengths), "assumption: the lengths are those the parameters are seen to have, the characters are made up"},
 		{"ReturningShare", "shopper visits by a returning visitor, who comes back to a cart of their own", pct(ReturningShare), "assumption, within the published 17% (Top Growth Marketing) to 53% (Contentsquare 2025)"},
@@ -604,7 +607,7 @@ func MixFacts() []MixFact {
 		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
 		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},
-		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog log file studies), with no figure published"},
+		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog, https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/), with no figure to take"},
 		{"OldProductsPerLanguage", "old URLs of products taken off the shop in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldProductsPerLanguage), "assumption"},
 		{"OldPostsPerLanguage", "old URLs of posts that were moved or deleted in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldPostsPerLanguage), "assumption"},
 		{"ShopperBlockVisits", "shopper visits of a block of the plans, which has the mix exactly", strconv.Itoa(ShopperBlockVisits), "a choice of the method"},

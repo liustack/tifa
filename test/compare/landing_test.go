@@ -125,3 +125,28 @@ func TestTheMixOfTheSiteIsCheckedForTheLandingParameters(t *testing.T) {
 }
 
 func want150() int { return int(math.Round(ClickIDShare * ShopperBlockVisits)) }
+
+// The sources of the shares of the landing parameters and of the old URLs say what is published and
+// what is assumed, with the pages they come from: the email share is an assumption below the 7.6% of
+// the visits that come from email in the US, and the figure of 7.3% that no page shows is not in it.
+func TestTheSourcesOfTheSharesSayWhatIsPublishedAndWhatIsAssumed(t *testing.T) {
+	facts := map[string]MixFact{}
+	for _, f := range MixFacts() {
+		facts[f.Name] = f
+	}
+	const grips = "https://gripsintelligence.com/insights/web-statistics/channel-market-share/us"
+	for name, wants := range map[string][]string{
+		"ClickIDShare":    {grips, "22%"},
+		"EmailParamShare": {"assumption", grips, "7.6% (US, gripsintelligence)", "not every link of an email carries a parameter that is different for each recipient"},
+		"CrawlOldShare":   {"assumption", "https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(facts[name].Source, want) {
+				t.Errorf("the source of %s lacks %q: %s", name, want, facts[name].Source)
+			}
+		}
+		if strings.Contains(facts[name].Source, "7.3") {
+			t.Errorf("the source of %s has the 7.3%% that no page shows: %s", name, facts[name].Source)
+		}
+	}
+}
