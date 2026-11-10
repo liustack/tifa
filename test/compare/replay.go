@@ -164,6 +164,7 @@ func (w *Workload) plan(r *Round, seq0, n int) {
 		r.PageViewsPlanned += c.Views
 		r.ClicksPlanned += c.Clicks
 		m.Shoppers, m.Staff, m.ShopperViews, m.Returning = m.Shoppers+c.Shoppers, m.Staff+c.Staff, m.ShopperViews+c.ShopperViews, m.Returning+c.Returning
+		m.ClickIDs, m.EmailParams = m.ClickIDs+c.ClickIDs, m.EmailParams+c.EmailParams
 		for _, x := range w.writesOf(s) {
 			r.WritesPlanned++
 			switch x.Kind {

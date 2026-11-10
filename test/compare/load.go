@@ -626,6 +626,8 @@ type PlannedMix struct {
 	Staff        int `json:"staff"`
 	ShopperViews int `json:"shopperPageViews"`
 	Returning    int `json:"returning"`
+	ClickIDs     int `json:"clickIds"`
+	EmailParams  int `json:"emailParams"`
 	Adds         int `json:"adds"`
 	Checkouts    int `json:"checkouts"`
 	Edits        int `json:"edits"`
@@ -653,6 +655,8 @@ func (m PlannedMix) why(sc BrowseScenario) string {
 		off("staff visits a visit", m.Staff, m.Shoppers+m.Staff, sc.Staff, 0.005),
 		off("page views a shopper visit", m.ShopperViews, m.Shoppers, ShopperViewsMean, 0.01*ShopperViewsMean),
 		off("returning visitors a shopper visit", m.Returning, m.Shoppers, ReturningShare, 0.005),
+		off("landings with a click id a shopper visit", m.ClickIDs, m.Shoppers, ClickIDShare, 0.005),
+		off("landings with an email parameter a shopper visit", m.EmailParams, m.Shoppers, EmailParamShare, 0.005),
 	)
 	if why != "" || sc.ReadOnly {
 		return why

@@ -67,6 +67,16 @@ const (
 	// neither.
 	StaffEditShare = 0.20
 	StaffShipShare = 0.30
+	// ClickIDShare is the share of the shopper landings that carry a click id that is different for every click (gclid, fbclid, msclkid), and
+	// EmailParamShare the share that carry a parameter that is different for every recipient of an email
+	// (_kx, mc_eid). A visit carries at most one of them. A server that keeps a page by its URL meets a URL of its own
+	// on every one. Sources: of the visits to retail sites, 50.6% come from paid sources (Contentsquare
+	// 2025 Digital Experience Benchmarks), which is an upper bound, and paid search is 22% of the visits
+	// to a shop (gripsintelligence). ClickIDShare is a judgment below both. Email is 7.3% to 7.6% of the
+	// visits (gripsintelligence), and EmailParamShare is the lower end, since not every link of an email
+	// carries a parameter.
+	ClickIDShare    = 0.15
+	EmailParamShare = 0.05
 	// EditPriceShare is the share of the edits of a product that change its price. The others change
 	// its stock. An assumption.
 	EditPriceShare = 0.5
@@ -99,6 +109,26 @@ const ReturningCartLines = 3
 // LanguageShares are the shares of the shopper visits in each language of the storefront. An
 // assumption.
 var LanguageShares = map[string]float64{"en-US": 0.5, "zh-CN": 0.5}
+
+// ClickIDNames and EmailParamNames are the names of the parameters and the shares of the landings
+// that carry a click id or an email parameter each has: gclid, fbclid and msclkid by 60 : 30 : 10, and
+// _kx and mc_eid by half each. Assumptions: no data on how the names share was found.
+var (
+	ClickIDNames = []struct {
+		Name  string
+		Share float64
+	}{{"gclid", 0.6}, {"fbclid", 0.3}, {"msclkid", 0.1}}
+	EmailParamNames = []struct {
+		Name  string
+		Share float64
+	}{{"_kx", 0.5}, {"mc_eid", 0.5}}
+)
+
+// LandingValueLengths are the characters of a value of each parameter, which a request carries with
+// the same length as the real one: gclid about 95, fbclid about 61, msclkid 32 hexadecimal, mc_eid 10
+// hexadecimal and _kx about 40. The lengths are what the parameters are seen to have, and the
+// characters of each, the shape of a value, are an assumption.
+var LandingValueLengths = map[string]int{"gclid": 95, "fbclid": 61, "msclkid": 32, "_kx": 40, "mc_eid": 10}
 
 // StoreClicks says, for the kind of page a visitor is on, the relative weight of a click on a link of
 // each kind. They are assumptions, made shares among the links the page has: a visitor on a list picks a
@@ -336,6 +366,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		for _, i := range rng.Perm(ShopperBlockVisits)[:share(ReturningShare)] {
 			shoppers[i].Returning = true
 		}
+		putLandingParams(seed, b, shoppers)
 		set.Plans = append(set.Plans, shoppers...)
 		// The staff: half of the visits land on a list or a stats page, half on an order.
 		slens := visitLengths(rng, StaffBlockPlans, StaffViewsMax, StaffViewsMean*StaffBlockPlans, StaffViewsMore)
@@ -369,8 +400,11 @@ type PlanCounts struct {
 	Loads     int `json:"fullLoads"`
 	Clicks    int `json:"clicks"`
 	Returning int `json:"returning"`
-	Adds      int `json:"adds"`
-	Checkouts int `json:"checkouts"`
+	// ClickIDs and EmailParams count the shopper landings that carry a click id and an email parameter.
+	ClickIDs    int `json:"clickIds"`
+	EmailParams int `json:"emailParams"`
+	Adds        int `json:"adds"`
+	Checkouts   int `json:"checkouts"`
 	// ShopperViews are the page views of the shopper visits.
 	ShopperViews int `json:"shopperPageViews"`
 	// Pages counts the page views by class (pageClass).
@@ -390,6 +424,11 @@ func (c *PlanCounts) Add(p Plan) {
 		c.ShopperViews += len(p.Steps)
 		if p.Returning {
 			c.Returning++
+		}
+		if name := landingParam(p.Steps[0].Page); isClickID(name) {
+			c.ClickIDs++
+		} else if name != "" {
+			c.EmailParams++
 		}
 		for _, w := range p.Writes {
 			switch w.Kind {
@@ -448,6 +487,23 @@ func MixFacts() []MixFact {
 		}
 		return strings.Join(out, "; ")
 	}
+	ids := func(names []struct {
+		Name  string
+		Share float64
+	}) string {
+		var out []string
+		for _, n := range names {
+			out = append(out, n.Name+" "+pct(n.Share))
+		}
+		return strings.Join(out, ", ")
+	}
+	lengths := func(m map[string]int) string {
+		var out []string
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			out = append(out, k+" "+strconv.Itoa(m[k]))
+		}
+		return strings.Join(out, ", ")
+	}
 	littledata := "median of 438 Shopify stores, 2026-08-03 to 2026-10-31 (Littledata, https://www.littledata.io/benchmarks)"
 	var landing, staffLanding []string
 	for _, l := range LandingShares {
@@ -463,6 +519,11 @@ func MixFacts() []MixFact {
 		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "rule: a geometric length of mean 4"},
 		{"AddToCartShare", "shopper visits that add to the cart", pct(AddToCartShare), littledata},
 		{"CheckoutShare", "shopper visits that check out (among those that add)", pct(CheckoutShare), littledata + ", conversion rate"},
+		{"ClickIDShare", "shopper landings that carry a click id different for every click", pct(ClickIDShare), "assumption: a judgment below the published upper bounds, 50.6% of the visits of retail sites from paid sources (Contentsquare 2025) and 22% from paid search (gripsintelligence)"},
+		{"ClickIDNames", "click ids, by the share of the landings that carry one", ids(ClickIDNames), "assumption"},
+		{"EmailParamShare", "shopper landings that carry a parameter different for every recipient of an email", pct(EmailParamShare), "assumption: the lower end of the published 7.3% to 7.6% of the visits from email (gripsintelligence)"},
+		{"EmailParamNames", "email parameters, by the share of the landings that carry one", ids(EmailParamNames), "assumption"},
+		{"LandingValueLengths", "characters of the value of each parameter", lengths(LandingValueLengths), "assumption: the lengths are those the parameters are seen to have, the characters are made up"},
 		{"ReturningShare", "shopper visits by a returning visitor, who comes back to a cart of their own", pct(ReturningShare), "assumption, within the published 17% (Top Growth Marketing) to 53% (Contentsquare 2025)"},
 		{"ReturningCartLines", "products in the cart of a returning visitor, besides the demonstration cart", strconv.Itoa(ReturningCartLines), "assumption"},
 		{"AddPieces", "pieces an add puts in the cart", fmt.Sprintf("%d to %d", AddPieces[0], AddPieces[1]), "assumption"},

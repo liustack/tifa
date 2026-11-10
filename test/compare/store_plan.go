@@ -106,8 +106,10 @@ var storeLinkGraph = sync.OnceValue(func() map[string][]string {
 })
 
 // StoreLinks lists the links of a storefront page that a visit can click, with weights that sum to
-// 1: the links the browser found on the page that stay in the language of the page.
+// 1: the links the browser found on the page that stay in the language of the page. A landing page with
+// a parameter of an ad or an email (landing.go) has those of the page without it.
 func StoreLinks(url string) []Link {
+	url = stripLanding(url) // a landing page has the links of the page without its parameter
 	lang, kind := StorePageKind(url)
 	var kinds []string
 	by := map[string][]string{}

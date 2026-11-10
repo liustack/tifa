@@ -250,7 +250,7 @@ var methodDirs = []string{".", "cmd/compare", "../../internal/testproc"}
 // the search and the confirmation, and every file they call into. A change to any of them is
 // another method, even when the code a search runs is the same: the hash may take in more than
 // runs, never less.
-var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "../../internal/testproc/bind_darwin.go", "../../internal/testproc/bind_linux.go", "../../internal/testproc/bind_other.go", "../../internal/testproc/files_other.go", "../../internal/testproc/files_unix.go", "../../internal/testproc/testproc.go", "browse.go", "build.go", "build_store_next.go", "compare.go", "domain.go", "load.go", "measure.go", "mix.go", "nocache.go", "plan.go", "rates.go", "record.go", "recorder.go", "render.go", "replay.go", "restock.go", "scenario.go", "serve.go", "setup.go", "series.go", "spec.go", "stats.go", "store.go", "store_links.json", "store_paths.go", "store_plan.go", "store_writes.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
+var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "../../internal/testproc/bind_darwin.go", "../../internal/testproc/bind_linux.go", "../../internal/testproc/bind_other.go", "../../internal/testproc/files_other.go", "../../internal/testproc/files_unix.go", "../../internal/testproc/testproc.go", "browse.go", "build.go", "build_store_next.go", "compare.go", "domain.go", "landing.go", "load.go", "measure.go", "mix.go", "nocache.go", "plan.go", "rates.go", "record.go", "recorder.go", "render.go", "replay.go", "restock.go", "scenario.go", "serve.go", "setup.go", "series.go", "spec.go", "stats.go", "store.go", "store_links.json", "store_paths.go", "store_plan.go", "store_writes.go", "topology.go", "trace.go", "verify_store.go", "writepool.go"}
 
 // rateExcluded are the files of test/compare the rate of Next.js is not bound to: the report, which
 // only writes what a run decided, the table of the servers of every framework (specs.go) and the
@@ -324,7 +324,7 @@ func appHash(root string) string {
 // from: the trees of the shop (whose pages are copied into the app), the Next.js app, the domain code
 // and the overlays it shares, the recorder and the plan generators, and the version of Next.js, the
 // browser, the site and the plans. The trees of Tifa, Start and React Router are not among them.
-var nextTraceSources = []string{"tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/domain ", "tree test/compare/overlay ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "next ", "playwright ", "site ", "plans "}
+var nextTraceSources = []string{"tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/domain ", "tree test/compare/overlay ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "next ", "playwright ", "site ", "plans "}
 
 // stampHash is a short hash of the lines of the stamp of the traces that the trace of Next.js was
 // recorded from (nextTraceSources), or "" when the stamp does not say what they were recorded from: no

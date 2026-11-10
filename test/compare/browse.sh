@@ -81,7 +81,7 @@ plans_file=$traces/plans.json
 trace_stamp() {
   # The shop, the three apps and everything that builds or serves the shop: Tifa's runtime, server,
   # command and the Go and JavaScript the build is made from.
-  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/mix.go test/compare/store_plan.go test/compare/store_links.json js internal server cmd go.mod go.sum"
+  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/landing.go test/compare/mix.go test/compare/store_plan.go test/compare/store_links.json js internal server cmd go.mod go.sum"
   local p
   for p in $paths; do echo "tree $p $(git rev-parse HEAD:"$p")"; done
   echo "tree root-go $(git ls-tree HEAD | awk '$4 ~ /\.go$/' | sha)"
