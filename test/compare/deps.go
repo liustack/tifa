@@ -133,7 +133,9 @@ func (d *StoreDeps) RenderURL(page string) string {
 
 // renderedURL is renderURL of server/page.go for the URL page, and keep the names of the parameters
 // that are read, sorted. The values are spelled as url.QueryEscape writes them, and what
-// url.ParseQuery drops is left out.
+// url.ParseQuery drops is left out. It is for the URLs of the plans and the crawlers, which have an
+// ASCII path and no fragment: the server escapes a path as url.URL.EscapedPath does and never sees a
+// fragment, and this takes the path as it is written, up to the first question mark.
 func renderedURL(page string, keep []string) string {
 	path, query, _ := strings.Cut(page, "?")
 	if len(keep) == 0 || query == "" {
