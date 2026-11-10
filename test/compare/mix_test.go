@@ -115,6 +115,9 @@ func TestTheSearchFilterSortAndPageSharesAreTheApprovedOnes(t *testing.T) {
 		"FilterConditionShares": {"60%", "30%", "10%", "assumption"},
 		"FilterKinds":           {"price 25", "category 25", "rating 12.5", "stock 12.5", "colour 8.3", "material 8.3", "badge 8.3", "assumption", "four price bands"},
 		"ListPageShares":        {"90%", "9%", "1%", "Luigi's Box", "https://www.luigisbox.com/blog/product-ranking-data/", "88.7%", "search results", "no search"},
+		// One of the three at most is a rule of the plans that no data backs: the report says so, and what
+		// it rules out.
+		"ListActionsPerVisit": {"1", "assumption", "no visit sorts or pages a list after it filtered one", "0"},
 	} {
 		f, ok := facts[name]
 		if !ok {

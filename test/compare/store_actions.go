@@ -39,8 +39,9 @@ import (
 // A filter, a sort or a page is an action on a list the visit is on: it takes the place of the page view
 // after that list, and the page views after it are walked again from the page it leads to, the search
 // of the visit staying where it is. So that the quotas come out exact, a visit does one of the three at
-// most (an assumption: nothing was found on how they go together), and the action comes after the
-// page views its writes follow, which stay as they are. Which visits see a list does not change from
+// most (ListActionsPerVisit, an assumption: nothing was found on how they go together, and it makes
+// the share of the visits that sort or page after a filter 0), and the action comes after the page
+// views its writes follow, which stay as they are. Which visits see a list does not change from
 // step 5 on, since the list an action is taken on stays in the visit, and neither does which see a
 // list of several pages in step 7.
 
@@ -386,8 +387,8 @@ func dealSearches(seed uint64, b int, lens []int, langs []string) []searchDeal {
 }
 
 // draftVisit is a shopper visit while its block is planned: its plan, the page view of its search (-1
-// for none) and the words it was dealt, the last page view a write follows (0 for none), and whether
-// it has filtered, sorted or paged.
+// for none) and the words it was dealt, the last page view a write follows (0 for none), and how many
+// times it has filtered, sorted or paged (ListActionsPerVisit at most).
 //
 // A visit that searches for a word of the list is planned in all its forms at once, the visit and its
 // variants: paths holds the page views of each, the Steps of the plan first. The forms have the same
@@ -402,7 +403,7 @@ type draftVisit struct {
 	search int
 	terms  []string
 	locked int
-	acted  bool
+	acted  int
 }
 
 // newDraft is the draft of a plan with its landing and the search it was dealt.
@@ -576,14 +577,14 @@ func planListActions(rng *rand.Rand, visits []*draftVisit) error {
 	take := func(what string, room int, who func(*draftVisit) bool, can func(ListPage) bool, act func(d *draftVisit, at int, lists []ListPage) bool) error {
 		for _, i := range order {
 			d := visits[i]
-			if d.acted || !who(d) {
+			if d.acted >= ListActionsPerVisit || !who(d) {
 				continue
 			}
 			spots := d.spots(room, can)
 			rng.Shuffle(len(spots), func(a, b int) { spots[a], spots[b] = spots[b], spots[a] })
 			for _, at := range spots {
 				if act(d, at, d.listsAt(at-1)) {
-					d.acted = true
+					d.acted++
 					d.rewalk(rng, at+1+room)
 					return nil
 				}

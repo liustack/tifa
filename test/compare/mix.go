@@ -141,6 +141,12 @@ const (
 	// found on sorting.
 	ListFilterShare = 0.25
 	ListSortShare   = 0.10
+	// ListActionsPerVisit is how many of the three a visit does with the product lists it is on, a
+	// filter, a change of the sort and going to a next page: one at most. So no visit sorts or pages a
+	// list after it filtered one, and none pages after it sorted: the shares of those are 0, where real
+	// visitors do some of each. An assumption: nothing was found on how the three go together, and one
+	// at most lets each quota come out exact in every block.
+	ListActionsPerVisit = 1
 )
 
 // The kinds of condition a filter of the product list sets.
@@ -760,6 +766,8 @@ func MixFacts() []MixFact {
 		{"ListFilterShare", "shopper visits that filter the list, of those that see a product list", pct(ListFilterShare), "assumption: the published ranges for the use of filters (20% to 60%) name no source that can be checked"},
 		{"FilterConditionShares", "filters that set one, two and three conditions", sharesOf(FilterConditionShares), "assumption: no data on how many filters a visit uses"},
 		{"FilterKinds", "kinds of condition of a filter, as relative weights. A condition on the price is one of the four price bands of the page, never a range typed by hand", filterKinds(), "assumption: no data on which filters are used most, and the order is a judgment"},
+		{"ListActionsPerVisit", "most of the three a shopper visit does with the product lists it is on: a filter, a change of the sort, going to a next page (the two page actions of a visit that goes to a third page count as one). So no visit sorts or pages a list after it filtered one, and none pages after it sorted: the share of those is 0", strconv.Itoa(ListActionsPerVisit),
+			"assumption: nothing was found on how filters, sorts and pages go together, and real visitors do some of each. One at most lets each quota come out exact in every block"},
 		{"ListSortShare", "shopper visits that change the sort of the list, of those that see a product list, to one of the four sorts that are not the default, all alike", pct(ListSortShare), "assumption: nothing was found on sorting"},
 		{"ListPageShares", "shopper visits that stay on the first page, see the second and no deeper, and see the third or deeper, of those that see a product list of more than one page with no search term. It is the deepest page a visit sees, so a visit that lands on a second page counts with those that go there", sharesOf(ListPageShares),
 			"Luigi's Box, 4,000 shops: 88.7% of the customers stay on the first page of search results, 9.7% go to the second and 1.6% deeper (https://www.luigisbox.com/blog/product-ranking-data/, with no date and no method), rounded. The figure is of search results, and it is used on the lists with no search term because a search of this shop never has a second page"},
