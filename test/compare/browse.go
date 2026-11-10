@@ -228,6 +228,9 @@ func LoadTraces(dir string, names []string) (*PlanSet, map[string]map[int]Trace,
 			if len(t.Steps) != len(p.Steps) {
 				return nil, nil, fmt.Errorf("%s: plan %d has %d page views, its trace %d", path, p.ID, len(p.Steps), len(t.Steps))
 			}
+			if err := checkLanding(p, t); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", path, err)
+			}
 		}
 		out[name] = m
 	}

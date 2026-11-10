@@ -1,7 +1,9 @@
 package compare
 
 import (
+	"fmt"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 )
 
@@ -20,7 +22,17 @@ type landingValue struct {
 	Name string
 	// Placeholder has the length of the real value (LandingValueLengths).
 	Placeholder string
+	// Alphabet is what a value is made of.
+	Alphabet string
+	// Bijective says that the value is a one-to-one function of the visit, so that no two visits have
+	// the same: a value as short as 10 characters could repeat by chance in a long run.
+	Bijective bool
 }
+
+const (
+	alphaURL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	alphaHex = "0123456789abcdef"
+)
 
 // placeholderOf is prefix padded with zeros to n characters.
 func placeholderOf(prefix string, n int) string {
@@ -33,11 +45,11 @@ func placeholderOf(prefix string, n int) string {
 // landingValues are the parameters a landing page carries, in the order of the report. A new kind of
 // landing parameter is one more row (a search term that is different for every visit would be one).
 var landingValues = []landingValue{
-	{"gclid", placeholderOf("tifa-gclid-", LandingValueLengths["gclid"])},
-	{"fbclid", placeholderOf("tifa-fbclid-", LandingValueLengths["fbclid"])},
-	{"msclkid", placeholderOf("tifa-msclkid-", LandingValueLengths["msclkid"])},
-	{"_kx", placeholderOf("tifa-kx-", LandingValueLengths["_kx"])},
-	{"mc_eid", placeholderOf("tifa0mceid", LandingValueLengths["mc_eid"])},
+	{"gclid", placeholderOf("tifa-gclid-", LandingValueLengths["gclid"]), alphaURL, false},
+	{"fbclid", placeholderOf("tifa-fbclid-", LandingValueLengths["fbclid"]), alphaURL, false},
+	{"msclkid", placeholderOf("tifa-msclkid-", LandingValueLengths["msclkid"]), alphaHex, false},
+	{"_kx", placeholderOf("tifa-kx-", LandingValueLengths["_kx"]), alphaURL, false},
+	{"mc_eid", placeholderOf("tifa0mceid", LandingValueLengths["mc_eid"]), alphaHex, true},
 }
 
 // landingValueOf finds the row of a parameter by its name.
@@ -131,4 +143,83 @@ func isClickID(name string) bool {
 		}
 	}
 	return false
+}
+
+// bijection40 is a one-to-one function of the 40 low bits of x: xors and multiplications by odd
+// numbers modulo 2^40, which can each be undone.
+func bijection40(x uint64) uint64 {
+	const mask = 1<<40 - 1
+	x &= mask
+	x = x * 0x9e3779b97f4a7c15 & mask
+	x ^= x >> 20
+	x = x * 0xbf58476d1ce4e5b9 & mask
+	x ^= x >> 20
+	return x
+}
+
+// value is the value of the parameter that visit seq of the run has: drawn from the seed and the
+// visit, so that the visits of one run, the ones of its warm-up too, have values of their own, and
+// every framework is sent the same ones.
+func (v landingValue) value(seed uint64, seq int) string {
+	n := len(v.Placeholder)
+	if v.Bijective {
+		if seq >= 1<<40 {
+			panic("visit " + strconv.Itoa(seq) + " has no value of its own")
+		}
+		h := strconv.FormatUint(bijection40(uint64(seq)^seed*0x9e3779b97f4a7c15), 16)
+		return strings.Repeat("0", n-len(h)) + h
+	}
+	var salt uint64
+	for _, c := range v.Name {
+		salt = salt*131 + uint64(c)
+	}
+	rng := rand.New(rand.NewPCG(seed^salt, uint64(seq)))
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = v.Alphabet[rng.IntN(len(v.Alphabet))]
+	}
+	return string(out)
+}
+
+// landingSub is what a visit puts in the place of the placeholder of its landing page in every request
+// it sends. The zero value puts nothing: a visit that lands with no parameter.
+type landingSub struct{ placeholder, value string }
+
+// landingFor is the substitution of visit seq of a run, which plays plan p.
+func landingFor(seed uint64, seq int, p Plan) landingSub {
+	if len(p.Steps) == 0 {
+		return landingSub{}
+	}
+	v, ok := landingValueOf(landingParam(p.Steps[0].Page))
+	if !ok {
+		return landingSub{}
+	}
+	return landingSub{v.Placeholder, v.value(seed, seq)}
+}
+
+// apply puts the value in place of the placeholder in s.
+func (s landingSub) apply(x string) string {
+	if s.placeholder == "" {
+		return x
+	}
+	return strings.ReplaceAll(x, s.placeholder, s.value)
+}
+
+// checkLanding says whether the trace of a plan that lands with a parameter has it in the document
+// request of its first page view: without it the visit would not be the one planned, as the replay
+// has nothing to put the value of the visit into.
+func checkLanding(p Plan, t Trace) error {
+	name := landingParam(p.Steps[0].Page)
+	if name == "" {
+		return nil
+	}
+	v, _ := landingValueOf(name)
+	if len(t.Steps) > 0 {
+		for _, q := range t.Steps[0].Reqs {
+			if q.Class == "doc" && strings.Contains(q.URL, name+"="+v.Placeholder) {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("plan %d lands on %s and its document request lacks the landing parameter %s", p.ID, p.Steps[0].Page, name)
 }

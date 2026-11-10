@@ -342,12 +342,15 @@ func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond)
 // background work.
 type visitState struct {
 	client *http.Client
-	sem    chan struct{}
-	etagMu sync.Mutex
-	etags  map[string]string // by URL
-	bg     sync.WaitGroup
-	errMu  sync.Mutex
-	err    error // the first background request that failed
+	// landing is what the visit puts in place of the placeholder of its landing parameter in every
+	// request it sends (landingSub).
+	landing landingSub
+	sem     chan struct{}
+	etagMu  sync.Mutex
+	etags   map[string]string // by URL
+	bg      sync.WaitGroup
+	errMu   sync.Mutex
+	err     error // the first background request that failed
 }
 
 func (v *visitState) fail(err error) {
@@ -417,16 +420,17 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 	if r.buildID != "" {
 		url = tifaBuild.ReplaceAllString(url, "_tifa="+r.buildID+".")
 	}
+	url = v.landing.apply(url)
 	var body io.Reader
 	if q.Body != "" {
-		body = strings.NewReader(q.Body)
+		body = strings.NewReader(v.landing.apply(q.Body))
 	}
 	req, err := http.NewRequestWithContext(rctx, q.Method, r.base+url, body)
 	if err != nil {
 		return outcome{end: time.Now(), err: err}
 	}
 	for k, val := range q.Headers {
-		req.Header.Set(k, val)
+		req.Header.Set(k, v.landing.apply(val)) // a router carries the URL of the page in a header too
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	if q.INM {
@@ -520,8 +524,10 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 			a.pageRenders[kind] = map[string]int{}
 		}
 		a.pageRenders[kind][rd]++
-		seen := a.seen[q.URL]
-		a.seen[q.URL] = true
+		// A landing parameter is no part of the page: the URL it asks for is the one without it.
+		seenAt := stripLanding(q.URL)
+		seen := a.seen[seenAt]
+		a.seen[seenAt] = true
 		if rd == RenderVM {
 			if a.vmWhy[kind] == nil {
 				a.vmWhy[kind] = map[string]int{}
@@ -663,7 +669,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	} else {
 		jar, _ = cookiejar.New(nil)
 	}
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns)}
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), landing: landingFor(r.seed, seq, plan)}
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()
