@@ -120,7 +120,7 @@ func TestLandingProductsFollowTheZipfLaw(t *testing.T) {
 	n := 0
 	for _, p := range set.Plans {
 		if _, kind := StorePageKind(p.Steps[0].Page); p.Role == RoleShopper && kind == StoreKindProduct {
-			slug := p.Steps[0].Page[strings.LastIndex(p.Steps[0].Page, "/")+1:]
+			slug := productOf(p.Steps[0].Page)
 			count[slug]++
 			n++
 		}

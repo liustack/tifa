@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from 'cn'
 import { useHydrated } from '../../../use-hydrated'
-import { storeTitle, useStore } from '../../i18n'
+import { storeTitle, useHref, useStore } from '../../i18n'
 import { refreshMine, rememberProduct, useMine } from '../../mine'
 import { photo, photoSet, type View } from '../../images'
 import { CardBadges, catalogueNo, Price, ProductCard, ProductGrid, ProductImage, Stars } from '../../product-card'
@@ -687,7 +687,10 @@ function Reviews() {
     ['photos', t('product.filterPhotos', { count: withPhotos.length })],
     ['five', t('product.filterFive', { count: five.length })],
   ] as const
-  const pageHref = (n: number) => `/store/products/${product.slug}${n > 1 ? `?reviews=${n}` : ''}#reviews`
+  const href = useHref()
+  // A plain link, so the page of reviews is a document a crawler can ask for, in the language of the page.
+  const pageHref = (n: number) =>
+    href('/store/products/$product', { params: { product: product.slug }, search: n > 1 ? { reviews: n } : {}, hash: 'reviews' })
   return (
     <section id="reviews" aria-labelledby="reviews-title" className="grid gap-10 lg:grid-cols-[280px_1fr]">
       <div className="flex flex-col gap-3">

@@ -646,6 +646,28 @@ func TestTheNodeAppsCacheNothing(t *testing.T) {
 				}
 			}
 		}
+		// A crawler gets a document of its own sort, with the User-Agent of each crawler of the mix, and
+		// nothing in it may be kept by a cache either (an old URL, a 404, too).
+		_, old := compare.CrawlURLs()
+		for _, agent := range compare.CrawlerAgents {
+			for _, u := range []string{compare.StoreBase("en-US") + "/products/" + compare.StoreProducts()[0], old[0]} {
+				for try := range 2 {
+					req, _ := http.NewRequest("GET", server.Base+u, nil)
+					req.Header.Set("User-Agent", agent.UA)
+					req.Header.Set("Accept", "text/html")
+					res, err := http.DefaultClient.Do(req)
+					if err != nil {
+						t.Errorf("%s: %v", name, err)
+						break
+					}
+					io.Copy(io.Discard, res.Body)
+					res.Body.Close()
+					if signs := compare.CacheSigns(res.Header); len(signs) > 0 {
+						t.Errorf("%s: GET %s as %s (%d of 2) has %v", name, u, agent.Name, try+1, signs)
+					}
+				}
+			}
+		}
 		server.Stop()
 	}
 }

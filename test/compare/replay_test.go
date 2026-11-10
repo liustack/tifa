@@ -602,9 +602,9 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 // visits go through all the staff plans over the cycles, and a read-only scenario plans no write.
 func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 	for _, tc := range []struct {
-		name               string
-		staff, edits, ship int
-	}{{"shop", 20, 4, 6}, {moreStaff.Name, 42, 17, 13}} {
+		name                         string
+		staff, edits, ship, crawlers int
+	}{{"shop", 20, 4, 6, 101}, {moreStaff.Name, 42, 17, 13, 0}} {
 		w := siteWorkload(t, 5, 2, tc.name)
 		bv := w.blockVisits()
 		if bv != ShopperBlockVisits+tc.staff || w.cycleLen() != 2*bv {
@@ -615,7 +615,7 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 			var r Round
 			w.plan(&r, b*bv, bv)
 			m := r.Mix
-			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 4000, Returning: 200, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
+			want := PlannedMix{Shoppers: ShopperBlockVisits, Staff: tc.staff, ShopperViews: 4000, Returning: 200, ClickIDs: 150, EmailParams: 50, Crawlers: tc.crawlers, Adds: 66, Checkouts: 13, Edits: tc.edits, Ships: tc.ship}
 			if m == nil || *m != want {
 				t.Fatalf("%s block %d of the run plans %+v, want %+v", tc.name, b, m, want)
 			}

@@ -97,3 +97,19 @@ func CheckNoCache(ctx context.Context, base string, reqs []TraceReq) error {
 	}
 	return nil
 }
+
+// crawlerGets are the requests the check of the caches adds for crawlers: a public page asked for as
+// each crawler of CrawlerAgents, and an old URL as the first, since the frameworks answer a crawler in
+// another way and the answer of a 404 is one too. They are documents, with the headers of a crawler.
+func crawlerGets() []TraceReq {
+	_, old := CrawlURLs()
+	var out []TraceReq
+	get := func(url string, a CrawlerAgent) {
+		out = append(out, TraceReq{Method: "GET", URL: url, Class: "doc", Headers: map[string]string{"User-Agent": a.UA, "Accept": "text/html"}})
+	}
+	for _, a := range CrawlerAgents {
+		get(StoreBase("en-US")+"/products/"+StoreProducts()[0], a)
+	}
+	get(old[0], CrawlerAgents[0])
+	return out
+}

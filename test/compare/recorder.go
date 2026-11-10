@@ -40,6 +40,9 @@ func ReadPlans(dir string) (*PlanSet, error) {
 	if set.Site != SiteShop {
 		return nil, fmt.Errorf("%s holds the plans of the site %q, not of %q: make them again", PlansPath(dir), set.Site, SiteShop)
 	}
+	if err := checkLandingQuotas(&set); err != nil {
+		return nil, fmt.Errorf("%s: %w: make the plans again (`compare plans`) and record the traces again (`compare record`)", PlansPath(dir), err)
+	}
 	return &set, nil
 }
 

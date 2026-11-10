@@ -279,7 +279,7 @@ func TestStoreWritesPerVisitAreValidAndFollowThePlan(t *testing.T) {
 			if !strings.HasPrefix(x.Store.Path, StoreBase(lang)+"/") {
 				t.Fatalf("visit %d write %d: path %s is not in the language of the visit (%s)", s, x.After, x.Store.Path, lang)
 			}
-			if page := p.Steps[x.After].Page; x.Kind == WriteAdd && x.Store.Path != page {
+			if page := p.Steps[x.After].Page; x.Kind == WriteAdd && x.Store.Path != stripLanding(page) {
 				t.Fatalf("visit %d: an add after the page %s puts %s in the cart", s, page, x.Store.Path)
 			}
 			cart.apply(t, x)

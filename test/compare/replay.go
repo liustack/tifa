@@ -35,6 +35,9 @@ type BrowseScenario struct {
 	Throughput bool    `json:"throughput"`
 	Latency    bool    `json:"latency"`
 	ReadOnly   bool    `json:"readOnly,omitempty"`
+	// Crawler is the share of the HTML requests that crawlers make (CrawlerShare), 0 for a scenario with
+	// none. A block of the cycle then holds crawlerSlots requests of crawlers among its visits.
+	Crawler float64 `json:"crawlerShare,omitempty"`
 }
 
 // staffVisits is how many staff visits a cycle plays for each block of shopper plans: the share
@@ -46,6 +49,16 @@ func (s BrowseScenario) staffVisits() int {
 // blockVisits is the visits of a cycle for each block of plans: every shopper plan of the block once
 // and the staff visits.
 func (s BrowseScenario) blockVisits() int { return ShopperBlockVisits + s.staffVisits() }
+
+// crawlerSlots is how many crawler requests a block of the cycle holds besides its blockVisits visits:
+// each visit has one full load, so crawlers are Crawler of the HTML requests when there are
+// blockVisits * Crawler / (1 - Crawler) of them, rounded to a whole number.
+func (s BrowseScenario) crawlerSlots() int {
+	if s.Crawler <= 0 {
+		return 0
+	}
+	return int(math.Round(float64(s.blockVisits()) * s.Crawler / (1 - s.Crawler)))
+}
 
 // viewsPerVisit is the page views a visit of the scenario plans on average, by the mix.
 func (s BrowseScenario) viewsPerVisit() float64 {
@@ -59,7 +72,7 @@ const openBase = "nextjs"
 // BrowseScenarios are the scenarios of the browse comparison: one, the shop with the mix of mix.go,
 // shoppers and staff on the same server.
 var BrowseScenarios = []BrowseScenario{
-	{Name: "shop", Title: "the shop: shoppers and staff", Staff: StaffShare, Edit: StaffEditShare, Ship: StaffShipShare, Throughput: true, Latency: true},
+	{Name: "shop", Title: "the shop: shoppers and staff", Staff: StaffShare, Edit: StaffEditShare, Ship: StaffShipShare, Crawler: CrawlerShare, Throughput: true, Latency: true},
 }
 
 // BrowseScenarioByName finds a scenario of the browse comparison.
@@ -98,7 +111,8 @@ type Workload struct {
 	Traces   map[int]Trace // by plan ID
 	Writes   map[[2]int]PlannedWrite
 	Scenario BrowseScenario
-	Seed     uint64 // the seed the writes are drawn from
+	Seed     uint64       // the seed the writes are drawn from
+	crawlers *crawlLayout // the slots of crawler requests among the visits of a cycle, nil for none
 	cycle    []slot
 	staff    []int // the indexes in Plans of the staff plans
 	perCycle int   // the staff visits of a cycle
@@ -151,11 +165,16 @@ func (w *Workload) blockVisits() int {
 // views, the clicks among them, the returning visitors, and the writes.
 func (w *Workload) plan(r *Round, seq0, n int) {
 	r.VisitsPlanned, r.PageViewsPlanned, r.ClicksPlanned, r.WritesPlanned = n, 0, 0, 0
+	r.Crawler = nil
 	// A workload made by hand has no mix to check: its counts are made and dropped.
 	m := &PlannedMix{}
 	r.Mix = nil
 	if len(w.cycle) > 0 {
 		r.Mix = m
+	}
+	if c := w.crawlersIn(seq0, n); c > 0 {
+		m.Crawlers = c
+		r.Crawler = &CrawlStats{Planned: c}
 	}
 	for s := seq0; s < seq0+n; s++ {
 		p := w.planFor(s)
@@ -164,6 +183,7 @@ func (w *Workload) plan(r *Round, seq0, n int) {
 		r.PageViewsPlanned += c.Views
 		r.ClicksPlanned += c.Clicks
 		m.Shoppers, m.Staff, m.ShopperViews, m.Returning = m.Shoppers+c.Shoppers, m.Staff+c.Staff, m.ShopperViews+c.ShopperViews, m.Returning+c.Returning
+		m.ClickIDs, m.EmailParams = m.ClickIDs+c.ClickIDs, m.EmailParams+c.EmailParams
 		for _, x := range w.writesOf(s) {
 			r.WritesPlanned++
 			switch x.Kind {
@@ -217,6 +237,9 @@ func NewWorkload(set *PlanSet, traces map[int]Trace, sc BrowseScenario, seed uin
 		}
 	}
 	w.perCycle = k
+	if per := sc.crawlerSlots(); per > 0 {
+		w.crawlers = newCrawlLayout(seed, set.Blocks, sc.blockVisits(), per)
+	}
 	return w, nil
 }
 
@@ -290,6 +313,11 @@ type acc struct {
 	// rendered in a VM by kind of page and why (renderWhy).
 	seen  map[string]bool
 	vmWhy map[string]map[string]int
+	// crawl counts what the crawler requests of the run did (crawler.go).
+	crawl crawlCounts
+	// landing counts how Tifa answered the documents of the landings of the storefront (X-Tifa-Render), by
+	// the parameter the URL carries (landingGroup).
+	landing map[string]map[string]int
 }
 
 // refuse counts an answer with the status status as refused when it is 409 or 422. After the
@@ -304,7 +332,7 @@ func (a *acc) refuse(status int) {
 }
 
 func newAcc() *acc {
-	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}}
+	return &acc{pages: map[string]int{}, renders: map[string]int{}, responses: map[string]int{}, lat: map[string][]float64{}, kinds: map[string]int{}, pageRenders: map[string]map[string]int{}, encodings: map[string]int{}, seen: map[string]bool{}, vmWhy: map[string]map[string]int{}, landing: map[string]map[string]int{}, crawl: crawlCounts{statuses: map[string]int{}, renders: map[string]map[string]int{}}}
 }
 
 // fail counts a visit that failed, and the error that ended it.
@@ -341,12 +369,15 @@ func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond)
 // background work.
 type visitState struct {
 	client *http.Client
-	sem    chan struct{}
-	etagMu sync.Mutex
-	etags  map[string]string // by URL
-	bg     sync.WaitGroup
-	errMu  sync.Mutex
-	err    error // the first background request that failed
+	// landing is what the visit puts in place of the placeholder of its landing parameter in every
+	// request it sends (landingSub).
+	landing landingSub
+	sem     chan struct{}
+	etagMu  sync.Mutex
+	etags   map[string]string // by URL
+	bg      sync.WaitGroup
+	errMu   sync.Mutex
+	err     error // the first background request that failed
 }
 
 func (v *visitState) fail(err error) {
@@ -416,16 +447,17 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 	if r.buildID != "" {
 		url = tifaBuild.ReplaceAllString(url, "_tifa="+r.buildID+".")
 	}
+	url = v.landing.apply(url)
 	var body io.Reader
 	if q.Body != "" {
-		body = strings.NewReader(q.Body)
+		body = strings.NewReader(v.landing.apply(q.Body))
 	}
 	req, err := http.NewRequestWithContext(rctx, q.Method, r.base+url, body)
 	if err != nil {
 		return outcome{end: time.Now(), err: err}
 	}
 	for k, val := range q.Headers {
-		req.Header.Set(k, val)
+		req.Header.Set(k, v.landing.apply(val)) // a router carries the URL of the page in a header too
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	if q.INM {
@@ -519,8 +551,17 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, pa
 			a.pageRenders[kind] = map[string]int{}
 		}
 		a.pageRenders[kind][rd]++
-		seen := a.seen[q.URL]
-		a.seen[q.URL] = true
+		// A landing parameter is no part of the page: the URL it asks for is the one without it.
+		seenAt := stripLanding(q.URL)
+		seen := a.seen[seenAt]
+		a.seen[seenAt] = true
+		if q.Class == "doc" && isStorePage(page) {
+			g := landingGroup(q.URL)
+			if a.landing[g] == nil {
+				a.landing[g] = map[string]int{}
+			}
+			a.landing[g][rd]++
+		}
 		if rd == RenderVM {
 			if a.vmWhy[kind] == nil {
 				a.vmWhy[kind] = map[string]int{}
@@ -662,7 +703,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	} else {
 		jar, _ = cookiejar.New(nil)
 	}
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns)}
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), landing: landingFor(r.seed, seq, plan)}
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()

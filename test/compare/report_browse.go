@@ -240,15 +240,15 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 		}
 		return nil
 	})
-	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	marked := false
 	for _, f := range r.Servers[sc.Name] {
 		t := r.Throughput[sustainKey(sc.Name, f)]
 		switch {
 		case t == nil:
-			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - |\n", BrowseLabel(f))
+			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - | - | - |\n", BrowseLabel(f))
 		case t.Sessions == 0:
-			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - |\n", BrowseLabel(f), t.Result)
+			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - | - | - |\n", BrowseLabel(f), t.Result)
 		default:
 			rs := r.cellRounds(f, sc.Name, t.Sessions)
 			views := each(rs, pageViewsPerSecond)
@@ -257,8 +257,8 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 				cell += cappedMark
 				marked = true
 			}
-			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, cell, peopleCell(Median(views)),
-				typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"))
+			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, cell, peopleCell(Median(views)),
+				typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"), crawlerRate(rs), typeCell(rs, "crawler"))
 		}
 	}
 	if marked {
@@ -398,6 +398,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessi
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), per("doc 200 "), per("doc 304 "), per("nav "), per("prefetch "), per("write "), tifa(RenderVM), tifa(RenderHit), tifa(RenderShared), counted)
 	}
 	r.pageRendersMarkdown(b, sc, sessions)
+	r.crawlerMarkdown(b, sc, sessions)
 	r.writesMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 	r.achievedMarkdown(b, sc, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 }
@@ -487,14 +488,14 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 	rate := r.LatencyRate[sc.Name]
 	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
-	b.WriteString("| | full loads | clicks | writes | rounds |\n| --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | full loads | clicks | writes | crawler documents | rounds |\n| --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
 		// Every server is listed: having no valid round, or too few to decide, is its result too.
 		shown, want := r.latencyRounds(f, sc.Name), r.rounds()
 		if len(shown) == 0 {
-			fmt.Fprintf(b, "| %s | - | - | - | no valid result: 0 of %d rounds valid |\n", BrowseLabel(f), want)
+			fmt.Fprintf(b, "| %s | - | - | - | - | no valid result: 0 of %d rounds valid |\n", BrowseLabel(f), want)
 			continue
 		}
 		var notes []string
@@ -512,7 +513,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		default:
 			note = fmt.Sprintf("%d of %d rounds passed", len(shown), len(shown))
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), note)
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), typeCell(shown, "write"), typeCell(shown, "crawler"), note)
 	}
 	r.referencesMarkdown(b, sc)
 	return true
@@ -715,6 +716,7 @@ func (r *BrowseResult) pageRendersMarkdown(b *strings.Builder, sc BrowseScenario
 		fmt.Fprintf(b, " %s |\n", privateCell(rs))
 	}
 	r.renderWhyMarkdown(b, rows, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
+	landingMarkdown(b, rows, func(f string) []Round { return r.cellRounds(f, sc.Name, sessions) })
 }
 
 // privateCell is how many answers of the private pages, the cart and the checkout, the render memo
@@ -832,7 +834,7 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a full load of a page, then clicks on links of the page on screen (no reloads), as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Before the clock of each round every server gets the same warm-up: the visits after those the data was made for, as many as the longest closed round any server was sized to (in an open round, as many as the round plays), with the mix and the writes of the round, played as the round plays (its sessions, or its rate). It counts in no result. The render memo of Tifa is empty before the warm-up, and the appendix gives what it held after it. The Node servers have no other warm-up: this one warms their JIT on the code the round runs. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
 // siteText is what the report says about the one site.
-const siteText = "The comparison plays the shop as one site: shoppers on the storefront (the home, the product list with its filters, 150 products, the cart, the checkout, the journal and its posts, in English or Chinese) and the staff in the back office, at once on the same server. Throughput is the page views of the whole site. A shopper visit stays in one language. A shopper who adds to the cart adds the product of the product page they are on, in a colour, a size and a quantity drawn from the seed and the visit, and one who checks out does so after the checkout page, with a name, an email and an address of the visit's own (it answers 303 to the page of the order, which is not followed). A returning visitor comes back to a cart of their own, made for that visit alone, so the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit, while a new visitor sees the demonstration cart, the same for every new visitor, as the empty cart of a real shop is the same for every anonymous visitor. A staff visit reads the orders, the stats and the projects of the back office, and some edit a product or ship an order: an edit is one PATCH of one field of a product, a price or a stock drawn from the seed and the visit, with nothing read first, and each ship ships an order of its own, placed for it before the clock. Before the clock every server of a scenario gets the same requests, none of which renders a page, made for the same visits whatever the server was sized to: a restock that gives every product the stock the orders can take, then the orders of the ships, then the carts of the returning visitors. Then every server gets the same warm-up, counted in no result: visits of the mix after those of the round, with their writes, played as the round plays (its sessions, or its rate). The orders that checkouts place are orders of the back office that no ship takes. As in a real shop, the time of an order is the clock of the server when it is placed, before the clock of the round or in it. Orders and carts pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders of the back office each server held at the end of a round. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request: a check before the run makes sure none of them sends anything that lets an answer be kept (an ETag, a Last-Modified, a positive max-age, a Next.js cache header). Tifa keeps rendered pages in its render memo.\n\nPlans come in blocks of 1000 shopper visits with the mix below exactly (by quota) and a set of staff visits, so every round plans the mix of its scenario, whose share of staff visits and of edits is placed by quota in every cycle of the site. A round is not valid, and is played again, when the visits it planned miss the mix of its scenario, when the load generator did not start every visit, when a request of the setup before the clock (the restock, the orders of the ships, the carts of the returning visitors) rendered a page or got another status than planned, or, for Tifa, when its metrics route said that its render memo held a page right before the warm-up (something filled it before), or the shop refused a request of the warm-up with 409 or 422.\n\n"
+const siteText = "The comparison plays the shop as one site: shoppers on the storefront (the home, the product list with its filters, 150 products, the cart, the checkout, the journal and its posts, in English or Chinese) and the staff in the back office, at once on the same server. Throughput is the page views of the whole site. Crawlers ask for the public pages of the storefront as a stream of their own, 9% of the HTML requests: a crawler request is no visit and no page view, and the tables list the crawler requests apart from people. A shopper visit stays in one language. A shopper who adds to the cart adds the product of the product page they are on, in a colour, a size and a quantity drawn from the seed and the visit, and one who checks out does so after the checkout page, with a name, an email and an address of the visit's own (it answers 303 to the page of the order, which is not followed). A returning visitor comes back to a cart of their own, made for that visit alone, so the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit, while a new visitor sees the demonstration cart, the same for every new visitor, as the empty cart of a real shop is the same for every anonymous visitor. A staff visit reads the orders, the stats and the projects of the back office, and some edit a product or ship an order: an edit is one PATCH of one field of a product, a price or a stock drawn from the seed and the visit, with nothing read first, and each ship ships an order of its own, placed for it before the clock. Before the clock every server of a scenario gets the same requests, none of which renders a page, made for the same visits whatever the server was sized to: a restock that gives every product the stock the orders can take, then the orders of the ships, then the carts of the returning visitors. Then every server gets the same warm-up, counted in no result: visits of the mix after those of the round, with their writes, played as the round plays (its sessions, or its rate). The orders that checkouts place are orders of the back office that no ship takes. As in a real shop, the time of an order is the clock of the server when it is placed, before the clock of the round or in it. Orders and carts pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders of the back office each server held at the end of a round. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js, TanStack Start and React Router render every request: a check before the run makes sure none of them sends anything that lets an answer be kept (an ETag, a Last-Modified, a positive max-age, a Next.js cache header). Tifa keeps rendered pages in its render memo.\n\nPlans come in blocks of 1000 shopper visits with the mix below exactly (by quota) and a set of staff visits, so every round plans the mix of its scenario, whose share of staff visits and of edits is placed by quota in every cycle of the site. A round is not valid, and is played again, when the visits it planned miss the mix of its scenario, when the load generator did not start every visit, when a request of the setup before the clock (the restock, the orders of the ships, the carts of the returning visitors) rendered a page or got another status than planned, or, for Tifa, when its metrics route said that its render memo held a page right before the warm-up (something filled it before), or the shop refused a request of the warm-up with 409 or 422.\n\n"
 
 // assumptionsMarkdown lists the numbers of the mix with their sources, and what each scenario sets.
 func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
@@ -1038,6 +1040,167 @@ func (r *BrowseResult) memoMarkdown(b *strings.Builder, sc BrowseScenario) {
 		return
 	}
 	b.WriteString("\n#### What the render memo of Tifa held\n\nFrom the metrics route of each Tifa server, every round that read it: the pages and bytes the render memo held after the warm-up (right before the clock) and at the end, the pages it dropped to make room for others in the round (least recently used first, `ssr.memo_size`), and the hits it counted itself in the round, its count at the end less the one after the warm-up. Its memo was empty before the warm-up. Every try is listed, valid or not. A read that was not made or did not answer (in a round its warm-up stopped before the clock, or whose metrics route failed at its end) says not read, and nothing is worked out from it.\n\n| | round | try | valid | pages after the warm-up | MiB after the warm-up | pages at the end | MiB at the end | pages dropped in the round | hits Tifa counted in the round |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
+}
+
+// landingMarkdown is a diagnostic for Tifa: how it answered the documents of the landings of the
+// storefront with a click id, with an email parameter and with none, over the rounds. The parameters
+// are no part of the page, so the three groups go to the same pages and should be answered alike.
+func landingMarkdown(b *strings.Builder, servers []string, rounds func(f string) []Round) {
+	var rows []string
+	for _, f := range servers {
+		rs := rounds(f)
+		if len(rs) == 0 || slices.ContainsFunc(rs, func(x Round) bool { return x.Landing == nil }) {
+			continue
+		}
+		for _, g := range LandingGroups {
+			var answers, memo, shared, vm int
+			for _, x := range rs {
+				for how, n := range x.Landing[g] {
+					answers += n
+					switch how {
+					case RenderHit:
+						memo += n
+					case RenderShared:
+						shared += n
+					case RenderVM:
+						vm += n
+					}
+				}
+			}
+			share := "-"
+			if answers > 0 {
+				share = fmt.Sprintf("%.1f%%", 100*float64(memo)/float64(answers))
+			}
+			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d (%s) | %d | %d |\n", BrowseLabel(f), landingLabels[g], answers, memo, share, shared, vm))
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\nThe documents of the landings of the storefront that Tifa answered, by the parameter their URL carries, over the rounds. A click id (`gclid`, `fbclid`, `msclkid`) is different for every click and an email parameter (`_kx`, `mc_eid`) for every recipient, and neither is part of the page, so the three groups ask for the same pages and should be answered alike. Only the documents of the storefront count (the back office has no landings with a parameter), and the warm-up is left out.\n\n| | landing documents | answers | from the memo | shared a render in progress | rendered in a VM |\n| --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		b.WriteString(row)
+	}
+}
+
+// landingLabels say what the URL of a group carries.
+var landingLabels = map[string]string{LandingClickID: "a click id", LandingEmail: "an email parameter", LandingNone: "no parameter"}
+
+// crawlerRate is the crawler requests a second of the rounds (the ones answered as expected over the
+// seconds of the round), the median over them, or "-" for rounds with no crawler request.
+func crawlerRate(rounds []Round) string {
+	var out []float64
+	for _, x := range rounds {
+		if x.Crawler != nil && x.Seconds > 0 {
+			out = append(out, float64(x.Crawler.Done)/x.Seconds)
+		}
+	}
+	if len(out) == 0 {
+		return "-"
+	}
+	return fmtCell(out, "%.1f")
+}
+
+// crawlerKinds are the kinds of URL a crawler asks for, in the order of the report (crawlKind).
+var crawlerKinds = []string{"home", "list", "product", "reviews", "journal", "post"}
+
+// crawlerMarkdown is a diagnostic for the crawler requests of the closed rounds at a number of
+// sessions: how big the set of URLs is, what each server did with them, and how Tifa answered them by
+// set (U or O), by language and by kind of URL. A crawler request is no visit and no page view, so it
+// is in none of the counts of people above, and the CPU of the server and its memory include it.
+func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, sessions int) {
+	var servers []string
+	for _, f := range r.Servers[sc.Name] {
+		if rs := r.cellRounds(f, sc.Name, sessions); len(rs) > 0 && slices.ContainsFunc(rs, func(x Round) bool { return x.Crawler != nil }) {
+			servers = append(servers, f)
+		}
+	}
+	if len(servers) == 0 {
+		return
+	}
+	public, old := CrawlURLs()
+	kinds := map[string]int{}
+	for _, u := range public {
+		if lang, _ := StorePageKind(u); lang == StoreLangs[0] {
+			kinds[crawlKind(u)]++
+		}
+	}
+	var by []string
+	for _, k := range crawlerKinds {
+		by = append(by, fmt.Sprintf("%s %d", k, kinds[k]))
+	}
+	fmt.Fprintf(b, "\nThe crawler requests (they are no visits and no page views, so no count of people above has them, and the CPU of the server and its memory include them). U holds %d URLs, %d in each language (%s), and O holds %d old URLs that answer 404. Each request is drawn from U or O by its number in the stream of crawler requests, the same for every server, and is sent with the User-Agent of a crawler. The Node frameworks may read it. In the installed sources, TanStack Start and the default entry of React Router ask `isbot`, which names every User-Agent of the mix a bot (React Router then waits for the whole page), and Next.js takes Googlebot for a bot that runs JavaScript and does not know the AI User-Agents. What each does for a bot beyond that was not checked. Each answers a crawler as it ships, so a crawler document can cost more or less than a page view of a person: that is not a fault of the test. Over the rounds:\n\n| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers |\n| --- | --- | --- | --- | --- | --- | --- |\n",
+		len(public), len(public)/len(StoreLangs), strings.Join(by, ", "), len(old))
+	for _, f := range servers {
+		var planned, done, failed int
+		var bytes, oldBytes int64
+		statuses := map[string]int{}
+		for _, x := range r.cellRounds(f, sc.Name, sessions) {
+			if c := x.Crawler; c != nil {
+				planned, done, failed, bytes, oldBytes = planned+c.Planned, done+c.Done, failed+c.Failed, bytes+c.Bytes, oldBytes+c.OldBytes
+				for k, n := range c.Statuses {
+					statuses[k] += n
+				}
+			}
+		}
+		var answers []string
+		for _, k := range slices.Sorted(maps.Keys(statuses)) {
+			answers = append(answers, fmt.Sprintf("%s x%d", k, statuses[k]))
+		}
+		old := 0
+		for k, n := range statuses {
+			if strings.HasPrefix(k, "O ") {
+				old += n
+			}
+		}
+		fmt.Fprintf(b, "| %s | %d | %d | %d | %.1f | %.1f | %s |\n", BrowseLabel(f), planned, done, failed, float64(bytes)/1024/float64(max(done, 1)), float64(oldBytes)/1024/float64(max(old, 1)), strings.Join(answers, ", "))
+	}
+	b.WriteString("\nThe old URLs are 404 pages of the shop that every server answers with a 404, but not with the same work: Next.js answers an old URL with an error document and renders no page for it on the server (the browser would draw it from the payload, and a crawler runs no script), and the other three servers render a whole page for it, which the body of an old URL above shows. Real deployments of Next.js answer so, and it is measured as shipped, as the compression of TanStack Start is. The old URLs are 5% of the crawler requests, about 0.45% of all the HTML requests.\n")
+	// How Tifa answered them, by what they ask for: the set, the language and the kind of URL.
+	type tally struct{ answers, memo, shared, vm int }
+	var rows []string
+	for _, f := range servers {
+		if !isTifa(f) {
+			continue
+		}
+		by := map[string]*tally{}
+		for _, x := range r.cellRounds(f, sc.Name, sessions) {
+			if x.Crawler == nil {
+				continue
+			}
+			for key, hows := range x.Crawler.Renders {
+				parts := strings.Split(key, "|")
+				for _, dim := range parts {
+					if by[dim] == nil {
+						by[dim] = &tally{}
+					}
+					for how, n := range hows {
+						by[dim].answers += n
+						switch how {
+						case RenderHit:
+							by[dim].memo += n
+						case RenderShared:
+							by[dim].shared += n
+						case RenderVM:
+							by[dim].vm += n
+						}
+					}
+				}
+			}
+		}
+		for _, dim := range slices.Concat([]string{"U", "O"}, StoreLangs, crawlerKinds) {
+			if t := by[dim]; t != nil && t.answers > 0 {
+				rows = append(rows, fmt.Sprintf("| %s | %s | %d | %d (%.1f%%) | %d | %d |\n", BrowseLabel(f), dim, t.answers, t.memo, 100*float64(t.memo)/float64(t.answers), t.shared, t.vm))
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	b.WriteString("\nHow Tifa answered the crawler requests (`X-Tifa-Render` on the documents), by the set they were drawn from (U or O, the old URLs, which are 404 pages that the memo does not keep), by language and by kind of URL, over the rounds. A crawler request is asked once and has no cookie and no click behind it, so a hit here is a page that a visitor or an earlier crawler request had made:\n\n| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |\n| --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}

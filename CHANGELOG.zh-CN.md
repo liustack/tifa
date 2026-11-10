@@ -42,6 +42,7 @@
 
 ### 修复
 
+- 示例商店中文店面的商品页，评论翻页链接指向中文网址（`/zh-CN/store/products/<slug>?reviews=2`），以前指向英文页。
 - 渲染页面时路由器发出的重定向（`/%61` 转到 `/a`）现在和别的页面一样进渲染记忆，再来一次就是命中（`X-Tifa-Render: memo`），不再渲染。404 页和 `Load` 失败时显示的错误页每个请求都渲染，不存下，所以随机 URL 不会把记忆填满，同时到达的同一个错误页请求共用一次渲染。它们不带 `ETag`，`OnError` 看到每次失败（[渲染记忆](docs/memo.zh-CN.md#为什么对所有页面都安全)）。
 - `/assets/` 下没有的文件，比如部署前打开的标签页来要旧构建的代码块，现在答纯文本 404，带 `Cache-Control: no-store`。以前它要经过 `OnRequest`，跑根 Layout 的 `Load`，再渲染应用的 404 页（[页面请求](docs/build.zh-CN.md#页面请求)）。
 - 比 `ssr.memo_size` 还大的页面只压缩一次：收 gzip 的客户端拿到为缓存压好的那份，以前那份被扔掉再压一遍。每次渲染的键也不再复制它要哈希的数据，92 KB 数据的请求少产生约 98 KB 垃圾（[优化记录](docs/studies/optimizations.md#server)）。

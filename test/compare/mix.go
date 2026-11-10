@@ -67,6 +67,31 @@ const (
 	// neither.
 	StaffEditShare = 0.20
 	StaffShipShare = 0.30
+	// ClickIDShare is the share of the shopper landings that carry a click id that is different for every click (gclid, fbclid, msclkid), and
+	// EmailParamShare the share that carry a parameter that is different for every recipient of an email
+	// (_kx, mc_eid). A visit carries at most one of them. A server that keeps a page by its URL meets a URL of its own
+	// on every one. Sources: of the visits to retail sites, 50.6% come from paid sources (Contentsquare
+	// 2025 Digital Experience Benchmarks), which is an upper bound, and paid search is 22% of the visits
+	// to a shop, and email 7.6% (US, gripsintelligence,
+	// https://gripsintelligence.com/insights/web-statistics/channel-market-share/us). ClickIDShare is a
+	// judgment below the two upper bounds. EmailParamShare is an assumption below the 7.6% of the visits
+	// that come from email, since not every link of an email carries a parameter that is different for
+	// each recipient.
+	ClickIDShare    = 0.15
+	EmailParamShare = 0.05
+	// CrawlerShare is the share of the HTML requests that crawlers make: the documents of the shoppers and
+	// of the staff (each visit has one full load, and a click fetches data, not a document) and the
+	// requests of crawlers. Cloudflare reports Googlebot alone as 4.5% of the HTML requests and the other
+	// AI crawlers together as 4.2% (Cloudflare Radar, 2025 year in review,
+	// https://blog.cloudflare.com/radar-2025-year-in-review/), which makes about 9%. A crawler request is
+	// not a visit and not a page view (crawler.go).
+	CrawlerShare = 0.09
+	// CrawlOldShare is the share of the requests of a crawler for an old URL that the shop no longer has
+	// (it answers 404), and the rest are for the public pages, all alike. An assumption: crawlers go back
+	// to old URLs and deep pages that people no longer visit, which the log file analysis of Screaming Frog
+	// shows with no figure to take
+	// (https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/).
+	CrawlOldShare = 0.05
 	// EditPriceShare is the share of the edits of a product that change its price. The others change
 	// its stock. An assumption.
 	EditPriceShare = 0.5
@@ -99,6 +124,59 @@ const ReturningCartLines = 3
 // LanguageShares are the shares of the shopper visits in each language of the storefront. An
 // assumption.
 var LanguageShares = map[string]float64{"en-US": 0.5, "zh-CN": 0.5}
+
+// ClickIDNames and EmailParamNames are the names of the parameters and the shares of the landings
+// that carry a click id or an email parameter each has: gclid, fbclid and msclkid by 60 : 30 : 10, and
+// _kx and mc_eid by half each. Assumptions: no data on how the names share was found.
+var (
+	ClickIDNames = []struct {
+		Name  string
+		Share float64
+	}{{"gclid", 0.6}, {"fbclid", 0.3}, {"msclkid", 0.1}}
+	EmailParamNames = []struct {
+		Name  string
+		Share float64
+	}{{"_kx", 0.5}, {"mc_eid", 0.5}}
+)
+
+// CrawlerClasses are the classes of crawlers with their relative weights: the search class, which is
+// Googlebot alone, 4.5 and the AI class 4.2, as Cloudflare reports them as shares of the HTML requests
+// (https://blog.cloudflare.com/radar-2025-year-in-review/). Here they only weigh the classes against
+// each other, since the total is fixed at CrawlerShare. Cloudflare has no figure for the other search
+// engine crawlers, so none is in the mix.
+var CrawlerClasses = []struct {
+	Name  string
+	Share float64
+}{{CrawlerSearch, 4.5}, {CrawlerAI, 4.2}}
+
+// CrawlerAgents are the crawlers of each class, with their shares among the crawlers of the class and
+// the User-Agent each sends. Googlebot sends a smartphone and a desktop User-Agent, half of its
+// requests each (an assumption). The AI crawlers, their shares and their User-Agents are assumptions
+// too: no published share of each was found.
+var CrawlerAgents = []CrawlerAgent{
+	{CrawlerSearch, "Googlebot (smartphone)", 50, "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.175 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
+	{CrawlerSearch, "Googlebot (desktop)", 50, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/125.0.6422.175 Safari/537.36"},
+	{CrawlerAI, "GPTBot", 40, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot"},
+	{CrawlerAI, "ClaudeBot", 25, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"},
+	{CrawlerAI, "Meta-ExternalAgent", 20, "meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)"},
+	{CrawlerAI, "Bytespider", 10, "Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)"},
+	{CrawlerAI, "PerplexityBot", 5, "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)"},
+}
+
+// OldProductsPerLanguage and OldPostsPerLanguage are how many old URLs of each kind the set O of a
+// crawler holds in a language (crawl.go): products taken off the shop and posts that were moved or
+// deleted, which answer 404. Assumptions: no data on how many a shop that has existed for a few years
+// holds.
+const (
+	OldProductsPerLanguage = 15
+	OldPostsPerLanguage    = 15
+)
+
+// LandingValueLengths are the characters of a value of each parameter, which a request carries with
+// the same length as the real one: gclid about 95, fbclid about 61, msclkid 32 hexadecimal, mc_eid 10
+// hexadecimal and _kx about 40. The lengths are what the parameters are seen to have, and the
+// characters of each, the shape of a value, are an assumption.
+var LandingValueLengths = map[string]int{"gclid": 95, "fbclid": 61, "msclkid": 32, "_kx": 40, "mc_eid": 10}
 
 // StoreClicks says, for the kind of page a visitor is on, the relative weight of a click on a link of
 // each kind. They are assumptions, made shares among the links the page has: a visitor on a list picks a
@@ -336,6 +414,7 @@ func GenerateSitePlanSet(seed uint64, blocks int) PlanSet {
 		for _, i := range rng.Perm(ShopperBlockVisits)[:share(ReturningShare)] {
 			shoppers[i].Returning = true
 		}
+		putLandingParams(seed, b, shoppers)
 		set.Plans = append(set.Plans, shoppers...)
 		// The staff: half of the visits land on a list or a stats page, half on an order.
 		slens := visitLengths(rng, StaffBlockPlans, StaffViewsMax, StaffViewsMean*StaffBlockPlans, StaffViewsMore)
@@ -369,8 +448,11 @@ type PlanCounts struct {
 	Loads     int `json:"fullLoads"`
 	Clicks    int `json:"clicks"`
 	Returning int `json:"returning"`
-	Adds      int `json:"adds"`
-	Checkouts int `json:"checkouts"`
+	// ClickIDs and EmailParams count the shopper landings that carry a click id and an email parameter.
+	ClickIDs    int `json:"clickIds"`
+	EmailParams int `json:"emailParams"`
+	Adds        int `json:"adds"`
+	Checkouts   int `json:"checkouts"`
 	// ShopperViews are the page views of the shopper visits.
 	ShopperViews int `json:"shopperPageViews"`
 	// Pages counts the page views by class (pageClass).
@@ -390,6 +472,11 @@ func (c *PlanCounts) Add(p Plan) {
 		c.ShopperViews += len(p.Steps)
 		if p.Returning {
 			c.Returning++
+		}
+		if name := landingParam(p.Steps[0].Page); isClickID(name) {
+			c.ClickIDs++
+		} else if name != "" {
+			c.EmailParams++
 		}
 		for _, w := range p.Writes {
 			switch w.Kind {
@@ -448,6 +535,37 @@ func MixFacts() []MixFact {
 		}
 		return strings.Join(out, "; ")
 	}
+	ids := func(names []struct {
+		Name  string
+		Share float64
+	}) string {
+		var out []string
+		for _, n := range names {
+			out = append(out, n.Name+" "+pct(n.Share))
+		}
+		return strings.Join(out, ", ")
+	}
+	lengths := func(m map[string]int) string {
+		var out []string
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			out = append(out, k+" "+strconv.Itoa(m[k]))
+		}
+		return strings.Join(out, ", ")
+	}
+	crawlerClasses := func() string {
+		var out []string
+		for _, k := range CrawlerClasses {
+			out = append(out, k.Name+" "+strconv.FormatFloat(k.Share, 'f', -1, 64))
+		}
+		return strings.Join(out, ", ")
+	}
+	crawlerAgents := func() string {
+		var out []string
+		for _, a := range CrawlerAgents {
+			out = append(out, fmt.Sprintf("%s %s %g%%", a.Class, a.Name, a.Share))
+		}
+		return strings.Join(out, "; ")
+	}
 	littledata := "median of 438 Shopify stores, 2026-08-03 to 2026-10-31 (Littledata, https://www.littledata.io/benchmarks)"
 	var landing, staffLanding []string
 	for _, l := range LandingShares {
@@ -463,6 +581,11 @@ func MixFacts() []MixFact {
 		{"ShopperViewsMore", "chance a shopper visit goes on to one more page, in the first draw of the lengths", pct(ShopperViewsMore), "rule: a geometric length of mean 4"},
 		{"AddToCartShare", "shopper visits that add to the cart", pct(AddToCartShare), littledata},
 		{"CheckoutShare", "shopper visits that check out (among those that add)", pct(CheckoutShare), littledata + ", conversion rate"},
+		{"ClickIDShare", "shopper landings that carry a click id different for every click", pct(ClickIDShare), "assumption: a judgment below the published upper bounds, 50.6% of the visits of retail sites from paid sources (Contentsquare 2025) and 22% from paid search (US, gripsintelligence, https://gripsintelligence.com/insights/web-statistics/channel-market-share/us)"},
+		{"ClickIDNames", "click ids, by the share of the landings that carry one", ids(ClickIDNames), "assumption"},
+		{"EmailParamShare", "shopper landings that carry a parameter different for every recipient of an email", pct(EmailParamShare), "assumption: below the 7.6% (US, gripsintelligence) of the visits that come from email (https://gripsintelligence.com/insights/web-statistics/channel-market-share/us), since not every link of an email carries a parameter that is different for each recipient"},
+		{"EmailParamNames", "email parameters, by the share of the landings that carry one", ids(EmailParamNames), "assumption"},
+		{"LandingValueLengths", "characters of the value of each parameter", lengths(LandingValueLengths), "assumption: the lengths are those the parameters are seen to have, the characters are made up"},
 		{"ReturningShare", "shopper visits by a returning visitor, who comes back to a cart of their own", pct(ReturningShare), "assumption, within the published 17% (Top Growth Marketing) to 53% (Contentsquare 2025)"},
 		{"ReturningCartLines", "products in the cart of a returning visitor, besides the demonstration cart", strconv.Itoa(ReturningCartLines), "assumption"},
 		{"AddPieces", "pieces an add puts in the cart", fmt.Sprintf("%d to %d", AddPieces[0], AddPieces[1]), "assumption"},
@@ -481,6 +604,12 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
+		{"CrawlerShare", "crawler requests among the HTML requests (the full loads of shoppers and staff and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
+		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
+		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},
+		{"CrawlOldShare", "crawler requests for an old URL that answers 404, the others for a public page, all alike", pct(CrawlOldShare), "assumption: crawlers ask for old URLs that people no longer visit (Screaming Frog, https://www.screamingfrog.co.uk/what-i-learnt-from-analysing-7-million-log-file-events/), with no figure to take"},
+		{"OldProductsPerLanguage", "old URLs of products taken off the shop in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldProductsPerLanguage), "assumption"},
+		{"OldPostsPerLanguage", "old URLs of posts that were moved or deleted in the set a crawler asks 404 pages from, in each language", strconv.Itoa(OldPostsPerLanguage), "assumption"},
 		{"ShopperBlockVisits", "shopper visits of a block of the plans, which has the mix exactly", strconv.Itoa(ShopperBlockVisits), "a choice of the method"},
 		{"StaffBlockPlans", "different staff visits recorded for each block", strconv.Itoa(StaffBlockPlans), "a choice of the method"},
 	}

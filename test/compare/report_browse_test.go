@@ -2,6 +2,7 @@ package compare
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,7 +80,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 		"| Next.js | 4.0 (4.0 to 3000.0) / 30 (30 to 3000) (205) |", "| 20 |",
 		"failed the rule in 1 of 3 rounds: round 2 failed: the workload did not finish in time",
 		// A server that fails at the rate in every round is a result, with its numbers.
-		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | failed the rule in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms", "| Tifa | 0 |"} {
+		"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | - | failed the rule in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms", "| Tifa | 0 |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
@@ -106,7 +107,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		return string(data)
 	}
 	trace := run("stamp")
-	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site shop\n", "plans none\n"} {
+	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site shop\n", "plans none\n"} {
 		if !strings.Contains(trace, want) {
 			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
 		}
@@ -460,8 +461,8 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	}
 	var want []string
 	for range scs {
-		want = append(want, "| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) |",
-			"| | full loads | clicks | writes | rounds |")
+		want = append(want, "| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |",
+			"| | full loads | clicks | writes | crawler documents | rounds |")
 	}
 	want = append(want, "| | value | source |")
 	if !slices.Equal(heads, want) {
@@ -584,7 +585,7 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 		return ""
 	}
 	for label, want := range map[string]string{
-		"Tifa":           "| Tifa | - | - | - | no valid result: 0 of 3 rounds valid |",
+		"Tifa":           "| Tifa | - | - | - | - | no valid result: 0 of 3 rounds valid |",
 		"TanStack Start": "not decided: 1 of 3 rounds valid, 1 of 1 passed |",
 		"Next.js":        "3 of 3 rounds passed |",
 		"React Router":   "failed the rule in 1 of 3 rounds: round 3 failed: click P99 1200 ms over 1000 ms |",
@@ -950,5 +951,93 @@ func TestTheSiteTextSaysEveryServerGetsTheSameWarmUp(t *testing.T) {
 	}
 	if strings.Contains(siteText, "right before the clock") {
 		t.Error("the site text still reads the memo right before the clock")
+	}
+}
+
+// crawled is a round with the crawler requests of a block (101, in the proportion of the stream) done
+// in the seconds of the round.
+func crawled(x Round) Round {
+	x.Crawler = &CrawlStats{Planned: 101, Done: 101, Bytes: 101 * 60_000, OldBytes: 5 * 15_000, Statuses: map[string]int{"U 200": 96, "O 404": 5},
+		Renders: map[string]map[string]int{"U|en-US|list": {"memo": 6, "vm": 2}, "U|en-US|product": {"memo": 30, "shared": 2, "vm": 8}, "U|zh-CN|reviews": {"memo": 20, "vm": 20}, "U|zh-CN|home": {"memo": 4}, "O|zh-CN|product": {"vm": 5}}}
+	x.Types = maps.Clone(x.Types)
+	x.Types["crawler"] = TypeStat{N: 101, P50: 12, P99: 480}
+	return x
+}
+
+// The two tables of the body list the crawler requests apart from the people: the page views a second
+// of people stay the main number, and the crawler requests a second and the latency of the crawler
+// documents come after them, with their samples.
+func TestTheBodyTablesListTheCrawlerRequestsApartFromThePeople(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 8, Done: true}},
+		Config: map[string]string{"sessions": "8"}, LatencyRate: map[string]float64{"shop": 4}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+	for _, f := range r.Servers[sc.Name] {
+		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		for round := 1; round <= 3; round++ {
+			x := crawled(closedRound(f, sc.Name, 8, round, 4000, 10, true))
+			r.Closed = append(r.Closed, x)
+			l := x
+			l.Model, l.Rate, l.Sessions = "open", 4, 0
+			r.Latency = append(r.Latency, l)
+		}
+	}
+	body, _, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	for _, want := range []string{
+		"| Tifa | core used | 8 | 400.0 | 2000 to 4000 | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 10.1 | 12.0 / 480 (303) |",
+		"| Next.js | core used | 8 | 400.0 | 2000 to 4000 | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 10.1 | 12.0 / 480 (303) |",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the throughput table lacks %q:\n%s", want, body)
+		}
+	}
+	for _, want := range []string{"| Tifa | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 12.0 / 480 (303) |", "| Next.js | 4.0 / 30 (300) | 2.0 / 15 (900) | 5.0 / 9 (60) | 12.0 / 480 (303) |"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the latency table lacks %q:\n%s", want, body)
+		}
+	}
+	// A server with no crawler request in its rounds shows none, not 0.
+	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
+	if typeCell([]Round{x}, "crawler") != "-" {
+		t.Error("a round with no crawler request has a crawler latency")
+	}
+}
+
+// The appendix says what the crawler requests did in each server (planned, answered as expected,
+// failed, the body per request, the answers by status), how Tifa answered them by set (U or O), by
+// language and by kind of URL, and how big U is.
+func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	for round := 1; round <= 2; round++ {
+		for _, f := range r.Servers[sc.Name] {
+			r.Closed = append(r.Closed, crawled(closedRound(f, sc.Name, 8, round, 4000, 10, true)))
+		}
+	}
+	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	u, o := CrawlURLs()
+	for _, want := range []string{
+		fmt.Sprintf("U holds %d URLs", len(u)),
+		fmt.Sprintf("O holds %d old URLs", len(o)),
+		"| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers |",
+		"| Tifa | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
+		"| Next.js | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
+		"Next.js answers an old URL with an error document and renders no page for it on the server",
+		"the other three servers render a whole page for it",
+		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |",
+		"| Tifa | U | 184 | 120 (65.2%) | 4 | 60 |",
+		"| Tifa | O | 10 | 0 (0.0%) | 0 | 10 |",
+		"| Tifa | zh-CN | 98 | 48 (49.0%) | 0 | 50 |",
+		"| Tifa | reviews | 80 | 40 (50.0%) | 0 | 40 |",
+		"| Tifa, memo off (reference) | U |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+		if strings.Contains(body, want) {
+			t.Errorf("the body has %q", want)
+		}
+	}
+	if strings.Contains(appendix, "| Next.js | U |") {
+		t.Error("the split of the answers has a row for Next.js, which says nothing of its renders")
 	}
 }
