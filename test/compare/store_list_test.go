@@ -452,6 +452,11 @@ func TestTheListModelIsTheListOfTheShop(t *testing.T) {
 		for _, q := range slices.Concat(StoreListQueries, []string{
 			"color=moss&color=mist&page=2&sort=price-asc&min=x&max=-3&rating=zz", "q=%20Cup%20&category=nope", "sort=nope&stock=0&page=-1",
 			"q=" + strings.Repeat("a", 61), "min=300&max=100", "badge=", "q=it%27s+a+%22cup%22+%26+more",
+			// The trim of the form is the one of JavaScript: U+FEFF goes and U+0085 stays, at the limit of 60
+			// characters too, which are code points.
+			"q=%EF%BB%BFcup%EF%BB%BF", "q=%C2%85cup%C2%85", "q=%C2%A0%E3%80%80cup%E2%80%A8",
+			"sort=newest&q=%EF%BB%BF" + strings.Repeat("a", 60) + "%EF%BB%BF", "sort=newest&q=%C2%85" + strings.Repeat("a", 60),
+			"sort=newest&q=" + strings.Repeat("%F0%9F%98%80", 31), "sort=newest&q=" + strings.Repeat("%F0%9F%98%80", 60), "sort=newest&q=" + strings.Repeat("%F0%9F%98%80", 61),
 		}) {
 			u := StoreBase(l) + "/products"
 			if q != "" {
@@ -587,6 +592,52 @@ func TestTheListModelIsTheListOfTheShop(t *testing.T) {
 	for _, s := range listSorts {
 		if sorts[s] < 30 {
 			t.Errorf("%d lists of more than one product sorted by %s: too few", sorts[s], s)
+		}
+	}
+}
+
+// The links of a list hold the search term as the form of the page trims it, which is the trim of
+// JavaScript and not the one of Go: U+FEFF is white space in JavaScript alone and U+0085 in Go alone.
+// The search of the shop is Go, so the products follow the trim of Go. The form refuses a term of over
+// 60 characters after its own trim, and the links then keep the term as it is, with the default sort.
+// The 60 are code points, as zod counts them: a character of two UTF-16 units is one.
+func TestTheLinksOfAListTrimTheTermAsJavaScriptDoes(t *testing.T) {
+	price, inStock := shopPrices()
+	sixty := strings.Repeat("a", 60)
+	for _, tc := range []struct {
+		name, term string
+		linked     string // the term in the links of the page
+		found      bool   // the search of the shop finds products
+		refused    bool   // the form refuses the term: the links lose the sort
+	}{
+		{"a plain term", "cup", "cup", true, false},
+		{"spaces", " \t\n cup \r\n", "cup", true, false},
+		{"U+00A0, U+3000 and U+2028, white space in both", "\u00a0\u3000cup\u2028", "cup", true, false},
+		{"U+FEFF, white space in JavaScript alone", "\ufeffcup\ufeff", "cup", false, false},
+		{"U+0085, white space in Go alone", "\u0085cup\u0085", "\u0085cup\u0085", true, false},
+		{"60 characters", sixty, sixty, false, false},
+		{"61 characters", sixty + "a", sixty + "a", false, true},
+		{"60 characters between two U+FEFF", "\ufeff" + sixty + "\ufeff", sixty, false, false},
+		{"60 characters after a U+0085", "\u0085" + sixty, "\u0085" + sixty, false, true},
+		{"60 characters of two UTF-16 units each", strings.Repeat("😀", 60), strings.Repeat("😀", 60), false, false},
+		{"61 characters of two UTF-16 units each", strings.Repeat("😀", 61), strings.Repeat("😀", 61), false, true},
+	} {
+		p := ModelList("/store/products?sort=newest&q="+encodeQueryPart(tc.term), price, inStock)
+		if (p.Total > 0) != tc.found {
+			t.Errorf("%s: the search finds %d products, want some %v", tc.name, p.Total, tc.found)
+		}
+		want := "/store/products?q=" + encodeQueryPart(tc.linked) + "&category=drinkware"
+		if !tc.refused {
+			want += "&sort=newest"
+		}
+		var got string
+		for _, l := range p.Links() {
+			if l.Part == ListPartCategory && strings.Contains(l.To, "category=drinkware") {
+				got = l.To
+			}
+		}
+		if got != want {
+			t.Errorf("%s: the category bar links to %s, want %s", tc.name, got, want)
 		}
 	}
 }

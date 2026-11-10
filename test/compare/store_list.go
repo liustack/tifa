@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // The product list of the storefront, worked out here as the shop works it out: for any URL of the list
@@ -165,9 +165,10 @@ const (
 )
 
 // narrows says whether a product passes the filters that no write of a run changes, but the one named
-// by skip: the search term, which is looked for in the name of the product in both languages, whatever
-// the case, and in its tags as they are written, the category, the colours, the families of materials,
-// the badges and the rating (match in Search of examples/shop/app/store/products/product.go).
+// by skip: the search term, trimmed as Go trims it (strings.TrimSpace, as the shop does), which is looked
+// for in the name of the product in both languages, whatever the case, and in its tags as they are
+// written, the category, the colours, the families of materials, the badges and the rating (match in
+// Search of examples/shop/app/store/products/product.go).
 func (f listFilter) narrows(r storeRecord, skip string) bool {
 	if q := strings.ToLower(strings.TrimSpace(f.Query)); q != "" &&
 		!strings.Contains(strings.ToLower(r.Name[0]), q) && !strings.Contains(strings.ToLower(r.Name[1]), q) &&
@@ -407,9 +408,13 @@ type listValues struct {
 
 // values are the values of the form for the filter the shop read: a number that is 0 is empty, and the
 // search term is trimmed, as the schema of the form does (filterSchema in
-// examples/shop/app/store/products/filter-schema.ts). The schema refuses a term of over 60 characters
-// (UTF-16 units, as JavaScript counts) and a lowest price above the highest, and the page then takes the
-// values as they are with the sort "featured" (ProductList in page.tsx).
+// examples/shop/app/store/products/filter-schema.ts). The schema runs in JavaScript, so the trim is
+// the one of JavaScript (jsTrim), not the one of Go that the search of the shop uses (narrows). The
+// schema refuses a term of over 60 characters after the trim and a lowest price above the highest, and
+// the page then takes the values as they are with the sort "featured" (ProductList in page.tsx). The 60
+// are Unicode code points and not UTF-16 units: zod 4, which the shop pins, counts the length of a
+// string so ($ZodCheckMaxLength in zod/v4/core/checks.js), so a character outside the basic plane is
+// one.
 func (f listFilter) values() listValues {
 	text := func(n int) string {
 		if n > 0 {
@@ -421,13 +426,28 @@ func (f listFilter) values() listValues {
 		query: f.Query, category: f.Category, colors: f.Colors, materials: f.Materials, badges: f.Badges,
 		rating: text(f.Rating), min: text(f.Min), max: text(f.Max), inStock: f.InStock, sort: f.Sort,
 	}
-	trimmed := strings.TrimSpace(f.Query)
-	if len(utf16.Encode([]rune(trimmed))) > 60 || (f.Min > 0 && f.Max > 0 && f.Min > f.Max) {
+	trimmed := jsTrim(f.Query)
+	if utf8.RuneCountInString(trimmed) > 60 || (f.Min > 0 && f.Max > 0 && f.Min > f.Max) {
 		v.sort = "featured"
 		return v
 	}
 	v.query = trimmed
 	return v
+}
+
+// jsTrim trims a string as String.prototype.trim of JavaScript does: the white space and the line
+// terminators of ECMAScript, which are tab, line feed, vertical tab, form feed, carriage return, space,
+// U+00A0, U+FEFF, the other space separators of Unicode (U+1680, U+2000 to U+200A, U+202F, U+205F,
+// U+3000) and U+2028 and U+2029. strings.TrimSpace of Go differs in two characters: it trims U+0085,
+// which JavaScript keeps, and keeps U+FEFF, which JavaScript trims.
+func jsTrim(s string) string {
+	return strings.TrimFunc(s, func(r rune) bool {
+		switch r {
+		case '\t', '\n', '\v', '\f', '\r', ' ', 0x00A0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:
+			return true
+		}
+		return r >= 0x2000 && r <= 0x200A
+	})
 }
 
 // encodeQueryPart writes a name or a value of a query as the router of the shop writes it in a link
