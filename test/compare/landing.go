@@ -2,6 +2,7 @@ package compare
 
 import (
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"net/url"
 	"reflect"
@@ -267,4 +268,32 @@ func landingGroup(url string) string {
 func isStorePage(url string) bool {
 	_, kind := StorePageKind(url)
 	return kind != ""
+}
+
+// checkLandingQuotas counts the landing parameters of the shopper plans of each block, as the plans
+// themselves hold them, and fails when a block has not the number the mix gives (the quota of each
+// name of ClickIDNames and EmailParamNames). Plans made before the parameters have none.
+func checkLandingQuotas(set *PlanSet) error {
+	names, shares := landingKinds()
+	want := map[string]int{}
+	for i, n := range names {
+		want[n] = int(math.Round(shares[i] * ShopperBlockVisits))
+	}
+	have := make([]map[string]int, set.Blocks)
+	for i := range have {
+		have[i] = map[string]int{}
+	}
+	for _, p := range set.Plans {
+		if p.Role == RoleShopper && p.Block >= 0 && p.Block < set.Blocks {
+			have[p.Block][landingParam(p.Steps[0].Page)]++
+		}
+	}
+	for b, got := range have {
+		for _, n := range names {
+			if got[n] != want[n] {
+				return fmt.Errorf("block %d has %d plans that land with %q, the mix has %d", b, got[n], n, want[n])
+			}
+		}
+	}
+	return nil
 }

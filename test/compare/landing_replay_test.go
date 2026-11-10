@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -216,5 +217,52 @@ func TestTheLandingParameterIsCheckedByItsWholeKeyAndValue(t *testing.T) {
 	data.Steps[0].Reqs[0].Class = "nav"
 	if checkLanding(plan, data) == nil {
 		t.Error("a request that is not a document was taken for the landing document")
+	}
+}
+
+// Plans made before the landing parameters, or with the wrong number of them in a block, are refused
+// where they are loaded (by `compare browse` and by the recorder too), whatever the plans say of
+// themselves: each block must have the quota of the mix, and the error says to make the plans again
+// and record the traces again.
+func TestPlansWithoutTheLandingParametersOfTheMixAreRefusedWhenLoaded(t *testing.T) {
+	good := GenerateSitePlanSet(1, 2)
+	write := func(set PlanSet) error {
+		dir := t.TempDir()
+		data, _ := json.Marshal(set)
+		os.WriteFile(PlansPath(dir), data, 0o644)
+		_, err := ReadPlans(dir)
+		return err
+	}
+	if err := write(good); err != nil {
+		t.Fatalf("plans with the mix: %v", err)
+	}
+	strip := func(keep func(blk int, p Plan) bool) PlanSet {
+		set := good
+		set.Plans = make([]Plan, len(good.Plans))
+		for i, p := range good.Plans {
+			p.Steps = slices.Clone(p.Steps)
+			if !keep(p.Block, p) {
+				p.Steps[0].Page = stripLanding(p.Steps[0].Page)
+			}
+			set.Plans[i] = p
+		}
+		return set
+	}
+	for name, set := range map[string]PlanSet{
+		"plans of before the parameters": strip(func(int, Plan) bool { return false }),
+		"no email parameter in block 1": strip(func(blk int, p Plan) bool {
+			name := landingParam(p.Steps[0].Page)
+			return blk == 0 || !slices.ContainsFunc(EmailParamNames, func(e struct {
+				Name  string
+				Share float64
+			}) bool {
+				return e.Name == name
+			})
+		}),
+	} {
+		err := write(set)
+		if err == nil || !strings.Contains(err.Error(), "make the plans again") || !strings.Contains(err.Error(), "record") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
