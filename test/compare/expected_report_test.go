@@ -220,3 +220,80 @@ func TestTheCrawlerTableSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 		}
 	}
 }
+
+// A round is set beside what its plans allow only when it played all of them: the count of the plans
+// takes every visit and write of the warm-up and of the round as done.
+func TestARoundThatDidNotPlayAllItPlannedIsNotComparable(t *testing.T) {
+	whole := Round{VisitsPlanned: 100, Visits: 100, WritesPlanned: 10, Writes: 10, Expected: &Expected{},
+		Crawler: &CrawlStats{Planned: 9, Done: 9},
+		WarmUp:  &WarmUp{VisitsPlanned: 50, Visits: 50, WritesPlanned: 5, Writes: 5}}
+	if why := whole.notComparable(); why != "" {
+		t.Errorf("a round that played all it planned is not comparable: %s", why)
+	}
+	for want, change := range map[string]func(x *Round){
+		"the round was cut off":                     func(x *Round) { x.TimedOut = true },
+		"97 of its 100 visits succeeded":            func(x *Round) { x.Visits, x.VisitsFailed = 97, 3 },
+		"9 of its 10 writes completed":              func(x *Round) { x.Writes = 9 },
+		"8 of its 9 crawler requests were answered": func(x *Round) { x.Crawler = &CrawlStats{Planned: 9, Done: 8, Cancelled: 1} },
+		"the warm-up was cut off":                   func(x *Round) { x.WarmUp = &WarmUp{VisitsPlanned: 50, Visits: 50, TimedOut: true} },
+		"49 of the 50 visits of the warm-up succeeded": func(x *Round) {
+			x.WarmUp = &WarmUp{VisitsPlanned: 50, Visits: 49, VisitsFailed: 1, WritesPlanned: 5, Writes: 5}
+		},
+		"4 of the 5 writes of the warm-up completed": func(x *Round) { x.WarmUp = &WarmUp{VisitsPlanned: 50, Visits: 50, WritesPlanned: 5, Writes: 4} },
+		"the warm-up had 2 failures": func(x *Round) {
+			x.WarmUp = &WarmUp{VisitsPlanned: 50, Visits: 50, WritesPlanned: 5, Writes: 5, Failures: 2}
+		},
+		"the setup failed": func(x *Round) { x.SetupError = "the memo held 3 pages before the clock" },
+		"the plans could not be worked out: no entry for": func(x *Round) { x.Expected, x.ExpectedError = nil, "no entry for /store" },
+	} {
+		x := whole
+		change(&x)
+		if why := x.notComparable(); !strings.Contains(why, want) {
+			t.Errorf("a round that is not whole says %q, want %q", why, want)
+		}
+	}
+}
+
+// A round that was cut off is not set beside what its plans allow, in any of the three tables, and is no
+// red flag however far under: the plans count documents and writes that it never sent.
+func TestTheAppendixDoesNotSetACutOffRoundBesideWhatThePlansAllow(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	for round := 1; round <= 2; round++ {
+		x := crawled(expectedRound("tifa", "home", 240, 216, 120, 80, 40, map[string]int{RenderSame: 120}))
+		x.Round = round
+		x.Landing = map[string]map[string]int{LandingClickID: {"memo": 30, "vm": 10}}
+		x.Expected.Groups = map[string]ExpectedCell{LandingClickID: {Docs: 40, Hits: 36}}
+		x.Expected.Crawlers = map[string]ExpectedCell{"product": {Docs: 40, Hits: 35}}
+		r.Closed = append(r.Closed, x)
+	}
+	_, whole, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	for _, want := range []string{
+		"**Red flag**: Tifa, home",
+		"| Tifa | home | 480 | 160 | 80 | 240 | 90.0% of 480 | 50.0% of 480 |",
+		"| Tifa | with a click id | 80 | 60 | 0 | 20 | 90.0% of 80 | 75.0% of 80 |",
+		"| Tifa | U, product | 80 | 60 | 4 | 16 | 87.5% of 80 | 80.0% of 80 |",
+	} {
+		if !strings.Contains(whole, want) {
+			t.Fatalf("with whole rounds the appendix lacks %q:\n%s", want, whole)
+		}
+	}
+	// The second round is cut off with 3 of its visits unfinished.
+	r.Closed[1].TimedOut, r.Closed[1].VisitsPlanned, r.Closed[1].Visits, r.Closed[1].VisitsUnfinished = true, 1003, 1000, 3
+	_, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	const not = "not comparable: the round was cut off (1 of 2 rounds)"
+	for _, want := range []string{
+		"| Tifa | home | 480 | 160 | 80 | 240 | " + not + " | 50.0% of 480 |",
+		"| Tifa | with a click id | 80 | 60 | 0 | 20 | " + not + " | 75.0% of 80 |",
+		"| Tifa | U, product | 80 | 60 | 4 | 16 | " + not + " | 80.0% of 80 |",
+		"| Tifa | U | 184 | 120 | 4 | 60 | " + not + " | 67.4% of 184 |",
+		"A round that did not play all it planned",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+	if strings.Contains(appendix, "Red flag**: Tifa, home") {
+		t.Error("a red flag for rounds that are not comparable")
+	}
+}

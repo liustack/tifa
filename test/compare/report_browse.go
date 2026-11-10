@@ -960,6 +960,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 			continue
 		}
 		dropped, read := memoDropped(rs)
+		note := notComparableNote(rs)
 		for _, k := range pageKinds(rs) {
 			hits, all := cacheHits(rs, k)
 			why := map[string]int{}
@@ -979,7 +980,9 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 			}
 			measured := measuredShare(hits+shared, all)
 			allowed := "-"
-			if c, ok := expectedOf(rs, k); ok && c.Docs > 0 {
+			if c, ok := expectedOf(rs, k); note != "" && !privateKind(k) {
+				allowed = note
+			} else if ok && c.Docs > 0 {
 				allowed = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
 				if read && dropped > 0 && !privateKind(k) {
 					allowed += fmt.Sprintf(" (the memo dropped %d pages)", dropped)
@@ -999,7 +1002,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, the answers that shared a render in progress of the same page, and the renders in a VM, which add up to the answers. Next to them, the hit rate the plans allow a memo that drops nothing (the share of the documents whose page was asked for before, in the warm-up too, with the same data, worked out from the plans, the writes and the crawler requests alone, so it is the same for every server: see the expected hit rate in the method), and the share of the answers the memo gave or shared that Tifa measured. The renders in a VM are split by why, as the plans tell them for the landing document of a visit: a page not asked for before, a page asked for before whose data a write changed since, and a page asked for before with the same data. The last should have been a hit, so it was dropped when the memo was full (the pages it dropped are noted next to the rate), came in another order than the plans (the servers play the writes and the documents at once), or is a bug. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Only documents are in the plans: a click gets the data of a page and no HTML, so it is no request that puts a page in the memo, and the plans count none. The rate the plans allow is low in three known ways, none of them measured in points: a version of the data counts writes and not values, so an edit that sets the value a product has already, or puts an earlier one back, counts as a change though the data is what it was, and the memo, which goes by the data, can hit; a price edit counts as a change of every page of the product list, and some of them stay the same; and the pages of the back office follow a rough rule, a write to either shop changes all of them. The split has limits, which the report states: requests of a page at the same time share a render in progress (counted as shared, and the one that rendered as its class), a request the client canceled (its round ended) is not counted though Tifa may have rendered it, and the answers counted are those received whole with `X-Tifa-Render` saying vm, memo or shared. With the memo off nothing comes from the memo, and the rate the plans allow says how much the workload repeats its pages.\n\n")
+	b.WriteString("\nWhy Tifa rendered a page in a VM and did not answer it from the render memo, by kind of page, over the rounds: the answers (documents and navigation data that said how they were answered), those from the memo, the answers that shared a render in progress of the same page, and the renders in a VM, which add up to the answers. Next to them, the hit rate the plans allow a memo that drops nothing (the share of the documents whose page was asked for before, in the warm-up too, with the same data, worked out from the plans, the writes and the crawler requests alone, so it is the same for every server: see the expected hit rate in the method), and the share of the answers the memo gave or shared that Tifa measured. The renders in a VM are split by why, as the plans tell them for the landing document of a visit: a page not asked for before, a page asked for before whose data a write changed since, and a page asked for before with the same data. The last should have been a hit, so it was dropped when the memo was full (the pages it dropped are noted next to the rate), came in another order than the plans (the servers play the writes and the documents at once), or is a bug. A private page (the cart and the checkout, whose data is the visitor's cart and the products they looked at, the only pages of the shop whose `Load`s read cookies) is counted by whether the visit sent a cart cookie, whatever its URL. Only documents are in the plans: a click gets the data of a page and no HTML, so it is no request that puts a page in the memo, and the plans count none. A round that did not play all it planned is not set beside what the plans allow, here and in the tables of the landings and of the crawlers: the round or its warm-up was cut off, a visit failed, a write or a crawler request did not complete, or the setup failed. The plans count documents and writes such a round never sent, so the column says not comparable, with the reason of the first such round and how many of the rounds they are, and the kind of page gets no red flag. The rate the plans allow is low in three known ways, none of them measured in points: a version of the data counts writes and not values, so an edit that sets the value a product has already, or puts an earlier one back, counts as a change though the data is what it was, and the memo, which goes by the data, can hit; a price edit counts as a change of every page of the product list, and some of them stay the same; and the pages of the back office follow a rough rule, a write to either shop changes all of them. The split has limits, which the report states: requests of a page at the same time share a render in progress (counted as shared, and the one that rendered as its class), a request the client canceled (its round ended) is not counted though Tifa may have rendered it, and the answers counted are those received whole with `X-Tifa-Render` saying vm, memo or shared. With the memo off nothing comes from the memo, and the rate the plans allow says how much the workload repeats its pages.\n\n")
 	for _, f := range flags {
 		fmt.Fprintf(b, "**Red flag**: %s.\n\n", f)
 	}
@@ -1161,7 +1164,9 @@ func landingMarkdown(b *strings.Builder, servers []string, rounds func(f string)
 					c = c.Sum(x.Expected.Groups[g])
 				}
 			}
-			if c.Docs > 0 {
+			if note := notComparableNote(rs); note != "" {
+				allowed = note
+			} else if c.Docs > 0 {
 				allowed = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
 			}
 			rows = append(rows, fmt.Sprintf("| %s | with %s | %d | %d | %d | %d | %s | %s |\n", BrowseLabel(f), landingLabels[g], answers, memo, shared, vm, allowed, measuredShare(memo+shared, answers)))
@@ -1312,6 +1317,7 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				}
 			}
 		}
+		note := notComparableNote(r.cellRounds(f, sc.Name, sessions))
 		total := Total(allowed)
 		for _, k := range crawlerKinds {
 			allowed["U, "+k] = allowed[k]
@@ -1326,6 +1332,9 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				cell := "-"
 				if c := allowed[dim]; c.Docs > 0 && dim != "O" {
 					cell = fmt.Sprintf("%.1f%% of %d", 100*c.Rate(), c.Docs)
+					if note != "" {
+						cell = note
+					}
 				}
 				// An old URL is a 404, which Tifa renders for every request and does not keep.
 				notFound := 0
@@ -1343,4 +1352,56 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 	for _, row := range rows {
 		b.WriteString(row)
 	}
+}
+
+// notComparable says why what Tifa answered in the round cannot be set beside what its plans allow, and
+// "" when it can. The count of the plans (Workload.Expect) takes the whole warm-up and the whole round
+// as played, in order: every document asked for, every write made. A round that was cut off, or whose
+// warm-up was, or that lost a visit, a write or a crawler request, sent other requests than that, and
+// the two rates are not of the same documents. The expected rate is not worked out again for the part
+// that was played: a visit can be half played, and the ones that ended are no run of the plans.
+func (r *Round) notComparable() string {
+	w := r.WarmUp
+	switch {
+	case r.Expected == nil && r.ExpectedError != "":
+		return "the plans could not be worked out: " + r.ExpectedError
+	case r.SetupError != "":
+		return "the setup failed: " + r.SetupError
+	case w != nil && w.TimedOut:
+		return "the warm-up was cut off"
+	case w != nil && w.Visits < w.VisitsPlanned:
+		return fmt.Sprintf("%d of the %d visits of the warm-up succeeded", w.Visits, w.VisitsPlanned)
+	case w != nil && w.Writes < w.WritesPlanned:
+		return fmt.Sprintf("%d of the %d writes of the warm-up completed", w.Writes, w.WritesPlanned)
+	case w != nil && w.Failures > 0:
+		return fmt.Sprintf("the warm-up had %d failures", w.Failures)
+	case r.TimedOut:
+		return "the round was cut off"
+	case r.Visits < r.VisitsPlanned:
+		return fmt.Sprintf("%d of its %d visits succeeded", r.Visits, r.VisitsPlanned)
+	case r.Writes < r.WritesPlanned:
+		return fmt.Sprintf("%d of its %d writes completed", r.Writes, r.WritesPlanned)
+	case r.Crawler != nil && r.Crawler.Done < r.Crawler.Planned:
+		return fmt.Sprintf("%d of its %d crawler requests were answered", r.Crawler.Done, r.Crawler.Planned)
+	}
+	return ""
+}
+
+// notComparableNote is what the column of the expected rate says for rounds of which some cannot be set
+// beside their plans: the reason of the first of them and how many they are. It is "" when every round
+// can, and for rounds that have no plans worked out at all (not Tifa, or a result of an older run).
+func notComparableNote(rounds []Round) string {
+	n, first, expects := 0, "", false
+	for i := range rounds {
+		expects = expects || rounds[i].Expected != nil || rounds[i].ExpectedError != ""
+		if why := rounds[i].notComparable(); why != "" {
+			if n++; first == "" {
+				first = why
+			}
+		}
+	}
+	if n == 0 || !expects {
+		return ""
+	}
+	return fmt.Sprintf("not comparable: %s (%d of %d rounds)", first, n, len(rounds))
 }
