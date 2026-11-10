@@ -101,6 +101,31 @@ const (
 	// EditPriceShare is the share of the edits of a product that change its price. The others change
 	// its stock. An assumption.
 	EditPriceShare = 0.5
+	// SearchZipf is the exponent of the popularity of the search words of a language: the word of rank k
+	// is searched for about 1/k^s as often as the first, ranked in the order the catalogue first has them
+	// (store_terms.go). An assumption: the searches of a shop follow a power law with a long tail (at Best
+	// Buy over 80% of the distinct queries were searched 3 times or fewer in 6 months, arXiv 2505.01946,
+	// https://arxiv.org/html/2505.01946v1), and no exponent was found.
+	SearchZipf = 1.0
+	// SearchTermsMin and SearchTermsMax are the fewest and the most search words of a language. An
+	// assumption for a shop of 150 products: no data on how many distinct words a small shop is searched
+	// for was found. A list the catalogue leaves short of the fewest is filled with misspellings.
+	SearchTermsMin = 300
+	SearchTermsMax = 500
+	// SearchNoResultShare is the share of the searches that find nothing. An assumption: 10% to 15% is
+	// the figure most often given (Hello Retail, https://helloretail.com/en/blog/2026-02-24-ecommerce-search-statistics/,
+	// which names no source for it), and no sample that can be checked was found. The low end, for a
+	// small catalogue.
+	SearchNoResultShare = 0.10
+	// SearchUniqueShare is the share of the searches whose word no other visit searches for: a model
+	// number, a word with digits, a misspelt sentence. Such a word finds nothing in this shop, so these
+	// are among the searches of SearchNoResultShare, and the rest of those search for a word of the list
+	// that finds nothing. An assumption, from one account of a shop where random tail queries with numbers
+	// were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only).
+	SearchUniqueShare = 0.05
+	// SearchUniqueLength is the characters of a search word of a visit's own, lower case letters and
+	// digits. An assumption: no data on the shape of such words was found.
+	SearchUniqueLength = 8
 )
 
 // EditPriceFen is the lowest and the highest price an edit of a price sets, in fen, in whole yuan, and
@@ -513,6 +538,17 @@ type MixFact struct {
 	Name, What, Value, Source string
 }
 
+// searchTermCounts writes the fewest words of a list with the lists as they are: the words of each
+// language, those that find a product and those that find nothing.
+func searchTermCounts(fewest int) string {
+	out := strconv.Itoa(fewest)
+	for _, l := range StoreLangs {
+		t := StoreSearchTerms()[l]
+		out += fmt.Sprintf(". %s has %d: %d find a product and %d find nothing, %d of them misspellings", l, len(t.Found)+len(t.None), len(t.Found), len(t.None), t.Misspelt)
+	}
+	return out
+}
+
 // MixFacts are the numbers of the mix of mix.go, with their sources, for the report. Each value is
 // read from the constant the plans use, and TestTheReportListsEveryNumberOfTheMix checks that every
 // constant of mix.go is here.
@@ -610,6 +646,15 @@ func MixFacts() []MixFact {
 		{"EditPriceShare", "edits of a product that set its price (the others set its stock)", pct(EditPriceShare), "assumption"},
 		{"EditPriceFen", "price an edit sets", fmt.Sprintf("¥%d to ¥%d, in whole yuan", EditPriceFen[0]/100, EditPriceFen[1]/100), "assumption"},
 		{"EditDelivery", "pieces an edit of the stock sets above what the restock gave the product", fmt.Sprintf("%d to %d", EditDelivery[0], EditDelivery[1]), "assumption"},
+		{"SearchZipf", "exponent of the popularity of the search words of a language, ranked in the order the catalogue first has them", strconv.FormatFloat(SearchZipf, 'f', -1, 64),
+			"assumption: the searches of a shop follow a power law with a long tail (Best Buy: over 80% of the distinct queries searched 3 times or fewer in 6 months, arXiv 2505.01946, https://arxiv.org/html/2505.01946v1), and no exponent was found"},
+		{"SearchTermsMin", "fewest search words of a language, made from the catalogue (the names, the tags, the materials, the categories and the colours), and filled to this number with misspellings that find nothing", searchTermCounts(SearchTermsMin), "assumption for a shop of 150 products: no data on the distinct words a small shop is searched for"},
+		{"SearchTermsMax", "most search words of a language", strconv.Itoa(SearchTermsMax), "assumption, as above"},
+		{"SearchNoResultShare", "searches that find nothing, whatever the share of the words of a list that find nothing: the class of a search is dealt by this quota, and its word is drawn within the class", pct(SearchNoResultShare),
+			"assumption: 10% to 15% is the figure most often given (Hello Retail, https://helloretail.com/en/blog/2026-02-24-ecommerce-search-statistics/, which names no source), with no sample that can be checked. The low end, for a small catalogue"},
+		{"SearchUniqueShare", "searches for a word that no other visit searches for, which finds nothing: they are among the searches that find nothing, and the rest of those search for a word of the list", pct(SearchUniqueShare),
+			"assumption, from one account of a shop where random tail queries with numbers were 5% of the searches (an article of Ecommerce-Nation about one client, read in a summary only)"},
+		{"SearchUniqueLength", "characters of a search word of a visit's own, lower case letters and digits", strconv.Itoa(SearchUniqueLength), "assumption: no data on the shape of such words"},
 		{"CrawlerShare", "crawler requests among the HTML requests (the documents the browsers of shoppers and staff ask for, which are every landing and every action the page does as a document load, counted from the traces, and the crawler requests), each one GET of a document with no cookie that runs no JavaScript, apart from the visits and the page views of people", pct(CrawlerShare), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot alone is 4.5% of the HTML requests and the other AI crawlers together 4.2%, about 9%"},
 		{"CrawlerClasses", "crawlers by class, as relative weights (the total is fixed at the share above): the search class is Googlebot alone, the AI class the other AI crawlers", crawlerClasses(), "Cloudflare Radar, 2025 year in review (https://blog.cloudflare.com/radar-2025-year-in-review/): Googlebot 4.5% and the other AI crawlers 4.2% of the HTML requests, used here as relative weights. The report has no data on the other search engine crawlers, so none is in the mix"},
 		{"CrawlerAgents", "the crawlers of each class with their share in it, each sending its own User-Agent", crawlerAgents(), "assumption: the two User-Agents of Googlebot, half each, and the names and the shares of the AI crawlers"},

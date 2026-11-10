@@ -549,6 +549,22 @@ func TestTheListModelIsTheListOfTheShop(t *testing.T) {
 				t.Errorf("%s: the %s of the shop are %v, of the model %v", u, name, g, wantFacets)
 			}
 		}
+		// The names of the categories and of the colours, which the search words are made from, are the
+		// ones the shop shows in the language of the page.
+		for name, names := range map[string]map[string][2]string{"categories": listCategoryNames, "colors": listColorNames} {
+			shown, _ := got[name].([]any)
+			for _, e := range shown {
+				m, _ := e.(map[string]any)
+				id, _ := m["id"].(string)
+				at := 0
+				if f.Lang == "en-US" {
+					at = 1
+				}
+				if m["name"] != names[id][at] || len(shown) != len(names) {
+					t.Errorf("%s: the shop names %s %q among its %d %s, the search words take it for %q among %d", u, id, m["name"], len(shown), name, names[id][at], len(names))
+				}
+			}
+		}
 		var bands []ListBand
 		list, _ := got["bands"].([]any)
 		for _, e := range list {

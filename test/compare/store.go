@@ -95,7 +95,8 @@ var storeCatalogue = sync.OnceValue(func() (c struct {
 		c.variants = append(c.variants, StoreProduct{p.Slug, p.Stock, p.Colors, p.Sizes})
 		c.records = append(c.records, storeRecord{
 			Slug: p.Slug, Category: p.Category, Rating: p.Rating, PriceFen: p.PriceFen, CompareFen: p.CompareFen, Stock: p.Stock, Sized: len(p.Sizes) > 0,
-			Name: p.Name, Tags: p.Tags, Colors: p.Colors, Badge: p.Badge, Families: materialFamiliesOf(p.Materials), Added: p.Added,
+			Name: p.Name, nameLower: [2]string{strings.ToLower(p.Name[0]), strings.ToLower(p.Name[1])}, Tags: p.Tags, Colors: p.Colors, Badge: p.Badge,
+			Materials: p.Materials, Families: materialFamiliesOf(p.Materials), Added: p.Added,
 		})
 	}
 	return c
@@ -105,7 +106,9 @@ var storeCatalogue = sync.OnceValue(func() (c struct {
 // pages and the model of the product list need it: its slug, its category, its rating (which gives how
 // many reviews it has), its price and sale price in fen, its stock and whether it comes in sizes, and
 // what the list searches and filters by (store_list.go): its name in Chinese and in English, its tags,
-// its colours, its badge, the families of its materials and when it was added.
+// its colours, its badge, the families of its materials and when it was added. The search words are
+// made from its names, its tags and the names of its materials in Chinese and in English
+// (store_terms.go).
 type storeRecord struct {
 	Slug, Category string
 	Rating         float64
@@ -114,8 +117,10 @@ type storeRecord struct {
 	Stock          int
 	Sized          bool
 	Name           [2]string
+	nameLower      [2]string // the names in lower case, as the search compares them
 	Tags, Colors   []string
 	Badge          string
+	Materials      [][2]string
 	Families       []string
 	Added          time.Time
 }

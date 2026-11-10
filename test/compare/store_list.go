@@ -171,7 +171,7 @@ const (
 // Search of examples/shop/app/store/products/product.go).
 func (f listFilter) narrows(r storeRecord, skip string) bool {
 	if q := strings.ToLower(strings.TrimSpace(f.Query)); q != "" &&
-		!strings.Contains(strings.ToLower(r.Name[0]), q) && !strings.Contains(strings.ToLower(r.Name[1]), q) &&
+		!strings.Contains(r.nameLower[0], q) && !strings.Contains(r.nameLower[1], q) &&
 		!slices.ContainsFunc(r.Tags, func(t string) bool { return strings.Contains(t, q) }) {
 		return false
 	}
