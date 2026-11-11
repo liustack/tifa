@@ -118,7 +118,8 @@ run_stamp() {
 }
 
 # traces_current is true when the traces were recorded from these sources, with these plans and
-# recorder, and hold a trace for every plan of every server.
+# recorder, and hold a trace for every plan of every server, one for each form of the plan: the
+# visit itself and each of its variants.
 traces_current() {
   local n f
   [ -s "$stamp_file" ] || { echo "no STAMP in $traces"; return 1; }
@@ -126,8 +127,7 @@ traces_current() {
     echo "the traces belong to other sources than this checkout:"; sed 's/^/  /' "$out/stamp.diff"; return 1
   fi
   if trace_stamp | grep -q '^dirty'; then echo "the sources have uncommitted changes"; return 1; fi
-  n=$(sed -n 's/.*"blocks": *\([0-9]*\).*/\1/p' "$plans_file" | head -1)
-  n=$((${n:-0} * 1050))
+  n=$(node -e 'const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(s.plans.reduce((n, p) => n + 1 + (p.variants ? p.variants.length : 0), 0))' "$plans_file") || { echo "cannot read $plans_file"; return 1; }
   for f in $(trace_names); do
     f=$traces/$f.jsonl
     [ -s "$f" ] || { echo "no $(basename "$f")"; return 1; }
