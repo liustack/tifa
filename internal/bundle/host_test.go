@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/liustack/quickjs"
 )
 
 var hostDir = filepath.Join("..", "..", "js", "host")
@@ -51,24 +53,21 @@ globalThis.result = [
 
 // A render leaves a dead cycle in which the router holds the AbortControllers of its matches and
 // their signals hold listeners that lead back to the router. One collection must free all of it,
-// or the garbage of each render waits for later collections and the VM grows.
+// or the garbage of each render waits for later collections and the VM grows. The collection runs
+// between two calls into the VM: a WeakRef keeps its target to the end of the call that made or
+// read it (ECMA-262, the kept objects of a job), so a script cannot see the signals go within the
+// call that made them.
 func TestHostScriptFreesDeadAbortSignalsInOneCollection(t *testing.T) {
 	script, err := os.ReadFile(filepath.Join("..", "..", "js", "runtime", "host.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := evalResult(t, string(script)+`
-// collect allocates until a new dead cycle is gone, which takes one collection.
-function sentinel() {
-  const cycle = {}
-  cycle.self = cycle
-  return new WeakRef(cycle)
-}
-function collect() {
-  const gone = sentinel()
-  const kept = []
-  while (gone.deref() !== undefined) kept.push({})
-}
+	vm, err := quickjs.NewVM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	if err := evalModule(vm, string(script)+`
 function render() {
   const router = { matches: [] }
   router.self = router
@@ -82,12 +81,23 @@ function render() {
   load.signal.addEventListener('abort', () => router.matches, { once: true })
   return [load, ...router.matches].map((controller) => new WeakRef(controller.signal))
 }
-const signals = []
-for (let i = 0; i < 16; i++) signals.push(...render())
-collect()
-globalThis.result = signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'
-`)
-	if got != "0 of 80 signals left" {
+globalThis.signals = []
+for (let i = 0; i < 16; i++) globalThis.signals.push(...render())
+`); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if _, err := vm.ExecutePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	left := func() string {
+		value, err := vm.Eval("signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'", quickjs.EvalGlobal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value.(string)
+	}
+	vm.RunGC()
+	if got := left(); got != "0 of 80 signals left" {
 		t.Fatalf("after one collection: %s", got)
 	}
 }
