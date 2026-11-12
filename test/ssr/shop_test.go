@@ -571,10 +571,21 @@ func TestShopSlotsAtTheLengthWhereTheyStart(t *testing.T) {
 		t.Fatal("no text holds the customer")
 	}
 	// The order must start under 4,095 code units to be padded to each length. Its products and
-	// those of the orders it lists are named in English, which is longer than Chinese, so the long
-	// name of the kettle it holds is cut short first: the pool and the VM get the same data anyway.
+	// those of the orders it lists are named in English, which is longer than Chinese, and each line
+	// names its photo, so the long name of the kettle it holds and a few texts the page only shows
+	// are cut short first: the pool and the VM get the same data anyway.
 	detail.Texts = slices.Clone(detail.Texts)
-	detail.Texts[target] = strings.ReplaceAll(detail.Texts[target], "Morning Pour-Over Kettle", "Kettle")
+	for _, cut := range [][2]string{
+		{"Morning Pour-Over Kettle", "Kettle"},
+		{"420032648723063242373535", "4200"},
+		{"The delivery address and phone number match", "Address matches"},
+		{"Added to the Hangzhou warehouse picking queue", "Queued"},
+	} {
+		if !strings.Contains(detail.Texts[target], cut[0]) {
+			t.Fatalf("the order has no %q to cut short", cut[0])
+		}
+		detail.Texts[target] = strings.ReplaceAll(detail.Texts[target], cut[0], cut[1])
+	}
 	inString := func(s string) string {
 		quoted, _ := json.Marshal(s)
 		return string(quoted[1 : len(quoted)-1])
