@@ -604,7 +604,8 @@ HTML 是旧的、入口脚本已经没有的页面，页面自己救不了：没
 
 页面在服务端由 QuickJS 虚拟机渲染，不是 Node，也不是浏览器。虚拟机里有 JavaScript 语言本身（包括 `Proxy`、`WeakRef`、`FinalizationRegistry` 和 `new Function`），另外还有：
 
-- `URL`、`URLSearchParams`、`TextEncoder`、`TextDecoder`、`AbortController`、`Headers`、`Response` 和 `queueMicrotask`。`TextDecoder` 只认 UTF-8，别的编码（比如 `new TextDecoder('latin1')`）会抛 `RangeError`。
+- `URL` 和 `URLSearchParams`，完整的标准接口，由引擎在 Go 里解析。主机名按 UTS 46 处理，带 Bidi 和连接符检查，和浏览器一样。URL 对象没有自有属性，无效的 URL 抛 `TypeError: Failed to construct 'URL': Invalid URL`，没有 `URL.createObjectURL` 和 `URL.revokeObjectURL`（这里没有 `Blob`）。
+- `TextEncoder`、`TextDecoder`、`AbortController`、`Headers`、`Response` 和 `queueMicrotask`。`TextDecoder` 只认 UTF-8，别的编码（比如 `new TextDecoder('latin1')`）会抛 `RangeError`。
 - 二进制字符串的 Base64 编解码 `atob` 和 `btoa`，以及 Web API 错误使用的 `DOMException`。`btoa` 拒绝 U+00FF 以上的字符。
 - `crypto.getRandomValues` 原地填充整数类型数组，每次最多 65,536 字节。共享或可调整大小缓冲区的视图会在元素类型和配额检查之前抛 `TypeError`。`crypto.randomUUID` 生成 v4 UUID。两者每次都从 Go 的 `crypto/rand` 读取新字节，模块加载期间也能调用，没有随机字节池。这项宿主操作可能读取操作系统熵源，不向应用代码开放文件或网络访问。和 `Math.random` 一样，不要把随机值放进需要 hydration 的 HTML。
 - `structuredClone` 支持原始值、对象、数组、Date、RegExp、Map、Set、错误对象（含 cause 和 AggregateError）、ArrayBuffer、类型数组、DataView 和装箱原始值，保留循环引用与共享引用。缓冲区会复制，也支持可调整大小的缓冲区。这类 ArrayBuffer 的所有视图都抛 `DataCloneError`，无论长度固定还是随缓冲区变化。函数、symbol 和弱引用集合抛 `DataCloneError`。Promise、FinalizationRegistry、内建迭代器和不支持的宿主对象按原型链识别并拒绝。移除或替换原型链后，它们可能被当作普通对象，只复制可枚举的自有属性。这些类型无法像受支持的内建类型那样，通过纯 JS 的内部品牌检查始终识别。与浏览器不同，普通对象或数组的透明 Proxy 会通过 traps 克隆为普通对象或数组。仅模仿受支持内建类型原型的对象会被拒绝。SharedArrayBuffer 和非空 transfer 列表暂不支持，也抛 `DataCloneError`，空 transfer 列表可以传。自定义原型、访问器和属性描述符不保留，普通对象和数组只复制可枚举的自有字符串键。
