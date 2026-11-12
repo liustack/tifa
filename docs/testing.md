@@ -504,10 +504,12 @@ scp -r browse-out/traces linux-box:browse-out/
 
 # on the Linux box, the same commit checked out. LOCKS are files the run holds an flock on while one of its servers runs:
 # it takes them in the order given before each round with its warm-up, and gives them back after it,
-# so other work that takes the same files runs between the rounds and never in one
+# so other work that takes the same files runs between the rounds and never in one. ANNOUNCE is a folder in
+# which the run leaves a file named by its pid while it waits for or runs a round, for a machine whose other
+# work starts nothing new while a timing run is announced there
 cd tifa
 BROWSE_OUT=$HOME/browse-out test/compare/browse.sh build                                              # a few minutes on a cold box
-BROWSE_OUT=$HOME/browse-out SERVER_CPUS=0 LOAD_CPUS=1,2,3 LOCKS="$HOME/cpu0.lock $HOME/cpu1.lock $HOME/cpu2.lock $HOME/cpu3.lock" \
+BROWSE_OUT=$HOME/browse-out SERVER_CPUS=0 LOAD_CPUS=1,2,3 LOCKS="$HOME/cpu0.lock $HOME/cpu1.lock $HOME/cpu2.lock $HOME/cpu3.lock" ANNOUNCE=$HOME/timing.d \
   nohup test/compare/browse.sh run > $HOME/browse-run.log 2>&1 &                                       # about 5 to 6 hours, with a first search of the rates
 ```
 
