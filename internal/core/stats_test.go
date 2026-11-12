@@ -51,13 +51,13 @@ func TestReadStatsAddsTheRoutesOfTheMemo(t *testing.T) {
 	}
 }
 
-// Unchanged adds up like the other counts, in all and by route.
-func TestReadStatsAddsTheUnchangedPages(t *testing.T) {
-	a := &fakeServer{stats: Stats{Memo: MemoStats{Misses: 2, Unchanged: 1, Routes: map[string]MemoRouteStats{"/a": {Misses: 2, Unchanged: 1}}}}}
-	b := &fakeServer{stats: Stats{Memo: MemoStats{Misses: 3, Unchanged: 2, Routes: map[string]MemoRouteStats{"/a": {Misses: 3, Unchanged: 2}}}}}
+// SamePage adds up like the other counts, in all and by route.
+func TestReadStatsAddsTheRendersThatGaveTheSamePage(t *testing.T) {
+	a := &fakeServer{stats: Stats{Memo: MemoStats{Misses: 2, SamePage: 1, Routes: map[string]MemoRouteStats{"/a": {Misses: 2, SamePage: 1}}}}}
+	b := &fakeServer{stats: Stats{Memo: MemoStats{Misses: 3, SamePage: 2, Routes: map[string]MemoRouteStats{"/a": {Misses: 3, SamePage: 2}}}}}
 	defer Running(a)()
 	defer Running(b)()
-	want := MemoStats{Misses: 5, Unchanged: 3, Routes: map[string]MemoRouteStats{"/a": {Misses: 5, Unchanged: 3}}}
+	want := MemoStats{Misses: 5, SamePage: 3, Routes: map[string]MemoRouteStats{"/a": {Misses: 5, SamePage: 3}}}
 	if got := ReadStats().Memo; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}

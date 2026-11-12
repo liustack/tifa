@@ -227,7 +227,7 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
 	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
-	metric("tifa_memo_unchanged_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.Unchanged))
+	metric("tifa_memo_same_page_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.SamePage))
 	metric("tifa_memo_evictions_total", "counter", "Dropped to make room for another.", float64(s.Memo.Evictions))
 	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
 	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
@@ -241,7 +241,7 @@ func GET(c *tifa.Ctx) error {
 	byRoute("tifa_memo_route_hits_total", "Answered from an entry, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Hits })
 	byRoute("tifa_memo_route_misses_total", "Rendered by the request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Misses })
 	byRoute("tifa_memo_route_shared_total", "Waited for another request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Shared })
-	byRoute("tifa_memo_route_unchanged_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Unchanged })
+	byRoute("tifa_memo_route_same_page_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.SamePage })
 	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, err := io.WriteString(c.Writer(), b.String())
 	return err
@@ -263,7 +263,7 @@ func GET(c *tifa.Ctx) error {
 | `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |
 | 命中比未命中少很多，`tifa_memo_evictions_total` 在涨，`tifa_memo_bytes` 接近 `tifa_memo_size_bytes` | 页面还没被再次请求就被渲染记忆挤掉了 | 调大 `ssr.memo_size` |
 | 某个路由的 `tifa_memo_route_hits_total` 比它的未命中少很多，也没有挤掉页面 | 它的 URL 不会再来，或者它页面显示的数据在两次请求之间变了 | 按[按路由的计数](memo.zh-CN.md#按路由的计数)分清是哪种 |
-| 某个路由的 `tifa_memo_route_unchanged_total` 跟着它的未命中一起涨 | 它的页面重新渲染出来还是一样：数据变的部分页面并不显示 | 让 `Load` 只返回页面显示的，很多路由一起涨时看它们上面的 Layout（[按路由的计数](memo.zh-CN.md#按路由的计数)） |
+| 某个路由的 `tifa_memo_route_same_page_total` 跟着它的未命中一起涨 | 页面没变的重渲染：数据变的部分页面并不显示 | 让 `Load` 只返回页面显示的，很多路由一起涨时看它们上面的 Layout（[按路由的计数](memo.zh-CN.md#按路由的计数)） |
 
 ## 部署之后
 

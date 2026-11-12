@@ -9,10 +9,10 @@ import (
 
 // A copy of test/apps/pages gets two pages whose Load data changes on every request: /tally shows
 // only a title and carries a count it does not show, /count shows its count. Each request renders
-// both again. tifa.Stats counts by route the renders of /tally after the first as unchanged, since
+// both again. tifa.Stats counts by route the renders of /tally after the first in SamePage, since
 // its page shows the same, and none of /count, whose page changed. The real bundle writes the page,
 // so the part compared is the one serve in js/runtime/server.tsx writes before the router's scripts.
-func TestMemoCountsThePagesThatRenderUnchanged(t *testing.T) {
+func TestMemoCountsTheRendersThatGiveTheSamePage(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir := copyApp(t, "pages")
 	write := func(name, text string) {
@@ -93,14 +93,14 @@ func GET(c *tifa.Ctx) error { return c.JSON(200, tifa.Stats().Memo.Routes) }
 		t.Fatalf("%d different pages of 6, want the data in each", len(bodies))
 	}
 	status, _, body := get(t, base+"/memo")
-	var routes map[string]struct{ Hits, Misses, Shared, Unchanged uint64 }
+	var routes map[string]struct{ Hits, Misses, Shared, SamePage uint64 }
 	if err := json.Unmarshal([]byte(body), &routes); status != 200 || err != nil {
 		t.Fatalf("/memo: %d %v %s", status, err, body)
 	}
-	if r := routes["/tally"]; r.Misses != 3 || r.Unchanged != 2 || r.Hits != 0 {
-		t.Errorf("/tally %+v, want 3 misses and 2 unchanged", r)
+	if r := routes["/tally"]; r.Misses != 3 || r.SamePage != 2 || r.Hits != 0 {
+		t.Errorf("/tally %+v, want 3 misses and 2 with the same page", r)
 	}
-	if r := routes["/count"]; r.Misses != 3 || r.Unchanged != 0 || r.Hits != 0 {
-		t.Errorf("/count %+v, want 3 misses and none unchanged", r)
+	if r := routes["/count"]; r.Misses != 3 || r.SamePage != 0 || r.Hits != 0 {
+		t.Errorf("/count %+v, want 3 misses and none with the same page", r)
 	}
 }

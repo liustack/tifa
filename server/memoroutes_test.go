@@ -105,10 +105,10 @@ func TestTheMemoCountsByRouteAtTheSameTime(t *testing.T) {
 	}
 }
 
-// unchangedEnv is an app whose page /items/{item} shows the text shown[item] and carries a number
+// samePageEnv is an app whose page /items/{item} shows the text shown[item] and carries a number
 // hidden in its data that it does not show, and whose fake bundle writes the page as server.tsx
 // does: what React rendered in the root element, then the scripts of the router with the data.
-type unchangedEnv struct {
+type samePageEnv struct {
 	s      *server
 	r      *renders
 	mu     sync.Mutex
@@ -116,9 +116,9 @@ type unchangedEnv struct {
 	hidden int
 }
 
-func newUnchangedEnv(t *testing.T, i18n *I18n) *unchangedEnv {
+func newSamePageEnv(t *testing.T, i18n *I18n) *samePageEnv {
 	t.Helper()
-	e := &unchangedEnv{shown: map[string]string{}}
+	e := &samePageEnv{shown: map[string]string{}}
 	item := Route{ID: "app/items/item+", Path: "/items/{item}", Page: true, SSR: true,
 		Load: func(c *tifa.Ctx) (any, error) {
 			e.mu.Lock()
@@ -156,7 +156,7 @@ func newUnchangedEnv(t *testing.T, i18n *I18n) *unchangedEnv {
 	return e
 }
 
-func (e *unchangedEnv) set(item, shown string, hidden int) {
+func (e *samePageEnv) set(item, shown string, hidden int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if shown != "" {
@@ -166,41 +166,41 @@ func (e *unchangedEnv) set(item, shown string, hidden int) {
 }
 
 // get asks for target and wants a render of it.
-func (e *unchangedEnv) get(t *testing.T, target string) {
+func (e *samePageEnv) get(t *testing.T, target string) {
 	t.Helper()
 	if w := get(e.s, target); w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("%s: %d %s, want a render", target, w.Code, w.Header().Get("X-Tifa-Render"))
 	}
 }
 
-// A page rendered again because its data changed counts as unchanged when the part of it that shows,
+// A page rendered again because its data changed counts in SamePage when the part of it that shows,
 // everything before the scripts of the router, is the same as the last render of that URL. A URL
 // seen for the first time, a page that shows something else, and an error page do not count.
-func TestTheMemoCountsThePagesThatCameOutUnchanged(t *testing.T) {
-	e := newUnchangedEnv(t, nil)
+func TestTheMemoCountsTheRendersThatGaveTheSamePage(t *testing.T) {
+	e := newSamePageEnv(t, nil)
 	e.set("a", "Mug", 0)
 	e.set("b", "Pot", 0)
-	unchanged := func(want uint64) {
+	samePage := func(want uint64) {
 		t.Helper()
 		got := e.s.Stats().Memo
-		if got.Routes["/items/{item}"].Unchanged != want || got.Unchanged != want {
-			t.Errorf("unchanged %+v, want %d", got, want)
+		if got.Routes["/items/{item}"].SamePage != want || got.SamePage != want {
+			t.Errorf("same page %+v, want %d", got, want)
 		}
 	}
 	e.get(t, "/items/a") // seen for the first time
-	unchanged(0)
+	samePage(0)
 	e.set("", "", 1)
 	e.get(t, "/items/a") // the data changed, the page did not
-	unchanged(1)
+	samePage(1)
 	e.set("a", "Big mug", 1)
 	e.get(t, "/items/a") // the page changed
-	unchanged(1)
+	samePage(1)
 	e.get(t, "/items/b")
-	unchanged(1)
+	samePage(1)
 	e.set("", "", 1)
 	e.get(t, "/items/a")
 	e.get(t, "/items/b")
-	unchanged(3)
+	samePage(3)
 	if w := get(e.s, "/items/b"); w.Header().Get("X-Tifa-Render") != "memo" {
 		t.Errorf("the same data again: %s", w.Header().Get("X-Tifa-Render"))
 	}
@@ -210,7 +210,7 @@ func TestTheMemoCountsThePagesThatCameOutUnchanged(t *testing.T) {
 			t.Fatalf("/gone: %d", w.Code)
 		}
 	}
-	unchanged(3)
+	samePage(3)
 	if r := e.s.Stats().Memo.Routes["/gone"]; r != (tifa.MemoRouteStats{Misses: 3}) {
 		t.Errorf("/gone: %+v", r)
 	}
@@ -219,19 +219,19 @@ func TestTheMemoCountsThePagesThatCameOutUnchanged(t *testing.T) {
 // The last render of a URL is of that URL in its language: the same page in another language is
 // another URL, seen for the first time.
 func TestTheMemoComparesAPageWithItsOwnLanguage(t *testing.T) {
-	e := newUnchangedEnv(t, &I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}, SiteURL: "https://a.example.com"})
+	e := newSamePageEnv(t, &I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}, SiteURL: "https://a.example.com"})
 	e.set("a", "Mug", 0)
 	e.get(t, "/items/a")
 	e.set("", "", 1)
 	e.get(t, "/en-US/items/a")
 	if got := e.s.Stats().Memo.Routes["/items/{item}"]; got != (tifa.MemoRouteStats{Misses: 2}) {
-		t.Errorf("%+v, want two misses and nothing unchanged", got)
+		t.Errorf("%+v, want two misses and none with the same page", got)
 	}
 	e.set("", "", 1)
 	e.get(t, "/en-US/items/a")
 	e.get(t, "/items/a")
-	if got := e.s.Stats().Memo.Routes["/items/{item}"]; got != (tifa.MemoRouteStats{Misses: 4, Unchanged: 2}) {
-		t.Errorf("%+v, want four misses and two unchanged", got)
+	if got := e.s.Stats().Memo.Routes["/items/{item}"]; got != (tifa.MemoRouteStats{Misses: 4, SamePage: 2}) {
+		t.Errorf("%+v, want four misses and two with the same page", got)
 	}
 }
 
@@ -252,13 +252,13 @@ func TestTheMemoForgetsTheURLsOfThePagesItDrops(t *testing.T) {
 	}
 	land("k1", "/a", page(7))
 	land("k2", "/a", page(7))
-	if r.unchanged.Load() != 1 || len(c.urls) != 1 {
-		t.Fatalf("%d unchanged, %d URLs", r.unchanged.Load(), len(c.urls))
+	if r.samePage.Load() != 1 || len(c.urls) != 1 {
+		t.Fatalf("%d same pages, %d URLs", r.samePage.Load(), len(c.urls))
 	}
 	land("k2", "/a", page(7)) // the same key again: the data did not change
 	land("k3", "/a", cachedPage{redirect: &ssr.RedirectError{Location: "/b", Status: 308}})
-	if r.unchanged.Load() != 1 {
-		t.Fatalf("%d unchanged after the same key and a redirect", r.unchanged.Load())
+	if r.samePage.Load() != 1 {
+		t.Fatalf("%d same pages after the same key and a redirect", r.samePage.Load())
 	}
 	land("k4", "/b", page(1))
 	land("k5", "/c", page(1)) // the pages of /a go
@@ -266,8 +266,8 @@ func TestTheMemoForgetsTheURLsOfThePagesItDrops(t *testing.T) {
 		t.Fatalf("/a is remembered with its pages gone: %v", c.urls)
 	}
 	land("k6", "/a", page(7))
-	if r.unchanged.Load() != 1 {
-		t.Errorf("%d unchanged: a URL whose pages were dropped counted", r.unchanged.Load())
+	if r.samePage.Load() != 1 {
+		t.Errorf("%d same pages: a URL whose pages were dropped counted", r.samePage.Load())
 	}
 	c.mu.Lock()
 	c.removeLocked("k6")

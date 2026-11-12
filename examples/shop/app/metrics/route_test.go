@@ -17,7 +17,7 @@ func TestGETWritesTheStatsOfTheProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := w.Body.String()
-	for _, line := range []string{"tifa_memo_entries 0\n", "tifa_memo_hits_total 0\n", "tifa_memo_misses_total 0\n", "tifa_memo_shared_total 0\n", "tifa_memo_unchanged_total 0\n", "tifa_memo_evictions_total 0\n", "tifa_renders_total 0\n"} {
+	for _, line := range []string{"tifa_memo_entries 0\n", "tifa_memo_hits_total 0\n", "tifa_memo_misses_total 0\n", "tifa_memo_shared_total 0\n", "tifa_memo_same_page_total 0\n", "tifa_memo_evictions_total 0\n", "tifa_renders_total 0\n"} {
 		if !strings.Contains(body, line) {
 			t.Errorf("the metrics have no %q:\n%s", line, body)
 		}
@@ -32,7 +32,7 @@ func TestGETWritesTheStatsOfTheProgram(t *testing.T) {
 func TestWriteGivesTheMemoOfEachRoute(t *testing.T) {
 	var s tifa.ServerStats
 	s.Memo.Routes = map[string]tifa.MemoRouteStats{
-		"/store/products/{product}": {Hits: 15, Misses: 50, Unchanged: 40},
+		"/store/products/{product}": {Hits: 15, Misses: 50, SamePage: 40},
 		"/store":                    {Hits: 120, Misses: 3, Shared: 1},
 		"":                          {Misses: 2},
 	}
@@ -50,13 +50,13 @@ tifa_memo_route_hits_total{route="/store/products/{product}"} 15
 	for _, line := range []string{
 		`tifa_memo_route_misses_total{route="/store/products/{product}"} 50` + "\n",
 		`tifa_memo_route_shared_total{route="/store"} 1` + "\n",
-		`tifa_memo_route_unchanged_total{route="/store/products/{product}"} 40` + "\n",
+		`tifa_memo_route_same_page_total{route="/store/products/{product}"} 40` + "\n",
 	} {
 		if !strings.Contains(b.String(), line) {
 			t.Errorf("the metrics have no %q:\n%s", line, b.String())
 		}
 	}
-	if n := strings.Count(b.String(), "# TYPE tifa_memo_route_unchanged_total counter\n"); n != 1 {
-		t.Errorf("%d TYPE lines of the unchanged pages by route", n)
+	if n := strings.Count(b.String(), "# TYPE tifa_memo_route_same_page_total counter\n"); n != 1 {
+		t.Errorf("%d TYPE lines of the same pages by route", n)
 	}
 }

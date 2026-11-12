@@ -37,7 +37,7 @@ func write(b *strings.Builder, s tifa.ServerStats) {
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
 	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
-	metric("tifa_memo_unchanged_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.Unchanged))
+	metric("tifa_memo_same_page_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.SamePage))
 	metric("tifa_memo_evictions_total", "counter", "Dropped to make room for another.", float64(s.Memo.Evictions))
 	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
 	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
@@ -53,5 +53,5 @@ func write(b *strings.Builder, s tifa.ServerStats) {
 	byRoute("tifa_memo_route_hits_total", "Answered from an entry, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Hits })
 	byRoute("tifa_memo_route_misses_total", "Rendered by the request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Misses })
 	byRoute("tifa_memo_route_shared_total", "Waited for another request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Shared })
-	byRoute("tifa_memo_route_unchanged_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Unchanged })
+	byRoute("tifa_memo_route_same_page_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.SamePage })
 }

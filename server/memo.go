@@ -23,7 +23,7 @@ type renderMemo struct {
 	order *list.List // of *cached, most recently used first
 	pages map[string]*list.Element
 	// urls holds, by the URL the render saw, the entry of the last render of it that the cache keeps,
-	// for Unchanged (see landLocked). An entry leaves it as it leaves the cache, so it never holds more
+	// for SamePage (see landLocked). An entry leaves it as it leaves the cache, so it never holds more
 	// URLs than the cache holds pages.
 	urls map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
@@ -72,7 +72,7 @@ type cachedPage struct {
 	// redirect is set for a render that the router ended with a redirect: the page is that
 	// redirect and has no HTML.
 	redirect *ssr.RedirectError
-	// shown is the hash of what the page shows (shownHash), for Unchanged. A page with HTML that the
+	// shown is the hash of what the page shows (shownHash), for SamePage. A page with HTML that the
 	// cache keeps has one.
 	shown uint64
 }
@@ -102,9 +102,9 @@ func (p cachedPage) meta() int64 {
 // sums, so a request adds to one count only.
 type routeCounts struct {
 	hits, misses, shared atomic.Uint64
-	// unchanged counts the misses whose page came out the same as the last one of its URL, see
+	// samePage counts the misses whose page came out the same as the last one of its URL, see
 	// landLocked.
-	unchanged atomic.Uint64
+	samePage atomic.Uint64
 }
 
 // route returns the counts of the route with pattern, the Ctx.Pattern of the request, "" for a URL
@@ -124,7 +124,7 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 	c.mu.Unlock()
 	c.routes.Range(func(pattern, counts any) bool {
 		r := counts.(*routeCounts)
-		s := core.MemoRouteStats{Hits: r.hits.Load(), Misses: r.misses.Load(), Shared: r.shared.Load(), Unchanged: r.unchanged.Load()}
+		s := core.MemoRouteStats{Hits: r.hits.Load(), Misses: r.misses.Load(), Shared: r.shared.Load(), SamePage: r.samePage.Load()}
 		if render.Routes == nil {
 			render.Routes = map[string]core.MemoRouteStats{}
 		}
@@ -132,7 +132,7 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 		render.Hits += s.Hits
 		render.Misses += s.Misses
 		render.Shared += s.Shared
-		render.Unchanged += s.Unchanged
+		render.SamePage += s.SamePage
 		return true
 	})
 	return render, used
@@ -191,15 +191,15 @@ func (c *renderMemo) putLocked(key string, page cachedPage) {
 	}
 }
 
-// landLocked stores the page a render of url made under key, as putLocked does, and counts it as
-// unchanged for route when the page the cache keeps of the last render of url has another key, so
+// landLocked stores the page a render of url made under key, as putLocked does, and counts it in
+// samePage of route when the page the cache keeps of the last render of url has another key, so
 // other data, and shows the same. A URL whose pages the cache dropped is seen for the first time.
 // A redirect is not compared and does not become the last render of url.
 func (c *renderMemo) landLocked(key, url string, route *routeCounts, page cachedPage) {
 	if last, ok := c.urls[url]; ok && page.redirect == nil {
 		was := last.Value.(*cached)
 		if was.key != key && was.page.shown == page.shown {
-			route.unchanged.Add(1)
+			route.samePage.Add(1)
 		}
 	}
 	c.putLocked(key, page)

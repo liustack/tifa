@@ -227,7 +227,7 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
 	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
-	metric("tifa_memo_unchanged_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.Unchanged))
+	metric("tifa_memo_same_page_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.SamePage))
 	metric("tifa_memo_evictions_total", "counter", "Dropped to make room for another.", float64(s.Memo.Evictions))
 	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
 	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
@@ -241,7 +241,7 @@ func GET(c *tifa.Ctx) error {
 	byRoute("tifa_memo_route_hits_total", "Answered from an entry, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Hits })
 	byRoute("tifa_memo_route_misses_total", "Rendered by the request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Misses })
 	byRoute("tifa_memo_route_shared_total", "Waited for another request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Shared })
-	byRoute("tifa_memo_route_unchanged_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Unchanged })
+	byRoute("tifa_memo_route_same_page_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.SamePage })
 	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, err := io.WriteString(c.Writer(), b.String())
 	return err
@@ -263,7 +263,7 @@ What to read, and what to change:
 | `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
 | Hits low next to misses, `tifa_memo_evictions_total` grows, `tifa_memo_bytes` near `tifa_memo_size_bytes` | The render memo drops pages before they are asked for again | A larger `ssr.memo_size` |
 | `tifa_memo_route_hits_total` of one route low next to its misses, and no evictions | Its URLs do not come back, or the data its page shows changes between requests | See which in [Counts by route](memo.md#counts-by-route) |
-| `tifa_memo_route_unchanged_total` of a route grows with its misses | Its page renders again and comes out the same: its data changed in a part the page does not show | Return from the `Load` only what the page shows, and look at the Layout above it when many routes grow at once ([Counts by route](memo.md#counts-by-route)) |
+| `tifa_memo_route_same_page_total` of a route grows with its misses | Its page renders again and comes out the same: its data changed in a part the page does not show | Return from the `Load` only what the page shows, and look at the Layout above it when many routes grow at once ([Counts by route](memo.md#counts-by-route)) |
 
 ## After a deploy
 
