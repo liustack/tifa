@@ -34,6 +34,9 @@
 #   PROBE=1           search the rate of Next.js again and write it into
 #                     test/compare/rates.json (else the file is used, and a run whose
 #                     conditions differ from the file is refused)
+#   ANNOUNCE          a folder in which the run leaves a file named by its pid while it      none
+#                     waits for or runs a round, for a machine whose other work starts
+#                     nothing new while a timing run is announced there
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 75s
 #                     long a closed round takes
@@ -182,6 +185,7 @@ do_run() {
   # The tool takes the lock files itself, around each server it starts, first listed first.
   local locks=(${LOCKS:-})
   if [ ${#locks[@]} -gt 0 ]; then cmd+=(-locks "$(IFS=,; echo "${locks[*]}")"); fi
+  [ -n "${ANNOUNCE:-}" ] && cmd+=(-announce "$ANNOUNCE")
   "${cmd[@]}" >/dev/null 2> >(tee -a "$out/browse.log" >&2)
   do_report
 }
