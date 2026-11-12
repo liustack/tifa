@@ -43,7 +43,7 @@ func TestTheProductListIsCountedBySearchFilterAndTheRest(t *testing.T) {
 	}
 	d := handDeps()
 	d.Query[storeList] = []string{"category", "color", "page", "q", "sort"}
-	got, err := handWorkload(plans, nil).Expect(d, nil, expectSpan{0, len(plans), true})
+	got, err := handWorkload(plans, nil).Expect(d, startStock{}, expectSpan{0, len(plans), true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestEveryCheckoutOfThePlansTakesAProductOfTheMenu(t *testing.T) {
 	w := siteWorkload(t, 1, 2, "shop")
 	checkouts := 0
 	for seq := range w.cycleLen() {
-		for _, e := range versionEffects(w.Seed, w.stockOf(seq, 1)[0]) {
+		for _, e := range versionEffects(w.Seed, w.stockOf(seq, 1)[0], nil) {
 			if e.Kind != WriteCheckout {
 				continue
 			}

@@ -227,24 +227,54 @@ func TestTheFileLeavesOutThePartsAPriceOrAStockDecides(t *testing.T) {
 	}
 }
 
-// A list page shows the range of the prices of the whole catalogue, so a price edit changes it, and it
-// shows what the Layout shows on every page. Neither needs an entry of the file.
-func TestEveryListDependsOnThePriceOfEveryProduct(t *testing.T) {
-	d := &StoreDeps{Common: []string{"ceramic-cup"}, Pages: map[string][]string{}}
+// A list page shows what the Layout shows on every page, with no entry of the file. What else it
+// shows the model works out as the writes come (decidedParts, listShown).
+func TestAListHasTheKeysOfWhatEveryPageShows(t *testing.T) {
+	d := &StoreDeps{Common: []string{"ceramic-cup", "spice-tin:p", "wool-throw:pl", "oak-tray:pf"}, Pages: map[string][]string{}}
+	want := []string{priceKey("ceramic-cup"), stockKey("ceramic-cup"), priceKey("spice-tin"), priceKey("wool-throw"), lowKey("wool-throw"), priceKey("oak-tray"), flagKey("oak-tray")}
 	for _, list := range []string{"/store/products?sort=price-desc", "/zh-CN/store/products?q=no-such-word", "/store/products"} {
-		keys, ok := d.pageKeys(list)
-		if !ok {
-			t.Fatalf("no keys for %s", list)
+		if keys, ok := d.pageKeys(list); !ok || !slices.Equal(keys, want) {
+			t.Errorf("%s has the keys %v, want %v", list, keys, want)
 		}
-		for _, r := range storeCatalogue().records {
-			if !slices.Contains(keys, priceKey(r.Slug)) {
-				t.Errorf("%s does not depend on the price of %s", list, r.Slug)
-				break
-			}
+	}
+}
+
+// A dependency names the most a page has of the stock of a product, and what every page has of a
+// product is what all of them share.
+func TestTheFieldsOfADependency(t *testing.T) {
+	for _, tc := range []struct{ seen, want string }{
+		{"p", "slug:p"}, {"psf", "slug"}, {"fsp", "slug"}, {"plf", "slug:pl"}, {"pf", "slug:pf"}, {"lf", "slug:l"}, {"f", "slug:f"}, {"pp", "slug:p"}, {"", ""},
+	} {
+		if got := depOf("slug", tc.seen); got != tc.want {
+			t.Errorf("the fields %q are written %q, want %q", tc.seen, got, tc.want)
 		}
-		if !slices.Contains(keys, stockKey("ceramic-cup")) {
-			t.Errorf("%s does not depend on the stock of a product the Layout shows", list)
+		if tc.want == "" {
+			continue
 		}
+		if slug, fields := fieldsOf(tc.want); slug != "slug" || fields != canonFields(tc.seen) {
+			t.Errorf("%q reads as %s with %q", tc.want, slug, fields)
+		}
+	}
+	for _, tc := range []struct{ a, b, want string }{
+		{"p", "pl", "p"}, {"pl", "pl", "pl"}, {"ps", "pl", "pl"}, {"pl", "pf", "pf"}, {"s", "p", ""}, {"p", "", ""},
+	} {
+		if got := sharedFields(tc.a, tc.b); got != tc.want {
+			t.Errorf("%q and %q share %q, want %q", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// productsIn reads what the data of a page has of each product from the names of its fields.
+func TestProductsInReadsTheFieldsOfAProduct(t *testing.T) {
+	var data any
+	if err := json.Unmarshal([]byte(`{"menu":[{"slug":"a","priceCents":1}],"cards":[{"slug":"b","priceCents":1,"inStock":true,"lowStock":0},{"slug":"a","name":"x"}],
+		"tiles":[{"slug":"c","priceCents":1,"inStock":false}],"old":{"slug":"d","priceCents":1,"inStock":true,"stock":7},"reviews":[{"product":{"slug":"e","name":"y"}}]}`), &data); err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{}
+	productsIn(data, found)
+	if got, want := depList(found), []string{"a:p", "b:pl", "c:pf", "d"}; !slices.Equal(got, want) {
+		t.Errorf("the data shows %v, want %v", got, want)
 	}
 }
 
@@ -265,11 +295,11 @@ func TestTheFileOfTheDepsIsTheOneOfThisCheckout(t *testing.T) {
 	}
 	lists := 0
 	public, _ := CrawlURLs()
-	m := newVersionModel(d, nil)
+	m := newVersionModel(d, startStock{})
 	for _, u := range slices.Concat(StoreVisitPages(), public) {
 		if _, kind := StorePageKind(u); kind == StoreKindList {
 			lists++
-			if _, err := m.stampOf(u); err != nil {
+			if _, err := m.versionOf(u); err != nil {
 				t.Errorf("%s: %v", u, err)
 			}
 		}
@@ -296,7 +326,7 @@ func TestAFileOfTheDepsMadeFromOtherSourcesIsRefused(t *testing.T) {
 		"sources": func(d *StoreDeps) { d.Sources = "0000000000000000" },
 		"urls":    func(d *StoreDeps) { d.URLs = "0000000000000000" },
 		"a page":  func(d *StoreDeps) { delete(d.Pages, d.RenderURL("/store")) },
-		"a list":  func(d *StoreDeps) { d.Pages["/store/products?sort=newest"] = []string{"*:p"} },
+		"a list":  func(d *StoreDeps) { d.Pages["/store/products?sort=newest"] = []string{"ceramic-cup:p"} },
 	} {
 		c := *d
 		c.Pages = map[string][]string{}

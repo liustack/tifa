@@ -155,7 +155,7 @@ func TestExpectCountsADocumentThatAClickAsks(t *testing.T) {
 	w.Traces[4] = browserTrace(plans[4], 2)
 	add, co := checkout(4)
 	w.Writes = map[[2]int]PlannedWrite{{4, 0}: add, {4, 1}: co}
-	got, err := w.Expect(handDeps(), nil, expectSpan{0, len(plans), true})
+	got, err := w.Expect(handDeps(), startStock{}, expectSpan{0, len(plans), true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestExpectFailsForAPlanWithoutTheTraceOfItsPageViews(t *testing.T) {
 	plans := []Plan{{ID: 7, Role: RoleShopper, Steps: []PlanStep{{Kind: StepLoad, Page: "/store"}, {Kind: StepClick, Page: "/store/products?sort=newest"}}}}
 	w := handWorkload(plans, nil)
 	w.Traces = map[int]Trace{7: {Plan: 7, Steps: browserTrace(plans[0]).Steps[:1]}}
-	if _, err := w.Expect(handDeps(), nil, expectSpan{0, 1, true}); err == nil || !strings.Contains(err.Error(), "plan 7") {
+	if _, err := w.Expect(handDeps(), startStock{}, expectSpan{0, 1, true}); err == nil || !strings.Contains(err.Error(), "plan 7") {
 		t.Errorf("error %v, want one that names the plan", err)
 	}
 }

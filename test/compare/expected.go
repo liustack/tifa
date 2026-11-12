@@ -118,17 +118,17 @@ func (w *Workload) docSteps(p Plan) ([]bool, error) {
 }
 
 // Expect works out the expected hits of the spans, played one after the other from nothing seen and
-// the data as it is at the start: the catalogue, with the stock the restock before the clock gave
-// (restocked, by slug: runner.restocked). It fails for a page the dependencies (store_deps.json) have no
-// entry for, which means the file is not the one of these plans.
-func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expectSpan) (*Expectation, error) {
+// the data as it is at the start: the catalogue, with the stock the clock starts with (start: what the
+// restock gave, less what the orders of the ships took). It fails for a page the dependencies
+// (store_deps.json) have no entry for, which means the file is not the one of these plans.
+func (w *Workload) Expect(d *StoreDeps, start startStock, spans ...expectSpan) (*Expectation, error) {
 	e := &Expectation{human: map[[2]int]docClass{}, crawl: map[int]docClass{}}
-	m := newVersionModel(d, restocked)
+	m := newVersionModel(d, start)
 	// A page's data is as old as the last change of anything it shows (a page changes when one of them
-	// changed since it was last asked for), and lastSeen is that time as of the last document.
-	lastSeen := map[string]int{}
+	// changed since it was last asked for), and lastSeen is its version as of the last document.
+	lastSeen := map[string]pageVersion{}
 	doc := func(page string) (docClass, error) {
-		at, err := m.stampOf(page)
+		at, err := m.versionOf(page)
 		if err != nil {
 			return 0, err
 		}
@@ -169,7 +169,7 @@ func (w *Workload) Expect(d *StoreDeps, restocked map[string]int, spans ...expec
 			if err != nil {
 				return nil, err
 			}
-			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0])
+			effects := versionEffects(w.Seed, w.stockOf(k, 1)[0], m.target)
 			// The page of a step is the one the replay asks for: without the landing parameter, which no
 			// render sees, and with the word of the visit where the plan holds the placeholder of a search
 			// for a word of its own, which is a page no other visit asks for.
@@ -253,7 +253,12 @@ func (r *runner) expectRound(round *Round, visits, seq0 int) {
 		spans = append(spans, expectSpan{r.prepared, r.warm, false})
 	}
 	spans = append(spans, expectSpan{seq0, visits, true})
-	e, err := r.wl.Expect(r.deps, r.restocked, spans...)
+	// The orders of the ships are placed before the clock for the visits the data is made for (setup).
+	made := visits
+	if seq0 == 0 {
+		made = max(visits, r.prepared+r.warm)
+	}
+	e, err := r.wl.Expect(r.deps, startStock{r.restocked, r.wl.shipTakes(seq0, made)}, spans...)
 	if err != nil {
 		round.ExpectedError = err.Error()
 		return

@@ -333,8 +333,9 @@ var (
 // TestTheListModelIsTheListOfTheShop asks a shop that runs for lists drawn from a seed, and for the
 // fixed lists of the checks, in both languages, and requires of each that the model has what the shop
 // answers: the products of the page and the best rated ones below it, in order, the number of products
-// and of pages, the page shown, the sort, what every filter can still choose from (the navigation data
-// of the page), and the links of the page, in order (the <a href> of the HTML inside the main element).
+// and of pages, the page shown, the sort, what every filter can still choose from, the price bands and
+// the dearest price (the navigation data of the page), and the links of the page, in order (the
+// <a href> of the HTML inside the main element).
 func TestTheListModelIsTheListOfTheShop(t *testing.T) {
 	env := depsEnv(t)
 	ctx := context.Background()
@@ -475,6 +476,9 @@ func TestTheListModelIsTheListOfTheShop(t *testing.T) {
 		}
 		if !slices.Equal(bands, want.Bands) {
 			t.Errorf("%s: the price bands of the shop are %v, of the model %v", u, bands, want.Bands)
+		}
+		if number(got, "priceMax") != want.PriceMax {
+			t.Errorf("%s: the dearest price of the shop is %d, of the model %d", u, number(got, "priceMax"), want.PriceMax)
 		}
 
 		res, err := http.Get(server.Base + u)

@@ -77,6 +77,20 @@ func (w *Workload) stockOf(seq0, n int) []VisitWrites {
 	return out
 }
 
+// shipTakes is the pieces the orders of the ships of visits seq0 to seq0+n-1 take from the stock of
+// the storefront, by slug: those orders are placed before the clock (setupOrders), after the restock.
+func (w *Workload) shipTakes(seq0, n int) map[string]int {
+	out := map[string]int{}
+	for _, v := range w.stockOf(seq0, n) {
+		for _, t := range takesOf(w.Seed, v) {
+			if t.kind == WriteShip && t.project == storefrontShop {
+				out[t.slug] += t.pieces
+			}
+		}
+	}
+	return out
+}
+
 // placesOrder says whether a write of the back office of a kind places an order: a create, and a ship,
 // whose order setupOrders places before the clock. An edit of a product places none.
 func placesOrder(kind string) bool { return kind == WriteCreate || kind == WriteShip }

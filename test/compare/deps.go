@@ -38,7 +38,8 @@ import (
 // pieces from the stock, and staff change a price or a stock). store_deps.json says, for each URL a
 // visit can land on and each URL of a crawler, which products it shows and which of their fields. The
 // parts of a page whose products a price or a stock decides (decidedParts) are left out of it: the model
-// of the versions works those out as the writes come (versionModel in versions.go). The pages of the
+// of the versions works those out as the writes come (versionModel in versions.go), and the file says
+// only which fields a product in each of them has (Decided). The pages of the
 // product list are left out whole: a search, filters, a sort and a page make more URLs than a file can
 // hold, and the list model works out what any of them shows (store_list.go, pageKeys). Make
 // it again with `compare deps` after the pages, the catalogue or the URLs change. It carries a hash of
@@ -48,17 +49,29 @@ import (
 //go:embed store_deps.json
 var storeDepsJSON []byte
 
-// allProducts stands in a dependency for every product of the catalogue: "*:p" is all the prices, and
-// "*:f" whether each product is in stock.
-const allProducts = "*"
-
-// A dependency is written "slug" for the price and the stock of a product, "slug:p" for its price alone
-// and "slug:s" for its stock alone. "f" is whether a product is in stock at all, which only "*:f" names.
+// A dependency names a product and what a page has of it, one letter for each: "slug:p" for its price,
+// "slug:pl" for its price and what a card says of its stock, and so on. "slug" alone is the price and
+// the pieces in stock ("slug:ps").
+//
+//   - p: the price.
+//   - s: the pieces in stock, which every sale changes.
+//   - l: what a card says of the stock, which is less: sold out, the pieces when few are left (lowStock
+//     or fewer), or in stock, the same for any number above. A sale of a product in good supply does
+//     not change it.
+//   - f: whether the product is in stock at all.
+//
+// The pieces say all that the other two say, and what a card says holds whether the product is in
+// stock, so a dependency names the most a page has (canonFields).
 const (
 	depPrice = "p"
 	depStock = "s"
+	depLow   = "l"
 	depFlag  = "f"
 )
+
+// lowStock is the most pieces left that a card of the shop counts (lowStock in
+// examples/shop/app/store/products/product.go).
+const lowStock = 10
 
 // StoreDeps is the content of store_deps.json.
 type StoreDeps struct {
@@ -74,6 +87,10 @@ type StoreDeps struct {
 	// it has the common ones and what the list model works out for it.
 	Common []string            `json:"common"`
 	Pages  map[string][]string `json:"pages"`
+	// Decided is, for each part of a page whose products a price or a stock decides (decidedParts), the
+	// fields a product in it has, as the letters of a dependency. A file with none is one of a shop
+	// whose cards hold the price and the pieces in stock.
+	Decided map[string]string `json:"decided,omitempty"`
 	// Build is the build of the shop the file was made from.
 	Build BuildInfo `json:"build"`
 }
@@ -387,18 +404,23 @@ func parseStoreDeps(data []byte) (*StoreDeps, error) {
 }
 
 // productsIn finds the products a JSON value shows, and what of them: an object with a slug and a price
-// shows the price, with a slug and a stock the stock.
+// (priceCents) shows the price, with the pieces (stock) the pieces, with the pieces when few are left
+// (lowStock) what a card says of the stock, and with inStock whether it is in stock.
 func productsIn(v any, found map[string]string) {
 	switch x := v.(type) {
 	case map[string]any:
 		if slug, ok := x["slug"].(string); ok {
-			_, price := x["priceCents"].(float64)
-			_, stock := x["stock"].(float64)
-			if price {
+			if _, ok := x["priceCents"].(float64); ok {
 				found[slug] += depPrice
 			}
-			if stock {
+			if _, ok := x["stock"].(float64); ok {
 				found[slug] += depStock
+			}
+			if _, ok := x["lowStock"].(float64); ok {
+				found[slug] += depLow
+			}
+			if _, ok := x["inStock"].(bool); ok {
+				found[slug] += depFlag
 			}
 		}
 		for _, e := range x {
@@ -411,40 +433,93 @@ func productsIn(v any, found map[string]string) {
 	}
 }
 
-// canonFields is the fields of a product as a set, written price first: a product shown in two places is // seen with the same fields, however often.
+// canonFields is the fields of a product as a set, written price first: a product shown in two places
+// is seen with the same fields, however often. Of what it has of the stock only the most is kept: the
+// pieces, or else what a card says, or else whether it is in stock.
 func canonFields(f string) string {
 	out := ""
 	if strings.Contains(f, depPrice) {
 		out += depPrice
 	}
-	if strings.Contains(f, depStock) {
+	switch {
+	case strings.Contains(f, depStock):
 		out += depStock
-	}
-	if strings.Contains(f, depFlag) {
+	case strings.Contains(f, depLow):
+		out += depLow
+	case strings.Contains(f, depFlag):
 		out += depFlag
 	}
 	return out
+}
+
+// allFields is the fields of a product with those they imply: the pieces say what a card says of the
+// stock, and that says whether the product is in stock.
+func allFields(f string) string {
+	if strings.Contains(f, depStock) {
+		f += depLow
+	}
+	if strings.Contains(f, depLow) {
+		f += depFlag
+	}
+	return f
+}
+
+// sharedFields is the fields that both a and b have or imply.
+func sharedFields(a, b string) string {
+	a, b = allFields(a), allFields(b)
+	out := ""
+	for _, f := range []string{depPrice, depStock, depLow, depFlag} {
+		if strings.Contains(a, f) && strings.Contains(b, f) {
+			out += f
+		}
+	}
+	return canonFields(out)
+}
+
+// depOf writes a product and its fields as a dependency, "" for no field.
+func depOf(slug, fields string) string {
+	switch fields = canonFields(fields); fields {
+	case "":
+		return ""
+	case depPrice + depStock:
+		return slug
+	}
+	return slug + ":" + fields
+}
+
+// fieldsOf reads a dependency: the product and its fields.
+func fieldsOf(dep string) (slug, fields string) {
+	slug, fields, has := strings.Cut(dep, ":")
+	if !has {
+		return slug, depPrice + depStock
+	}
+	return slug, fields
+}
+
+// fieldKeys are the version keys of the fields of a product.
+func fieldKeys(slug, fields string) []string {
+	var keys []string
+	for _, f := range fields {
+		switch string(f) {
+		case depPrice:
+			keys = append(keys, priceKey(slug))
+		case depStock:
+			keys = append(keys, stockKey(slug))
+		case depLow:
+			keys = append(keys, lowKey(slug))
+		case depFlag:
+			keys = append(keys, flagKey(slug))
+		}
+	}
+	return keys
 }
 
 // depList writes what a page shows of its products as dependencies, in order.
 func depList(found map[string]string) []string {
 	out := []string{}
 	for slug, fields := range found {
-		if slug == allProducts {
-			for _, f := range []string{depPrice, depFlag} {
-				if strings.Contains(fields, f) {
-					out = append(out, slug+":"+f)
-				}
-			}
-			continue
-		}
-		switch {
-		case strings.Contains(fields, depPrice) && strings.Contains(fields, depStock):
-			out = append(out, slug)
-		case strings.Contains(fields, depPrice):
-			out = append(out, slug+":"+depPrice)
-		case strings.Contains(fields, depStock):
-			out = append(out, slug+":"+depStock)
+		if dep := depOf(slug, fields); dep != "" {
+			out = append(out, dep)
 		}
 	}
 	slices.Sort(out)
@@ -454,11 +529,33 @@ func depList(found map[string]string) []string {
 // collectStoreDeps asks the server at base (a Tifa with its memo off, with the data it starts with) for
 // the data of each URL the way the browser router does, with the build ID of the build, and makes the
 // dependencies of the pages. The keep table is the one RenderURL uses. A page of the product list is
-// none of its URLs: the list model works those out.
+// none of its URLs: the list model works those out, and one list is asked for (listProbe) only to see
+// which fields the products of a list have.
 func collectStoreDeps(ctx context.Context, base, buildID string, query map[string][]string, urls []string) (*StoreDeps, error) {
-	d := &StoreDeps{Query: query, Pages: map[string][]string{}}
+	d := &StoreDeps{Query: query, Pages: map[string][]string{}, Decided: map[string]string{}}
 	found := map[string]map[string]string{}
 	var common map[string]string
+	// decided takes the parts of the data of the route of u whose products a price or a stock decides
+	// out of it, and notes which fields their products have: the same for every product of a part, on
+	// every page, since the model takes them from the file.
+	decided := func(u string, data any) error {
+		fields, ok := data.(map[string]any)
+		for _, part := range decidedParts(u) {
+			if _, has := fields[part]; !ok || !has {
+				return fmt.Errorf("GET %s: the data of %s has no %s", u, routeOf(u), part)
+			}
+			in := map[string]string{}
+			productsIn(fields[part], in)
+			for slug, has := range in {
+				if was, seen := d.Decided[part]; seen && was != canonFields(has) {
+					return fmt.Errorf("GET %s: %s has the fields %q of %s and %q of another product", u, part, canonFields(has), slug, was)
+				}
+				d.Decided[part] = canonFields(has)
+			}
+			delete(fields, part)
+		}
+		return nil
+	}
 	for _, u := range urls {
 		if _, kind := StorePageKind(u); kind == StoreKindList {
 			return nil, fmt.Errorf("%s is a page of the product list, which the list model works out", u)
@@ -474,12 +571,8 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 			}
 			if id == routeOf(u) {
 				// The parts whose products a price or a stock decides are the model's (versionModel).
-				fields, ok := r.Data.(map[string]any)
-				for _, part := range decidedParts(u) {
-					if _, has := fields[part]; !ok || !has {
-						return nil, fmt.Errorf("GET %s: the data of %s has no %s", u, id, part)
-					}
-					delete(fields, part)
+				if err := decided(u, r.Data); err != nil {
+					return nil, err
 				}
 			}
 			productsIn(r.Data, page)
@@ -502,12 +595,22 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 				common[k] = v
 			}
 		} else {
+			// What every page has of a product is what this one and the others before it have of it.
 			for k, v := range common {
-				if page[k] != v {
+				if common[k] = sharedFields(v, page[k]); common[k] == "" {
 					delete(common, k)
 				}
 			}
 		}
+	}
+	data, err := fetchData(ctx, base, buildID, listProbe)
+	if err != nil {
+		return nil, err
+	}
+	if r := data.Routes[routeOf(listProbe)]; r.Status != 200 {
+		return nil, fmt.Errorf("GET %s: the data of the list has status %d", listProbe, r.Status)
+	} else if err := decided(listProbe, r.Data); err != nil {
+		return nil, err
 	}
 	d.Common = depList(common)
 	for key, page := range found {
@@ -521,6 +624,9 @@ func collectStoreDeps(ctx context.Context, base, buildID string, query map[strin
 	}
 	return d, nil
 }
+
+// listProbe is the list that collectStoreDeps asks for to see the fields of the products of a list.
+const listProbe = "/store/products"
 
 // WriteStoreDeps starts the shop with its render memo off and the data it starts with, makes
 // store_deps.json for it and writes it to out. It refuses a build of the shop that is not the one the
@@ -592,7 +698,11 @@ func marshalStoreDeps(d *StoreDeps) ([]byte, error) {
 	for i, r := range routes {
 		fmt.Fprintf(&b, "  %s: %s%s\n", line(r), line(d.Query[r]), comma(i, len(routes)))
 	}
-	fmt.Fprintf(&b, " },\n \"common\": %s,\n \"pages\": {\n", line(d.Common))
+	b.WriteString(" },\n")
+	if len(d.Decided) > 0 {
+		fmt.Fprintf(&b, " \"decided\": %s,\n", line(d.Decided))
+	}
+	fmt.Fprintf(&b, " \"common\": %s,\n \"pages\": {\n", line(d.Common))
 	keys := slices.Sorted(maps.Keys(d.Pages))
 	for i, k := range keys {
 		fmt.Fprintf(&b, "  %s: %s%s\n", line(k), line(d.Pages[k]), comma(i, len(keys)))

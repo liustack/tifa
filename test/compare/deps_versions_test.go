@@ -109,12 +109,13 @@ func versionLists() (urls []string, counts []string) {
 //     storefront fails, to have the model made tighter. This share is of the writes picked here, one
 //     pair for each page and write: it is not weighted by the traffic and is no error of the hit rate.
 //     The tenth is of the pages the file has and the lists it had (those of the landings and of the
-//     crawlers). The other lists are counted apart, by class (ListClass), and printed: every list
-//     depends on the price of every product, since it shows the range of all the prices, so a price
-//     edit changes the version of a list of a search that shows nothing of that product.
-//   - A write that sets the value a product has, or puts back an earlier one, changes the version and
-//     not the data, or brings back data seen before. The model counts writes and does not look at the
-//     values, so the expected rate is low for them. They are counted apart and do not fail.
+//     crawlers). The other lists are counted apart, by class (ListClass), and printed.
+//   - A write that sets the price a product has, or puts back an earlier one, changes the version and
+//     not the data, or brings back data seen before. The model counts the writes of a price and does
+//     not look at the values, so the expected rate is low for them. They are counted apart and do not
+//     fail. The stock is not counted so: the model follows the pieces of every product, and a page
+//     changes when what it has of the stock does (the pieces, what a card says of them, or whether
+//     any are left). What a list shows of all the products goes by its value too (listShown).
 //
 // The pages of the back office follow a rule that changes all of both shops at once (versions.go), so
 // the pairs it changes in vain are printed with their share and do not fail: how low that makes their
@@ -240,7 +241,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		checkout := StoreRequest{Kind: WriteCheckout, Method: "POST", Path: "/store/checkout", Body: []byte(storeOrder("en-US")), Status: 303}
 		v.Writes = append(v.Writes, PlannedWrite{After: 2, Seq: 100 + buys, Kind: WriteCheckout, Store: &checkout})
 		visits = append(visits, v)
-		steps = append(steps, versionStep{name: name, kind: "a checkout", effects: versionEffects(seed, v), changes: changes, do: func() {
+		steps = append(steps, versionStep{name: name, kind: "a checkout", effects: versionEffects(seed, v, nil), changes: changes, do: func() {
 			jar, _ := cookiejar.New(nil)
 			visitor := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			for _, a := range adds {
@@ -255,7 +256,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		v := VisitWrites{Writes: []PlannedWrite{create}}
 		visits = append(visits, v)
 		var created string
-		steps = append(steps, versionStep{name: fmt.Sprintf("order %d placed by staff", seq), kind: "an order placed by staff", effects: versionEffects(seed, v), do: func() {
+		steps = append(steps, versionStep{name: fmt.Sprintf("order %d placed by staff", seq), kind: "an order placed by staff", effects: versionEffects(seed, v, nil), do: func() {
 			var placed struct {
 				ID string `json:"id"`
 			}
@@ -267,7 +268,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		// The order of a ship took its pieces when it was placed (in a run, before the clock), so the ship
 		// changes the back office alone.
 		ship := VisitWrites{Writes: []PlannedWrite{{After: 0, Seq: seq, Kind: WriteShip, Project: "studio"}}}
-		steps = append(steps, versionStep{name: fmt.Sprintf("the ship of order %d", seq), kind: "a ship", effects: versionEffects(seed, ship), do: func() {
+		steps = append(steps, versionStep{name: fmt.Sprintf("the ship of order %d", seq), kind: "a ship", effects: versionEffects(seed, ship, nil), do: func() {
 			send(staff, "POST", "/projects/studio/orders/"+created, mustJSON(AdminBody(seed, seq, 0, WriteShip, "studio")), 200)
 		}})
 	}
@@ -276,7 +277,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	prices := byPrice()
 	dearest, cheapest := rec(prices[0]), rec(prices[len(prices)-1])
 	var offSale, lastPick, nextPick, inRange, soldOut storeRecord
-	start := newVersionModel(d, nil)
+	start := newVersionModel(d, startStock{})
 	for _, r := range storeCatalogue().records {
 		if r.CompareFen > 0 && r.Stock > 0 && !slices.Contains(start.sold(), r.Slug) && offSale.Slug == "" {
 			offSale = r
@@ -313,19 +314,24 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	{
 		// An add puts a product in the cart of the visitor, which no shared page shows.
 		add := storeAdd(rand.New(rand.NewPCG(1, 2)), "/store", pageProduct("/store/products/walnut-pen"))
-		steps = append(steps, versionStep{name: "an add to the cart", kind: "an add to the cart", effects: versionEffects(seed, VisitWrites{Writes: []PlannedWrite{{After: 0, Seq: 5, Kind: WriteAdd, Store: &add}}}), do: func() {
+		steps = append(steps, versionStep{name: "an add to the cart", kind: "an add to the cart", effects: versionEffects(seed, VisitWrites{Writes: []PlannedWrite{{After: 0, Seq: 5, Kind: WriteAdd, Store: &add}}}, nil), do: func() {
 			jar, _ := cookiejar.New(nil)
 			send(&http.Client{Jar: jar}, add.Method, add.Path, add.Body, 200)
 		}})
 	}
-	buy("a checkout of walnut-pen", []string{"walnut-pen"}, "/store/products/walnut-pen")
+	// A page gets the pieces of a product only when few are left (lowStock or fewer). So a stock of 11
+	// changes no page that showed the pen in good supply, each checkout from there on changes its page,
+	// and a checkout of products in good supply (the cart every visitor starts with) changes none.
+	edit("11 of walnut-pen left", "walnut-pen", nil, intp(lowStock+1), false)
+	buy("a checkout of walnut-pen, which leaves few", []string{"walnut-pen"}, "/store/products/walnut-pen")
+	buy("a checkout of walnut-pen with few left", []string{"walnut-pen"}, "/store/products/walnut-pen")
 	buy("a checkout of linen-apron and oak-tray", []string{"linen-apron", "oak-tray"}, "/store/products/oak-tray")
 
 	// A product with a sale price that is not on the home comes onto its sale when it is made the dearest,
-	// and onto the first page of the list by price. From then on its stock is on those pages: an edit of
-	// it and an order change them. Its price put back takes it off again.
+	// and onto the first page of the list by price. From then on what a card says of its stock is on those
+	// pages: an edit that leaves few of it and an order change them. Its price put back takes it off again.
 	edit("the price of "+offSale.Slug+" (off the sale) to the dearest", offSale.Slug, intp(top), nil, false, slices.Concat(home, byPriceList)...)
-	edit("the stock of "+offSale.Slug+", now on the sale", offSale.Slug, nil, intp(offSale.Stock+400), false, slices.Concat(home, byPriceList)...)
+	edit("few of "+offSale.Slug+" left, now on the sale", offSale.Slug, nil, intp(8), false, slices.Concat(home, byPriceList)...)
 	buy("a checkout of "+offSale.Slug+", now on the sale", []string{offSale.Slug}, slices.Concat(home, byPriceList)...)
 	edit("the price of "+offSale.Slug+" put back", offSale.Slug, intp(offSale.PriceFen), nil, false, slices.Concat(home, byPriceList)...)
 	edit("the price of "+offSale.Slug+" set to what it is", offSale.Slug, intp(offSale.PriceFen), nil, true)
@@ -334,16 +340,18 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	// The same for a product with no sale price: the cheapest, made the second dearest, is on the first
 	// page of the list by price, and off the last.
 	edit("the price of "+cheapest.Slug+" (the cheapest) to the top of the list by price", cheapest.Slug, intp(top-100), nil, false, byPriceList...)
-	edit("the stock of "+cheapest.Slug+", now on the first page by price", cheapest.Slug, nil, intp(cheapest.Stock+300), false, byPriceList...)
-	edit("the stock of "+cheapest.Slug+" set to what it is", cheapest.Slug, nil, intp(cheapest.Stock+300), true)
+	edit("few of "+cheapest.Slug+" left, now on the first page by price", cheapest.Slug, nil, intp(9), false, byPriceList...)
+	edit("the stock of "+cheapest.Slug+" set to what it is", cheapest.Slug, nil, intp(9), true)
 	buy("a checkout of "+cheapest.Slug+", now on the first page by price", []string{cheapest.Slug}, byPriceList...)
 	edit("the price of "+cheapest.Slug+" put back", cheapest.Slug, intp(cheapest.PriceFen), nil, false, byPriceList...)
 
 	// The best rated below every list are the cheaper first among equals: a price brings a product among
-	// them, and then its stock is on every list.
+	// them, and then what a card says of its stock is on every list. A delivery puts it back in good
+	// supply after, for the orders that follow.
 	edit("the price of "+nextPick.Slug+" under the best rated", nextPick.Slug, intp(EditPriceFen[0]), nil, false, "/store/products", "/zh-CN/store/products?sort=newest")
-	edit("the stock of "+nextPick.Slug+", now among the best rated", nextPick.Slug, nil, intp(nextPick.Stock+200), false, "/store/products", "/zh-CN/store/products?sort=newest")
+	edit("few of "+nextPick.Slug+" left, now among the best rated", nextPick.Slug, nil, intp(7), false, "/store/products", "/zh-CN/store/products?sort=newest")
 	edit("the price of "+nextPick.Slug+" put back", nextPick.Slug, intp(nextPick.PriceFen), nil, false, "/store/products")
+	edit("a delivery of "+nextPick.Slug, nextPick.Slug, nil, intp(nextPick.Stock+200), false)
 
 	// A price that leaves the range of a list takes the product off it.
 	var ranged []string
@@ -385,7 +393,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 		if field == "stock" {
 			kind = "an edit of a stock"
 		}
-		steps = append(steps, versionStep{name: fmt.Sprintf("the planned edit %d: %s of %s to %v", seq, field, slug, change[field]), kind: kind, effects: versionEffects(seed, VisitWrites{Writes: []PlannedWrite{w}}), do: func() {
+		steps = append(steps, versionStep{name: fmt.Sprintf("the planned edit %d: %s of %s to %v", seq, field, slug, change[field]), kind: kind, effects: versionEffects(seed, VisitWrites{Writes: []PlannedWrite{w}}, target), do: func() {
 			send(staff, "PATCH", "/projects/studio/products/"+slug, mustJSON(change), 200)
 		}})
 	}
@@ -400,7 +408,7 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	if err := Restock(ctx, server.Base, spec, buildID, need); err != nil {
 		t.Fatal(err)
 	}
-	m := newVersionModel(d, need[storefrontShop])
+	m := newVersionModel(d, startStock{restocked: need[storefrontShop]})
 
 	// shownIn are the products in a part of the data of a page.
 	shownIn := func(u string, body []byte, part string) []string {
@@ -438,8 +446,8 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 			}
 		}
 	}
-	stampOf := func(u string) int {
-		at, err := m.stampOf(u)
+	stampOf := func(u string) pageVersion {
+		at, err := m.versionOf(u)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,13 +455,13 @@ func TestTheDataVersionsFollowTheShop(t *testing.T) {
 	}
 
 	before := snapshot()
-	stamps := map[string]int{}
-	versions := map[string]map[int][32]byte{} // the data a page had at each version it was asked for with
-	earlier := map[string]map[[32]byte]bool{} // every data a page had
+	stamps := map[string]pageVersion{}
+	versions := map[string]map[pageVersion][32]byte{} // the data a page had at each version it was asked for with
+	earlier := map[string]map[[32]byte]bool{}         // every data a page had
 	for _, u := range pages {
 		stamps[u] = stampOf(u)
 		sum := sha256.Sum256(before[u])
-		versions[u] = map[int][32]byte{stamps[u]: sum}
+		versions[u] = map[pageVersion][32]byte{stamps[u]: sum}
 		earlier[u] = map[[32]byte]bool{sum: true}
 		checkParts("after the restock", u, before[u])
 	}

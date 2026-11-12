@@ -223,7 +223,7 @@ func TestExpectCountsTheDocumentsOfTheFormAVisitTakes(t *testing.T) {
 	if want["list, other"] < 5 || want["product"] < 5 {
 		t.Fatalf("the %d visits take the forms %v: too few of one", visits, want)
 	}
-	got, err := w.Expect(handDeps(), nil, expectSpan{0, visits, true})
+	got, err := w.Expect(handDeps(), startStock{}, expectSpan{0, visits, true})
 	if err != nil {
 		t.Fatal(err)
 	}

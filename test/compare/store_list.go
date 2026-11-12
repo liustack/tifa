@@ -307,6 +307,9 @@ type ListPage struct {
 	Badges       []ListFacet
 	Ratings      []ListFacet
 	Bands        []ListBand
+	// PriceMax is the price of the dearest product of the catalogue, in whole units of the currency of
+	// the language, rounded up.
+	PriceMax int
 }
 
 // shopPrices are the prices of the catalogue file in fen and whether each product is in stock there: what
@@ -334,6 +337,9 @@ func modelList(page string, price map[string]int, inStock map[string]bool, picks
 	p := ListPage{Picks: picks}
 	p.Products, p.Total, p.Pages, f.Page = f.cut(f.narrowed(recs), price, inStock)
 	p.Filter = f
+	for _, r := range recs {
+		p.PriceMax = max(p.PriceMax, (centsIn(price[r.Slug], f.Lang)+99)/100)
+	}
 	// passes says, for each filter a count leaves out, which products pass the others: worked out once
 	// for each of them, since every value of a filter counts over the same products.
 	passes := map[string][]bool{}
