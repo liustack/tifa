@@ -11,10 +11,20 @@ package ssr_test
 // time they ran into some pages as RFC 3339 text, so a page that differs only there counts as the same after
 // those times are masked, and the run says how many it masked. Any other difference fails the test and
 // names the URL.
+//
+// Two more settings are for a change to the shop itself, whose build has other scripts and may send
+// other data for pages that must show the same:
+//
+//   - TIFA_SSR_CRAWL_SHOWN=1 compares what a page shows: the script with the data of the router is left
+//     out of both pages, and the names of the scripts and styles of the build are masked.
+//   - TIFA_SSR_CRAWL_STOCK=0,1,10,11,500 sets the stock of the products of the storefront before the
+//     crawl, through the back office as staff do: the first product of the catalogue gets the first
+//     number, the next the second, and so on around the list. One number gives every product that stock.
 
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +32,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -42,6 +53,61 @@ var (
 	// from the Go loaders, which is data of the app.
 	crawlStamp = regexp.MustCompile(`20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
 )
+
+// crawlData matches the script the router writes its data into (the results of the Loads and the build
+// ID), and crawlBuilt the scripts and styles of the build, whose names carry a hash of their content.
+var (
+	crawlData  = regexp.MustCompile(`(?s)<script data-tsr-stream-part="[^"]*">.*?</script>`)
+	crawlBuilt = regexp.MustCompile(`/assets/[A-Za-z0-9_.-]+\.(js|css)`)
+)
+
+// crawlShown is a page with what it shows and nothing of how the build made it: without the data of
+// the router, and with the scripts and styles of the build named alike.
+func crawlShown(page []byte) []byte {
+	return crawlBuilt.ReplaceAll(crawlData.ReplaceAll(page, []byte("<script data-tsr-stream-part></script>")), []byte("/assets/built.$1"))
+}
+
+// crawlStock gives the products of the storefront the stock of spec (TIFA_SSR_CRAWL_STOCK): numbers
+// with commas between, dealt to the products in the order of the catalogue file, around the list.
+// It edits each product in the back office, signed in with cookie.
+func crawlStock(t *testing.T, base, cookie, spec string) {
+	t.Helper()
+	var pieces []int
+	for _, s := range strings.Split(spec, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil || n < 0 {
+			t.Fatalf("TIFA_SSR_CRAWL_STOCK=%s: %q is not a stock", spec, s)
+		}
+		pieces = append(pieces, n)
+	}
+	data, err := os.ReadFile(filepath.Join(shopDir, "app", "store", "products", "catalogue.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var products []struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(data, &products); err != nil || len(products) == 0 {
+		t.Fatalf("the catalogue of the shop: %d products, %v", len(products), err)
+	}
+	for i, p := range products {
+		body := fmt.Sprintf(`{"stock":%d}`, pieces[i%len(pieces)])
+		req, err := http.NewRequest("PATCH", base+"/projects/studio/products/"+p.Slug, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Cookie", cookie)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != 200 {
+			t.Fatalf("the stock of %s: status %d", p.Slug, res.StatusCode)
+		}
+	}
+}
 
 // crawlName is the file a URL is kept in.
 func crawlName(url string) string { return fmt.Sprintf("%x", sha1.Sum([]byte(url)))[:10] + ".html" }
@@ -92,6 +158,18 @@ func TestCrawlHelpers(t *testing.T) {
 	if crawlName("/a") == crawlName("/b") || !strings.HasSuffix(crawlName("/a"), ".html") {
 		t.Error("crawlName")
 	}
+	// What a page shows is the same with other data and other scripts of the build, and not with another
+	// text or another photo.
+	shown := func(stock, app, text, photo string) []byte {
+		return []byte(`<link rel="stylesheet" href="/assets/style-` + app + `.css"><script type="module" src="/assets/app-` + app + `.js"></script><img src="/assets/main-480-` + photo + `.avif"><p>` + text + `</p><script data-tsr-stream-part="">$R[0]={stock:` + stock + `}</script></body>`)
+	}
+	one := crawlShown(shown("183", "CIwkNFhx", "Ships in 48 hours", "D6mB_FlU"))
+	if !bytes.Equal(one, crawlShown(shown("181", "kxp92-pE", "Ships in 48 hours", "D6mB_FlU"))) {
+		t.Errorf("other data and other scripts show another page: %s", one)
+	}
+	if bytes.Equal(one, crawlShown(shown("183", "CIwkNFhx", "Only 9 left", "D6mB_FlU"))) || bytes.Equal(one, crawlShown(shown("183", "CIwkNFhx", "Ships in 48 hours", "BHZRnFk7"))) {
+		t.Error("another text or another photo shows the same page")
+	}
 }
 
 // crawlSignIn signs in as the demo account of the shop, whose workbench needs it, and returns the
@@ -125,6 +203,10 @@ func TestShopCrawl(t *testing.T) {
 	}
 	base := startProgram(t, exe)
 	cookie := crawlSignIn(t, base)
+	if spec := os.Getenv("TIFA_SSR_CRAWL_STOCK"); spec != "" {
+		crawlStock(t, base, cookie, spec)
+	}
+	shown := os.Getenv("TIFA_SSR_CRAWL_SHOWN") == "1"
 	if mode == "write" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -166,6 +248,9 @@ func TestShopCrawl(t *testing.T) {
 				t.Errorf("%s: not in %s: %v", url, dir, err)
 				differ++
 			} else {
+				if shown {
+					want, page = crawlShown(want), crawlShown(page)
+				}
 				v, n := crawlSame(want, page)
 				switch v {
 				case "same":
