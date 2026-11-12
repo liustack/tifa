@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/liustack/quickjs"
+	quickjsurl "github.com/liustack/quickjs/url"
 )
 
 var hostDir = filepath.Join("..", "..", "js", "host")
@@ -67,6 +68,10 @@ func TestHostScriptFreesDeadAbortSignalsInOneCollection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
+	// Every VM of the server has the engine's URL before the host script runs.
+	if err := quickjsurl.Register(vm); err != nil {
+		t.Fatal(err)
+	}
 	if err := evalModule(vm, string(script)+`
 function render() {
   const router = { matches: [] }
