@@ -9,6 +9,7 @@ read_when:
   - Visitors get refused connections, or are signed out, each time you deploy
   - Adding a health check for a load balancer, a container or Kubernetes
   - Watching the VM pool and the render memo with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `ssr.memo_size`
+  - Finding which routes miss the render memo, or render again for nothing
 ---
 
 English · [简体中文](deploy.zh-CN.md)
@@ -202,6 +203,8 @@ package metrics
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/liustack/tifa"
@@ -224,15 +227,28 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
 	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
+	metric("tifa_memo_same_page_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.SamePage))
 	metric("tifa_memo_evictions_total", "counter", "Dropped to make room for another.", float64(s.Memo.Evictions))
 	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
 	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
+	routes := slices.Sorted(maps.Keys(s.Memo.Routes))
+	byRoute := func(name, help string, value func(tifa.MemoRouteStats) uint64) {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s counter\n", name, help, name)
+		for _, route := range routes {
+			fmt.Fprintf(&b, "%s{route=%q} %d\n", name, route, value(s.Memo.Routes[route]))
+		}
+	}
+	byRoute("tifa_memo_route_hits_total", "Answered from an entry, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Hits })
+	byRoute("tifa_memo_route_misses_total", "Rendered by the request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Misses })
+	byRoute("tifa_memo_route_shared_total", "Waited for another request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Shared })
+	byRoute("tifa_memo_route_same_page_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.SamePage })
 	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, err := io.WriteString(c.Writer(), b.String())
 	return err
 }
 ```
 
+- The counts by route carry the route pattern as the label `route`, such as `route="/store/products/{product}"`, one for all the languages of a route. URLs that match no page are `route=""`, which Prometheus shows as a series without the label. The routes are the ones of the app, so the series stay few. See [Counts by route](memo.md#counts-by-route).
 - An app that already uses `client_golang` can write a `prometheus.Collector` instead, whose `Collect` reads `tifa.Stats()` once and sends each value with `prometheus.MustNewConstMetric`.
 - The numbers say nothing about visitors, but they say how loaded the program is. Keep the route away from the public: let the proxy in front refuse `/metrics` from outside, or check a token in the handler.
 - Before the server starts and after it stops, `tifa.Stats()` returns zeros. An app without pages has no VMs. The counts start at zero with each start of the program, which Prometheus reads as a restart.
@@ -246,6 +262,8 @@ What to read, and what to change:
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | The mean time of a render | When it grows, find the page that got slower |
 | `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
 | Hits low next to misses, `tifa_memo_evictions_total` grows, `tifa_memo_bytes` near `tifa_memo_size_bytes` | The render memo drops pages before they are asked for again | A larger `ssr.memo_size` |
+| `tifa_memo_route_hits_total` of one route low next to its misses, and no evictions | Its URLs do not come back, or the data its page shows changes between requests | See which in [Counts by route](memo.md#counts-by-route) |
+| `tifa_memo_route_same_page_total` of a route grows with its misses | Its page renders again and comes out the same: its data changed in a part the page does not show | Return from the `Load` only what the page shows, and look at the Layout above it when many routes grow at once ([Counts by route](memo.md#counts-by-route)) |
 
 ## After a deploy
 

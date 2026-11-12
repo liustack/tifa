@@ -9,6 +9,7 @@ read_when:
   - 每次部署访客都会连不上，或者被登出
   - 给负载均衡器、容器或 Kubernetes 加健康检查
   - 用 Prometheus 或别的监控系统看 VM 池和渲染记忆，或者据此判断机器要不要加 CPU、`ssr.memo_size` 要不要调大
+  - 想找出哪些路由命中不了渲染记忆，或者白白重新渲染
 ---
 
 [English](deploy.md) · 简体中文
@@ -202,6 +203,8 @@ package metrics
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/liustack/tifa"
@@ -224,15 +227,28 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
 	metric("tifa_memo_shared_total", "counter", "Waited for another request.", float64(s.Memo.Shared))
+	metric("tifa_memo_same_page_total", "counter", "Rendered again with the same page as before.", float64(s.Memo.SamePage))
 	metric("tifa_memo_evictions_total", "counter", "Dropped to make room for another.", float64(s.Memo.Evictions))
 	metric("tifa_memo_bytes", "gauge", "Bytes the render memo holds.", float64(s.MemoBytes))
 	metric("tifa_memo_size_bytes", "gauge", "Bytes the render memo may hold.", float64(s.MemoSize))
+	routes := slices.Sorted(maps.Keys(s.Memo.Routes))
+	byRoute := func(name, help string, value func(tifa.MemoRouteStats) uint64) {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s counter\n", name, help, name)
+		for _, route := range routes {
+			fmt.Fprintf(&b, "%s{route=%q} %d\n", name, route, value(s.Memo.Routes[route]))
+		}
+	}
+	byRoute("tifa_memo_route_hits_total", "Answered from an entry, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Hits })
+	byRoute("tifa_memo_route_misses_total", "Rendered by the request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Misses })
+	byRoute("tifa_memo_route_shared_total", "Waited for another request, by route.", func(r tifa.MemoRouteStats) uint64 { return r.Shared })
+	byRoute("tifa_memo_route_same_page_total", "Rendered again with the same page as before, by route.", func(r tifa.MemoRouteStats) uint64 { return r.SamePage })
 	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, err := io.WriteString(c.Writer(), b.String())
 	return err
 }
 ```
 
+- 按路由的计数带一个标签 `route`，值是路由的模式，比如 `route="/store/products/{product}"`，一个路由的各种语言合在一起。没有匹配任何页面的 URL 是 `route=""`，Prometheus 把它显示成不带这个标签的序列。路由就是应用里的那些，所以序列不会多。见[按路由的计数](memo.zh-CN.md#按路由的计数)。
 - 已经在用 `client_golang` 的应用，可以改写一个 `prometheus.Collector`，在它的 `Collect` 里读一次 `tifa.Stats()`，每个值用 `prometheus.MustNewConstMetric` 发出去。
 - 这些数字不涉及访客，但能看出程序的负载有多重。别把这个路由公开：让前面的代理拒绝外面来的 `/metrics`，或者在处理函数里检查一个令牌。
 - 服务启动之前和停下之后，`tifa.Stats()` 返回全零。没有页面的应用没有 VM。每次程序启动，计数都从零开始，Prometheus 会把它当作一次重启。
@@ -246,6 +262,8 @@ func GET(c *tifa.Ctx) error {
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
 | `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |
 | 命中比未命中少很多，`tifa_memo_evictions_total` 在涨，`tifa_memo_bytes` 接近 `tifa_memo_size_bytes` | 页面还没被再次请求就被渲染记忆挤掉了 | 调大 `ssr.memo_size` |
+| 某个路由的 `tifa_memo_route_hits_total` 比它的未命中少很多，也没有挤掉页面 | 它的 URL 不会再来，或者它页面显示的数据在两次请求之间变了 | 按[按路由的计数](memo.zh-CN.md#按路由的计数)分清是哪种 |
+| 某个路由的 `tifa_memo_route_same_page_total` 跟着它的未命中一起涨 | 页面没变的重渲染：数据变的部分页面并不显示 | 让 `Load` 只返回页面显示的，很多路由一起涨时看它们上面的 Layout（[按路由的计数](memo.zh-CN.md#按路由的计数)） |
 
 ## 部署之后
 

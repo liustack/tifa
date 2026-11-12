@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"hash/maphash"
 	"html"
 	"io"
 	"io/fs"
@@ -928,7 +929,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	unheard := func(err error) {
 		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
-	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	got, err := s.memo.fetch(c.Request().Context(), key, in.URL, s.memo.route(c.Pattern()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
@@ -970,7 +971,36 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, keep boo
 	}
 	html, policy := rendered.HTML, s.renderedPolicy(f, in, rendered)
 	page, held := s.newPage(html, policy)
+	if held && keep {
+		page.shown = shownHash(html)
+	}
 	return page, held && keep, nil
+}
+
+// shownSeed seeds shownHash. The hashes are only compared within the process.
+var shownSeed = maphash.MakeSeed()
+
+// routerScripts is where the scripts of the router start in a page the bundle renders: right after
+// the root element that holds what React rendered (serve in js/runtime/server.tsx). The data of the
+// Loads is in those scripts, as JSON in strings whose < is escaped, so none of them holds </div>.
+const routerScripts = "</div><script"
+
+// shownHash is the hash of what a page shows: the HTML before the scripts of the router, the head
+// and what React rendered, without the data that goes to the browser. Two renders of other data
+// that show the same have the same hash (see landLocked). It looks for the last routerScripts from
+// the end, which stops only at a < of those scripts, so it reads little more than them. A page
+// without them is hashed whole.
+func shownHash(html string) uint64 {
+	end := len(html)
+	for {
+		end = strings.LastIndexByte(html[:end], '<')
+		if end < 0 {
+			return maphash.String(shownSeed, html)
+		}
+		if strings.HasPrefix(html[end:], routerScripts) {
+			return maphash.String(shownSeed, html[:end+len("</div>")])
+		}
+	}
 }
 
 // newPage makes the page of html for the cache, and says whether the cache can keep it. With

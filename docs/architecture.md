@@ -209,6 +209,6 @@ flowchart TD
 - **Shared renders.** Requests that miss the same key at the same time wait for one render, even when `ssr.memo_size` is 0. The render runs in a goroutine that belongs to none of them, so one client leaving does not cancel it.
 - **ETag.** It is a hash of the same things as the render key. A matching `If-None-Match` is answered before the memo is asked. The ETag saves the transfer to a browser, and the memo saves the render for everyone else.
 - **Pages with `Cache`.** The memo is all Tifa keeps for them. The request is made anonymous (`anonymize`), the Loads run on every request, and once they are done the Cache-Control for shared caches is set (`setShared`), unless OnRequest, a Load or a Layout made the answer private. A CDN in front holds the page, not Tifa.
-- `tifa.Stats` reads the counts of the pool and of the memo. Renders and memo lookups count with atomics, under no new lock.
+- `tifa.Stats` reads the counts of the pool and of the memo. Renders and memo lookups count with atomics, under no new lock, and the memo keeps its counts by route, the pattern of the page (`renderMemo.route`). A render that enters the memo is compared with the last one of its URL by the hash of the HTML before the router's scripts (`shownHash`, `landLocked`), which counts `SamePage`.
 
 Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [Cache for CDNs](app.md#cache-for-cdns). The answers Tifa sends for each case are in [Page requests](build.md#page-requests).

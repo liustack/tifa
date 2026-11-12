@@ -1,5 +1,5 @@
 ---
-summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, and how to see it work'
+summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, how to see it work, and how to read its counts by route'
 read_when:
   - Wondering why it is called a memo and not a cache, or whether it can show an old page
   - Wondering whether a memoized page could show one visitor's data to another, or reach a CDN
@@ -9,6 +9,7 @@ read_when:
   - A page shows a stale time or random value, or you want to know why a request did or did not hit the memo
   - A component reads a query parameter and the page hydrates differently, or you wonder whether tracking parameters cost renders
   - Wondering why a write to Layout data makes other pages render again, or whether parts of a page could be kept
+  - One route hits the memo less than others, or `SamePage` grows for a route in `tifa.Stats` or `tifa_memo_route_same_page_total`
 ---
 
 English · [简体中文](memo.zh-CN.md)
@@ -109,6 +110,28 @@ The memo keeps one gzip form of each page and sends it in the encoding each visi
 
 - `X-Tifa-Render` on a page: `vm` is a render for this request, `memo` a hit, `shared` a render another request started at the same time, `none` a 304 or an answer that did not go through the VM.
 - A request with `If-None-Match` gets 304 when the inputs did not change, before the memo is asked. The ETag saves the transfer to a browser that has the page, the memo saves the render for everyone else.
-- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped, least recently used first, to make room for another), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](deploy.md) for a route that writes them for Prometheus.
+- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared`, `SamePage` (see below) and `Evictions` (the pages dropped, least recently used first, to make room for another), and `MemoBytes` against `MemoSize` shows how full the memo is. `Routes` has the same counts for each route. See [Deployment](deploy.md#metrics) for a route that writes them for Prometheus.
 
 For numbers, see [Performance](performance.md).
+
+### Counts by route
+
+`tifa.Stats().Memo.Routes` holds `Hits`, `Misses`, `Shared` and `SamePage` for each route, by its pattern, the one `c.Pattern()` gives, such as `/store/products/{product}`. All the languages of a route count as one route. A URL that matches no page counts under `""`. The misses of a route include its error pages, such as the 404 of an unknown product, since the memo never keeps them. Navigation data, API routes and pages with `SSR = false` or `Memo = false` do not go through the memo and count nowhere.
+
+`SamePage` counts the misses whose page came out the same as the last render of that URL: the data changed, the page did not. The page is compared without the scripts at its end that carry the data to the browser, so the same means the same head and the same markup. A URL seen for the first time, or again after the memo dropped its pages, does not count, nor does an error page. The memo keeps one 8-byte hash and the URL for each page it holds. Hashing a page on a miss costs about 0.2% of the render.
+
+When a route hits less than you expect:
+
+- **Its URLs do not come back.** Searches, a long tail of products or crawlers ask for each URL once, so every request is a miss and `SamePage` stays low. That is the traffic, not the app.
+- **The memo drops its pages first.** `Evictions` grows and `MemoBytes` is near `MemoSize`: give the memo more room with `ssr.memo_size`.
+- **Its data changes between requests.** Then look at `SamePage`. The other misses changed the page, so they were needed: the page shows a value that changes often, such as a count or a total, and a write elsewhere changes it.
+
+When `SamePage` is a large share of the misses of a route, those renders were for nothing: something in the data changed that the page does not show. Usually a `Load`, or a Layout above the page, returns more than the page shows:
+
+- a whole record or object, with a field that other code updates, such as the stock, a counter or `updated_at`
+- an exact value where the page shows a rough one, such as the stock where the page says "in stock" or "only 3 left"
+- a value that differs on every request, such as the time, a random value, or a slice made from a map
+
+Make the `Load` return what the page shows. When many routes under one Layout show `SamePage` at once, look at the data of that Layout first: it renders with every page under it. To find the field, compare the data of the page from two requests.
+
+Data that the page uses only in the browser, in an event handler, an effect or a component that renders only there, does not show in the server render, so a change of it counts in `SamePage` too. If the page needs it, the render was not for nothing: the browser got the new data.

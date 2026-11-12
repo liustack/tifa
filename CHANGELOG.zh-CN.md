@@ -15,6 +15,7 @@
 - 示例商店有了 `/metrics`，按 [部署](docs/deploy.zh-CN.md) 的写法以 Prometheus 文本格式给出 `tifa.Stats()` 的计数，只对登录的店员开放。商品的 PATCH 只改它发来的字段（一个字段都没发的返回 422），商店最多保留 100,000 个购物车，原来是 10,000 个，对比用的应用在这两点上也一样。
 - 应用代码在渲染时读到服务端渲染它时没有的查询参数，`tifa build` 会警告并给出文件和行号：从 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 按名字读的参数，以及整个 location 的 `search`、`searchStr` 或 `href`。`page.tsx` 和 `layout.tsx` 按它们的 `Load` 和各层 Layout 读的参数检查，这张表现在由 `.tifa/vite.js` 交给插件，其他模块的这类读法一律警告，`useEffect` 或 `useLayoutEffect` 里的读取不警告。服务端渲染只拿到各个 `Load` 读的参数，所以这样读可能水合不一致。构建照常继续（[服务端渲染里的查询参数](docs/app.zh-CN.md#服务端渲染里的查询参数)）。
 - `tifa.Stats().Memo.Evictions` 数渲染记忆为腾地方挤掉的页面，最久没用的先挤，渲染记忆装不下被请求的页面时就看得出来。示例商店在 `/metrics` 里把它写成 `tifa_memo_evictions_total`（[部署](docs/deploy.zh-CN.md)）。
+- `tifa.Stats().Memo.Routes` 按路由给出渲染记忆的命中、未命中和共用次数，路由用 `c.Pattern()` 给的模式标识（`/store/products/{product}`，一个路由的各种语言算一个，没有匹配页面的 URL 记在 `""` 下），哪个路由命中不了就看得出来。`SamePage`（总数和每个路由各有一个）数页面没变的重渲染：这次未命中重新渲染出来的页面和这个 URL 上一次的一样，也就是数据变了、页面没变，通常说明某个 `Load` 返回的比页面显示的多。它默认开着，没有配置项，未命中时多花约渲染的 0.2%。`MemoStats` 和 `ServerStats` 现在带着 map，不能再用 `==` 比较。示例商店在 `/metrics` 里把新的数写成 `tifa_memo_same_page_total`，以及带 `route` 标签的 `tifa_memo_route_hits_total`、`_misses_total`、`_shared_total` 和 `_same_page_total`（[按路由的计数](docs/memo.zh-CN.md#按路由的计数)，[部署](docs/deploy.zh-CN.md#指标)）。
 - 示例商店有了 `robots.txt`，放在它的 `public` 目录里：不让爬虫进搜索结果和带筛选的商品列表，分类列表、排序和翻页照常可爬。对比用的三个应用提供同一份文件。
 
 ### 变更
