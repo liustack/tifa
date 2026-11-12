@@ -36,14 +36,20 @@ type MemoStats struct {
 	// request was making at the time. Evictions are the entries dropped, the least recently used
 	// first, to make room for another.
 	Hits, Misses, Shared, Evictions uint64
+	// Unchanged counts the misses whose page came out the same as the last render of the same URL
+	// that the memo still keeps: the data changed and what the page shows did not. Only a page the
+	// memo keeps counts. The part of a page compared is the HTML before the scripts that carry its
+	// data to the browser.
+	Unchanged uint64
 	// Routes holds the counts of each route, by its pattern (Ctx.Pattern), with "" for the URLs that
-	// match no page. Hits, Misses and Shared are their sums. Nil until a page went through the memo.
+	// match no page. Hits, Misses, Shared and Unchanged are their sums. Nil until a page went
+	// through the memo.
 	Routes map[string]MemoRouteStats
 }
 
 // MemoRouteStats counts what the render memo did for the pages of one route, see MemoStats.
 type MemoRouteStats struct {
-	Hits, Misses, Shared uint64
+	Hits, Misses, Shared, Unchanged uint64
 }
 
 // Server is a server that runs, as ReadStats sees it.
@@ -104,7 +110,7 @@ func ReadStats() Stats {
 }
 
 func (a MemoStats) add(b MemoStats) MemoStats {
-	out := MemoStats{Entries: a.Entries + b.Entries, Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared, Evictions: a.Evictions + b.Evictions}
+	out := MemoStats{Entries: a.Entries + b.Entries, Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared, Evictions: a.Evictions + b.Evictions, Unchanged: a.Unchanged + b.Unchanged}
 	if len(a.Routes)+len(b.Routes) > 0 {
 		out.Routes = make(map[string]MemoRouteStats, max(len(a.Routes), len(b.Routes)))
 		for _, routes := range []map[string]MemoRouteStats{a.Routes, b.Routes} {
@@ -117,5 +123,5 @@ func (a MemoStats) add(b MemoStats) MemoStats {
 }
 
 func (a MemoRouteStats) add(b MemoRouteStats) MemoRouteStats {
-	return MemoRouteStats{Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared}
+	return MemoRouteStats{Hits: a.Hits + b.Hits, Misses: a.Misses + b.Misses, Shared: a.Shared + b.Shared, Unchanged: a.Unchanged + b.Unchanged}
 }

@@ -22,6 +22,10 @@ type renderMemo struct {
 	used  int64
 	order *list.List // of *cached, most recently used first
 	pages map[string]*list.Element
+	// urls holds, by the URL the render saw, the entry of the last render of it that the cache keeps,
+	// for Unchanged (see landLocked). An entry leaves it as it leaves the cache, so it never holds more
+	// URLs than the cache holds pages.
+	urls map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
 	// entries counts the pages kept and evictions the pages dropped to make room, under mu.
@@ -48,6 +52,7 @@ type flight struct {
 
 type cached struct {
 	key  string
+	url  string // the URL the render saw, "" for a page urls does not hold
 	page cachedPage
 }
 
@@ -67,6 +72,9 @@ type cachedPage struct {
 	// redirect is set for a render that the router ended with a redirect: the page is that
 	// redirect and has no HTML.
 	redirect *ssr.RedirectError
+	// shown is the hash of what the page shows (shownHash), for Unchanged. A page with HTML that the
+	// cache keeps has one.
+	shown uint64
 }
 
 func (p cachedPage) size() int64 { return p.bodySize() + p.meta() }
@@ -94,6 +102,9 @@ func (p cachedPage) meta() int64 {
 // sums, so a request adds to one count only.
 type routeCounts struct {
 	hits, misses, shared atomic.Uint64
+	// unchanged counts the misses whose page came out the same as the last one of its URL, see
+	// landLocked.
+	unchanged atomic.Uint64
 }
 
 // route returns the counts of the route with pattern, the Ctx.Pattern of the request, "" for a URL
@@ -113,7 +124,7 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 	c.mu.Unlock()
 	c.routes.Range(func(pattern, counts any) bool {
 		r := counts.(*routeCounts)
-		s := core.MemoRouteStats{Hits: r.hits.Load(), Misses: r.misses.Load(), Shared: r.shared.Load()}
+		s := core.MemoRouteStats{Hits: r.hits.Load(), Misses: r.misses.Load(), Shared: r.shared.Load(), Unchanged: r.unchanged.Load()}
 		if render.Routes == nil {
 			render.Routes = map[string]core.MemoRouteStats{}
 		}
@@ -121,6 +132,7 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 		render.Hits += s.Hits
 		render.Misses += s.Misses
 		render.Shared += s.Shared
+		render.Unchanged += s.Unchanged
 		return true
 	})
 	return render, used
@@ -128,7 +140,7 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 
 func newRenderMemo(size int64) *renderMemo {
 	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
-	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}}
+	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, urls: map[string]*list.Element{}, flights: map[string]*flight{}}
 }
 
 func (c *renderMemo) get(key string) (cachedPage, bool) {
@@ -179,8 +191,29 @@ func (c *renderMemo) putLocked(key string, page cachedPage) {
 	}
 }
 
+// landLocked stores the page a render of url made under key, as putLocked does, and counts it as
+// unchanged for route when the page the cache keeps of the last render of url has another key, so
+// other data, and shows the same. A URL whose pages the cache dropped is seen for the first time.
+// A redirect is not compared and does not become the last render of url.
+func (c *renderMemo) landLocked(key, url string, route *routeCounts, page cachedPage) {
+	if last, ok := c.urls[url]; ok && page.redirect == nil {
+		was := last.Value.(*cached)
+		if was.key != key && was.page.shown == page.shown {
+			route.unchanged.Add(1)
+		}
+	}
+	c.putLocked(key, page)
+	if e, ok := c.pages[key]; ok && page.redirect == nil && url != "" {
+		e.Value.(*cached).url = url
+		c.urls[url] = e
+	}
+}
+
 func (c *renderMemo) removeLocked(key string) {
 	if e, ok := c.pages[key]; ok {
+		if url := e.Value.(*cached).url; c.urls[url] == e {
+			delete(c.urls, url)
+		}
 		c.used -= e.Value.(*cached).page.size()
 		c.order.Remove(e)
 		delete(c.pages, key)
@@ -202,7 +235,8 @@ type fetched struct {
 // its own, with a context no request cancels, so the render belongs to none of them. render
 // returns the page and whether to keep it. Its page enters the cache as the render leaves the
 // requests, in one step, so a request comes either in time to wait or late enough to find it. The
-// request counts as a hit, a miss or a shared render of route.
+// request counts as a hit, a miss or a shared render of route. url is the URL the render sees, whose
+// last render the page is compared with as it enters the cache (landLocked).
 //
 // A request whose ctx ends stops waiting with ctx's error, and the render goes on for the others.
 // When no request waits any more, the render's context is canceled, which ends its wait for a
@@ -211,7 +245,7 @@ type fetched struct {
 // render, a panic turned into an error. Nothing of it is kept, so the next request renders again.
 // A render that fails when no request waits any more goes to unheard, except one that stopped
 // because no request waits.
-func (c *renderMemo) fetch(ctx context.Context, key string, route *routeCounts, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
+func (c *renderMemo) fetch(ctx context.Context, key, url string, route *routeCounts, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
 	if c.fetching != nil {
 		c.fetching()
 	}
@@ -231,7 +265,7 @@ func (c *renderMemo) fetch(ctx context.Context, key string, route *routeCounts, 
 		var flightCtx context.Context
 		flightCtx, f.cancel = context.WithCancel(context.WithoutCancel(ctx))
 		c.flights[key] = f
-		go c.fly(flightCtx, key, f, unheard, render)
+		go c.fly(flightCtx, key, url, route, f, unheard, render)
 	}
 	f.waiters++
 	c.mu.Unlock()
@@ -254,7 +288,7 @@ func (c *renderMemo) fetch(ctx context.Context, key string, route *routeCounts, 
 }
 
 // fly runs the render of f and hands its result to the requests that wait for it.
-func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard func(error), render func(context.Context) (cachedPage, bool, error)) {
+func (c *renderMemo) fly(ctx context.Context, key, url string, route *routeCounts, f *flight, unheard func(error), render func(context.Context) (cachedPage, bool, error)) {
 	returned := false
 	defer func() {
 		if !returned {
@@ -269,7 +303,7 @@ func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard fun
 		}
 		c.mu.Lock()
 		if f.err == nil && f.held {
-			c.putLocked(key, f.page)
+			c.landLocked(key, url, route, f.page)
 		} else if f.err == nil {
 			// A result that cannot be kept replaces the page it came instead of: it must not
 			// come back as the old one.
