@@ -24,12 +24,12 @@ type renderMemo struct {
 	pages map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
-	// entries counts the pages kept and evictions the pages dropped to make room, under mu. hits,
-	// misses and shared count what fetch found. Every request counts, so these are atomic, and Stats
-	// reads them without the lock.
-	entries              int
-	evictions            uint64
-	hits, misses, shared atomic.Uint64
+	// entries counts the pages kept and evictions the pages dropped to make room, under mu.
+	entries   int
+	evictions uint64
+	// routes holds the counts of each route by its pattern (route). A route enters on its first
+	// request and stays, so a request reads it without a lock.
+	routes sync.Map // of string to *routeCounts
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
 	fetching, landing func()
@@ -89,12 +89,41 @@ func (p cachedPage) meta() int64 {
 	return n
 }
 
+// routeCounts counts what fetch found for the pages of one route: every request counts, so the
+// counts are atomic, and stats reads them without the lock. The counts of the whole memo are their
+// sums, so a request adds to one count only.
+type routeCounts struct {
+	hits, misses, shared atomic.Uint64
+}
+
+// route returns the counts of the route with pattern, the Ctx.Pattern of the request, "" for a URL
+// that matches no page. Patterns are those the app registered, so the routes are few.
+func (c *renderMemo) route(pattern string) *routeCounts {
+	if r, ok := c.routes.Load(pattern); ok {
+		return r.(*routeCounts)
+	}
+	r, _ := c.routes.LoadOrStore(pattern, &routeCounts{})
+	return r.(*routeCounts)
+}
+
 // stats returns what the cache holds and did, and the bytes it holds.
 func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 	c.mu.Lock()
-	entries, evictions, used := c.entries, c.evictions, c.used
+	render.Entries, render.Evictions, used = c.entries, c.evictions, c.used
 	c.mu.Unlock()
-	return core.MemoStats{Entries: entries, Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load(), Evictions: evictions}, used
+	c.routes.Range(func(pattern, counts any) bool {
+		r := counts.(*routeCounts)
+		s := core.MemoRouteStats{Hits: r.hits.Load(), Misses: r.misses.Load(), Shared: r.shared.Load()}
+		if render.Routes == nil {
+			render.Routes = map[string]core.MemoRouteStats{}
+		}
+		render.Routes[pattern.(string)] = s
+		render.Hits += s.Hits
+		render.Misses += s.Misses
+		render.Shared += s.Shared
+		return true
+	})
+	return render, used
 }
 
 func newRenderMemo(size int64) *renderMemo {
@@ -172,7 +201,8 @@ type fetched struct {
 // request missing key at the time waits for. The first of them starts render in a goroutine of
 // its own, with a context no request cancels, so the render belongs to none of them. render
 // returns the page and whether to keep it. Its page enters the cache as the render leaves the
-// requests, in one step, so a request comes either in time to wait or late enough to find it.
+// requests, in one step, so a request comes either in time to wait or late enough to find it. The
+// request counts as a hit, a miss or a shared render of route.
 //
 // A request whose ctx ends stops waiting with ctx's error, and the render goes on for the others.
 // When no request waits any more, the render's context is canceled, which ends its wait for a
@@ -181,7 +211,7 @@ type fetched struct {
 // render, a panic turned into an error. Nothing of it is kept, so the next request renders again.
 // A render that fails when no request waits any more goes to unheard, except one that stopped
 // because no request waits.
-func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
+func (c *renderMemo) fetch(ctx context.Context, key string, route *routeCounts, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
 	if c.fetching != nil {
 		c.fetching()
 	}
@@ -189,14 +219,14 @@ func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error),
 	if e, ok := c.pages[key]; ok {
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
-		c.hits.Add(1)
+		route.hits.Add(1)
 		return fetched{page: e.Value.(*cached).page, held: true, how: "memo"}, nil
 	}
 	how := "shared"
-	counter := &c.shared
+	counter := &route.shared
 	f := c.flights[key]
 	if f == nil {
-		how, counter = "vm", &c.misses
+		how, counter = "vm", &route.misses
 		f = &flight{done: make(chan struct{})}
 		var flightCtx context.Context
 		flightCtx, f.cancel = context.WithCancel(context.WithoutCancel(ctx))

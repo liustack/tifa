@@ -30,7 +30,11 @@ type SSRStats = core.SSRStats
 //	Misses     rendered by the request
 //	Shared     waited for the same page another request was rendering at the time
 //	Evictions  entries dropped, the least recently used first, to make room for another
+//	Routes     the counts of each route by its pattern, as Ctx.Pattern gives it, "" for URLs that match no page
 type MemoStats = core.MemoStats
+
+// MemoRouteStats is a route in MemoStats.Routes: its Hits, Misses and Shared as in MemoStats.
+type MemoRouteStats = core.MemoRouteStats
 
 // Stats returns the state of the server now. It is cheap and safe to call from many requests at
 // once, such as from a route that a monitoring system reads. Before the server starts and after

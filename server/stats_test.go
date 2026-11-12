@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/liustack/tifa"
@@ -17,7 +18,7 @@ func TestStatsCountTheMemo(t *testing.T) {
 	get(e.s, "/stats")
 	get(e.s, "/stats")
 	s := e.s.Stats()
-	if s.Memo != (tifa.MemoStats{Entries: 2, Hits: 2, Misses: 2}) {
+	if want := (tifa.MemoStats{Entries: 2, Hits: 2, Misses: 2, Routes: map[string]tifa.MemoRouteStats{"/news": {Hits: 1, Misses: 1}, "/stats": {Hits: 1, Misses: 1}}}); !reflect.DeepEqual(s.Memo, want) {
 		t.Errorf("render memo %+v", s.Memo)
 	}
 	if s.MemoBytes <= 0 || s.MemoSize != e.s.memo.size || s.SSR != (tifa.SSRStats{}) {
@@ -38,7 +39,7 @@ func TestStatsReachTheRunningServer(t *testing.T) {
 	if during.MemoSize != 1<<20 {
 		t.Errorf("during OnStart: %+v", during)
 	}
-	if after := tifa.Stats(); after != (tifa.ServerStats{}) {
+	if after := tifa.Stats(); !reflect.DeepEqual(after, tifa.ServerStats{}) {
 		t.Errorf("after the stop: %+v", after)
 	}
 }

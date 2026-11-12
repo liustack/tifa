@@ -928,7 +928,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	unheard := func(err error) {
 		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
-	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	got, err := s.memo.fetch(c.Request().Context(), key, s.memo.route(c.Pattern()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
