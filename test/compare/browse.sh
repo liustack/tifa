@@ -23,7 +23,9 @@
 #   BROWSE_TRACES     folder of the plans and traces                                $BROWSE_OUT/traces
 #   SERVER_CPUS       cpus of the server, as taskset -c takes them (Linux)          none: not pinned
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
-#   LOCKS             files to flock while running, space separated, first taken first   none
+#   LOCKS             files to flock while a server of the run runs, space separated,    none
+#                     first taken first: held for one round with its warm-up at a time and
+#                     given back in between, so that other work on the machine fits there
 #   SERVERS           spec ids (tifa-nocache: Tifa with its render memo off,         tifa,nextjs,start,reactrouter,tifa-nocache
 #                     a reference that replays the trace of tifa)
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
@@ -177,11 +179,9 @@ do_run() {
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")
   [ -n "${LOAD_CPUS:-}" ] && cmd+=(-load-cpus "$LOAD_CPUS")
   run_stamp >"$out/run.stamp"
-  # The first lock listed is taken first, so it is wrapped last.
-  local locks=(${LOCKS:-}) i
-  for ((i = ${#locks[@]} - 1; i >= 0; i--)); do
-    cmd=(flock -o "${locks[i]}" "${cmd[@]}")
-  done
+  # The tool takes the lock files itself, around each server it starts, first listed first.
+  local locks=(${LOCKS:-})
+  if [ ${#locks[@]} -gt 0 ]; then cmd+=(-locks "$(IFS=,; echo "${locks[*]}")"); fi
   "${cmd[@]}" >/dev/null 2> >(tee -a "$out/browse.log" >&2)
   do_report
 }
