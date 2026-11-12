@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -94,4 +95,38 @@ func TestHoldLocksWithNoFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
+}
+
+// A run on a machine with an announce folder says that it waits for or runs a round by a file
+// named by its pid there, so that others start no new work in front of it, and takes the file
+// away when the round is over.
+func TestAnnounceLeavesAFileNamedByThePidWhileARoundRuns(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "timing.d")
+	done, err := announce(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, strconv.Itoa(os.Getpid()))
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("no file of the run: %v", err)
+	}
+	// Two servers of a run never overlap, but a second announce must not take the file of the first.
+	again, err := announce(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again()
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the file went while the first round still runs: %v", err)
+	}
+	done()
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("the file is still there after the round: %v", err)
+	}
+	// No folder: nothing to say.
+	none, err := announce("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	none()
 }

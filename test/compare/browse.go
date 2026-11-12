@@ -48,6 +48,10 @@ type BrowseOptions struct {
 	// before the server starts and given back when it has stopped (holdLocks). They are for a
 	// machine that other work shares: that work runs between the rounds, never in one.
 	Locks []string
+	// Announce is a folder in which the run leaves a file named by its pid from before it takes the
+	// lock files of a round until it has given them back (announce): others on the machine start no
+	// new heavy work while the file is there.
+	Announce string
 	// Probe searches the rate of Next.js again, and writes it into RateFile.
 	Probe bool
 	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
@@ -161,16 +165,25 @@ type liveServer struct {
 	stop     func()
 }
 
-// start takes the lock files of the run, waits for the cpus to be idle, starts a fresh server of a
-// spec and waits until it listens. Stopping the server gives the lock files back, so they are held
+// start announces the round and takes the lock files of the run, waits for the cpus to be idle, starts a fresh server of a
+// spec and waits until it listens. Stopping the server gives the lock files back and ends the announcement, so they are held
 // for one server at a time: a round with its warm-up, a sizing run or a check.
 func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 	if b.launch != nil {
 		return b.launch(ctx, spec)
 	}
-	unlock, err := holdLocks(ctx, b.o.Locks)
+	quiet, err := announce(b.o.Announce)
 	if err != nil {
 		return nil, err
+	}
+	unlocks, err := holdLocks(ctx, b.o.Locks)
+	if err != nil {
+		quiet()
+		return nil, err
+	}
+	unlock := func() {
+		unlocks()
+		quiet()
 	}
 	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
 		unlock()
