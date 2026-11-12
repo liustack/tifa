@@ -52,6 +52,9 @@ type BrowseOptions struct {
 	// lock files of a round until it has given them back (announce): others on the machine start no
 	// new heavy work while the file is there.
 	Announce string
+	// Hold is the command of a machine that keeps it quiet for a timing round, with its arguments,
+	// run around each server of the run (holdWith). A machine that has one needs no Locks or Announce.
+	Hold []string
 	// Probe searches the rate of Next.js again, and writes it into RateFile.
 	Probe bool
 	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
@@ -172,18 +175,25 @@ func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 	if b.launch != nil {
 		return b.launch(ctx, spec)
 	}
+	unhold, err := holdWith(ctx, b.o.Hold)
+	if err != nil {
+		return nil, err
+	}
 	quiet, err := announce(b.o.Announce)
 	if err != nil {
+		unhold()
 		return nil, err
 	}
 	unlocks, err := holdLocks(ctx, b.o.Locks)
 	if err != nil {
 		quiet()
+		unhold()
 		return nil, err
 	}
 	unlock := func() {
 		unlocks()
 		quiet()
+		unhold()
 	}
 	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
 		unlock()
