@@ -502,10 +502,12 @@ BROWSE_OUT=browse-out lockf ~/.cache/mac-locks/heavy.lock nice -n 10 test/compar
 BROWSE_OUT=browse-out lockf ~/.cache/mac-locks/heavy.lock nice -n 10 test/compare/browse.sh record
 scp -r browse-out/traces linux-box:browse-out/
 
-# on the Linux box, the same commit checked out. Timing holds the lock of the server's cpu pair (0 and 4 share a core) and of the load's pair
+# on the Linux box, the same commit checked out. LOCKS are files the run holds an flock on while one of its servers runs:
+# it takes them in the order given before each round with its warm-up, and gives them back after it,
+# so other work that takes the same files runs between the rounds and never in one
 cd tifa
 BROWSE_OUT=$HOME/browse-out test/compare/browse.sh build                                              # a few minutes on a cold box
-BROWSE_OUT=$HOME/browse-out SERVER_CPUS=0 LOAD_CPUS=1,5 LOCKS="$HOME/cpupair-0-4.lock $HOME/cpupair-1-5.lock" \
+BROWSE_OUT=$HOME/browse-out SERVER_CPUS=0 LOAD_CPUS=1,2,3 LOCKS="$HOME/cpu0.lock $HOME/cpu1.lock $HOME/cpu2.lock $HOME/cpu3.lock" \
   nohup test/compare/browse.sh run > $HOME/browse-run.log 2>&1 &                                       # about 5 to 6 hours, with a first search of the rates
 ```
 

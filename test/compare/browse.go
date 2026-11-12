@@ -44,6 +44,10 @@ type BrowseOptions struct {
 	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the sessions used them
 	// (none when it is not pinned: then no server is stepped up).
 	ServerCPUCount int
+	// Locks are files the run holds an flock on while one of its servers runs, taken in this order
+	// before the server starts and given back when it has stopped (holdLocks). They are for a
+	// machine that other work shares: that work runs between the rounds, never in one.
+	Locks []string
 	// Probe searches the rate of Next.js again, and writes it into RateFile.
 	Probe bool
 	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
@@ -157,23 +161,35 @@ type liveServer struct {
 	stop     func()
 }
 
-// start waits for the cpus to be idle, starts a fresh server of a spec and waits until it listens.
+// start takes the lock files of the run, waits for the cpus to be idle, starts a fresh server of a
+// spec and waits until it listens. Stopping the server gives the lock files back, so they are held
+// for one server at a time: a round with its warm-up, a sizing run or a check.
 func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 	if b.launch != nil {
 		return b.launch(ctx, spec)
 	}
+	unlock, err := holdLocks(ctx, b.o.Locks)
+	if err != nil {
+		return nil, err
+	}
 	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
+		unlock()
 		return nil, err
 	}
 	server, err := spec.Launch(b.o.ServerCPUs)
 	if err != nil {
+		unlock()
 		return nil, err
+	}
+	stop := func() {
+		server.Stop()
+		unlock()
 	}
 	if err := server.WaitListening(ctx); err != nil {
-		server.Stop()
+		stop()
 		return nil, err
 	}
-	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: server.Stop}, nil
+	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: stop}, nil
 }
 
 // verifyWrites checks the writes of the scenario on the server of r.
