@@ -311,7 +311,9 @@ func TestGCBetweenRendersUnderALowLimit(t *testing.T) {
 	var live uintptr
 	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
 	cfg := testConfig(1)
-	cfg.VMMemory = int64(live * 19 / 10)
+	// The garbage of one render is about 0.4 times the live size, so the limit leaves the threshold
+	// (half way to it) under that, whatever the registered builtins add to the live size.
+	cfg.VMMemory = int64(live * 16 / 10)
 	p := newTestPool(t, testSource(t), cfg)
 	for i := range 100 {
 		if _, err := p.Render(context.Background(), input("garbage", "")); err != nil {
