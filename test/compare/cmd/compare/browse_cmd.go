@@ -13,11 +13,11 @@ import (
 )
 
 var browseOpts struct {
-	out, phases, stamp, serverCPUs, loadCPUs, locks, announce string
-	sessions, rounds                                          int
-	probe                                                     bool
-	maxRate                                                   float64
-	sizing, target, trial, final                              time.Duration
+	out, phases, stamp, serverCPUs, loadCPUs, locks, announce, hold string
+	sessions, rounds                                                int
+	probe                                                           bool
+	maxRate                                                         float64
+	sizing, target, trial, final                                    time.Duration
 }
 
 func browseFlags(flags *flag.FlagSet) {
@@ -28,6 +28,7 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 	flags.StringVar(&o.loadCPUs, "load-cpus", "", "browse: cpus for the load generator")
 	flags.StringVar(&o.locks, "locks", "", "browse: files to flock while a server of the run runs, comma separated, taken in this order and given back between the rounds")
+	flags.StringVar(&o.hold, "hold", "", "browse: the command of the machine that keeps it quiet for a timing round, run around each server of the run")
 	flags.StringVar(&o.announce, "announce", "", "browse: a folder in which the run leaves a file named by its pid while it waits for or runs a round")
 	flags.Float64Var(&o.maxRate, "max-rate", compare.FormalBrowse.MaxRate, "browse: the search for the sustainable rate stops here, visits a second")
 	flags.BoolVar(&o.probe, "probe", false, "browse: search the rate Next.js sustains again, even where test/compare/rates.json has it, and write it into the file")
@@ -66,6 +67,7 @@ func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, se
 		}
 	}
 	opts.Announce = o.announce
+	opts.Hold = strings.Fields(o.hold)
 	res, err := env.Browse(ctx, opts)
 	if err != nil {
 		fatal(err)

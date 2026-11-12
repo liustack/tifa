@@ -34,6 +34,9 @@
 #   PROBE=1           search the rate of Next.js again and write it into
 #                     test/compare/rates.json (else the file is used, and a run whose
 #                     conditions differ from the file is refused)
+#   HOLD              the command of the machine that keeps it quiet for a timing round       none
+#                     (it queues the round with the other work and takes the locks): the
+#                     run starts it around each round, and needs no LOCKS or ANNOUNCE then
 #   ANNOUNCE          a folder in which the run leaves a file named by its pid while it      none
 #                     waits for or runs a round, for a machine whose other work starts
 #                     nothing new while a timing run is announced there
@@ -186,6 +189,7 @@ do_run() {
   local locks=(${LOCKS:-})
   if [ ${#locks[@]} -gt 0 ]; then cmd+=(-locks "$(IFS=,; echo "${locks[*]}")"); fi
   [ -n "${ANNOUNCE:-}" ] && cmd+=(-announce "$ANNOUNCE")
+  [ -n "${HOLD:-}" ] && cmd+=(-hold "$HOLD")
   "${cmd[@]}" >/dev/null 2> >(tee -a "$out/browse.log" >&2)
   do_report
 }
