@@ -1,5 +1,5 @@
 ---
-summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, how to see it work, and how to read its counts by route'
+summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, what a Load should return so that pages do not render for nothing, how to see it work, and how to read its counts by route'
 read_when:
   - Wondering why it is called a memo and not a cache, or whether it can show an old page
   - Wondering whether a memoized page could show one visitor's data to another, or reach a CDN
@@ -105,6 +105,49 @@ A page has one key, and that key is also its `ETag`. Tifa does not key the data 
 What it costs: a write that changes the data of a Layout, such as a count in the header of a project, makes every page under that Layout render again on its next request. A write that leaves the Layout data alone makes only the pages whose `Load` data it changes render again.
 
 The memo keeps one gzip form of each page and sends it in the encoding each visitor takes. Compressing a page costs 1% to 2% of its render. See [Compression](build.md#compression) and [Performance](performance.md#compression).
+
+## What a Load should return
+
+The memo goes by every byte of the data. When a field the page does not show changes, the page renders again all the same. So:
+
+1. **Return what the page shows.** Do not hand over a whole record. The product under a review on the home page of the example shop shows a photo and a name, so its `Load` returns a photo and a name:
+
+   ```go
+   // before: the page read three fields of the card, and got its price and stock too
+   type ReviewCard struct {
+   	Review
+   	Product Card `json:"product"`
+   }
+
+   // after
+   type ReviewCard struct {
+   	Review
+   	Product Reviewed `json:"product"`
+   }
+   type Reviewed struct {
+   	Slug  string `json:"slug"`
+   	Photo string `json:"photo"`
+   	Name  string `json:"name"`
+   }
+   ```
+
+2. **Keep what changes often out of a Layout.** The data of a Layout goes with every page under it. The menu of the shop held the products it features with their stock, which the menu does not show, so every sale made every page of the storefront render again. It returns the photo, the name and the price of each now.
+
+3. **Where the page shows a rough value, work it out in Go.** A product card says "Only 3 left" up to 10 pieces and "Ships within 48 hours" above that. Sent the exact stock, it rendered again after every sale. It gets the number only when the page shows it:
+
+   ```go
+   // before
+   Stock int `json:"stock"`
+
+   // after: 1 to 10, and 0 when there are more or none
+   LowStock int `json:"lowStock"`
+   ```
+
+   The stock going from 183 to 181 leaves the data of the page as it was, byte for byte.
+
+4. **A total has a cost.** A count, a highest price, the number of products under each filter: a change of any record can change them. Keep them when the page shows them, and know that they render the page again.
+
+To see which routes render for nothing, read `SamePage` in the [counts by route](#counts-by-route).
 
 ## Seeing it work
 
