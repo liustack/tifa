@@ -5,8 +5,8 @@
 import { randomBytes } from 'node:crypto'
 import type { Ctx } from '../ctx.ts'
 import { Fields, NotFound } from '../errors.ts'
-import { colorName, getProductOrNull, hasVariant } from '../products/index.ts'
-import type { Product } from '../products/index.ts'
+import { colorName, hasVariant, product, productBySlug } from '../products/index.ts'
+import type { ProductRecord } from '../products/catalogue.ts'
 import { inLocale, price } from '../store.ts'
 import type { Locale } from '../store.ts'
 import { DAY, iso } from '../time.ts'
@@ -101,20 +101,23 @@ export function cartId(c: Ctx): string {
 // Go calls it Get.
 export function getCart(id: string, l: Locale, now = Date.now()): Cart {
   const rec = carts.get(id, now)
-  return priceCart(rec ? rec.lines.map((r) => ({ ...r })) : demoLines(), rec ? rec.coupon : '', l, getProductOrNull)
+  return priceCart(rec ? rec.lines.map((r) => ({ ...r })) : demoLines(), rec ? rec.coupon : '', l, productBySlug)
 }
 
 // priceCart returns the cart of lines and a coupon, with its totals in the language of l, from the
 // products that get returns: the catalogue as it is, or as a checkout bought them. Go calls it price.
-export function priceCart(lines: LineRecord[], coupon: string, l: Locale, get: (slug: string, l: Locale) => Product | null): Cart {
+// get returns the record of a product, not the product a page gets: a line holds the pieces left,
+// which Go keeps in a field of Product that its JSON leaves out.
+export function priceCart(lines: LineRecord[], coupon: string, l: Locale, get: (slug: string) => ProductRecord | undefined): Cart {
   const cart: Cart = { lines: [], count: 0, subtotalCents: 0, coupon, discountCents: 0, freeShippingCents: freeShipping(l) }
   for (const r of lines) {
-    const p = get(r.slug, l)
-    if (!p) continue
+    const rec = get(r.slug)
+    if (!rec) continue
+    const p = product(rec, l)
     cart.lines.push({
       id: lineId(r.slug, r.color, r.size), slug: r.slug, photo: p.photo, name: p.name, color: r.color, colorName: colorName(r.color, l),
       hex: p.colors?.find((col) => col.id === r.color)?.hex ?? '', size: r.size, quantity: r.quantity,
-      priceCents: p.priceCents, stock: p.stock,
+      priceCents: p.priceCents, stock: rec.stock,
     })
     cart.count += r.quantity
     cart.subtotalCents += p.priceCents * r.quantity

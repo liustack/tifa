@@ -90,7 +90,10 @@ func TestSpecGroupsListWhatABuyerChecks(t *testing.T) {
 
 func TestBestInCategoryExcludesTheProduct(t *testing.T) {
 	best := BestInCategory("pour-over-kettle", 5, zh)
-	if len(best) != 5 || slices.ContainsFunc(best, func(c Card) bool { return c.Slug == "pour-over-kettle" || c.Category != best[0].Category }) {
+	if len(best) != 5 || slices.ContainsFunc(best, func(r Ranked) bool {
+		p, _ := record(r.Slug)
+		return r.Slug == "pour-over-kettle" || p.category != "drinkware"
+	}) {
 		t.Fatalf("best %+v", best)
 	}
 	if best[0].Rating < best[4].Rating {

@@ -41,7 +41,7 @@ func TestAnEditShowsOnTheProductTheListTheSearchAndTheHomePage(t *testing.T) {
 		}
 		list := Search(Filter{}, l).Products
 		i := slices.IndexFunc(list, func(c Card) bool { return c.Slug == "pour-over-kettle" })
-		if i < 0 || list[i].Name != name || list[i].PriceCents != storekit.Price(29900, l) || list[i].Stock != 3 {
+		if i < 0 || list[i].Name != name || list[i].PriceCents != storekit.Price(29900, l) || list[i].LowStock != 3 {
 			t.Errorf("%s: the list shows %+v", l.Code, list[i])
 		}
 		home := Featured(len(catalogue), l)

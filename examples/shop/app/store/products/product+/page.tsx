@@ -292,7 +292,7 @@ function AddToCart() {
     defaultValues: { color: colors[0]?.id ?? '', size: sizes[0] ?? '', quantity: 1 },
   })
   const color = form.watch('color')
-  const soldOut = product.stock === 0
+  const soldOut = !product.inStock
 
   async function onSubmit(input: POSTInput) {
     try {
@@ -403,8 +403,8 @@ function AddToCart() {
               <FieldDescription className={cn(!soldOut && 'text-chart-2')}>
                 {soldOut
                   ? t('product.soldOut')
-                  : product.stock <= 10
-                    ? t('product.stockLow', { count: product.stock })
+                  : product.lowStock > 0
+                    ? t('product.stockLow', { count: product.lowStock })
                     : t('product.inStock')}
               </FieldDescription>
               <FieldError errors={errorOf(errors.quantity?.message)} />
@@ -428,15 +428,16 @@ function Bundle() {
   const { t, money } = useStore()
   const hydrated = useHydrated()
   const [state, setState] = useState<'idle' | 'adding' | 'added' | 'failed'>('idle')
-  const items = [product, ...bundle]
-  if (items.length < 2 || product.stock === 0 || product.sizes.length > 0) return null
+  // Each goes into the cart in its first colour.
+  const items = [{ ...product, color: product.colors[0]?.id ?? '' }, ...bundle]
+  if (items.length < 2 || !product.inStock || product.sizes.length > 0) return null
   const total = items.reduce((n, p) => n + p.priceCents, 0)
 
   async function addAll() {
     setState('adding')
     try {
       for (const p of items) {
-        await POST({ params: { product: p.slug }, input: { color: p.colors?.[0]?.id ?? '', size: '', quantity: 1 } })
+        await POST({ params: { product: p.slug }, input: { color: p.color, size: '', quantity: 1 } })
       }
       setState('added')
     } catch {
@@ -601,7 +602,7 @@ function Compare() {
     [t('product.cmpReviews'), (p) => t('rating.reviews', { count: p.reviews })],
     [t('product.cmpMaterials'), (p) => p.materials.join(sep)],
     [t('product.cmpColors'), (p) => p.colors.map((c) => c.name).join(sep)],
-    [t('product.cmpStock'), (p) => (p.inStock ? (p.stock <= 10 ? t('card.stockLeft', { count: p.stock }) : t('product.inStock')) : t('product.soldOut'))],
+    [t('product.cmpStock'), (p) => (p.inStock ? (p.lowStock > 0 ? t('card.stockLeft', { count: p.lowStock }) : t('product.inStock')) : t('product.soldOut'))],
   ]
   return (
     <Row id="compare-title" title={t('product.compare')}>

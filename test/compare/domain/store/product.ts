@@ -5,7 +5,7 @@ import { addToCart, count, getDeliveries } from './cart/index.ts'
 import type { Delivery } from './cart/index.ts'
 import type { Ctx } from './ctx.ts'
 import { bestInCategory, bundle, getProduct, questionsOf, related, reviewPage } from './products/index.ts'
-import type { Card, Product, Question, ReviewsPage } from './products/index.ts'
+import type { BundleItem, Card, Product, Question, Ranked, ReviewsPage } from './products/index.ts'
 import { atoi } from './products/index.ts'
 import { findLocale } from './store.ts'
 
@@ -15,10 +15,10 @@ export interface Detail {
   reviews: ReviewsPage
   related: Card[]
   // bundle are two products of the same category that go with this one, sold together.
-  bundle: Card[]
+  bundle: BundleItem[]
   questions: Question[]
   // best are the best rated products of the category.
-  best: Card[]
+  best: Ranked[]
   // delivery is when standard delivery would arrive if ordered now.
   delivery: Delivery
 }

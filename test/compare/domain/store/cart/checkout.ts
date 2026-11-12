@@ -7,7 +7,6 @@ import { DAY, iso } from '../time.ts'
 import { createStoreOrder, getOrder } from '../../orders.ts'
 import { buy, NoStock } from '../products/edit.ts'
 import type { Purchase, Take } from '../products/edit.ts'
-import { product } from '../products/product.ts'
 import { cartId, carts, cookieName, demoLinesCopy, getDeliveries, newCartId, priceCart, setCartCookie } from './cart.ts'
 import type { Delivery } from './cart.ts'
 import { countries, deliveries } from './data.ts'
@@ -208,10 +207,7 @@ export function placeOrder(c: Ctx, l: Locale, o: Order, now: number): string {
     if (e instanceof NoStock) throw new HttpError(409, 'cartStock')
     throw e
   }
-  const cart = priceCart(rec.lines, rec.coupon, l, (slug, l) => {
-    const p = bought.products.get(slug)
-    return p ? product(p, l) : null
-  })
+  const cart = priceCart(rec.lines, rec.coupon, l, (slug) => bought.products.get(slug))
   const a = o.address
   const orderId = createStoreOrder({ customer: a.name, phone: a.phone, email: o.email, address: address(a, l), note: o.notes, items: [] }, bought.lines, now).id
   if (!ok) {

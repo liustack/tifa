@@ -118,6 +118,8 @@ Tifa writes `<html lang>`, so the root Layout sets no `lang`. It also links each
 
 The data of the storefront pages (products, journal, menu) is the same for every visitor, so the render memo (see [Render memo](../../docs/memo.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (which lets a CDN keep a page).
 
+A page gets of a product only what it shows, so that a write elsewhere leaves its data as it was. The menu, the picks of the home and the ranking of a category say nothing of the stock and get none of it. A tile gets whether the product is sold out. A card and the page of a product count the pieces only when 10 or fewer are left, so they get that number or 0, not the stock. A sale of a product in good supply then changes no page, and the next visitor still gets every page from the render memo.
+
 What belongs to one visitor is not in the page. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
 
 To see the render memo work, look at the headers of a page twice:

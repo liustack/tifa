@@ -3,8 +3,8 @@ import { counts } from '../counts.ts'
 import { cartId, getCart, validate, getDeliveries, getPlaced, getCountries, placeOrder, savedAddresses } from './cart/index.ts'
 import type { Address, Cart, Country, Delivery, Order, Placed } from './cart/index.ts'
 import type { Ctx } from './ctx.ts'
-import { topRated } from './products/index.ts'
-import type { Card } from './products/index.ts'
+import { tileOf, topRated } from './products/index.ts'
+import type { Tile } from './products/index.ts'
 import { findLocale, languagePrefix } from './store.ts'
 
 // View is the checkout: the cart and what the form offers, or the order just placed. In the
@@ -16,7 +16,7 @@ export interface CheckoutView {
   countries: Country[]
   saved: Address[]
   email: string
-  suggested: Card[]
+  suggested: Tile[]
   // placed is the order the visitor just placed, from ?placed=, which the page confirms in
   // place of the form.
   placed: Placed | null
@@ -37,7 +37,7 @@ export function loadCheckout(c: Ctx, params: { lang: string }, query: URLSearchP
   const cart = getCart(cartId(c), l, now)
   return {
     cart, deliveries: getDeliveries(cart, now, l), countries: getCountries(l), saved: savedAddresses(l),
-    email: l.code === 'en-US' ? 'emma@example.com' : 'linxia@example.com', suggested: topRated(3, l), placed: null,
+    email: l.code === 'en-US' ? 'emma@example.com' : 'linxia@example.com', suggested: topRated(3, l).map(tileOf), placed: null,
   }
 }
 

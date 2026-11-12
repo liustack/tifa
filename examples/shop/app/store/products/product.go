@@ -45,9 +45,10 @@ type Card struct {
 	Colors         []Color `json:"colors"`
 	Badge          string  `json:"badge"` // "new", "sale", "limited" or ""
 	InStock        bool    `json:"inStock"`
-	// Stock is how many are left, and Summary and Materials are what the list view of a card shows
-	// besides the photo.
-	Stock     int      `json:"stock"`
+	// LowStock is how many are left when few are, which a card then says: 1 to lowStock, and 0 when
+	// more are left or none is. So the card of a product in good supply is the same after each sale.
+	LowStock int `json:"lowStock"`
+	// Summary and Materials are what the list view of a card shows besides the photo.
 	Summary   string   `json:"summary"`
 	Materials []string `json:"materials"`
 	// Number is the place of the product in the catalogue, from 1, which the cards show.
@@ -57,14 +58,56 @@ type Card struct {
 	Sized bool `json:"sized"`
 }
 
-// Product is the whole product, as its page shows it.
+// lowStock is the most pieces left that the pages still count ("only 3 left"). With more they say
+// that the product is in stock, whatever the number.
+const lowStock = 10
+
+// Tile is a product in a short row, such as the best of a category on the home page: a Card
+// without what a tile does not show, the colours, the summary, the materials and how many are left.
+type Tile struct {
+	Slug           string  `json:"slug"`
+	Photo          string  `json:"photo"`
+	Name           string  `json:"name"`
+	Category       string  `json:"category"`
+	PriceCents     int     `json:"priceCents"`
+	CompareAtCents int     `json:"compareAtCents"`
+	Rating         float64 `json:"rating"`
+	Reviews        int     `json:"reviews"`
+	Badge          string  `json:"badge"`
+	InStock        bool    `json:"inStock"`
+	Number         int     `json:"number"`
+}
+
+// Tile is the product of the card as a tile shows it.
+func (c Card) Tile() Tile {
+	return Tile{
+		Slug: c.Slug, Photo: c.Photo, Name: c.Name, Category: c.Category, PriceCents: c.PriceCents, CompareAtCents: c.CompareAtCents,
+		Rating: c.Rating, Reviews: c.Reviews, Badge: c.Badge, InStock: c.InStock, Number: c.Number,
+	}
+}
+
+// Ranked is a product in the ranking of its category on a product page: its photo, name, rating and
+// price, and nothing of its stock, which the ranking does not show.
+type Ranked struct {
+	Slug           string  `json:"slug"`
+	Photo          string  `json:"photo"`
+	Name           string  `json:"name"`
+	PriceCents     int     `json:"priceCents"`
+	CompareAtCents int     `json:"compareAtCents"`
+	Rating         float64 `json:"rating"`
+	Reviews        int     `json:"reviews"`
+}
+
+// Product is the whole product, as its page shows it. Stock is how many are left, for the Go code
+// that holds a cart to it. The page does not get it: it shows what InStock and LowStock of the Card
+// say.
 type Product struct {
 	Card
 	CategoryID  string      `json:"categoryId"`
 	Summary     string      `json:"summary"`
 	Description string      `json:"description"`
 	Sizes       []string    `json:"sizes"`
-	Stock       int         `json:"stock"`
+	Stock       int         `json:"-"`
 	Materials   []string    `json:"materials"`
 	Care        []string    `json:"care"`
 	Specs       []Spec      `json:"specs"`
@@ -315,8 +358,11 @@ func ColorName(id string, l storekit.Locale) string {
 func (p productRecord) card(l storekit.Locale) Card {
 	c := Card{
 		Slug: p.slug, Photo: p.photo, Name: p.name.In(l), Rating: p.rating, Reviews: reviewCount(p),
-		PriceCents: storekit.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Stock: p.stock, Summary: p.summary.In(l), Sized: len(p.sizes) > 0,
+		PriceCents: storekit.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Summary: p.summary.In(l), Sized: len(p.sizes) > 0,
 		Number: p.number,
+	}
+	if p.stock <= lowStock {
+		c.LowStock = p.stock
 	}
 	if p.compareFen > 0 {
 		c.CompareAtCents = storekit.Price(p.compareFen, l)
@@ -371,7 +417,7 @@ func TopRated(n int, l storekit.Locale) []Card {
 }
 
 // BestInCategory returns the n best rated products of the category of slug, leaving slug out.
-func BestInCategory(slug string, n int, l storekit.Locale) []Card {
+func BestInCategory(slug string, n int, l storekit.Locale) []Ranked {
 	self, _ := record(slug)
 	var in []productRecord
 	for _, p := range records() {
@@ -380,9 +426,13 @@ func BestInCategory(slug string, n int, l storekit.Locale) []Card {
 		}
 	}
 	slices.SortStableFunc(in, func(a, b productRecord) int { return compareRating(b, a) })
-	var out []Card
+	var out []Ranked
 	for _, p := range in[:min(n, len(in))] {
-		out = append(out, p.card(l))
+		c := p.card(l)
+		out = append(out, Ranked{
+			Slug: c.Slug, Photo: c.Photo, Name: c.Name, PriceCents: c.PriceCents, CompareAtCents: c.CompareAtCents,
+			Rating: c.Rating, Reviews: c.Reviews,
+		})
 	}
 	return out
 }

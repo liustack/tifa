@@ -10,9 +10,22 @@ import (
 // products it has, and the products the menu shows beside them.
 type MenuGroup struct {
 	Category
-	Count    int      `json:"count"`
-	Kinds    []string `json:"kinds"`
-	Featured []Card   `json:"featured"`
+	Count    int           `json:"count"`
+	Kinds    []string      `json:"kinds"`
+	Featured []MenuProduct `json:"featured"`
+}
+
+// MenuProduct is a product as the menu shows it beside a category: its photo, number, name and
+// price. The menu is on every page of the store and says nothing of the stock, so it gets none of
+// it, and a sale changes the Layout of no page.
+type MenuProduct struct {
+	Slug           string `json:"slug"`
+	Photo          string `json:"photo"`
+	Name           string `json:"name"`
+	Category       string `json:"category"`
+	PriceCents     int    `json:"priceCents"`
+	CompareAtCents int    `json:"compareAtCents"`
+	Number         int    `json:"number"`
 }
 
 // kinds are the kinds of products in each category, as the menu lists them.
@@ -42,7 +55,11 @@ func Menu(l storekit.Locale) []MenuGroup {
 		}
 		slices.SortStableFunc(in, func(a, b productRecord) int { return compareRating(b, a) })
 		for _, p := range in[:min(2, len(in))] {
-			g.Featured = append(g.Featured, p.card(l))
+			c := p.card(l)
+			g.Featured = append(g.Featured, MenuProduct{
+				Slug: c.Slug, Photo: c.Photo, Name: c.Name, Category: c.Category, PriceCents: c.PriceCents, CompareAtCents: c.CompareAtCents,
+				Number: c.Number,
+			})
 		}
 		out = append(out, g)
 	}
@@ -59,9 +76,21 @@ func compareRating(a, b productRecord) int {
 	return 0
 }
 
+// BundleItem is a product the page of another offers to buy with it: its photo, number, name and
+// price, and Color, the ID of the colour it goes into the cart in. Only products in stock are
+// offered, so it says nothing of the stock.
+type BundleItem struct {
+	Slug       string `json:"slug"`
+	Photo      string `json:"photo"`
+	Name       string `json:"name"`
+	PriceCents int    `json:"priceCents"`
+	Number     int    `json:"number"`
+	Color      string `json:"color"`
+}
+
 // Bundle returns up to n products to buy together with slug: others of its category that come in
 // one size, best rated first, so each goes into the cart in its first colour.
-func Bundle(slug string, n int, l storekit.Locale) []Card {
+func Bundle(slug string, n int, l storekit.Locale) []BundleItem {
 	self, _ := record(slug)
 	var in []productRecord
 	for _, p := range records() {
@@ -70,9 +99,10 @@ func Bundle(slug string, n int, l storekit.Locale) []Card {
 		}
 	}
 	slices.SortStableFunc(in, func(a, b productRecord) int { return compareRating(b, a) })
-	var out []Card
+	var out []BundleItem
 	for _, p := range in[:min(n, len(in))] {
-		out = append(out, p.card(l))
+		c := p.card(l)
+		out = append(out, BundleItem{Slug: c.Slug, Photo: c.Photo, Name: c.Name, PriceCents: c.PriceCents, Number: c.Number, Color: p.colors[0]})
 	}
 	return out
 }

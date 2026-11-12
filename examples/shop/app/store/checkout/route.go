@@ -21,7 +21,7 @@ type View struct {
 	Saved      []cart.Address  `json:"saved"`
 	Email      string          `json:"email"`
 	// Suggested are small things to add before paying.
-	Suggested []products.Card `json:"suggested"`
+	Suggested []products.Tile `json:"suggested"`
 	// Placed is the order the visitor just placed, from ?placed=, which the page confirms in
 	// place of the form.
 	Placed *cart.Placed `json:"placed"`
@@ -44,10 +44,14 @@ func Load(c *tifa.Ctx) (View, error) {
 	if l.Code == "en-US" {
 		email = "emma@example.com"
 	}
-	return View{
+	v := View{
 		Cart: ct, Deliveries: cart.Deliveries(ct, time.Now(), l), Countries: cart.Countries(l),
-		Saved: cart.SavedAddresses(l), Email: email, Suggested: products.TopRated(3, l),
-	}, nil
+		Saved: cart.SavedAddresses(l), Email: email,
+	}
+	for _, p := range products.TopRated(3, l) {
+		v.Suggested = append(v.Suggested, p.Tile())
+	}
+	return v, nil
 }
 
 // POST places the order and sends the visitor to its confirmation.

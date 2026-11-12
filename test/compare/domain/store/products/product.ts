@@ -39,7 +39,8 @@ export interface Card {
   colors: Color[]
   badge: string // "new", "sale", "limited" or ""
   inStock: boolean
-  stock: number
+  // lowStock is how many are left when few are: 1 to lowStock, and 0 when more are left or none is.
+  lowStock: number
   summary: string
   materials: string[]
   // number is the place of the product in the catalogue, from 1.
@@ -47,7 +48,46 @@ export interface Card {
   sized: boolean
 }
 
-// Product is the whole product, as its page shows it.
+// lowStock is the most pieces left that the pages still count.
+const lowStock = 10
+
+// Tile is a product in a short row: a Card without the colours, the summary, the materials and how
+// many are left.
+export interface Tile {
+  slug: string
+  photo: string
+  name: string
+  category: string
+  priceCents: number
+  compareAtCents: number
+  rating: number
+  reviews: number
+  badge: string
+  inStock: boolean
+  number: number
+}
+
+// tileOf is the product of a card as a tile shows it. Go calls it Card.Tile.
+export function tileOf(c: Card): Tile {
+  return {
+    slug: c.slug, photo: c.photo, name: c.name, category: c.category, priceCents: c.priceCents, compareAtCents: c.compareAtCents,
+    rating: c.rating, reviews: c.reviews, badge: c.badge, inStock: c.inStock, number: c.number,
+  }
+}
+
+// Ranked is a product in the ranking of its category on a product page, with nothing of its stock.
+export interface Ranked {
+  slug: string
+  photo: string
+  name: string
+  priceCents: number
+  compareAtCents: number
+  rating: number
+  reviews: number
+}
+
+// Product is the whole product, as its page shows it. Go keeps the pieces left in a field its JSON
+// leaves out (Stock), for the cart. Here the cart reads them from the record (priceCart).
 export interface Product extends Card {
   categoryId: string
   description: string
@@ -236,7 +276,7 @@ export function card(p: ProductRecord, l: Locale): Card {
     priceCents: price(p.priceFen, l), compareAtCents: p.compareFen > 0 ? price(p.compareFen, l) : 0,
     rating: p.rating, reviews: reviewCount(p),
     colors: p.colors.flatMap((id) => colors.filter((c) => c.id === id).map((c) => ({ id, name: inLocale(c.name, l), hex: c.hex }))),
-    badge: p.badge, inStock: p.stock > 0, stock: p.stock, summary: inLocale(p.summary, l),
+    badge: p.badge, inStock: p.stock > 0, lowStock: p.stock <= lowStock ? p.stock : 0, summary: inLocale(p.summary, l),
     materials: p.materials.map((m) => inLocale(m, l)),
     number: catalogue.findIndex((r) => r.slug === p.slug) + 1, sized: p.sizes.length > 0,
   }
@@ -259,20 +299,16 @@ export function topRated(n: number, l: Locale): Card[] {
 }
 
 // bestInCategory returns the n best rated products of the category of slug, leaving slug out.
-export function bestInCategory(slug: string, n: number, l: Locale): Card[] {
+export function bestInCategory(slug: string, n: number, l: Locale): Ranked[] {
   const self = productBySlug(slug)
   return catalogue
     .filter((p) => p.category === self?.category && p.slug !== slug)
     .sort((a, b) => compareRating(b, a))
     .slice(0, n)
-    .map((p) => card(p, l))
-}
-
-// getProductOrNull is getProduct that returns null for a slug the catalogue does not have, for
-// the code that skips such a slug, as Go's `if err != nil { continue }`.
-export function getProductOrNull(slug: string, l: Locale): Product | null {
-  const p = productBySlug(slug)
-  return p ? product(p, l) : null
+    .map((p) => {
+      const c = card(p, l)
+      return { slug: c.slug, photo: c.photo, name: c.name, priceCents: c.priceCents, compareAtCents: c.compareAtCents, rating: c.rating, reviews: c.reviews }
+    })
 }
 
 // getProductCard is the Card of the product slug, which Go reaches as GetProduct(slug).Card. The

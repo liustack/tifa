@@ -129,7 +129,15 @@ func reviewPhotos(i int) []string {
 // ReviewCard is a review with the product it is about, for the reviews of the home page.
 type ReviewCard struct {
 	Review
-	Product Card `json:"product"`
+	Product Reviewed `json:"product"`
+}
+
+// Reviewed is the product of a review as the home page shows it under the review: a photo and a
+// name that link to its page, with no price and nothing of its stock.
+type Reviewed struct {
+	Slug  string `json:"slug"`
+	Photo string `json:"photo"`
+	Name  string `json:"name"`
 }
 
 // LatestReviews returns the newest review with pictures of each of the n newest products.
@@ -139,7 +147,7 @@ func LatestReviews(n int, l storekit.Locale) []ReviewCard {
 	var out []ReviewCard
 	for _, p := range list[:min(n, len(list))] {
 		reviews := Reviews(p.slug, 1, l)
-		out = append(out, ReviewCard{Review: reviews[0], Product: p.card(l)})
+		out = append(out, ReviewCard{Review: reviews[0], Product: Reviewed{Slug: p.slug, Photo: p.photo, Name: p.name.In(l)}})
 	}
 	return out
 }

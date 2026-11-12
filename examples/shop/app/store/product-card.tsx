@@ -24,11 +24,15 @@ export type Card = {
   badge: string
   inStock: boolean
   number: number
-  stock: number
+  // lowStock is how many are left when few are, and 0 when more are left or none is.
+  lowStock: number
   summary: string
   materials: string[]
   sized?: boolean
 }
+
+// Tile is what a product in a short row shows of a Card.
+export type Tile = Pick<Card, 'slug' | 'photo' | 'name' | 'category' | 'priceCents' | 'compareAtCents' | 'rating' | 'reviews' | 'badge' | 'inStock' | 'number'>
 
 // catalogueNo writes the number of a product in the catalogue, as No. 004.
 export function catalogueNo(n: number) {
@@ -168,12 +172,11 @@ export function ProductCard({
 }: {
   product: Card
   sizes?: string
-  layout?: 'grid' | 'list' | 'tile'
+  layout?: 'grid' | 'list'
 }) {
   const { t, locale } = useStore()
   const colors = product.colors
   const list = layout === 'list'
-  if (layout === 'tile') return <ProductTile product={product} sizes={sizes} />
   return (
     <article
       className={cn(
@@ -229,7 +232,7 @@ export function ProductCard({
 
 // ProductTile is a product in a short row, such as the best sellers of a category: its photo, number,
 // name, rating and price, and nothing to press but the link.
-function ProductTile({ product, sizes }: { product: Card; sizes: string }) {
+export function ProductTile({ product, sizes = '(min-width: 768px) 25vw, 50vw' }: { product: Tile; sizes?: string }) {
   const { t } = useStore()
   return (
     <article className="group relative flex flex-col gap-3 border-r border-b bg-card p-3 md:p-4">
@@ -257,13 +260,13 @@ function ProductTile({ product, sizes }: { product: Card; sizes: string }) {
 }
 
 // Availability says how many are left when few are, and when an order would leave.
-function Availability({ product }: { product: Pick<Card, 'inStock' | 'stock'> }) {
+function Availability({ product }: { product: Pick<Card, 'inStock' | 'lowStock'> }) {
   const { t } = useStore()
   if (!product.inStock) return <p className="text-xs text-muted-foreground">{t('card.restock')}</p>
   return (
     <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <Truck className="size-3.5 text-primary" aria-hidden />
-      {product.stock <= 10 ? t('card.stockLeft', { count: product.stock }) : t('card.ships')}
+      {product.lowStock > 0 ? t('card.stockLeft', { count: product.lowStock }) : t('card.ships')}
     </p>
   )
 }

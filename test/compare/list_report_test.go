@@ -124,8 +124,8 @@ func TestTheAppendixListsTheProductListBySearchFilterAndTheRest(t *testing.T) {
 	// The report says what the three are, and why a list and a product page hit less than they might.
 	for _, want := range []string{
 		"The product list is counted in three rows",
-		"the exact stock of the 10 products of its menu",
-		"every checkout changes the data of every page of the storefront",
+		"nothing for the 10 products of the menu of its Layout",
+		"a checkout of products in good supply changes no page of the storefront",
 	} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("the appendix lacks %q", want)
@@ -211,10 +211,12 @@ func TestTheReportSaysWhatTheRecordingDoesNotDoWithThePointer(t *testing.T) {
 	}
 }
 
-// The report says that every checkout changes the data of every page of the storefront: the Layout of
-// the storefront shows the exact stock of the products of its menu on every page (the dependencies
-// every page has, StoreDeps.Common), and every checkout of the plans takes one of them, since the cart
-// a visitor starts with holds one. This holds it on the plans of two blocks.
+// The report says that a checkout of products in good supply changes no page of the storefront: the
+// Layout of the storefront gets nothing of the stock of the 10 products of its menu (the dependencies
+// every page has, StoreDeps.Common, are their prices alone), and a card gets what it says of the stock,
+// not the pieces. Every checkout of the plans takes a product of the menu, since the cart a visitor
+// starts with holds one, so a menu with the stock in it would change every page with every checkout.
+// This holds both on the plans of two blocks.
 func TestEveryCheckoutOfThePlansTakesAProductOfTheMenu(t *testing.T) {
 	d := checkedDeps(t)
 	if len(d.Common) != 10 {
@@ -222,10 +224,23 @@ func TestEveryCheckoutOfThePlansTakesAProductOfTheMenu(t *testing.T) {
 	}
 	menu := map[string]bool{}
 	for _, dep := range d.Common {
-		if strings.Contains(dep, ":") {
-			t.Fatalf("every page depends on %s, want the price and the stock of a product", dep)
+		slug, fields := fieldsOf(dep)
+		if fields != depPrice {
+			t.Fatalf("every page depends on %s, want the price of a product alone", dep)
 		}
-		menu[stockKey(dep)] = true
+		menu[slug] = true
+	}
+	for part, fields := range d.Decided {
+		if strings.Contains(fields, depStock) {
+			t.Errorf("the products of %s have the pieces in stock (%q)", part, fields)
+		}
+	}
+	for page, deps := range d.Pages {
+		for _, dep := range deps {
+			if _, fields := fieldsOf(dep); strings.Contains(fields, depStock) {
+				t.Fatalf("%s has the pieces in stock of %s", page, dep)
+			}
+		}
 	}
 	w := siteWorkload(t, 1, 2, "shop")
 	checkouts := 0
@@ -235,8 +250,8 @@ func TestEveryCheckoutOfThePlansTakesAProductOfTheMenu(t *testing.T) {
 				continue
 			}
 			checkouts++
-			if !slices.ContainsFunc(e.Keys, func(k string) bool { return menu[k] }) {
-				t.Errorf("the checkout of visit %d takes %v, and no product of the menu", seq, e.Keys)
+			if !slices.ContainsFunc(slices.Collect(maps.Keys(e.Takes)), func(slug string) bool { return menu[slug] }) {
+				t.Errorf("the checkout of visit %d takes %v, and no product of the menu", seq, e.Takes)
 			}
 		}
 	}

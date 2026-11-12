@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from 'cn'
 import { useStore } from './i18n'
 import { picture } from './images'
-import { catalogueNo, JournalCover, ProductCard, ProductGrid, ProductImage, Stars } from './product-card'
+import { catalogueNo, JournalCover, ProductCard, ProductGrid, ProductImage, ProductTile, Stars } from './product-card'
 import { layout, page } from './route.gen'
 
 export default function StoreHome() {
@@ -116,7 +116,7 @@ export default function StoreHome() {
             <TabsContent key={c.id} value={c.id} forceMount className="data-[state=inactive]:hidden">
               <ProductGrid>
                 {c.products.map((p) => (
-                  <ProductCard key={p.slug} product={p} layout="tile" />
+                  <ProductTile key={p.slug} product={p} />
                 ))}
               </ProductGrid>
             </TabsContent>

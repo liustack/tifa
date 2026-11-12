@@ -23,7 +23,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { useHydrated } from '../../use-hydrated'
 import { storeTitle, useStore } from '../i18n'
-import { ProductCard, ProductGrid, ProductImage } from '../product-card'
+import { ProductGrid, ProductImage, ProductTile } from '../product-card'
 import { arrival } from '../cart/arrival'
 import { addressSchema, checkoutSchema, type Address } from './checkout-schema'
 import { POST, page, type PageData, type POSTInput } from './route.gen'
@@ -475,7 +475,7 @@ function Extras() {
         <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('checkout.addMore')}</h2>
         <ProductGrid className="md:grid-cols-3">
           {suggested.map((p) => (
-            <ProductCard key={p.slug} product={p} layout="tile" />
+            <ProductTile key={p.slug} product={p} />
           ))}
         </ProductGrid>
       </section>

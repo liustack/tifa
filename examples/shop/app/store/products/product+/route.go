@@ -18,10 +18,10 @@ type Detail struct {
 	Reviews products.ReviewsPage `json:"reviews"`
 	Related []products.Card      `json:"related"`
 	// Bundle are two products of the same category that go with this one, sold together.
-	Bundle    []products.Card     `json:"bundle"`
-	Questions []products.Question `json:"questions"`
+	Bundle    []products.BundleItem `json:"bundle"`
+	Questions []products.Question   `json:"questions"`
 	// Best are the best rated products of the category.
-	Best []products.Card `json:"best"`
+	Best []products.Ranked `json:"best"`
 	// Delivery is when standard delivery would arrive if ordered now.
 	Delivery cart.Delivery `json:"delivery"`
 }

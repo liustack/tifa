@@ -15,8 +15,10 @@ func TestMenuHasEveryCategoryWithItsKindsAndBestProducts(t *testing.T) {
 		if len(g.Kinds) == 0 || len(g.Featured) != 2 {
 			t.Errorf("%s: %d kinds, %d featured", g.ID, len(g.Kinds), len(g.Featured))
 		}
-		if g.Featured[0].Rating < g.Featured[1].Rating {
-			t.Errorf("%s: featured not best rated first", g.ID)
+		first, _ := record(g.Featured[0].Slug)
+		second, _ := record(g.Featured[1].Slug)
+		if first.rating < second.rating || first.category != g.ID || second.category != g.ID {
+			t.Errorf("%s: featured not its best rated first", g.ID)
 		}
 	}
 	if total != len(catalogue) {
@@ -63,7 +65,7 @@ func TestLatestReviewsHavePicturesOfNewProducts(t *testing.T) {
 func TestBundleHasOtherProductsOfOneSizeInStock(t *testing.T) {
 	for _, p := range catalogue {
 		for _, b := range Bundle(p.slug, 2, zh) {
-			stock, ok := HasVariant(b.Slug, b.Colors[0].ID, "")
+			stock, ok := HasVariant(b.Slug, b.Color, "")
 			if b.Slug == p.slug || !ok || stock == 0 {
 				t.Errorf("%s: bundle has %s (stock %d, one size %v)", p.slug, b.Slug, stock, ok)
 			}

@@ -5,8 +5,7 @@ import { DAY, HOUR, MINUTE, iso } from '../time.ts'
 import { catalogue, reviewCount } from './catalogue.ts'
 import type { ProductRecord } from './catalogue.ts'
 import { reviewers, reviewTags, reviewTexts } from './reviewData.ts'
-import { card, productBySlug } from './product.ts'
-import type { Card } from './product.ts'
+import { productBySlug } from './product.ts'
 
 export interface Review {
   author: string
@@ -107,7 +106,15 @@ function reviewPhotos(i: number): string[] {
 
 // ReviewCard is a review with the product it is about, for the reviews of the home page.
 export interface ReviewCard extends Review {
-  product: Card
+  product: Reviewed
+}
+
+// Reviewed is the product of a review as the home page shows it under the review: a photo and a
+// name that link to its page.
+export interface Reviewed {
+  slug: string
+  photo: string
+  name: string
 }
 
 // latestReviews returns the newest review with pictures of each of the n newest products.
@@ -115,5 +122,5 @@ export function latestReviews(n: number, l: Locale): ReviewCard[] {
   return [...catalogue]
     .sort((a, b) => b.added - a.added)
     .slice(0, n)
-    .map((p) => ({ ...reviews(p.slug, 1, l)[0], product: card(p, l) }))
+    .map((p) => ({ ...reviews(p.slug, 1, l)[0], product: { slug: p.slug, photo: p.photo, name: inLocale(p.name, l) } }))
 }

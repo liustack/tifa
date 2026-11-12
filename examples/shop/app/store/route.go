@@ -14,18 +14,30 @@ import (
 // category, what is on sale, what customers wrote and the latest journal posts.
 type Home struct {
 	Featured   []products.Card       `json:"featured"`
-	Picks      []products.Card       `json:"picks"`
+	Picks      []Pick                `json:"picks"`
 	ByCategory []CategoryPicks       `json:"byCategory"`
 	Sale       []products.Card       `json:"sale"`
 	Reviews    []products.ReviewCard `json:"reviews"`
 	Posts      []journal.Summary     `json:"posts"`
 }
 
-// CategoryPicks are the best rated products of one category.
+// Pick is one of the products the shop uses itself, as the home page shows it: its photo in use,
+// name, number, rating and price. It says nothing of the stock, so it gets none of it.
+type Pick struct {
+	Slug       string  `json:"slug"`
+	Photo      string  `json:"photo"`
+	Name       string  `json:"name"`
+	PriceCents int     `json:"priceCents"`
+	Rating     float64 `json:"rating"`
+	Reviews    int     `json:"reviews"`
+	Number     int     `json:"number"`
+}
+
+// CategoryPicks are the best rated products of one category, each as a tile.
 type CategoryPicks struct {
 	ID       string          `json:"id"`
 	Name     string          `json:"name"`
-	Products []products.Card `json:"products"`
+	Products []products.Tile `json:"products"`
 }
 
 // picks are the products the shop uses every day, which the home page shows on their own.
@@ -42,11 +54,15 @@ func Load(c *tifa.Ctx) (Home, error) {
 		if err != nil {
 			return Home{}, err
 		}
-		h.Picks = append(h.Picks, p.Card)
+		h.Picks = append(h.Picks, Pick{Slug: p.Slug, Photo: p.Photo, Name: p.Name, PriceCents: p.PriceCents, Rating: p.Rating, Reviews: p.Reviews, Number: p.Number})
 	}
 	for _, cat := range products.Categories(l) {
 		best := products.Search(products.Filter{Category: cat.ID, Sort: "rating"}, l).Products
-		h.ByCategory = append(h.ByCategory, CategoryPicks{ID: cat.ID, Name: cat.Name, Products: best[:min(4, len(best))]})
+		tiles := CategoryPicks{ID: cat.ID, Name: cat.Name}
+		for _, p := range best[:min(4, len(best))] {
+			tiles.Products = append(tiles.Products, p.Tile())
+		}
+		h.ByCategory = append(h.ByCategory, tiles)
 	}
 	for _, p := range products.Search(products.Filter{Sort: "price-desc"}, l).Products {
 		if p.CompareAtCents > 0 {
