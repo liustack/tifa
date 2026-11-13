@@ -374,7 +374,11 @@ func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	idleVM(open, func(vm *pooledVM) {
-		if size := vm.MemorySize(); size >= vm.live+vm.live/8 {
+		// The first render of a VM adds memory that a young GC keeps and that is no garbage of the
+		// page: the engine holds the register code of each function that ran, and its register
+		// stack grows in segments. With this bundle that is 40,648 bytes, 0.16 of the live size,
+		// measured with a render that makes no cycles. Cycles left behind would add 0.75 of it.
+		if size := vm.MemorySize(); size >= vm.live+vm.live/4 {
 			t.Fatalf("a young GC left %d bytes of a live size of %d", size, vm.live)
 		}
 	})
