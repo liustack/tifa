@@ -21,6 +21,7 @@
 ### 变更
 
 - 示例商店的店面只把页面显示的库存信息发给页面，每个页面看起来和原来一样。Layout 的菜单、首页的自用推荐和评价下的商品、商品页的排行和搭配不再带库存（评价下的商品也不再带价格）。首页和结账页的小卡片只带有没有货（`inStock`）。商品卡片和商品页拿到的是 `lowStock`（剩 10 件及以下时是件数，否则是 0），不再是 `stock`。卖出库存充足的商品不再改变任何店面页面的数据，渲染记忆继续给出这些页面。原来每次结账都让所有页面重新渲染，因为菜单里带着被买商品的库存。工作台照旧显示库存，对比用的三个应用发同样的数据。
+- 服务端渲染的 `URL` 和 `URLSearchParams` 改由引擎提供，在 Go 里解析 URL，取代宿主脚本里带的 core-js polyfill，宿主脚本因此变小，每个 VM 占的内存变少。有多语言的网站，路由每写一个链接就建一个 `URL`，这些页面渲染更快，HTML 不变。没有多语言的网站渲染时不建 `URL`，没有提升。页面能看到的变化有三处，都和浏览器一致：`URL` 对象没有自有属性，违反 UTS 46 Bidi 规则的主机名无效，无效的 URL 抛 `TypeError: Failed to construct 'URL': Invalid URL`。没有了 `URL.createObjectURL` 和 `URL.revokeObjectURL`（这里没有 `Blob`）（[服务端渲染时有什么](docs/app.zh-CN.md#服务端渲染时有什么)）。
 - 示例商店的店面卖 150 件商品，原来是 28 件。新加的是前 28 件换了颜色和名字的款，和原款共用照片：商品在数据里写明照片所在的文件夹（`photo`），页面从那里取图，不再按 slug 取。商品放在一个文件里，`app/store/products/catalogue.json`，商店把它打包进程序，对比用的应用也读这个文件。商品列表有 7 页，每种语言有 150 个商品页。
 - 从 v0.0.4 升级：带 `const Cache` 的页面不再存在程序里。它的 `Load` 每个请求都跑，数据没变时渲染记忆省掉渲染，所以源站从不给出旧数据。页面保留匿名请求和构建检查，HTML 仍带 `Cache-Control: public, max-age=0, s-maxage=<秒数>, stale-if-error=86400` 给前面的 CDN 用，除非 `OnRequest`、`Load` 或 `Layout` 把它设成私有。`SSR = false` 又带 `Cache` 的页面不再有 ETag。`Cache` 现在可以是 `true`、`false` 或一个时长：`const Cache = true` 的时间取自新配置 `cache_control.s_maxage`（默认 `1m`，`--cache-control-s-maxage`，`CACHE_CONTROL_S_MAXAGE`），写时长仍是这个页面自己的时间。删除了 `cache.whole_page`、`cache.ignore_query`（连同 `--cache-whole-page`、`--cache-ignore-query` 和对应的环境变量）、`tifa.ExpirePages`（改在 CDN 里清除，Tifa 没有要让它过期的副本），以及这类页面的 `Age` 和 `Cache-Status` 响应头。改名，不留旧名：渲染缓存叫渲染记忆。`RenderCache = false` 改成 `Memo = false`，`cache.size` 改成 `ssr.memo_size`（`--cache-size` 和 `CACHE_SIZE` 改成 `--ssr-memo-size` 和 `SSR_MEMO_SIZE`），`tifa.Stats().RenderCache` 改成 `tifa.Stats().Memo`（`CacheBytes` 和 `CacheSize` 改成 `MemoBytes` 和 `MemoSize`，类型 `CacheStats` 改成 `MemoStats`，`PageCache` 删除），`X-Tifa-Render: cache` 改成 `X-Tifa-Render: memo`，`docs/render-cache.zh-CN.md` 改成 [docs/memo.zh-CN.md](docs/memo.zh-CN.md)旧名字会报错，不会悄悄用默认值：`route.go` 里写 `RenderCache` 会构建失败，`cache.size`、`cache.whole_page` 和 `cache.ignore_query` 会让程序启动失败（写在 `tifa.yaml` 里则是 `tifa build` 失败），不论它们来自文件、参数还是环境变量。带 `Cache` 的页面的 `Load` 返回的重定向也带共享策略（[给 CDN 用的 Cache](docs/app.zh-CN.md#给-cdn-用的-cache)、[渲染记忆](docs/memo.zh-CN.md)）。
 - `ssr.wait_timeout` 默认值从 `1s` 改为 `3s`，与 `ssr.timeout` 相同。一个请求最多等 3 秒拿 VM，再最多渲染 3 秒，共 6 秒，这只是 SSR 部分，仍在 10 秒的 `server.write_timeout` 以内。`OnRequest`、`Load`、编码、压缩和写出响应共用同一个超时，调大其中任何一项时要给它们留出余地。32 个排队的渲染要跑超过 1 秒的机器上（比如单核、页面渲染超过 31 毫秒），突发请求原来等 1 秒就回 503，现在最多等 3 秒，除非先碰到 `ssr.queue_limit`。想保留原来的限制，设 `ssr.wait_timeout: 1s`（[渲染队列](docs/config.zh-CN.md#渲染队列)）。
@@ -31,6 +32,8 @@
 - 客户端同时接受 gzip 和 zstd 时（浏览器发 `Accept-Encoding: gzip, deflate, br, zstd`），现在得到 gzip。只有客户端不接受 gzip，或者用 `q` 给 zstd 更高优先级时才发 zstd。页面、缓存的页面、导航数据和 `server.compress` 压缩的其他回答都一样。
 - 渲染记忆对每个页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。以前一个页面存 HTML 加 gzip 和 zstd 两份压缩，而且每次没命中都压两次，占一次没命中约 8% 的时间。现在只压一次，页面在缓存里大约只占 HTML 的五分之一，接受 gzip 的客户端命中时直接发存好的字节。不接受压缩的客户端得到边写边解压的 HTML，带 `Content-Length`。不接受 gzip 只接受 zstd、或给 zstd 更高 `q` 的客户端，得到边写边做出的 zstd。
 - 服务端渲染改用 `github.com/liustack/quickjs` v0.30.1，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。从 v0.30.1 起，渲染超时（`ssr.timeout`）也能停下正在展平很长字符串、执行 `String.prototype.repeat`、编译很长的正则或很大的字符类的页面。以前在超时下编译特别长的正则可能让 VM 崩溃。
+- 服务端渲染改用 quickjs v0.30.2，引擎换成了寄存器式解释器，取代 QuickJS 原来的栈式解释器。页面的 HTML 不变，渲染更快，每个 VM 占的内存变多，因为引擎会留着每个跑过的函数的寄存器代码。`WeakRef` 现在把目标留到当前任务结束，和 Node 一样。
+- 服务端渲染改用 quickjs v0.30.3，寄存器式解释器的第二批改进。页面的 HTML 不变。`Intl` 和 `Temporal` 遇到特别长的语言标签或选项时现在抛 `RangeError`，以前会整个读进来。解构数组不再产生迭代器。闭包对没人改过的变量直接存值，所以只被挂起的 async 函数持有的对象，指向它的 `WeakRef` 可能更早清空。
 - `tifa new` 固定 `github.com/liustack/sqlite` v0.1.4。v0.1.3 修了一次提交合并超过 64 条不同 SQL 时的空指针崩溃，把值直接拼进 SQL 文本时很常见。v0.1.4 带来分组提交，以及一次全面审查和 Windows 上的修复，还改了一条规则：用命名参数时，从 1 到最大编号的每个参数都要有值，和位置参数一样（`SELECT ?2, :x` 也要给 `?1`）。已有应用执行 `go get github.com/liustack/sqlite@v0.1.4`。
 - 示例 shop 的店面不再使用 `const Cache`（五个页面的已删除），browse 对比因此只跑一份 Tifa。页面只由渲染记忆回答，每个请求都会运行自己的 `Load`。shop 的 README 已同步说明。
 - browse 对比只剩一个场景：顾客和员工在同一个配比里的商店。员工访问和商品编辑都翻倍的场景已删除，`SCENARIOS` 和 `-scenarios` 也一起删除。员工占比仍是报告配比表里的一行。
@@ -45,6 +48,7 @@
 
 ### 修复
 
+- SSR 包写开的小函数调用，不再在调用先算的有副作用实参之前读变量、属性或全局对象上的名字。`function f(x) { return n + x }` 以 `f((n = 2, 0))` 调用时，写开后得 1，调用本该得 2。函数体里的 getter 也会跑在实参前面，或者在实参算之前就抛错。这样的调用现在保持原样：在最后一个有副作用的实参之前，函数体只能用参数、用 `===` 或 `!==` 比较，以及读模块里只赋值一次、调用时一定已经有值的名字（[前端产物](docs/build.zh-CN.md#前端产物)）。
 - 示例商店中文店面页头的搜索框搜的是中文列表（`/zh-CN/store/products?q=`），以前会跳到英文列表。
 - 示例商店中文店面的商品页，评论翻页链接指向中文网址（`/zh-CN/store/products/<slug>?reviews=2`），以前指向英文页。
 - 渲染页面时路由器发出的重定向（`/%61` 转到 `/a`）现在和别的页面一样进渲染记忆，再来一次就是命中（`X-Tifa-Render: memo`），不再渲染。404 页和 `Load` 失败时显示的错误页每个请求都渲染，不存下，所以随机 URL 不会把记忆填满，同时到达的同一个错误页请求共用一次渲染。它们不带 `ETag`，`OnError` 看到每次失败（[渲染记忆](docs/memo.zh-CN.md#为什么对所有页面都安全)）。

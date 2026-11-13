@@ -584,6 +584,19 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 	if got := BlocksFor(0.5, 75*time.Second, 4, 95); got != 4 {
 		t.Errorf("a slow framework still plays whole passes of the plans: %d", got)
 	}
+	// A round of whole blocks lands in the window whenever one block fits under its top: rounding up
+	// from 1.1 blocks of 68 s each would give 136 s, over the 120 s of a 75 s target.
+	if got := BlocksFor(15, 75*time.Second, 1, 1020); got != 1 {
+		t.Errorf("blocks for 15 visits/s of blocks of 1020 visits: %d, want 1", got)
+	}
+	for _, target := range []time.Duration{75 * time.Second, 120 * time.Second} {
+		lo, hi := roundLength(target)
+		for rate := 1020 / hi; rate < 400; rate *= 1.01 {
+			if s := float64(BlocksFor(rate, target, 1, 1020)*1020) / rate; s < lo || s > hi+1e-9 {
+				t.Fatalf("target %v, %.2f visits/s: the round takes %.0f s, outside %.0f to %.0f s", target, rate, s, lo, hi)
+			}
+		}
+	}
 	// Every open run plays whole cycles of all 380 plans: a part of a cycle has another page mix.
 	if n := visitsFor(8, 30*time.Second, 380); n%380 != 0 || n < 240 {
 		t.Errorf("visits for 8 visits/s: %d", n)

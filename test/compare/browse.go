@@ -29,7 +29,7 @@ import (
 // browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
 // pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
 // its report says so at the top, with how it differs.
-var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 75 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 120 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
@@ -44,6 +44,17 @@ type BrowseOptions struct {
 	// ServerCPUCount is how many cpus the server is pinned to, to tell whether the sessions used them
 	// (none when it is not pinned: then no server is stepped up).
 	ServerCPUCount int
+	// Locks are files the run holds an flock on while one of its servers runs, taken in this order
+	// before the server starts and given back when it has stopped (holdLocks). They are for a
+	// machine that other work shares: that work runs between the rounds, never in one.
+	Locks []string
+	// Announce is a folder in which the run leaves a file named by its pid from before it takes the
+	// lock files of a round until it has given them back (announce): others on the machine start no
+	// new heavy work while the file is there.
+	Announce string
+	// Hold is the command of a machine that keeps it quiet for a timing round, with its arguments,
+	// run around each server of the run (holdWith). A machine that has one needs no Locks or Announce.
+	Hold []string
 	// Probe searches the rate of Next.js again, and writes it into RateFile.
 	Probe bool
 	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
@@ -157,23 +168,51 @@ type liveServer struct {
 	stop     func()
 }
 
-// start waits for the cpus to be idle, starts a fresh server of a spec and waits until it listens.
+// start announces the round and takes the lock files of the run, waits for the cpus to be idle, starts a fresh server of a
+// spec and waits until it listens. Stopping the server gives the lock files back and ends the announcement, so they are held
+// for one server at a time: a round with its warm-up, a sizing run or a check.
 func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 	if b.launch != nil {
 		return b.launch(ctx, spec)
 	}
+	unhold, err := holdWith(ctx, b.o.Hold)
+	if err != nil {
+		return nil, err
+	}
+	quiet, err := announce(b.o.Announce)
+	if err != nil {
+		unhold()
+		return nil, err
+	}
+	unlocks, err := holdLocks(ctx, b.o.Locks)
+	if err != nil {
+		quiet()
+		unhold()
+		return nil, err
+	}
+	unlock := func() {
+		unlocks()
+		quiet()
+		unhold()
+	}
 	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
+		unlock()
 		return nil, err
 	}
 	server, err := spec.Launch(b.o.ServerCPUs)
 	if err != nil {
+		unlock()
 		return nil, err
+	}
+	stop := func() {
+		server.Stop()
+		unlock()
 	}
 	if err := server.WaitListening(ctx); err != nil {
-		server.Stop()
+		stop()
 		return nil, err
 	}
-	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: server.Stop}, nil
+	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: stop}, nil
 }
 
 // verifyWrites checks the writes of the scenario on the server of r.
@@ -841,7 +880,7 @@ func judgeClosed(out *Round, target time.Duration, planBlocks, blockVisits, load
 }
 
 // calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
-// times the target (60 to 120 seconds by default). Outside that it returns the blocks the next round
+// times the target (96 to 192 seconds by default). Outside that it returns the blocks the next round
 // of its cell gets, from the visits a second this one ended (the failed ones too: a 503 ends a visit
 // fast, and the completed visits alone would size a server that refuses load far too small), and 0
 // when the round was in the window. A round outside the window that passed the rule is invalid and is

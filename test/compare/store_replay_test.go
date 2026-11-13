@@ -373,7 +373,7 @@ func TestEveryScenarioRunsEachServerOnce(t *testing.T) {
 		for _, s := range specs {
 			names = append(names, s.Name)
 		}
-		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache" {
+		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch" {
 			t.Errorf("%s runs %s", sc.Name, got)
 		}
 	}
@@ -432,7 +432,7 @@ func TestTheOpenRateIsHalfOfNextjs(t *testing.T) {
 
 func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 	env := Env{Shop: "/shop"}
-	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs", "start": "start", "reactrouter": "reactrouter"} {
+	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs", "start": "start", "reactrouter": "reactrouter", "start-gzip": "start", NextNoPrefetch: NextNoPrefetch} {
 		i := slices.IndexFunc(env.Specs(), func(s Spec) bool { return s.Name == name })
 		if got := traceName(env.Specs()[i]); got != want {
 			t.Errorf("%s replays the traces of %s, want %s", name, got, want)
@@ -441,6 +441,18 @@ func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 	nocache, _ := env.Target("tifa-nocache")
 	if i := slices.Index(nocache.Args, "--ssr-memo-size"); i < 0 || nocache.Args[i+1] != "0" {
 		t.Errorf("tifa-nocache runs with %v", nocache.Args)
+	}
+	// Start with gzip is the build of Start, started with the switch of the app that adds gzip.
+	start, _ := env.Target("start")
+	gzip, _ := env.Target("start-gzip")
+	if gzip.Dir != start.Dir || !slices.Equal(gzip.Args, start.Args) || !slices.Contains(gzip.Env, "COMPARE_GZIP=1") || slices.Contains(start.Env, "COMPARE_GZIP=1") {
+		t.Errorf("start-gzip runs %v in %s with %v, and start with %v", gzip.Args, gzip.Dir, gzip.Env, start.Env)
+	}
+	// Next.js with prefetching off is the same app, started from the folder of its other build.
+	next, _ := env.Target("nextjs")
+	off, _ := env.Target(NextNoPrefetch)
+	if off.Dir != next.Dir || !slices.Contains(off.Env, "COMPARE_NEXT_DIST=.next-noprefetch") || slices.ContainsFunc(next.Env, func(v string) bool { return strings.HasPrefix(v, "COMPARE_NEXT_DIST=") }) {
+		t.Errorf("%s runs in %s with %v, and nextjs with %v", NextNoPrefetch, off.Dir, off.Env, next.Env)
 	}
 }
 

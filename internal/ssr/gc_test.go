@@ -311,7 +311,9 @@ func TestGCBetweenRendersUnderALowLimit(t *testing.T) {
 	var live uintptr
 	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
 	cfg := testConfig(1)
-	cfg.VMMemory = int64(live * 19 / 10)
+	// The garbage of one render is about 0.4 times the live size, so the limit leaves the threshold
+	// (half way to it) under that, whatever the registered builtins add to the live size.
+	cfg.VMMemory = int64(live * 16 / 10)
 	p := newTestPool(t, testSource(t), cfg)
 	for i := range 100 {
 		if _, err := p.Render(context.Background(), input("garbage", "")); err != nil {
@@ -374,7 +376,11 @@ func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	idleVM(open, func(vm *pooledVM) {
-		if size := vm.MemorySize(); size >= vm.live+vm.live/8 {
+		// The first render of a VM adds memory that a young GC keeps and that is no garbage of the
+		// page: the engine holds the register code of each function that ran, and its register
+		// stack grows in segments. With this bundle that is 40,648 bytes, 0.16 of the live size,
+		// measured with a render that makes no cycles. Cycles left behind would add 0.75 of it.
+		if size := vm.MemorySize(); size >= vm.live+vm.live/4 {
 			t.Fatalf("a young GC left %d bytes of a live size of %d", size, vm.live)
 		}
 	})

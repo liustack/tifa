@@ -74,6 +74,11 @@ func TestHostStructuredCloneWithoutBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
+	// The host script takes the prototypes of URL and URLSearchParams, which every VM of the server
+	// has from the engine before the script runs.
+	if err := registerURL(vm); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = vm.Eval(string(host), quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}

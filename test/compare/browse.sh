@@ -23,17 +23,27 @@
 #   BROWSE_TRACES     folder of the plans and traces                                $BROWSE_OUT/traces
 #   SERVER_CPUS       cpus of the server, as taskset -c takes them (Linux)          none: not pinned
 #   LOAD_CPUS         cpus of the load generator                                    none: not pinned
-#   LOCKS             files to flock while running, space separated, first taken first   none
-#   SERVERS           spec ids (tifa-nocache: Tifa with its render memo off,         tifa,nextjs,start,reactrouter,tifa-nocache
-#                     a reference that replays the trace of tifa)
+#   LOCKS             files to flock while a server of the run runs, space separated,    none
+#                     first taken first: held for one round with its warm-up at a time and
+#                     given back in between, so that other work on the machine fits there
+#   SERVERS           spec ids. The references: tifa-nocache (Tifa with its render   tifa,nextjs,start,reactrouter,
+#                     memo off, replays the trace of tifa), start-gzip (Start with    tifa-nocache,start-gzip,nextjsnoprefetch
+#                     gzip added, replays the trace of start), nextjsnoprefetch
+#                     (Next.js built with prefetching off, a trace of its own)
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
 #                     (Tifa with no writes), sustain (the rate of Next.js),
 #                     latency (every server at half of that rate)
 #   PROBE=1           search the rate of Next.js again and write it into
 #                     test/compare/rates.json (else the file is used, and a run whose
 #                     conditions differ from the file is refused)
+#   HOLD              the command of the machine that keeps it quiet for a timing round       none
+#                     (it queues the round with the other work and takes the locks): the
+#                     run starts it around each round, and needs no LOCKS or ANNOUNCE then
+#   ANNOUNCE          a folder in which the run leaves a file named by its pid while it      none
+#                     waits for or runs a round, for a machine whose other work starts
+#                     nothing new while a timing run is announced there
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
-#   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 75s
+#   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 120s
 #                     long a closed round takes
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
 #   BLOCKS            blocks of 1050 visits to record (the plans)                   1
@@ -45,7 +55,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
-servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache}
+servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch}
 # trace_names are the trace files the servers replay, each once: a spec replays the trace of its
 # framework, its id before the first dash (traceName in recorder.go), so tifa-nocache replays tifa.jsonl.
 trace_names() { echo "$servers" | tr "," "\n" | sed "s/-.*//" | awk "!seen[\$0]++"; }
@@ -112,6 +122,7 @@ run_stamp() {
   echo "tifa-build $(sed -n 's/.*"buildId": *"\([^"]*\)".*/\1/p' examples/shop/.tifa/dist/build.json 2>/dev/null | head -1)"
   echo "shop-binary $(sha <examples/shop/bin/shop 2>/dev/null || echo none)"
   echo "next-output $(dirsha test/compare/nextjs/.next)"
+  echo "next-noprefetch-output $(dirsha test/compare/nextjs/.next-noprefetch)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
   echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
@@ -177,11 +188,11 @@ do_run() {
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")
   [ -n "${LOAD_CPUS:-}" ] && cmd+=(-load-cpus "$LOAD_CPUS")
   run_stamp >"$out/run.stamp"
-  # The first lock listed is taken first, so it is wrapped last.
-  local locks=(${LOCKS:-}) i
-  for ((i = ${#locks[@]} - 1; i >= 0; i--)); do
-    cmd=(flock -o "${locks[i]}" "${cmd[@]}")
-  done
+  # The tool takes the lock files itself, around each server it starts, first listed first.
+  local locks=(${LOCKS:-})
+  if [ ${#locks[@]} -gt 0 ]; then cmd+=(-locks "$(IFS=,; echo "${locks[*]}")"); fi
+  [ -n "${ANNOUNCE:-}" ] && cmd+=(-announce "$ANNOUNCE")
+  [ -n "${HOLD:-}" ] && cmd+=(-hold "$HOLD")
   "${cmd[@]}" >/dev/null 2> >(tee -a "$out/browse.log" >&2)
   do_report
 }

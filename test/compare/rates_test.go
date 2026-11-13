@@ -288,7 +288,7 @@ func TestARateIsOnlyUsedOnABuildOfTheSources(t *testing.T) {
 		t.Errorf("a build that says nothing: %v", err)
 	}
 	os.MkdirAll(filepath.Join(next, ".next"), 0o755)
-	if err := writeNextSource(root, next); err != nil {
+	if err := writeNextSource(root, next, ".next"); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.checkNextBuild(); err != nil {
@@ -302,7 +302,7 @@ func TestARateIsOnlyUsedOnABuildOfTheSources(t *testing.T) {
 	if err := b.checkNextBuild(); err == nil || !strings.Contains(err.Error(), "other sources") {
 		t.Errorf("a stale build: %v", err)
 	}
-	writeNextSource(root, next)
+	writeNextSource(root, next, ".next")
 	write("test/compare/nextjs/shop/app/page.tsx", "the pages copied from the shop")
 	if err := b.checkNextBuild(); err == nil {
 		t.Error("pages copied from the shop after the build are the sources it was built from")

@@ -156,6 +156,11 @@ func TestTheClicksAreAlsoTimedByHowTheBrowserDidThem(t *testing.T) {
 	if len(a.lat["load"]) != 1 || len(a.lat["click"]) != 4 || len(a.lat["click doc"]) != 2 || len(a.lat["click nav"]) != 2 {
 		t.Errorf("%d full loads, %d clicks, %d of them document loads and %d by the router, want 1, 4, 2 and 2", len(a.lat["load"]), len(a.lat["click"]), len(a.lat["click doc"]), len(a.lat["click nav"]))
 	}
+	// The full page loads are timed together: the first page of the visit and the two later pages the
+	// browser loaded whole.
+	if len(a.lat["document"]) != 3 {
+		t.Errorf("%d full page loads timed together, want 3", len(a.lat["document"]))
+	}
 
 	sc := mustScenario("shop")
 	res := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{},
@@ -171,7 +176,7 @@ func TestTheClicksAreAlsoTimedByHowTheBrowserDidThem(t *testing.T) {
 	}
 	body, appendix, _ := strings.Cut(res.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | clicks | as a document load | by the router |",
+		"| | pages after the first of a visit | of them full page loads | of them client navigations |",
 		"| Tifa | 2.0 / 15 (600) | 6.0 / 40 (60) | 2.0 / 12 (540) |",
 		"| Next.js | 2.0 / 15 (600) | 6.0 / 40 (60) | 2.0 / 12 (540) |",
 	} {

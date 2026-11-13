@@ -53,6 +53,11 @@ type LinkProps = Omit<ComponentProps<typeof NextLink>, 'href'> & {
   activeProps?: Record<string, unknown>
 }
 
+// NEXT_PUBLIC_COMPARE_PREFETCH=off at build time makes the reference build of the comparison, whose
+// links never prefetch (the server "nextjsnoprefetch"). The build the comparison ranks leaves the
+// links as Next.js ships them, which prefetch what they point to when they come into view.
+const prefetchOff = process.env.NEXT_PUBLIC_COMPARE_PREFETCH === 'off' ? ({ prefetch: false } as const) : {}
+
 export function Link({ to, params, search, activeOptions, activeProps, className, ...rest }: LinkProps) {
   const pathname = usePathname()
   // Only a link that names a query reads the current one. Whether it does never changes for a link,
@@ -74,6 +79,7 @@ export function Link({ to, params, search, activeOptions, activeProps, className
   return active ? (
     <NextLink
       {...rest}
+      {...prefetchOff}
       {...activeProps}
       href={href}
       className={className ? `${className} active` : 'active'}
@@ -81,7 +87,7 @@ export function Link({ to, params, search, activeOptions, activeProps, className
       aria-current="page"
     />
   ) : (
-    <NextLink {...rest} href={href} className={className} />
+    <NextLink {...rest} {...prefetchOff} href={href} className={className} />
   )
 }
 

@@ -182,7 +182,7 @@ func browseCmd(cmd string, args []string) {
 		dir       = flags.String("dir", "traces", "the folder of the plans and traces")
 		seed      = flags.Uint64("seed", compare.FormalBrowse.Seed, "the seed of the plans and their writes")
 		blocks    = flags.Int("blocks", 1, "plans: blocks of 1050 visits, 1000 shoppers and 50 staff")
-		servers   = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter,tifa-nocache)")
+		servers   = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch)")
 		workers   = flags.Int("workers", 4, "record: browser contexts at once")
 		limit     = flags.Int("limit", 0, "record: play only the first visits")
 		only      = flags.String("only", "", "record: play only the plans with these ids, comma separated, with their variants")

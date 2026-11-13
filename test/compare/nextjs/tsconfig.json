@@ -45,7 +45,9 @@
     "shop/**/*.ts",
     "shop/**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-noprefetch/types/**/*.ts",
+    ".next-noprefetch/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

@@ -13,11 +13,11 @@ import (
 )
 
 var browseOpts struct {
-	out, phases, stamp, serverCPUs, loadCPUs string
-	sessions, rounds                         int
-	probe                                    bool
-	maxRate                                  float64
-	sizing, target, trial, final             time.Duration
+	out, phases, stamp, serverCPUs, loadCPUs, locks, announce, hold string
+	sessions, rounds                                                int
+	probe                                                           bool
+	maxRate                                                         float64
+	sizing, target, trial, final                                    time.Duration
 }
 
 func browseFlags(flags *flag.FlagSet) {
@@ -27,6 +27,9 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 	flags.StringVar(&o.loadCPUs, "load-cpus", "", "browse: cpus for the load generator")
+	flags.StringVar(&o.locks, "locks", "", "browse: files to flock while a server of the run runs, comma separated, taken in this order and given back between the rounds")
+	flags.StringVar(&o.hold, "hold", "", "browse: the command of the machine that keeps it quiet for a timing round, run around each server of the run")
+	flags.StringVar(&o.announce, "announce", "", "browse: a folder in which the run leaves a file named by its pid while it waits for or runs a round")
 	flags.Float64Var(&o.maxRate, "max-rate", compare.FormalBrowse.MaxRate, "browse: the search for the sustainable rate stops here, visits a second")
 	flags.BoolVar(&o.probe, "probe", false, "browse: search the rate Next.js sustains again, even where test/compare/rates.json has it, and write it into the file")
 	flags.IntVar(&o.sessions, "sessions", compare.FormalBrowse.Sessions, "browse: the concurrent sessions (no think time) every server starts the throughput at")
@@ -58,6 +61,13 @@ func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, se
 	o := &browseOpts
 	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs), Probe: o.probe,
 		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Sizing: o.sizing, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, MaxRate: o.maxRate, Log: os.Stderr}
+	for _, lock := range strings.Split(o.locks, ",") {
+		if lock = strings.TrimSpace(lock); lock != "" {
+			opts.Locks = append(opts.Locks, lock)
+		}
+	}
+	opts.Announce = o.announce
+	opts.Hold = strings.Fields(o.hold)
 	res, err := env.Browse(ctx, opts)
 	if err != nil {
 		fatal(err)

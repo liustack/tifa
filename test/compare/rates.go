@@ -257,7 +257,7 @@ var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "
 // sources of the other apps, the closed-loop steps of the throughput, and what only the other
 // comparisons and the tests use. Every source file is in methodFiles or here
 // (TestEverySourceOfCompareIsInOrOutOfTheMethod).
-var rateExcluded = []string{"attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
+var rateExcluded = []string{"announce.go", "attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "hold.go", "locks.go", "locks_other.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {
@@ -353,12 +353,12 @@ func stampHash(path string) string {
 const nextSourceFile = "compare-source"
 
 // writeNextSource records in the output of the Next.js app at dir the sources it was just built from.
-func writeNextSource(root, dir string) error {
+func writeNextSource(root, dir, dist string) error {
 	h := appHash(root)
 	if h == "" {
 		return fmt.Errorf("%s: cannot tell the sources of the Next.js app (git ls-files failed)", dir)
 	}
-	return os.WriteFile(filepath.Join(dir, ".next", nextSourceFile), []byte(h+"\n"), 0o644)
+	return os.WriteFile(filepath.Join(dir, dist, nextSourceFile), []byte(h+"\n"), 0o644)
 }
 
 // checkNextBuild says whether the Next.js app that runs was built from the sources of the checkout,

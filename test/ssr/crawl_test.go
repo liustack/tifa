@@ -37,12 +37,13 @@ import (
 	"testing"
 )
 
-// crawlSeeds are the URLs the crawl starts from, among them the pages the shop answers with a 404
-// and the ones that name a language or a project it does not have. The crawl follows the links of
+// crawlSeeds are the URLs the crawl starts from: the 20 pages of the shop that renders are measured
+// on (the 14 of the storefront in two languages and the 6 of the workbench), the pages the shop
+// answers with a 404 and the ones that name a language or a project it does not have. The crawl follows the links of
 // every page it gets.
 var crawlSeeds = []string{"/", "/projects/studio", "/projects/weekend", "/projects/studio/orders/SH-1042", "/projects/weekend/orders/WK-0201",
 	"/projects/studio/stats", "/projects/weekend/stats", "/projects/nope", "/nothing-here", "/store", "/zh-CN/store", "/zh-CN/store/xx", "/store/journal", "/zh-CN/store/journal/stock-sync-api",
-	"/store/products?page=2", "/store/products?color=moss&sort=price-asc", "/zh-CN/store/products", "/store/products/pour-over-kettle", "/zh-CN/store/products/pour-over-kettle", "/store/cart", "/store/checkout", "/zh-CN/store/cart", "/store/anything/deep",
+	"/store/products?page=2", "/store/products?color=moss&sort=price-asc", "/zh-CN/store/products", "/store/products/pour-over-kettle", "/zh-CN/store/products/pour-over-kettle", "/store/cart", "/store/checkout", "/zh-CN/store/cart", "/zh-CN/store/checkout", "/zh-CN/store/journal", "/store/products", "/store/journal/stock-sync-api", "/store/anything/deep",
 	"/zh-CN/store/products/nope", "/store/journal/nope", "/store/%70roducts", "/projects/%73tudio"}
 
 const crawlLimit = 160

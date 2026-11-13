@@ -32,6 +32,7 @@ import (
 
 	"github.com/liustack/quickjs"
 	"github.com/liustack/quickjs/intl"
+	quickjsurl "github.com/liustack/quickjs/url"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -265,6 +266,11 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	intlAdded := ssr.VMMemory(withIntl, true)
+	// Load registers the engine's URL before the bundle, and the host script takes its prototype.
+	if err := quickjsurl.Register(withIntl); err != nil {
+		t.Fatal(err)
+	}
+	urlAdded := ssr.VMMemory(withIntl, true)
 	if _, err := withIntl.Eval(string(host), quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +298,7 @@ func TestShopVMMemory(t *testing.T) {
 	columns := []struct {
 		name string
 		m    quickjs.MemoryUsage
-	}{{"bare VM", builtins}, {"+ Intl", intlAdded}, {"+ host.js", hosted}, {"loaded bundle", loaded}, {"64 renders", used}, {"after GC", collected}}
+	}{{"bare VM", builtins}, {"+ Intl", intlAdded}, {"+ URL", urlAdded}, {"+ host.js", hosted}, {"loaded bundle", loaded}, {"64 renders", used}, {"after GC", collected}}
 	var out strings.Builder
 	fmt.Fprintf(&out, "%-22s", "")
 	for _, c := range columns {

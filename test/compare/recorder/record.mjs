@@ -84,9 +84,23 @@ const resting = (page) =>
 //   sort    the sort picked in the sort box of the list
 async function act(page, step, i) {
   const none = (what) => new Error(`step ${i}: no ${what} on ${new URL(page.url()).pathname}${new URL(page.url()).search}`)
+  // A click on an element React has not taken over yet is the browser's own: a link then loads a
+  // document where the router would have moved. The network going idle does not say the page has
+  // hydrated, so the click waits for the element itself: React keeps the props of every element it
+  // rendered or hydrated on the element, under a key that starts with __reactProps$.
+  // The page view before has settled when its requests have, which may be before the router shows
+  // the page they were for. So an element the act needs gets the time a hydration gets to appear.
+  const present = async (el, what) => {
+    try {
+      await el.waitFor({ state: 'attached', timeout: 10000 })
+    } catch {
+      throw none(what)
+    }
+  }
   const click = async (selector, what) => {
     const el = page.locator(selector).first()
-    if ((await el.count()) === 0) throw none(what)
+    await present(el, what)
+    await page.waitForFunction((node) => Object.keys(node).some((k) => k.startsWith('__reactProps$')), await el.elementHandle(), { timeout: 10000 })
     await el.click()
   }
   // The form and the sort box work once the page has hydrated, which enables the apply button.
@@ -103,7 +117,7 @@ async function act(page, step, i) {
       break
     case 'search': {
       const box = page.locator('form[role="search"] input[name="q"]:visible').first()
-      if ((await box.count()) === 0) throw none('search box')
+      await present(box, 'search box')
       await box.fill(step.term)
       await box.press('Enter')
       break
