@@ -41,7 +41,7 @@
 #                     waits for or runs a round, for a machine whose other work starts
 #                     nothing new while a timing run is announced there
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
-#   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 75s
+#   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 120s
 #                     long a closed round takes
 #   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
 #   BLOCKS            blocks of 1050 visits to record (the plans)                   1
