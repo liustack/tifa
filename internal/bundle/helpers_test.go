@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/liustack/quickjs"
+	quickjsurl "github.com/liustack/quickjs/url"
 )
 
 // testModules is the npm packages these tests use, Vite among them, installed from
@@ -114,6 +115,11 @@ func evalResultWith(t *testing.T, code string, setup func(*quickjs.VM)) string {
 		t.Fatal(err)
 	}
 	defer vm.Close()
+	// Every VM of the server has the engine's URL before the bundle runs, and the host script
+	// takes its prototype.
+	if err := quickjsurl.Register(vm); err != nil {
+		t.Fatal(err)
+	}
 	if setup != nil {
 		setup(vm)
 	}

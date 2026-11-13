@@ -6,7 +6,6 @@
   "dependencies": {
     "@kayahr/text-encoding": "2.2.0",
     "abort-controller": "3.0.0",
-    "core-js": "3.50.0",
     "whatwg-fetch": "3.6.20"
   },
   "devDependencies": {

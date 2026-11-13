@@ -13,6 +13,7 @@ import (
 	"github.com/liustack/quickjs"
 	"github.com/liustack/quickjs/intl"
 	"github.com/liustack/quickjs/temporal"
+	quickjsurl "github.com/liustack/quickjs/url"
 )
 
 // fromVM reads JSON the VM wrote with JSON.stringify. A JavaScript string may hold a lone
@@ -80,6 +81,8 @@ const (
 // Temporal is lazy too. Date, Temporal and Intl share the VM clock, live during
 // prewarming. Pool.Render may set a request clock after loading. Values already
 // captured by module initialization stay unchanged. The default zone follows Intl.
+// URL and URLSearchParams are the engine's (package url), parsed in Go, registered before the
+// bundle runs: the core-js in the host script finds them good and installs nothing of its own.
 //
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
@@ -97,6 +100,10 @@ func Load(bytecode *quickjs.SharedBytecode, memory, stack uintptr, timeout time.
 	vm.SetMemoryLimit(memory)
 	vm.SetMaxStackSize(stack)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
+		// The engine asks for url.Register after the eval timeout and before intl.Register.
+		err = registerURL(vm.VM)
+	}
+	if err == nil {
 		err = intl.Register(vm.VM)
 	}
 	if err == nil {
@@ -349,3 +356,8 @@ func timedOut(timeout time.Duration, cause error) error {
 	}
 	return fmt.Errorf("ssr: render timed out after %s: %w (%w)", timeout, context.DeadlineExceeded, cause)
 }
+
+// registerURL is url.Register of the engine, a variable so that a test can make it fail.
+var registerURL = quickjsurl.Register
+
+type urlOption = quickjsurl.Option

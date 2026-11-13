@@ -22,9 +22,6 @@ importers:
       abort-controller:
         specifier: 3.0.0
         version: 3.0.0(patch_hash=841644077473094b33474beeee8ddf2506d7999421ead5a03503e598233cbdf2)
-      core-js:
-        specifier: 3.50.0
-        version: 3.50.0
       whatwg-fetch:
         specifier: 3.6.20
         version: 3.6.20
@@ -143,9 +140,6 @@ packages:
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
     engines: {node: '>=6.5'}
-
-  core-js@3.50.0:
-    resolution: {integrity: sha512-BRWgOLKkFeCgRudR6zrs8p9XJZcE14grzKMMssoYrk6krtuEZ7MTKPIY5RzOnqsEKIR9kst7wNzphttraT+Yqw==}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -374,8 +368,6 @@ snapshots:
   abort-controller@3.0.0(patch_hash=841644077473094b33474beeee8ddf2506d7999421ead5a03503e598233cbdf2):
     dependencies:
       event-target-shim: 5.0.1(patch_hash=464d84b6702b8da9bef04f7840870edd4ac8328a90e926f489c1ad4815f254dd)
-
-  core-js@3.50.0: {}
 
   detect-libc@2.1.2: {}
 
