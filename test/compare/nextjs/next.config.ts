@@ -6,6 +6,9 @@ import type { NextConfig } from 'next'
 const root = path.resolve(process.cwd(), '../../..')
 
 const config: NextConfig = {
+  // The reference build with prefetching off goes to a folder of its own (COMPARE_NEXT_DIST), next
+  // to the build as shipped.
+  distDir: process.env.COMPARE_NEXT_DIST || '.next',
   turbopack: { root },
   outputFileTracingRoot: root,
   poweredByHeader: false,

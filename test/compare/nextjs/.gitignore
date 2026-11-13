@@ -4,4 +4,5 @@
 
 node_modules
 .next
+.next-noprefetch
 next-env.d.ts

@@ -353,12 +353,12 @@ func stampHash(path string) string {
 const nextSourceFile = "compare-source"
 
 // writeNextSource records in the output of the Next.js app at dir the sources it was just built from.
-func writeNextSource(root, dir string) error {
+func writeNextSource(root, dir, dist string) error {
 	h := appHash(root)
 	if h == "" {
 		return fmt.Errorf("%s: cannot tell the sources of the Next.js app (git ls-files failed)", dir)
 	}
-	return os.WriteFile(filepath.Join(dir, ".next", nextSourceFile), []byte(h+"\n"), 0o644)
+	return os.WriteFile(filepath.Join(dir, dist, nextSourceFile), []byte(h+"\n"), 0o644)
 }
 
 // checkNextBuild says whether the Next.js app that runs was built from the sources of the checkout,

@@ -77,6 +77,16 @@ func (e Env) Specs() []Spec {
 		s.AcceptEncoding = encoding
 		return s
 	}
+	// The two references of the browse comparison that are a Node framework with a setting it does not
+	// ship with. Start with gzip is the same build as Start, started with COMPARE_GZIP=1, and the browser
+	// sends it what it sends Start, so it replays the trace of Start. Next.js with no prefetch is a
+	// build of its own, whose pages make the browser send other requests: it is a framework of its own
+	// here, with a trace of its own.
+	startGzip := start("start-gzip", "TanStack Start, gzip", true, nil)
+	startGzip.Env = append(startGzip.Env, "COMPARE_GZIP=1")
+	nextNoPrefetch := next(NextNoPrefetch, "Next.js, no prefetch", true, nil)
+	nextNoPrefetch.Framework = NextNoPrefetch
+	nextNoPrefetch.Env = append(nextNoPrefetch.Env, "COMPARE_NEXT_DIST="+NextNoPrefetchDist)
 	both := []string{ConfigDefault, ConfigEngine}
 	engine := []string{ConfigEngine}
 	return []Spec{
@@ -90,6 +100,8 @@ func (e Env) Specs() []Spec {
 		start("start-jitless", "TanStack Start --jitless", true, engine, "--jitless"),
 		reactRouter("reactrouter", "React Router", false, both),
 		reactRouter("reactrouter-jitless", "React Router --jitless", true, engine, "--jitless"),
+		startGzip,
+		nextNoPrefetch,
 	}
 }
 
@@ -144,6 +156,14 @@ func packageVersion(path string) string {
 	return p.Version
 }
 
-// BrowseFrameworks are the specs the browse comparison runs: each framework as shipped, then Tifa
-// with its render memo off, a reference that is not compared (browseReferences).
-var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache"}
+// NextNoPrefetch is the id of the reference server that is the Next.js app built with prefetching
+// off (NEXT_PUBLIC_COMPARE_PREFETCH=off), and NextNoPrefetchDist the folder of that build in the app.
+const (
+	NextNoPrefetch     = "nextjsnoprefetch"
+	NextNoPrefetchDist = ".next-noprefetch"
+)
+
+// BrowseFrameworks are the specs the browse comparison runs: each framework as shipped, then the
+// references, which are not compared (browseReferences): Tifa with its render memo off, Start with
+// gzip added and Next.js with prefetching off.
+var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache", "start-gzip", NextNoPrefetch}

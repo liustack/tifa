@@ -24,12 +24,16 @@ var browseLabels = map[string]string{
 	"nextjs":       "Next.js",
 	"start":        "TanStack Start",
 	"reactrouter":  "React Router",
+	"start-gzip":   "TanStack Start, gzip added (reference)",
+	NextNoPrefetch: "Next.js, prefetch off (reference)",
 }
 
 // browseReferences are the specs of the browse comparison that are references, not frameworks
 // compared, with what each stands for, as the tables say it under their rows.
 var browseReferences = map[string]string{
 	"tifa-nocache": "Tifa with `--ssr-memo-size 0`, which turns off keeping finished renders. It may still answer navigation data with no render, share a render in progress between requests of a page at the same time, and answer 304. It is what Tifa costs when no finished render is kept, not one of the frameworks compared, and no result is read against it",
+	"start-gzip":   "TanStack Start with gzip added by a request middleware of the app (the default level of zlib, as the compression package that React Router and Next.js use), since neither Start nor its Nitro server compresses a rendered page. It is not Start as it ships and not one of the frameworks compared: it says what the missing compression is worth",
+	NextNoPrefetch: "the Next.js app built with `prefetch={false}` on every link, so that the browser asks for a page only when the visitor goes to it. Next.js ships with links that prefetch what they point to when they come into view. It is not Next.js as it ships and not one of the frameworks compared: it says what the prefetches cost the server",
 }
 
 // referencesMarkdown says, under a table of the body, what each reference among its rows stands for.

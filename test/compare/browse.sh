@@ -26,8 +26,10 @@
 #   LOCKS             files to flock while a server of the run runs, space separated,    none
 #                     first taken first: held for one round with its warm-up at a time and
 #                     given back in between, so that other work on the machine fits there
-#   SERVERS           spec ids (tifa-nocache: Tifa with its render memo off,         tifa,nextjs,start,reactrouter,tifa-nocache
-#                     a reference that replays the trace of tifa)
+#   SERVERS           spec ids. The references: tifa-nocache (Tifa with its render   tifa,nextjs,start,reactrouter,
+#                     memo off, replays the trace of tifa), start-gzip (Start with    tifa-nocache,start-gzip,nextjsnoprefetch
+#                     gzip added, replays the trace of start), nextjsnoprefetch
+#                     (Next.js built with prefetching off, a trace of its own)
 #   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
 #                     (Tifa with no writes), sustain (the rate of Next.js),
 #                     latency (every server at half of that rate)
@@ -53,7 +55,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
-servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache}
+servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch}
 # trace_names are the trace files the servers replay, each once: a spec replays the trace of its
 # framework, its id before the first dash (traceName in recorder.go), so tifa-nocache replays tifa.jsonl.
 trace_names() { echo "$servers" | tr "," "\n" | sed "s/-.*//" | awk "!seen[\$0]++"; }
@@ -120,6 +122,7 @@ run_stamp() {
   echo "tifa-build $(sed -n 's/.*"buildId": *"\([^"]*\)".*/\1/p' examples/shop/.tifa/dist/build.json 2>/dev/null | head -1)"
   echo "shop-binary $(sha <examples/shop/bin/shop 2>/dev/null || echo none)"
   echo "next-output $(dirsha test/compare/nextjs/.next)"
+  echo "next-noprefetch-output $(dirsha test/compare/nextjs/.next-noprefetch)"
   echo "start-output $(dirsha test/compare/start/.output)"
   echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
   echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
