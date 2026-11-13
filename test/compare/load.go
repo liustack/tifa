@@ -509,10 +509,16 @@ func (r *runner) closedFor(ctx context.Context, sessions int, d time.Duration, p
 
 // BlocksFor sizes a workload: the whole blocks (a multiple of the number of blocks of the plans,
 // at least that many, of blockVisits visits each) that a framework completing rate visits a second
-// plays in about target.
+// plays in about target. It rounds up, and takes one pass of the plans fewer when rounding up would
+// carry the round over the top of its window (roundLength), which happens when a pass takes more
+// than 0.6 times the target: the round then lands in the window whenever one pass fits under its top.
 func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) int {
-	blocks := int(math.Ceil(rate * target.Seconds() / float64(blockVisits) / float64(planBlocks)))
-	return max(blocks, 1) * planBlocks
+	pass := float64(planBlocks*blockVisits) / rate // seconds
+	passes := max(int(math.Ceil(target.Seconds()/pass)), 1)
+	if _, hi := roundLength(target); passes > 1 && float64(passes)*pass > hi {
+		passes--
+	}
+	return passes * planBlocks
 }
 
 // RunOpen starts visits at rate a second, on schedule whether or not the earlier ones are done,
