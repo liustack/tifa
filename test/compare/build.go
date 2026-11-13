@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -48,8 +49,17 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 		return err
 	}
 	// The rate of Next.js is bound to the sources of its app, so its build says what it was made from.
+	// The app is built a second time with prefetching off, into a folder of its own: the reference
+	// server NextNoPrefetch.
 	if dir == e.Next {
-		if err := writeNextSource(e.Root, dir); err != nil {
+		if err := writeNextSource(e.Root, dir, ".next"); err != nil {
+			return err
+		}
+		off := append(slices.Clone(env), "NEXT_PUBLIC_COMPARE_PREFETCH=off", "COMPARE_NEXT_DIST="+NextNoPrefetchDist)
+		if err := run(ctx, log, dir, off, "pnpm", "build"); err != nil {
+			return err
+		}
+		if err := writeNextSource(e.Root, dir, NextNoPrefetchDist); err != nil {
 			return err
 		}
 	}

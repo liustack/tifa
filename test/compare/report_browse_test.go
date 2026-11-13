@@ -727,11 +727,12 @@ func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
 	}
 }
 
-// The browse comparison runs Tifa as it ships, the three Node frameworks, and Tifa with its render memo
-// off as a reference, which replays the trace recorded against Tifa: recording records each trace
-// once, from the spec of the framework, and browse.sh names the same trace files.
+// The browse comparison runs Tifa as it ships, the three Node frameworks, and three references: Tifa
+// with its render memo off and Start with gzip added, which replay the trace of their framework, and
+// Next.js built with prefetching off, a framework of its own with its own trace. Recording records each
+// trace once, from the spec of the framework, and browse.sh names the same trace files.
 func TestTheBrowseServersAndTheirTraces(t *testing.T) {
-	if got := strings.Join(BrowseFrameworks, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache" {
+	if got := strings.Join(BrowseFrameworks, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch" {
 		t.Errorf("the browse servers are %s", got)
 	}
 	env := Env{Shop: "/shop"}
@@ -740,9 +741,9 @@ func TestTheBrowseServersAndTheirTraces(t *testing.T) {
 			t.Errorf("spec %s of framework %s has the trace %s: browse.sh names the trace of a spec by its id before the first dash", s.Name, s.Framework, traceName(s))
 		}
 	}
-	got, err := env.recorded([]string{"tifa-nocache", "nextjs", "tifa", "start"})
-	if err != nil || strings.Join(got, ",") != "tifa,nextjs,start" {
-		t.Errorf("records %v (%v), want tifa,nextjs,start", got, err)
+	got, err := env.recorded([]string{"tifa-nocache", "nextjs", "tifa", "start", "start-gzip", NextNoPrefetch})
+	if err != nil || strings.Join(got, ",") != "tifa,nextjs,start,nextjsnoprefetch" {
+		t.Errorf("records %v (%v), want tifa,nextjs,start,nextjsnoprefetch", got, err)
 	}
 	if _, err := env.recorded([]string{"nope"}); err == nil {
 		t.Error("an unknown spec is recorded")
