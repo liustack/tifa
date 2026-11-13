@@ -5365,7 +5365,7 @@ function findPackage(root, name) {
 // ---- Writing out the calls of small functions
 
 // A function whose body has at most this many syntax nodes counts as small.
-const smallFunctionNodes = 32
+const smallFunctionNodes = 64
 
 // The most times inlineSmallFunctions goes over the code. A call in the body of a small function, or
 // in an argument of a call, is written out in a later round.
@@ -6334,7 +6334,8 @@ function writeOutRound(code, scopes) {
 
 // inlineSmallFunctions returns code, the SSR bundle before it is minified, with the calls of
 // small functions written out as their body. A function with a body of an expression, a few
-// assignments or a chain of ifs that return, of up to smallFunctionNodes syntax nodes, that no
+// assignments, or assignments and ifs that end in a return or a throw, of up to smallFunctionNodes
+// syntax nodes, that no
 // code sets again, costs a call in QuickJS: a frame, the arguments, a return. The rules are about the
 // shape of the function and the call, not about any library. The code keeps its lines. It checks
 // its work: if the names that no declaration gives are not the same after, it gives the code as it

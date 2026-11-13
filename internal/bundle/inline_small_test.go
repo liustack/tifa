@@ -197,7 +197,7 @@ var a = 0, b = 0;
 function step(x) { a = x; b = a + 1; return a + b; }
 function run() { return [step(1), step(log(2)), a, b].join(); }
 `, contains: []string{"(a = 1, b = a + 1, a + b)"}},
-		{name: "statements around ifs that return or throw", want: 4, source: `
+		{name: "statements around ifs that return or throw", want: 8, source: `
 var hook = null, first = null, again = false;
 function make() { if (again && first.n > 0) throw Error('twice'); return { n: 0 }; }
 function next() { null === hook ? (null === first ? (again = false, first = hook = make()) : (again = true, hook = first)) : (again = true, hook = hook.n); return hook; }
@@ -511,8 +511,8 @@ function run() { var xs = [1, 2]; return f(...xs); }
 function f(a) { return a + 1; }
 function run() { return f?.(1); }
 `},
-		{name: "a body of more than 32 nodes", source: `
-function big(a) { return a + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17; }
+		{name: "a body of more than 64 nodes", source: `
+function big(a) { return a + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20 + 21 + 22 + 23 + 24 + 25 + 26 + 27 + 28 + 29 + 30 + 31 + 32 + 33; }
 function run() { return big(1); }
 `},
 		{name: "an argument that the module does not declare", source: `
