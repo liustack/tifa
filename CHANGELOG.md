@@ -43,6 +43,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- A small function whose call the SSR bundle writes out no longer reads a variable, a property or a name of the global object before an argument with effects that the call worked out first. `function f(x) { return n + x }` called as `f((n = 2, 0))` gave 1 where the call gives 2, and a getter in the body ran before the argument, or threw before it ran. Such a call now stays: before the last argument with effects the body may only use parameters, compare with `===` or `!==` and read names of the module that are set once and surely set at the call ([Frontend output](docs/build.md#frontend-output)).
 - The search box in the header of the example shop's Chinese storefront searches the Chinese list (`/zh-CN/store/products?q=`). It sent the visitor to the English one.
 - The pages of reviews on a product page of the example shop's Chinese storefront link to the Chinese URLs (`/zh-CN/store/products/<slug>?reviews=2`). They linked to the English page.
 - The redirects the router makes while rendering a page (`/%61` to `/a`) are now kept by the render memo like other pages, so a repeat is a hit (`X-Tifa-Render: memo`) and not a render. A 404 page and the page of a failed `Load` are rendered for each request and not kept, so random URLs do not fill the memo, and requests for the same one at the same time share one render. They carry no `ETag`, and `OnError` sees every failure ([The render memo](docs/memo.md#why-it-is-safe-on-every-page)).

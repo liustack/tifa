@@ -5915,7 +5915,7 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
           uses[i].push({ at: events.length, cond })
           events.push({ t: 'use' })
         } else {
-          events.push({ t: 'read' })
+          events.push({ t: 'read', ref: free.at(-1) })
         }
         return
       }
@@ -6125,16 +6125,27 @@ function canWriteOut(call, ref, info, scopes) {
     if (uses[p].length !== 1 || use.cond || use.at < previous) return false
     previous = use.at
   }
-  // Before the last of them the body may only read. A call, a conversion or an assignment would
-  // happen before the argument is worked out, where the call works it out first. A read of a name
-  // or a property goes before it too, which the plugin accepts.
+  // Before the last of them the body may only do what the arguments cannot change and no code can
+  // see, since the call works every argument out first: use a parameter, compare with === or !==,
+  // and read a name of the module that is set once, never set again and surely set at the call. A
+  // property may be a getter or one that an argument sets, and a name from outside the module a
+  // property of the global object, so a read of either keeps the call, as do a call, a conversion
+  // and an assignment.
   for (let i = 0; i < previous; i++) {
-    if (!readEvents.has(events[i].t)) return false
+    if (!unseen(events[i], ref, scopes)) return false
   }
   return true
 }
 
-const readEvents = new Set(['use', 'read', 'get', 'compare'])
+// unseen says whether the event of a body can go before an argument with effects of the call whose
+// callee is the name reference ref: its parameter or comparison, or the read of a name that keeps
+// the value it has at the call.
+function unseen(event, ref, scopes) {
+  if (event.t === 'use' || event.t === 'compare') return true
+  if (event.t !== 'read') return false
+  const binding = event.ref.binding
+  return stableBinding(binding) && initialized({ ...ref, binding }, scopes)
+}
 
 // lookupBinding returns the binding that name means in scope, or null for a name that no
 // declaration gives.

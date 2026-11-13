@@ -190,10 +190,15 @@ function run() { return inc(twice(3)); }
 function pair(a, b) { return [a, b]; }
 function run() { return pair(log('x'), log('y')); }
 `},
-		{name: "an argument with effects after reads", want: 1, source: `
-var base = { n: 1 };
-function add(x) { return base.n + x; }
+		{name: "an argument with effects after reads of names that keep their value", want: 1, source: `
+const base = 1;
+function three() { return 3; }
+function add(x) { return [base, three, x]; }
 function run() { return add(log(5)); }
+`},
+		{name: "an argument with effects after a parameter and a comparison", want: 1, source: `
+function pick(a, x) { return [a === 1, x]; }
+function run() { return pick(1, log(5)); }
 `},
 		{name: "a getter of the argument is called once", want: 1, source: `
 function plus(v) { return v + 1; }
@@ -381,6 +386,30 @@ function run() { return opt(null, log('a')); }
 		{name: "arguments with effects used in the other order", source: `
 function swap(a, b) { return b - a; }
 function run() { return swap(log(1), log(5)); }
+`},
+		{name: "a variable that the argument with effects sets, read before it", source: `
+var n = 1;
+function f(x) { return n + x; }
+function run() { return f((n = 2, 0)); }
+`},
+		{name: "a name from outside the module that the argument with effects sets, read before it", source: `
+function f(x) { return gx + x; }
+function run() { globalThis.gx = 1; return f((globalThis.gx = 2, 0)); }
+`},
+		{name: "a getter in the body before the argument with effects", source: `
+var obj = { get value() { log('get'); return 1; } };
+function f(x) { return [obj.value, x]; }
+function run() { return f(log(7)); }
+`},
+		{name: "a getter that throws, in the body before the argument with effects", source: `
+var obj = { get value() { throw Error('get'); } };
+function f(x) { return obj.value + x; }
+function run() { return f(log(7)); }
+`},
+		{name: "a property that the argument with effects sets, read before it", source: `
+var base = { n: 1 };
+function add(x) { return base.n + x; }
+function run() { return add((base.n = 2, log(5))); }
 `},
 		{name: "a call in the body before the argument with effects", source: `
 function pre(a) { return log('pre') + a; }
