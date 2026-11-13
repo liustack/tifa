@@ -75,11 +75,11 @@ func openPty() (master, slave *os.File, err error) {
 	var name [128]byte
 	for _, call := range []struct {
 		request uintptr
-		arg     uintptr
-	}{{tiocPtyGrant, 0}, {tiocPtyUnlk, 0}, {tiocPtyGname, uintptr(unsafe.Pointer(&name[0]))}} {
-		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), call.request, call.arg); errno != 0 {
+		arg     unsafe.Pointer
+	}{{tiocPtyGrant, nil}, {tiocPtyUnlk, nil}, {tiocPtyGname, unsafe.Pointer(&name[0])}} {
+		if err := ioctl(master.Fd(), call.request, call.arg); err != nil {
 			master.Close()
-			return nil, nil, fmt.Errorf("open a terminal: ioctl %#x: %w", call.request, errno)
+			return nil, nil, fmt.Errorf("open a terminal: ioctl %#x: %w", call.request, err)
 		}
 	}
 	path := string(name[:])
@@ -95,4 +95,15 @@ func openPty() (master, slave *os.File, err error) {
 		return nil, nil, err
 	}
 	return master, slave, nil
+}
+
+// ioctl is the system call on a descriptor, with the buffer it reads or fills. The buffer stays a
+// pointer until the call itself: a goroutine's stack moves when it grows or when a collection makes
+// it smaller, and an address worked out before that would be where the buffer was. The system
+// would then fill memory nobody reads, and say it did well.
+func ioctl(fd, request uintptr, arg unsafe.Pointer) error {
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, uintptr(arg)); errno != 0 {
+		return errno
+	}
+	return nil
 }
