@@ -46,6 +46,7 @@
 - 示例商店给订单配上索引和随每次写入更新的合计，订单列表、订单页和统计页读数据的耗时在 50 单和 5000 单时差不多。以前每次读都要复制并排序店里的全部订单。筛选、搜索或按金额排序时仍会走一遍全部订单。订单页不再重复显示各家快递的表现，统计页上有。
 - 页面的服务端渲染只看到路径和它的 `Load` 及上面各层 Layout 读的查询参数，按名字排序，渲染记忆和 ETag 也按这些来算。`utm_source`、`fbclid` 或随机参数这类别的参数不再多出一个记忆条目、多渲染一次，参数换个顺序也还是同一个页面。地址栏保留每个参数和它的值，`OnRequest`、各个 `Load` 和导航数据看到的仍是完整的 URL。升级时注意：组件渲染时读了没有 `Load` 读的参数，服务端现在拿不到它，页面会水合不一致。把这个参数放到 `Load` 里读，组件里按名字读（[服务端渲染里的查询参数](docs/app.zh-CN.md#服务端渲染里的查询参数)）。
 - 服务端渲染写开更多小函数的调用，HTML 不变：函数体在 return 前有表达式语句或者有会 throw 的 if 的也写开，上限从 32 个语法节点提到 64 个。组件每调一次 hook，React DOM 都要跑几个这样的函数。一次渲染在示例商店的工作台页面少跑 0.66% 的指令，店面页面 0.29%，MUI 测试应用 0.77%。SSR bundle 大约大 0.6%，这样的函数抛出的错误显示调用处的位置，栈里少一帧。见[前端产物](docs/build.zh-CN.md#前端产物)。
+- 服务端渲染调用 React 的 hook 时少一次函数调用，HTML 不变。React 19 导出的每个 hook 都是一个只把实参转给 dispatcher 的函数，dispatcher 由 React DOM 在渲染时设好，现在 SSR bundle 直接调用 dispatcher：`React.useRef(v)` 变成 `React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H.useRef(v)`。哪些 hook 是这种写法，插件从 React 的 `react.production.js` 里读出来，文件换了写法时打印警告，什么都不改。一次渲染在示例商店的工作台页面少跑 0.28% 的指令，店面页面 0.24%，MUI 测试应用 0.44%。SSR bundle 大约大 2% 到 3%，在渲染之外调用 hook 时抛出同样的 `TypeError`，只是在实参算出来之前。见[前端产物](docs/build.zh-CN.md#前端产物)。
 
 ### 修复
 

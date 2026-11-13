@@ -1936,6 +1936,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
   let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
+  let reactHooks // React's react.production.js files to the hooks they export as wrappers of the dispatcher
   let rawQueryWarned // the places of the reads of the raw query the build has warned about
   const plugin = {
     name: 'tifa:ssr',
@@ -1948,6 +1949,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       serverActions = new Set()
       lucide = new Map()
       jsxRuntimes = new Map()
+      reactHooks = new Map()
       rawQueryWarned = new Set()
     },
     outputOptions(options) {
@@ -2197,7 +2199,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       }
       if (reactModule.test(id)) {
         const react = `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
-        const { source, missing } = nativeCopyProps(fs.readFileSync(id, 'utf8'))
+        const text = fs.readFileSync(id, 'utf8')
+        const wrappers = reactHookWrappers(this.parse(text), text)
+        reactHooks.set(id, wrappers.hooks)
+        if (wrappers.problems.length > 0) {
+          this.warn(
+            notRecognized +
+            `${react} exports its hooks in a form the tifa plugin does not know (${wrappers.problems.join(', ')}), so ` +
+              'each call of a hook still goes through the function React exports. Pages render the same, but ' +
+              'take longer to render',
+          )
+        }
+        const { source, missing } = nativeCopyProps(text)
         for (const name of missing) {
           this.warn(
             notRecognized +
@@ -2425,11 +2438,20 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.modules)
       if (plain.warning) this.warn(notRecognized + plain.warning)
+      // Calls of React's hooks go to the dispatcher, which does the work, in place of React's export:
+      // those of each copy of React in the chunk to its own dispatcher.
+      const copies = []
+      for (const id of Object.keys(chunk.modules)) {
+        const module = chunk.modules[id].code
+        const required = reactModule.test(id) && reactHooks.has(id) && typeof module === 'string' ? requireOf(module) : undefined
+        if (required) copies.push({ hooks: reactHooks.get(id), required })
+      }
+      const hooked = callDispatchers(plain.code, (source) => this.parse(source), copies)
       // Only with a JSX runtime of which every file is known: with another, the elements might differ.
       const elements =
         jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
-          ? inlineElements(plain.code, (source) => this.parse(source))
-          : { code: plain.code }
+          ? inlineElements(hooked.code, (source) => this.parse(source))
+          : { code: hooked.code }
       // The calls of small functions, last, so the functions are the ones the rewrites above left.
       let small = { code: elements.code, warning: '' }
       try {
@@ -4073,6 +4095,224 @@ export function plainNamespaces(code, modules) {
   }
   pieces.push(code.slice(from))
   return { code: pieces.join('') }
+}
+
+// reactInternals is the export of React that holds ReactSharedInternals, whose H is the dispatcher
+// of hooks a renderer sets while it renders a component.
+const reactInternals = '__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE'
+
+// reactHookWrappers reads React's react.production.js, whose syntax tree is program, and gives the
+// hooks it exports as a wrapper that only hands its parameters to the dispatcher,
+// `exports.useRef = function (initialValue) { return ReactSharedInternals.H.useRef(initialValue); }`,
+// with the number of their parameters (hooks), and what keeps the plugin from calling the
+// dispatcher in their place (problems): the dispatcher's object and the wrappers must be set once
+// and never again, and the object must be the export reactInternals. With a problem, hooks is empty.
+export function reactHookWrappers(program, source) {
+  const scopes = analyzeScopes(program, source)
+  if (scopes.unsupported) return { hooks: new Map(), problems: [`the file has ${scopes.unsupported}`] }
+  const problems = []
+  const internals = scopes.root.vars.get('ReactSharedInternals')
+  if (!internals || internals.kind !== 'var' || !stableBinding(internals) || internals.defs[0].declarator?.init?.type !== 'ObjectExpression') {
+    problems.push('ReactSharedInternals is not an object declared once and never set')
+  }
+  const exportsName = (n) => n.type === 'Identifier' && n.name === 'exports' && !scopes.refs.get(n)?.binding
+  const name = (n) => (n.type === 'Identifier' ? n.name : null)
+  const isInternals = (n) => n.type === 'Identifier' && internals && scopes.refs.get(n)?.binding === internals
+  const allowed = new Set() // the identifiers `exports` of the statements exports.name = value
+  const assigned = new Map() // the name of each export to how many statements set it
+  const hooks = new Map()
+  let exported = false
+  for (const s of program.body) {
+    const e = s.expression
+    if (s.type !== 'ExpressionStatement' || e.type !== 'AssignmentExpression' || e.operator !== '=') continue
+    if (e.left.type !== 'MemberExpression' || e.left.computed || !exportsName(e.left.object)) continue
+    allowed.add(e.left.object)
+    const key = e.left.property.name
+    assigned.set(key, (assigned.get(key) ?? 0) + 1)
+    if (key === reactInternals && isInternals(e.right)) exported = true
+    const fn = e.right
+    if (!key.startsWith('use') || fn.type !== 'FunctionExpression' || fn.id || fn.async || fn.generator) continue
+    if (!fn.params.every((p) => p.type === 'Identifier') || fn.body.body.length !== 1 || fn.body.body[0].type !== 'ReturnStatement') continue
+    const call = fn.body.body[0].argument
+    const callee = call?.callee
+    const wraps =
+      call?.type === 'CallExpression' &&
+      !call.optional &&
+      callee.type === 'MemberExpression' &&
+      !callee.computed &&
+      !callee.optional &&
+      name(callee.property) === key &&
+      callee.object.type === 'MemberExpression' &&
+      !callee.object.computed &&
+      !callee.object.optional &&
+      name(callee.object.property) === 'H' &&
+      isInternals(callee.object.object) &&
+      call.arguments.length === fn.params.length &&
+      call.arguments.every((a, i) => a.type === 'Identifier' && scopes.refs.get(a)?.binding?.ids[0] === fn.params[i])
+    if (wraps) hooks.set(key, fn.params.length)
+  }
+  if (!exported) problems.push(`no statement exports.${reactInternals} = ReactSharedInternals`)
+  for (const key of hooks.keys()) if (assigned.get(key) !== 1) problems.push(`exports.${key} is set more than once`)
+  for (const [id, ref] of scopes.refs) {
+    if (ref.binding) continue
+    if ((id.name === 'exports' && !allowed.has(id)) || id.name === 'module') problems.push(`a use of ${id.name}`)
+  }
+  if (internals) for (const ref of internals.refs) if (ref.assign) problems.push('ReactSharedInternals is set again')
+  if (hooks.size === 0) problems.push('no hook exported as a function that only calls ReactSharedInternals.H')
+  return problems.length > 0 ? { hooks: new Map(), problems: [...new Set(problems)] } : { hooks, problems }
+}
+
+// callDispatcher returns code, a chunk of the SSR bundle before it is minified, with the calls of
+// React's hook wrappers made on the dispatcher itself: `React.useRef(v)` and `(0, r.useRef)(v)`
+// become `React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H.useRef(v)`,
+// one call in place of two. hooks is reactHookWrappers of react.production.js, whose require
+// function in the chunk is required. A name counts as React's exports when every value code gives
+// it is required(), the require function of a module that only does
+// `module.exports = required()` (React's index.js), or one of these in rolldown's __toESM or the
+// plugin's __tifaV, where each of these names is the one declared at the top level of the module.
+// A call with a spread, `?.` or more arguments than the wrapper takes stays. One with fewer gets
+// `void 0` for each missing one, as the wrapper passes. The result has the code and the number of
+// calls it changed. The lines stay.
+export function callDispatcher(code, parse, hooks, required) {
+  const program = parse(code)
+  const scopes = analyzeScopes(program, code)
+  if (scopes.unsupported || hooks.size === 0 || !required) return { code, count: 0 }
+  const requires = new Set([required])
+  // Whether the name reference id is the binding of that name at the top level of the module,
+  // declared once and never set: a parameter or a local of a function may have the same name.
+  const moduleName = (id) => {
+    const binding = scopes.refs.get(id)?.binding
+    return binding !== undefined && binding === scopes.root.vars.get(id.name) && stableBinding(binding)
+  }
+  // React's index.js: var require_react = __commonJSMin(((exports, module) => { module.exports = require_react_production(); }));
+  for (const s of program.body) {
+    if (s.type !== 'VariableDeclaration') continue
+    for (const d of s.declarations) {
+      const wrapper = d.init
+      if (d.id.type !== 'Identifier' || wrapper?.type !== 'CallExpression' || !/^__commonJSMin(\$\d+)?$/.test(wrapper.callee.name ?? '')) continue
+      const fn = wrapper.arguments[0]
+      const body = fn?.body?.type === 'BlockStatement' ? fn.body.body : null
+      const e = body?.length === 1 ? body[0].expression : null
+      if (
+        fn?.type === 'ArrowFunctionExpression' &&
+        fn.params.length === 2 &&
+        e?.type === 'AssignmentExpression' &&
+        e.operator === '=' &&
+        code.slice(e.left.start, e.left.end) === `module.exports` &&
+        e.left.object?.name === fn.params[1].name &&
+        e.right.type === 'CallExpression' &&
+        e.right.arguments.length === 0 &&
+        e.right.callee.name === required &&
+        moduleName(e.right.callee)
+      ) {
+        requires.add(d.id.name)
+      }
+    }
+  }
+  // Whether a value is React's exports: required(), __tifaV(required()) or __toESM(required(), 1).
+  const isRequire = (v) => v?.type === 'CallExpression' && v.arguments.length === 0 && v.callee.type === 'Identifier' && requires.has(v.callee.name) && moduleName(v.callee)
+  const isReact = (v) =>
+    isRequire(v) ||
+    (v?.type === 'CallExpression' &&
+      v.callee.type === 'Identifier' &&
+      /^(__tifaV|__toESM)(\$\d+)?$/.test(v.callee.name) &&
+      moduleName(v.callee) &&
+      isRequire(v.arguments[0]) &&
+      v.arguments.slice(1).every((a) => a.type === 'Literal'))
+  const react = new Set()
+  const raw = new Set() // the bindings of React's exports themselves, not of a namespace
+  for (const binding of scopes.all) {
+    if (!['var', 'let', 'const'].includes(binding.kind) || binding.defs.length !== 1 || binding.loop) continue
+    const init = binding.defs[0].declarator?.init
+    const writes = binding.refs.filter((r) => r.assign)
+    if (init ? !isReact(init) : writes.length === 0) continue
+    const ok = writes.every((r) => r.parent?.type === 'AssignmentExpression' && r.key === 'left' && r.parent.operator === '=' && isReact(r.parent.right))
+    if (!ok) continue
+    react.add(binding)
+    if ((init && isRequire(init)) || writes.some((r) => isRequire(r.parent.right))) raw.add(binding)
+  }
+  // The plugin counts on React never changing its exports, as the plain namespaces do (see
+  // plainNamespaces). Code of the chunk that sets one where it can be seen, `React.useRef = …`,
+  // `delete React.useRef` or `Object.assign(require_react(), …)`, would not reach the calls written
+  // on the dispatcher, so then no call changes. writtenTo tells whether node, React's exports, is
+  // written to that way, path holding its ancestors, nearest last.
+  const rawBinding = (n) => n.type === 'Identifier' && raw.has(scopes.refs.get(n)?.binding)
+  const global = (n, name) => n.type === 'Identifier' && n.name === name && !scopes.refs.get(n)?.binding
+  const writers = { Object: ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'], Reflect: ['set', 'defineProperty', 'deleteProperty', 'setPrototypeOf'] }
+  const writtenTo = (node, path) => {
+    const parent = path.at(-1)
+    if (parent.type === 'ParenthesizedExpression') return writtenTo(parent, path.slice(0, -1))
+    if (parent.type === 'MemberExpression' && parent.object === node) {
+      const above = path.at(-2)
+      return (
+        ((above.type === 'AssignmentExpression' || above.type === 'AssignmentPattern') && above.left === parent) ||
+        above.type === 'UpdateExpression' ||
+        (above.type === 'UnaryExpression' && above.operator === 'delete') ||
+        ((above.type === 'ForInStatement' || above.type === 'ForOfStatement') && above.left === parent) ||
+        above.type === 'ArrayPattern' ||
+        above.type === 'RestElement' ||
+        (above.type === 'Property' && above.value === parent && path.at(-3)?.type === 'ObjectPattern')
+      )
+    }
+    const callee = parent.type === 'CallExpression' && parent.arguments[0] === node ? parent.callee : null
+    return callee?.type === 'MemberExpression' && !callee.computed && Object.keys(writers).some((o) => global(callee.object, o) && writers[o].includes(callee.property.name))
+  }
+  let escape = null
+  const check = (node, path) => {
+    if (escape) return
+    const parent = path.at(-1)
+    const declared = parent && ((parent.type === 'VariableDeclarator' && parent.id === node) || (parent.type === 'AssignmentExpression' && parent.left === node))
+    if ((isRequire(node) || (rawBinding(node) && !declared)) && writtenTo(node, path)) escape = node
+    path.push(node)
+    for (const child of childNodes(node)) check(child, path)
+    path.pop()
+  }
+  check(program, [])
+  if (escape) return { code, count: 0, escape: code.slice(escape.start, escape.end) }
+  const edits = []
+  const visit = (node) => {
+    if (node.type === 'CallExpression' && !node.optional) {
+      let callee = node.callee
+      // (0, r.useRef)(v)
+      if (callee.type === 'SequenceExpression' && callee.expressions.length === 2 && callee.expressions[0].type === 'Literal' && callee.expressions[0].value === 0) callee = callee.expressions[1]
+      const object = callee.type === 'MemberExpression' && !callee.computed && !callee.optional ? callee.object : null
+      const arity = object?.type === 'Identifier' ? hooks.get(callee.property.name) : undefined
+      const args = node.arguments
+      if (arity !== undefined && react.has(scopes.refs.get(object)?.binding) && args.length <= arity && !args.some((a) => a.type === 'SpreadElement')) {
+        edits.push({ start: node.callee.start, end: node.callee.end, text: `${object.name}.${reactInternals}.H.${callee.property.name}` })
+        const missing = Array(arity - args.length).fill('void 0')
+        if (missing.length > 0) {
+          const at = args.length > 0 ? args.at(-1).end : node.end - 1
+          edits.push({ start: at, end: at, text: (args.length > 0 ? ', ' : '') + missing.join(', ') })
+        }
+      }
+    }
+    for (const child of childNodes(node)) visit(child)
+  }
+  visit(program)
+  edits.sort((a, b) => a.start - b.start)
+  let out = ''
+  let at = 0
+  for (const e of edits) {
+    out += code.slice(at, e.start) + e.text
+    at = e.end
+  }
+  return { code: out + code.slice(at), count: edits.filter((e) => e.end > e.start).length }
+}
+
+// callDispatchers does what callDispatcher does for each copy of React in a chunk, copies holding
+// the hooks of each and its require function. Each copy has its own dispatcher, and the calls of
+// its hooks go to that one.
+export function callDispatchers(code, parse, copies) {
+  let count = 0
+  const escapes = []
+  for (const { hooks, required } of copies) {
+    const r = callDispatcher(code, parse, hooks, required)
+    code = r.code
+    count += r.count
+    if (r.escape) escapes.push(r.escape)
+  }
+  return { code, count, escape: escapes.join(', ') || undefined }
 }
 
 const lineRest = /[^\n\r\u2028\u2029]*/y
