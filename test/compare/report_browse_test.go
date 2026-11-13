@@ -281,7 +281,7 @@ func TestBrowseReportTypesTheThroughputOfEachServer(t *testing.T) {
 	md := r.Markdown()
 	for _, want := range []string{
 		"#### Throughput",
-		"| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) |",
+		"| | result | sessions | page views/s | active people at one page per 5 to 10 s | landing P50 / P99 ms (n) |",
 		"| | server cores | why the steps stopped | sessions played |",
 		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 2500 to 5000 |", "| Tifa | 0.50 |",
 		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 200 to 400 |", "| Next.js | 0.50 |",
@@ -461,17 +461,17 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	}
 	var want []string
 	for range scs {
-		want = append(want, "| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |",
-			"| | full loads | clicks | writes | crawler documents | rounds |")
+		want = append(want, "| | result | sessions | page views/s | active people at one page per 5 to 10 s | landing P50 / P99 ms (n) | action after the landing P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |",
+			"| | landings | actions after the landing | writes | crawler documents | rounds |")
 	}
 	want = append(want, "| | value | source |")
 	if !slices.Equal(heads, want) {
 		t.Errorf("the tables of the body have the columns\n%s\nwant\n%s", strings.Join(heads, "\n"), strings.Join(want, "\n"))
 	}
-	// The two tables keep the columns full load and click, which go by the step of the plan, and the text
+	// The two tables keep the columns landing and action after the landing, which go by the step of the plan, and the text
 	// over each says that a click can be a document load in the browser.
 	if n := strings.Count(body, stepClassNote); n != 2*len(scs) || !strings.Contains(stepClassNote, "document load") {
-		t.Errorf("the body says %d times what a full load and a click are, want over each of its %d tables: %q", n, 2*len(scs), stepClassNote)
+		t.Errorf("the body says %d times what a landing and an action after it are, want over each of its %d tables: %q", n, 2*len(scs), stepClassNote)
 	}
 	for _, method := range []string{
 		"| | server cores | why the steps stopped | sessions played |",

@@ -138,7 +138,7 @@ func (r *BrowseResult) Markdown() string {
 		}
 	}
 	p := r.Plans
-	fmt.Fprintf(&b, "\nPlans: %d blocks of %d shopper and %d staff visits. In all: %d shopper visits with %d page views (%d returning, %d that add to the cart, %d that check out), %d staff visits, %d landings and %d clicks on a link of the page after them. Page views by class: %v. Every round, with the invalid ones, is in the JSON.\n",
+	fmt.Fprintf(&b, "\nPlans: %d blocks of %d shopper and %d staff visits. In all: %d shopper visits with %d page views (%d returning, %d that add to the cart, %d that check out), %d staff visits, %d landings and %d actions on the page after them. Page views by class: %v. Every round, with the invalid ones, is in the JSON.\n",
 		p.Blocks, ShopperBlockVisits, StaffBlockPlans, p.Shoppers, p.ShopperViews, p.Returning, p.Adds, p.Checkouts, p.Staff, p.Loads, p.Clicks, p.Pages)
 	return b.String()
 }
@@ -179,7 +179,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 		r.cappedMarkdown(b, sc)
 	}
 	if len(sessions) > 0 {
-		b.WriteString("\n#### Page views a second at each number of concurrent sessions\n\nClosed loop: N concurrent sessions, no think time, each playing the next visit as soon as it ends one, with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule there (P99 of full loads, clicks and writes at most 1 s, no failures, no backlog). A cell stops at its first failed round, which decides it. A page view counts when it completes. Prefetches and writes are not page views. `-` is a number of sessions the server was not stepped to.\n\n| |")
+		b.WriteString("\n#### Page views a second at each number of concurrent sessions\n\nClosed loop: N concurrent sessions, no think time, each playing the next visit as soon as it ends one, with at most 6 connections. A cell is the median of the rounds with their range, and `failed` says why a server did not meet the rule there (P99 of landings, of the actions after them and of writes at most 1 s, no failures, no backlog). A cell stops at its first failed round, which decides it. A page view counts when it completes. Prefetches and writes are not page views, but the server answers them out of the same processor time: a framework whose pages make the browser prefetch more reaches fewer page views a second on the same core. The table of what one visit costs the server, below, has the prefetches of a visit for each framework. `-` is a number of sessions the server was not stepped to.\n\n| |")
 		for _, n := range sessions {
 			fmt.Fprintf(b, " %d sessions |", n)
 		}
@@ -240,7 +240,7 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 		}
 		return nil
 	})
-	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | landing P50 / P99 ms (n) | action after the landing P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	marked := false
 	for _, f := range r.Servers[sc.Name] {
 		t := r.Throughput[sustainKey(sc.Name, f)]
@@ -341,7 +341,7 @@ func (r *BrowseResult) throughputMethodMarkdown(b *strings.Builder, sc BrowseSce
 func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessions int) {
 	fw := r.Servers[sc.Name]
 	fmt.Fprintf(b, "\n#### %d concurrent sessions\n\n", sessions)
-	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | full load P50 / P99 ms (n) | click P50 / P99 ms (n) | write P50 / P99 ms (n) | server cores | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | landing P50 / P99 ms (n) | action after the landing P50 / P99 ms (n) | write P50 / P99 ms (n) | server cores | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := r.cellRounds(f, sc.Name, sessions)
 		if len(rs) == 0 {
@@ -359,7 +359,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessi
 			coresCell(rs, func(x *Round) float64 { return x.CPUSeconds }),
 			coresCell(rs, func(x *Round) float64 { return x.ClientCPU }))
 	}
-	b.WriteString("\nWhat the server did a second:\n\n| | full loads/s | clicks/s | writes/s | renders/s | cache hits/s | shared renders/s |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nWhat the server did a second:\n\n| | landings/s | actions after the landing/s | writes/s | renders/s | cache hits/s | shared renders/s |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := r.cellRounds(f, sc.Name, sessions)
 		if len(rs) == 0 {
@@ -428,7 +428,7 @@ func (r *BrowseResult) writesMarkdown(b *strings.Builder, sc BrowseScenario, rou
 // by rounds: the first of them, and the length of all.
 func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, rounds func(fw string) []Round) {
 	fw := r.Servers[sc.Name]
-	fmt.Fprintf(b, "\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan %g page views within 1%% and 20%% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | full loads | clicks planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", ShopperViewsMean)
+	fmt.Fprintf(b, "\nWhat the rounds planned and did (the first round, and the seconds of all). The mix is checked on the visits as planned: a round is run again unless its planned share of staff visits is within half a point of the scenario, its shopper visits plan %g page views within 1%% and 20%% returning visitors within half a point, its adds and checkouts are within 0.2 points of the mix and its edits and ships within 3 points, or when the load generator did not start every visit. A visit that fails ends there, so a round whose server fails visits does fewer page views and writes than it planned: it is a valid round that failed, its page views a second are of a cut-short workload, and it is never counted as capacity.\n\n| | blocks | visits planned / started / succeeded / failed / unfinished | page views planned / done | landings | actions after the landing planned / done | writes planned / done | write share done | seconds | of which drain |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", ShopperViewsMean)
 	for _, f := range fw {
 		rs := rounds(f)
 		if len(rs) == 0 {
@@ -446,7 +446,7 @@ func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if !slices.ContainsFunc(fw, func(f string) bool { return r.Sustain[sustainKey(sc.Name, f)] != nil }) {
 		return
 	}
-	fmt.Fprintf(b, "\n#### The arrival rate %s sustains\n\nOpen model: visits start on schedule whether or not the earlier ones are done, and the actions of a visit are planned one second apart. A rate is sustained when full loads, clicks and writes each have a P99 of at most 1 s, nothing fails, no backlog is left, and the load generator keeps up, in %d rounds. The search doubles the rate, narrows it to within 10%%, then confirms it (and tries 10%% above it, within the cap of the search). It is run for %s only, whose rate sets the rate of the open run. A confirmed rate is kept in `test/compare/rates.json` with what it was measured under (the scenario, the plans and the traces, the sources, the cpu and its pinning, the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation), and a later run under all the same conditions reads it from there.\n\n| | sustained rate, visits/s | page views/s | notes |\n| --- | --- | --- | --- |\n", BrowseLabel(openBase), r.rounds(), BrowseLabel(openBase))
+	fmt.Fprintf(b, "\n#### The arrival rate %s sustains\n\nOpen model: visits start on schedule whether or not the earlier ones are done, and the actions of a visit are planned one second apart. A rate is sustained when landings, the actions after them and writes each have a P99 of at most 1 s, nothing fails, no backlog is left, and the load generator keeps up, in %d rounds. The search doubles the rate, narrows it to within 10%%, then confirms it (and tries 10%% above it, within the cap of the search). It is run for %s only, whose rate sets the rate of the open run. A confirmed rate is kept in `test/compare/rates.json` with what it was measured under (the scenario, the plans and the traces, the sources, the cpu and its pinning, the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation), and a later run under all the same conditions reads it from there.\n\n| | sustained rate, visits/s | page views/s | notes |\n| --- | --- | --- | --- |\n", BrowseLabel(openBase), r.rounds(), BrowseLabel(openBase))
 	for _, f := range fw {
 		s := r.Sustain[sustainKey(sc.Name, f)]
 		if s == nil {
@@ -488,7 +488,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 	rate := r.LatencyRate[sc.Name]
 	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. "+stepClassNote+" P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
-	b.WriteString("| | full loads | clicks | writes | crawler documents | rounds |\n| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | landings | actions after the landing | writes | crawler documents | rounds |\n| --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
@@ -567,7 +567,7 @@ func (r *BrowseResult) clickKindsMarkdown(b *strings.Builder, sc BrowseScenario)
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nThe clicks of these rounds by how the browser did them. A click is an action on the page after the landing, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does a search from the header, a filter by a plain link and the next page of a list as a document load, and leaves the others to the router of the framework, as the recorded traces tell. P50 / P99 in ms over the rounds, with the number of clicks. The two kinds do other work on the server and are not the same pages, so their times are not to be compared with each other, only server with server.\n\n| | clicks | as a document load | by the router |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\nThe actions after the landing of these rounds by how the browser did them. An action is what a visitor does on the page after the landing, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does a search from the header, a filter by a plain link and the next page of a list as a document load, and leaves the others to the router of the framework, as the recorded traces tell. P50 / P99 in ms over the rounds, with the number of actions. The two kinds do other work on the server and are not the same pages, so their times are not to be compared with each other, only server with server.\n\n| | actions after the landing | as a document load | by the router |\n| --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
@@ -1435,6 +1435,6 @@ func notComparableNote(rounds []Round) string {
 	return fmt.Sprintf("not comparable: %s (%d of %d rounds)", first, n, len(rounds))
 }
 
-// stepClassNote says, over the two tables of the body, what their columns full load and click hold: the
+// stepClassNote says, over the two tables of the body, what their columns landing and action after the landing hold: the
 // page views by the step of the plan, not by the kind of request the browser made.
-const stepClassNote = "A full load is the landing of a visit and a click an action on the page after it, by the step of the plan: the browser does some clicks as a document load (a search from the header, a plain link such as one of the category bar or to the next page of a list), and those are in the click column. The appendix has the clicks of the rounds at the same arrival rate by which the browser did."
+const stepClassNote = "A landing is the first page of a visit, always a full page load. An action after the landing is what the visitor does next on the page, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does some of them as a document load (a search from the header, a plain link such as one of the category bar or to the next page of a list), and those are in the same column. The appendix has the actions of the rounds at the same arrival rate by which the browser did."
