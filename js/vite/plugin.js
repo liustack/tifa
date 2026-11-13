@@ -5799,11 +5799,19 @@ export function unresolvedNames(code, parse) {
 
 class CannotCopy extends Error {}
 
+// throwHelper is the name of the function that inlineSmallFunctions adds to the bundle when it
+// writes out a body that throws: a throw is a statement, and in an expression it is a call of
+// this function, which throws its argument.
+const throwHelper = 'tifaThrow'
+const throwHelperSource = `function ${throwHelper}(error) { throw error; }`
+
 // bodyAsExpression gives the value that a call of function node fn returns as one expression, with
 // the kind of body: 'expr' (an arrow with an expression), 'stmt' (statements that are all
 // expressions, so the call gives nothing), 'empty' or 'return'. It gives null for another form.
-// A block with one return, a block of expression statements and a chain of ifs that returns in
-// every branch are the forms. The chain becomes a conditional expression.
+// A block with one return, a block of expression statements and a chain of ifs that returns or
+// throws in every branch are the forms. The chain becomes a conditional expression, in which a
+// throw is a node of type 'Throw' that stands for a call of throwHelper. A body that only throws
+// is not one: it is no cheaper written out.
 function bodyAsExpression(fn) {
   const nothing = { type: 'UnaryExpression', operator: 'void', argument: { type: 'Literal', value: 0 } }
   if (fn.body.type !== 'BlockStatement') return { expr: fn.body, kind: 'expr' }
@@ -5818,6 +5826,7 @@ function bodyAsExpression(fn) {
   const returned = (stmts, top) => {
     for (const [i, s] of stmts.entries()) {
       if (s.type === 'ReturnStatement') return s.argument ?? nothing
+      if (s.type === 'ThrowStatement') return { type: 'Throw', argument: s.argument }
       if (s.type === 'BlockStatement') return returned(s.body, false)
       if (s.type !== 'IfStatement') return null
       const consequent = returned([s.consequent], false)
@@ -5827,7 +5836,7 @@ function bodyAsExpression(fn) {
     return top ? nothing : null
   }
   const expr = returned(list, true)
-  return expr ? { expr, kind: 'return' } : null
+  return expr && expr.type !== 'Throw' ? { expr, kind: 'return' } : null
 }
 
 // childNodes returns the syntax nodes directly under node.
@@ -5879,6 +5888,7 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
   const events = []
   const uses = fn.params.map(() => [])
   const free = []
+  let throws = false
   // The index of the parameter that the name node is, or -1 for a name of the code around.
   const parameterOf = (id) => {
     const ref = scopes.refs.get(id)
@@ -5972,6 +5982,13 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
       case 'SequenceExpression':
         for (const x of e.expressions) go(x, cond)
         return
+      case 'Throw':
+        // A call of throwHelper, which the code must have and the call must see (canWriteOut).
+        if (!scopes.throwHelper) throw new CannotCopy('a throw')
+        throws = true
+        go(e.argument, cond)
+        events.push({ t: 'call' })
+        return
       case 'ArrayExpression':
         for (const x of e.elements) {
           if (!x) continue
@@ -6023,7 +6040,7 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
     if (!(err instanceof CannotCopy)) throw err
     return { why: err.message }
   }
-  return { fn, expr, kind, events, uses, free }
+  return { fn, expr, kind, events, uses, free, throws }
 }
 
 // isPureArgument says whether the argument node of a call can be written in the body of the
@@ -6116,6 +6133,7 @@ function canWriteOut(call, ref, info, scopes) {
   for (const f of free) {
     if (lookupBinding(ref.scope, f.id.name) !== f.binding) return false
   }
+  if (info.throws && lookupBinding(ref.scope, throwHelper) !== scopes.throwHelper) return false
   let previous = -1
   for (let p = 0; p < fn.params.length; p++) {
     if (p >= args.length || pure[p]) continue
@@ -6181,6 +6199,8 @@ function bodyText(code, call, info, scopes) {
           return `${render(node.test, 'operand')} ? ${render(node.consequent, 'item')} : ${render(node.alternate, 'item')}`
         case 'SequenceExpression':
           return node.expressions.map((x) => render(x, 'item')).join(', ')
+        case 'Throw':
+          return `${throwHelper}(${render(node.argument, 'item')})`
         default:
           return 'void 0'
       }
@@ -6308,12 +6328,27 @@ function writeOutRound(code, scopes) {
 // was, with a warning. parse gives the syntax tree of a source. The result has the code, the
 // number of calls written out and the warning, which is empty when there is none.
 export function inlineSmallFunctions(source, parse) {
+  // throwHelper goes after the last line, so the lines before keep their places in the source map,
+  // and a function declaration is set from the start of the module. A source that has the name
+  // already does not get it, and its bodies that throw stay. When no written-out body throws, the
+  // helper is left out again.
+  const helper = source.includes(throwHelper) ? '' : (source.endsWith('\n') ? '' : '\n') + throwHelperSource
+  const result = writeOutSmallFunctions(source + helper, parse, helper !== '')
+  if (!result.code.endsWith(helper)) throw new Error(`the tifa plugin lost ${throwHelper} at the end of the bundle`)
+  const code = result.code.slice(0, result.code.length - helper.length)
+  return code.includes(throwHelper) ? result : { ...result, code }
+}
+
+// writeOutSmallFunctions is inlineSmallFunctions on a source that ends with throwHelper when
+// withHelper is set.
+function writeOutSmallFunctions(source, parse, withHelper) {
   let accepted = { code: source, count: 0, warning: '' }
   let code = source
   let count = 0
   let names = null
   for (let round = 0; ; round++) {
     const scopes = analyzeScopes(parse(code), code)
+    if (withHelper) scopes.throwHelper = scopes.root.vars.get(throwHelper)
     const unresolved = [...scopes.unresolved].sort()
     if (names === null) {
       if (scopes.unsupported) return { ...accepted, warning: `the tifa plugin does not write out small functions: the bundle has ${scopes.unsupported}` }

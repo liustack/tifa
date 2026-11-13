@@ -177,6 +177,21 @@ function run() { return (reset(), a + b); }
 function sign(n) { if (n < 0) return -1; if (n === 0) return 0; return 1; }
 function run() { return [sign(-5), sign(0), sign(7)]; }
 `},
+		{name: "an if that throws, then a return", want: 2, source: `
+var current = null;
+function resolve() { if (null === current) throw Error('no component ' + current); return current; }
+function run() { current = log('c'); var a = resolve(); current = null; try { return a + resolve(); } catch (e) { return a + ' ' + e.message; } }
+`, contains: []string{"(null === current) ? tifaThrow(Error('no component ' + current)) : current", "function tifaThrow(error) { throw error; }"}},
+		{name: "an if that throws, then an object", want: 2, source: `
+var rerenders = 0;
+function createHook() { if (0 < rerenders) throw Error('too many'); return { memoizedState: null, queue: null, next: null }; }
+function run() { var h = createHook(); rerenders = 1; try { createHook(); } catch (e) { return JSON.stringify(h) + e.message; } }
+`, contains: []string{"tifaThrow(Error('too many'))"}},
+		{name: "throws in a block, after an if and at the end", want: 2, source: `
+function check(n) { if (n < 0) { throw new RangeError('below'); } if (n > 9) throw log('above'); if (n === 5) return 'five'; throw n; }
+function at(n) { try { return check(n); } catch (e) { return String(e); } }
+function run() { return [at(-1), at(10), at(5), at(3), check(5)].join(); }
+`},
 		{name: "an if with an else that return", want: 2, source: `
 function pick(c) { if (c) { return 'yes'; } else { return 'no'; } }
 function run() { return pick(true) + pick(0); }
@@ -503,6 +518,23 @@ function run() { return tg(1); }
 		{name: "an if that does not return in all of its branches", source: `
 function g(a, b) { if (a) { if (b) return 1; } return 2; }
 function run() { return [g(1, 0), g(0, 0), g(1, 1)]; }
+`},
+		{name: "a body that only throws", source: `
+function fail(m) { throw new Error(m); }
+function run() { try { fail('x'); } catch (e) { return e.message; } }
+`},
+		{name: "a body that throws in a module that has the name of the helper", source: `
+var tifaThrow = 1;
+function check(n) { if (n) throw n; return tifaThrow; }
+function run() { return check(0); }
+`},
+		{name: "a body that throws, called where the name of the helper means another binding", source: `
+function check(n) { if (n) throw n; return 0; }
+function run() { try { (function () { var tifaThrow = log; return check(1); })(); } catch (e) { return e; } }
+`},
+		{name: "an argument with effects used in the throw", source: `
+function check(a, b) { if (a) throw b; return a; }
+function run() { return check(0, log('b')); }
 `},
 		{name: "a statement that is not an expression", source: `
 var n = 0;
