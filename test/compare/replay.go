@@ -785,6 +785,11 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s
 	class := pageClass(s.Page)
 	a.mu.Lock()
 	a.lat[kind] = append(a.lat[kind], ms(last.Sub(scheduled)))
+	// Every page the browser loaded whole is a full page load, the first page of a visit and a later
+	// one alike: the report times them together, beside the client navigations.
+	if kind == "load" || s.document() {
+		a.lat["document"] = append(a.lat["document"], ms(last.Sub(scheduled)))
+	}
 	if kind == "click" {
 		// A click is an action on the page, by the step of the plan. The browser did it as a document
 		// load or left it to the router, and its latency is also kept by which (the trace tells).
