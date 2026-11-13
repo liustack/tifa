@@ -171,7 +171,7 @@ func TestTheClicksAreAlsoTimedByHowTheBrowserDidThem(t *testing.T) {
 	}
 	body, appendix, _ := strings.Cut(res.Markdown(), "\n## Appendix\n")
 	for _, want := range []string{
-		"| | clicks | as a document load | by the router |",
+		"| | actions after the landing | as a document load | by the router |",
 		"| Tifa | 2.0 / 15 (600) | 6.0 / 40 (60) | 2.0 / 12 (540) |",
 		"| Next.js | 2.0 / 15 (600) | 6.0 / 40 (60) | 2.0 / 12 (540) |",
 	} {
