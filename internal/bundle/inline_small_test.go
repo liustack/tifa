@@ -150,7 +150,7 @@ function isA(x) { return x === 'a'; }
 function run() { var v = log('a'); return isA(v) + ',' + isA('b'); }
 `},
 		{name: "a call that forwards its arguments", want: 1, source: `
-function other(a, b) { log('other', a, b); return a; }
+function other(a, b) { var r = log('other', a, b); return a; }
 function wrap(a, b) { return other(a, b); }
 function run() { var x = 1; return wrap(x, 2); }
 `, contains: []string{"other(x, 2)"}},
@@ -191,6 +191,23 @@ function run() { var h = createHook(); rerenders = 1; try { createHook(); } catc
 function check(n) { if (n < 0) { throw new RangeError('below'); } if (n > 9) throw log('above'); if (n === 5) return 'five'; throw n; }
 function at(n) { try { return check(n); } catch (e) { return String(e); } }
 function run() { return [at(-1), at(10), at(5), at(3), check(5)].join(); }
+`},
+		{name: "statements, then a return", want: 2, source: `
+var a = 0, b = 0;
+function step(x) { a = x; b = a + 1; return a + b; }
+function run() { return [step(1), step(log(2)), a, b].join(); }
+`, contains: []string{"(a = 1, b = a + 1, a + b)"}},
+		{name: "statements around ifs that return or throw", want: 4, source: `
+var hook = null, first = null, again = false;
+function make() { if (again && first.n > 0) throw Error('twice'); return { n: 0 }; }
+function next() { null === hook ? (null === first ? (again = false, first = hook = make()) : (again = true, hook = first)) : (again = true, hook = hook.n); return hook; }
+function at(k) { if (k < 0) throw Error('below'); log(k); if (k > 1) return 'big'; return k; }
+function run() { var x = next(), y = next(); try { at(-1); } catch (e) { return [x === y, again, at(1), at(2)].join(); } }
+`},
+		{name: "a sequence as a branch and as a part of a sequence", want: 2, source: `
+var n = 0;
+function f(c) { if (c) { n++; return n; } n += 10; return n; }
+function run() { return [f(1), (f(0), n)].join(); }
 `},
 		{name: "an if with an else that return", want: 2, source: `
 function pick(c) { if (c) { return 'yes'; } else { return 'no'; } }
@@ -281,14 +298,14 @@ function run() { return read(1); }
 `},
 		{name: "a function of the module that only runs after the constant is set", want: 1, source: `
 const f = (a) => a + 1
-function g() { log("g"); return f(1) }
+function g() { var r = log("g"); return f(1) }
 var late = g()
 function run() { return late }
 `},
 		{name: "functions of the module that call each other and run after the constant is set", want: 1, source: `
 const f = (a) => a + 1
-function g(n) { log("g"); return n ? h(n - 1) : f(1) }
-function h(n) { log("h"); return g(n) }
+function g(n) { var r = log("g"); return n ? h(n - 1) : f(1) }
+function h(n) { var r = log("h"); return g(n) }
 function run() { return g(2) }
 `},
 		{name: "after a statement, in a branch", want: 1, source: `
@@ -420,6 +437,18 @@ function run() { return f(log(7)); }
 var obj = { get value() { throw Error('get'); } };
 function f(x) { return obj.value + x; }
 function run() { return f(log(7)); }
+`},
+		{name: "a getter in a statement before the argument with effects", source: `
+var trace = [];
+var obj = { get value() { trace.push('get'); return 1; } };
+function f(x) { obj.value; return x; }
+function run() { var r = f((trace.push('arg'), 7)); return trace.join() + ' ' + r; }
+`},
+		{name: "a getter that throws, in a statement before the argument with effects", source: `
+var trace = [];
+var obj = { get value() { throw Error('get'); } };
+function f(x) { obj.value; return x; }
+function run() { try { f((trace.push('arg'), 7)); } catch (e) { trace.push(e.message); } return trace.join(); }
 `},
 		{name: "a property that the argument with effects sets, read before it", source: `
 var base = { n: 1 };
@@ -591,7 +620,7 @@ function run() {
 `},
 		{name: "a function called by a closure before the constant is set", source: `
 function run() {
-  function g() { log("g"); return f() }
+  function g() { var r = log("g"); return f() }
   try { g() } catch (e) { return e.name }
   const f = () => 1
   return "ok"
@@ -677,15 +706,15 @@ function run() { return f(+1n) }
 var early
 try { early = g() } catch (e) { early = e.name }
 const f = (a) => a + 1
-function g() { log("g"); return f(1) }
+function g() { var r = log("g"); return f(1) }
 function run() { return early }
 `},
 		{name: "a function of the module that another function of it calls before the constant is set", source: `
 var early
-function h() { log("h"); return g() }
+function h() { var r = log("h"); return g() }
 try { early = h() } catch (e) { early = e.name }
 const f = (a) => a + 1
-function g() { log("g"); return f(1) }
+function g() { var r = log("g"); return f(1) }
 function run() { return early }
 `},
 		{name: "an argument that is a later parameter, read by a closure in a default value", source: `

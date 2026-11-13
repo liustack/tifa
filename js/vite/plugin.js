@@ -5809,7 +5809,8 @@ const throwHelperSource = `function ${throwHelper}(error) { throw error; }`
 // the kind of body: 'expr' (an arrow with an expression), 'stmt' (statements that are all
 // expressions, so the call gives nothing), 'empty' or 'return'. It gives null for another form.
 // A block with one return, a block of expression statements and a chain of ifs that returns or
-// throws in every branch are the forms. The chain becomes a conditional expression, in which a
+// throws in every branch, with expression statements before a return or an if, are the forms. The
+// statements and what follows them become a sequence, the chain a conditional expression, in which a
 // throw is a node of type 'Throw' that stands for a call of throwHelper. A body that only throws
 // is not one: it is no cheaper written out.
 function bodyAsExpression(fn) {
@@ -5828,6 +5829,13 @@ function bodyAsExpression(fn) {
       if (s.type === 'ReturnStatement') return s.argument ?? nothing
       if (s.type === 'ThrowStatement') return { type: 'Throw', argument: s.argument }
       if (s.type === 'BlockStatement') return returned(s.body, false)
+      if (s.type === 'ExpressionStatement') {
+        // An expression statement before the rest: a sequence of the two.
+        const rest = returned(stmts.slice(i + 1), top)
+        if (!rest) return null
+        const after = rest.type === 'SequenceExpression' && rest.start === undefined ? rest.expressions : [rest]
+        return { type: 'SequenceExpression', expressions: [s.expression, ...after] }
+      }
       if (s.type !== 'IfStatement') return null
       const consequent = returned([s.consequent], false)
       const alternate = s.alternate ? returned([s.alternate], false) : returned(stmts.slice(i + 1), top)
@@ -6194,16 +6202,21 @@ function bodyText(code, call, info, scopes) {
   // sequence, and a part of anything else ('operand') unless it is a name or a value.
   const render = (node, level) => {
     if (node.start === undefined) {
-      switch (node.type) {
-        case 'ConditionalExpression':
-          return `${render(node.test, 'operand')} ? ${render(node.consequent, 'item')} : ${render(node.alternate, 'item')}`
-        case 'SequenceExpression':
-          return node.expressions.map((x) => render(x, 'item')).join(', ')
-        case 'Throw':
-          return `${throwHelper}(${render(node.argument, 'item')})`
-        default:
-          return 'void 0'
-      }
+      // A part the plugin made: a branch or a part of a sequence needs parentheses as a real one does.
+      const made = (() => {
+        switch (node.type) {
+          case 'ConditionalExpression':
+            return `${render(node.test, 'operand')} ? ${render(node.consequent, 'item')} : ${render(node.alternate, 'item')}`
+          case 'SequenceExpression':
+            return node.expressions.map((x) => render(x, 'item')).join(', ')
+          case 'Throw':
+            return `${throwHelper}(${render(node.argument, 'item')})`
+          default:
+            return 'void 0'
+        }
+      })()
+      const plain = level === 'top' || node.type === 'Throw' || node.type === 'UnaryExpression' || (level === 'item' && node.type !== 'SequenceExpression')
+      return plain ? made : `(${made})`
     }
     const edits = new Map()
     const walk = (n, parent) => {
