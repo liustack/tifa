@@ -29,7 +29,7 @@ import (
 // browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
 // pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
 // its report says so at the top, with how it differs.
-var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 75 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 120 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
@@ -880,7 +880,7 @@ func judgeClosed(out *Round, target time.Duration, planBlocks, blockVisits, load
 }
 
 // calibrate checks the length of a closed round, which Judge has judged. A round takes 0.8 to 1.6
-// times the target (60 to 120 seconds by default). Outside that it returns the blocks the next round
+// times the target (96 to 192 seconds by default). Outside that it returns the blocks the next round
 // of its cell gets, from the visits a second this one ended (the failed ones too: a 503 ends a visit
 // fast, and the completed visits alone would size a server that refuses load far too small), and 0
 // when the round was in the window. A round outside the window that passed the rule is invalid and is
