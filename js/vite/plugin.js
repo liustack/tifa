@@ -1936,6 +1936,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
   let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
+  let reactHooks // React's react.production.js files to the hooks they export as wrappers of the dispatcher
   let rawQueryWarned // the places of the reads of the raw query the build has warned about
   const plugin = {
     name: 'tifa:ssr',
@@ -1948,6 +1949,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       serverActions = new Set()
       lucide = new Map()
       jsxRuntimes = new Map()
+      reactHooks = new Map()
       rawQueryWarned = new Set()
     },
     outputOptions(options) {
@@ -2197,7 +2199,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       }
       if (reactModule.test(id)) {
         const react = `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
-        const { source, missing } = nativeCopyProps(fs.readFileSync(id, 'utf8'))
+        const text = fs.readFileSync(id, 'utf8')
+        const wrappers = reactHookWrappers(this.parse(text), text)
+        reactHooks.set(id, wrappers.hooks)
+        if (wrappers.problems.length > 0) {
+          this.warn(
+            notRecognized +
+            `${react} exports its hooks in a form the tifa plugin does not know (${wrappers.problems.join(', ')}), so ` +
+              'each call of a hook still goes through the function React exports. Pages render the same, but ' +
+              'take longer to render',
+          )
+        }
+        const { source, missing } = nativeCopyProps(text)
         for (const name of missing) {
           this.warn(
             notRecognized +
@@ -2425,11 +2438,20 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.modules)
       if (plain.warning) this.warn(notRecognized + plain.warning)
+      // Calls of React's hooks go to the dispatcher, which does the work, in place of React's export:
+      // those of each copy of React in the chunk to its own dispatcher.
+      const copies = []
+      for (const id of Object.keys(chunk.modules)) {
+        const module = chunk.modules[id].code
+        const required = reactModule.test(id) && reactHooks.has(id) && typeof module === 'string' ? requireOf(module) : undefined
+        if (required) copies.push({ hooks: reactHooks.get(id), required })
+      }
+      const hooked = callDispatchers(plain.code, (source) => this.parse(source), copies)
       // Only with a JSX runtime of which every file is known: with another, the elements might differ.
       const elements =
         jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
-          ? inlineElements(plain.code, (source) => this.parse(source))
-          : { code: plain.code }
+          ? inlineElements(hooked.code, (source) => this.parse(source))
+          : { code: hooked.code }
       // The calls of small functions, last, so the functions are the ones the rewrites above left.
       let small = { code: elements.code, warning: '' }
       try {
@@ -4075,6 +4097,224 @@ export function plainNamespaces(code, modules) {
   return { code: pieces.join('') }
 }
 
+// reactInternals is the export of React that holds ReactSharedInternals, whose H is the dispatcher
+// of hooks a renderer sets while it renders a component.
+const reactInternals = '__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE'
+
+// reactHookWrappers reads React's react.production.js, whose syntax tree is program, and gives the
+// hooks it exports as a wrapper that only hands its parameters to the dispatcher,
+// `exports.useRef = function (initialValue) { return ReactSharedInternals.H.useRef(initialValue); }`,
+// with the number of their parameters (hooks), and what keeps the plugin from calling the
+// dispatcher in their place (problems): the dispatcher's object and the wrappers must be set once
+// and never again, and the object must be the export reactInternals. With a problem, hooks is empty.
+export function reactHookWrappers(program, source) {
+  const scopes = analyzeScopes(program, source)
+  if (scopes.unsupported) return { hooks: new Map(), problems: [`the file has ${scopes.unsupported}`] }
+  const problems = []
+  const internals = scopes.root.vars.get('ReactSharedInternals')
+  if (!internals || internals.kind !== 'var' || !stableBinding(internals) || internals.defs[0].declarator?.init?.type !== 'ObjectExpression') {
+    problems.push('ReactSharedInternals is not an object declared once and never set')
+  }
+  const exportsName = (n) => n.type === 'Identifier' && n.name === 'exports' && !scopes.refs.get(n)?.binding
+  const name = (n) => (n.type === 'Identifier' ? n.name : null)
+  const isInternals = (n) => n.type === 'Identifier' && internals && scopes.refs.get(n)?.binding === internals
+  const allowed = new Set() // the identifiers `exports` of the statements exports.name = value
+  const assigned = new Map() // the name of each export to how many statements set it
+  const hooks = new Map()
+  let exported = false
+  for (const s of program.body) {
+    const e = s.expression
+    if (s.type !== 'ExpressionStatement' || e.type !== 'AssignmentExpression' || e.operator !== '=') continue
+    if (e.left.type !== 'MemberExpression' || e.left.computed || !exportsName(e.left.object)) continue
+    allowed.add(e.left.object)
+    const key = e.left.property.name
+    assigned.set(key, (assigned.get(key) ?? 0) + 1)
+    if (key === reactInternals && isInternals(e.right)) exported = true
+    const fn = e.right
+    if (!key.startsWith('use') || fn.type !== 'FunctionExpression' || fn.id || fn.async || fn.generator) continue
+    if (!fn.params.every((p) => p.type === 'Identifier') || fn.body.body.length !== 1 || fn.body.body[0].type !== 'ReturnStatement') continue
+    const call = fn.body.body[0].argument
+    const callee = call?.callee
+    const wraps =
+      call?.type === 'CallExpression' &&
+      !call.optional &&
+      callee.type === 'MemberExpression' &&
+      !callee.computed &&
+      !callee.optional &&
+      name(callee.property) === key &&
+      callee.object.type === 'MemberExpression' &&
+      !callee.object.computed &&
+      !callee.object.optional &&
+      name(callee.object.property) === 'H' &&
+      isInternals(callee.object.object) &&
+      call.arguments.length === fn.params.length &&
+      call.arguments.every((a, i) => a.type === 'Identifier' && scopes.refs.get(a)?.binding?.ids[0] === fn.params[i])
+    if (wraps) hooks.set(key, fn.params.length)
+  }
+  if (!exported) problems.push(`no statement exports.${reactInternals} = ReactSharedInternals`)
+  for (const key of hooks.keys()) if (assigned.get(key) !== 1) problems.push(`exports.${key} is set more than once`)
+  for (const [id, ref] of scopes.refs) {
+    if (ref.binding) continue
+    if ((id.name === 'exports' && !allowed.has(id)) || id.name === 'module') problems.push(`a use of ${id.name}`)
+  }
+  if (internals) for (const ref of internals.refs) if (ref.assign) problems.push('ReactSharedInternals is set again')
+  if (hooks.size === 0) problems.push('no hook exported as a function that only calls ReactSharedInternals.H')
+  return problems.length > 0 ? { hooks: new Map(), problems: [...new Set(problems)] } : { hooks, problems }
+}
+
+// callDispatcher returns code, a chunk of the SSR bundle before it is minified, with the calls of
+// React's hook wrappers made on the dispatcher itself: `React.useRef(v)` and `(0, r.useRef)(v)`
+// become `React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H.useRef(v)`,
+// one call in place of two. hooks is reactHookWrappers of react.production.js, whose require
+// function in the chunk is required. A name counts as React's exports when every value code gives
+// it is required(), the require function of a module that only does
+// `module.exports = required()` (React's index.js), or one of these in rolldown's __toESM or the
+// plugin's __tifaV, where each of these names is the one declared at the top level of the module.
+// A call with a spread, `?.` or more arguments than the wrapper takes stays. One with fewer gets
+// `void 0` for each missing one, as the wrapper passes. The result has the code and the number of
+// calls it changed. The lines stay.
+export function callDispatcher(code, parse, hooks, required) {
+  const program = parse(code)
+  const scopes = analyzeScopes(program, code)
+  if (scopes.unsupported || hooks.size === 0 || !required) return { code, count: 0 }
+  const requires = new Set([required])
+  // Whether the name reference id is the binding of that name at the top level of the module,
+  // declared once and never set: a parameter or a local of a function may have the same name.
+  const moduleName = (id) => {
+    const binding = scopes.refs.get(id)?.binding
+    return binding !== undefined && binding === scopes.root.vars.get(id.name) && stableBinding(binding)
+  }
+  // React's index.js: var require_react = __commonJSMin(((exports, module) => { module.exports = require_react_production(); }));
+  for (const s of program.body) {
+    if (s.type !== 'VariableDeclaration') continue
+    for (const d of s.declarations) {
+      const wrapper = d.init
+      if (d.id.type !== 'Identifier' || wrapper?.type !== 'CallExpression' || !/^__commonJSMin(\$\d+)?$/.test(wrapper.callee.name ?? '')) continue
+      const fn = wrapper.arguments[0]
+      const body = fn?.body?.type === 'BlockStatement' ? fn.body.body : null
+      const e = body?.length === 1 ? body[0].expression : null
+      if (
+        fn?.type === 'ArrowFunctionExpression' &&
+        fn.params.length === 2 &&
+        e?.type === 'AssignmentExpression' &&
+        e.operator === '=' &&
+        code.slice(e.left.start, e.left.end) === `module.exports` &&
+        e.left.object?.name === fn.params[1].name &&
+        e.right.type === 'CallExpression' &&
+        e.right.arguments.length === 0 &&
+        e.right.callee.name === required &&
+        moduleName(e.right.callee)
+      ) {
+        requires.add(d.id.name)
+      }
+    }
+  }
+  // Whether a value is React's exports: required(), __tifaV(required()) or __toESM(required(), 1).
+  const isRequire = (v) => v?.type === 'CallExpression' && v.arguments.length === 0 && v.callee.type === 'Identifier' && requires.has(v.callee.name) && moduleName(v.callee)
+  const isReact = (v) =>
+    isRequire(v) ||
+    (v?.type === 'CallExpression' &&
+      v.callee.type === 'Identifier' &&
+      /^(__tifaV|__toESM)(\$\d+)?$/.test(v.callee.name) &&
+      moduleName(v.callee) &&
+      isRequire(v.arguments[0]) &&
+      v.arguments.slice(1).every((a) => a.type === 'Literal'))
+  const react = new Set()
+  const raw = new Set() // the bindings of React's exports themselves, not of a namespace
+  for (const binding of scopes.all) {
+    if (!['var', 'let', 'const'].includes(binding.kind) || binding.defs.length !== 1 || binding.loop) continue
+    const init = binding.defs[0].declarator?.init
+    const writes = binding.refs.filter((r) => r.assign)
+    if (init ? !isReact(init) : writes.length === 0) continue
+    const ok = writes.every((r) => r.parent?.type === 'AssignmentExpression' && r.key === 'left' && r.parent.operator === '=' && isReact(r.parent.right))
+    if (!ok) continue
+    react.add(binding)
+    if ((init && isRequire(init)) || writes.some((r) => isRequire(r.parent.right))) raw.add(binding)
+  }
+  // The plugin counts on React never changing its exports, as the plain namespaces do (see
+  // plainNamespaces). Code of the chunk that sets one where it can be seen, `React.useRef = …`,
+  // `delete React.useRef` or `Object.assign(require_react(), …)`, would not reach the calls written
+  // on the dispatcher, so then no call changes. writtenTo tells whether node, React's exports, is
+  // written to that way, path holding its ancestors, nearest last.
+  const rawBinding = (n) => n.type === 'Identifier' && raw.has(scopes.refs.get(n)?.binding)
+  const global = (n, name) => n.type === 'Identifier' && n.name === name && !scopes.refs.get(n)?.binding
+  const writers = { Object: ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'], Reflect: ['set', 'defineProperty', 'deleteProperty', 'setPrototypeOf'] }
+  const writtenTo = (node, path) => {
+    const parent = path.at(-1)
+    if (parent.type === 'ParenthesizedExpression') return writtenTo(parent, path.slice(0, -1))
+    if (parent.type === 'MemberExpression' && parent.object === node) {
+      const above = path.at(-2)
+      return (
+        ((above.type === 'AssignmentExpression' || above.type === 'AssignmentPattern') && above.left === parent) ||
+        above.type === 'UpdateExpression' ||
+        (above.type === 'UnaryExpression' && above.operator === 'delete') ||
+        ((above.type === 'ForInStatement' || above.type === 'ForOfStatement') && above.left === parent) ||
+        above.type === 'ArrayPattern' ||
+        above.type === 'RestElement' ||
+        (above.type === 'Property' && above.value === parent && path.at(-3)?.type === 'ObjectPattern')
+      )
+    }
+    const callee = parent.type === 'CallExpression' && parent.arguments[0] === node ? parent.callee : null
+    return callee?.type === 'MemberExpression' && !callee.computed && Object.keys(writers).some((o) => global(callee.object, o) && writers[o].includes(callee.property.name))
+  }
+  let escape = null
+  const check = (node, path) => {
+    if (escape) return
+    const parent = path.at(-1)
+    const declared = parent && ((parent.type === 'VariableDeclarator' && parent.id === node) || (parent.type === 'AssignmentExpression' && parent.left === node))
+    if ((isRequire(node) || (rawBinding(node) && !declared)) && writtenTo(node, path)) escape = node
+    path.push(node)
+    for (const child of childNodes(node)) check(child, path)
+    path.pop()
+  }
+  check(program, [])
+  if (escape) return { code, count: 0, escape: code.slice(escape.start, escape.end) }
+  const edits = []
+  const visit = (node) => {
+    if (node.type === 'CallExpression' && !node.optional) {
+      let callee = node.callee
+      // (0, r.useRef)(v)
+      if (callee.type === 'SequenceExpression' && callee.expressions.length === 2 && callee.expressions[0].type === 'Literal' && callee.expressions[0].value === 0) callee = callee.expressions[1]
+      const object = callee.type === 'MemberExpression' && !callee.computed && !callee.optional ? callee.object : null
+      const arity = object?.type === 'Identifier' ? hooks.get(callee.property.name) : undefined
+      const args = node.arguments
+      if (arity !== undefined && react.has(scopes.refs.get(object)?.binding) && args.length <= arity && !args.some((a) => a.type === 'SpreadElement')) {
+        edits.push({ start: node.callee.start, end: node.callee.end, text: `${object.name}.${reactInternals}.H.${callee.property.name}` })
+        const missing = Array(arity - args.length).fill('void 0')
+        if (missing.length > 0) {
+          const at = args.length > 0 ? args.at(-1).end : node.end - 1
+          edits.push({ start: at, end: at, text: (args.length > 0 ? ', ' : '') + missing.join(', ') })
+        }
+      }
+    }
+    for (const child of childNodes(node)) visit(child)
+  }
+  visit(program)
+  edits.sort((a, b) => a.start - b.start)
+  let out = ''
+  let at = 0
+  for (const e of edits) {
+    out += code.slice(at, e.start) + e.text
+    at = e.end
+  }
+  return { code: out + code.slice(at), count: edits.filter((e) => e.end > e.start).length }
+}
+
+// callDispatchers does what callDispatcher does for each copy of React in a chunk, copies holding
+// the hooks of each and its require function. Each copy has its own dispatcher, and the calls of
+// its hooks go to that one.
+export function callDispatchers(code, parse, copies) {
+  let count = 0
+  const escapes = []
+  for (const { hooks, required } of copies) {
+    const r = callDispatcher(code, parse, hooks, required)
+    code = r.code
+    count += r.count
+    if (r.escape) escapes.push(r.escape)
+  }
+  return { code, count, escape: escapes.join(', ') || undefined }
+}
+
 const lineRest = /[^\n\r\u2028\u2029]*/y
 const space = /\s*/y
 
@@ -5365,7 +5605,7 @@ function findPackage(root, name) {
 // ---- Writing out the calls of small functions
 
 // A function whose body has at most this many syntax nodes counts as small.
-const smallFunctionNodes = 32
+const smallFunctionNodes = 64
 
 // The most times inlineSmallFunctions goes over the code. A call in the body of a small function, or
 // in an argument of a call, is written out in a later round.
@@ -5799,11 +6039,20 @@ export function unresolvedNames(code, parse) {
 
 class CannotCopy extends Error {}
 
+// throwHelper is the name of the function that inlineSmallFunctions adds to the bundle when it
+// writes out a body that throws: a throw is a statement, and in an expression it is a call of
+// this function, which throws its argument.
+const throwHelper = 'tifaThrow'
+const throwHelperSource = `function ${throwHelper}(error) { throw error; }`
+
 // bodyAsExpression gives the value that a call of function node fn returns as one expression, with
 // the kind of body: 'expr' (an arrow with an expression), 'stmt' (statements that are all
 // expressions, so the call gives nothing), 'empty' or 'return'. It gives null for another form.
-// A block with one return, a block of expression statements and a chain of ifs that returns in
-// every branch are the forms. The chain becomes a conditional expression.
+// A block with one return, a block of expression statements and a chain of ifs that returns or
+// throws in every branch, with expression statements before a return or an if, are the forms. The
+// statements and what follows them become a sequence, the chain a conditional expression, in which a
+// throw is a node of type 'Throw' that stands for a call of throwHelper. A body that only throws
+// is not one: it is no cheaper written out.
 function bodyAsExpression(fn) {
   const nothing = { type: 'UnaryExpression', operator: 'void', argument: { type: 'Literal', value: 0 } }
   if (fn.body.type !== 'BlockStatement') return { expr: fn.body, kind: 'expr' }
@@ -5818,7 +6067,15 @@ function bodyAsExpression(fn) {
   const returned = (stmts, top) => {
     for (const [i, s] of stmts.entries()) {
       if (s.type === 'ReturnStatement') return s.argument ?? nothing
+      if (s.type === 'ThrowStatement') return { type: 'Throw', argument: s.argument }
       if (s.type === 'BlockStatement') return returned(s.body, false)
+      if (s.type === 'ExpressionStatement') {
+        // An expression statement before the rest: a sequence of the two.
+        const rest = returned(stmts.slice(i + 1), top)
+        if (!rest) return null
+        const after = rest.type === 'SequenceExpression' && rest.start === undefined ? rest.expressions : [rest]
+        return { type: 'SequenceExpression', expressions: [s.expression, ...after] }
+      }
       if (s.type !== 'IfStatement') return null
       const consequent = returned([s.consequent], false)
       const alternate = s.alternate ? returned([s.alternate], false) : returned(stmts.slice(i + 1), top)
@@ -5827,7 +6084,7 @@ function bodyAsExpression(fn) {
     return top ? nothing : null
   }
   const expr = returned(list, true)
-  return expr ? { expr, kind: 'return' } : null
+  return expr && expr.type !== 'Throw' ? { expr, kind: 'return' } : null
 }
 
 // childNodes returns the syntax nodes directly under node.
@@ -5879,6 +6136,7 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
   const events = []
   const uses = fn.params.map(() => [])
   const free = []
+  let throws = false
   // The index of the parameter that the name node is, or -1 for a name of the code around.
   const parameterOf = (id) => {
     const ref = scopes.refs.get(id)
@@ -5972,6 +6230,13 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
       case 'SequenceExpression':
         for (const x of e.expressions) go(x, cond)
         return
+      case 'Throw':
+        // A call of throwHelper, which the code must have and the call must see (canWriteOut).
+        if (!scopes.throwHelper) throw new CannotCopy('a throw')
+        throws = true
+        go(e.argument, cond)
+        events.push({ t: 'call' })
+        return
       case 'ArrayExpression':
         for (const x of e.elements) {
           if (!x) continue
@@ -6023,7 +6288,7 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
     if (!(err instanceof CannotCopy)) throw err
     return { why: err.message }
   }
-  return { fn, expr, kind, events, uses, free }
+  return { fn, expr, kind, events, uses, free, throws }
 }
 
 // isPureArgument says whether the argument node of a call can be written in the body of the
@@ -6116,6 +6381,7 @@ function canWriteOut(call, ref, info, scopes) {
   for (const f of free) {
     if (lookupBinding(ref.scope, f.id.name) !== f.binding) return false
   }
+  if (info.throws && lookupBinding(ref.scope, throwHelper) !== scopes.throwHelper) return false
   let previous = -1
   for (let p = 0; p < fn.params.length; p++) {
     if (p >= args.length || pure[p]) continue
@@ -6176,14 +6442,21 @@ function bodyText(code, call, info, scopes) {
   // sequence, and a part of anything else ('operand') unless it is a name or a value.
   const render = (node, level) => {
     if (node.start === undefined) {
-      switch (node.type) {
-        case 'ConditionalExpression':
-          return `${render(node.test, 'operand')} ? ${render(node.consequent, 'item')} : ${render(node.alternate, 'item')}`
-        case 'SequenceExpression':
-          return node.expressions.map((x) => render(x, 'item')).join(', ')
-        default:
-          return 'void 0'
-      }
+      // A part the plugin made: a branch or a part of a sequence needs parentheses as a real one does.
+      const made = (() => {
+        switch (node.type) {
+          case 'ConditionalExpression':
+            return `${render(node.test, 'operand')} ? ${render(node.consequent, 'item')} : ${render(node.alternate, 'item')}`
+          case 'SequenceExpression':
+            return node.expressions.map((x) => render(x, 'item')).join(', ')
+          case 'Throw':
+            return `${throwHelper}(${render(node.argument, 'item')})`
+          default:
+            return 'void 0'
+        }
+      })()
+      const plain = level === 'top' || node.type === 'Throw' || node.type === 'UnaryExpression' || (level === 'item' && node.type !== 'SequenceExpression')
+      return plain ? made : `(${made})`
     }
     const edits = new Map()
     const walk = (n, parent) => {
@@ -6301,19 +6574,35 @@ function writeOutRound(code, scopes) {
 
 // inlineSmallFunctions returns code, the SSR bundle before it is minified, with the calls of
 // small functions written out as their body. A function with a body of an expression, a few
-// assignments or a chain of ifs that return, of up to smallFunctionNodes syntax nodes, that no
+// assignments, or assignments and ifs that end in a return or a throw, of up to smallFunctionNodes
+// syntax nodes, that no
 // code sets again, costs a call in QuickJS: a frame, the arguments, a return. The rules are about the
 // shape of the function and the call, not about any library. The code keeps its lines. It checks
 // its work: if the names that no declaration gives are not the same after, it gives the code as it
 // was, with a warning. parse gives the syntax tree of a source. The result has the code, the
 // number of calls written out and the warning, which is empty when there is none.
 export function inlineSmallFunctions(source, parse) {
+  // throwHelper goes after the last line, so the lines before keep their places in the source map,
+  // and a function declaration is set from the start of the module. A source that has the name
+  // already does not get it, and its bodies that throw stay. When no written-out body throws, the
+  // helper is left out again.
+  const helper = source.includes(throwHelper) ? '' : (source.endsWith('\n') ? '' : '\n') + throwHelperSource
+  const result = writeOutSmallFunctions(source + helper, parse, helper !== '')
+  if (!result.code.endsWith(helper)) throw new Error(`the tifa plugin lost ${throwHelper} at the end of the bundle`)
+  const code = result.code.slice(0, result.code.length - helper.length)
+  return code.includes(throwHelper) ? result : { ...result, code }
+}
+
+// writeOutSmallFunctions is inlineSmallFunctions on a source that ends with throwHelper when
+// withHelper is set.
+function writeOutSmallFunctions(source, parse, withHelper) {
   let accepted = { code: source, count: 0, warning: '' }
   let code = source
   let count = 0
   let names = null
   for (let round = 0; ; round++) {
     const scopes = analyzeScopes(parse(code), code)
+    if (withHelper) scopes.throwHelper = scopes.root.vars.get(throwHelper)
     const unresolved = [...scopes.unresolved].sort()
     if (names === null) {
       if (scopes.unsupported) return { ...accepted, warning: `the tifa plugin does not write out small functions: the bundle has ${scopes.unsupported}` }
