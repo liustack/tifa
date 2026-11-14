@@ -32,6 +32,7 @@
 - 服务端渲染改用 `github.com/liustack/quickjs` v0.30.1，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。从 v0.30.1 起，渲染超时（`ssr.timeout`）也能停下正在展平很长字符串、执行 `String.prototype.repeat`、编译很长的正则或很大的字符类的页面。以前在超时下编译特别长的正则可能让 VM 崩溃。
 - 服务端渲染改用 quickjs v0.30.2，引擎换成了寄存器式解释器，取代 QuickJS 原来的栈式解释器。页面的 HTML 不变，渲染更快，每个 VM 占的内存变多，因为引擎会留着每个跑过的函数的寄存器代码。`WeakRef` 现在把目标留到当前任务结束，和 Node 一样。
 - 服务端渲染改用 quickjs v0.30.3，寄存器式解释器的第二批改进。页面的 HTML 不变。`Intl` 和 `Temporal` 遇到特别长的语言标签或选项时现在抛 `RangeError`，以前会整个读进来。解构数组不再产生迭代器。闭包对没人改过的变量直接存值，所以只被挂起的 async 函数持有的对象，指向它的 `WeakRef` 可能更早清空。
+- 服务端渲染改用 quickjs v0.30.5，寄存器式解释器的第三批改进，引擎现在按页面渲染的 profile 生成。页面的 HTML 不变，渲染更快。`{..."ab"}` 现在得到各个字符，和 Node 一样。`ssr.timeout` 现在也能停住在超长文本上的 `Intl` 调用，语言列表里有超过 16,384 个字符的标签时抛 `RangeError`，VM 申请一大块内存会超过上限时先做一次垃圾回收。
 - `tifa new` 固定 `github.com/liustack/sqlite` v0.1.4。v0.1.3 修了一次提交合并超过 64 条不同 SQL 时的空指针崩溃，把值直接拼进 SQL 文本时很常见。v0.1.4 带来分组提交，以及一次全面审查和 Windows 上的修复，还改了一条规则：用命名参数时，从 1 到最大编号的每个参数都要有值，和位置参数一样（`SELECT ?2, :x` 也要给 `?1`）。已有应用执行 `go get github.com/liustack/sqlite@v0.1.4`。
 - 示例 shop 的店面不再使用 `const Cache`（五个页面的已删除），browse 对比因此只跑一份 Tifa。页面只由渲染记忆回答，每个请求都会运行自己的 `Load`。shop 的 README 已同步说明。
 - browse 对比只剩一个场景：顾客和员工在同一个配比里的商店。员工访问和商品编辑都翻倍的场景已删除，`SCENARIOS` 和 `-scenarios` 也一起删除。员工占比仍是报告配比表里的一行。
