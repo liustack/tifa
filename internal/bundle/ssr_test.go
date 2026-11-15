@@ -1234,7 +1234,7 @@ func TestSSRSerializesShortStringsWithJSON(t *testing.T) {
 	if serializesShortStrings(code) {
 		t.Error("the bundle of a seroval the plugin does not know serializes strings of 2 code units with JSON.stringify")
 	}
-	if !strings.Contains(printed, "seroval 1.6.9: ") || !strings.Contains(printed, "escapes strings shorter than 64") {
+	if !strings.Contains(printed, "seroval 1.6.9 at ") || !strings.Contains(printed, "escapes strings shorter than 64") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	got := strings.Split(evalResult(t, code), "\n")
@@ -1249,8 +1249,9 @@ func TestSSRSerializesShortStringsWithJSON(t *testing.T) {
 	}
 }
 
-// When seroval's main file is no longer where the tifa plugin looks for it, the build warns.
-func TestSSRWarnsWhenSerovalMovedItsMainFile(t *testing.T) {
+// The tifa plugin changes seroval's code in whichever file of the package the bundle loads it
+// from: here the main file is the one of the dev folder.
+func TestSSRChangesSerovalInAnotherFile(t *testing.T) {
 	moved := withChangedPackage(t, "seroval", "package.json", func(source string) string {
 		for _, field := range []string{`"import": "./dist/index.js"`, `"default": "./dist/index.js"`} {
 			if strings.Count(source, field) != 1 {
@@ -1262,14 +1263,36 @@ func TestSSRWarnsWhenSerovalMovedItsMainFile(t *testing.T) {
 	})
 	writeTree(t, moved, map[string]string{"short.ts": "import { serialize } from 'seroval'\nglobalThis.result = serialize(['ab', 'a<b'])\n"})
 	code, printed := buildPrinting(t, moved, "short.ts")
-	if serializesShortStrings(code) {
-		t.Error("the bundle serializes strings of 2 code units with JSON.stringify")
+	if !serializesShortStrings(code) {
+		t.Error("the bundle does not serialize strings of 2 code units with JSON.stringify")
 	}
-	if !strings.Contains(printed, "seroval 1.6.9 at ") || !strings.Contains(printed, "escapes strings shorter than 64") {
+	if strings.Contains(printed, "seroval") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if got := evalResult(t, code); got != `["ab","a\x3Cb"]` {
 		t.Errorf("result = %s", got)
+	}
+}
+
+// When no file of seroval that the bundle loads has parseObject or parseObjectAsync, the build
+// says so once for the package.
+func TestSSRWarnsWhenSerovalHasNoParseObject(t *testing.T) {
+	renamed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
+		if !strings.Contains(source, "\nfunction parseObject(") || !strings.Contains(source, "\nasync function parseObjectAsync(") {
+			t.Fatal("seroval has no parseObject or no parseObjectAsync")
+		}
+		return strings.ReplaceAll(source, "parseObject", "parseThing")
+	})
+	writeTree(t, renamed, map[string]string{"arrays.ts": arraysPage})
+	code, printed := buildPrinting(t, renamed, "arrays.ts")
+	if !strings.Contains(printed, "seroval 1.6.9 at ") || !strings.Contains(printed, "has parseObject or parseObjectAsync") || !strings.Contains(printed, "takes an array as an array") || strings.Contains(printed, "escapes strings shorter than 64") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if n := strings.Count(printed, notRecognized); n != 1 {
+		t.Errorf("the build prints %d warnings of a rewrite it does not recognize:\n%s", n, printed)
+	}
+	if l := strings.Split(evalResult(t, code), "\n")[0]; !strings.Contains(l, "{a:") {
+		t.Errorf("a seroval the plugin does not know writes the array as JSON text: %s", l)
 	}
 }
 
@@ -1421,10 +1444,133 @@ func TestSSRSerializesArraysWithPluginsInSeroval17(t *testing.T) {
 	}
 }
 
+// withSeroval returns a copy of testdata/ssr whose seroval is the version the tests keep under
+// alias, with the one module file of its dist folder that holds text changed by change.
+func withSeroval(t *testing.T, alias, text string, change func(string) string) string {
+	t.Helper()
+	root := withChangedPackage(t, "seroval", "package.json", func(source string) string { return source })
+	target := filepath.Join(root, "node_modules", "seroval")
+	if err := os.RemoveAll(target); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(filepath.Join(testModules(t), alias))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(target, os.DirFS(real)); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(target, "dist", "*.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := ""
+	for _, file := range files {
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(string(source), text) != 1 {
+			continue
+		}
+		if found != "" {
+			t.Fatalf("%s and %s of %s both have %q", found, file, alias, text)
+		}
+		found = file
+		if err := os.WriteFile(file, []byte(change(string(source))), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if found == "" {
+		t.Fatalf("no file in dist of %s has %q once", alias, text)
+	}
+	return root
+}
+
+// seroval 1.8 keeps its code in files beside its main file: the length from which it takes
+// JSON.stringify in one, parseObject and parseObjectAsync in another. The tifa plugin changes
+// them there as it does in the one file of older versions, and warns in the same words when a
+// file has the code in a form it does not know.
+func TestSSRChangesSeroval18(t *testing.T) {
+	const length = "const MIN_JSON_STRINGIFY_LENGTH = 64;"
+	const check = "\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n"
+	same := func(source string) string { return source }
+	root := withSeroval(t, "seroval-1-8-1", length, same)
+	writeTree(t, root, map[string]string{"strings.tsx": stringsPage, "arrays.ts": arraysPage})
+	code, printed := buildPrinting(t, root, "strings.tsx")
+	if !serializesShortStrings(code) {
+		t.Error("the bundle does not serialize strings of 2 code units with JSON.stringify")
+	}
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	short := evalResult(t, code)
+	for _, want := range []string{`"a\x3Cb"`, `"\"\""`, `"\u2028\u2028"`, `"\ud83d"`} {
+		if !strings.Contains(short, want) {
+			t.Errorf("the serializations have no %s", want)
+		}
+	}
+	code, printed = buildPrinting(t, root, "arrays.ts")
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	values := []string{`[1,[2,[],null],null,[],{"a":[]}]`, `[]`, `{"list":["n",[[]]],"empty":[],"plain":[3,[],{"b":[null]}]}`}
+	lines := strings.Split(evalResult(t, code), "\n")
+	if len(lines) != 3*len(values) {
+		t.Fatalf("%d serializations:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	for i, l := range lines {
+		if !strings.HasSuffix(l, " "+values[i/3]) {
+			t.Errorf("serialization %d does not give back %s: %s", i, values[i/3], l)
+		}
+		if i/3 == 0 && !strings.Contains(l, `JSON.parse("[1,[2,[],null],null,[],{\"a\":[]}]")`) {
+			t.Errorf("serialization %d does not write the array as JSON text: %s", i, l)
+		}
+		if i/3 == 2 && !plainArray.MatchString(l) {
+			t.Errorf("serialization %d does not keep the plain array in seroval's form: %s", i, l)
+		}
+	}
+
+	// A length in another form stays, the build says so, and the strings come out the same.
+	changed := withSeroval(t, "seroval-1-8-1", length, func(source string) string {
+		return strings.Replace(source, length, "const MIN_JSON_STRINGIFY_LENGTH = 32 * 2;", 1)
+	})
+	writeTree(t, changed, map[string]string{"strings.tsx": stringsPage})
+	code, printed = buildPrinting(t, changed, "strings.tsx")
+	if serializesShortStrings(code) {
+		t.Error("the bundle of a seroval the plugin does not know serializes strings of 2 code units with JSON.stringify")
+	}
+	if !strings.Contains(printed, "seroval 1.8.1") || !strings.Contains(printed, "escapes strings shorter than 64") || strings.Contains(printed, "takes an array as an array") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != short {
+		t.Error("the serializations are otherwise without the change")
+	}
+
+	// A first line of parseObject in another form keeps arrays as they were, and the build names it.
+	changed = withSeroval(t, "seroval-1-8-1", check, func(source string) string {
+		return strings.Replace(source, check, "\tif (Array.isArray(current)) { return parseArray(ctx, depth, id, current); }\n", 1)
+	})
+	writeTree(t, changed, map[string]string{"arrays.ts": arraysPage})
+	code, printed = buildPrinting(t, changed, "arrays.ts")
+	if !strings.Contains(printed, "seroval 1.8.1: ") || !strings.Contains(printed, "has no parseObject in the form") || !strings.Contains(printed, "takes an array as an array") || strings.Contains(printed, "escapes strings shorter than 64") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	for i, l := range strings.Split(evalResult(t, code), "\n") {
+		if !strings.HasSuffix(l, " "+values[i/3]) {
+			t.Errorf("serialization %d does not give back %s: %s", i, values[i/3], l)
+		}
+		if i/3 == 0 && !strings.Contains(l, "{a:") {
+			t.Errorf("serialization %d of a seroval the plugin does not know writes the array as JSON text: %s", i, l)
+		}
+	}
+}
+
 // serializesShortStrings reports whether seroval in a minified bundle serializes a string with
-// JSON.stringify from a length of 2, which the minifier writes as a number or a variable.
+// JSON.stringify from a length of 2, which the minifier writes as a number or a variable. Up to
+// 1.6 seroval returns what JSON.stringify gives, from 1.7 it keeps it in a variable first.
 func serializesShortStrings(code string) bool {
-	m := regexp.MustCompile(`\.length>=([\w$]+)&&!\w+\.test\(\w+\)\)return JSON\.stringify`).FindStringSubmatch(code)
+	m := regexp.MustCompile(`\.length>=([\w$]+)&&!\w+\.test\(\w+\)\)(?:return |\{let \w+=)JSON\.stringify`).FindStringSubmatch(code)
 	if m == nil {
 		return false
 	}

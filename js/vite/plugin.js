@@ -76,10 +76,13 @@ const murmur2Source = `function murmur2(str) {
   return ((h ^ h >>> 15) >>> 0).toString(36);
 }
 `
-// The main files of seroval, which TanStack Router writes the data of a page with, and the
-// directory of any of its modules.
-const serovalModule = /[/\\]node_modules[/\\]seroval[/\\]dist[/\\]index\.c?js$/
-const serovalPackage = /^(.*[/\\]node_modules[/\\]seroval)[/\\]/
+// A module file of seroval, which TanStack Router writes the data of a page with, and in the
+// first group the directory of the package. Up to 1.7 seroval has all its code in dist/index.js,
+// from 1.8 in files beside it, so the plugin looks for the code it changes in every file of the
+// package the bundle loads.
+const serovalFile = /^(.*[/\\]node_modules[/\\]seroval)[/\\](?!.*[/\\]node_modules[/\\]).*\.[cm]?js$/
+// What the file of seroval with parseObject or parseObjectAsync has.
+const serovalParses = ['\nfunction parseObject(', '\nasync function parseObjectAsync(']
 // The length from which seroval escapes a string with JSON.stringify, when that gives the same.
 const serovalLength = 'const MIN_JSON_STRINGIFY_LENGTH = 64;'
 // seroval's parseObject and parseObjectAsync take an array as an array in their first line, and
@@ -2805,73 +2808,81 @@ exports.prerenderToString = function (children, options) {
 
 // serovalPlugin applies to the SSR build only. It changes seroval, which TanStack Router writes
 // the data of a page with, so that it escapes short strings with JSON.stringify and asks its
-// plugins for arrays as it does for objects.
+// plugins for arrays as it does for objects. It changes the code in whichever file of seroval has
+// it, and warns when the bundle loads seroval and no file had it.
 export function serovalPlugin() {
   let seroval // directory of the seroval package the bundle loads a module of, '' for none
-  let serovalMain = false // whether the bundle loads a main file of seroval
+  let length = false // whether a file of seroval the bundle loads had the length, and got the lower one
+  let parses = false // whether a file of seroval the bundle loads has parseObject or parseObjectAsync
   return {
     name: 'tifa:seroval',
     applyToEnvironment: (env) => env.name === 'ssr',
     buildStart() {
       seroval = ''
-      serovalMain = false
+      length = false
+      parses = false
     },
     load(id) {
-      seroval ||= id.match(serovalPackage)?.[1] ?? ''
-      if (serovalModule.test(id)) {
-        serovalMain = true
-        const name = `seroval ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
-        let source = fs.readFileSync(id, 'utf8')
-        // seroval escapes a string shorter than that length one character at a time, which is
-        // slower in QuickJS than JSON.stringify from 2 code units on. Both give the same text:
-        // seroval takes JSON.stringify only for a string without the characters it escapes
-        // otherwise.
-        if (source.split(serovalLength).length === 2) {
-          source = source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
-        } else {
-          this.warn(
-            notRecognized +
-            `${name} has no "${serovalLength}" the tifa plugin knows, so seroval escapes strings shorter than ` +
-              '64 code units one character at a time. Pages render the same, but the data of small pages takes ' +
-              'longer to write',
-          )
-        }
-        // The data of a route that is an array goes through the tifa.data adapter as the JSON text
-        // Go wrote only when seroval asks its plugins for arrays. Otherwise seroval writes each of
-        // its values, which takes several times as long in QuickJS. The other plugins of a page,
-        // TanStack Router's and the one of RouteError, take errors and streams, which no array is,
-        // so they write the same as before.
+      const dir = id.match(serovalFile)?.[1]
+      if (!dir) return null
+      seroval ||= dir
+      let source = fs.readFileSync(id, 'utf8')
+      let changed = false
+      // seroval escapes a string shorter than that length one character at a time, which is
+      // slower in QuickJS than JSON.stringify from 2 code units on. Both give the same text:
+      // seroval takes JSON.stringify only for a string without the characters it escapes
+      // otherwise.
+      if (source.split(serovalLength).length === 2) {
+        source = source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
+        length = changed = true
+      }
+      // The data of a route that is an array goes through the tifa.data adapter as the JSON text
+      // Go wrote only when seroval asks its plugins for arrays. Otherwise seroval writes each of
+      // its values, which takes several times as long in QuickJS. The other plugins of a page,
+      // TanStack Router's and the one of RouteError, take errors and streams, which no array is,
+      // so they write the same as before.
+      if (serovalParses.some((fn) => source.includes(fn))) {
+        parses = true
         const arrays = askPluginsForArrays(source)
         if (arrays.missing.length === 0) {
           source = arrays.source
+          changed = true
         } else {
           this.warn(
             notRecognized +
-            `${name} has no ${arrays.missing.join(' and no ')} in the form the tifa plugin knows, so the tifa ` +
-              'plugin changes neither, and seroval takes an array as an array before it asks its plugins. Pages ' +
-              'render the same, but the data of a route that is an array takes longer to write',
+            `seroval ${packageVersion(dir)}: ${id} has no ${arrays.missing.join(' and no ')} in the form the tifa ` +
+              'plugin knows, so the tifa plugin changes neither, and seroval takes an array as an array before it ' +
+              'asks its plugins. Pages render the same, but the data of a route that is an array takes longer to write',
           )
         }
-        return source
       }
-      return null
+      return changed ? source : null
     },
     buildEnd() {
-      // seroval moved the code the plugin changes to another file.
-      if (seroval && !serovalMain) {
+      if (!seroval) return
+      // seroval wrote the code the plugin changes in another form, or the bundle loads none of it.
+      const name = `seroval ${packageVersion(seroval)} at ${seroval}`
+      if (!length) {
         this.warn(
           notRecognized +
-          `seroval ${packageVersion(seroval)} at ${seroval}: the SSR bundle loads neither dist/index.js nor ` +
-            'dist/index.cjs, so the tifa plugin does not change seroval, which escapes strings shorter than 64 ' +
-            'code units one character at a time and takes an array as an array before it asks its plugins. Pages ' +
-            'render the same, but the data of small pages and of routes that are arrays takes longer to write',
+          `${name}: no file of it that the SSR bundle loads has "${serovalLength}" once, the form the tifa plugin ` +
+            'knows, so seroval escapes strings shorter than 64 code units one character at a time. Pages render the ' +
+            'same, but the data of small pages takes longer to write',
+        )
+      }
+      if (!parses) {
+        this.warn(
+          notRecognized +
+          `${name}: no file of it that the SSR bundle loads has parseObject or parseObjectAsync, so the tifa plugin ` +
+            'changes neither, and seroval takes an array as an array before it asks its plugins. Pages render the ' +
+            'same, but the data of a route that is an array takes longer to write',
         )
       }
     },
   }
 }
 
-// askPluginsForArrays returns the source of seroval's main file with parseObject and
+// askPluginsForArrays returns the source of a file of seroval with parseObject and
 // parseObjectAsync asking the plugins for an array before they take it as an array, and the names
 // of the functions the source does not have in the form it knows. The source is of use only when
 // none is missing, so that seroval does not write arrays one way at once and another way async.
