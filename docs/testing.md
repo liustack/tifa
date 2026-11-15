@@ -13,7 +13,7 @@ read_when:
   - Changing `internal/ssr` or `test/ssr`
   - Checking how large a page can get before it fails, or that it fails cleanly
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
-  - Upgrading github.com/liustack/quickjs
+  - Upgrading github.com/liustack/slowjs
   - Changing how the server serves HTTPS or gets its certificates
   - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
   - Changing the workbench pages of `examples/shop`, which the comparison with Next.js and TanStack Start copies
@@ -161,7 +161,7 @@ The default tests in `internal/ssr` only use small handwritten bundles, `testdat
 TIFA_SSR_SOAK=1 go test -run Soak -v ./internal/ssr
 ```
 
-They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/quickjs fixed a leak. If this test fails, first confirm the dependency is github.com/liustack/quickjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is github.com/liustack/slowjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
 ## SSR tests with the example app (`test/ssr`)
 
@@ -248,7 +248,7 @@ The crawl signs in as the demo account of the shop first, since the workbench ne
 
 ### Timing a build of quickjs against another
 
-To time one build of quickjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a quickjs checkout whose engine is generated, use `go tool measure bench` in quickjs ([docs/testing.md](https://github.com/liustack/quickjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
+To time one build of quickjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a quickjs checkout whose engine is generated, use `go tool measure bench` in quickjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // URL and URLSearchParams of a server render come from the engine's package url, which Load
@@ -37,8 +37,8 @@ func TestURLComesFromTheEngine(t *testing.T) {
 // polyfill of the host script.
 func TestURLRegisterFailureStopsThePool(t *testing.T) {
 	broken := errors.New("url: broken")
-	defer func(r func(*quickjs.VM, ...urlOption) error) { registerURL = r }(registerURL)
-	registerURL = func(*quickjs.VM, ...urlOption) error { return broken }
+	defer func(r func(*slowjs.VM, ...urlOption) error) { registerURL = r }(registerURL)
+	registerURL = func(*slowjs.VM, ...urlOption) error { return broken }
 	_, err := NewPool(exprBundle, nil, testConfig(1), false)
 	if !errors.Is(err, broken) {
 		t.Fatalf("NewPool: got %v, want %v", err, broken)

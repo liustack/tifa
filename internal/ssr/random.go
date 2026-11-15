@@ -6,12 +6,12 @@ import (
 	"errors"
 	"math"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // Read on each call, including calls made while loading modules. There is no pool
 // of random bytes to retain per VM or accidentally reuse between renders.
-func registerRandom(vm *quickjs.VM) error {
+func registerRandom(vm *slowjs.VM) error {
 	return vm.RegisterHostFunc("__tifa_random_bytes__", func(args []any) (any, error) {
 		if len(args) != 1 {
 			return nil, errors.New("random bytes requires a length")

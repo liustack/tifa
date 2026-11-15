@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/liustack/quickjs"
-	quickjsurl "github.com/liustack/quickjs/url"
+	"github.com/liustack/slowjs"
+	slowjsurl "github.com/liustack/slowjs/url"
 )
 
 // testModules is the npm packages these tests use, Vite among them, installed from
@@ -86,12 +86,12 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 
 // evalModule runs code, a bundle, in vm as an ES module, as the server loads it: compiled in a VM
 // of its own, which a module needs, and run until its top-level await is done.
-func evalModule(vm *quickjs.VM, code string) error {
-	compiler, err := quickjs.NewVM()
+func evalModule(vm *slowjs.VM, code string) error {
+	compiler, err := slowjs.NewVM()
 	if err != nil {
 		return err
 	}
-	bytecode, err := compiler.Compile(code, quickjs.EvalModule)
+	bytecode, err := compiler.Compile(code, slowjs.EvalModule)
 	if err = errors.Join(err, compiler.Close()); err != nil {
 		return err
 	}
@@ -108,16 +108,16 @@ func evalResult(t *testing.T, code string) string {
 
 // evalResultWith is evalResult in a VM that setup, if it is not nil, has prepared before the
 // bundle runs.
-func evalResultWith(t *testing.T, code string, setup func(*quickjs.VM)) string {
+func evalResultWith(t *testing.T, code string, setup func(*slowjs.VM)) string {
 	t.Helper()
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 	// Every VM of the server has the engine's URL before the bundle runs, and the host script
 	// takes its prototype.
-	if err := quickjsurl.Register(vm); err != nil {
+	if err := slowjsurl.Register(vm); err != nil {
 		t.Fatal(err)
 	}
 	if setup != nil {
@@ -129,7 +129,7 @@ func evalResultWith(t *testing.T, code string, setup func(*quickjs.VM)) string {
 	if _, err := vm.ExecutePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
-	value, err := vm.Eval("String(globalThis.result)", quickjs.EvalGlobal)
+	value, err := vm.Eval("String(globalThis.result)", slowjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

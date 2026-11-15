@@ -1,9 +1,9 @@
 // Web APIs for SSR. Only crypto, for random bytes, and AsyncLocalStorage, for the context promise
 // jobs carry, call the Go host.
 // Intl and the toLocale* methods are not here: internal/ssr registers them on every VM from
-// Go (github.com/liustack/quickjs/intl), in every CLDR locale, with en-US and UTC as the
+// Go (github.com/liustack/slowjs/intl), in every CLDR locale, with en-US and UTC as the
 // defaults. In the browser they are the browser's own. URL and URLSearchParams are not here either:
-// internal/ssr registers the engine's (github.com/liustack/quickjs/url) before this script runs,
+// internal/ssr registers the engine's (github.com/liustack/slowjs/url) before this script runs,
 // and structuredClone below takes their prototypes.
 import { makeStructuredClone } from './structured-clone'
 import { crypto } from './crypto'

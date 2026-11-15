@@ -355,7 +355,7 @@ func (e Env) versions(specs []Spec) map[string]string {
 	if data, err := os.ReadFile(e.Root + "/go.mod"); err == nil {
 		if f, err := modfile.ParseLax("go.mod", data, nil); err == nil {
 			for _, r := range f.Require {
-				if r.Mod.Path == "github.com/liustack/quickjs" {
+				if r.Mod.Path == "github.com/liustack/slowjs" {
 					v["quickjs"] = r.Mod.Version
 				}
 			}

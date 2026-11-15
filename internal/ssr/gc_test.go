@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // The objects of the cycles and hold renders of testdata/app.js.
@@ -37,7 +37,7 @@ func objectSize(t *testing.T, js string) uintptr {
 	defer vm.Close()
 	vm.SetGCThreshold(^uintptr(0))
 	before := vm.MemorySize()
-	if _, err := vm.Eval(js, quickjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval(js, slowjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	return (vm.MemorySize() - before) / 10000
@@ -435,7 +435,7 @@ func TestLoadGivesBackFreeMemory(t *testing.T) {
 func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	var before quickjs.MemoryUsage
+	var before slowjs.MemoryUsage
 	idleVM(p, func(vm *pooledVM) { live, before = vm.live, vm.MemoryUsage() })
 	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func TestFullGCGivesBackFreeMemory(t *testing.T) {
 			t.Fatalf("render %d: %v", i, err)
 		}
 	}
-	var before quickjs.MemoryUsage
+	var before slowjs.MemoryUsage
 	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
 	if _, err := p.Render(context.Background(), input("hold", count)); err != nil {
 		t.Fatal(err)
