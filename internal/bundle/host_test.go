@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/liustack/slowjs"
 	slowjsurl "github.com/liustack/slowjs/url"
@@ -134,5 +135,74 @@ globalThis.result = results.join(', ')
 `)
 	if want := "seal true 2, freeze true 2, preventExtensions true 2"; got != want {
 		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+// performance has now and timeOrigin only. now counts milliseconds from timeOrigin, never goes
+// back, and does not read the Date.now a page may replace later.
+func TestHostScriptPerformance(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "js", "runtime", "host.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evalResult(t, string(script)+`
+const results = []
+const p = globalThis.performance
+results.push(typeof p, Object.keys(p).sort().join('+'))
+const a = p.now(), b = p.now()
+results.push(typeof a === 'number' && Number.isFinite(a) && a >= 0, b >= a)
+results.push(typeof p.timeOrigin === 'number' && Math.abs(p.timeOrigin - Date.now()) < 5000)
+// A page that replaces Date.now, even to a clock set far back, changes nothing.
+const realNow = Date.now
+Date.now = () => { throw new Error('read Date.now') }
+const c = p.now()
+Date.now = () => 0
+const d = p.now()
+Date.now = realNow
+results.push(c >= b, d >= c)
+globalThis.result = results.join(',')
+`)
+	if want := "object,now+timeOrigin,true,true,true,true,true"; got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+// A wall clock set back must not make now run backwards, and a performance the VM already has
+// stays.
+func TestHostScriptPerformanceClockAndExisting(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "js", "runtime", "host.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evalResultWith(t, string(script)+`globalThis.result = typeof performance.now + ' ' + performance.mine`,
+		func(vm *slowjs.VM) {
+			if _, err := vm.Eval(`globalThis.performance = { mine: 'kept' }`, slowjs.EvalGlobal); err != nil {
+				t.Fatal(err)
+			}
+		})
+	if got != "undefined kept" {
+		t.Fatalf("an existing performance was replaced: %s", got)
+	}
+
+	// The clock reads 1 hour later when the host code runs, then 1 hour earlier than that.
+	clock := time.Now().Add(time.Hour)
+	got = evalResultWith(t, string(script)+`
+const first = performance.now()
+globalThis.step(-7200000)
+const second = performance.now()
+globalThis.step(7200000 + 50)
+const third = performance.now()
+globalThis.result = [first >= 0, second === first, third > second].join(',')`,
+		func(vm *slowjs.VM) {
+			vm.SetClock(func() time.Time { return clock })
+			if err := vm.RegisterFunc("step", func(ms int) int {
+				clock = clock.Add(time.Duration(ms) * time.Millisecond)
+				return 0
+			}, false); err != nil {
+				t.Fatal(err)
+			}
+		})
+	if got != "true,true,true" {
+		t.Fatalf("got %s", got)
 	}
 }

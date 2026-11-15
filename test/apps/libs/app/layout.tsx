@@ -10,7 +10,8 @@ export default function Root() {
     <div>
       <nav>
         <Link to="/">Home</Link> <Link to="/state">State</Link> <Link to="/chart">Chart</Link> <Link to="/dates">Dates</Link>{' '}
-        <Link to="/diff">Diff</Link>
+        <Link to="/diff">Diff</Link> <Link to="/shadcn">shadcn/ui</Link> <Link to="/query">Query</Link> <Link to="/forms">Forms</Link>{' '}
+        <Link to="/intl">Intl</Link> <Link to="/motion">Motion</Link>
       </nav>
       <Outlet />
     </div>
