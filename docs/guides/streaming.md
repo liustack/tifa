@@ -170,7 +170,7 @@ func answer(ctx context.Context, q string, piece func(string) error) error {
 }
 ```
 
-- Check the input before the first byte. Once something is written the status is sent, and an error the handler returns afterwards only goes to the log: the visitor sees an answer that stops. An empty question here still gets its 422 with the message for the field.
+- Check the input before the first byte. Once something is written the status is sent, and an error the handler returns afterwards goes to the log and cuts the connection, so the visitor sees an answer that breaks off and `reader.read()` throws. An empty question here still gets its 422 with the message for the field.
 - Clear the write deadline before waiting for the model, while it has not passed yet: over HTTP/2 a deadline that passes before the first words ends the answer. The model then gets its own limit from `context.WithTimeout`, so one that never answers does not hold the handler forever.
 - Pass a context made from `c.Context()` to the model client. When the visitor closes the page, it is canceled and the call to the model stops, which also stops paying for it.
 - The answer is text and is compressed with gzip or zstd like other text. Each flush sends what was written, and the browser undoes the compression as the bytes come. Each open compressed answer holds a compressor of about 1 MiB until it ends. If many long answers run at once, set the header `No-Gzip-Compression: 1` on them.

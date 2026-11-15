@@ -401,7 +401,10 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	}
 	if w.wrote {
 		core.Logger().ErrorContext(r.Context(), "tifa: request failed after the response was written", "method", r.Method, "path", r.URL.Path, "err", err)
-		return
+		// Returning would end the answer as a whole one: the closing chunk, END_STREAM, the gzip
+		// trailer. The client and any proxy would take the cut-off body for complete. The panic
+		// cuts the connection, or resets the stream over HTTP/2, and net/http prints nothing.
+		panic(http.ErrAbortHandler)
 	}
 	// Only the collector sends _tifa. It also reaches a redirect of ServeMux, which has no
 	// pattern.

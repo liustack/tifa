@@ -553,8 +553,18 @@ func TestFlushCountsAsWritten(t *testing.T) {
 		c.Writer().(http.Flusher).Flush()
 		return tifa.ErrNotFound
 	})
+	// The framework writes nothing of its own after the flush, and cuts the connection so that the
+	// client does not take the answer for a whole one (see TestFailureAfterPartialAnswerCutsTheConnection).
 	for _, target := range []string{"/stream", "/legacy-flush"} {
-		w := send(s, "GET", target, "")
+		w := httptest.NewRecorder()
+		func() {
+			defer func() {
+				if p := recover(); p != http.ErrAbortHandler {
+					t.Errorf("%s: recovered %v, want http.ErrAbortHandler", target, p)
+				}
+			}()
+			s.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+		}()
 		if w.Code != 200 || w.Body.Len() != 0 {
 			t.Errorf("%s: framework wrote %d %q after the handler flushed", target, w.Code, w.Body.String())
 		}
@@ -739,7 +749,16 @@ func TestErrorAfterHijackWritesNothing(t *testing.T) {
 		return errDatabase
 	})
 	w := &hijackWriter{plainWriter: newPlainWriter(), conn: server}
-	s.ServeHTTP(w, httptest.NewRequest("GET", "/socket", nil))
+	// The failure ends the handler with http.ErrAbortHandler, like any failure after a write. net/http
+	// leaves a hijacked connection alone, so it has no effect there.
+	func() {
+		defer func() {
+			if p := recover(); p != http.ErrAbortHandler {
+				t.Errorf("recovered %v, want http.ErrAbortHandler", p)
+			}
+		}()
+		s.ServeHTTP(w, httptest.NewRequest("GET", "/socket", nil))
+	}()
 	if w.calls != 0 {
 		t.Fatalf("framework wrote to a hijacked connection: %d calls, %d %q", w.calls, w.code, w.body.String())
 	}
