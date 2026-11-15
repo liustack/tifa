@@ -181,7 +181,7 @@ stateDiagram-v2
 ```
 
 - A render waits for an idle VM. At most `ssr.queue_limit` renders wait, each for up to `ssr.wait_timeout`. The first limit reached returns `tifa.ErrSSRBusy`, and the server answers 503.
-- A render that ends normally returns its VM. A young garbage collection runs between renders, a full one now and then, and a VM that sat idle gives its free memory back to the system.
+- A render that ends normally returns its VM. A young garbage collection runs between renders, a full one now and then, and a VM that sat idle gives its free memory back to the system. The callbacks of a `FinalizationRegistry` that a collection queues run right after it, before the VM renders again, and one that throws retires the VM.
 - A render that fails in any way, or runs past `ssr.timeout`, or uses up `ssr.vm_memory`, retires its VM. Stopping a render halfway leaves the VM in an unknown state, so it is closed. A new VM loads in the background, retried with a growing delay, and the pool keeps its size.
 - A render that ends in a redirect (the router rewrote the URL) is an answer and keeps its VM.
 - A VM whose live size grew far past its start size is replaced, with the spare loaded before the old one leaves, so renders never lose capacity.

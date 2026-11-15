@@ -28,6 +28,19 @@ const caught = (work) => {
   })()
 }
 
+// finalized is a FinalizationRegistry whose callback runs once a target is freed. For the held value
+// "loop" it runs until the time budget stops it, for "chain" it notes in globalThis.finalized that
+// it ran and queues a job that notes it too, and for any other it throws.
+const finalized = new FinalizationRegistry((held) => {
+  if (held === 'loop') for (;;) {}
+  if (held === 'chain') {
+    globalThis.finalized = ['callback']
+    Promise.resolve().then(() => globalThis.finalized.push('job'))
+    return
+  }
+  throw new Error(`finalizer of ${held} failed`)
+})
+
 // fill allocates until the VM's memory limit stops it, in large or in small pieces.
 const fill = (large) => {
   const kept = []
@@ -151,6 +164,17 @@ globalThis.startRender = (json) => {
       globalThis.oldCycle = held
       break
     }
+    case 'finalizer': {
+      // A target in a cycle, which only a GC frees, and which nothing holds once the render ends.
+      const target = {}
+      target.self = target
+      finalized.register(target, input.data.text)
+      break
+    }
+    case 'finalized':
+      // What the callbacks of finalized noted before this render started.
+      globalThis.renderResult = '<p>' + JSON.stringify(globalThis.finalized ?? null) + '</p>'
+      return
     case 'cycles': {
       // data.text objects that point at themselves, garbage only a GC frees.
       for (let i = 0; i < Number(input.data.text); i++) {

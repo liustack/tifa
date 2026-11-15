@@ -573,7 +573,22 @@ func (p *Pool) collect(vm *pooledVM, engineGC bool) {
 		p.refill()
 		return
 	}
+	if err := p.finalize(vm); err != nil {
+		core.Logger().Error("tifa: ssr: a FinalizationRegistry callback failed between renders, replacing the VM", "err", p.sources.explain(err, false))
+		p.closeVM(vm)
+		p.refill()
+		return
+	}
 	p.putIdle(vm)
+}
+
+// finalize runs the callbacks of a FinalizationRegistry that the GC queued, so that they run before
+// vm renders again and not in the render of the next request, which their errors would fail. A
+// callback that fails leaves vm as a render that fails does. With no callback queued it only
+// enters the engine once.
+func (p *Pool) finalize(vm *pooledVM) (err error) {
+	defer recovered(&err)
+	return runFinalizers(vm.VM, p.timeout)
 }
 
 // memoryBound leaves room for transient render allocations under a low VM limit.
