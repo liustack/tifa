@@ -15,7 +15,8 @@ const notRecognized = "tifa rewrite not recognized: "
 // the Vite plugin. A rewrite that does not recognize the library it changes turns itself off, the
 // pages render the same and slower, and the build prints one warning. So a dependency that moves
 // on is found here, where the build prints the text that starts such a warning. The scheduled CI
-// job runs this test against the latest React.
+// job runs this test against the latest React. The shop covers rehype-highlight with its journal
+// articles.
 func TestBuildsRecognizeEveryRewrite(t *testing.T) {
 	skipUnlessEnabled(t)
 	for _, app := range []struct{ name, dir string }{

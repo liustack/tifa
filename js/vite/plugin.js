@@ -314,6 +314,38 @@ const memoThemeArg = `const arg = {
 };`
 // memoThemeSize is how many themes memoThemeByContent keeps.
 const memoThemeSize = 8
+// rehype-highlight calls createLowlight(languages) each time rehypeHighlight(options) is called,
+// which react-markdown does on every render of a Markdown component. That makes a new highlight.js
+// instance, registers the 37 common languages and compiles their grammars again. The tifa plugin
+// changes lib/index.js, see rehypeHighlightKept, and leaves the rest. rehypeHighlightLine is the
+// line that makes the instance.
+const rehypeHighlightModule = /[/\\]rehype-highlight[/\\]lib[/\\]index\.js$/
+const rehypeHighlightLine = '  const lowlight = createLowlight(languages)\n'
+// rehypeHighlightHelpers is what rehypeHighlightKept adds to the end of the module. A kept entry
+// holds an array of the keys of the languages object and one of its values, never the object, which
+// is the key of the WeakMap: QuickJS does not free an entry whose value points back to its key.
+// tifaLowlight registers a copy made from the two arrays for the same reason, as createLowlight
+// would otherwise hold the object. The entry's property tifaLowlight is what the tests look for in a
+// bundle, as a minifier keeps property names.
+const rehypeHighlightHelpers = `
+var tifaLowlights = new WeakMap(), tifaLowlightKeys = Object.keys;
+function tifaLowlight(languages) {
+  if (Object(languages) !== languages) return createLowlight(languages);
+  const keys = tifaLowlightKeys(languages), n = keys.length, values = new Array(n);
+  for (let i = 0; i < n; i++) values[i] = languages[keys[i]];
+  const kept = tifaLowlights.get(languages);
+  if (kept !== undefined && kept.keys.length === n) {
+    let same = true;
+    for (let i = 0; i < n; i++) if (kept.keys[i] !== keys[i] || kept.values[i] !== values[i]) { same = false; break; }
+    if (same) return kept.tifaLowlight;
+  }
+  const copy = {};
+  for (let i = 0; i < n; i++) Object.defineProperty(copy, keys[i], { value: values[i], enumerable: true, writable: true, configurable: true });
+  const lowlight = createLowlight(copy);
+  tifaLowlights.set(languages, { keys, values, tifaLowlight: lowlight });
+  return lowlight;
+}
+`
 // react-i18next gives each call of useTranslation a copy of the whole i18n object, which takes about
 // 40 property descriptors a call in QuickJS and runs for every component that translates. The tifa
 // plugin changes dist/es/useTranslation.js and dist/commonjs/useTranslation.js, see
@@ -2136,6 +2168,19 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         return copied ?? null
       }
+      if (rehypeHighlightModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const kept = rehypeHighlightKept(source)
+        if (!kept && source.includes('createLowlight')) {
+          this.warn(
+            notRecognized +
+            `rehype-highlight ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no createLowlight line the ` +
+              'tifa plugin knows, so rehypeHighlight makes a new highlight.js instance and compiles its grammars on every ' +
+              'call. Pages render the same, but take longer to render',
+          )
+        }
+        return kept ?? null
+      }
       if (i18nextModule.test(id)) {
         const i18next = `i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id}`
         const original = fs.readFileSync(id, 'utf8')
@@ -3258,6 +3303,28 @@ function reactI18nextCopy(source) {
   lines[0] += ' const tifaCopy = tifaWrapperCopy(original); if (tifaCopy !== undefined) return tifaCopy;'
   lines[1] += ' tifaWrapperKeep(original, descriptors);'
   return source.replace(i18nWrapperSource, () => lines.join('\n')) + i18nWrapperHelpers
+}
+
+// rehypeHighlightKept returns the source of rehype-highlight's lib/index.js with the line that
+// makes the lowlight with a call of tifaLowlight when the aliases option is not set, or undefined
+// when the source does not have that line once. A call with aliases makes its own lowlight as
+// before, as registerAlias changes the instance. tifaLowlight keeps one lowlight for each
+// languages object in a WeakMap and gives it again while the object has the same own keys, in the
+// same order, with the same values (the language functions) as when it was kept. A languages
+// object that was changed since makes a new lowlight, which is kept in its place, so an app that
+// adds a language to its object between calls gets what it did before. What the object holds
+// is read once for each call, so a getter on it runs once as it did, but its value is used to
+// compare and to register. Sharing the instance is safe because lowlight's highlight and
+// highlightAuto set the class prefix of the instance on every call, and nothing else of
+// the instance changes while it highlights: the lowlight is not reachable from outside the
+// transform. The rest of rehypeHighlight is as it was, so each call keeps its own prefix, subset
+// and detect.
+function rehypeHighlightKept(source) {
+  if (source.split(rehypeHighlightLine).length !== 2) return undefined
+  return (
+    source.replace(rehypeHighlightLine, () => '  const lowlight = aliases ? createLowlight(languages) : tifaLowlight(languages)\n') +
+    rehypeHighlightHelpers
+  )
 }
 
 // radixMergeProps returns the source of react-slot with mergeProps testing the name of a prop for a
