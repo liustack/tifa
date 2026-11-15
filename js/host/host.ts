@@ -8,6 +8,7 @@
 import { makeStructuredClone } from './structured-clone'
 import { crypto } from './crypto'
 import { DOMException } from './dom-exception'
+import { performance } from './performance'
 import { atob, btoa } from './base64'
 import { TextEncoder, TextDecoder } from '@kayahr/text-encoding/no-encodings'
 import AbortController from 'abort-controller'
@@ -46,6 +47,9 @@ Object.assign(globalThis, {
     },
   },
 })
+
+// A performance the VM already has stays.
+if (!('performance' in globalThis)) globalThis.performance = performance
 
 globalThis.structuredClone = makeStructuredClone([URL.prototype, URLSearchParams.prototype,
   AbortController.prototype, Object.getPrototypeOf(new AbortController().signal),
