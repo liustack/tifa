@@ -94,6 +94,11 @@ const maxConns = 6
 // ActionSpacing is the time between the planned actions of a visit in the open model.
 const ActionSpacing = time.Second
 
+// spacing is the time the open model keeps between the planned actions of a visit: ActionSpacing
+// in every run. Only a test that plays open rounds for what the servers get and in which order,
+// and not for how long anything takes, makes it shorter (shortSpacing).
+var spacing = ActionSpacing
+
 // A Workload is what is replayed for one framework and one scenario: the plans and their traces, and
 // the order visits play them in. A run plays visits in the order of one sequence of cycles. A cycle
 // plays every shopper plan once, block by block, and among the shopper visits of each block the
@@ -813,7 +818,7 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s
 
 // pacer says when each action of a visit is meant to start. In the closed model an action starts
 // when the one before it is done, so it is scheduled when it starts. In the open model action j of a
-// visit that starts at t is scheduled at t + j * ActionSpacing, whatever happened before.
+// visit that starts at t is scheduled at t + j * spacing, whatever happened before.
 type pacer struct {
 	open  bool
 	start time.Time
@@ -821,7 +826,7 @@ type pacer struct {
 
 func (p pacer) at(j int) time.Time {
 	if p.open {
-		return p.start.Add(time.Duration(j) * ActionSpacing)
+		return p.start.Add(time.Duration(j) * spacing)
 	}
 	return time.Now()
 }

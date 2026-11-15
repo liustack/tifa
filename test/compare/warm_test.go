@@ -188,6 +188,7 @@ func shipsIn(t *testing.T, b *browse, sc BrowseScenario, spec string, n int) int
 // returning visitors, then, for Tifa, a read of its metrics route. Then come the warm-up and the
 // round, and the server gets no other request than those.
 func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
+	shortSpacing(t)
 	tifa, nocache, node := warmSpecs()
 	sc := mustScenario("shop")
 	// own says whether a server got the requests of its warm-up and its round and no other: their
@@ -314,6 +315,7 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 // closed round, at any sessions) or as the round plays (an open round), with the same requests and
 // the same writes. The warm-up sends the writes of its visits.
 func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
+	shortSpacing(t)
 	tifa, nocache, node := warmSpecs()
 	// The reads of the metrics route mark where the warm-up starts and ends on the fake servers, so
 	// every spec has one here: what a warm-up sends does not depend on the spec.
@@ -462,6 +464,7 @@ func (s *seq) has(k byte) bool {
 // with writes, for Tifa with and without the cache. The check after a round stays on the server of the
 // round, once its timing has ended.
 func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
+	shortSpacing(t)
 	tifa, nocache, node := warmSpecs()
 	for _, sc := range BrowseScenarios {
 		mix := sc.Name
@@ -534,4 +537,15 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 			}
 		}
 	}
+}
+
+// shortSpacing lets the open rounds of a test keep 10 ms between the planned actions of a visit in
+// place of a second. It is for a test that checks what the servers got and in which order: with a
+// second, an open round of the 1,020 visits of a cycle waits about 13 seconds for the longest visit
+// to end, twice, and such a test takes most of a minute for each server.
+func shortSpacing(t *testing.T) {
+	t.Helper()
+	old := spacing
+	spacing = 10 * time.Millisecond
+	t.Cleanup(func() { spacing = old })
 }
