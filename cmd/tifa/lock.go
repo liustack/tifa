@@ -35,12 +35,16 @@ func (e *busyError) Detail() string {
 	return fmt.Sprintf("at %s (pid %d)", e.holder.URL, e.holder.PID)
 }
 
-func (e *busyError) Error() string {
-	who := "tifa dev is running"
+// who names the holder, as far as the record tells.
+func (e *busyError) who() string {
 	if e.holder.URL == "" {
-		who = "tifa dev or tifa build is running"
+		return "tifa dev or tifa build is running"
 	}
-	return strings.TrimSpace(who + " in this app " + e.Detail() + ". Stop it first: both write .tifa/dist")
+	return "tifa dev is running"
+}
+
+func (e *busyError) Error() string {
+	return strings.TrimSpace(e.who() + " in this app " + e.Detail() + ". Stop it first: both write .tifa/dist")
 }
 
 // appLock is the exclusive lock on .tifa/dev.lock. tifa dev holds it while it runs, and tifa build

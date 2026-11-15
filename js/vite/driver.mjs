@@ -1,4 +1,4 @@
-// The driver: tifa runs it with node --input-type=module -e in the application root to use the
+// The driver: tifa runs it as a file, .tifa/driver-*/driver.mjs, in the application root to use the
 // application's own Vite. It reads one JSON request per line from stdin and writes one JSON
 // answer per line to file descriptor 3, so that what Vite and its plugins print on stdout and
 // stderr stays apart from the answers. Every answer is {id, error} or {id, ...result}.
@@ -59,8 +59,8 @@ import readline from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
-const closeTimeout = Number(process.argv[1])
-if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[1]} is not a number of milliseconds`)
+const closeTimeout = Number(process.argv[2])
+if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[2]} is not a number of milliseconds`)
 
 const answer = (value) => fs.writeSync(3, JSON.stringify(value) + '\n')
 

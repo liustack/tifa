@@ -54,6 +54,19 @@ type Dev struct {
 
 	mu   sync.Mutex
 	poll bool // PollFiles came before the dev server ran
+	// reads are the files in the root that the last SSR bundle read, see Reads.
+	reads map[string]bool
+}
+
+// Reads returns whether the last SSR bundle that Build made read the file rel, given relative to
+// the root with forward slashes. Whatever its name or type: a text file imported with ?raw is one,
+// so a change to it needs a new bundle. Before the first Build, and for an app without pages, it
+// is false for every file. The function may be called from any goroutine.
+func (d *Dev) Reads() func(rel string) bool {
+	d.mu.Lock()
+	reads := d.reads
+	d.mu.Unlock()
+	return func(rel string) bool { return reads[rel] }
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
@@ -189,6 +202,16 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	if err := writeInputs(d.root, d.dist, public, modules, incompleteInputs(d.node.output, incomplete)); err != nil {
 		return "", err
 	}
+	read, err := moduleFiles(d.root, modules)
+	if err != nil {
+		return "", err
+	}
+	d.mu.Lock()
+	d.reads = map[string]bool{}
+	for _, f := range read {
+		d.reads[f] = true
+	}
+	d.mu.Unlock()
 	return b.ID, writeBuild(d.dist, b)
 }
 

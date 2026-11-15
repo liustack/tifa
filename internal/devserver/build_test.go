@@ -422,3 +422,19 @@ func TestPlanLocaleFiles(t *testing.T) {
 		}
 	}
 }
+
+func (p *fakePipeline) Reads() func(string) bool { return func(string) bool { return false } }
+
+// The files the SSR bundle read need a new bundle when they change, and nothing else.
+func TestPlanReads(t *testing.T) {
+	reads := func(rel string) bool { return rel == "app/intro.md" }
+	if got, want := planReads([]change{{"app/intro.md", modified}}, reads), (steps{bundle: true}); got != want {
+		t.Errorf("planned %+v, want %+v", got, want)
+	}
+	if got := planReads([]change{{"app/notes.md", modified}, {"app/intro.md.bak", removed}}, reads); got != (steps{}) {
+		t.Errorf("a file the bundle did not read planned %+v", got)
+	}
+	if got := planReads([]change{{"app/intro.md", modified}}, nil); got != (steps{}) {
+		t.Errorf("without a rule planned %+v", got)
+	}
+}

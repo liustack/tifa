@@ -51,6 +51,11 @@ type Pipeline interface {
 	// code lists its files, so one that appears or goes needs a new bundle. Like Embedded it
 	// answers for the last analysis that worked, which reads tifa.yaml.
 	Public() string
+	// Reads reports whether the SSR bundle that the last Bundle built read the file rel, given
+	// relative to the application directory with forward slashes, whatever its type: a text
+	// file imported with ?raw is one. A change to such a file needs a new bundle. The function is
+	// never nil and may be called from any goroutine.
+	Reads() func(rel string) bool
 	// PollFiles makes Vite's dev server poll the files too, once tifa dev's watcher found the
 	// system short of watches. It may run while a step runs. polling reports whether the dev
 	// server polls, it does not when its watcher takes no watch per file.
@@ -221,6 +226,18 @@ func planPublic(changes []change, embedded func(rel string) bool, public string)
 	return s
 }
 
+// planReads is the steps for the files of changes that the last SSR bundle read, see
+// Pipeline.Reads: a new bundle. A file of a type that plan knows needs that too, and more.
+func planReads(changes []change, reads func(rel string) bool) steps {
+	var s steps
+	for _, c := range changes {
+		if reads != nil && reads(c.path) {
+			s.bundle = true
+		}
+	}
+	return s
+}
+
 // planApp is planPublic for an app that has pages or not. An app without pages runs no dev server
 // of Vite, which would restart on a change of its config: its front end files, outside the public
 // folder, are the Vite config, the plugins that imports and package.json, so a change of one
@@ -244,8 +261,10 @@ type builder struct {
 	log      func(format string, args ...any) // one line per step that ran
 	manifest string                           // fingerprint of the last successful analysis
 	// learn, when not nil, gets what Pipeline.Embedded answers after each analysis that worked.
-	learn   func(embedded func(rel string) bool)
-	pending steps // steps a failed rebuild left undone, run again with the next one
+	learn func(embedded func(rel string) bool)
+	// learnReads, when not nil, gets what Pipeline.Reads answers after each bundle that worked.
+	learnReads func(reads func(rel string) bool)
+	pending    steps // steps a failed rebuild left undone, run again with the next one
 	// contentFiles are the files under content/ that changed since the last content step that
 	// worked, for Pipeline.Content.
 	contentFiles []string
@@ -388,6 +407,9 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 	if s.bundle {
 		if err := b.stepDetail("bundle", func() (string, error) { return b.p.Bundle(ctx) }); err != nil {
 			return steps{}, err
+		}
+		if b.learnReads != nil {
+			b.learnReads(b.p.Reads())
 		}
 		s.bundle = false
 		b.pending = s

@@ -225,6 +225,9 @@ func (p *devPipeline) Embedded() func(string) bool { return p.m.Embedded.Has }
 // Public says which folder holds the static files, as the last analysis saw it.
 func (p *devPipeline) Public() string { return p.public }
 
+// Reads says which files the last SSR bundle read.
+func (p *devPipeline) Reads() func(string) bool { return p.front.Reads() }
+
 // PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
 func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }
 

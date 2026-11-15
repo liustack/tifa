@@ -71,6 +71,30 @@ type answer struct {
 	Error string `json:"error"`
 }
 
+// driverCommand returns the command that runs the driver on the Node at node, and the function
+// that removes the file it runs. The driver is a file, not an argument of node -e: it is 40 KB,
+// and one argument may be at most 32,767 characters on Windows and 128 KiB on Linux. The file
+// lies in .tifa/ of the root, so that the driver finds the application's Vite from where it is,
+// as it does when it runs in the root. Its stdin stays free for the requests. Node has read the
+// file once the driver has answered, so remove runs then.
+func (n *Node) driverCommand(node string) (*exec.Cmd, func(), error) {
+	tifa := filepath.Join(n.root, ".tifa")
+	if err := os.MkdirAll(tifa, 0o755); err != nil {
+		return nil, nil, err
+	}
+	dir, err := os.MkdirTemp(tifa, "driver-")
+	if err != nil {
+		return nil, nil, err
+	}
+	remove := func() { os.RemoveAll(dir) }
+	script := filepath.Join(dir, "driver.mjs")
+	if err := os.WriteFile(script, []byte(js.ViteDriver), 0o644); err != nil {
+		remove()
+		return nil, nil, err
+	}
+	return exec.Command(node, script, strconv.FormatInt(closeTimeout.Milliseconds(), 10)), remove, nil
+}
+
 // start runs the driver and reads its first answer, which tells whether Vite loaded.
 func (n *Node) start() error {
 	node, err := exec.LookPath("node")
@@ -81,7 +105,13 @@ func (n *Node) start() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(node, "--input-type=module", "-e", js.ViteDriver, strconv.FormatInt(closeTimeout.Milliseconds(), 10))
+	cmd, remove, err := n.driverCommand(node)
+	if err != nil {
+		r.Close()
+		w.Close()
+		return err
+	}
+	defer remove()
 	cmd.Dir = n.root
 	// Vite and @vitejs/plugin-react pick the React build and the JSX transform by NODE_ENV, so
 	// tifa sets it rather than take it from the shell.

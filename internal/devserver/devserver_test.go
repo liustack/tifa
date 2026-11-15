@@ -37,6 +37,8 @@ type buildPipeline struct {
 	manifest string // what Analyze returns, "routes" when empty
 	// embedded tells which files the program embeds, nothing when nil.
 	embedded func(string) bool
+	// reads tells which files the SSR bundle read, nothing when nil.
+	reads func(string) bool
 	// public is what Public returns, guarded by mu.
 	public string
 	// contentFile is the file the fake app reads its content from, which Content writes
@@ -1069,4 +1071,11 @@ func (p *buildPipeline) setPublic(dir string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.public = dir
+}
+
+func (p *buildPipeline) Reads() func(string) bool {
+	if p.reads == nil {
+		return func(string) bool { return false }
+	}
+	return p.reads
 }

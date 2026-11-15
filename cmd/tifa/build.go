@@ -109,6 +109,33 @@ func generateApp(root string, m *analyze.Manifest, node *bundle.Node) (map[strin
 	return files, codegen.Write(root, files)
 }
 
+// generateShared is generateApp for the commands that do not take the app lock for their whole
+// run, check and gen. It writes .tifa/ in the form of a production build only while it holds the
+// lock for the write. When tifa dev or tifa build holds it, they keep .tifa/ up to date, and
+// writing the production form would replace what tifa dev needs (its main.go and its reload
+// client). Then it writes nothing and returns the holder, which is not an error: the files it
+// returns are the ones it generated in memory.
+func generateShared(root string, m *analyze.Manifest, node *bundle.Node) (files map[string][]byte, busy *busyError, err error) {
+	files, err = codegen.Generate(root, m, false, node.Exports)
+	if err != nil {
+		return nil, nil, err
+	}
+	lock, err := lockApp(root)
+	if errors.As(err, &busy) {
+		return files, busy, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	defer lock.Close()
+	return files, nil, codegen.Write(root, files)
+}
+
+// leftAlone is the line that says generateShared wrote nothing, because holder keeps .tifa/.
+func leftAlone(holder *busyError) string {
+	return strings.TrimSpace(holder.who()+" in this app "+holder.Detail()) + ". It keeps .tifa up to date, so .tifa is left as it is"
+}
+
 // checkTanStack checks the TanStack Router of an app with pages, see bundle.CheckTanStack, unless
 // the project file sets build.skip_tanstack_check.
 func checkTanStack(root string, settings config.Build, pages bool) error {

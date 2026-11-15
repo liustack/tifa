@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/codegen"
 )
 
@@ -198,4 +201,81 @@ func TestListenDevOtherErrors(t *testing.T) {
 		ln.Close()
 		t.Fatal("listened on a bad address")
 	}
+}
+
+// devApp is an app without pages whose .tifa/ is written the way tifa dev writes it, with a tifa
+// dev holding the lock of the app. It returns the root and the generated files.
+func devApp(t *testing.T) (string, map[string][]byte) {
+	t.Helper()
+	root := apiApp(t)
+	m, err := analyze.Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := codegen.Generate(root, m, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codegen.Write(root, files); err != nil {
+		t.Fatal(err)
+	}
+	l, err := lockApp(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	if err := l.SetURL("http://127.0.0.1:9527"); err != nil {
+		t.Fatal(err)
+	}
+	return root, files
+}
+
+// sameFiles fails when .tifa/ of root differs from files, leaving out dist and the lock file.
+func sameFiles(t *testing.T, root string, files map[string][]byte) {
+	t.Helper()
+	for name, want := range files {
+		got, err := os.ReadFile(filepath.Join(root, codegen.Dir, filepath.FromSlash(name)))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf(".tifa/%s changed while tifa dev runs (read error %v)", name, err)
+		}
+	}
+	err := filepath.WalkDir(filepath.Join(root, codegen.Dir), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(filepath.Join(root, codegen.Dir), p)
+		if _, ok := files[filepath.ToSlash(rel)]; !ok && rel != codegen.LockFile {
+			t.Errorf(".tifa/%s is not part of the dev files", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// While tifa dev holds the lock, gen leaves .tifa/ alone and succeeds.
+func TestGenLeavesTheFilesOfARunningDev(t *testing.T) {
+	root, files := devApp(t)
+	out, stderr, err := run(t, "gen", "--dir", root)
+	if err != nil {
+		t.Fatalf("gen: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(out, "keeps .tifa up to date") {
+		t.Errorf("gen says nothing about the running tifa dev:\n%s", out)
+	}
+	sameFiles(t, root, files)
+}
+
+// While tifa dev holds the lock, check still checks the app and writes nothing into .tifa/.
+func TestCheckLeavesTheFilesOfARunningDev(t *testing.T) {
+	root, files := devApp(t)
+	out, stderr, err := run(t, "check", "--dir", root)
+	if err != nil {
+		t.Fatalf("check: %v\nstdout:\n%s\nstderr:\n%s", err, out, stderr)
+	}
+	if !strings.Contains(out, "check passed") {
+		t.Errorf("check did not pass:\n%s", out)
+	}
+	sameFiles(t, root, files)
 }

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/liustack/tifa/js"
 )
 
 func TestNodeReadsExports(t *testing.T) {
@@ -129,5 +131,51 @@ func TestNodeFindsTheLangKeysOfHTMLAttributes(t *testing.T) {
 	}
 	if len(got[clean]) != 0 {
 		t.Errorf("clean.tsx: %v, want none", got[clean])
+	}
+}
+
+// The driver reaches node as a file. As an argument of node -e it is refused once it is longer
+// than the system takes: 32,767 characters on Windows, 128 KiB for one argument on Linux.
+func TestNodeTakesTheDriverAsAFile(t *testing.T) {
+	root := t.TempDir()
+	n := NewNode(root, io.Discard)
+	cmd, remove, err := n.driverCommand("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove()
+	var script string
+	for _, a := range cmd.Args[1:] {
+		if len(a) > 1000 {
+			t.Fatalf("an argument of node is %d bytes long, the driver must not go there", len(a))
+		}
+		if strings.HasSuffix(a, ".mjs") {
+			script = a
+		}
+	}
+	got, err := os.ReadFile(script)
+	if err != nil || string(got) != js.ViteDriver {
+		t.Fatalf("the script %q does not hold the driver: %v", script, err)
+	}
+	remove()
+	if _, err := os.Stat(script); !os.IsNotExist(err) {
+		t.Errorf("the script is still there after remove: %v", err)
+	}
+}
+
+// The file of the driver is gone once the driver runs, so .tifa/ holds nothing of it.
+func TestNodeLeavesNoDriverFile(t *testing.T) {
+	root := t.TempDir()
+	if err := symlinkModules(t, root); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{"route.tsx": "export default function Page() { return <p/> }\n"})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := n.Exports([]string{filepath.Join(root, "route.tsx")}); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(root, ".tifa", "driver-*")); len(left) != 0 {
+		t.Errorf("left behind: %v", left)
 	}
 }
