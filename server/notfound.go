@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -164,11 +165,15 @@ func (p *notFoundPage) Unwrap() error { return tifa.ErrNotFound }
 // unmatched answers a URL that matches no route. A GET or HEAD of an application with pages runs
 // the Loads of the Layouts its 404 shows inside (notFoundAt), all of them for a page and those that
 // _tifa asks for in a data request, as a page runs those of its chain. Anything else is
-// tifa.ErrNotFound. c.Pattern() stays empty.
+// tifa.ErrNotFound. c.Pattern() stays empty. A URL that names a file (namesFile) is a plain 404 with
+// no Loads and no render, see errPlainNotFound.
 func (s *server) unmatched(c *tifa.Ctx) error {
 	r := c.Request()
 	if !s.pagesServed() || r.Method != "GET" && r.Method != "HEAD" {
 		return tifa.ErrNotFound
+	}
+	if !c.IsData() && namesFile(r.URL.Path) {
+		return errPlainNotFound
 	}
 	layout := s.notFoundAt(r)
 	if info := langInfoOf(r); info != nil && !s.hasLanguage(layout, info) {
@@ -191,4 +196,38 @@ func (s *server) unmatched(c *tifa.Ctx) error {
 		return err
 	}
 	return &notFoundPage{items: items, loads: loads, ssr: at.ssr, layout: layout}
+}
+
+// errPlainNotFound is what unmatched returns for a URL that asks for a file. Server.fail answers
+// it with writePlainNotFound. It is tifa.ErrNotFound for OnRequest.
+var errPlainNotFound = fmt.Errorf("%w: a file", tifa.ErrNotFound)
+
+// writePlainNotFound answers 404 as a file server does, for a file that is not there. It is the
+// answer for a missing file under /assets/ and for an unmatched URL that names a file, where a 404
+// page would cost the Loads of the root Layout and a render for something that cannot show it.
+func writePlainNotFound(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "404 page not found", http.StatusNotFound)
+}
+
+// namesFile reports whether the last segment of the path has a file extension: a dot followed by
+// 1 to 8 ASCII letters or digits to the end, such as /wp-login.php or /.env. Scanners ask for
+// such paths by the hundred. A URL that matches a route never gets here, so /users/john.doe still
+// goes to /users/{name}.
+func namesFile(p string) bool {
+	seg := p[strings.LastIndex(p, "/")+1:]
+	dot := strings.LastIndex(seg, ".")
+	if dot < 0 {
+		return false
+	}
+	ext := seg[dot+1:]
+	if len(ext) < 1 || len(ext) > 8 {
+		return false
+	}
+	for _, b := range []byte(ext) {
+		if !(b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9') {
+			return false
+		}
+	}
+	return true
 }

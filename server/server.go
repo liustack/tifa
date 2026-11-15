@@ -370,6 +370,10 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		// returned, so recovered does not see it, and it passes recovered anyway.
 		panic(http.ErrAbortHandler)
 	}
+	if errors.Is(err, errPlainNotFound) {
+		writePlainNotFound(w)
+		return
+	}
 	r := c.Request()
 	var failure *loadFailure
 	var missing *notFoundPage

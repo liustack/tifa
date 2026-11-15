@@ -457,6 +457,8 @@ export function Error({ error }: { error: unknown }) {
 
 这几种情况的状态码都是 404，浏览器里跳转后也一样，这时的数据请求回答各层 Layout 的数据和状态码 404。
 
+没有匹配任何路由、且最后一段带文件扩展名（一个点加末尾 1 到 8 个字母或数字，如 `/wp-login.php`、`/.env`）的 URL 不显示 404 页面，而是得到和 `/assets/` 下缺失文件一样的纯文本 404，不跑 `Load`、不渲染，扫描器请求这类路径几乎不花资源。`OnRequest` 照常运行，`next` 返回 `tifa.ErrNotFound`。路由能匹配的 URL 不受影响，包括 catch-all 路由和带点的参数（`/users/{name}` 匹配的 `/users/john.doe`），导航数据请求也不受影响。
+
 找没有匹配页面的 URL 落在哪个 Layout 时，Tifa 从左往右逐段拿 URL 和每个 Layout、每个页面的路径比：字面段胜过参数，参数胜过路径结束。匹配得最多的路径胜出，页面算作它所在的 Layout。比如有这些目录：
 
 ```text

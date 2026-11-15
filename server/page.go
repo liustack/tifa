@@ -290,8 +290,7 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	// file server answers: a 404 page would cost the Loads of the root Layout and a render, for a
 	// script or an image that cannot show it.
 	if strings.HasPrefix(name, "assets/") && f.pages {
-		w.Header().Set("Cache-Control", "no-store")
-		http.Error(w, "404 page not found", http.StatusNotFound)
+		writePlainNotFound(w)
 		return true
 	}
 	return false
