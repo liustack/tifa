@@ -165,14 +165,14 @@ func (p *notFoundPage) Unwrap() error { return tifa.ErrNotFound }
 // unmatched answers a URL that matches no route. A GET or HEAD of an application with pages runs
 // the Loads of the Layouts its 404 shows inside (notFoundAt), all of them for a page and those that
 // _tifa asks for in a data request, as a page runs those of its chain. Anything else is
-// tifa.ErrNotFound. c.Pattern() stays empty. A URL that names a file (namesFile) is a plain 404 with
+// tifa.ErrNotFound. c.Pattern() stays empty. A URL that asks for a file (asksForFile) is a plain 404 with
 // no Loads and no render, see errPlainNotFound.
 func (s *server) unmatched(c *tifa.Ctx) error {
 	r := c.Request()
 	if !s.pagesServed() || r.Method != "GET" && r.Method != "HEAD" {
 		return tifa.ErrNotFound
 	}
-	if !c.IsData() && namesFile(r.URL.Path) {
+	if !c.IsData() && asksForFile(r.URL.Path) {
 		return errPlainNotFound
 	}
 	layout := s.notFoundAt(r)
@@ -210,11 +210,17 @@ func writePlainNotFound(w http.ResponseWriter) {
 	http.Error(w, "404 page not found", http.StatusNotFound)
 }
 
-// namesFile reports whether the last segment of the path has a file extension: a dot followed by
-// 1 to 8 ASCII letters or digits to the end, such as /wp-login.php or /.env. Scanners ask for
-// such paths by the hundred. A URL that matches a route never gets here, so /users/john.doe still
-// goes to /users/{name}.
-func namesFile(p string) bool {
+// asksForFile reports whether an unmatched path is one scanners ask for: its last segment has a
+// file extension (a dot followed by 1 to 8 ASCII letters or digits to the end, such as
+// /wp-login.php or /.env), or any segment starts with a dot (/.git/config, /.aws/credentials).
+// A segment that is exactly . or .. does not count (ServeMux has already redirected those). A URL
+// that matches a route never gets here, so /users/john.doe still goes to /users/{name}.
+func asksForFile(p string) bool {
+	for seg := range strings.SplitSeq(p, "/") {
+		if len(seg) > 1 && seg[0] == '.' && seg != ".." {
+			return true
+		}
+	}
 	seg := p[strings.LastIndex(p, "/")+1:]
 	dot := strings.LastIndex(seg, ".")
 	if dot < 0 {

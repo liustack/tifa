@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 
 	"github.com/liustack/tifa"
 )
@@ -13,11 +14,11 @@ import (
 func TestNamesFile(t *testing.T) {
 	for p, want := range map[string]bool{
 		"/wp-login.php": true, "/.env": true, "/a/b.tar.gz": true, "/x.A1b2C3d4": true, "/favicon.ico": true,
-		"/.git/config": false, "/a.123456789": false, "/a.": false, "/a./": false, "/users": false,
+		"/.git/config": true, "/.aws/credentials": true, "/a/.svn/entries": true, "/.well-known/missing": true, "/a/../b": false, "/a/...": true, "/a/.": false, "/a.123456789": false, "/a.": false, "/a./": false, "/users": false,
 		"/a.b/c": false, "/": false, "/a.p-p": false, "/a.é": false,
 	} {
-		if got := namesFile(p); got != want {
-			t.Errorf("namesFile(%q) = %v, want %v", p, got, want)
+		if got := asksForFile(p); got != want {
+			t.Errorf("asksForFile(%q) = %v, want %v", p, got, want)
 		}
 	}
 }
@@ -30,6 +31,7 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 		plain = "plain" // the plain 404
 		page  = "page"  // the 404 page of the app
 		route = "route" // a route answers
+		file  = "file"  // a public file answers
 	)
 	for _, tc := range []struct {
 		name      string
@@ -39,8 +41,10 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 	}{
 		{"no languages", false, false, []struct{ method, url, want string }{
 			{"GET", "/wp-login.php", plain}, {"HEAD", "/wp-login.php", plain}, {"GET", "/.env", plain},
+			{"GET", "/.git/config", plain}, {"GET", "/.aws/credentials", plain}, {"GET", "/.well-known/missing", plain}, {"GET", "/a/.svn/entries", plain},
+			{"GET", "/.well-known/route", route}, {"GET", "/.well-known/security.txt", file},
 			{"GET", "/a/b/c.html", plain}, {"GET", "/assets/gone-1.js", plain},
-			{"GET", "/nowhere", page}, {"GET", "/.git/config", page}, {"GET", "/a/b/", page}, {"GET", "/x.toolongext", page},
+			{"GET", "/nowhere", page}, {"GET", "/a/b/", page}, {"GET", "/x.toolongext", page},
 			{"GET", "/users/john.doe", route}, {"GET", "/", route},
 			{"POST", "/other.php", "json"},
 		}},
@@ -49,6 +53,7 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 		}},
 		{"languages", true, false, []struct{ method, url, want string }{
 			{"GET", "/wp-login.php", plain}, {"GET", "/zh-CN/missing.php", plain}, {"GET", "/en-US/.env", plain},
+			{"GET", "/zh-CN/.git/config", plain},
 			{"GET", "/zh-CN/nowhere", page}, {"GET", "/nowhere", page},
 			{"GET", "/en-US/users/john.doe", route}, {"GET", "/users/john.doe", route},
 		}},
@@ -65,6 +70,7 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 				Load: func(c *tifa.Ctx) (any, error) { loads.Add(1); return 1, nil }}}
 			app.Routes = []Route{
 				{ID: "app/home", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}, Languages: langs},
+				{ID: "app/wellknown", Path: "/.well-known/route", GET: func(c *tifa.Ctx) error { return c.Text(200, "ok") }},
 				{ID: "app/users/name+", Path: "/users/{name}", Page: true, SSR: true, Layouts: []string{"app/layout"}, Languages: langs},
 			}
 			if tc.catchAll {
@@ -78,7 +84,15 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 			}
 			var reported atomic.Int32
 			app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error { reported.Add(1); return tifa.Error{Status: 500} }
-			s, r := newFrontServer(t, app)
+			s := newAppServer(t, app)
+			r := &renders{}
+			public := fstest.MapFS{"public/.well-known/security.txt": {Data: []byte("contact")}}
+			for name, f := range dist {
+				public[name] = f
+			}
+			if err := s.setFront(public, r.render); err != nil {
+				t.Fatal(err)
+			}
 			if tc.languages {
 				s.setI18n(app.I18n)
 			}
@@ -103,6 +117,10 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 				case page:
 					if w.Code != 404 || loads.Load() != 1 || r.count() != renders+1 {
 						t.Errorf("%s: %d, %d Loads and %d renders, want the 404 page", ctx, w.Code, loads.Load(), r.count()-renders)
+					}
+				case file:
+					if w.Code != 200 || w.Body.String() != "contact" {
+						t.Errorf("%s: %d %q, want the public file", ctx, w.Code, w.Body.String())
 					}
 				case route:
 					if w.Code != 200 {
