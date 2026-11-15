@@ -8,7 +8,7 @@ import (
 // recognizedPage loads, in one SSR bundle, the code of every library whose hot spots the plugin
 // rewrites: React DOM's string renderer, React's createElement and cloneElement, its JSX runtime,
 // seroval, @emotion/hash, lucide-react, i18next, react-i18next, @radix-ui/react-slot, clsx,
-// memoTheme of @mui/system and core-js.
+// memoTheme of @mui/system, rehype-highlight and core-js.
 const recognizedPage = `import 'core-js/internals/internal-state.js'
 import { cloneElement, createElement } from 'react'
 import { jsx } from 'react/jsx-runtime'
@@ -21,13 +21,14 @@ import { I18nextProvider, useTranslation } from 'react-i18next'
 import { Slot } from '@radix-ui/react-slot'
 import clsx from 'clsx'
 import { unstable_memoTheme } from '@mui/system'
+import rehypeHighlight from 'rehype-highlight'
 
 function Page() {
   const { t } = useTranslation()
   return jsx(Slot, { className: clsx('a', 'b'), children: cloneElement(createElement(House, { title: t('title') + hash('x') }), { id: 'icon' }) })
 }
 const element = jsx(I18nextProvider, { i18n: i18next, children: jsx(Page, {}) })
-;(globalThis as any).result = [unstable_memoTheme(() => ({ color: 'red' }))({ theme: {} }).style.styles, renderToString(element), prerenderToString(element), serialize(['a', 'b']), i18next.getFixedT('en')('title')]
+;(globalThis as any).result = [unstable_memoTheme(() => ({ color: 'red' }))({ theme: {} }).style.styles, renderToString(element), prerenderToString(element), serialize(['a', 'b']), typeof rehypeHighlight(), i18next.getFixedT('en')('title')]
 `
 
 // Each rewrite of the plugin recognizes the library it changes in the versions the tests pin. A
@@ -39,7 +40,7 @@ func TestSSRBuildRecognizesEveryRewrite(t *testing.T) {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	// The page reached the code of the libraries, or the check proves nothing.
-	for _, want := range []string{"__tifa_escape", "__tifa_copy_props", "__tifa_murmur2__", "tifaFormActions"} {
+	for _, want := range []string{"__tifa_escape", "__tifa_copy_props", "__tifa_murmur2__", "tifaFormActions", "tifaLowlight"} {
 		if !strings.Contains(code, want) {
 			t.Errorf("the bundle has no %s: the rewrite it belongs to did not run", want)
 		}
