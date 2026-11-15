@@ -144,7 +144,7 @@ const checkMap = (oldCode, newCode, mappings) => {
   }
   return ''
 }
-const results = JSON.parse(process.argv[2]).map((source) => {
+const results = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin)).map((source) => {
   const map = identityMap(source)
   const out = plugin.rewriteStatements(source, parseAst, map)
   return {
@@ -157,8 +157,7 @@ const results = JSON.parse(process.argv[2]).map((source) => {
 })
 process.stdout.write(JSON.stringify(results))
 `
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

@@ -63,8 +63,11 @@ jobs:
         run: go vet ./...
       - name: Build without cgo
         run: CGO_ENABLED=0 go build ./...
+      # test/compare plays rounds of the browse run against fake servers on the
+      # clock, one action a second, and takes about 9.5 minutes, too close to the
+      # 10 minutes go test gives a package by default. See "CI" in docs/testing.md.
       - name: Test
-        run: go test -count=1 ./...
+        run: go test -count=1 -timeout 20m ./...
       - name: Docs have a summary
         run: scripts/docs-list.sh --check
 
@@ -92,10 +95,12 @@ jobs:
             test/apps/*/pnpm-lock.yaml
             examples/shop/pnpm-lock.yaml
 
+      # Every app with npm packages, so that a new app under test/apps is
+      # installed without a change here.
       - name: Install the packages of the apps
         run: |
-          for app in test/apps/pages test/apps/tailwind test/apps/mui test/apps/bench test/apps/libs test/apps/session test/apps/pagecache test/apps/content test/apps/i18n examples/shop; do
-            (cd "$app" && pnpm install --frozen-lockfile)
+          for manifest in test/apps/*/package.json examples/shop/package.json; do
+            (cd "$(dirname "$manifest")" && pnpm install --frozen-lockfile)
           done
       - name: Test
         run: go test -count=1 ./test/e2e/ -v -timeout 25m

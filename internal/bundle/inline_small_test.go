@@ -3,7 +3,6 @@ package bundle
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,7 +59,7 @@ const run = (code) => {
   }
   return trace.join(' | ')
 }
-const out = JSON.parse(process.argv[2]).map((source) => {
+const out = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin)).map((source) => {
   const r = plugin.inlineSmallFunctions(source, parse)
   return {
     Code: r.code,
@@ -75,8 +74,7 @@ const out = JSON.parse(process.argv[2]).map((source) => {
 })
 process.stdout.write(JSON.stringify(out))
 `
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("inlineSmallFunctions: %v", err)

@@ -138,7 +138,6 @@ export function Fine() {
 	}
 }
 
-
 // What is tied to the route, or reads no query, gets no warning: the useSearch of a route, the path
 // of the location, a hook of the app's own and the location of the window.
 func TestBuildLetsRouteQueryReadsThrough(t *testing.T) {

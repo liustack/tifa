@@ -28,8 +28,8 @@ func callPlugin(t *testing.T, name string, args []any, result any) {
 		t.Fatal(err)
 	}
 	script := "const plugin = await import(process.argv[1])\n" +
-		"process.stdout.write(JSON.stringify(await plugin." + name + "(...JSON.parse(process.argv[2]))))\n"
-	out, err := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input)).Output()
+		"process.stdout.write(JSON.stringify(await plugin." + name + "(...JSON.parse(await (await import('node:stream/consumers')).text(process.stdin)))))\n"
+	out, err := nodeWithInput("", script, input, plugin).Output()
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
@@ -105,7 +105,7 @@ func guardedOnNode(t *testing.T, sources []string, files bool) []guarded {
 	script := "import fs from 'node:fs'\n" +
 		"const plugin = await import(process.argv[1])\n" +
 		"const { parseAst } = await import('vite')\n" +
-		"const files = process.argv[3] === 'files'\n" +
+		"const files = process.argv[2] === 'files'\n" +
 		"const parses = (code) => {\n" +
 		"  try {\n" +
 		"    return !!parseAst(code)\n" +
@@ -130,7 +130,7 @@ func guardedOnNode(t *testing.T, sources []string, files bool) []guarded {
 		"    }\n" +
 		"  })\n" +
 		"}\n" +
-		"const results = JSON.parse(process.argv[2]).map((name) => {\n" +
+		"const results = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin)).map((name) => {\n" +
 		"  const source = files ? fs.readFileSync(name, 'utf8') : name\n" +
 		"  const { code, switches } = plugin.guardSwitches(source, parseAst)\n" +
 		"  return { code: files ? '' : code, parses: parses(code), switches, before: files ? [] : run(source), after: files ? [] : run(code) }\n" +
@@ -140,8 +140,7 @@ func guardedOnNode(t *testing.T, sources []string, files bool) []guarded {
 	if files {
 		mode = "files"
 	}
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input), mode)
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin, mode)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -404,7 +403,7 @@ func plainOnNode(t *testing.T, code string, modules map[string]any) plain {
 	// describe gives each own property of a namespace with its value, as the exports of the module
 	// or its own, and whether it is enumerable, and the prototype of the namespace.
 	script := "const plugin = await import(process.argv[1])\n" +
-		"const [code, modules] = JSON.parse(process.argv[2])\n" +
+		"const [code, modules] = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin))\n" +
 		"const describe = (ns, exports) => JSON.stringify([Object.getPrototypeOf(ns) === (exports == null ? Object.prototype : Object.getPrototypeOf(Object(exports))),\n" +
 		"  Object.getOwnPropertyNames(ns).map((k) => [k, ns[k] === exports ? 'exports' : typeof ns[k] === 'function' ? 'function' : ns[k], Object.getOwnPropertyDescriptor(ns, k).enumerable])])\n" +
 		"const run = (code) => {\n" +
@@ -417,7 +416,7 @@ func plainOnNode(t *testing.T, code string, modules map[string]any) plain {
 		"}\n" +
 		"const { code: changed, warning = '' } = plugin.plainNamespaces(code, modules)\n" +
 		"process.stdout.write(JSON.stringify({ code: changed, warning, before: run(code), after: run(changed) }))\n"
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
+	cmd := nodeWithInput("", script, input, plugin)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -666,7 +665,7 @@ func TestPlainNamespacesTakesLinearTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := "const { plainNamespaces } = await import(process.argv[1])\n" +
-		"const runtime = JSON.parse(process.argv[2])\n" +
+		"const runtime = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin))\n" +
 		"const time = (n) => {\n" +
 		"  const modules = {}, parts = [runtime], calls = []\n" +
 		"  for (let i = 0; i < n; i++) {\n" +
@@ -691,7 +690,7 @@ func TestPlainNamespacesTakesLinearTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("node", "--input-type=module", "-e", script, plugin, string(runtime)).CombinedOutput()
+	out, err := nodeWithInput("", script, runtime, plugin).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, out)
 	}
@@ -785,7 +784,7 @@ func TestGeneratedResolvesRouteGen(t *testing.T) {
 		"const filter = p.resolveId.filter.id\n" +
 		"const ctx = { error: (m) => { throw new Error(m) } }\n" +
 		"const out = {}\n" +
-		"const cases = JSON.parse(process.argv[3])\n" +
+		"const cases = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin))\n" +
 		"for (const [source, importer] of cases) {\n" +
 		"  const key = source + ' from ' + importer\n" +
 		"  if (!filter.test(source)) { out[key] = 'unmatched'; continue }\n" +
@@ -810,7 +809,7 @@ func TestGeneratedResolvesRouteGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outBytes, err := exec.Command("node", "--input-type=module", "-e", script, plugin, root, string(input)).CombinedOutput()
+	outBytes, err := nodeWithInput("", script, input, plugin, root).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, outBytes)
 	}
