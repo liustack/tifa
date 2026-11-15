@@ -27,10 +27,9 @@ func unitsOnNode(t *testing.T, sources []string) []map[string]string {
 	}
 	script := "const plugin = await import(process.argv[1])\n" +
 		"const { parseAst } = await import('vite')\n" +
-		"const out = JSON.parse(process.argv[2]).map((source) => Object.fromEntries(plugin.reactDomUnits(parseAst(source), source).units.map((u) => [u.name, u.fingerprint])))\n" +
+		"const out = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin)).map((source) => Object.fromEntries(plugin.reactDomUnits(parseAst(source), source).units.map((u) => [u.name, u.fingerprint])))\n" +
 		"process.stdout.write(JSON.stringify(out))\n"
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("reactDomUnits: %v", err)

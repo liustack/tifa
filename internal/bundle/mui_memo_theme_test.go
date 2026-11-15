@@ -3,7 +3,6 @@ package bundle
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -328,7 +327,7 @@ func TestPluginKnowsMemoThemeOfEveryLayout(t *testing.T) {
 	script := `
 const { memoThemeByContent, memoThemeModule } = await import(process.argv[1])
 const { parseAst } = await import('vite')
-const sources = JSON.parse(process.argv[2])
+const sources = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin))
 const out = {}
 for (const [name, source] of Object.entries(sources)) {
   const code = memoThemeByContent(source)
@@ -342,8 +341,7 @@ const paths = ['/n/@mui/system/memoTheme.mjs', '/n/@mui/system/memoTheme.js', '/
 out.paths = paths.map((p) => memoThemeModule.test(p))
 console.log(JSON.stringify(out))
 `
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("memoThemeByContent: %v", err)

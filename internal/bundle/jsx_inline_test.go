@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -490,13 +489,12 @@ func inlinedOnNode(t *testing.T, sources []string) []inlined {
 	script := "const plugin = await import(process.argv[1])\n" +
 		"const { parseAst } = await import('vite')\n" +
 		"const parses = (code) => {\n  try {\n    return !!parseAst(code)\n  } catch {\n    return false\n  }\n}\n" +
-		"const out = JSON.parse(process.argv[2]).map((source) => {\n" +
+		"const out = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin)).map((source) => {\n" +
 		"  const r = plugin.inlineElements(source, (code) => parseAst(code))\n" +
 		"  return { Code: r.code, Sites: r.sites, Inlined: r.inlined, Keyed: r.keyed, Parses: parses(r.code) }\n" +
 		"})\n" +
 		"process.stdout.write(JSON.stringify(out))\n"
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("inlineElements: %v", err)
