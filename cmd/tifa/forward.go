@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -134,4 +135,52 @@ func workspaceInUse(root string, getenv func(string) string) bool {
 func forwardFailed(root string, args []string, err error) error {
 	return fmt.Errorf("the app in %s pins its own tifa, but starting go tool tifa failed: %w\nrun it yourself: cd %s && go tool tifa %s",
 		root, err, cdOperand(root), strings.Join(args, " "))
+}
+
+// pathFlags are the flags that name a path: the long name, and the shorthand when there is one.
+// Add a new path flag of a command here, or a forwarded command reads it from the wrong folder.
+var pathFlags = []struct{ long, short string }{{"dir", ""}, {"output", "o"}}
+
+// absolutePathFlags returns args with the value of each path flag made absolute against cwd. It
+// reads the flags as pflag does: "--dir x", "--dir=x", "-o x", "-ox" and "-o=x", up to a "--".
+func absolutePathFlags(args []string, cwd string) []string {
+	abs := func(p string) string {
+		if filepath.IsAbs(p) {
+			return p
+		}
+		return filepath.Join(cwd, p)
+	}
+	out := slices.Clone(args)
+	for i := 0; i < len(out); i++ {
+		a := out[i]
+		if a == "--" {
+			break
+		}
+		for _, f := range pathFlags {
+			switch {
+			case a == "--"+f.long || f.short != "" && a == "-"+f.short:
+				if i+1 < len(out) {
+					out[i+1] = abs(out[i+1])
+					i++
+				}
+			case strings.HasPrefix(a, "--"+f.long+"="):
+				out[i] = "--" + f.long + "=" + abs(strings.TrimPrefix(a, "--"+f.long+"="))
+			case f.short != "" && strings.HasPrefix(a, "-"+f.short+"="):
+				out[i] = "-" + f.short + "=" + abs(strings.TrimPrefix(a, "-"+f.short+"="))
+			case f.short != "" && strings.HasPrefix(a, "-"+f.short) && !strings.HasPrefix(a, "--"):
+				out[i] = "-" + f.short + abs(strings.TrimPrefix(a, "-"+f.short))
+			}
+		}
+	}
+	return out
+}
+
+// forward hands args to go tool tifa in root, see runForward. The command runs in root, so the
+// paths in args that the user typed relative to where they stand are made absolute first.
+func forward(root string, args []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return forwardFailed(root, args, err)
+	}
+	return runForward(root, absolutePathFlags(args, cwd))
 }

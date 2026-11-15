@@ -71,6 +71,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `tifa gen` and `tifa check` no longer break a running `tifa dev`. They wrote `.tifa/` as a build does, which replaced the `main.go` and the reload client of `tifa dev`, so the app did not start after the next Go change. While `tifa dev` or `tifa build` runs in the app, `tifa gen` now leaves `.tifa/` alone and prints one line saying so, and `tifa check` still checks the app but writes nothing into `.tifa/` (see [`tifa gen`](docs/build.md#tifa-gen)).
 - `tifa build`, `tifa gen` and `tifa check` start Node with the Vite driver as a file, no longer as an argument of `node -e`, which Windows refuses above 32,767 characters.
 - `tifa dev` builds the SSR bundle again when a file that it read changes, whatever the type, such as a Markdown or YAML file imported with `?raw`. It rebuilt only for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.css` and `.json` files, so the server render kept the old text while the browser showed the new one ([What each change triggers](docs/dev.md#what-each-change-triggers)).
+- A `tifa` installed globally, which hands the command to the version the app pins, now reads a relative `--dir` or `-o` from where you typed the command. It read them from the root of the app, so `tifa build --dir apps/shop` failed from the parent folder and `-o bin/x` wrote into the app.
 
 ## [0.0.4] - 2026-11-05
 

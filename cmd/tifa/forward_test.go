@@ -150,7 +150,8 @@ func TestForwardRuns(t *testing.T) {
 		t.Fatalf("output = %q, %q", out.String(), errOut.String())
 	}
 	b, _ := os.ReadFile(log)
-	want := "|tool tifa build -o x y|1\n"
+	cwd, _ := os.Getwd()
+	want := "|tool tifa build -o " + filepath.Join(cwd, "x y") + "|1\n"
 	got := string(b)
 	if !strings.HasSuffix(got, want) || !strings.Contains(got, filepath.Base(app)) {
 		t.Fatalf("fake go saw %q, want folder of the app and %q", got, want)
@@ -227,6 +228,76 @@ func TestRunByGoCommand(t *testing.T) {
 	} {
 		if got := runByGoCommand(tc.exe, env); got != tc.want {
 			t.Errorf("runByGoCommand(%s) = %v, want %v", tc.exe, got, tc.want)
+		}
+	}
+}
+
+// A relative --dir or -o means what it meant where the user typed it: the forwarded command runs
+// in the folder of the app, so it gets the paths as absolute ones, and the output of a build lands
+// next to where the user stood.
+func TestForwardKeepsThePathsOfTheCaller(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake go is a shell script")
+	}
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := filepath.Join(ws, "apps", "shop")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mod := "module example.com/app\n\ngo 1.27.0\n\nrequire github.com/liustack/tifa v0.3.0\n\n" + toolLine
+	if err := os.WriteFile(filepath.Join(app, "go.mod"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(t.TempDir(), "log")
+	// The fake go does what tifa build does with the paths: it needs the folder, and it writes the
+	// executable at the path it is given, which is read from where the fake go runs.
+	script := `echo "$*" > '` + log + `'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dir) test -d "$2" || { echo "no folder $2" >&2; exit 4; } ;;
+    -o) mkdir -p "$(dirname "$2")" && touch "$2" ;;
+  esac
+  shift
+done
+`
+	cmd := forwardHelper(t, app, script, "build", "--dir", "apps/shop", "-o", "bin/x")
+	cmd.Dir = ws
+	var errOut strings.Builder
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("forwarded command: %v\nstderr: %s", err, errOut.String())
+	}
+	b, _ := os.ReadFile(log)
+	if got, want := strings.TrimSpace(string(b)), "tool tifa build --dir "+app+" -o "+filepath.Join(ws, "bin", "x"); got != want {
+		t.Errorf("fake go got %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "bin", "x")); err != nil {
+		t.Errorf("the executable is not where the user asked: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(app, "bin", "x")); err == nil {
+		t.Error("the executable landed in the app folder")
+	}
+}
+
+func TestPathFlagsBecomeAbsolute(t *testing.T) {
+	cwd := filepath.Join(string(filepath.Separator), "ws")
+	abs := func(p string) string { return filepath.Join(cwd, p) }
+	cases := []struct{ in, want []string }{
+		{[]string{"build", "--dir", "a", "-o", "b"}, []string{"build", "--dir", abs("a"), "-o", abs("b")}},
+		{[]string{"build", "--dir=a", "--output=b"}, []string{"build", "--dir=" + abs("a"), "--output=" + abs("b")}},
+		{[]string{"build", "--output", "b", "-ob"}, []string{"build", "--output", abs("b"), "-o" + abs("b")}},
+		{[]string{"build", "-o=b"}, []string{"build", "-o=" + abs("b")}},
+		{[]string{"build", "--dir", abs("a")}, []string{"build", "--dir", abs("a")}},
+		{[]string{"dev", "--addr", "a", "--", "--dir", "a"}, []string{"dev", "--addr", "a", "--", "--dir", "a"}},
+		{[]string{"routes"}, []string{"routes"}},
+		{[]string{"build", "--dir"}, []string{"build", "--dir"}},
+	}
+	for _, tc := range cases {
+		if got := absolutePathFlags(tc.in, cwd); !slices.Equal(got, tc.want) {
+			t.Errorf("absolutePathFlags(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
