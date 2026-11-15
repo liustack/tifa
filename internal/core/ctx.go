@@ -38,9 +38,11 @@ type request struct {
 	loads map[uintptr]*loadCall
 	// loadsStart is when the first Load of the request started, zero before one did (see StartLoads).
 	loadsStart time.Time
-	// copies made by WithContext. net/http only removes the multipart temp files of the original request.
-	copies []*http.Request
-	sess   sessionState
+	// requests are the request the Ctx was made with and the copies made by WithContext. Each may
+	// hold multipart temp files. net/http only removes those of the request it made itself, which
+	// is not the first one here when the server or a middleware handed a copy to New.
+	requests []*http.Request
+	sess     sessionState
 	// language is the language of the route the request matched, see Language.
 	language string
 	// alternates is the list SetAlternates gave, set tells it from a page that gave none.
@@ -51,7 +53,7 @@ type request struct {
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
 // The request body is limited to bodyLimit bytes unless SetBodyLimit changes it before the first read.
 func New(w http.ResponseWriter, r *http.Request, pattern string, bodyLimit int64) *Ctx {
-	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{orig: r, loads: map[uintptr]*loadCall{}}}
+	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{orig: r, requests: []*http.Request{r}, loads: map[uintptr]*loadCall{}}}
 	if r.Body != nil && r.Body != http.NoBody {
 		c.req.body = &watchedBody{ReadCloser: r.Body}
 		r.Body = http.MaxBytesReader(w, c.req.body, bodyLimit)
@@ -71,17 +73,17 @@ func (c *Ctx) WithContext(ctx context.Context) *Ctx {
 	// in time to get it.
 	c.req.mu.Lock()
 	d.r = c.r.WithContext(ctx)
-	c.req.copies = append(c.req.copies, d.r)
+	c.req.requests = append(c.req.requests, d.r)
 	c.req.mu.Unlock()
 	return &d
 }
 
-// Finish releases what the request copies hold. The server calls it once the request is done.
+// Finish releases the multipart files the request and its copies hold. The server calls it once the request is done.
 func Finish(c *Ctx) error {
 	c.req.mu.Lock()
 	defer c.req.mu.Unlock()
 	var errs []error
-	for _, r := range c.req.copies {
+	for _, r := range c.req.requests {
 		if r.MultipartForm != nil {
 			errs = append(errs, r.MultipartForm.RemoveAll())
 		}
@@ -122,7 +124,7 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 	c.req.mu.Lock()
 	defer c.req.mu.Unlock()
 	c.req.orig.Body = body
-	for _, r := range c.req.copies {
+	for _, r := range c.req.requests {
 		r.Body = body
 	}
 	c.r.Body = body

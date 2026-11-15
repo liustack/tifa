@@ -19,6 +19,7 @@
 
 ### 变更
 
+- 没有匹配任何路由、且最后一段带文件扩展名（`/wp-login.php`）或者有一段以点开头（`/.env`、`/.git/config`）的 URL，现在得到和 `/assets/` 下缺失文件一样的纯文本 404，不跑 `Load`、不渲染，以前是 404 页面。扫描器会成百上千地请求这类路径。路由能匹配的 URL（包括 catch-all 路由）和导航数据请求不受影响，`/.well-known/` 下的路由或公共文件也不受影响，`OnRequest` 照常运行（见 [404](docs/app.zh-CN.md#404)）。
 - 服务端渲染的 `URL` 和 `URLSearchParams` 改由引擎提供，在 Go 里解析 URL，取代宿主脚本里带的 core-js polyfill，宿主脚本因此变小，每个 VM 占的内存变少。有多语言的网站，路由每写一个链接就建一个 `URL`，这些页面渲染更快，HTML 不变：在 AMD EPYC 7B13 的一个核上，示例商店的三个店面页面用时是原来的 0.703，六个工作台页面是 0.886。没有多语言的网站渲染时不建 `URL`，没有提升。页面能看到的变化有三处，都和浏览器一致：`URL` 对象没有自有属性，违反 UTS 46 Bidi 规则的主机名无效，无效的 URL 抛 `TypeError: Failed to construct 'URL': Invalid URL`。没有了 `URL.createObjectURL` 和 `URL.revokeObjectURL`（这里没有 `Blob`）（[服务端渲染时有什么](docs/app.zh-CN.md#服务端渲染时有什么)）。
 - 示例商店的店面卖 150 件商品，原来是 28 件。新加的是前 28 件换了颜色和名字的款，和原款共用照片：商品在数据里写明照片所在的文件夹（`photo`），页面从那里取图，不再按 slug 取。商品放在一个文件里，`app/store/products/catalogue.json`，商店把它打包进程序，对比用的应用也读这个文件。商品列表有 7 页，每种语言有 150 个商品页。
 - 从 v0.0.4 升级：带 `const Cache` 的页面不再存在程序里。它的 `Load` 每个请求都跑，数据没变时渲染记忆省掉渲染，所以源站从不给出旧数据。页面保留匿名请求和构建检查，HTML 仍带 `Cache-Control: public, max-age=0, s-maxage=<秒数>, stale-if-error=86400` 给前面的 CDN 用，除非 `OnRequest`、`Load` 或 `Layout` 把它设成私有。`SSR = false` 又带 `Cache` 的页面不再有 ETag。`Cache` 现在可以是 `true`、`false` 或一个时长：`const Cache = true` 的时间取自新配置 `cache_control.s_maxage`（默认 `1m`，`--cache-control-s-maxage`，`CACHE_CONTROL_S_MAXAGE`），写时长仍是这个页面自己的时间。删除了 `cache.whole_page`、`cache.ignore_query`（连同 `--cache-whole-page`、`--cache-ignore-query` 和对应的环境变量）、`tifa.ExpirePages`（改在 CDN 里清除，Tifa 没有要让它过期的副本），以及这类页面的 `Age` 和 `Cache-Status` 响应头。改名，不留旧名：渲染缓存叫渲染记忆。`RenderCache = false` 改成 `Memo = false`，`cache.size` 改成 `ssr.memo_size`（`--cache-size` 和 `CACHE_SIZE` 改成 `--ssr-memo-size` 和 `SSR_MEMO_SIZE`），`tifa.Stats().RenderCache` 改成 `tifa.Stats().Memo`（`CacheBytes` 和 `CacheSize` 改成 `MemoBytes` 和 `MemoSize`，类型 `CacheStats` 改成 `MemoStats`，`PageCache` 删除），`X-Tifa-Render: cache` 改成 `X-Tifa-Render: memo`，`docs/render-cache.zh-CN.md` 改成 [docs/memo.zh-CN.md](docs/memo.zh-CN.md)旧名字会报错，不会悄悄用默认值：`route.go` 里写 `RenderCache` 会构建失败，`cache.size`、`cache.whole_page` 和 `cache.ignore_query` 会让程序启动失败（写在 `tifa.yaml` 里则是 `tifa build` 失败），不论它们来自文件、参数还是环境变量。带 `Cache` 的页面的 `Load` 返回的重定向也带共享策略（[给 CDN 用的 Cache](docs/app.zh-CN.md#给-cdn-用的-cache)、[渲染记忆](docs/memo.zh-CN.md)）。
@@ -53,6 +54,9 @@
 
 ### 修复
 
+- 客户端中途离开不再被当成应用的错误。请求自己的 context 被取消时，`Memo = false` 的页面等 VM、`Load` 返回 `context.Canceled`、往已关闭的连接写数据这几种情况不再进 `OnError` 和错误日志。客户端还在时来自别处的 `context.Canceled` 仍然是错误。
+- 超过 32 MiB 的 multipart 上传，如果请求是 net/http 所给请求的副本（有多语言的站点，或者外面套了调用 `r.WithContext` 的中间件），临时文件会留在临时目录里。现在请求结束时一律删除，不管表单是在哪个请求上读的。
+- 回答写出一部分后函数出错，比如流式回复中途失败或下载中途停下，连接以前照常收尾：浏览器、`curl` 和反向代理都把截断的内容当成完整的。现在连接会被切断（HTTP/2 下重置该流），读的一方会得到错误。`OnError` 仍然只收到一次这个失败，日志行也还在。
 - 构建重新能改 seroval 1.8。seroval 1.8.0 把代码从 `dist/index.js` 挪到了旁边的文件里，插件找不到要改的两处，打印两次 `tifa rewrite not recognized: seroval 1.8.1`，新装依赖的应用写页面数据时走的是慢的那条路。现在插件在包加载的 seroval 的每个文件里找。
 - SSR 包写开的小函数调用，不再在调用先算的有副作用实参之前读变量、属性或全局对象上的名字。`function f(x) { return n + x }` 以 `f((n = 2, 0))` 调用时，写开后得 1，调用本该得 2。函数体里的 getter 也会跑在实参前面，或者在实参算之前就抛错。这样的调用现在保持原样：在最后一个有副作用的实参之前，函数体只能用参数、用 `===` 或 `!==` 比较，以及读模块里只赋值一次、调用时一定已经有值的名字（[前端产物](docs/build.zh-CN.md#前端产物)）。
 - 示例商店中文店面页头的搜索框搜的是中文列表（`/zh-CN/store/products?q=`），以前会跳到英文列表。

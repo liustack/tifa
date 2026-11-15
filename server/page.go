@@ -290,8 +290,7 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	// file server answers: a 404 page would cost the Loads of the root Layout and a render, for a
 	// script or an image that cannot show it.
 	if strings.HasPrefix(name, "assets/") && f.pages {
-		w.Header().Set("Cache-Control", "no-store")
-		http.Error(w, "404 page not found", http.StatusNotFound)
+		writePlainNotFound(w)
 		return true
 	}
 	return false
@@ -932,7 +931,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
-		if errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled) {
+		if clientLeft(c.Request(), err, false) {
 			return errClientGone
 		}
 		return renderFailed(c, err, failed)

@@ -457,6 +457,8 @@ export function Error({ error }: { error: unknown }) {
 
 The status code is 404 in all these cases, also after a navigation in the browser, whose data request answers with the data of the Layouts and status 404.
 
+An unmatched URL whose last segment has a file extension (a dot and 1 to 8 letters or digits at the end, such as `/wp-login.php`) or that has a segment starting with a dot (`/.env`, `/.git/config`, `/.well-known/missing`) gets no 404 page. It gets the plain text 404 that a missing file under `/assets/` gets, with no `Load` and no render, so the scanners that ask for such paths cost almost nothing. `OnRequest` still runs and sees `tifa.ErrNotFound` from `next`. A URL that a route matches is not affected, a catch-all route and a parameter that holds a dot (`/users/john.doe` for `/users/{name}`) included, and neither is a navigation data request. A route or a public file under `/.well-known/` keeps answering.
+
 To find the Layout of a URL that matches no page, Tifa compares the URL with the path of each Layout and page segment by segment, from the left. A literal segment beats a parameter, and a parameter beats the end of the path. The path that matches most wins, and a page counts as the Layout it is in. With these folders:
 
 ```text
