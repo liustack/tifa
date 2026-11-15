@@ -5,7 +5,7 @@ read_when:
   - 请求到达速度超过页面渲染速度，或者要设置渲染队列
   - 想知道 Tifa 渲染一个页面多快，和 C QuickJS、Node、Next.js、TanStack Start 或 React Router 比怎么样
   - 决定要不要关掉 `server.compress`，或者要改回答的压缩方式
-  - 升级 github.com/liustack/quickjs，确认渲染没有变慢
+  - 升级 github.com/liustack/slowjs，确认渲染没有变慢
 ---
 
 [English](performance.md) · 简体中文
@@ -35,7 +35,7 @@ quickjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎
 - **应用**：[examples/shop](../examples/shop/README.zh-CN.md) 的生产构建，React 19.3 和 TanStack Router，加 Tailwind CSS 和 shadcn/ui。工作台是六个页面：两家店各自的订单列表、一个订单、统计。店面是 14 个页面，两种语言各 7 个，用 i18next 翻译。有些表还渲染 MUI 测试应用（`test/apps/mui`）和 `test/apps/bench` 里不用 `Intl` 的页面。
 - **单次渲染**：一个热 VM 跑在一个核的一个线程上，另一个线程空着，渲染方式和 `test/ssr` 的 `BenchmarkShop` 相同。先热 256 次，再测 500 次（工作台）、300 次（店面）或 200 次（MUI），跑 5 轮，取每轮 P50 的中位数。
 - **Node**：Node 24.13.0 跑同一份 `ssr.js`，给同样的输入，跑在另一个空闲的核上，先热 600 次，再跑 5 轮、每轮 200 次。HTML 和 Tifa 的相同。
-- **C QuickJS**：QuickJS 2026-06-04，由 quickjs 的[引擎对比](https://github.com/liustack/quickjs/blob/main/docs/benchmarks.md)工具构建和运行，用同样的包。C 没有 `Intl`，要用的页面跑 FormatJS polyfill。
+- **C QuickJS**：QuickJS 2026-06-04，由 quickjs 的[引擎对比](https://github.com/liustack/slowjs/blob/main/docs/benchmarks.md)工具构建和运行，用同样的包。C 没有 `Intl`，要用的页面跑 FormatJS polyfill。
 - **完整请求**：构建出的 `bin/shop`，用 `SHOP_OPEN=1` 启动（否则工作台要登录），加 `--ssr-memo-size 0`，让每个页面请求都渲染（同时到的同一页请求即使这样也共用一次渲染，所以在途请求多时，渲染次数会少于请求数），用 [oha](https://github.com/hatoo/oha) 从别的核上压测。没有另外说明时页面以 gzip 发出。每一档先热几秒，再测 15 到 20 秒，跑两到三轮。
 
 ## 一个页面渲染多快

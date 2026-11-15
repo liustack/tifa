@@ -30,9 +30,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
-	"github.com/liustack/quickjs/intl"
-	quickjsurl "github.com/liustack/quickjs/url"
+	"github.com/liustack/slowjs"
+	"github.com/liustack/slowjs/intl"
+	slowjsurl "github.com/liustack/slowjs/url"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -250,14 +250,14 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	defer bytecode.Close()
 
-	bare, err := quickjs.NewVM()
+	bare, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bare.Close()
 	builtins := ssr.VMMemory(bare, true)
 
-	withIntl, err := quickjs.NewVM()
+	withIntl, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,11 +267,11 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	intlAdded := ssr.VMMemory(withIntl, true)
 	// Load registers the engine's URL before the bundle, and the host script takes its prototype.
-	if err := quickjsurl.Register(withIntl); err != nil {
+	if err := slowjsurl.Register(withIntl); err != nil {
 		t.Fatal(err)
 	}
 	urlAdded := ssr.VMMemory(withIntl, true)
-	if _, err := withIntl.Eval(string(host), quickjs.EvalGlobal); err != nil {
+	if _, err := withIntl.Eval(string(host), slowjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	hosted := ssr.VMMemory(withIntl, true)
@@ -297,7 +297,7 @@ func TestShopVMMemory(t *testing.T) {
 	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", bytecode.Len(), len(source))
 	columns := []struct {
 		name string
-		m    quickjs.MemoryUsage
+		m    slowjs.MemoryUsage
 	}{{"bare VM", builtins}, {"+ Intl", intlAdded}, {"+ URL", urlAdded}, {"+ host.js", hosted}, {"loaded bundle", loaded}, {"64 renders", used}, {"after GC", collected}}
 	var out strings.Builder
 	fmt.Fprintf(&out, "%-22s", "")
@@ -317,27 +317,27 @@ func TestShopVMMemory(t *testing.T) {
 
 var memoryRows = []struct {
 	name  string
-	value func(*quickjs.MemoryUsage) int64
+	value func(*slowjs.MemoryUsage) int64
 }{
-	{"malloc size", func(m *quickjs.MemoryUsage) int64 { return m.MallocSize }},
-	{"malloc count", func(m *quickjs.MemoryUsage) int64 { return m.MallocCount }},
-	{"memory used size", func(m *quickjs.MemoryUsage) int64 { return m.MemoryUsedSize }},
-	{"atoms", func(m *quickjs.MemoryUsage) int64 { return m.AtomCount }},
-	{"atom size", func(m *quickjs.MemoryUsage) int64 { return m.AtomSize }},
-	{"strings", func(m *quickjs.MemoryUsage) int64 { return m.StrCount }},
-	{"string size", func(m *quickjs.MemoryUsage) int64 { return m.StrSize }},
-	{"objects", func(m *quickjs.MemoryUsage) int64 { return m.ObjCount }},
-	{"object size", func(m *quickjs.MemoryUsage) int64 { return m.ObjSize }},
-	{"properties", func(m *quickjs.MemoryUsage) int64 { return m.PropCount }},
-	{"property size", func(m *quickjs.MemoryUsage) int64 { return m.PropSize }},
-	{"shapes", func(m *quickjs.MemoryUsage) int64 { return m.ShapeCount }},
-	{"shape size", func(m *quickjs.MemoryUsage) int64 { return m.ShapeSize }},
-	{"JS functions", func(m *quickjs.MemoryUsage) int64 { return m.JSFuncCount }},
-	{"JS function size", func(m *quickjs.MemoryUsage) int64 { return m.JSFuncSize }},
-	{"bytecode size", func(m *quickjs.MemoryUsage) int64 { return m.JSFuncCodeSize }},
-	{"pc2line size", func(m *quickjs.MemoryUsage) int64 { return m.JSFuncPC2LineSize }},
-	{"C functions", func(m *quickjs.MemoryUsage) int64 { return m.CFuncCount }},
-	{"arrays", func(m *quickjs.MemoryUsage) int64 { return m.ArrayCount }},
-	{"fast array elements", func(m *quickjs.MemoryUsage) int64 { return m.FastArrayElements }},
-	{"binary object size", func(m *quickjs.MemoryUsage) int64 { return m.BinaryObjectSize }},
+	{"malloc size", func(m *slowjs.MemoryUsage) int64 { return m.MallocSize }},
+	{"malloc count", func(m *slowjs.MemoryUsage) int64 { return m.MallocCount }},
+	{"memory used size", func(m *slowjs.MemoryUsage) int64 { return m.MemoryUsedSize }},
+	{"atoms", func(m *slowjs.MemoryUsage) int64 { return m.AtomCount }},
+	{"atom size", func(m *slowjs.MemoryUsage) int64 { return m.AtomSize }},
+	{"strings", func(m *slowjs.MemoryUsage) int64 { return m.StrCount }},
+	{"string size", func(m *slowjs.MemoryUsage) int64 { return m.StrSize }},
+	{"objects", func(m *slowjs.MemoryUsage) int64 { return m.ObjCount }},
+	{"object size", func(m *slowjs.MemoryUsage) int64 { return m.ObjSize }},
+	{"properties", func(m *slowjs.MemoryUsage) int64 { return m.PropCount }},
+	{"property size", func(m *slowjs.MemoryUsage) int64 { return m.PropSize }},
+	{"shapes", func(m *slowjs.MemoryUsage) int64 { return m.ShapeCount }},
+	{"shape size", func(m *slowjs.MemoryUsage) int64 { return m.ShapeSize }},
+	{"JS functions", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncCount }},
+	{"JS function size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncSize }},
+	{"bytecode size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncCodeSize }},
+	{"pc2line size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncPC2LineSize }},
+	{"C functions", func(m *slowjs.MemoryUsage) int64 { return m.CFuncCount }},
+	{"arrays", func(m *slowjs.MemoryUsage) int64 { return m.ArrayCount }},
+	{"fast array elements", func(m *slowjs.MemoryUsage) int64 { return m.FastArrayElements }},
+	{"binary object size", func(m *slowjs.MemoryUsage) int64 { return m.BinaryObjectSize }},
 }

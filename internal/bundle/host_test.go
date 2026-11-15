@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/liustack/quickjs"
-	quickjsurl "github.com/liustack/quickjs/url"
+	"github.com/liustack/slowjs"
+	slowjsurl "github.com/liustack/slowjs/url"
 )
 
 var hostDir = filepath.Join("..", "..", "js", "host")
@@ -63,13 +63,13 @@ func TestHostScriptFreesDeadAbortSignalsInOneCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 	// Every VM of the server has the engine's URL before the host script runs.
-	if err := quickjsurl.Register(vm); err != nil {
+	if err := slowjsurl.Register(vm); err != nil {
 		t.Fatal(err)
 	}
 	if err := evalModule(vm, string(script)+`
@@ -95,7 +95,7 @@ for (let i = 0; i < 16; i++) globalThis.signals.push(...render())
 		t.Fatal(err)
 	}
 	left := func() string {
-		value, err := vm.Eval("signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'", quickjs.EvalGlobal)
+		value, err := vm.Eval("signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'", slowjs.EvalGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
