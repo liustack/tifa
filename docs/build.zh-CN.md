@@ -166,7 +166,7 @@ tifa check [--dir 应用根目录]
 用一条命令跑完应用的全部检查，遇到第一个失败的步骤就停：
 
 1. `analyze`：`tifa build` 的静态分析。每处违反约定都按 `文件:行号: 原因` 打印。
-2. `generate`：和 `tifa build` 一样写出 `.tifa/`，让 TypeScript 这一步用到的类型是最新的。只有带页面的应用才会启动 Node。
+2. `generate`：和 `tifa build` 一样写出 `.tifa/`，让 TypeScript 这一步用到的类型是最新的。只有带页面的应用才会启动 Node。应用里有 `tifa dev` 或 `tifa build` 在跑时，`.tifa/` 的锁在它手里，文件由它保持最新，而构建写出的文件不是 `tifa dev` 要的那一份。所以这一步这时什么都不写，打印一行说明，后面的检查用它在内存里生成的文件继续。它从不等这把锁。
 3. `go vet ./...`
 4. `go test ./...`
 5. `typescript (tsc --noEmit)`：用应用自己装的 `typescript` 包里的 `tsc`，在应用根目录用 `node` 跑，读应用的 `tsconfig.json`。Tifa 按 Node 的方式找这个包：先在应用的 `node_modules`，再往上层目录找，也认 pnpm 的链接，所以 npm 和 pnpm 都行，也不会安装任何东西。没装 `typescript` 的应用在这一步失败，报错会提示运行包管理器的安装命令。没有页面的应用跳过这一步，打印 `typescript: skipped, the app has no pages (no Node needed)`。
@@ -189,7 +189,7 @@ tifa: check failed at go vet ./...: exit status 1
 tifa gen [--dir 应用根目录]
 ```
 
-跑静态分析并写出 `.tifa/`，也就是 `tifa check` 的前两步，不做构建。`tifa dev`、`tifa build` 和 `tifa check` 写的是同样的文件，所以只有在它们都还没跑过的地方才需要它，比如新克隆的项目：应用的 tsconfig 继承 `.tifa/tsconfig.json`，路由的类型也在 `.tifa/` 里。违反约定时它和构建一样失败。只有带页面的应用才会启动 Node。
+跑静态分析并写出 `.tifa/`，也就是 `tifa check` 的前两步，不做构建。`tifa dev` 和 `tifa build` 也会写它，所以只有在它们都还没跑过的地方才需要它，比如新克隆的项目：应用的 tsconfig 继承 `.tifa/tsconfig.json`，路由的类型也在 `.tifa/` 里。违反约定时它和构建一样失败。只有带页面的应用才会启动 Node。应用里有 `tifa dev` 或 `tifa build` 在跑时，`tifa gen` 不动 `.tifa/`：打印一行说明正在跑的命令会让它保持最新，然后成功退出，所以不会让安装失败。
 
 `tifa new` 写出的 `package.json` 在安装时跑它：
 

@@ -166,7 +166,7 @@ tifa check [--dir app-root]
 Runs every check of the app with one command and stops at the first step that fails:
 
 1. `analyze`: the static analysis of `tifa build`. Each convention violation is printed as `file:line: reason`.
-2. `generate`: writes `.tifa/`, as `tifa build` does, so the types the TypeScript step needs are current. It starts Node only for an app with pages.
+2. `generate`: writes `.tifa/`, as `tifa build` does, so the types the TypeScript step needs are current. It starts Node only for an app with pages. While a `tifa dev` or `tifa build` runs in the app, it holds the lock of `.tifa/` and keeps the files up to date, and the files of a build are not the ones `tifa dev` needs. So this step writes nothing then and prints a line that says so, and the checks go on with the files it generated in memory. It never waits for the lock.
 3. `go vet ./...`
 4. `go test ./...`
 5. `typescript (tsc --noEmit)`: the `tsc` of the `typescript` package the app installs, run with `node` in the app root, with the `tsconfig.json` of the app. Tifa finds the package the way Node does, in `node_modules` of the app or of a folder above it and behind the links of pnpm, so it works with npm and pnpm and installs nothing. An app that does not install `typescript` fails here and is told to run the install of its package manager. An app without pages skips this step and prints `typescript: skipped, the app has no pages (no Node needed)`.
@@ -189,7 +189,7 @@ tifa: check failed at go vet ./...: exit status 1
 tifa gen [--dir app-root]
 ```
 
-Runs the analysis and writes `.tifa/`, the first two steps of `tifa check`, and builds nothing. `tifa dev`, `tifa build` and `tifa check` write the same files, so you need it only where none of them has run yet, such as a fresh clone: the tsconfig of the app extends `.tifa/tsconfig.json`, and the types of the routes are in `.tifa/`. A convention violation fails it as it fails the build. It starts Node only for an app with pages.
+Runs the analysis and writes `.tifa/`, the first two steps of `tifa check`, and builds nothing. `tifa dev` and `tifa build` write it too, so you need it only where none of them has run yet, such as a fresh clone: the tsconfig of the app extends `.tifa/tsconfig.json`, and the types of the routes are in `.tifa/`. A convention violation fails it as it fails the build. It starts Node only for an app with pages. While a `tifa dev` or `tifa build` runs in the app, `tifa gen` leaves `.tifa/` alone: it prints one line that says the running command keeps it up to date and succeeds, so it never breaks an install.
 
 The `package.json` that `tifa new` writes runs it on install:
 

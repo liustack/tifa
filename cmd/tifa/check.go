@@ -56,9 +56,12 @@ func runCheck(cmd *cobra.Command, root string) error {
 		{"generate", func() error {
 			node := bundle.NewNode(root, stderr)
 			defer node.Close()
-			files, err := generateApp(root, manifest, node)
+			files, busy, err := generateShared(root, manifest, node)
 			if err != nil {
 				return err
+			}
+			if busy != nil {
+				fmt.Fprintln(stdout, leftAlone(busy))
 			}
 			_, pages = files["client.ts"]
 			if err := node.Close(); err != nil {
