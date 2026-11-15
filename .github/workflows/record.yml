@@ -1,0 +1,108 @@
+# Records the traces of the browse comparison in a real browser, one job a trace. See "Recording
+# the traces on CI" in docs/testing.md. A trace is the list of what the browser asked for, so it
+# does not depend on how fast the runner is.
+name: record
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "record/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: record (${{ matrix.server }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [tifa, start, reactrouter, nextjs, nextjsnoprefetch]
+    env:
+      BROWSE_OUT: ${{ github.workspace }}/browse-out
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            examples/shop/pnpm-lock.yaml
+            test/compare/*/pnpm-lock.yaml
+
+      # The stamp of the traces names the installed versions of all three frameworks, so every
+      # job builds all four apps, not only the one it records.
+      - name: Build the shop and the three apps
+        run: test/compare/browse.sh build
+      - name: Write the plans
+        run: browse-out/compare plans -dir browse-out/traces -blocks 1
+      - name: Install the recorder and its browser
+        working-directory: test/compare/recorder
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Record
+        run: browse-out/compare record -dir browse-out/traces -skip-build -servers "${{ matrix.server }}" -workers 4
+      - name: Write what the trace is bound to
+        run: test/compare/browse.sh stamp > "browse-out/stamp-${{ matrix.server }}.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: trace-${{ matrix.server }}
+          if-no-files-found: error
+          path: |
+            browse-out/traces/${{ matrix.server }}.jsonl
+            browse-out/traces/plans.json
+            browse-out/stamp-${{ matrix.server }}.txt
+
+  # Puts the five traces in one folder, as BROWSE_TRACES takes it, after checking that every job
+  # recorded from the same sources and plans and that no visit failed.
+  collect:
+    name: collect
+    needs: record
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: parts
+      - name: Check and collect
+        run: |
+          set -euo pipefail
+          mkdir traces
+          first=
+          for dir in parts/trace-*; do
+            server=${dir#parts/trace-}
+            stamp=$dir/stamp-$server.txt
+            if grep -q '^dirty' "$stamp"; then echo "$server was recorded from sources with uncommitted changes" >&2; exit 1; fi
+            if [ -z "$first" ]; then
+              first=$stamp
+              cp "$stamp" traces/STAMP
+              cp "$dir/traces/plans.json" traces/plans.json
+            else
+              diff "$first" "$stamp" || { echo "$server was recorded from other sources than the first trace" >&2; exit 1; }
+              cmp "$dir/traces/plans.json" traces/plans.json || { echo "$server was recorded with other plans" >&2; exit 1; }
+            fi
+            if grep -q '"error"' "$dir/traces/$server.jsonl"; then echo "$server.jsonl has visits that failed to record" >&2; exit 1; fi
+            cp "$dir/traces/$server.jsonl" traces/
+          done
+          wc -l traces/*.jsonl
+          sha256sum traces/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: traces
+          if-no-files-found: error
+          path: traces
