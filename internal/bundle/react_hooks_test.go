@@ -3,7 +3,6 @@ package bundle
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,15 +29,15 @@ func hookWrappersOnNode(t *testing.T, sources []string) []hookWrappers {
 	}
 	script := `
 const plugin = await import(process.argv[1])
+const { text } = await import('node:stream/consumers')
 const { parseAst } = await import('vite')
-const out = JSON.parse(process.argv[2]).map((source) => {
+const out = JSON.parse(await text(process.stdin)).map((source) => {
   const r = plugin.reactHookWrappers(parseAst(source), source)
   return { Hooks: Object.fromEntries(r.hooks), Problems: r.problems }
 })
 process.stdout.write(JSON.stringify(out))
 `
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("reactHookWrappers: %v", err)
@@ -243,6 +242,7 @@ func dispatcherOnNode(t *testing.T, chunks []dispatcherChunk) []smallResult {
 	}
 	script := `
 const plugin = await import(process.argv[1])
+const { text } = await import('node:stream/consumers')
 const { parseAst } = await import('vite')
 const run = (code) => {
   try {
@@ -252,14 +252,13 @@ const run = (code) => {
     return 'throws ' + err.name + ': ' + err.message
   }
 }
-const out = JSON.parse(process.argv[2]).map(({ chunk, copies }) => {
+const out = JSON.parse(await text(process.stdin)).map(({ chunk, copies }) => {
   const r = plugin.callDispatchers(chunk, (code) => parseAst(code), copies.map((c) => ({ hooks: new Map(Object.entries(c.hooks)), required: c.required })))
   return { Code: r.code, Count: r.count, Before: run(chunk), After: run(r.code) }
 })
 process.stdout.write(JSON.stringify(out))
 `
-	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
-	cmd.Dir = testdata(t)
+	cmd := nodeWithInput(testdata(t), script, input, plugin)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("callDispatchers: %v", err)
@@ -387,5 +386,17 @@ function run() { return import_react.useRef(28); }
 				t.Errorf("the lines changed:\n%s", got.Code[len(c.prelude):])
 			}
 		})
+	}
+}
+
+// The sources go to node on its standard input: as an argument they are refused once they are
+// longer than the system takes, 128 KiB for one argument on Linux and 1 MiB for all on macOS,
+// and the cases of one test together are longer than the first.
+func TestHookWrappersTakeSourcesLongerThanAnArgument(t *testing.T) {
+	long := reactProduction(t) + "\n/*" + strings.Repeat("x", 2<<20) + "*/\n"
+	want := hookWrappersOnNode(t, []string{reactProduction(t)})[0]
+	got := hookWrappersOnNode(t, []string{long})[0]
+	if len(got.Hooks) == 0 || len(got.Hooks) != len(want.Hooks) || len(got.Problems) != 0 {
+		t.Errorf("%d hooks and problems %v, want %d hooks", len(got.Hooks), got.Problems, len(want.Hooks))
 	}
 }

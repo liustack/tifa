@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -134,4 +135,16 @@ func evalResultWith(t *testing.T, code string, setup func(*slowjs.VM)) string {
 		t.Fatal(err)
 	}
 	return value.(string)
+}
+
+// nodeWithInput is the command that runs a module script on node in dir, with args after the
+// script and input on its standard input, which the script reads with text(process.stdin) of
+// node:stream/consumers (readFileSync(0) fails with EAGAIN when the input is not all there yet).
+// Sources and other long texts go this way and not as an argument: Linux refuses an argument of
+// more than 128 KiB and macOS arguments of more than 1 MiB together ("argument list too long").
+func nodeWithInput(dir, script string, input []byte, args ...string) *exec.Cmd {
+	cmd := exec.Command("node", append([]string{"--input-type=module", "-e", script}, args...)...)
+	cmd.Dir = dir
+	cmd.Stdin = bytes.NewReader(input)
+	return cmd
 }
