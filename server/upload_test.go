@@ -308,3 +308,61 @@ func TestUploadTemporaryFilesAreRemoved(t *testing.T) {
 		}
 	}
 }
+
+// The temporary files go whichever request the form was parsed on. A site with languages hands the
+// route a copy of the request, and so does middleware around the server, so net/http, which only
+// cleans the request it made, never sees the form.
+func TestUploadTemporaryFilesAreRemovedFromCopiedRequests(t *testing.T) {
+	big := bytes.Repeat([]byte("x"), 33<<20) // over the 32 MiB a form keeps in memory
+	app := App{
+		I18n:   &I18n{Default: "en-US", Languages: []string{"en-US", "de"}},
+		Routes: []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(func(*tifa.Ctx, photoInput) error { return nil }, BindForm), BodyLimit: 64 << 20, Languages: []string{"en-US", "de"}}},
+	}
+	for _, tc := range []struct {
+		name       string
+		languages  bool
+		middleware bool
+	}{{"languages", true, false}, {"middleware", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("TMPDIR", dir)
+			a := app
+			if !tc.languages {
+				a.I18n = nil
+				a.Routes = []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(func(*tifa.Ctx, photoInput) error { return nil }, BindForm), BodyLimit: 64 << 20}}
+			}
+			s := newAppServer(t, a)
+			if tc.languages {
+				s.setI18n(a.I18n)
+			}
+			var h http.Handler = s
+			if tc.middleware {
+				h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.ServeHTTP(w, r.WithContext(r.Context())) })
+			}
+			srv := httptest.NewServer(h)
+			t.Cleanup(srv.Close)
+			body, contentType := multipartBody(t, "ok", "big.bin", big)
+			req, err := http.NewRequest("POST", srv.URL+"/photos", body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", contentType)
+			req.Header.Set("Origin", srv.URL)
+			res, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res.Body.Close()
+			if res.StatusCode != 204 {
+				t.Fatalf("status %d, want 204", res.StatusCode)
+			}
+			left := tempFiles(t, dir)
+			for deadline := time.Now().Add(2 * time.Second); len(left) > 0 && time.Now().Before(deadline); left = tempFiles(t, dir) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if len(left) > 0 {
+				t.Errorf("left %v", left)
+			}
+		})
+	}
+}
