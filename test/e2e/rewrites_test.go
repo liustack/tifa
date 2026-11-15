@@ -22,6 +22,7 @@ func TestBuildsRecognizeEveryRewrite(t *testing.T) {
 		{"shop", filepath.Join("examples", "shop")},
 		{"mui", filepath.Join("test", "apps", "mui")},
 		{"bench", filepath.Join("test", "apps", "bench")},
+		{"libs", filepath.Join("test", "apps", "libs")},
 	} {
 		t.Run(app.name, func(t *testing.T) {
 			_, output := buildWithOutput(t, filepath.Join(repoRoot(t), app.dir), os.Getenv("PATH"))

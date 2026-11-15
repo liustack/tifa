@@ -26,12 +26,6 @@
     "recharts": "2.15.4",
     "zustand": "5.1.0"
   },
-  "pnpm": {
-    "overrides": {
-      "seroval": "1.6.11",
-      "seroval-plugins": "1.6.11"
-    }
-  },
   "devDependencies": {
     "@types/d3-array": "3.2.2",
     "@types/d3-format": "3.0.4",

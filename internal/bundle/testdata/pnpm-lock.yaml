@@ -83,6 +83,9 @@ importers:
       seroval:
         specifier: 1.6.9
         version: 1.6.9
+      seroval-1-8-1:
+        specifier: npm:seroval@1.8.1
+        version: seroval@1.8.1
       uuid:
         specifier: 14.0.3
         version: 14.0.3
@@ -1182,6 +1185,10 @@ packages:
   seroval@1.6.9:
     resolution: {integrity: sha512-UeEzHwAK+yl0YLbsvROV1t5yMYEwZZ0CfKYxDvUgS2fO9Vxdf8djqVIB+OuVpuawRNPqw68LE1Du/GMsW2ZPqA==}
     engines: {node: '>=10'}
+
+  seroval@1.8.1:
+    resolution: {integrity: sha512-7z9x1flFYfZBz+LfDkXNfm5UIhZJ/97ASaV8Q1wctoVkeqVfv+tLPsWebeMXBNw6XprvwxDE5wC5Ylqmr+iSrA==}
+    engines: {node: '>=20'}
 
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
@@ -2435,6 +2442,8 @@ snapshots:
   serialize-javascript@7.1.2: {}
 
   seroval@1.6.9: {}
+
+  seroval@1.8.1: {}
 
   source-map-js@1.2.2: {}
 
