@@ -126,6 +126,7 @@ type Pool struct {
 	releasing  func(*pooledVM)   // test hook, runs with a VM held, before its free memory goes back (see trimIdle)
 	trimming   func()            // test hook, runs in trimIdle before it takes a VM
 	scanning   func()            // test hook, runs in grownIdle after it counted the idle VMs
+	closingVM  func(*pooledVM)   // test hook, runs in closeVM before the VM closes
 
 	// trimTimer runs trimIdle once a VM may have waited idleRelease. It is made on first use and
 	// armed under mu.
@@ -452,7 +453,7 @@ func (p *Pool) refill() {
 			return
 		default:
 		}
-		vm, err := loadVM(p)
+		vm, err := p.load()
 		if err == nil {
 			// Failure recovery closes the old VM first. Unlike a proactive swap,
 			// it must restore a slot whose VM can no longer serve requests.
@@ -513,6 +514,22 @@ func openVM(p *Pool) (*pooledVM, error) {
 	p.mu.Unlock()
 	// Load ended with a GC and set the threshold.
 	return &pooledVM{VM: vm, live: vm.MemorySize(), baseline: vm.MemorySize(), threshold: vm.GCThreshold()}, nil
+}
+
+// load loads a VM for refill and replaceGrown, which retry a Go panic, from the engine, as they
+// retry a load error.
+func (p *Pool) load() (vm *pooledVM, err error) {
+	defer recovered(&err)
+	return loadVM(p)
+}
+
+// recovered, deferred, turns a Go panic, from the engine, into the error *err. The pool loads,
+// collects and closes VMs on goroutines of its own, where a panic has no caller to go up to and
+// would end the process.
+func recovered(err *error) {
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("panic: %v", r)
+	}
 }
 
 // release puts vm back in the pool after a render it survived, through a goroutine that collects
@@ -671,11 +688,7 @@ func (p *Pool) armTrimAfter(d time.Duration) {
 // giveBack gives the free memory of vm back to the system. It returns a Go panic, from the engine,
 // as an error, as runGC does.
 func (p *Pool) giveBack(vm *pooledVM) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v", r)
-		}
-	}()
+	defer recovered(&err)
 	if p.releasing != nil {
 		p.releasing(vm)
 	}
@@ -784,7 +797,7 @@ func (p *Pool) replaceGrown() {
 		// after this point continue using the old VM while the load runs.
 		p.mu.Unlock()
 		var err error
-		fresh, err = loadVM(p)
+		fresh, err = p.load()
 		if err == nil {
 			continue
 		}
@@ -808,11 +821,7 @@ func (p *Pool) replaceGrown() {
 // from what is left, and the memory the VM holds free goes back to the system. runGC returns a Go panic, from the engine, as an error: in the goroutine of
 // collect it has no caller to go up to, and would end the process.
 func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v", r)
-		}
-	}()
+	defer recovered(&err)
 	if p.collecting != nil {
 		p.collecting(vm)
 	}
@@ -853,8 +862,16 @@ func gcThreshold(live, need, memory uintptr) uintptr {
 	return min(max(2*live, need), live/2+memory/2)
 }
 
+// closeVM closes vm. A Go panic, from the engine, counts as an error of closing it: Close returns
+// it, and vm counts as closed.
 func (p *Pool) closeVM(vm *pooledVM) {
-	err := vm.Close()
+	err := func() (err error) {
+		defer recovered(&err)
+		if p.closingVM != nil {
+			p.closingVM(vm)
+		}
+		return vm.Close()
+	}()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.counts.closed++

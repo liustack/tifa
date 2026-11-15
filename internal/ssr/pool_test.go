@@ -416,6 +416,63 @@ func TestFailedReplacementIsLoggedAndRetried(t *testing.T) {
 	}
 }
 
+// A Go panic while a replacement loads, as the engine raises for a fault, runs on a goroutine of
+// the pool with no caller to go up to. It is logged and retried as a load error is, and the
+// process goes on.
+func TestPanicInAReplacementIsLoggedAndRetried(t *testing.T) {
+	logs := make(chan string, 16)
+	defer captureLogs(func(msg string) {
+		select {
+		case logs <- msg:
+		default:
+		}
+	})()
+	defer swap(&retryDelay, time.Millisecond)()
+	p := newTestPool(t, testSource(t), testConfig(1))
+	var once sync.Once
+	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
+		once.Do(func() { panic("fault while loading") })
+		return openVM(p)
+	})()
+	if _, err := p.Render(context.Background(), input("throw", "")); err == nil {
+		t.Fatal("accepted")
+	}
+	if msg := <-logs; !strings.Contains(msg, "could not replace a VM") || !strings.Contains(msg, "panic: fault while loading") {
+		t.Fatalf("unexpected log %q", msg)
+	}
+	html, err := p.Render(context.Background(), input("ok", ""))
+	if err != nil || !strings.Contains(html, `data-renders="1"`) {
+		t.Fatalf("pool did not recover: %s, %v", html, err)
+	}
+	if s := p.stats(); s.created != 2 || s.closed != 1 {
+		t.Fatalf("want one VM replaced, got %+v", s)
+	}
+}
+
+// A Go panic while the pool closes a VM it retired counts as an error of closing it: the VM counts
+// as closed, its replacement loads, and Close returns the panic.
+func TestPanicClosingAVMIsAnErrorOfClose(t *testing.T) {
+	p, err := NewPool(testSource(t), nil, testConfig(1), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	p.closingVM = func(*pooledVM) { once.Do(func() { panic("fault while closing") }) }
+	if _, err := p.Render(context.Background(), input("throw", "")); err == nil {
+		t.Fatal("accepted")
+	}
+	html, err := p.Render(context.Background(), input("ok", ""))
+	if err != nil || !strings.Contains(html, `data-renders="1"`) {
+		t.Fatalf("pool did not recover: %s, %v", html, err)
+	}
+	if err := p.Close(); err == nil || !strings.Contains(err.Error(), "panic: fault while closing") {
+		t.Fatalf("Close returned %v, want the panic", err)
+	}
+	if s := p.stats(); s.created != 2 || s.closed != 2 {
+		t.Fatalf("want two VMs made and closed, got %+v", s)
+	}
+}
+
 // Close stops a replacement that keeps failing instead of waiting for it forever.
 func TestCloseStopsRetryingReplacement(t *testing.T) {
 	logs := make(chan string, 16)

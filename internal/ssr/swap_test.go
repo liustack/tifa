@@ -250,6 +250,36 @@ func TestMemorySwapFailedLoadBacksOffAndLogsOnce(t *testing.T) {
 	}
 }
 
+// A Go panic while the spare loads is retried as a load error is, on the goroutine of the
+// replacement, and the process goes on.
+func TestMemorySwapPanicInLoadIsRetried(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	defer swap(&retryDelay, time.Millisecond)()
+	messages := make(chan string, 8)
+	defer captureLogs(func(msg string) {
+		select {
+		case messages <- msg:
+		default:
+		}
+	})()
+	var once sync.Once
+	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
+		once.Do(func() { panic("fault while loading") })
+		return openVM(p)
+	})()
+	defer p.Close()
+	leakRender(t, p)
+	select {
+	case msg := <-messages:
+		if !strings.Contains(msg, "panic: fault while loading") {
+			t.Fatal(msg)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no failure log")
+	}
+	waitReplacements(t, p, 1)
+}
+
 func TestMemorySwapManyVMsLoadOneAtATime(t *testing.T) {
 	p := newTestPool(t, leakSource, testConfig(3))
 	entered := make(chan struct{}, 3)

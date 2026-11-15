@@ -68,6 +68,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - The 308 the server sends for another spelling of a URL (`/%6Eews?utm_source=mail&page=2`, `/news/?page=2`) keeps the query parameters the render did not see. The render memo also keeps the redirect for each spelling of the parameters it saw, and every request gets its own parameters back.
 - On a site with languages, a page opened with a query the router spells another way, such as `?q=a%20b`, `?next=%2Fa` or a key given twice around another, no longer asks for its data again right after it hydrates, and under a language prefix keeps that spelling in the address bar. The router replaced it with its own (`?q=a+b`, `?next=/a`). A site without languages never did either. A URL that differs in its path still goes to the router's own.
 - A page with `SSR = false` opened with a key given twice around another (`?x=1&y=2&x=3`) takes its first data from the document again. It asked the server for that data once more, with one language or several.
+- A Go panic while the server loads a new VM in the background, or closes one, no longer ends the process. The engine turns a fault into a panic. A load is now retried as a failed load is, and a close counts as a failed close, which shutdown reports.
 
 ## [0.0.4] - 2026-11-05
 
