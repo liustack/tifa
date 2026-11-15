@@ -13,3 +13,13 @@ export const LanguageContext = createContext('')
 export function useLanguage(): string {
   return useContext(LanguageContext)
 }
+
+// toLanguage puts the i18next instance of tifa/i18n in a language. tifa/i18n sets it when the app
+// imports it, and it is unset otherwise. The runtime calls it with the language of the page before
+// any code of the app runs for that page: the head functions of the routes run before React
+// reaches I18nProvider, and one VM renders one language after another.
+export let toLanguage: ((language: string) => void) | undefined
+
+export function setToLanguage(f: (language: string) => void) {
+  toLanguage = f
+}

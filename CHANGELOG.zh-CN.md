@@ -51,6 +51,7 @@
 - 页面的服务端渲染只看到路径和它的 `Load` 及上面各层 Layout 读的查询参数，按名字排序，渲染记忆和 ETag 也按这些来算。`utm_source`、`fbclid` 或随机参数这类别的参数不再多出一个记忆条目、多渲染一次，参数换个顺序也还是同一个页面。地址栏保留每个参数和它的值，`OnRequest`、各个 `Load` 和导航数据看到的仍是完整的 URL。升级时注意：组件渲染时读了没有 `Load` 读的参数，服务端现在拿不到它，页面会水合不一致。把这个参数放到 `Load` 里读，组件里按名字读（[服务端渲染里的查询参数](docs/app.zh-CN.md#服务端渲染里的查询参数)）。
 - 服务端渲染写开更多小函数的调用，HTML 不变：函数体在 return 前有表达式语句或者有会 throw 的 if 的也写开，上限从 32 个语法节点提到 64 个。组件每调一次 hook，React DOM 都要跑几个这样的函数。一次渲染在示例商店的工作台页面少跑 0.66% 的指令，店面页面 0.29%，MUI 测试应用 0.77%。SSR bundle 大约大 0.6%，这样的函数抛出的错误显示调用处的位置，栈里少一帧。见[前端产物](docs/build.zh-CN.md#前端产物)。
 - 服务端渲染调用 React 的 hook 时少一次函数调用，HTML 不变。React 19 导出的每个 hook 都是一个只把实参转给 dispatcher 的函数，dispatcher 由 React DOM 在渲染时设好，现在 SSR bundle 直接调用 dispatcher：`React.useRef(v)` 变成 `React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H.useRef(v)`。哪些 hook 是这种写法，插件从 React 的 `react.production.js` 里读出来，文件换了写法时打印警告，什么都不改。一次渲染在示例商店的工作台页面少跑 0.28% 的指令，店面页面 0.24%，MUI 测试应用 0.44%。SSR bundle 大约大 2% 到 3%，在渲染之外调用 hook 时抛出同样的 `TypeError`，只是在实参算出来之前。见[前端产物](docs/build.zh-CN.md#前端产物)。
+- `ssr.vms` 默认是进程能用的 CPU 数，最多 4，不再是有几个 CPU 就几个 VM。只限内存、不限 CPU 的容器看到的是宿主机的全部 CPU，以前会给每个 CPU 加载一个 VM。CPU 多于 4 个、还想要每个 CPU 一个 VM 的应用，自己设，比如 `ssr.vms: 8` 或 `SSR_VMS=8`。应用自己设的值原样使用。
 
 ### 修复
 
@@ -76,6 +77,9 @@
 - `tifa build`、`tifa gen` 和 `tifa check` 启动 Node 时把 Vite 驱动当文件交给它，不再作为 `node -e` 的参数，Windows 超过 32,767 个字符就拒绝这样的参数。
 - `tifa dev` 在它读过的文件变化时重新打包 SSR 包，不论文件类型，比如用 `?raw` 导入的 Markdown 或 YAML 文件。以前只有 `.ts`、`.tsx`、`.js`、`.jsx`、`.mjs`、`.css` 和 `.json` 文件变化才会重建，服务端渲染一直是旧文字，浏览器里却是新的（[改动触发什么](docs/dev.zh-CN.md#改动触发什么)）。
 - 全局安装的 `tifa` 把命令交给应用锁定的版本时，现在按你输入命令的目录读相对路径的 `--dir` 和 `-o`。以前它们按应用根目录读，所以在上一级目录运行 `tifa build --dir apps/shop` 会失败，`-o bin/x` 会写进应用里。
+- 服务器在后台加载新 VM 或关闭 VM 时出现的 Go panic 不再让整个进程退出。引擎会把故障变成 panic。现在加载时的 panic 和加载失败一样重试，关闭时的 panic 算作关闭失败，关停时报告出来。
+- `FinalizationRegistry` 回调紧接着排它进队列的那次渲染间回收就跑，受一次渲染的时间预算和内存上限约束，不再跑到下一个请求的渲染里（回调抛错会让那个无关的请求失败）。回调抛错或超时，现在退役它的 VM 并记日志。打包代码顶层注册的回调在 VM 加载时就跑。
+- 路由 `head` 里用 `tifa/i18n` 的 `i18n.t` 翻译，得到的是页面的语言。以前在服务器上它用的是这台 VM 上一次渲染的语言，新 VM 里没有语言，给出的是键，渲染记忆还会把这个标题留住。在浏览器里，页面水合后标题会变成键。
 
 ## [0.0.4] - 2026-11-05
 

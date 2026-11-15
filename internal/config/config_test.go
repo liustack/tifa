@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,23 @@ ssr:
 	for _, check := range checks {
 		if check.got != check.want {
 			t.Errorf("%s layer: got %v, want %v", check.name, check.got, check.want)
+		}
+	}
+}
+
+// ssr.vms defaults to the CPUs the process may use, at most 4, so that a container with a memory
+// limit and no CPU limit on a large host does not start a VM for each CPU of the host. A value the
+// app sets is used as it is, also above 4.
+func TestSSRVMsDefaultsToTheCPUsUpToFour(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
+	for procs, want := range map[int]int{1: 1, 2: 2, 4: 4, 8: 4, 32: 4} {
+		runtime.GOMAXPROCS(procs)
+		if got := Default().SSR.VMs; got != want {
+			t.Errorf("GOMAXPROCS %d: ssr.vms defaults to %d, want %d", procs, got, want)
+		}
+		c, err := load(t, []string{"--ssr-vms", "16"}, nil, "", "")
+		if err != nil || c.SSR.VMs != 16 {
+			t.Errorf("GOMAXPROCS %d: --ssr-vms 16 gave %d, %v", procs, c.SSR.VMs, err)
 		}
 	}
 }

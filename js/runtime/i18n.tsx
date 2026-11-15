@@ -8,6 +8,7 @@ import i18next from 'i18next'
 import { I18nextProvider } from 'react-i18next'
 import locales from 'virtual:tifa-locales'
 import { useLanguage } from './client'
+import { setToLanguage } from './language'
 
 export { Trans, useTranslation } from 'react-i18next'
 
@@ -37,11 +38,20 @@ i18n.init({
   interpolation: { escapeValue: false },
 })
 
+// switchTo puts the instance in language. With every string bundled the switch is done when
+// changeLanguage returns.
+function switchTo(language: string) {
+  if (i18n.language !== language) void i18n.changeLanguage(language)
+}
+
+// The runtime switches the instance before the routes load, so that a head function translates
+// in the language of its page too.
+setToLanguage(switchTo)
+
 // I18nProvider gives its children the instance in the language of the page, for useTranslation.
 // A server render switches it to that language. In the browser a document has one language, since
 // a page in another language is another document, so it switches once.
 export function I18nProvider({ children }: { children?: ReactNode }) {
-  const language = useLanguage()
-  if (i18n.language !== language) void i18n.changeLanguage(language)
+  switchTo(useLanguage())
   return <I18nextProvider i18n={i18n}>{children}</I18nextProvider>
 }

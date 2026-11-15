@@ -39,7 +39,7 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - 在它存数据的目录里运行。`tifa new` 模板里 `app.db` 这样的相对路径（设置 `db.path`）按工作目录解析。备份这个目录，或者在容器里挂载它。
 - SIGINT 和 SIGTERM 会让它优雅退出：不再接新连接，处理中的请求有 `server.shutdown_timeout` 的时间做完，然后运行 `OnShutdown`。没有自己终点的推流（比如 server-sent events）只要看着 `tifa.ShuttingDown`，就会立刻返回（见[流式输出](guides/streaming.zh-CN.md#程序停下时)）。systemd unit 或容器只需要可执行文件、环境变量和一个能写的数据目录。
 - `FROM scratch` 的容器可以用。程序里带着渲染需要的时区数据。
-- 机器大小参考[性能](performance.zh-CN.md#机器怎么配)。`ssr.vms` 在容器里跟着 CPU 限额走。
+- 机器大小参考[性能](performance.zh-CN.md#机器怎么配)。`ssr.vms` 在容器里跟着 CPU 限额走，最多 4 个 VM。CPU 更多时自己设。
 
 ## 重启时不丢请求
 

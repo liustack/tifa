@@ -181,13 +181,18 @@ const MaxVMStackDepth = 10000
 // DefaultAddr is where a built app and tifa dev listen unless told otherwise.
 const DefaultAddr = "127.0.0.1:9527"
 
-// Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
+// maxDefaultVMs is the most VMs ssr.vms gives by default. Each VM takes memory, and a container
+// with a memory limit and no CPU limit sees every CPU of its host. An app that wants more sets it.
+const maxDefaultVMs = 4
+
+// Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container
+// CPU limits, up to maxDefaultVMs.
 func Default() Config {
 	return Config{
 		Build:        Build{Target: "es2020", Public: "public", I18nextCache: true},
 		I18n:         I18n{Prefix: "off"},
 		Server:       Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
-		SSR:          SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
+		SSR:          SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
 		CacheControl: CacheControl{SMaxage: time.Minute},
 		Session:      Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
@@ -233,7 +238,7 @@ func fields(c *Config) []field {
 		{"server.csp_policy", "The Content-Security-Policy of server.csp, to which pages add the hashes of their inline scripts", policyValue{&c.Server.CSPPolicy}},
 		{"server.trusted_origins", "Comma-separated origins whose pages may send cross-site writes, such as https://admin.example.com", originsValue{&c.Server.TrustedOrigins}},
 		{"server.cross_site_paths", "Comma-separated path patterns, such as POST /auth/callback, that accept cross-site writes", patternsValue{&c.Server.CrossSitePaths}},
-		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
+		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers), at most 4", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,
 			why: "the engine does not nest calls deeper"}},

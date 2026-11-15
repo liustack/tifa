@@ -186,7 +186,7 @@ The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `
 
 ### CPU and `ssr.vms`
 
-- Leave [`ssr.vms`](config.md#settings) at its default, the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit.
+- [`ssr.vms`](config.md#settings) defaults to the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit, at most 4: 1, 2, 4 and 4 VMs on 1, 2, 4 and 8 CPUs. Up to 4 CPUs leave it. On more CPUs, set it to the CPU count, such as `--ssr-vms 8` or `SSR_VMS=8`, when the memory allows (see [Memory](#memory)).
 - Plan on about 42 page requests a second per physical core for pages like the shop's workbench, about 24 ms of a core each with HTTP, measured with the render memo off ([how it scales](#how-it-scales-with-cores)). The storefront took about 29 ms a request, so about 34 a second, on 2026-10-24 before the redesign. Pages with a different render time scale with it.
 - A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.6 of a physical core per vCPU: 6 busy hyperthreads answered 153 requests a second, 26 per vCPU, against 42 on a physical core. Renders are then about 1.65 times slower: a P50 of 32.5 ms against 19.4 ms.
 - More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, with the shop's pages of 2026-10-24, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.

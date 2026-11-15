@@ -58,9 +58,10 @@ func i18nAdapterApp(t *testing.T, locales map[string]string) string {
 	t.Helper()
 	root := copyTestdata(t, "ssr", true)
 	files := map[string]string{
-		"i18n.tsx":          i18nAdapterPage,
-		"runtime/client.ts": "export function useLanguage(): string { return (globalThis as any).lang }\n",
-		"runtime/i18n.tsx":  readRuntime(t, "i18n.tsx"),
+		"i18n.tsx":             i18nAdapterPage,
+		"runtime/client.ts":    "export function useLanguage(): string { return (globalThis as any).lang }\n",
+		"runtime/i18n.tsx":     readRuntime(t, "i18n.tsx"),
+		"runtime/language.tsx": readRuntime(t, "language.tsx"),
 	}
 	for name, text := range locales {
 		files[name] = text

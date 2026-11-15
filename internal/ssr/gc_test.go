@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -362,6 +363,105 @@ func TestGCPanicReplacesTheVM(t *testing.T) {
 	p.collecting = nil
 	if _, err := p.Render(context.Background(), input("ok", "")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The callback of a FinalizationRegistry that the GC between renders queues runs before the VM
+// renders again, never in the render of the next request. One that throws fails no request: the
+// pool logs it and replaces the VM, as it does after a render that threw.
+func TestFinalizerRunsBetweenRenders(t *testing.T) {
+	logs := make(chan string, 10)
+	defer captureLogs(func(msg string) {
+		select {
+		case logs <- msg:
+		default:
+		}
+	})()
+	p := newTestPool(t, testSource(t), testConfig(1))
+	if _, err := p.Render(context.Background(), input("finalizer", "the first render")); err != nil {
+		t.Fatal(err)
+	}
+	html, err := p.Render(context.Background(), input("ok", ""))
+	if err != nil {
+		t.Fatalf("the next render: %v", err)
+	}
+	if !strings.Contains(html, `data-renders="1"`) {
+		t.Fatalf("the VM of the failed callback was reused: %s", html)
+	}
+	if msg := <-logs; !strings.Contains(msg, "FinalizationRegistry") || !strings.Contains(msg, "finalizer of the first render failed") {
+		t.Fatalf("logged %q", msg)
+	}
+	if s := p.stats(); s.created != 2 || s.closed != 1 {
+		t.Fatalf("want the VM replaced, got %+v", s)
+	}
+}
+
+// The callbacks run under the time budget of a render: one that loops is stopped, logged once, and
+// its VM replaced, and the next render does not wait for it.
+func TestFinalizerThatLoopsIsStopped(t *testing.T) {
+	var mu sync.Mutex
+	var logged []string
+	defer captureLogs(func(msg string) {
+		mu.Lock()
+		logged = append(logged, msg)
+		mu.Unlock()
+	})()
+	cfg := testConfig(1)
+	cfg.Timeout = 100 * time.Millisecond
+	p := newTestPool(t, testSource(t), cfg)
+	if _, err := p.Render(context.Background(), input("finalizer", "loop")); err != nil {
+		t.Fatal(err)
+	}
+	html, err := p.Render(context.Background(), input("ok", ""))
+	if err != nil {
+		t.Fatalf("the next render: %v", err)
+	}
+	if !strings.Contains(html, `data-renders="1"`) {
+		t.Fatalf("the VM of the stopped callback was reused: %s", html)
+	}
+	if s := p.stats(); s.created != 2 || s.closed != 1 {
+		t.Fatalf("want the VM replaced, got %+v", s)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(logged) != 1 || !strings.Contains(logged[0], "FinalizationRegistry") || !strings.Contains(logged[0], "interrupted") {
+		t.Fatalf("logged %q, want one line for the stopped callback", logged)
+	}
+}
+
+// A job a callback queues runs too, before the VM renders again, and the VM stays.
+func TestFinalizerJobsRunUntilNoneIsLeft(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	if _, err := p.Render(context.Background(), input("finalizer", "chain")); err != nil {
+		t.Fatal(err)
+	}
+	html, err := p.Render(context.Background(), input("finalized", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `<p>["callback","job"]</p>`; html != want {
+		t.Fatalf("the next render saw %s, want %s", html, want)
+	}
+	if s := p.stats(); s.created != 1 || s.closed != 0 {
+		t.Fatalf("want the VM kept, got %+v", s)
+	}
+}
+
+// A callback of a FinalizationRegistry that the GC at the end of Load queues runs in Load, and one
+// that throws fails it, as the top level code of the bundle does, and not the first render.
+func TestFinalizerOfTheBundleRunsInLoad(t *testing.T) {
+	// The registry stays: a registry that is garbage itself runs no callback.
+	source := `globalThis.registry = new FinalizationRegistry(() => { throw new Error('finalizer of the bundle failed') })
+{ const target = {}; target.self = target; registry.register(target) }
+globalThis.startRender = () => { globalThis.renderResult = '<p>ok</p>' }`
+	p, err := NewPool(source, nil, testConfig(1), false)
+	if err == nil {
+		_, renderErr := p.Render(context.Background(), Input{})
+		p.Close()
+		t.Fatalf("the pool loaded, and the first render returned %v", renderErr)
+	}
+	if !strings.Contains(err.Error(), "finalizer of the bundle failed") {
+		t.Fatalf("got %v", err)
 	}
 }
 

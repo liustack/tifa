@@ -6,7 +6,7 @@ import { SessionContext, settleSession, startSession, type Snapshot } from './se
 import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
-import { LanguageContext } from './language'
+import { LanguageContext, toLanguage } from './language'
 import { pageLinks, startAlternates } from './alternates'
 import { languageAt, makeRewrite } from './prefix'
 import { i18n } from '../i18n.gen'
@@ -66,6 +66,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
         language = dehydrated.language ?? ''
+        // The router runs the head functions of the routes after this, before React renders.
+        toLanguage?.(language)
         startAlternates(dehydrated.alternates, router, i18n)
         if (dehydrated.sessionKey !== undefined)
           shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
@@ -97,6 +99,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
   language = input.language ?? ''
+  toLanguage?.(language)
   syncHTMLAttributes([], htmlAttributes, language)
   if (input.sessionKey !== undefined)
     shown = startSession({ key: input.sessionKey, injected: input.session, buildId: () => buildId })

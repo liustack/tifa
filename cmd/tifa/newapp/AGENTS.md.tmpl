@@ -81,7 +81,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 ## Settings and data
 
-- `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See `docs/config.md`. A setting `server.addr` is also the flag `--server-addr` and the environment variable `SERVER_ADDR`, and the app defines its own options in `options.go` with `tifa.String`, `tifa.Int` and the like.
+- `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS, at most 4. See `docs/config.md`. A setting `server.addr` is also the flag `--server-addr` and the environment variable `SERVER_ADDR`, and the app defines its own options in `options.go` with `tifa.String`, `tifa.Int` and the like.
 - The database is `app.db`, or what the option `db.path` of `options.go` says (`DB_PATH`, `--db-path`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
 - Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. `go tool tifa errors` lists them too. A built app shows only the status and the public message.
 - Build and generated files: `docs/build.md`. `tifa dev`: `docs/dev.md`.

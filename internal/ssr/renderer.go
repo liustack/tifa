@@ -154,11 +154,29 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 	// back to the system: a VM of the pool may wait long for its first render, which takes it
 	// again.
 	vm.RunGC()
+	if err := runFinalizers(vm, timeout); err != nil {
+		return nil, errors.Join(err, vm.Close())
+	}
 	vm.SetGCThreshold(gcThreshold(vm.MemorySize(), 0, memory))
 	if _, err := vm.ReleaseMemory(0); err != nil {
 		return nil, errors.Join(err, vm.Close())
 	}
 	return vm, nil
+}
+
+// runFinalizers runs the jobs a GC outside a render queued: the callbacks of a FinalizationRegistry
+// whose targets it freed. The GC runs no JavaScript, and they would otherwise run in the next
+// render. They are app code, so they run under a time budget of their own, timeout, and the
+// memory limit of the VM, and until no job is left, the jobs they queue included. A callback that
+// throws, or runs out of time or memory, is an error.
+func runFinalizers(vm *VM, timeout time.Duration) error {
+	if err := vm.SetEvalTimeout(timeout); err != nil {
+		return err
+	}
+	if _, err := vm.ExecutePendingJobs(); err != nil {
+		return fmt.Errorf("ssr: FinalizationRegistry callback: %w", err)
+	}
+	return nil
 }
 
 // intlCheck is what tifa dev runs on each VM to find the Intl calls that use the defaults.
