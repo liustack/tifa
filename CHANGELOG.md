@@ -53,6 +53,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- A client that left in the middle of a request is no longer reported as an error of the app. When the request's own context was canceled, a page with `Memo = false` that waited for a VM, a `Load` that returned `context.Canceled`, and a write to a closed connection no longer reach `OnError` or the error log. A `context.Canceled` from somewhere else while the client is still there is still an error.
 - The temporary files of a multipart upload over 32 MiB stayed in the temp folder when the request was a copy of the one net/http made, as on a site with languages and behind a middleware that calls `r.WithContext`. They are now removed when the request ends, whichever request the form was read on.
 - An answer that failed after part of it was written, such as a streamed reply that broke off or a download that stopped, used to end as if it were whole: the browser, `curl` and any proxy took the cut-off body for complete. The connection is now cut (reset over HTTP/2), so the reader gets an error. `OnError` still hears of the failure once, and the log line stays.
 - The build changes seroval 1.8 again. seroval 1.8.0 moved its code out of `dist/index.js` into files beside it, so the plugin no longer found the two places it changes, printed `tifa rewrite not recognized: seroval 1.8.1` twice, and an app with newly installed packages wrote the data of its pages the slow way. The plugin now looks in every file of seroval that the bundle loads.

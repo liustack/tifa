@@ -932,7 +932,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
-		if errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled) {
+		if clientLeft(c.Request(), err, false) {
 			return errClientGone
 		}
 		return renderFailed(c, err, failed)

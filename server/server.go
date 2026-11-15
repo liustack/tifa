@@ -324,9 +324,6 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 	if !anon {
 		err = core.AttachSession(c, s.sessionEnv())
 	}
-	if err != nil && errors.Is(err, context.Canceled) && r.Context().Err() != nil {
-		err = errClientGone
-	}
 	switch {
 	case err != nil:
 	case s.hooks.OnRequest == nil:
@@ -349,6 +346,9 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 		}
 	}
 	if err != nil {
+		if clientLeft(r, err, tw.wrote) {
+			err = errClientGone
+		}
 		page = page && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
 		s.fail(c, tw, err, page)
 	}
@@ -995,4 +995,16 @@ func (s *server) liftDeadlines(w http.ResponseWriter, r *http.Request, read time
 	if err != nil {
 		core.Logger().WarnContext(r.Context(), "tifa: the ReadTimeout of the route could not be set, the request keeps server.read_timeout", "method", r.Method, "path", r.URL.Path, "err", err)
 	}
+}
+
+// clientLeft reports whether err comes from a client that went away: the context of its request
+// was canceled, which net/http does when the connection closes, and either err is a
+// context.Canceled, or the answer was already on its way out and err is the write that failed. A
+// context.Canceled while the request is still alive comes from somewhere else and is an error of the
+// app. Such a request is cut off without OnError and without a log line (see errClientGone).
+func clientLeft(r *http.Request, err error, wrote bool) bool {
+	if !errors.Is(r.Context().Err(), context.Canceled) {
+		return false
+	}
+	return wrote || errors.Is(err, context.Canceled)
 }
