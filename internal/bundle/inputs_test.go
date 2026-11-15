@@ -310,3 +310,31 @@ func TestInputsNameTheLocaleFilesAddedSince(t *testing.T) {
 		t.Fatalf("changed %v, %v, want %v", changed, err, want)
 	}
 }
+
+// Dev says which files the SSR bundle read, whatever their type: a text file imported with ?raw is
+// one, and a file next to it that nothing imports is not.
+func TestDevReadsTheFilesOfTheSSRBundle(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/intro.md": "# Intro\n",
+		"app/page/notes.md": "# Notes\n",
+		"app/page/view.tsx": "import intro from './intro.md?raw'\nexport default function View() {\n  return <p>{intro}</p>\n}\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if d.Reads()("app/page/intro.md") {
+		t.Fatal("Reads names a file before the first build")
+	}
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	reads := d.Reads()
+	for rel, want := range map[string]bool{"app/page/view.tsx": true, "app/page/intro.md": true, "app/page/notes.md": false} {
+		if reads(rel) != want {
+			t.Errorf("Reads(%s) = %v, want %v", rel, !want, want)
+		}
+	}
+}

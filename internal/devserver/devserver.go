@@ -253,7 +253,11 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		// The watcher also keeps the public files in its snapshot, to see one appear or go.
 		public := o.Pipeline.Public()
 		d.public.Store(&public)
-		w.setEmbedded(func(rel string) bool { return embedded(rel) || inPublic(public, rel) })
+		w.setEmbedded(d.watchRules())
+	}
+	d.b.learnReads = func(reads func(string) bool) {
+		d.reads.Store(&reads)
+		w.setEmbedded(d.watchRules())
 	}
 	w.changes.setBuilding(true)
 	d.rebuild(ctx, everything, func() {})
@@ -264,7 +268,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
 		d.b.noteContent(batch)
-		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()), began)
+		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()).or(planReads(batch, d.readsFile)), began)
 	})
 
 	d.mu.Lock()
@@ -355,6 +359,8 @@ type dev struct {
 	// public is the folder of static files as the last analysis that worked saw it. Nil before the
 	// first one.
 	public atomic.Pointer[string]
+	// reads says which files the last SSR bundle read, see Pipeline.Reads. Nil before the first.
+	reads atomic.Pointer[func(string) bool]
 	// browser keeps the errors pages reported since the last build started.
 	browser deverrors.BrowserErrors
 
@@ -389,6 +395,23 @@ func (d *dev) publicDir() string {
 func (d *dev) isEmbedded(rel string) bool {
 	embedded := d.embedded.Load()
 	return embedded != nil && (*embedded)(rel)
+}
+
+// readsFile reports whether the last SSR bundle read the file rel.
+func (d *dev) readsFile(rel string) bool {
+	reads := d.reads.Load()
+	return reads != nil && (*reads)(rel)
+}
+
+// watchRules returns the rule of the files the watcher keeps in its snapshot besides those of a
+// type plan knows, as the last analysis and the last bundle left them: the files the Go code
+// embeds, the public files, and the files the SSR bundle read. The watcher keeps those, and no
+// other file of the root.
+func (d *dev) watchRules() func(rel string) bool {
+	embedded, reads, public := d.embedded.Load(), d.reads.Load(), d.publicDir()
+	return func(rel string) bool {
+		return embedded != nil && (*embedded)(rel) || inPublic(public, rel) || reads != nil && (*reads)(rel)
+	}
 }
 
 // buildState returns the count of rebuilds started and a channel that is closed once the one that

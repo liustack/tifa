@@ -70,6 +70,7 @@
 - `SSR = false` 的页面，打开时同一个参数隔着别的参数出现两次（`?x=1&y=2&x=3`），首次加载重新用文档里带的数据。以前会再向服务器要一次，单语言和多语言都一样。
 - `tifa gen` 和 `tifa check` 不再弄坏正在跑的 `tifa dev`。它们像构建一样写 `.tifa/`，换掉了 `tifa dev` 的 `main.go` 和刷新客户端，下一次改 Go 代码后应用就起不来。现在应用里有 `tifa dev` 或 `tifa build` 在跑时，`tifa gen` 不动 `.tifa/`，只打印一行说明，`tifa check` 仍然检查应用，但不往 `.tifa/` 里写任何东西（见 [`tifa gen`](docs/build.zh-CN.md#tifa-gen)）。
 - `tifa build`、`tifa gen` 和 `tifa check` 启动 Node 时把 Vite 驱动当文件交给它，不再作为 `node -e` 的参数，Windows 超过 32,767 个字符就拒绝这样的参数。
+- `tifa dev` 在它读过的文件变化时重新打包 SSR 包，不论文件类型，比如用 `?raw` 导入的 Markdown 或 YAML 文件。以前只有 `.ts`、`.tsx`、`.js`、`.jsx`、`.mjs`、`.css` 和 `.json` 文件变化才会重建，服务端渲染一直是旧文字，浏览器里却是新的（[改动触发什么](docs/dev.zh-CN.md#改动触发什么)）。
 
 ## [0.0.4] - 2026-11-05
 

@@ -119,3 +119,27 @@ func TestPlanWithoutPages(t *testing.T) {
 		})
 	}
 }
+
+// A file the SSR bundle read is an input of it, whatever its name: a Markdown file imported with
+// ?raw needs a new bundle when it changes, and a file of the same kind that nothing imports does not.
+func TestRunBundlesWhenAFileTheBundleReadChanges(t *testing.T) {
+	d := startDev(t, "", func(p *buildPipeline) {
+		p.reads = func(rel string) bool { return rel == "app/intro.md" }
+	})
+	d.waitVersionAfter(t, "")
+	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+
+	writeFile(t, d.dir, "app/intro.md", "# Intro")
+	waitSteps(t, d.p, "Bundle")
+	writeFile(t, d.dir, "app/intro.md", "# Intro edited")
+	waitSteps(t, d.p, "Bundle")
+
+	writeFile(t, d.dir, "app/notes.md", "# Notes")
+	time.Sleep(300 * time.Millisecond)
+	expectSteps(t, d.p)
+
+	if err := os.Remove(filepath.Join(d.dir, "app", "intro.md")); err != nil {
+		t.Fatal(err)
+	}
+	waitSteps(t, d.p, "Bundle")
+}

@@ -53,11 +53,6 @@ func writeInputs(root, dist, public string, modules []string, incomplete string)
 	if public, err = filepath.Abs(public); err != nil {
 		return err
 	}
-	// Vite names modules by their real paths, such as /private/tmp/app for /tmp/app on macOS.
-	real, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
 	publicRel, err := filepath.Rel(root, public)
 	if err != nil {
 		return err
@@ -67,22 +62,11 @@ func writeInputs(root, dist, public string, modules []string, incomplete string)
 	if err != nil {
 		return err
 	}
-	for _, m := range modules {
-		file := filepath.FromSlash(m)
-		if !filepath.IsAbs(file) {
-			return fmt.Errorf("the build read %s, which is not an absolute path", m)
-		}
-		rel, ok := under(real, file)
-		if !ok {
-			if rel, ok = under(root, file); !ok {
-				continue // outside the root
-			}
-		}
-		// Directories, which a plugin may watch, and files gone since have no hash.
-		if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() {
-			paths = append(paths, filepath.ToSlash(rel))
-		}
+	read, err := moduleFiles(root, modules)
+	if err != nil {
+		return err
 	}
+	paths = append(paths, read...)
 	for _, p := range paths {
 		if in.Files[p], err = fileHash(filepath.Join(root, filepath.FromSlash(p))); err != nil {
 			return err
@@ -93,6 +77,34 @@ func writeInputs(root, dist, public string, modules []string, incomplete string)
 		return err
 	}
 	return os.WriteFile(filepath.Join(dist, InputsFile), append(data, '\n'), 0o644)
+}
+
+// moduleFiles returns the regular files among the absolute paths modules that lie in the app at
+// root, relative to it with forward slashes. It leaves out the paths outside the root, directories,
+// which a plugin may watch, and files gone since.
+func moduleFiles(root string, modules []string) ([]string, error) {
+	// Vite names modules by their real paths, such as /private/tmp/app for /tmp/app on macOS.
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, m := range modules {
+		file := filepath.FromSlash(m)
+		if !filepath.IsAbs(file) {
+			return nil, fmt.Errorf("the build read %s, which is not an absolute path", m)
+		}
+		rel, ok := under(real, file)
+		if !ok {
+			if rel, ok = under(root, file); !ok {
+				continue
+			}
+		}
+		if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() {
+			files = append(files, filepath.ToSlash(rel))
+		}
+	}
+	return files, nil
 }
 
 // incompleteInputs joins the reasons the driver gave for each build why the files it read are not

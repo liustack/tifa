@@ -70,6 +70,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - A page with `SSR = false` opened with a key given twice around another (`?x=1&y=2&x=3`) takes its first data from the document again. It asked the server for that data once more, with one language or several.
 - `tifa gen` and `tifa check` no longer break a running `tifa dev`. They wrote `.tifa/` as a build does, which replaced the `main.go` and the reload client of `tifa dev`, so the app did not start after the next Go change. While `tifa dev` or `tifa build` runs in the app, `tifa gen` now leaves `.tifa/` alone and prints one line saying so, and `tifa check` still checks the app but writes nothing into `.tifa/` (see [`tifa gen`](docs/build.md#tifa-gen)).
 - `tifa build`, `tifa gen` and `tifa check` start Node with the Vite driver as a file, no longer as an argument of `node -e`, which Windows refuses above 32,767 characters.
+- `tifa dev` builds the SSR bundle again when a file that it read changes, whatever the type, such as a Markdown or YAML file imported with `?raw`. It rebuilt only for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.css` and `.json` files, so the server render kept the old text while the browser showed the new one ([What each change triggers](docs/dev.md#what-each-change-triggers)).
 
 ## [0.0.4] - 2026-11-05
 
