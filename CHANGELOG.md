@@ -69,6 +69,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - On a site with languages, a page opened with a query the router spells another way, such as `?q=a%20b`, `?next=%2Fa` or a key given twice around another, no longer asks for its data again right after it hydrates, and under a language prefix keeps that spelling in the address bar. The router replaced it with its own (`?q=a+b`, `?next=/a`). A site without languages never did either. A URL that differs in its path still goes to the router's own.
 - A page with `SSR = false` opened with a key given twice around another (`?x=1&y=2&x=3`) takes its first data from the document again. It asked the server for that data once more, with one language or several.
 - `tifa gen` and `tifa check` no longer break a running `tifa dev`. They wrote `.tifa/` as a build does, which replaced the `main.go` and the reload client of `tifa dev`, so the app did not start after the next Go change. While `tifa dev` or `tifa build` runs in the app, `tifa gen` now leaves `.tifa/` alone and prints one line saying so, and `tifa check` still checks the app but writes nothing into `.tifa/` (see [`tifa gen`](docs/build.md#tifa-gen)).
+- `tifa build`, `tifa gen` and `tifa check` start Node with the Vite driver as a file, no longer as an argument of `node -e`, which Windows refuses above 32,767 characters.
 
 ## [0.0.4] - 2026-11-05
 
