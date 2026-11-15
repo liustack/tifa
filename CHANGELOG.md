@@ -71,6 +71,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - A page with `SSR = false` opened with a key given twice around another (`?x=1&y=2&x=3`) takes its first data from the document again. It asked the server for that data once more, with one language or several.
 - A Go panic while the server loads a new VM in the background, or closes one, no longer ends the process. The engine turns a fault into a panic. A load is now retried as a failed load is, and a close counts as a failed close, which shutdown reports.
 - A `FinalizationRegistry` callback runs right after the collection between renders that queued it, under the time budget and memory limit of a render, and no longer in the render of the next request, which a callback that threw made fail. One that throws or runs out of time now retires its VM and is logged. A callback of the bundle's own top level code runs when the VM loads.
+- `i18n.t` of `tifa/i18n` in the `head` of a route translates in the language of the page. On the server it used the language of the last page the VM rendered, or none in a fresh VM, which gave the key, and the render memo kept that title. In the browser the title became the key once the page hydrated.
 
 ## [0.0.4] - 2026-11-05
 

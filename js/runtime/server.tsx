@@ -4,7 +4,7 @@ import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { askedByLoad, createAppRouter } from './router'
 import { initialSnapshot, SessionContext, type SessionEnvelope } from './session'
-import { LanguageContext } from './language'
+import { LanguageContext, toLanguage } from './language'
 import { AlternatesContext } from './alternates'
 import { makeRewrite } from './prefix'
 import { i18n } from '../i18n.gen'
@@ -189,6 +189,9 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string, ...texts: string[]) => {
     const input: RenderInput = JSON.parse(json)
+    // The i18next instance is in the language of the last render of this VM until it switches here,
+    // before the router loads and runs the head functions of the routes.
+    toLanguage?.(input.language ?? '')
     const nonce = input.csp ? input.nonce : undefined
     const router = createAppRouter(routeTree, renderSource(input, texts), {
       buildId: input.buildId,

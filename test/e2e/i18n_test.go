@@ -158,6 +158,23 @@ func TestI18nApp(t *testing.T) {
 		}
 	})
 
+	t.Run("a head function translates in the language of its page", func(t *testing.T) {
+		// One VM renders each language after the other. The head of the cart runs i18n.t before
+		// React reaches I18nProvider. The second request of each URL comes from the render memo.
+		one, _, _ := start(t, exe, "--ssr-vms", "1")
+		for _, tc := range []struct{ path, title string }{
+			{"/store/cart", "<title>购物车</title>"},
+			{"/en-US/store/cart", "<title>Cart</title>"},
+			{"/store/cart", "<title>购物车</title>"},
+			{"/en-US/store/cart", "<title>Cart</title>"},
+		} {
+			status, _, body := cacheSend(t, "GET", one+tc.path, "")
+			if status != 200 || !strings.Contains(body, tc.title) {
+				t.Errorf("GET %s: %d, want %s in %.600s", tc.path, status, tc.title, body)
+			}
+		}
+	})
+
 	t.Run("a page in each language renders with its own prefix on its links", func(t *testing.T) {
 		for _, tc := range []struct{ path, text, cart string }{
 			{"/store", "store go=zh-CN react=zh-CN path=/store", `href="/store/cart"`},
@@ -611,6 +628,17 @@ func TestI18nInBrowser(t *testing.T) {
 	open("/store", "store go=zh-CN react=zh-CN")
 	open("/en-US/store/csr", "csr go=en-US react=en-US")
 	open("/store/csr", "csr go=zh-CN react=zh-CN")
+
+	// The router runs the head of the cart again as it hydrates, before React reaches I18nProvider,
+	// and the title must stay in the language of the page.
+	for path, title := range map[string]string{"/en-US/store/cart": "Cart", "/store/cart": "购物车"} {
+		open(path, "cart go=")
+		// The head follows the router once it has hydrated, a moment after React.
+		time.Sleep(500 * time.Millisecond)
+		if got := eval(`() => document.title`); got != title {
+			t.Errorf("%s: the title after hydration is %v, want %s", path, got, title)
+		}
+	}
 
 	// A query spelled another way than the router writes it (%20 for +, %2F for /), an empty value
 	// and a key given twice around another stay in the address bar as they were typed, with a
