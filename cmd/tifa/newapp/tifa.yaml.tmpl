@@ -41,7 +41,7 @@
 #   cross_site_paths: ""    # path patterns that accept cross-site writes, such as POST /auth/apple/callback
 
 # ssr:
-#   vms: 4                  # example: pages that render at once, one JavaScript VM each (default: GOMAXPROCS)
+#   vms: 4                  # example: pages that render at once, one JavaScript VM each (default: GOMAXPROCS, at most 4)
 #   vm_memory: 128MiB       # memory limit of each VM
 #   vm_stack_depth: 10000   # how deep JavaScript calls may nest in each VM, 1 to 10000
 #   timeout: 3s             # time limit of one render

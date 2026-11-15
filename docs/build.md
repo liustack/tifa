@@ -36,7 +36,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | `app/todos/todo+/` | `/todos/{todo}`: a `Load` that returns `tifa.ErrNotFound` for a missing todo, a `POST` that marks it done, and an `Error` that shows the 404 |
 | `app/about/page.tsx` | A page without `route.go` |
 | `*_test.go` | Tests next to the code they test: the todos domain, the database and the hooks, and `tifatest` tests of the route code, each on a fresh database in a temporary folder |
-| `tifa.yaml` | Every setting of [config.md](config.md), commented out at its default. `ssr.vms` defaults to GOMAXPROCS, so it shows an example value |
+| `tifa.yaml` | Every setting of [config.md](config.md), commented out at its default. `ssr.vms` defaults to GOMAXPROCS, at most 4, so it shows an example value |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents on how a Tifa app works, that tell the agent to run `go tool tifa docs` first and give `go tool tifa check` as the one check command, with the part Tifa manages between marker lines (see [The managed block of AGENTS.md](#the-managed-block-of-agentsmd)). `CLAUDE.md` only points at `AGENTS.md` |
 | `package.json`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `README.md` | The npm packages, the TypeScript and Vite setup, the ignored build output and database files, and the commands |
 

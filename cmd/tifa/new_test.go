@@ -538,7 +538,7 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tifa.yaml with the settings turned on: %v", err)
 	}
-	// ssr.vms defaults to GOMAXPROCS, so the file shows an example.
+	// ssr.vms defaults to GOMAXPROCS, at most 4, so the file shows an example.
 	want := config.Default()
 	want.SSR.VMs = c.SSR.VMs
 	if !reflect.DeepEqual(c, want) {
