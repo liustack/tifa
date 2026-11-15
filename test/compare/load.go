@@ -523,7 +523,7 @@ func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) 
 
 // RunOpen starts visits at rate a second, on schedule whether or not the earlier ones are done,
 // n visits in all (a whole number of blocks, so that the mix comes out exact). The actions of a
-// visit are planned ActionSpacing apart, and latency is counted from the planned time. It ends when
+// visit are planned spacing apart, and latency is counted from the planned time. It ends when
 // the last visit has finished, or drain after the last planned action. The visits are the global
 // sequence from seq0. Before its clock come the setup and the warm-up (warmUp), played at the same
 // rate, with warmDrain.
@@ -566,7 +566,7 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 		last = max(last, len(p.Steps)+len(r.wl.writesOf(seq0+i)))
 	}
 	// The visits in flight level off after about the longest visit; the samples before that are left out.
-	ramp := int(time.Duration(last)*ActionSpacing/(500*time.Millisecond)) + 2
+	ramp := int(time.Duration(last)*spacing/(500*time.Millisecond)) + 2
 	cpu0, client0 := r.cpu(), selfCPU()
 	start := time.Now()
 	var wg sync.WaitGroup
@@ -574,7 +574,7 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 	var flying flight
 	vctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	deadline := start.Add(duration + time.Duration(last)*ActionSpacing + drain)
+	deadline := start.Add(duration + time.Duration(last)*spacing + drain)
 	var timedOut atomic.Bool
 	timer := time.AfterFunc(time.Until(deadline), func() { timedOut.Store(true); cancel() })
 	defer timer.Stop()
