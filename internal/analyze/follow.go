@@ -20,13 +20,14 @@ const fixHint = `read the values with c.Param("name") and c.Query("name") in Loa
 // inside the module. Each Load gets its own walk, so a helper shared by several Loads counts for
 // each of them.
 type loadWalk struct {
-	a       *analyzer
-	owner   string // directory ID of the route or Layout that declares the Load
-	self    string // import path of the package of a Layout function, "" for a page's Load
-	load    *Load
-	uses    []paramUse
-	visited map[string]bool // followed functions by full name, against recursion
-	unrun   []*ast.FuncLit  // closures of the body being walked that are declared and not called on the spot
+	a        *analyzer
+	owner    string // directory ID of the route or Layout that declares the Load
+	self     string // import path of the package of a Layout function, "" for a page's Load
+	load     *Load
+	validate bool // the walk of a Validate method, which only reads the request (see refusedInValidate)
+	uses     []paramUse
+	visited  map[string]bool // followed functions by full name, against recursion
+	unrun    []*ast.FuncLit  // closures of the body being walked that are declared and not called on the spot
 }
 
 // useCall is a tifa.Use call in a helper, checked against the directory of the Load that reaches it.
@@ -69,6 +70,10 @@ func (w *loadWalk) body(info *types.Info, body *ast.BlockStmt, helper bool) {
 func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	a := w.a
 	if isTifaUse(info, call) {
+		if w.validate {
+			a.errorAt(call.Pos(), "tifa.Use loads the data of a Layout for a page: it has no place in Validate or the functions it calls, which only check the input")
+			return
+		}
 		if len(call.Args) != 2 {
 			return
 		}
@@ -98,16 +103,23 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		return
 	}
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
-		if what := identityCall(fn); what != "" {
-			a.identity[w.load] = append(a.identity[w.load], identityRead{pos: call.Pos(), what: what})
-		}
-		if why := refusedInLoad(fn); why != "" {
-			a.errorAt(call.Pos(), "%s", why)
-			return
-		}
-		if isSessionWrite(fn) && !w.inUnrunClosure(call.Pos()) {
-			a.errorAt(call.Pos(), "tifa.%s cannot run in Load, Layout or the functions they call: it changes the cookie of the response, and a page load or a data request must not sign anyone in or out. Call it in OnRequest before next, or in a method handler (POST, PUT, PATCH, DELETE)", fn.Name())
-			return
+		if w.validate {
+			if why := refusedInValidate(fn); why != "" {
+				a.errorAt(call.Pos(), "%s", why)
+				return
+			}
+		} else {
+			if what := identityCall(fn); what != "" {
+				a.identity[w.load] = append(a.identity[w.load], identityRead{pos: call.Pos(), what: what})
+			}
+			if why := refusedInLoad(fn); why != "" {
+				a.errorAt(call.Pos(), "%s", why)
+				return
+			}
+			if isSessionWrite(fn) && !w.inUnrunClosure(call.Pos()) {
+				a.errorAt(call.Pos(), "tifa.%s cannot run in Load, Layout or the functions they call: it changes the cookie of the response, and a page load or a data request must not sign anyone in or out. Call it in OnRequest before next, or in a method handler (POST, PUT, PATCH, DELETE)", fn.Name())
+				return
+			}
 		}
 	}
 	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {
@@ -314,6 +326,31 @@ func identityCall(fn *types.Func) string {
 	}
 	if fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Name() == "Session" {
 		return "tifa.Session"
+	}
+	return ""
+}
+
+// refusedInValidate returns why fn may not run in a Validate method of an input and the functions
+// it passes the Ctx to, and an empty string when it may. Validate checks the input, then the
+// handler runs: it may read the request (Param, Query, QueryValues, Header, Cookie, Language,
+// Path, Pattern, IsData, Context, Request and tifa.Session) and answers with an error. It may not
+// write the response, read the body again, change the session or touch the Layout data.
+func refusedInValidate(fn *types.Func) string {
+	if isSessionWrite(fn) {
+		return "tifa." + fn.Name() + " cannot run in Validate or the functions it calls: Validate only checks the input. Call it in the method handler, after the input passed"
+	}
+	recv := fn.Signature().Recv()
+	if recv == nil {
+		return ""
+	}
+	if named, ok := types.Unalias(derefType(recv.Type())).(*types.Named); !ok || !isCtxNamed(named) {
+		return ""
+	}
+	switch fn.Name() {
+	case "JSON", "Text", "NoContent", "SetHeader", "SetCookie", "Writer", "SetAlternates":
+		return "c." + fn.Name() + " changes the response, which cannot be done in Validate or the functions it calls: Validate only checks the input, and what it returns is the answer. Return an error, or tifa.Fields for single fields, and write the response in the method handler"
+	case "Bind", "BindQuery", "SetBodyLimit":
+		return "c." + fn.Name() + " reads or limits the request body, which is already decoded when Validate runs: use the fields of the input"
 	}
 	return ""
 }

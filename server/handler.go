@@ -108,17 +108,21 @@ func InputOutput[In, Out any](h func(*tifa.Ctx, In) (Out, error), bind func(*tif
 }
 
 // decode fills in and runs its Validate method, which tifa build has checked to be
-// Validate() error when the input type has one. A tifa.Error or tifa.Fields from Validate is
+// Validate() error or Validate(c *tifa.Ctx) error when the input type has one. A tifa.Error or tifa.Fields from Validate is
 // answered as is, any other error with 400 and its message.
 func decode(c *tifa.Ctx, in any, bind func(*tifa.Ctx, any) error) error {
 	if err := bind(c, in); err != nil {
 		return err
 	}
-	v, ok := in.(interface{ Validate() error })
-	if !ok {
+	var err error
+	switch v := in.(type) {
+	case interface{ Validate(*tifa.Ctx) error }:
+		err = v.Validate(c)
+	case interface{ Validate() error }:
+		err = v.Validate()
+	default:
 		return nil
 	}
-	err := v.Validate()
 	if err == nil || errors.As(err, new(tifa.Error)) || errors.As(err, new(*tifa.Error)) {
 		return err
 	}

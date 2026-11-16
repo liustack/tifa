@@ -212,6 +212,8 @@ function Field({ label, name, state }: { label: string; name: 'name' | 'text'; s
 
 **不是 `TifaError` 的错误。** 网络故障或你代码里的 bug，不该显示在某个输入框下面。例子里把它重新抛出，React 会把 action 抛出的错误交给最近的错误边界（见 [useActionState](https://react.dev/reference/react/useActionState)）。想让表单留在原地，就从 action 里返回一条消息。
 
+**提示用访客的语言。** 多语言站点上，`Validate` 可以带 Ctx，用 `c.Language()` 的语言回答，也可以返回代码，由页面翻译。各适合什么情况见[校验提示](i18n.zh-CN.md#校验提示)。
+
 **表单之后跳转。** 表单创建的东西有自己的页面时，让方法函数返回 `tifa.Redirect(url, 303)`。调用会通过路由器去那个页面，函数的结果是 `undefined`。
 
 ## 检查一下

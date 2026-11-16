@@ -32,9 +32,17 @@ type Item struct {
 	Qty int    `json:"qty"`
 }
 
-func (in *ShipInput) Validate() error {
+// Validate takes the Ctx, as it may: it reads the request and answers nothing.
+func (in *ShipInput) Validate(c *tifa.Ctx) error {
 	if in.Carrier == "" {
-		return errors.New("carrier is required")
+		return errors.New(c.Language() + c.Query("lang"))
+	}
+	return needCarrier(c, in.Carrier)
+}
+
+func needCarrier(c *tifa.Ctx, carrier string) error {
+	if c.Header("X-Carrier") == carrier {
+		return c.Context().Err()
 	}
 	return nil
 }

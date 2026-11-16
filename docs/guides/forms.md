@@ -213,6 +213,8 @@ What happens when the visitor presses the button:
 
 **Errors that are not `TifaError`.** A network failure or a bug in your code is not something to show under an input. The example rethrows it, and React gives a thrown error of an action to the nearest error boundary (see [useActionState](https://react.dev/reference/react/useActionState)). Return a message from the action instead if you want the form to stay.
 
+**Messages in the visitor's language.** On a site with several languages, `Validate` may take the Ctx and answer in `c.Language()`, or return codes that the page translates. Which one fits is in [Validation messages](i18n.md#validation-messages).
+
 **Redirecting after the form.** If a form creates something with a page of its own, return `tifa.Redirect(url, 303)` from the handler. The call then goes to that page through the router, and the function resolves to `undefined`.
 
 ## Check it

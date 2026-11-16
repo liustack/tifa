@@ -297,7 +297,7 @@ func TestViolations(t *testing.T) {
 		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "page.tsx"}}},
 		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "page.tsx"}}},
 		{"badhandler", [][]string{
-			{"app/api/route.go:15:", "Validate", "func() error"},
+			{"app/api/route.go:15:", "Validate", "func() error", "func(c *tifa.Ctx) error"},
 			{"app/api/route.go:19:", "GET input", "Nested.Inner", "query string"},
 			{"app/api/route.go:21:", "POST input", "*example.com/badhandler/app/api.Tagged", "struct"},
 			{"app/api/route.go:23:", "PUT input", "Tagged.Name", "form tag", "app/api/route.go:10"},
@@ -322,6 +322,17 @@ func TestViolations(t *testing.T) {
 			{"app/textquery/route.go:37:", "DELETE input", "Query.IDs", "MarshalText", "UnmarshalText"},
 			{"app/textquery/route.go:37:", "DELETE input", "Query.Levels", "MarshalText", "UnmarshalText"},
 			{"app/textquery/route.go:44:", "POST input", "Upload.Tags", "MarshalText", "UnmarshalText", "form", "does not call"},
+		}},
+		{"badvalidate", [][]string{
+			{"app/api/route.go:7:", "Validate", "func() error", "func(c *tifa.Ctx) error", "POST"},
+			{"app/api/route.go:11:", "Validate", "func() error", "func(c *tifa.Ctx) error", "PUT"},
+			{"app/api/route.go:15:", "Validate", "func() error", "func(c *tifa.Ctx) error", "PATCH"},
+			{"app/api/route.go:20:", "c.SetHeader", "Validate"},
+			{"app/api/route.go:21:", "c.JSON", "Validate"},
+			{"app/api/route.go:28:", "c.Bind", "Validate"},
+			{"app/api/route.go:31:", "c.Writer", "Validate"},
+			{"app/helper/route.go:11:", "c.SetCookie", "Validate"},
+			{"app/helper/route.go:20:", "assigned to an existing variable", "the Ctx may only be"},
 		}},
 		{"badupload", [][]string{
 			{"app/get/route.go:13:", "GET input", "Input.File", "request body", "POST, PUT or PATCH"},

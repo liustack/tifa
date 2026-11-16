@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 处理函数入参上的 `Validate` 可以带 Ctx：`func (in SignUp) Validate(c *tifa.Ctx) error`。它能读请求，所以提示可以用 `c.Language()` 给出访客的语言。`func() error` 照常能用。`Validate`（或它把 Ctx 传进去的函数）写响应、再读请求体、改会话或调用 `tifa.Use` 时，`tifa build` 会失败。表单和多语言指南讲了什么时候在 Go 里翻译，什么时候返回代码让页面翻译。
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed

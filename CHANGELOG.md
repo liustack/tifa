@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `Validate` on a handler input may take the Ctx: `func (in SignUp) Validate(c *tifa.Ctx) error`. It can read the request, so a message can be in the visitor's language with `c.Language()`. `func() error` still works. `tifa build` fails when `Validate`, or a function it passes the Ctx to, writes the response, reads the body again, changes the session or calls `tifa.Use`. The forms and i18n guides say when to translate in Go and when to return codes that the page translates.
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed

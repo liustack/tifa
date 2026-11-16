@@ -142,8 +142,11 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 	if fn, _, _ := types.LookupFieldOrMethod(in, true, nil, "Validate"); fn != nil {
 		if fn, isFunc := fn.(*types.Func); isFunc {
 			s := fn.Signature()
-			if s.Params().Len() != 0 || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
-				a.errorAt(fn.Pos(), "Validate must have the signature func() error: it checks the input of %s before the handler runs", method)
+			takesCtx := s.Params().Len() == 1 && typeString(s.Params().At(0).Type()) == ctxType
+			if !(s.Params().Len() == 0 || takesCtx) || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
+				a.errorAt(fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks the input of %s before the handler runs", method)
+				ok = false
+			} else if takesCtx && !a.walkValidate(fn) {
 				ok = false
 			}
 		}
@@ -330,4 +333,20 @@ func decodeProblem(t types.Type, key bool) string {
 		return name + " has UnmarshalText, so it is read from a JSON string, but its TypeScript type is not string: add MarshalText or remove UnmarshalText"
 	}
 	return ""
+}
+
+// walkValidate checks the Validate method fn of an input that takes the Ctx, and the functions it
+// passes the Ctx to. The Ctx goes where the Load rules let it go (checkCtxFlow), and the calls on
+// it are those refusedInValidate lets through. It reports false when it reported an error.
+func (a *analyzer) walkValidate(fn *types.Func) bool {
+	src, found := a.funcs[fn.Origin().FullName()]
+	if !found || src.decl.Body == nil {
+		a.errorAt(fn.Pos(), "%s receives the Ctx and is outside this module, so the analyzer cannot read its source: declare the input type in this module", fn.FullName())
+		return false
+	}
+	before := len(a.errs)
+	w := &loadWalk{a: a, load: &Load{}, visited: map[string]bool{fn.Origin().FullName(): true}, validate: true}
+	a.checkCtxFlow(src.pkg.TypesInfo, src.decl.Body)
+	w.body(src.pkg.TypesInfo, src.decl.Body, false)
+	return len(a.errs) == before
 }
