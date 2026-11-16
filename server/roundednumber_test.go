@@ -66,8 +66,12 @@ func TestLoadRefusesANumberABrowserRounds(t *testing.T) {
 	if len(*seen) == 0 {
 		t.Fatal("OnError saw nothing")
 	}
-	w := get(s, "/p?v=big")
-	_ = w
+	// The values above are asked in the order of a map, so the message is read from a request of its own.
+	*seen = nil
+	get(s, "/p?v=big")
+	if len(*seen) == 0 {
+		t.Fatal("OnError saw nothing for the row")
+	}
 	msg := (*seen)[0].Error()
 	for _, want := range []string{"the Load of /page", "at id", "9007199254740993", "9007199254740992", `json:",string"`, "9007199254740991", "milliseconds"} {
 		if !strings.Contains(msg, want) {
