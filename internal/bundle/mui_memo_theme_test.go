@@ -136,15 +136,6 @@ type memoThemeCase struct {
 // test's. Material is copied too, so that it imports the copy of @mui/system.
 func withMUI(t *testing.T, change func(string) string) string {
 	t.Helper()
-	return withMUIFiles(t, "system", []string{"memoTheme.mjs", "memoTheme.js"}, change)
-}
-
-// withMUIFiles returns a copy of testdata/ssr with copies of @mui/system, @mui/material and
-// @mui/utils, in which change has changed the files of the package @mui/<name>, if it is not nil.
-// The other packages are the test's. All three are copied, so that each imports the copies of the
-// others.
-func withMUIFiles(t *testing.T, name string, files []string, change func(string) string) string {
-	t.Helper()
 	root := copyTestdata(t, "ssr", false)
 	modules := testModules(t)
 	link := func(from, to string) {
@@ -185,38 +176,25 @@ func withMUIFiles(t *testing.T, name string, files []string, change func(string)
 			}
 		}
 	}
-	material, err := filepath.EvalSymlinks(filepath.Join(modules, "@mui", "material"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var reals []string
-	for _, pkg := range []string{"system", "material", "utils"} {
-		// @mui/utils is not a package of the test: it is the one next to material.
-		from := filepath.Join(modules, "@mui", pkg)
-		if pkg == "utils" {
-			from = filepath.Join(filepath.Dir(material), pkg)
-		}
-		real, err := filepath.EvalSymlinks(from)
+	for _, name := range []string{"system", "material"} {
+		real, err := filepath.EvalSymlinks(filepath.Join(modules, "@mui", name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		target := filepath.Join(root, "node_modules", "@mui", pkg)
+		target := filepath.Join(root, "node_modules", "@mui", name)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.CopyFS(target, os.DirFS(real)); err != nil {
 			t.Fatal(err)
 		}
-		reals = append(reals, real)
-	}
-	// The packages next to each real folder are its own dependencies.
-	for _, real := range reals {
+		// The packages next to the real folder are its own dependencies.
 		linkAll(filepath.Dir(filepath.Dir(real)))
 	}
 	linkAll(modules)
 	if change != nil {
-		for _, file := range files {
-			path := filepath.Join(root, "node_modules", "@mui", name, file)
+		for _, file := range []string{"memoTheme.mjs", "memoTheme.js"} {
+			path := filepath.Join(root, "node_modules", "@mui", "system", file)
 			source, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
