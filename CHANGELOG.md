@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-11-16
+
 ### Added
 
 - `performance.now()` and `performance.timeOrigin` exist in the server render, so libraries that read the time while rendering, such as framer-motion's motion values (`useMotionValue`, `useTransform`, `useSpring`), render on the server instead of failing the page with `ReferenceError: 'performance' is not defined`.

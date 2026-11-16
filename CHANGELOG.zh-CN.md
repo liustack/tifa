@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-11-16
+
 ### 新增
 
 - 服务端渲染里有了 `performance.now()` 和 `performance.timeOrigin`，渲染时读时间的库，比如 framer-motion 的 motion value（`useMotionValue`、`useTransform`、`useSpring`），可以在服务端渲染，不会再让页面报 `ReferenceError: 'performance' is not defined`。
