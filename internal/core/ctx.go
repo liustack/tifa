@@ -156,10 +156,28 @@ func (c *Ctx) JSON(code int, v any) error {
 	if err != nil {
 		return err
 	}
+	return c.writeJSON(code, data)
+}
+
+// JSONForPage is c.JSON for an answer a page reads (the result of a handler called from a page):
+// it fails, as an unexpected error, when a browser would read a number as another one. what names
+// the answer in the error.
+func JSONForPage(c *Ctx, code int, v any, what string) error {
+	if err := c.checkWrite(); err != nil {
+		return err
+	}
+	data, err := MarshalForBrowser(v, what)
+	if err != nil {
+		return err
+	}
+	return c.writeJSON(code, data)
+}
+
+func (c *Ctx) writeJSON(code int, data []byte) error {
 	c.w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	c.w.WriteHeader(code)
-	_, err = c.w.Write(data)
+	_, err := c.w.Write(data)
 	return err
 }
 

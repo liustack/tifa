@@ -395,8 +395,8 @@ type routeResult struct {
 // same values. A JSON writer in the VM would write -0 as 0, and a page that formats it with Intl
 // would then hydrate other text than the server rendered. A character above U+FFFF goes into the
 // text as the escapes of its surrogate pair, see ssr.EscapeAboveFFFF.
-func loaderText(data any) (string, error) {
-	text, err := core.MarshalJSON(data)
+func loaderText(id string, data any) (string, error) {
+	text, err := core.MarshalForBrowser(data, loadLabel(id))
 	if err != nil {
 		return "", err
 	}
@@ -416,7 +416,7 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
 		if item.Status == http.StatusOK {
-			text, err := loaderText(item.Data)
+			text, err := loaderText(id, item.Data)
 			if err != nil {
 				return nil, err
 			}
@@ -454,7 +454,7 @@ func renderInput(items map[string]routeResult) (data []byte, texts, pageTexts []
 		item := items[id]
 		result := renderResult{Status: item.Status, Error: item.Error, Location: item.Location}
 		if item.Status == http.StatusOK {
-			text, err := loaderText(item.Data)
+			text, err := loaderText(id, item.Data)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -708,6 +708,9 @@ func writeDataBody(w http.ResponseWriter, status int, value any) error {
 	data, err := core.MarshalJSON(value)
 	if err != nil {
 		return err
+	}
+	if e := core.CheckBrowserNumbers(data); e != nil {
+		return dataNumberError(e)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -1613,4 +1616,33 @@ func withDropped(location string, u *url.URL, keep []string) string {
 		dropped = "?" + dropped[1:]
 	}
 	return location + dropped
+}
+
+// loadLabel names the Load or the Layout of a route ID for an error: "app/orders/route" is the
+// Load of /orders.
+func loadLabel(id string) string {
+	kind, dir := "Load", strings.TrimSuffix(id, "/route")
+	if d, ok := strings.CutSuffix(id, "/layout"); ok {
+		kind, dir = "Layout", d
+	}
+	dir = strings.TrimPrefix(dir, "app")
+	if dir == "" {
+		dir = "/"
+	}
+	return "the " + kind + " of " + dir
+}
+
+// dataNumberError names what a data request was sending: the path of the number starts with
+// routes, the route ID and data when it is in the data of a Load.
+func dataNumberError(e *core.RoundedNumberError) error {
+	p := e.Path
+	switch {
+	case len(p) >= 3 && p[0].Key == "routes" && p[2].Key == "data":
+		e.What, e.Path = loadLabel(p[1].Key), p[3:]
+	case len(p) >= 1 && p[0].Key == "session":
+		e.What, e.Path = "the session", p[1:]
+	default:
+		e.What = "the data of a navigation"
+	}
+	return e
 }

@@ -54,7 +54,8 @@ func writeResult(c *tifa.Ctx, out any) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, callAnswer{Result: out, Session: session})
+	what := "the result of " + c.Request().Method + " " + c.Request().URL.Path
+	return core.JSONForPage(c, http.StatusOK, callAnswer{Result: out, Session: session}, what)
 }
 
 // Input decodes the input with bind, validates it, calls h and answers 204 when h succeeds. A call

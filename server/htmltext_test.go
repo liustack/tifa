@@ -56,7 +56,7 @@ func TestPageTextIsLoaderTextWithMarkers(t *testing.T) {
 		Parts: []tifa.HTML{html("part0"), html("part1")}, ByKey: map[string]tifa.HTML{"k": html("byKey")}, Ptr: &ptr,
 		Gone: html("gone"),
 	}
-	full, err := loaderText(p)
+	full, err := loaderText("app/x/route", p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestPageTextIsLoaderTextWithMarkers(t *testing.T) {
 	}
 	want := full
 	for _, n := range []string{"body", "part0", "part1", "byKey", "ptr"} {
-		value, err := loaderText(html(n))
+		value, err := loaderText("app/x/route", html(n))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func TestPageTextIsLoaderTextWithMarkers(t *testing.T) {
 		Body  *tifa.HTML `json:"body"`
 		Parts []tifa.HTML
 	}
-	full, err = loaderText(plain{Title: "x"})
+	full, err = loaderText("app/x/route", plain{Title: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestPageTextWritesAnEmptyValueAsItIs(t *testing.T) {
 		OmitZero  tifa.HTML `json:"omitZero,omitzero"`
 	}
 	empty := fields{}
-	full, err := loaderText(empty)
+	full, err := loaderText("app/x/route", empty)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestPageTextWritesAnEmptyValueAsItIs(t *testing.T) {
 		t.Errorf("pageText of %s = %s, differs %v, %v", full, page, differs, err)
 	}
 	set := fields{Plain: "<p>a</p>", OmitEmpty: "<p>b</p>", OmitZero: "<p>c</p>"}
-	if full, err = loaderText(set); err != nil {
+	if full, err = loaderText("app/x/route", set); err != nil {
 		t.Fatal(err)
 	}
 	want := `{"plain":` + htmlMarker + `,"omitEmpty":` + htmlMarker + `,"omitZero":` + htmlMarker + `}`
