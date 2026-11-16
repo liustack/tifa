@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- `go tool tifa check` no longer fails with `Cannot find module .../.tifa/driver-NNN/driver.mjs` when `tifa dev` rebuilds at the same moment. `tifa dev` cleaned out the driver folder that `check` had just made in `.tifa/`. It now leaves the driver folders of other processes alone.
+
 ## [0.0.13] - 2026-11-17
 
 ### Added

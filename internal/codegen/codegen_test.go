@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/js"
 )
 
@@ -973,5 +974,26 @@ func TestWriteKeepsTheLockAndTheLog(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, Dir, name)); err != nil {
 			t.Errorf("Write removed %s: %v", name, err)
 		}
+	}
+}
+
+// A Vite driver of another process (tifa check starts one before it takes the lock) lives in a
+// driver folder of .tifa. Write must neither remove its file nor the folder while it is empty.
+func TestWriteLeavesDriverFoldersOfOtherProcessesAlone(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, Dir, bundle.DriverDirPrefix+"123", "driver.mjs")
+	writeFile(t, script, "export {}")
+	fresh := filepath.Join(root, Dir, bundle.DriverDirPrefix+"456")
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(root, map[string][]byte{"main.go": []byte("a")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Errorf("Write removed the driver of another process: %v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("Write removed the folder of a driver that is starting: %v", err)
 	}
 }
