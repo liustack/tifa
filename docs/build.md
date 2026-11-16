@@ -29,13 +29,14 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | `go.mod` | Tifa, the Tifa command as a tool, `github.com/liustack/sqlite`, a SQLite driver in pure Go, and `ignore node_modules` |
 | `db.go`, `schema.sql` | At the root: `var DB`, `OpenDB` with WAL, `busy_timeout` and foreign keys turned on, and the tables of every domain, created at every start with `CREATE TABLE IF NOT EXISTS`. The file is `app.db` in the folder the app runs in, or the setting `db.path` (`DB_PATH`, `--db-path`) |
 | `options.go` | At the root: the options of the app, `var DBPath = tifa.String("db.path", "app.db", ...)`, see [Options of the app](config.md#options-of-the-app) |
+| `sessions.go` | At the root: a session store that keeps sessions in the SQLite database, set with `tifa.SetSessionStore` in `OnStart`, so a restart signs nobody out (see [Sessions](sessions.md)) |
 | `hooks.go` | `OnStart` opens the database, `OnShutdown` closes it. `OnRequest` and `OnError` are described in comments only, since writing an `OnError` replaces the default |
-| `app/layout.tsx` | The root Layout with a nav, and an `Error` that also shows the 404 of unknown URLs |
+| `app/layout.tsx`, `app/styles.css` | The root Layout with a nav, and an `Error` that also shows the 404 of unknown URLs, and the styles it imports |
 | `app/route.go`, `app/page.tsx` | `/`: the list, and a form whose `POST` takes an input with a `Validate` method. The page shows the messages of the `tifa.Fields` it returns |
 | `app/todos/todo.go` | The todos domain, `package todos`: `ListTodos`, `GetTodo`, `AddTodo`, `SetDone`. It imports the root package for `DB`, and both pages import it |
 | `app/todos/todo+/` | `/todos/{todo}`: a `Load` that returns `tifa.ErrNotFound` for a missing todo, a `POST` that marks it done, and an `Error` that shows the 404 |
 | `app/about/page.tsx` | A page without `route.go` |
-| `*_test.go` | Tests next to the code they test: the todos domain, the database and the hooks, and `tifatest` tests of the route code, each on a fresh database in a temporary folder |
+| `*_test.go` | Tests next to the code they test: the todos domain, the database, the hooks and the session store, and `tifatest` tests of the route code, each on a fresh database in a temporary folder |
 | `tifa.yaml` | Every setting of [config.md](config.md), commented out at its default. `ssr.vms` defaults to GOMAXPROCS, at most 4, so it shows an example value |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents on how a Tifa app works, that tell the agent to run `go tool tifa docs` first and give `go tool tifa check` as the one check command, with the part Tifa manages between marker lines (see [The managed block of AGENTS.md](#the-managed-block-of-agentsmd), which `tifa agents` refreshes). `CLAUDE.md` only points at `AGENTS.md` |
 | `.claude/skills/tifa/` | The Tifa skill for coding agents, `SKILL.md` and its references, written by the same code as `tifa agents` (see [`tifa agents`](#tifa-agents)) |
