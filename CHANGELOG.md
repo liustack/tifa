@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.12] - 2026-11-17
+
 ### Changed
 
 - Server rendering runs on slowjs v0.31.3. The HTML is the same. Timed by slowjs on an AMD EPYC 7B13 as the mean of 16 code layouts, the storefront pages of the example shop take 4.2% less time than on v0.31.2, the workbench pages 3.5% less and three pages of an MUI app 1.7% less, and every shop page is faster (2.8% to 6.6%). A VM uses 0.4% to 1.4% more memory, for a cache the engine keeps at each place that reads a property by name. A regular expression may have up to 32,767 capture groups, which the grammars of shiki need. `replace` and `split` with a custom `exec`, a very long regular expression literal and `Intl` on a long list of locales now stop when a render is stopped.
