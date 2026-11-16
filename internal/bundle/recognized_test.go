@@ -7,8 +7,8 @@ import (
 
 // recognizedPage loads, in one SSR bundle, the code of every library whose hot spots the plugin
 // rewrites: React DOM's string renderer, React's createElement and cloneElement, its JSX runtime,
-// seroval, @emotion/hash, lucide-react, i18next, react-i18next, @radix-ui/react-slot, clsx,
-// memoTheme of @mui/system, rehype-highlight and core-js.
+// seroval, @emotion/hash, lucide-react, i18next, react-i18next, @radix-ui/react-slot,
+// @radix-ui/react-context, clsx, memoTheme of @mui/system, rehype-highlight and core-js.
 const recognizedPage = `import 'core-js/internals/internal-state.js'
 import { cloneElement, createElement } from 'react'
 import { jsx } from 'react/jsx-runtime'
@@ -19,12 +19,15 @@ import { House } from 'lucide-react'
 import i18next from 'i18next'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import { Slot } from '@radix-ui/react-slot'
+import { createContextScope } from '@radix-ui/react-context'
 import clsx from 'clsx'
 import { unstable_memoTheme } from '@mui/system'
 import rehypeHighlight from 'rehype-highlight'
 
+const useScope = createContextScope('Page')[1]()
 function Page() {
   const { t } = useTranslation()
+  useScope(undefined)
   return jsx(Slot, { className: clsx('a', 'b'), children: cloneElement(createElement(House, { title: t('title') + hash('x') }), { id: 'icon' }) })
 }
 const element = jsx(I18nextProvider, { i18n: i18next, children: jsx(Page, {}) })
