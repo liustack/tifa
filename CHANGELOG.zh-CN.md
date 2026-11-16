@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 服务端渲染改用 slowjs v0.31.2。HTML 不变。slowjs 在 AMD EPYC 7B13 上按 16 种代码布局取平均计时，一个 MUI 应用的三个页面比 v0.31.1 少用 3.0% 的时间，示例商店的店面页面少 2.7%，工作台页面的变化在 1% 以内。`img` 等空元素、`input` 和内联 `style` 的开始标签现在由引擎写，emotion 的样式哈希改用 C 算。v0.31.1 给每个正则多带的字节，现在只有用得上的正则才带。`Intl.NumberFormat` 新增 `formatRange` 和 `formatRangeToParts`。
+
 ## [0.0.9] - 2026-11-16
 
 ### 变更
