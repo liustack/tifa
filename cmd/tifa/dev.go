@@ -158,6 +158,9 @@ type devPipeline struct {
 	public string
 	// converted is the Fingerprint of the collections of the last conversion that worked.
 	converted string
+	// warned holds the warnings of the analysis that were printed, so that a save which changes
+	// nothing about them does not print them again.
+	warned map[string]bool
 }
 
 // Analyze runs the static analysis and generates the code in memory. The fingerprint covers the
@@ -199,7 +202,20 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 		return "", err
 	}
 	p.m, p.files, p.public = m, files, publicDir(settings.Public)
+	p.printWarnings(m.Warnings)
 	return fingerprint(files), nil
+}
+
+// printWarnings prints the warnings of an analysis that the one before did not have.
+func (p *devPipeline) printWarnings(warnings []analyze.Warning) {
+	now := make(map[string]bool, len(warnings))
+	for _, w := range warnings {
+		now[w.String()] = true
+		if !p.warned[w.String()] && p.warn != nil {
+			fmt.Fprintf(p.warn, "%s (warning)\n", w)
+		}
+	}
+	p.warned = now
 }
 
 // HasContent says whether the app has content collections, as the last analysis saw it.

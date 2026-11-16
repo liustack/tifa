@@ -66,6 +66,10 @@ func newKind[S any]() *sessionKind {
 		if err != nil {
 			return nil, false, fmt.Errorf("tifa: encoding the result of Exposed: %w", err)
 		}
+		if e := CheckBrowserNumbers(data); e != nil {
+			e.What = "the session (the result of Exposed)"
+			return nil, false, e
+		}
 		return data, string(data) != "null", nil
 	}
 	return k

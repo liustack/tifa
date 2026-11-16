@@ -31,6 +31,9 @@ type Manifest struct {
 	// Content is the content collections of content.go and their entries, nil without any. The
 	// build writes the entries into dist/content.json.
 	Content *Content `json:"-"`
+	// Warnings are problems that do not stop a build, in the order of their source positions. The
+	// content has its own, see Content.Warnings.
+	Warnings []Warning `json:"-"`
 	// Layouts is sorted by Dir, so a Layout always comes after its parent.
 	Layouts []Layout `json:"layouts"`
 	// Routes is sorted by Dir.

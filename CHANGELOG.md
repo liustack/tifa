@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- A number a browser would read as another number is no longer sent. A browser, and the server render, read every JSON number as a double, so an integer above 9007199254740991, such as a snowflake ID, a `uint64` hash or `time.UnixNano()`, used to arrive rounded without any error. Now the request fails as an unexpected error (`OnError`, a 500, the dev page and `tifa errors`) with a message that names the `Load`, `Layout`, handler or session, the path of the number such as `rows[3].id`, and the number as written and as a browser reads it. It applies to the results of `Load` and `Layout`, the session data of `Exposed` and the result of a handler called from the generated function of a page. A handler answering a client that does not send `X-Tifa-Call` and what an app writes with `c.JSON` are unchanged. A `float64`, timestamps in milliseconds and counters never trigger it. `tifa build`, `tifa check` and `tifa dev` also warn, with the file and line, where code puts such a number straight into a field of a type a page reads: a constant above 2^53, `time.Time.UnixNano`, the unbounded `math/rand` functions, a `Sum64` hash or `binary.Uint64` of bytes from `crypto/rand`, in a composite literal or an assignment to a field, through a conversion or one local variable. Nothing is warned from the type or the name of a field alone. Add `json:",string"` to the field to send it as a string (typed `string`), or send milliseconds. See [JSON rules](docs/app.md#json-rules).
+
 ## [0.0.11] - 2026-11-16
 
 ### Added
