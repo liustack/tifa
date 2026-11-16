@@ -611,15 +611,21 @@ func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 
 // loadsAsJSON answers a page of an application built without a front end, as in the tests of
 // this package: the results of every Load in the chain as JSON by route ID. With several errors
-// the one of the outermost Load wins, so the answer does not depend on timing.
+// the one of the outermost Load wins, so the answer does not depend on timing. Each result is
+// written with core.MarshalForBrowser, as for a page, so a number a browser would round fails
+// here as it does in the program.
 func loadsAsJSON(c *tifa.Ctx, chain []load) error {
 	values, errs := runLoads(c, chain)
-	data := make(map[string]any, len(chain))
+	data := make(map[string]jsontext.Value, len(chain))
 	for i, l := range chain {
 		if errs[i] != nil {
 			return errs[i]
 		}
-		data[l.id] = values[i]
+		text, err := core.MarshalForBrowser(values[i], loadLabel(l.id))
+		if err != nil {
+			return err
+		}
+		data[l.id] = text
 	}
 	return c.JSON(http.StatusOK, data)
 }

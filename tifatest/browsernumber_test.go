@@ -46,3 +46,30 @@ func TestHandlerCallAsThePageDoesRefusesARoundedNumber(t *testing.T) {
 		t.Errorf("a call as the page does: %d %s, want 500", code, body)
 	}
 }
+
+// Under Start a page answers its Load data as JSON, and a number a browser would round is refused
+// as it is for a page, so a test sees what the program does.
+func TestStartRefusesARoundedNumberInLoadData(t *testing.T) {
+	app := server.App{Routes: []server.Route{
+		{ID: "app/big/route", Path: "/big", Page: true, SSR: true,
+			Load: func(c *tifa.Ctx) (any, error) { return bigID{ID: 1<<53 + 1}, nil }},
+		{ID: "app/ok/route", Path: "/ok", Page: true, SSR: true,
+			Load: func(c *tifa.Ctx) (any, error) { return bigID{ID: 1<<53 - 1}, nil }},
+	}}
+	srv := tifatest.Start(t, app)
+	get := func(path string) (int, string) {
+		res, err := srv.Client().Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(body)
+	}
+	if code, body := get("/ok"); code != 200 || !strings.Contains(body, "9007199254740991") {
+		t.Errorf("a safe number: %d %s", code, body)
+	}
+	if code, body := get("/big"); code != 500 {
+		t.Errorf("a rounded number: %d %s, want 500", code, body)
+	}
+}
