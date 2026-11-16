@@ -4,6 +4,11 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- `tifa build --dir apps/shop -o out/app` writes the executable to `out/app` under the folder you stand in. It wrote it under the app folder and still printed `built out/app`.
+- `tifa build` without `-o` names the executable `shop` for the module `example.com/shop/v2`, as `go build` does. It named it `v2`.
+
 ## [0.0.6] - 2026-11-16
 
 ### Changed

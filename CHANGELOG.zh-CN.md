@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 修复
+
+- `tifa build --dir apps/shop -o out/app` 把可执行文件写到当前目录下的 `out/app`。以前写到应用目录下，却仍然打印 `built out/app`。
+- 模块是 `example.com/shop/v2` 时，不带 `-o` 的 `tifa build` 和 `go build` 一样把可执行文件命名为 `shop`。以前叫 `v2`。
+
 ## [0.0.6] - 2026-11-16
 
 ### 变更

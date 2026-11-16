@@ -75,7 +75,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
 3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `page.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node，除非它的内容集合里有条目（见[内容](content.zh-CN.md#markdown-转-html)）。可执行文件始终不需要 Node。
-4. `CGO_ENABLED=0 go build -o <输出> -ldflags=-w ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。`-w` 去掉调试信息，见下文「调试信息」。
+4. `CGO_ENABLED=0 go build -o <输出> -ldflags=-w ./.tifa`，默认输出 `bin/<模块路径最后一段>`（不算 `/v2` 这类主版本后缀）。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。`-w` 去掉调试信息，见下文「调试信息」。
 
 静态分析还会读 `content.go` 和 `content/` 文件夹，问题用同样的格式打出来（见[内容](content.zh-CN.md#报错)）。某个集合的某种语言有条目缺译文时打一条警告，还会列出等待发布的条目。
 
