@@ -2,6 +2,8 @@ package devserver
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -12,13 +14,19 @@ import (
 // hold, when not nil, is called inside each rebuild before it returns.
 func runLoop(t *testing.T, c *changes, debounce time.Duration, hold func()) <-chan []change {
 	t.Helper()
+	return runLoopWith(t, c, debounce, func(context.Context) {}, hold)
+}
+
+// runLoopWith is runLoop with catchUp.
+func runLoopWith(t *testing.T, c *changes, debounce time.Duration, catchUp func(context.Context), hold func()) <-chan []change {
+	t.Helper()
 	batches := make(chan []change, 10)
 	var running atomic.Int32
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		loop(ctx, c, debounce, func(batch []change, _ func()) {
+		loop(ctx, c, debounce, catchUp, func(batch []change, _ func()) {
 			if running.Add(1) != 1 {
 				t.Error("two rebuilds ran at the same time")
 			}
@@ -114,7 +122,7 @@ func TestLoopEndsTheWaitOnceTheRebuildBegan(t *testing.T) {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		loop(ctx, c, 10*time.Millisecond, func(batch []change, began func()) {
+		loop(ctx, c, 10*time.Millisecond, func(context.Context) {}, func(batch []change, began func()) {
 			r := rebuild{batch, began, make(chan struct{})}
 			select {
 			case rebuilds <- r:
@@ -331,5 +339,112 @@ func TestLoopKeepsASaveInOneBatch(t *testing.T) {
 	}
 	if withRoute != 1 || withBusy == 0 {
 		t.Fatalf("app/route.tsx in %d batches, app/busy.json in %d: want the save in one batch, and the busy file built too", withRoute, withBusy)
+	}
+}
+
+// The watcher may lag behind the files: the process was stopped for longer than the debounce, such
+// as on a busy machine, and the timer of the loop fires while an event of the last write is not
+// handled yet. A file saved in place is then empty in the watcher's eyes, and the loop would take
+// that as a settled change and rebuild twice. This one is held up when it is about to hash the
+// written file.
+func TestLoopWaitsForAWatcherThatLagsBehind(t *testing.T) {
+	dir := newApp(t)
+	rel := "app/store.go"
+	var armed atomic.Bool // the hook is set before the watcher runs, and the first scan hashes too
+	var calls atomic.Int32
+	testHookChecksum = func(name string) {
+		if armed.Load() && name == rel && calls.Add(1) == 2 {
+			time.Sleep(400 * time.Millisecond)
+		}
+	}
+	t.Cleanup(func() { testHookChecksum = nil })
+	w := startWatcher(t, dir)
+	armed.Store(true)
+	batches := runLoopWith(t, w.changes, 100*time.Millisecond, w.catchUp, nil)
+	file := filepath.Join(dir, rel)
+	seen := w.changes.mark()
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	for w.changes.mark() == seen { // the watcher hashed the empty file
+		time.Sleep(time.Millisecond)
+	}
+	if err := os.WriteFile(file, []byte("package app // edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := receive(t, batches); !slices.Equal(got, []change{{rel, modified}}) {
+		t.Fatalf("got %v, want one modified %s", got, rel)
+	}
+	select {
+	case got := <-batches:
+		t.Fatalf("the save was rebuilt twice, the second time for %v", got)
+	case <-time.After(time.Second):
+	}
+}
+
+// saveInPlace truncates file, waits until the watcher reports it empty, and writes content right
+// after, as an editor that saves in place does when a poll looks in between. It returns the
+// batches the loop rebuilds within window.
+func saveInPlace(t *testing.T, w *watcher, file, content string, window time.Duration) [][]change {
+	t.Helper()
+	runWatcher(t, w)
+	batches := runLoopWith(t, w.changes, 100*time.Millisecond, w.catchUp, nil)
+	seen := w.changes.mark()
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	for w.changes.mark() == seen {
+		time.Sleep(time.Millisecond)
+	}
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got [][]change
+	end := time.After(window)
+	for {
+		select {
+		case b := <-batches:
+			got = append(got, b)
+		case <-end:
+			return got
+		}
+	}
+}
+
+// A poll that lands between the truncate and the write of a save in place hashes the empty file,
+// and the next poll is far off. The loop looks again before it takes the batch: the save is one
+// rebuild, as it is in a directory with a system watch, where every write has an event.
+func TestLoopRebuildsOnceForASaveInPlaceSeenByAPoll(t *testing.T) {
+	dir := newApp(t)
+	w := preparedWatcher(t, dir, func(msg string) { t.Log(msg) })
+	w.budget = 0
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	w.minPoll = 1200 * time.Millisecond
+	rel := "app/store.go"
+	got := saveInPlace(t, w, filepath.Join(dir, rel), "package app // edited", 2500*time.Millisecond)
+	if want := [][]change{{{rel, modified}}}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("got the rebuilds %v, want %v", got, want)
+	}
+}
+
+// The same for a link to a file outside the app, which only the link poll sees. kqueue has a watch
+// on the link's target and reports every write, so this passes there without the poll mattering.
+func TestLoopRebuildsOnceForASaveInPlaceSeenByTheLinkPoll(t *testing.T) {
+	dir, shared := newApp(t), t.TempDir()
+	writeFile(t, shared, "theme.css", "a {}")
+	symlink(t, filepath.Join(shared, "theme.css"), filepath.Join(dir, "app/theme.css"))
+	w := preparedWatcher(t, dir, func(msg string) { t.Log(msg) })
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	got := saveInPlace(t, w, filepath.Join(shared, "theme.css"), "b {}", 1500*time.Millisecond)
+	if want := [][]change{{{"app/theme.css", modified}}}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("got the rebuilds %v, want %v", got, want)
 	}
 }

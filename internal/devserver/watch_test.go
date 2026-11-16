@@ -59,13 +59,16 @@ func runWatcher(t *testing.T, w *watcher) {
 }
 
 // nextBatch waits for the next non-empty batch, taken as the dev loop takes it (see loop): once
-// the files went quiet for DefaultDebounce. What only passes through, such as a file between the
+// the watcher caught up, if there is one, and the files went quiet for DefaultDebounce. What only passes through, such as a file between the
 // truncate and the write of an in-place save, or a link before it is renamed into place, is not
 // a change, as it is not one in tifa dev.
-func nextBatch(t *testing.T, c *changes) []change {
+func nextBatch(t *testing.T, c *changes, catchUp func(context.Context)) []change {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
+		if catchUp != nil && c.ripe(time.Now(), DefaultDebounce, maxBatchWaits*DefaultDebounce) {
+			catchUp(context.Background())
+		}
 		batch, wait := c.due(time.Now(), DefaultDebounce, maxBatchWaits*DefaultDebounce)
 		if len(batch) > 0 {
 			return batch
@@ -94,7 +97,7 @@ func TestNextBatchWaitsForAWriteToSettle(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		c.add("a.ts", "empty", "s2") // and again after the write
 	}()
-	if got := nextBatch(t, c); !slices.Equal(got, []change{{"a.ts", modified}}) {
+	if got := nextBatch(t, c, nil); !slices.Equal(got, []change{{"a.ts", modified}}) {
 		t.Fatalf("got %v, want one modified a.ts", got)
 	}
 	time.Sleep(2 * DefaultDebounce)
@@ -435,7 +438,7 @@ func TestWatcherReportsRemovedLinks(t *testing.T) {
 	want := []change{{"app/classes.ts", removed}, {"app/kit/button.tsx", removed}}
 	var got []change
 	for len(got) < len(want) {
-		got = append(got, nextBatch(t, w.changes)...)
+		got = append(got, nextBatch(t, w.changes, w.catchUp)...)
 	}
 	sortChanges(got)
 	if !slices.Equal(got, want) {
@@ -489,7 +492,7 @@ func TestWatcherFollowsARetargetedLink(t *testing.T) {
 	want := []change{{"app/kit/a/b/new.tsx", created}, {"app/kit/a/b/old.tsx", removed}}
 	var got []change
 	for len(got) < len(want) {
-		got = append(got, nextBatch(t, w.changes)...)
+		got = append(got, nextBatch(t, w.changes, w.catchUp)...)
 	}
 	sortChanges(got)
 	if !slices.Equal(got, want) {

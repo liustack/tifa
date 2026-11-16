@@ -50,6 +50,31 @@ func (w *watcher) sync(ctx context.Context) {
 	}
 }
 
+// catchUp is what the loop asks before it takes a batch: it returns once the watcher handled the
+// events of the changes made before, as sync does, and looked at the polled directories and the
+// links again. A file saved in place may have been seen by a poll in the middle of the save, and
+// the next poll is far off: waiting for it would leave the empty file as a change of its own,
+// and the written file another one. This costs one poll per batch. ctx and the stop of the
+// watcher end the wait.
+func (w *watcher) catchUp(ctx context.Context) {
+	done := make(chan struct{})
+	select {
+	case w.looks <- done:
+	case <-ctx.Done():
+		return
+	case <-w.stopped:
+		return
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return
+	case <-w.stopped:
+		return
+	}
+	w.sync(ctx)
+}
+
 // syncTimeout returns the channel of the timer that waits for the event of the last write, nil
 // while none waits.
 func (w *watcher) syncTimeout() <-chan time.Time {

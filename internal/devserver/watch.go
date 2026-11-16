@@ -147,10 +147,28 @@ func (c *changes) take() []change {
 func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change, wait time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.before) == 0 {
-		return nil, 0
+	settled, ok, wait := c.settledLocked(now, quiet, limit)
+	if !ok {
+		return nil, wait
 	}
-	settled := func(p string) bool { return now.Sub(c.last[p]) >= quiet || now.Sub(c.first[p]) >= limit }
+	return c.takeLocked(settled), 0
+}
+
+// ripe reports whether due would take a batch at now.
+func (c *changes) ripe(now time.Time, quiet, limit time.Duration) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok, _ := c.settledLocked(now, quiet, limit)
+	return ok
+}
+
+// settledLocked decides on the next batch for due: settled tells which files go into it, and ok
+// whether it is taken now. If not, wait says when to look again. Call it with c.mu held.
+func (c *changes) settledLocked(now time.Time, quiet, limit time.Duration) (settled func(path string) bool, ok bool, wait time.Duration) {
+	if len(c.before) == 0 {
+		return nil, false, 0
+	}
+	settled = func(p string) bool { return now.Sub(c.last[p]) >= quiet || now.Sub(c.first[p]) >= limit }
 	oldest, all, some := now, true, false
 	wait = limit
 	for p := range c.before {
@@ -165,12 +183,12 @@ func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change
 		wait = min(wait, c.last[p].Add(quiet).Sub(now), c.first[p].Add(limit).Sub(now))
 	}
 	if all || some && now.Sub(oldest) >= limit {
-		return c.takeLocked(settled), 0
+		return settled, true, 0
 	}
 	if some {
 		wait = min(wait, oldest.Add(limit).Sub(now))
 	}
-	return nil, max(wait, time.Millisecond)
+	return nil, false, max(wait, time.Millisecond)
 }
 
 // takeLocked takes the files for which take reports true, and records the smallest number of
@@ -254,6 +272,7 @@ type watcher struct {
 	polled   map[string]bool            // directory nodes that are polled
 	dirty    map[string]bool            // directory nodes whose entries changed, to list
 	listAt   time.Time                  // when the dirty directories may be listed next
+	looks    chan chan struct{}         // lookAgain sends here, so run polls at once
 	minPoll  time.Duration              // shortest time between two polls
 	warn     func(string)
 	warned   map[string]bool   // the warnings given, by their text, to give each once
@@ -318,7 +337,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	}
 	w := &watcher{
 		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}), reclass: make(chan reclassify), stopped: make(chan struct{}),
-		syncs:  make(chan chan struct{}),
+		syncs: make(chan chan struct{}), looks: make(chan chan struct{}),
 		budget: watchBudget(), watches: map[string]bool{}, minPoll: minPollInterval,
 		nodes: map[string]*node{}, kids: map[string]map[string]bool{}, owner: map[string]string{},
 		polled: map[string]bool{}, dirty: map[string]bool{}, warned: map[string]bool{},
@@ -415,6 +434,15 @@ func (w *watcher) run(ctx context.Context) error {
 				return err
 			}
 			w.listAt = time.Now().Add(time.Since(start) * pollCostFactor)
+		case done := <-w.looks:
+			err := w.recover(w.poll())
+			if err == nil {
+				err = w.recover(w.checkLinks())
+			}
+			close(done)
+			if err != nil {
+				return err
+			}
 		case r := <-w.reclass:
 			err := w.recover(w.reclassify(r.before))
 			close(r.done)

@@ -47,7 +47,7 @@ func expectChanges(t *testing.T, w *watcher, want ...change) {
 	t.Helper()
 	var got []change
 	for !containsAll(got, want) {
-		got = append(got, nextBatch(t, w.changes)...)
+		got = append(got, nextBatch(t, w.changes, w.catchUp)...)
 	}
 	sortChanges(want)
 	sortChanges(got)

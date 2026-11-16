@@ -16,12 +16,19 @@ const maxBatchWaits = 10
 // Rebuilds run one at a time on the calling goroutine. Changes that arrive during a rebuild form
 // the next batch. rebuild calls began once the rebuild began, which tells changes.outstanding
 // that the changes of the batch are in a rebuild. A rebuild that does not call it does so when it
-// returns, and so does a batch that turned out empty. loop returns when ctx is done.
-func loop(ctx context.Context, c *changes, debounce time.Duration, rebuild func(batch []change, began func())) {
+// returns, and so does a batch that turned out empty. Quiet is what the watcher has handled, and it
+// may lag behind the files, such as when the machine was too busy to run it for longer than the
+// debounce. Before it takes a batch, loop calls catchUp, which returns once the watcher handled the
+// events that came before. Only then is a file that went quiet one that is done changing. loop
+// returns when ctx is done.
+func loop(ctx context.Context, c *changes, debounce time.Duration, catchUp func(context.Context), rebuild func(batch []change, began func())) {
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
 	for {
+		if c.ripe(time.Now(), debounce, maxBatchWaits*debounce) {
+			catchUp(ctx)
+		}
 		batch, wait := c.due(time.Now(), debounce, maxBatchWaits*debounce)
 		if batch != nil {
 			began := sync.OnceFunc(c.begin)

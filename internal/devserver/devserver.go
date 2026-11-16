@@ -263,7 +263,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	d.rebuild(ctx, everything, func() {})
 	close(d.first)
 	w.changes.setBuilding(false)
-	loop(ctx, w.changes, o.Debounce, func(batch []change, began func()) {
+	loop(ctx, w.changes, o.Debounce, w.catchUp, func(batch []change, began func()) {
 		for _, c := range batch {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
