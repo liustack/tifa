@@ -161,6 +161,10 @@ const lucideIconData =
 // Each icon keeps the last lucideCacheSize ways it was built. tifaKeepIcon caches what a render
 // that found nothing built, and the elements of the icon's paths, which React does not change.
 const lucideCacheSize = 16
+// objectIsInPlace writes Object.is of a and b in place, as a call of a JavaScript function costs more
+// than the test. a and b are read more than once, so they must be names or fields of objects the
+// plugin made, which have no getters.
+const objectIsInPlace = (a, b) => `(${a} === ${b} ? ${a} !== 0 || 1 / ${a} === 1 / ${b} : ${a} !== ${a} && ${b} !== ${b})`
 const lucideCacheSource = `
 const tifaLucideIcons = new WeakSet();
 const tifaIconCache = new WeakMap();
@@ -179,14 +183,13 @@ function tifaBuiltinsKept() {
 function tifaPrimitive(v) {
   return v === null || (typeof v !== "object" && typeof v !== "function" && typeof v !== "symbol");
 }
-function tifaIs(a, b) {
-  return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b;
-}
 function tifaSameRest(entry, rest) {
   const keys = entry.keys, values = entry.values;
   let n = 0;
   for (const key in rest) {
-    if (n === keys.length || keys[n] !== key || !tifaIs(values[n], rest[key])) return false;
+    if (n === keys.length || keys[n] !== key) return false;
+    const a = values[n], b = rest[key];
+    if (!${objectIsInPlace("a", "b")}) return false;
     n++;
   }
   return n === keys.length;
@@ -199,9 +202,9 @@ function tifaFindIcon(icon, color, width, height, strokeWidth, absoluteStrokeWid
     const list = cache.list;
     for (let i = 0; i < list.length; i++) {
       const at = (cache.last + i) % list.length, e = list[at];
-      if (tifaIs(e.color, color) && tifaIs(e.width, width) && tifaIs(e.height, height) && tifaIs(e.strokeWidth, strokeWidth) &&
-        tifaIs(e.absoluteStrokeWidth, absoluteStrokeWidth) && tifaIs(e.nonScalingStroke, nonScalingStroke) && tifaIs(e.contextClass, contextClass) &&
-        tifaIs(e.className, className) && e.a11y === a11y && tifaSameRest(e, rest)) {
+      if (${objectIsInPlace("e.color", "color")} && ${objectIsInPlace("e.width", "width")} && ${objectIsInPlace("e.height", "height")} && ${objectIsInPlace("e.strokeWidth", "strokeWidth")} &&
+        ${objectIsInPlace("e.absoluteStrokeWidth", "absoluteStrokeWidth")} && ${objectIsInPlace("e.nonScalingStroke", "nonScalingStroke")} && ${objectIsInPlace("e.contextClass", "contextClass")} &&
+        ${objectIsInPlace("e.className", "className")} && e.a11y === a11y && tifaSameRest(e, rest)) {
         cache.last = at;
         return e;
       }
