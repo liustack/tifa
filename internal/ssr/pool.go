@@ -607,8 +607,10 @@ func (p *Pool) putIdle(vm *pooledVM) {
 	if vm.dirty {
 		p.armTrim(idleRelease)
 	}
+	// Read before the send: the next owner may write vm as soon as it is in the channel.
+	grown := vm.live > vm.memoryBound(p.memory)
 	p.idle <- vm
-	if !p.closing && !p.swapping && vm.live > vm.memoryBound(p.memory) {
+	if !p.closing && !p.swapping && grown {
 		p.swapping = true
 		p.refills.Go(p.replaceGrown)
 	}
