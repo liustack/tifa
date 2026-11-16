@@ -359,6 +359,10 @@ func countTrue(list []bool) int {
 
 // runner plays a workload against one server.
 type runner struct {
+	// calibrate times the machine at a point of the round (browse.probe), nil when the run does not
+	// calibrate. calibErr is the error of the last calibration, which stops the run.
+	calibrate  func(when string) (RoundCalibration, error)
+	calibErr   error
 	base       string
 	write      Writer
 	create     func(project string) string // the path that places an order in a project

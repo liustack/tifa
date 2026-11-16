@@ -67,7 +67,11 @@ type BrowseOptions struct {
 	// ServerStamps are, per spec, what its results belong to besides Stamp: the trace it replays and
 	// the build it runs. A result continued under another stamp of a server measures that server again.
 	ServerStamps map[string]string
-	Log          io.Writer
+	// Calibrate times the machine with the fixed program of `compare calibrate` (CalibrateChild): before
+	// the warm-up of every round, before its clock and after it, against the base of the run
+	// (calibration.go). Nil: the run does not calibrate the machine, and is not formal.
+	Calibrate func(ctx context.Context) (Calibration, error)
+	Log       io.Writer
 }
 
 // ServerStamp is what the results of one server in a result belong to: the stamp browse.sh made of
@@ -128,6 +132,9 @@ type BrowseResult struct {
 	// MachineChecks are the checks of the machine that passed, before a continued run measured a server
 	// again (checkMachine).
 	MachineChecks []MachineCheck `json:"machineChecks,omitempty"`
+	// Calibration is the speed of the machine at the start of the run, which every round is timed
+	// against (calibrationBase): shared like Prepared, and kept by a run that continues.
+	Calibration *CalibrationBase `json:"calibration,omitempty"`
 }
 
 type browse struct {
@@ -153,10 +160,17 @@ type browse struct {
 	// noCutoff is for tests of what a server is sent, whose result does not depend on how long a round
 	// takes: no round is stopped at twice its target (the real run never sets it, see cutoff).
 	noCutoff bool
+	// anyLength is for tests of what happens around a closed round, whose fake server plays it in a
+	// fraction of a second: a round of any length counts, so a slow moment of the machine that runs the
+	// test cannot make a try not valid and add a try (the real run never sets it, see judgeClosed).
+	anyLength bool
 	// stale are the servers a continued result is measuring again (measureAgain), and playCheck plays
 	// the round of the check of the machine in the tests (nil: checkRound plays it).
 	stale     []string
 	playCheck func(fw string, sc BrowseScenario, round, try int) (*Round, error)
+	// hold takes the hold of a round in the tests (nil: takeHold takes the real one, and none when launch
+	// is set).
+	hold func(ctx context.Context) (func(), error)
 }
 
 // cutoff is how long a closed round of the target window may run before it is stopped: twice the
@@ -176,14 +190,20 @@ type liveServer struct {
 	cpuKnown bool
 	rss      func() int64
 	stop     func()
+	// calib is the calibration of the machine before the warm-up of the round, nil when the run does
+	// not calibrate.
+	calib *RoundCalibration
 }
 
-// start announces the round and takes the lock files of the run, waits for the cpus to be idle, starts a fresh server of a
-// spec and waits until it listens. Stopping the server gives the lock files back and ends the announcement, so they are held
-// for one server at a time: a round with its warm-up, a sizing run or a check.
-func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
+// takeHold takes the hold of a round: it announces the round, takes the lock files of the run and
+// waits for the cpus to be idle. The function it returns gives them back. The tests take theirs (hold),
+// and none when they launch fake servers.
+func (b *browse) takeHold(ctx context.Context) (func(), error) {
+	if b.hold != nil {
+		return b.hold(ctx)
+	}
 	if b.launch != nil {
-		return b.launch(ctx, spec)
+		return func() {}, nil
 	}
 	unhold, err := holdWith(ctx, b.o.Hold)
 	if err != nil {
@@ -209,6 +229,34 @@ func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 		unlock()
 		return nil, err
 	}
+	return unlock, nil
+}
+
+// start takes the hold of a round (takeHold), starts a fresh server of a spec and waits until it
+// listens. Stopping the server gives the hold back, so it is held for one server at a time: a round
+// with its warm-up, a sizing run or a check. With gate, for a round, the machine is calibrated in the
+// hold before the server starts (gateBeforeWarmUp), when the run calibrates.
+func (b *browse) start(ctx context.Context, spec Spec, gate bool) (*liveServer, error) {
+	unlock, err := b.takeHold(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var calib *RoundCalibration
+	if gate && b.calibrating() {
+		if calib, unlock, err = b.gateBeforeWarmUp(ctx, unlock); err != nil {
+			return nil, err
+		}
+	}
+	if b.launch != nil {
+		s, err := b.launch(ctx, spec)
+		if err != nil {
+			unlock()
+			return nil, err
+		}
+		stop := s.stop
+		s.stop, s.calib = func() { stop(); unlock() }, calib
+		return s, nil
+	}
 	server, err := spec.Launch(b.o.ServerCPUs)
 	if err != nil {
 		unlock()
@@ -222,7 +270,7 @@ func (b *browse) start(ctx context.Context, spec Spec) (*liveServer, error) {
 		stop()
 		return nil, err
 	}
-	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: stop}, nil
+	return &liveServer{base: server.Base, cpu: server.CPUSeconds, cpuKnown: ReadsCPU(), rss: server.PeakRSS, stop: stop, calib: calib}, nil
 }
 
 // verifyWrites checks the writes of the scenario on the server of r.
@@ -443,7 +491,7 @@ func browseConfig(o BrowseOptions, cpu, plans, method string) map[string]string 
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "sizing": o.Sizing.String(), "target": o.Target.String(),
 		"latencyBlocks": fmt.Sprint(o.LatencyBlocks), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"seed": fmt.Sprint(o.Seed), "cpu": cpu, "plans": plans, "method": method,
+		"seed": fmt.Sprint(o.Seed), "cpu": cpu, "plans": plans, "method": method, "calibrate": onOff(o.Calibrate != nil),
 	}
 }
 
@@ -713,6 +761,10 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 			}
 		}
 	}
+	// The speed of the machine every round is timed against: a run that continues keeps the base it finds.
+	if err := b.calibrationBase(ctx); err != nil {
+		return b.res, err
+	}
 	// A continued run that measures a server again first checks that the machine is as fast as it was
 	// for the rounds it keeps.
 	if err := b.checkMachine(ctx, b.stale); err != nil {
@@ -809,7 +861,14 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 		}
 		b.checked[key] = true
 	}
-	server, err := b.start(ctx, b.specs[name])
+	return b.replayWhenOff(func() (*Round, error) { return b.withOnce(ctx, name, sc, visits, prepared, warm, f) })
+}
+
+// withOnce plays a round on a fresh server, as with says, once. When the run calibrates the machine,
+// the round keeps its calibrations, and one off the base before the clock or after the round is not
+// judged: it is not valid for the reason "machine", and with plays it again.
+func (b *browse) withOnce(ctx context.Context, name string, sc BrowseScenario, visits, prepared, warm int, f func(*runner) *Round) (*Round, error) {
+	server, err := b.start(ctx, b.specs[name], true)
 	if err != nil {
 		return nil, err
 	}
@@ -817,6 +876,9 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 	r, err := b.runnerFor(name, sc, server)
 	if err != nil {
 		return nil, err
+	}
+	if b.calibrating() {
+		r.calibrate = func(when string) (RoundCalibration, error) { return b.probe(ctx, when) }
 	}
 	// The data before the clock is made for prepared visits, at least the visits played, and for the
 	// warm-up after them. The shop keeps shopMaxCarts carts: a run that can make more fails before it
@@ -842,6 +904,16 @@ func (b *browse) with(ctx context.Context, name string, sc BrowseScenario, visit
 		return nil, err
 	}
 	out.Framework, out.Scenario = name, sc.Name
+	if r.calibErr != nil {
+		return nil, r.calibErr
+	}
+	if server.calib != nil {
+		out.Calibrations = append([]RoundCalibration{*server.calib}, out.Calibrations...)
+	}
+	if off := machineOff(out.Calibrations); off != "" {
+		out.Valid, out.WhyInvalid = false, "machine: "+off
+		return out, nil
+	}
 	out.Judge(sc)
 	if out.Pass && !sc.ReadOnly {
 		if err := b.verifyWrites(ctx, r); err != nil {
@@ -1015,6 +1087,9 @@ func (b *browse) closedTry(ctx context.Context, fw string, sc BrowseScenario, se
 		return nil, 0, err
 	}
 	out.Capped = capped
+	if b.anyLength {
+		return out, 0, nil
+	}
 	return out, judgeClosed(out, b.o.Target, b.set.Blocks, sc.blockVisits(), b.o.LoadCPUCount), nil
 }
 
@@ -1495,7 +1570,7 @@ func (b *browse) runnerFor(name string, sc BrowseScenario, server *liveServer) (
 // navigation data its traces replay in a scenario, and fails when an answer has a sign that a cache
 // could keep it (CheckNoCache).
 func (b *browse) checkNoCache(ctx context.Context, spec Spec, sc BrowseScenario) error {
-	server, err := b.start(ctx, spec)
+	server, err := b.start(ctx, spec, false)
 	if err != nil {
 		return err
 	}
@@ -1515,7 +1590,7 @@ func (b *browse) checkNoCache(ctx context.Context, spec Spec, sc BrowseScenario)
 // checkWrites checks that the writes of a scenario show in the pages of a spec, on a fresh server that
 // is thrown away, so that it is not done on the server of a round.
 func (b *browse) checkWrites(ctx context.Context, name string, sc BrowseScenario) error {
-	server, err := b.start(ctx, b.specs[name])
+	server, err := b.start(ctx, b.specs[name], false)
 	if err != nil {
 		return err
 	}

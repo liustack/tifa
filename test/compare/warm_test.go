@@ -75,8 +75,10 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 		set:     &set,
 		trace:   map[string]map[int]Trace{},
 		res:     &BrowseResult{Blocks: map[string]int{}},
-		// These tests check what the servers got, not how long a round took: a slow machine must not cut one off.
-		noCutoff: true,
+		// These tests check what the servers got, not how long a round took: a slow machine must not cut one
+		// off, nor put a try outside the window of its length, which adds a try or leaves a cell without rounds.
+		noCutoff:  true,
+		anyLength: true,
 	}
 	for _, s := range specs {
 		b.specs[s.Name] = s

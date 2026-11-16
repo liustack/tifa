@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -400,6 +401,7 @@ func TestARunOnTheTracesOfOneFrameworkSaysThatNothingShowsTheyAgree(t *testing.T
 	sc := mustScenario("shop")
 	o := FormalBrowse
 	o.ServerCPUs, o.LoadCPUs = "0", "1,5"
+	o.Calibrate = func(context.Context) (Calibration, error) { return Calibration{}, nil }
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
 		Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Traces: []string{"tifa", "nextjs", "start"}}
 	if md := r.Markdown(); strings.Contains(md, "Not a formal run") {
