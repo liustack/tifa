@@ -9,6 +9,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `Validate` on a handler input may take the Ctx: `func (in SignUp) Validate(c *tifa.Ctx) error`. It can read the request, so a message can be in the visitor's language with `c.Language()`. `func() error` still works. `tifa build` fails when `Validate`, or a function it passes the Ctx to, writes the response, reads the body again, changes the session or calls `tifa.Use`. The forms and i18n guides say when to translate in Go and when to return codes that the page translates.
 - `c.Path()` is the path of the page as the visitor sees it in the address bar, with the language prefix and without the query: `/en-US/store/items/a%20b`. A page load and the data request of a client navigation give the same path, a method handler gets its own, and `tifatest.NewCtx` and `tifatest.Start` agree. A `Load` can use it for a `next` address without `c.Request()`, which `Load` may not call. `tifa build` refuses it in a `Layout`, whose data is shared by every page below it.
 
+### Changed
+
+- The sign-in guide has a `RequireUser` guard that sends a signed-out visitor to `/login?next=` with `c.Path()`, says why a sign-out needs a redirect or an input type to reach the browser, and tests the whole sign-in and sign-out with `tifatest.Start`.
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed

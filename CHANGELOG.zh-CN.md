@@ -9,6 +9,10 @@
 - 处理函数入参上的 `Validate` 可以带 Ctx：`func (in SignUp) Validate(c *tifa.Ctx) error`。它能读请求，所以提示可以用 `c.Language()` 给出访客的语言。`func() error` 照常能用。`Validate`（或它把 Ctx 传进去的函数）写响应、再读请求体、改会话或调用 `tifa.Use` 时，`tifa build` 会失败。表单和多语言指南讲了什么时候在 Go 里翻译，什么时候返回代码让页面翻译。
 - 新增 `c.Path()`：访客在地址栏里看到的页面路径，带语言前缀、不带查询，比如 `/en-US/store/items/a%20b`。页面加载和客户端导航的数据请求拿到的路径一样，方法函数拿到的是自己的路径，`tifatest.NewCtx` 和 `tifatest.Start` 里也一致。`Load` 不能调用 `c.Request()`，要写 `next` 地址时可以用它。`Layout` 的数据由它下面所有页面共用，`tifa build` 在 `Layout` 里拒绝它。
 
+### Changed
+
+- 登录指南新增 `RequireUser` 守卫，用 `c.Path()` 把没登录的访客送到 `/login?next=`，说明了登出为什么要返回重定向或带入参类型才能让浏览器知道，并用 `tifatest.Start` 测了整个登录和登出。
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed

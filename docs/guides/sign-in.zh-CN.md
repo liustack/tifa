@@ -1,9 +1,10 @@
 ---
-summary: '在 Tifa 应用里怎么用 Tifa 的会话让用户登录和登出：登录表单、用 argon2id 保存和检查密码、SetSession、在 Load 和方法函数里读用户、保护页面、登出、在浏览器里显示谁登录了，以及一种减慢猜密码的办法'
+summary: '在 Tifa 应用里怎么用 Tifa 的会话让用户登录和登出：登录表单、用 argon2id 保存和检查密码、SetSession、在 Load 和方法函数里读用户、用 c.Path() 写把没登录的访客送去登录页再送回来的守卫、保护页面、登出、在浏览器里显示谁登录了，以及一种减慢猜密码的办法'
 read_when:
   - 给应用加登录和登出，或把一些页面放到登录之后
   - 决定怎么保存和检查密码
   - 没登录的访客看到了应该私有的页面，或者页头显示的登录状态不对
+  - 把没登录的访客送到登录页，登录后再送回他们要看的页面
 ---
 
 [English](sign-in.md) · 简体中文
@@ -268,6 +269,34 @@ func Rename(id int64, name string) {
 - **减慢猜密码。** 这里给的一种办法：按邮箱数输错的密码，错五次之后，这个邮箱在 15 分钟里不再检查。它便宜，也不需要应用之外的东西。代价是：知道你的用户邮箱的人，可以把他挡在外面几分钟。应用跑在不止一台机器上时，把计数放到共享的存储里。
 - **哈希排队。** 每次 argon2 检查运行时占 19 MiB。同时最多四个，有人刷表单时哈希占的内存最多约 76 MiB。
 
+## 守卫
+
+`auth.go`：
+
+```go
+package signin
+
+import (
+	"net/url"
+
+	"github.com/liustack/tifa"
+)
+
+// RequireUser 返回谁登录了。访客没登录时，它返回一个去登录页的重定向，
+// 把访客要看的页面写进 `next`，登录页好把他们送回来。
+func RequireUser(c *tifa.Ctx) (*Session, error) {
+	s := tifa.Session[Session](c)
+	if s == nil {
+		return nil, tifa.Redirect("/login?next="+url.QueryEscape(c.Path()), 302)
+	}
+	return s, nil
+}
+```
+
+`c.Path()` 是访客在地址栏里看到的页面路径：带语言前缀，不带查询。整页加载和点链接取数据时它都一样，在方法函数里它是这个方法函数的路径。这里不用 `c.Request()`：`Load` 不能调用它，而且点链接时的请求是数据请求，不是页面本身。`RequireUser` 在 `OnRequest`、`Load` 和它们调用的函数里都能用。
+
+`next` 里没有查询。把状态放在查询参数里的页面，在自己的 `Load` 里补回去，比如 `"/login?next="+url.QueryEscape(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`。许多页面共用的守卫做不到这一点，因为 `Load` 只能读它写明名字的查询参数（见 [Load 里 Ctx 的用法](../app.zh-CN.md#load-里-ctx-的用法)）。
+
 ## 钩子
 
 `hooks.go`：
@@ -277,7 +306,6 @@ package signin
 
 import (
 	"context"
-	"net/url"
 	"strings"
 
 	"github.com/liustack/tifa"
@@ -302,9 +330,10 @@ func OnStart(context.Context) error {
 // OnRequest 不让没登录的访客进入 /account，把他们送到登录页，登录后再送回来。
 // 页面加载和点链接时的数据请求都会经过它。
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	path := c.Request().URL.Path
-	if (path == "/account" || strings.HasPrefix(path, "/account/")) && tifa.Session[Session](c) == nil {
-		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
+	if path := c.Path(); path == "/account" || strings.HasPrefix(path, "/account/") {
+		if _, err := RequireUser(c); err != nil {
+			return err
+		}
 	}
 	return next(c)
 }
@@ -484,9 +513,9 @@ import (
 
 // Load 读谁登录了。OnRequest 已经把访客挡在外面，这里的检查是为了防哪天有人改了那里的守卫。
 func Load(c *tifa.Ctx) (signin.Profile, error) {
-	s := tifa.Session[signin.Session](c)
-	if s == nil {
-		return signin.Profile{}, tifa.Redirect("/login", 302)
+	s, err := signin.RequireUser(c)
+	if err != nil {
+		return signin.Profile{}, err
 	}
 	return signin.ProfileOf(s.UserID), nil
 }
@@ -516,7 +545,7 @@ func POST(c *tifa.Ctx, in RenameInput) error {
 ```
 
 - **先读会话，再读数据库。** 从会话里拿 ID，其余的去数据库加载。会话是登录时做的一份副本。之后改的名字、被收回的角色、被停用的账户，它里面都没有。
-- **两个地方都要守。** `OnRequest` 在任何 `Load` 运行之前，就把访客挡在整个区域外面，页面加载和点链接都一样。方法函数有自己的 URL，不经过它的页面也能被调用，所以每个需要用户的方法函数都要自己检查会话。返回用户数据的 `Load` 也一样。
+- **两个地方都要守。** `OnRequest` 在任何 `Load` 运行之前，就把访客挡在整个区域外面，页面加载和点链接都一样。方法函数有自己的 URL，不经过它的页面也能被调用，所以每个需要用户的方法函数都要自己检查会话。返回用户数据的 `Load` 也一样，用 `RequireUser`。
 - **让副本跟上。** 会话里的内容变了，就像 `POST` 那样再调一次 `SetSession`。这个调用把新会话带到浏览器，页头马上跟着变。
 - **有 `Cache` 的页面。** 在有 `Cache` 的页面上，`Session` 对所有人都是 nil，所以这样的页面不能是私有的（见[给 CDN 用的 Cache](../app.zh-CN.md#给-cdn-用的-cache)）。
 
@@ -583,9 +612,19 @@ func POST(c *tifa.Ctx) error {
 
 `ClearSession` 在服务器上删掉记录，并丢掉 cookie，所以就算有人留了一份旧 cookie，它也没用了。没有人登录时它什么也不做。登出要用 POST，不要用 GET，否则别的网站上的一个链接或一张图片就能做到（见[和登录库的分工](../sessions.zh-CN.md#和登录库的分工)）。
 
+页面需要知道会话已经结束：浏览器里那份会话的副本决定了 `SignedIn`、`SignedOut` 和 `useSession` 显示什么。从浏览器发起的调用，只有在方法函数返回重定向、或者有入参或结果类型时，回答里才带着新的会话。上面的方法函数返回的是重定向，所以两样都不需要。以 `return nil` 结尾的登出就必须选其中一样，哪怕是空的入参，否则页头会一直写着「Hello, Ada」，直到别的请求把会话取回来：
+
+```go
+type SignOutInput struct{}
+
+func POST(c *tifa.Ctx, _ SignOutInput) error { return tifa.ClearSession(c) }
+```
+
+生成的函数这时要传入参：`signOut({ input: {} })`。自己用 `c.JSON` 或 `c.Text` 写响应的方法函数完全带不了会话（见[浏览器这一侧](../sessions.zh-CN.md#在浏览器里)）。
+
 ## 浏览器这一侧
 
-`app/layout.tsx`（重要的部分）：
+`app/layout.tsx`（重要的部分，`app/styles.css` 用任何样式表都行）：
 
 ```tsx
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
@@ -693,6 +732,59 @@ func TestSignIn(t *testing.T) {
 
 `tifatest.NewCtx` 给测试一个它自己的会话存储，所以 `SetSession` 能用。`SetSession` 一返回，cookie 就在 recorder 里。每个请求用一个新的 `NewCtx`，函数返回后再读 `rec.Result()`：recorder 记下的是第一次调用 `Result()` 时的头，一个 recorder 用于两次请求，第二次的 cookie 永远看不到。同一个测试的 `Ctx` 共用存储，所以前一个请求的 cookie 能让下一个登录（见[测试会话](../sessions.zh-CN.md#测试会话)）。要测试需要用户的函数、又不想真的登录，用 `tifatest.WithSession`（见[测试会话](../sessions.zh-CN.md#测试会话)）。要像浏览器那样走完整个登录，从受保护的页面经过重定向和表单再回到页面，就用 `tifatest.Start` 启动应用（见[测整个请求](../app.zh-CN.md#测整个请求)）。
 
+`app/account/request_test.go` 像浏览器那样走完整条路径，用的是 `tifatest.Start`：守卫、登录、页面、登出，再回到守卫。它放在自己的包里，因为 `tifaapp` 会导入每个路由：
+
+```go
+package account_test
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+
+	"signin"
+	"signin/.tifa/tifaapp"
+
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestSignInAndOut(t *testing.T) {
+	srv := tifatest.Start(t, tifaapp.App)
+	client := srv.Client() // 保存 cookie，不跟随重定向
+
+	expect := func(res *http.Response, status int, location string) {
+		t.Helper()
+		if res.StatusCode != status || res.Header.Get("Location") != location {
+			t.Fatalf("%s %s: %d %q, want %d %q", res.Request.Method, res.Request.URL.Path, res.StatusCode, res.Header.Get("Location"), status, location)
+		}
+	}
+	get := func(path string) *http.Response {
+		res, err := client.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	post := func(path, body string) *http.Response {
+		res, err := client.Post(srv.URL+path, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+
+	expect(get("/account"), 302, "/login?next=%2Faccount")
+	expect(post("/login", `{"email":"`+signin.DemoEmail+`","password":"`+signin.DemoPassword+`","next":"/account"}`), 303, "/account")
+	expect(get("/account"), 200, "")
+	expect(post("/logout", ""), 303, "/login")
+	expect(get("/account"), 302, "/login?next=%2Faccount")
+}
+```
+
+`Start` 会运行 `OnStart`，所以演示账户是有的。`client` 保存登录时的会话 cookie，下一个请求带上它，登出时 cookie 被丢掉。`.tifa/tifaapp` 过期时测试会失败，并提示运行 `go tool tifa check`（见[测整个请求](../app.zh-CN.md#测整个请求)）。
+
 ## 要做的选择
 
 **会话放内存还是存储里。** 没有存储时会话放在进程的内存里，重启就让所有人登出。刚开始这样就行。到它成了问题时，在 `OnStart` 里给它一个存储（见[会话存在哪](../sessions.zh-CN.md#会话存在哪)）。
@@ -710,4 +802,4 @@ go tool tifa check
 go tool tifa dev
 ```
 
-没登录时打开 `/account`，它把你送到 `/login?next=/account`。提交空表单，两条消息都显示。一个邮箱输错五次密码，第六次即使密码对也得到 "Too many attempts"。用 `correct horse battery` 以 `ada@example.com` 登录，你来到 `/account`，页头显示 "Hello, Ada"。改名后页头跟着变。登出后再打开 `/account`，又被送到登录页。
+没登录时打开 `/account`，它把你送到 `/login?next=%2Faccount`。提交空表单，两条消息都显示。一个邮箱输错五次密码，第六次即使密码对也得到 "Too many attempts"。用 `correct horse battery` 以 `ada@example.com` 登录，你来到 `/account`，页头显示 "Hello, Ada"。改名后页头跟着变。登出后再打开 `/account`，又被送到登录页。

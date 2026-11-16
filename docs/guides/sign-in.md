@@ -1,9 +1,10 @@
 ---
-summary: 'How to sign users in and out in a Tifa app with Tifa sessions: a sign-in form, keeping and checking passwords with argon2id, SetSession, reading the user in Load and handlers, guarding pages, signing out, showing who is signed in in the browser, and one way to slow down password guessing'
+summary: 'How to sign users in and out in a Tifa app with Tifa sessions: a sign-in form, keeping and checking passwords with argon2id, SetSession, reading the user in Load and handlers, a guard that sends a signed-out visitor to the sign-in page and back with c.Path(), guarding pages, signing out, showing who is signed in in the browser, and one way to slow down password guessing'
 read_when:
   - Adding sign-in and sign-out to an app, or putting some pages behind a login
   - Choosing how to store and check passwords
   - A signed-out visitor sees a page that should be private, or a signed-in header shows the wrong state
+  - Redirecting a signed-out visitor to the sign-in page and bringing them back to the page they asked for
 ---
 
 English · [简体中文](sign-in.zh-CN.md)
@@ -268,6 +269,34 @@ Replace the `users` slice with a query on your database. What stays: the same an
 - **Slowing down guessing.** The one way shown: count wrong passwords per e-mail and stop checking that e-mail for the rest of 15 minutes after five. It is cheap and needs nothing outside the app. The cost: someone who knows your user's e-mail can keep them out for a few minutes. If your app runs on more than one machine, keep the counts in a shared store.
 - **The hashing queue.** Each argon2 check holds 19 MiB while it runs. Four at once caps the memory of hashing at about 76 MiB when someone floods the form.
 
+## The guard
+
+`auth.go`:
+
+```go
+package signin
+
+import (
+	"net/url"
+
+	"github.com/liustack/tifa"
+)
+
+// RequireUser returns who is signed in. For a visitor who is not, it returns a redirect to the
+// sign-in page with the page they asked for in `next`, so the sign-in page can send them back.
+func RequireUser(c *tifa.Ctx) (*Session, error) {
+	s := tifa.Session[Session](c)
+	if s == nil {
+		return nil, tifa.Redirect("/login?next="+url.QueryEscape(c.Path()), 302)
+	}
+	return s, nil
+}
+```
+
+`c.Path()` is the path of the page as the visitor sees it in the address bar: the language prefix is in it, and the query is not. It is the same when the page is loaded whole and when a link click asks for its data, and for a handler it is the path of the handler. `c.Request()` is not for this: `Load` may not call it, and on a link click the request is a data request, not the page. `RequireUser` works in `OnRequest`, in a `Load` and in the functions they call.
+
+The query is left out of `next`. A page that keeps its state in query parameters puts them back in its own `Load`, such as `"/login?next="+url.QueryEscape(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../app.md#how-load-may-use-ctx)).
+
 ## The hooks
 
 `hooks.go`:
@@ -277,7 +306,6 @@ package signin
 
 import (
 	"context"
-	"net/url"
 	"strings"
 
 	"github.com/liustack/tifa"
@@ -303,9 +331,10 @@ func OnStart(context.Context) error {
 // page, which sends them back afterwards. It runs for page loads and for the data requests of
 // link clicks alike.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	path := c.Request().URL.Path
-	if (path == "/account" || strings.HasPrefix(path, "/account/")) && tifa.Session[Session](c) == nil {
-		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
+	if path := c.Path(); path == "/account" || strings.HasPrefix(path, "/account/") {
+		if _, err := RequireUser(c); err != nil {
+			return err
+		}
 	}
 	return next(c)
 }
@@ -488,9 +517,9 @@ import (
 // Load reads who is signed in. OnRequest has already turned visitors away, and this check is for
 // the day someone changes the guard there.
 func Load(c *tifa.Ctx) (signin.Profile, error) {
-	s := tifa.Session[signin.Session](c)
-	if s == nil {
-		return signin.Profile{}, tifa.Redirect("/login", 302)
+	s, err := signin.RequireUser(c)
+	if err != nil {
+		return signin.Profile{}, err
 	}
 	return signin.ProfileOf(s.UserID), nil
 }
@@ -521,7 +550,7 @@ func POST(c *tifa.Ctx, in RenameInput) error {
 ```
 
 - **Read the session, then the database.** Take the ID from the session and load the rest. The session is a copy made at sign-in. A name changed later, a role taken away or a disabled account is not in it.
-- **Guard in two places.** `OnRequest` turns visitors away from a whole area before any `Load` runs, for page loads and link clicks alike. A handler is a URL of its own and can be called without its page, so each handler that needs a user checks the session itself. A `Load` that returns a user's data should do the same.
+- **Guard in two places.** `OnRequest` turns visitors away from a whole area before any `Load` runs, for page loads and link clicks alike. A handler is a URL of its own and can be called without its page, so each handler that needs a user checks the session itself. A `Load` that returns a user's data should do the same, with `RequireUser`.
 - **Keep the copy in step.** When something in the session changes, call `SetSession` again, as `POST` does. The call brings the new session to the browser, so the header follows at once.
 - **Pages with `Cache`.** On a page with `Cache`, `Session` is nil for everyone, so such a page cannot be private (see [Cache for CDNs](../app.md#cache-for-cdns)).
 
@@ -590,9 +619,19 @@ func POST(c *tifa.Ctx) error {
 
 `ClearSession` deletes the record on the server and drops the cookie, so the old cookie is of no use even if someone kept a copy. It does nothing when nobody is signed in. Sign out with a POST and never a GET: a link or an image on another site would otherwise do it (see [Sign-in libraries](../sessions.md#sign-in-libraries)).
 
+The page needs to hear that the session ended: the copy of it in the browser drives `SignedIn`, `SignedOut` and `useSession`. A call from the browser gets the new session in its answer only when the handler returns a redirect, or has an input or a result type. The handler above returns a redirect, so it needs neither. A sign-out that ends with `return nil` has to take one of them, even an empty input, or the header keeps saying "Hello, Ada" until something else loads the session:
+
+```go
+type SignOutInput struct{}
+
+func POST(c *tifa.Ctx, _ SignOutInput) error { return tifa.ClearSession(c) }
+```
+
+The generated function then takes the input: `signOut({ input: {} })`. A handler that writes its own response with `c.JSON` or `c.Text` cannot carry the session at all (see [the browser side](../sessions.md#in-the-browser)).
+
 ## The browser side
 
-`app/layout.tsx` (the part that matters):
+`app/layout.tsx` (the part that matters, with `app/styles.css` any stylesheet you like):
 
 ```tsx
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
@@ -701,6 +740,59 @@ func TestSignIn(t *testing.T) {
 
 `tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../app.md#testing-a-whole-request)).
 
+`app/account/request_test.go` walks the whole path as a browser does, with `tifatest.Start`: the guard, the sign-in, the page, the sign-out and the guard again. It is in a package of its own because `tifaapp` imports every route:
+
+```go
+package account_test
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+
+	"signin"
+	"signin/.tifa/tifaapp"
+
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestSignInAndOut(t *testing.T) {
+	srv := tifatest.Start(t, tifaapp.App)
+	client := srv.Client() // keeps cookies, does not follow redirects
+
+	expect := func(res *http.Response, status int, location string) {
+		t.Helper()
+		if res.StatusCode != status || res.Header.Get("Location") != location {
+			t.Fatalf("%s %s: %d %q, want %d %q", res.Request.Method, res.Request.URL.Path, res.StatusCode, res.Header.Get("Location"), status, location)
+		}
+	}
+	get := func(path string) *http.Response {
+		res, err := client.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	post := func(path, body string) *http.Response {
+		res, err := client.Post(srv.URL+path, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+
+	expect(get("/account"), 302, "/login?next=%2Faccount")
+	expect(post("/login", `{"email":"`+signin.DemoEmail+`","password":"`+signin.DemoPassword+`","next":"/account"}`), 303, "/account")
+	expect(get("/account"), 200, "")
+	expect(post("/logout", ""), 303, "/login")
+	expect(get("/account"), 302, "/login?next=%2Faccount")
+}
+```
+
+`Start` runs `OnStart`, so the demo account exists. `client` keeps the session cookie from the sign-in and sends it on the next request, and the sign-out drops it. The test fails with a message to run `go tool tifa check` when `.tifa/tifaapp` is out of date (see [Testing a whole request](../app.md#testing-a-whole-request)).
+
 ## Decisions
 
 **Sessions in memory or in a store.** Without a store, sessions live in the memory of the process and a restart signs everyone out. That is fine to start with. When it matters, give `OnStart` a store (see [Where to store sessions](../sessions.md#where-to-store-sessions)).
@@ -718,4 +810,4 @@ go tool tifa check
 go tool tifa dev
 ```
 
-Open `/account` signed out and it sends you to `/login?next=/account`. Send the form empty and both messages show. Five wrong passwords for one e-mail and the sixth try, even with the right password, gets "Too many attempts". Sign in as `ada@example.com` with `correct horse battery` and you land on `/account` with "Hello, Ada" in the header. Rename yourself and the header changes. Sign out and `/account` sends you to the sign-in page again.
+Open `/account` signed out and it sends you to `/login?next=%2Faccount`. Send the form empty and both messages show. Five wrong passwords for one e-mail and the sixth try, even with the right password, gets "Too many attempts". Sign in as `ada@example.com` with `correct horse battery` and you land on `/account` with "Hello, Ada" in the header. Rename yourself and the header changes. Sign out and `/account` sends you to the sign-in page again.
