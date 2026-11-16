@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-11-16
+
+### Changed
+
+- The whole-visits comparison in the README and in [Performance](docs/performance.md#whole-visits-to-the-shop-2026-11-16) is two tables now. The throughput table has page views, full loads and client navigations a second, with the three reference rows (Tifa with the render memo off, TanStack Start with gzip, Next.js with prefetch off). The latencies have a table of their own. The whole-request comparison of 2026-11-06, measured with an older engine, is gone from both.
+
 ### Fixed
 
 - `tifa dev` puts back a file in `.tifa/` that another tool changed or deleted, on the next rebuild. It used to leave the file as it was until a route changed.
