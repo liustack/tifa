@@ -46,6 +46,9 @@ const (
 const (
 	callHeader     = "X-Tifa-Call"
 	redirectHeader = "X-Tifa-Redirect"
+	// sessionHeader marks the answer of a handler with no input and no result that changed the
+	// session: its body is the session alone, for the function of the page to read.
+	sessionHeader = "X-Tifa-Session"
 )
 
 // frontBuild is dist/build.json.

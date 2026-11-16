@@ -2,6 +2,7 @@ import { Link, Outlet } from '@tanstack/react-router'
 import { SignedIn, SignedOut, useSession } from 'tifa/client'
 import { layout } from './route.gen'
 import { POST as signOut } from './logout/route.gen'
+import { POST as quit } from './quit/route.gen'
 
 export const htmlAttributes = { lang: 'en' }
 
@@ -23,6 +24,9 @@ export default function Shell() {
             <span id="who">{data?.name}</span>{' '}
             <button id="sign-out" onClick={() => void signOut({ input: { everywhere: false } })}>
               Sign out
+            </button>{' '}
+            <button id="quit" onClick={() => void quit()}>
+              Quit
             </button>
           </span>
         </SignedIn>

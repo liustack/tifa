@@ -154,3 +154,22 @@ func isFields(err error) bool {
 // []*multipart.FileHeader fields: the body is a multipart or URL-encoded form, and JSON is
 // answered with 415. The generated routes.go passes it in place of (*tifa.Ctx).Bind.
 func BindForm(c *tifa.Ctx, v any) error { return core.BindForm(c, v) }
+
+// carryCalledSession answers a call from the browser to a handler that wrote nothing and changed
+// the session, which has no input and no result for the session to ride on: 200, sessionHeader
+// and the session as JSON. The function of the page reads it as it reads any answer with a
+// session. Handlers with an input or a result already wrote their answer, and one that wrote its
+// own response keeps it.
+func carryCalledSession(c *tifa.Ctx) error {
+	w, ok := c.Writer().(interface{ Committed() bool })
+	if c.Header(callHeader) == "" || !ok || w.Committed() {
+		return nil
+	}
+	session, err := calledSession(c)
+	if err != nil || session == nil {
+		return err
+	}
+	varyOnCall(c)
+	c.SetHeader(sessionHeader, "1")
+	return c.JSON(http.StatusOK, sessionAnswer{Session: session})
+}

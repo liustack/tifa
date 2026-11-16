@@ -11,7 +11,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
-- The sign-in guide has a `RequireUser` guard that sends a signed-out visitor to `/login?next=` with `c.Path()`, says why a sign-out needs a redirect or an input type to reach the browser, and tests the whole sign-in and sign-out with `tifatest.Start`.
+- The sign-in guide has a `RequireUser` guard that sends a signed-out visitor to `/login?next=` with `c.Path()`, and tests the whole sign-in and sign-out with `tifatest.Start`.
+- A call from the page to a handler with no input and no result, such as `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`, now brings the new session to the browser when the handler wrote nothing. Before, `SignedIn`, `SignedOut` and `useSession` kept the old state until the next navigation. The answer is 200 with `X-Tifa-Session: 1` and the session as its body, and the generated TypeScript does not change. A handler that writes its own response is unchanged.
 
 ## [0.0.10] - 2026-11-16
 

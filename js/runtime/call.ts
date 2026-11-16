@@ -1,7 +1,7 @@
 // The runtime of the handler functions that tifa build writes into each route.gen module, one per
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
-import { buildHeader, callHeader, isRedirected, redirectHeader } from './data'
+import { buildHeader, callHeader, isRedirected, redirectHeader, sessionHeader } from './data'
 import { acceptSession, beginSession } from './session'
 import { languageAt, reaches } from './prefix'
 import { reloadForBuild } from './skew'
@@ -119,7 +119,12 @@ export async function call(
     await follow(body.redirect, method)
     return answer === 'raw' ? response : undefined
   }
-  if (answer === 'raw') return response
+  if (answer === 'raw') {
+    // A handler that wrote its own response has no place for the session. One that wrote nothing
+    // and changed it gets the session alone, which is read here and left in the Response for the caller.
+    if (response.headers.has(sessionHeader)) acceptSession(seq, ((await response.clone().json()) as { session?: unknown }).session)
+    return response
+  }
   if (!response.ok) throw await failure(response)
   let result: unknown
   // 204 is a call that changed nothing of the session. Anything else is the envelope.

@@ -290,7 +290,7 @@ function Header() {
 
 服务器对所有访客回答得一样的页面，比如开了 `Cache` 的页面（见[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache)），不带会话，也没有 `data-session`。只有这样的页面里，head 最前面的脚本在第一次绘制前按 `localStorage` 设好 `data-session="in"`，`useSession` 在页面水合完成前按未登录渲染，之后切到 `localStorage` 里的副本，并向 `/__tifa/session` 问一次来核对。没有副本就不问。`localStorage` 读不了时也问一次。
 
-在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新。之后导航的数据请求也会带回会话。登录、登出的处理函数要有入参类型或结果类型（`func POST(c *tifa.Ctx, in Login) error`）。自己写响应的处理函数（`func POST(c *tifa.Ctx) error`）没法把会话放进回答里。
+在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新。之后导航的数据请求也会带回会话。每种形状的处理函数都一样，没有入参也没有结果的也行（`func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`）：它什么都没写时，回答就是会话本身。自己用 `c.JSON` 或 `c.Text` 写响应的处理函数没法把会话放进回答里，所以登录和登出不要写在这样的处理函数里。
 
 带着会话的回答，`Cache-Control` 必须是 `no-store`，或者同时有 `private` 和 `no-cache`，两个都不带字段列表（`private="Set-Cookie"` 不算），也不能有 `must-understand`。不设这个头，它就是 `private, no-cache`。它和渲染记忆、CDN 怎么配合，见[渲染记忆](memo.zh-CN.md#登录后的页面和私有页面)。`OnRequest`、`Load` 或处理函数在页面、页面的启动数据或调用的信封上设了别的值，请求按意外错误交给 `OnError`，错误回答是 `no-store`，没有 `ETag` 和 `Last-Modified`。导航重定向和已经在报错的导航回答不再抛一次：服务器记日志、清验证器、改成 `no-store`。`/__tifa/session` 永远是不带验证器的 `private, no-store`，中间件自己回答它时也一样。自己写响应的处理函数不检查。
 

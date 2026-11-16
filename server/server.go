@@ -176,7 +176,10 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if build := c.Header(buildHeader); build != "" && c.Header(callHeader) != "" && h.s.pagesServed() && build != h.s.front.Load().build.ID {
 			return h.s.buildChanged(c)
 		}
-		return recovered(func() error { return handle(c) })
+		if err := recovered(func() error { return handle(c) }); err != nil {
+			return err
+		}
+		return carryCalledSession(c)
 	})
 }
 
