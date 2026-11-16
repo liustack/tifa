@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/symwalk"
 	"github.com/liustack/tifa/js"
 )
 
@@ -128,12 +129,12 @@ func queryTable(m *analyze.Manifest) map[string]map[string][]string {
 }
 
 // publicPaths lists the URL paths of the regular files under the public folder of the build,
-// sorted. tifa build copies the folder to dist/public as it is, and the server answers these
+// sorted, links followed. tifa build copies the folder to dist/public as it is, and the server answers these
 // paths before it routes, so the router must not take them for pages.
 func publicPaths(root, public string) ([]string, error) {
 	dir := filepath.Join(root, public)
 	var paths []string
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	err := symwalk.Walk(dir, func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && p == dir {
 			return filepath.SkipAll
 		}

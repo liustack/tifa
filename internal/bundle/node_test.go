@@ -179,3 +179,24 @@ func TestNodeLeavesNoDriverFile(t *testing.T) {
 		t.Errorf("left behind: %v", left)
 	}
 }
+
+// Vite 8 needs Node 20.19, 22.12 or later. On an older Node the driver says so, with the version
+// it found, instead of leaving the user with an error from inside Vite.
+func TestNodeTooOldForVite(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []string{"18.20.4", "20.18.3", "21.7.3", "22.11.0"} {
+		// A module that Node loads first lets the driver see another version of itself.
+		fake := filepath.Join(t.TempDir(), "version.cjs")
+		writeTree(t, filepath.Dir(fake), map[string]string{
+			"version.cjs": "Object.defineProperty(process.versions, 'node', { value: '" + version + "' })\n",
+		})
+		t.Setenv("NODE_OPTIONS", "--require "+fake)
+		n := NewNode(root, io.Discard)
+		_, err := n.Exports([]string{filepath.Join(root, "route.tsx")})
+		n.Close()
+		want := "tifa needs Node 20.19, 22.12 or later to run Vite, found Node " + version
+		if err == nil || err.Error() != want {
+			t.Errorf("Node %s: %v, want %q", version, err, want)
+		}
+	}
+}

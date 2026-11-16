@@ -12,6 +12,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- `tifa new` built with a Go development toolchain writes a valid `go` line to `go.mod`, such as `go 1.27`, not `go .0`.
+- `tifa build`, `tifa dev`, `tifa gen` and `tifa check` stop at once with `tifa needs Node 20.19, 22.12 or later to run Vite, found Node X` on an older Node, instead of an error from inside Vite.
+- A symbolic link in `public/`, to a file or to a folder, or a `public/` that is itself a link, is followed by `tifa build` and `tifa dev`. Such files were left out of the build without a word. A link that leads back into the folder being copied, or to nothing, fails the build.
+- A file named `index.html` in `public/`, such as `public/docs/index.html`, is served at its own path. It was answered with a redirect to its folder.
 - `tifa dev` no longer calls the app ready when another program holds its address, such as Vite's dev server on a port that was free when both were chosen. The dev server asked only whether the port was open, so a browser request could get Vite's `Cannot GET /__tifa/vite/` while the app had failed to listen. It now waits for the app itself to answer, and when the app exits instead, shows why.
 
 ## [0.0.5] - 2026-11-16

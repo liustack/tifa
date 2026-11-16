@@ -346,7 +346,30 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, 
 			name += ".gz"
 		}
 	}
-	http.ServeFileFS(w, r, fsys, name)
+	// http.ServeFileFS also refuses a path with a .. element, which the mux would clean by a redirect.
+	if slices.Contains(strings.FieldsFunc(r.URL.Path, func(c rune) bool { return c == '/' || c == '\\' }), "..") {
+		http.Error(w, "invalid URL path", http.StatusBadRequest)
+		return true
+	}
+	// Not http.ServeFileFS: it answers a path that ends in /index.html with a redirect to the
+	// directory, so a file of that name, such as public/docs/index.html, could not be fetched.
+	f, err := fsys.Open(name)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			writePlainNotFound(w)
+		} else {
+			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		}
+		return true
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	seeker, ok := f.(io.ReadSeeker)
+	if err != nil || !ok {
+		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		return true
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), seeker)
 	return true
 }
 
@@ -1087,7 +1110,20 @@ func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 // redirect to requests with other such parameters.
 func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError, keep []string) {
 	c.Writer().Header().Del("ETag")
-	http.Redirect(c.Writer(), c.Request(), withDropped(redirect.Location, c.Request().URL, keep), redirect.Status)
+	http.Redirect(c.Writer(), c.Request(), withDropped(sameSite(redirect.Location), c.Request().URL, keep), redirect.Status)
+}
+
+// sameSite is location, the URL of a redirect the router made while rendering, written so that a
+// browser reads it as a path of this site whatever the router built it from. The router makes such
+// a URL from the path of the request, and a path may hold an escaped / or \ (/%2F%5Cevil.example).
+// Each \ is written %5C, since a browser reads \ as /, and the slashes at the start become one, since
+// a URL that starts with // names another host.
+func sameSite(location string) string {
+	location = strings.ReplaceAll(location, `\`, "%5C")
+	if strings.HasPrefix(location, "/") {
+		location = "/" + strings.TrimLeft(location, "/")
+	}
+	return location
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would

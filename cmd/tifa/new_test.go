@@ -626,3 +626,23 @@ func TestNewAgentNotesHaveOneManagedBlock(t *testing.T) {
 		t.Errorf("the title and the notes about this app belong outside the managed block:\n%s", data)
 	}
 }
+
+// The go line of a new app is the language version of the Go that built tifa. A toolchain built
+// from the Go tip reports a development version, which is still a valid go line.
+func TestNewGoLine(t *testing.T) {
+	for in, want := range map[string]string{
+		"go1.27.2":  "1.27.0",
+		"go1.27rc1": "1.27.0",
+		"go1.27":    "1.27.0",
+		"devel go1.27-3a2b1c4d5e Mon Nov 16 10:00:00 2026 +0000": "1.27",
+		"go1.27-devel_3a2b1c4d5e Mon Nov 16 10:00:00 2026 +0000": "1.27",
+	} {
+		got, err := goDirective(in)
+		if err != nil || got != want {
+			t.Errorf("goDirective(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	if got, err := goDirective("devel +abcdef"); err == nil {
+		t.Errorf("an unknown Go version gave %q", got)
+	}
+}

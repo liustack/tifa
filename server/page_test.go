@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -872,4 +873,61 @@ func readsQuery(app App, id string, names ...string) {
 		}
 	}
 	panic("no route " + id)
+}
+
+// A file named index.html in public/ is an ordinary file: http.ServeFile would answer a path that
+// ends in /index.html with a redirect to the directory.
+func TestStaticIndexHTMLIsServed(t *testing.T) {
+	files := fstest.MapFS{}
+	for name, file := range dist {
+		files[name] = file
+	}
+	files["public/docs/index.html"] = &fstest.MapFile{Data: []byte("<p>docs</p>")}
+	files["public/index.html"] = &fstest.MapFile{Data: []byte("<p>home</p>")}
+	s := newAppServer(t, frontApp())
+	if err := s.setFront(files, (&renders{}).render); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{"/docs/index.html": "<p>docs</p>", "/index.html": "<p>home</p>"} {
+		w := get(s, path)
+		if w.Code != 200 || w.Body.String() != body || w.Header().Get("Cache-Control") != "no-cache" ||
+			!strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || w.Header().Get("Location") != "" {
+			t.Errorf("GET %s: %d %v %q", path, w.Code, w.Header(), w.Body.String())
+		}
+	}
+	if w := send(s, "HEAD", "/docs/index.html", ""); w.Code != 200 || w.Body.Len() != 0 || w.Header().Get("Content-Length") != "11" {
+		t.Errorf("HEAD: %d %v", w.Code, w.Header())
+	}
+	if w := get(s, "/docs/index.html", "Range", "bytes=0-2"); w.Code != 206 || w.Body.String() != "<p>" {
+		t.Errorf("range: %d %q", w.Code, w.Body.String())
+	}
+	if w := get(s, "/assets/gone.js"); w.Code != 404 {
+		t.Errorf("missing: %d", w.Code)
+	}
+}
+
+// A root catch-all page matches /%2F%2Fevil.example and /%5Cevil.example, which the router reads as
+// the paths //evil.example and /\evil.example, and a canonical redirect it builds from such a path
+// could start with // or /\ and send the browser to another site: a browser reads \ as /.
+// writeRenderRedirect goes through http.Redirect, which cleans the repeated slashes, and writes each
+// \ as %5C, so no Location starts with // or holds a \.
+func TestRenderRedirectIsNeverAnOpenRedirect(t *testing.T) {
+	app := frontApp()
+	app.Routes = append(app.Routes, Route{ID: "app/rest++", Path: "/{rest...}", Page: true, SSR: true, Layouts: []string{"app/layout"}})
+	s, r := newFrontServer(t, app)
+	r.result = func(in ssr.Input) (string, error) {
+		// The worst the router can do: the decoded path of the request, as the canonical URL.
+		decoded, err := url.PathUnescape(in.URL)
+		if err != nil {
+			t.Error(err)
+		}
+		return "", &ssr.RedirectError{Location: decoded, Status: 308}
+	}
+	for _, target := range []string{"/%2F%2Fevil.example", "/%2F%2F%2Fevil.example", "/%5Cevil.example", "/%2F%5Cevil.example", "/%5C%5Cevil.example"} {
+		w := get(s, target)
+		loc := w.Header().Get("Location")
+		if w.Code != 308 || loc == "" || strings.HasPrefix(loc, "//") || strings.Contains(loc, `\`) {
+			t.Errorf("GET %s: %d, Location %q", target, w.Code, loc)
+		}
+	}
 }

@@ -83,7 +83,9 @@ PATH and npm otherwise.`,
 				return err
 			}
 			app.Install, app.Run = packageManager()
-			app.Go = strings.TrimPrefix(version.Lang(runtime.Version()), "go") + ".0"
+			if app.Go, err = goDirective(runtime.Version()); err != nil {
+				return err
+			}
 			info, _ := debug.ReadBuildInfo()
 			if app.Version = releaseVersion(info); app.Version == "" {
 				app.Version = "v0.0.0"
@@ -282,4 +284,27 @@ func renderFile(files fs.FS, name string, app newApp) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// goDirective gives the version for the go line of go.mod of the Go toolchain that built tifa,
+// such as 1.27.0 for go1.27.2. A toolchain built from the Go tip reports devel go1.27-<commit>
+// <date> or go1.27-devel_<commit> <date>, which stands for the language version of the release in
+// the making, 1.27. It has no patch version yet, so the line is 1.27.
+func goDirective(runtimeVersion string) (string, error) {
+	fields := strings.Fields(runtimeVersion)
+	devel := len(fields) > 1 && fields[0] == "devel"
+	if devel {
+		fields = fields[1:]
+	}
+	if len(fields) > 0 {
+		name, suffix, _ := strings.Cut(fields[0], "-")
+		devel = devel || strings.HasPrefix(suffix, "devel")
+		if lang := version.Lang(name); lang != "" {
+			if devel {
+				return strings.TrimPrefix(lang, "go"), nil
+			}
+			return strings.TrimPrefix(lang, "go") + ".0", nil
+		}
+	}
+	return "", fmt.Errorf("tifa new cannot tell the Go language version of %q, the Go this tifa was built with", runtimeVersion)
 }

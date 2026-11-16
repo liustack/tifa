@@ -449,3 +449,24 @@ func TestSoakMemorySwap(t *testing.T) {
 		t.Fatalf("VMs left open after swaps: %+v", s)
 	}
 }
+
+// putIdle must not touch a VM after it sent it: the next owner may already write it.
+// Under -race the reads after the send show up as a data race.
+func TestPutIdleDoesNotReadVMAfterSend(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	defer p.Close()
+	vm := <-p.idle
+	back := make(chan struct{})
+	go func() {
+		for range 2000 {
+			v := <-p.idle
+			v.live = v.baseline
+			back <- struct{}{}
+		}
+	}()
+	for range 2000 {
+		p.putIdle(vm)
+		<-back
+	}
+	p.putIdle(vm)
+}

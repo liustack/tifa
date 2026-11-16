@@ -338,3 +338,44 @@ func TestDevReadsTheFilesOfTheSSRBundle(t *testing.T) {
 		}
 	}
 }
+
+// A symbolic link in public/ is copied as what it points to, and a public/ that is a link is
+// copied too. The same files are inputs of the build.
+func TestPublicLinksAreFollowed(t *testing.T) {
+	root := t.TempDir()
+	shared := filepath.Join(root, "shared")
+	for name, text := range map[string]string{"shared/logo.svg": "<svg/>", "shared/img/a.png": "a", "real/robots.txt": "r"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for target, link := range map[string]string{
+		filepath.Join(shared, "logo.svg"): "real/logo.svg",
+		filepath.Join(shared, "img"):      "real/img",
+		"real":                            "public",
+	} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Skip("no symbolic links here:", err)
+		}
+	}
+	dst := filepath.Join(root, "dist")
+	if err := copyDir(filepath.Join(root, "public"), dst); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"logo.svg": "<svg/>", "img/a.png": "a", "robots.txt": "r"} {
+		if data, err := os.ReadFile(filepath.Join(dst, name)); err != nil || string(data) != text {
+			t.Errorf("copied %s: %q %v", name, data, err)
+		}
+	}
+	got, err := scanInputs(root, []string{"public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if want := "public/img/a.png public/logo.svg public/robots.txt"; strings.Join(got, " ") != want {
+		t.Errorf("inputs %q, want %q", got, want)
+	}
+}
