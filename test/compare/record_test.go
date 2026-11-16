@@ -306,7 +306,7 @@ func TestDiffComparesEveryScenario(t *testing.T) {
 	}
 }
 
-// withWire adds the bytes on the wire (Tifa, Next.js and React Router gzip, Start sends plain
+// withWire adds the bytes on the wire (Tifa and Next.js gzip, Start sends plain
 // HTML) and the two runs of Next.js that tell what gzip costs it.
 func withWire(r *Record) *Record {
 	for i := range r.Runs {

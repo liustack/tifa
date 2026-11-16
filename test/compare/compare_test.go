@@ -17,7 +17,7 @@ import (
 	"github.com/liustack/tifa/test/compare"
 )
 
-// The tests build three apps and run them, so they are off unless TIFA_COMPARE=1. They need go,
+// The tests build the apps and run them, so they are off unless TIFA_COMPARE=1. They need go,
 // node and pnpm and are skipped without them. TIFA_COMPARE_SKIP_BUILD=1 uses what the last run
 // built. None of this is part of CI.
 //
@@ -26,7 +26,7 @@ import (
 func setup(t *testing.T) compare.Env {
 	t.Helper()
 	if os.Getenv("TIFA_COMPARE") != "1" {
-		t.Skip("builds three Node apps, set TIFA_COMPARE=1 to run it")
+		t.Skip("builds two Node apps, set TIFA_COMPARE=1 to run it")
 	}
 	if why := compare.MissingTools(); why != "" {
 		t.Skip(why)
@@ -56,7 +56,7 @@ func buildShop(t *testing.T, env compare.Env) {
 	}
 }
 
-// buildApps builds the shop and the three Node apps once for all the tests.
+// buildApps builds the shop and the two Node apps once for all the tests.
 func buildApps(t *testing.T, env compare.Env) {
 	t.Helper()
 	if os.Getenv("TIFA_COMPARE_SKIP_BUILD") == "1" {
@@ -129,7 +129,7 @@ func toAny(t *testing.T, v compare.PageData) any {
 	return out
 }
 
-// TestPagesShowTheSameText builds the shop as a tifa program and as a Next.js, a TanStack Start and a React Router
+// TestPagesShowTheSameText builds the shop as a tifa program and as a Next.js and a TanStack Start
 // app, and checks that the six workbench pages show the same title and text, with as many table
 // rows, links, SVGs, buttons, times and photos.
 func TestPagesShowTheSameText(t *testing.T) {
@@ -171,7 +171,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 		}
 	}
 	for i, page := range compare.Pages {
-		t.Logf("%-14s %2d text nodes, tifa %d bytes, Next.js %d, Start %d, React Router %d", page.Name, len(tifa[i].Text), tifa[i].Bytes, views["nextjs"][i].Bytes, views["start"][i].Bytes, views["reactrouter"][i].Bytes)
+		t.Logf("%-14s %2d text nodes, tifa %d bytes, Next.js %d, Start %d", page.Name, len(tifa[i].Text), tifa[i].Bytes, views["nextjs"][i].Bytes, views["start"][i].Bytes)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 	perStore := map[string]map[string]int64{} // server -> storefront request -> calls of FindLocale
 
 	perPage := map[string]map[string]int64{} // server -> page -> calls of ordersOf for one request
-	for _, target := range []compare.Target{tifa, mustTarget(t, env, "nextjs"), mustTarget(t, env, "start"), mustTarget(t, env, "reactrouter")} {
+	for _, target := range []compare.Target{tifa, mustTarget(t, env, "nextjs"), mustTarget(t, env, "start")} {
 		server, err := target.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -261,36 +261,36 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 		server.Stop()
 	}
 	for _, page := range compare.CheckedPages() {
-		a, b, c, d := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name], perPage["reactrouter"][page.Name]
-		if a != b || a != c || a != d {
-			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d, React Router %d", page.Name, a, b, c, d)
+		a, b, c := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name]
+		if a != b || a != c {
+			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d", page.Name, a, b, c)
 		}
-		t.Logf("%-14s %d calls of ordersOf for a request in tifa, %d in Next.js, %d in Start, %d in React Router", page.Name, a, b, c, d)
+		t.Logf("%-14s %d calls of ordersOf for a request in tifa, %d in Next.js, %d in Start", page.Name, a, b, c)
 	}
 	for label, a := range perStore["tifa-nocache"] {
-		b, c, d := perStore["nextjs"][label], perStore["start"][label], perStore["reactrouter"][label]
-		if a != b || a != c || a != d {
-			t.Errorf("%s: calls for one request: tifa %d, Next.js %d, Start %d, React Router %d", label, a, b, c, d)
+		b, c := perStore["nextjs"][label], perStore["start"][label]
+		if a != b || a != c {
+			t.Errorf("%s: calls for one request: tifa %d, Next.js %d, Start %d", label, a, b, c)
 		}
-		t.Logf("%-52s %d calls in tifa, %d in Next.js, %d in Start, %d in React Router", label, a, b, c, d)
+		t.Logf("%-52s %d calls in tifa, %d in Next.js, %d in Start", label, a, b, c)
 	}
 }
 
 // TestNoCachingBetweenRequests reads what the Node apps would need to cache a page and finds none
-// of it: no Next.js cacheComponents or "use cache", no cache header on a page of Start or React
-// Router, no QueryClient on the server of Start, no headers or clientLoader export in React Router.
+// of it: no Next.js cacheComponents or "use cache", no cache header on a page of Start,
+// no QueryClient on the server of Start.
 func TestNoCachingBetweenRequests(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 
-	for _, dir := range []string{env.Next, env.Start, env.React} {
+	for _, dir := range []string{env.Next, env.Start} {
 		for _, bad := range []string{"cacheComponents", "use cache", "unstable_cache", "revalidate =", "QueryClient", "react-query", "staticGeneration", "clientLoader", "export const headers", "export function headers", "shouldRevalidate"} {
 			scan(t, dir, bad)
 		}
 	}
-	// A page of Start or React Router has no header that lets a cache keep it. Next.js says it must not be kept.
+	// A page of Start has no header that lets a cache keep it. Next.js says it must not be kept.
 	ctx := context.Background()
-	for _, target := range []compare.Target{mustTarget(t, env, "nextjs"), mustTarget(t, env, "start"), mustTarget(t, env, "reactrouter")} {
+	for _, target := range []compare.Target{mustTarget(t, env, "nextjs"), mustTarget(t, env, "start")} {
 		server, err := target.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -307,7 +307,7 @@ func TestNoCachingBetweenRequests(t *testing.T) {
 			if !strings.Contains(cache, "no-store") {
 				t.Errorf("Next.js answers a page with Cache-Control %q, want no-store", cache)
 			}
-		case "start", "reactrouter":
+		case "start":
 			for _, h := range []string{"Cache-Control", "ETag", "Last-Modified", "Expires", "Age"} {
 				if v := header.Get(h); v != "" {
 					t.Errorf("%s answers a page with %s: %s", target.Name, h, v)
@@ -331,7 +331,7 @@ func scan(t *testing.T, app, text string) {
 			return nil
 		})
 	}
-	for _, file := range []string{"package.json", "next.config.ts", "vite.config.ts", "react-router.config.ts"} {
+	for _, file := range []string{"package.json", "next.config.ts", "vite.config.ts"} {
 		if data, err := os.ReadFile(filepath.Join(app, file)); err == nil && strings.Contains(string(data), text) {
 			t.Errorf("%s holds %q", filepath.Join(app, file), text)
 		}
@@ -529,7 +529,7 @@ func TestWriteChangesThePage(t *testing.T) {
 // TestFanOutWriteChangesListsStatsAndOtherOrders gives SH-1042 a new customer name in each server
 // and checks that the list of its shop, the stats of its shop and the page of another order of the
 // old customer (SH-1032, which lists SH-1042 among the orders of that customer) all show something
-// new, and that the four apps show the same text after the same write.
+// new, and that the three apps show the same text after the same write.
 func TestFanOutWriteChangesListsStatsAndOtherOrders(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
@@ -620,7 +620,7 @@ func dig(v any, keys ...string) any {
 	return v
 }
 
-// TestTheNodeAppsCacheNothing guards that the three Node apps keep no page: two identical GETs of the
+// TestTheNodeAppsCacheNothing guards that the two Node apps keep no page: two identical GETs of the
 // pages of the site, the workbench and the storefront in both languages, have nothing that lets a
 // cache keep them or ask for them again cheaply (compare.CacheSigns). An upgrade of a framework or a
 // change of its config that turns on a cache fails here.
@@ -628,7 +628,7 @@ func TestTheNodeAppsCacheNothing(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	pages := slices.Concat(compare.Pages, compare.StorePages())
-	for _, name := range []string{"nextjs", "start", "reactrouter"} {
+	for _, name := range []string{"nextjs", "start"} {
 		target := mustTarget(t, env, name)
 		server, err := target.Start(context.Background(), "")
 		if err != nil {
@@ -673,14 +673,14 @@ func TestTheNodeAppsCacheNothing(t *testing.T) {
 }
 
 // TestTheWritesShowOnEveryServer makes every kind of write of the site once against Tifa and the
-// three apps, as the check before and after a round does: each must show next where the check reads
+// two Node apps, as the check before and after a round does: each must show next where the check reads
 // it (the cart, the order of a checkout in the back office, an edited product on its storefront page
 // and in the product list, and the orders staff place and ship).
 func TestTheWritesShowOnEveryServer(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	buildID := shopBuildID(t, env)
-	for _, name := range []string{"tifa", "nextjs", "start", "reactrouter"} {
+	for _, name := range []string{"tifa", "nextjs", "start"} {
 		var spec compare.Spec
 		for _, s := range env.Specs() {
 			if s.Name == name {

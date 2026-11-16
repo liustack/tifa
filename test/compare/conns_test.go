@@ -13,7 +13,7 @@ import (
 )
 
 func TestWithProcsGivesTifaThatManyVMsAndCPUs(t *testing.T) {
-	env := Env{Shop: "/shop", Next: "/next", Start: "/start", React: "/react"}
+	env := Env{Shop: "/shop", Next: "/next", Start: "/start"}
 	var tifa, next Spec
 	for _, s := range env.Specs() {
 		switch s.Name {

@@ -75,7 +75,7 @@ func browserTraces(plans []Plan) map[int]Trace {
 }
 
 // The pages are the same source in every framework, so a page view that is a document in one is a
-// document in all four. The plans count the documents from the traces, and a set of traces that does
+// document in all three. The plans count the documents from the traces, and a set of traces that does
 // not agree on them is refused, with the plan, the page view and the framework that differs.
 func TestTheFrameworksAgreeOnWhichPageViewsAreDocuments(t *testing.T) {
 	dir := t.TempDir()
@@ -91,7 +91,7 @@ func TestTheFrameworksAgreeOnWhichPageViewsAreDocuments(t *testing.T) {
 			break
 		}
 	}
-	names := []string{"tifa", "nextjs", "start", "reactrouter"}
+	names := []string{"tifa", "nextjs", "start"}
 	write := func(name string, docClicks ...int) {
 		var b strings.Builder
 		for _, p := range set.Plans {
@@ -113,7 +113,7 @@ func TestTheFrameworksAgreeOnWhichPageViewsAreDocuments(t *testing.T) {
 	}
 	_, traces, err := LoadTraces(dir, names)
 	if err != nil {
-		t.Fatalf("four traces that agree: %v", err)
+		t.Fatalf("three traces that agree: %v", err)
 	}
 	for _, n := range names {
 		if got := traces[n][with.ID].documents(); len(got) != len(with.Steps) || !got[0] || !got[1] || got[2] {
@@ -390,8 +390,8 @@ func TestATraceIsCheckedAgainstItsPlanWhenItIsLoaded(t *testing.T) {
 // which page views are documents. It says so where it starts, and its report says so among the ways it
 // is not a formal run.
 func TestARunOnTheTracesOfOneFrameworkSaysThatNothingShowsTheyAgree(t *testing.T) {
-	if note := oneTraceNote([]string{"tifa", "nextjs", "start", "reactrouter"}); note != "" {
-		t.Errorf("four traces: %q", note)
+	if note := oneTraceNote([]string{"tifa", "nextjs", "start"}); note != "" {
+		t.Errorf("three traces: %q", note)
 	}
 	note := oneTraceNote([]string{"tifa"})
 	if !strings.Contains(note, "tifa alone") || !strings.Contains(note, "agree") {
@@ -401,9 +401,9 @@ func TestARunOnTheTracesOfOneFrameworkSaysThatNothingShowsTheyAgree(t *testing.T
 	o := FormalBrowse
 	o.ServerCPUs, o.LoadCPUs = "0", "1,5"
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
-		Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}, Traces: []string{"tifa", "nextjs", "start", "reactrouter"}}
+		Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}, Traces: []string{"tifa", "nextjs", "start"}}
 	if md := r.Markdown(); strings.Contains(md, "Not a formal run") {
-		t.Errorf("a formal run on four traces says it is not one")
+		t.Errorf("a formal run on three traces says it is not one")
 	}
 	r.Servers[sc.Name], r.Traces = []string{"tifa", "tifa-nocache"}, []string{"tifa"}
 	top, _, _ := strings.Cut(r.Markdown(), "### ")

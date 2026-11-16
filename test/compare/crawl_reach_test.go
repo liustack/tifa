@@ -206,14 +206,14 @@ func forEachURL(urls []string, f func(u string)) {
 	wg.Wait()
 }
 
-// Every URL of the set a crawler fetches (U) answers 200 in all four servers, and every old URL (O)
+// Every URL of the set a crawler fetches (U) answers 200 in all three servers, and every old URL (O)
 // answers 404. A crawler is sent the User-Agent of Googlebot, which the servers of the frameworks read.
 func TestStorefrontEveryCrawlerURLAnswersWhatItShould(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 	ctx := context.Background()
 	u, o := compare.CrawlURLs()
-	for _, name := range []string{"tifa", "start", "nextjs", "reactrouter"} {
+	for _, name := range []string{"tifa", "start", "nextjs"} {
 		t.Run(name, func(t *testing.T) {
 			server, err := mustTarget(t, env, name).Start(ctx, "")
 			if err != nil {

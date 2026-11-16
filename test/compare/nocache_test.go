@@ -35,8 +35,7 @@ func TestCacheSignsFindsWhatLetsAnAnswerBeKept(t *testing.T) {
 
 // Before a run, every Node app is asked twice for the documents and the navigation data its traces
 // replay (one of each path, with the headers the browser sent), and a run stops when one answer has
-// a sign of a cache. Assets, writes, requests the browser canceled and the route manifest of React
-// Router (which holds no data of a page, made once a build like an asset) are not asked.
+// a sign of a cache. Assets, writes and requests the browser canceled are not asked.
 func TestARunStopsOnANodeAppThatSendsWhatACacheKeeps(t *testing.T) {
 	wl := &Workload{Plans: []Plan{{ID: 1}, {ID: 2}}, Traces: map[int]Trace{
 		1: {Plan: 1, Steps: []TraceStep{
@@ -45,7 +44,6 @@ func TestARunStopsOnANodeAppThatSendsWhatACacheKeeps(t *testing.T) {
 				{Method: "GET", URL: "/store/p/1.data?_rsc=a", Class: "nav", Headers: map[string]string{"RSC": "1"}},
 				{Method: "POST", URL: "/store/p/1", Class: "nav"},
 				{Method: "GET", URL: "/store/p/2.data", Class: "nav", Cancel: "aborted"},
-				{Method: "GET", URL: "/__manifest?paths=%2Fstore", Class: "nav"},
 			}},
 		}},
 		2: {Plan: 2, Steps: []TraceStep{{Kind: StepClick, Page: "/store/p/1", Reqs: []TraceReq{{Method: "GET", URL: "/store/p/1.data?_rsc=b", Class: "nav", Headers: map[string]string{"RSC": "1"}}}}}},

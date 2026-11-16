@@ -14,7 +14,7 @@ import (
 // storefront and an order staff place alike, so a run of many visits would sell products out, and
 // its orders would be refused. Before
 // a run with writes starts its clock, every product is given the stock the run can buy at most, with
-// room to spare, through the back office, as staff would change it. All four servers get the same
+// room to spare, through the back office, as staff would change it. All three servers get the same
 // requests, none of them renders a page, and none of it is timed.
 
 // stockMargin is how many times what a run can buy at most a product gets in stock.

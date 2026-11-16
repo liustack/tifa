@@ -1418,7 +1418,7 @@ func (r *runner) navRequests(page string) []TraceReq {
 			}
 			var qs []TraceReq
 			for _, q := range s.Reqs {
-				if q.Class == "nav" && q.Cancel == "" && q.Method == "GET" && !strings.Contains(q.URL, "__manifest") {
+				if q.Class == "nav" && q.Cancel == "" && q.Method == "GET" {
 					qs = append(qs, q)
 				}
 			}

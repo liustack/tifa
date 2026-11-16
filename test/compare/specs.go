@@ -61,17 +61,6 @@ func (e Env) Specs() []Spec {
 	}
 	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--ssr-memo-size", "0")
 	tifaCacheOff.Label = "Tifa (cache off)"
-	reactRouter := func(name, label string, reference bool, configs []string, flags ...string) Spec {
-		return Spec{
-			Target: Target{
-				Name: name, Dir: e.React, Prog: "node",
-				Args: append(slices.Clone(flags), filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")),
-				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
-			},
-			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite, Create: nodeCreate, StoreWrite: ReactRouterStorePath, EditProduct: nodeEditProduct, Products: nodeProducts,
-			Version: filepath.Join("node_modules", "react-router", "package.json"),
-		}
-	}
 	nextCompression := func(name, label, encoding string) Spec {
 		s := next(name, label, true, []string{ConfigCompression})
 		s.AcceptEncoding = encoding
@@ -98,8 +87,6 @@ func (e Env) Specs() []Spec {
 		nextCompression("nextjs-identity", "Next.js, identity", "identity"),
 		nextCompression("nextjs-gzip", "Next.js, gzip", "gzip"),
 		start("start-jitless", "TanStack Start --jitless", true, engine, "--jitless"),
-		reactRouter("reactrouter", "React Router", false, both),
-		reactRouter("reactrouter-jitless", "React Router --jitless", true, engine, "--jitless"),
 		startGzip,
 		nextNoPrefetch,
 	}
@@ -166,4 +153,4 @@ const (
 // BrowseFrameworks are the specs the browse comparison runs: each framework as shipped, then the
 // references, which are not compared (browseReferences): Tifa with its render memo off, Start with
 // gzip added and Next.js with prefetching off.
-var BrowseFrameworks = []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache", "start-gzip", NextNoPrefetch}
+var BrowseFrameworks = []string{"tifa", "nextjs", "start", "tifa-nocache", "start-gzip", NextNoPrefetch}

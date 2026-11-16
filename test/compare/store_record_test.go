@@ -16,8 +16,8 @@ import (
 	"testing"
 )
 
-// recordEnv is the environment of the tests that record visits in a browser against the four
-// frameworks, which are off unless TIFA_COMPARE=1: the shop and the three Node apps built
+// recordEnv is the environment of the tests that record visits in a browser against the three
+// frameworks, which are off unless TIFA_COMPARE=1: the shop and the two Node apps built
 // (TIFA_COMPARE_SKIP_BUILD=1 uses the last builds).
 func recordEnv(t *testing.T) Env {
 	t.Helper()

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Runs the browse comparison (whole visits against Tifa, Next.js, TanStack Start and React Router)
+# Runs the browse comparison (whole visits against Tifa, Next.js and TanStack Start)
 # from build to report, or one part of it. Run it from anywhere in the repository.
 #
 #   test/compare/browse.sh all       build, record the traces if they are missing or out of date, run
-#   test/compare/browse.sh build     install and build the shop and the three Node apps
+#   test/compare/browse.sh build     install and build the shop and the two Node apps
 #   test/compare/browse.sh record    record the traces in a real browser (needs a working Chromium)
 #   test/compare/browse.sh run       replay the traces at load and write the JSON and the report
 #   test/compare/browse.sh report    write the report again from the JSON
@@ -26,7 +26,7 @@
 #   LOCKS             files to flock while a server of the run runs, space separated,    none
 #                     first taken first: held for one round with its warm-up at a time and
 #                     given back in between, so that other work on the machine fits there
-#   SERVERS           spec ids. The references: tifa-nocache (Tifa with its render   tifa,nextjs,start,reactrouter,
+#   SERVERS           spec ids. The references: tifa-nocache (Tifa with its render   tifa,nextjs,start,
 #                     memo off, replays the trace of tifa), start-gzip (Start with    tifa-nocache,start-gzip,nextjsnoprefetch
 #                     gzip added, replays the trace of start), nextjsnoprefetch
 #                     (Next.js built with prefetching off, a trace of its own)
@@ -55,7 +55,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 out=${BROWSE_OUT:-./browse-out}
 traces=${BROWSE_TRACES:-$out/traces}
-servers=${SERVERS:-tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch}
+servers=${SERVERS:-tifa,nextjs,start,tifa-nocache,start-gzip,nextjsnoprefetch}
 # trace_names are the trace files the servers replay, each once: a spec replays the trace of its
 # framework, its id before the first dash (traceName in recorder.go), so tifa-nocache replays tifa.jsonl.
 trace_names() { echo "$servers" | tr "," "\n" | sed "s/-.*//" | awk "!seen[\$0]++"; }
@@ -85,20 +85,19 @@ stamp_file=$traces/STAMP
 plans_file=$traces/plans.json
 
 # trace_stamp lists what the traces depend on, one thing a line: the trees of the shop,
-# the three apps, the shared domain code, the overlays, the recorder and the plan generators
+# the two apps, the shared domain code, the overlays, the recorder and the plan generators
 # (committed content, and "dirty" when any of it has uncommitted changes), the framework versions
 # that were installed, the recorder's browser, the site and its plans.
 trace_stamp() {
-  # The shop, the three apps and everything that builds or serves the shop: Tifa's runtime, server,
+  # The shop, the two apps and everything that builds or serves the shop: Tifa's runtime, server,
   # command and the Go and JavaScript the build is made from.
-  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/landing.go test/compare/mix.go test/compare/store_plan.go test/compare/store_actions.go test/compare/store_list.go test/compare/store_terms.go test/compare/store.go test/compare/store_links.json js internal server cmd go.mod go.sum"
+  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/landing.go test/compare/mix.go test/compare/store_plan.go test/compare/store_actions.go test/compare/store_list.go test/compare/store_terms.go test/compare/store.go test/compare/store_links.json js internal server cmd go.mod go.sum"
   local p
   for p in $paths; do echo "tree $p $(git rev-parse HEAD:"$p")"; done
   echo "tree root-go $(git ls-tree HEAD | awk '$4 ~ /\.go$/' | sha)"
   if [ -n "$(git status --porcelain --untracked-files=no -- $paths ':(glob)*.go')" ]; then echo "dirty"; fi
   echo "next $(pkgver test/compare/nextjs next)"
   echo "start $(pkgver test/compare/start @tanstack/react-start)"
-  echo "reactrouter $(pkgver test/compare/reactrouter react-router)"
   echo "playwright $(sed -n 's/^    "playwright": "\(.*\)"$/\1/p' test/compare/recorder/package.json)"
   echo "site shop"
   echo "plans $( [ -f "$plans_file" ] && sha <"$plans_file" || echo none)"
@@ -118,13 +117,12 @@ run_stamp() {
   echo "node $(node --version)"
   echo "pnpm $(pnpm --version 2>/dev/null || echo none)"
   # The executables that run, not only their build ids: the shop's binary and the built output of the
-  # three Node apps (without caches, which a server may write).
+  # two Node apps (without caches, which a server may write).
   echo "tifa-build $(sed -n 's/.*"buildId": *"\([^"]*\)".*/\1/p' examples/shop/.tifa/dist/build.json 2>/dev/null | head -1)"
   echo "shop-binary $(sha <examples/shop/bin/shop 2>/dev/null || echo none)"
   echo "next-output $(dirsha test/compare/nextjs/.next)"
   echo "next-noprefetch-output $(dirsha test/compare/nextjs/.next-noprefetch)"
   echo "start-output $(dirsha test/compare/start/.output)"
-  echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
   echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 

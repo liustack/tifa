@@ -14,7 +14,7 @@ import (
 // whatever this lists. Name (of the Target) is the id of the spec.
 type Spec struct {
 	Target
-	Framework string   // the app: "tifa", "nextjs", "start", "reactrouter"
+	Framework string   // the app: "tifa", "nextjs", "start"
 	Label     string   // in the tables
 	Configs   []string // the tables it is in
 	Reference bool     // marked reference in the tables: it explains a gap and is not a contender
@@ -31,17 +31,17 @@ type Spec struct {
 	Version string // package.json, from Dir, of the framework package whose version the record keeps
 }
 
-// nodeWrite is the path of the write endpoint of the three Node apps. It is one path for all of
+// nodeWrite is the path of the write endpoint of the two Node apps. It is one path for all of
 // them, since Next.js cannot put a route handler next to a page.
 func nodeWrite(project, order string) string { return "/compare-write/" + project + "/" + order }
 
-// nodeCreate is the path that places an order in a project in the three Node apps.
+// nodeCreate is the path that places an order in a project in the two Node apps.
 func nodeCreate(project string) string { return "/compare-write/" + project }
 
-// nodeProducts is the path that lists the products of the storefront in the three Node apps.
+// nodeProducts is the path that lists the products of the storefront in the two Node apps.
 func nodeProducts(project, _ string) string { return "/compare-write/" + project + "/products" }
 
-// nodeEditProduct is the path that changes a product of the storefront in the three Node apps.
+// nodeEditProduct is the path that changes a product of the storefront in the two Node apps.
 func nodeEditProduct(project, product string) string {
 	return "/compare-write/" + project + "/products/" + product
 }

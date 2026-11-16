@@ -1,7 +1,0 @@
-# Copied from examples/shop and written when the app is built (see test/compare)
-/shop/
-/public/
-
-node_modules
-build
-.react-router

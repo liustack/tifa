@@ -22,7 +22,7 @@ import (
 	"github.com/liustack/tifa/test/compare"
 )
 
-// The storefront of the shop in the three Node apps against Tifa. One harness runs every check
+// The storefront of the shop in the two Node apps against Tifa. One harness runs every check
 // against each app: the same requests go to Tifa and to the app, each with a visitor that keeps
 // cookies, and what comes back must be equal. Needs TIFA_COMPARE=1 like the other tests:
 //
@@ -36,8 +36,8 @@ type storeApp struct {
 	name  string
 	label string
 	// write turns the URL of a write in the shop into the URL of the same write in this app.
-	// Next.js and React Router have a page at the URL of the cart, the checkout and the product,
-	// and answer a POST or a PATCH there with the page, so their writes are at a path of their
+	// Next.js has a page at the URL of the cart, the checkout and the product,
+	// and answers a POST or a PATCH there with the page, so its writes are at a path of its
 	// own, under /store. A wrong method is
 	// sent to the same URL, so the 405 is the one of the write.
 	write func(path string) string
@@ -54,12 +54,6 @@ var storeApps = []storeApp{
 		except: map[string]string{
 			"slash body": "Next.js sends a URL with a trailing slash away with its own 308, which has the target as its body and no type, so only the status and Location are compared",
 			"404 page":   "In Next.js 16.4.2, with the route tree under /store/[lang], a 404 raised below the layout of a language is answered with Next.js's error document (an empty #__next_error__ and the payload), and the browser draws the page. The status and title are compared here (a confirmation that is not found has the title of the root), and TestStorefrontErrorPagesInTheBrowser compares what the browser ends up showing",
-		},
-	},
-	{
-		name: "reactrouter", label: "React Router", write: compare.ReactRouterStorePath,
-		except: map[string]string{
-			"home methods": "React Router answers a method the home page does not take with its own 405 document, since a page cannot have a resource route at its URL",
 		},
 	},
 }

@@ -429,7 +429,7 @@ func TestEverySourceOfCompareIsInOrOutOfTheMethod(t *testing.T) {
 
 // The server of Next.js that a rate is bound to is its program, arguments and environment, not the
 // other servers, and the sources of the traces are the lines of the stamp the Next.js trace was
-// recorded from: not the trees of Tifa, Start or React Router.
+// recorded from: not the trees of Tifa or Start.
 func TestTheRateIsBoundToTheNextjsServerAndItsTrace(t *testing.T) {
 	e := Env{Next: "/next", Start: "/start", Shop: "/shop"}
 	home := []string{"HOME=/a", "PATH=/bin"}

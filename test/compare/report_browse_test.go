@@ -107,7 +107,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		return string(data)
 	}
 	trace := run("stamp")
-	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "site shop\n", "plans none\n"} {
+	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "playwright ", "site shop\n", "plans none\n"} {
 		if !strings.Contains(trace, want) {
 			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
 		}
@@ -119,7 +119,7 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		t.Error("the stamp is not bound to the plans")
 	}
 	results := run("runstamp")
-	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "go ", "node "} {
+	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "tifa-build ", "settings ", "go ", "node "} {
 		if !strings.Contains(results, want) {
 			t.Errorf("the result stamp lacks %q:\n%s", want, results)
 		}
@@ -558,7 +558,7 @@ func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
 // decided, one whose valid rounds all passed passed, and one with a valid round that failed failed.
 func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 	mix := mustScenario("shop")
-	fws := []string{"tifa", "nextjs", "start", "reactrouter"}
+	fws := []string{"tifa", "nextjs", "start", "tifa-nocache"}
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: fws}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Config: map[string]string{"rounds": "3"},
 		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}}
@@ -576,7 +576,7 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 			x.Attempt = try
 			r.Latency = append(r.Latency, x)
 		}
-		r.Latency = append(r.Latency, open("nextjs", round, true, true), open("reactrouter", round, true, round != 3))
+		r.Latency = append(r.Latency, open("nextjs", round, true, true), open("tifa-nocache", round, true, round != 3))
 		r.Latency = append(r.Latency, open("start", round, round == 1, true)) // one valid round of three
 	}
 	md := r.Markdown()
@@ -590,10 +590,10 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 		return ""
 	}
 	for label, want := range map[string]string{
-		"Tifa":           "| Tifa | - | - | - | - | no valid result: 0 of 3 rounds valid |",
-		"TanStack Start": "not decided: 1 of 3 rounds valid, 1 of 1 passed |",
-		"Next.js":        "3 of 3 rounds passed |",
-		"React Router":   "failed the rule in 1 of 3 rounds: round 3 failed: click P99 1200 ms over 1000 ms |",
+		"Tifa":                       "| Tifa | - | - | - | - | no valid result: 0 of 3 rounds valid |",
+		"TanStack Start":             "not decided: 1 of 3 rounds valid, 1 of 1 passed |",
+		"Next.js":                    "3 of 3 rounds passed |",
+		"Tifa, memo off (reference)": "failed the rule in 1 of 3 rounds: round 3 failed: click P99 1200 ms over 1000 ms |",
 	} {
 		if got := row(label); !strings.Contains(got, want) {
 			t.Errorf("the latency row of %s is %q, want it to hold %q:\n%s", label, got, want, body)
@@ -727,12 +727,12 @@ func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
 	}
 }
 
-// The browse comparison runs Tifa as it ships, the three Node frameworks, and three references: Tifa
+// The browse comparison runs Tifa as it ships, the two Node frameworks, and three references: Tifa
 // with its render memo off and Start with gzip added, which replay the trace of their framework, and
 // Next.js built with prefetching off, a framework of its own with its own trace. Recording records each
 // trace once, from the spec of the framework, and browse.sh names the same trace files.
 func TestTheBrowseServersAndTheirTraces(t *testing.T) {
-	if got := strings.Join(BrowseFrameworks, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch" {
+	if got := strings.Join(BrowseFrameworks, ","); got != "tifa,nextjs,start,tifa-nocache,start-gzip,nextjsnoprefetch" {
 		t.Errorf("the browse servers are %s", got)
 	}
 	env := Env{Shop: "/shop"}
@@ -763,10 +763,10 @@ func TestTheBrowseServersAndTheirTraces(t *testing.T) {
 func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
 	sc := mustScenario("shop")
 	// The reference sends the least, and is not one of the frameworks the range is of.
-	servers := []string{"tifa", "nextjs", "start", "reactrouter", "tifa-nocache"}
+	servers := []string{"tifa", "nextjs", "start", "tifa-nocache"}
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
 		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
-	kb := map[string]int64{"tifa": 14, "nextjs": 16, "start": 208, "reactrouter": 87, "tifa-nocache": 2}
+	kb := map[string]int64{"tifa": 14, "nextjs": 87, "start": 208, "tifa-nocache": 2}
 	for _, f := range servers {
 		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
 		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
@@ -1026,7 +1026,7 @@ func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 		"| Tifa | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
 		"| Next.js | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
 		"Next.js answers an old URL with an error document and renders no page for it on the server",
-		"the other three servers render a whole page for it",
+		"the other two servers render a whole page for it",
 		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |",
 		"| Tifa | U | 184 | 120 | 4 | 60 | - | 67.4% of 184 |",
 		"| Tifa | O | 10 | 0 | 0 | 10 | - | 0.0% of 10 |",
