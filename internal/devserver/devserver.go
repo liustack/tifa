@@ -143,6 +143,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
 	mux.HandleFunc("GET "+deverrors.Path, d.serveErrors)
+	mux.HandleFunc("GET "+deverrors.StatusPath, d.serveStatus)
 	mux.HandleFunc("POST "+deverrors.Path, d.takeBrowserError)
 	mux.Handle(devPrefix, http.NotFoundHandler())
 	if o.Vite != "" {

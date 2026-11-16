@@ -15,9 +15,28 @@ import (
 // tifa dev never forwards a browser request under /__tifa/dev/ to the app.
 const Path = "/__tifa/dev/errors"
 
+// StatusPath is where tifa dev answers `tifa dev status` and `tifa dev --background` (GET) with its
+// Status at once, also during a build. Its answers carry PIDHeader.
+const StatusPath = "/__tifa/dev/status"
+
 // PIDHeader is the header in which tifa dev names its process ID when it answers at Path, so that
 // `tifa errors` knows the answer comes from the tifa dev that .tifa/dev.lock names.
 const PIDHeader = "X-Tifa-Dev-Pid"
+
+// Build states of tifa dev, as Status gives them.
+const (
+	Starting = "starting" // the first build has not ended
+	Building = "building" // a later build runs
+	OK       = "ok"       // the last build worked and the app runs
+	Failed   = "failed"   // the last build failed or the app does not run, see Status.Failure
+)
+
+// Status is what tifa dev answers at StatusPath: the state of its builds. Failure is set when State
+// is Failed.
+type Status struct {
+	State   string   `json:"state"`
+	Failure *Failure `json:"failure,omitempty"`
+}
 
 // Max is how many different errors each list keeps, as the panel of the page does.
 const Max = 20

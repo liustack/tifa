@@ -960,3 +960,18 @@ func TestPublicPathsFollowLinks(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// The lock file and the log of tifa dev --background are not generated files, and Write keeps them.
+func TestWriteKeepsTheLockAndTheLog(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, Dir, LockFile), "{}")
+	writeFile(t, filepath.Join(root, Dir, LogFile), "tifa dev: serving\n")
+	if err := Write(root, map[string][]byte{"main.go": []byte("a")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{LockFile, LogFile} {
+		if _, err := os.Stat(filepath.Join(root, Dir, name)); err != nil {
+			t.Errorf("Write removed %s: %v", name, err)
+		}
+	}
+}
