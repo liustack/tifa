@@ -67,6 +67,7 @@ myapp/
   ```
 
 - **Tests sit next to the code** they test: `order_test.go` next to `order.go`.
+- **Components and other front-end files** may live under `app/` too. Only `page.tsx`, `layout.tsx` and `layout_.tsx` mean something to Tifa, so any other `.tsx` or `.ts` file, such as a shared component, is an ordinary module. Put it next to the pages that use it, and import it with a relative path: examples/shop keeps `product-card.tsx` in `app/store/`. A component that several areas use can sit in a folder beside `app/`, such as `components/` in examples/shop.
 - **The root package** holds only the hooks and the resources the whole app shares, such as `db.go`, `mail.go` and `content.go` (the content collections, see [Content](content.md)). No domain code. The database schema stays here too: the tables of all domains make up one database, `OnStart` creates them before the app listens, and by the convention below the root package imports nothing under `app/`. Each domain keeps its own queries.
 - Code that belongs to no domain and that several domains use, such as formatting money, goes in its own package named after what it does, such as `money/` at the module root. See below for what it may import.
 
