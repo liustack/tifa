@@ -7,7 +7,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -27,7 +26,7 @@ import (
 // browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
 // pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
 // its report says so at the top, with how it differs.
-var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 120 * time.Second, TrialWindow: 45 * time.Second, FinalWindow: 240 * time.Second, MaxRate: 16384, Seed: 1}
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 120 * time.Second, FinalWindow: 240 * time.Second, Seed: 1}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
@@ -52,20 +51,14 @@ type BrowseOptions struct {
 	Announce string
 	// Hold is the command of a machine that keeps it quiet for a timing round, with its arguments,
 	// run around each server of the run (holdWith). A machine that has one needs no Locks or Announce.
-	Hold []string
-	// Probe searches the rate of Next.js again, and writes it into RateFile.
-	Probe bool
-	// RateFile holds the confirmed rates of Next.js, per scenario (test/compare/rates.json when empty).
-	RateFile    string
+	Hold        []string
 	Scenarios   []BrowseScenario // BrowseScenarios when empty (the tests set others)
-	Phases      []string         // "throughput", "control", "sustain" and "latency"; all of them when empty
+	Phases      []string         // "throughput", "control" and "latency"; all of them when empty
 	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
 	Rounds      int
 	Sizing      time.Duration // the length of a sizing run (browse.size)
 	Target      time.Duration // how long a closed round should take, about
-	TrialWindow time.Duration // an open trial of the search for the sustainable rate
 	FinalWindow time.Duration // an open round of the latency table, at least
-	MaxRate     float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
 	// Stamp is what every server of the run shares (the plans, the replayer, the toolchain and the
 	// settings), kept in the result: a result of another stamp is not continued.
 	Stamp string
@@ -120,11 +113,8 @@ type BrowseResult struct {
 	// their data too.
 	Prepared   map[string]int `json:"prepared,omitempty"`
 	WarmVisits map[string]int `json:"warmVisits,omitempty"`
-	// Sustain is, per scenario and spec ("shop/tifa"), the search for the arrival rate it
-	// sustains in the open model.
-	Sustain map[string]*Sustain `json:"sustain"`
-	// LatencyRate is, per scenario, the rate that all its servers were run at: half of the lowest
-	// sustainable rate, which LatencyBase had.
+	// LatencyRate is, per scenario, the rate that all its servers were run at: latencyShare of the
+	// visits a second that LatencyBase (Next.js) completed in its closed rounds (latencyRate).
 	LatencyRate map[string]float64 `json:"latencyRate"`
 	LatencyBase map[string]string  `json:"latencyBase"`
 	Latency     []Round            `json:"latency"`
@@ -133,22 +123,6 @@ type BrowseResult struct {
 	Control []Round `json:"control,omitempty"`
 	// Throughput is, per scenario and server ("shop/tifa"), what the steps of its sessions found.
 	Throughput map[string]*Throughput `json:"throughput,omitempty"`
-}
-
-// Sustain is the search for the arrival rate, in visits a second, that one framework sustains: the
-// pass rule for every class of action over three rounds. Rate is 0 until the search is done.
-type Sustain struct {
-	Trials  []Round `json:"trials"`
-	Confirm []Round `json:"confirm"`
-	Rate    float64 `json:"rate"`
-	// Limited says that the load generator, not the server, ended the search.
-	Limited bool   `json:"generatorLimited,omitempty"`
-	Done    bool   `json:"done"`
-	Note    string `json:"note,omitempty"`
-	// Under is what the rate was measured under (see rateConditions), and From the run it came from
-	// when it was read from the file of rates rather than searched in this run.
-	Under map[string]string `json:"under,omitempty"`
-	From  *RateSource       `json:"fromFile,omitempty"`
 }
 
 type browse struct {
@@ -459,8 +433,8 @@ func checkDocuments(set *PlanSet, traces map[string]map[int]Trace, names []strin
 func browseConfig(o BrowseOptions, cpu, plans, method string) map[string]string {
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "sizing": o.Sizing.String(), "target": o.Target.String(),
-		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "plans": plans, "method": method,
+		"finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
+		"seed": fmt.Sprint(o.Seed), "cpu": cpu, "plans": plans, "method": method,
 	}
 }
 
@@ -485,7 +459,7 @@ func versionOwner(key string, frameworks []string) string {
 
 // canContinue says whether a result can be continued by a run with this shared stamp, settings (cfg,
 // see browseConfig) and versions: the stamp, the settings and the versions every server shares (the
-// toolchain) must be the same, so that a probe asked for again, other cpus, windows, plans, a seed,
+// toolchain) must be the same, so that other cpus, windows, plans, a seed,
 // another machine or another toolchain never reuse the rounds of another run. A version that belongs
 // to the servers of one framework (versionOwner) is not checked here: it measures those servers again
 // (staleWhy). frameworks are the frameworks of the servers of the run.
@@ -542,9 +516,9 @@ func (b *browse) staleWhy(name string, version map[string]string) string {
 }
 
 // forget drops all that a result holds of one server, so that it is measured again: its sizing, its
-// closed rounds and the steps of its sessions, its latency rounds, the search of its rate, and the
-// control when it played it. The open rounds of every server of a scenario are played at half of
-// the rate of one server (LatencyBase), so when that server is dropped the latency rounds of every
+// closed rounds and the steps of its sessions, its latency rounds, and the control when it played it.
+// The open rounds of every server of a scenario are played at a rate taken from the closed rounds of
+// one server (LatencyBase, latencyRate), so when that server is dropped the latency rounds of every
 // server of the scenario go with it, and the rate. It says what it dropped, "" for nothing.
 func (r *BrowseResult) forget(name string) string {
 	var what []string
@@ -574,12 +548,6 @@ func (r *BrowseResult) forget(name string) string {
 			what = append(what, "the steps of its sessions")
 		}
 	}
-	for key := range r.Sustain {
-		if strings.HasSuffix(key, "/"+name) {
-			delete(r.Sustain, key)
-			what = append(what, "the search of its rate")
-		}
-	}
 	for sc, base := range r.LatencyBase {
 		if base != name {
 			continue
@@ -588,7 +556,7 @@ func (r *BrowseResult) forget(name string) string {
 		r.Latency = slices.DeleteFunc(r.Latency, func(x Round) bool { return x.Scenario == sc })
 		delete(r.LatencyRate, sc)
 		delete(r.LatencyBase, sc)
-		what = append(what, fmt.Sprintf("the rate of the latency rounds of %s, half of its own, and the %d latency rounds of the other servers played at it", sc, n-len(r.Latency)))
+		what = append(what, fmt.Sprintf("the rate of the latency rounds of %s, %.0f%% of its closed throughput, and the %d latency rounds of the other servers played at it", sc, 100*latencyShare, n-len(r.Latency)))
 	}
 	return strings.Join(what, ", ")
 }
@@ -630,9 +598,7 @@ func (b *browse) measureAgain(version map[string]string) {
 
 // restore reads back a result to continue, and checks it in one place before any phase runs, whatever
 // the phases: its format, its shared stamp, settings and versions (canContinue, the method among
-// them). It then drops what it holds of the servers that are not of this run (measureAgain), and
-// checks every rate it still holds, searched or read from the file, against the conditions of this
-// run and the build of Next.js that runs.
+// them). It then drops what it holds of the servers that are not of this run (measureAgain).
 func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 	if err := checkFormat(data); err != nil {
 		return err
@@ -647,19 +613,6 @@ func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 		b.res.Version = map[string]string{}
 	}
 	b.measureAgain(version)
-	for _, key := range slices.Sorted(maps.Keys(b.res.Sustain)) {
-		name, fw, _ := strings.Cut(key, "/")
-		i := slices.IndexFunc(b.res.Scenarios, func(s BrowseScenario) bool { return s.Name == name })
-		if i < 0 {
-			return fmt.Errorf("holds a rate of %s, which is not one of its scenarios: remove it to start again", name)
-		}
-		if diff := conditionDiff(b.res.Sustain[key].Under, b.rateConditions(b.res.Scenarios[i])); len(diff) > 0 {
-			return fmt.Errorf("the rate of %s on %s was measured under other conditions than this run (%s): remove it to start again", BrowseLabel(fw), name, strings.Join(diff, "; "))
-		}
-		if err := b.checkNextBuild(); err != nil {
-			return fmt.Errorf("holds a rate of %s: %w", name, err)
-		}
-	}
 	return nil
 }
 
@@ -668,9 +621,6 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	if o.Log == nil {
 		o.Log = io.Discard
 	}
-	if o.MaxRate != 0 && o.MaxRate < minRate {
-		return nil, fmt.Errorf("-max-rate %v: the search of the sustainable rate needs a cap of at least %v visits a second", o.MaxRate, minRate)
-	}
 	if len(o.Servers) == 0 {
 		o.Servers = BrowseFrameworks
 	}
@@ -678,10 +628,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		o.Scenarios = BrowseScenarios
 	}
 	if len(o.Phases) == 0 {
-		o.Phases = []string{"throughput", "control", "sustain", "latency"}
-	}
-	if o.RateFile == "" {
-		o.RateFile = filepath.Join(e.Root, "test", "compare", "rates.json")
+		o.Phases = []string{"throughput", "control", "latency"}
 	}
 	if o.Sessions == 0 {
 		o.Sessions = 8
@@ -757,7 +704,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	for _, phase := range []struct {
 		name string
 		run  func(context.Context, BrowseScenario) error
-	}{{"throughput", b.throughput}, {"control", b.control}, {"sustain", b.sustain}, {"latency", b.latency}} {
+	}{{"throughput", b.throughput}, {"control", b.control}, {"latency", b.latency}} {
 		if !has(phase.name) {
 			continue
 		}
@@ -783,7 +730,6 @@ func (b *browse) begin(cfg, version map[string]string, mach Machine, placement P
 	b.res.Config = cfg
 	b.res.Blocks = map[string]int{}
 	b.res.Prepared = map[string]int{}
-	b.res.Sustain = map[string]*Sustain{}
 	b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
 	for _, name := range b.serverNames() {
 		b.stampServer(name)
@@ -1134,233 +1080,6 @@ func roundLength(target time.Duration) (lo, hi float64) {
 	return 0.8 * target.Seconds(), 1.6 * target.Seconds()
 }
 
-// visitsFor is the number of visits that last about window at rate visits a second, rounded up to
-// whole cycles of all the plans, so that the page mix and the writes come out as the mix says: a
-// part of a cycle has another number of page views a visit and another share of writes.
-func visitsFor(rate float64, window time.Duration, cycle int) int {
-	n := int(math.Ceil(rate * window.Seconds()))
-	return max(1, int(math.Ceil(float64(n)/float64(cycle)))) * cycle
-}
-
-// openRound runs the open model on a fresh server: whole cycles of all the plans, after a warm-up of
-// as many visits at the same rate with their writes, the visits after those of the round, apart.
-func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration) (*Round, error) {
-	cycle := b.set.Blocks * sc.blockVisits()
-	visits := visitsFor(rate, window, cycle)
-	out, err := b.with(ctx, fw, sc, visits, visits, visits, func(r *runner) *Round {
-		return r.RunOpen(ctx, rate, visits, 30*time.Second, 0)
-	})
-	if err != nil {
-		return nil, err
-	}
-	// A generator that cannot keep up makes the round invalid, so that it is never reported as a limit
-	// of the server.
-	if why := generatorFault(out, b.o.LoadCPUCount); why != "" {
-		out.GeneratorLimited, out.Valid, out.WhyInvalid = true, false, why
-	}
-	return out, nil
-}
-
-// sustainKey names the search of one spec in one scenario.
-func sustainKey(sc, spec string) string { return sc + "/" + spec }
-
-// maxRate is the cap of the search of the rate.
-func (b *browse) maxRate() float64 { return cmp.Or(b.o.MaxRate, 16384) }
-
-// sustain finds the arrival rate that Next.js sustains in the open model on a scenario with the open
-// run: double the rate while the rule holds, narrow it to within 10%, then require the rule over the
-// rounds, stepping down 10% until it holds. Only Next.js is searched: half of its rate is the rate of
-// the open run for every server.
-func (b *browse) sustain(ctx context.Context, sc BrowseScenario) error {
-	if !sc.Latency {
-		return nil
-	}
-	if !slices.Contains(b.servers[sc.Name], openBase) {
-		return fmt.Errorf("%s: the open run is set by %s, which is not among the servers", sc.Name, BrowseLabel(openBase))
-	}
-	// A rate is reused, searched and written only on a build of the sources it is bound to.
-	if err := b.checkNextBuild(); err != nil {
-		return fmt.Errorf("%s: %w", sc.Name, err)
-	}
-	for _, fw := range []string{openBase} {
-		key := sustainKey(sc.Name, fw)
-		s := b.res.Sustain[key]
-		if s != nil && s.Done {
-			continue // restore checked it against the conditions of this run
-		}
-		under := b.rateConditions(sc)
-		file, err := readRates(b.o.RateFile)
-		if err != nil {
-			return err
-		}
-		entry, err := fileRate(file, sc.Name, under, b.o.Probe)
-		if err != nil {
-			return err
-		}
-		if entry != nil {
-			b.logf("sustain %-10s %-12s %.2f visits/s from %s, confirmed on %s (Tifa %s)\n", sc.Name, fw, entry.Rate, b.o.RateFile, entry.Source.Date, entry.Source.Tifa)
-			b.res.Sustain[key] = &Sustain{Rate: entry.Rate, Done: true, Under: under, From: &entry.Source}
-			if err := b.commit(); err != nil {
-				return err
-			}
-			continue
-		}
-		s = &Sustain{Under: under}
-		b.res.Sustain[key] = s
-		// A trial that is not valid is played again at its rate: only a valid one moves the search.
-		trial := func(rate float64) (string, error) {
-			r, err := retryInvalid(func(try int) (*Round, error) {
-				r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow)
-				if err != nil {
-					return nil, err
-				}
-				r.Attempt = try
-				s.Trials = append(s.Trials, *r)
-				b.logf("sustain %-10s %-12s %8.2f visits/s (try %d): pass %v %s valid %v %s (%d visits, load P99 %.0f, click P99 %.0f ms, client %.2f cores)\n", sc.Name, fw, rate, try, r.Pass, r.Why, r.Valid, r.WhyInvalid, r.Visits, r.Types["load"].P99, r.Types["click"].P99, r.ClientCPU/math.Max(r.Seconds, 1))
-				return r, b.commit()
-			})
-			if err != nil {
-				return "", err
-			}
-			return trialOf(r), nil
-		}
-		maxRate := b.maxRate()
-		lo, hi, limited, err := searchRate(maxRate, trial)
-		if err != nil {
-			return err
-		}
-		s.Limited = limited
-		if lo == 0 {
-			s.Note, s.Done = fmt.Sprintf("it does not sustain %.2f visits a second, the lowest rate tried", hi), true
-			if limited {
-				s.Note = "the load generator could not play a valid trial, so the search found no rate"
-			}
-			if err := b.commit(); err != nil {
-				return err
-			}
-			continue
-		}
-		for !s.Limited && hi > 0 && hi-lo > 0.1*lo {
-			mid := math.Round((lo+hi)/2*100) / 100
-			got, err := trial(mid)
-			if err != nil {
-				return err
-			}
-			switch got {
-			case trialPass:
-				lo = mid
-			case trialFail:
-				hi = mid
-			default:
-				s.Limited = true
-			}
-		}
-		// Only a rate that passed all its confirmation rounds, each of them valid, is published. Every
-		// round stays in the record.
-		confirmed, rounds, limited, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
-			r, err := b.openRound(ctx, fw, sc, rate, b.o.TrialWindow*2)
-			if err != nil {
-				return nil, err
-			}
-			b.logf("confirm %-10s %-12s %8.2f visits/s round %d: pass %v %s valid %v %s\n", sc.Name, fw, rate, round, r.Pass, r.Why, r.Valid, r.WhyInvalid)
-			s.Confirm = append(s.Confirm, *r)
-			return r, b.commit()
-		}, maxRate)
-		if err != nil {
-			return err
-		}
-		s.Limited = s.Limited || limited
-		s.Confirm = rounds
-		s.Rate, s.Done = confirmed, true
-		switch {
-		case confirmed == 0 && limited:
-			s.Note = fmt.Sprintf("the load generator could not play valid confirmation rounds at %.2f visits a second, so no rate is confirmed", lo)
-		case confirmed == 0:
-			s.Note = fmt.Sprintf("no sustainable rate in range: no rate from %.2f down in four steps of 10%% passed %d rounds", lo, b.o.Rounds)
-		case hi == 0 && !s.Limited:
-			s.Note = "the search reached its cap without failing"
-		}
-		if err := b.commit(); err != nil {
-			return err
-		}
-		if err := b.keepRate(sc, s); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// openRate is the rate of the open run of a scenario: half of the rate Next.js sustains on it.
-func openRate(res *BrowseResult, sc BrowseScenario) (float64, error) {
-	s := res.Sustain[sustainKey(sc.Name, openBase)]
-	if s == nil || !s.Done {
-		return 0, fmt.Errorf("%s: no sustainable rate of %s: run the sustain phase first", sc.Name, BrowseLabel(openBase))
-	}
-	if s.Rate == 0 {
-		return 0, fmt.Errorf("%s: %s has no sustainable rate in range (%s), so the open run has no rate", sc.Name, BrowseLabel(openBase), s.Note)
-	}
-	return math.Round(s.Rate/2*100) / 100, nil
-}
-
-// latency is the open run of a scenario: all its servers at the same arrival rate, half of the rate
-// Next.js sustains on that scenario, the rounds in a rotating order with fresh servers. A server that
-// cannot hold the rate fails at it, and its rounds are kept as they are: the rate is never lowered
-// for it.
-func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
-	if !sc.Latency {
-		return nil
-	}
-	if s := b.res.Sustain[sustainKey(sc.Name, openBase)]; s != nil && s.Done && s.Rate == 0 {
-		// That is the result of the search: this scenario has no open run, and the others go on.
-		b.logf("latency %s: no open run, %s has no sustainable rate in range (%s)\n", sc.Name, BrowseLabel(openBase), s.Note)
-		return nil
-	}
-	if b.res.LatencyRate[sc.Name] == 0 {
-		rate, err := openRate(b.res, sc)
-		if err != nil {
-			return err
-		}
-		b.res.LatencyRate[sc.Name], b.res.LatencyBase[sc.Name] = rate, openBase
-		if err := b.commit(); err != nil {
-			return err
-		}
-	}
-	rate := b.res.LatencyRate[sc.Name]
-	b.logf("latency %s: %.2f visits/s, half of %s\n", sc.Name, rate, b.res.LatencyBase[sc.Name])
-	// Long enough for at least 1100 full loads and clicks, and for at least the final window.
-	window := max(b.o.FinalWindow, time.Duration(1100/rate*float64(time.Second)))
-	for round := 1; round <= b.o.Rounds; round++ {
-		for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-			// A round that is not valid (the load generator fell behind) is run again, up to three tries.
-			for {
-				tries := 0
-				for _, x := range b.res.Latency {
-					if x.Framework == fw && x.Scenario == sc.Name && x.Round == round {
-						tries++
-						if x.Valid {
-							tries = maxTries
-						}
-					}
-				}
-				if tries >= maxTries {
-					break
-				}
-				r, err := b.openRound(ctx, fw, sc, rate, window)
-				if err != nil {
-					return err
-				}
-				r.Round, r.Attempt = round, tries+1
-				b.res.Latency = append(b.res.Latency, *r)
-				b.logf("latency %-10s %-12s round %d (try %d): %d of %d visits succeeded, %d failed, %d unfinished, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s valid %v %s\n", sc.Name, fw, round, r.Attempt, r.Visits, r.VisitsPlanned, r.VisitsFailed, r.VisitsUnfinished, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why, r.Valid, r.WhyInvalid)
-				if err := b.commit(); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // browseSpecs are the specs a scenario runs.
 func (e Env) browseSpecs(sc BrowseScenario, names []string) ([]Spec, error) {
 	var specs []Spec
@@ -1660,25 +1379,6 @@ func raiseFileLimit() {
 	}
 }
 
-// The outcomes of a round of the search of a rate: valid and passing the rule, valid and failing
-// it, or not valid (the load generator did not do its work), which says nothing about the server.
-const (
-	trialPass    = "pass"
-	trialFail    = "fail"
-	trialInvalid = "invalid"
-)
-
-// trialOf is the outcome of a round.
-func trialOf(r *Round) string {
-	switch {
-	case !r.Valid:
-		return trialInvalid
-	case r.Pass:
-		return trialPass
-	}
-	return trialFail
-}
-
 // maxTries is how many times a round that is not valid is played, at the same rate or sessions.
 const maxTries = 3
 
@@ -1698,64 +1398,6 @@ func retryInvalid(play func(try int) (*Round, error)) (*Round, error) {
 	return r, nil
 }
 
-// ConfirmRate looks for a rate at which the rule holds in all the rounds, each of them valid, starting
-// at start and stepping down 10% for up to attempts tries. run plays one round at a rate. A round that
-// is not valid is played again at its rate (up to maxTries): it never steps the rate down. It returns
-// the rate that passed all its rounds, or 0 if none did in range, every round it ran, in order (a
-// failing round ends its try, and the rounds of the failed tries are kept), and whether the load
-// generator limited it: a round stayed invalid, which ends the confirmation there. If the first try
-// passes, one step 10% above it is tried too, since the search can underestimate and nothing else
-// would correct that: the rate above is published if it passes all its rounds, and the first one
-// otherwise. The step up is not tried when it would pass maxRate, the cap of the search (none when 0).
-func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error), maxRate float64) (float64, []Round, bool, error) {
-	var all []Round
-	try := func(n int, rate float64) (string, error) {
-		for round := 1; round <= rounds; round++ {
-			r, err := retryInvalid(func(int) (*Round, error) {
-				r, err := run(rate, round)
-				if err != nil {
-					return nil, err
-				}
-				r.Round, r.Attempt = round, n
-				all = append(all, *r)
-				return r, nil
-			})
-			if err != nil {
-				return "", err
-			}
-			if got := trialOf(r); got != trialPass {
-				return got, nil
-			}
-		}
-		return trialPass, nil
-	}
-	rate := start
-	for n := 1; n <= attempts; n++ {
-		got, err := try(n, rate)
-		if err != nil {
-			return 0, all, false, err
-		}
-		switch got {
-		case trialInvalid:
-			return 0, all, true, nil
-		case trialPass:
-			if up := math.Round(rate*1.1*100) / 100; n == 1 && (maxRate == 0 || up <= maxRate) {
-				got, err := try(n+1, up)
-				if err != nil {
-					return 0, all, false, err
-				}
-				if got == trialPass {
-					return up, all, false, nil
-				}
-				return rate, all, got == trialInvalid, nil
-			}
-			return rate, all, false, nil
-		}
-		rate = math.Round(rate*0.9*100) / 100
-	}
-	return 0, all, false, nil
-}
-
 // IsBrowseResult says whether a JSON file is a result of `compare browse` rather than a record of
 // `compare measure`.
 func IsBrowseResult(data []byte) bool {
@@ -1764,78 +1406,37 @@ func IsBrowseResult(data []byte) bool {
 		return false
 	}
 	_, closed := probe["closed"]
-	_, sustain := probe["sustain"]
-	return closed && sustain
+	_, latency := probe["latency"]
+	return closed && latency
 }
 
 func (r *BrowseResult) json() ([]byte, error) { return json.Marshal(r) }
 
-// minRate is the lowest cap of the search of the sustainable rate: half a visit a second.
-const minRate = 0.5
-
-// searchRate brackets the rate the rule holds at: it doubles from 4 visits a second (or from maxRate
-// when that is lower) while the rule holds, or, if the first fails, halves until one holds. lo is the
-// highest rate that passed (0 if none did) and hi the lowest that failed above it (0 if none did,
-// within maxRate). A trial that stayed invalid ends the search where it is, limited by the load
-// generator: it is neither a pass nor a failure of the server.
-func searchRate(maxRate float64, trial func(rate float64) (string, error)) (lo, hi float64, limited bool, err error) {
-	rate := min(4, maxRate)
-	for rate <= maxRate {
-		got, err := trial(rate)
-		if err != nil {
-			return 0, 0, false, err
-		}
-		if got == trialInvalid {
-			return lo, hi, true, nil
-		}
-		if got == trialFail {
-			hi = rate
-			if lo == 0 && rate > minRate {
-				rate /= 2
-				continue
-			}
-			break
-		}
-		if hi > 0 {
-			lo = rate // found going down: the rate that passes, with hi the one above that failed
-			break
-		}
-		lo, rate = rate, rate*2
-	}
-	return lo, hi, false, nil
-}
-
 // errOldFormat is the error for a result written by an older version of `compare browse`.
-var errOldFormat = fmt.Errorf("written by an older version of compare browse (users and not sessions, or no planned visits): it cannot be reported or continued, run it again")
+var errOldFormat = fmt.Errorf("written by an older version of compare browse (users and not sessions, no planned visits, or a search of the rate Next.js sustains): it cannot be reported or continued, run it again")
 
-// checkFormat refuses a result of the old format: one whose settings or rounds count users, a round
-// of which has no planned visits (closed, control, latency, or a trial or confirmation of a rate), or
-// that has the saturation phase.
+// checkFormat refuses a result of an old format: one whose settings or rounds count users, a round
+// of which has no planned visits (closed, control or latency), or that has the saturation phase or
+// the search of the rate Next.js sustains, which set the latency rate before it came from the closed
+// rounds of Next.js.
 func checkFormat(data []byte) error {
 	type rounds = []map[string]jsontext.Value
 	var top struct {
-		Settings map[string]string `json:"settings"`
-		Closed   rounds            `json:"closed"`
-		Control  rounds            `json:"control"`
-		Latency  rounds            `json:"latency"`
-		Sustain  map[string]struct {
-			Trials  rounds `json:"trials"`
-			Confirm rounds `json:"confirm"`
-		} `json:"sustain"`
-		Saturated  jsontext.Value `json:"saturated"`
-		Saturation jsontext.Value `json:"saturation"`
+		Settings   map[string]string `json:"settings"`
+		Closed     rounds            `json:"closed"`
+		Control    rounds            `json:"control"`
+		Latency    rounds            `json:"latency"`
+		Sustain    jsontext.Value    `json:"sustain"`
+		Saturated  jsontext.Value    `json:"saturated"`
+		Saturation jsontext.Value    `json:"saturation"`
 	}
 	if err := json.Unmarshal(data, &top); err != nil {
 		return err
 	}
-	if _, ok := top.Settings["users"]; ok || top.Saturated != nil || top.Saturation != nil {
+	if _, ok := top.Settings["users"]; ok || top.Saturated != nil || top.Saturation != nil || top.Sustain != nil {
 		return errOldFormat
 	}
-	all := slices.Concat(top.Closed, top.Control, top.Latency)
-	for _, s := range top.Sustain {
-		all = slices.Concat(all, s.Trials, s.Confirm)
-	}
-	for _, x := range all {
+	for _, x := range slices.Concat(top.Closed, top.Control, top.Latency) {
 		if _, users := x["users"]; users {
 			return errOldFormat
 		}

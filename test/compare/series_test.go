@@ -51,7 +51,7 @@ func TestARoundHoldsItsSeries(t *testing.T) {
 			t.Errorf("%s: %d page views, series %+v", name, round.PageViews, round.Series)
 		}
 	}
-	data, err := (&BrowseResult{Closed: []Round{*closed}, Sustain: map[string]*Sustain{}}).json()
+	data, err := (&BrowseResult{Closed: []Round{*closed}}).json()
 	if err != nil {
 		t.Fatal(err)
 	}

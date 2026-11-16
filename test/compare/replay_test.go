@@ -665,54 +665,6 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 	}
 }
 
-func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t *testing.T) {
-	var ran []float64
-	run := func(passAt func(rate float64, round int) bool) func(float64, int) (*Round, error) {
-		ran = nil
-		return func(rate float64, round int) (*Round, error) {
-			ran = append(ran, rate)
-			return &Round{Rate: rate, Pass: passAt(rate, round), Valid: true}, nil
-		}
-	}
-	// 100 fails, 90 fails in its second round, 81 passes all three.
-	rate, rounds, _, err := ConfirmRate(100, 4, 3, run(func(r float64, round int) bool {
-		if r == 90 {
-			return round == 1
-		}
-		return r < 85
-	}), 0)
-	if err != nil || rate != 81 {
-		t.Fatalf("rate %v, %v", rate, err)
-	}
-	if len(rounds) != 1+2+3 || rounds[0].Attempt != 1 || rounds[5].Attempt != 3 || rounds[5].Round != 3 {
-		t.Errorf("%d rounds kept: %+v", len(rounds), rounds)
-	}
-	// The first try passes: one step 10% above it is tried, and published if it passes too.
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 110 }), 0)
-	if rate != 110 || len(rounds) != 6 || rounds[3].Attempt != 2 {
-		t.Errorf("a passing step up: rate %v, %d rounds", rate, len(rounds))
-	}
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 100 }), 0)
-	if rate != 100 || len(rounds) != 4 {
-		t.Errorf("a failing step up leaves the first rate: %v, %d rounds", rate, len(rounds))
-	}
-	// Four tries that all fail: no rate, and no untested rate is made up.
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }), 0)
-	if rate != 0 || len(rounds) != 4 {
-		t.Errorf("rate %v after %d rounds", rate, len(rounds))
-	}
-	for _, r := range ran {
-		if r == 65.61 {
-			t.Error("the rate after the last try was run or published")
-		}
-	}
-	// The step up stays within the cap of the search.
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return true }), 105)
-	if rate != 100 || len(rounds) != 3 {
-		t.Errorf("a step up over the cap: rate %v, %d rounds", rate, len(rounds))
-	}
-}
-
 func TestGrowingTellsALevelSeriesFromARunawayOne(t *testing.T) {
 	level, climb, runaway := []float64{}, []float64{}, []float64{}
 	for i := 0; i < 40; i++ {

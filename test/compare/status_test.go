@@ -24,7 +24,7 @@ func TestTheStatusSaysWhatARunKeepsOfEachServer(t *testing.T) {
 			"tifa-nocache": {Stamp: "t1", Trace: trace("tifa"), Date: "2026-11-16 07:00:00 UTC"},
 			"nextjs":       {Stamp: "n1", Trace: trace("nextjs"), Date: "2026-11-15 07:00:00 UTC"},
 		},
-		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 20, Done: true}}, Throughput: map[string]*Throughput{"shop/nextjs": {Result: ThroughputCoreUsed, Sessions: 13}}}
+		Throughput: map[string]*Throughput{"shop/nextjs": {Result: ThroughputCoreUsed, Sessions: 13}}, LatencyRate: map[string]float64{sc.Name: 3}}
 	for round := 1; round <= 2; round++ {
 		res.Closed = append(res.Closed, closedRound("tifa", sc.Name, 8, round, 4000, 100, true))
 	}
@@ -44,7 +44,7 @@ func TestTheStatusSaysWhatARunKeepsOfEachServer(t *testing.T) {
 	for server, wants := range map[string][]string{
 		"tifa":         {"result: current, measured 2026-11-16 07:00:00 UTC", "throughput: 2 of 3 rounds at 8 sessions, steps not done", "control: 1 of 1 round", "latency: 0 of 3 rounds"},
 		"tifa-nocache": {"result: current", "throughput: 1 of 1 round at 8 sessions"},
-		"nextjs":       {"result: stale, a run measures it again: its stamp changed", "throughput: 3 of 3 rounds at 8 sessions, steps done (core used at 13 sessions)", "sustain: 20.00 visits/s", "latency: 3 of 3 rounds"},
+		"nextjs":       {"result: stale, a run measures it again: its stamp changed", "throughput: 3 of 3 rounds at 8 sessions, steps done (core used at 13 sessions)", "latency: 3 of 3 rounds, at 3.00 visits/s"},
 		"start":        {"result: missing: the result does not have it"},
 	} {
 		got, err := BrowseStatus(path, dir, "shared", stamps, server)

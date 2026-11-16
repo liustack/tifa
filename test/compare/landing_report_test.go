@@ -52,7 +52,7 @@ func TestTheLandingDocumentsAreCountedByTheParameterTheyCarry(t *testing.T) {
 // answered alike.
 func TestTheAppendixSplitsTheLandingHitsOfTifaByTheirParameter(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	for round := 1; round <= 2; round++ {
 		x := closedRound("tifa", sc.Name, 8, round, 4000, 10, true)
 		x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 60, "shared": 10}}

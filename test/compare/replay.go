@@ -25,7 +25,7 @@ import (
 // shopper visit does is the plan's (mix.go, the same in every scenario). Staff is the share of the
 // visits made by the staff, and Edit and Ship the shares of the staff visits that edit a product and
 // that ship an order. Throughput says that the scenario has the closed tables, and Latency the open
-// run (the search for the rate of Next.js and every server at half of it). ReadOnly is the read-only
+// run (every server at a rate taken from the closed rounds of Next.js, latencyRate). ReadOnly is the read-only
 // control: the same visits with no writes.
 type BrowseScenario struct {
 	Name       string  `json:"name"`
@@ -67,8 +67,8 @@ func (s BrowseScenario) viewsPerVisit() float64 {
 	return (ShopperViewsMean*ShopperBlockVisits + StaffViewsMean*float64(s.staffVisits())) / float64(s.blockVisits())
 }
 
-// openBase is the server whose sustainable rate sets the rate of an open run: half of it, for every
-// server of the scenario.
+// openBase is the server whose closed rounds set the rate of the latency rounds of every server of
+// a scenario (latencyRate).
 const openBase = "nextjs"
 
 // BrowseScenarios are the scenarios of the browse comparison: one, the shop with the mix of mix.go,

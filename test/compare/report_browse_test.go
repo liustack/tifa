@@ -22,8 +22,7 @@ func closedRound(fw, sc string, sessions, round int, views int, seconds float64,
 
 func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	mix := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{
-		"shop/nextjs": {Rate: 16, Done: true}},
+	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Config: map[string]string{"sessions": "32"}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("tifa", mix.Name, 32, round, 4000, 10, true), closedRound("nextjs", mix.Name, 32, round, 400, 10, round != 2))
@@ -38,9 +37,8 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"| | 8 sessions | 32 sessions |",
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
-		"#### The arrival rate Next.js sustains",
-		"| Next.js | 16.00 | 64 |",
-		"#### Latency at the same arrival rate, half of Next.js's confirmed rate",
+		"#### Latency at the same arrival rate",
+		"40% of the visits a second Next.js completed in its closed rounds at 32 sessions",
 		"not half of its own capacity",
 		"The writes are requests inserted into the recorded visits",
 		"the refresh after a write is not replayed",
@@ -61,7 +59,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	mix := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"},
-		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}}
+	}
 	for round := 1; round <= 3; round++ {
 		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
 		a.Model = "open"
@@ -188,14 +186,13 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 // a round are given for the rounds a scenario has.
 func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 	scs := BrowseScenarios
-	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"},
+	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Config: map[string]string{"sessions": "32"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}
 	for i, sc := range scs {
 		servers := BrowseFrameworks
 		r.Servers[sc.Name] = servers
 		if sc.Latency {
 			r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = float64(i+2), "nextjs"
-			r.Sustain[sustainKey(sc.Name, "nextjs")] = &Sustain{Rate: float64(2 * (i + 2)), Done: true}
 		}
 		for _, f := range servers {
 			x := closedRound(f, sc.Name, 32, 1, 4000, 10, true)
@@ -225,7 +222,7 @@ func TestBrowseReportHasTheTablesOfEveryScenario(t *testing.T) {
 			t.Fatalf("no section for %s:\n%s", sc.Title, md)
 		}
 		closed := []string{"#### Page views a second at each number of concurrent sessions", "#### 32 concurrent sessions"}
-		open := []string{"#### The arrival rate Next.js sustains", "#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))}
+		open := []string{"#### Latency at the same arrival rate", fmt.Sprintf("Every server gets %.2f visits/s", float64(i+2))}
 		for _, want := range append(closed, open...) {
 			has := strings.Contains(sec, want)
 			if slices.Contains(closed, want) && has != sc.Throughput || slices.Contains(open, want) && has != sc.Latency {
@@ -279,7 +276,7 @@ func TestReportTellsABrowseResultFromARecord(t *testing.T) {
 // run and in the read-only control of admin-w5: a diagnostic of what the writes do to the cache.
 func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Config: map[string]string{"sessions": "32"}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"list": {"memo": 55, "vm": 45}, "stats": {"memo": 11, "vm": 9}, "order": {"memo": 1, "vm": 99}, "cart": {"memo": 3, "vm": 7}}
 	x.PrivateHits = 3
@@ -314,7 +311,7 @@ func TestBrowseReportSplitsTheMemoOfFullLoadsByPage(t *testing.T) {
 // sessions shows the failed cell as failed.
 func TestBrowseReportTypesTheThroughputOfEachServer(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "start"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "start"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"},
 		Config: map[string]string{"sessions": "8", "rounds": "3"},
 		Throughput: map[string]*Throughput{
 			"shop/tifa":   {Result: ThroughputCoreUsed, Sessions: 13, Why: "used 0.96 of 1 cpus at 13 sessions", Steps: []int{8, 10, 13}},
@@ -382,7 +379,7 @@ func mustScenario(name string) BrowseScenario {
 // random value). It is flagged above the control table, and a kind with few answers is not.
 func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes = "control", 0
 	c.PageRenders = map[string]map[string]int{"list": {"memo": 98, "vm": 2}, "order": {"vm": 300}, "stats": {"memo": 30, "vm": 70}, "home": {"vm": 5}}
@@ -416,7 +413,7 @@ func TestTheReportFlagsAPageTheCacheMissesWithNoWrites(t *testing.T) {
 func TestTheReportClaimsOnlyWhatItMeasures(t *testing.T) {
 	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
-		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}}
+		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}}
 	c := closedRound("tifa", sc.Name, 8, 1, 8000, 10, true)
 	c.Model, c.Writes, c.PageRenders = "control", 0, map[string]map[string]int{"order": {"vm": 300}}
 	l := closedRound("tifa", sc.Name, 0, 1, 1000, 100, true)
@@ -439,7 +436,7 @@ func TestTheReportClaimsOnlyWhatItMeasures(t *testing.T) {
 // Tifa's cache filling up and the JIT of the Node servers warming show as a change over the round.
 func TestBrowseReportShowsTheSeriesOfEachServer(t *testing.T) {
 	mix := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
 		Config: map[string]string{"sessions": "32"}}
 	steps := func(rates, p99 []float64) []SeriesStep {
 		var out []SeriesStep
@@ -475,14 +472,13 @@ func TestBrowseReportShowsTheSeriesOfEachServer(t *testing.T) {
 // after it, and each result table links to the diagnostics behind it.
 func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) {
 	scs := BrowseScenarios
-	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"},
+	r := &BrowseResult{Scenarios: scs, Servers: map[string][]string{}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Config: map[string]string{"sessions": "8"},
 		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}, Throughput: map[string]*Throughput{}}
 	for _, sc := range scs {
 		r.Servers[sc.Name] = []string{"tifa", "nextjs"}
 		r.LatencyRate[sc.Name], r.LatencyBase[sc.Name] = 4, "nextjs"
-		r.Sustain[sustainKey(sc.Name, "nextjs")] = &Sustain{Rate: 8, Done: true}
 		for _, f := range r.Servers[sc.Name] {
-			r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+			r.Throughput[serverKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
 			x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
 			x.WriteKinds = map[string]int{WriteAdd: 5}
 			x.PageRenders = map[string]map[string]int{"product": {"vm": 3, "memo": 7}}
@@ -567,7 +563,6 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	}
 	// Every diagnostic is in the appendix and none in the body.
 	for _, diag := range []string{
-		"#### The arrival rate Next.js sustains",
 		"#### Page views a second at each number of concurrent sessions",
 		"What the server did a second:",
 		"What one visit costs the server",
@@ -592,7 +587,7 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 // visit, from its metrics before and after the round.
 func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "32"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-08", Version: map[string]string{"go": "go1.27"}, Config: map[string]string{"sessions": "32"}}
 	x := closedRound("tifa", sc.Name, 32, 1, 4000, 10, true)
 	x.Memo = &MemoRound{Start: MemoCounts{Hits: 4}, Warm: MemoCounts{Hits: 10}, End: MemoCounts{Hits: 260}} // 250 hits in 1000 visits after the warm-up
 	r.Closed = []Round{x, closedRound("nextjs", sc.Name, 32, 1, 400, 10, true)}
@@ -612,7 +607,7 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 	fws := []string{"tifa", "nextjs", "start", "tifa-nocache"}
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: fws}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Config: map[string]string{"rounds": "3"},
-		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}}
+	}
 	open := func(fw string, round int, valid, pass bool) Round {
 		x := closedRound(fw, mix.Name, 0, round, 1000, 100, pass)
 		x.Model, x.Rate, x.Valid = "open", 8, valid
@@ -680,7 +675,7 @@ func TestTheReportDescribesTheWritesAsTheyAreMade(t *testing.T) {
 // number of sessions and valid or not, with how long it took against the window of the target.
 func TestTheReportListsEveryCappedTry(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{},
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"},
 		Config: map[string]string{"sessions": "8", "rounds": "3", "target": "1m15s"},
 		Throughput: map[string]*Throughput{
 			"shop/tifa":   {Result: ThroughputPlateau, Sessions: 10, Steps: []int{8, 10, 13}},
@@ -749,9 +744,9 @@ func TestTheMemoOffTifaIsAReferenceInBothTables(t *testing.T) {
 	sc := mustScenario("shop")
 	servers := []string{"tifa", "nextjs", "tifa-nocache"}
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
-		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
 	for _, f := range servers {
-		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		r.Throughput[serverKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
 		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
 		r.Closed = append(r.Closed, x)
 		l := x
@@ -816,10 +811,10 @@ func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
 	// The reference sends the least, and is not one of the frameworks the range is of.
 	servers := []string{"tifa", "nextjs", "start", "tifa-nocache"}
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"},
-		Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}, LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
+		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
 	kb := map[string]int64{"tifa": 14, "nextjs": 87, "start": 208, "tifa-nocache": 2}
 	for _, f := range servers {
-		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		r.Throughput[serverKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
 		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
 		x.Bytes = kb[f] * 1024 * int64(x.PageViews)
 		x.Encodings = map[string]int{"gzip": 900, "identity": 100}
@@ -858,7 +853,7 @@ func TestTheTablesSayWhichServerSendsNoCompression(t *testing.T) {
 // the hits, with what the client cannot tell. The body has none of it.
 func TestTheAppendixSplitsTheRendersOfTifaByWhy(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	for round := 1; round <= 2; round++ {
 		x := closedRound("tifa", sc.Name, 8, round, 4000, 10, true)
 		x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 60, "shared": 10}, StoreKindCart: {"vm": 10}}
@@ -899,7 +894,7 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 		o := FormalBrowse
 		o.ServerCPUs, o.LoadCPUs = "0", "1,5"
 		return &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
-			Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}}
+			Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1")}
 	}
 	if md := formal().Markdown(); strings.Contains(md, "Not a formal run") {
 		t.Errorf("a formal run says it is not one:\n%s", md)
@@ -941,7 +936,7 @@ func TestBrowseShRefusesTheSettingsThatAreGone(t *testing.T) {
 // from the clock on, the end less the read after the warm-up, from its metrics.
 func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-09", Version: map[string]string{"go": "go1.27"}, Config: map[string]string{"sessions": "8"}}
 	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
 	x.Attempt = 1
 	x.Memo = &MemoRound{Start: MemoCounts{}, Warm: MemoCounts{Entries: 812, Bytes: 9 << 20, Hits: 3000, Evictions: 5}, End: MemoCounts{Entries: 900, Bytes: 10 << 20, Hits: 5500, Evictions: 12}}
@@ -974,7 +969,7 @@ func TestTheAppendixGivesWhatTheMemoHeldAfterTheWarmUp(t *testing.T) {
 // used in the last second of the pause after it, where the cpu of the server was read.
 func TestTheAppendixGivesWhatEachWarmUpDid(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-10", Version: map[string]string{"go": "go1.27"}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Date: "2026-11-10", Version: map[string]string{"go": "go1.27"}, Config: map[string]string{"sessions": "8"}}
 	cores := 0.03
 	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
 	x.Attempt = 1
@@ -1024,10 +1019,10 @@ func crawled(x Round) Round {
 // documents come after them, with their samples.
 func TestTheBodyTablesListTheCrawlerRequestsApartFromThePeople(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 8, Done: true}},
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{},
 		Config: map[string]string{"sessions": "8"}, LatencyRate: map[string]float64{"shop": 4}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
 	for _, f := range r.Servers[sc.Name] {
-		r.Throughput[sustainKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		r.Throughput[serverKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
 		for round := 1; round <= 3; round++ {
 			x := crawled(closedRound(f, sc.Name, 8, round, 4000, 10, true))
 			r.Closed = append(r.Closed, x)
@@ -1062,7 +1057,7 @@ func TestTheBodyTablesListTheCrawlerRequestsApartFromThePeople(t *testing.T) {
 // language and by kind of URL, and how big U is.
 func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs", "tifa-nocache"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	for round := 1; round <= 2; round++ {
 		for _, f := range r.Servers[sc.Name] {
 			r.Closed = append(r.Closed, crawled(closedRound(f, sc.Name, 8, round, 4000, 10, true)))

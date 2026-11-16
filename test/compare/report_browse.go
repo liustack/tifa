@@ -105,8 +105,7 @@ func p50Cell(rounds []Round, kind string) string {
 // Markdown writes the report of the browse comparison. The body holds the results alone: for every
 // scenario its throughput table and its latency table, each with a link to the diagnostics behind
 // it, then the mix with the source of every number. The appendix after it holds how the comparison
-// is made and every diagnostic: the steps of the sessions and what the rounds did, the rate Next.js
-// sustains, the render memo of Tifa, the read-only control, the time series and whether the traces
+// is made and every diagnostic: the steps of the sessions and what the rounds did, the render memo of Tifa, the read-only control, the time series and whether the traces
 // replay.
 func (r *BrowseResult) Markdown() string {
 	var b strings.Builder
@@ -164,7 +163,7 @@ func (r *BrowseResult) resultsMarkdown(b *strings.Builder, sc BrowseScenario, ro
 		b.WriteString("\nThis scenario has no throughput table: it is measured for its latency at a fixed arrival rate only.\n")
 	}
 	if r.latencyMarkdown(b, sc) {
-		fmt.Fprintf(b, "\nDiagnostics: [the arrival rate Next.js sustains, the writes and what the rounds did](#%s).\n", diagnosticsAnchor(sc, "latency"))
+		fmt.Fprintf(b, "\nDiagnostics: [the writes and what the rounds did](#%s).\n", diagnosticsAnchor(sc, "latency"))
 	}
 	if !sc.Latency {
 		b.WriteString("\nThis scenario has no open run: it is measured for its throughput only.\n")
@@ -199,7 +198,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 					// No round of the cell was valid: say why the last one failed, with what made it invalid.
 					last := tries[len(tries)-1]
 					fmt.Fprintf(b, " not decided (no valid round of %d: %s) |", len(tries), strings.Join(slices.DeleteFunc([]string{last.Why, last.WhyInvalid}, func(s string) bool { return s == "" }), "; "))
-				case got == trialFail:
+				case got == stepFail:
 					fmt.Fprintf(b, " failed (%s) |", why)
 				case got == stepUndecided:
 					fmt.Fprintf(b, " not decided (%s) |", why)
@@ -219,7 +218,6 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	r.seriesMarkdown(b, sc)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
 	r.latencyMethodMarkdown(b, sc)
-	r.sustainMarkdown(b, sc)
 	if rs := func(f string) []Round { return r.latencyRounds(f, sc.Name) }; slices.ContainsFunc(fw, func(f string) bool { return len(rs(f)) > 0 }) {
 		b.WriteString("\n#### The rounds at the same arrival rate\n")
 		r.writesMarkdown(b, sc, rs)
@@ -238,7 +236,7 @@ func peopleCell(views float64) string {
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
 	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up, %d rounds a step. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. "+stepClassNote+" The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured.\n\n", r.baseSessions(), rounds)
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round {
-		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+		if t := r.Throughput[serverKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
 			return r.cellRounds(f, sc.Name, t.Sessions)
 		}
 		return nil
@@ -246,7 +244,7 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full page load P50 / P99 ms (n) | client navigation P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	marked := false
 	for _, f := range r.Servers[sc.Name] {
-		t := r.Throughput[sustainKey(sc.Name, f)]
+		t := r.Throughput[serverKey(sc.Name, f)]
 		switch {
 		case t == nil:
 			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - | - | - |\n", BrowseLabel(f))
@@ -327,7 +325,7 @@ func (r *BrowseResult) throughputMethodMarkdown(b *strings.Builder, sc BrowseSce
 	}
 	b.WriteString("| | server cores | why the steps stopped | sessions played |\n| --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
-		t := r.Throughput[sustainKey(sc.Name, f)]
+		t := r.Throughput[serverKey(sc.Name, f)]
 		switch {
 		case t == nil:
 			fmt.Fprintf(b, "| %s | - | not measured | - |\n", BrowseLabel(f))
@@ -444,52 +442,13 @@ func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, r
 	}
 }
 
-func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
-	fw := r.Servers[sc.Name]
-	if !slices.ContainsFunc(fw, func(f string) bool { return r.Sustain[sustainKey(sc.Name, f)] != nil }) {
-		return
-	}
-	fmt.Fprintf(b, "\n#### The arrival rate %s sustains\n\nOpen model: visits start on schedule whether or not the earlier ones are done, and the actions of a visit are planned one second apart. A rate is sustained when the first pages of visits, the pages after them and writes each have a P99 of at most 1 s, nothing fails, no backlog is left, and the load generator keeps up, in %d rounds. The search doubles the rate, narrows it to within 10%%, then confirms it (and tries 10%% above it, within the cap of the search). It is run for %s only, whose rate sets the rate of the open run. A confirmed rate is kept in `test/compare/rates.json` with what it was measured under (the scenario, the plans and the traces, the sources, the cpu and its pinning, the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation), and a later run under all the same conditions reads it from there.\n\n| | sustained rate, visits/s | page views/s | notes |\n| --- | --- | --- | --- |\n", BrowseLabel(openBase), r.rounds(), BrowseLabel(openBase))
-	for _, f := range fw {
-		s := r.Sustain[sustainKey(sc.Name, f)]
-		if s == nil {
-			continue
-		}
-		if !s.Done {
-			fmt.Fprintf(b, "| %s | - | - | not measured |\n", BrowseLabel(f))
-			continue
-		}
-		if s.Rate == 0 {
-			fmt.Fprintf(b, "| %s | none in range | - | %s |\n", BrowseLabel(f), s.Note)
-			continue
-		}
-		note := s.Note
-		if s.Limited {
-			note = strings.TrimSpace(note + " the load generator ended the search: the rate is a lower bound")
-		}
-		if s.From != nil {
-			passed := 0
-			for _, x := range s.From.Confirm {
-				if x.Pass && x.Valid {
-					passed++
-				}
-			}
-			note = strings.TrimSpace(fmt.Sprintf("%s from test/compare/rates.json: confirmed on %s with Tifa %s (%s), %d of %d confirmation rounds passed", note, s.From.Date, s.From.Tifa, s.From.Result, passed, len(s.From.Confirm)))
-		}
-		fmt.Fprintf(b, "| %s | %.2f | %.0f | %s |\n", BrowseLabel(f), s.Rate, sc.viewsPerVisit()*s.Rate, note)
-	}
-}
-
 // latencyMarkdown writes the latency table of a scenario, and reports whether it had rounds to show.
 func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bool {
 	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
-		if s := r.Sustain[sustainKey(sc.Name, openBase)]; sc.Latency && s != nil && s.Done && s.Rate == 0 {
-			fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nNo open run: %s has no sustainable rate in range on this scenario (%s).\n", BrowseLabel(openBase), s.Note)
-		}
 		return false
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. "+stepClassNote+" P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), %.0f%% of the visits a second %s completed in its closed rounds at %d sessions. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. "+stepClassNote+" P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", rate, sc.viewsPerVisit()*rate, 100*latencyShare, BrowseLabel(r.LatencyBase[sc.Name]), r.baseSessions(), r.rounds())
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
 	b.WriteString("| | full page loads | client navigations | writes | crawler documents | rounds |\n| --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
@@ -638,7 +597,7 @@ func (r *BrowseResult) detailSessions(sc string) []int {
 	var out []int
 	for _, n := range played {
 		if n == r.baseSessions() || slices.ContainsFunc(r.Servers[sc], func(f string) bool {
-			t := r.Throughput[sustainKey(sc, f)]
+			t := r.Throughput[serverKey(sc, f)]
 			return t != nil && t.Sessions == n
 		}) {
 			out = append(out, n)
@@ -832,7 +791,7 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 	var rows []string
 	for _, f := range r.Servers[sc.Name] {
 		sessions := r.baseSessions()
-		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+		if t := r.Throughput[serverKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
 			sessions = t.Sessions
 		}
 		show := func(label string, rs []Round) {
@@ -1054,7 +1013,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 func (r *BrowseResult) notFormal() []string {
 	var off []string
 	formal := browseConfig(FormalBrowse, "", "", "")
-	for _, k := range []string{"sessions", "rounds", "sizing", "target", "trialWindow", "finalWindow", "maxRate", "seed"} {
+	for _, k := range []string{"sessions", "rounds", "sizing", "target", "finalWindow", "seed"} {
 		if v, ok := r.Config[k]; !ok {
 			off = append(off, fmt.Sprintf("%s not recorded (formal %s)", k, formal[k]))
 		} else if v != formal[k] {

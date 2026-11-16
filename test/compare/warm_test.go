@@ -60,7 +60,7 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 		servers: map[string][]string{},
 		set:     &set,
 		trace:   map[string]map[int]Trace{},
-		res:     &BrowseResult{Blocks: map[string]int{}, Sustain: map[string]*Sustain{}},
+		res:     &BrowseResult{Blocks: map[string]int{}},
 		// These tests check what the servers got, not how long a round took: a slow machine must not cut one off.
 		noCutoff: true,
 	}

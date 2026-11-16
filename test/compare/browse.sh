@@ -36,12 +36,9 @@
 #                     memo off, replays the trace of tifa), start-gzip (Start with    tifa-nocache,start-gzip,nextjsnoprefetch
 #                     gzip added, replays the trace of start), nextjsnoprefetch
 #                     (Next.js built with prefetching off, a trace of its own)
-#   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,sustain,latency
-#                     (Tifa with no writes), sustain (the rate of Next.js),
-#                     latency (every server at half of that rate)
-#   PROBE=1           search the rate of Next.js again and write it into
-#                     test/compare/rates.json (else the file is used, and a run whose
-#                     conditions differ from the file is refused)
+#   PHASES            throughput (every server at SESSIONS, then stepped), control   throughput,control,latency
+#                     (Tifa with no writes), latency (every server at 40% of the
+#                     visits a second Next.js completes in its closed rounds)
 #   HOLD              the command of the machine that keeps it quiet for a timing round       none
 #                     (it queues the round with the other work and takes the locks): the
 #                     run starts it around each round, and needs no LOCKS or ANNOUNCE then
@@ -51,7 +48,7 @@
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 120s
 #                     long a closed round takes
-#   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
+#   FINAL_WINDOW      an open latency round, at least                               240s
 #   BLOCKS            blocks of 1050 visits to record (the plans)                   1
 #   WORKERS           browser contexts at once while recording                      6
 #   FORCE_RECORD=1    record every trace again, even those that are current
@@ -71,6 +68,9 @@ for old in USERS EXTRA_USERS; do
 done
 if [ -n "${SCENARIOS+set}" ]; then echo "SCENARIOS is gone: the comparison has one scenario, the shop" >&2; exit 2; fi
 if [ -n "${WARM+set}" ]; then echo "WARM is gone: every server gets the same warm-up of the mix, and SIZING is the length of a sizing run (15s by default)" >&2; exit 2; fi
+for old in PROBE TRIAL_WINDOW MAX_RATE; do
+  if [ -n "${!old+set}" ]; then echo "$old is gone: the latency rate is 40% of the visits a second Next.js completes in its closed rounds, with no search" >&2; exit 2; fi
+done
 blocks=${BLOCKS:-1}
 mkdir -p "$out" "$traces"
 compare=$out/compare
@@ -97,8 +97,7 @@ plan_paths="test/compare/plan.go test/compare/landing.go test/compare/mix.go tes
 # whose pages every app serves, on the recorder and on the plan generators. The trace of Tifa depends
 # on Tifa's runtime, server, command and the Go and JavaScript its build is made from, the traces of
 # Next.js (with prefetching on or off) on the Next.js app, and the trace of Start on the Start app,
-# the two Node apps on the domain code and the overlays they share. The order is the one the rate of
-# Next.js reads its lines in (stampHash in rates.go).
+# the two Node apps on the domain code and the overlays they share.
 trace_paths() {
   case $1 in
     tifa) echo "examples/shop test/compare/recorder $plan_paths js internal server cmd go.mod go.sum" ;;
@@ -139,7 +138,7 @@ run_stamp() {
   echo "go $(go version | cut -d' ' -f3)"
   echo "node $(node --version)"
   echo "pnpm $(pnpm --version 2>/dev/null || echo none)"
-  echo "settings servers=$servers phases=${PHASES:-} probe=${PROBE:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers phases=${PHASES:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} final=${FINAL_WINDOW:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # server_stamp is what the results of one server depend on besides run_stamp: the stamp of the trace
@@ -246,14 +245,11 @@ do_run() {
   done
   local cmd=("$compare" browse -dir "$traces" -skip-build -servers "$servers" -out "$out/browse.json" -stamp "$(run_stamp | sha)" -server-stamps "$(server_stamps)")
   [ -n "${PHASES:-}" ] && cmd+=(-phases "$PHASES")
-  [ "${PROBE:-}" = 1 ] && cmd+=(-probe)
   [ -n "${SESSIONS:-}" ] && cmd+=(-sessions "$SESSIONS")
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")
   [ -n "${SIZING:-}" ] && cmd+=(-sizing "$SIZING")
   [ -n "${TARGET:-}" ] && cmd+=(-target "$TARGET")
-  [ -n "${TRIAL_WINDOW:-}" ] && cmd+=(-trial-window "$TRIAL_WINDOW")
   [ -n "${FINAL_WINDOW:-}" ] && cmd+=(-final-window "$FINAL_WINDOW")
-  [ -n "${MAX_RATE:-}" ] && cmd+=(-max-rate "$MAX_RATE")
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")
   [ -n "${LOAD_CPUS:-}" ] && cmd+=(-load-cpus "$LOAD_CPUS")
   all_run_stamps >"$out/run.stamp"

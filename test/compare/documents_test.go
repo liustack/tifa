@@ -401,7 +401,7 @@ func TestARunOnTheTracesOfOneFrameworkSaysThatNothingShowsTheyAgree(t *testing.T
 	o := FormalBrowse
 	o.ServerCPUs, o.LoadCPUs = "0", "1,5"
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
-		Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Sustain: map[string]*Sustain{}, Traces: []string{"tifa", "nextjs", "start"}}
+		Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), Traces: []string{"tifa", "nextjs", "start"}}
 	if md := r.Markdown(); strings.Contains(md, "Not a formal run") {
 		t.Errorf("a formal run on three traces says it is not one")
 	}

@@ -110,7 +110,7 @@ func expectedRound(framework string, kind string, docs, hits int, vm, memo, shar
 // with the same data, which the memo should have held.
 func TestTheAppendixSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "tifa-nocache"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "tifa-nocache"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	for i := range 2 {
 		a := expectedRound("tifa", "product", 100, 70, 30, 60, 10, map[string]int{RenderFirst: 20, RenderChanged: 6, RenderSame: 4})
 		a.Memo.End.Evictions = int64(3 * (i + 1))
@@ -162,7 +162,7 @@ func TestTheRedFlagTakesOver100AnswersAndAGapOf5Points(t *testing.T) {
 		{"5 points under by a third of a point each way", 300, 185, 300, 200, true},
 		{"over what the plans allow", 200, 190, 200, 180, false},
 	} {
-		r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+		r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 		r.Closed = append(r.Closed, expectedRound("tifa", "home", c.docs, c.hits, c.answers-c.memo, c.memo, 0, map[string]int{RenderSame: c.answers - c.memo}))
 		if got := strings.Contains(r.Markdown(), "**Red flag**: Tifa, home"); got != c.flag {
 			t.Errorf("%s (the memo answered %d of %d, the plans allow %d of %d): red flag %v, want %v", c.name, c.memo, c.answers, c.hits, c.docs, got, c.flag)
@@ -173,7 +173,7 @@ func TestTheRedFlagTakesOver100AnswersAndAGapOf5Points(t *testing.T) {
 // The landing groups carry the expected rate too, since a landing parameter is no part of the page.
 func TestTheLandingTableSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	x := closedRound("tifa", sc.Name, 8, 1, 4000, 10, true)
 	x.PageRenders = map[string]map[string]int{"product": {"vm": 30, "memo": 60, "shared": 10}}
 	x.Landing = map[string]map[string]int{LandingClickID: {"memo": 30, "vm": 10}}
@@ -189,7 +189,7 @@ func TestTheLandingTableSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 // URL and for U as a whole, and splits the renders in a VM by the class of the document.
 func TestTheCrawlerTableSetsTheExpectedHitRateBesideTifas(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	for round := 1; round <= 2; round++ {
 		x := crawled(closedRound("tifa", sc.Name, 8, round, 4000, 10, true))
 		x.Crawler.Why = map[string]map[string]int{"U|en-US|product": {RenderFirst: 2, RenderChanged: 1, RenderSame: 5}}
@@ -258,7 +258,7 @@ func TestARoundThatDidNotPlayAllItPlannedIsNotComparable(t *testing.T) {
 // red flag however far under: the plans count documents and writes that it never sent.
 func TestTheAppendixDoesNotSetACutOffRoundBesideWhatThePlansAllow(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	for round := 1; round <= 2; round++ {
 		x := crawled(expectedRound("tifa", "home", 240, 216, 120, 80, 40, map[string]int{RenderSame: 120}))
 		x.Round = round

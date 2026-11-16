@@ -84,7 +84,7 @@ func TestTheProductListIsCountedBySearchFilterAndTheRest(t *testing.T) {
 // as every other kind of page.
 func TestTheAppendixListsTheProductListBySearchFilterAndTheRest(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}, Config: map[string]string{"sessions": "8"}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa"}}, Version: map[string]string{}, Config: map[string]string{"sessions": "8"}}
 	x := expectedRound("tifa", "home", 120, 108, 12, 100, 8, map[string]int{RenderFirst: 2, RenderChanged: 10})
 	for kind, n := range map[string][5]int{
 		// docs, hits, vm, memo, shared
@@ -164,7 +164,7 @@ func TestTheClicksAreAlsoTimedByHowTheBrowserDidThem(t *testing.T) {
 
 	sc := mustScenario("shop")
 	res := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{},
-		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}, Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 16, Done: true}}}
+		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"}}
 	for round := 1; round <= 2; round++ {
 		for _, fw := range []string{"tifa", "nextjs"} {
 			x := closedRound(fw, sc.Name, 0, round, 1000, 100, true)
