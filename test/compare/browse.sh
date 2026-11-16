@@ -10,6 +10,8 @@
 #   test/compare/browse.sh report    write the report again from the JSON
 #   test/compare/browse.sh status    for each server: whether its trace is current, whether its result is
 #                                    current, stale or missing, and its rounds done (changes nothing)
+#   test/compare/browse.sh calibrate how fast the machine is now: the fixed program the run times
+#                                    around each round, alone, on SERVER_CPUS and inside HOLD as a round
 #   test/compare/browse.sh stamp [TRACE]   print what each trace is bound to (runstamp: the results)
 #
 # Recording and running can be done on two machines: `record` where Chromium works, copy the folder
@@ -49,6 +51,8 @@
 #   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 120s
 #                     long a closed round takes
 #   LATENCY_BLOCKS    blocks of the one latency round of every server               3
+#   CALIBRATE=0       do not time the machine around each round (the run is then    on
+#                     not formal)
 #   BLOCKS            blocks of 1050 visits to record (the plans)                   1
 #   WORKERS           browser contexts at once while recording                      6
 #   FORCE_RECORD=1    record every trace again, even those that are current
@@ -253,6 +257,7 @@ do_run() {
   [ -n "${LATENCY_BLOCKS:-}" ] && cmd+=(-latency-blocks "$LATENCY_BLOCKS")
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")
   [ -n "${LOAD_CPUS:-}" ] && cmd+=(-load-cpus "$LOAD_CPUS")
+  [ "${CALIBRATE:-1}" = 0 ] && cmd+=(-calibrate=false)
   all_run_stamps >"$out/run.stamp"
   # The tool takes the lock files itself, around each server it starts, first listed first.
   local locks=(${LOCKS:-})
@@ -265,7 +270,7 @@ do_run() {
 
 do_status() {
   build_tool
-  local s name why shared stamps
+  local s name why shared stamps st calib=""
   shared=$(run_stamp | sha)
   stamps=$(server_stamps)
   for s in $(echo "$servers" | tr "," " "); do
@@ -276,8 +281,22 @@ do_status() {
     else
       echo "  trace $name: not current: $why" | sed '2,$s/^/  /'
     fi
-    "$compare" status -dir "$traces" -servers "$s" -out "$out/browse.json" -stamp "$shared" -server-stamps "$stamps"
+    st=$("$compare" status -dir "$traces" -servers "$s" -out "$out/browse.json" -stamp "$shared" -server-stamps "$stamps")
+    # The line of the calibration base is the same for every server: it is printed once, at the end.
+    calib=$(printf '%s\n' "$st" | sed -n '/^calibration: /p')
+    printf '%s\n' "$st" | sed '/^calibration: /d'
   done
+  [ -z "$calib" ] || printf '%s\n' "$calib"
+}
+
+do_calibrate() {
+  build_tool
+  local cmd=("$compare" calibrate)
+  [ -n "${SERVER_CPUS:-}" ] && command -v taskset >/dev/null && cmd=(taskset -c "$SERVER_CPUS" "${cmd[@]}")
+  # HOLD is a command and its arguments, split on spaces as -hold splits it.
+  local hold=(${HOLD:-})
+  if [ ${#hold[@]} -gt 0 ]; then cmd=("${hold[@]}" "${cmd[@]}"); fi
+  "${cmd[@]}"
 }
 
 do_report() {
@@ -293,6 +312,7 @@ case "${1:-}" in
   run) do_run ;;
   report) do_report ;;
   status) do_status ;;
+  calibrate) do_calibrate ;;
   stamp) if [ -n "${2:-}" ]; then trace_stamp "$2"; else all_trace_stamps; fi ;;
   runstamp) all_run_stamps ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 2 ;;

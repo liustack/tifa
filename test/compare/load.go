@@ -74,10 +74,15 @@ type Round struct {
 	Bytes        int64   `json:"bytes"`
 	N304         int     `json:"notModified"`
 
-	Attempt  int    `json:"attempt,omitempty"`
-	Failures int    `json:"failures"`
-	FirstErr string `json:"firstError,omitempty"`
-	TimedOut bool   `json:"timedOut,omitempty"`
+	Attempt int `json:"attempt,omitempty"`
+	// Calibrations are the calibrations of the machine of the round, against the base of the run: before
+	// its warm-up, before its clock and after it (calibration.go). MachineReplays are why the rounds
+	// played before it were off the base and did not count.
+	Calibrations   []RoundCalibration `json:"calibrations,omitempty"`
+	MachineReplays []string           `json:"machineReplays,omitempty"`
+	Failures       int                `json:"failures"`
+	FirstErr       string             `json:"firstError,omitempty"`
+	TimedOut       bool               `json:"timedOut,omitempty"`
 	// CutOff counts the actions (page views and writes) in flight when the round was cut off, CutOffLate
 	// the ones among them that had been in flight for longer than the rule allows (LatencyLimit), and
 	// CutOffOldestMs how long the oldest had. An action cut off within the rule is a matter of sizing.
@@ -339,7 +344,11 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 		r.wl.plan(round, 0, visits)
 		return round
 	}
+	if !r.calibrateAt(round, calibrationBeforeClock) {
+		return round
+	}
 	r.playClosed(ctx, round, sessions, 0, visits, timeout, seen)
+	r.calibrateAt(round, calibrationAfterRound)
 	r.countOrders(round)
 	r.endMemo(ctx, round)
 	return round
@@ -566,7 +575,11 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, sessions, n int, dra
 		r.wl.plan(round, seq0, n)
 		return round
 	}
+	if !r.calibrateAt(round, calibrationBeforeClock) {
+		return round
+	}
 	r.playOpen(ctx, round, rate, n, drain, seq0, seen)
+	r.calibrateAt(round, calibrationAfterRound)
 	r.countOrders(round)
 	r.endMemo(ctx, round)
 	return round
@@ -825,4 +838,20 @@ func (f *flight) visits() int64 { return f.people.Load() }
 func typeStat(l []float64) TypeStat {
 	sorted := sortedCopy(l)
 	return TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
+}
+
+// calibrateAt calibrates the machine at a point of a round, when the run calibrates (runner.calibrate),
+// and keeps the calibration in the round. It says whether the round may go on: not when the
+// calibration failed (calibErr) or is off the base (offBase), since such a round does not count.
+func (r *runner) calibrateAt(round *Round, when string) bool {
+	if r.calibrate == nil {
+		return true
+	}
+	c, err := r.calibrate(when)
+	if err != nil {
+		r.calibErr = err
+		return false
+	}
+	round.Calibrations = append(round.Calibrations, c)
+	return offBase(c) == ""
 }
