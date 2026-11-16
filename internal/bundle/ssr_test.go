@@ -1690,10 +1690,10 @@ func withChangedPackage(t *testing.T, name, file string, change func(string) str
 }
 
 // emotion takes the hash of @emotion/hash of every style it serializes, and the tifa plugin makes
-// murmur2 ask __tifa_murmur2__ first, which ssr.Load defines to hash strings in Go. murmur2 hashes
+// murmur2 ask __tifa_murmur2__ first, which ssr.Load defines to hash strings in the engine. murmur2 hashes
 // in JavaScript when __tifa_murmur2__ is not there or gives undefined, and when the plugin does not
 // know the murmur2 of the package.
-func TestSSRHashesEmotionStylesInGo(t *testing.T) {
+func TestSSRHashesEmotionStylesInTheEngine(t *testing.T) {
 	const page = "import hash from '@emotion/hash'\n" +
 		"const styles = ['', 'go', 'color:red;', 'x'.repeat(4099)]\n" +
 		"const before = styles.map(hash)\n" +
