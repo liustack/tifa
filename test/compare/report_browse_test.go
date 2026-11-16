@@ -106,23 +106,74 @@ func TestBrowseStampBindsWhatItShould(t *testing.T) {
 		}
 		return string(data)
 	}
-	trace := run("stamp")
-	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "playwright ", "site shop\n", "plans none\n"} {
-		if !strings.Contains(trace, want) {
-			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
+	// Every trace has a stamp of its own: what all the traces share (the shop, whose pages every app
+	// serves, the recorder and its browser, the code that makes the plans, the site and its plans),
+	// and what that framework alone is made of. So a change to Tifa leaves the traces of the Node apps
+	// current, a change to one Node app leaves the others current, and a change to the shop none.
+	shared := []string{"tree examples/shop ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_actions.go ", "tree test/compare/store_list.go ", "tree test/compare/store_terms.go ", "tree test/compare/store.go ", "tree test/compare/store_links.json ", "playwright ", "site shop\n", "plans none\n"}
+	tifa := []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree go.mod ", "tree go.sum ", "tree root-go "}
+	next := []string{"tree test/compare/nextjs ", "tree test/compare/domain ", "tree test/compare/overlay ", "next "}
+	start := []string{"tree test/compare/start ", "tree test/compare/domain ", "tree test/compare/overlay ", "start "}
+	for name, own := range map[string][]string{"tifa": tifa, "nextjs": next, NextNoPrefetch: next, "start": start} {
+		stamp := run("stamp", name)
+		for _, want := range append(slices.Clone(shared), own...) {
+			if !strings.Contains(stamp, want) {
+				t.Errorf("the stamp of the trace of %s lacks %q:\n%s", name, want, stamp)
+			}
+		}
+		for _, other := range slices.Concat(tifa, next, start) {
+			if !slices.Contains(own, other) && strings.Contains(stamp, "\n"+other) {
+				t.Errorf("the stamp of the trace of %s has %q, which it does not depend on:\n%s", name, other, stamp)
+			}
+		}
+	}
+	// browse.sh stamp alone prints the stamp of every trace the servers replay, each under its name.
+	all := run("stamp")
+	for _, name := range []string{"tifa", "nextjs", "start", NextNoPrefetch} {
+		if !strings.Contains(all, "# "+name+"\n") {
+			t.Errorf("browse.sh stamp lacks the trace of %s:\n%s", name, all)
 		}
 	}
 	// The stamp is bound to the plans of the site.
 	os.MkdirAll(filepath.Join(out, "traces"), 0o755)
 	os.WriteFile(filepath.Join(out, "traces", "plans.json"), []byte("{}"), 0o644)
-	if strings.Contains(run("stamp"), "plans none") {
+	if strings.Contains(run("stamp", "nextjs"), "plans none") {
 		t.Error("the stamp is not bound to the plans")
 	}
+	// A result has a stamp all its servers share (the plans, the replayer, the toolchain and the
+	// settings) and one for each server: the stamp of its trace, its trace file and the build it runs.
 	results := run("runstamp")
-	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "tifa-build ", "settings ", "go ", "node "} {
-		if !strings.Contains(results, want) {
-			t.Errorf("the result stamp lacks %q:\n%s", want, results)
+	sections := map[string]string{}
+	for _, part := range strings.Split(results, "# ")[1:] {
+		name, body, _ := strings.Cut(part, "\n")
+		sections[name] = body
+	}
+	for name, wants := range map[string][]string{
+		"shared":       {"plans ", "replayer ", "replayer-cmd ", "settings ", "go ", "node "},
+		"tifa":         {"trace ", "trace-file ", "shop-binary ", "tifa-build "},
+		"tifa-nocache": {"trace ", "trace-file ", "shop-binary ", "tifa-build "},
+		"nextjs":       {"trace ", "trace-file ", "next-output "},
+		NextNoPrefetch: {"trace ", "trace-file ", "next-noprefetch-output "},
+		"start":        {"trace ", "trace-file ", "start-output "},
+		"start-gzip":   {"trace ", "trace-file ", "start-output "},
+	} {
+		body, ok := sections[name]
+		if !ok {
+			t.Errorf("the result stamp has no part %s:\n%s", name, results)
 		}
+		for _, want := range wants {
+			if !strings.HasPrefix(body, want) && !strings.Contains(body, "\n"+want) {
+				t.Errorf("the %s part of the result stamp lacks %q:\n%s", name, want, body)
+			}
+		}
+	}
+	for _, line := range []string{"shop-binary ", "next-output ", "start-output ", "trace-file "} {
+		if strings.Contains(sections["shared"], line) {
+			t.Errorf("the shared part of the result stamp has %q, which belongs to one server:\n%s", line, sections["shared"])
+		}
+	}
+	if strings.Contains(sections["nextjs"], "shop-binary ") || strings.Contains(sections["tifa"], "next-output ") {
+		t.Errorf("a server is bound to the build of another:\n%s", results)
 	}
 	// There is one scenario: a command line that still picks one is refused, not run on the shop.
 	cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), "stamp")

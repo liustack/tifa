@@ -68,8 +68,22 @@ type BrowseOptions struct {
 	TrialWindow time.Duration // an open trial of the search for the sustainable rate
 	FinalWindow time.Duration // an open round of the latency table, at least
 	MaxRate     float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
-	Stamp       string        // what the traces and the builds belong to, kept in the result
-	Log         io.Writer
+	// Stamp is what every server of the run shares (the plans, the replayer, the toolchain and the
+	// settings), kept in the result: a result of another stamp is not continued.
+	Stamp string
+	// ServerStamps are, per spec, what its results belong to besides Stamp: the trace it replays and
+	// the build it runs. A result continued under another stamp of a server measures that server again.
+	ServerStamps map[string]string
+	Log          io.Writer
+}
+
+// ServerStamp is what the results of one server in a result belong to: the stamp browse.sh made of
+// the trace it replays and the build it runs (BrowseOptions.ServerStamps), a hash of its trace file,
+// and when it was first measured under them.
+type ServerStamp struct {
+	Stamp string `json:"stamp"`
+	Trace string `json:"trace"`
+	Date  string `json:"date"`
 }
 
 // PlanInfo is what the plans of the site hold.
@@ -80,13 +94,16 @@ type PlanInfo struct {
 
 // BrowseResult is everything the browse comparison measured, round by round.
 type BrowseResult struct {
-	Stamp   string            `json:"stamp"`
-	Date    string            `json:"date"`
-	Seed    uint64            `json:"seed"`
-	Machine Machine           `json:"machine"`
-	Place   Placement         `json:"placement"`
-	Version map[string]string `json:"versions"`
-	Config  map[string]string `json:"settings"`
+	// Stamp is what every server shares, and ServerStamps what the results of each server belong to,
+	// with the date it was measured.
+	Stamp        string                 `json:"stamp"`
+	ServerStamps map[string]ServerStamp `json:"serverStamps,omitempty"`
+	Date         string                 `json:"date"`
+	Seed         uint64                 `json:"seed"`
+	Machine      Machine                `json:"machine"`
+	Place        Placement              `json:"placement"`
+	Version      map[string]string      `json:"versions"`
+	Config       map[string]string      `json:"settings"`
 	// Traces are the frameworks whose traces the run loaded: one for each framework of its servers.
 	Traces    []string         `json:"traces,omitempty"`
 	Plans     PlanInfo         `json:"plans"`
@@ -592,18 +609,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		}
 		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
 	} else {
-		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
-		b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
-		b.res.Scenarios, b.res.Servers, b.res.Traces = o.Scenarios, b.servers, names
-		b.res.Plans = PlanInfo{Blocks: b.set.Blocks}
-		for _, p := range b.set.Plans {
-			b.res.Plans.PlanCounts.Add(p)
-		}
-		b.res.Config = cfg
-		b.res.Blocks = map[string]int{}
-		b.res.Prepared = map[string]int{}
-		b.res.Sustain = map[string]*Sustain{}
-		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
+		b.begin(cfg, version, mach, placement, names)
 	}
 	b.logf("placement: %s\n", placement.Note)
 	// No Node app may send an answer a cache could keep: the run stops before its first round if one
@@ -630,6 +636,55 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		}
 	}
 	return b.res, b.commit()
+}
+
+// begin starts a new result: the stamps and settings of the run, the machine, the plans, and the stamp
+// of every server with today's date.
+func (b *browse) begin(cfg, version map[string]string, mach Machine, placement Placement, names []string) {
+	b.res.Stamp, b.res.Date, b.res.Seed = b.o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), b.o.Seed
+	b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
+	b.res.Scenarios, b.res.Servers, b.res.Traces = b.o.Scenarios, b.servers, names
+	b.res.Plans = PlanInfo{Blocks: b.set.Blocks}
+	for _, p := range b.set.Plans {
+		b.res.Plans.PlanCounts.Add(p)
+	}
+	b.res.Config = cfg
+	b.res.Blocks = map[string]int{}
+	b.res.Prepared = map[string]int{}
+	b.res.Sustain = map[string]*Sustain{}
+	b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
+	for _, name := range b.serverNames() {
+		b.stampServer(name)
+	}
+}
+
+// serverNames are the specs of every scenario of the run, each once, in order.
+func (b *browse) serverNames() []string {
+	var out []string
+	for _, sc := range b.o.Scenarios {
+		for _, name := range b.servers[sc.Name] {
+			if !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// serverStamp is what the results of a spec belong to in this run (ServerStamp), without the date.
+func (b *browse) serverStamp(name string) ServerStamp {
+	return ServerStamp{Stamp: b.o.ServerStamps[name], Trace: fileHash(TracePath(b.o.TraceDir, traceName(b.specs[name])))}
+}
+
+// stampServer keeps in the result what the results of a spec belong to from now on, with today's
+// date: the date it was measured.
+func (b *browse) stampServer(name string) {
+	if b.res.ServerStamps == nil {
+		b.res.ServerStamps = map[string]ServerStamp{}
+	}
+	s := b.serverStamp(name)
+	s.Date = time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	b.res.ServerStamps[name] = s
 }
 
 // with starts a fresh server of a spec and calls f with a runner for the workload of the scenario.

@@ -3,6 +3,7 @@ package compare
 import (
 	"context"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -41,6 +42,28 @@ func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	}
 	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), map[string]string{"node": "v24.2.0", "nextjs": "16.0.1"}); err == nil || !strings.Contains(err.Error(), "node") {
 		t.Errorf("another Node: %v", err)
+	}
+}
+
+// A result keeps, for each server, the stamp browse.sh gave it (its trace and its build), a hash of
+// the trace file it replays and the date it was first measured under them.
+func TestAResultKeepsTheStampOfEachServer(t *testing.T) {
+	sc := mustScenario("shop")
+	tifa, nocache, next := warmSpecs()
+	b, _ := warmBrowse(t, sc, tifa, nocache, next)
+	b.o.TraceDir = t.TempDir()
+	os.WriteFile(TracePath(b.o.TraceDir, "tifa"), []byte("tifa"), 0o644)
+	os.WriteFile(TracePath(b.o.TraceDir, "nextjs"), []byte("nextjs"), 0o644)
+	b.o.Stamp, b.o.ServerStamps = "shared", map[string]string{"tifa": "t1", "tifa-nocache": "t2", "nextjs": "n1"}
+	b.begin(map[string]string{"sessions": "2"}, map[string]string{"go": "go1.27"}, Machine{}, Placement{}, []string{"tifa", "nextjs"})
+	if b.res.Stamp != "shared" {
+		t.Errorf("the shared stamp is %q", b.res.Stamp)
+	}
+	for name, want := range map[string]string{"tifa": "t1", "tifa-nocache": "t2", "nextjs": "n1"} {
+		got := b.res.ServerStamps[name]
+		if got.Stamp != want || got.Trace != fileHash(TracePath(b.o.TraceDir, traceName(b.specs[name]))) || got.Date == "" {
+			t.Errorf("%s: kept %+v, want the stamp %s, the hash of its trace and a date", name, got, want)
+		}
 	}
 }
 

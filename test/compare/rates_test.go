@@ -95,7 +95,7 @@ func TestTheSustainPhaseReadsTheFileOrRefuses(t *testing.T) {
 	for _, name := range []string{"plans.json", "nextjs.jsonl"} {
 		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
 	}
-	os.WriteFile(filepath.Join(dir, "STAMP"), []byte("tree js abc\nsite shop\n"), 0o644)
+	os.WriteFile(TraceStampPath(dir, openBase), []byte("tree js abc\nsite shop\n"), 0o644)
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,8 @@ func TestTheRateIsBoundToTheMethodAndTheApp(t *testing.T) {
 // checkout (one with a stamp): a run by hand cannot tell them, so it never reuses a rate.
 func TestTheSourcesOfTheTracesMustBeKnown(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "STAMP")
+	// The stamp of the trace of Next.js, which browse.sh writes beside it.
+	path := TraceStampPath(dir, openBase)
 	good := "tree js abc\ntree examples/shop def\nsite shop\nplans 123\n"
 	for _, tc := range []struct {
 		name, content string
@@ -328,7 +329,7 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 	for _, name := range []string{"plans.json", "nextjs.jsonl"} {
 		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
 	}
-	os.WriteFile(filepath.Join(dir, "STAMP"), []byte("tree js abc\nsite shop\n"), 0o644)
+	os.WriteFile(TraceStampPath(dir, openBase), []byte("tree js abc\nsite shop\n"), 0o644)
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
 	sc := mustScenario("shop")
 	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}

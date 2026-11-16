@@ -465,8 +465,8 @@ func TestAVisitThatChecksOutKeepsItsSearch(t *testing.T) {
 	}
 }
 
-// The traces are bound to what the plans are made from: the stamp of browse.sh lists every file the
-// plans come from, and the rate of Next.js is bound to them too.
+// The traces are bound to what the plans are made from: the stamp of every trace in browse.sh lists
+// every file the plans come from (plan_paths), and the rate of Next.js is bound to them too.
 func TestTheStampOfTheTracesHasEveryFileThePlansAreMadeFrom(t *testing.T) {
 	env, err := NewEnv()
 	if err != nil {
@@ -476,8 +476,14 @@ func TestTheStampOfTheTracesHasEveryFileThePlansAreMadeFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var paths []string
+	for _, line := range strings.Split(string(script), "\n") {
+		if rest, ok := strings.CutPrefix(line, `plan_paths="`); ok {
+			paths = strings.Fields(strings.TrimSuffix(rest, `"`))
+		}
+	}
 	for _, f := range []string{"plan.go", "landing.go", "mix.go", "store.go", "store_plan.go", "store_actions.go", "store_list.go", "store_terms.go", "store_links.json"} {
-		if !strings.Contains(string(script), " test/compare/"+f+" ") {
+		if !slices.Contains(paths, "test/compare/"+f) {
 			t.Errorf("the stamp of the traces does not list test/compare/%s", f)
 		}
 		if !slices.Contains(methodFiles, f) {

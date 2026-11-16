@@ -13,18 +13,19 @@ import (
 )
 
 var browseOpts struct {
-	out, phases, stamp, serverCPUs, loadCPUs, locks, announce, hold string
-	sessions, rounds                                                int
-	probe                                                           bool
-	maxRate                                                         float64
-	sizing, target, trial, final                                    time.Duration
+	out, phases, stamp, serverStamps, serverCPUs, loadCPUs, locks, announce, hold string
+	sessions, rounds                                                              int
+	probe                                                                         bool
+	maxRate                                                                       float64
+	sizing, target, trial, final                                                  time.Duration
 }
 
 func browseFlags(flags *flag.FlagSet) {
 	o := &browseOpts
 	flags.StringVar(&o.out, "out", "browse.json", "browse: the result, written after every round and continued if it exists")
 	flags.StringVar(&o.phases, "phases", "throughput,control,sustain,latency", "browse: the parts to run: throughput (every server at -sessions concurrent sessions, then each stepped up while it does not use its cpus, or down when it fails), control (Tifa with no writes), sustain (the arrival rate Next.js sustains) and latency (every server at half of it)")
-	flags.StringVar(&o.stamp, "stamp", "", "browse: what the traces and builds belong to, kept in the result and checked when a result is continued")
+	flags.StringVar(&o.stamp, "stamp", "", "browse: what every server of the run shares (the plans, the replayer, the toolchain, the settings), kept in the result: a result of another stamp is not continued")
+	flags.StringVar(&o.serverStamps, "server-stamps", "", "browse: what the results of each server belong to besides -stamp (its trace and its build), as spec=stamp, comma separated: a result continued under another stamp of a server measures that server again")
 	flags.StringVar(&o.serverCPUs, "server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 	flags.StringVar(&o.loadCPUs, "load-cpus", "", "browse: cpus for the load generator")
 	flags.StringVar(&o.locks, "locks", "", "browse: files to flock while a server of the run runs, comma separated, taken in this order and given back between the rounds")
@@ -61,6 +62,19 @@ func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, se
 	o := &browseOpts
 	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs), Probe: o.probe,
 		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Sizing: o.sizing, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, MaxRate: o.maxRate, Log: os.Stderr}
+	for _, pair := range strings.Split(o.serverStamps, ",") {
+		if pair = strings.TrimSpace(pair); pair == "" {
+			continue
+		}
+		name, stamp, ok := strings.Cut(pair, "=")
+		if !ok || name == "" {
+			fatal(fmt.Errorf("-server-stamps %s: want spec=stamp, comma separated", o.serverStamps))
+		}
+		if opts.ServerStamps == nil {
+			opts.ServerStamps = map[string]string{}
+		}
+		opts.ServerStamps[name] = stamp
+	}
 	for _, lock := range strings.Split(o.locks, ",") {
 		if lock = strings.TrimSpace(lock); lock != "" {
 			opts.Locks = append(opts.Locks, lock)
