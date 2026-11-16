@@ -116,8 +116,11 @@ Whole visits, played back from real browsers on the example shop: shoppers, staf
 | Tifa | 97.0 | 12.7 / 79 ms | 2.4 / 65 ms |
 | Next.js | 29.5 | 49.2 / 125 ms | 18.3 / 147 ms |
 | TanStack Start, uncompressed | 76.5 | 35.4 / 65 ms | 3.4 / 49 ms |
+| For reference: Tifa with the render memo off | 64.7 | 53.3 / 101 ms | 3.1 / 79 ms |
+| For reference: TanStack Start with gzip | 57.9 | 51.5 / 120 ms | 4.8 / 73 ms |
+| For reference: Next.js with prefetch off | 56.4 | 47.2 / 98 ms | 8.4 / 83 ms |
 
-Page views a second at 8 concurrent sessions with no pause between pages, the median of 3 rounds. The latencies are one round at 3 visits a second, half of what Next.js sustains. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-16) has the mix, what each default costs and what the numbers mean.
+Page views a second at 8 concurrent sessions with no pause between pages, the median of 3 rounds. The latencies are one round at 3 visits a second, half of what Next.js sustains. The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-16) has the mix, what each default costs and what the numbers mean.
 
 ## Start an app
 
