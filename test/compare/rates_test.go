@@ -336,12 +336,14 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 	newBrowse := func(phases ...string) *browse {
 		return &browse{e: Env{Root: root, Next: builtNext(t, root)}, o: BrowseOptions{Log: io.Discard, Rounds: 3, TraceDir: dir, Stamp: "s", ServerCPUs: "0", LoadCPUs: "1", TrialWindow: 45e9, Phases: phases, Scenarios: []BrowseScenario{sc}},
 			servers: map[string][]string{sc.Name: {"tifa", "nextjs"}},
-			res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: version, Sustain: map[string]*Sustain{}}}
+			specs:   map[string]Spec{"tifa": {Target: Target{Name: "tifa"}, Framework: "tifa"}, "nextjs": {Target: Target{Name: "nextjs"}, Framework: "nextjs"}},
+			res:     &BrowseResult{Machine: Machine{CPU: "AMD EPYC 7B13"}, Version: maps.Clone(version), Sustain: map[string]*Sustain{}}}
 	}
 	cfg := browseConfig(BrowseOptions{}, "AMD EPYC 7B13", "t1", methodHash(root))
 	saved := func(b *browse, mod func(*BrowseResult)) []byte {
 		res := &BrowseResult{Stamp: "s", Config: cfg, Version: version, Machine: Machine{CPU: "AMD EPYC 7B13"}, Scenarios: []BrowseScenario{sc},
-			Sustain: map[string]*Sustain{"shop/nextjs": {Rate: 20, Done: true, Under: b.rateConditions(sc)}}}
+			ServerStamps: map[string]ServerStamp{"tifa": b.serverStamp("tifa"), "nextjs": b.serverStamp("nextjs")},
+			Sustain:      map[string]*Sustain{"shop/nextjs": {Rate: 20, Done: true, Under: b.rateConditions(sc)}}}
 		mod(res)
 		data, err := res.json()
 		if err != nil {
@@ -372,6 +374,17 @@ func TestAContinuedResultIsCheckedBeforeAnyPhase(t *testing.T) {
 		b.e.Next = t.TempDir() // a build that does not say what it was built from
 		if err := b.restore(saved(b, func(*BrowseResult) {}), cfg, version); err == nil || !strings.Contains(err.Error(), "Next.js build") {
 			t.Errorf("%s: a rate on a build of other sources: %v", phase, err)
+		}
+		// A rate of Next.js that is measured again (another version of it) is dropped with it and not
+		// checked: the sustain phase searches it again or reads it from the file.
+		b = newBrowse(phase)
+		data = saved(b, func(r *BrowseResult) {
+			r.Version = maps.Clone(version)
+			r.Version["nextjs"] = "16.0.0"
+			r.Sustain["shop/nextjs"].Under["nextjs"] = "16.0.0"
+		})
+		if err := b.restore(data, cfg, version); err != nil || b.res.Sustain["shop/nextjs"] != nil {
+			t.Errorf("%s: a rate of a Next.js measured again: %v, kept %v", phase, err, b.res.Sustain)
 		}
 	}
 }
