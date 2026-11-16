@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The big number refusal is described exactly in the generated `AGENTS.md`, the skill and the JSON rules: a handler result is checked only for a call with the header `X-Tifa-Call` (what the generated function of a page sends), and `tifatest.Start` answers a `Load` without the check. A test pins a handler by posting with `X-Tifa-Call: 1`.
+
 ### Fixed
 
 - `go tool tifa check` no longer fails with `Cannot find module .../.tifa/driver-NNN/driver.mjs` when `tifa dev` rebuilds at the same moment. `tifa dev` cleaned out the driver folder that `check` had just made in `.tifa/`. It now leaves the driver folders of other processes alone.
