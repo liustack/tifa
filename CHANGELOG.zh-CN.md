@@ -11,6 +11,7 @@
 
 ### 修复
 
+- 用 Go 开发版工具链构建的 `tifa new` 会在 `go.mod` 写出有效的 `go` 行，比如 `go 1.27`，不再是 `go .0`。
 - Node 版本过旧时，`tifa build`、`tifa dev`、`tifa gen` 和 `tifa check` 马上停下，报 `tifa needs Node 20.19, 22.12 or later to run Vite, found Node X`，不再是 Vite 内部的报错。
 - `public/` 里的符号链接（指向文件或目录），或本身是符号链接的 `public/`，`tifa build` 和 `tifa dev` 都会跟进。以前这些文件被悄悄漏出构建。链接绕回正在复制的目录，或指向不存在的东西，构建失败。
 - `public/` 里名为 `index.html` 的文件，比如 `public/docs/index.html`，现在能在自己的路径上取到。以前它得到的是跳到所在目录的重定向。
