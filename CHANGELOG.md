@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa check`, `tifa build` and `tifa dev` recognize code written for Next.js, Remix, React Router, TanStack Start, SvelteKit and other Go web frameworks: imports such as `next/link`, the directives `'use client'` and `'use server'`, exports such as `getServerSideProps`, `loader` and `metadata`, folders such as `[id]` and `(group)`, files such as `+page.svelte` and `middleware.ts`, and `route.go` handlers that take `http.ResponseWriter`, `*gin.Context`, `echo.Context` or `*fiber.Ctx`. Each is reported with the file and line, the name of the framework and the Tifa way to write it, as an error (the app cannot be right) or a warning (it builds and does nothing). Names Tifa allows are not reported. See [Coming from another framework](docs/app.md#coming-from-another-framework).
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed

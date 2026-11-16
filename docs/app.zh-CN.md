@@ -1,6 +1,7 @@
 ---
-summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、hooks.ts 及其在首次渲染前运行的准备、404 和错误、多语言网站、SSR、Memo 与 Cache 开关、服务端渲染看得到哪些查询参数和给 CDN 用的 Cache（对所有人一样、CDN 可以留一段时间的页面）、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、hooks.ts 及其在首次渲染前运行的准备、404 和错误、多语言网站、SSR、Memo 与 Cache 开关、服务端渲染看得到哪些查询参数和给 CDN 用的 Cache（对所有人一样、CDN 可以留一段时间的页面）、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，检查会对其他框架写法给出什么提示以及在 Tifa 里该怎么写，以及数据、入参和结果的 JSON 规则'
 read_when:
+  - 检查、构建或 dev 报出其他框架的写法，或要凭 Next.js、Remix、React Router、TanStack Start、SvelteKit 的习惯来写 Tifa 应用
   - 新建一个 Tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
@@ -91,6 +92,29 @@ myapp/
 - 只有 `route.go`、没有 `page.tsx` 的目录：写了方法函数就是 API 路由，写了 `Layout` 就给下面的页面提供 Layout 数据，两者可以同时有。`Load` 只能和 `page.tsx` 一起出现。
 - `route.tsx` 不是约定文件。出现 `route.tsx` 时构建报错，提示改名 `page.tsx`，免得页面被悄悄当成普通组件。
 - `tifa build` 还会为每个有页面、Layout 或方法函数的目录写一个 `route.gen.ts` 模块，`page.tsx`、`layout.tsx` 和 `layout_.tsx` 从它 import（见 [page.tsx](#pagetsx)）。
+
+## 从其他框架转过来
+
+`tifa check`、`tifa build` 和 `tifa dev` 能认出按 Next.js、Remix、React Router、TanStack Start、SvelteKit 以及其他 Go Web 框架写法写的代码。每条结果占一行：`<文件>:<行>: <这是什么>. In Tifa: <该怎么写>. See <文档>`。错误会让命令失败。警告以 `(warning)` 结尾，不会让命令失败：代码能构建，但 Tifa 永远用不到它。
+
+| 你写的 | 在 Tifa 里 | |
+| --- | --- | --- |
+| 导入 `next` 或 `next/*`、`react-router`、`react-router-dom`、`@remix-run/*`、`@tanstack/react-start`、`@tanstack/start`、`$app/*`、`@sveltejs/kit`、`astro:*` | `Link` 和 `useNavigate` 来自 `@tanstack/react-router`。数据来自 `route.go` 里的 `Load`，用 `page.useLoaderData()` 读取。重定向在 Go 里 `return tifa.Redirect(url, status)`。`next/head` 对应 `head` 导出，`next/dynamic` 对应 `clientOnly`，`next/headers` 对应 `c.Cookie` 和 `c.Header`，`next/server` 对应方法函数或 `OnRequest` | 错误 |
+| `'use client'` | 什么都不用写：每个组件都在服务端渲染，再在浏览器里水合。需要浏览器的组件放进 `*.client.tsx` 文件，用 `clientOnly` 加载 | 警告 |
+| `'use server'` | 没有 server action，这个函数会跑在浏览器里。在 `route.go` 写方法函数，从 `./route.gen` 调它的函数 | 错误 |
+| `export const getServerSideProps`、`getStaticProps`、`loader`、`clientLoader` | `route.go` 里的 `Load` | 警告 |
+| `export const getStaticPaths`、`generateStaticParams` | 不用写：目录 `name+` 匹配任何值，值不存在时 `Load` 返回 `tifa.ErrNotFound` | 警告 |
+| `export const generateMetadata`、`metadata` | `head` 导出，以及根 `layout.tsx` 里的 `documentHead` | 警告 |
+| `export const action`、`clientAction` | `route.go` 里的方法函数，如 `func POST(c *tifa.Ctx, in AddInput) (Todo, error)` | 警告 |
+| `export const revalidate`、`dynamic` | `route.go` 里的 `const Cache` 让 CDN 缓存页面。每个页面本来就在每次请求时加载数据并渲染 | 警告 |
+| 在页面或 Layout 里调用 `createFileRoute`、`createRootRoute`、`createServerFn` | 目录就是路由，`./route.gen` 把它导出为 `page`，服务端函数就是方法函数 | 警告 |
+| 名为 `[id]`、`[...slug]`、`$id`、`:id`、`(group)` 或 `@slot` 的目录 | `id+` 和 `slug++`（见[目录就是 URL](#目录就是-url)）。没有路由分组，也没有并行路由 | 错误 |
+| `+page.svelte`、`+page.server.ts`、`_index.tsx` | `page.tsx`、`layout.tsx` 和 `route.go`（见[一个目录的文件](#一个目录的文件)） | 错误 |
+| `page.js`、`layout.jsx`、旁边没有 `page.tsx`、`layout.tsx` 或 `route.go` 的 `route.ts`，以及 `$id.tsx` | 同上 | 警告 |
+| `middleware.ts`，以及路由目录里的 `loading`、`error`、`not-found` 文件 | `hooks.go` 里的 `OnRequest`，以及 `Error` 导出（见 [404](#404)） | 警告 |
+| 在 `route.go` 里，名为 `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`Load` 或 `Layout`，参数是 `http.ResponseWriter`、`*http.Request`、`*gin.Context`、`echo.Context` 或 `*fiber.Ctx` 的函数 | `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`，或用 `c.Writer()` 和 `c.Request()` 的 `func POST(c *tifa.Ctx) error`（见[带入参和返回值的方法函数](#带入参和返回值的方法函数)） | 错误 |
+
+Tifa 允许的写法不会报。`@tanstack/react-router` 和 `@tanstack/react-query` 没问题。页面可以为自己的用途导出 `action`、`loader`、`metadata`、`revalidate` 或 `dynamic`，只要值不是另一个框架的写法（`loader` 和 `action` 是函数，`metadata` 是对象，`revalidate` 是数字或 `false`，`dynamic` 是 `auto`、`force-dynamic`、`error`、`force-static` 之一）。导出和调用只在 `page.tsx`、`layout.tsx`、`layout_.tsx` 里读。导入和指令在 `app/` 下每个 TypeScript 文件和 `hooks.ts` 里读，测试文件除外。
 
 ## route.go
 

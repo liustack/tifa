@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `tifa check`、`tifa build` 和 `tifa dev` 能认出按 Next.js、Remix、React Router、TanStack Start、SvelteKit 以及其他 Go Web 框架写法写的代码：`next/link` 这类导入，`'use client'` 和 `'use server'` 指令，`getServerSideProps`、`loader`、`metadata` 这类导出，`[id]`、`(group)` 这类目录，`+page.svelte`、`middleware.ts` 这类文件，以及参数是 `http.ResponseWriter`、`*gin.Context`、`echo.Context` 或 `*fiber.Ctx` 的 `route.go` 处理函数。每条都带文件和行号、框架名和 Tifa 里的写法，分为错误（应用不可能是对的）和警告（能构建，但没有用）。Tifa 允许的写法不会报。见[从其他框架转过来](docs/app.zh-CN.md#从其他框架转过来)。
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed
