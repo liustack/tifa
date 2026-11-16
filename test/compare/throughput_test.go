@@ -1,7 +1,9 @@
 package compare
 
 import (
+	"context"
 	"errors"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -152,5 +154,38 @@ func TestTheDecisionsAreInTheFilesOfTheMethod(t *testing.T) {
 		if strings.Contains(string(data), f) {
 			t.Errorf("report_browse.go holds %s", f)
 		}
+	}
+}
+
+// A reference server (browseReferences) is not compared, so a cell of its closed rounds is one
+// round, at the base sessions and at every step: the main servers play the rounds of the run. Its one
+// round decides its cell, in the steps and in the report.
+func TestAReferenceServerPlaysOneClosedRound(t *testing.T) {
+	sc := mustScenario("shop")
+	tifa, nocache, _ := warmSpecs()
+	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3, Sessions: 8, Scenarios: []BrowseScenario{sc}},
+		set: &PlanSet{Blocks: 1}, specs: map[string]Spec{"tifa": tifa, "tifa-nocache": nocache}, servers: map[string][]string{sc.Name: {"tifa", "tifa-nocache"}},
+		res: &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "tifa-nocache"}}, Version: map[string]string{}, Config: map[string]string{"rounds": "3", "sessions": "8"},
+			Blocks: map[string]int{sc.Name + "/8/tifa": 1, sc.Name + "/8/tifa-nocache": 1}, Prepared: map[string]int{sc.Name: 2 * sc.blockVisits()}, WarmVisits: map[string]int{sc.Name: sc.blockVisits()}, Sustain: map[string]*Sustain{}}}
+	// Any round more than those already played starts a server, which fails the test.
+	b.launch = func(_ context.Context, spec Spec) (*liveServer, error) {
+		t.Fatalf("a server of %s was started: it has all its rounds", spec.Name)
+		return nil, nil
+	}
+	for round := 1; round <= 3; round++ {
+		b.res.Closed = append(b.res.Closed, closedRound("tifa", sc.Name, 8, round, 4000, 100, true))
+	}
+	b.res.Closed = append(b.res.Closed, closedRound("tifa-nocache", sc.Name, 8, 1, 3000, 100, true))
+	if err := b.throughput(context.Background(), sc); err != nil {
+		t.Fatal(err)
+	}
+	// Its cores are not known (no pinning), so the steps stop at the base sessions, which passed.
+	for _, name := range []string{"tifa", "tifa-nocache"} {
+		if got := b.res.Throughput[sustainKey(sc.Name, name)]; got == nil || got.Result != ThroughputCoresUnknown || got.Sessions != 8 {
+			t.Errorf("%s: %+v, want %q at 8 sessions", name, got, ThroughputCoresUnknown)
+		}
+	}
+	if md := b.res.Markdown(); strings.Contains(md, "| Tifa, memo off (reference) | not decided") || !strings.Contains(md, "and a reference one round") {
+		t.Errorf("the report takes the one round of the reference for a cell not decided, or does not say that a reference plays one:\n%s", md)
 	}
 }

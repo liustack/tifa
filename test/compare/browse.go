@@ -3,8 +3,6 @@ package compare
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -68,8 +66,22 @@ type BrowseOptions struct {
 	TrialWindow time.Duration // an open trial of the search for the sustainable rate
 	FinalWindow time.Duration // an open round of the latency table, at least
 	MaxRate     float64       // the search for the sustainable rate stops here, visits a second (16384 when 0)
-	Stamp       string        // what the traces and the builds belong to, kept in the result
-	Log         io.Writer
+	// Stamp is what every server of the run shares (the plans, the replayer, the toolchain and the
+	// settings), kept in the result: a result of another stamp is not continued.
+	Stamp string
+	// ServerStamps are, per spec, what its results belong to besides Stamp: the trace it replays and
+	// the build it runs. A result continued under another stamp of a server measures that server again.
+	ServerStamps map[string]string
+	Log          io.Writer
+}
+
+// ServerStamp is what the results of one server in a result belong to: the stamp browse.sh made of
+// the trace it replays and the build it runs (BrowseOptions.ServerStamps), a hash of its trace file,
+// and when it was first measured under them.
+type ServerStamp struct {
+	Stamp string `json:"stamp"`
+	Trace string `json:"trace"`
+	Date  string `json:"date"`
 }
 
 // PlanInfo is what the plans of the site hold.
@@ -80,13 +92,16 @@ type PlanInfo struct {
 
 // BrowseResult is everything the browse comparison measured, round by round.
 type BrowseResult struct {
-	Stamp   string            `json:"stamp"`
-	Date    string            `json:"date"`
-	Seed    uint64            `json:"seed"`
-	Machine Machine           `json:"machine"`
-	Place   Placement         `json:"placement"`
-	Version map[string]string `json:"versions"`
-	Config  map[string]string `json:"settings"`
+	// Stamp is what every server shares, and ServerStamps what the results of each server belong to,
+	// with the date it was measured.
+	Stamp        string                 `json:"stamp"`
+	ServerStamps map[string]ServerStamp `json:"serverStamps,omitempty"`
+	Date         string                 `json:"date"`
+	Seed         uint64                 `json:"seed"`
+	Machine      Machine                `json:"machine"`
+	Place        Placement              `json:"placement"`
+	Version      map[string]string      `json:"versions"`
+	Config       map[string]string      `json:"settings"`
 	// Traces are the frameworks whose traces the run loaded: one for each framework of its servers.
 	Traces    []string         `json:"traces,omitempty"`
 	Plans     PlanInfo         `json:"plans"`
@@ -439,23 +454,44 @@ func checkDocuments(set *PlanSet, traces map[string]map[int]Trace, names []strin
 
 // browseConfig is the settings of a run that its result keeps, and that a run must have to continue
 // it: the options that change what a round plays or how it is judged, the cpu model of the machine,
-// a hash of the trace and plan files the run loaded (traces) and the method (see methodHash).
-func browseConfig(o BrowseOptions, cpu, traces, method string) map[string]string {
+// a hash of the plan file the run loaded (plans) and the method (see methodHash). The trace files are
+// each server's own (ServerStamp).
+func browseConfig(o BrowseOptions, cpu, plans, method string) map[string]string {
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "sizing": o.Sizing.String(), "target": o.Target.String(),
 		"trialWindow": o.TrialWindow.String(), "finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
-		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "traces": traces, "method": method,
+		"probe": fmt.Sprint(o.Probe), "seed": fmt.Sprint(o.Seed), "maxRate": fmt.Sprint(cmp.Or(o.MaxRate, 16384)), "cpu": cpu, "plans": plans, "method": method,
 	}
 }
 
-// canContinue says whether a result can be continued by a run with this stamp, settings (cfg, see
-// browseConfig) and versions: all the same, so that a probe asked for again, other cpus, windows,
-// traces, a seed, another machine or other versions never reuse the rounds of another run. The commit
-// of Tifa is not compared: what of the checkout a round depends on is in the stamp, and in the
-// conditions of a rate.
-func canContinue(res *BrowseResult, stamp string, cfg, version map[string]string) error {
+// engineVersion is the key of the version of the JavaScript engine in the versions of a result
+// (Env.versions), which only Tifa runs.
+const engineVersion = "quickjs"
+
+// versionOwner is the framework whose servers a version of a result belongs to: the engine to Tifa,
+// the package of a framework (whose key is the framework, Env.versions) to that framework, and "" to
+// all the servers, for the toolchain they share (Go and Node). The commit of Tifa ("tifa") is no
+// version of a server and is never compared: what of the checkout a server depends on is in its
+// stamp.
+func versionOwner(key string, frameworks []string) string {
+	switch {
+	case key == engineVersion:
+		return "tifa"
+	case key != "tifa" && slices.Contains(frameworks, key):
+		return key
+	}
+	return ""
+}
+
+// canContinue says whether a result can be continued by a run with this shared stamp, settings (cfg,
+// see browseConfig) and versions: the stamp, the settings and the versions every server shares (the
+// toolchain) must be the same, so that a probe asked for again, other cpus, windows, plans, a seed,
+// another machine or another toolchain never reuse the rounds of another run. A version that belongs
+// to the servers of one framework (versionOwner) is not checked here: it measures those servers again
+// (staleWhy). frameworks are the frameworks of the servers of the run.
+func canContinue(res *BrowseResult, stamp string, cfg, version map[string]string, frameworks []string) error {
 	if res.Stamp != stamp {
-		return fmt.Errorf("belongs to other sources, plans or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, stamp)
+		return fmt.Errorf("belongs to other plans, replayer, toolchain or settings than this run:\n  file: %s\n  here: %s\nremove it to start again", res.Stamp, stamp)
 	}
 	for _, k := range sortedKeys(cfg) {
 		if res.Config[k] != cfg[k] {
@@ -463,17 +499,140 @@ func canContinue(res *BrowseResult, stamp string, cfg, version map[string]string
 		}
 	}
 	for _, k := range slices.Sorted(mapKeys(res.Version, version)) {
-		if k != "tifa" && res.Version[k] != version[k] {
+		if k != "tifa" && versionOwner(k, frameworks) == "" && res.Version[k] != version[k] {
 			return fmt.Errorf("was run with %s %q, and this run has %q: remove it to start again", k, res.Version[k], version[k])
 		}
 	}
 	return nil
 }
 
+// frameworks are the frameworks of the servers of the run, each once.
+func (b *browse) frameworks() []string {
+	var out []string
+	for _, name := range b.serverNames() {
+		if fw := b.specs[name].Framework; !slices.Contains(out, fw) {
+			out = append(out, fw)
+		}
+	}
+	return out
+}
+
+// staleWhy says why what a continued result holds of a server is not of this run, or "" when it is:
+// the result does not know the server, the stamp of the server changed (the trace it replays or the
+// build it runs), its trace file changed, or a version of its own (the engine of Tifa, the package of
+// its framework, versionOwner) changed.
+func (b *browse) staleWhy(name string, version map[string]string) string {
+	kept, ok := b.res.ServerStamps[name]
+	now := b.serverStamp(name)
+	switch {
+	case !ok:
+		return "the result does not have it"
+	case kept.Stamp != now.Stamp:
+		return "its stamp changed (the trace it replays or the build it runs)"
+	case kept.Trace != now.Trace:
+		return "its trace file changed"
+	}
+	fw := b.specs[name].Framework
+	for _, k := range slices.Sorted(mapKeys(b.res.Version, version)) {
+		if versionOwner(k, b.frameworks()) == fw && b.res.Version[k] != version[k] {
+			return fmt.Sprintf("it was run with %s %q, and this run has %q", k, b.res.Version[k], version[k])
+		}
+	}
+	return ""
+}
+
+// forget drops all that a result holds of one server, so that it is measured again: its sizing, its
+// closed rounds and the steps of its sessions, its latency rounds, the search of its rate, and the
+// control when it played it. The open rounds of every server of a scenario are played at half of
+// the rate of one server (LatencyBase), so when that server is dropped the latency rounds of every
+// server of the scenario go with it, and the rate. It says what it dropped, "" for nothing.
+func (r *BrowseResult) forget(name string) string {
+	var what []string
+	count := func(rounds *[]Round, of string) {
+		n := len(*rounds)
+		*rounds = slices.DeleteFunc(*rounds, func(x Round) bool { return x.Framework == name })
+		if n -= len(*rounds); n > 0 {
+			what = append(what, fmt.Sprintf("%d %s", n, of))
+		}
+	}
+	count(&r.Closed, "closed rounds")
+	count(&r.Latency, "latency rounds")
+	count(&r.Control, "control rounds")
+	sized := 0
+	for key := range r.Blocks {
+		if strings.HasSuffix(key, "/"+name) {
+			delete(r.Blocks, key)
+			sized++
+		}
+	}
+	if sized > 0 {
+		what = append(what, fmt.Sprintf("its sizing at %d numbers of sessions", sized))
+	}
+	for key := range r.Throughput {
+		if strings.HasSuffix(key, "/"+name) {
+			delete(r.Throughput, key)
+			what = append(what, "the steps of its sessions")
+		}
+	}
+	for key := range r.Sustain {
+		if strings.HasSuffix(key, "/"+name) {
+			delete(r.Sustain, key)
+			what = append(what, "the search of its rate")
+		}
+	}
+	for sc, base := range r.LatencyBase {
+		if base != name {
+			continue
+		}
+		n := len(r.Latency)
+		r.Latency = slices.DeleteFunc(r.Latency, func(x Round) bool { return x.Scenario == sc })
+		delete(r.LatencyRate, sc)
+		delete(r.LatencyBase, sc)
+		what = append(what, fmt.Sprintf("the rate of the latency rounds of %s, half of its own, and the %d latency rounds of the other servers played at it", sc, n-len(r.Latency)))
+	}
+	return strings.Join(what, ", ")
+}
+
+// measureAgain drops what a continued result holds of every server that is not of this run (staleWhy)
+// and stamps it anew, keeping its versions of its own, and says so. The other servers are untouched,
+// and so are the numbers every server of a scenario shares (the prepared visits and the warm-up, see
+// prepared), unless no server of the scenario is kept.
+func (b *browse) measureAgain(version map[string]string) {
+	var stale []string
+	for _, name := range b.serverNames() {
+		if why := b.staleWhy(name, version); why != "" {
+			stale = append(stale, name)
+			dropped := cmp.Or(b.res.forget(name), "nothing, it had no results yet")
+			b.logf("measuring %s again: %s. Dropped: %s\n", name, why, dropped)
+		}
+	}
+	for _, name := range stale {
+		b.stampServer(name)
+		fw := b.specs[name].Framework
+		for _, k := range slices.Sorted(mapKeys(b.res.Version, version)) {
+			if versionOwner(k, b.frameworks()) != fw {
+				continue
+			}
+			if v, ok := version[k]; ok {
+				b.res.Version[k] = v
+			} else {
+				delete(b.res.Version, k)
+			}
+		}
+	}
+	for _, sc := range b.o.Scenarios {
+		if len(stale) > 0 && !slices.ContainsFunc(b.servers[sc.Name], func(name string) bool { return !slices.Contains(stale, name) }) {
+			delete(b.res.Prepared, sc.Name)
+			delete(b.res.WarmVisits, sc.Name)
+		}
+	}
+}
+
 // restore reads back a result to continue, and checks it in one place before any phase runs, whatever
-// the phases: its format, its settings and versions (canContinue, the method among them), and every
-// rate it holds, searched or read from the file, against the conditions of this run and the build of
-// Next.js that runs.
+// the phases: its format, its shared stamp, settings and versions (canContinue, the method among
+// them). It then drops what it holds of the servers that are not of this run (measureAgain), and
+// checks every rate it still holds, searched or read from the file, against the conditions of this
+// run and the build of Next.js that runs.
 func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 	if err := checkFormat(data); err != nil {
 		return err
@@ -481,9 +640,13 @@ func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 	if err := json.Unmarshal(data, b.res); err != nil {
 		return err
 	}
-	if err := canContinue(b.res, b.o.Stamp, cfg, version); err != nil {
+	if err := canContinue(b.res, b.o.Stamp, cfg, version, b.frameworks()); err != nil {
 		return err
 	}
+	if b.res.Version == nil {
+		b.res.Version = map[string]string{}
+	}
+	b.measureAgain(version)
 	for _, key := range slices.Sorted(maps.Keys(b.res.Sustain)) {
 		name, fw, _ := strings.Cut(key, "/")
 		i := slices.IndexFunc(b.res.Scenarios, func(s BrowseScenario) bool { return s.Name == name })
@@ -498,20 +661,6 @@ func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 		}
 	}
 	return nil
-}
-
-// tracesHash is a short hash of the plan and trace files a run loads: the plans and the traces of
-// names.
-func tracesHash(dir string, names []string) string {
-	h := sha256.New()
-	paths := []string{PlansPath(dir)}
-	for _, n := range slices.Sorted(slices.Values(names)) {
-		paths = append(paths, TracePath(dir, n))
-	}
-	for _, path := range paths {
-		fmt.Fprintf(h, "%s %s\n", filepath.Base(path), fileHash(path))
-	}
-	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 // Browse runs the browse comparison and returns what it measured. Prepare must have run.
@@ -584,7 +733,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		return nil, err
 	}
 	mach, version := machine(), e.versions(specs)
-	cfg := browseConfig(o, mach.CPU, tracesHash(o.TraceDir, names), methodHash(e.Root))
+	cfg := browseConfig(o, mach.CPU, fileHash(PlansPath(o.TraceDir)), methodHash(e.Root))
 	b.res = &BrowseResult{}
 	if data, err := os.ReadFile(o.OutJSON); err == nil && o.OutJSON != "" {
 		if err := b.restore(data, cfg, version); err != nil {
@@ -592,18 +741,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		}
 		b.logf("continuing %s: %d closed rounds, %d latency rounds done\n", o.OutJSON, len(b.res.Closed), len(b.res.Latency))
 	} else {
-		b.res.Stamp, b.res.Date, b.res.Seed = o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), o.Seed
-		b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
-		b.res.Scenarios, b.res.Servers, b.res.Traces = o.Scenarios, b.servers, names
-		b.res.Plans = PlanInfo{Blocks: b.set.Blocks}
-		for _, p := range b.set.Plans {
-			b.res.Plans.PlanCounts.Add(p)
-		}
-		b.res.Config = cfg
-		b.res.Blocks = map[string]int{}
-		b.res.Prepared = map[string]int{}
-		b.res.Sustain = map[string]*Sustain{}
-		b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
+		b.begin(cfg, version, mach, placement, names)
 	}
 	b.logf("placement: %s\n", placement.Note)
 	// No Node app may send an answer a cache could keep: the run stops before its first round if one
@@ -630,6 +768,55 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 		}
 	}
 	return b.res, b.commit()
+}
+
+// begin starts a new result: the stamps and settings of the run, the machine, the plans, and the stamp
+// of every server with today's date.
+func (b *browse) begin(cfg, version map[string]string, mach Machine, placement Placement, names []string) {
+	b.res.Stamp, b.res.Date, b.res.Seed = b.o.Stamp, time.Now().UTC().Format("2006-01-02 15:04:05 UTC"), b.o.Seed
+	b.res.Machine, b.res.Place, b.res.Version = mach, placement, version
+	b.res.Scenarios, b.res.Servers, b.res.Traces = b.o.Scenarios, b.servers, names
+	b.res.Plans = PlanInfo{Blocks: b.set.Blocks}
+	for _, p := range b.set.Plans {
+		b.res.Plans.PlanCounts.Add(p)
+	}
+	b.res.Config = cfg
+	b.res.Blocks = map[string]int{}
+	b.res.Prepared = map[string]int{}
+	b.res.Sustain = map[string]*Sustain{}
+	b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
+	for _, name := range b.serverNames() {
+		b.stampServer(name)
+	}
+}
+
+// serverNames are the specs of every scenario of the run, each once, in order.
+func (b *browse) serverNames() []string {
+	var out []string
+	for _, sc := range b.o.Scenarios {
+		for _, name := range b.servers[sc.Name] {
+			if !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// serverStamp is what the results of a spec belong to in this run (ServerStamp), without the date.
+func (b *browse) serverStamp(name string) ServerStamp {
+	return ServerStamp{Stamp: b.o.ServerStamps[name], Trace: fileHash(TracePath(b.o.TraceDir, traceName(b.specs[name])))}
+}
+
+// stampServer keeps in the result what the results of a spec belong to from now on, with today's
+// date: the date it was measured.
+func (b *browse) stampServer(name string) {
+	if b.res.ServerStamps == nil {
+		b.res.ServerStamps = map[string]ServerStamp{}
+	}
+	s := b.serverStamp(name)
+	s.Date = time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	b.res.ServerStamps[name] = s
 }
 
 // with starts a fresh server of a spec and calls f with a runner for the workload of the scenario.
@@ -760,13 +947,24 @@ const prepareHeadroom = 2
 // the visits of the warm-up of every closed round of the scenario, at any sessions: as many as the
 // longest round a server was sized to (prepared / prepareHeadroom), the visits after the prepared
 // ones, whose data is made too.
+//
+// A continued result keeps the numbers it holds when it measures a server again (measureAgain): the
+// servers it keeps were measured with them. A server with no sizing at the base sessions (one measured
+// again) is sized then, and must fit in the warm-up kept: the numbers never grow, and a server that
+// needs more stops the run, which must start again.
 func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (prepared, warm int, err error) {
 	if n := b.res.Prepared[sc.Name]; n > 0 {
-		return n, b.res.WarmVisits[sc.Name], nil
+		warm := b.res.WarmVisits[sc.Name]
+		for _, fw := range b.servers[sc.Name] {
+			if err := b.sizeCell(ctx, fw, sc, b.o.Sessions, warm); err != nil {
+				return 0, 0, err
+			}
+		}
+		return n, warm, nil
 	}
 	most := 0
 	for _, fw := range b.servers[sc.Name] {
-		if err := b.sizeCell(ctx, fw, sc, b.o.Sessions); err != nil {
+		if err := b.sizeCell(ctx, fw, sc, b.o.Sessions, 0); err != nil {
 			return 0, 0, err
 		}
 		most = max(most, b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, fw)])
@@ -783,8 +981,10 @@ func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (prepared, war
 	return b.res.Prepared[sc.Name], b.res.WarmVisits[sc.Name], b.commit()
 }
 
-// sizeCell sizes the closed rounds of a server at a number of sessions, once (size).
-func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, sessions int) error {
+// sizeCell sizes the closed rounds of a server at a number of sessions, once (size). A size of more
+// visits than most (0 for no limit), the warm-up a continued result keeps, is an error and is not
+// kept, so that the run stops there every time it is continued.
+func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, sessions, most int) error {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
 	if _, ok := b.res.Blocks[key]; ok {
 		return nil
@@ -793,7 +993,11 @@ func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, ses
 	if err != nil {
 		return err
 	}
-	b.res.Blocks[key] = BlocksFor(rate, b.o.Target, b.set.Blocks, sc.blockVisits())
+	blocks := BlocksFor(rate, b.o.Target, b.set.Blocks, sc.blockVisits())
+	if most > 0 && blocks*sc.blockVisits() > most {
+		return fmt.Errorf("%s/%s, measured again, is sized to %d visits a round at %d sessions (%.2f visits/s), more than the warm-up of %d visits that every server of this result got. The visits prepared and the warm-up are the same for every server and do not grow, so the whole run must start again: remove %s", sc.Name, fw, blocks*sc.blockVisits(), sessions, rate, most, cmp.Or(b.o.OutJSON, "the result"))
+	}
+	b.res.Blocks[key] = blocks
 	b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
 	return b.commit()
 }
@@ -807,7 +1011,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 	if err != nil {
 		return nil, err
 	}
-	if err := b.sizeCell(ctx, fw, sc, sessions); err != nil {
+	if err := b.sizeCell(ctx, fw, sc, sessions, 0); err != nil {
 		return nil, err
 	}
 	for attempt := 1; ; attempt++ {

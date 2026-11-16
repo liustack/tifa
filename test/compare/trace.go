@@ -169,6 +169,12 @@ func PlansPath(dir string) string {
 	return fmt.Sprintf("%s/plans.json", strings.TrimRight(dir, "/"))
 }
 
+// TraceStampPath is the file in dir that says what the trace of a framework was recorded from, which
+// browse.sh writes beside the trace.
+func TraceStampPath(dir, framework string) string {
+	return fmt.Sprintf("%s/%s.stamp", strings.TrimRight(dir, "/"), framework)
+}
+
 // document says whether the page view was a document load: the browser asked for a document, as it
 // does for a landing and for an action the page does with no router (a plain link, a form).
 func (s TraceStep) document() bool {

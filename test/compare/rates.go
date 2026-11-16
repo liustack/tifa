@@ -178,7 +178,7 @@ func fileHash(path string) string {
 // sources of its app, the Go the load generator is built with and the settings of its runtime
 // (loadGo), the scenario and
 // the seed of its writes, the plans and the Next.js trace of the site, the sources that trace was
-// recorded from (the lines of the stamp browse.sh writes that bear on it, stampHash; "" when the
+// recorded from (the lines of the stamp browse.sh writes beside that trace that bear on it, stampHash; "" when the
 // traces have none), the cpu model and the pinning, with the number of cpus of the load the run
 // counted (which judges the generator),
 // the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation.
@@ -188,7 +188,7 @@ func (b *browse) rateConditions(sc BrowseScenario) map[string]string {
 	// (one with a stamp): a run by hand cannot tell what its traces were recorded from.
 	sources := ""
 	if b.o.Stamp != "" {
-		sources = stampHash(filepath.Join(b.o.TraceDir, "STAMP"))
+		sources = stampHash(TraceStampPath(b.o.TraceDir, openBase))
 	}
 	sum := sha256.Sum256(fmt.Appendf(scenario, " seed %d", b.o.Seed))
 	return map[string]string{
@@ -257,7 +257,7 @@ var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "
 // sources of the other apps, the closed-loop steps of the throughput, and what only the other
 // comparisons and the tests use. Every source file is in methodFiles or here
 // (TestEverySourceOfCompareIsInOrOutOfTheMethod).
-var rateExcluded = []string{"announce.go", "attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "hold.go", "locks.go", "locks_other.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
+var rateExcluded = []string{"announce.go", "attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "hold.go", "locks.go", "locks_other.go", "parity.go", "report.go", "report_browse.go", "specs.go", "status.go", "store_deps.json", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {
