@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-11-16
+
 ### Added
 
 - `tifa dev --background` starts the dev server detached from the terminal and returns once the app answers, so a coding agent or a script can start it and go on working. Every other flag and environment variable reaches the server, and everything it prints goes to `.tifa/dev.log`. `tifa dev status [--json]` says whether it runs, its address, process ID, start time and whether the last build worked. `tifa dev logs [-n lines] [-f]` prints the log. `tifa dev stop` stops it and waits until the lock is free. What runs is judged by the lock `.tifa/dev.lock`, not by the process ID in the file, so a leftover file after a restart or a crash is `not running` and nothing is signalled. A second `tifa dev` now says to use `tifa dev status` and `tifa dev stop`. The `AGENTS.md` that `tifa new` writes tells agents to use them. See [Agents and scripts](docs/dev.md#agents-and-scripts).

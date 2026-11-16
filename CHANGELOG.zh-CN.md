@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-11-16
+
 ### 新增
 
 - `tifa dev --background` 让开发服务脱离终端在后台启动，应用能应答时才返回，编程 agent 或脚本可以启动它后接着干别的。命令的其他参数和环境变量都会传给服务，服务的全部输出写进 `.tifa/dev.log`。`tifa dev status [--json]` 说明它有没有在运行、地址、进程号、启动时间和上次构建成没成。`tifa dev logs [-n 行数] [-f]` 打印日志。`tifa dev stop` 停掉它，并等到锁释放。有没有在运行看锁 `.tifa/dev.lock`，不看文件里的进程号，所以重启或崩溃后留下的文件算 `not running`，也不会向任何进程发信号。再开第二个 `tifa dev` 时，报错现在会提示用 `tifa dev status` 和 `tifa dev stop`。`tifa new` 写出的 `AGENTS.md` 让 agent 用这些命令。见[给 agent 和脚本用](docs/dev.zh-CN.md#给-agent-和脚本用)。
