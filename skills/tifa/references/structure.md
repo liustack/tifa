@@ -2,7 +2,7 @@
 
 Contents: where code goes, which way packages may import, shared resources.
 
-Full docs: [structure.md](https://github.com/liustack/tifa/blob/main/docs/structure.md) and [philosophy.md](https://github.com/liustack/tifa/blob/main/docs/philosophy.md).
+Full docs (in the folder `go tool tifa docs` prints): `docs/structure.md` and `docs/philosophy.md`.
 
 ## A domain is a folder under app/
 

@@ -2,7 +2,7 @@
 
 Contents: what to return, what the user sees, writing `Error`, how a 404 is placed, render failures, `OnError`.
 
-Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#404) and [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md#page-requests).
+Full docs (in the folder `go tool tifa docs` prints): `docs/app.md#404` and `docs/build.md#page-requests`.
 
 ## What to return from Load, Layout and handlers
 

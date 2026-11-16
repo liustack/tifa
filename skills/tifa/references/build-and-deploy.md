@@ -2,22 +2,24 @@
 
 Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, building for Linux, running the program, HTTPS, running behind a CDN or proxy, sizing, license notices.
 
-Full docs: [dev.md](https://github.com/liustack/tifa/blob/main/docs/dev.md), [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md), [config.md](https://github.com/liustack/tifa/blob/main/docs/config.md), [performance.md](https://github.com/liustack/tifa/blob/main/docs/performance.md).
+Full docs (in the folder `go tool tifa docs` prints): `docs/dev.md`, `docs/build.md`, `docs/config.md`, `docs/performance.md`.
 
 ## `tifa dev`
 
 ```sh
-go tool tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
+go tool tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 ```
+
+A terminal that cannot stay open, such as yours as an agent, needs `go tool tifa dev --background`. It starts the server detached and returns once the build ended and `GET /` answers, printing the address and PID. Then `go tool tifa dev status` (`--json`, exit 1 when none runs) says where it runs and how the last build went, `go tool tifa dev logs` (`-n 100`, `-f`) prints `.tifa/dev.log`, which holds all output, and `go tool tifa dev stop` stops it, also when none runs. Stop it when you finish. A second `tifa dev` in the same app fails and names the one that runs.
 
 - The first build compiles QuickJS and SQLite, so it takes several seconds up to a minute. Later builds use Go's build cache. A page opened during the first build waits 2 seconds, then shows "building" and reloads on its own.
 - What an edit triggers: `.ts`, `.tsx`, `.css`, `.json` update open pages in place through Vite (React Fast Refresh) and rebuild the SSR bundle without a restart. `.go`, `go.mod` and `go:embed` files rebuild the Go program and reload the page. A new or removed `page.tsx`, `layout.tsx` or `layout_.tsx`, or a changed `tifa.yaml`, runs every step. A changed `.env` only restarts the app.
 - A failed build keeps the old version running and shows the original compiler or Vite error as an overlay. Fix it and the overlay goes away.
 - If the app exits at start or does not listen within 30 seconds, the overlay says `The app did not start` with the last stderr lines. An `OnStart` error and a panic are there.
 - It does not watch `node_modules`, `.git`, `.tifa`, `bin/`, or `schema.sql` of a `tifa new` app (restart it after changing the schema). It serves plain HTTP and ignores the HTTPS settings.
-- `go tool tifa errors` prints the errors since the last build: a failed build or an app that did not start, unexpected request errors with their stack in your sources, errors the open pages had in the browser and pages whose two renders differ. Run it after a change and after you open or reload the pages you changed, since browser errors come only from open pages. It waits for a build that runs, exits with 1 when there are errors and 2 when no `tifa dev` runs, and `--json` prints JSON (see [Tifa errors](https://github.com/liustack/tifa/blob/main/docs/dev.md#tifa-errors)).
+- `go tool tifa errors` prints the errors since the last build: a failed build or an app that did not start, unexpected request errors with their stack in your sources, errors the open pages had in the browser and pages whose two renders differ. Run it after a change and after you open or reload the pages you changed, since browser errors come only from open pages. It waits for a build that runs, exits with 1 when there are errors and 2 when no `tifa dev` runs, and `--json` prints JSON (see `docs/dev.md#tifa-errors`).
 - After you install a different TanStack Router, React or React DOM, restart `tifa dev`.
-- Stop it with Ctrl-C or SIGTERM. If you started it in the background, kill only that PID.
+- Stop it with Ctrl-C or SIGTERM, or with `go tool tifa dev stop` when it runs in the background.
 
 ## `tifa build`
 
@@ -151,4 +153,4 @@ server:
 
 ## Notices to ship with the program
 
-The executable embeds locale and time zone data and other code under licenses that ask for their notices to go with every copy you give to others. For your own server, nothing is needed. When you hand the program out, follow [Notices to ship with the program](https://github.com/liustack/tifa/blob/main/docs/build.md#notices-to-ship-with-the-program).
+The executable embeds locale and time zone data and other code under licenses that ask for their notices to go with every copy you give to others. For your own server, nothing is needed. When you hand the program out, follow Notices to ship with the program (`docs/build.md#notices-to-ship-with-the-program`).
