@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/liustack/tifa/internal/langs"
+	"github.com/liustack/tifa/internal/symwalk"
 	"io"
 	"io/fs"
 	"os"
@@ -170,7 +171,7 @@ func scanInputs(root string, dirs []string) ([]string, error) {
 	}
 	for _, rel := range dirs {
 		dir := filepath.Join(root, filepath.FromSlash(rel))
-		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		err := symwalk.Walk(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) && path == dir {
 					return fs.SkipDir

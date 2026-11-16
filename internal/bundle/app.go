@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/liustack/tifa/internal/ssr"
+	"github.com/liustack/tifa/internal/symwalk"
 )
 
 // Build is the content of dist/build.json, which the server reads at startup.
@@ -304,9 +305,9 @@ func publicHashes(dir string) (map[string]string, error) {
 	return hashes, err
 }
 
-// copyDir copies the regular files under src to dst. A missing src copies nothing.
+// copyDir copies the regular files under src to dst, following links. A missing src copies nothing.
 func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	return symwalk.Walk(src, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && path == src {
 			return filepath.SkipAll
 		}

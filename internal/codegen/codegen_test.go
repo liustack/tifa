@@ -930,3 +930,33 @@ func TestQueryTableReachesVite(t *testing.T) {
 		t.Errorf("vite.js lacks %s:\n%s", want, vite)
 	}
 }
+
+// A link in the public folder is a public path, as the file or folder it points to, and the
+// folder itself may be a link.
+func TestPublicPathsFollowLinks(t *testing.T) {
+	root := t.TempDir()
+	for name, text := range map[string]string{"shared/logo.svg": "<svg/>", "shared/img/a.png": "a", "real/robots.txt": "r"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for target, link := range map[string]string{
+		filepath.Join(root, "shared", "logo.svg"): "real/logo.svg",
+		filepath.Join(root, "shared", "img"):      "real/img",
+		"real":                                    "public",
+	} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Skip("no symbolic links here:", err)
+		}
+	}
+	got, err := publicPaths(root, "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "/img/a.png /logo.svg /robots.txt"; strings.Join(got, " ") != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

@@ -11,6 +11,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- A symbolic link in `public/`, to a file or to a folder, or a `public/` that is itself a link, is followed by `tifa build` and `tifa dev`. Such files were left out of the build without a word. A link that leads back into the folder being copied, or to nothing, fails the build.
 - A file named `index.html` in `public/`, such as `public/docs/index.html`, is served at its own path. It was answered with a redirect to its folder.
 - `tifa dev` no longer calls the app ready when another program holds its address, such as Vite's dev server on a port that was free when both were chosen. The dev server asked only whether the port was open, so a browser request could get Vite's `Cannot GET /__tifa/vite/` while the app had failed to listen. It now waits for the app itself to answer, and when the app exits instead, shows why.
 
