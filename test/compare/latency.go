@@ -41,7 +41,7 @@ func latencyRate(res *BrowseResult, sc string, sessions, rounds int) (float64, e
 // many visits with their writes, the visits after those of the round, apart.
 func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, visits int) (*Round, error) {
 	out, err := b.with(ctx, fw, sc, visits, visits, visits, func(r *runner) *Round {
-		return r.RunOpen(ctx, rate, visits, 30*time.Second, 0)
+		return r.RunOpen(ctx, rate, b.o.Sessions, visits, 30*time.Second, 0)
 	})
 	if err != nil {
 		return nil, err

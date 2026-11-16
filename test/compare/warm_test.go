@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +25,8 @@ type launched struct {
 	// metrics route (a spec with Spec.Metrics): before the first, then after each.
 	mu     sync.Mutex
 	phases [][]string
+	// times are when each request of phases came, in the same places.
+	times [][]time.Time
 }
 
 // phase is the requests the server got after its i-th read of the metrics route (0: before the
@@ -34,6 +38,16 @@ func (l *launched) phase(i int) []string {
 		return nil
 	}
 	return slices.Clone(l.phases[i])
+}
+
+// span is when the first and the last request after the i-th read of the metrics route came.
+func (l *launched) span(i int) (first, last time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if i >= len(l.times) || len(l.times[i]) == 0 {
+		return time.Time{}, time.Time{}
+	}
+	return l.times[i][0], l.times[i][len(l.times[i])-1]
 }
 
 // warmBrowse is a browse run against fake servers: every launch starts a new one and notes it. The
@@ -72,14 +86,15 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 	// The fake shows no page that a write changes: the check of the writes is the test's to set.
 	b.verify = func(context.Context, *runner) error { return nil }
 	b.launch = func(ctx context.Context, spec Spec) (*liveServer, error) {
-		l := &launched{spec: spec.Name, phases: [][]string{nil}}
+		l := &launched{spec: spec.Name, phases: [][]string{nil}, times: [][]time.Time{nil}}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			l.mu.Lock()
 			if r.URL.Path == "/metrics" {
-				l.phases = append(l.phases, nil)
+				l.phases, l.times = append(l.phases, nil), append(l.times, nil)
 			} else {
 				l.phases[len(l.phases)-1] = append(l.phases[len(l.phases)-1], r.Method+" "+r.URL.RequestURI()+" "+string(body))
+				l.times[len(l.times)-1] = append(l.times[len(l.times)-1], time.Now())
 			}
 			l.mu.Unlock()
 			// The metrics route of Tifa (Spec.Metrics), with a render memo that holds nothing.
@@ -530,4 +545,120 @@ func shortSpacing(t *testing.T) {
 	old := spacing
 	spacing = 10 * time.Millisecond
 	t.Cleanup(func() { spacing = old })
+}
+
+// The warm-up of an open round is played as a closed round plays its own, with the sessions of the
+// run as fast as the server takes them, not at the rate of the round: the server gets the same
+// requests as when the warm-up was played at the rate (the order aside), sooner. Then every server
+// is left alone for openWarmPause before the clock of the round.
+func TestTheWarmUpOfAnOpenRoundIsPlayedAsFastAsTheServerTakesIt(t *testing.T) {
+	shortSpacing(t)
+	pause := openWarmPause
+	openWarmPause = 400 * time.Millisecond
+	t.Cleanup(func() { openWarmPause = pause })
+	if pause != 5*time.Second {
+		t.Errorf("the pause after the warm-up of an open round is %v, want 5s", pause)
+	}
+	_, _, node := warmSpecs()
+	node.Metrics = "/metrics" // the reads of the metrics mark where the warm-up starts and ends
+	sc := mustScenario("shop")
+	visits, rate := sc.blockVisits(), 200.0
+	b, servers := warmBrowse(t, sc, node)
+	out, err := b.openRound(t.Context(), node.Name, sc, rate, visits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := busy(servers())
+	if len(list) != 1 || out.WarmUp == nil || !out.Pass {
+		t.Fatalf("%d servers, the warm-up %+v, pass %v %s", len(list), out.WarmUp, out.Pass, out.Why)
+	}
+	got := list[0].phase(1)
+	if at := float64(visits) / rate; out.WarmUp.Seconds > at/2 {
+		t.Errorf("the warm-up took %.1f s, and its visits take %.1f s at the rate of the round", out.WarmUp.Seconds, at)
+	}
+	_, lastWarm := list[0].span(1)
+	firstRound, _ := list[0].span(2)
+	if gap := firstRound.Sub(lastWarm); lastWarm.IsZero() || gap < openWarmPause {
+		t.Errorf("the round started %v after the last request of the warm-up, want %v at least", gap, openWarmPause)
+	}
+	// The same warm-up played at the rate of the round on a server of its own, after the same setup.
+	_, err = b.with(t.Context(), node.Name, sc, visits, visits, visits, func(r *runner) *Round {
+		round := &Round{Model: "open", Rate: rate}
+		r.expectRound(round, visits, 0)
+		if r.setup(t.Context(), round, 0, visits) {
+			r.playOpen(t.Context(), &Round{}, rate, r.warm, warmDrain, r.prepared, nil)
+		}
+		r.wl.plan(round, 0, visits)
+		return round
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := busy(servers())
+	want := all[len(all)-1].phase(1)
+	slices.Sort(got)
+	slices.Sort(want)
+	if len(got) == 0 || !slices.Equal(got, want) {
+		d := firstDiff(want, got)
+		t.Errorf("the warm-up sent %d requests, and at the rate %d: first difference %q against %q", len(got), len(want), at(got, d), at(want, d))
+	}
+}
+
+// A warm-up of an open round that fails visits, or that is cut off because its visits did not end in
+// the time they take at the rate of the round (and warmDrain), fails the round, as it did when it was
+// played at the rate: the server did not keep up.
+func TestAWarmUpThatFailsOrIsCutOffFailsTheOpenRound(t *testing.T) {
+	shortSpacing(t)
+	drain := warmDrain
+	warmDrain = 200 * time.Millisecond
+	t.Cleanup(func() { warmDrain = drain })
+	pause := openWarmPause
+	openWarmPause = 10 * time.Millisecond
+	t.Cleanup(func() { openWarmPause = pause })
+	_, _, node := warmSpecs()
+	node.Metrics = "/metrics"
+	sc := mustScenario("shop")
+	for _, tc := range []struct {
+		name string
+		bad  func(w http.ResponseWriter, r *http.Request) // what the server does with a page of the warm-up
+		why  string
+	}{
+		{"failed", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, "the warm-up: "},
+		{"cut off", func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }, "the warm-up: the workload did not finish in time"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _ := warmBrowse(t, sc, node)
+			// A server in front of the fake that does wrong by the pages of the warm-up: the requests after
+			// the first read of the metrics route and before the second.
+			launch := b.launch
+			b.launch = func(ctx context.Context, spec Spec) (*liveServer, error) {
+				s, err := launch(ctx, spec)
+				if err != nil {
+					return nil, err
+				}
+				target, _ := url.Parse(s.base)
+				proxy := httputil.NewSingleHostReverseProxy(target)
+				var reads atomic.Int64
+				front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/metrics" {
+						reads.Add(1)
+					} else if reads.Load() == 1 && r.Method == "GET" {
+						tc.bad(w, r)
+						return
+					}
+					proxy.ServeHTTP(w, r)
+				}))
+				stop := s.stop
+				s.base, s.stop = front.URL, func() { front.Close(); stop() }
+				return s, nil
+			}
+			out, err := b.openRound(t.Context(), node.Name, sc, 1000, sc.blockVisits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Valid || out.Pass || !strings.HasPrefix(out.Why, tc.why) {
+				t.Errorf("valid %v (%s), pass %v: %q, want a valid round that failed with %q", out.Valid, out.WhyInvalid, out.Pass, out.Why, tc.why)
+			}
+		})
+	}
 }

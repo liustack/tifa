@@ -225,7 +225,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	plans, traces := onePlan(steps...)
 	r := testRunner(srv, plans, traces, nil)
 	// 8 visits a second for 1 s: the two actions of a visit are 1 s apart.
-	round := r.RunOpen(context.Background(), 8, 8, 5*time.Second, 0)
+	round := r.RunOpen(context.Background(), 8, 2, 8, 5*time.Second, 0)
 	if round.Visits != 8 || round.PageViews != 16 || round.TimedOut {
 		t.Fatalf("%+v", round)
 	}
@@ -238,7 +238,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	// A server that holds everything: the visits cannot finish and the round times out.
 	plans, traces = onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/hold-x", "doc", 0, 5)}})
 	r = testRunner(srv, plans, traces, nil)
-	round = r.RunOpen(context.Background(), 4, 4, 300*time.Millisecond, 0)
+	round = r.RunOpen(context.Background(), 4, 2, 4, 300*time.Millisecond, 0)
 	if !round.TimedOut || round.Visits != 0 {
 		t.Errorf("a hung server: %+v", round)
 	}
@@ -395,7 +395,7 @@ func TestTheWarmUpSendsTheWritesOfItsVisits(t *testing.T) {
 		r.prepared, r.warm = 2, 3
 		var round *Round
 		if open {
-			round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+			round = r.RunOpen(context.Background(), 50, 2, 2, time.Second, 0)
 		} else {
 			round = r.RunClosed(context.Background(), 1, 2, 10*time.Second)
 		}
@@ -476,7 +476,7 @@ func TestAWarmUpThatDidNotEndAsPlannedDecidesTheRound(t *testing.T) {
 			r.prepared, r.warm = 2, 2
 			var round *Round
 			if tc.open {
-				round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+				round = r.RunOpen(context.Background(), 50, 2, 2, time.Second, 0)
 			} else {
 				round = r.RunClosed(context.Background(), 1, 2, 500*time.Millisecond)
 			}
