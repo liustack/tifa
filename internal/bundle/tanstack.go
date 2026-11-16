@@ -22,8 +22,8 @@ import (
 // takeOver in js/runtime/browser.tsx hydrates the router in place of TanStack's RouterClient:
 // when moving to another version, check it against the RouterClient.tsx of that version.
 const (
-	TestedReactRouter = "1.170.42"
-	TestedRouterCore  = "1.171.35"
+	TestedReactRouter = "1.170.46"
+	TestedRouterCore  = "1.171.39"
 )
 
 // CheckTanStack returns an error when the app at root installs another @tanstack/react-router

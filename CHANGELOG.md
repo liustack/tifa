@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Apps install `@tanstack/react-router` 1.170.46, which depends on `@tanstack/router-core` 1.171.39. `tifa build` refuses another version, so change the version in `package.json` and install again. `tifa new` writes the new one. The router tests, the SSR tests and the shop pass on it unchanged.
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed

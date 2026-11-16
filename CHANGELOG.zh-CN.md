@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 应用要装 `@tanstack/react-router` 1.170.46，它依赖 `@tanstack/router-core` 1.171.39。`tifa build` 不接受其他版本，请改 `package.json` 里的版本后重新安装。`tifa new` 会写入新版本。路由测试、SSR 测试和示例商店在新版本上都原样通过。
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed
