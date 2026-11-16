@@ -159,17 +159,18 @@ type Round struct {
 	// behind does not make a round invalid: that round is valid, and fails.
 	Valid      bool   `json:"valid"`
 	WhyInvalid string `json:"whyInvalid,omitempty"`
-	// Pass says that every class of action met the rule: P99 of full loads, clicks and writes at
+	// Pass says that every class of action met the rule: P99 of landings, clicks and writes at
 	// most a second, no unexpected failure, no backlog left.
 	Pass bool   `json:"pass"`
 	Why  string `json:"why,omitempty"`
 }
 
-// RoundPart is the latencies of one part of an open round: its full loads (the first pages of
-// visits) and its client navigations (the pages after them).
+// RoundPart is the latencies of one part of an open round: its full loads (the page views answered
+// with a whole page, `document`) and its client navigations (those the client router answered with
+// data alone, `click nav`).
 type RoundPart struct {
-	Load  TypeStat `json:"load"`
-	Click TypeStat `json:"click"`
+	FullLoads  TypeStat `json:"fullLoads"`
+	ClientNavs TypeStat `json:"clientNavigations"`
 }
 
 // latencyParts is how many parts of the same length an open round is split into (Round.Parts).
@@ -180,7 +181,7 @@ const latencyParts = 3
 // being closed (the server resets it) and count a failure that no browser would see.
 const idleConn = 3 * time.Second
 
-// LatencyLimit is the P99 that full loads, clicks and writes must meet.
+// LatencyLimit is the P99 that landings, clicks and writes must meet.
 const LatencyLimit = 1000.0
 
 func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end time.Time, rss int64) {
@@ -218,7 +219,7 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	if a.parted {
 		r.Parts = make([]RoundPart, latencyParts)
 		for i, p := range a.parts {
-			r.Parts[i] = RoundPart{Load: typeStat(p["load"]), Click: typeStat(p["click"])}
+			r.Parts[i] = RoundPart{FullLoads: typeStat(p["document"]), ClientNavs: typeStat(p["click nav"])}
 		}
 	}
 	if r.PageViews > 0 {
@@ -315,7 +316,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 		}
 	}
 	if r.Types["load"].N == 0 || r.Types["click"].N == 0 {
-		fail("no full load or no click completed")
+		fail("no landing or no click completed")
 	}
 }
 

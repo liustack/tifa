@@ -16,7 +16,7 @@ func closedRound(fw, sc string, sessions, round int, views int, seconds float64,
 		Writes: views / 19, WriteShare: 0.05, ClickShare: 0.75, ViewsPerVisit: 4, Seconds: seconds, DrainSeconds: 1.5, CPUSeconds: seconds / 2, PeakRSS: 100, Requests: views * 2, Bytes: int64(views) * 4096,
 		Responses: map[string]int{"doc 200 text/html": views / 4, "nav 200 application/json": views * 3 / 4, "write 200 application/json": views / 19},
 		Renders:   map[string]int{"vm": 3, "memo": views/4 - 3},
-		Types:     map[string]TypeStat{"load": {N: 100, P50: 4, P99: 30}, "click": {N: 300, P50: 2, P99: 15}, "document": {N: 200, P50: 3, P99: 35}, "click nav": {N: 200, P50: 1, P99: 8}, "write": {N: 20, P50: 5, P99: 9}},
+		Types:     map[string]TypeStat{"load": {N: 100, P50: 4, P99: 30}, "click": {N: 300, P50: 2, P99: 15}, "document": {N: views * 3 / 10, P50: 3, P99: 35}, "click nav": {N: views - views*3/10, P50: 1, P99: 8}, "write": {N: 20, P50: 5, P99: 9}},
 		Valid:     true, Pass: pass, Why: map[bool]string{true: "", false: "click P99 1200 ms over 1000 ms"}[pass]}
 }
 
@@ -63,7 +63,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	a := closedRound("nextjs", mix.Name, 0, 1, 1000, 100, false)
 	a.Model, a.TimedOut, a.Failures = "open", true, 20
 	a.Why = "the workload did not finish in time: a backlog was left"
-	a.Types["load"] = TypeStat{N: 5, P50: 3000, P99: 3000}
+	a.Types["document"] = TypeStat{N: 5, P50: 3000, P99: 3000}
 	b := closedRound("tifa", mix.Name, 0, 1, 1000, 100, true)
 	b.Model = "open"
 	r.Latency = append(r.Latency, a, b)
@@ -71,7 +71,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	for _, want := range []string{
 		"| Next.js | 3000.0 / 3000 (5) |", "| 20 |",
 		"failed the rule: the workload did not finish in time",
-		"| Tifa | 4.0 / 30 (100) | 2.0 / 15 (300) | passed |", "| Tifa | 0 |"} {
+		"| Tifa | 3.0 / 35 (300) | 1.0 / 8 (700) | passed |", "| Tifa | 0 |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
@@ -324,8 +324,8 @@ func TestBrowseReportTypesTheThroughputOfEachServer(t *testing.T) {
 		"#### Throughput",
 		"| | result | sessions | page views/s | full loads/s | client navigations/s | CPU ms/page view | body KB/page view | peak RSS MiB |",
 		"| | server cores | why the steps stopped | sessions played |",
-		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 125.0 (124.7 to 125.2) | 375.0 (374.2 to 375.7) | 1.00 | 4.0 | 100 |", "| Tifa | 0.50 |",
-		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 10.0 (9.7 to 10.2) | 30.0 (29.2 to 30.7) | 12.50 (12.20 to 12.82) | 4.0 | 100 |", "| Next.js | 0.50 |",
+		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 150.0 (149.7 to 150.3) | 350.0 (349.3 to 350.7) | 1.00 | 4.0 | 100 |", "| Tifa | 0.50 |",
+		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 12.0 (11.7 to 12.3) | 28.0 (27.3 to 28.7) | 12.50 (12.20 to 12.82) | 4.0 | 100 |", "| Next.js | 0.50 |",
 		"| TanStack Start | no passing step | - | - |",
 		"| | 4 sessions | 6 sessions | 8 sessions | 10 sessions | 13 sessions |",
 		"| Next.js | - | - | 40.0 (39.0 to 41.0) | failed (click P99 1200 ms over 1000 ms) | - |",
@@ -511,7 +511,7 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	// The two tables have the columns full loads and client navigations, and the text over the first
 	// says which pages are which: the landings and the clicks, which add up to the page views. The body
 	// never calls them clicks.
-	if n := strings.Count(body, stepClassNote); n != len(scs) || !strings.Contains(stepClassNote, "A client navigation is") || !strings.Contains(stepClassNote, "add up to the page views") {
+	if n := strings.Count(body, stepClassNote); n != len(scs) || !strings.Contains(stepClassNote, "A client navigation is") || !strings.Contains(stepClassNote, "add up to the page views") || !strings.Contains(stepClassNote, "answered with a whole page") || !strings.Contains(stepClassNote, "with data alone") || strings.Contains(stepClassNote, "first page of a visit") {
 		t.Errorf("the body says %d times what a full load and a client navigation are, want over the throughput table of each of its %d scenarios: %q", n, len(scs), stepClassNote)
 	}
 	if tables, _, _ := strings.Cut(body, "\n### The mix\n"); strings.Contains(tables, "click") {
@@ -1112,7 +1112,7 @@ func TestTheBodyHasAThroughputAndALatencyTableWithTheirNotes(t *testing.T) {
 		l := closedRound(f, sc.Name, 0, 1, 4800, 300, true)
 		l.Model, l.Rate, l.VisitsPlanned, l.Blocks = "open", 40, 1200, 3
 		for range 3 {
-			l.Parts = append(l.Parts, RoundPart{Load: TypeStat{N: 33, P50: 4, P99: 30}, Click: TypeStat{N: 99, P50: 2, P99: 15}})
+			l.Parts = append(l.Parts, RoundPart{FullLoads: TypeStat{N: 33, P50: 4, P99: 30}, ClientNavs: TypeStat{N: 99, P50: 2, P99: 15}})
 		}
 		r.Latency = append(r.Latency, l)
 	}
@@ -1129,15 +1129,15 @@ func TestTheBodyHasAThroughputAndALatencyTableWithTheirNotes(t *testing.T) {
 		t.Errorf("the throughput table has a latency column:\n%s", tput)
 	}
 	for _, want := range []string{
-		"| Tifa | core used | 8 | 400.0 | 100.0 | 300.0 | 1.25 | 4.0 | 100 |",
-		"| Tifa, memo off (reference) | core used | 8 | 200.0 | 50.0 | 150.0 | 2.50 | 4.0 | 100 |",
+		"| Tifa | core used | 8 | 400.0 | 120.0 | 280.0 | 1.25 | 4.0 | 100 |",
+		"| Tifa, memo off (reference) | core used | 8 | 200.0 | 60.0 | 140.0 | 2.50 | 4.0 | 100 |",
 		"A main server plays 3 rounds a step and a reference one",
 	} {
 		if !strings.Contains(tput, want) {
 			t.Errorf("the throughput table lacks %q:\n%s", want, tput)
 		}
 	}
-	if want := "| Tifa | 4.0 / 30 (100) | 2.0 / 15 (300) | passed |"; !strings.Contains(lat, want) {
+	if want := "| Tifa | 3.0 / 35 (1440) | 1.0 / 8 (3360) | passed |"; !strings.Contains(lat, want) {
 		t.Errorf("the latency table lacks %q:\n%s", want, lat)
 	}
 	labels := []string{"| Tifa |", "| Next.js |", "| TanStack Start |", "| Tifa, memo off (reference) |", "| TanStack Start, gzip added (reference) |"}

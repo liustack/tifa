@@ -796,18 +796,23 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s
 	class := pageClass(s.Page)
 	a.mu.Lock()
 	a.lat[kind] = append(a.lat[kind], ms(last.Sub(scheduled)))
+	// What the server answered: a whole page (`document`, a full load), the first page of a visit and a
+	// later one the browser loaded whole alike, or data alone for the client router (`click nav`, a
+	// client navigation). The report counts and times the page views by these two.
+	answered := "click nav"
+	if kind == "load" || s.document() {
+		answered = "document"
+	}
+	if answered == "document" {
+		a.lat["document"] = append(a.lat["document"], ms(last.Sub(scheduled)))
+	}
 	if v.part > 0 {
 		p := &a.parts[v.part-1]
 		if *p == nil {
 			*p = map[string][]float64{}
 		}
-		(*p)[kind] = append((*p)[kind], ms(last.Sub(scheduled)))
+		(*p)[answered] = append((*p)[answered], ms(last.Sub(scheduled)))
 		a.parted = true
-	}
-	// Every page the browser loaded whole is a full page load, the first page of a visit and a later
-	// one alike: the report times them together, beside the client navigations.
-	if kind == "load" || s.document() {
-		a.lat["document"] = append(a.lat["document"], ms(last.Sub(scheduled)))
 	}
 	if kind == "click" {
 		// A click is an action on the page, by the step of the plan. The browser did it as a document

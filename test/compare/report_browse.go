@@ -266,8 +266,8 @@ func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario,
 				return fmtCell(each(rs, func(x *Round) float64 { return get(x) / float64(max(1, x.PageViews)) }), format)
 			}
 			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, cell,
-				fmtCell(each(rs, func(x *Round) float64 { return float64(x.FullLoads) / x.Seconds }), "%.1f"),
-				fmtCell(each(rs, func(x *Round) float64 { return float64(x.Clicks) / x.Seconds }), "%.1f"),
+				fmtCell(each(rs, func(x *Round) float64 { return float64(x.Types["document"].N) / x.Seconds }), "%.1f"),
+				fmtCell(each(rs, func(x *Round) float64 { return float64(x.Types["click nav"].N) / x.Seconds }), "%.1f"),
 				perView(func(x *Round) float64 { return 1000 * x.CPUSeconds }, "%.2f"),
 				perView(func(x *Round) float64 { return float64(x.Bytes) / 1024 }, "%.1f"),
 				fmtCell(each(rs, func(x *Round) float64 { return x.PeakRSS }), "%.0f"))
@@ -367,7 +367,7 @@ func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessi
 			fmtCell(each(rs, func(x *Round) float64 { return x.PeakRSS }), "%.0f"),
 			fmtCell(each(rs, func(x *Round) float64 { return reads(x) / float64(max(1, x.PageViews)) }), "%.1f"),
 			fmtCell(each(rs, func(x *Round) float64 { return float64(x.Bytes) / 1024 / float64(max(1, x.PageViews)) }), "%.1f"),
-			typeCell(rs, "load"), typeCell(rs, "click"), typeCell(rs, "write"),
+			typeCell(rs, "document"), typeCell(rs, "click nav"), typeCell(rs, "write"),
 			coresCell(rs, func(x *Round) float64 { return x.CPUSeconds }),
 			coresCell(rs, func(x *Round) float64 { return x.ClientCPU }))
 	}
@@ -475,7 +475,7 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		if x := shown[0]; !x.Pass {
 			note = "failed the rule: " + x.Why
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "load"), typeCell(shown, "click"), note)
+		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "document"), typeCell(shown, "click nav"), note)
 	}
 	r.referencesMarkdown(b, sc)
 	return true
@@ -586,7 +586,7 @@ func (r *BrowseResult) latencyPartsMarkdown(b *strings.Builder, sc BrowseScenari
 	for _, f := range bodyOrder(r.Servers[sc.Name]) {
 		for _, x := range r.latencyRounds(f, sc.Name) {
 			for i, p := range x.Parts {
-				rows = append(rows, fmt.Sprintf("| %s | %d of %d | %s | %s |\n", BrowseLabel(f), i+1, len(x.Parts), statCell(p.Load), statCell(p.Click)))
+				rows = append(rows, fmt.Sprintf("| %s | %d of %d | %s | %s |\n", BrowseLabel(f), i+1, len(x.Parts), statCell(p.FullLoads), statCell(p.ClientNavs)))
 			}
 		}
 	}
@@ -622,7 +622,7 @@ func (r *BrowseResult) clickKindsMarkdown(b *strings.Builder, sc BrowseScenario)
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nThe client navigations of these rounds (the pages after the first of a visit), by how the browser did them. A visitor reaches such a page by an action on the page on screen, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does a search from the header, a filter by a plain link and the next page of a list as a document load, and leaves the others to the router of the framework, as the recorded traces tell. P50 / P99 in ms over the round, with the number of pages. The two kinds do other work on the server and are not the same pages, so their times are not to be compared with each other, only server with server.\n\n| | client navigations | of them document loads | of them by the router |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\nThe later pages of a visit in these rounds (every page after the first), by how the browser did them. A visitor reaches such a page by an action on the page on screen, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does a search from the header, a filter by a plain link and the next page of a list as a document load, and leaves the others to the router of the framework, as the recorded traces tell. P50 / P99 in ms over the round, with the number of pages. The two kinds do other work on the server and are not the same pages, so their times are not to be compared with each other, only server with server.\n\n| | later pages of a visit | of them loaded whole | of them by the router |\n| --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
@@ -1492,8 +1492,9 @@ func notComparableNote(rounds []Round) string {
 }
 
 // stepClassNote says, over the throughput table of the body, what the full loads and the client
-// navigations of both tables are: the pages of a visit by the step of the plan.
-const stepClassNote = "A full load is the first page of a visit, the page a visitor lands on, which the browser loads whole. A client navigation is every later page of the visit, reached by an action on the page on screen: a link, a search, the filters, a sort or the next page of a list. Full loads and client navigations add up to the page views. Some client navigations are document loads, where the page leaves the action to the browser, and the appendix splits them by how the browser did them."
+// navigations of both tables are: the page views by what the server answered (`document` and
+// `click nav` in a round).
+const stepClassNote = "A full load is a page view the server answered with a whole page: the landing of a visit, and a later page the browser loads whole (a search form, a plain link). A client navigation is a page view the client router of the framework answered with data alone. Full loads and client navigations add up to the page views. The appendix also splits the later pages of a visit by how the browser did them."
 
 // latencyTries are all the latency tries of a server in a scenario, the invalid ones too.
 func (r *BrowseResult) latencyTries(fw, sc string) []Round {

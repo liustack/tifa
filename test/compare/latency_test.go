@@ -134,7 +134,7 @@ func TestEveryServerPlaysOneLatencyRoundOfItsBlocks(t *testing.T) {
 }
 
 // A latency round is split into three parts of the same length by the planned start of its visits,
-// and the full loads and the client navigations of the three parts add up to those of the round.
+// and the full loads (the pages answered whole, `document`) and the client navigations (the pages the router answered with data, `click nav`) of the three parts add up to those of the round.
 func TestTheThreePartsOfALatencyRoundAddUpToTheRound(t *testing.T) {
 	shortSpacing(t)
 	_, _, node := warmSpecs()
@@ -147,19 +147,19 @@ func TestTheThreePartsOfALatencyRoundAddUpToTheRound(t *testing.T) {
 	if len(out.Parts) != 3 {
 		t.Fatalf("%d parts, want 3", len(out.Parts))
 	}
-	loads, clicks := 0, 0
+	full, navs := 0, 0
 	for i, p := range out.Parts {
-		if p.Load.N == 0 || p.Click.N == 0 || p.Load.P99 < p.Load.P50 || p.Click.P99 < p.Click.P50 {
+		if p.FullLoads.N == 0 || p.ClientNavs.N == 0 || p.FullLoads.P99 < p.FullLoads.P50 || p.ClientNavs.P99 < p.ClientNavs.P50 {
 			t.Errorf("part %d: %+v", i+1, p)
 		}
 		// The visits of a part start in its third of the round: about a third of the full loads each.
-		if third := out.Types["load"].N / 3; p.Load.N < third*9/10 || p.Load.N > third*11/10 {
-			t.Errorf("part %d has %d of the %d full loads", i+1, p.Load.N, out.Types["load"].N)
+		if third := out.Types["document"].N / 3; p.FullLoads.N < third*9/10 || p.FullLoads.N > third*11/10 {
+			t.Errorf("part %d has %d of the %d full loads", i+1, p.FullLoads.N, out.Types["document"].N)
 		}
-		loads, clicks = loads+p.Load.N, clicks+p.Click.N
+		full, navs = full+p.FullLoads.N, navs+p.ClientNavs.N
 	}
-	if loads != out.Types["load"].N || clicks != out.Types["click"].N || loads == 0 {
-		t.Errorf("the parts have %d full loads and %d client navigations, the round %d and %d", loads, clicks, out.Types["load"].N, out.Types["click"].N)
+	if full != out.Types["document"].N || navs != out.Types["click nav"].N || full == 0 || full+navs != out.PageViews {
+		t.Errorf("the parts have %d full loads and %d client navigations, the round %d and %d of %d page views", full, navs, out.Types["document"].N, out.Types["click nav"].N, out.PageViews)
 	}
 	if out.WarmUp == nil || out.WarmUp.VisitsPlanned != 3*sc.blockVisits() {
 		t.Errorf("the warm-up %+v, want as many visits as the round", out.WarmUp)
