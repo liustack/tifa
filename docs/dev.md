@@ -152,6 +152,8 @@ tifa dev: ready at http://127.0.0.1:9527 (pid 41231)
 
 Closing the terminal does not stop it. `--background` is the only switch: Tifa does not look for an agent, and a plain `tifa dev` stays in the foreground.
 
+The skill and the notes that tell an agent about these commands are written by [`tifa agents`](build.md#tifa-agents).
+
 - Every other flag and every environment variable of the command reaches the server as given, `--dir` and `--addr` included.
 - All output of the server goes to `.tifa/dev.log`: the `tifa dev:` lines, the output of the app and Vite's messages. A new `tifa dev --background` starts the file again. `tifa gen` and `tifa build` leave it alone.
 - The command waits up to 5 minutes. It exits with status 1 and says why when the server ended first (with the end of its log), when the first build failed, or when `GET /` answered a 5xx status. After a failed first build the server keeps running and builds again when you save a file, so fix the code, then run `tifa errors` or `tifa dev status`. `tifa dev stop` stops it.

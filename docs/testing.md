@@ -17,6 +17,7 @@ read_when:
   - Upgrading github.com/liustack/slowjs
   - Changing how the server serves HTTPS or gets its certificates
   - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
+  - Changing the skill in `skills/tifa` or the notes template of `tifa new`, or renaming a command, a flag, an exported name or a doc heading that they name
   - Changing the workbench pages of `examples/shop`, which the comparison with Next.js and TanStack Start copies
   - Checking that Tifa, Next.js and TanStack Start show the same pages, or measuring whole page requests against them
 ---
@@ -32,6 +33,8 @@ go test -timeout 20m ./...
 go vet ./...
 CGO_ENABLED=0 go build ./...
 ```
+
+`go test ./cmd/tifa -run TestAgentTexts` checks that every command, flag, `tifa.X`, `c.X`, `tifa/client` name, doc link and anchor and reference file that `skills/tifa` and the notes template of `tifa new` name exists, and fails with the file, the line and what is missing. Fix the text, not the test.
 
 `test/compare` takes about 6 minutes even without `TIFA_COMPARE` (see [the comparison](#check-that-the-pages-are-the-same)) and `internal/bundle` 6 to 9 minutes on CI, which leaves little of the 10 minutes `go test` gives a package by default. Hence `-timeout`, which CI uses too.
 
