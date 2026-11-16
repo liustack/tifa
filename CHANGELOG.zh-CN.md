@@ -6,6 +6,7 @@
 
 ### Changed
 
+- `tifa new` 写出的 `AGENTS.md` 里，Tifa 管理的那一段开头的注释改成了实情：升级 Tifa 时没有任何东西会刷新这一段。[构建](docs/build.zh-CN.md#agentsmd-里-tifa-管理的块)里也这样写。
 - `tifa new` 写出的 `README.md` 说明应用是什么：一个可以运行的起步模板，用你自己的领域替换它，而不是待办事项产品。
 
 ## [0.0.10] - 2026-11-16

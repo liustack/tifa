@@ -238,7 +238,7 @@ The part of `AGENTS.md` that Tifa writes sits between two marker lines:
 ## This app
 ```
 
-Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is Tifa's: the commands, the conventions and where to read more. A later Tifa can replace that part and leave the rest of the file as it is, so the notes about the app itself go outside the markers (`tifa new` starts them with `## This app`). Do not edit between the markers: such edits are lost on a refresh. `tifa new` writes the block and nothing yet refreshes it.
+Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is Tifa's: the commands, the conventions and where to read more. Nothing replaces that part today. `tifa new` writes the block once, no command refreshes it, and after you upgrade Tifa it stays as it was. The markers are there so that a later Tifa can replace only that part and leave the rest of the file as it is. Put the notes about the app itself outside the markers (`tifa new` starts them with `## This app`). To get a newer block now, run `tifa new` in an empty folder and copy what sits between its markers. `go tool tifa docs` always prints the docs of the version the app uses, whatever the block says.
 
 ## Tifa routes
 

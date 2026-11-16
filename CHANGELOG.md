@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- The comment at the top of the Tifa block in the `AGENTS.md` that `tifa new` writes says what is true: nothing refreshes the block when Tifa is upgraded. [Build](docs/build.md#the-managed-block-of-agentsmd) says the same.
 - The `README.md` that `tifa new` writes says what the app is: a working starter to replace with your own domain, not a todo list product.
 
 ## [0.0.10] - 2026-11-16
