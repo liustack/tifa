@@ -346,7 +346,30 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, 
 			name += ".gz"
 		}
 	}
-	http.ServeFileFS(w, r, fsys, name)
+	// http.ServeFileFS also refuses a path with a .. element, which the mux would clean by a redirect.
+	if slices.Contains(strings.FieldsFunc(r.URL.Path, func(c rune) bool { return c == '/' || c == '\\' }), "..") {
+		http.Error(w, "invalid URL path", http.StatusBadRequest)
+		return true
+	}
+	// Not http.ServeFileFS: it answers a path that ends in /index.html with a redirect to the
+	// directory, so a file of that name, such as public/docs/index.html, could not be fetched.
+	f, err := fsys.Open(name)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			writePlainNotFound(w)
+		} else {
+			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		}
+		return true
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	seeker, ok := f.(io.ReadSeeker)
+	if err != nil || !ok {
+		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		return true
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), seeker)
 	return true
 }
 
