@@ -1,5 +1,6 @@
 ---
 summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, the comparison with Next.js and TanStack Start (check and measurement), what CI on GitHub runs and leaves out, and how a test starts a program so that it ends with the test process'
+audience: dev
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug

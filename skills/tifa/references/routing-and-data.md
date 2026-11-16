@@ -29,8 +29,8 @@ package order
 
 import (
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/projects/project+"
-	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
+	"example.com/shop/app/projects/project+"
+	"example.com/shop/app/projects/project+/orders"
 )
 
 func Load(c *tifa.Ctx) (orders.Order, error) {
@@ -303,6 +303,6 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - A call to a handler that signs in or out brings the new session, also for one with no input and no result such as the logout above, and the page and its Layouts load again. A redirect from the handler goes through the router.
 - Writing `Cache-Control` on an answer that carries the session: only `no-store`, or `private, no-cache`. Anything else fails the request.
 - On a page with `Cache`, `tifa.Session` is nil whoever asks, `SetSession` and `ClearSession` fail (sign-in and OAuth callbacks belong on routes without `Cache`), and the HTML carries no session. The browser gets it after the page has loaded: `useSession`, `<SignedIn>` and `<SignedOut>` follow the copy in `localStorage`, and the navigation data of the page carries the session of that browser. Known limits: the render memo keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
-- The shop in `examples/shop` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `SignedIn` and `SignedOut`).
+- `docs/guides/sign-in.md` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `SignedIn` and `SignedOut`).
 
 Full docs (in the folder `go tool tifa docs` prints): Sessions (`docs/sessions.md`).

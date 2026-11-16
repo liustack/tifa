@@ -1,5 +1,6 @@
 ---
 summary: 'What some changes to the server and the SSR bundle cost or gained when they were made: the bounded render queue, replacing VMs in the background, SharedBytecode, kept shapes, lazy Temporal and the ES module bundle'
+audience: dev
 read_when:
   - Changing the render queue, VM replacement, the pool's loading of the bundle, or the bundle format, and wanting the measurement behind the current design
   - Asking why the render queue has two bounds, or why the growth bound of a VM is no longer twice its baseline

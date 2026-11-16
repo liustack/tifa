@@ -7,7 +7,7 @@ This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, load
 
 ## Read the docs of this version first
 
-Run `go tool tifa docs`. It prints the folder with the docs of the tifa version this app uses and one entry for each doc: what it covers and when to read it. Read the docs that apply before you change code. Do not read the docs on GitHub, which are those of the main branch and may differ from this version. The `docs/...` paths in these notes are in that folder.
+Run `go tool tifa docs`. It prints the folder with the docs of the tifa version this app uses and one line for each doc about writing an app. Add `--when` to see when to read each, and `--all` to also list the docs about developing tifa, which an app does not need. Read the docs that apply before you change code. Do not read the docs on GitHub, which are those of the main branch and may differ from this version. The `docs/...` paths in these notes are in that folder.
 
 ## Commands
 
@@ -20,7 +20,7 @@ Run `go tool tifa docs`. It prints the folder with the docs of the tifa version 
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
 | `go tool tifa check` | The one command to run before you finish. It checks the routing conventions, generates `.tifa/`, then runs `go vet ./...`, `go test ./...` and the TypeScript type check with the app's own TypeScript. It stops at the first step that fails and says which |
 | `go tool tifa routes` | List the routes |
-| `go tool tifa docs` | Print the docs of the tifa version this app uses, with when to read each |
+| `go tool tifa docs` | Print the docs of the tifa version this app uses for writing an app (`--when` for when to read each, `--all` for the docs about developing tifa) |
 | `go tool tifa agents` | Write these notes and the tifa skill in `.claude/skills/tifa/` again from the tifa version in `go.mod`. Run it after you upgrade tifa. `--check` changes nothing and exits with 1 when they are out of date |
 
 Never edit `.tifa/`. It is generated, and the Go tools skip it.

@@ -1,5 +1,6 @@
 ---
 summary: 'How sessions work in a Tifa app: signing in and out in Go, the session cookie, the memory store and how to keep sessions in Redis or SQL with a store of your own, where each call may be made, the checks at build time, how the browser shows who is signed in, how to test it, and what each error means'
+audience: app
 read_when:
   - Signing users in and out, or reading who is signed in
   - Keeping sessions in Redis, SQL or a file instead of the memory of the process, or writing a store for tifa.SetSessionStore

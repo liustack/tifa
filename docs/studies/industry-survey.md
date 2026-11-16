@@ -1,5 +1,6 @@
 ---
 summary: 'What other SSR frameworks and React renderers do to go faster, which of those ideas fit Tifa under its rules, what each might give, and what became of them'
+audience: dev
 read_when:
   - Planning the next round of work on render speed and looking for ideas from elsewhere
   - Someone proposes another React renderer or a build-time rewrite of React

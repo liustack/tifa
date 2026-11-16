@@ -1,5 +1,6 @@
 ---
 summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints, what `tifa agents` writes (the skill and the managed block of AGENTS.md) and how it keeps them current, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, why the front end builds with Vite, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
+audience: app
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Changing `tifa check`, or finding out which steps it runs and what it needs
@@ -210,10 +211,10 @@ pnpm and npm run the `prepare` script of the project after `pnpm install` and `n
 ## Tifa docs
 
 ```sh
-tifa docs [--dir app-root]
+tifa docs [--dir app-root] [--all] [--when]
 ```
 
-Prints where the docs of the Tifa version the app uses are, then an index of them. The `AGENTS.md` that `tifa new` writes tells a coding agent to run it first, so the agent reads the docs of the version the app builds with, not those of the main branch on GitHub.
+Prints where the docs of the Tifa version the app uses are, then an index of them. By default it lists the docs for writing an app, one line each, the path and the first clause of the summary, about 2 KB in all. `--when` adds the `read_when` lines, and `--all` also lists the docs about developing Tifa itself (releasing, commits, testing, how Tifa works inside, the studies) under their own heading. The `AGENTS.md` that `tifa new` writes tells a coding agent to run it first, so the agent reads the docs of the version the app builds with, not those of the main branch on GitHub.
 
 Tifa asks the go command (`go list -m -json github.com/liustack/tifa`) in the app root, so the folder is the one `go.mod` resolves: the module cache for a released version, and the folder of a `replace` directive. A module that is not downloaded yet fails with `go mod download github.com/liustack/tifa` as the step to run.
 
@@ -222,12 +223,11 @@ github.com/liustack/tifa v0.0.0 (replaced by ../..)
 Docs: /home/me/tifa/docs
 The paths below are relative to /home/me/tifa.
 
-docs/app.md - How to write a tifa app: folder layout, how folders become URLs, ...
-  Read when: Creating a tifa app, or adding pages, Layouts or API routes to one | ...
-docs/build.md - ...
+docs/app.md - How to write a Tifa app
+docs/build.md - How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes
 ```
 
-The index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. The Chinese versions (`*.zh-CN.md`), `docs/archive/` and `docs/research/` are left out, and a doc without a summary is left out with a warning on stderr.
+With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps.| `. Docs are sorted by path. The Chinese versions (`*.zh-CN.md`), `docs/archive/` and `docs/research/` are left out, and a doc without a summary is left out with a warning on stderr.
 
 ## `tifa agents`
 

@@ -1,5 +1,6 @@
 ---
 summary: 'Which codecs and levels Tifa compresses answers with and why: gzip, zstd and brotli measured on the pages, navigation data and bundle files, what each costs per request, and why cached pages keep the gzip form alone'
+audience: dev
 read_when:
   - Changing a codec, a level or where answers are compressed
   - Someone proposes brotli, zstd files from the build, or turning compression off by default

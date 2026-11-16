@@ -1,5 +1,6 @@
 ---
 summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, and how to see it work'
+audience: app
 read_when:
   - Wondering why it is called a memo and not a cache, or whether it can show an old page
   - Wondering whether a memoized page could show one visitor's data to another, or reach a CDN

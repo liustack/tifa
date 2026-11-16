@@ -1,5 +1,6 @@
 ---
 summary: 'How to sign users in and out in a Tifa app with Tifa sessions: a sign-in form, keeping and checking passwords with argon2id, SetSession, reading the user in Load and handlers, a guard that sends a signed-out visitor to the sign-in page and back with c.Path(), guarding pages, signing out, showing who is signed in in the browser, and one way to slow down password guessing'
+audience: app
 read_when:
   - Adding sign-in and sign-out to an app, or putting some pages behind a login
   - Choosing how to store and check passwords

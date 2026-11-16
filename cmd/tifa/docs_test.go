@@ -14,14 +14,14 @@ func fakeTifa(t *testing.T) string {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module github.com/liustack/tifa\n\ngo 1.27.0\n")
 	docs := filepath.Join(dir, "docs")
-	writeFile(t, filepath.Join(docs, "app.md"), "---\nsummary: 'Writing an app'\nread_when:\n  - Writing a page\n  - \"Adding a route\"\n---\n\n# App\n")
+	writeFile(t, filepath.Join(docs, "app.md"), "---\nsummary: 'Writing an app: layout, routes and pages'\naudience: app\nread_when:\n  - Writing a page\n  - \"Adding a route\"\n---\n\n# App\n")
 	writeFile(t, filepath.Join(docs, "app.zh-CN.md"), "---\nsummary: 'Chinese version'\nread_when: [x]\n---\n")
-	writeFile(t, filepath.Join(docs, "config.md"), "---\nsummary: Settings\nread_when: [Changing a setting, 'Reading tifa.yaml']\nsomething_else: 1\n---\n")
+	writeFile(t, filepath.Join(docs, "config.md"), "---\nsummary: Settings\naudience: app\nread_when: [Changing a setting, 'Reading tifa.yaml']\nsomething_else: 1\n---\n")
 	writeFile(t, filepath.Join(docs, "no-front-matter.md"), "# Nothing\n")
 	writeFile(t, filepath.Join(docs, "archive", "old.md"), "---\nsummary: Old\n---\n")
 	writeFile(t, filepath.Join(docs, "research", "idea.md"), "---\nsummary: Idea\n---\n")
-	writeFile(t, filepath.Join(docs, "studies", "speed.md"), "---\nsummary: 'How fast it is'\n---\n")
-	writeFile(t, filepath.Join(docs, "studies-2.md"), "---\nsummary: Sorted by path\nread_when:\n  - Checking the order\nother:\n  - not a read_when item\n---\n")
+	writeFile(t, filepath.Join(docs, "studies", "speed.md"), "---\nsummary: 'How fast it is'\naudience: dev\n---\n")
+	writeFile(t, filepath.Join(docs, "studies-2.md"), "---\nsummary: Sorted by path\naudience: dev\nread_when:\n  - Checking the order\nother:\n  - not a read_when item\n---\n")
 	return dir
 }
 
@@ -38,7 +38,7 @@ func TestDocsIndexListsSummaryAndWhenToRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `docs/app.md - Writing an app
+	want := `docs/app.md - Writing an app: layout, routes and pages
   Read when: Writing a page | Adding a route
 docs/config.md - Settings
   Read when: Changing a setting | Reading tifa.yaml
@@ -94,14 +94,16 @@ func TestDocsPrintsTheDocsOfTheModuleTheAppUses(t *testing.T) {
 	for _, want := range []string{
 		"github.com/liustack/tifa v0.0.0",
 		"Docs: " + filepath.Join(tifaDir, "docs"),
-		"docs/app.md - Writing an app\n  Read when: Writing a page | Adding a route\n",
-		"docs/studies/speed.md - How fast it is\n",
+		"docs/app.md - Writing an app\n",
+		"docs/config.md - Settings\n",
+		"2 more docs are about developing tifa itself: run `go tool tifa docs --all`",
+		"`go tool tifa docs --when`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the output has no %q:\n%s", want, out)
 		}
 	}
-	for _, not := range []string{"Chinese version", "Old", "Idea", "no-front-matter"} {
+	for _, not := range []string{"Read when", "Sorted by path", "How fast it is", "Chinese version", "Old", "Idea", "no-front-matter"} {
 		if strings.Contains(out, not) {
 			t.Errorf("the output has %q:\n%s", not, out)
 		}
@@ -124,5 +126,72 @@ func TestModuleWithoutDownloadedFilesSaysWhatToRun(t *testing.T) {
 	_, err := parseModule([]byte(`{"Path": "github.com/liustack/tifa", "Version": "v1.2.3"}`))
 	if err == nil || !strings.Contains(err.Error(), "go mod download github.com/liustack/tifa") {
 		t.Errorf("a module with no Dir: %v", err)
+	}
+}
+
+func TestDocsAllAndWhenListEverythingWithTheReadWhenLines(t *testing.T) {
+	app := fakeApp(t, fakeTifa(t))
+	out, stderr, err := run(t, "docs", "--dir", app, "--all", "--when")
+	if err != nil {
+		t.Fatalf("docs --all --when: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{
+		"For writing an app:\n",
+		"docs/app.md - Writing an app\n  Read when: Writing a page | Adding a route\n",
+		"For developing tifa itself:\n",
+		"docs/studies/speed.md - How fast it is\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the output has no %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "--all") {
+		t.Errorf("the output points at --all although it lists everything:\n%s", out)
+	}
+}
+
+// A tifa from before the audience field has no doc that says who it is for, and every doc is listed.
+func TestDocsListsEveryDocWhenNoDocHasAnAudience(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module github.com/liustack/tifa\n\ngo 1.27.0\n")
+	writeFile(t, filepath.Join(dir, "docs", "a.md"), "---\nsummary: First\n---\n")
+	writeFile(t, filepath.Join(dir, "docs", "b.md"), "---\nsummary: Second\n---\n")
+	out, stderr, err := run(t, "docs", "--dir", fakeApp(t, dir))
+	if err != nil {
+		t.Fatalf("docs: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(out, "docs/a.md - First\n") || !strings.Contains(out, "docs/b.md - Second\n") || strings.Contains(out, "developing tifa") {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestFirstSentence(t *testing.T) {
+	long := "How tifa new starts an app, what tifa build does, what tifa check runs, what tifa gen writes, what Tifa docs prints, and more"
+	for in, want := range map[string]string{
+		"How to write a Tifa app: folder layout, routes": "How to write a Tifa app",
+		"Settings": "Settings",
+		long:       "How tifa new starts an app, what tifa build does, what tifa check runs, what tifa gen writes",
+	} {
+		if got := firstSentence(in); got != want {
+			t.Errorf("firstSentence(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Every doc of this repository is for app authors or for people who develop Tifa, so tifa docs
+// lists it in one of the two groups. A new doc without an audience fails here and in
+// scripts/docs-list.sh --check.
+func TestEveryDocHasAnAudience(t *testing.T) {
+	docs, warnings, err := readDocs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings %q", warnings)
+	}
+	for _, d := range docs {
+		if d.audience != audienceApp && d.audience != audienceDev {
+			t.Errorf("%s has audience %q, want %q or %q", d.path, d.audience, audienceApp, audienceDev)
+		}
 	}
 }

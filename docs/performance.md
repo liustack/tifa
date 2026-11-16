@@ -1,5 +1,6 @@
 ---
 summary: 'How fast Tifa renders pages against C QuickJS and Node, how whole visits of the shop compare with Next.js and TanStack Start, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compression costs and how to measure again'
+audience: app
 read_when:
   - Deciding how many CPUs and how much memory a Tifa app needs, or setting `ssr.vms`
   - Requests arrive faster than pages render, or you need to size the render queue

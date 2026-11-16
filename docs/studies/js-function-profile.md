@@ -1,5 +1,6 @@
 ---
 summary: 'How to find which JavaScript functions are slow in QuickJS by timing each function and comparing it with Node --jitless, what the two profiles of the shop found, and which rewrites came out of them'
+audience: dev
 read_when:
   - Looking for the next rewrite of React, React DOM or a library in the Vite plugin
   - Profiling a render by JavaScript function rather than by Go function

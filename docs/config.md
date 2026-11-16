@@ -1,5 +1,6 @@
 ---
 summary: 'Every setting of a Tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+audience: app
 read_when:
   - Defining an option of the app with tifa.String and the like, or reading one in OnStart
   - The browser needs a value that is known only when the program runs, such as a public key or an API base URL, and `import.meta.env.VITE_*` is fixed at build

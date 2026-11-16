@@ -1,5 +1,6 @@
 ---
 summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, rejecting a duplicate row, a backup, testing on a temporary database, and when to move to Postgres'
+audience: app
 read_when:
   - Adding a database to a Tifa app, or growing the one `tifa new` wrote
   - Changing a table of an app that is already running
