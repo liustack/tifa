@@ -87,16 +87,18 @@ Real browsers were recorded visiting the shop against each framework, and the re
 
 Throughput, 8 concurrent sessions with no think time, the server's core used up, the median of 3 rounds:
 
-| | Page views/s | CPU per page view | Bytes per page view | Peak RSS |
-| --- | --: | --: | --: | --: |
-| Tifa | 97.0 | 10.3 ms | 12 KB | 256 MiB |
-| Next.js | 29.5 | 33.9 ms | 15 KB | 609 MiB |
-| TanStack Start | 76.5 | 13.1 ms | 178 KB, not compressed | 442 MiB |
-| For reference: Tifa with the render memo off | 64.7 | 15.5 ms | 12 KB | 111 MiB |
-| For reference: TanStack Start with gzip | 57.9 | 17.3 ms | 29 KB | 497 MiB |
-| For reference: Next.js with prefetch off | 56.4 | 17.7 ms | 13 KB | 618 MiB |
+| | Page views/s | Full loads/s | Client navigations/s | CPU per page view | Bytes per page view | Peak RSS |
+| --- | --: | --: | --: | --: | --: | --: |
+| Tifa | 97.0 | 24.3 | 72.8 | 10.3 ms | 12 KB | 256 MiB |
+| Next.js | 29.5 | 7.4 | 22.1 | 33.9 ms | 15 KB | 609 MiB |
+| TanStack Start | 76.5 | 19.1 | 57.3 | 13.1 ms | 178 KB, not compressed | 442 MiB |
+| For reference: Tifa with the render memo off | 64.7 | 16.2 | 48.5 | 15.5 ms | 12 KB | 111 MiB |
+| For reference: TanStack Start with gzip | 57.9 | 14.5 | 43.4 | 17.3 ms | 29 KB | 497 MiB |
+| For reference: Next.js with prefetch off | 56.4 | 14.1 | 42.3 | 17.7 ms | 13 KB | 618 MiB |
 
 The three rounds of the main rows: Tifa 100.9, 95.3 and 97.0, Next.js 29.5, 30.0 and 27.6, TanStack Start 81.9, 76.3 and 76.5.
+
+Every server plays the same visits, one full load and three client navigations each on average, so a quarter of the page views of every row are full loads.
 
 Latency at 3 visits a second, half of the 6 that Next.js sustains, P50 / P99 of one round of 2,040 visits:
 
