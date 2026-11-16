@@ -1,5 +1,5 @@
 ---
-summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, a backup, testing on a temporary database, and when to move to Postgres'
+summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, rejecting a duplicate row, a backup, testing on a temporary database, and when to move to Postgres'
 read_when:
   - Adding a database to a Tifa app, or growing the one `tifa new` wrote
   - Changing a table of an app that is already running
@@ -248,6 +248,25 @@ return t, tx.Commit()
 ```
 
 Keep a transaction short. SQLite lets one writer in at a time, and the others wait up to `busy_timeout`. Do not call another service, or wait on a visitor, while one is open.
+
+### Reject a duplicate
+
+Say two visitors must not book the same slot, and the table has `UNIQUE (doctor_slug, slot)`. Let the database decide in one statement. `ON CONFLICT ... DO NOTHING` inserts no row when the slot is taken, so `RETURNING` returns no row, and `Scan` returns `sql.ErrNoRows`. Read that as "taken". It is atomic, so two requests at once cannot both win:
+
+```go
+var id int64
+err := notes.DB.QueryRowContext(ctx,
+	`INSERT INTO bookings (doctor_slug, slot, name) VALUES (?, ?, ?)
+	 ON CONFLICT (doctor_slug, slot) DO NOTHING RETURNING id`, doctor, slot, name).Scan(&id)
+if errors.Is(err, sql.ErrNoRows) {
+	return tifa.Fields{"slot": "That slot is taken."} // a 422 with a message for the form
+}
+if err != nil {
+	return err
+}
+```
+
+The driver exports no error type, so there is nothing for `errors.As` to find, unlike `modernc.org/sqlite`. A failed constraint comes back as an error whose text is the message and the extended result code, such as `sqlite: UNIQUE constraint failed: bookings.slot (2067)`. Where `ON CONFLICT` does not fit, for example an `UPDATE`, match on that text with `strings.Contains(err.Error(), "UNIQUE constraint failed")`.
 
 ## Back it up
 
