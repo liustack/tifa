@@ -287,15 +287,20 @@ import (
 func RequireUser(c *tifa.Ctx) (*Session, error) {
 	s := tifa.Session[Session](c)
 	if s == nil {
-		return nil, tifa.Redirect("/login?next="+url.QueryEscape(c.Path()), 302)
+		return nil, SignInRedirect(c.Path())
 	}
 	return s, nil
+}
+
+// SignInRedirect 把访客送到登录页，登录页之后再把他们送到 next。
+func SignInRedirect(next string) error {
+	return tifa.Redirect("/login?next="+url.QueryEscape(next), 302)
 }
 ```
 
 `c.Path()` 是访客在地址栏里看到的页面路径：带语言前缀，不带查询。整页加载和点链接取数据时它都一样，在方法函数里它是这个方法函数的路径。这里不用 `c.Request()`：`Load` 不能调用它，而且点链接时的请求是数据请求，不是页面本身。`RequireUser` 在 `OnRequest`、`Load` 和它们调用的函数里都能用。
 
-`next` 里没有查询。把状态放在查询参数里的页面，在自己的 `Load` 里补回去，比如 `"/login?next="+url.QueryEscape(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`。许多页面共用的守卫做不到这一点，因为 `Load` 只能读它写明名字的查询参数（见 [Load 里 Ctx 的用法](../app.zh-CN.md#load-里-ctx-的用法)）。
+`RequireUser` 做出的 `next` 里没有查询。把状态放在查询参数里的页面，在自己的 `Load` 里补回去，比如 `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`。许多页面共用的守卫做不到这一点，因为 `Load` 只能读它写明名字的查询参数（见 [Load 里 Ctx 的用法](../app.zh-CN.md#load-里-ctx-的用法)）。`OnRequest` 不一样：钩子可以读请求，所以下面的守卫保留整个查询。服务器在运行 `OnRequest` 之前就把数据请求的参数 `_tifa` 从 URL 上拿掉了，所以 `c.Request().URL.RawQuery` 是访客写的查询，页面加载和点链接都一样。
 
 ## 钩子
 
@@ -330,10 +335,11 @@ func OnStart(context.Context) error {
 // OnRequest 不让没登录的访客进入 /account，把他们送到登录页，登录后再送回来。
 // 页面加载和点链接时的数据请求都会经过它。
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	if path := c.Path(); path == "/account" || strings.HasPrefix(path, "/account/") {
-		if _, err := RequireUser(c); err != nil {
-			return err
+	if path := c.Path(); (path == "/account" || strings.HasPrefix(path, "/account/")) && tifa.Session[Session](c) == nil {
+		if query := c.Request().URL.RawQuery; query != "" {
+			path += "?" + query
 		}
+		return SignInRedirect(path)
 	}
 	return next(c)
 }
@@ -612,15 +618,7 @@ func POST(c *tifa.Ctx) error {
 
 `ClearSession` 在服务器上删掉记录，并丢掉 cookie，所以就算有人留了一份旧 cookie，它也没用了。没有人登录时它什么也不做。登出要用 POST，不要用 GET，否则别的网站上的一个链接或一张图片就能做到（见[和登录库的分工](../sessions.zh-CN.md#和登录库的分工)）。
 
-页面需要知道会话已经结束：浏览器里那份会话的副本决定了 `SignedIn`、`SignedOut` 和 `useSession` 显示什么。从浏览器发起的调用，只有在方法函数返回重定向、或者有入参或结果类型时，回答里才带着新的会话。上面的方法函数返回的是重定向，所以两样都不需要。以 `return nil` 结尾的登出就必须选其中一样，哪怕是空的入参，否则页头会一直写着「Hello, Ada」，直到别的请求把会话取回来：
-
-```go
-type SignOutInput struct{}
-
-func POST(c *tifa.Ctx, _ SignOutInput) error { return tifa.ClearSession(c) }
-```
-
-生成的函数这时要传入参：`signOut({ input: {} })`。自己用 `c.JSON` 或 `c.Text` 写响应的方法函数完全带不了会话（见[浏览器这一侧](../sessions.zh-CN.md#在浏览器里)）。
+页面需要知道会话已经结束：浏览器里那份会话的副本决定了 `SignedIn`、`SignedOut` 和 `useSession` 显示什么。Tifa 把新的会话放进这次调用的回答里，所以页头马上跟着变。方法函数返回重定向（像上面那样）可以，以 `return tifa.ClearSession(c)` 结尾、没有入参也没有结果的也可以。只有自己用 `c.JSON` 或 `c.Text` 写响应的方法函数带不了（见[浏览器这一侧](../sessions.zh-CN.md#在浏览器里)）。
 
 ## 浏览器这一侧
 
@@ -776,6 +774,9 @@ func TestSignInAndOut(t *testing.T) {
 	}
 
 	expect(get("/account"), 302, "/login?next=%2Faccount")
+	// 查询也会带回来，请求是数据请求时也一样（`_tifa` 不在里面）。
+	expect(get("/account?tab=a"), 302, "/login?next=%2Faccount%3Ftab%3Da")
+	expect(get("/account?tab=a&_tifa=b.01"), 302, "/login?next=%2Faccount%3Ftab%3Da")
 	expect(post("/login", `{"email":"`+signin.DemoEmail+`","password":"`+signin.DemoPassword+`","next":"/account"}`), 303, "/account")
 	expect(get("/account"), 200, "")
 	expect(post("/logout", ""), 303, "/login")

@@ -287,15 +287,20 @@ import (
 func RequireUser(c *tifa.Ctx) (*Session, error) {
 	s := tifa.Session[Session](c)
 	if s == nil {
-		return nil, tifa.Redirect("/login?next="+url.QueryEscape(c.Path()), 302)
+		return nil, SignInRedirect(c.Path())
 	}
 	return s, nil
+}
+
+// SignInRedirect sends the visitor to the sign-in page, which sends them on to next afterwards.
+func SignInRedirect(next string) error {
+	return tifa.Redirect("/login?next="+url.QueryEscape(next), 302)
 }
 ```
 
 `c.Path()` is the path of the page as the visitor sees it in the address bar: the language prefix is in it, and the query is not. It is the same when the page is loaded whole and when a link click asks for its data, and for a handler it is the path of the handler. `c.Request()` is not for this: `Load` may not call it, and on a link click the request is a data request, not the page. `RequireUser` works in `OnRequest`, in a `Load` and in the functions they call.
 
-The query is left out of `next`. A page that keeps its state in query parameters puts them back in its own `Load`, such as `"/login?next="+url.QueryEscape(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../app.md#how-load-may-use-ctx)).
+The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../app.md#how-load-may-use-ctx)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
 
 ## The hooks
 
@@ -331,10 +336,11 @@ func OnStart(context.Context) error {
 // page, which sends them back afterwards. It runs for page loads and for the data requests of
 // link clicks alike.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	if path := c.Path(); path == "/account" || strings.HasPrefix(path, "/account/") {
-		if _, err := RequireUser(c); err != nil {
-			return err
+	if path := c.Path(); (path == "/account" || strings.HasPrefix(path, "/account/")) && tifa.Session[Session](c) == nil {
+		if query := c.Request().URL.RawQuery; query != "" {
+			path += "?" + query
 		}
+		return SignInRedirect(path)
 	}
 	return next(c)
 }
@@ -619,15 +625,7 @@ func POST(c *tifa.Ctx) error {
 
 `ClearSession` deletes the record on the server and drops the cookie, so the old cookie is of no use even if someone kept a copy. It does nothing when nobody is signed in. Sign out with a POST and never a GET: a link or an image on another site would otherwise do it (see [Sign-in libraries](../sessions.md#sign-in-libraries)).
 
-The page needs to hear that the session ended: the copy of it in the browser drives `SignedIn`, `SignedOut` and `useSession`. A call from the browser gets the new session in its answer only when the handler returns a redirect, or has an input or a result type. The handler above returns a redirect, so it needs neither. A sign-out that ends with `return nil` has to take one of them, even an empty input, or the header keeps saying "Hello, Ada" until something else loads the session:
-
-```go
-type SignOutInput struct{}
-
-func POST(c *tifa.Ctx, _ SignOutInput) error { return tifa.ClearSession(c) }
-```
-
-The generated function then takes the input: `signOut({ input: {} })`. A handler that writes its own response with `c.JSON` or `c.Text` cannot carry the session at all (see [the browser side](../sessions.md#in-the-browser)).
+The page needs to hear that the session ended: the copy of it in the browser drives `SignedIn`, `SignedOut` and `useSession`. Tifa puts the new session in the answer of the call, so the header follows at once. This holds for a handler that redirects, as above, and for one that ends with `return tifa.ClearSession(c)` and has no input and no result. Only a handler that writes its own response with `c.JSON` or `c.Text` cannot carry it (see [the browser side](../sessions.md#in-the-browser)).
 
 ## The browser side
 
@@ -784,6 +782,9 @@ func TestSignInAndOut(t *testing.T) {
 	}
 
 	expect(get("/account"), 302, "/login?next=%2Faccount")
+	// The query comes back too, also when the request is a data request (`_tifa` is not in it).
+	expect(get("/account?tab=a"), 302, "/login?next=%2Faccount%3Ftab%3Da")
+	expect(get("/account?tab=a&_tifa=b.01"), 302, "/login?next=%2Faccount%3Ftab%3Da")
 	expect(post("/login", `{"email":"`+signin.DemoEmail+`","password":"`+signin.DemoPassword+`","next":"/account"}`), 303, "/account")
 	expect(get("/account"), 200, "")
 	expect(post("/logout", ""), 303, "/login")
