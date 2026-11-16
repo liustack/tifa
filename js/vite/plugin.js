@@ -24,6 +24,23 @@ const reactModule = /[/\\]react[/\\]cjs[/\\]react\.production\.js$/
 const reactJsxRuntime = /[/\\]react[/\\]cjs[/\\]react-jsx-runtime\.production\.js$/
 // The hash of @emotion/hash 0.9, which emotion takes of every style it serializes, and the
 // dist files that have it. internal/ssr gives the VMs the same hash of the engine as __tifa_murmur2__.
+// getRegisteredStyles of @emotion/utils, which emotion and styled call with the class names of each
+// component (so every MUI component does), splits the names at each space and walks the pieces with a
+// function made for each call, see registeredStylesFast. registeredStylesFunction is its text in
+// @emotion/utils 1.4, the same in all of its dist files, and registeredStylesModule the files.
+const registeredStylesModule = /[/\\]@emotion[/\\]utils[/\\]dist[/\\]emotion-utils\.(?:esm|cjs|browser\.esm|browser\.cjs|edge-light\.esm|edge-light\.cjs)\.js$/
+const registeredStylesFunction = `function getRegisteredStyles(registered, registeredStyles, classNames) {
+  var rawClassName = '';
+  classNames.split(' ').forEach(function (className) {
+    if (registered[className] !== undefined) {
+      registeredStyles.push(registered[className] + ";");
+    } else if (className) {
+      rawClassName += className + " ";
+    }
+  });
+  return rawClassName;
+}
+`
 const emotionHash = /[/\\]@emotion[/\\]hash[/\\]dist[/\\]emotion-hash\.(?:esm|cjs\.prod|cjs\.dev)\.js$/
 const murmur2Source = `function murmur2(str) {
   // 'm' and 'r' are mixing constants generated offline.
@@ -2258,6 +2275,19 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         return cached ?? faster
       }
+      if (registeredStylesModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const faster = registeredStylesFast(source)
+        if (!faster) {
+          this.warn(
+            notRecognized +
+            `@emotion/utils ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no getRegisteredStyles the tifa plugin knows, so ` +
+              'emotion splits the class names of each component into an array and walks it with a function. Pages ' +
+              'render the same, but take longer to render',
+          )
+        }
+        return faster ?? null
+      }
       if (emotionHash.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         if (source.split(murmur2Source).length !== 2) {
@@ -3507,6 +3537,36 @@ function radixMergeProps(source) {
       () => '      overrideProps[propName] = slotPropValue ? (childPropValue ? `${slotPropValue} ${childPropValue}` : `${slotPropValue}`) : childPropValue ? `${childPropValue}` : "";\n',
     )
   return source.replace(known, () => merged)
+}
+
+// registeredStylesFast returns the source of @emotion/utils with getRegisteredStyles walking the class
+// names with indexOf and slice, without the array split makes or the function forEach is given for each
+// call, or undefined when the source does not have the function it knows. The pieces are the ones split
+// makes, in the same order, empty ones between two spaces and at the ends included: each is looked up
+// in registered (twice for a registered one, as before) and pushed with its ";", or added to the
+// returned names with a space when it is not empty and not registered. Its callers pass a string,
+// they check typeof className === 'string' first. The function stays on its lines.
+function registeredStylesFast(source) {
+  if (source.split(registeredStylesFunction).length !== 2) return undefined
+  return source.replace(
+    registeredStylesFunction,
+    () => `function getRegisteredStyles(registered, registeredStyles, classNames) {
+  var rawClassName = '';
+  var start = 0, end, className;
+  do {
+    end = classNames.indexOf(' ', start);
+    className = end === -1 ? classNames.slice(start) : classNames.slice(start, end);
+    if (registered[className] !== undefined) {
+      registeredStyles.push(registered[className] + ";");
+    } else if (className) {
+      rawClassName += className + " ";
+    }
+    start = end + 1;
+  } while (end !== -1);
+  return rawClassName;
+}
+`,
+  )
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call

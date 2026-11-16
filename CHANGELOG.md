@@ -10,6 +10,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `tifa errors` now also lists the warnings of the last build, after the errors, and `--json` has a `warnings` list: the warnings of the analysis (such as a number above 2^53 going into a field that pages read), of the check for code of other frameworks and of the content. Before, they only scrolled by in the output of `tifa dev`, which an agent that started `tifa dev --background` never sees. They are not errors: the exit status stays 0 when there are only warnings. See [`tifa errors`](docs/dev.md#tifa-errors).
 - [Coming from another framework](docs/app.md#coming-from-another-framework) says what to use instead of static generation and prerender (the render memo and `const Cache`), `next/image` and `next/font` (a plain `<img>`, `public/`, `@font-face`) and `loading.tsx` (Suspense, or fetch from the browser). `tifa check` now reports `next/image` and `next/font` with that advice, and the messages for `getStaticProps`, `getStaticPaths`, `generateStaticParams`, `revalidate` and `loading.tsx` point to the new sections.
 
+### Changed
+
+- Server renders of pages with emotion styles do less work for each component. `getRegisteredStyles` of `@emotion/utils`, which every MUI component calls, walks its class names without making an array and a function. The HTML is the same. Counted with callgrind, the three pages of the MUI test app run 1.0% fewer instructions.
+
 ### Fixed
 
 - `go tool tifa agents` no longer rewrites an `AGENTS.md` with CRLF line ends on every run. It compares the block as if the file had LF line ends, and writes a refreshed or appended block with the line ends of the file. `--check` now passes on such a file.
