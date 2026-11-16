@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +20,14 @@ const leakSource = `globalThis.held = []; globalThis.startRender = (json) => {
  for (let i=0; i<count; i++) held.push({i, text: 'retained'});
  globalThis.renderResult = '<p>ok</p>';
 }`
+
+// sizeRule makes the pool replace a VM once a full GC finds it past twice its baseline, for the tests
+// of how the pool replaces a VM, which grow it once by far less than the limit.
+func sizeRule(t *testing.T) {
+	// A cleanup, not a defer: it runs after the cleanup that closes a pool made later, whose
+	// goroutines read the bound until then.
+	t.Cleanup(swap(&growthBound, func(vm *pooledVM, memory uintptr) uintptr { return min(2*vm.baseline, vm.hardBound(memory)) }))
+}
 
 func awaitSwap(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
@@ -36,6 +46,7 @@ func leakRender(t *testing.T, p *Pool) {
 }
 
 func TestMemorySwapLoadsBeforeRetiring(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	started, finish := make(chan struct{}), make(chan struct{})
 	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
@@ -59,6 +70,7 @@ func TestMemorySwapLoadsBeforeRetiring(t *testing.T) {
 }
 
 func TestMemorySwapWaitsForRenderAndQueue(t *testing.T) {
+	sizeRule(t)
 	for _, queued := range []bool{false, true} {
 		t.Run(fmt.Sprint(queued), func(t *testing.T) {
 			p := newTestPool(t, leakSource, testConfig(1))
@@ -129,6 +141,7 @@ func waitReplacements(t *testing.T, p *Pool, n int) {
 }
 
 func TestMemorySwapDoesNotLoadWhileRequestsWait(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	collecting, finishGC := make(chan struct{}), make(chan struct{})
 	var first sync.Once
@@ -184,6 +197,7 @@ func TestMemorySwapDoesNotLoadWhileRequestsWait(t *testing.T) {
 }
 
 func TestMemorySwapCloseWaitsForLoad(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	started, finish := make(chan struct{}), make(chan struct{})
 	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) { close(started); <-finish; return openVM(p) })()
@@ -207,6 +221,7 @@ func TestMemorySwapCloseWaitsForLoad(t *testing.T) {
 }
 
 func TestMemorySwapFailedLoadBacksOffAndLogsOnce(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	defer swap(&retryDelay, 20*time.Millisecond)()
 	var calls atomic.Int32
@@ -253,6 +268,7 @@ func TestMemorySwapFailedLoadBacksOffAndLogsOnce(t *testing.T) {
 // A Go panic while the spare loads is retried as a load error is, on the goroutine of the
 // replacement, and the process goes on.
 func TestMemorySwapPanicInLoadIsRetried(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	defer swap(&retryDelay, time.Millisecond)()
 	messages := make(chan string, 8)
@@ -281,6 +297,7 @@ func TestMemorySwapPanicInLoadIsRetried(t *testing.T) {
 }
 
 func TestMemorySwapManyVMsLoadOneAtATime(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(3))
 	entered := make(chan struct{}, 3)
 	release := make(chan struct{})
@@ -319,15 +336,16 @@ func TestMemorySwapManyVMsLoadOneAtATime(t *testing.T) {
 }
 
 func TestMemorySwapBound(t *testing.T) {
-	for _, tc := range []struct{ baseline, memory, want uintptr }{{100, 1000, 200}, {100, 240, 180}, {100, 200, 175}, {100, 120, 175}} {
+	for _, tc := range []struct{ baseline, memory, want uintptr }{{100, 1000, 750}, {100, 240, 180}, {100, 200, 175}, {100, 120, 175}} {
 		vm := pooledVM{baseline: tc.baseline}
-		if got := vm.memoryBound(tc.memory); got != tc.want {
+		if got := vm.hardBound(tc.memory); got != tc.want {
 			t.Errorf("%+v: bound %d", tc, got)
 		}
 	}
 }
 
 func TestMemorySwapCloseStopsBackoff(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	defer swap(&retryDelay, time.Hour)()
 	failed := make(chan struct{})
@@ -343,6 +361,7 @@ func TestMemorySwapCloseStopsBackoff(t *testing.T) {
 }
 
 func TestMemorySwapDiscardsSpareAfterRenderFailure(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	started, finish := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
@@ -378,6 +397,7 @@ func TestMemorySwapDiscardsSpareAfterRenderFailure(t *testing.T) {
 // A queued request can be registered before its select receives an already
 // returned VM. Even a ready spare must yield to it in that window.
 func TestMemorySwapDefersExchangeForQueuedRequest(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	started, finish, loaded := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
@@ -412,6 +432,7 @@ func TestMemorySwapDefersExchangeForQueuedRequest(t *testing.T) {
 
 // Small successful renders can accumulate a leak over several collections.
 func TestMemorySwapAccumulatedLeak(t *testing.T) {
+	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	started := make(chan struct{}, 1)
 	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) { started <- struct{}{}; return openVM(p) })()
@@ -436,6 +457,7 @@ func TestMemorySwapAccumulatedLeak(t *testing.T) {
 
 // Proactive swaps must close every retired VM.
 func TestSoakMemorySwap(t *testing.T) {
+	sizeRule(t)
 	skipUnlessSoak(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	for cycle := range 16 {
@@ -469,4 +491,116 @@ func TestPutIdleDoesNotReadVMAfterSend(t *testing.T) {
 		<-back
 	}
 	p.putIdle(vm)
+}
+
+// warmSource keeps 16 KB for each of 150 pages the first time it renders it, as a cache of an app
+// keyed by page does, and keeps 16 KB more on every render of /leak, as a leak does.
+const warmSource = `globalThis.kept = new Map(); globalThis.held = []; globalThis.startRender = (json) => {
+ const url = JSON.parse(json).url;
+ const page = /^\/page\/(\d+)$/.exec(url);
+ if (page && !kept.has(page[1])) kept.set(page[1], new Array(1024).fill(+page[1]));
+ if (url === '/leak') held.push(new Array(1024).fill(held.length));
+ globalThis.renderResult = '<p>ok</p>';
+}`
+
+// A VM that grows while it renders new pages and then stays keeps serving, though it ends above
+// twice its baseline: a VM loaded in its place would grow the same way and be replaced again.
+func TestMemorySwapKeepsAVMThatStopsGrowing(t *testing.T) {
+	p := newTestPool(t, warmSource, testConfig(1))
+	for range 5 {
+		for page := range 150 {
+			if _, err := p.Render(context.Background(), Input{URL: fmt.Sprintf("/page/%d", page)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	vm := <-p.idle
+	live, bound := vm.live, 2*vm.baseline
+	p.idle <- vm
+	if live <= bound {
+		t.Fatalf("live size %d not above the bound %d: the test does not test anything", live, bound)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if s := p.stats(); s.replaced != 0 || s.created != 1 {
+		t.Fatalf("a VM that stopped growing was replaced: %+v", s)
+	}
+}
+
+// A VM that keeps growing render after render is replaced before a render runs out of memory,
+// once it leaves less than a quarter of the limit.
+func TestMemorySwapReplacesAVMThatKeepsGrowing(t *testing.T) {
+	p := newTestPool(t, warmSource, testConfig(1))
+	for i := range 1000 {
+		if _, err := p.Render(context.Background(), Input{URL: "/leak"}); err != nil {
+			t.Fatalf("render %d: %v", i+1, err)
+		}
+		// The pool starts to replace it once it counts as grown, and swaps when the VM is idle.
+		p.mu.Lock()
+		swapping := p.swapping
+		p.mu.Unlock()
+		if swapping {
+			t.Logf("replacing after %d renders", i+1)
+			waitReplacements(t, p, 1)
+			return
+		}
+	}
+	t.Fatalf("a VM that kept growing was not replaced: %+v", p.stats())
+}
+
+// misfitSource keeps 1 MiB the first time a VM renders, as an app whose pages need more than its
+// limit leaves does (with sizeRule).
+const misfitSource = `globalThis.kept = null; globalThis.startRender = (json) => {
+ if (kept === null) kept = new Array(64 * 1024).fill(1);
+ globalThis.renderResult = '<p>ok</p>';
+}`
+
+// When the VM that replaced a grown VM grows past the bound too, a fresh VM would not fit either:
+// the pool says so once and waits before it replaces a VM again, where it replaced one after
+// another.
+func TestMemorySwapWaitsWhenAFreshVMDoesNotFit(t *testing.T) {
+	sizeRule(t)
+	var logged atomic.Int32
+	logger := slog.Default()
+	slog.SetDefault(slog.New(countingHandler{slog.NewTextHandler(os.Stderr, nil), "raise ssr.vm_memory", &logged}))
+	defer slog.SetDefault(logger)
+	p := newTestPool(t, misfitSource, testConfig(1))
+	render := func() {
+		t.Helper()
+		if _, err := p.Render(context.Background(), Input{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	render()
+	waitReplacements(t, p, 1)
+	for range 20 {
+		render()
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if s := p.stats(); s.replaced != 1 || s.created != 2 {
+		t.Errorf("replaced a VM that did not fit again: %+v", s)
+	}
+	if n := logged.Load(); n != 1 {
+		t.Errorf("said %d times that the app needs a larger ssr.vm_memory", n)
+	}
+	p.mu.Lock()
+	pause := time.Until(p.refitAfter)
+	p.mu.Unlock()
+	if pause < 50*time.Second {
+		t.Errorf("waits %v before it replaces a VM again", pause)
+	}
+}
+
+// countingHandler counts the records of the default logger whose message has text.
+type countingHandler struct {
+	slog.Handler
+	text string
+	n    *atomic.Int32
+}
+
+func (h countingHandler) Handle(ctx context.Context, r slog.Record) error {
+	if strings.Contains(r.Message, h.text) {
+		h.n.Add(1)
+	}
+	return h.Handler.Handle(ctx, r)
 }
