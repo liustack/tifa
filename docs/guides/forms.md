@@ -6,8 +6,6 @@ read_when:
   - Choosing between React 19 form hooks and a form library such as react-hook-form
 ---
 
-English · [简体中文](forms.zh-CN.md)
-
 # Forms
 
 A guestbook. The visitor types a name and a message, the Go side checks them and keeps the message, and the page shows it. By the end the form shows an error under each wrong input, disables its button while it sends, shows the new message at once and loads the real list when the server has answered.

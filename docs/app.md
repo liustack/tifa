@@ -20,8 +20,6 @@ read_when:
   - Setting up something once for the whole app on the JavaScript side, such as i18next formatters or dayjs plugins, in hooks.ts
 ---
 
-English · [简体中文](app.zh-CN.md)
-
 # Writing an app
 
 For a complete example, see [examples/shop](../examples/shop). For the build, the generated files and how to set up go.mod, see [build.md](build.md).

@@ -14,8 +14,6 @@ read_when:
   - Debugging the built program with Delve, or passing your own -ldflags
 ---
 
-English · [简体中文](build.zh-CN.md)
-
 # Build and generated code
 
 ## `tifa new`

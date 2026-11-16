@@ -6,8 +6,6 @@ read_when:
   - A stream stops after about 10 seconds, arrives all at once, or holds the program when it stops
 ---
 
-English · [简体中文](streaming.zh-CN.md)
-
 # Streaming
 
 A page that shows the time of the server, updated every second, and answers a question word by word, the way a language model writes. The first is a stream of server-sent events that stays open. The second is an answer that is sent while it is being made, and ends.

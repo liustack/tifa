@@ -6,8 +6,6 @@ read_when:
   - Deciding where uploaded files live and how the app serves them
 ---
 
-English · [简体中文](uploads.zh-CN.md)
-
 # Uploads
 
 A page where visitors upload pictures with a title, and see them listed. The handler checks the title, the size and the kind of file, keeps the file in a folder and serves it back.

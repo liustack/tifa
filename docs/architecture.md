@@ -8,8 +8,6 @@ read_when:
   - Answering why a page is slow, stale or rendered twice
 ---
 
-English · [简体中文](architecture.zh-CN.md)
-
 # How Tifa works inside
 
 This page is for someone who wants to understand Tifa or change it. To write an app, start with [Writing an app](app.md). The diagrams show the steps in order, and each one names the package that does the work.

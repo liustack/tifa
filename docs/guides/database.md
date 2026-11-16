@@ -7,8 +7,6 @@ read_when:
   - Writing Go tests for code that reads or writes the database
 ---
 
-English · [简体中文](database.zh-CN.md)
-
 # Keeping data in SQLite
 
 Tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.

@@ -401,10 +401,6 @@ func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zh, err := os.ReadFile("../docs/sessions.zh-CN.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, key := range []string{"__Host-tifa_session:v1", "tifa_session:v1"} {
 		head := sessionHead(key)
 		script := head[len("<script>"):strings.Index(head, "</script>")]
@@ -412,10 +408,8 @@ func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
 		for _, text := range []string{script, style} {
 			sum := sha256.Sum256([]byte(text))
 			hash := "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
-			for name, d := range map[string][]byte{"sessions.md": doc, "sessions.zh-CN.md": zh} {
-				if !strings.Contains(string(d), hash) {
-					t.Errorf("docs/%s lacks %s of %.60s", name, hash, text)
-				}
+			if !strings.Contains(string(doc), hash) {
+				t.Errorf("docs/sessions.md lacks %s of %.60s", hash, text)
 			}
 		}
 	}

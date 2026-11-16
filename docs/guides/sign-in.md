@@ -7,8 +7,6 @@ read_when:
   - Redirecting a signed-out visitor to the sign-in page and bringing them back to the page they asked for
 ---
 
-English · [简体中文](sign-in.zh-CN.md)
-
 # Sign in and sign out
 
 Visitors sign in with an e-mail and a password, see an account page that only they can open, and sign out. Tifa keeps the session: the random token, the cookie and the expiry. Your code does three things: keep and check the passwords, say when someone is signed in or out, and decide who may see what.

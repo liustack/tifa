@@ -8,8 +8,6 @@ read_when:
   - Starting, watching or stopping `tifa dev` from a script or a coding agent, or changing `tifa dev --background`, `status`, `logs` or `stop`
 ---
 
-English · [简体中文](dev.zh-CN.md)
-
 # `tifa dev`
 
 ```sh

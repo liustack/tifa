@@ -7,8 +7,6 @@ read_when:
   - Writing Go tests for code that sends mail
 ---
 
-English · [简体中文](email.zh-CN.md)
-
 # Sending email
 
 Tifa has no mailer. The app sends mail through the SMTP server of a mail provider, from a background job, so the visitor never waits for it and a mail is not lost when the server is down.

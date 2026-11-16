@@ -7,8 +7,6 @@ read_when:
   - The go command reports an import cycle between packages of an app
 ---
 
-English · [简体中文](structure.zh-CN.md)
-
 # Structuring an app
 
 This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md). How Tifa itself works inside is in [Architecture](architecture.md).

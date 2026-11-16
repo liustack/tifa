@@ -8,8 +8,6 @@ read_when:
   - A job needs code of a domain under app/, and the go command reports an import cycle
 ---
 
-English · [简体中文](jobs.zh-CN.md)
-
 # Background work
 
 A Tifa app is one program, so background work is a goroutine of that program. There is no queue service to run. The app starts its goroutines in `OnStart` and stops them in `OnShutdown`, like any other shared resource ([Structuring an app](../structure.md#2-shared-resources-and-other-dependencies)).

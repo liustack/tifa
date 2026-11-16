@@ -8,8 +8,6 @@ read_when:
   - Upgrading github.com/liustack/slowjs and checking that rendering did not get slower
 ---
 
-English · [简体中文](performance.zh-CN.md)
-
 # Performance
 
 Tifa renders pages in quickjs, QuickJS written in C and compiled to Go assembly, which runs on linux and darwin (amd64 and arm64) and on windows/amd64. It has no JIT, so a render is slower than in Node. This doc gives the numbers and how to size a machine for them. How rendering got faster is in [Optimizations](studies/optimizations.md).
