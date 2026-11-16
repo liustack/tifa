@@ -73,7 +73,7 @@ func (d *dev) serveErrors(w http.ResponseWriter, r *http.Request) {
 
 // collectErrors reads the errors of the browser, of the app and the failure the overlay shows.
 func (d *dev) collectErrors(ctx context.Context) (deverrors.Report, error) {
-	report := deverrors.Report{Browser: d.browser.List()}
+	report := deverrors.Report{Browser: d.browser.List(), Warnings: d.b.p.Warnings()}
 	if d.running() {
 		app, err := d.askApp(ctx)
 		switch {

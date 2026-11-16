@@ -121,7 +121,7 @@ func TestErrorsWithoutErrors(t *testing.T) {
 		t.Fatalf("%q, %v", out, err)
 	}
 	out, _, err = run(t, "errors", "--json", "--dir", root)
-	if err != nil || strings.Join(strings.Fields(out), "") != `{"failure":null,"requests":[],"browser":[],"renders":[]}` {
+	if err != nil || strings.Join(strings.Fields(out), "") != `{"failure":null,"requests":[],"browser":[],"renders":[],"warnings":[]}` {
 		t.Fatalf("--json: %q, %v", out, err)
 	}
 }
@@ -196,5 +196,27 @@ func TestErrorsLeavesTheLockAlone(t *testing.T) {
 	run(t, "errors", "--dir", root)
 	if lockErr != nil {
 		t.Fatalf("a tifa dev starting while tifa errors looked: %v", lockErr)
+	}
+}
+
+// Warnings are listed after the errors, in text and in JSON, and they never change the status.
+func TestErrorsListsWarnings(t *testing.T) {
+	const warnings = `"warnings":["app/a/route.go:3:5: a number a browser reads as another (warning)","app/b/page.tsx:1: next/link is a module of Next.js (warning)"]`
+	root := fakeDev(t, `{"failure":null,"requests":[],"browser":[],"renders":[],`+warnings+`}`)
+	out, _, err := run(t, "errors", "--dir", root)
+	want := "No errors since the last build.\n\nWarnings (they do not fail anything):\n  app/a/route.go:3:5: a number a browser reads as another (warning)\n  app/b/page.tsx:1: next/link is a module of Next.js (warning)\n"
+	if err != nil || out != want {
+		t.Fatalf("%q, %v", out, err)
+	}
+	out, _, err = run(t, "errors", "--json", "--dir", root)
+	var r deverrors.Report
+	if err != nil || json.Unmarshal([]byte(out), &r) != nil || len(r.Warnings) != 2 {
+		t.Fatalf("--json: %q, %v", out, err)
+	}
+	// With an error too, the warnings come last and the status is 1.
+	root = fakeDev(t, `{"failure":{"title":"Build failed","error":"x"},"requests":[],"browser":[],"renders":[],`+warnings+`}`)
+	out, _, err = run(t, "errors", "--dir", root)
+	if exitCodeOf(err) != 1 || !strings.HasPrefix(out, "Build failed\n  x\n\nWarnings (they do not fail anything):\n") {
+		t.Fatalf("%q, %v", out, err)
 	}
 }

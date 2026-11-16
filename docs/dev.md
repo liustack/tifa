@@ -215,6 +215,7 @@ It lists:
 - Unexpected errors of requests, the ones that go to `OnError` (or are logged as a 500 without it): the request, the status and the message users see, and the error with its stack trace in your source files, as the error page shows them under `tifa dev`. Requests of API routes count too, also in an app without pages.
 - Errors of the browser that pages reported: `Hydration mismatch`, `Recoverable error`, `Uncaught error` and `Unhandled rejection`, as the panel names them, with the page that reported each first.
 - Pages whose two renders differ (see [Log](#log)).
+- The warnings of the last build, after the errors under `Warnings`: those of the analysis (such as a number above 2^53 put into a field that pages read), of the check for code of other frameworks and of the content. They are not errors and never change the exit status. A save that fixes one removes it from the list.
 
 Each kind keeps the last 20 different errors, and the same error again raises its count, as in the panel. When a build starts, the errors from before it are dropped. Asked during a build, the command waits for the build to end.
 
@@ -234,7 +235,8 @@ Without errors it prints `No errors since the last build.` It exits with status 
   "failure": {"title": "Build failed", "error": "..."},
   "requests": [{"method": "GET", "url": "/orders?page=2", "status": 503, "message": "Come back later", "error": "...", "count": 2}],
   "browser": [{"kind": "recoverable", "title": "Hydration mismatch", "url": "http://127.0.0.1:9527/orders", "text": "...", "count": 3}],
-  "renders": [{"method": "GET", "url": "/stats", "text": "...", "count": 1}]
+  "renders": [{"method": "GET", "url": "/stats", "text": "...", "count": 1}],
+  "warnings": ["app/api/route.go:22:55: Mine.ID gets a value from time.Time.UnixNano, a number above 2^53. ... (warning)"]
 }
 ```
 
