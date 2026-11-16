@@ -47,7 +47,7 @@ Go refuses import cycles. In a Tifa app:
 - A domain may import another domain that does not depend on it. If `projects` imports `orders`, then `orders` cannot import `projects`.
 - A domain cannot import a page that imports it.
 - Tests in `package orders` count as `orders`. Use `package orders_test` to import something that imports `orders`.
-- By convention, the root package (and `hooks.go`) imports nothing under `app/`. Domains import the root package for `DB`, so the reverse import would close a cycle sooner or later.
+- Domains import the root package for `DB`, so the root package (and `hooks.go`) cannot import a domain that does. A function `hooks.go` calls takes what it needs, such as `*sql.DB`, as arguments, in a package that does not import the root.
 - A shared package such as `money/` imports no domain or page. Then every domain can use it.
 
 When two domains need each other, move what one needs into the other, or into a new package that both import and that imports neither.

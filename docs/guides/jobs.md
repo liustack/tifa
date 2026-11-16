@@ -450,7 +450,7 @@ func digestJob(ctx context.Context, _ []byte) error {
 
 ### A job that needs code of a domain
 
-`worker.go` is in the root package, and the root imports nothing under `app/` ([which way imports go](../structure.md#which-way-imports-go)). Say a job needs code of the domain `app/issues`. The root cannot import it: `issues` imports the root for `DB`, and the go command stops with `import cycle not allowed`. So the domain registers its own handler. `jobs.Handle` only puts a function in a map and reads no resource, so it may run in `init`, the way a `database/sql` driver registers itself:
+`worker.go` is in the root package. Say a job needs code of the domain `app/issues`, which imports the root for `DB`. The root cannot import `issues`: the go command stops with `import cycle not allowed` ([which way imports go](../structure.md#which-way-imports-go)). So the domain registers its own handler. `jobs.Handle` only puts a function in a map and reads no resource, so it may run in `init`, the way a `database/sql` driver registers itself:
 
 ```go
 // app/issues/digest.go
