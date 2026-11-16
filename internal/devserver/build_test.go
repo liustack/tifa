@@ -47,7 +47,7 @@ func (p *fakePipeline) Content(_ context.Context, all bool, changed []string) (s
 }
 func (p *fakePipeline) HasContent() bool     { return p.content }
 func (p *fakePipeline) HasPages() bool       { return true }
-func (p *fakePipeline) Warnings() []string       { return nil }
+func (p *fakePipeline) Warnings() []string   { return nil }
 func (p *fakePipeline) ContentLoaded() error { return nil }
 func (p *fakePipeline) GoBuild(context.Context) error {
 	if p.goBuild != nil {
