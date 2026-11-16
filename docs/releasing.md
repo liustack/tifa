@@ -11,8 +11,8 @@ Tifa is released as Git tags on `main`, starting at `v0.0.1`. The Go module prox
 
 ## Which version
 
-- **Patch** (`v0.0.1` → `v0.0.2`): the default. Fixes, new features, docs, speedups.
-- **Minor** (`v0.0.x` → `v0.1.0`): only for a change that breaks apps, such as a removed or renamed public API, setting or file convention. Ask the owner first.
+- **Patch** (`v0.0.1` → `v0.0.2`): the default. Fixes, new features, docs and speedups. While Tifa is at `v0.0.x`, a change that breaks apps (a removed or renamed public API, setting or file convention) is a patch too, and the changelog says what to change.
+- **Minor** (`v0.0.x` → `v0.1.0`): for the point where Tifa is stable enough to build on, not for a single change. The maintainer picks the moment.
 
 ## Steps
 
