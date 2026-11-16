@@ -89,34 +89,34 @@ Throughput, 8 concurrent sessions with no think time, the server's core used up,
 
 | | Page views/s | Full loads/s | Client navigations/s | CPU per page view | Bytes per page view | Peak RSS |
 | --- | --: | --: | --: | --: | --: | --: |
-| Tifa | 97.0 | 24.3 | 72.8 | 10.3 ms | 12 KB | 256 MiB |
-| Next.js | 29.5 | 7.4 | 22.1 | 33.9 ms | 15 KB | 609 MiB |
-| TanStack Start | 76.5 | 19.1 | 57.3 | 13.1 ms | 178 KB, not compressed | 442 MiB |
-| For reference: Tifa with the render memo off | 64.7 | 16.2 | 48.5 | 15.5 ms | 12 KB | 111 MiB |
-| For reference: TanStack Start with gzip | 57.9 | 14.5 | 43.4 | 17.3 ms | 29 KB | 497 MiB |
-| For reference: Next.js with prefetch off | 56.4 | 14.1 | 42.3 | 17.7 ms | 13 KB | 618 MiB |
+| Tifa | 97.0 | 31.3 | 65.7 | 10.3 ms | 12 KB | 256 MiB |
+| Next.js | 29.5 | 9.5 | 20.0 | 33.9 ms | 15 KB | 609 MiB |
+| TanStack Start | 76.5 | 24.7 | 51.8 | 13.1 ms | 178 KB, not compressed | 442 MiB |
+| For reference: Tifa with the render memo off | 64.7 | 20.9 | 43.8 | 15.5 ms | 12 KB | 111 MiB |
+| For reference: TanStack Start with gzip | 57.9 | 18.7 | 39.2 | 17.3 ms | 29 KB | 497 MiB |
+| For reference: Next.js with prefetch off | 56.4 | 18.2 | 38.2 | 17.7 ms | 13 KB | 618 MiB |
 
 The three rounds of the main rows: Tifa 100.9, 95.3 and 97.0, Next.js 29.5, 30.0 and 27.6, TanStack Start 81.9, 76.3 and 76.5.
 
-Every server plays the same visits, one full load and three client navigations each on average, so a quarter of the page views of every row are full loads.
+A full load is a request the server answers with a whole page: the landing of a visit, and a search or another action that loads a page. A client navigation is one the router answers with data alone. Every server plays the same visits, so about a third of the page views of every row are full loads.
 
 Latency at 3 visits a second, half of the 6 that Next.js sustains, P50 / P99 of one round of 2,040 visits:
 
 | | Full loads | Client navigations |
 | --- | --: | --: |
-| Tifa | 12.7 / 79 ms | 2.4 / 65 ms |
-| Next.js | 49.2 / 125 ms | 18.3 / 147 ms |
-| TanStack Start | 35.4 / 65 ms | 3.4 / 49 ms |
-| For reference: Tifa with the render memo off | 53.3 / 101 ms | 3.1 / 79 ms |
-| For reference: TanStack Start with gzip | 51.5 / 120 ms | 4.8 / 73 ms |
-| For reference: Next.js with prefetch off | 47.2 / 98 ms | 8.4 / 83 ms |
+| Tifa | 39.5 / 80 ms | 2.4 / 30 ms |
+| Next.js | 51.6 / 146 ms | 16.6 / 139 ms |
+| TanStack Start | 34.9 / 73 ms | 3.3 / 24 ms |
+| For reference: Tifa with the render memo off | 53.2 / 107 ms | 3.0 / 41 ms |
+| For reference: TanStack Start with gzip | 50.7 / 121 ms | 4.7 / 31 ms |
+| For reference: Next.js with prefetch off | 46.0 / 107 ms | 8.1 / 46 ms |
 
-- **The latencies are one round, not the median of three.** The run was stopped before the second and third rounds. A P99 moves between rounds: the one second round that ran, of Next.js, had 139.5 ms for full loads where the first had 124.7.
+- **The latencies are one round, not the median of three.** The run was stopped before the second and third rounds. A P99 moves between rounds: the one second round that ran, of Next.js, had 162.1 ms for full loads where the first had 146.1.
 - **The main rows are the frameworks as shipped.** The reference rows change one setting each and are not compared with the main rows of the others: they say what that setting costs or buys.
 - **Next.js prefetches the links that come into view.** A prefetch is not a page view, but the server answers it: with prefetch off, the same server answers 56.4 page views a second in place of 29.5.
 - **TanStack Start sends its pages uncompressed**, 178 KB a page view against 12 to 15 KB for Tifa and Next.js. With gzip on it answers 57.9 page views a second in place of 76.5.
 - **Tifa's render memo answered 37% of the documents** of a round (1,620, with 2,657 rendered and about 60 that shared a render in progress). The plans and the writes allow a memo that drops nothing 38.4%, so the misses are pages asked for the first time and pages whose data a write changed, not pages the memo dropped. With the same visits and no writes, Tifa served 482 page views a second: a ceiling, not a result.
-- **Tifa's median latency is the lowest, and its P99 of full loads is above TanStack Start's**: the medians are memo hits, and the P99 is set by the pages that render.
+- **Full loads and client navigations are apart.** A full load is rendered or answered by the memo: TanStack Start has the lowest median and P99 (34.9 / 73 ms), Tifa has 39.5 / 80 ms, and with the memo off the median of Tifa is 53.2 ms. A client navigation asks for data alone: Tifa has the lowest median (2.4 ms) and TanStack Start the lowest P99 (24 ms against 30).
 
 #### The traffic and the method
 
