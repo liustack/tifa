@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- The background work guide starts with the simple case: one loop every minute, started in `OnStart`, stopped in `OnShutdown`, with its function in a package that does not import the root.
 - The big number refusal is described exactly in the generated `AGENTS.md`, the skill and the JSON rules: a handler result is checked only for a call with the header `X-Tifa-Call` (what the generated function of a page sends), and `tifatest.Start` answers a `Load` without the check. A test pins a handler by posting with `X-Tifa-Call: 1`.
 
 ### Fixed
