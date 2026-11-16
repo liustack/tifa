@@ -292,6 +292,20 @@ func TestLdflagsRefuseAPackagePattern(t *testing.T) {
 	}
 }
 
+// A module path with a major version suffix names the executable after the element before it,
+// as go build does.
+func TestDefaultExecutableNameSkipsTheMajorVersion(t *testing.T) {
+	for module, want := range map[string]string{
+		"example.com/me/shop/v2": "shop",
+		"gopkg.in/shop.v3":       "shop",
+		"shop":                   "shop",
+	} {
+		if got := defaultOutput("/app", module); got != filepath.Join("/app", "bin", want) {
+			t.Errorf("module %s: tifa build writes %s, want bin/%s", module, got, want)
+		}
+	}
+}
+
 // A relative -o means the place under the folder the user stands in, not under --dir.
 func TestRelativeOutputIsAgainstTheWorkingDirectory(t *testing.T) {
 	cwd := t.TempDir()

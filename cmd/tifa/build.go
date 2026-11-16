@@ -19,6 +19,7 @@ import (
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/content"
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/module"
 )
 
 func newBuildCmd() *cobra.Command {
@@ -96,7 +97,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<last element of the module path>)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<name of the module>)")
 	return cmd
 }
 
@@ -367,7 +368,11 @@ func outputPath(output, root, modulePath string) (string, error) {
 }
 
 // defaultOutput is where tifa build writes the executable without -o: bin/ of the application,
-// named after the last element of the module path, as Go projects keep their binaries.
+// named as go build names it, after the last element of the module path that is not a major
+// version (shop for example.com/shop/v2).
 func defaultOutput(root, modulePath string) string {
+	if prefix, _, ok := module.SplitPathVersion(modulePath); ok {
+		modulePath = prefix
+	}
 	return filepath.Join(root, "bin", path.Base(modulePath))
 }
