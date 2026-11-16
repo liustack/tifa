@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/liustack/tifa/internal/ssr"
 	"github.com/liustack/tifa/internal/symwalk"
@@ -111,7 +113,7 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 			return "", err
 		}
 	}
-	if err := copyDir(public, filepath.Join(dist, "public")); err != nil {
+	if err := syncDir(public, filepath.Join(dist, "public")); err != nil {
 		return "", err
 	}
 	if b.Public, err = publicHashes(filepath.Join(dist, "public")); err != nil {
@@ -305,29 +307,116 @@ func publicHashes(dir string) (map[string]string, error) {
 	return hashes, err
 }
 
-// copyDir copies the regular files under src to dst, following links. A missing src copies nothing.
-func copyDir(src, dst string) error {
-	return symwalk.Walk(src, func(path string, d fs.DirEntry, err error) error {
+// syncDir makes the regular files under dst the files under src, following links: it copies the
+// ones that are new or whose size or modification time differ, and removes the ones src lacks,
+// with the folders that empties. A file that is up to date is not touched, so a folder of large
+// files costs a walk and not a copy. A copy keeps the modification time of its source, which is
+// what the next call compares. A missing src is a folder without files. The files of dst are
+// replaced by renaming a finished copy over them, so a reader sees the old file or the new one.
+func syncDir(src, dst string) error {
+	files := map[string]fs.FileInfo{}
+	dirs := map[string]bool{}
+	err := symwalk.Walk(src, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && path == src {
 			return filepath.SkipAll
 		}
-		if err != nil || !d.Type().IsRegular() {
+		if err != nil {
 			return err
 		}
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
+		if d.IsDir() {
+			dirs[rel] = true
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
+		files[rel] = info
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// Remove what src lacks, or has as the other kind: a file where it has a folder and the reverse.
+	err = filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && path == dst {
+			return filepath.SkipAll
+		}
+		if err != nil || path == dst {
+			return err
+		}
+		rel, err := filepath.Rel(dst, path)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && dirs[rel] || d.Type().IsRegular() && files[rel] != nil {
+			return nil
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
 		target := filepath.Join(dst, rel)
+		if cur, err := os.Lstat(target); err == nil && cur.Mode().IsRegular() &&
+			cur.Size() == files[rel].Size() && cur.ModTime().Equal(files[rel].ModTime()) {
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(target, data, 0o644)
-	})
+		if err := copyFile(filepath.Join(src, rel), target, files[rel].ModTime()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFile writes src to a temporary file next to dst, sets its modification time to mtime, and
+// renames it to dst.
+func copyFile(src, dst string, mtime time.Time) (err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.CreateTemp(filepath.Dir(dst), ".tifa-copy-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			os.Remove(out.Name())
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err = out.Close(); err != nil {
+		return err
+	}
+	if err = os.Chmod(out.Name(), 0o644); err != nil {
+		return err
+	}
+	if err = os.Chtimes(out.Name(), mtime, mtime); err != nil {
+		return err
+	}
+	return os.Rename(out.Name(), dst)
 }
 
 // distID hashes the relative name and content of every file under dist in sorted order, except

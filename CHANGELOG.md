@@ -4,6 +4,11 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- `tifa dev` puts back a file in `.tifa/` that another tool changed or deleted, on the next rebuild. It used to leave the file as it was until a route changed.
+- `tifa dev` no longer deletes and copies all of `public/` on every rebuild. Saving a TS file with large images or videos in `public/` is fast again, and a request for a public file during the rebuild no longer gets a 404. Only files you added or changed are copied, and removed ones are deleted.
+
 ## [0.0.7] - 2026-11-16
 
 ### Changed
