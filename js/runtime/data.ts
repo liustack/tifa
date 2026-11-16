@@ -100,6 +100,9 @@ export const buildHeader = 'X-Tifa-Build'
 // with redirectHeader holding its status, since the result of a handler may look like one.
 export const callHeader = 'X-Tifa-Call'
 export const redirectHeader = 'X-Tifa-Redirect'
+// A handler with no input and no result that changed the session answers with sessionHeader and the
+// session alone as its body.
+export const sessionHeader = 'X-Tifa-Session'
 
 // goJSON holds what the page carries for each object of injected data: the JSON text it was
 // parsed from, or the slot Go fills with that text.

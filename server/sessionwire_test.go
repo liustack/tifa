@@ -636,3 +636,44 @@ func TestSessionEndpointAnswerOfTheMiddlewareIsNeverStored(t *testing.T) {
 		}
 	}
 }
+
+// A handler with no input and no result writes its own answer. When it changed the session and
+// wrote nothing, a call from the browser still gets the session, with a header that tells the
+// function of the page to read it. Without the call header, and when the session is unchanged or
+// the handler wrote something, the answer stays what the handler made it.
+func TestCallOfAHandlerWithoutInputOrResultCarriesTheSession(t *testing.T) {
+	app := wireApp()
+	app.Routes = append(app.Routes,
+		Route{ID: "app/quit", Path: "/quit", POST: func(c *tifa.Ctx) error { return tifa.ClearSession(c) }},
+		Route{ID: "app/join", Path: "/join", POST: func(c *tifa.Ctx) error {
+			return tifa.SetSession(c, &wireUser{ID: 1, Name: "Dee"})
+		}},
+		Route{ID: "app/idle", Path: "/idle", POST: func(c *tifa.Ctx) error { return nil }},
+		Route{ID: "app/says", Path: "/says", POST: func(c *tifa.Ctx) error { return c.Text(200, "mine") }},
+	)
+	s, _ := wireServer(t, app)
+	call := []string{"X-Tifa-Call", "1"}
+	cookie := signedIn(t, s, "Bo")
+
+	w := postJSON(s, "/quit", "", append(call, "Cookie", cookie)...)
+	if m := decodeBody(t, w); w.Code != 200 || string(m["session"]) != `{"signedIn":false}` || w.Header().Get("X-Tifa-Session") != "1" {
+		t.Errorf("sign out: %d %v %s", w.Code, w.Header(), w.Body.String())
+	}
+	w = postJSON(s, "/join", "", call...)
+	if m := decodeBody(t, w); w.Code != 200 || string(m["session"]) != `{"signedIn":true,"data":{"name":"Dee"}}` || w.Header().Get("X-Tifa-Session") != "1" || cookieOf(w, prodCookie) == nil {
+		t.Errorf("sign in: %d %v %s", w.Code, w.Header(), w.Body.String())
+	}
+	// Not a call from the page: nothing is added.
+	w = postJSON(s, "/quit", "", "Cookie", cookie)
+	if w.Code != 200 || w.Body.Len() != 0 || w.Header().Get("X-Tifa-Session") != "" {
+		t.Errorf("sign out without the call header: %d %v %q", w.Code, w.Header(), w.Body.String())
+	}
+	w = postJSON(s, "/idle", "", call...)
+	if w.Code != 200 || w.Body.Len() != 0 || w.Header().Get("X-Tifa-Session") != "" {
+		t.Errorf("unchanged session: %d %v %q", w.Code, w.Header(), w.Body.String())
+	}
+	w = postJSON(s, "/says", "", call...)
+	if w.Code != 200 || w.Body.String() != "mine" || w.Header().Get("X-Tifa-Session") != "" {
+		t.Errorf("own answer: %d %v %q", w.Code, w.Header(), w.Body.String())
+	}
+}

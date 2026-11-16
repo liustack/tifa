@@ -216,6 +216,18 @@ func sessionInBrowser(t *testing.T, base string) {
 	if s["mark"] != "same document" || s["attribute"] != "out" || s["stored"] != nil || s["signInShown"] != true || s["whoShown"] != false || s["state"] != "signed-in=false ready=true" {
 		t.Errorf("signed out again: %v", s)
 	}
+
+	// Signing out with a handler that has no input and no result is seen at once too.
+	pw("goto", base+"/login")
+	pw("eval", `() => { window.__stays = "same document"; return 1 }`)
+	pw("fill", ref("textbox"), "Ann")
+	pw("click", ref(`button "Sign in"`))
+	waitFor(t, "the header to show Ann", func() bool { s = state(); return s["who"] == "Ann" })
+	pw("click", ref(`button "Quit"`))
+	waitFor(t, "the header to sign out after Quit", func() bool { s = state(); return s["whoShown"] == false })
+	if s["mark"] != "same document" || s["attribute"] != "out" || s["stored"] != nil || s["state"] != "signed-in=false ready=true" {
+		t.Errorf("signed out by Quit: %v", s)
+	}
 }
 
 // waitFor polls until ok reports true, for up to ten seconds.

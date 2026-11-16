@@ -7,6 +7,13 @@
 ### 新增
 
 - `tifa dev --background` 让开发服务脱离终端在后台启动，应用能应答时才返回，编程 agent 或脚本可以启动它后接着干别的。命令的其他参数和环境变量都会传给服务，服务的全部输出写进 `.tifa/dev.log`。`tifa dev status [--json]` 说明它有没有在运行、地址、进程号、启动时间和上次构建成没成。`tifa dev logs [-n 行数] [-f]` 打印日志。`tifa dev stop` 停掉它，并等到锁释放。有没有在运行看锁 `.tifa/dev.lock`，不看文件里的进程号，所以重启或崩溃后留下的文件算 `not running`，也不会向任何进程发信号。再开第二个 `tifa dev` 时，报错现在会提示用 `tifa dev status` 和 `tifa dev stop`。`tifa new` 写出的 `AGENTS.md` 让 agent 用这些命令。见[给 agent 和脚本用](docs/dev.zh-CN.md#给-agent-和脚本用)。
+- 处理函数入参上的 `Validate` 可以带 Ctx：`func (in SignUp) Validate(c *tifa.Ctx) error`。它能读请求，所以提示可以用 `c.Language()` 给出访客的语言。`func() error` 照常能用。`Validate`（或它把 Ctx 传进去的函数）写响应、再读请求体、改会话或调用 `tifa.Use` 时，`tifa build` 会失败。表单和多语言指南讲了什么时候在 Go 里翻译，什么时候返回代码让页面翻译。
+- 新增 `c.Path()`：访客在地址栏里看到的页面路径，带语言前缀、不带查询，比如 `/en-US/store/items/a%20b`。页面加载和客户端导航的数据请求拿到的路径一样，方法函数拿到的是自己的路径，`tifatest.NewCtx` 和 `tifatest.Start` 里也一致。`Load` 不能调用 `c.Request()`，要写 `next` 地址时可以用它。`Layout` 的数据由它下面所有页面共用，`tifa build` 在 `Layout` 里拒绝它。
+
+### 变更
+
+- 登录指南新增 `RequireUser` 守卫，用 `c.Path()` 把没登录的访客送到 `/login?next=`，并用 `tifatest.Start` 测了整个登录和登出。
+- 页面对没有入参也没有结果的方法函数的调用，比如 `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`，在方法函数什么都没写时，现在会把新的会话带给浏览器。以前 `SignedIn`、`SignedOut` 和 `useSession` 会保持旧状态，直到下一次导航。回答是 200、`X-Tifa-Session: 1`，正文是会话，生成的 TypeScript 不变。自己写响应的方法函数不受影响。
 
 ### 修复
 

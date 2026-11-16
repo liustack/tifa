@@ -636,7 +636,7 @@ export function onStart() {
 
 - 整页：`ssr.Input` 有 `session`（上面的 JSON）、`sessionKey`（cookie 名加 `:v1`，浏览器存副本的地方）和 `sessionHead`（head 最前面的脚本和样式，见[会话](sessions.zh-CN.md#在浏览器里)）。渲染时在 `<html>` 上写 `data-session="in"` 或 `"out"`，通过路由的 dehydrate 数据（`buildId` 旁边的 `session` 和 `sessionKey`）交给浏览器，并在服务端把它交给 `useSession`。`SSR = false` 的页面把 `session` 和 `sessionKey` 放在启动数据里，`<html data-session="in">` 或 `"out"` 和 head 脚本由 Go 自己写。ETag 和渲染记忆的键都包含会话的哈希，所以两个访客除非浏览器拿到相同的会话，否则不会共用 ETag 或渲染记忆的条目。开了 `Cache` 的页面，HTML 里没有这些，因为 HTML 对所有人都一样（见[给 CDN 用的 Cache](app.zh-CN.md#给-cdn-用的-cache)）：head 最前面的脚本在浏览器里设好 `data-session`，它的导航数据带的是那个浏览器的会话。
 - 导航数据：`{"routes": ..., "session": ...}`，404 和有 `Load` 失败的回答也一样。
-- 带 `X-Tifa-Call` 的调用：`Output` 或 `InputOutput` 处理函数答 `{"result": ..., "session"?: ...}`。`Input` 处理函数答 204，调用让某人登录或登出时（`SetSession` 或 `ClearSession` 无错返回）改答 200 与 `{"session": ...}`。同样的情况下，重定向的 JSON 里也加上 `session`。错误回答没有。不带这个请求头的请求，得到的还是原来的结果、204 或重定向。这些回答加 `Vary: X-Tifa-Call`，因为两种形状不同。
+- 带 `X-Tifa-Call` 的调用：`Output` 或 `InputOutput` 处理函数答 `{"result": ..., "session"?: ...}`。`Input` 处理函数答 204，调用让某人登录或登出时（`SetSession` 或 `ClearSession` 无错返回）改答 200 与 `{"session": ...}`。同样的情况下，重定向的 JSON 里也加上 `session`。没有入参也没有结果、又什么都没写的处理函数，同样的情况下答 200、`X-Tifa-Session: 1` 和 `{"session": ...}`，页面里的函数会读它。错误回答没有。不带这个请求头的请求，得到的还是原来的结果、204 或重定向。这些回答加 `Vary: X-Tifa-Call`，因为两种形状不同。
 - `GET /__tifa/session`，HEAD 也行：本次请求的会话，`Cache-Control: private, no-store`，没有校验器。它的每个回答，包括错误、405、409 和 `OnRequest` 提前给出的回答，都是 `Cache-Control: private, no-store`，没有 `ETag` 和 `Last-Modified`。请求头 `X-Tifa-Build` 是别的构建时答 409 并带 `X-Tifa-Build`，其他方法答 405，没有会话的应用答 404。它在 `OnRequest` 里运行，匹配的 pattern 是 `/__tifa/session`。
 
 浏览器发每个这样的请求时给它编号，取最后发出的那个请求的回答里的会话（`js/runtime/session.tsx`）。`data-session` 是 `<html>` 上的保留属性：`htmlAttributes` 设它会抛错。

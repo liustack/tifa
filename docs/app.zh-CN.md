@@ -149,7 +149,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，以及文件（见[入参里的文件](#入参里的文件)），表单里出现其他字段的值时答 400。表单按种类解码每个值，从不调用 `MarshalText` 或 `UnmarshalText`，所以带这两个方法之一的类型、这种类型的切片，以及自己带这类方法的切片类型（比如 `type Tags []string`，TypeScript 会把它当成一个字符串），都算其他字段。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，规则同上，不能有嵌入字段，入参类型本身也不能带 `MarshalText` 或 `UnmarshalText`。构建时会检查，`c.BindQuery` 遇到其他字段时不管查询字符串里有什么都返回错误。
 - 字段按 `json` 标签取名，表单和查询字符串也一样。写 `form` 标签会构建报错。路径参数、请求头、cookie 照旧从 `c` 读。
 - 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。入参还要能从它的 TypeScript 类型描述的 JSON 读回来：因为 `MarshalText` 成为 string 的类型也要有 `UnmarshalText([]byte) error`，有 `UnmarshalText` 的类型在 TypeScript 里必须是 string（map 键除外，JSON 的键总是字符串），`UnmarshalJSON` 不接受（`time.Time` 除外）。
-- 入参类型有 `Validate` 方法（必须是 `func() error`）时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。先往 `tifa.Fields{}` 里收集，最后写 `return fields.Err()`，没有收集到任何字段时它是 nil（空的 `tifa.Fields` 仍然是一个错误）。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
+- 入参类型有 `Validate` 方法（必须是 `func() error` 或 `func(c *tifa.Ctx) error`）时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。带 Ctx 的 `Validate` 可以读请求：用 `c.Language()` 给出访客语言的提示（见[校验提示](guides/i18n.zh-CN.md#校验提示)），也可以用 `c.Param`、`c.Query`、`c.QueryValues`、`c.Header`、`c.Cookie`、`c.Path()`、`c.Context()`、`c.Request()` 和 `tifa.Session`。它只负责检查，结果靠返回的错误回答，所以 `Validate`（或它把 Ctx 传进去的函数）写响应（`c.JSON`、`c.Text`、`c.NoContent`、`c.SetHeader`、`c.SetCookie`、`c.Writer`）、再读请求体（`c.Bind`、`c.BindQuery`、`c.SetBodyLimit`）、调用 `tifa.SetSession` 或 `tifa.ClearSession`、调用 `tifa.Use`，构建都会失败。Ctx 能放在哪里，和在 `Load` 里一样（见[Load 怎么用 Ctx](#load-里-ctx-的用法)）。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。先往 `tifa.Fields{}` 里收集，最后写 `return fields.Err()`，没有收集到任何字段时它是 nil（空的 `tifa.Fields` 仍然是一个错误）。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
 - 浏览器从别的网站发来的 POST、PUT、PATCH 或 DELETE，表单和 multipart 也一样，在处理函数运行之前就答 403，处理函数不用自己再检查。`server.trusted_origins` 和 `server.cross_site_paths` 可以放行指定的来源和路径（见[跨站写请求](config.zh-CN.md#跨站写请求)）。
 - 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型或没有内容类型答 415，装文件的入参收到 JSON 也答 415，请求体没按时到答 408），处理函数不执行。
 - 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。它们给字段取名时先看 `form` 标签，再看 `json` 标签，最后用 Go 字段名。`c.Bind` 也会从 multipart 表单填 `*multipart.FileHeader` 和 `[]*multipart.FileHeader` 字段。
@@ -222,6 +222,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 | `c.Header(name)`、`c.Cookie(name)` | 请求头、请求 cookie（没有时返回 `http.ErrNoCookie`） |
 | `c.Context()`、`c.WithContext(ctx)` | 请求 context，以及带着另一个 context 的 `c` 的副本，用来存请求级的值。`c` 本身不变 |
 | `c.Pattern()` | 匹配到的路由路径，比如 `/projects/{project}`，没匹配时为 `""` |
+| `c.Path()` | 访客在地址栏里看到的页面路径：已转义，带语言前缀，不带查询，比如 `/en-US/store/items/a%20b`。页面加载和导航的数据请求拿到的一样。在方法函数里是这个方法函数的路径。`Layout` 里不能用，见[Load 里 Ctx 的用法](#load-里-ctx-的用法) |
 | `c.IsData()` | 是不是浏览器路由的导航数据请求，而不是整页加载 |
 | `c.SetHeader(key, value)`、`c.SetCookie(cookie)` | 响应头、响应 cookie。`Load` 里也能用 |
 | `c.JSON(code, v)`、`c.Text(code, s)`、`c.NoContent(code)` | 写响应。`Load` 里不能用 |
@@ -941,7 +942,7 @@ func TestLoad(t *testing.T) {
 
 这样测的是函数，不是 HTTP 响应，要检查的是函数的返回值和错误。解码入参、跑 `Validate`、把结果变成 JSON 或 204、把错误变成 404、422、重定向或交给 `OnError`、回答导航数据请求，这些只有服务端做。返回值和错误不会写进 recorder，函数自己没写响应时，recorder 一直是空的 200。要检查 HTTP 响应，就[测整个请求](#测整个请求)。
 
-- `c.Param` 读的就是路径参数，用 `r.SetPathValue` 设置解码后的值。`c.Pattern()` 是调用 `NewCtx` 时的 `r.Pattern`。
+- `c.Param` 读的就是路径参数，用 `r.SetPathValue` 设置解码后的值。`c.Pattern()` 是调用 `NewCtx` 时的 `r.Pattern`，`c.Path()` 是请求 URL 转义后的路径，所以要测语言前缀，就把它写进请求路径（`/en-US/store`）。用 `tifatest.Start` 时 Ctx 由服务器建，`c.Path()` 和真实请求里一样。
 - `Load` 和 `Layout` 通过 `tifa.Use(c, Load)` 调用，这样跑起来的规则和服务端一样：同一个请求只跑一次，写响应体会失败。`Load` 里 `tifa.Use` 的 Layout 在同一个请求上跑。只有函数用 `tifa.Use` 要的 Layout 才会跑。
 - 方法函数直接调用：`POST(c)`，有入参就是 `POST(c, in)`。入参就是你传的值，所以 `Validate` 单独测。`Validate` 会改入参时，传改过的入参。
 - 测 `OnRequest` 时直接调用它，`next` 传一个闭包：`OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`。闭包代替的是路由，所以不恢复 panic，也不写出结果。
@@ -1028,6 +1029,8 @@ Date 和 Intl 取向下舍入的毫秒，Temporal 保留纳秒。这个时钟覆
 其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。
 
 `Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 Tifa 看不到。改用 `c.Param`、`c.Query`、`c.QueryValues`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
+
+`Load` 里要取页面路径（比如给登录页的重定向写 `next` 地址），用 `c.Path()`。它是访客请求的路径，带语言前缀、不带查询，页面加载和导航的数据请求拿到的一样，所以不用为它去调用 `c.Request()`。`Load` 要把某个查询参数放进这个地址时，用 `c.Query("name")` 读。`Layout` 和它调用的函数里不能调用 `c.Path()`：Layout 的数据由它下面所有页面共用，访客在这些页面之间跳转时不会重新加载，它会一直是最先加载它的那个页面的路径。在页面的 `Load`、`OnRequest` 或方法函数里调用它。
 
 `c.BindQuery` 和 `c.Bind` 也不能调用。结构体解码了哪些查询参数 Tifa 说不出名字，这些参数变了页面不会重新取数据，而页面加载和导航的数据请求都没有请求体。查询参数用 `c.Query("name")` 逐个读，重复的参数用 `c.QueryValues("name")`。
 
