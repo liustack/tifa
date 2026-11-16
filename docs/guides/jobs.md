@@ -5,6 +5,7 @@ read_when:
   - Running something every minute, hour or day in a Tifa app
   - Starting a goroutine in a Tifa app and wanting it to stop cleanly on deploy
   - Work must not be lost when the program restarts, and a failure must be tried again
+  - A job needs code of a domain under app/, and the go command reports an import cycle
 ---
 
 English · [简体中文](jobs.zh-CN.md)
@@ -171,7 +172,7 @@ var (
 	PollEvery = time.Second
 )
 
-// Handle sets the handler of a kind of job. Call it in OnStart, before Run.
+// Handle sets the handler of a kind of job. Call it in OnStart or in an init, before Run.
 func Handle(kind string, h Handler) { handlers[kind] = h }
 
 // Execer is what Enqueue writes through: a *sql.DB, or a *sql.Tx to queue the job in the same
@@ -370,6 +371,41 @@ func digestJob(ctx context.Context, _ []byte) error {
 ```
 
 [Sending email](email.md) writes the `mail` handler.
+
+### A job that needs code of a domain
+
+`worker.go` is in the root package, and the root imports nothing under `app/` ([which way imports go](../structure.md#which-way-imports-go)). Say a job needs code of the domain `app/issues`. The root cannot import it: `issues` imports the root for `DB`, and the go command stops with `import cycle not allowed`. So the domain registers its own handler. `jobs.Handle` only puts a function in a map and reads no resource, so it may run in `init`, the way a `database/sql` driver registers itself:
+
+```go
+// app/issues/digest.go
+package issues
+
+import (
+	"context"
+	"log/slog"
+
+	"example.com/notes"
+	"example.com/notes/jobs"
+)
+
+func init() { jobs.Handle("issue-digest", digest) }
+
+// digest runs after OnStart, so it may use notes.DB.
+func digest(ctx context.Context, _ []byte) error {
+	var open int
+	if err := notes.DB.QueryRowContext(ctx, `SELECT count(*) FROM issues WHERE NOT closed`).Scan(&open); err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, "open issues", "count", open)
+	return nil
+}
+```
+
+`worker.go` does not list this kind. `jobs.Run` finds the handler by its kind, and any code queues the job with `jobs.Enqueue(ctx, notes.DB, "issue-digest", ...)`.
+
+Tifa links only the packages that a route imports. If a page imports `issues`, its `init` runs. If only jobs use it, nothing imports it, the handler is never registered, and the job fails with `no handler for "issue-digest"` until it is marked failed. Import it for its effect in a route package, such as `app/route.go`: `import _ "example.com/notes/app/issues"`.
+
+The other way is to take `DB` out of the root into a package of its own, such as `example.com/notes/db`, which the domains import instead of the root. Then nothing under `app/` imports the root, and the root may import `app/issues` and call `jobs.Handle` itself in `startBackground`. It breaks the rule that shared resources live in the root, so use it only when you do not want an `init`.
 
 ## Scheduled work
 
