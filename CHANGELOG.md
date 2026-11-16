@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-11-16
+
+### Changed
+
+- The whole-visits tables in the README and in [Performance](docs/performance.md#whole-visits-to-the-shop-2026-11-16) count a full load as every request the server answered with a whole page (the landing of a visit, and a search or another action that loads a page) and a client navigation as every one the router answered with data alone. They counted the first page of a visit as the full load and the three after it as client navigations, although about a tenth of those load a whole page. Same run, same page views a second. Full loads: Tifa 39.5 / 80 ms (P50 / P99), TanStack Start 34.9 / 73 ms, Next.js 51.6 / 146 ms. Client navigations: Tifa 2.4 / 30 ms, TanStack Start 3.3 / 24 ms, Next.js 16.6 / 139 ms.
+
 ## [0.0.8] - 2026-11-16
 
 ### Changed
