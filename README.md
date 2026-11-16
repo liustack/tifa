@@ -109,16 +109,15 @@ Every request asks for gzip. TanStack Start does not compress pages by default, 
 
 Each server on one core of a Google Cloud `c2d-standard-8` VM (AMD EPYC 7B13), default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
 
-Whole visits, played back from real browsers on the example shop: shoppers and staff on one server at once, Tifa's render memo empty at the start (2026-11-09):
+Whole visits, played back from real browsers on the example shop: shoppers, staff and crawlers on one server at once, every server as shipped and warmed up with the same visits first (2026-11-16):
 
-| | Page views/s | Full load P50 / P99 |
-| :-- | --: | --: |
-| Tifa | 79.8 | 2.8 / 110 ms |
-| Next.js | 34.6 | 42.2 / 91 ms |
-| TanStack Start, uncompressed | 87.6 | 29.3 / 53 ms |
-| React Router | 54.8 | 51.8 / 85 ms |
+| | Page views/s | Full load P50 / P99 | Client navigation P50 / P99 |
+| :-- | --: | --: | --: |
+| Tifa | 97.0 | 12.7 / 79 ms | 2.4 / 65 ms |
+| Next.js | 29.5 | 49.2 / 125 ms | 18.3 / 147 ms |
+| TanStack Start, uncompressed | 76.5 | 35.4 / 65 ms | 3.4 / 49 ms |
 
-Page views a second with 8 visitors at once and no pause between pages. The latencies are at 6 visits a second, half of what Next.js sustains. [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-09) has the mix and what the numbers mean.
+Page views a second at 8 concurrent sessions with no pause between pages, the median of 3 rounds. The latencies are one round at 3 visits a second, half of what Next.js sustains. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-16) has the mix, what each default costs and what the numbers mean.
 
 ## Start an app
 

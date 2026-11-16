@@ -20,7 +20,7 @@ quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C en
 
 - **One render** took 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`, with the engine before the C engine. It took about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it. The C engine takes 0.84 of that time.
 - **Whole requests**, one core, default settings, the six workbench pages: with every cache off, Next.js answers 1.9 times Tifa's requests, TanStack Start 2.7 times and React Router 1.8 times, and without their JIT they answer 0.6 to 0.7 times. See [the comparison](#against-nextjs-tanstack-start-and-react-router).
-- **Whole visits**, one core, the shop as one site of shoppers and staff (2026-11-09): Tifa answers 79.8 page views a second with its render memo starting empty, Next.js 34.6, TanStack Start 87.6 with its pages uncompressed and React Router 54.8. These are of the traffic of that day, which has changed since. See [whole visits](#whole-visits-to-the-shop-2026-11-09).
+- **Whole visits**, one core, the shop as one site of shoppers, staff and crawlers (2026-11-16): Tifa answers 97.0 page views a second, Next.js 29.5 and TanStack Start 76.5 with its pages uncompressed, each as shipped and after the same warm-up. See [whole visits](#whole-visits-to-the-shop-2026-11-16).
 - **Cores**: with caches off, 3 physical cores answer 2.94 times as many requests as one, and a busy second hyperthread on each adds about 25%, see [how it scales](#how-it-scales-with-cores).
 - **Sizing**: plan on about 42 requests a second per physical core for pages like the shop's workbench (caches off, so every request renders), and about 40 MiB plus 17 MiB per VM at peak.
 
@@ -121,41 +121,47 @@ Without a JIT the Node frameworks answer 0.58 to 0.71 times the requests of Tifa
 
 To measure again, see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare).
 
-### Whole visits to the shop (2026-11-09)
+### Whole visits to the shop (2026-11-16)
 
-Real browsers were recorded visiting the shop against each framework, and the recorded visits were played back against each server: the documents and the data requests of the client router, no scripts, styles or images. The storefront and the back office are one site: shoppers browse in two languages, add to the cart and check out, and staff read and edit the back office, on the same server at once. Each framework runs on one core as above. Tifa has its render memo on, empty when the clock starts and with no warm-up. The Node apps get a 15 second warm-up for their JIT. Tifa 15fdd78c, with the method that [Testing](testing.md#whole-visits-compare-plans-record-links-and-browse) describes at that commit.
+Real browsers were recorded visiting the shop against each framework, and the recorded visits were played back against each server: the documents and the data requests of the client router, no scripts, styles or images. The storefront and the back office are one site: shoppers browse in two languages, search, filter, add to the cart and check out, staff read and edit the back office, and crawlers fetch the public pages, on the same server at once. Each framework runs as shipped, one process on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13, 4 cores without SMT), with the load on the other cores. Before the clock of each round every server gets the same warm-up: 3,060 visits of the mix with their writes. Tifa's render memo is empty before the warm-up. Tifa f02030b9 with quickjs v0.31.1, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0, with the method that [Testing](testing.md#whole-visits-compare-plans-record-links-and-browse) describes at that commit. React Router is no longer part of this comparison.
 
-**The numbers below were measured with the traffic of 2026-11-09. The comparison plays other traffic now ([what changed](#the-comparison-as-it-is-now)), so they cannot be set beside a run of today.**
-
-Throughput, 8 sessions with no think time, the median of 3 rounds, with the traffic of 2026-11-09:
+Throughput, 8 concurrent sessions with no think time, the server's core used up, the median of 3 rounds:
 
 | | Page views/s | CPU per page view | Bytes per page view | Peak RSS |
 | --- | --: | --: | --: | --: |
-| Tifa | 79.8 | 12.5 ms | 14 KB | 173 MiB |
-| Next.js | 34.6 | 28.9 ms | 16 KB | 540 MiB |
-| TanStack Start | 87.6 | 11.4 ms | 203 KB, not compressed | 418 MiB |
-| React Router | 54.8 | 18.3 ms | 85 KB | 440 MiB |
+| Tifa | 97.0 | 10.3 ms | 12 KB | 256 MiB |
+| Next.js | 29.5 | 33.9 ms | 15 KB | 609 MiB |
+| TanStack Start | 76.5 | 13.1 ms | 178 KB, not compressed | 442 MiB |
+| For reference: Tifa with the render memo off | 64.7 | 15.5 ms | 12 KB | 111 MiB |
+| For reference: TanStack Start with gzip | 57.9 | 17.3 ms | 29 KB | 497 MiB |
+| For reference: Next.js with prefetch off | 56.4 | 17.7 ms | 13 KB | 618 MiB |
 
-Latency at 6 visits a second, half of what Next.js sustains, P50 / P99 of 3 rounds, with the traffic of 2026-11-09:
+The three rounds of the main rows: Tifa 100.9, 95.3 and 97.0, Next.js 29.5, 30.0 and 27.6, TanStack Start 81.9, 76.3 and 76.5.
 
-| | Full loads | Clicks |
+Latency at 3 visits a second, half of the 6 that Next.js sustains, P50 / P99 of one round of 2,040 visits:
+
+| | Full loads | Client navigations |
 | --- | --: | --: |
-| Tifa | 2.8 / 110 ms | 2.4 / 59 ms |
-| Next.js | 42.2 / 91 ms | 52.9 / 114 ms |
-| TanStack Start | 29.3 / 53 ms | 29.4 / 54 ms |
-| React Router | 51.8 / 85 ms | 32.0 / 71 ms |
+| Tifa | 12.7 / 79 ms | 2.4 / 65 ms |
+| Next.js | 49.2 / 125 ms | 18.3 / 147 ms |
+| TanStack Start | 35.4 / 65 ms | 3.4 / 49 ms |
+| For reference: Tifa with the render memo off | 53.3 / 101 ms | 3.1 / 79 ms |
+| For reference: TanStack Start with gzip | 51.5 / 120 ms | 4.8 / 73 ms |
+| For reference: Next.js with prefetch off | 47.2 / 98 ms | 8.4 / 83 ms |
 
-- **The mix.** A shopper visit is 2.6 page views on average: one full load, then clicks. 6.6% of shopper visits add to the cart and 1.3% check out (medians of 438 Shopify stores, [Littledata](https://www.littledata.io/benchmarks)). 20% are returning visitors with a cart of their own, and 2% of all visits are staff. Writes are 3.2% of the actions.
-- **TanStack Start sends its pages uncompressed**, 203 KB a page view against 14 to 16 KB for Tifa and Next.js. Compressing costs Next.js 16% of its requests a second (see the notes above). React Router compresses, but it flushes after every chunk and each flush ends a gzip block.
-- **Tifa's render memo starts empty**, and a round lasts about 100 seconds, so first requests weigh more than on a server that has run for a while. In a round about half of Tifa's documents came from the memo (1,484), about half rendered (1,437), and 172 shared a render already in progress. With the same visits and no writes, Tifa served 1,626 page views a second: a ceiling, not a result.
-- **Tifa's median latency is the lowest and its P99 the highest**: the medians are memo hits, and the P99 is set by the pages that render.
+- **The latencies are one round, not the median of three.** The run was stopped before the second and third rounds. A P99 moves between rounds: the one second round that ran, of Next.js, had 139.5 ms for full loads where the first had 124.7.
+- **The main rows are the frameworks as shipped.** The reference rows change one setting each and are not compared with the main rows of the others: they say what that setting costs or buys.
+- **Next.js prefetches the links that come into view.** A prefetch is not a page view, but the server answers it: with prefetch off, the same server answers 56.4 page views a second in place of 29.5.
+- **TanStack Start sends its pages uncompressed**, 178 KB a page view against 12 to 15 KB for Tifa and Next.js. With gzip on it answers 57.9 page views a second in place of 76.5.
+- **Tifa's render memo answered 37% of the documents** of a round (1,620, with 2,657 rendered and about 60 that shared a render in progress). The plans and the writes allow a memo that drops nothing 38.4%, so the misses are pages asked for the first time and pages whose data a write changed, not pages the memo dropped. With the same visits and no writes, Tifa served 482 page views a second: a ceiling, not a result.
+- **Tifa's median latency is the lowest, and its P99 of full loads is above TanStack Start's**: the medians are memo hits, and the P99 is set by the pages that render.
 
-#### The comparison as it is now
+#### The traffic and the method
 
-No run with the traffic below has been published yet. [Testing](testing.md#whole-visits-compare-plans-record-links-and-browse) has every rule with where it is checked. What changed since the run above:
+[Testing](testing.md#whole-visits-compare-plans-record-links-and-browse) has every rule with where it is checked.
 
-- **Visits.** A shopper visit is 4 page views on average, one landing and three actions on the page, where the run above had 2.6. An action is a click on a link, a search, filters, a sort or the next page of a list, done in a real browser with the control of the page.
-- **Warm-up.** Every server gets the same warm-up before the clock of each round: visits of the mix with their writes, as many as the longest round of any server. Tifa's render memo is empty before the warm-up, not at the clock, and the Node apps get no other warm-up.
+- **Visits.** A shopper visit is 4 page views on average, one landing and three actions on the page. An action is a click on a link, a search, filters, a sort or the next page of a list, done in a real browser with the control of the page. 6.6% of shopper visits add to the cart and 1.3% check out (medians of 438 Shopify stores, [Littledata](https://www.littledata.io/benchmarks)). 20% are returning visitors with a cart of their own, and 2% of all visits are staff. Writes are 2.1% of the actions.
+- **Warm-up.** Every server gets the same warm-up before the clock of each round: visits of the mix with their writes, as many as the longest round of any server. Tifa's render memo is empty before the warm-up, and the Node apps get no other warm-up.
 - **Crawlers.** 9% of the HTML requests come from crawlers, a stream of their own on the same server (Cloudflare Radar 2025): the public pages of the storefront and a few old URLs that answer 404. The shop's `robots.txt` keeps them out of the searches and the filtered lists.
 - **Landing parameters.** 15% of the shopper landings carry a click id and 5% a parameter of an email, each different for every visit. Tifa leaves them out of what a render sees, so they do not make new pages for its memo.
 - **Searches and filters.** 20% of the shopper visits search once, for a word drawn by a Zipf law from 300 to 500 words for each language, and 1 search in 20 is for a word no other visit uses. Of the visits that see a product list, 25% filter it and 10% change the sort, and of those that see a list of several pages 9% see the second page and 1% the third. These make many URLs that few visits ask for, which a memo answers less often.
