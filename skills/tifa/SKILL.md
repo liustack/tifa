@@ -62,7 +62,7 @@ myapp/
 | `hooks.go` | Root only. Optional `OnStart`, `OnShutdown`, `OnRequest`, `OnError` |
 | `*.client.tsx` | A component loaded only in the browser, through `clientOnly` from `tifa/client` |
 
-Folder names are URL segments. `order+` is a parameter, and `path++` is the rest of the path (last folder only). Name the Go package after the parameter: `order+` holds `package order`. Code is grouped by domain in folders under `app/`, not in shared `models/` or `handlers/` packages. Dependencies are package-level variables set up in `OnStart`, not injected.
+Folder names are URL segments. `order+` is the parameter `{order}`: the folder name is the parameter name, so `booking+` under `staff/` is `/staff/{booking}`, and `/staff/booking/{id}` needs a literal folder `booking` holding `id+`. `go tool tifa routes` prints the URLs that result. `path++` is the rest of the path (last folder only). Name the Go package after the parameter: `order+` holds `package order`. Code is grouped by domain in folders under `app/`, not in shared `models/` or `handlers/` packages. Dependencies are package-level variables set up in `OnStart`, not injected.
 
 ## Mistakes to avoid
 
