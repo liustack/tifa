@@ -287,3 +287,48 @@ func TestThePreparedDataCoversTheWarmUp(t *testing.T) {
 		t.Errorf("the restock gave %v, want what the prepared visits and the warm-up can take: %v", r.restocked, need)
 	}
 }
+
+// A continued result keeps the numbers every server of a scenario shares, the prepared visits and the
+// warm-up, when it measures a server again: the servers it keeps were measured with them. A server
+// measured again is sized as every server was, and a run whose new sizing needs a longer warm-up than
+// the one kept stops and says that the whole run must start again: the numbers never grow silently.
+// A server kept whose cell was resized past the warm-up later on is no reason to stop.
+func TestAServerMeasuredAgainKeepsTheWarmUpEveryServerShares(t *testing.T) {
+	sc := mustScenario("shop")
+	_, _, next := warmSpecs()
+	start := next
+	start.Target.Name, start.Framework = "start", "start"
+	bv := sc.blockVisits()
+	setup := func(warmBlocks int) (*browse, func() []*launched) {
+		b, servers := warmBrowse(t, sc, next, start)
+		// A sizing run that plays the mix for long enough to size many blocks.
+		b.o.Target = time.Minute
+		b.res.Prepared, b.res.WarmVisits = map[string]int{sc.Name: prepareHeadroom * warmBlocks * bv}, map[string]int{sc.Name: warmBlocks * bv}
+		// Start is kept, its cell resized past the warm-up by its rounds. Next.js is measured again.
+		b.res.Blocks[fmt.Sprintf("%s/%d/start", sc.Name, b.o.Sessions)] = 2 * warmBlocks
+		return b, servers
+	}
+	b, servers := setup(1000)
+	prepared, warm, err := b.prepared(context.Background(), sc)
+	if err != nil || prepared != prepareHeadroom*1000*bv || warm != 1000*bv {
+		t.Fatalf("a server sized within the warm-up: prepared %d, warm-up %d (%v)", prepared, warm, err)
+	}
+	if _, ok := b.res.Blocks[fmt.Sprintf("%s/%d/nextjs", sc.Name, b.o.Sessions)]; !ok {
+		t.Error("the server measured again was not sized")
+	}
+	for _, l := range servers() {
+		if l.spec == "start" {
+			t.Error("the server kept was sized again")
+		}
+	}
+	b, _ = setup(1)
+	for try := 1; try <= 2; try++ {
+		_, _, err := b.prepared(context.Background(), sc)
+		if err == nil || !strings.Contains(err.Error(), "the whole run must start again") {
+			t.Fatalf("try %d: a server sized beyond the warm-up kept: %v", try, err)
+		}
+		if b.res.WarmVisits[sc.Name] != bv || b.res.Prepared[sc.Name] != prepareHeadroom*bv {
+			t.Errorf("try %d: the numbers every server shares changed: %v %v", try, b.res.Prepared, b.res.WarmVisits)
+		}
+	}
+}

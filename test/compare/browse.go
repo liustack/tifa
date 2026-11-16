@@ -947,13 +947,24 @@ const prepareHeadroom = 2
 // the visits of the warm-up of every closed round of the scenario, at any sessions: as many as the
 // longest round a server was sized to (prepared / prepareHeadroom), the visits after the prepared
 // ones, whose data is made too.
+//
+// A continued result keeps the numbers it holds when it measures a server again (measureAgain): the
+// servers it keeps were measured with them. A server with no sizing at the base sessions (one measured
+// again) is sized then, and must fit in the warm-up kept: the numbers never grow, and a server that
+// needs more stops the run, which must start again.
 func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (prepared, warm int, err error) {
 	if n := b.res.Prepared[sc.Name]; n > 0 {
-		return n, b.res.WarmVisits[sc.Name], nil
+		warm := b.res.WarmVisits[sc.Name]
+		for _, fw := range b.servers[sc.Name] {
+			if err := b.sizeCell(ctx, fw, sc, b.o.Sessions, warm); err != nil {
+				return 0, 0, err
+			}
+		}
+		return n, warm, nil
 	}
 	most := 0
 	for _, fw := range b.servers[sc.Name] {
-		if err := b.sizeCell(ctx, fw, sc, b.o.Sessions); err != nil {
+		if err := b.sizeCell(ctx, fw, sc, b.o.Sessions, 0); err != nil {
 			return 0, 0, err
 		}
 		most = max(most, b.res.Blocks[fmt.Sprintf("%s/%d/%s", sc.Name, b.o.Sessions, fw)])
@@ -970,8 +981,10 @@ func (b *browse) prepared(ctx context.Context, sc BrowseScenario) (prepared, war
 	return b.res.Prepared[sc.Name], b.res.WarmVisits[sc.Name], b.commit()
 }
 
-// sizeCell sizes the closed rounds of a server at a number of sessions, once (size).
-func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, sessions int) error {
+// sizeCell sizes the closed rounds of a server at a number of sessions, once (size). A size of more
+// visits than most (0 for no limit), the warm-up a continued result keeps, is an error and is not
+// kept, so that the run stops there every time it is continued.
+func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, sessions, most int) error {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
 	if _, ok := b.res.Blocks[key]; ok {
 		return nil
@@ -980,7 +993,11 @@ func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, ses
 	if err != nil {
 		return err
 	}
-	b.res.Blocks[key] = BlocksFor(rate, b.o.Target, b.set.Blocks, sc.blockVisits())
+	blocks := BlocksFor(rate, b.o.Target, b.set.Blocks, sc.blockVisits())
+	if most > 0 && blocks*sc.blockVisits() > most {
+		return fmt.Errorf("%s/%s, measured again, is sized to %d visits a round at %d sessions (%.2f visits/s), more than the warm-up of %d visits that every server of this result got. The visits prepared and the warm-up are the same for every server and do not grow, so the whole run must start again: remove %s", sc.Name, fw, blocks*sc.blockVisits(), sessions, rate, most, cmp.Or(b.o.OutJSON, "the result"))
+	}
+	b.res.Blocks[key] = blocks
 	b.logf("size   %-10s %2d sessions %-12s %.2f visits/s with the writes of the mix: %d blocks\n", sc.Name, sessions, fw, rate, b.res.Blocks[key])
 	return b.commit()
 }
@@ -994,7 +1011,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 	if err != nil {
 		return nil, err
 	}
-	if err := b.sizeCell(ctx, fw, sc, sessions); err != nil {
+	if err := b.sizeCell(ctx, fw, sc, sessions, 0); err != nil {
 		return nil, err
 	}
 	for attempt := 1; ; attempt++ {
