@@ -67,6 +67,7 @@ myapp/
   ```
 
 - **Tests sit next to the code** they test: `order_test.go` next to `order.go`.
+- **Components and other front-end files** may live under `app/` too. Only `page.tsx`, `layout.tsx` and `layout_.tsx` mean something to Tifa, so any other `.tsx` or `.ts` file, such as a shared component, is an ordinary module. Put it next to the pages that use it, and import it with a relative path: examples/shop keeps `product-card.tsx` in `app/store/`. A component that several areas use can sit in a folder beside `app/`, such as `components/` in examples/shop.
 - **The root package** holds only the hooks and the resources the whole app shares, such as `db.go`, `mail.go` and `content.go` (the content collections, see [Content](content.md)). No domain code. The database schema stays here too: the tables of all domains make up one database, `OnStart` creates them before the app listens, and by the convention below the root package imports nothing under `app/`. Each domain keeps its own queries.
 - Code that belongs to no domain and that several domains use, such as formatting money, goes in its own package named after what it does, such as `money/` at the module root. See below for what it may import.
 
@@ -129,4 +130,4 @@ When two domains need each other, move what one needs into the other, or into a 
 - **Request values**, such as the signed-in user, ride on the standard context: `OnRequest` passes `c.WithContext(context.WithValue(...))` to `next`, and the domain provides a typed getter.
 - **Arguments** are fine when only some callers pass a different value. A function that needs a clock, a limit or a client can take it as a parameter.
 - **Tests** replace the variable (`myapp.DB = openTestDB(t)`) or pass a fake as an argument. Declare an interface in the package that uses it, and only once there really are two implementations, such as the real one and a fake. Route code is tested with a Ctx from `tifatest.NewCtx`, see [Testing](app.md#testing).
-- Do not set things up in `init()`, and do not read a resource while package-level variables are initialized. Resources exist only after `OnStart` has run.
+- Do not set things up in `init()`, and do not read a resource while package-level variables are initialized. Resources exist only after `OnStart` has run. Putting a function in a registry, such as `jobs.Handle`, reads nothing and may run in `init` (see [a job that needs code of a domain](guides/jobs.md#a-job-that-needs-code-of-a-domain)).

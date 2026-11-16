@@ -2,6 +2,7 @@
 summary: 'Every setting of a Tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Defining an option of the app with tifa.String and the like, or reading one in OnStart
+  - The browser needs a value that is known only when the program runs, such as a public key or an API base URL, and `import.meta.env.VITE_*` is fixed at build
   - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
   - An upload, a download or a stream is cut off after about 10 seconds, or a handler needs longer than the read and write timeouts
@@ -173,6 +174,26 @@ var (
 - An app that needs more can run its own configuration in `OnStart`.
 
 `tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `options.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of Tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of Tifa. The program panics on the same mistakes if they get past the build. Apps from before the file was renamed have `config.go`: the build also fails, naming it, when `tifa.String` and the like are still there, so rename it to `options.go`.
+
+### A value for the browser that is known at run time
+
+`import.meta.env.VITE_*` is read by Vite when `tifa build` runs and is written into the bundle, so a new value needs a new build. For a value that is known only when the program runs, such as a public key or the base URL of an API, define it as an option and return it from `Load` (or from a `Layout`, for every page below it). It reaches the browser with the rest of the data of the page:
+
+```go
+// options.go
+var PublicKey = tifa.String("stripe.public_key", "", "Public key the browser uses")
+
+// app/checkout/route.go
+type Page struct {
+	PublicKey string `json:"publicKey"`
+}
+
+func Load(c *tifa.Ctx) (Page, error) { return Page{PublicKey: shop.PublicKey}, nil }
+// app/checkout/page.tsx
+const { publicKey } = page.useLoaderData()
+```
+
+Everything a `Load` returns is in the page, so return only what any visitor may see. Do not return a `tifa.Secret`.
 
 ## Render queue
 

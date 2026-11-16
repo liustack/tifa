@@ -588,7 +588,7 @@ func TestNewWritesAgentNotes(t *testing.T) {
 }
 
 // The part of AGENTS.md that tifa manages sits between two marker lines, so a later tifa can
-// replace it and leave what the user wrote around it. The markers are alone on their lines, appear
+// replace it and leave what the user wrote around it. Nothing does yet. The markers are alone on their lines, appear
 // once each and come in order, and the notes about the app itself are outside them.
 func TestNewAgentNotesHaveOneManagedBlock(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")

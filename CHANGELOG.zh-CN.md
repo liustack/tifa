@@ -15,6 +15,8 @@
 
 - 登录指南新增 `RequireUser` 守卫，用 `c.Path()` 把没登录的访客送到 `/login?next=`，并用 `tifatest.Start` 测了整个登录和登出。
 - 页面对没有入参也没有结果的方法函数的调用，比如 `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`，在方法函数什么都没写时，现在会把新的会话带给浏览器。以前 `SignedIn`、`SignedOut` 和 `useSession` 会保持旧状态，直到下一次导航。回答是 200、`X-Tifa-Session: 1`，正文是会话，生成的 TypeScript 不变。自己写响应的方法函数不受影响。
+- `tifa new` 写出的 `AGENTS.md` 里，Tifa 管理的那一段开头的注释改成了实情：升级 Tifa 时没有任何东西会刷新这一段。[构建](docs/build.zh-CN.md#agentsmd-里-tifa-管理的块)里也这样写。
+- `tifa new` 写出的 `README.md` 说明应用是什么：一个可以运行的起步模板，用你自己的领域替换它，而不是待办事项产品。
 
 ### 修复
 

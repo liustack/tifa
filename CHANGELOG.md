@@ -15,6 +15,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - The sign-in guide has a `RequireUser` guard that sends a signed-out visitor to `/login?next=` with `c.Path()`, and tests the whole sign-in and sign-out with `tifatest.Start`.
 - A call from the page to a handler with no input and no result, such as `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`, now brings the new session to the browser when the handler wrote nothing. Before, `SignedIn`, `SignedOut` and `useSession` kept the old state until the next navigation. The answer is 200 with `X-Tifa-Session: 1` and the session as its body, and the generated TypeScript does not change. A handler that writes its own response is unchanged.
+- The comment at the top of the Tifa block in the `AGENTS.md` that `tifa new` writes says what is true: nothing refreshes the block when Tifa is upgraded. [Build](docs/build.md#the-managed-block-of-agentsmd) says the same.
+- The `README.md` that `tifa new` writes says what the app is: a working starter to replace with your own domain, not a todo list product.
 
 ### Fixed
 

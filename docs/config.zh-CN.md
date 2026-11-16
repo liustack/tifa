@@ -174,6 +174,26 @@ var (
 
 以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `options.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置或选项（应用的或 Tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 Tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。之前叫 `config.go` 的文件也一样：里面还有 `tifa.String` 等调用时构建会失败并指出它，把它改名为 `options.go` 即可。
 
+### 运行时才知道、要交给浏览器的值
+
+`import.meta.env.VITE_*` 由 Vite 在 `tifa build` 时读取并写进包里，换一个值就要重新构建。如果一个值只在程序运行时才知道，比如公开的密钥或某个 API 的基础地址，就把它定义成选项，再从 `Load` 返回（要让下面的所有页面都有，就从 `Layout` 返回）。它会和页面的其他数据一起到达浏览器：
+
+```go
+// options.go
+var PublicKey = tifa.String("stripe.public_key", "", "Public key the browser uses")
+
+// app/checkout/route.go
+type Page struct {
+	PublicKey string `json:"publicKey"`
+}
+
+func Load(c *tifa.Ctx) (Page, error) { return Page{PublicKey: shop.PublicKey}, nil }
+// app/checkout/page.tsx
+const { publicKey } = page.useLoaderData()
+```
+
+`Load` 返回的一切都在页面里，所以只返回任何访客都可以看到的值。不要返回 `tifa.Secret`。
+
 ## 渲染队列
 
 所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 3 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。 一次渲染最坏的耗时是两项限制相加：最多等 3 秒拿 VM，再最多跑 3 秒（`ssr.timeout`），共 6 秒，这只是 SSR 部分，仍在 10 秒的 `server.write_timeout` 以内。`OnRequest`、`Load`、编码、压缩和写出响应共用同一个写超时，调大其中任何一项时要给它们留出余地。

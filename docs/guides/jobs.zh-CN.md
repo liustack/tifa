@@ -171,7 +171,7 @@ var (
 	PollEvery = time.Second
 )
 
-// Handle sets the handler of a kind of job. Call it in OnStart, before Run.
+// Handle sets the handler of a kind of job. Call it in OnStart or in an init, before Run.
 func Handle(kind string, h Handler) { handlers[kind] = h }
 
 // Execer is what Enqueue writes through: a *sql.DB, or a *sql.Tx to queue the job in the same
@@ -370,6 +370,41 @@ func digestJob(ctx context.Context, _ []byte) error {
 ```
 
 `mail` 的处理函数在[发送邮件](email.zh-CN.md)里写。
+
+### 任务要用某个领域的代码
+
+`worker.go` 在根包里，而根包不导入 `app/` 下的任何包（见[import 的方向](../structure.zh-CN.md#import-的方向)）。假设某个任务要用领域 `app/issues` 的代码。根包导入不了它：`issues` 为了 `DB` 导入了根包，go 命令会报 `import cycle not allowed` 并停下。所以让领域自己注册处理函数。`jobs.Handle` 只是把一个函数放进 map，不读任何资源，可以放在 `init` 里，和 `database/sql` 的驱动注册自己是同一个做法：
+
+```go
+// app/issues/digest.go
+package issues
+
+import (
+	"context"
+	"log/slog"
+
+	"example.com/notes"
+	"example.com/notes/jobs"
+)
+
+func init() { jobs.Handle("issue-digest", digest) }
+
+// digest runs after OnStart, so it may use notes.DB.
+func digest(ctx context.Context, _ []byte) error {
+	var open int
+	if err := notes.DB.QueryRowContext(ctx, `SELECT count(*) FROM issues WHERE NOT closed`).Scan(&open); err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, "open issues", "count", open)
+	return nil
+}
+```
+
+`worker.go` 里不用列出这个种类。`jobs.Run` 按种类找处理函数，任何代码都可以用 `jobs.Enqueue(ctx, notes.DB, "issue-digest", ...)` 排入任务。
+
+Tifa 只链接路由导入的包。如果某个页面导入了 `issues`，它的 `init` 就会运行。如果只有任务用它，没有任何包导入它，处理函数就永远不会注册，任务会报 `no handler for "issue-digest"`，直到被标为失败。这时在某个路由包里（比如 `app/route.go`）为它的副作用导入：`import _ "example.com/notes/app/issues"`。
+
+另一条路是把 `DB` 从根包拿出来，放进自己的包，比如 `example.com/notes/db`，领域导入它而不是根包。这样 `app/` 下没有任何包导入根包，根包就可以导入 `app/issues`，并在 `startBackground` 里自己调用 `jobs.Handle`。这打破了“共享资源放在根包”的约定，只在不想用 `init` 时才用。
 
 ## 定时任务
 
