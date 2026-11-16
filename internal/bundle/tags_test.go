@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -118,6 +119,7 @@ func TestSSRDoesNotAskTheEngineForTagsOfAnotherReactDOM(t *testing.T) {
 	for name, change := range map[string][2]string{
 		"pushStyleAttribute":      {"function pushStyleAttribute(target, style) {", "function pushStyleAttribute(target, style) { void 0;"},
 		"aliases":                 {"  aliases = new Map([", "  aliases = new Map([\n    [\"tifaName\", \"tifa-name\"],"},
+		"pushSelfClosing":         {"function pushSelfClosing(target, props, tag, formatContext) {", "function pushSelfClosing(target, props, tag, formatContext) { void 0;"},
 		"endChunkForTag":          {"function endChunkForTag(tag) {", "function endChunkForTag(tag) { void 0;"},
 		"renderElement":           {"function renderElement(request, task, keyPath, type, props, ref) {", "function renderElement(request, task, keyPath, type, props, ref) { void 0;"},
 		"the call of the end tag": {"        target.push(endChunkForTag(type));\n", "        target.push(endChunkForTag( type ));\n"},
@@ -316,5 +318,157 @@ func TestSSRChecksTheTagsOfAnchorsAndButtons(t *testing.T) {
 	var same map[string]int
 	if err := json.Unmarshal([]byte(line), &same); err != nil || same["a"] < 10 || same["button"] < 8 || differences != "" {
 		t.Errorf("tags the engine wrote as React does: %s", got)
+	}
+}
+
+// voidPage renders the elements React DOM writes in pushSelfClosing (img after its preload, br, hr,
+// wbr, col, source, area and the like), the input of its case "input", and the style element it
+// writes where it is (emotion's), with props of each kind, and the ones React throws on.
+const voidPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const action = () => 1\n" +
+	"const cases: Record<string, [string, any]> = {\n" +
+	"  'img lazy': ['img', { src: '/a.png', alt: 'a & b', loading: 'lazy', width: 10, height: 20, className: 'pic' }],\n" +
+	"  'img preload': ['img', { src: '/b.png', alt: '', srcSet: '/b.png 1x, /b2.png 2x', sizes: '10vw' }],\n" +
+	"  'img children': ['img', { src: '/c.png', children: 'x' }],\n" +
+	"  'img html': ['img', { src: '/c.png', dangerouslySetInnerHTML: { __html: 'x' } }],\n" +
+	"  'br': ['br', {}],\n" +
+	"  'hr class': ['hr', { className: 'rule', style: { margin: 0 } }],\n" +
+	"  'wbr': ['wbr', {}],\n" +
+	"  'col': ['col', { span: 2, width: 40 }],\n" +
+	"  'embed': ['embed', { src: '/e', type: 'x/y' }],\n" +
+	"  'area': ['area', { alt: 'a', href: '/h', shape: 'rect' }],\n" +
+	"  'br children': ['br', { children: 'x' }],\n" +
+	"  'input text': ['input', { type: 'text', name: 'q', value: 'a \"b\"', onChange: action, readOnly: true, className: 'field' }],\n" +
+	"  'input checked': ['input', { type: 'checkbox', checked: true, defaultChecked: false, id: 'c' }],\n" +
+	"  'input default': ['input', { type: 'text', defaultValue: 'd', defaultChecked: true, placeholder: 'p' }],\n" +
+	"  'input form props': ['input', { type: 'submit', formAction: '/act', formEncType: 'multipart/form-data', formMethod: 'post', formTarget: '_blank', name: 'n' }],\n" +
+	"  'input formAction function': ['input', { type: 'submit', formAction: action, name: 'n' }],\n" +
+	"  'input children': ['input', { type: 'text', children: 'x' }],\n" +
+	"  'input html': ['input', { type: 'text', dangerouslySetInnerHTML: { __html: 'x' } }],\n" +
+	"  'input empty': ['input', {}],\n" +
+	"  'style text': ['style', { 'data-emotion': 'css', children: '.a{color:red}.b>.c{margin:0}' }],\n" +
+	"  'style html': ['style', { 'data-emotion': 'css', dangerouslySetInnerHTML: { __html: '.a{color:red}' }, nonce: 'n' }],\n" +
+	"  'style empty': ['style', {}],\n" +
+	"}\n" +
+	"const render = (Tag: any, p: any) => { try { return renderToString(<div><Tag data-case={p.case} {...p.props} /></div>) } catch (e) { return 'threw ' + (e as Error).message } }\n" +
+	"const once = () => Object.entries(cases).map(([name, [Tag, props]]) => name + ': ' + render(Tag, { case: name, props })).join('\\n')\n" +
+	"globalThis.result = once() + '\\n' + once()\n"
+
+// modeTags makes a VM give a bundle the engine's start tag under __tifa_start_tag, as a function of
+// the given number of parameters (an engine whose start tag has no modes has 6, one that has them
+// 7), and records in globalThis.modes each call that has a seventh argument as "tag:mode" and in
+// globalThis.longest the most arguments a call had. A call with a mode is declined, as an engine
+// does that does not know the mode, and the others go to the engine.
+func modeTags(t *testing.T, params int) func(*slowjs.VM) {
+	return func(vm *slowjs.VM) {
+		t.Helper()
+		engineTags(t)(vm)
+		formals := "target, props, type, context, has, decline"
+		if params == 7 {
+			formals += ", mode"
+		}
+		if _, err := vm.Eval("globalThis.modes = [], globalThis.longest = 0\n"+
+			"const asking = globalThis.__tifa_start_tag\n"+
+			"globalThis.__tifa_start_tag = function ("+formals+") {\n"+
+			"  longest = Math.max(longest, arguments.length)\n"+
+			"  if (arguments.length > 6) {\n"+
+			"    modes.push(type + ':' + arguments[6])\n"+
+			"    return decline\n"+
+			"  }\n"+
+			"  return asking(target, props, type, context, has, decline)\n"+
+			"}", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// pushSelfClosing (img and the void elements), the case "input" and the branch of the case "style"
+// that writes the element where it is ask a start tag of the engine that has modes, with the mode as a
+// seventh argument: 1, 2 and 3. They ask only a start tag with 7 or more parameters, which the engine
+// before the release that has modes does not have, since it would write a void element as a generic
+// one. The HTML is the same as in React DOM unchanged with no engine, with that engine and with one
+// that declines every mode.
+func TestSSRAsksTheEngineForSelfClosingTags(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"void.tsx": voidPage})
+	code, printed := buildPrinting(t, root, "void.tsx")
+	if version := installedVersion(t, "react-dom"); version != "19.3.0" && version != "19.3.1" {
+		t.Fatalf("the reviewed fingerprints of pushSelfClosing are those of react-dom 19.3.0 and 19.3.1, this is %s", version)
+	}
+	if !regexp.MustCompile(`7 ?<= ?[\w$]+\.length`).MatchString(code) {
+		t.Error("the bundle does not ask a start tag of 7 or more parameters for a mode")
+	}
+	if strings.Contains(printed, "start and end tags") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	unknown := withReactDOM(t, "function sanitizeURL(url) {", "function sanitizeURL(url) { void 0;")
+	writeTree(t, unknown, map[string]string{"void.tsx": voidPage})
+	unchanged, _ := buildPrinting(t, unknown, "void.tsx")
+	want := evalResult(t, unchanged)
+	for _, text := range []string{
+		`img lazy: <div><img data-case="img lazy" src="/a.png" alt="a &amp; b" loading="lazy" width="10" height="20" class="pic"/></div>`,
+		`br: <div><br data-case="br"/></div>`,
+		`input text: <div><input data-case="input text" type="text" readOnly="" class="field" name="q" value="a &quot;b&quot;"/></div>`,
+		"img children: threw",
+		"input children: threw",
+		`style html: <div><style data-case="style html" data-emotion="css" nonce="n">.a{color:red}</style></div>`,
+	} {
+		if !strings.Contains(want, text) {
+			t.Fatalf("React DOM unchanged does not write %q:\n%.3000s", text, want)
+		}
+	}
+	for name, setup := range map[string]func(*slowjs.VM){
+		"no engine":                   nil,
+		"an engine without modes":     engineTags(t),
+		"a start tag of 6 parameters": modeTags(t, 6),
+		"a start tag of 7 parameters": modeTags(t, 7),
+	} {
+		if got := evalResultWith(t, code, setup); got != want {
+			t.Errorf("%s: the page renders otherwise:\n%s", name, firstDifference(got, want))
+		}
+	}
+	// Today's engine is never asked with a mode.
+	if got := evalResultWith(t, code+"\nglobalThis.result = modes.length + ' ' + longest", modeTags(t, 6)); got != "0 6" {
+		t.Errorf("modes asked of a start tag of 6 parameters, and the most arguments of a call: %s", got)
+	}
+	got := evalResultWith(t, code+"\nglobalThis.result = [...new Set(modes)].sort().join(' ')", modeTags(t, 7))
+	for _, mode := range strings.Fields("area:1 br:1 col:1 embed:1 hr:1 img:1 input:2 style:3 wbr:1") {
+		if !strings.Contains(" "+got+" ", " "+mode+" ") {
+			t.Errorf("the engine is not asked %s: %s", mode, got)
+		}
+	}
+	for _, mode := range strings.Fields(got) {
+		if tag, _, _ := strings.Cut(mode, ":"); tag == "div" || tag == "a" || tag == "button" {
+			t.Errorf("a mode asked for %s: %s", tag, got)
+		}
+	}
+}
+
+// With TIFA_EMIT_CHECK=1 the calls with a mode are compared with React's own writer too. An engine
+// that declines them is counted as declined, and the page is the one React writes.
+func TestSSRChecksTheSelfClosingTags(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"void.tsx": voidPage})
+	plain, _ := buildPrinting(t, root, "void.tsx")
+	t.Setenv("TIFA_EMIT_CHECK", "1")
+	code, _ := buildPrinting(t, root, "void.tsx")
+	check := func(vm *slowjs.VM) {
+		modeTags(t, 7)(vm)
+		if _, err := vm.Eval("globalThis.verdicts = { same: 0, declined: 0, differ: 0 }, globalThis.differences = []\n"+
+			"globalThis.__tifa_emit_check = (verdict, tag, props, c, js) => {\n"+
+			"  verdicts[verdict]++\n"+
+			"  if (verdict === 'differ') differences.push(tag + ' ' + props + '\\n  C:     ' + c + '\\n  React: ' + js)\n"+
+			"}", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := evalResultWith(t, code, check), evalResult(t, plain); got != want {
+		t.Errorf("the page of the test hook differs:\n%s", firstDifference(got, want))
+	}
+	got := evalResultWith(t, code+"\nglobalThis.result = JSON.stringify(verdicts) + '\\n' + differences.join('\\n')", check)
+	var same, declined, differ int
+	if _, err := fmt.Sscanf(got, `{"same":%d,"declined":%d,"differ":%d}`, &same, &declined, &differ); err != nil || declined < 20 || differ != 0 {
+		t.Errorf("verdicts: %s", got)
 	}
 }

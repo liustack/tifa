@@ -954,7 +954,8 @@ const reviewedJsxPieces = new Map([
 // gives them and the fingerprint of their structure in React DOM 19.3.0 and 19.3.1, which are the
 // same in these parts: pushStartGenericElement and every function and variable it uses on the way
 // to the text of a tag, endChunkForTag with its cache, and the two functions whose calls of them
-// emitInEngine changes, pushStartInstance and renderElement. The C functions were written from these
+// emitInEngine changes, pushStartInstance and renderElement, and pushSelfClosing, whose first line it
+// changes too for an engine with modes. The C functions were written from these
 // texts, so the plugin changes the calls only when each part is the one here. See "Reviewing a new
 // React" in docs/build.md.
 const reviewedEmitPieces = new Map([
@@ -982,6 +983,7 @@ const reviewedEmitPieces = new Map([
   ['var VALID_TAG_REGEX', 'bd975359093f'],
   ['var validatedTagCache', 'cc0e7336f060'],
   ['startChunkForTag', '64876d5bfa9c'],
+  ['pushSelfClosing', '54fb3bd7e1fd'],
   ['pushStartInstance', '0961ceedef65'],
   ['var endTagCache', '11da83b8ed99'],
   ['endChunkForTag', '04e460fb5af6'],
@@ -996,6 +998,13 @@ const endTagCall = '        target.push(endChunkForTag(type));\n'
 // does what pushStartGenericElement does.
 const anchorCase = '    case "a":\n      target$jscomp$0.push(startChunkForTag("a"));\n'
 const buttonCase = '    case "button":\n      target$jscomp$0.push(startChunkForTag("button"));\n'
+// The first line of pushSelfClosing, which writes img (after its image preload) and the void
+// elements, and the line after it.
+const selfClosingStart = 'function pushSelfClosing(target, props, tag, formatContext) {\n  target.push(startChunkForTag(tag));\n'
+// The first line of the case "input" of pushStartInstance.
+const inputStart = '    case "input":\n      target$jscomp$0.push(startChunkForTag("input"));\n'
+// The first line of the branch of the case "style" that writes the element where it is.
+const styleStart = '        target$jscomp$0.push(startChunkForTag("style"));\n'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -3013,6 +3022,13 @@ export function unreadEmitPieces(units) {
 // module, since a call of a JavaScript function costs about as much as the C function saves on a
 // small tag. The lines stay where they were.
 //
+// pushSelfClosing, which writes img after its image preload and the void elements (br, hr, meta,
+// source and the like), asks the engine first too, with the mode 1 as a seventh argument. An engine
+// whose start tag has a length under 7 has no modes and would write such an element as a generic
+// one, so the bundle asks it only when the length is 7 or more. An engine declines a mode it does
+// not know. The case "input" of pushStartInstance asks it the same way, with the mode 2, and the
+// branch of its case "style" that writes the element where it is (emotion's style elements) with 3.
+//
 // With check, the test hook of docs/testing.md, React writes every tag, and each start tag is also
 // written by the engine into an array of its own and the two compared, as is each end tag. Each
 // comparison goes to __tifa_emit_check, which only a program built with the tag tifa_emit_check
@@ -3022,25 +3038,37 @@ function emitInEngine(source, check) {
   if (source.split(anchorCase).length !== 2 || source.split(buttonCase).length !== 2) return null
   const generic = 'return pushStartGenericElement(target$jscomp$0, props, type, formatContext);'
   const start = check
-    ? `if (null !== tifaStartTag) return tifaCheckStart(target$jscomp$0, props, type, formatContext); ${generic}`
+    ? `if (null !== tifaStartTag) return tifaCheckStart(target$jscomp$0, props, type, formatContext, 0, function () { ${generic} }); ${generic}`
     : 'if (null !== tifaStartTag) { var tifaStart = tifaStartTag(target$jscomp$0, props, type, formatContext, hasOwnProperty, tifaDecline); ' +
       `if (tifaStart !== tifaDecline) return tifaStart; } ${generic}`
   const end = check ? 'target.push(tifaCheckEnd(type));' : 'target.push(null !== tifaEndTag ? tifaEndTag(type) : endChunkForTag(type));'
   let tail = `
 var tifaStartTag = "function" === typeof __tifa_start_tag ? __tifa_start_tag : null,
   tifaEndTag = "function" === typeof __tifa_end_tag ? __tifa_end_tag : null,
-  tifaDecline = {};
+  tifaDecline = {},
+  tifaSelfClosing = null !== tifaStartTag && 7 <= tifaStartTag.length ? tifaStartTag : null,
+  tifaChecking = false;
 `
   if (check) {
     tail += `var tifaEmitCheck = __tifa_emit_check;
 function tifaPropsOf(props) {
   return Object.keys(props).map(function (key) { var value = props[key]; return key + ":" + (null === value ? "null" : Array.isArray(value) ? "array" : typeof value); }).join(" ");
 }
-function tifaCheckStart(target, props, type, formatContext) {
+function tifaCheckStart(target, props, type, formatContext, mode, write) {
   var engine = [],
-    started = tifaStartTag(engine, props, type, formatContext, hasOwnProperty, tifaDecline),
+    started = mode ? tifaStartTag(engine, props, type, formatContext, hasOwnProperty, tifaDecline, mode)
+      : tifaStartTag(engine, props, type, formatContext, hasOwnProperty, tifaDecline),
     at = target.length,
-    react = pushStartGenericElement(target, props, type, formatContext);
+    react;
+  tifaChecking = true;
+  try {
+    react = write();
+  } catch (e) {
+    if (started !== tifaDecline) tifaEmitCheck("differ", type, tifaPropsOf(props) + " (React throws)", engine.join(""), "");
+    throw e;
+  } finally {
+    tifaChecking = false;
+  }
   if (started === tifaDecline) tifaEmitCheck("declined", type, tifaPropsOf(props), "", "");
   else {
     var c = engine.join(""), js = target.slice(at).join("");
@@ -3059,6 +3087,22 @@ function tifaCheckEnd(type) {
 }
 `
   }
+  // the first line of pushSelfClosing, of the case "input" and of the style written where it is get
+  // the call, so the lines stay where they were
+  const withMode = (target, tag, mode, react) =>
+    check
+      ? `if (null !== tifaSelfClosing && !tifaChecking) return tifaCheckStart(${target}, props, ${tag}, formatContext, ${mode}, function () { return ${react}; });`
+      : `if (null !== tifaSelfClosing) { var tifaStart = tifaSelfClosing(${target}, props, ${tag}, formatContext, hasOwnProperty, tifaDecline, ${mode}); ` +
+        'if (tifaStart !== tifaDecline) return tifaStart; }'
+  const pushStart =
+    'pushStartInstance(target$jscomp$0, type, props, resumableState, renderState, preambleState, hoistableState, formatContext, textEmbedded)'
+  if (source.split(selfClosingStart).length !== 2 || source.split(inputStart).length !== 2 || source.split(styleStart).length !== 2) return null
+  source = source
+    .replace(selfClosingStart, () =>
+      selfClosingStart.replace('{\n', `{ ${withMode('target', 'tag', 1, 'pushSelfClosing(target, props, tag, formatContext)')}\n`),
+    )
+    .replace(inputStart, () => inputStart.replace('\n      ', `\n      ${withMode('target$jscomp$0', '"input"', 2, pushStart)} `))
+    .replace(styleStart, () => `        ${withMode('target$jscomp$0', '"style"', 3, pushStart)} ${styleStart.trimStart()}`)
   // An a whose href is not "" and a button without name, formAction, formEncType, formMethod and
   // formTarget leave their case for the end of the switch, which is the call above. For the a React
   // writes an href of "" with pushStringAttribute, and every other href with pushAttribute, as the
