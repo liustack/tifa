@@ -6,7 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
-- Server renders do less work in each `useCallback` call and in each lookup of the i18next cache. The HTML is the same. Counted with callgrind, the example shop's storefront pages run 0.91% fewer instructions and its workbench pages 0.65% fewer. A stack trace of an error thrown while React compares the dependencies of a `useCallback` names `tifaUseCallback` where it named `useMemo`.
+- Server renders do less work in each `useCallback` call, in each lookup of the i18next cache and in each lookup of the cache of lucide-react icons. The HTML is the same. Counted with callgrind, the example shop's storefront pages run 1.24% fewer instructions, its workbench pages 0.79% fewer and the pages of an MUI app 0.40% fewer. A stack trace of an error thrown while React compares the dependencies of a `useCallback` names `tifaUseCallback` where it named `useMemo`.
 
 ## [0.0.10] - 2026-11-16
 
