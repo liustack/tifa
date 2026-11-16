@@ -37,19 +37,9 @@ func latencyRate(res *BrowseResult, sc string, sessions, rounds int) (float64, e
 	return rate, nil
 }
 
-// visitsFor is the number of visits that last about window at rate visits a second, rounded up to
-// whole cycles of all the plans, so that the page mix and the writes come out as the mix says: a
-// part of a cycle has another number of page views a visit and another share of writes.
-func visitsFor(rate float64, window time.Duration, cycle int) int {
-	n := int(math.Ceil(rate * window.Seconds()))
-	return max(1, int(math.Ceil(float64(n)/float64(cycle)))) * cycle
-}
-
-// openRound runs the open model on a fresh server: whole cycles of all the plans, after a warm-up of
-// as many visits at the same rate with their writes, the visits after those of the round, apart.
-func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, window time.Duration) (*Round, error) {
-	cycle := b.set.Blocks * sc.blockVisits()
-	visits := visitsFor(rate, window, cycle)
+// openRound runs the open model on a fresh server: visits at rate a second, after a warm-up of as
+// many visits with their writes, the visits after those of the round, apart.
+func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, rate float64, visits int) (*Round, error) {
 	out, err := b.with(ctx, fw, sc, visits, visits, visits, func(r *runner) *Round {
 		return r.RunOpen(ctx, rate, visits, 30*time.Second, 0)
 	})
@@ -64,9 +54,10 @@ func (b *browse) openRound(ctx context.Context, fw string, sc BrowseScenario, ra
 	return out, nil
 }
 
-// latency is the open run of a scenario: all its servers at the same arrival rate (latencyRate), the
-// rounds in a rotating order with fresh servers. A server that cannot hold the rate fails at it, and
-// its rounds are kept as they are: the rate is never lowered for it.
+// latency is the open run of a scenario: every server, a reference too, plays one round of
+// LatencyBlocks blocks at the same arrival rate (latencyRate), on a fresh server. A round that is not
+// valid (the load generator fell behind) is played again, up to maxTries tries. A server that cannot
+// hold the rate fails at it, and its round is kept as it is: the rate is never lowered for it.
 func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 	if !sc.Latency {
 		return nil
@@ -84,36 +75,35 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 			return err
 		}
 	}
-	rate := b.res.LatencyRate[sc.Name]
-	b.logf("latency %s: %.2f visits/s, %.0f%% of the closed throughput of %s\n", sc.Name, rate, 100*latencyShare, b.res.LatencyBase[sc.Name])
-	// Long enough for at least 1100 full loads and clicks, and for at least the final window.
-	window := max(b.o.FinalWindow, time.Duration(1100/rate*float64(time.Second)))
-	for round := 1; round <= b.o.Rounds; round++ {
-		for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-			// A round that is not valid (the load generator fell behind) is run again, up to three tries.
-			for {
-				tries := 0
-				for _, x := range b.res.Latency {
-					if x.Framework == fw && x.Scenario == sc.Name && x.Round == round {
-						tries++
-						if x.Valid {
-							tries = maxTries
-						}
-					}
+	if b.o.LatencyBlocks <= 0 || b.o.LatencyBlocks%b.set.Blocks != 0 {
+		return fmt.Errorf("%s: a latency round of %d blocks is not whole passes of the %d blocks of the plans", sc.Name, b.o.LatencyBlocks, b.set.Blocks)
+	}
+	rate, visits := b.res.LatencyRate[sc.Name], b.o.LatencyBlocks*sc.blockVisits()
+	b.logf("latency %s: %d visits at %.2f visits/s, %.0f%% of the closed throughput of %s\n", sc.Name, visits, rate, 100*latencyShare, b.res.LatencyBase[sc.Name])
+	for _, fw := range b.servers[sc.Name] {
+		// The tries it played before, in a run that stopped: a valid one ends its tries.
+		tries := 0
+		for _, x := range b.res.Latency {
+			if x.Framework == fw && x.Scenario == sc.Name {
+				tries++
+				if x.Valid {
+					tries = maxTries
 				}
-				if tries >= maxTries {
-					break
-				}
-				r, err := b.openRound(ctx, fw, sc, rate, window)
-				if err != nil {
-					return err
-				}
-				r.Round, r.Attempt = round, tries+1
-				b.res.Latency = append(b.res.Latency, *r)
-				b.logf("latency %-10s %-12s round %d (try %d): %d of %d visits succeeded, %d failed, %d unfinished, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s valid %v %s\n", sc.Name, fw, round, r.Attempt, r.Visits, r.VisitsPlanned, r.VisitsFailed, r.VisitsUnfinished, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why, r.Valid, r.WhyInvalid)
-				if err := b.commit(); err != nil {
-					return err
-				}
+			}
+		}
+		for try := tries + 1; try <= maxTries; try++ {
+			r, err := b.openRound(ctx, fw, sc, rate, visits)
+			if err != nil {
+				return err
+			}
+			r.Round, r.Attempt = 1, try
+			b.res.Latency = append(b.res.Latency, *r)
+			b.logf("latency %-10s %-12s try %d: %d of %d visits succeeded, %d failed, %d unfinished, load P50 %.1f P99 %.1f, click P50 %.1f P99 %.1f ms, pass %v %s valid %v %s\n", sc.Name, fw, r.Attempt, r.Visits, r.VisitsPlanned, r.VisitsFailed, r.VisitsUnfinished, r.Types["load"].P50, r.Types["load"].P99, r.Types["click"].P50, r.Types["click"].P99, r.Pass, r.Why, r.Valid, r.WhyInvalid)
+			if err := b.commit(); err != nil {
+				return err
+			}
+			if r.Valid {
+				break
 			}
 		}
 	}

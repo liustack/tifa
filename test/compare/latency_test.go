@@ -88,3 +88,93 @@ func TestTheLatencyPhaseRefusesWithoutTheClosedRoundsOfNextJS(t *testing.T) {
 		t.Errorf("a run without Next.js: %v", err)
 	}
 }
+
+// Every server, Next.js and a reference alike, plays one latency round of the blocks of the run
+// (LatencyBlocks), at the rate taken from the closed rounds of Next.js, on a server of its own.
+func TestEveryServerPlaysOneLatencyRoundOfItsBlocks(t *testing.T) {
+	shortSpacing(t)
+	_, nocache, node := warmSpecs()
+	sc := mustScenario("shop")
+	b, servers := warmBrowse(t, sc, node, nocache)
+	b.o.LatencyBlocks = 3
+	// 1500 visits in a second: 40% of it is 600 visits a second, so that a round of 3 blocks is short.
+	b.res.Closed = []Round{nextClosed(sc.Name, b.o.Sessions, 1, 1500, 1)}
+	b.res.LatencyRate, b.res.LatencyBase = map[string]float64{}, map[string]string{}
+	if err := b.latency(t.Context(), sc); err != nil {
+		t.Fatal(err)
+	}
+	if b.res.LatencyRate[sc.Name] != 600 || b.res.LatencyBase[sc.Name] != openBase {
+		t.Errorf("the rate %v of %v, want 600 of %s", b.res.LatencyRate, b.res.LatencyBase, openBase)
+	}
+	for _, name := range []string{node.Name, nocache.Name} {
+		var valid []Round
+		for _, x := range b.res.Latency {
+			if x.Framework == name && x.Valid {
+				valid = append(valid, x)
+			}
+		}
+		if len(valid) != 1 {
+			t.Fatalf("%s: %d valid latency rounds, want 1", name, len(valid))
+		}
+		x := valid[0]
+		if x.Round != 1 || x.Blocks != 3 || x.VisitsPlanned != 3*sc.blockVisits() || x.Rate != 600 || x.Model != "open" {
+			t.Errorf("%s: round %d of %d blocks, %d visits planned at %v visits/s (%s), want round 1 of 3 blocks, %d visits at 600", name, x.Round, x.Blocks, x.VisitsPlanned, x.Rate, x.Model, 3*sc.blockVisits())
+		}
+	}
+	// One server for each try (the servers of the check of the writes get nothing here: warmBrowse
+	// stubs it).
+	if n := len(busy(servers())); n != len(b.res.Latency) {
+		t.Errorf("%d servers for %d latency rounds", n, len(b.res.Latency))
+	}
+	// A latency round is done once it has a valid try: the phase played again plays nothing.
+	n := len(b.res.Latency)
+	if err := b.latency(t.Context(), sc); err != nil || len(b.res.Latency) != n {
+		t.Errorf("the phase again: %d rounds, %d before (%v)", len(b.res.Latency), n, err)
+	}
+}
+
+// A latency round is split into three parts of the same length by the planned start of its visits,
+// and the full loads and the client navigations of the three parts add up to those of the round.
+func TestTheThreePartsOfALatencyRoundAddUpToTheRound(t *testing.T) {
+	shortSpacing(t)
+	_, _, node := warmSpecs()
+	sc := mustScenario("shop")
+	b, _ := warmBrowse(t, sc, node)
+	out, err := b.openRound(t.Context(), node.Name, sc, 600, 3*sc.blockVisits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Parts) != 3 {
+		t.Fatalf("%d parts, want 3", len(out.Parts))
+	}
+	loads, clicks := 0, 0
+	for i, p := range out.Parts {
+		if p.Load.N == 0 || p.Click.N == 0 || p.Load.P99 < p.Load.P50 || p.Click.P99 < p.Click.P50 {
+			t.Errorf("part %d: %+v", i+1, p)
+		}
+		// The visits of a part start in its third of the round: about a third of the full loads each.
+		if third := out.Types["load"].N / 3; p.Load.N < third*9/10 || p.Load.N > third*11/10 {
+			t.Errorf("part %d has %d of the %d full loads", i+1, p.Load.N, out.Types["load"].N)
+		}
+		loads, clicks = loads+p.Load.N, clicks+p.Click.N
+	}
+	if loads != out.Types["load"].N || clicks != out.Types["click"].N || loads == 0 {
+		t.Errorf("the parts have %d full loads and %d client navigations, the round %d and %d", loads, clicks, out.Types["load"].N, out.Types["click"].N)
+	}
+	if out.WarmUp == nil || out.WarmUp.VisitsPlanned != 3*sc.blockVisits() {
+		t.Errorf("the warm-up %+v, want as many visits as the round", out.WarmUp)
+	}
+}
+
+// A latency round plays whole passes of the plans: a part of one has another page mix.
+func TestALatencyRoundIsWholePassesOfThePlans(t *testing.T) {
+	sc := mustScenario("shop")
+	set := PlanSet{Blocks: 2}
+	for _, blocks := range []int{0, 3} {
+		b := &browse{o: BrowseOptions{Log: io.Discard, Sessions: 8, Rounds: 1, LatencyBlocks: blocks}, set: &set, servers: map[string][]string{sc.Name: {"nextjs"}}, res: &BrowseResult{
+			Closed: []Round{nextClosed(sc.Name, 8, 1, 740, 100)}, LatencyRate: map[string]float64{}, LatencyBase: map[string]string{}}}
+		if err := b.latency(t.Context(), sc); err == nil || !strings.Contains(err.Error(), "not whole passes of the 2 blocks") {
+			t.Errorf("%d blocks: %v", blocks, err)
+		}
+	}
+}

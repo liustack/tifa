@@ -26,7 +26,7 @@ import (
 // browse` and of browse.sh. A run with other settings, without the cpus of the server and of the load
 // pinned, not run by browse.sh or without every server of BrowseFrameworks is not a formal run, and
 // its report says so at the top, with how it differs.
-var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 120 * time.Second, FinalWindow: 240 * time.Second, Seed: 1}
+var FormalBrowse = BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 120 * time.Second, LatencyBlocks: 3, Seed: 1}
 
 // BrowseOptions say how to run the browse comparison. The traces are the files `compare record`
 // wrote, and the plans they were made from.
@@ -51,14 +51,16 @@ type BrowseOptions struct {
 	Announce string
 	// Hold is the command of a machine that keeps it quiet for a timing round, with its arguments,
 	// run around each server of the run (holdWith). A machine that has one needs no Locks or Announce.
-	Hold        []string
-	Scenarios   []BrowseScenario // BrowseScenarios when empty (the tests set others)
-	Phases      []string         // "throughput", "control" and "latency"; all of them when empty
-	Sessions    int              // the concurrent sessions every server starts the throughput at, 8
-	Rounds      int
-	Sizing      time.Duration // the length of a sizing run (browse.size)
-	Target      time.Duration // how long a closed round should take, about
-	FinalWindow time.Duration // an open round of the latency table, at least
+	Hold      []string
+	Scenarios []BrowseScenario // BrowseScenarios when empty (the tests set others)
+	Phases    []string         // "throughput", "control" and "latency"; all of them when empty
+	Sessions  int              // the concurrent sessions every server starts the throughput at, 8
+	Rounds    int
+	Sizing    time.Duration // the length of a sizing run (browse.size)
+	Target    time.Duration // how long a closed round should take, about
+	// LatencyBlocks is the blocks of the one latency round of every server, a multiple of the blocks of
+	// the plans (3 when 0).
+	LatencyBlocks int
 	// Stamp is what every server of the run shares (the plans, the replayer, the toolchain and the
 	// settings), kept in the result: a result of another stamp is not continued.
 	Stamp string
@@ -433,7 +435,7 @@ func checkDocuments(set *PlanSet, traces map[string]map[int]Trace, names []strin
 func browseConfig(o BrowseOptions, cpu, plans, method string) map[string]string {
 	return map[string]string{
 		"sessions": fmt.Sprint(o.Sessions), "rounds": fmt.Sprint(o.Rounds), "sizing": o.Sizing.String(), "target": o.Target.String(),
-		"finalWindow": o.FinalWindow.String(), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
+		"latencyBlocks": fmt.Sprint(o.LatencyBlocks), "serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs,
 		"seed": fmt.Sprint(o.Seed), "cpu": cpu, "plans": plans, "method": method,
 	}
 }
@@ -635,6 +637,9 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 	}
 	if o.Rounds == 0 {
 		o.Rounds = 3
+	}
+	if o.LatencyBlocks == 0 {
+		o.LatencyBlocks = 3
 	}
 	raiseFileLimit()
 	placement, err := PlacementFor(runtime.GOOS, SysTopology(), o.ServerCPUs, o.LoadCPUs)

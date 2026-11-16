@@ -597,13 +597,6 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 			}
 		}
 	}
-	// Every open run plays whole cycles of all 380 plans: a part of a cycle has another page mix.
-	if n := visitsFor(8, 30*time.Second, 380); n%380 != 0 || n < 240 {
-		t.Errorf("visits for 8 visits/s: %d", n)
-	}
-	if visitsFor(0.1, time.Second, 380) != 380 || visitsFor(2000, time.Minute, 380)%380 != 0 {
-		t.Error("an open run is whole cycles")
-	}
 }
 
 // A cycle of the site plays, for each block of plans, its 1000 shopper visits and the staff visits

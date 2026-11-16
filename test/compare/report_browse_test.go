@@ -53,32 +53,25 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 	}
 }
 
-// The latency table gives every round a server played at the rate, the failed ones too: a server
-// with a failed round fails the rule, and its errors and tail latency are in its row.
+// The latency table gives the round a server played at the rate, a failed one too: a server whose
+// round failed fails the rule, and its errors and tail latency are in its row.
 func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	mix := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{mix}, Servers: map[string][]string{mix.Name: {"tifa", "nextjs"}}, Date: "2026-11-06", Version: map[string]string{"go": "go1.27"},
 		LatencyRate: map[string]float64{"shop": 8}, LatencyBase: map[string]string{"shop": "nextjs"},
 	}
-	for round := 1; round <= 3; round++ {
-		a := closedRound("nextjs", mix.Name, 0, round, 1000, 100, round != 2)
-		a.Model = "open"
-		if round == 2 {
-			a.TimedOut, a.Failures = true, 20
-			a.Why = "the workload did not finish in time: a backlog was left"
-			a.Types["document"] = TypeStat{N: 5, P50: 3000, P99: 3000}
-		}
-		r.Latency = append(r.Latency, a)
-		b := closedRound("tifa", mix.Name, 0, round, 1000, 100, false)
-		b.Model, b.Framework = "open", "tifa"
-		r.Latency = append(r.Latency, b)
-	}
+	a := closedRound("nextjs", mix.Name, 0, 1, 1000, 100, false)
+	a.Model, a.TimedOut, a.Failures = "open", true, 20
+	a.Why = "the workload did not finish in time: a backlog was left"
+	a.Types["document"] = TypeStat{N: 5, P50: 3000, P99: 3000}
+	b := closedRound("tifa", mix.Name, 0, 1, 1000, 100, true)
+	b.Model = "open"
+	r.Latency = append(r.Latency, a, b)
 	md := r.Markdown()
 	for _, want := range []string{
-		"| Next.js | 3.0 (3.0 to 3000.0) / 35 (35 to 3000) (405) |", "| 20 |",
-		"failed the rule in 1 of 3 rounds: round 2 failed: the workload did not finish in time",
-		// A server that fails at the rate in every round is a result, with its numbers.
-		"| Tifa | 3.0 / 35 (600) | 1.0 / 8 (600) | 5.0 / 9 (60) | - | failed the rule in 3 of 3 rounds: round 1 failed: click P99 1200 ms over 1000 ms", "| Tifa | 0 |"} {
+		"| Next.js | 3000.0 / 3000 (5) |", "| 20 |",
+		"failed the rule: the workload did not finish in time",
+		"| Tifa | 3.0 / 35 (200) | 1.0 / 8 (200) | 5.0 / 9 (20) | - | passed |", "| Tifa | 0 |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
@@ -599,9 +592,9 @@ func TestBrowseReportGivesTheHitsTifaCounted(t *testing.T) {
 	}
 }
 
-// The latency table of the body lists every server of the scenario, whatever its rounds were: one
-// with no valid round has no valid result, one with fewer valid rounds than the run plays is not
-// decided, one whose valid rounds all passed passed, and one with a valid round that failed failed.
+// The latency table of the body lists every server of the scenario, whatever its round was: one with
+// no valid try has no valid result, one whose valid round passed passed, and one whose valid round
+// failed failed.
 func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 	mix := mustScenario("shop")
 	fws := []string{"tifa", "nextjs", "start", "tifa-nocache"}
@@ -616,30 +609,28 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 		}
 		return x
 	}
-	for round := 1; round <= 3; round++ {
-		for try := 1; try <= 3; try++ {
-			x := open("tifa", round, false, true) // every try of every round not valid
-			x.Attempt = try
-			r.Latency = append(r.Latency, x)
-		}
-		r.Latency = append(r.Latency, open("nextjs", round, true, true), open("tifa-nocache", round, true, round != 3))
-		r.Latency = append(r.Latency, open("start", round, round == 1, true)) // one valid round of three
+	for try := 1; try <= 3; try++ {
+		x := open("tifa", 1, false, true) // every try not valid
+		x.Attempt = try
+		r.Latency = append(r.Latency, x)
 	}
+	invalid := open("start", 1, false, true)
+	r.Latency = append(r.Latency, open("nextjs", 1, true, true), open("tifa-nocache", 1, true, false), invalid, open("start", 1, true, true))
 	md := r.Markdown()
 	body, _, _ := strings.Cut(md, "\n## Appendix\n")
 	row := func(label string) string {
 		for _, l := range strings.Split(body, "\n") {
-			if strings.HasPrefix(l, "| "+label+" |") && strings.Contains(l, "round") || strings.HasPrefix(l, "| "+label+" |") && strings.Contains(l, "no valid result") {
+			if strings.HasPrefix(l, "| "+label+" |") && (strings.Contains(l, "passed") || strings.Contains(l, "failed the rule") || strings.Contains(l, "no valid result")) {
 				return l
 			}
 		}
 		return ""
 	}
 	for label, want := range map[string]string{
-		"Tifa":                       "| Tifa | - | - | - | - | no valid result: 0 of 3 rounds valid |",
-		"TanStack Start":             "not decided: 1 of 3 rounds valid, 1 of 1 passed |",
-		"Next.js":                    "3 of 3 rounds passed |",
-		"Tifa, memo off (reference)": "failed the rule in 1 of 3 rounds: round 3 failed: click P99 1200 ms over 1000 ms |",
+		"Tifa":                       "| Tifa | - | - | - | - | no valid result: none of its 3 tries was valid |",
+		"TanStack Start":             "| passed |",
+		"Next.js":                    "| passed |",
+		"Tifa, memo off (reference)": "| failed the rule: click P99 1200 ms over 1000 ms |",
 	} {
 		if got := row(label); !strings.Contains(got, want) {
 			t.Errorf("the latency row of %s is %q, want it to hold %q:\n%s", label, got, want, body)
@@ -900,12 +891,12 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 		t.Errorf("a formal run says it is not one:\n%s", md)
 	}
 	r := formal()
-	r.Config["rounds"], r.Config["finalWindow"], r.Config["loadCpus"], r.Config["sizing"] = "1", "30s", "", "3s"
+	r.Config["rounds"], r.Config["latencyBlocks"], r.Config["loadCpus"], r.Config["sizing"] = "1", "1", "", "3s"
 	r.Stamp = ""
 	r.Servers[sc.Name] = []string{"tifa", "nextjs"}
 	md := r.Markdown()
 	top, _, _ := strings.Cut(md, "### ")
-	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "finalWindow 30s (formal 4m0s)", "sizing 3s (formal 15s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
+	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "latencyBlocks 1 (formal 3)", "sizing 3s (formal 15s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("the top of the report lacks %q:\n%s", want, top)
 		}
@@ -914,13 +905,14 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 
 // browse.sh refuses the names of settings that are gone, so that an old command line does not run
 // another method: USERS and EXTRA_USERS (the throughput counts sessions), SCENARIOS (one scenario)
-// and WARM (the warm-up is the same for every server, and SIZING is the length of a sizing run).
+// WARM (the warm-up is the same for every server, and SIZING is the length of a sizing run), PROBE,
+// TRIAL_WINDOW and MAX_RATE (no search of a rate) and FINAL_WINDOW (one latency round of its blocks).
 func TestBrowseShRefusesTheSettingsThatAreGone(t *testing.T) {
 	env, err := NewEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"USERS", "EXTRA_USERS", "SCENARIOS", "WARM"} {
+	for _, name := range []string{"USERS", "EXTRA_USERS", "SCENARIOS", "WARM", "PROBE", "TRIAL_WINDOW", "MAX_RATE", "FINAL_WINDOW"} {
 		cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), "stamp")
 		cmd.Dir = env.Root
 		cmd.Env = append(os.Environ(), "BROWSE_OUT="+t.TempDir(), name+"=3s")

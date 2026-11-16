@@ -72,26 +72,24 @@ func BrowseStatus(path, dir, stamp string, stamps map[string]string, server stri
 			}
 			fmt.Fprintf(&b, "  control: %d of 1 round\n", n)
 		}
-		done = 0
-		for round := 1; round <= rounds; round++ {
-			tries := 0
-			for _, x := range res.Latency {
-				if x.Framework == server && x.Scenario == sc.Name && x.Round == round {
-					tries++
-					if x.Valid {
-						tries = maxTries
-					}
+		// The one latency round is done with a valid try, or with the tries it gets.
+		done, tries := 0, 0
+		for _, x := range res.Latency {
+			if x.Framework == server && x.Scenario == sc.Name {
+				tries++
+				if x.Valid {
+					tries = maxTries
 				}
 			}
-			if tries >= maxTries {
-				done++
-			}
+		}
+		if tries >= maxTries {
+			done = 1
 		}
 		at := "no rate yet"
 		if rate := res.LatencyRate[sc.Name]; rate > 0 {
 			at = fmt.Sprintf("at %.2f visits/s", rate)
 		}
-		fmt.Fprintf(&b, "  latency: %d of %s, %s\n", done, of(rounds), at)
+		fmt.Fprintf(&b, "  latency: %d of 1 round, %s\n", done, at)
 	}
 	return b.String(), nil
 }

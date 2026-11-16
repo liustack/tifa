@@ -135,6 +135,9 @@ type Round struct {
 	Landing   map[string]map[string]int `json:"landing,omitempty"`
 	Responses map[string]int            `json:"responses,omitempty"`
 	Types     map[string]TypeStat       `json:"types"`
+	// Parts are the full loads and the client navigations of an open round in latencyParts parts of the
+	// same length, by the planned start of their visits (nil for a closed round).
+	Parts []RoundPart `json:"parts,omitempty"`
 	// Series is page views a second and their P99 in steps of SeriesLength from the first request: how the
 	// round went as the cache filled or the JIT warmed.
 	Series []SeriesStep `json:"series,omitempty"`
@@ -161,6 +164,16 @@ type Round struct {
 	Pass bool   `json:"pass"`
 	Why  string `json:"why,omitempty"`
 }
+
+// RoundPart is the latencies of one part of an open round: its full loads (the first pages of
+// visits) and its client navigations (the pages after them).
+type RoundPart struct {
+	Load  TypeStat `json:"load"`
+	Click TypeStat `json:"click"`
+}
+
+// latencyParts is how many parts of the same length an open round is split into (Round.Parts).
+const latencyParts = 3
 
 // idleConn is how long the load generator keeps an idle connection. It is shorter than the 5 seconds
 // after which Node closes a connection nobody uses, so that it does not send a request on one that is
@@ -200,8 +213,13 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Series = viewSeries(a.samples, start, end)
 	r.Types = map[string]TypeStat{}
 	for kind, l := range a.lat {
-		sorted := sortedCopy(l)
-		r.Types[kind] = TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
+		r.Types[kind] = typeStat(l)
+	}
+	if a.parted {
+		r.Parts = make([]RoundPart, latencyParts)
+		for i, p := range a.parts {
+			r.Parts[i] = RoundPart{Load: typeStat(p["load"]), Click: typeStat(p["click"])}
+		}
 	}
 	if r.PageViews > 0 {
 		r.ClickShare = float64(r.Clicks) / float64(r.PageViews)
@@ -528,7 +546,7 @@ func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) 
 // sequence from seq0. Before its clock come the setup and the warm-up (warmUp), played at the same
 // rate, with warmDrain.
 func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int) *Round {
-	round := &Round{Model: "open", Rate: rate}
+	round := &Round{Model: "open", Rate: rate, Blocks: n / r.wl.blockVisits()}
 	r.expectRound(round, n, seq0)
 	ok := r.setup(ctx, round, seq0, n)
 	var seen map[string]bool
@@ -621,7 +639,7 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 				for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
 				}
 			}
-			r.playSlot(vctx, tr, a, t0+k, pacer{open: true, start: at})
+			r.playSlot(vctx, tr, a, t0+k, pacer{open: true, start: at, part: k*latencyParts/slots + 1})
 		}()
 	}
 	close(offering)
@@ -790,3 +808,9 @@ func (f *flight) count(crawler bool) *atomic.Int64 {
 
 // visits is the visits of people in flight.
 func (f *flight) visits() int64 { return f.people.Load() }
+
+// typeStat is the count, the P50 and the P99 of latencies in milliseconds.
+func typeStat(l []float64) TypeStat {
+	sorted := sortedCopy(l)
+	return TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
+}

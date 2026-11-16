@@ -448,32 +448,21 @@ func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bo
 		return false
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), %.0f%% of the visits a second %s completed in its closed rounds at %d sessions. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. "+stepClassNote+" P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", rate, sc.viewsPerVisit()*rate, 100*latencyShare, BrowseLabel(r.LatencyBase[sc.Name]), r.baseSessions(), r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), %.0f%% of the visits a second %s completed in its closed rounds at %d sessions. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. "+stepClassNote+" P50 / P99 in ms and the number of samples, over the one round of each server.\n\n", rate, sc.viewsPerVisit()*rate, 100*latencyShare, BrowseLabel(r.LatencyBase[sc.Name]), r.baseSessions())
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
 	b.WriteString("| | full page loads | client navigations | writes | crawler documents | rounds |\n| --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
 		// its result, with its errors and its tail latency.
 		// Every server is listed: having no valid round, or too few to decide, is its result too.
-		shown, want := r.latencyRounds(f, sc.Name), r.rounds()
+		shown := r.latencyRounds(f, sc.Name)
 		if len(shown) == 0 {
-			fmt.Fprintf(b, "| %s | - | - | - | - | no valid result: 0 of %d rounds valid |\n", BrowseLabel(f), want)
+			fmt.Fprintf(b, "| %s | - | - | - | - | no valid result: none of its %d tries was valid |\n", BrowseLabel(f), len(r.latencyTries(f, sc.Name)))
 			continue
 		}
-		var notes []string
-		for _, x := range shown {
-			if !x.Pass {
-				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, x.Why))
-			}
-		}
-		var note string
-		switch {
-		case len(notes) > 0: // a valid round that failed decides it, however many were valid
-			note = fmt.Sprintf("failed the rule in %d of %d rounds: %s", len(notes), len(shown), strings.Join(notes, "; "))
-		case len(shown) < want:
-			note = fmt.Sprintf("not decided: %d of %d rounds valid, %d of %d passed", len(shown), want, len(shown), len(shown))
-		default:
-			note = fmt.Sprintf("%d of %d rounds passed", len(shown), len(shown))
+		note := "passed"
+		if x := shown[0]; !x.Pass {
+			note = "failed the rule: " + x.Why
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "document"), typeCell(shown, "click nav"), typeCell(shown, "write"), typeCell(shown, "crawler"), note)
 	}
@@ -1013,7 +1002,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 func (r *BrowseResult) notFormal() []string {
 	var off []string
 	formal := browseConfig(FormalBrowse, "", "", "")
-	for _, k := range []string{"sessions", "rounds", "sizing", "target", "finalWindow", "seed"} {
+	for _, k := range []string{"sessions", "rounds", "sizing", "target", "latencyBlocks", "seed"} {
 		if v, ok := r.Config[k]; !ok {
 			off = append(off, fmt.Sprintf("%s not recorded (formal %s)", k, formal[k]))
 		} else if v != formal[k] {
@@ -1400,3 +1389,14 @@ func notComparableNote(rounds []Round) string {
 // stepClassNote says, over the two tables of the body, what their columns full page load and client
 // navigation hold: the pages by how the browser reached them.
 const stepClassNote = "A full page load is a page the browser loads whole: the first page of every visit, and a later page where the page leaves the action to the browser (a search from the header, a plain link such as one of the category bar or to the next page of a list). A client navigation is a later page the router of the framework takes without a full page load (a click on a link, the form of the filters, a sort)."
+
+// latencyTries are all the latency tries of a server in a scenario, the invalid ones too.
+func (r *BrowseResult) latencyTries(fw, sc string) []Round {
+	var out []Round
+	for _, x := range r.Latency {
+		if x.Framework == fw && x.Scenario == sc {
+			out = append(out, x)
+		}
+	}
+	return out
+}

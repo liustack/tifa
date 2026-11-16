@@ -264,7 +264,7 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 		})
 		t.Run("open "+spec.Name, func(t *testing.T) {
 			b, servers := warmBrowse(t, sc, spec)
-			out, err := b.openRound(context.Background(), spec.Name, sc, 100, time.Second)
+			out, err := b.openRound(context.Background(), spec.Name, sc, 100, sc.blockVisits())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -325,7 +325,7 @@ func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
 			var out *Round
 			var err error
 			if open {
-				out, err = b.openRound(context.Background(), spec.Name, sc, 100, time.Second)
+				out, err = b.openRound(context.Background(), spec.Name, sc, 100, sc.blockVisits())
 			} else {
 				out, err = b.closedRound(context.Background(), spec.Name, sc, 2, 1)
 			}
@@ -470,7 +470,7 @@ func TestTheWriteCheckNeverPrecedesTheTrafficOfTifa(t *testing.T) {
 					var out *Round
 					var err error
 					if open {
-						out, err = b.openRound(context.Background(), spec.Name, sc, 100, time.Second)
+						out, err = b.openRound(context.Background(), spec.Name, sc, 100, sc.blockVisits())
 					} else {
 						out, err = b.closedRound(context.Background(), spec.Name, sc, 2, 1)
 					}

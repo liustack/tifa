@@ -15,7 +15,8 @@ import (
 var browseOpts struct {
 	out, phases, stamp, serverStamps, serverCPUs, loadCPUs, locks, announce, hold string
 	sessions, rounds                                                              int
-	sizing, target, final                                                         time.Duration
+	sizing, target                                                                time.Duration
+	latencyBlocks                                                                 int
 }
 
 func browseFlags(flags *flag.FlagSet) {
@@ -33,7 +34,7 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.IntVar(&o.rounds, "rounds", compare.FormalBrowse.Rounds, "browse: rounds of every cell, in a rotating order with fresh servers")
 	flags.DurationVar(&o.sizing, "sizing", compare.FormalBrowse.Sizing, "browse: the length of the sizing run that sizes the first round of a cell, on a server of its own")
 	flags.DurationVar(&o.target, "target", compare.FormalBrowse.Target, "browse: about how long a closed round should take")
-	flags.DurationVar(&o.final, "final-window", compare.FormalBrowse.FinalWindow, "browse: an open round of the latency table, at least")
+	flags.IntVar(&o.latencyBlocks, "latency-blocks", compare.FormalBrowse.LatencyBlocks, "browse: the blocks of the one latency round of every server, a multiple of the blocks of the plans")
 }
 
 func countCPUs(list string) int {
@@ -88,7 +89,7 @@ func browseStatus(dir string, servers []string) {
 func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, servers []string) {
 	o := &browseOpts
 	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs),
-		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Sizing: o.sizing, Target: o.target, FinalWindow: o.final, Stamp: o.stamp, ServerStamps: serverStamps(), Log: os.Stderr}
+		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Sizing: o.sizing, Target: o.target, LatencyBlocks: o.latencyBlocks, Stamp: o.stamp, ServerStamps: serverStamps(), Log: os.Stderr}
 	for _, lock := range strings.Split(o.locks, ",") {
 		if lock = strings.TrimSpace(lock); lock != "" {
 			opts.Locks = append(opts.Locks, lock)

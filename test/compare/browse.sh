@@ -48,7 +48,7 @@
 #   SESSIONS          concurrent sessions, no think time, every server starts at    8
 #   ROUNDS SIZING TARGET   rounds per cell; the sizing run of a cell; about how      3 15s 120s
 #                     long a closed round takes
-#   FINAL_WINDOW      an open latency round, at least                               240s
+#   LATENCY_BLOCKS    blocks of the one latency round of every server               3
 #   BLOCKS            blocks of 1050 visits to record (the plans)                   1
 #   WORKERS           browser contexts at once while recording                      6
 #   FORCE_RECORD=1    record every trace again, even those that are current
@@ -71,6 +71,7 @@ if [ -n "${WARM+set}" ]; then echo "WARM is gone: every server gets the same war
 for old in PROBE TRIAL_WINDOW MAX_RATE; do
   if [ -n "${!old+set}" ]; then echo "$old is gone: the latency rate is 40% of the visits a second Next.js completes in its closed rounds, with no search" >&2; exit 2; fi
 done
+if [ -n "${FINAL_WINDOW+set}" ]; then echo "FINAL_WINDOW is gone: every server plays one latency round of LATENCY_BLOCKS blocks (3 by default)" >&2; exit 2; fi
 blocks=${BLOCKS:-1}
 mkdir -p "$out" "$traces"
 compare=$out/compare
@@ -138,7 +139,7 @@ run_stamp() {
   echo "go $(go version | cut -d' ' -f3)"
   echo "node $(node --version)"
   echo "pnpm $(pnpm --version 2>/dev/null || echo none)"
-  echo "settings servers=$servers phases=${PHASES:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} final=${FINAL_WINDOW:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
+  echo "settings servers=$servers phases=${PHASES:-} sessions=${SESSIONS:-} rounds=${ROUNDS:-} sizing=${SIZING:-} target=${TARGET:-} latency=${LATENCY_BLOCKS:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
 # server_stamp is what the results of one server depend on besides run_stamp: the stamp of the trace
@@ -249,7 +250,7 @@ do_run() {
   [ -n "${ROUNDS:-}" ] && cmd+=(-rounds "$ROUNDS")
   [ -n "${SIZING:-}" ] && cmd+=(-sizing "$SIZING")
   [ -n "${TARGET:-}" ] && cmd+=(-target "$TARGET")
-  [ -n "${FINAL_WINDOW:-}" ] && cmd+=(-final-window "$FINAL_WINDOW")
+  [ -n "${LATENCY_BLOCKS:-}" ] && cmd+=(-latency-blocks "$LATENCY_BLOCKS")
   [ -n "${SERVER_CPUS:-}" ] && cmd+=(-server-cpus "$SERVER_CPUS")
   [ -n "${LOAD_CPUS:-}" ] && cmd+=(-load-cpus "$LOAD_CPUS")
   all_run_stamps >"$out/run.stamp"
