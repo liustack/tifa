@@ -906,10 +906,11 @@ func TestStaticIndexHTMLIsServed(t *testing.T) {
 	}
 }
 
-// Regression guard, it passes without a fix. A root catch-all page matches /%2F%2Fevil.example,
-// which the router reads as the path //evil.example, and a canonical redirect it builds from that
-// path could start with // and send the browser to another site. writeRenderRedirect goes through
-// http.Redirect, which cleans the repeated slashes, and no Location may start with //.
+// A root catch-all page matches /%2F%2Fevil.example and /%5Cevil.example, which the router reads as
+// the paths //evil.example and /\evil.example, and a canonical redirect it builds from such a path
+// could start with // or /\ and send the browser to another site: a browser reads \ as /.
+// writeRenderRedirect goes through http.Redirect, which cleans the repeated slashes, and writes each
+// \ as %5C, so no Location starts with // or holds a \.
 func TestRenderRedirectIsNeverAnOpenRedirect(t *testing.T) {
 	app := frontApp()
 	app.Routes = append(app.Routes, Route{ID: "app/rest++", Path: "/{rest...}", Page: true, SSR: true, Layouts: []string{"app/layout"}})
@@ -922,10 +923,10 @@ func TestRenderRedirectIsNeverAnOpenRedirect(t *testing.T) {
 		}
 		return "", &ssr.RedirectError{Location: decoded, Status: 308}
 	}
-	for _, target := range []string{"/%2F%2Fevil.example", "/%2F%2F%2Fevil.example"} {
+	for _, target := range []string{"/%2F%2Fevil.example", "/%2F%2F%2Fevil.example", "/%5Cevil.example", "/%2F%5Cevil.example", "/%5C%5Cevil.example"} {
 		w := get(s, target)
 		loc := w.Header().Get("Location")
-		if w.Code != 308 || loc == "" || strings.HasPrefix(loc, "//") {
+		if w.Code != 308 || loc == "" || strings.HasPrefix(loc, "//") || strings.Contains(loc, `\`) {
 			t.Errorf("GET %s: %d, Location %q", target, w.Code, loc)
 		}
 	}

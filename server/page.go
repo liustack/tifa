@@ -1110,7 +1110,20 @@ func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 // redirect to requests with other such parameters.
 func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError, keep []string) {
 	c.Writer().Header().Del("ETag")
-	http.Redirect(c.Writer(), c.Request(), withDropped(redirect.Location, c.Request().URL, keep), redirect.Status)
+	http.Redirect(c.Writer(), c.Request(), withDropped(sameSite(redirect.Location), c.Request().URL, keep), redirect.Status)
+}
+
+// sameSite is location, the URL of a redirect the router made while rendering, written so that a
+// browser reads it as a path of this site whatever the router built it from. The router makes such
+// a URL from the path of the request, and a path may hold an escaped / or \ (/%2F%5Cevil.example).
+// Each \ is written %5C, since a browser reads \ as /, and the slashes at the start become one, since
+// a URL that starts with // names another host.
+func sameSite(location string) string {
+	location = strings.ReplaceAll(location, `\`, "%5C")
+	if strings.HasPrefix(location, "/") {
+		location = "/" + strings.TrimLeft(location, "/")
+	}
+	return location
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
