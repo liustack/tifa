@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa/internal/bundle"
+	"github.com/liustack/tifa/internal/codegen"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -241,5 +242,101 @@ func TestDevContentScansAgainAfterAFailedConversion(t *testing.T) {
 	}
 	if _, err := p.Content(ctx, false, []string{"content/blog/en/202609/second/index.md"}); err != nil {
 		t.Fatalf("Content after the fix: %v", err)
+	}
+}
+
+// tifa dev trusts the disk and not its memory of what it wrote: a generated file that something
+// else changed or deleted comes back with the next bundle, though no route changed.
+func TestDevBundleWritesBackGeneratedFilesChangedOnDisk(t *testing.T) {
+	root := copyTestApp(t, filepath.Join("..", "..", "test", "apps", "api"))
+	front, err := bundle.NewDev(root, 0, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer front.Close()
+	p := &devPipeline{root: root, front: front}
+	ctx := context.Background()
+	if _, err := p.Analyze(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Generate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Bundle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mainGo := filepath.Join(root, codegen.Dir, "main.go")
+	want, err := os.ReadFile(mainGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var otherFile string
+	for name := range p.files {
+		if name != "main.go" {
+			otherFile = name
+			break
+		}
+	}
+	if otherFile == "" {
+		t.Fatal("the app generates only main.go")
+	}
+	wantOther, err := os.ReadFile(filepath.Join(root, codegen.Dir, otherFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainGo, []byte("package main // edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, codegen.Dir, otherFile)); err != nil {
+		t.Fatal(err)
+	}
+	// A rebuild that changed no route: the analysis finds the same files, the bundle runs.
+	if _, err := p.Analyze(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Bundle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(mainGo); err != nil || string(got) != string(want) {
+		t.Errorf(".tifa/main.go = %q, %v, want it written back", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, codegen.Dir, otherFile)); err != nil || string(got) != string(wantOther) {
+		t.Errorf(".tifa/%s = %q, %v, want it written back", otherFile, got, err)
+	}
+}
+
+// A rebuild of Go files alone bundles nothing, and still puts back a generated file that changed
+// on the disk before the program is built.
+func TestDevGoBuildWritesBackGeneratedFilesChangedOnDisk(t *testing.T) {
+	root := copyTestApp(t, filepath.Join("..", "..", "test", "apps", "api"))
+	front, err := bundle.NewDev(root, 0, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer front.Close()
+	p := &devPipeline{root: root, exe: filepath.Join(t.TempDir(), "app"), front: front}
+	ctx := context.Background()
+	if _, err := p.Analyze(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Generate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Bundle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mainGo := filepath.Join(root, codegen.Dir, "main.go")
+	want, err := os.ReadFile(mainGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainGo, []byte("package main // edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.GoBuild(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(mainGo); err != nil || string(got) != string(want) {
+		t.Errorf(".tifa/main.go = %q, %v, want it written back", got, err)
 	}
 }

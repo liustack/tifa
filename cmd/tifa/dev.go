@@ -236,8 +236,9 @@ func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.r
 
 // Bundle rebuilds the SSR bundle in .tifa/dist, and starts Vite's dev server the first time. The
 // route tree also depends on the exports of page.tsx and layout.tsx, which change without any Go
-// change, so the TypeScript is generated again from the last analysis first, and written when it
-// differs.
+// change, so the TypeScript is generated again from the last analysis first. It is written on
+// every bundle: Write leaves the files that hold the right content alone and puts back one that
+// something else changed or deleted.
 func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if p.m == nil {
 		return "", errors.New("bundle before the first successful analysis")
@@ -249,12 +250,10 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkLangAttribute(p.root, p.m, p.front.LangKeys); err != nil {
 		return "", err
 	}
-	if !maps.EqualFunc(files, p.files, bytes.Equal) {
-		if err := codegen.Write(p.root, files); err != nil {
-			return "", err
-		}
-		p.files = files
+	if err := codegen.Write(p.root, files); err != nil {
+		return "", err
 	}
+	p.files = files
 	settings, err := codegen.BuildSettings(p.root)
 	if err != nil {
 		return "", err
@@ -273,6 +272,13 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error, which
 // devserver prints and shows in the page.
 func (p *devPipeline) GoBuild(ctx context.Context) error {
+	if p.m == nil {
+		return errors.New("go build before the first successful analysis")
+	}
+	// The generated files are checked on the disk here too: a change of Go files alone bundles nothing.
+	if err := codegen.Write(p.root, p.files); err != nil {
+		return err
+	}
 	// The program of tifa dev keeps its debug info, and needs the languages of the last analysis.
 	flags, err := buildFlags(ctx, p.root, config.Build{DebugInfo: true}, languagesLDFlag(p.m))
 	if err != nil {

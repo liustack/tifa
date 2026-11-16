@@ -6,6 +6,7 @@
 
 ### 修复
 
+- `tifa dev` 在下一次重建时把被别的工具改过或删掉的 `.tifa/` 文件写回去。以前要等路由变了才会写回，在那之前文件一直是坏的。
 - `tifa dev` 重建时不再把 `public/` 整个删掉再复制一遍。`public/` 里有大图片或视频时，保存 TS 文件重新变快，重建期间请求公共文件也不会再得到 404。只复制你新增或改过的文件，删掉的文件会被清除。
 - `tifa build --dir apps/shop -o out/app` 把可执行文件写到当前目录下的 `out/app`。以前写到应用目录下，却仍然打印 `built out/app`。
 - 模块是 `example.com/shop/v2` 时，不带 `-o` 的 `tifa build` 和 `go build` 一样把可执行文件命名为 `shop`。以前叫 `v2`。
