@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="./README.md">English</a> ·
-  <a href="docs/app.zh-CN.md">应用怎么写</a> ·
-  <a href="docs/build.zh-CN.md">构建与运行</a> ·
-  <a href="docs/dev.zh-CN.md">开发服务器</a> ·
+  <a href="docs/app.md">应用怎么写</a> ·
+  <a href="docs/build.md">构建与运行</a> ·
+  <a href="docs/dev.md">开发服务器</a> ·
   <a href="examples/shop/README.zh-CN.md">示例应用</a>
 </p>
 
@@ -89,7 +89,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 ## 一台小服务器就够
 
-**[渲染记忆](docs/memo.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
+**[渲染记忆](docs/memo.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
 
 整站访问，用真实浏览器在示例商店上录下来再回放：顾客、员工和爬虫同时访问同一台服务器，每个服务器都是出厂设置，先吃同样的预热（2026-11-16）。
 
@@ -117,7 +117,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 | 参考：TanStack Start 开 gzip | 50.7 / 121 ms | 4.7 / 31 ms |
 | 参考：Next.js 关掉预取 | 46.0 / 107 ms | 8.1 / 46 ms |
 
-前三行是出厂设置的框架。参考行各改一个设置，说明这个默认设置花掉或换来多少。每个服务器只用 Google Cloud `t2d-standard-4` 虚拟机（AMD EPYC 7B13）的一个核。访问配比、各家默认设置的代价和这些数字的含义见[整站访问](docs/performance.zh-CN.md#整站访问2026-11-16)。
+前三行是出厂设置的框架。参考行各改一个设置，说明这个默认设置花掉或换来多少。每个服务器只用 Google Cloud `t2d-standard-4` 虚拟机（AMD EPYC 7B13）的一个核。访问配比、各家默认设置的代价和这些数字的含义见[整站访问](docs/performance.md#whole-visits-to-the-shop-2026-11-16)。
 
 ## 新建应用
 
@@ -160,20 +160,20 @@ go tool tifa agents
 
 | 文档 | 什么时候读 |
 | :-- | :-- |
-| [教程](docs/tutorial.zh-CN.md) | 第一次用 Tifa，想从第一个目录做到一个能跑的小应用 |
-| 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md)、[流式输出](docs/guides/streaming.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
-| [哲学](docs/philosophy.zh-CN.md) | 想知道 Tifa 应用为什么这样组织 |
-| [应用的代码结构](docs/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
-| [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和给 CDN 用的 `Cache` |
-| [会话](docs/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
-| [内容](docs/content.zh-CN.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
-| [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
-| [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
-| [部署](docs/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
-| [配置](docs/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
-| [内部结构](docs/architecture.zh-CN.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的 |
-| [渲染记忆](docs/memo.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
-| [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
+| [教程](docs/tutorial.md) | 第一次用 Tifa，想从第一个目录做到一个能跑的小应用 |
+| 做法：[表单](docs/guides/forms.md)、[上传](docs/guides/uploads.md)、[登录](docs/guides/sign-in.md)、[数据库](docs/guides/database.md)、[后台任务](docs/guides/jobs.md)、[邮件](docs/guides/email.md)、[多语言](docs/guides/i18n.md)、[流式输出](docs/guides/streaming.md) | 要加一个常见功能，想要一套实测过的写法 |
+| [哲学](docs/philosophy.md) | 想知道 Tifa 应用为什么这样组织 |
+| [应用的代码结构](docs/structure.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
+| [应用怎么写](docs/app.md) | 安排目录、路由、Layout、钩子、404、head 标签和给 CDN 用的 `Cache` |
+| [会话](docs/sessions.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
+| [内容](docs/content.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
+| [构建与运行](docs/build.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
+| [开发服务器](docs/dev.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
+| [部署](docs/deploy.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
+| [配置](docs/config.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
+| [内部结构](docs/architecture.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的 |
+| [渲染记忆](docs/memo.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
+| [性能](docs/performance.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/testing.md) | 参与 Tifa 本身的开发（英文） |
 
@@ -206,6 +206,6 @@ Tifa 不接受 pull request。这类框架同时牵动编译器、打包、服�
 
 ## 许可证
 
-[MIT](LICENSE)。用 Tifa 构建的程序嵌入了来自 Unicode CLDR、ICU 和 go-intl 的语言数据和时区数据，分发程序时要附上它们的声明，见 [docs/build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)。
+[MIT](LICENSE)。用 Tifa 构建的程序嵌入了来自 Unicode CLDR、ICU 和 go-intl 的语言数据和时区数据，分发程序时要附上它们的声明，见 [docs/build.md](docs/build.md#notices-to-ship-with-the-program)。
 
 横幅里的地鼠是重新绘制的 [Go gopher](https://go.dev/blog/gopher)，原作者 Renee French，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权使用。

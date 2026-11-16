@@ -6,8 +6,6 @@ read_when:
   - Changing the conventions of Tifa, its docs, examples/shop or the `tifa new` template
 ---
 
-English · [简体中文](philosophy.zh-CN.md)
-
 # Philosophy
 
 A Tifa app is a Go program. Four ideas decide how its code is organized. This page gives the ideas, why, and what you get from each. Where each file goes and how to set things up is in [Structuring an app](structure.md).

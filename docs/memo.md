@@ -11,8 +11,6 @@ read_when:
   - Wondering why a write to Layout data makes other pages render again, or whether parts of a page could be kept
 ---
 
-English · [简体中文](memo.zh-CN.md)
-
 # The render memo
 
 A page whose data has not changed is not rendered again. Every request still runs its middleware and `Load`s, so a page is always current, and the app writes no caching code.

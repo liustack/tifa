@@ -11,8 +11,6 @@ read_when:
   - Changing internal/core (session.go, sessionstore.go) or js/runtime/session.tsx
 ---
 
-English · [简体中文](sessions.zh-CN.md)
-
 # Sessions
 
 A session is the record of who is signed in, kept on the server and found by a cookie. Tifa keeps the record, the token, the cookie and the expiry. Your code checks the password and says when someone is signed in or out.

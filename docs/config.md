@@ -18,8 +18,6 @@ read_when:
   - Changing internal/config
 ---
 
-English · [简体中文](config.zh-CN.md)
-
 # Configuration
 
 A Tifa app runs with sensible defaults for a small machine. Change a setting only when you need to.

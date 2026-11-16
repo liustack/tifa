@@ -22,8 +22,8 @@ The example app `examples/shop` is a shop written by tifa conventions: an order 
 2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
 3. `docs/research/` is left out of the index. It holds exploratory material. Outdated docs are deleted, not archived: git history keeps them.
 4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.
-5. Docs are written in English by default. User-facing docs (README, docs/tutorial, docs/guides, docs/app, docs/architecture, docs/build, docs/config, docs/content, docs/deploy, docs/dev, docs/performance, docs/philosophy, docs/memo, docs/sessions, docs/structure, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
-6. English: keep it short and direct, use everyday words, and do not invent terms. Chinese: do not use semicolons, and do not use dashes as punctuation.
+5. Docs are written in English only. The two READMEs (`README.md` and `examples/shop/README.md`) are the only ones with a Chinese version (`README.zh-CN.md`): when you change one side, update the other to match.
+6. English: keep it short and direct, use everyday words, and do not invent terms. In the Chinese READMEs: do not use semicolons, and do not use dashes as punctuation.
 
 ## Draft folder
 
@@ -33,4 +33,4 @@ Plans, design drafts, experiment notes and raw measurement data go in the reposi
 
 - See [docs/testing.md](docs/testing.md) for verification commands and [docs/commit.md](docs/commit.md) for commit rules.
 - For new behavior, write a failing test first, then implement. For a bug, find the root cause before changing code, and do not hide it with fallback values.
-- When merging a branch that changes what apps or their users can see, add it to both CHANGELOG.md and CHANGELOG.zh-CN.md.
+- When merging a branch that changes what apps or their users can see, add it to CHANGELOG.md.

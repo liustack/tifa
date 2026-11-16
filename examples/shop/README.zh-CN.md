@@ -106,7 +106,7 @@ app/
       post+/                   /store/journal/{post}，缓存 1 小时
 ```
 
-每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子和会话。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
+每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子和会话。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.md)。
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 
@@ -116,7 +116,7 @@ Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化
 
 ## 店面和渲染记忆
 
-店面页面的数据（商品、手记、菜单）对每个访客都一样，所以渲染记忆（见[渲染记忆](../../docs/memo.zh-CN.md)）会复用它们：页面的数据和之前某次请求相同时，程序跳过 React 渲染，直接发存好的 HTML。每个请求的 `Load` 照常运行，页面也没有用 `const Cache`（让 CDN 留住页面）。
+店面页面的数据（商品、手记、菜单）对每个访客都一样，所以渲染记忆（见[渲染记忆](../../docs/memo.md)）会复用它们：页面的数据和之前某次请求相同时，程序跳过 React 渲染，直接发存好的 HTML。每个请求的 `Load` 照常运行，页面也没有用 `const Cache`（让 CDN 留住页面）。
 
 属于某个访客的东西不在页面里。店面 Layout 只有语言、菜单和包邮门槛。顶栏的购物车和「最近看过」是浏览器在页面加载后向 `/store/mine` 要的，每次改动后再要一次。商品页用一次 POST 告诉这个路由现在打开的是哪个商品。
 
@@ -150,4 +150,4 @@ curl -si http://127.0.0.1:9527/store/journal | grep -i '^x-tifa-render'
 - 打开一个商品页，再打开商品列表。「最近看过」里有刚才那个商品，它是页面加载后浏览器从 `/store/mine` 取来的，而页面本身来自渲染记忆。
 - 打开一篇手记，代码块的高亮已经在服务器发来的 HTML 里。
 
-更多约定见 [构建与生成代码](../../docs/build.zh-CN.md) 和 [应用怎么写](../../docs/app.zh-CN.md)。
+更多约定见 [构建与生成代码](../../docs/build.md) 和 [应用怎么写](../../docs/app.md)。

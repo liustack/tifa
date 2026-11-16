@@ -11,8 +11,6 @@ read_when:
   - Watching the VM pool and the render memo with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `ssr.memo_size`
 ---
 
-English · [简体中文](deploy.zh-CN.md)
-
 # Deploying
 
 A Tifa app is one executable. The server needs that file, the settings in its environment, and a folder it may write data to. It needs no Node, no process manager and no Redis. The default session store lives in memory, so for more than one copy of the program give it a [store of your own](sessions.md#where-to-store-sessions).

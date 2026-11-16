@@ -6,8 +6,6 @@ read_when:
   - Changing the template of `tifa new` and checking that the tutorial still matches it
 ---
 
-English · [简体中文](tutorial.zh-CN.md)
-
 # Tutorial: a todo list in one executable
 
 You start from the todo list that `tifa new` writes and make it your own: a page for finished todos, a form that renames a todo and shows field errors from Go, counts in the header, and tests. At the end you build one executable and run it. It takes 30 to 45 minutes. Each step teaches one thing, and the details live in the reference docs it links to.

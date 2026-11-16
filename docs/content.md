@@ -11,8 +11,6 @@ read_when:
   - Changing the content package, internal/content, the content checks in internal/analyze or the Markdown steps of js/vite/plugin.js
 ---
 
-English · [简体中文](content.zh-CN.md)
-
 # Content
 
 A collection is a folder of Markdown files under `content/` that the app reads in Go as typed values: a blog, a set of docs, release notes. The build reads the files, checks every front matter against a Go struct, turns each body into HTML and puts the result into the program. At run time a `Load` or a handler reads the entries like any other data, and nothing is parsed.
