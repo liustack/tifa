@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-11-16
+
+### 变更
+
+- README 和[性能](docs/performance.zh-CN.md#整站访问2026-11-16)里的整站访问对比换成 2026-11-16 那次运行，用的是现在的流量（一次访问 4 个页面，有搜索、筛选和爬虫，每台服务器同样的预热）：单核上 Tifa 每秒答 97.0 个页面，Next.js 29.5，TanStack Start 76.5。对比不再包含 React Router。
+
 ### 修复
 
 - `tifa build --dir apps/shop -o out/app` 把可执行文件写到当前目录下的 `out/app`。以前写到应用目录下，却仍然打印 `built out/app`。

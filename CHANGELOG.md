@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-11-16
+
+### Changed
+
+- The whole-visits comparison in the README and in [Performance](docs/performance.md#whole-visits-to-the-shop-2026-11-16) is the run of 2026-11-16, with the traffic of today (4 page views a visit, searches, filters, crawlers, the same warm-up for every server): Tifa answers 97.0 page views a second on one core, Next.js 29.5 and TanStack Start 76.5. React Router is no longer part of the comparison.
+
 ### Fixed
 
 - `tifa build --dir apps/shop -o out/app` writes the executable to `out/app` under the folder you stand in. It wrote it under the app folder and still printed `built out/app`.
