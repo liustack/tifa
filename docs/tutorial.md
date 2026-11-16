@@ -493,7 +493,7 @@ built /path/to/tutorial-app/bin/tutorial-app (build 2e121916557701e0)
 2026/11/04 19:53:48 INFO tifa: listening on http://127.0.0.1:9527
 ```
 
-Open http://127.0.0.1:9527. Everything works as in `tifa dev`: the pages arrive as complete HTML, and the browser takes over after that. `bin/tutorial-app` holds the Go code, the pages, the front end files and the server-side renderer, about 32 MB. Node is not involved. `bin/` also holds `tifa-dev`, which `tifa dev` uses. You do not ship that one.
+Open http://127.0.0.1:9527. Everything works as in `tifa dev`: the pages arrive as complete HTML, and the browser takes over after that. `bin/tutorial-app` holds the Go code, the pages, the front end files and the server-side renderer, about 35 MB. Node is not involved. `bin/` also holds `tifa-dev`, which `tifa dev` uses. You do not ship that one.
 
 The program keeps its data in `app.db` in the folder it runs in, so run from the app folder and the todos you added in `tifa dev` are there. Change the port and the database with settings: `PORT=8080 DB_PATH=/var/data/todos.db ./bin/tutorial-app`. Stop it with Ctrl-C. It finishes the requests in flight first.
 
