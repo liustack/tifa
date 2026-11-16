@@ -116,6 +116,18 @@ myapp/
 
 Tifa 允许的写法不会报。`@tanstack/react-router` 和 `@tanstack/react-query` 没问题。页面可以为自己的用途导出 `action`、`loader`、`metadata`、`revalidate` 或 `dynamic`，只要值不是另一个框架的写法（`loader` 和 `action` 是函数，`metadata` 是对象，`revalidate` 是数字或 `false`，`dynamic` 是 `auto`、`force-dynamic`、`error`、`force-static` 之一）。导出和调用只在 `page.tsx`、`layout.tsx`、`layout_.tsx` 里读。导入和指令在 `app/` 下每个 TypeScript 文件和 `hooks.ts` 里读，测试文件除外。
 
+### 没有静态生成
+
+Tifa 没有静态生成、预渲染或导出：构建时什么都不渲染，也没有要构建的页面清单。每个请求都会运行它的 `Load`，所以页面不会过时，数据和上次一样时，[渲染记忆](memo.zh-CN.md)会跳过渲染。对所有人都一样的页面，写 `const Cache = 10 * time.Minute` 就能让 CDN 留住它（见 [给 CDN 用的 Cache](#给-cdn-用的-cache)）。CDN 这样能在不惊动程序的情况下答复大部分请求，也不用多一个构建步骤。完全不需要服务端渲染的页面写 `const SSR = false`。
+
+### 图片和字体
+
+Tifa 没有 `next/image` 或 `next/font` 这样的东西：不缩放、不转格式、不自动懒加载，构建时也不下载字体。直接写普通的 `<img>`，带上 `width`、`height` 和 `loading="lazy"`，图片在加入项目前先改好尺寸。`public/` 里的文件按它的路径提供，带 ETag。CSS 引用的图片和字体由 Vite 加上哈希，从 `/assets/` 提供，缓存一年（见[样式](#样式)）。字体就在 CSS 里写 `@font-face`，字体文件放在应用里，再加 `font-display: swap`。需要现场缩放，就在前面放图片服务或 CDN。
+
+### 加载状态
+
+Tifa 没有 `loading.tsx`。页面在服务端整页渲染完，所以首次访问没有加载状态可显示。之后路由会去取下一页的数据，数据到了再显示。会等待的组件用 `Suspense`（见[会等待的组件](#会等待的组件)）。数据慢或属于个人的，就先返回不含它的页面，再用 API 路由的 `GET` 函数在浏览器里取（见[用户无关性页面与私有数据](#用户无关性页面与私有数据)），数据到之前显示你自己的占位内容。
+
 ## route.go
 
 ```go
