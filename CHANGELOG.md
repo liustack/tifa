@@ -12,6 +12,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
+- `tifa new` writes a `pnpm-workspace.yaml` with `minimumReleaseAge: 4320`, so pnpm 10.16 or later installs no package version that is less than 3 days old. A npm package that is compromised is usually found and pulled within days. The versions `package.json` pins are all older than that. See [`tifa new`](docs/build.md#tifa-new).
 - `tifa errors` now also lists the warnings of the last build, after the errors, and `--json` has a `warnings` list: the warnings of the analysis (such as a number above 2^53 going into a field that pages read), of the check for code of other frameworks and of the content. Before, they only scrolled by in the output of `tifa dev`, which an agent that started `tifa dev --background` never sees. They are not errors: the exit status stays 0 when there are only warnings. See [`tifa errors`](docs/dev.md#tifa-errors).
 - [Coming from another framework](docs/app.md#coming-from-another-framework) says what to use instead of static generation and prerender (the render memo and `const Cache`), `next/image` and `next/font` (a plain `<img>`, `public/`, `@font-face`) and `loading.tsx` (Suspense, or fetch from the browser). `tifa check` now reports `next/image` and `next/font` with that advice, and the messages for `getStaticProps`, `getStaticPaths`, `generateStaticParams`, `revalidate` and `loading.tsx` point to the new sections.
 

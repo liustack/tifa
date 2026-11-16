@@ -12,6 +12,7 @@
 
 ### 新增
 
+- `tifa new` 会写一个 `pnpm-workspace.yaml`，里面是 `minimumReleaseAge: 4320`，让 pnpm 10.16 及以上不安装发布不满 3 天的包版本。被投毒的 npm 包通常在几天内就会被发现并下架。`package.json` 里写死的版本都比这个时间早。见 [`tifa new`](docs/build.zh-CN.md#tifa-new)。
 - `tifa errors` 现在会在错误之后列出上次构建的警告，`--json` 多了 `warnings` 列表：包括分析的警告（比如把大于 2^53 的数放进页面要读的字段）、对其他框架写法的检查和内容的警告。以前它们只在 `tifa dev` 的输出里滚过去，用 `tifa dev --background` 启动的 agent 看不到。它们不是错误：只有警告时退出码仍是 0。见 [`tifa errors`](docs/dev.zh-CN.md#tifa-errors)。
 - [从其他框架转过来](docs/app.zh-CN.md#从其他框架转过来)说明了静态生成和预渲染（用渲染记忆和 `const Cache`）、`next/image` 和 `next/font`（用普通的 `<img>`、`public/` 和 `@font-face`）、`loading.tsx`（用 Suspense，或在浏览器里取数据）该换成什么。`tifa check` 现在会报 `next/image` 和 `next/font`，并给出这些做法，`getStaticProps`、`getStaticPaths`、`generateStaticParams`、`revalidate` 和 `loading.tsx` 的提示也改指向新的小节。
 
