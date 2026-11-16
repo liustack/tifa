@@ -65,7 +65,7 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 - 内容不需要 go build：开发程序从 `.tifa/dist` 读 `content.json` 和正文（见[内容](content.zh-CN.md)）。内容这一步在 Go 里重新扫描 `content/`，在 Vite 开发服务器的 Node 进程里转换变了的条目，写 `.tifa/dist/content/` 和 `content.json`。每次转换把正文写进 `.tifa/dist/content/` 下自己的文件夹，所以应用正在显示的正文不会被改掉。正在运行的应用随后重新载入内容，对每个条目跑 `Validate`，换上新的数据和正文，之后打开的页面显示新内容。应用不重启，`OnStart` 不再跑。第一次启动时全部转换一次。有集合的应用改了 Go 代码，内容这一步也会跑，因为集合或 schema 类型可能变了，变了就全部转换。
 - `tifa dev` 下内容里有草稿（`Draft` 为 true）和日期还没到的条目（带着它的 `Date`），写作时就能在列表和文章页里看到它。页面可以给它们加标记。
 - front matter 和 schema 对不上、`content/` 下有没声明的文件夹、插件报错时，浮层显示和 `tifa build` 一样的消息，应用继续用原来的内容。有条目没通过 `Validate` 时，浮层标题是 `The app did not load the content`，应用同样继续用原来的内容和原来的正文。
-- 公共目录里的图片、字体等文件改内容不触发重建，下一次打包时才复制过去。公共目录里新增或删除文件会跑打包这一步，它会重新生成代码，因为生成的路由代码列着公共文件（见[路由树](build.zh-CN.md#路由树)）。日志里像别的改动一样写出文件名。`tifa.yaml` 里的 `build.public` 改了，监视的目录随之换掉，不用重启。
+- 公共目录里的图片、字体等文件改内容不触发重建，下一次打包时只复制改过的文件，删掉已经不在的，所以没动过的大文件不会让重建变慢。公共目录里新增或删除文件会跑打包这一步，它会重新生成代码，因为生成的路由代码列着公共文件（见[路由树](build.zh-CN.md#路由树)）。日志里像别的改动一样写出文件名。`tifa.yaml` 里的 `build.public` 改了，监视的目录随之换掉，不用重启。
 - 样式表经过 Vite 开发服务器，`@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
 - 页面 head 里只有 Vite 客户端和 React 刷新运行时，Vite 插件用 `transformIndexHtml` 加的其他标签（统计脚本、manifest 链接、favicon 之类）一概不放。`tifa build` 没有 `index.html`，从不跑这个钩子，这些标签在 `tifa dev` 里会有、上线后却没有。要放这类标签，写在根 `layout.tsx` 导出的 `head` 里。`tifa dev` 每省掉一个标签，启动时打印一次警告并写出标签。
 - 页面 head 里链接了服务端渲染导入的样式表，地址指向 Vite 开发服务器，所以脚本跑起来前页面就有样式，和构建出的页面一样。样式表改了，Vite 会更新这些链接。只被 `.client` 模块导入的样式表随它们的脚本一起到。

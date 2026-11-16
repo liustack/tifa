@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- `tifa dev` no longer deletes and copies all of `public/` on every rebuild. Saving a TS file with large images or videos in `public/` is fast again, and a request for a public file during the rebuild no longer gets a 404. Only files you added or changed are copied, and removed ones are deleted.
 - `tifa build --dir apps/shop -o out/app` writes the executable to `out/app` under the folder you stand in. It wrote it under the app folder and still printed `built out/app`.
 - `tifa build` without `-o` names the executable `shop` for the module `example.com/shop/v2`, as `go build` does. It named it `v2`.
 

@@ -182,12 +182,12 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
-	for _, name := range []string{"public", "build.json"} {
-		if err := os.RemoveAll(filepath.Join(d.dist, name)); err != nil {
-			return "", err
-		}
+	// public/ is brought up to date in place: a rebuild that finds it unchanged writes nothing, and a
+	// request for a public file never meets a gap.
+	if err := os.Remove(filepath.Join(d.dist, "build.json")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
 	}
-	if err := copyDir(public, filepath.Join(d.dist, "public")); err != nil {
+	if err := syncDir(public, filepath.Join(d.dist, "public")); err != nil {
 		return "", err
 	}
 	// Only the public files count: the SSR bundle, the content and its files change under open pages.

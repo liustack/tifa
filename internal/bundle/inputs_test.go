@@ -362,7 +362,7 @@ func TestPublicLinksAreFollowed(t *testing.T) {
 		}
 	}
 	dst := filepath.Join(root, "dist")
-	if err := copyDir(filepath.Join(root, "public"), dst); err != nil {
+	if err := syncDir(filepath.Join(root, "public"), dst); err != nil {
 		t.Fatal(err)
 	}
 	for name, text := range map[string]string{"logo.svg": "<svg/>", "img/a.png": "a", "robots.txt": "r"} {
