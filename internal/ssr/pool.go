@@ -121,6 +121,10 @@ type Pool struct {
 	// renders in a VM now, rendered and failed count the renders that ended and those that retired
 	// their VM, renderTime is their time in nanoseconds, and rejected counts ErrSSRBusy.
 	busy, rendered, failed, renderTime, rejected atomic.Int64
+	// held is the sum of the live sizes of the loaded VMs, for Stats. A live size is written by the
+	// goroutine that owns the VM, so held follows it: openVM adds the size after Load, runGC the
+	// change of a full GC, closeVM takes the size out.
+	held atomic.Int64
 
 	renders   sync.WaitGroup
 	refills   sync.WaitGroup
@@ -526,6 +530,7 @@ func openVM(p *Pool) (*pooledVM, error) {
 	p.mu.Unlock()
 	// Load ended with a GC and set the threshold.
 	size := vm.MemorySize()
+	p.held.Add(int64(size))
 	return &pooledVM{VM: vm, live: size, baseline: size, threshold: vm.GCThreshold()}, nil
 }
 
@@ -922,7 +927,9 @@ func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	}
 	vm.RunGC()
 	vm.young = 0
-	vm.live = vm.MemorySize()
+	live := vm.MemorySize()
+	p.held.Add(int64(live) - int64(vm.live))
+	vm.live = live
 	vm.setThreshold(p.memory)
 	// What the VM holds free goes back to the system, as after Load. The renders until the next full GC
 	// take what they need again, and a full GC is rare (see fullGCEvery). Keeping the room the
@@ -958,6 +965,7 @@ func (p *Pool) closeVM(vm *pooledVM) {
 		}
 		return vm.Close()
 	}()
+	p.held.Add(-int64(vm.live))
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.counts.closed++
@@ -970,11 +978,13 @@ func (p *Pool) closeVM(vm *pooledVM) {
 func (p *Pool) Stats() core.SSRStats {
 	p.mu.Lock()
 	vms := p.counts.created - p.counts.closed
+	replaced := p.counts.replaced
 	p.mu.Unlock()
 	return core.SSRStats{
 		VMs: vms, Busy: int(p.busy.Load()), Queued: len(p.waiters),
 		Renders: uint64(p.rendered.Load()), Failed: uint64(p.failed.Load()), RenderTime: time.Duration(p.renderTime.Load()),
 		Rejected: uint64(p.rejected.Load()),
+		Replaced: uint64(replaced), Memory: p.held.Load(),
 	}
 }
 

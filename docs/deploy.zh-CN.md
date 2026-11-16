@@ -220,6 +220,8 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_renders_failed_total", "counter", "Renders that failed.", float64(s.SSR.Failed))
 	metric("tifa_render_seconds_total", "counter", "Time the renders took.", s.SSR.RenderTime.Seconds())
 	metric("tifa_renders_rejected_total", "counter", "Renders answered 503 as busy.", float64(s.SSR.Rejected))
+	metric("tifa_vms_replaced_total", "counter", "VMs replaced because they grew.", float64(s.SSR.Replaced))
+	metric("tifa_vms_memory_bytes", "gauge", "Bytes the VMs hold after their last GC.", float64(s.SSR.Memory))
 	metric("tifa_memo_entries", "gauge", "Entries kept.", float64(s.Memo.Entries))
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
@@ -245,6 +247,7 @@ func GET(c *tifa.Ctx) error {
 | `tifa_vms_busy` 大部分时间等于 `tifa_vms`，`tifa_renders_queued` 大于 0 | 每个 VM 都在渲染，还有渲染在等 | 同上：程序到上限了 |
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
 | `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |
+| `tifa_vms_memory_bytes` 一直在涨，或 `tifa_vms_replaced_total` 在涨 | VM 每次回收后留下的越来越多。一个 VM 回收后占的超过 `ssr.vm_memory` 的一半，就会被换掉 | 找出页面留着什么，或应用里的泄漏。几分钟内又换掉 VM 的话，调大 `ssr.vm_memory`（见[内存](performance.zh-CN.md#内存)） |
 | 命中比未命中少很多，`tifa_memo_evictions_total` 在涨，`tifa_memo_bytes` 接近 `tifa_memo_size_bytes` | 页面还没被再次请求就被渲染记忆挤掉了 | 调大 `ssr.memo_size` |
 
 ## 部署之后

@@ -26,6 +26,13 @@ type SSRStats struct {
 	// Rejected counts the renders refused with ErrSSRBusy, answered 503: the queue was full or the
 	// wait for a VM ran past ssr.wait_timeout.
 	Rejected uint64
+	// Replaced counts the VMs replaced because they grew: a full GC left one holding more than half of
+	// ssr.vm_memory (or 1.75 times what it held after loading, if that is more). VMs retired after a failed render are not counted, Failed
+	// counts those renders.
+	Replaced uint64
+	// Memory is what the loaded VMs hold now, in bytes by the engine's count: the sum over the VMs of
+	// the size each had after its last GC between renders, the size ssr.vm_memory limits per VM.
+	Memory int64
 }
 
 // MemoStats counts what the render memo did since the program started, and holds how many entries it
@@ -88,6 +95,8 @@ func ReadStats() Stats {
 		out.SSR.Failed += st.SSR.Failed
 		out.SSR.RenderTime += st.SSR.RenderTime
 		out.SSR.Rejected += st.SSR.Rejected
+		out.SSR.Replaced += st.SSR.Replaced
+		out.SSR.Memory += st.SSR.Memory
 		out.Memo = out.Memo.add(st.Memo)
 		out.MemoBytes += st.MemoBytes
 		out.MemoSize += st.MemoSize
