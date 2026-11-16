@@ -8,6 +8,7 @@ read_when:
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
   - 改 internal/bundle、js/vite、js/host，或升级 SSR 宿主补丁的依赖
+  - 升级 Tifa 测过的 TanStack Router 版本，或它的成员检查、源码指纹测试失败了
   - 要把构建出的程序交给别人，想知道要附带哪些声明
   - 要用 Delve 调试构建出的程序，或要传自己的 -ldflags
 ---
@@ -489,6 +490,16 @@ export default defineConfig({
 TanStack Router 必须是这个 Tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。Tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 Tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
 
 React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 React DOM 的字符串渲染器的（见[前端产物](#前端产物)），所以 `tifa build` 和 `tifa dev` 用同样的方式读出装上的 `react` 和 `react-dom` 的版本，低于 19.3.0 就报错停下，错误里写明要装的版本。19.3.0 的预发布版（比如 canary）也算低于 19.3.0。没有页面的应用不检查。
+
+### 升级 TanStack Router
+
+测过的这一对版本是 `internal/bundle/tanstack.go` 里的 `TestedReactRouter` 和 `TestedRouterCore`。升级时改这两个常量，再改每个钉住路由版本的 `package.json`（`examples/shop` 和 `test/apps` 下的应用，各自跑 `pnpm install --no-frozen-lockfile`），然后跑这几个测试：
+
+- `TestTanStackMembersStay`（`internal/codegen`）照运行时的方式造一个服务端路由和一个浏览器路由，检查 Tifa 用到、而 TanStack 没有给应用写进文档的每个成员是否还在。每条失败都写明哪个成员没了、Tifa 的什么会坏、哪个文件在用它。失败时先读新版 TanStack 里这个成员的源码，再把 `js/runtime` 里的用法改成新的写法，有公开接口了就改用公开接口。不要靠放宽检查让它通过。
+- `TestTanStackCopiesAreUnchanged`（`internal/bundle`）对 `test/apps/pages` 里装的包，算出 Tifa 自己留了一份的 TanStack 源码片段的哈希，和 `internal/bundle/tanstack_copies.go` 里的哈希对比。每一项写明哈希的是整个文件还是一个函数，以及要重新对照的 Tifa 函数。失败时先读两个版本间这段源码的差异，行为变了就改 Tifa 的那份，再把新哈希写进表里。没读差异就改哈希，等于没有检查。
+- `TestGeneratedRouterIDsMatchGo`（`internal/codegen`）检查 TanStack 造出的路由 ID 就是 Go 算的那些。
+
+最后跑 `internal/bundle` 里的路由和 SSR 测试，构建 `examples/shop` 并跑它的 SSR 测试，改了 shop 就再跑 `go run ./test/compare/cmd/compare deps`。
 
 ### 为什么用 Vite
 
