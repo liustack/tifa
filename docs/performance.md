@@ -10,7 +10,7 @@ read_when:
 
 # Performance
 
-Tifa renders pages in quickjs, a QuickJS compiled to Go assembly. It has no JIT, so one render takes longer than in Node. This doc has the numbers for sizing a machine. The full tables and methods are in [Capacity measurements](studies/capacity.md), and how rendering got faster in [Optimizations](studies/optimizations.md).
+Tifa renders pages in slowjs, QuickJS compiled to Go assembly. It has no JIT, so one render takes longer than in Node. This doc has the numbers for sizing a machine. The full tables and methods are in [Capacity measurements](studies/capacity.md), and how rendering got faster in [Optimizations](studies/optimizations.md).
 
 ## At a glance
 
