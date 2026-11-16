@@ -44,7 +44,7 @@ Measured on 2026-10-22 with Go 1.27.2, quickjs v0.27.0 and an AMD EPYC 7B13 on G
 
 Twice the baseline leaves 20% above the largest observed normal live size. The 1.75-times floor under a low memory limit still leaves 5% above it. All 24,576 recorded live sizes stayed below 1.75 times the baseline. This evidence supports a fixed bound for these apps without another setting.
 
-On 2026-11-17 the bound moved to three quarters of `ssr.vm_memory`. The shop had grown to 150 products and two storefront languages with price and date formats, and one VM of it settled at 2.0 to 2.5 times its baseline after its 155 pages (2.85 after 391 pages, 4 with prices new on every render), and stayed there. Each VM the pool loaded in its place grew the same way: a soak of 155 pages with one VM replaced it 116 times in 10.5 minutes. The table above covered 22 pages, too few to reach that size. [Memory](../performance.md#memory) has the rule and the numbers.
+On 2026-11-17 the bound moved to half of `ssr.vm_memory`. The shop had grown to 150 products and two storefront languages with price and date formats, and one VM of it settled at 2.0 to 2.5 times its baseline after its 155 pages (2.85 after 391 pages, 4 with prices new on every render), and stayed there. Each VM the pool loaded in its place grew the same way: a soak of 155 pages with one VM replaced it 116 times in 10.5 minutes. The table above covered 22 pages, too few to reach that size. [Memory](../performance.md#memory) has the rule and the numbers.
 
 ## Replacing VMs in the background
 

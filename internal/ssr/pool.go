@@ -619,12 +619,14 @@ func (p *Pool) grown(vm *pooledVM) bool {
 	return vm.live > growthBound(vm, p.memory) && !time.Now().Before(p.refitAfter)
 }
 
-// hardBound is the live size past which a VM is replaced: it leaves a quarter of ssr.vm_memory for
-// what a render allocates, 32 MiB of the default 128 MiB, where a page of the shop takes 2 to 3 MiB
-// above the live size. It is at least 175% of the baseline, so a bundle that starts near the limit
-// does not cause repeated reloads without recovering any space.
+// hardBound is the live size past which a VM is replaced: half of ssr.vm_memory, 64 MiB of the
+// default 128 MiB. The shop's VM settles at 18 to 39 MB, so a healthy VM stays well under it, and
+// the other half is room for what a render allocates: a page of the shop takes 2 to 3 MiB above
+// the live size and a 100 KB Markdown document 35 MiB. A VM that leaks is replaced there, before
+// its renders run out of memory. It is at least 175% of the baseline, so a bundle that starts near
+// the limit does not cause repeated reloads without recovering any space.
 func (vm *pooledVM) hardBound(memory uintptr) uintptr {
-	return max(vm.baseline+vm.baseline/2+vm.baseline/4, memory-memory/4)
+	return max(vm.baseline+vm.baseline/2+vm.baseline/4, memory/2)
 }
 
 // refitRenders is how many renders a VM loaded to replace a grown VM must run before it grows past

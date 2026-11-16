@@ -336,7 +336,7 @@ func TestMemorySwapManyVMsLoadOneAtATime(t *testing.T) {
 }
 
 func TestMemorySwapBound(t *testing.T) {
-	for _, tc := range []struct{ baseline, memory, want uintptr }{{100, 1000, 750}, {100, 240, 180}, {100, 200, 175}, {100, 120, 175}} {
+	for _, tc := range []struct{ baseline, memory, want uintptr }{{100, 1000, 500}, {100, 400, 200}, {100, 300, 175}, {100, 120, 175}} {
 		vm := pooledVM{baseline: tc.baseline}
 		if got := vm.hardBound(tc.memory); got != tc.want {
 			t.Errorf("%+v: bound %d", tc, got)
@@ -527,7 +527,7 @@ func TestMemorySwapKeepsAVMThatStopsGrowing(t *testing.T) {
 }
 
 // A VM that keeps growing render after render is replaced before a render runs out of memory,
-// once it leaves less than a quarter of the limit.
+// once it holds more than half of the limit.
 func TestMemorySwapReplacesAVMThatKeepsGrowing(t *testing.T) {
 	p := newTestPool(t, warmSource, testConfig(1))
 	for i := range 1000 {
