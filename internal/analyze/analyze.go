@@ -523,6 +523,7 @@ func (a *analyzer) build() *Manifest {
 	for _, r := range routes {
 		m.Routes = append(m.Routes, r.Route)
 	}
+	m.Warnings = a.bigSourceWarnings(m)
 	return m
 }
 

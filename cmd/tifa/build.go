@@ -182,6 +182,11 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	if err == nil && len(foreignErrs) > 0 {
 		return nil, fmt.Errorf("found %d convention violation(s)", len(foreignErrs))
 	}
+	if err == nil {
+		for _, w := range m.Warnings {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s (warning)\n", w)
+		}
+	}
 	if err == nil && m.Content != nil {
 		for _, w := range m.Content.Warnings {
 			fmt.Fprintf(cmd.ErrOrStderr(), "tifa: content: %s (warning)\n", w)

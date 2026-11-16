@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
+	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/foreign"
 )
 
@@ -67,5 +70,32 @@ func TestCheckForeignFailsOnErrorsAndPrintsWarnings(t *testing.T) {
 	asked = nil
 	if err := checkForeign(root, false, nil, func(f []string) (map[string]*foreign.Facts, error) { asked = f; return nil, nil }); err != nil || asked != nil {
 		t.Errorf("without pages: %v, read %v", err, asked)
+	}
+}
+
+// The analysis warns of a number above 2^53 put into a field a page reads. tifa build and tifa
+// check print it, and tifa dev prints it once until it changes.
+func TestAnalyzeAppPrintsWarningsOfBigNumbers(t *testing.T) {
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+	if _, err := analyzeApp(cmd, filepath.Join("..", "..", "internal", "analyze", "testdata", "bigsources")); err != nil {
+		t.Fatal(err)
+	}
+	want := `app/api/route.go:22:55: Mine.ID gets a value from time.Time.UnixNano, a number above 2^53.`
+	if !strings.Contains(stderr.String(), want) || !strings.Contains(stderr.String(), "(warning)") {
+		t.Errorf("stderr:\n%s", stderr.String())
+	}
+	var dev bytes.Buffer
+	p := &devPipeline{warn: &dev}
+	m, err := analyze.Analyze(filepath.Join("..", "..", "internal", "analyze", "testdata", "bigsources"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.printWarnings(m.Warnings)
+	first := dev.Len()
+	p.printWarnings(m.Warnings)
+	if first == 0 || dev.Len() != first {
+		t.Errorf("tifa dev printed %d bytes, then %d", first, dev.Len())
 	}
 }
