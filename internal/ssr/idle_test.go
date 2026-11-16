@@ -234,6 +234,7 @@ func statsIn(t *testing.T, p *Pool, limit time.Duration) poolStats {
 // exchange it, or it waits for the next render. Each step waits for the one before it, with the hooks
 // of the pool, so that the order does not depend on timing.
 func TestIdleReleaseAndSwapDoNotWaitForEachOther(t *testing.T) {
+	sizeRule(t)
 	p, err := NewPool(leakSource, nil, testConfig(1), false)
 	if err != nil {
 		t.Fatal(err)
