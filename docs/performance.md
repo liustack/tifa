@@ -79,7 +79,7 @@ The shop built three ways: as Tifa and as a Next.js and a TanStack Start app, al
 
 The Node apps' forms render but cannot submit, and the Node servers stream their pages while Tifa writes each one whole. [Tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method of the earlier runs and [what is still not equal](studies/nextjs-and-tanstack-start.md#what-is-not-equal).
 
-To measure again, see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare).
+To measure again, see [Testing](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare).
 
 ### Whole visits to the shop (2026-11-16)
 
@@ -297,6 +297,6 @@ How each optimization was found and measured, and what was tried and dropped: [O
 
 Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --ssr-memo-size 0` with `SHOP_OPEN=1` in its environment, pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
 
-Next.js, TanStack Start and React Router: `go run ./test/compare/cmd/compare measure` builds the apps and runs this method with the cores as flags (see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)).
+Next.js and TanStack Start: `go run ./test/compare/cmd/compare measure` builds the apps and runs this method with the cores as flags (see [Testing](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)).
 
 Node: copy the same `.tifa/dist/ssr.js` to `ssr.mjs` and load it with `import()`, since the bundle is an ES module, render the same inputs, warm up for several hundred renders, and run once with JIT and once with `--jitless` on the same core as the QuickJS benchmark. Before the import, make the getters Node has on `globalThis`, such as `crypto` and `navigator`, plain values, since the bundle assigns them, and add `Iterator.concat`, which TanStack Router calls and Node 24.13 lacks. To find what to change next, compare the time each function takes in QuickJS with the time it takes in Node with `--jitless`: a function far slower than the average ratio is a candidate.

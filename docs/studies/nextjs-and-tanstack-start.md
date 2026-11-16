@@ -13,7 +13,7 @@ versions: 'Next.js 16.4.2 (App Router, Turbopack build, its bundled React 19.3.0
 
 [Performance](../performance.md#against-nextjs-and-tanstack-start) has the summary. This page has the method and the full numbers.
 
-The apps and the commands are in the repository: `test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, a Next.js app and a TanStack Start app, checks that they show the same pages, and measures them. [Testing](../testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare) says how to run it.
+The apps and the commands are in the repository: `test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, a Next.js app and a TanStack Start app, checks that they show the same pages, and measures them. [Testing](../testing.md#comparison-with-nextjs-and-tanstack-start-testcompare) says how to run it.
 
 This page has these runs. The main one is of 2026-10-29: the apps of `test/compare` on the workbench pages as redesigned on 2026-10-28, which are about 3 times as heavy as before, with the C engine of quickjs v0.29.0, and with the data of each page computed in Node for every request by a port of the Go code. A first run of the same day on the same pages had the apps look the data up instead, and it is kept below as a measure of what the data work costs the Node apps. A third run of the same day, on the pages before the redesign with the apps of 2026-10-19, shows what the redesign did. The run of 2026-10-24 used quickjs v0.28.6 and apps written by hand for the old pages. Those apps were not kept, so the last two runs cannot be repeated, and their sections say so. Take a ratio from one run, not a Tifa number from one and a Next.js number from another.
 
