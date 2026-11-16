@@ -66,7 +66,8 @@ func newNewCmd() *cobra.Command {
 		Short: "Create a new application in an empty directory",
 		Long: `new writes a small working app into dir: a todo list stored in SQLite, with the hooks and
 the database in the root package, the todos domain next to its pages under app/, tests,
-tifa.yaml and notes for coding agents. It runs nothing and needs no
+tifa.yaml, notes for coding agents (AGENTS.md) and the Tifa skill in
+.claude/skills/tifa, the same files tifa agents writes. It runs nothing and needs no
 network. The next steps it prints download the Go and npm dependencies, with pnpm when it is on
 PATH and npm otherwise.`,
 		Args: cobra.ExactArgs(1),
