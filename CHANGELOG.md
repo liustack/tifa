@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- The i18n guide says that a folder with a `_locales` folder that holds only the default language's file is served at one URL, for pages as well as API routes.
 - `go tool tifa docs` prints about 2 KB, not 43 KB: one line for each doc about writing an app. `--when` adds when to read each doc, and `--all` also lists the docs about developing Tifa itself. The skill no longer sends an app to the example shop on GitHub, and its examples use an app-neutral module path.
 - The database guide has a section on rejecting a duplicate row with `ON CONFLICT ... DO NOTHING RETURNING` and what the driver gives to tell a constraint error from others.
 - The background work guide starts with the simple case: one loop every minute, started in `OnStart`, stopped in `OnShutdown`, with its function in a package that does not import the root.
