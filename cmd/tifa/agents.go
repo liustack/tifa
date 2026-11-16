@@ -299,27 +299,39 @@ func planNotes(root string, app newApp) (*agentChange, error) {
 		return nil, err
 	}
 	text := string(existing)
+	// A file with CRLF line ends keeps them: the block is compared as it is with LF and written in the
+	// line ends of the file.
+	crlf := strings.Contains(text, "\r\n")
+	lineEnds := func(s string) string {
+		if crlf {
+			return strings.ReplaceAll(s, "\n", "\r\n")
+		}
+		return s
+	}
 	if !strings.Contains(text, "tifa:begin") && !strings.Contains(text, "tifa:end") {
 		sep := "\n"
 		if !strings.HasSuffix(text, "\n") && text != "" {
 			sep = "\n\n"
 		}
-		return &agentChange{rel: "AGENTS.md", content: []byte(text + sep + block + "\n"), what: "appended the Tifa block, there were no tifa:begin and tifa:end lines (put them around the block to have it refreshed in place)"}, nil
+		return &agentChange{rel: "AGENTS.md", content: []byte(text + lineEnds(sep+block+"\n")), what: "appended the Tifa block, there were no tifa:begin and tifa:end lines (put them around the block to have it refreshed in place)"}, nil
 	}
 	begin, end, ok := blockLines(text)
 	if !ok {
 		return nil, errors.New("AGENTS.md has tifa:begin and tifa:end lines that are not one pair in order, each alone on its line. Fix them by hand, or remove both to have the block appended. Nothing was written")
 	}
 	lines := strings.SplitAfter(text, "\n")
-	current := strings.TrimSuffix(strings.Join(lines[begin:end+1], ""), "\n")
-	if current == block {
+	inBlock := strings.Join(lines[begin:end+1], "")
+	if crlf {
+		inBlock = strings.ReplaceAll(inBlock, "\r\n", "\n")
+	}
+	if strings.TrimSuffix(inBlock, "\n") == block {
 		return nil, nil
 	}
 	// Whatever the marker lines carry besides the markers is theirs: only whole lines are replaced.
-	out := strings.Join(lines[:begin], "") + block
+	out := strings.Join(lines[:begin], "") + lineEnds(block)
 	rest := strings.Join(lines[end+1:], "")
 	if strings.HasSuffix(strings.Join(lines[begin:end+1], ""), "\n") {
-		out += "\n"
+		out += lineEnds("\n")
 	}
 	return &agentChange{rel: "AGENTS.md", content: []byte(out + rest), what: "refreshed the block between the markers"}, nil
 }

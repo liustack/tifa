@@ -17,6 +17,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- `go tool tifa agents` no longer rewrites an `AGENTS.md` with CRLF line ends on every run. It compares the block as if the file had LF line ends, and writes a refreshed or appended block with the line ends of the file. `--check` now passes on such a file.
 - A `route.go` or other file of a package under `app/` that imports its own package now gets a message that says what is wrong: the file is already in that package, so drop the import and use its names directly. Before, the build only said `could not import ... (import cycle: [...])`. A cycle that goes through the root package and a package under `app/` now also says that the root package must not import `app/`. See [which way imports go](docs/structure.md#which-way-imports-go).
 
 ## [0.0.11] - 2026-11-16
