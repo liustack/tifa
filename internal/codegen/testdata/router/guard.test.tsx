@@ -37,12 +37,6 @@ const server: Anything = createAppRouter(routeTree, source, { buildId: 'b1', ser
 attachRouterServerSsrUtils({ router: server, manifest: undefined })
 
 check(
-  'router.stores.matches.get',
-  'the server render cannot read the matches it loaded',
-  'js/runtime/server.tsx, browser.tsx, head.ts',
-  () => fn(server.stores.matches.get),
-)
-check(
   'router.stores.setMatches',
   'a render cannot date the matches (undated) or show an error at a level (placed)',
   'js/runtime/server.tsx',

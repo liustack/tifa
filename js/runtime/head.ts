@@ -554,18 +554,19 @@ export function noteHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTML
 // matches: after a navigation, and whenever the data of a match changes, such as when
 // router.invalidate() refetches in the background. This is what TanStack's HeadContent reads
 // too. In the browser build TanStack makes the matches a store one can subscribe to, on the
-// server a plain value. base is the htmlAttributes of the root Layout, language gives the language
-// of the page ("" on a site without languages) and links the tags of its versions.
+// server a plain value. The matches are read through router.state. base is the htmlAttributes of
+// the root Layout, language gives the language of the page ("" on a site without languages) and
+// links the tags of its versions.
 export function followHead(
-  router: { stores: { matches: { get: () => ReadonlyArray<HeadMatch> } } },
+  router: { state: { matches: ReadonlyArray<HeadMatch> }; stores: { matches: object } },
   base: HTMLAttributes,
   language: () => string = () => '',
   links?: PageLinks,
 ) {
-  const matches = router.stores.matches as { get: () => ReadonlyArray<HeadMatch>; subscribe?: (listener: () => void) => unknown }
+  const matches = router.stores.matches as { subscribe?: (listener: () => void) => unknown }
   if (typeof matches.subscribe !== 'function') throw new Error('head: the router has no store of matches to follow, it is not a browser router')
   matches.subscribe(() => {
-    const current = matches.get()
+    const current = router.state.matches
     syncHead(current, links)
     syncHTMLAttributes(current, base, language())
   })

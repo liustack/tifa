@@ -19,7 +19,7 @@ Object.assign(g, {
 const router: any = createAppRouter(routeTree, async (_u, id) => ({ status: 200, data: id }), {
   history: createMemoryHistory({ initialEntries: ['/hello'] }),
 })
-if (typeof router.stores.matches.subscribe !== 'function' || typeof router.stores.matches.get !== 'function') {
+if (typeof router.stores.matches.subscribe !== 'function') {
   throw new Error(
     'TanStack Router changed under tifa:\n- router.stores.matches.subscribe is gone from the browser build. ' +
       'Breaks: the head and the attributes of <html> do not follow navigations and invalidations. Used in: js/runtime/head.ts (followHead), browser.tsx',
