@@ -1,5 +1,6 @@
 ---
 summary: 'How to build a form in a Tifa app: post it to a Go method handler through the generated function, show the field errors from tifa.Fields next to each input, disable the button while it sends, reload the page data after success and show the new row before the answer comes (React 19 useActionState, useFormStatus and useOptimistic)'
+audience: app
 read_when:
   - Adding a form that creates or changes something, and you want the whole path from the input to the error message on screen
   - A form shows no field errors, the button can be clicked twice, or the list does not change after the form was sent

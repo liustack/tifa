@@ -7,6 +7,17 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Added
 
 - `tifa.Stats().SSR` has two more fields: `Replaced`, how many VMs the pool replaced because they grew (they held more than half of `ssr.vm_memory` after a collection), and `Memory`, what the loaded VMs hold now in bytes, by the engine's count after each VM's last collection, the size `ssr.vm_memory` limits. A monitoring route can now see how much memory the VMs hold and how often one is replaced. The example shop's `/metrics` writes them as `tifa_vms_replaced_total` and `tifa_vms_memory_bytes`. See [Metrics](docs/deploy.md#metrics).
+### Changed
+
+- The i18n guide says that a folder with a `_locales` folder that holds only the default language's file is served at one URL, for pages as well as API routes.
+- `go tool tifa docs` prints about 2 KB, not 43 KB: one line for each doc about writing an app. `--when` adds when to read each doc, and `--all` also lists the docs about developing Tifa itself. The skill no longer sends an app to the example shop on GitHub, and its examples use an app-neutral module path.
+- The database guide has a section on rejecting a duplicate row with `ON CONFLICT ... DO NOTHING RETURNING` and what the driver gives to tell a constraint error from others.
+- The background work guide starts with the simple case: one loop every minute, started in `OnStart`, stopped in `OnShutdown`, with its function in a package that does not import the root.
+- The big number refusal is described exactly in the generated `AGENTS.md`, the skill and the JSON rules: a handler result is checked only for a call with the header `X-Tifa-Call` (what the generated function of a page sends), and `tifatest.Start` answers a `Load` without the check. A test pins a handler by posting with `X-Tifa-Call: 1`.
+
+### Fixed
+
+- `go tool tifa check` no longer fails with `Cannot find module .../.tifa/driver-NNN/driver.mjs` when `tifa dev` rebuilds at the same moment. `tifa dev` cleaned out the driver folder that `check` had just made in `.tifa/`. It now leaves the driver folders of other processes alone.
 
 ## [0.0.13] - 2026-11-17
 

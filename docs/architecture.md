@@ -1,5 +1,6 @@
 ---
 summary: 'How Tifa works inside: which package does what, the path of a request from HTTP to HTML and of a navigation in the browser, what `tifa build` and `tifa dev` do step by step, how the pool of JavaScript VMs is kept healthy, and how the render memo works with the Cache-Control of a page with `Cache`'
+audience: dev
 read_when:
   - Starting to work on Tifa itself and looking for the package that owns a behavior
   - Tracing a request, a render or a memo hit through the code

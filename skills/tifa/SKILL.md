@@ -13,7 +13,7 @@ It does not do: streaming SSR, React Server Components, rendering that waits for
 
 ## Docs of the installed version
 
-Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and when to read each. The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
+Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and one line on each doc for writing an app (`--when` adds when to read each, `--all` lists the docs about developing Tifa too). The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
 
 ## Commands
 
@@ -27,7 +27,7 @@ Run them in the app root (the folder with `go.mod` and `app/`). They need Go 1.2
 | `go tool tifa build` | Analyze, generate `.tifa/`, bundle with Vite, build `bin/<app>` with the front end embedded |
 | `go tool tifa check` | The one command to run before you finish. It runs the Tifa analysis, generates `.tifa/`, then `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa routes` | List the routes. `--json` prints the full manifest with Go types |
-| `go tool tifa docs` | Print where the docs of this Tifa version are |
+| `go tool tifa docs` | Print where the docs of this Tifa version are, with one line on each doc for writing an app (`--when`, `--all`) |
 | `go tool tifa agents` | Write this skill and the managed block of `AGENTS.md` from the installed Tifa. `--check` changes nothing and exits 1 when they are out of date |
 
 An existing app already has the tool in `go.mod` (`go get -tool github.com/liustack/tifa/cmd/tifa` adds it). Use the package manager the app already uses.
@@ -62,7 +62,7 @@ myapp/
 | `hooks.go` | Root only. Optional `OnStart`, `OnShutdown`, `OnRequest`, `OnError` |
 | `*.client.tsx` | A component loaded only in the browser, through `clientOnly` from `tifa/client` |
 
-Folder names are URL segments. `order+` is a parameter, and `path++` is the rest of the path (last folder only). Name the Go package after the parameter: `order+` holds `package order`. Code is grouped by domain in folders under `app/`, not in shared `models/` or `handlers/` packages. Dependencies are package-level variables set up in `OnStart`, not injected.
+Folder names are URL segments. `order+` is the parameter `{order}`: the folder name is the parameter name, so `booking+` under `staff/` is `/staff/{booking}`, and `/staff/booking/{id}` needs a literal folder `booking` holding `id+`. `go tool tifa routes` prints the URLs that result. `path++` is the rest of the path (last folder only). Name the Go package after the parameter: `order+` holds `package order`. Code is grouped by domain in folders under `app/`, not in shared `models/` or `handlers/` packages. Dependencies are package-level variables set up in `OnStart`, not injected.
 
 ## Mistakes to avoid
 
@@ -79,7 +79,7 @@ Go side:
 6. Putting `Load`, `Layout`, `Memo`, a handler and so on in a file other than `route.go` of the folder. The build fails. A `Load` needs a `page.tsx` beside it, and a folder with `page.tsx` cannot declare `GET`.
 7. Calling `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Query("x")`, `c.QueryValues("x")`, `c.Header`, `c.Cookie`, `c.Context()`. Pass them constant strings, never store or convert `c` (see `references/routing-and-data.md`).
 8. Doing permission checks only in a `Layout`: a cached Layout does not run again on navigation. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
-9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted. Integers a browser would round (above 9007199254740991, such as snowflake IDs or `UnixNano`) fail the request: tag the field `json:",string"`, or send milliseconds.
+9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted. Integers a browser would round (above 9007199254740991, such as snowflake IDs or `UnixNano`) are refused when a page reads them (`Load`, `Layout`, session data, a handler called with `X-Tifa-Call` by the generated function of a page). A plain HTTP client gets the raw number, and so does a test with `tifatest.Start` unless the request sets `X-Tifa-Call: 1`. Tag the field `json:",string"`, or send milliseconds.
 10. Changing state in a `GET`. The cross-site write check covers POST, PUT, PATCH and DELETE only.
 11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Use `OnStart` and `OnShutdown` for resources.
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.
@@ -116,4 +116,4 @@ Read the one that matches the task.
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
 | [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 
-The example app, a shop with a workbench and a two-language storefront, is at https://github.com/liustack/tifa/tree/main/examples/shop (GitHub `main`, not the installed version).
+The docs show code from an example shop, a workbench with a two-language storefront. Its files are not in your module: read the snippets in the docs, and run `go tool tifa docs --all` to list every doc.

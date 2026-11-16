@@ -1,5 +1,6 @@
 ---
 summary: 'A getting-started tutorial: start an app with `tifa new`, run it with `tifa dev`, add a page, a form with field errors, Layout data and tests, then build one executable and run it'
+audience: app
 read_when:
   - Using Tifa for the first time and looking for a first walk through an app
   - Writing or checking the steps a new user follows from `tifa new` to a running executable

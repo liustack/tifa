@@ -7,7 +7,7 @@ This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, load
 
 ## Read the docs of this version first
 
-Run `go tool tifa docs`. It prints the folder with the docs of the tifa version this app uses and one entry for each doc: what it covers and when to read it. Read the docs that apply before you change code. Do not read the docs on GitHub, which are those of the main branch and may differ from this version. The `docs/...` paths in these notes are in that folder.
+Run `go tool tifa docs`. It prints the folder with the docs of the tifa version this app uses and one line for each doc about writing an app. Add `--when` to see when to read each, and `--all` to also list the docs about developing tifa, which an app does not need. Read the docs that apply before you change code. Do not read the docs on GitHub, which are those of the main branch and may differ from this version. The `docs/...` paths in these notes are in that folder.
 
 ## Commands
 
@@ -20,14 +20,14 @@ Run `go tool tifa docs`. It prints the folder with the docs of the tifa version 
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
 | `go tool tifa check` | The one command to run before you finish. It checks the routing conventions, generates `.tifa/`, then runs `go vet ./...`, `go test ./...` and the TypeScript type check with the app's own TypeScript. It stops at the first step that fails and says which |
 | `go tool tifa routes` | List the routes |
-| `go tool tifa docs` | Print the docs of the tifa version this app uses, with when to read each |
+| `go tool tifa docs` | Print the docs of the tifa version this app uses for writing an app (`--when` for when to read each, `--all` for the docs about developing tifa) |
 | `go tool tifa agents` | Write these notes and the tifa skill in `.claude/skills/tifa/` again from the tifa version in `go.mod`. Run it after you upgrade tifa. `--check` changes nothing and exits with 1 when they are out of date |
 
 Never edit `.tifa/`. It is generated, and the Go tools skip it.
 
 ## Routes
 
-- Every folder under `app/` is a URL segment. `app/` is `/`. `name+` is a parameter read with `c.Param("name")`. `name++` is the rest of the path, last folder only, `_splat` in TypeScript. Name the Go package after the parameter: `todo+` holds `package todo`.
+- Every folder under `app/` is a URL segment. `app/` is `/`. `name+` is a parameter, and the folder name is the parameter name: `booking+` under `staff/` is `/staff/{booking}`, not `/staff/booking/{id}` (for that, make a literal folder `booking` with `id+` inside). It is read with `c.Param("name")`. `go tool tifa routes` prints the URLs that result. `name++` is the rest of the path, last folder only, `_splat` in TypeScript. Name the Go package after the parameter: `todo+` holds `package todo`.
 - A folder has at most three convention files. `route.go` holds every Go name of the folder: `Load` (the page data), `Layout` (the data of the Layout), `LayoutSSR`, `SSR`, `Memo` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. These names in any other Go file of the package fail the build. `page.tsx` is the page. `layout.tsx` (with `<Outlet />`) wraps the page of its folder and every page below.
 - A folder with `page.tsx` is a page, so it cannot define `GET`. A folder with `route.go` and no `page.tsx` is an API route when it has a method handler, and has no `Load`. Its `Layout` still gives the pages below it their layout data. `tifa.Use(c, pkg.Layout)` gets the data of an enclosing Layout, run once per request.
 - Write Tifa, not another framework: no `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` or `[id]` folders. `go tool tifa check` reports them with the Tifa way. See "Coming from another framework" in `docs/app.md`.
@@ -60,7 +60,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 ## Handlers and the browser
 
 - A typed handler takes an input after the Ctx, returns a result before the error, or both: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. The framework decodes `in` from a JSON or form body (from the query string for `GET` and `DELETE`), runs `in.Validate()` if it exists (`func() error`, or `func(c *tifa.Ctx) error` to read the request, such as `c.Language()`), and writes the result as JSON (204 when there is no result). `func POST(c *tifa.Ctx) error` writes its own response.
-- The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`. An integer a browser would round (above 9007199254740991, such as a snowflake ID or `time.UnixNano()`) fails the request with an error: add `json:",string"` to the field, or send milliseconds.
+- The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`. An integer a browser would round (above 9007199254740991, such as a snowflake ID or `time.UnixNano()`) is refused with an error when a page reads it: the results of `Load` and `Layout`, session data, and a handler result for a call that sends `X-Tifa-Call` (the generated function of a page). A plain HTTP client, curl and `tifatest.Start` get the raw number, and `tifatest.Start` does not render pages either. In a test, call the handler with `X-Tifa-Call: 1` set, or use `StartPages`, to see the refusal. Add `json:",string"` to the field, or send milliseconds.
 - In TSX, import from the generated `./route.gen` of the folder: `page.useLoaderData()` and `layout.useLoaderData()`, the `PageData` and `LayoutData` types, and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that Layout's folder, such as `../route.gen`. A call never reloads page data: after a write, call `router.invalidate()` yourself.
 - The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`. When the handler or `OnRequest` redirects, the function resolves to `undefined` once the new page shows, so its result type is `Out | undefined`: check the result before using it. Redirect with `return tifa.Redirect(...)`, not by writing a 3xx yourself.
 - Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See "Styles" in `docs/app.md`.

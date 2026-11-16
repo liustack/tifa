@@ -1,5 +1,6 @@
 ---
 summary: 'Index of the research studies: one line per study with the date it was measured and the question it answers'
+audience: dev
 read_when:
   - Looking for the full method and data behind a number in Performance
   - Before starting work on render speed, an engine change or compression, to see what was already measured

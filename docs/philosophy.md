@@ -1,5 +1,6 @@
 ---
 summary: 'The ideas behind how a Tifa app is organized and what each one gives you: group code by domain, wire dependencies by hand, start small, do things the Go way'
+audience: app
 read_when:
   - Starting a new Tifa app and wondering why it is laid out the way it is
   - Weighing a new layer, package or helper against how Tifa apps are meant to look

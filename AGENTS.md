@@ -18,7 +18,7 @@ The example app `examples/shop` is a shop written by tifa conventions: an order 
 
 ## Docs (`docs/`)
 
-1. Every doc starts with front matter: `summary` (one sentence saying what question the doc answers) and `read_when` (when to read it). See the comment at the top of [scripts/docs-list.sh](scripts/docs-list.sh) for the format.
+1. Every doc starts with front matter: `summary` (one sentence saying what question the doc answers), `audience` (`app` for the docs that help write, run or deploy an app, `dev` for the docs about developing Tifa itself, which `tifa docs` lists only with `--all`) and `read_when` (when to read it). See the comment at the top of [scripts/docs-list.sh](scripts/docs-list.sh) for the format.
 2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
 3. `docs/research/` is left out of the index. It holds exploratory material. Outdated docs are deleted, not archived: git history keeps them.
 4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.

@@ -1,5 +1,6 @@
 ---
 summary: 'What a Tifa app serves on one core against Next.js and TanStack Start, and how to size CPUs, ssr.vms and memory for it, with what happens under overload and what compression costs'
+audience: app
 read_when:
   - Deciding how many CPUs and how much memory a Tifa app needs, or setting `ssr.vms`
   - Requests arrive faster than pages render, or you need to size the render queue

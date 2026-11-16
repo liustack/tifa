@@ -1,5 +1,6 @@
 ---
 summary: 'How to send email from a Tifa app over SMTP with a pure Go library: the settings for the server and its password, one mail.go that queues a mail in the same transaction as the change and sends it from a background job, why a request never waits for the mail server, and how to test without sending'
+audience: app
 read_when:
   - Sending a welcome mail, a receipt, a password reset or any other mail from a Tifa app
   - Adding SMTP settings, or keeping an SMTP password out of the code

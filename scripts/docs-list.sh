@@ -2,15 +2,19 @@
 # List docs/ with the summary and read_when from each file's front matter.
 #
 #   scripts/docs-list.sh           print the index
-#   scripts/docs-list.sh --check   also fail when a doc has no summary
+#   scripts/docs-list.sh --check   also fail when a doc has no summary or no audience
 #
 # Front matter format:
 #
 #   ---
 #   summary: 'One line saying what the doc answers'
+#   audience: app
 #   read_when:
 #     - Situation in which an agent should read it
 #   ---
+#
+# audience says who the doc is for: app (writing, running or deploying an app) or dev (developing
+# Tifa itself). `tifa docs` lists the app docs by default and the dev docs with --all.
 #
 # read_when also accepts the inline form: read_when: [a, b]
 #
@@ -77,6 +81,13 @@ while IFS= read -r file; do
   }
   echo "$out"
   listed=$((listed + 1))
+  if $check; then
+    audience="$(awk 'NR == 1 { next } $0 == "---" { exit } /^audience:/ { sub(/^audience:[ \t]*/, ""); print; exit }' "$root/$file")"
+    case "$audience" in
+      app|dev) ;;
+      *) echo "warning: $file needs audience: app or audience: dev in its front matter" >&2; missing=$((missing + 1)) ;;
+    esac
+  fi
 done <<EOF
 $files
 EOF

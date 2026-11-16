@@ -1,5 +1,6 @@
 ---
 summary: 'How Tifa compares with Next.js and TanStack Start on whole page requests of the same shop, including a cache hit against a cache hit: where the apps are and how they are kept equal, throughput on one core on the redesigned workbench pages, how much of a Tifa request is the render, and from the run before the redesign, two cores, compression, memory, start-up and warm-up'
+audience: dev
 read_when:
   - Quoting or updating the comparison with Next.js and TanStack Start in performance.md
   - Running the comparison again after a change to the engine, the server, the SSR bundle or the workbench pages of the shop

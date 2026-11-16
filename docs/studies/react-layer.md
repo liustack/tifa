@@ -1,5 +1,6 @@
 ---
 summary: 'Whether React PR 37022 (one push per start tag) or React Compiler, in its normal mode or its experimental SSR mode, makes server renders in QuickJS faster, and why neither does'
+audience: dev
 read_when:
   - Upgrading React to a release that contains PR 37022, or someone proposes patching it in early
   - Someone proposes running React Compiler on the SSR bundle, or asks whether it speeds up Tifa's server renders

@@ -1,5 +1,6 @@
 ---
 summary: 'How to send an answer while it is being made in a Tifa app: server-sent events for live updates, a streamed answer such as the reply of a language model, the Go handler and the deadlines it lifts, how the browser reads each, how they sit with the render memo and `Cache`, compression and proxies, and what happens to an open stream when the program stops'
+audience: app
 read_when:
   - Pushing live updates to open pages, such as a clock, a counter or new orders
   - Showing the reply of a language model word by word as it comes

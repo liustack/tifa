@@ -72,6 +72,11 @@ type answer struct {
 	Error string `json:"error"`
 }
 
+// DriverDirPrefix starts the name of the folder under .tifa that holds the driver file of one
+// process. The process that made it removes it, and codegen.Write leaves it alone: tifa check
+// starts its driver before it takes the lock, while tifa dev may write .tifa.
+const DriverDirPrefix = "driver-"
+
 // driverCommand returns the command that runs the driver on the Node at node, and the function
 // that removes the file it runs. The driver is a file, not an argument of node -e: it is 40 KB,
 // and one argument may be at most 32,767 characters on Windows and 128 KiB on Linux. The file
@@ -83,7 +88,7 @@ func (n *Node) driverCommand(node string) (*exec.Cmd, func(), error) {
 	if err := os.MkdirAll(tifa, 0o755); err != nil {
 		return nil, nil, err
 	}
-	dir, err := os.MkdirTemp(tifa, "driver-")
+	dir, err := os.MkdirTemp(tifa, DriverDirPrefix)
 	if err != nil {
 		return nil, nil, err
 	}

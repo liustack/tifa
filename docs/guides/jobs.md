@@ -1,5 +1,6 @@
 ---
-summary: 'How to do work outside a request in a Tifa app: goroutines started in OnStart that stop cleanly with OnShutdown, what Tifa does when it is told to stop, tasks that run on a timer, a jobs table in SQLite for work that must survive a restart and be retried, and what not to do inside a request'
+summary: 'How to do work outside a request in a Tifa app: a loop that runs every minute from a package the root can import, goroutines started in OnStart that stop cleanly with OnShutdown, what Tifa does when it is told to stop, tasks that run on a timer, a jobs table in SQLite for work that must survive a restart and be retried, and what not to do inside a request'
+audience: app
 read_when:
   - Sending mail, calling a slow service or doing any work that should not make a visitor wait
   - Running something every minute, hour or day in a Tifa app
@@ -19,6 +20,83 @@ There are three cases, and each one needs a little more than the one before:
 3. **Work that must survive a restart and be retried.** Sending a mail. A table of jobs in the database.
 
 The code is from a scratch app made with `tifa new` (module `example.com/notes`) that keeps its data as in [Keeping data in SQLite](database.md). The jobs table is in the same database file, so a job can be saved in the same transaction as the change that needs it.
+
+## The simple case: one loop
+
+Most apps only need case 1: do something every minute, such as deleting past bookings. No table and no queue. Three things matter: the function lives in a package that takes the database as an argument and does not import the root package, the root starts the loop in `OnStart` on a context of its own, and `OnShutdown` stops the loop and waits for it before it closes the database.
+
+```go
+// bookings/purge.go: a package next to the root, not under app/. It imports nothing of the app,
+// so the root may import it.
+package bookings
+
+import (
+	"context"
+	"database/sql"
+	"time"
+)
+
+// Purge deletes the bookings that ended before now.
+func Purge(ctx context.Context, db *sql.DB, now time.Time) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM bookings WHERE ends_at < ?`, now.Unix())
+	return err
+}
+```
+
+```go
+// hooks.go, in the root package
+var (
+	loops     sync.WaitGroup
+	stopLoops context.CancelFunc
+)
+
+func OnStart(ctx context.Context) error {
+	db, err := OpenDB(DBPath)
+	if err != nil {
+		return err
+	}
+	DB = db
+	var loopCtx context.Context
+	loopCtx, stopLoops = context.WithCancel(context.Background())
+	loops.Go(func() {
+		every(loopCtx, time.Minute, func(ctx context.Context) error { return bookings.Purge(ctx, DB, time.Now()) })
+	})
+	return nil
+}
+
+func OnShutdown(ctx context.Context) error {
+	stopLoops()
+	loops.Wait()
+	return DB.Close()
+}
+
+// every calls fn each time d has passed, until ctx ends. A panic in your own goroutine ends the
+// whole program, so it is recovered and logged.
+func every(ctx context.Context, d time.Duration, fn func(context.Context) error) {
+	for t := time.NewTicker(d); ; {
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("loop panicked", "panic", r)
+					}
+				}()
+				if err := fn(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("loop failed", "err", err)
+				}
+			}()
+		}
+	}
+}
+```
+
+Test the function, not the timer: call `bookings.Purge(ctx, db, now)` on a temporary database with a past and a future booking, and check that only the past one is gone. A test of `every` passes a few milliseconds as `d` and cancels the context.
+
+If the function needs code of a domain under `app/`, the root cannot import that domain ([why](#a-job-that-needs-code-of-a-domain)). Move what the function needs into a package like the one above, or use the queue below, where a domain registers its own handler.
 
 ## What Tifa does when it stops
 

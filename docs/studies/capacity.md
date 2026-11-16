@@ -1,5 +1,6 @@
 ---
 summary: 'The full tables behind Performance: render times against C QuickJS and Node, the traffic of the whole-visits comparison, throughput by cores, requests that do not render, overload steps, memory per VM and how a VM is collected and replaced, compression costs, and how to measure again'
+audience: dev
 read_when:
   - Looking for the method or the full table behind a number in Performance
   - Changing how the pool collects garbage, gives memory back or replaces a VM

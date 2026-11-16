@@ -14,8 +14,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/bundle"
 	tifaconfig "github.com/liustack/tifa/internal/config"
 )
 
@@ -110,6 +112,9 @@ func Write(root string, files map[string][]byte) error {
 		if d.IsDir() && path == filepath.Join(dir, DistDir) {
 			return filepath.SkipDir
 		}
+		if d.IsDir() && strings.HasPrefix(d.Name(), bundle.DriverDirPrefix) && filepath.Dir(path) == dir {
+			return filepath.SkipDir
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -157,6 +162,9 @@ func removeEmptyDirs(dir string) error {
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && path == dir {
 			return filepath.SkipAll
+		}
+		if err == nil && d.IsDir() && strings.HasPrefix(d.Name(), bundle.DriverDirPrefix) && filepath.Dir(path) == dir {
+			return filepath.SkipDir
 		}
 		if err == nil && d.IsDir() && path != dir {
 			dirs = append(dirs, path)

@@ -1,5 +1,6 @@
 ---
 summary: 'How Tifa is released: which version number to pick, the checks before a tag, the changelog, the tag and the GitHub release, and the check of the published module'
+audience: dev
 read_when:
   - Releasing a new version of Tifa
   - Deciding whether a change needs a patch or a minor version

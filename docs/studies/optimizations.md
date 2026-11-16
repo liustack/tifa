@@ -1,5 +1,6 @@
 ---
 summary: 'How Tifa rendering got faster and what it cost: the numbers of the redesigned shop, the extreme pages, each change to the engine, the build and the server with its measured effect, what was tried and dropped, and where to look next'
+audience: dev
 read_when:
   - Planning more work on SSR speed, or about to try an idea that may already have been tried
   - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, and checking what a change gains

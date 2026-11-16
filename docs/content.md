@@ -1,5 +1,6 @@
 ---
 summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, drafts and entries that come out at their date, what `tifa dev` does, what `tifa build` writes, how to read content in tests, and the errors and warnings'
+audience: app
 read_when:
   - Adding a blog, docs or other Markdown content to a Tifa app
   - Writing or changing content.go, or a schema type that embeds content.Entry
