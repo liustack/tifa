@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.10] - 2026-11-16
+
 ### Changed
 
 - Server rendering runs on slowjs v0.31.2. The HTML is the same. Timed by slowjs on an AMD EPYC 7B13 as the mean of 16 code layouts, three pages of an MUI app take 3.0% less time than on v0.31.1 and the storefront pages of the example shop 2.7% less, and the workbench pages show no change beyond 1%. The engine now writes the start tags of `img` and the other void elements, of `input` and of an inline `style`, and hashes emotion's styles in C. The extra bytes v0.31.1 gave every regular expression go only to those that use them. `Intl.NumberFormat` has `formatRange` and `formatRangeToParts`.
