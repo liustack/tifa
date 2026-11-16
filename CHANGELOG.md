@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-11-16
+
 ### Changed
 
 - A page whose component throws, or whose render uses up `ssr.vm_memory`, no longer slows the whole site when it is requested again and again. The built app remembers the failure and the error page for 5 seconds, so a request for the same page with the same data and session in that time gets the same answer without a render (`X-Tifa-Render: memo`), and requests that arrive together share the renders that place the error. `OnError` still sees every request, and after the first one it gets the first line of the error with a note that the page did not render again, so the log does not repeat the stack trace. `tifa dev` remembers nothing (see [Errors on a page](docs/app.md#errors-on-a-page)).
