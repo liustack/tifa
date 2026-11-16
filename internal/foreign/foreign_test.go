@@ -108,7 +108,7 @@ func TestEveryMessagePointsToASectionThatExists(t *testing.T) {
 	}
 	anchors := map[string]map[string]bool{}
 	for _, doc := range []string{docFiles, docFolders, docRouteGo, docPage, docLink, docLayout, docHandlers, docCalling, docBrowser, docCtx, docCache,
-		docSSR, docErrors, docNotFound, docHooks, docWaiting, docContent, docPrivate} {
+		docSSR, docErrors, docNotFound, docHooks, docWaiting, docContent, docPrivate, docStatic, docImages, docLoading} {
 		file, anchor, _ := strings.Cut(doc, "#")
 		if anchors[file] == nil {
 			anchors[file] = map[string]bool{}

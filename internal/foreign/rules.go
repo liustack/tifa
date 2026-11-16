@@ -25,6 +25,9 @@ const (
 	docWaiting  = "docs/app.md#components-that-wait"
 	docContent  = "docs/content.md#declaring-a-collection"
 	docPrivate  = "docs/app.md#user-independent-pages-and-private-data"
+	docStatic   = "docs/app.md#no-static-generation"
+	docImages   = "docs/app.md#images-and-fonts"
+	docLoading  = "docs/app.md#loading-states"
 )
 
 // The Tifa way to load data, change data and link, which several rules repeat.
@@ -72,6 +75,14 @@ var importRules = []importRule{
 		Says:    "{module} is a module of Next.js",
 		Instead: "a page exports head, such as export const head = () => ({ meta: [{ title: 'Orders' }] }), and the root layout.tsx exports htmlAttributes and documentHead for the document",
 		Doc:     docLayout}},
+	{names: []string{"next/image"}, Rule: Rule{
+		Says:    "{module} is a module of Next.js",
+		Instead: "Tifa has no image component and does not resize images: write a plain <img> with width, height and loading=\"lazy\", and put the file in public/ or reference it from CSS",
+		Doc:     docImages}},
+	{names: []string{"next/font"}, text: []string{"next/font/"}, Rule: Rule{
+		Says:    "{module} is a module of Next.js",
+		Instead: "Tifa does not load fonts for you: write @font-face in your CSS with the font file in the app",
+		Doc:     docImages}},
 	{names: []string{"next/dynamic"}, Rule: Rule{
 		Says:    "{module} is a module of Next.js",
 		Instead: "put a component that needs the browser in a *.client.tsx file and load it with clientOnly from 'tifa/client'",
@@ -167,11 +178,11 @@ func warn(says, instead, doc string) Rule {
 var exportRules = map[string]exportRule{
 	"getServerSideProps": {Rule: warn("getServerSideProps is the data function of Next.js pages", insteadLoad, docRouteGo)},
 	"getStaticProps": {Rule: warn("getStaticProps is the data function of Next.js static pages",
-		insteadLoad+". Tifa renders on each request: the render memo skips a render when the data is the same, and const Cache = true lets a CDN keep a public page", docSSR)},
+		insteadLoad+". Tifa renders on each request: the render memo skips a render when the data is the same, and const Cache = true lets a CDN keep a public page", docStatic)},
 	"getStaticPaths": {Rule: warn("getStaticPaths lists the pages of a Next.js dynamic route to build",
-		"there is no static build and no list of paths. A folder named name+ matches any value, and Load returns tifa.ErrNotFound for one that does not exist", docFolders)},
+		"there is no static build and no list of paths. A folder named name+ matches any value, and Load returns tifa.ErrNotFound for one that does not exist", docStatic)},
 	"generateStaticParams": {Rule: warn("generateStaticParams lists the pages of a Next.js dynamic route to build",
-		"there is no static build and no list of paths. A folder named name+ matches any value, and Load returns tifa.ErrNotFound for one that does not exist", docFolders)},
+		"there is no static build and no list of paths. A folder named name+ matches any value, and Load returns tifa.ErrNotFound for one that does not exist", docStatic)},
 	"generateMetadata": {Rule: warn("generateMetadata is the head function of Next.js", "export head, such as export const head = ({ loaderData }) => ({ meta: [{ title: loaderData?.name }] })", docPage)},
 	"metadata": {match: kind("object"), Rule: warn("an exported metadata object is how Next.js sets the head",
 		"export head, such as export const head = () => ({ meta: [{ title: 'Orders' }] }), and set the defaults of every page with documentHead in the root layout.tsx", docPage)},
@@ -181,7 +192,7 @@ var exportRules = map[string]exportRule{
 	"action":       {match: kind("function"), Rule: warn("an exported action is how Remix and React Router change data", insteadHandler, docHandlers)},
 	"clientAction": {match: kind("function"), Rule: warn("an exported clientAction is how Remix and React Router change data in the browser", insteadHandler, docHandlers)},
 	"revalidate": {match: func(e Export) bool { return e.Kind == "number" || e.Kind == "boolean" && e.Value == "false" }, Rule: warn("an exported revalidate sets how long Next.js keeps a page",
-		"a CDN keeps a page that is the same for everyone when route.go has const Cache = 10 * time.Minute (or const Cache = true). The program itself runs Load on every request", docCache)},
+		"a CDN keeps a page that is the same for everyone when route.go has const Cache = 10 * time.Minute (or const Cache = true). The program itself runs Load on every request", docStatic)},
 	"dynamic": {match: func(e Export) bool {
 		return e.Kind == "string" && contains([]string{"auto", "force-dynamic", "error", "force-static"}, e.Value)
 	}, Rule: warn("an exported dynamic sets how Next.js renders a page",
@@ -241,7 +252,7 @@ func ruleMiddleware(name string) Rule {
 }
 
 var specialFiles = map[string]struct{ instead, doc string }{
-	"loading":      {"a page renders whole on the server, so there is no loading state to show. A component that waits uses Suspense", docWaiting},
+	"loading":      {"a page renders whole on the server, so there is no loading state to show. A component that waits uses Suspense", docLoading},
 	"error":        {"export Error from page.tsx or layout.tsx, such as export function Error({ error }) { ... }", docErrors},
 	"global-error": {"export Error from the root layout.tsx, such as export function Error({ error }) { ... }", docErrors},
 	"not-found":    {"a 404 shows in the Error export of page.tsx or layout.tsx: check error instanceof RouteError && error.status === 404", docNotFound},

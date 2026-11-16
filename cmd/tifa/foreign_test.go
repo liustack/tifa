@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -97,5 +98,43 @@ func TestAnalyzeAppPrintsWarningsOfBigNumbers(t *testing.T) {
 	p.printWarnings(m.Warnings)
 	if first == 0 || dev.Len() != first {
 		t.Errorf("tifa dev printed %d bytes, then %d", first, dev.Len())
+	}
+}
+
+// tifa dev keeps the warnings of its checks for tifa errors: those of the analysis, of the idiom
+// check of the files and of the content. A later run of a check replaces its own.
+func TestDevPipelineKeepsItsWarnings(t *testing.T) {
+	var dev bytes.Buffer
+	p := &devPipeline{warn: &dev}
+	m, err := analyze.Analyze(filepath.Join("..", "..", "internal", "analyze", "testdata", "bigsources"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.setWarnings("analysis", analysisWarnings(m))
+	err = p.collect("foreign files", func(w io.Writer) error {
+		_, err := scanForeign(filepath.Join("..", "..", "internal", "foreign", "testdata", "idioms"), w)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(p.Warnings(), "\n")
+	for _, want := range []string{"Mine.ID gets a value from time.Time.UnixNano", "middleware.ts is the middleware file of Next.js"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in\n%s", want, got)
+		}
+	}
+	for _, line := range p.Warnings() {
+		if !strings.HasSuffix(line, "(warning)") {
+			t.Errorf("%q does not end in (warning)", line)
+		}
+	}
+	if !strings.Contains(dev.String(), "middleware.ts is the middleware file of Next.js") {
+		t.Errorf("the dev output lost the warning:\n%s", dev.String())
+	}
+	// A run that finds nothing takes its warnings away, the others stay.
+	p.setWarnings("foreign files", nil)
+	if got := strings.Join(p.Warnings(), "\n"); strings.Contains(got, "middleware.ts") || !strings.Contains(got, "UnixNano") {
+		t.Errorf("after the check ran clean:\n%s", got)
 	}
 }

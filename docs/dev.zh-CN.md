@@ -215,6 +215,7 @@ tifa errors [--dir 应用根目录] [--json]
 - 请求的意外错误，也就是交给 `OnError` 的那些（没有 `OnError` 时记日志并答 500 的那些）：请求、状态和用户看到的消息，以及错误本身和映射回源码的堆栈，和 `tifa dev` 下错误页显示的一样。API 路由的请求也算，没有页面的应用也一样。
 - 页面报上来的浏览器错误：`Hydration mismatch`、`Recoverable error`、`Uncaught error` 和 `Unhandled rejection`，名字和面板一致，每条带最先报告它的页面地址。
 - 两次渲染不一致的页面（见[日志](#日志)）。
+- 上次构建的警告，列在错误之后的 `Warnings` 下：分析的警告（比如把大于 2^53 的数放进页面要读的字段）、对其他框架写法的检查和内容的警告。它们不是错误，也不会改变退出码。保存后问题修好了，它就从列表里消失。
 
 每类保留最近 20 个不同的错误，同一个错误再次出现时计数加一，和面板一样。构建一开始，之前的错误就清掉。构建进行中运行这个命令，它会等构建结束再回答。
 
@@ -234,7 +235,8 @@ Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
   "failure": {"title": "Build failed", "error": "..."},
   "requests": [{"method": "GET", "url": "/orders?page=2", "status": 503, "message": "Come back later", "error": "...", "count": 2}],
   "browser": [{"kind": "recoverable", "title": "Hydration mismatch", "url": "http://127.0.0.1:9527/orders", "text": "...", "count": 3}],
-  "renders": [{"method": "GET", "url": "/stats", "text": "...", "count": 1}]
+  "renders": [{"method": "GET", "url": "/stats", "text": "...", "count": 1}],
+  "warnings": ["app/api/route.go:22:55: Mine.ID gets a value from time.Time.UnixNano, a number above 2^53. ... (warning)"]
 }
 ```
 

@@ -409,3 +409,38 @@ func TestAgentsKeepsTheInstallCommandWithoutALockFile(t *testing.T) {
 		t.Errorf("the command in AGENTS.md was taken for a change:\n%s", out)
 	}
 }
+
+// A file with CRLF line ends keeps them: the block is compared without the carriage returns, so a
+// second run changes nothing, and a refresh or an appended block is written with CRLF.
+func TestAgentsKeepsCRLFLineEnds(t *testing.T) {
+	lf := "# Notes\n\nMy rule.\n\n<!-- tifa:begin -->\nan old block\n<!-- tifa:end -->\n\nAfter.\n"
+	crlf := strings.ReplaceAll(lf, "\n", "\r\n")
+	dir := existingApp(t, map[string]string{"AGENTS.md": crlf})
+	if _, _, err := run(t, "agents", "--dir", dir); err != nil {
+		t.Fatal(err)
+	}
+	notes := readText(t, filepath.Join(dir, "AGENTS.md"))
+	if strings.Contains(strings.ReplaceAll(notes, "\r\n", ""), "\n") || strings.Contains(strings.ReplaceAll(notes, "\r\n", ""), "\r") {
+		t.Errorf("the refreshed file mixes line ends:\n%q", notes)
+	}
+	if !strings.HasPrefix(notes, "# Notes\r\n\r\nMy rule.\r\n\r\n<!-- tifa:begin -->\r\n") || !strings.HasSuffix(notes, "<!-- tifa:end -->\r\n\r\nAfter.\r\n") || strings.Contains(notes, "an old block") {
+		t.Errorf("the refresh changed more than the block, or none:\n%q", notes)
+	}
+	// The second run has nothing to do and leaves the bytes alone.
+	out, _, err := run(t, "agents", "--dir", dir)
+	if err != nil || !strings.Contains(out, "up to date") || readText(t, filepath.Join(dir, "AGENTS.md")) != notes {
+		t.Errorf("second run: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, "agents", "--dir", dir, "--check"); err != nil {
+		t.Errorf("--check on a CRLF file that is up to date: %v", err)
+	}
+	// A file without markers gets the block appended with its line ends.
+	dir = existingApp(t, map[string]string{"AGENTS.md": "# My notes\r\n\r\nUse tabs.\r\n"})
+	if _, _, err := run(t, "agents", "--dir", dir); err != nil {
+		t.Fatal(err)
+	}
+	notes = readText(t, filepath.Join(dir, "AGENTS.md"))
+	if strings.Contains(strings.ReplaceAll(notes, "\r\n", ""), "\n") || !strings.HasPrefix(notes, "# My notes\r\n\r\nUse tabs.\r\n\r\n<!-- tifa:begin -->\r\n") {
+		t.Errorf("the appended block does not follow the line ends:\n%q", notes)
+	}
+}

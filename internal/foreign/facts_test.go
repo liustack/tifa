@@ -96,3 +96,16 @@ func TestCheckFactsReportsCallsOfImportedRouteFunctionsInPages(t *testing.T) {
 		t.Errorf("a file that is no page or layout has findings: %v", lines(got))
 	}
 }
+
+func TestNextImageAndFontPointToTheDocOnImagesAndFonts(t *testing.T) {
+	f := &Facts{Imports: []Import{{"next/image", 1, 1}, {"next/font/google", 2, 1}, {"next/font/local", 3, 1}, {"next/font", 4, 1}}}
+	got := CheckFacts("app/util.ts", f)
+	if len(got) != 4 {
+		t.Fatalf("got %d findings, want 4:\n%s", len(got), strings.Join(lines(got), "\n"))
+	}
+	for _, f := range got {
+		if !strings.HasSuffix(f.Msg, "See docs/app.md#images-and-fonts") {
+			t.Errorf("%q", f.String())
+		}
+	}
+}

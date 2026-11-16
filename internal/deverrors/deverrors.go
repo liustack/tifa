@@ -102,9 +102,12 @@ type Report struct {
 	Requests []Request `json:"requests"`
 	Browser  []Browser `json:"browser"`
 	Renders  []Render  `json:"renders"`
+	// Warnings are the warnings of the last build, such as those of the analysis, the idiom checks
+	// and the content. They are not errors: Empty ignores them.
+	Warnings []string `json:"warnings"`
 }
 
-// Empty reports whether r has no error.
+// Empty reports whether r has no error (warnings are not errors).
 func (r Report) Empty() bool {
 	return r.Failure == nil && len(r.Requests) == 0 && len(r.Browser) == 0 && len(r.Renders) == 0
 }
@@ -114,6 +117,7 @@ func (r Report) Normal() Report {
 	r.Requests = orEmpty(r.Requests)
 	r.Browser = orEmpty(r.Browser)
 	r.Renders = orEmpty(r.Renders)
+	r.Warnings = orEmpty(r.Warnings)
 	return r
 }
 

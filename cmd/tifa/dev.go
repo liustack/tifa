@@ -161,6 +161,9 @@ type devPipeline struct {
 	// warned holds the warnings of the analysis that were printed, so that a save which changes
 	// nothing about them does not print them again.
 	warned map[string]bool
+	// steps holds the current warnings of each step, for Warnings (tifa errors lists them).
+	stepsMu sync.Mutex
+	steps   map[string][]string
 }
 
 // Analyze runs the static analysis and generates the code in memory. The fingerprint covers the
@@ -169,7 +172,11 @@ type devPipeline struct {
 //
 // The drafts are kept, as tifa dev shows them.
 func (p *devPipeline) Analyze(context.Context) (string, error) {
-	lines, err := scanForeign(p.root, p.warn)
+	var lines []string
+	err := p.collect("foreign files", func(w io.Writer) (err error) {
+		lines, err = scanForeign(p.root, w)
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
@@ -203,6 +210,7 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	}
 	p.m, p.files, p.public = m, files, publicDir(settings.Public)
 	p.printWarnings(m.Warnings)
+	p.setWarnings("analysis", analysisWarnings(m))
 	return fingerprint(files), nil
 }
 
@@ -216,6 +224,69 @@ func (p *devPipeline) printWarnings(warnings []analyze.Warning) {
 		}
 	}
 	p.warned = now
+}
+
+// analysisWarnings lists the warnings of an analysis as `tifa build` prints them.
+func analysisWarnings(m *analyze.Manifest) []string {
+	var lines []string
+	for _, w := range m.Warnings {
+		lines = append(lines, w.String()+" (warning)")
+	}
+	return slices.Concat(lines, contentWarnings(m.Content))
+}
+
+// contentWarnings lists the warnings of the content as `tifa build` prints them.
+func contentWarnings(c *analyze.Content) []string {
+	if c == nil {
+		return nil
+	}
+	var lines []string
+	for _, w := range c.Warnings {
+		lines = append(lines, "tifa: content: "+w+" (warning)")
+	}
+	return lines
+}
+
+// stepOrder is the order of Warnings.
+var stepOrder = []string{"foreign files", "analysis", "foreign code", "content"}
+
+// setWarnings replaces the warnings of a step.
+func (p *devPipeline) setWarnings(step string, lines []string) {
+	p.stepsMu.Lock()
+	defer p.stepsMu.Unlock()
+	if p.steps == nil {
+		p.steps = map[string][]string{}
+	}
+	p.steps[step] = lines
+}
+
+// collect runs a check that writes its warnings, one per line, to w. They go to p.warn as before and
+// replace the warnings the step had.
+func (p *devPipeline) collect(step string, run func(w io.Writer) error) error {
+	var buf bytes.Buffer
+	err := run(&buf)
+	var lines []string
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	p.setWarnings(step, lines)
+	if p.warn != nil {
+		_, _ = p.warn.Write(buf.Bytes())
+	}
+	return err
+}
+
+// Warnings lists the warnings of the last steps that worked, see devserver.Pipeline.
+func (p *devPipeline) Warnings() []string {
+	p.stepsMu.Lock()
+	defer p.stepsMu.Unlock()
+	var all []string
+	for _, step := range stepOrder {
+		all = append(all, p.steps[step]...)
+	}
+	return all
 }
 
 // HasContent says whether the app has content collections, as the last analysis saw it.
@@ -243,6 +314,7 @@ func (p *devPipeline) Content(ctx context.Context, all bool, changed []string) (
 	if err != nil {
 		return "", err
 	}
+	p.setWarnings("content", contentWarnings(c))
 	fp := c.Fingerprint()
 	all = all || fp != p.converted
 	_, pages := p.files["client.ts"]
@@ -291,7 +363,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkLangAttribute(p.root, p.m, p.front.LangKeys); err != nil {
 		return "", err
 	}
-	if err := checkForeign(p.root, hasPages(files), p.warn, p.front.Foreign); err != nil {
+	if err := p.collect("foreign code", func(w io.Writer) error {
+		return checkForeign(p.root, hasPages(files), w, p.front.Foreign)
+	}); err != nil {
 		return "", err
 	}
 	if err := codegen.Write(p.root, files); err != nil {

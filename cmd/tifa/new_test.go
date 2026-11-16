@@ -93,7 +93,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
-		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "options.go", "package.json", "schema.sql",
+		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "options.go", "package.json", "pnpm-workspace.yaml", "schema.sql",
 		"sessions.go", "sessions_test.go", "tifa.yaml", "tsconfig.json", "vite.config.ts",
 	}
 	if !reflect.DeepEqual(files, want) {
@@ -648,5 +648,21 @@ func TestNewGoLine(t *testing.T) {
 	}
 	if got, err := goDirective("devel +abcdef"); err == nil {
 		t.Errorf("an unknown Go version gave %q", got)
+	}
+}
+
+// The app installs only package versions a few days old, so a package that is compromised and pulled
+// within days never reaches it. The age is in minutes, and the packages Tifa pins are older.
+func TestNewAppSetsAMinimumReleaseAge(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "myapp")
+	if _, _, err := run(t, "new", dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "\nminimumReleaseAge: 4320\n") {
+		t.Errorf("pnpm-workspace.yaml:\n%s", data)
 	}
 }

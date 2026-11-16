@@ -41,6 +41,8 @@ type buildPipeline struct {
 	reads func(string) bool
 	// public is what Public returns, guarded by mu.
 	public string
+	// warnings is what Warnings returns, guarded by mu.
+	warnings []string
 	// contentFile is the file the fake app reads its content from, which Content writes
 	// "content N" into, or "invalid" with invalid set. hasContent is what HasContent returns.
 	contentFile string
@@ -129,6 +131,11 @@ func (p *buildPipeline) HasContent() bool {
 	return p.hasContent
 }
 func (p *buildPipeline) HasPages() bool { return true }
+func (p *buildPipeline) Warnings() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.warnings)
+}
 func (p *buildPipeline) ContentLoaded() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -1271,3 +1271,24 @@ func TestCacheConstIsABoolOrADuration(t *testing.T) {
 		}
 	}
 }
+
+func TestImportCycleMessages(t *testing.T) {
+	cases := []struct {
+		app  string
+		want []string
+	}{
+		{"selfimport", []string{"app/products/route.go:6:", "already in package example.com/selfimport/app/products", "Drop the import"}},
+		{"rootcycle", []string{"hooks.go:6:", "import cycle: [example.com/rootcycle/app/products example.com/rootcycle]", "root package must not import packages under app/", "structure.md#which-way-imports-go"}},
+	}
+	for _, c := range cases {
+		_, err := analyzeApp(t, c.app)
+		if err == nil {
+			t.Fatalf("%s: no error", c.app)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: error lacks %q:\n%v", c.app, w, err)
+			}
+		}
+	}
+}

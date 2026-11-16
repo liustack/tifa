@@ -60,7 +60,7 @@ func TestErrorsReportsTheAppAndTheBrowser(t *testing.T) {
 		t.Fatalf("report of a fresh app: %+v", r)
 	}
 	code, body := get(t, d.url+deverrors.Path)
-	if code != 200 || body != `{"failure":null,"requests":[],"browser":[],"renders":[]}`+"\n" {
+	if code != 200 || body != `{"failure":null,"requests":[],"browser":[],"renders":[],"warnings":[]}`+"\n" {
 		t.Fatalf("empty report: %d %q", code, body)
 	}
 	get(t, d.url+"/fail")
@@ -293,5 +293,19 @@ func TestStatusAnswersAtOnce(t *testing.T) {
 	st, _ = askStatus(t, d.url)
 	if st.State != deverrors.Failed || st.Failure == nil || st.Failure.Title != "Build failed" || !strings.Contains(st.Failure.Error, "undefined: x") {
 		t.Fatalf("after a failed build: %+v", st)
+	}
+}
+
+// The warnings of the last analysis, the idiom checks and the content are in the report, and they
+// are not errors: a report with only warnings is empty.
+func TestErrorsListsTheWarningsOfTheBuild(t *testing.T) {
+	d := startDev(t, "", func(p *buildPipeline) { p.warnings = []string{"app/a/route.go:3:5: a big number (warning)"} })
+	d.waitVersionAfter(t, "")
+	r := report(t, d.url)
+	if len(r.Warnings) != 1 || r.Warnings[0] != "app/a/route.go:3:5: a big number (warning)" {
+		t.Errorf("warnings = %q", r.Warnings)
+	}
+	if !r.Empty() {
+		t.Errorf("a warning made the report non-empty: %+v", r)
 	}
 }

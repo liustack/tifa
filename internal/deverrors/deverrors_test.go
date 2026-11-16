@@ -94,7 +94,7 @@ func TestReportJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(data); got != `{"failure":null,"requests":[],"browser":[],"renders":[]}` {
+	if got := string(data); got != `{"failure":null,"requests":[],"browser":[],"renders":[],"warnings":[]}` {
 		t.Fatalf("empty report = %s", got)
 	}
 	if !(Report{}).Empty() {

@@ -36,6 +36,8 @@ requests, the errors of the browser that its pages reported (hydration mismatche
 errors, unhandled rejections) and pages whose two renders differ. Run it after changing code and
 after opening or reloading the pages you changed. During a build it waits for the build to end.
 
+The warnings of the last build are listed after the errors. They do not change the exit status.
+
 It exits with status 0 when there is no error, 1 when there are errors, and 2 when no tifa dev
 runs in the application.`,
 		Args: cobra.NoArgs,
@@ -138,7 +140,7 @@ func askDev(holder lockHolder) (deverrors.Report, error) {
 // between errors.
 func errorsText(r deverrors.Report) string {
 	if r.Empty() {
-		return "No errors since the last build.\n"
+		return "No errors since the last build.\n" + warningsText(r.Warnings, "\n")
 	}
 	var entries []string
 	entry := func(heading string, count int, lines ...string) {
@@ -170,7 +172,20 @@ func errorsText(r deverrors.Report) string {
 	for _, e := range r.Renders {
 		entry(fmt.Sprintf("Renders differently each time: %s %s", e.Method, e.URL), e.Count, e.Text)
 	}
-	return strings.Join(entries, "\n")
+	return strings.Join(entries, "\n") + warningsText(r.Warnings, "\n")
+}
+
+// warningsText lists the warnings under a heading, after the lead, nothing when there are none.
+func warningsText(warnings []string, lead string) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(lead + "Warnings (they do not fail anything):\n")
+	for _, w := range warnings {
+		b.WriteString(strings.TrimRight("  "+ansiColor.ReplaceAllString(w, ""), " ") + "\n")
+	}
+	return b.String()
 }
 
 // ansiColor matches the color codes in the messages of Vite and the Go compiler.

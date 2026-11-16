@@ -1,7 +1,7 @@
 ---
 summary: 'How to write a Tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, hooks.ts and the setup it runs before the first render, 404s and errors, a site in several languages, the SSR, memo and Cache switches, which query parameters the server render sees and `Cache` for CDNs (a page that is the same for everyone, which a CDN may keep for a set time), what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code and whole requests with tifatest.Start, how Load may use Ctx, query parameter types for Link and navigate, method handlers with typed input and result, files in the input and the body limit and read time of a route, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, what the check says about code written for another framework (Next.js, Remix, React Router, TanStack Start, SvelteKit, other Go web frameworks) and what to write in Tifa instead, and the JSON rules for data, inputs and results'
 read_when:
-  - The check, build or dev run reports code of another framework, or you are about to write a Tifa app from the habits of Next.js, Remix, React Router, TanStack Start or SvelteKit
+  - The check, build or dev run reports code of another framework, or you are about to write a Tifa app from the habits of Next.js, Remix, React Router, TanStack Start or SvelteKit, or you look for static generation, prerender, `next/image`, `next/font` or `loading.tsx`
   - Creating a Tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
@@ -115,6 +115,18 @@ A folder has at most three convention files:
 | In `route.go`, a function `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `Load` or `Layout` that takes `http.ResponseWriter`, `*http.Request`, `*gin.Context`, `echo.Context` or `*fiber.Ctx` | `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`, or `func POST(c *tifa.Ctx) error` with `c.Writer()` and `c.Request()` (see [Method handlers with input and result](#method-handlers-with-input-and-result)) | error |
 
 What Tifa allows is not reported. `@tanstack/react-router` and `@tanstack/react-query` are fine. A page may export `action`, `loader`, `metadata`, `revalidate` or `dynamic` for its own use when the value is not what the other framework writes (a function for `loader` and `action`, an object for `metadata`, a number or `false` for `revalidate`, one of `auto`, `force-dynamic`, `error` and `force-static` for `dynamic`). The exports and calls are read in `page.tsx`, `layout.tsx` and `layout_.tsx` only. Imports and directives are read in every TypeScript file of `app/` and in `hooks.ts`, except tests.
+
+### No static generation
+
+Tifa has no static generation, prerender or export: nothing renders at build time and there is no list of pages to build. Every request runs its `Load`s, so a page is never old, and the [render memo](memo.md) skips the render when the data is the same as last time. For a page that is the same for everyone, `const Cache = 10 * time.Minute` lets a CDN keep it (see [Cache for CDNs](#cache-for-cdns)). The CDN then answers most requests without the program, and there is no build step to add. A page that needs no server render at all has `const SSR = false`.
+
+### Images and fonts
+
+Tifa has nothing like `next/image` or `next/font`: no resizing, no format conversion, no automatic lazy loading and no font download at build time. Write a plain `<img>` with `width`, `height` and `loading="lazy"`, and size the files before you add them. A file in `public/` is served at its path with an ETag. An image or font that your CSS references is hashed by Vite and served from `/assets/` with a one-year cache (see [Styles](#styles)). For fonts, write `@font-face` in your CSS with the font file in the app, and `font-display: swap`. If you need resizing on the fly, put an image service or CDN in front.
+
+### Loading states
+
+Tifa has no `loading.tsx`. A page is rendered whole on the server, so a first visit has no loading state to show. After that the router fetches the data of the next page and shows it when it arrives. A component that waits uses `Suspense` (see [Components that wait](#components-that-wait)). For data that is slow or private, return the page without it and fetch it from the browser with the `GET` function of an API route (see [User-independent pages and private data](#user-independent-pages-and-private-data)), and show your own placeholder until it comes.
 
 ## route.go
 

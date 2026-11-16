@@ -42,6 +42,7 @@ tifa new <目录> [--module 模块路径]
 | `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：Tifa 应用怎么运作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，Tifa 管理的部分夹在两行标记之间（见 [AGENTS.md 里 Tifa 管理的块](#agentsmd-里-tifa-管理的块)，由 `tifa agents` 刷新）。`CLAUDE.md` 只指向 `AGENTS.md` |
 | `.claude/skills/tifa/` | 给编程 agent 的 Tifa skill，`SKILL.md` 和它的 references，由和 `tifa agents` 同一段代码写出（见 [`tifa agents`](#tifa-agents)） |
 | `package.json`、`tsconfig.json`、`vite.config.ts`、`.gitignore`、`README.md` | npm 包、TypeScript 与 Vite 配置、要忽略的构建产物和数据库文件，以及常用命令 |
+| `pnpm-workspace.yaml` | `minimumReleaseAge: 4320`，让 pnpm 不安装发布不满 3 天的包版本（见下） |
 
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。`tifa new` 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
 - 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字，也不是 `main` 或 `init`（Go 不接受以 `init` 作为被 import 包的名字）。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。`tifa new` 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`，而 `--module example.com/todos` 会失败，提示换 `--module` 的最后一段。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
@@ -49,6 +50,7 @@ tifa new <目录> [--module 模块路径]
 - `go.mod` 固定了一个 `github.com/liustack/sqlite` 版本。这个 SQLite 驱动是纯 Go 的，不需要 C 编译器。
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
 - 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`，`README.md` 里还有 `pnpm typecheck`），找不到就用 npm（`npm install`，`README.md` 里还有 `npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
+- `pnpm-workspace.yaml` 为 pnpm 10.16 及以上设了 `minimumReleaseAge: 4320`（单位是分钟，即 3 天），pnpm 11 默认是一天。被投毒的 npm 包通常在几天内就会被发现并下架，设了这个时间，新发布的版本（包括你用的包所依赖的包）在这段时间内不会装进来。`package.json` 里的版本是写死的，`pnpm install` 会写出 `pnpm-lock.yaml`，把它提交，之后用 `pnpm install --frozen-lockfile` 安装。如果安装因为需要的版本太新而失败，等几天，或者把这个包写进 `minimumReleaseAgeExclude`。旧版 pnpm 和 npm 会忽略这个文件。npm 有 `.npmrc` 里的 `min-release-age`（单位是天），作用相同。
 
 ## 全局安装命令
 

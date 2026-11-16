@@ -60,6 +60,10 @@ type Pipeline interface {
 	// system short of watches. It may run while a step runs. polling reports whether the dev
 	// server polls, it does not when its watcher takes no watch per file.
 	PollFiles(ctx context.Context) (polling bool, err error)
+	// Warnings lists the warnings of the last steps that worked, one line each: the analysis, the
+	// checks for the idioms of other frameworks and the content. They stop nothing. It may be called
+	// from any goroutine, also while a step runs.
+	Warnings() []string
 }
 
 type op int
