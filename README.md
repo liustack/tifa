@@ -148,11 +148,10 @@ go tool tifa build
 
 ## Use it with a coding agent
 
-[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. Copy the folder into your project's `.claude/skills/` (or into `~/.claude/skills/` for all projects):
+[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. In your app, write it into `.claude/skills/tifa/` from the Tifa version the app uses. A new app already has it, and after you upgrade Tifa the same command brings it to the new version:
 
 ```sh
-git clone --depth 1 https://github.com/liustack/tifa.git tifa-src
-mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
+go tool tifa agents
 ```
 
 A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same ground with more detail and links to the docs.
