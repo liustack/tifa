@@ -141,7 +141,8 @@ func TestFailedRenderIsNotTriedAgainWithoutTime(t *testing.T) {
 
 // The tries share the time budget of the request with the render that failed: each gets the
 // deadline ssr.timeout after that render started. A render that ran out of the VM's memory is
-// tried again, on another VM, as many levels as the page has.
+// tried again once, on another VM, at the root: the input that did not fit at one level does not
+// fit at another.
 func TestFailedRenderTriesKeepToTheTimeBudget(t *testing.T) {
 	var reported []error
 	s, r := newFrontServer(t, rescueApp(&reported))
@@ -152,8 +153,8 @@ func TestFailedRenderTriesKeepToTheTimeBudget(t *testing.T) {
 	before := time.Now()
 	get(s, "/projects/p1")
 	after := time.Now()
-	// The root, the two Layouts and the page, and one more for a route the router may add.
-	if got := fmt.Sprint(placedAt(r)); got != "[-1 0 1 2 3 4]" {
+	// The root is at most above the two Layouts, the page and a route the router may add.
+	if got := fmt.Sprint(placedAt(r)); got != "[-1 4]" {
 		t.Errorf("renders placed the error at %s", got)
 	}
 	r.mu.Lock()
@@ -162,6 +163,42 @@ func TestFailedRenderTriesKeepToTheTimeBudget(t *testing.T) {
 		if in.Deadline.Before(before.Add(time.Second)) || in.Deadline.After(after.Add(time.Second)) {
 			t.Errorf("deadline %v, want a second after the first render started at %v", in.Deadline, before)
 		}
+	}
+}
+
+// A render out of memory guesses the level of the root. When the bundle then says the page has
+// fewer levels, the root is tried there, and nowhere else.
+func TestOutOfMemoryTriesTheRootTheBundleNames(t *testing.T) {
+	for name, c := range map[string]struct {
+		root   error
+		placed string
+		code   int
+	}{
+		"renders":       {nil, "[-1 4 1]", 502},
+		"out of memory": {ssr.ErrOutOfMemory, "[-1 4 1]", 502},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var reported []error
+			s, r := newFrontServer(t, rescueApp(&reported))
+			r.result = func(in ssr.Input) (string, error) {
+				switch {
+				case in.Error == nil:
+					return "", ssr.ErrOutOfMemory
+				case in.Error.Level > 1:
+					return "", pageError{levels: 2}
+				case c.root != nil:
+					return "", c.root
+				}
+				return "<html><body>root</body></html>", nil
+			}
+			w := get(s, "/projects/p1")
+			if w.Code != c.code || (c.root == nil) != (w.Body.String() == "<html><body>root</body></html>") {
+				t.Errorf("%d %s", w.Code, w.Body.String())
+			}
+			if got := fmt.Sprint(placedAt(r)); got != c.placed {
+				t.Errorf("renders placed the error at %s, want %s", got, c.placed)
+			}
+		})
 	}
 }
 

@@ -1275,14 +1275,17 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 // rescue answers a page whose render failed with err, which e stands for: it renders the page
 // again with e shown at the first level of its route tree that can show it, from the level that
 // failed (the page, or the Layout of a URL that matches no page) up to the root, each try on a
-// fresh VM, since a failed render retires its VM. When every level fails, or failed.err is not an
-// error of the page's code or of the VM's memory, the page comes from Go (see fallback). The tries
+// fresh VM, since a failed render retires its VM. A render that ran out of the VM's memory is tried
+// at the root alone: its input does not fit at any level. When every level tried fails, or
+// failed.err is not an error of the page's code or of the VM's memory, the page comes from Go (see
+// fallback). The tries
 // share the time budget of the first render, ssr.timeout, so a render that ran out of it is not
 // tried again. The answer is never cached.
 func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderError) {
 	c.Writer().Header().Del("ETag")
 	levels, ok := ssr.Levels(failed.err)
-	if !ok && errors.Is(failed.err, ssr.ErrOutOfMemory) {
+	oom := !ok && errors.Is(failed.err, ssr.ErrOutOfMemory)
+	if oom {
 		// The memory ran out before the bundle could say: the matches are at most the root, the
 		// Layouts and the route.
 		levels, ok = len(failed.f.preload[failed.key].ids)+2, true
@@ -1303,7 +1306,11 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 		deadline = failed.start.Add(failed.f.timeout)
 	}
 	var errs []error
-	for level := 0; level < levels; level++ {
+	level := 0
+	if oom {
+		level = levels - 1
+	}
+	for level < levels {
 		in := failed.in
 		in.Error, in.Deadline = &ssr.PlacedError{Status: e.Status, Message: e.Message, Level: level}, deadline
 		in.Alternates = nil // an error page has one version
@@ -1325,6 +1332,15 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 		}
 		if n, ok := ssr.Levels(tryErr); ok {
 			levels = min(levels, n)
+		}
+		switch {
+		case !oom:
+			level++
+		case levels-1 < level:
+			// The root is below the level guessed for it: try it there.
+			level = levels - 1
+		default:
+			level = levels
 		}
 	}
 	tries := errors.Join(errs...)
