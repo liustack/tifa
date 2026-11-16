@@ -160,6 +160,10 @@ type browse struct {
 	// noCutoff is for tests of what a server is sent, whose result does not depend on how long a round
 	// takes: no round is stopped at twice its target (the real run never sets it, see cutoff).
 	noCutoff bool
+	// anyLength is for tests of what happens around a closed round, whose fake server plays it in a
+	// fraction of a second: a round of any length counts, so a slow moment of the machine that runs the
+	// test cannot make a try not valid and add a try (the real run never sets it, see judgeClosed).
+	anyLength bool
 	// stale are the servers a continued result is measuring again (measureAgain), and playCheck plays
 	// the round of the check of the machine in the tests (nil: checkRound plays it).
 	stale     []string
@@ -1083,6 +1087,9 @@ func (b *browse) closedTry(ctx context.Context, fw string, sc BrowseScenario, se
 		return nil, 0, err
 	}
 	out.Capped = capped
+	if b.anyLength {
+		return out, 0, nil
+	}
 	return out, judgeClosed(out, b.o.Target, b.set.Blocks, sc.blockVisits(), b.o.LoadCPUCount), nil
 }
 

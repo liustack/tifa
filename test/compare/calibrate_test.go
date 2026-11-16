@@ -56,6 +56,8 @@ func calibrated(t *testing.T, speeds ...float64) (*browse, func() []*launched, *
 	tifa, _, _ := warmSpecs()
 	sc := mustScenario("shop")
 	b, servers := warmBrowse(t, sc, tifa)
+	// These tests count the tries and the servers of a round: its length is not their subject.
+	b.anyLength = true
 	b.res.Calibration = &CalibrationBase{Compute: 100, Memory: 10}
 	var events []string
 	var mu sync.Mutex
