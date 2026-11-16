@@ -67,3 +67,28 @@ func TestTheStatusSaysWhatARunKeepsOfEachServer(t *testing.T) {
 		t.Error("the status changed the result")
 	}
 }
+
+// The status gives the base of the calibrations of a result once, or says that a run sets it.
+func TestTheStatusGivesTheCalibrationBase(t *testing.T) {
+	dir := t.TempDir()
+	res := &BrowseResult{Calibration: &CalibrationBase{Compute: 436.9, Memory: 6.05, Runs: make([]Calibration, 5), Date: "2026-11-16 12:00:00 UTC"}}
+	write := func() string {
+		data, err := res.json()
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, "browse.json")
+		os.WriteFile(path, data, 0o644)
+		return path
+	}
+	if got, err := BrowseCalibrationStatus(write()); err != nil || got != "calibration: base compute 436.9 M/s, memory 6.05 M/s, the medians of 5 calibrations at 2026-11-16 12:00:00 UTC\n" {
+		t.Errorf("%q (%v)", got, err)
+	}
+	res.Calibration = nil
+	if got, _ := BrowseCalibrationStatus(write()); got != "calibration: no base yet, a run sets it before its first round\n" {
+		t.Errorf("%q", got)
+	}
+	if got, err := BrowseCalibrationStatus(filepath.Join(dir, "none.json")); err != nil || got != "" {
+		t.Errorf("no result file: %q (%v)", got, err)
+	}
+}

@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
@@ -888,6 +889,7 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 	formal := func() *BrowseResult {
 		o := FormalBrowse
 		o.ServerCPUs, o.LoadCPUs = "0", "1,5"
+		o.Calibrate = func(context.Context) (Calibration, error) { return Calibration{}, nil }
 		return &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: slices.Clone(BrowseFrameworks)}, Version: map[string]string{}, Stamp: "from browse.sh",
 			Config: browseConfig(o, "AMD EPYC 7B13", "t1", "m1")}
 	}
@@ -896,11 +898,12 @@ func TestTheReportSaysWhenARunIsNotFormal(t *testing.T) {
 	}
 	r := formal()
 	r.Config["rounds"], r.Config["latencyBlocks"], r.Config["loadCpus"], r.Config["sizing"] = "1", "1", "", "3s"
+	r.Config["calibrate"] = "off"
 	r.Stamp = ""
 	r.Servers[sc.Name] = []string{"tifa", "nextjs"}
 	md := r.Markdown()
 	top, _, _ := strings.Cut(md, "### ")
-	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "latencyBlocks 1 (formal 3)", "sizing 3s (formal 15s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
+	for _, want := range []string{"**Not a formal run.**", "rounds 1 (formal 3)", "the machine not calibrated", "latencyBlocks 1 (formal 3)", "sizing 3s (formal 15s)", "not pinned", "not run by browse.sh", "servers tifa, nextjs (formal " + strings.Join(BrowseFrameworks, ", ") + ")"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("the top of the report lacks %q:\n%s", want, top)
 		}
@@ -1179,5 +1182,43 @@ func TestTheBodyHasAThroughputAndALatencyTableWithTheirNotes(t *testing.T) {
 	r.MachineChecks = nil
 	if strings.Contains(r.Markdown(), "machine was checked") {
 		t.Error("the notes name a check of the machine that did not run")
+	}
+}
+
+// A run that calibrates the machine says under the tables that every round ran within the tolerance of
+// the speed at the start of the run, and the appendix gives the calibrations of each round as shares
+// of the base, with the rounds played again for the machine. A run that does not is not formal.
+func TestTheReportGivesTheSpeedOfTheMachineInEachRound(t *testing.T) {
+	sc := mustScenario("shop")
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{},
+		Config: map[string]string{"sessions": "8", "calibrate": "on"}, Throughput: map[string]*Throughput{},
+		Calibration: &CalibrationBase{Compute: 436.9, Memory: 6.05, Tolerance: 0.03, Gated: []string{"compute"}, Runs: make([]Calibration, 5), Date: "2026-11-16 12:00:00 UTC"}}
+	at := func(when string, compute, memory float64) RoundCalibration {
+		return RoundCalibration{When: when, Compute: 436.9 * compute, Memory: 6.05 * memory, ComputeShare: compute, MemoryShare: memory}
+	}
+	for _, f := range r.Servers[sc.Name] {
+		r.Throughput[serverKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		x := closedRound(f, sc.Name, 8, 1, 4000, 10, true)
+		x.Calibrations = []RoundCalibration{at(calibrationBeforeWarmUp, 1.004, 0.98), at(calibrationBeforeClock, 0.991, 1.02), at(calibrationAfterRound, 1.012, 0.95)}
+		r.Closed = append(r.Closed, x)
+	}
+	r.Closed[1].MachineReplays = []string{"after the round, compute at 96.1% of the base (more than 3% off)"}
+	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	if want := "- Every round ran with the machine within 3% of its speed at the start of the run (436.9 M/s of compute), by a fixed program timed before the warm-up of each round, before its clock and after it. A round off that speed did not count and was played again: 1 round."; !strings.Contains(body, want) {
+		t.Errorf("the notes lack %q:\n%s", want, body)
+	}
+	for _, want := range []string{
+		"#### The speed of the machine in each round",
+		"| | round | before the warm-up | before the clock | after the round | played again for the machine |",
+		"| Tifa | closed, 8 sessions, round 1 | 100.4% (memory 98.0%) | 99.1% (memory 102.0%) | 101.2% (memory 95.0%) | - |",
+		"| Next.js | closed, 8 sessions, round 1 | 100.4% (memory 98.0%) | 99.1% (memory 102.0%) | 101.2% (memory 95.0%) | after the round, compute at 96.1% of the base (more than 3% off) |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+	r.Config["calibrate"] = "off"
+	if md := r.Markdown(); !strings.Contains(md, "the machine not calibrated around each round") {
+		t.Error("a run that did not calibrate the machine is formal")
 	}
 }

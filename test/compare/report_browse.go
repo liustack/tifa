@@ -212,6 +212,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	r.memoMarkdown(b, sc)
 	r.controlMarkdown(b, sc)
 	r.seriesMarkdown(b, sc)
+	r.calibrationsMarkdown(b, sc)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
 	r.latencyMethodMarkdown(b, sc)
 	if rs := func(f string) []Round { return r.latencyRounds(f, sc.Name) }; slices.ContainsFunc(fw, func(f string) bool { return len(rs(f)) > 0 }) {
@@ -507,6 +508,7 @@ func (r *BrowseResult) notesMarkdown(b *strings.Builder, sc BrowseScenario) {
 		fmt.Fprintf(b, "- A row of the latency table is one round of %d visits (%d blocks) at %.2f visits/s. The rate is %.0f%% of the median %.2f visits a second %s completed in its %d closed rounds at %d sessions, to the nearest 0.25.\n",
 			visits, blocks, rate, 100*latencyShare, visitsPerSecond(cell), BrowseLabel(base), len(cell), sessions)
 	}
+	r.calibrationNote(b, sc)
 	for _, c := range r.MachineChecks {
 		if c.Scenario == sc.Name {
 			fmt.Fprintf(b, "- The machine was checked on %s before servers were measured again beside the kept results: %d closed rounds of %s at %d sessions did %s page views/s, a median of %.1f against %.1f for its kept rounds, %+.1f%% (within %.0f%%).\n",
@@ -1116,6 +1118,9 @@ func (r *BrowseResult) notFormal() []string {
 	if r.Config["serverCpus"] == "" || r.Config["loadCpus"] == "" {
 		off = append(off, "the server and the load not pinned to cpus of their own")
 	}
+	if r.Config["calibrate"] != "on" {
+		off = append(off, "the machine not calibrated around each round (-calibrate)")
+	}
 	if r.Stamp == "" {
 		off = append(off, "not run by browse.sh, so its traces were not checked against the checkout")
 	}
@@ -1505,4 +1510,62 @@ func (r *BrowseResult) latencyTries(fw, sc string) []Round {
 		}
 	}
 	return out
+}
+
+// calibrationNote is the note under the tables of a scenario on the speed of the machine: every round
+// ran within the tolerance of the base (calibration.go), and how many were played again for it.
+func (r *BrowseResult) calibrationNote(b *strings.Builder, sc BrowseScenario) {
+	c := r.Calibration
+	if c == nil {
+		return
+	}
+	var speeds []string
+	for _, g := range c.Gated {
+		speeds = append(speeds, fmt.Sprintf("%.1f M/s of %s", map[string]float64{"compute": c.Compute, "memory": c.Memory}[g], g))
+	}
+	again := 0
+	for _, x := range slices.Concat(r.Closed, r.Control, r.Latency) {
+		if x.Scenario == sc.Name {
+			again += len(x.MachineReplays)
+		}
+	}
+	fmt.Fprintf(b, "- Every round ran with the machine within %.0f%% of its speed at the start of the run (%s), by a fixed program timed before the warm-up of each round, before its clock and after it. A round off that speed did not count and was played again: %s.\n",
+		100*c.Tolerance, strings.Join(speeds, " and "), map[bool]string{true: "1 round", false: fmt.Sprintf("%d rounds", again)}[again == 1])
+}
+
+// calibrationsMarkdown is, in the appendix, the calibrations of the machine of every round of a
+// scenario as shares of the base: compute, with memory in brackets, and why the rounds before it were
+// played again for the machine.
+func (r *BrowseResult) calibrationsMarkdown(b *strings.Builder, sc BrowseScenario) {
+	c := r.Calibration
+	if c == nil {
+		return
+	}
+	fmt.Fprintf(b, "\n#### The speed of the machine in each round\n\nThe fixed program of `compare calibrate`, pinned to the cpus of the server, against the base of the run: %.1f M/s of compute and %.2f M/s of memory, the medians of %d calibrations at %s. A share of the base, compute with memory in brackets. A round counts only with %s within %.0f%% of the base before its clock and after it.\n\n| | round | before the warm-up | before the clock | after the round | played again for the machine |\n| --- | --- | --- | --- | --- | --- |\n",
+		c.Compute, c.Memory, len(c.Runs), c.Date, strings.Join(c.Gated, " and "), 100*c.Tolerance)
+	at := func(x Round, when string) string {
+		for _, rc := range x.Calibrations {
+			if rc.When == when {
+				return fmt.Sprintf("%.1f%% (memory %.1f%%)", 100*rc.ComputeShare, 100*rc.MemoryShare)
+			}
+		}
+		return "-"
+	}
+	for _, x := range slices.Concat(r.Closed, r.Control, r.Latency) {
+		if x.Scenario != sc.Name || len(x.Calibrations) == 0 {
+			continue
+		}
+		round := fmt.Sprintf("%s, round %d", x.Model, x.Round)
+		if x.Model == "closed" {
+			round = fmt.Sprintf("closed, %d sessions, round %d", x.Sessions, x.Round)
+		}
+		if x.Attempt > 1 {
+			round += fmt.Sprintf(", try %d", x.Attempt)
+		}
+		again := "-"
+		if len(x.MachineReplays) > 0 {
+			again = strings.Join(x.MachineReplays, ", ")
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", BrowseLabel(x.Framework), round, at(x, calibrationBeforeWarmUp), at(x, calibrationBeforeClock), at(x, calibrationAfterRound), again)
+	}
 }

@@ -17,6 +17,7 @@ var browseOpts struct {
 	sessions, rounds                                                              int
 	sizing, target                                                                time.Duration
 	latencyBlocks                                                                 int
+	calibrate                                                                     bool
 }
 
 func browseFlags(flags *flag.FlagSet) {
@@ -35,6 +36,7 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.DurationVar(&o.sizing, "sizing", compare.FormalBrowse.Sizing, "browse: the length of the sizing run that sizes the first round of a cell, on a server of its own")
 	flags.DurationVar(&o.target, "target", compare.FormalBrowse.Target, "browse: about how long a closed round should take")
 	flags.IntVar(&o.latencyBlocks, "latency-blocks", compare.FormalBrowse.LatencyBlocks, "browse: the blocks of the one latency round of every server, a multiple of the blocks of the plans")
+	flags.BoolVar(&o.calibrate, "calibrate", true, "browse: time the machine with compare calibrate, pinned to the server cpus, before the warm-up of every round, before its clock and after it, against the speed at the start of the run (a run without it is not formal)")
 }
 
 func countCPUs(list string) int {
@@ -77,6 +79,11 @@ func serverStamps() map[string]string {
 // browseStatus prints, for each server, what a run with these stamps does with the result of -out
 // (compare.BrowseStatus). It reads and changes nothing else.
 func browseStatus(dir string, servers []string) {
+	calib, err := compare.BrowseCalibrationStatus(browseOpts.out)
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Print(calib)
 	for _, server := range servers {
 		status, err := compare.BrowseStatus(browseOpts.out, dir, browseOpts.stamp, serverStamps(), server)
 		if err != nil {
@@ -97,6 +104,9 @@ func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, se
 	}
 	opts.Announce = o.announce
 	opts.Hold = strings.Fields(o.hold)
+	if o.calibrate {
+		opts.Calibrate = compare.CalibrateChild(o.serverCPUs)
+	}
 	res, err := env.Browse(ctx, opts)
 	if err != nil {
 		fatal(err)

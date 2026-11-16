@@ -93,3 +93,24 @@ func BrowseStatus(path, dir, stamp string, stamps map[string]string, server stri
 	}
 	return b.String(), nil
 }
+
+// BrowseCalibrationStatus says what base of the calibrations of the machine (CalibrationBase) the
+// result of path has, "" when there is no result.
+func BrowseCalibrationStatus(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	res, err := ReadBrowseResult(data)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	c := res.Calibration
+	if c == nil {
+		return "calibration: no base yet, a run sets it before its first round\n", nil
+	}
+	return fmt.Sprintf("calibration: base compute %.1f M/s, memory %.2f M/s, the medians of %d calibrations at %s\n", c.Compute, c.Memory, len(c.Runs), c.Date), nil
+}
