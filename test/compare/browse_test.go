@@ -128,6 +128,9 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 			t.Errorf("the same stamps: %s was dropped\n%s", fw, log)
 		}
 	}
+	if len(b.stale) != 0 {
+		t.Errorf("the same stamps: %v measured again", b.stale)
+	}
 	// A new build of Tifa: Tifa and Tifa with its memo off are measured again, with their control, and
 	// keep nothing of before. Next.js and Start keep everything, and so do the numbers all share.
 	tifaBuilt := maps.Clone(stamps)
@@ -135,6 +138,10 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 	b, log, err = restore("shared", tifaBuilt, version)
 	if err != nil {
 		t.Fatalf("a new build of Tifa: %v", err)
+	}
+	// The servers measured again are what the check of the machine is played for (checkMachine).
+	if !slices.Equal(b.stale, []string{"tifa", "tifa-nocache"}) {
+		t.Errorf("a new build of Tifa: %v measured again", b.stale)
 	}
 	for fw, want := range map[string]bool{"tifa": false, "tifa-nocache": false, "nextjs": true, "start": true} {
 		if kept(b.res, fw) != want {

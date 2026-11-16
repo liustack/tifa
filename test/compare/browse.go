@@ -125,6 +125,9 @@ type BrowseResult struct {
 	Control []Round `json:"control,omitempty"`
 	// Throughput is, per scenario and server ("shop/tifa"), what the steps of its sessions found.
 	Throughput map[string]*Throughput `json:"throughput,omitempty"`
+	// MachineChecks are the checks of the machine that passed, before a continued run measured a server
+	// again (checkMachine).
+	MachineChecks []MachineCheck `json:"machineChecks,omitempty"`
 }
 
 type browse struct {
@@ -150,6 +153,10 @@ type browse struct {
 	// noCutoff is for tests of what a server is sent, whose result does not depend on how long a round
 	// takes: no round is stopped at twice its target (the real run never sets it, see cutoff).
 	noCutoff bool
+	// stale are the servers a continued result is measuring again (measureAgain), and playCheck plays
+	// the round of the check of the machine in the tests (nil: checkRound plays it).
+	stale     []string
+	playCheck func(fw string, sc BrowseScenario, try int) (*Round, error)
 }
 
 // cutoff is how long a closed round of the target window may run before it is stopped: twice the
@@ -566,8 +573,8 @@ func (r *BrowseResult) forget(name string) string {
 // measureAgain drops what a continued result holds of every server that is not of this run (staleWhy)
 // and stamps it anew, keeping its versions of its own, and says so. The other servers are untouched,
 // and so are the numbers every server of a scenario shares (the prepared visits and the warm-up, see
-// prepared), unless no server of the scenario is kept.
-func (b *browse) measureAgain(version map[string]string) {
+// prepared), unless no server of the scenario is kept. It returns the servers it measures again.
+func (b *browse) measureAgain(version map[string]string) []string {
 	var stale []string
 	for _, name := range b.serverNames() {
 		if why := b.staleWhy(name, version); why != "" {
@@ -596,6 +603,7 @@ func (b *browse) measureAgain(version map[string]string) {
 			delete(b.res.WarmVisits, sc.Name)
 		}
 	}
+	return stale
 }
 
 // restore reads back a result to continue, and checks it in one place before any phase runs, whatever
@@ -614,7 +622,7 @@ func (b *browse) restore(data []byte, cfg, version map[string]string) error {
 	if b.res.Version == nil {
 		b.res.Version = map[string]string{}
 	}
-	b.measureAgain(version)
+	b.stale = b.measureAgain(version)
 	return nil
 }
 
@@ -704,6 +712,11 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 				return b.res, err
 			}
 		}
+	}
+	// A continued run that measures a server again first checks that the machine is as fast as it was
+	// for the rounds it keeps.
+	if err := b.checkMachine(ctx, b.stale); err != nil {
+		return b.res, err
 	}
 	has := func(p string) bool { return slices.Contains(o.Phases, p) }
 	for _, phase := range []struct {
@@ -957,7 +970,6 @@ func (b *browse) sizeCell(ctx context.Context, fw string, sc BrowseScenario, ses
 // every try.
 func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, sessions, round int) (*Round, error) {
 	key := fmt.Sprintf("%s/%d/%s", sc.Name, sessions, fw)
-	planBlocks := b.set.Blocks
 	prepared, warm, err := b.prepared(ctx, sc)
 	if err != nil {
 		return nil, err
@@ -966,19 +978,12 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		return nil, err
 	}
 	for attempt := 1; ; attempt++ {
-		// A round never plays more visits than every server gets the data of: one sized to more
-		// plays them all, and is kept when that ends it early (calibrate).
-		visits, capped := playable(b.res.Blocks[key]*sc.blockVisits(), prepared)
-		out, err := b.with(ctx, fw, sc, visits, prepared, warm, func(r *runner) *Round {
-			// A round that still runs too long (a server that slows down as its data grows) is
-			// stopped at twice the target, which is too long to be valid, and resized from what it did.
-			return r.RunClosed(ctx, sessions, visits, b.cutoff(b.o.Target))
-		})
+		out, blocks, err := b.closedTry(ctx, fw, sc, sessions, b.res.Blocks[key], prepared, warm)
 		if err != nil {
 			return nil, err
 		}
-		out.Round, out.Attempt, out.Capped = round, attempt, capped
-		if blocks := judgeClosed(out, b.o.Target, planBlocks, sc.blockVisits(), b.o.LoadCPUCount); blocks > 0 {
+		out.Round, out.Attempt = round, attempt
+		if blocks > 0 {
 			b.res.Blocks[key] = blocks
 		}
 		b.res.Closed = append(b.res.Closed, *out)
@@ -991,6 +996,26 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 			return out, nil
 		}
 	}
+}
+
+// closedTry plays one try of a closed round of a cell sized to blocks, as every round of the cell is
+// played: its setup, its warm-up and the round on a fresh server (with), then its judgement
+// (judgeClosed). It returns the try and the blocks of the next try of the cell, 0 for no change, and
+// keeps nothing in the result.
+func (b *browse) closedTry(ctx context.Context, fw string, sc BrowseScenario, sessions, blocks, prepared, warm int) (*Round, int, error) {
+	// A round never plays more visits than every server gets the data of: one sized to more plays them
+	// all, and is kept when that ends it early (calibrate).
+	visits, capped := playable(blocks*sc.blockVisits(), prepared)
+	out, err := b.with(ctx, fw, sc, visits, prepared, warm, func(r *runner) *Round {
+		// A round that still runs too long (a server that slows down as its data grows) is stopped at
+		// twice the target, which is too long to be valid, and resized from what it did.
+		return r.RunClosed(ctx, sessions, visits, b.cutoff(b.o.Target))
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	out.Capped = capped
+	return out, judgeClosed(out, b.o.Target, b.set.Blocks, sc.blockVisits(), b.o.LoadCPUCount), nil
 }
 
 // size is how many visits a second a server completes with the mix of the scenario, writes
