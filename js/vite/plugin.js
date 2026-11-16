@@ -641,6 +641,7 @@ const i18nextCacheKeys = 4096
 const i18nextCacheSource = `
 var tifaI18nCaches = new WeakMap(), tifaI18nBytes = 0, tifaI18nEffects = 0, tifaI18nIds = new WeakMap(), tifaI18nLastId = 0;
 var tifaI18nDebts = new Map(), tifaI18nFormatters = new WeakSet(), tifaI18nFound;
+var tifaI18nNo = {}, tifaI18nIsPart = false, tifaI18nLast = { m: -1 };
 var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nSymbols = Object.getOwnPropertySymbols, tifaI18nObject = Object.prototype;
 function tifaI18nClear() { tifaI18nEffects++; tifaI18nCaches = new WeakMap(); tifaI18nBytes = 0; }
 function tifaI18nPart(v) {
@@ -667,31 +668,38 @@ function tifaI18nObjectPart(o) {
   for (const name in o) { if ((p = tifaI18nPart(o[name])) === undefined) return; k += name.length + ':' + name + p; }
   return k + ';';
 }
-function tifaI18nKey(i18n, options, fixedT, keyPrefix, key, opts, rest) {
-  let k, p;
-  if ((k = tifaI18nPart(fixedT.lng)) === undefined) return;
-  if (!fixedT.lng) { if ((p = tifaI18nPart(i18n.translator.language)) === undefined) return; k += p; }
-  if ((p = tifaI18nPart(fixedT.lngs)) === undefined) return; k += p;
-  if ((p = tifaI18nPart(fixedT.ns)) === undefined) return; k += p;
-  if ((p = tifaI18nPart(fixedT.keyPrefix)) === undefined) return; k += p;
-  if ((p = tifaI18nPart(keyPrefix)) === undefined) return; k += p;
-  k += key.length + ':' + key;
+function tifaI18nTake(v) {
+  let r = v, part = false;
+  switch (typeof v) {
+    case 'string': case 'number': case 'boolean': case 'undefined': case 'bigint': break;
+    case 'object': if (v !== null) { r = tifaI18nPart(v); if (r === undefined) r = tifaI18nNo; else part = true; } break;
+    default: r = tifaI18nNo;
+  }
+  tifaI18nIsPart = part;
+  return r;
+}
+function tifaI18nSame(a, b) { return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b; }
+function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
+  let m = 0, a, b, c, d, e, g, f = 0, h = '';
+  if ((a = tifaI18nTake(fixedT.lng)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 1;
+  if (!fixedT.lng) { if ((b = tifaI18nTake(i18n.translator.language)) === tifaI18nNo) return; m |= tifaI18nIsPart ? 6 : 4; }
+  if ((c = tifaI18nTake(fixedT.lngs)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 8;
+  if ((d = tifaI18nTake(fixedT.ns)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 16;
+  if ((e = tifaI18nTake(fixedT.keyPrefix)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 32;
+  if ((g = tifaI18nTake(keyPrefix)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 64;
   const format = i18n.services.i18nFormat, formats = format && format.formats;
   if (typeof formats === 'object' && formats !== null) {
-    let f = tifaI18nIds.get(formats);
+    f = tifaI18nIds.get(formats);
     if (f === undefined) tifaI18nIds.set(formats, f = ++tifaI18nLastId);
-    k += 'f' + f + ';';
   }
   const defaults = options.interpolation.defaultVariables;
-  if (defaults) { if (typeof defaults !== 'object' || (p = tifaI18nObjectPart(defaults)) === undefined) return; k += p; }
-  if (typeof opts === 'object') {
-    if (opts === null) return k + 'N';
-    if ((p = tifaI18nObjectPart(opts)) === undefined) return;
-    return k + p;
-  }
-  if ((p = tifaI18nPart(opts)) === undefined) return; k += 'p' + p;
-  for (let i = 0; i < rest.length; i++) { if ((p = tifaI18nPart(rest[i])) === undefined) return; k += p; }
-  return k;
+  if (defaults) { if (typeof defaults !== 'object' || (h = tifaI18nObjectPart(defaults)) === undefined) return; }
+  const l = tifaI18nLast;
+  if (l.m === m && tifaI18nSame(l.a, a) && tifaI18nSame(l.b, b) && tifaI18nSame(l.c, c) && tifaI18nSame(l.d, d) && tifaI18nSame(l.e, e) && tifaI18nSame(l.g, g) && l.f === f && l.h === h) return l.prefix;
+  const prefix = (m & 1 ? a : tifaI18nPart(a)) + (m & 4 ? (m & 2 ? b : tifaI18nPart(b)) : '') + (m & 8 ? c : tifaI18nPart(c)) + (m & 16 ? d : tifaI18nPart(d)) +
+    (m & 32 ? e : tifaI18nPart(e)) + (m & 64 ? g : tifaI18nPart(g)) + (f ? 'f' + f + ';' : '') + h;
+  tifaI18nLast = { m: m, a: a, b: b, c: c, d: d, e: e, g: g, f: f, h: h, prefix: prefix };
+  return prefix;
 }
 function tifaI18nFind(i18n, fixedT, keyPrefix, key, opts, rest) {
   if (typeof key !== 'string') return;
@@ -701,22 +709,37 @@ function tifaI18nFind(i18n, fixedT, keyPrefix, key, opts, rest) {
   if (debt === undefined) { if (tifaI18nDebts.size >= ${i18nextCacheKeys}) tifaI18nDebts.clear(); tifaI18nDebts.set(key, debt = { n: 0 }); }
   else if (debt.n >= ${i18nextCacheOff}) { debt.n--; return; }
   if (!(i18n.services.formatter instanceof Formatter)) return;
-  const k = tifaI18nKey(i18n, options, fixedT, keyPrefix, key, opts, rest), cache = tifaI18nCaches.get(i18n);
-  if (k !== undefined && cache !== undefined) {
-    const hit = cache.get(k);
+  const prefix = tifaI18nPrefix(i18n, options, fixedT, keyPrefix);
+  let sub, p, plain = false;
+  if (prefix !== undefined) {
+    if (opts === undefined && rest.length === 0) { sub = key; plain = true; }
+    else if (typeof opts === 'object') { if (opts === null) sub = key.length + ':' + key + 'N'; else if ((p = tifaI18nObjectPart(opts)) !== undefined) sub = key.length + ':' + key + p; }
+    else if ((p = tifaI18nPart(opts)) !== undefined) {
+      sub = key.length + ':' + key + 'p' + p;
+      for (let i = 0; i < rest.length; i++) { if ((p = tifaI18nPart(rest[i])) === undefined) { sub = undefined; break; } sub += p; }
+    }
+  }
+  const cache = tifaI18nCaches.get(i18n);
+  if (sub !== undefined && cache !== undefined) {
+    let store;
+    if (cache.tifaPrefix === prefix) store = cache.tifaStore;
+    else if ((store = cache.get(prefix)) !== undefined) { cache.tifaPrefix = prefix; cache.tifaStore = store; }
+    const hit = store === undefined ? undefined : (plain ? store.plain : store.full).get(sub);
     if (hit !== undefined) { debt.n = debt.n > ${i18nextCacheHit - i18nextCacheOff} ? debt.n - ${i18nextCacheHit} : ${-i18nextCacheOff}; tifaI18nFound = hit; return null; }
   }
   debt.n += ${i18nextCacheMiss};
-  return k;
+  if (sub !== undefined) return { prefix: prefix, sub: sub, plain: plain };
 }
-function tifaI18nKeep(i18n, key, effects, result) {
+function tifaI18nKeep(i18n, found, effects, result) {
   if (effects === tifaI18nEffects && typeof result === 'string') {
-    const bytes = 2 * (key.length + result.length) + 80;
+    const bytes = 2 * (found.prefix.length + found.sub.length + result.length) + 80;
     if (tifaI18nBytes + bytes > ${i18nextCacheSize}) { tifaI18nCaches = new WeakMap(); tifaI18nBytes = 0; }
     if (bytes > ${i18nextCacheSize}) return result;
     let cache = tifaI18nCaches.get(i18n);
     if (cache === undefined) { tifaI18nCaches.set(i18n, cache = new Map()); tifaI18nFormatters.add(i18n.services.formatter); }
-    cache.set(key, result); tifaI18nBytes += bytes;
+    let store = cache.get(found.prefix);
+    if (store === undefined) cache.set(found.prefix, store = { plain: new Map(), full: new Map() });
+    (found.plain ? store.plain : store.full).set(found.sub, result); tifaI18nBytes += bytes;
   }
   return result;
 }
