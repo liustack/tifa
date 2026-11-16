@@ -340,6 +340,9 @@ func decodeProblem(t types.Type, key bool) string {
 // it are those refusedInValidate lets through. It reports false when it reported an error.
 func (a *analyzer) walkValidate(fn *types.Func) bool {
 	src, found := a.funcs[fn.Origin().FullName()]
+	if !found && fn.Pkg() != nil && a.modulePkgs[fn.Pkg().Path()] {
+		return true // a module package that does not type check, its errors are reported
+	}
 	if !found || src.decl.Body == nil {
 		a.errorAt(fn.Pos(), "%s receives the Ctx and is outside this module, so the analyzer cannot read its source: declare the input type in this module", fn.FullName())
 		return false
