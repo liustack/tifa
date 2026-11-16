@@ -11,19 +11,20 @@ import (
 
 // The versions of TanStack Router tifa is tested with. This is the one place that names them:
 // tifa new writes TestedReactRouter into package.json, and a test in test/e2e checks that the
-// apps of this repository install both. To move to another version, change them here, install it
-// in those apps and run the router tests in internal/codegen, which check the option below.
+// apps of this repository install both. TestedRouterCore is the router-core that
+// TestedReactRouter depends on.
 //
-// js/runtime/router.tsx sets router.options.serializationAdapters, which these versions read when
-// they write the page data on the server and read it back in the browser, but which TanStack does
-// not document outside TanStack Start. TestedRouterCore is the router-core that TestedReactRouter
-// depends on.
-//
-// takeOver in js/runtime/browser.tsx hydrates the router in place of TanStack's RouterClient:
-// when moving to another version, check it against the RouterClient.tsx of that version.
+// Tifa uses members of TanStack Router that TanStack does not document for apps (the server
+// render's router.serverSsr and _serverResult, router.options.serializationAdapters, the
+// window.$_TSR.h of the hydration script, and a few more), and keeps its own copy of some TanStack
+// source (see TanStackCopies in tanstack_copies.go). To move to another version, change the
+// constants, install it in the apps of this repository, and run TestTanStackMembersStay and
+// TestGeneratedRouterIDsMatchGo in internal/codegen and TestTanStackCopiesAreUnchanged in this
+// package: the first names each member that is gone, the last the Tifa function to compare again
+// with the new source. docs/build.md has the steps.
 const (
-	TestedReactRouter = "1.170.42"
-	TestedRouterCore  = "1.171.35"
+	TestedReactRouter = "1.170.46"
+	TestedRouterCore  = "1.171.39"
 )
 
 // CheckTanStack returns an error when the app at root installs another @tanstack/react-router

@@ -217,7 +217,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
           })
           return
         }
-        const shown = shownAt(router.stores.matches.get())
+        const shown = shownAt(router.state.matches)
         levels = shown + 1
         if (input.error) await placed(router, shown, input.error)
         undated(router)
@@ -254,7 +254,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         const hydration = router.serverSsr!.takeInitialHydrationScriptTags()
         if (!hydration) throw new Error('the router has no hydration scripts for this render')
         router.serverSsr!.setRenderFinished()
-        const matches = router.stores.matches.get()
+        const matches = router.state.matches
         const html =
           documentStart(htmlAttributesOf(matches, htmlAttributes, input.language), input) +
           assetTags +
@@ -292,7 +292,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
 // data that Go sends with the page (datePage in browser.tsx). router-core has no API to change a
 // match, so the matches go back to the store as copies, as placed does.
 function undated(router: ReturnType<typeof createAppRouter>) {
-  router.stores.setMatches(router.stores.matches.get().map((match) => ({ ...match, updatedAt: 0 })))
+  router.stores.setMatches(router.state.matches.map((match) => ({ ...match, updatedAt: 0 })))
 }
 
 // placed makes the match at error.level above the shown one fail with the error, so that it renders
@@ -305,7 +305,7 @@ function undated(router: ReturnType<typeof createAppRouter>) {
 async function placed(router: ReturnType<typeof createAppRouter>, shown: number, error: PlacedError) {
   const at = shown - error.level
   if (error.level < 0 || at < 0) throw new Error(`the matches have no level ${error.level} to show the error at`)
-  const matches = router.stores.matches.get().map((match, i) =>
+  const matches = router.state.matches.map((match, i) =>
     i === at
       ? { ...match, status: 'error' as const, error: new RouteError(error.status, error.message), loaderData: undefined, _notFound: undefined }
       : i < at

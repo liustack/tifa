@@ -9,6 +9,7 @@ read_when:
   - You cannot tell where a file under .tifa/ comes from
   - Implementing page rendering or navigation data requests and you need the route tree and the data protocol
   - Changing internal/bundle, js/vite or js/host, or upgrading the dependencies of the SSR host polyfills
+  - Upgrading the TanStack Router version Tifa is tested with, or a guard or fingerprint test of it fails
   - Handing a built program to others and checking which notices go with it
   - Debugging the built program with Delve, or passing your own -ldflags
 ---
@@ -524,6 +525,16 @@ The app's `package.json` needs React, React DOM and TanStack Router, and as dev 
 TanStack Router must be the version this Tifa is tested with: the `@tanstack/react-router` that `tifa new` writes into `package.json`, with the `@tanstack/router-core` it installs. Tifa hands page data to the browser through an option of TanStack Router that is not documented outside TanStack Start (see [Data protocol](#data-protocol)), and another version may stop reading it in the browser. Then every page with object data stays blank. So `tifa build` and `tifa dev` read the installed versions of both packages, the way Node resolves them, and stop with an error that names the installed and the tested versions. To move to a newer TanStack Router, upgrade Tifa. To build with another version anyway, at your own risk, set `build.skip_tanstack_check: true` in `tifa.yaml` (see [config.md](config.md)). An app without pages is not checked.
 
 React and React DOM must be 19.3.0 or later. The Vite plugin rewrites the string renderer of React DOM as 19.3 writes it (see [Frontend output](#frontend-output)), so `tifa build` and `tifa dev` read the installed versions of `react` and `react-dom` the same way and stop with an error that names the version to install. A prerelease of 19.3.0, such as a canary, counts as older. An app without pages is not checked.
+
+### Upgrading TanStack Router
+
+The tested pair is `TestedReactRouter` and `TestedRouterCore` in `internal/bundle/tanstack.go`. Change them, the version in every `package.json` that pins the router (`examples/shop` and the apps under `test/apps`, with `pnpm install --no-frozen-lockfile` in each), and run these tests:
+
+- `TestTanStackMembersStay` (`internal/codegen`) builds a server router and a browser router the way the runtime does and checks that every member of TanStack Router that Tifa uses and TanStack does not document for apps is still there. Each failure says what member is gone, what in Tifa breaks and which file uses it. When one fails, read the new TanStack source for that member, then change the runtime in `js/runtime` to the new way, or to a public interface if there is one now. Do not make the check pass by loosening it.
+- `TestTanStackCopiesAreUnchanged` (`internal/bundle`) hashes the pieces of TanStack source that Tifa keeps its own copy of, in the packages of `test/apps/pages`, against the hashes in `internal/bundle/tanstack_copies.go`. Each entry says whether it hashes a whole file or one function and which Tifa function to compare again. When one fails, read the diff of that source between the two versions, change the Tifa copy if the behavior changed, and then put the new hash in the table. A hash that is updated without that read guards nothing.
+- `TestGeneratedRouterIDsMatchGo` (`internal/codegen`) checks that the route IDs TanStack builds are the ones Go computed.
+
+Then run the router tests and the SSR tests in `internal/bundle`, build `examples/shop` and run its SSR test, and run `go run ./test/compare/cmd/compare deps` if the shop changed.
 
 ### Why Vite
 

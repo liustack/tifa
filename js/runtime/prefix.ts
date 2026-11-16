@@ -53,10 +53,9 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
     attach(r) {
       router = r
       attached.set(r, this)
-      // The router parsed its first location before it had routes, so input could not look at
-      // them. Parse it again.
-      r.updateLatestLocation()
-      r.stores.location.set(r.latestLocation)
+      // The router parsed its first location before it had routes and this rewrite, so input
+      // could not look at them. Giving it the rewrite now has it parse the location again.
+      r.update({ rewrite: this })
       // navigate({ href }) and preloadRoute({ href }) read the prefix of an href, then input takes
       // it off: a URL of another language would land in this one. Such an href loads its document
       // (a preload of it does nothing). Every other navigation, a Link's included, goes through.

@@ -119,8 +119,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     first = false
     followHead(router, htmlAttributes, () => language, links)
     setRouter(router, () => buildId)
-    syncHead(router.stores.matches.get(), links)
-    syncHTMLAttributes(router.stores.matches.get(), htmlAttributes, language)
+    syncHead(router.state.matches, links)
+    syncHTMLAttributes(router.state.matches, htmlAttributes, language)
     createRoot(root, rootOptions).render(
       <LanguageContext.Provider value={language}>
         <SessionContext.Provider value={shown}>
@@ -173,7 +173,7 @@ function dateBeforeLoads(router: AnyRouter) {
   const date = () => {
     if (dated) return
     dated = true
-    datePage(router.stores.matches.get())
+    datePage(router.state.matches)
   }
   router.load = ((opts) => {
     date()
@@ -195,7 +195,7 @@ export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes, lang
   return hydrateRouter(router)
     .finally(() => window.$_TSR!.h())
     .then(() => {
-      const matches = router.stores.matches.get()
+      const matches = router.state.matches
       const links = pageLinks(router, language)
       dateBeforeLoads(router)
       syncHead(matches, links)

@@ -127,3 +127,46 @@ func TestCheckTanStackNeedsTheRouterInstalled(t *testing.T) {
 		t.Fatalf("without router-core: %v", err)
 	}
 }
+
+// TestTanStackCopiesAreUnchanged hashes the pieces of TanStack source that tifa copies, in the
+// packages of test/apps/pages, and fails with the tifa function to compare again when one changed.
+// Run pnpm install --frozen-lockfile in test/apps/pages first.
+func TestTanStackCopiesAreUnchanged(t *testing.T) {
+	app, err := filepath.Abs(filepath.Join("..", "..", "test", "apps", "pages"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(app, "node_modules", "@tanstack", "react-router")); err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+	}
+	if err := CheckTanStack(app); err != nil {
+		t.Fatalf("test/apps/pages does not install the tested versions: %v", err)
+	}
+	changed, err := CheckCopies(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range changed {
+		t.Error(message)
+	}
+}
+
+// A piece that TanStack moved or renamed is reported, not hashed as nothing.
+func TestTanStackCopyNeedsItsStartAndEnd(t *testing.T) {
+	c := Copy{File: "a.ts", Package: "p", Start: "function f(", End: "}"}
+	if _, err := c.Hash("function g() {\n}\n"); err == nil {
+		t.Error("a source without the start has a hash")
+	}
+	if _, err := c.Hash("function f() {\n  1\n"); err == nil {
+		t.Error("a source without the end has a hash")
+	}
+	a, _ := c.Hash("x\nfunction f() {\n  1\n}\ny\n")
+	b, _ := c.Hash("z\r\nfunction f() {\r\n  1\r\n}\r\nw\r\n")
+	if a == "" || a != b {
+		t.Errorf("the hash follows what is outside the piece or the line endings: %q %q", a, b)
+	}
+	d, _ := c.Hash("function f() {\n  2\n}\n")
+	if d == a {
+		t.Error("the hash ignores the inside of the piece")
+	}
+}

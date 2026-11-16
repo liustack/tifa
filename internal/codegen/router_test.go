@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -237,4 +238,53 @@ func TestGeneratedRouterPrefixesLanguages(t *testing.T) {
 	if output, err := tsc.CombinedOutput(); err != nil {
 		t.Fatalf("tsc: %v\n%s", err, output)
 	}
+}
+
+// guardBuild is routerBuild for testdata/router/guard.test.tsx.
+var guardBuild = strings.Replace(routerBuild, "const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],\n  ['session.test.tsx', 'node', false], ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]", "const entries = [['guard.test.tsx', 'node', false], ['guard-browser.test.tsx', 'browser', false]]", 1)
+
+// TestTanStackMembersStay runs testdata/router/guard.test.tsx, which checks that the members of
+// TanStack Router that tifa uses without TanStack documenting them are still there, and says
+// what in tifa breaks when one is not.
+func TestTanStackMembersStay(t *testing.T) {
+	_, _, _, run := routerApp(t, filepath.Join("testdata", "router"), guardBuild, nil)
+	run("build.mjs")
+	run(filepath.Join("out", "guard.test.mjs"))
+	run(filepath.Join("out", "guard-browser.test.mjs"))
+}
+
+// idsBuild is routerBuild for testdata/router/ids.test.tsx.
+var idsBuild = strings.Replace(routerBuild, "const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],\n  ['session.test.tsx', 'node', false], ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]", "const entries = [['ids.test.tsx', 'node', false]]", 1)
+
+// TestGeneratedRouterIDsMatchGo compares the ID of every route TanStack builds from the generated
+// route tree of testdata/router with the ID Go computed for it.
+func TestGeneratedRouterIDsMatchGo(t *testing.T) {
+	_, root, modules, run := routerApp(t, filepath.Join("testdata", "router"), idsBuild, nil)
+	m, err := analyze.Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := bundle.NewNode(filepath.Dir(modules), io.Discard)
+	defer front.Close()
+	_, nodes, err := buildTree(root, m, front.Exports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := tanstackRoutes(nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, len(routes))
+	for i, r := range routes {
+		ids[i] = r.routeID
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "route-ids.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("build.mjs")
+	run(filepath.Join("out", "ids.test.mjs"))
 }
