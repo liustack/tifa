@@ -280,64 +280,6 @@ const radixMergePropsSource = radixMergePropsOldSource.replace(
   }
   return`,
 )
-// createContextScope of @radix-ui/react-context, which every Radix primitive that shadcn/ui wraps
-// makes its contexts with, writes the key `__scope${scopeName}` again in each call of the hooks it
-// returns, and an object literal or a read with a key that is a new string makes the engine look
-// the string up in its table of property names every time. The tifa plugin changes dist/index.mjs
-// and dist/index.js, see radixScopeKeys. radixContextHeader is the line that starts
-// createContextScope, and radixScopeSource is the text from its createScope to the end of
-// composeContextScopes, as react-context 1.1.0 to 1.2.0 have it. 1.2.1 to 1.3.0 have the same text
-// with the functions wrapped in __name (radixScopeNamed).
-const radixContextModule = /[/\\]@radix-ui[/\\]react-context[/\\]dist[/\\]index\.m?js$/
-const radixContextHeader = 'function createContextScope(scopeName, createContextScopeDeps = []) {\n'
-const radixScopeSource = `  const createScope = () => {
-    const scopeContexts = defaultContexts.map((defaultContext) => {
-      return React.createContext(defaultContext);
-    });
-    return function useScope(scope) {
-      const contexts = scope?.[scopeName] || scopeContexts;
-      return React.useMemo(
-        () => ({ [\`__scope\${scopeName}\`]: { ...scope, [scopeName]: contexts } }),
-        [scope, contexts]
-      );
-    };
-  };
-  createScope.scopeName = scopeName;
-  return [createContext3, composeContextScopes(createScope, ...createContextScopeDeps)];
-}
-function composeContextScopes(...scopes) {
-  const baseScope = scopes[0];
-  if (scopes.length === 1) return baseScope;
-  const createScope = () => {
-    const scopeHooks = scopes.map((createScope2) => ({
-      useScope: createScope2(),
-      scopeName: createScope2.scopeName
-    }));
-    return function useComposedScopes(overrideScopes) {
-      const nextScopes = scopeHooks.reduce((nextScopes2, { useScope, scopeName }) => {
-        const scopeProps = useScope(overrideScopes);
-        const currentScope = scopeProps[\`__scope\${scopeName}\`];
-        return { ...nextScopes2, ...currentScope };
-      }, {});
-      return React.useMemo(() => ({ [\`__scope\${baseScope.scopeName}\`]: nextScopes }), [nextScopes]);
-    };
-  };
-  createScope.scopeName = baseScope.scopeName;
-  return createScope;
-}
-`
-const radixScopeNamed = radixScopeSource
-  .replace('  const createScope = () => {\n    const scopeContexts', '  const createScope = /* @__PURE__ */ __name(() => {\n    const scopeContexts')
-  .replace('    return function useScope(scope) {', '    return /* @__PURE__ */ __name(function useScope(scope) {')
-  .replace('    };\n  };\n  createScope.scopeName = scopeName;', '    }, "useScope");\n  }, "createScope");\n  createScope.scopeName = scopeName;')
-  .replace('}\nfunction composeContextScopes', '}\n__name(createContextScope, "createContextScope");\nfunction composeContextScopes')
-  .replace('  const createScope = () => {\n    const scopeHooks', '  const createScope = /* @__PURE__ */ __name(() => {\n    const scopeHooks')
-  .replace('    return function useComposedScopes(overrideScopes) {', '    return /* @__PURE__ */ __name(function useComposedScopes(overrideScopes) {')
-  .replace('    };\n  };\n  createScope.scopeName = baseScope.scopeName;', '    }, "useComposedScopes");\n  }, "createScope");\n  createScope.scopeName = baseScope.scopeName;')
-// tifaScopeKey is what radixScopeKeys adds to react-context: the key `__scope${name}`, the same
-// string object for the same name as long as a place sees one name, kept in the object kept.
-const radixScopeKeyHelper =
-  'function tifaScopeKey(name, kept) { if (typeof name !== "string") return `__scope${name}`; if (kept.name !== name) { kept.name = name; kept.key = `__scope${name}`; } return kept.key; }'
 // clsx joins the class names of an element, for the className of nearly every component of MUI and
 // of many other libraries. It reads its arguments from the arguments object and calls a function for
 // each one, even for a string, which nearly every argument is. The tifa plugin changes dist/clsx.mjs,
@@ -2224,19 +2166,6 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         return merged ?? null
       }
-      if (radixContextModule.test(id)) {
-        const source = fs.readFileSync(id, 'utf8')
-        const keyed = radixScopeKeys(source)
-        if (!keyed && source.includes('function createContextScope(')) {
-          this.warn(
-            notRecognized +
-            `@radix-ui/react-context ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no createContextScope ` +
-              'the tifa plugin knows, so the hooks of each scope write the key of the scope again on every call. ' +
-              'Pages render the same, but take longer to render',
-          )
-        }
-        return keyed ?? null
-      }
       if (clsxModule.test(id)) {
         const faster = clsxFast(fs.readFileSync(id, 'utf8'))
         if (!faster) {
@@ -3576,39 +3505,6 @@ function radixMergeProps(source) {
       () => '      overrideProps[propName] = slotPropValue ? (childPropValue ? `${slotPropValue} ${childPropValue}` : `${slotPropValue}`) : childPropValue ? `${childPropValue}` : "";\n',
     )
   return source.replace(known, () => merged)
-}
-
-// radixScopeKeys returns the source of @radix-ui/react-context with the keys `__scope${scopeName}`
-// that createContextScope and composeContextScopes write in each call of their hooks taken from
-// tifaScopeKey, or undefined when the source does not have them in a form it knows. tifaScopeKey
-// gives the same string for a string name as the template did, as the same string object for as
-// long as the place sees the same name, so the engine finds the property name the string stands for
-// without looking it up again. Each place keeps its own name and key: the useScope of a scope, the
-// composed hook, and each scope a composed hook reads. A name that is no string, which no Radix
-// package passes, is written with the template on every call as before, so its toString runs as
-// often as it did. The names are read where and when the code read them: scopeName is the parameter
-// of createContextScope, which the code between its first line and createScope only reads, the name
-// of a scope a composed hook reads is read once when its createScope runs, and baseScope.scopeName
-// in each call of the composed hook. Each change stays on its line.
-function radixScopeKeys(source) {
-  const once = (text) => source.split(text).length === 2
-  const known = [radixScopeSource, radixScopeNamed].find(once)
-  if (!known || !once(radixContextHeader)) return undefined
-  const header = source.indexOf(radixContextHeader)
-  const start = source.indexOf(known)
-  if (start < header) return undefined
-  if (source.slice(header + radixContextHeader.length, start).replaceAll('scope?.[scopeName]', '').includes('scopeName')) return undefined
-  const changed = known
-    .replace('() => ({ [`__scope${scopeName}`]: {', () => '() => ({ [tifaScopeKey(scopeName, tifaKept)]: {')
-    .replace('  const baseScope = scopes[0];\n', () => '  const baseScope = scopes[0], tifaKept = {};\n')
-    .replace('      scopeName: createScope2.scopeName\n', () => '      scopeName: createScope2.scopeName, tifaKept: {}\n')
-    .replace('(nextScopes2, { useScope, scopeName }) => {', () => '(nextScopes2, { useScope, scopeName, tifaKept: tifaScopeKept }) => {')
-    .replace('scopeProps[`__scope${scopeName}`];', () => 'scopeProps[tifaScopeKey(scopeName, tifaScopeKept)];')
-    .replace('[`__scope${baseScope.scopeName}`]: nextScopes', () => '[tifaScopeKey(baseScope.scopeName, tifaKept)]: nextScopes')
-    .replace(/\n}\n$/, () => `\n} ${radixScopeKeyHelper}\n`)
-  return source
-    .replace(radixContextHeader, () => `${radixContextHeader.slice(0, -1)} const tifaKept = {};\n`)
-    .replace(known, () => changed)
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call
