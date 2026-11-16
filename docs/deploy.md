@@ -220,6 +220,8 @@ func GET(c *tifa.Ctx) error {
 	metric("tifa_renders_failed_total", "counter", "Renders that failed.", float64(s.SSR.Failed))
 	metric("tifa_render_seconds_total", "counter", "Time the renders took.", s.SSR.RenderTime.Seconds())
 	metric("tifa_renders_rejected_total", "counter", "Renders answered 503 as busy.", float64(s.SSR.Rejected))
+	metric("tifa_vms_replaced_total", "counter", "VMs replaced because they grew.", float64(s.SSR.Replaced))
+	metric("tifa_vms_memory_bytes", "gauge", "Bytes the VMs hold after their last GC.", float64(s.SSR.Memory))
 	metric("tifa_memo_entries", "gauge", "Entries kept.", float64(s.Memo.Entries))
 	metric("tifa_memo_hits_total", "counter", "Answered from an entry.", float64(s.Memo.Hits))
 	metric("tifa_memo_misses_total", "counter", "Rendered by the request.", float64(s.Memo.Misses))
@@ -245,6 +247,7 @@ What to read, and what to change:
 | `tifa_vms_busy` is `tifa_vms` most of the time, `tifa_renders_queued` above 0 | Every VM renders and others wait | The same: the program is at its limit |
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | The mean time of a render | When it grows, find the page that got slower |
 | `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
+| `tifa_vms_memory_bytes` keeps climbing, or `tifa_vms_replaced_total` grows | The VMs hold more after each collection. A VM that holds more than half of `ssr.vm_memory` is replaced | Find what the pages keep, or the leak in the app. If VMs are replaced again within minutes, raise `ssr.vm_memory` (see [Memory](performance.md#memory)) |
 | Hits low next to misses, `tifa_memo_evictions_total` grows, `tifa_memo_bytes` near `tifa_memo_size_bytes` | The render memo drops pages before they are asked for again | A larger `ssr.memo_size` |
 
 ## After a deploy

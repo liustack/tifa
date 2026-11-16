@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa.Stats().SSR` has two more fields: `Replaced`, how many VMs the pool replaced because they grew (they held more than half of `ssr.vm_memory` after a collection), and `Memory`, what the loaded VMs hold now in bytes, by the engine's count after each VM's last collection, the size `ssr.vm_memory` limits. A monitoring route can now see how much memory the VMs hold and how often one is replaced. The example shop's `/metrics` writes them as `tifa_vms_replaced_total` and `tifa_vms_memory_bytes`. See [Metrics](docs/deploy.md#metrics).
+
 ## [0.0.13] - 2026-11-17
 
 ### Added

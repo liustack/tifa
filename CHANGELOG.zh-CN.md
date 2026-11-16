@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa.Stats().SSR` 多了两个字段：`Replaced` 是池子因 VM 变大而换掉的 VM 数（回收后占的超过 `ssr.vm_memory` 的一半），`Memory` 是已加载的 VM 现在占的字节数，按引擎在每个 VM 上次回收后的统计，也就是 `ssr.vm_memory` 限制的那个大小。监控路由现在能看到 VM 占多少内存、多久换一次。示例 shop 的 `/metrics` 把它们写成 `tifa_vms_replaced_total` 和 `tifa_vms_memory_bytes`。见[指标](docs/deploy.zh-CN.md#指标)。
+
 ## [0.0.13] - 2026-11-17
 
 ### 新增
