@@ -35,6 +35,7 @@ const usage = `usage:
   compare deps [flags]
   compare browse [flags]
   compare status [flags]
+  compare calibrate [-json]
   compare report out.json
   compare diff old.json new.json`
 
@@ -48,6 +49,8 @@ func main() {
 		measure(os.Args[1], os.Args[2:])
 	case "plans", "record", "links", "deps", "browse", "status":
 		browseCmd(os.Args[1], os.Args[2:])
+	case "calibrate":
+		calibrate(os.Args[2:])
 	case "report":
 		if len(os.Args) != 3 {
 			fatal(fmt.Errorf("%s", usage))
@@ -276,4 +279,22 @@ func depsCmd(ctx context.Context, env compare.Env, out string, skipBuild bool) {
 	if err := env.WriteStoreDeps(ctx, os.Stderr, out); err != nil {
 		fatal(err)
 	}
+}
+
+// calibrate runs the calibration of the machine (compare.Calibrate) and prints its line, or its JSON
+// with -json. browse runs it as a child pinned to the cpus of the server.
+func calibrate(args []string) {
+	flags := flag.NewFlagSet("calibrate", flag.ExitOnError)
+	asJSON := flags.Bool("json", false, "print the calibration as JSON")
+	flags.Parse(args)
+	c := compare.Calibrate()
+	if !*asJSON {
+		fmt.Println(c)
+		return
+	}
+	data, err := compare.CalibrationJSON(c)
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Println(string(data))
 }
