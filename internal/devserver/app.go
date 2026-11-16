@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/liustack/tifa/internal/deverrors"
 )
 
 // appWaitDelay bounds how long Wait keeps reading the app's output after the app exited.
@@ -89,18 +92,21 @@ func explain(err error) string {
 	return err.Error()
 }
 
-// waitReady waits until addr accepts connections. It fails when the process exits first,
-// or when timeout passes.
+// waitReady waits until the app answers at addr. An open port is not enough: another program
+// may hold the address, such as Vite's dev server on a port that was free when both were chosen,
+// while the app fails to listen and exits. Only the app under server.DevMain answers
+// deverrors.Path with 200. waitReady fails when the process exits first, or when timeout passes.
 func (a *app) waitReady(ctx context.Context, addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	// Each probe has its own connection, which the app closes after the answer: one that stayed open
+	// would hold up the app's graceful shutdown.
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	for {
-		conn, err := net.DialTimeout("tcp", addr, time.Second)
-		if err == nil {
-			conn.Close()
+		if answers(ctx, client, addr) {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return &appExit{err: fmt.Errorf("the app did not listen on %s within %s", addr, timeout), output: a.stderr.String()}
+			return &appExit{err: fmt.Errorf("the app did not answer on %s within %s", addr, timeout), output: a.stderr.String()}
 		}
 		select {
 		case <-a.done:
@@ -131,14 +137,33 @@ func (a *app) stop(timeout time.Duration) error {
 	return fmt.Errorf("the app was still running %s after an interrupt, killed it", timeout)
 }
 
+// listenLoopback listens on a loopback port the system chooses. A test replaces it.
+var listenLoopback = func() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") }
+
 // freeAddr returns a loopback address with a port that is free right now.
-func freeAddr() (string, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
+func freeAddr() (string, error) { return freeAddrBut("") }
+
+// freeAddrBut returns a loopback address with a port that is free right now and that is not taken,
+// the address chosen for Vite's dev server. That port was free when it was chosen too, and nothing
+// holds it until Vite starts, so the system may give it again. A listener that got it stays open
+// until another address is found, so the next one differs.
+func freeAddrBut(taken string) (string, error) {
+	var held []net.Listener
+	defer func() {
+		for _, ln := range held {
+			ln.Close()
+		}
+	}()
+	for {
+		ln, err := listenLoopback()
+		if err != nil {
+			return "", err
+		}
+		held = append(held, ln)
+		if addr := ln.Addr().String(); addr != taken {
+			return addr, nil
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().String(), nil
 }
 
 // The limits of what tail keeps.
@@ -247,4 +272,18 @@ func inReport(line []byte, last byte) bool {
 		}
 	}
 	return false
+}
+
+// answers reports whether the app under server.DevMain answers at addr.
+func answers(ctx context.Context, client *http.Client, addr string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+deverrors.Path, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

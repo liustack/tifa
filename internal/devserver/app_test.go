@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -175,5 +177,54 @@ func TestTailForgetsACrashLineTheAppOutlived(t *testing.T) {
 	_, _ = tl.Write([]byte("panic: an old one\n" + logs(5) + report))
 	if got := tl.String(); !strings.HasPrefix(got, "panic: the order table is gone\n...\n") || !strings.HasSuffix(got, "+0x2f\n") {
 		t.Errorf("starts %q", got[:min(len(got), 80)])
+	}
+}
+
+// Another program may hold the address the app was given, such as Vite's dev server on a port
+// that was free when both were chosen. The app then fails to listen, and waitReady must not take
+// the other program's open port for the app: tifa dev would call the app ready and proxy to the
+// wrong program.
+func TestAppReadyFailsWhenAnotherProgramHoldsTheAddress(t *testing.T) {
+	other := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(other.Close)
+	addr := strings.TrimPrefix(other.URL, "http://")
+	var out syncBuffer
+	a, err := startApp(fakeAppCommand(t), t.TempDir(), addr, &out, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = a.cmd.Process.Kill()
+		<-a.done
+	})
+	err = a.waitReady(context.Background(), addr, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "exited") {
+		t.Fatalf("got %v, want an error saying the app exited, as it could not listen", err)
+	}
+}
+
+// The address of the app is never the one of Vite's dev server. Both are ports that were free when
+// they were chosen and that nothing holds yet, so the system may give the same one twice.
+func TestAppAddressIsNotTheOneOfVite(t *testing.T) {
+	vite, err := freeAddr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := listenLoopback
+	t.Cleanup(func() { listenLoopback = real })
+	calls := 0
+	listenLoopback = func() (net.Listener, error) {
+		calls++
+		if calls == 1 {
+			return net.Listen("tcp", vite) // the system gives the port of Vite again
+		}
+		return real()
+	}
+	addr, err := freeAddrBut(vite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr == vite || calls != 2 {
+		t.Fatalf("the app got %s after %d tries, want another address than %s on the second try", addr, calls, vite)
 	}
 }

@@ -109,7 +109,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
 	}
-	appAddr, err := freeAddr()
+	appAddr, err := freeAddrBut(o.Vite)
 	if err != nil {
 		return err
 	}
