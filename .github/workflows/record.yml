@@ -20,7 +20,7 @@ jobs:
   record:
     name: record (${{ matrix.server }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 200
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +56,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
       - name: Record
-        run: browse-out/compare record -dir browse-out/traces -skip-build -servers "${{ matrix.server }}" -workers 4
+        run: browse-out/compare record -dir browse-out/traces -skip-build -servers "${{ matrix.server }}" -workers 1
       - name: Write what the trace is bound to
         run: test/compare/browse.sh stamp > "browse-out/stamp-${{ matrix.server }}.txt"
       - uses: actions/upload-artifact@v7
