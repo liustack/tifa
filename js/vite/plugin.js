@@ -2370,6 +2370,17 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
               'but texts and attribute values take longer to render',
           )
         }
+        const callbacks = useCallbackWithoutClosure(source)
+        if (callbacks) {
+          source = callbacks
+        } else {
+          this.warn(
+            notRecognized +
+            `${react} has no useMemo and useCallback in the form the tifa plugin knows, so each call of ` +
+              'useCallback in a server render makes a function to hand to useMemo. Pages render the same, but ' +
+              'take longer to render',
+          )
+        }
         const emitUnread = unreadable.length > 0 ? unreadable : unreadEmitPieces(units)
         const emitted = emitUnread.length === 0 && emitInEngine(source, emitCheck)
         if (emitted) {
@@ -3050,6 +3061,60 @@ function nativeCopyProps(source) {
   }
   if (missing.length === 2) return { source, missing }
   return { source: out + propsNative, missing }
+}
+
+// useMemoSource and useCallbackSource are useMemo and useCallback of the hooks of React's string
+// renderer, as React 19.3 has them. useCallback makes a function on every call only to hand it
+// to useMemo, which calls it for the value it keeps with the dependencies.
+const useMemoSource = `function useMemo(nextCreate, deps) {
+  currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
+  workInProgressHook = createWorkInProgressHook();
+  deps = void 0 === deps ? null : deps;
+  if (null !== workInProgressHook) {
+    var prevState = workInProgressHook.memoizedState;
+    if (null !== prevState && null !== deps) {
+      var prevDeps = prevState[1];
+      a: if (null === prevDeps) prevDeps = !1;
+      else {
+        for (var i = 0; i < prevDeps.length && i < deps.length; i++)
+          if (!objectIs(deps[i], prevDeps[i])) {
+            prevDeps = !1;
+            break a;
+          }
+        prevDeps = !0;
+      }
+      if (prevDeps) return prevState[0];
+    }
+  }
+  nextCreate = nextCreate();
+  workInProgressHook.memoizedState = [nextCreate, deps];
+  return nextCreate;
+}
+`
+const useCallbackSource = `    useCallback: function (callback, deps) {
+      return useMemo(function () {
+        return callback;
+      }, deps);
+    },
+`
+
+// useCallbackWithoutClosure returns the source of React's string renderer with useCallback doing
+// what useMemo does with the function it made, without making it: tifaUseCallback is useMemo with
+// the value in place of the call that gave it, which is all the function did. No code outside
+// React saw that function, so the hook keeps the same value, the same dependencies and the same
+// errors. It returns undefined when useMemo or useCallback is not the text the plugin knows. The
+// lines stay: tifaUseCallback goes on the last line of useMemo.
+function useCallbackWithoutClosure(source) {
+  const once = (text) => source.split(text).length === 2
+  if (!once(useMemoSource) || !once(useCallbackSource)) return undefined
+  const valued = useMemoSource
+    .replace('function useMemo(nextCreate, deps) {', 'function tifaUseCallback(nextCreate, deps) {')
+    .replace('  nextCreate = nextCreate();\n', '')
+    .trim()
+    .replace(/\n\s*/g, ' ')
+  return source
+    .replace(useMemoSource, () => `${useMemoSource.slice(0, -1)} ${valued}\n`)
+    .replace(useCallbackSource, () => '    useCallback: function (callback, deps) {\n      return tifaUseCallback(callback, deps);\n\n\n    },\n')
 }
 
 // askEngineToEscape returns the source of React's string renderer with escapeTextForBrowser asking
