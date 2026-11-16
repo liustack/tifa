@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -176,5 +177,144 @@ func TestSSRChecksTheTagsOfTheEngine(t *testing.T) {
 	var same, declined, differ int
 	if _, err := fmt.Sscanf(got, `{"same":%d,"declined":%d,"differ":%d}`, &same, &declined, &differ); err != nil || same < 300 || declined == 0 || differ != 0 {
 		t.Errorf("verdicts: %s", got)
+	}
+}
+
+// anchorsPage renders a and button, which React DOM writes with a case of its own in
+// pushStartInstance, with the props those cases handle: href that is "", null and a javascript:
+// URL, the form props of a button (name, formAction as text and as a function, formEncType,
+// formMethod, formTarget), disabled, children of every kind, dangerouslySetInnerHTML and both of them
+// together, which React throws on. Each element has a data-case that names it. Each is rendered
+// alone, so that a throw is the case's own, and twice, so that the caches are warm.
+const anchorsPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const action = () => 1\n" +
+	"const cases: Record<string, [string, any]> = {\n" +
+	"  'a plain': ['a', { className: 'link', href: '/x?a=1&b=2', children: 'text & more' }],\n" +
+	"  'a empty href': ['a', { href: '', children: 'empty' }],\n" +
+	"  'a null href': ['a', { href: null, id: 'n', children: 'null' }],\n" +
+	"  'a no href': ['a', { id: 'n', children: 'none' }],\n" +
+	"  'a javascript': ['a', { href: 'javascript:alert(1)', children: 'js' }],\n" +
+	"  'a function href': ['a', { href: action, children: 'f' }],\n" +
+	"  'a flags': ['a', { href: '/y', hidden: true, rel: 'noopener', target: '_blank', 'aria-current': 'page', tabIndex: 0, onClick: action, children: 7 }],\n" +
+	"  'a style': ['a', { href: '/z', style: { color: 'red', fontSize: 12 }, children: ['a', 1, null, <b key='b'>bold</b>] }],\n" +
+	"  'a html': ['a', { href: '/h', dangerouslySetInnerHTML: { __html: '<i>raw</i>' } }],\n" +
+	"  'a both': ['a', { href: '/h', children: 'x', dangerouslySetInnerHTML: { __html: '<i>raw</i>' } }],\n" +
+	"  'a download': ['a', { href: '/d', download: true, children: 'd' }],\n" +
+	"  'a empty text': ['a', { href: '/e', children: '' }],\n" +
+	"  'button plain': ['button', { className: 'btn', type: 'submit', disabled: true, children: 'Save & close' }],\n" +
+	"  'button name': ['button', { name: 'n', value: 'v', children: 'name' }],\n" +
+	"  'button formAction': ['button', { formAction: '/act', children: 'action' }],\n" +
+	"  'button formAction function': ['button', { formAction: action, name: 'q', children: 'function' }],\n" +
+	"  'button form props': ['button', { formEncType: 'multipart/form-data', formMethod: 'post', formTarget: '_blank', children: 'form' }],\n" +
+	"  'button formMethod': ['button', { formMethod: 'get', children: 'method' }],\n" +
+	"  'button null form props': ['button', { name: null, formAction: undefined, formEncType: null, formMethod: null, formTarget: null, type: 'button', children: 'nulls' }],\n" +
+	"  'button flags': ['button', { disabled: false, autoFocus: true, onClick: action, 'aria-pressed': true, 'data-x': 1, style: { margin: 0 }, children: 3 }],\n" +
+	"  'button children': ['button', { type: 'button', children: [<span key='s'>icon</span>, ' label', 2] }],\n" +
+	"  'button html': ['button', { dangerouslySetInnerHTML: { __html: '<b>x</b>' } }],\n" +
+	"  'button both': ['button', { children: 'x', dangerouslySetInnerHTML: { __html: '<b>x</b>' } }],\n" +
+	"  'button empty': ['button', {}],\n" +
+	"}\n" +
+	"const render = (Tag: any, p: any) => { try { return renderToString(<Tag data-case={p.case} {...p.props} />) } catch (e) { return 'threw ' + (e as Error).message } }\n" +
+	"const once = () => Object.entries(cases).map(([name, [Tag, props]]) => name + ': ' + render(Tag, { case: name, props })).join('\\n')\n" +
+	"globalThis.result = once() + '\\n' + once()\n"
+
+// anchorTags is engineTags that also records in globalThis.asked, for each element with a data-case,
+// "engine" when the engine wrote its start tag and "react" when it left it to React DOM. An element
+// the engine was not asked about has no entry.
+func anchorTags(t *testing.T) func(*slowjs.VM) {
+	return func(vm *slowjs.VM) {
+		t.Helper()
+		engineTags(t)(vm)
+		if _, err := vm.Eval("globalThis.asked = {}\n"+
+			"const asking = globalThis.__tifa_start_tag\n"+
+			"globalThis.__tifa_start_tag = (target, props, type, context, has, decline) => {\n"+
+			"  const r = asking(target, props, type, context, has, decline)\n"+
+			"  asked[props['data-case']] = r === decline ? 'react' : 'engine'\n"+
+			"  return r\n"+
+			"}", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// React DOM writes a and button with a case of its own. The plugin makes them take the engine's start
+// tag when that case writes what pushStartGenericElement does: an a whose href is not "", and a
+// button with none of name, formAction, formEncType, formMethod and formTarget. The others stay in
+// React's case, which the engine is not asked about. The HTML is the same as in React DOM unchanged.
+func TestSSRAsksTheEngineForAnchorsAndButtons(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"anchors.tsx": anchorsPage})
+	code, printed := buildPrinting(t, root, "anchors.tsx")
+	if strings.Contains(printed, "start and end tags") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	unknown := withReactDOM(t, "function sanitizeURL(url) {", "function sanitizeURL(url) { void 0;")
+	writeTree(t, unknown, map[string]string{"anchors.tsx": anchorsPage})
+	unchanged, _ := buildPrinting(t, unknown, "anchors.tsx")
+	want := evalResult(t, unchanged)
+	for _, text := range []string{
+		`a plain: <a data-case="a plain" class="link" href="/x?a=1&amp;b=2">text &amp; more</a>`,
+		`a empty href: <a data-case="a empty href" href="">empty</a>`,
+		"a both: threw",
+		`button name: <button data-case="button name" value="v" name="n">name</button>`,
+		`button formAction function: <button data-case="button formAction function" formAction="javascript:throw new Error(&#x27;React form unexpectedly submitted.&#x27;)">function</button>`,
+		`button empty: <button data-case="button empty"></button>`,
+	} {
+		if !strings.Contains(want, text) {
+			t.Fatalf("React DOM unchanged does not write %q:\n%.3000s", text, want)
+		}
+	}
+	if got := evalResult(t, code); got != want {
+		t.Errorf("the page renders otherwise without the tags of the engine:\n%s", firstDifference(got, want))
+	}
+	if got := evalResultWith(t, code, anchorTags(t)); got != want {
+		t.Errorf("the page renders otherwise with the tags of the engine:\n%s", firstDifference(got, want))
+	}
+	asked := evalResultWith(t, code+"\nglobalThis.result = JSON.stringify(asked)", anchorTags(t))
+	var verdicts map[string]string
+	if err := json.Unmarshal([]byte(asked), &verdicts); err != nil {
+		t.Fatalf("%v: %s", err, asked)
+	}
+	for name, verdict := range map[string]string{
+		"a plain": "engine", "a null href": "engine", "a no href": "engine", "a flags": "engine", "a style": "engine",
+		"a empty text": "engine", "a download": "react", "a function href": "engine", "a empty href": "",
+		"a javascript": "react", "a html": "react", "a both": "react",
+		"button plain": "engine", "button null form props": "engine", "button flags": "engine", "button children": "engine",
+		"button empty": "engine", "button html": "react", "button both": "react",
+		"button name": "", "button formAction": "", "button formAction function": "", "button form props": "", "button formMethod": "",
+	} {
+		if verdicts[name] != verdict {
+			t.Errorf("%s: the engine wrote it or not: %q, want %q", name, verdicts[name], verdict)
+		}
+	}
+}
+
+// With TIFA_EMIT_CHECK=1 the engine's start tag of each a and button the plugin asks it about is
+// compared with what React DOM's own case writes, and none differs.
+func TestSSRChecksTheTagsOfAnchorsAndButtons(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"anchors.tsx": anchorsPage})
+	plain, _ := buildPrinting(t, root, "anchors.tsx")
+	t.Setenv("TIFA_EMIT_CHECK", "1")
+	code, _ := buildPrinting(t, root, "anchors.tsx")
+	check := func(vm *slowjs.VM) {
+		engineTags(t)(vm)
+		if _, err := vm.Eval("globalThis.tagsSame = {}, globalThis.differences = []\n"+
+			"globalThis.__tifa_emit_check = (verdict, tag, props, c, js) => {\n"+
+			"  if (verdict === 'same') tagsSame[tag] = (tagsSame[tag] || 0) + 1\n"+
+			"  if (verdict === 'differ') differences.push(tag + ' ' + props + '\\n  C:     ' + c + '\\n  React: ' + js)\n"+
+			"}", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := evalResultWith(t, code, check), evalResult(t, plain); got != want {
+		t.Errorf("the page of the test hook differs:\n%s", firstDifference(got, want))
+	}
+	got := evalResultWith(t, code+"\nglobalThis.result = JSON.stringify(tagsSame) + '\\n' + differences.join('\\n')", check)
+	line, differences, _ := strings.Cut(got, "\n")
+	var same map[string]int
+	if err := json.Unmarshal([]byte(line), &same); err != nil || same["a"] < 10 || same["button"] < 8 || differences != "" {
+		t.Errorf("tags the engine wrote as React does: %s", got)
 	}
 }

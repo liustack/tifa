@@ -991,6 +991,11 @@ const reviewedEmitPieces = new Map([
 // pushStartGenericElement, and the line of renderElement that ends such an element.
 const startTagCall = '  return pushStartGenericElement(target$jscomp$0, props, type, formatContext);\n}\nvar endTagCache = new Map();'
 const endTagCall = '        target.push(endChunkForTag(type));\n'
+// The first lines of the cases "a" and "button" of pushStartInstance. React writes these two with a
+// loop of their own, which for an a whose href is not "" and a button with none of the form props
+// does what pushStartGenericElement does.
+const anchorCase = '    case "a":\n      target$jscomp$0.push(startChunkForTag("a"));\n'
+const buttonCase = '    case "button":\n      target$jscomp$0.push(startChunkForTag("button"));\n'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -3002,7 +3007,8 @@ export function unreadEmitPieces(units) {
 // the engine first, or null when the source does not have these calls in the form it knows. The
 // caller checks the parts first (unreadEmitPieces). __tifa_start_tag writes the whole start tag, as
 // pushStartGenericElement would, into one string, or returns tifaDecline, having changed nothing,
-// and then React's function writes it. __tifa_end_tag is endChunkForTag. A VM without them gets
+// and then React's function writes it. The cases "a" and "button" of pushStartInstance end there
+// too when they would write what it does, see below. __tifa_end_tag is endChunkForTag. A VM without them gets
 // null, and React writes every tag. The calls are made in place and not through a function of the
 // module, since a call of a JavaScript function costs about as much as the C function saves on a
 // small tag. The lines stay where they were.
@@ -3013,6 +3019,7 @@ export function unreadEmitPieces(units) {
 // defines (internal/ssr/emitcheck.go), so such a bundle fails to load anywhere else.
 function emitInEngine(source, check) {
   if (source.split(startTagCall).length !== 2 || source.split(endTagCall).length !== 2) return null
+  if (source.split(anchorCase).length !== 2 || source.split(buttonCase).length !== 2) return null
   const generic = 'return pushStartGenericElement(target$jscomp$0, props, type, formatContext);'
   const start = check
     ? `if (null !== tifaStartTag) return tifaCheckStart(target$jscomp$0, props, type, formatContext); ${generic}`
@@ -3052,6 +3059,22 @@ function tifaCheckEnd(type) {
 }
 `
   }
+  // An a whose href is not "" and a button without name, formAction, formEncType, formMethod and
+  // formTarget leave their case for the end of the switch, which is the call above. For the a React
+  // writes an href of "" with pushStringAttribute, and every other href with pushAttribute, as the
+  // generic loop does. For the button pushFormActionAttribute writes nothing when those five are
+  // null, and the rest of the case is the generic loop. The other a and button stay in React's case.
+  // A prop read here is read once more by the case or the engine, which matters for a getter only.
+  source = source
+    .replace(anchorCase, () => anchorCase.replace('\n', ' if ("" !== props.href) break;\n'))
+    .replace(
+      buttonCase,
+      () =>
+        buttonCase.replace(
+          '\n',
+          ' if (null == props.name && null == props.formAction && null == props.formEncType && null == props.formMethod && null == props.formTarget) break;\n',
+        ),
+    )
   return (
     source
       .replace(startTagCall, () => startTagCall.replace(`  ${generic}`, `  ${start}`))

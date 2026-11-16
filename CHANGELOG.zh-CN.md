@@ -20,6 +20,7 @@
 
 ### 变更
 
+- 页面渲染略快：`href` 不为空的 `a` 和没有 `name` 或表单 props 的 `button`，开标签现在由引擎来写，原来是 React DOM 自己写。示例商店的 14 个店面页面少用 2.2% 的指令，6 个工作台页面少用 2.4%，HTML 不变。
 - 用 rehype-highlight 给代码上色的页面渲染更快。rehype-highlight 在 Markdown 组件的每次渲染里都新建一个带 37 种语言的 highlight.js，现在服务端渲染的包为每个 `languages` 对象只保留一个。示例商店的两个文章页一次渲染的指令数少 15.9% 和 20.0%，HTML 不变。带 `aliases` 选项的调用和以前一样。见[构建](docs/build.zh-CN.md)。
 - 没有匹配任何路由、且最后一段带文件扩展名（`/wp-login.php`）或者有一段以点开头（`/.env`、`/.git/config`）的 URL，现在得到和 `/assets/` 下缺失文件一样的纯文本 404，不跑 `Load`、不渲染，以前是 404 页面。扫描器会成百上千地请求这类路径。路由能匹配的 URL（包括 catch-all 路由）和导航数据请求不受影响，`/.well-known/` 下的路由或公共文件也不受影响，`OnRequest` 照常运行（见 [404](docs/app.zh-CN.md#404)）。
 - 服务端渲染的 `URL` 和 `URLSearchParams` 改由引擎提供，在 Go 里解析 URL，取代宿主脚本里带的 core-js polyfill，宿主脚本因此变小，每个 VM 占的内存变少。有多语言的网站，路由每写一个链接就建一个 `URL`，这些页面渲染更快，HTML 不变：在 AMD EPYC 7B13 的一个核上，示例商店的三个店面页面用时是原来的 0.703，六个工作台页面是 0.886。没有多语言的网站渲染时不建 `URL`，没有提升。页面能看到的变化有三处，都和浏览器一致：`URL` 对象没有自有属性，违反 UTS 46 Bidi 规则的主机名无效，无效的 URL 抛 `TypeError: Failed to construct 'URL': Invalid URL`。没有了 `URL.createObjectURL` 和 `URL.revokeObjectURL`（这里没有 `Blob`）（[服务端渲染时有什么](docs/app.zh-CN.md#服务端渲染时有什么)）。
