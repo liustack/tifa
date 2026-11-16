@@ -317,6 +317,16 @@ const memoThemeArg = `const arg = {
 };`
 // memoThemeSize is how many themes memoThemeByContent keeps.
 const memoThemeSize = 8
+// generateUtilityClass of @mui/utils, which names each class of MUI's components, asks
+// ClassNameGenerator.generate for the name, and generate calls the generator configure set, by
+// default one that gives the name back: two calls of a function for each class name. The tifa plugin
+// has generate give the name back itself while the generator is the default, see classNameGeneratorFast.
+// classNameGeneratorDefault and classNameGeneratorGenerate are the text of ClassNameGenerator.mjs and
+// ClassNameGenerator.js (esm/ClassNameGenerator/ClassNameGenerator.js up to 7) of @mui/utils 5.17 to
+// 9.5, which have it the same in the ES module and the CommonJS file.
+const classNameGeneratorModule = /[/\\]@mui[/\\]utils[/\\](?:esm[/\\]|modern[/\\]|node[/\\])?ClassNameGenerator[/\\]ClassNameGenerator\.m?js$/
+const classNameGeneratorDefault = 'const defaultGenerator = componentName => componentName;\n'
+const classNameGeneratorGenerate = '    generate(componentName) {\n      return generate(componentName);\n    },\n'
 // rehype-highlight calls createLowlight(languages) each time rehypeHighlight(options) is called,
 // which react-markdown does on every render of a Markdown component. That makes a new highlight.js
 // instance, registers the 37 common languages and compiles their grammars again. The tifa plugin
@@ -2194,6 +2204,20 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         return byContent ?? null
       }
+      if (classNameGeneratorModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const faster = classNameGeneratorFast(source)
+        if (!faster) {
+          const pkg = path.resolve(id, '..', '..', ...(/[/\\](?:esm|modern|node)[/\\]ClassNameGenerator[/\\]/.test(id) ? ['..'] : []))
+          this.warn(
+            notRecognized +
+            `@mui/utils ${packageVersion(pkg)}: ${id} has no ClassNameGenerator the tifa plugin knows, so ` +
+              'generate calls the default generator, which gives the name back, for each class name of MUI. Pages ' +
+              'render the same, but take longer to render',
+          )
+        }
+        return faster ?? null
+      }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         const copied = reactI18nextCopy(source)
@@ -3507,6 +3531,20 @@ function radixMergeProps(source) {
       () => '      overrideProps[propName] = slotPropValue ? (childPropValue ? `${slotPropValue} ${childPropValue}` : `${slotPropValue}`) : childPropValue ? `${childPropValue}` : "";\n',
     )
   return source.replace(known, () => merged)
+}
+
+// classNameGeneratorFast returns the source of ClassNameGenerator with generate giving the name back
+// while the generator is defaultGenerator, which gives back its argument, or undefined when the
+// source does not have the text the plugin knows. defaultGenerator is a constant of the module, and
+// only configure and reset change the generator, so a generator configure gave is called as before,
+// with the same argument. The line stays where it was.
+function classNameGeneratorFast(source) {
+  const once = (text) => source.split(text).length === 2
+  if (!once(classNameGeneratorDefault) || !once(classNameGeneratorGenerate)) return undefined
+  return source.replace(
+    classNameGeneratorGenerate,
+    () => '    generate(componentName) {\n      return generate === defaultGenerator ? componentName : generate(componentName);\n    },\n',
+  )
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call
