@@ -146,11 +146,11 @@ func TestErrorFlowInTheVM(t *testing.T) {
 	readJSON(t, filepath.Join(dir, ".tifa", "dist", "build.json"), &b)
 	onErrors := func() int { return strings.Count(output.String(), "pagestest: OnError:") }
 
-	t.Run("a component that throws is an unexpected error and never cached", func(t *testing.T) {
+	t.Run("a component that throws is an unexpected error, kept by no cache and remembered for a few seconds", func(t *testing.T) {
 		before := onErrors()
-		for i := range 2 {
+		for i, how := range []string{"vm", "memo"} {
 			code, header, body := get(t, base+"/throws")
-			if code != 500 || header.Get("X-Tifa-Render") != "vm" || header.Get("Cache-Control") != "no-store" || strings.Contains(body, "PAGE_THROWS") {
+			if code != 500 || header.Get("X-Tifa-Render") != how || header.Get("Cache-Control") != "no-store" || strings.Contains(body, "PAGE_THROWS") {
 				t.Errorf("request %d: %d %v %s", i, code, header, body)
 			}
 			// The page shows the root Layout's Error with the public message of OnError, and

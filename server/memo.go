@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/liustack/tifa/internal/core"
 	"github.com/liustack/tifa/internal/ssr"
@@ -24,6 +26,13 @@ type renderMemo struct {
 	pages map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
+	// failed holds the results of renders that landed with keepBrief, by key, for failMemory.
+	// failures lists them oldest first, and failUsed is the size of their pages. now is the clock
+	// of failMemory, time.Now outside the tests.
+	failed   map[string]*list.Element
+	failures *list.List // of *failure
+	failUsed int64
+	now      func() time.Time
 	// entries counts the pages kept and evictions the pages dropped to make room, under mu. hits,
 	// misses and shared count what fetch found. Every request counts, so these are atomic, and Stats
 	// reads them without the lock.
@@ -40,9 +49,9 @@ type flight struct {
 	done    chan struct{}
 	waiters int                // requests waiting for it, under renderMemo.mu
 	cancel  context.CancelFunc // stops the render while it waits for a VM
-	// Set before done is closed: the page and whether the cache can keep it, or the error.
+	// Set before done is closed: the page and what the cache keeps of the result, or the error.
 	page cachedPage
-	held bool
+	keep keep
 	err  error
 }
 
@@ -99,7 +108,8 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 
 func newRenderMemo(size int64) *renderMemo {
 	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
-	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}}
+	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{},
+		failed: map[string]*list.Element{}, failures: list.New(), now: time.Now}
 }
 
 func (c *renderMemo) get(key string) (cachedPage, bool) {
@@ -159,29 +169,30 @@ func (c *renderMemo) removeLocked(key string) {
 	}
 }
 
-// fetched is a page fetch answers with. held reports that the cache keeps it or could, and how
-// says where it came from: memo, vm for a render the request started, or shared for one another
-// request started.
+// fetched is a page fetch answers with. how says where it came from: memo, vm for a render the
+// request started, or shared for one another request started.
 type fetched struct {
 	page cachedPage
-	held bool
 	how  string
 }
 
 // fetch returns the page of key from the cache, or else waits for the render of it that every
 // request missing key at the time waits for. The first of them starts render in a goroutine of
 // its own, with a context no request cancels, so the render belongs to none of them. render
-// returns the page and whether to keep it. Its page enters the cache as the render leaves the
+// returns the page and what to keep of it. What it keeps enters the cache as the render leaves the
 // requests, in one step, so a request comes either in time to wait or late enough to find it.
 //
 // A request whose ctx ends stops waiting with ctx's error, and the render goes on for the others.
 // When no request waits any more, the render's context is canceled, which ends its wait for a
 // VM. A render that already runs in a VM runs to the end and its page enters the cache, but the
 // next request starts a render of its own. Every waiting request gets the error of a failed
-// render, a panic turned into an error. Nothing of it is kept, so the next request renders again.
+// render, a panic turned into an error. Nothing of it is kept, so the next request renders again,
+// unless render said keepBrief: then requests for key get the same error, or page, without a render
+// for failMemory. Such an answer counts as none of hits, misses and shared, and its error is a
+// *rememberedError.
 // A render that fails when no request waits any more goes to unheard, except one that stopped
 // because no request waits.
-func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error), render func(context.Context) (cachedPage, bool, error)) (fetched, error) {
+func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error), render func(context.Context) (cachedPage, keep, error)) (fetched, error) {
 	if c.fetching != nil {
 		c.fetching()
 	}
@@ -190,7 +201,18 @@ func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error),
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
 		c.hits.Add(1)
-		return fetched{page: e.Value.(*cached).page, held: true, how: "memo"}, nil
+		return fetched{page: e.Value.(*cached).page, how: "memo"}, nil
+	}
+	if e, ok := c.failed[key]; ok {
+		if r := e.Value.(*failure); c.now().Before(r.until) {
+			c.mu.Unlock()
+			var err error
+			if r.err != nil {
+				err = &rememberedError{r.err}
+			}
+			return fetched{page: r.page, how: "memo"}, err
+		}
+		c.forgetLocked(e)
 	}
 	how := "shared"
 	counter := &c.shared
@@ -208,7 +230,7 @@ func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error),
 	counter.Add(1)
 	select {
 	case <-f.done:
-		return fetched{page: f.page, held: f.held, how: how}, f.err
+		return fetched{page: f.page, how: how}, f.err
 	case <-ctx.Done():
 		c.mu.Lock()
 		f.waiters--
@@ -224,7 +246,7 @@ func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error),
 }
 
 // fly runs the render of f and hands its result to the requests that wait for it.
-func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard func(error), render func(context.Context) (cachedPage, bool, error)) {
+func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard func(error), render func(context.Context) (cachedPage, keep, error)) {
 	returned := false
 	defer func() {
 		if !returned {
@@ -235,12 +257,15 @@ func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard fun
 			} else {
 				f.err = errors.New("tifa: the render called runtime.Goexit")
 			}
-			f.page, f.held = cachedPage{}, false
+			f.page, f.keep = cachedPage{}, keepNot
 		}
 		c.mu.Lock()
-		if f.err == nil && f.held {
+		switch {
+		case f.keep == keepBrief:
+			c.rememberLocked(key, f.page, f.err)
+		case f.err == nil && f.keep == keepPage:
 			c.putLocked(key, f.page)
-		} else if f.err == nil {
+		case f.err == nil:
 			// A result that cannot be kept replaces the page it came instead of: it must not
 			// come back as the old one.
 			c.removeLocked(key)
@@ -260,6 +285,87 @@ func (c *renderMemo) fly(ctx context.Context, key string, f *flight, unheard fun
 			unheard(f.err)
 		}
 	}()
-	f.page, f.held, f.err = render(ctx)
+	f.page, f.keep, f.err = render(ctx)
 	returned = true
+}
+
+// failMemory is how long the memo answers a key whose render landed with keepBrief, a render that
+// the page's code or the VM's memory failed or the page that shows such an error, with the same
+// result and without rendering. A page that fails for every request then costs its renders once
+// every failMemory, not on each request, while a fix that changes the build or the data shows at once.
+const failMemory = 5 * time.Second
+
+// failCount and failBytes bound what the memo remembers for failMemory: at most failCount results,
+// whose pages come to at most failBytes. The oldest go first, and a page larger than failBytes is
+// not remembered.
+const (
+	failCount = 256
+	failBytes = 8 << 20
+)
+
+// keep says what the memo does with the result of a render.
+type keep int
+
+const (
+	keepNot   keep = iota // nothing: the next request renders again
+	keepPage              // the page, until it is evicted
+	keepBrief             // the page or the error, for failMemory
+)
+
+// keepIf is keepPage when kept, else keepNot.
+func keepIf(kept bool) keep {
+	if kept {
+		return keepPage
+	}
+	return keepNot
+}
+
+// failure is a result the memo remembers for failMemory: an error, or the page of a render that
+// showed one.
+type failure struct {
+	key   string
+	page  cachedPage
+	err   error
+	until time.Time
+}
+
+// rememberedError is the error of a render that the memo answers from a failure it remembers. It
+// says that in place of the stack trace of the error, which was reported with the first request.
+type rememberedError struct{ err error }
+
+func (e *rememberedError) Error() string {
+	head, _, _ := strings.Cut(e.err.Error(), "\n")
+	return head + " (the same input failed less than " + failMemory.String() + " ago, so it did not render again)"
+}
+
+func (e *rememberedError) Unwrap() error { return e.err }
+
+// rememberLocked keeps the result of a render for failMemory, dropping the oldest results, and
+// those whose time is up, to keep within failCount and failBytes. An error keeps no page.
+func (c *renderMemo) rememberLocked(key string, page cachedPage, err error) {
+	if e, ok := c.failed[key]; ok {
+		c.forgetLocked(e)
+	}
+	if err != nil {
+		page = cachedPage{}
+	}
+	size := page.size()
+	if size > failBytes {
+		return
+	}
+	now := c.now()
+	for e := c.failures.Front(); e != nil; e = c.failures.Front() {
+		if len(c.failed) < failCount && c.failUsed+size <= failBytes && now.Before(e.Value.(*failure).until) {
+			break
+		}
+		c.forgetLocked(e)
+	}
+	c.failed[key] = c.failures.PushBack(&failure{key: key, page: page, err: err, until: now.Add(failMemory)})
+	c.failUsed += size
+}
+
+func (c *renderMemo) forgetLocked(e *list.Element) {
+	f := c.failures.Remove(e).(*failure)
+	delete(c.failed, f.key)
+	c.failUsed -= f.page.size()
 }

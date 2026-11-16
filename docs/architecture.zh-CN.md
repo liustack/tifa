@@ -94,7 +94,7 @@ flowchart TD
 
 `renderPage` 用各个 `Load` 的结果造出 VM 的输入，由它算出 ETag，`If-None-Match` 匹配就回答 304。否则去问渲染记忆，没有再到 VM 池里渲染。数据以文本的形式交给 VM，等 VM 空出来之后由池把它填进页面，所以 VM 不用复制大块的 JSON。开了 `server.csp` 时，渲染给自己写的脚本和样式打上这次渲染的 nonce 作记号，池再把记号去掉并给这些元素算哈希，页面带着只放行它们的策略发出（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。
 
-渲染失败时，服务器带着错误再渲染一次，用错误代替页面（`server/page.go` 里的 `rescue`）。再失败，就由 Go 写一个简单的错误页。
+渲染失败时，服务器带着错误再渲染一次，用错误代替页面（`server/page.go` 里的 `rescue`）。再失败，就由 Go 写一个简单的错误页。同样输入、同样错误的请求共用这几次渲染。`tifa dev` 以外，渲染记忆把组件抛错或用完内存的那次失败，连同显示错误的回答，记 5 秒（`server/memo.go` 里的 `failMemory`，最多 256 个，页面合计最多 8 MiB），所以每次都失败的页面不会每个请求都渲染一遍、换一台 VM。
 
 ### 浏览器里的导航
 
