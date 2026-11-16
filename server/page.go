@@ -483,6 +483,8 @@ type renderError struct {
 	start time.Time
 	loads time.Time
 	key   string
+	// memo is the key of the input in the render memo (renderKey), "" for a render that skips it.
+	memo string
 	// query is the list of the query parameters the render saw (renderURL).
 	query []string
 }
@@ -830,6 +832,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	var tag string
 	if cache {
 		tag = renderKey(in, f.build.bundle, s.policyKey())
+		failed.memo = tag
 	}
 	if status == http.StatusOK && cache {
 		etag := tag
@@ -927,7 +930,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	unheard := func(err error) {
 		core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 	}
-	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	got, err := s.memo.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, keep, error) {
 		return s.renderOne(ctx, f, in, status == http.StatusOK, method, path)
 	})
 	if err != nil {
@@ -946,30 +949,36 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	return writeCached(c, status, got.page, s.formEncoding(c))
 }
 
-// renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
-// it. A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
-// the input as the HTML does. keep is false for a 404 or an error page: the memo keeps none of them,
+// renderOne renders in and returns the page as the cache keeps it, and what the cache keeps of it.
+// A redirect of the router is a page too, which the cache keeps like the HTML: it follows from
+// the input as the HTML does. memo is false for a 404 or an error page: the memo keeps none of them,
 // so that URLs a visitor makes up do not fill it, while the requests that wait for the render still
-// share it. tifa dev renders a page the memo keeps once more to find out whether it reads the time
-// or a random number, see devRenderTwice.
-func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, keep bool, method, path string) (cachedPage, bool, error) {
+// share it. A render that fails again for the same input (failsAgain) is remembered for a few
+// seconds, outside tifa dev, where the developer fixes the code and reloads. tifa dev renders a page
+// the memo keeps once more to find out whether it reads the time or a random number, see
+// devRenderTwice.
+func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, memo bool, method, path string) (cachedPage, keep, error) {
 	rendered, err := f.render(ctx, in)
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		page := cachedPage{redirect: redirect}
-		return page, keep && s.memo.holds(page), nil
+		return page, keepIf(memo && s.memo.holds(page)), nil
 	}
 	if err != nil {
-		return cachedPage{html: rendered.HTML}, false, err
+		kept := keepNot
+		if s.dev == nil && failsAgain(err) {
+			kept = keepBrief
+		}
+		return cachedPage{html: rendered.HTML}, kept, err
 	}
-	if keep && s.dev != nil {
+	if memo && s.dev != nil {
 		if warned, differs := s.devRenderTwice(ctx, f, in, rendered, method, path); differs {
-			return cachedPage{html: warned.HTML, policy: s.renderedPolicy(f, in, warned)}, false, nil
+			return cachedPage{html: warned.HTML, policy: s.renderedPolicy(f, in, warned)}, keepNot, nil
 		}
 	}
 	html, policy := rendered.HTML, s.renderedPolicy(f, in, rendered)
 	page, held := s.newPage(html, policy)
-	return page, held && keep, nil
+	return page, keepIf(held && memo), nil
 }
 
 // newPage makes the page of html for the cache, and says whether the cache can keep it. With
@@ -1275,14 +1284,20 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 // rescue answers a page whose render failed with err, which e stands for: it renders the page
 // again with e shown at the first level of its route tree that can show it, from the level that
 // failed (the page, or the Layout of a URL that matches no page) up to the root, each try on a
-// fresh VM, since a failed render retires its VM. When every level fails, or failed.err is not an
-// error of the page's code or of the VM's memory, the page comes from Go (see fallback). The tries
-// share the time budget of the first render, ssr.timeout, so a render that ran out of it is not
-// tried again. The answer is never cached.
+// fresh VM, since a failed render retires its VM. A render that ran out of the VM's memory is tried
+// at the root alone: its input does not fit at any level. When every level tried fails, or
+// failed.err is not an error of the page's code or of the VM's memory, the page comes from Go (see
+// fallback). The tries share the time budget of the first render, ssr.timeout, so a render that
+// ran out of it is not tried again. The answer is never cached by a browser or a CDN.
+//
+// Requests that wait for the same input with the same e at the same time share the tries, and
+// outside tifa dev the memo remembers their result for failMemory (see renderMemo.failed), so the
+// requests in that time answer without a render.
 func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderError) {
 	c.Writer().Header().Del("ETag")
 	levels, ok := ssr.Levels(failed.err)
-	if !ok && errors.Is(failed.err, ssr.ErrOutOfMemory) {
+	oom := !ok && errors.Is(failed.err, ssr.ErrOutOfMemory)
+	if oom {
 		// The memory ran out before the bundle could say: the matches are at most the root, the
 		// Layouts and the route.
 		levels, ok = len(failed.f.preload[failed.key].ids)+2, true
@@ -1298,38 +1313,82 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 		s.fallback(c, e, err)
 		return
 	}
+	r := c.Request()
+	place := func(ctx context.Context) (cachedPage, keep, error) {
+		page, in, tries := s.salvage(ctx, e, failed, levels, oom)
+		if tries != nil {
+			core.Logger().ErrorContext(c.Context(), "tifa: the page with the error failed too", "method", r.Method, "path", r.URL.Path, "err", tries)
+			// A try that ran out of time or found the pool busy may work the next time.
+			if retriedNot(tries) {
+				return cachedPage{}, keepNot, tries
+			}
+			return cachedPage{}, keepBrief, tries
+		}
+		if s.dev != nil {
+			page = s.devPageError(c, e, err, page)
+		}
+		return cachedPage{html: page.HTML, n: len(page.HTML), policy: s.renderedPolicy(failed.f, in, page)}, keepBrief, nil
+	}
+	var got fetched
+	var tryErr error
+	if failed.memo == "" || s.dev != nil {
+		// A page whose HTML is not a function of its key, and every page under tifa dev, tries on
+		// its own.
+		got.how = "vm"
+		got.page, _, tryErr = place(r.Context())
+	} else {
+		key := failed.memo + "\x00" + strconv.Itoa(e.Status) + "\x00" + e.Message
+		got, tryErr = s.memo.fetch(r.Context(), key, func(error) {}, place)
+	}
+	if tryErr != nil {
+		s.fallback(c, e, errors.Join(err, tryErr))
+		return
+	}
+	c.SetHeader("Cache-Control", "no-store")
+	c.SetHeader(renderHeader, got.how)
+	setDataAge(c.Writer().Header(), time.Since(failed.loads))
+	s.setPagePolicy(c.Writer().Header(), got.page.policy)
+	_ = writeHTML(c, e.Status, got.page.html)
+}
+
+// salvage renders failed.in with e at the levels rescue tries, from the page up, or only the root
+// with oom, and returns the first page that renders with its input, or the errors of every try.
+func (s *server) salvage(ctx context.Context, e tifa.Error, failed *renderError, levels int, oom bool) (ssr.Page, ssr.Input, error) {
 	var deadline time.Time
 	if failed.f.timeout > 0 {
 		deadline = failed.start.Add(failed.f.timeout)
 	}
 	var errs []error
-	for level := 0; level < levels; level++ {
+	level := 0
+	if oom {
+		level = levels - 1
+	}
+	for level < levels {
 		in := failed.in
 		in.Error, in.Deadline = &ssr.PlacedError{Status: e.Status, Message: e.Message, Level: level}, deadline
 		in.Alternates = nil // an error page has one version
-		page, tryErr := failed.f.render(c.Request().Context(), in)
-		if tryErr == nil {
-			if s.dev != nil {
-				page = s.devPageError(c, e, err, page)
-			}
-			c.SetHeader("Cache-Control", "no-store")
-			c.SetHeader(renderHeader, "vm")
-			setDataAge(c.Writer().Header(), time.Since(failed.loads))
-			s.setPagePolicy(c.Writer().Header(), s.renderedPolicy(failed.f, in, page))
-			_ = writeHTML(c, e.Status, page.HTML)
-			return
+		page, err := failed.f.render(ctx, in)
+		if err == nil {
+			return page, in, nil
 		}
-		errs = append(errs, fmt.Errorf("show the error at level %d: %w", level, tryErr))
-		if retriedNot(tryErr) {
+		errs = append(errs, fmt.Errorf("show the error at level %d: %w", level, err))
+		if retriedNot(err) {
 			break
 		}
-		if n, ok := ssr.Levels(tryErr); ok {
+		if n, ok := ssr.Levels(err); ok {
 			levels = min(levels, n)
 		}
+		switch {
+		case !oom:
+			level++
+		case levels-1 < level:
+			// The root is below the level guessed for it: try it there.
+			level = levels - 1
+		default:
+			level = levels
+		}
 	}
-	tries := errors.Join(errs...)
-	core.Logger().ErrorContext(c.Context(), "tifa: the page with the error failed too", "method", c.Request().Method, "path", c.Request().URL.Path, "err", tries)
-	s.fallback(c, e, errors.Join(err, tries))
+	return ssr.Page{}, ssr.Input{}, errors.Join(errs...)
 }
 
 // retriedNot reports whether a render that failed with err is never tried again: it ran out of
@@ -1337,6 +1396,14 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 func retriedNot(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
 		errors.Is(err, tifa.ErrSSRBusy) || errors.Is(err, ssr.ErrClosed) || errors.As(err, new(*ssr.RedirectError))
+}
+
+// failsAgain reports whether a render that failed with err fails again for the same input: the page's
+// code threw and the bundle said at how many levels the error can show, or the render ran out of the
+// VM's memory. rescue shows only such an error, and the memo remembers only such a failure.
+func failsAgain(err error) bool {
+	_, placed := ssr.Levels(err)
+	return (placed || errors.Is(err, ssr.ErrOutOfMemory)) && !retriedNot(err)
 }
 
 // devPageError adds to the page of a failed render under tifa dev what the plain page of fallback

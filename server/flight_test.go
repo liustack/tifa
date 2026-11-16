@@ -256,6 +256,36 @@ func TestBurstSharesAFailedRender(t *testing.T) {
 	}
 }
 
+// Requests that share a render the page's code fails share the rescue too: one render for each
+// level tried, not one for each request. OnError still sees every request.
+func TestBurstSharesTheRescueOfAFailedRender(t *testing.T) {
+	var mu sync.Mutex
+	reported := 0
+	app := frontApp()
+	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error {
+		mu.Lock()
+		reported++
+		mu.Unlock()
+		return tifa.Error{Status: 502, Message: "try later"}
+	}
+	s, g := newHeldServer(t, config.Default(), app)
+	g.result = func(_ context.Context, in ssr.Input) (string, error) {
+		if in.Error == nil || in.Error.Level == 0 {
+			return "", pageError{levels: 3}
+		}
+		return fmt.Sprintf("<html><body>level %d</body></html>", in.Error.Level), nil
+	}
+	out := burst(t, s, g, 10, "/stats", nil)
+	for i, w := range out {
+		if w.Code != 502 || w.Body.String() != "<html><body>level 1</body></html>" || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("request %d: %d %v %s", i, w.Code, w.Header(), w.Body.String())
+		}
+	}
+	if by := renderedBy(out); g.renders() != 3 || reported != 10 || by["vm"] != 1 {
+		t.Errorf("%d renders, rendered by %v, %d errors reported", g.renders(), by, reported)
+	}
+}
+
 // A panic of a render keeps its stack, so OnError shows where it happened.
 func TestBurstKeepsTheStackOfAPanic(t *testing.T) {
 	var reported error

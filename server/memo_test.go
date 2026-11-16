@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -78,6 +80,40 @@ func TestHTMLCacheChargesThePolicyOfAPage(t *testing.T) {
 
 // Stats count the pages the memo dropped to make room for another, and not a page it replaced with
 // a newer render of its key or one too large to keep.
+// The memo remembers at most failCount failed renders, whose pages come to at most failBytes, and
+// drops the oldest first. A page larger than that is not remembered at all.
+func TestRememberedFailuresAreBounded(t *testing.T) {
+	c := newRenderMemo(0)
+	failed := errors.New("ssr: render page: Error: the page threw")
+	remember := func(key string, page cachedPage, err error) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.rememberLocked(key, page, err)
+	}
+	has := func(key string) bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, ok := c.failed[key]
+		return ok
+	}
+	for i := range failCount + 3 {
+		remember(fmt.Sprint(i), cachedPage{}, failed)
+	}
+	if len(c.failed) != failCount || has("2") || !has("3") || !has(fmt.Sprint(failCount+2)) {
+		t.Fatalf("%d remembered, 2 kept %v, 3 kept %v", len(c.failed), has("2"), has("3"))
+	}
+
+	c = newRenderMemo(0)
+	half := cachedPage{html: strings.Repeat("x", failBytes/2)}
+	remember("a", half, nil)
+	remember("b", half, nil)
+	remember("c", cachedPage{html: "x"}, nil) // a goes to make room
+	remember("big", cachedPage{html: strings.Repeat("x", failBytes+1)}, nil)
+	if has("a") || !has("b") || !has("c") || has("big") || c.failUsed != failBytes/2+1 {
+		t.Errorf("a %v, b %v, c %v, big %v, %d bytes", has("a"), has("b"), has("c"), has("big"), c.failUsed)
+	}
+}
+
 func TestTheMemoCountsThePagesItDrops(t *testing.T) {
 	c := newRenderMemo(10)
 	c.put("a", cachedPage{html: "1234"})

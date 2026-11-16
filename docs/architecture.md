@@ -94,7 +94,7 @@ flowchart TD
 
 `renderPage` makes the input of the VM from the results of the `Load`s, computes the ETag from it, and answers 304 when `If-None-Match` matches. Otherwise it asks the render memo, which renders in the VM pool on a miss. Data goes to the VM as text, and the pool fills it into the page after the VM is free again, so the VM does not copy large JSON. With `server.csp` the render marks the scripts and styles it writes with the nonce of the render, and the pool takes the marks out again and hashes those elements, so the page goes out with a policy that lets only them run (see [Content-Security-Policy](config.md#content-security-policy)).
 
-When a render fails, the server renders again with the error in place of the page (`rescue` in `server/page.go`). If that fails too, Go writes a plain error page.
+When a render fails, the server renders again with the error in place of the page (`rescue` in `server/page.go`). If that fails too, Go writes a plain error page. Requests for the same input with the same error share these renders. Outside `tifa dev`, the memo remembers a render that a component or the memory limit failed, and the answer that shows its error, for 5 seconds (`failMemory` in `server/memo.go`, at most 256 of them and 8 MiB of pages), so a page that fails for every request does not render and replace a VM on every request.
 
 ### Navigation in the browser
 
