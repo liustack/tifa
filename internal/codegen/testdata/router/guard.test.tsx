@@ -43,18 +43,6 @@ check(
   () => fn(server.stores.setMatches),
 )
 check(
-  'router.stores.location.set',
-  'a site with languages keeps the location it parsed before it had routes, so every prefixed URL is a 404',
-  'js/runtime/prefix.ts',
-  () => fn(server.stores.location.set),
-)
-check(
-  'router.updateLatestLocation',
-  'a site with languages cannot parse its first location again once the routes are there',
-  'js/runtime/prefix.ts',
-  () => fn(server.updateLatestLocation),
-)
-check(
   'router.getMatchedRoutes',
   'routesAt cannot tell which routes a URL matches, so Go and the router disagree on the chain of Loads and the language of a route',
   'js/runtime/router.tsx, prefix.ts',

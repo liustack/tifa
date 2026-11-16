@@ -79,7 +79,6 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     routeTree,
     context,
     isServer: serverURL !== undefined,
-    rewrite: options.rewrite,
     history: serverURL
       ? createMemoryHistory({ initialEntries: [options.rewrite ? withRouterQuery(serverURL) : serverURL] })
       : (options.history ?? (options.rewrite ? browserHistory() : undefined)),
@@ -112,6 +111,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   // is not documented (TanStack/router#7796), so the router tests check that loader data still
   // goes through loaderDataAdapter.
   router.options.serializationAdapters = [loaderDataAdapter, routeErrorAdapter]
+  // The rewrite goes in after the router has its routes, see attach in prefix.ts.
   options.rewrite?.attach(router)
   return router
 }
