@@ -61,6 +61,8 @@ func warmBrowse(t *testing.T, sc BrowseScenario, specs ...Spec) (*browse, func()
 		set:     &set,
 		trace:   map[string]map[int]Trace{},
 		res:     &BrowseResult{Blocks: map[string]int{}, Sustain: map[string]*Sustain{}},
+		// These tests check what the servers got, not how long a round took: a slow machine must not cut one off.
+		noCutoff: true,
 	}
 	for _, s := range specs {
 		b.specs[s.Name] = s
@@ -239,16 +241,13 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 			if len(list) != 1+len(b.res.Closed) || out.Requests == 0 {
 				t.Fatalf("%d servers for %d rounds, %d requests in the last", len(list), len(b.res.Closed), out.Requests)
 			}
-			// The requests of a try can be counted only when it ran whole. The sizing run is short, and when
-			// it sizes the round too long for this machine the warm-up or the round is cut off at twice the
-			// target: the server then got requests the client had in flight and did not count, and the try is
-			// not valid and is played again with fewer visits. So the check takes the first try that no
-			// timeout cut off, with the server of that try.
-			try := slices.IndexFunc(b.res.Closed, func(r Round) bool { return !r.TimedOut && r.WarmUp != nil && !r.WarmUp.TimedOut })
-			if try < 0 {
-				t.Fatalf("every one of the %d tries of the round was cut off by its timeout: none can be counted", len(b.res.Closed))
+			// The requests of a try can be counted only when it ran whole. warmBrowse lifts the cutoff of a
+			// round (noCutoff), so how fast the machine is cannot cut one off. The first try that was valid
+			// is as good as any, and a try that is not valid is played again with its own server.
+			if r := b.res.Closed[0]; r.TimedOut || r.WarmUp == nil || r.WarmUp.TimedOut {
+				t.Fatalf("the first try was cut off by a timeout although the test lifts it: %+v", r)
 			}
-			out, server := &b.res.Closed[try], list[1+try]
+			out, server := &b.res.Closed[0], list[1]
 			if out.SetupRequests == 0 {
 				t.Fatalf("the round made no cart for a returning visitor")
 			}
@@ -284,18 +283,9 @@ func TestNothingThatRendersPrecedesTheWarmUpOfTifa(t *testing.T) {
 	}
 	// The read-only control is Tifa: its server gets the same warm-up with no writes, then the
 	// round, and nothing else.
-	// The control is one try, sized by a short sizing run of its own as a closed round is, so one that a
-	// timeout cut off cannot be counted either: it is played again from the start, three times at most.
-	var b *browse
-	var servers func() []*launched
-	for attempt := 1; ; attempt++ {
-		b, servers = warmBrowse(t, sc, tifa)
-		if err := b.control(context.Background(), sc); err != nil {
-			t.Fatal(err)
-		}
-		if c := b.res.Control; attempt == 3 || len(c) != 1 || (!c[0].TimedOut && c[0].WarmUp != nil && !c[0].WarmUp.TimedOut) {
-			break
-		}
+	b, servers := warmBrowse(t, sc, tifa)
+	if err := b.control(context.Background(), sc); err != nil {
+		t.Fatal(err)
 	}
 	list := busy(servers())
 	if len(b.res.Control) != 1 || len(list) < 2 {
@@ -354,25 +344,17 @@ func TestEveryServerGetsTheSameWarmUp(t *testing.T) {
 				t.Fatalf("open %v %s: no server of a round with a warm-up", open, spec.Name)
 			}
 			// The tries whose warm-up is compared, each with its server. An open round is one try. A closed
-			// round is sized from a short sizing run, and one sized too long for this machine has its
-			// warm-up cut off at twice the target: the server then got a part of the warm-up, and the try
-			// is played again with fewer visits. Every try whose warm-up no timeout cut off is compared,
-			// whatever its round did after: a round that was cut off or failed had the same warm-up.
+			// round may be played again (a try that is not valid), and the warm-up of every try is compared.
+			// Nothing cuts a warm-up off here (noCutoff).
 			tries := []*Round{out}
 			if !open {
+				tries = nil
 				closed := b.res.Closed[tried:]
 				if len(closed) != len(rounds) {
 					t.Fatalf("closed %s: %d tries on %d servers", spec.Name, len(closed), len(rounds))
 				}
-				all := rounds
-				tries, rounds = nil, nil
 				for k := range closed {
-					if w := closed[k].WarmUp; w != nil && !w.TimedOut {
-						tries, rounds = append(tries, &closed[k]), append(rounds, all[k])
-					}
-				}
-				if len(tries) == 0 {
-					t.Fatalf("closed %s: the warm-up of every one of the %d tries was cut off by its timeout", spec.Name, len(closed))
+					tries = append(tries, &closed[k])
 				}
 			}
 			for k, out := range tries {

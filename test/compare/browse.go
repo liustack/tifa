@@ -156,6 +156,18 @@ type browse struct {
 	verify func(ctx context.Context, r *runner) error
 	// checked says which specs have had the writes of a scenario checked (key scenario/spec).
 	checked map[string]bool
+	// noCutoff is for tests of what a server is sent, whose result does not depend on how long a round
+	// takes: no round is stopped at twice its target (the real run never sets it, see cutoff).
+	noCutoff bool
+}
+
+// cutoff is how long a closed round of the target window may run before it is stopped: twice the
+// target. Only a test can lift it (noCutoff).
+func (b *browse) cutoff(window time.Duration) time.Duration {
+	if b.noCutoff {
+		return time.Hour
+	}
+	return 2 * window
 }
 
 // liveServer is a running server of a spec, with what a round reads from it.
@@ -722,7 +734,7 @@ func (b *browse) control(ctx context.Context, sc BrowseScenario) error {
 	}
 	visits, _ := playable(BlocksFor(rate, window, b.set.Blocks, reads.blockVisits())*reads.blockVisits(), prepared)
 	out, err := b.with(ctx, "tifa", reads, visits, prepared, warm, func(r *runner) *Round {
-		return r.RunClosed(ctx, b.o.Sessions, visits, 2*window)
+		return r.RunClosed(ctx, b.o.Sessions, visits, b.cutoff(window))
 	})
 	if err != nil {
 		return err
@@ -805,7 +817,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, sc BrowseScenario, 
 		out, err := b.with(ctx, fw, sc, visits, prepared, warm, func(r *runner) *Round {
 			// A round that still runs too long (a server that slows down as its data grows) is
 			// stopped at twice the target, which is too long to be valid, and resized from what it did.
-			return r.RunClosed(ctx, sessions, visits, 2*b.o.Target)
+			return r.RunClosed(ctx, sessions, visits, b.cutoff(b.o.Target))
 		})
 		if err != nil {
 			return nil, err
