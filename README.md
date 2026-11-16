@@ -91,24 +91,6 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 
 The **[render memo](docs/memo.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
 
-With the render memo off, so every request renders:
-
-| | Requests/s | P50 | P99 | Peak RSS |
-| :-- | --: | --: | --: | --: |
-| Tifa | 42 | 19.2 ms | 44.8 ms | 57 MiB |
-| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
-| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
-| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
-| Next.js, `--jitless` | 26 | 35.6 ms | 64.6 ms | 337 MiB |
-| TanStack Start, `--jitless` | 30 | 30.2 ms | 60.6 ms | 276 MiB |
-| React Router, `--jitless` | 24 | 37.4 ms | 70.5 ms | 355 MiB |
-
-Tifa has no JIT. The `--jitless` rows run Node without its JIT too, for reference: they answer 0.6 to 0.7 times the requests of Tifa.
-
-Every request asks for gzip. TanStack Start does not compress pages by default, so it sends about 146 KB a page, against about 16 KB for Tifa and Next.js and 44 KB for React Router. Compressing costs Next.js 16% of its requests a second, and Start would likely pay about as much if it compressed.
-
-Each server on one core of a Google Cloud `c2d-standard-8` VM (AMD EPYC 7B13), default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
-
 Whole visits, played back from real browsers on the example shop: shoppers, staff and crawlers on one server at once, every server as shipped and warmed up with the same visits first (2026-11-16):
 
 | | Page views/s | Full load P50 / P99 | Client navigation P50 / P99 |
