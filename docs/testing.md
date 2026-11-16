@@ -10,6 +10,7 @@ read_when:
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Measuring what one VM costs the process, how long the Go GC stops the program while VMs render, or whether two builds write the same HTML
   - Timing the SSR tests and benchmarks against another build of quickjs
+  - Counting the instructions of a render to check a small speedup, or running the `count` workflow
   - Changing `internal/ssr` or `test/ssr`
   - Checking how large a page can get before it fails, or that it fails cleanly
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
@@ -113,6 +114,7 @@ GitHub Actions (`.github/workflows/ci.yml`) checks every push, and every pull re
 | --- | --- | --- |
 | test | linux/amd64 (`ubuntu-24.04`) and darwin/arm64 (`macos-15`) | Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `internal/bundle/testdata`, `test/apps/pages` and `js/host` (about 7 seconds). Then `go vet ./...`, `CGO_ENABLED=0 go build ./...`, `go test -count=1 -timeout 20m ./...`, `scripts/docs-list.sh --check`. About 7 minutes on linux and 9 on darwin: `go test` waits for `internal/bundle`, whose tests run Vite on Node with the packages installed and take 6 to 9 minutes, and for `test/compare`, about 6 minutes beside it. Neither leaves much of the 10 minutes `go test` gives a package by default, so it needs `-timeout` |
 | e2e | linux/amd64 | Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `examples/shop` and in every folder under `test/apps` that has a `package.json`, then `TIFA_E2E=1 go test -count=1 ./test/e2e/`. About 7 minutes |
+| count (`count.yml`) | linux/amd64, by hand only | Counts the instructions of one render of each page of the shop at two refs with callgrind and prints a table. Not part of the checks of a push. See [Counting instructions](#counting-instructions). About 4 minutes |
 
 A second workflow, `.github/workflows/latest-react.yml` (`latest-react`), runs every Monday at 05:23 UTC and by hand (`workflow_dispatch`), in this repository only. It installs the packages as locked, builds the shop and keeps its pages with `TestShopCrawl` (`write:`), moves `react` and `react-dom` to the latest release (`pnpm add react@latest react-dom@latest`) in `internal/bundle/testdata`, `test/apps/pages`, `mui`, `bench` and `examples/shop`, builds the shop again and compares its pages with the kept ones byte for byte (`compare:`), and fails when that build prints `tifa rewrite not recognized: `. Before the tests it lists the parts of the new React DOM that are not in the table of the plugin (`TIFA_REACT_UNITS=1 go test -run TestListUnreviewedReactDOMUnits`), so the log says what to read. Then it runs all of `go test ./internal/bundle`, which renders pages with each rewrite and without it and compares the HTML, and `TIFA_E2E=1 go test ./test/e2e/ -run 'TestBuildsRecognizeEveryRewrite|TestPagesApp|TestMUIApp|TestBenchApp|TestShopApp'`. The bundle tests name the React they find (`installedReact`), so they hold for any release. TanStack Router stays as locked: Tifa refuses to build with a version it is not tested with, and the setting that allows one is in `tifa.yaml`, so moving it is a change of the app and not a check of React. When the job is red, run the same steps by hand with the version it printed, and either teach the plugin the new code (see [Frontend output](build.md#frontend-output)) or leave the rewrite off and say so there.
 
@@ -247,6 +249,28 @@ The crawl signs in as the demo account of the shop first, since the workbench ne
 | `TestShopVMResident` | What one VM costs the process. It starts its test binary twice as `TestShopVMResidentChild`, with 1 VM and with `TIFA_SSR_VMS` (8), and each child renders every page with every VM, 32 rounds (`TIFA_SSR_ROUNDS`). The memory of one VM is `(VmRSS with N VMs - VmRSS with 1 VM) / (N - 1)`, after loading, after rendering and after the pool has waited 1.5 seconds with its VMs idle. Two processes, because in one the second pool would count pages the first left in the Go heap. The child with 1 VM also prints what the engine counts (malloc, footprint, chunks, what a release would give back) after loading, rendering, a full GC and a release, and every child prints its `vmhwm-kb:` peak. It reads `/proc/self/status`, so it skips where that file does not exist, as on macOS |
 | `TestShopGCPause` | How long the Go GC stops the program while VMs render. `TIFA_SSR_VMS` (2) VMs render without a pause while a goroutine allocates `TIFA_SSR_ALLOC_MB` (512) megabytes a second, so the GC runs all the time. Reports the number of pauses and their P50, P99 and largest, for the whole stop and for the wait to stop the world (where a VM inside one long operation shows), and the renders a second with their P50 and P99. A few seconds by default, `TIFA_SSR_MEASURE=1` makes it 10 seconds of warm-up and `TIFA_SSR_SECS` (60) of measuring |
 | `TestShopCrawl` | Whether two builds write the same HTML. Crawls the pages of a running shop program, 27 starting URLs and the links they lead to (up to 160 pages), and writes them (`write:DIR`) or compares them byte for byte with a crawl made before (`compare:DIR`). The loaders write some times as RFC 3339 text, so a page that differs only there counts as the same after masking them, and the log counts them. Build the shop twice and crawl each; `TIFA_SSR_CRAWL_BIN` names the program (default `examples/shop/bin/shop`) |
+
+### Counting instructions
+
+Timing on a shared machine drifts, sometimes by 10% to 35% in an hour. The number of instructions one render takes does not, so use it to tell a small gain from noise. `BenchmarkCountPages` in `test/ssr/count_test.go` and `scripts/count-instructions.sh` count them with callgrind, on Linux with valgrind installed (amd64 only: macOS has no valgrind, and the script says so and stops).
+
+```sh
+cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build && cd ../..
+scripts/count-instructions.sh run /tmp/ref.tsv          # one line a page: the page, instructions a render
+scripts/count-instructions.sh table /tmp/base.tsv /tmp/ref.tsv   # Markdown table of two runs
+```
+
+What the number is: the 20 pages of the shop (the 6 of the workbench and the 7 of the storefront in each language) are rendered by one VM, twice each as warm-up, then each page 3 times between a reset and a dump of the callgrind counters. The count a page is the dump divided by 3. Start-up (loading the bundle, asking the shop for the data) is outside the window. The shop's program runs outside valgrind to give the page data, and the counted process runs with `GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 GOGC=off`, so Go does not run code of its own in one window and not in the next. A full engine GC runs before each window and the engine's GC threshold is raised for it, as the pool collects between renders. Without that, a GC lands in the window of whichever page crosses the threshold, and moves a page by up to 20% between two builds that allocate differently. The pages are the real pages of the shop, but the input has no alternates, preloads or session head, so the sums are lower than numbers counted from the running server.
+
+The counts depend on the commit's own code, so compare two builds only from the same machine type, and read the change in percent of each page, not the totals of two different days. A GitHub runner gave the same counts on two CPU models (AMD EPYC 7763 and 9V74). Check that again when a run lands on an Intel machine, since Go and the engine pick code by CPU features.
+
+On GitHub, `.github/workflows/count.yml` (`count`) runs it by hand (`workflow_dispatch`) with two inputs, `ref` (default: the branch it is started from) and `base` (default `main`). It builds the shop at both refs, counts both on the same runner at the same time (the counting code of the branch it was started from is copied into both trees, so an old `base` works), and writes the table to the job summary and to the artifact `counts`. A run takes about 4 minutes.
+
+```sh
+gh workflow run count.yml --ref my-branch -f ref=my-branch -f base=main
+```
+
+How big the noise is: the same commit against itself, on the same runner, changes a page by 0.00% to 0.14% (most pages under 0.05%, the 68M instruction cart page the most) and the sum of the pages by 0.01% or less. So a change under 0.15% on one page is not a change, and a change under 0.02% on the sum is not one either. Known result: `6357683f^` against `6357683f` (one lowlight kept for rehype-highlight) gives 15.8% and 19.9% fewer on the two article pages and 0.0% to 0.3% on the others (the commit also touches the plugin), matching the 15.9% and 20.0% in [optimizations](studies/optimizations.md).
 
 ### Timing a build of quickjs against another
 

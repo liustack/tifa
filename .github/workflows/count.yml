@@ -1,0 +1,120 @@
+# Instructions of one render of each page of the example shop at two refs, counted by
+# callgrind on the same runner. Started by hand. See "Counting instructions" in docs/testing.md.
+name: count
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "The commit or branch to count (default: the branch this run was started from)"
+        default: ""
+      base:
+        description: "The commit or branch to count it against"
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  count:
+    name: count (${{ inputs.base }} and ${{ inputs.ref || github.ref_name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      # The counting code of the commit this run started from, which both sides use. The old
+      # side may predate it, so it is copied into each tree before the test is built.
+      - uses: actions/checkout@v7
+        with:
+          path: harness
+          fetch-depth: 0
+      - name: Check out both sides
+        env:
+          REF: ${{ inputs.ref || github.ref_name }}
+          BASE: ${{ inputs.base }}
+        run: |
+          git clone -q --no-checkout --shared harness ref
+          git clone -q --no-checkout --shared harness base
+          pick() {
+            local want=$1 dir=$2 sha
+            sha=$(git -C harness rev-parse -q --verify "origin/$want^{commit}" || git -C harness rev-parse -q --verify "$want^{commit}") || {
+              echo "no commit or branch $want" >&2
+              exit 1
+            }
+            git -C "$dir" checkout -q --detach "$sha"
+            echo "$dir: $(git -C "$dir" log --oneline -1)" | tee -a sides.txt
+          }
+          pick "$REF" ref
+          pick "$BASE" base
+      - name: Show the machine
+        run: (lscpu | grep "Model name"); nproc; free -g | head -2
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: harness/go.mod
+          cache-dependency-path: harness/go.sum
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install valgrind
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends valgrind
+          valgrind --version
+      - name: Build the shop at both sides
+        run: |
+          for side in ref base; do
+            (
+              cd "$side/examples/shop"
+              pnpm install --frozen-lockfile
+              go tool tifa build
+            ) &
+          done
+          wait
+      - name: Count both sides
+        run: |
+          for side in ref base; do
+            mkdir -p "$side/test/ssr"
+            cp harness/test/ssr/count_test.go "$side/test/ssr/"
+            rm -rf "$side/test/ssr/cg"
+            cp -r harness/test/ssr/cg "$side/test/ssr/"
+          done
+          for side in ref base; do
+            harness/scripts/count-instructions.sh run "$side.tsv" "$side" >"$side.out" 2>&1 &
+            pids="$pids $!"
+          done
+          failed=0
+          for pid in $pids; do wait "$pid" || failed=1; done
+          cat base.out ref.out
+          exit $failed
+      - name: The table
+        if: always()
+        run: |
+          {
+            echo "### Instructions of one render"
+            echo
+            sed 's/^/    /' sides.txt
+            echo
+            echo "The first commit above is ref and the second is base. A change under 0.1% is not a change."
+            echo
+            if [ -s base.tsv ] && [ -s ref.tsv ]; then
+              harness/scripts/count-instructions.sh table base.tsv ref.tsv
+            else
+              echo "no counts"
+            fi
+          } | tee table.md >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: counts
+          path: |
+            table.md
+            *.tsv
+            *.out
+            *.log
+          if-no-files-found: ignore
+          retention-days: 14
