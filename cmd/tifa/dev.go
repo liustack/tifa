@@ -36,6 +36,7 @@ const devOutput = "bin"
 
 func newDevCmd() *cobra.Command {
 	var dir, addr string
+	var background bool
 	cmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Run the application and rebuild it on every change",
@@ -44,7 +45,11 @@ Vite's dev server, and rebuilds on every saved change: Vite updates TypeScript a
 pages, which then only needs a new SSR bundle, Go needs go build, a change to the routes
 regenerates .tifa/ as well. A new SSR bundle is loaded by the running app, which keeps its state.
 After a Go change the app restarts and open pages reload. A failed
-build keeps the running app and shows the error in the page.`,
+build keeps the running app and shows the error in the page.
+
+With --background it starts detached from the terminal, writes everything it prints to
+.tifa/dev.log, and returns once the app answers. Then dev status, dev logs and dev stop look at
+it and stop it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := filepath.Abs(dir)
@@ -54,17 +59,25 @@ build keeps the running app and shows the error in the page.`,
 			if err := checkInstalled(root); err != nil {
 				return err
 			}
+			if background {
+				return runBackground(cmd, dir, root)
+			}
 			// Everything below writes into .tifa, so the lock comes first.
-			lock, err := lockApp(root)
+			lock, err := lockDev(root)
 			var busy *busyError
-			// Only tifa dev records an address: a holder without one may be tifa build.
-			if errors.As(err, &busy) && busy.holder.URL != "" {
-				return errors.New("tifa dev is already running in this app " + busy.Detail())
+			if errors.As(err, &busy) {
+				return busyDev(dir, busy.holder)
 			}
 			if err != nil {
 				return err
 			}
 			defer lock.Close()
+			// A tifa dev that --background started has the log of the app for its standard error.
+			if stderrIsLog(root) {
+				if err := lock.SetLog(logPath(root)); err != nil {
+					return err
+				}
+			}
 			// Without --addr the default port moves on when taken. A named address does not.
 			ln, err := listenDev(addr, cmd.Flags().Changed("addr"))
 			if err != nil {
@@ -115,8 +128,10 @@ build keeps the running app and shows the error in the page.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
+	cmd.PersistentFlags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
 	cmd.Flags().StringVar(&addr, "addr", config.DefaultAddr, "address the browser connects to")
+	cmd.Flags().BoolVar(&background, "background", false, "start detached from the terminal, log to .tifa/dev.log and return once the app answers")
+	cmd.AddCommand(newDevStatusCmd(&dir), newDevLogsCmd(&dir), newDevStopCmd(&dir))
 	return cmd
 }
 

@@ -107,7 +107,8 @@ func TestBuildStopsWhenDevRuns(t *testing.T) {
 func TestDevStopsWhenDevRuns(t *testing.T) {
 	root := holdDevLock(t)
 	_, stderr, err := run(t, "dev", "--dir", root)
-	want := "tifa dev is already running in this app at http://127.0.0.1:9527 (pid " + strconv.Itoa(os.Getpid()) + ")"
+	want := "tifa dev is already running in this app at http://127.0.0.1:9527 (pid " + strconv.Itoa(os.Getpid()) + "). " +
+		"See it with `go tool tifa dev status --dir " + root + "`, stop it with `go tool tifa dev stop --dir " + root + "`"
 	if err == nil || err.Error() != want {
 		t.Fatalf("dev: %v, want %q", err, want)
 	}
@@ -124,7 +125,7 @@ func TestDevStopsWhileBuildRuns(t *testing.T) {
 	}
 	t.Cleanup(func() { l.Close() })
 	_, _, err = run(t, "dev", "--dir", root)
-	want := "tifa dev or tifa build is running in this app (pid " + strconv.Itoa(os.Getpid()) + "). Stop it first: both write .tifa/dist"
+	want := "tifa build is running in this app (pid " + strconv.Itoa(os.Getpid()) + "). Stop it first: both write .tifa/dist"
 	if err == nil || err.Error() != want {
 		t.Fatalf("dev: %v, want %q", err, want)
 	}
