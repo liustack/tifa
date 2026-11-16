@@ -9,7 +9,7 @@ import (
 )
 
 // The throughput of a scenario starts with every server at the same number of concurrent sessions
-// (8 by default, no think time), three rounds each in a rotating order. From there each server is
+// (8 by default, no think time), three rounds each (one for a reference) in a rotating order. From there each server is
 // stepped on its own: up about 25% a step (10, 13, 16 and so on) while its median server cores stay
 // under 0.95 of its cpus and every round passes, or down to 6 and 4 sessions when it fails at 8. A
 // step with too few valid rounds is not decided: it is not a failure, and nothing steps down from it.
@@ -159,7 +159,7 @@ func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error))
 	case stepUndecided:
 		t.Result, t.Why = ThroughputUndecided, undecided(base, why)
 		return t, nil
-	case trialFail:
+	case stepFail:
 		failed := []int{base}
 		for _, s := range stepsDown(base) {
 			_, down, downWhy, err := play(s)
@@ -167,7 +167,7 @@ func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error))
 				return t, err
 			}
 			switch down {
-			case trialPass:
+			case stepPass:
 				t.Result, t.Sessions, t.Why = ThroughputHighestPassing, s, fmt.Sprintf("failed at %s sessions: %s", joinSessions(failed), why)
 				return t, nil
 			case stepUndecided:
@@ -209,7 +209,7 @@ func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error))
 			return t, err
 		}
 		switch got {
-		case trialFail:
+		case stepFail:
 			t.Result, t.Why = ThroughputHighestPassing, fmt.Sprintf("failed at %d sessions: %s", next, why)
 			return t, nil
 		case stepUndecided:
@@ -258,7 +258,7 @@ func (b *browse) throughput(ctx context.Context, sc BrowseScenario) error {
 		b.res.Throughput = map[string]*Throughput{}
 	}
 	for _, fw := range b.servers[sc.Name] {
-		key := sustainKey(sc.Name, fw)
+		key := serverKey(sc.Name, fw)
 		if b.res.Throughput[key] != nil {
 			continue
 		}
@@ -334,21 +334,26 @@ func each(rounds []Round, f func(*Round) float64) []float64 {
 
 func pageViewsPerSecond(x *Round) float64 { return float64(x.PageViews) / x.Seconds }
 
-// stepUndecided is the outcome of a cell with fewer valid rounds than it needs and none that failed:
+// The outcomes of a cell: every round it needs valid and passing the rule (stepPass), a valid round
+// that failed it (stepFail), or fewer valid rounds than it needs and none that failed (stepUndecided):
 // the experiment did not decide it (its other rounds stayed invalid).
-const stepUndecided = "undecided"
+const (
+	stepPass      = "pass"
+	stepFail      = "fail"
+	stepUndecided = "undecided"
+)
 
-// stepOf is the outcome of a cell from its valid rounds, with why: trialFail when a round failed the
+// stepOf is the outcome of a cell from its valid rounds, with why: stepFail when a round failed the
 // rule (a failed round decides the cell, however many rounds it has), stepUndecided when there are
-// fewer than want, and trialPass otherwise.
+// fewer than want, and stepPass otherwise.
 func stepOf(rounds []Round, want int) (string, string) {
 	for _, x := range rounds {
 		if !x.Pass {
-			return trialFail, x.Why
+			return stepFail, x.Why
 		}
 	}
 	if len(rounds) < want {
 		return stepUndecided, fmt.Sprintf("%d of %d rounds were valid", len(rounds), want)
 	}
-	return trialPass, ""
+	return stepPass, ""
 }

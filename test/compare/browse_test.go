@@ -1,22 +1,19 @@
 package compare
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// A result is continued only under the settings it was started with: a probe asked for again, other
-// server cpus, another seed or cap of the rate, another cpu model, other plans or another version all
-// the servers share (the toolchain) must not reuse the rounds of another run, nor a probe the rate of a run without one.
+// A result is continued only under the settings it was started with: other server cpus, another
+// seed, another cpu model, other plans or another version all the servers share (the toolchain) must
+// not reuse the rounds of another run.
 func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	o := BrowseOptions{Sessions: 8, Rounds: 3, Sizing: 15 * time.Second, Target: 75 * time.Second, ServerCPUs: "0", ServerCPUCount: 1, Seed: 1}
 	version := map[string]string{"node": "v24.1.0", "nextjs": "16.0.1"}
@@ -25,19 +22,15 @@ func TestAResultIsContinuedOnlyUnderItsSettings(t *testing.T) {
 	if err := canContinue(res, o.Stamp, browseConfig(o, "AMD EPYC 7B13", "t1", "m1"), version, fws); err != nil {
 		t.Fatalf("the same settings: %v", err)
 	}
-	probe := o
-	probe.Probe = true
 	cpus := o
 	cpus.ServerCPUs, cpus.ServerCPUCount = "0,2", 2
 	target := o
 	target.Target = 30 * time.Second
 	seed := o
 	seed.Seed = 2
-	capped := o
-	capped.MaxRate = 64
 	for name, cfg := range map[string]map[string]string{
-		"-probe": browseConfig(probe, "AMD EPYC 7B13", "t1", "m1"), "-server-cpus": browseConfig(cpus, "AMD EPYC 7B13", "t1", "m1"), "-target": browseConfig(target, "AMD EPYC 7B13", "t1", "m1"),
-		"-seed": browseConfig(seed, "AMD EPYC 7B13", "t1", "m1"), "-max-rate": browseConfig(capped, "AMD EPYC 7B13", "t1", "m1"),
+		"-server-cpus": browseConfig(cpus, "AMD EPYC 7B13", "t1", "m1"), "-target": browseConfig(target, "AMD EPYC 7B13", "t1", "m1"),
+		"-seed":       browseConfig(seed, "AMD EPYC 7B13", "t1", "m1"),
 		"another cpu": browseConfig(o, "Intel Xeon", "t1", "m1"), "other plans": browseConfig(o, "AMD EPYC 7B13", "t2", "m1"), "another method": browseConfig(o, "AMD EPYC 7B13", "t1", "m2"),
 	} {
 		err := canContinue(res, o.Stamp, cfg, version, fws)
@@ -92,7 +85,7 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 			b.res.Throughput = map[string]*Throughput{}
 		}
 		for _, fw := range b.servers[sc.Name] {
-			b.res.Throughput[sustainKey(sc.Name, fw)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8}
+			b.res.Throughput[serverKey(sc.Name, fw)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8}
 		}
 		b.res.Control = []Round{{Framework: "tifa", Scenario: sc.Name, Model: "control", Round: 1, Valid: true, VisitsPlanned: 4}}
 		b.res.Prepared, b.res.WarmVisits = map[string]int{sc.Name: 6 * sc.blockVisits()}, map[string]int{sc.Name: 3 * sc.blockVisits()}
@@ -118,10 +111,10 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 		closed := len(r.cellRounds(fw, sc.Name, 8))
 		latency := len(slices.DeleteFunc(slices.Clone(r.Latency), func(x Round) bool { return x.Framework != fw }))
 		_, sized := r.Blocks[fmt.Sprintf("%s/8/%s", sc.Name, fw)]
-		if closed == 3 && latency == 3 && sized && r.Throughput[sustainKey(sc.Name, fw)] != nil {
+		if closed == 3 && latency == 3 && sized && r.Throughput[serverKey(sc.Name, fw)] != nil {
 			return true
 		}
-		if closed != 0 || latency != 0 || sized || r.Throughput[sustainKey(sc.Name, fw)] != nil {
+		if closed != 0 || latency != 0 || sized || r.Throughput[serverKey(sc.Name, fw)] != nil {
 			t.Errorf("%s: part of it was dropped: %d closed rounds, %d latency rounds, sized %v", fw, closed, latency, sized)
 		}
 		return false
@@ -135,6 +128,9 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 			t.Errorf("the same stamps: %s was dropped\n%s", fw, log)
 		}
 	}
+	if len(b.stale) != 0 {
+		t.Errorf("the same stamps: %v measured again", b.stale)
+	}
 	// A new build of Tifa: Tifa and Tifa with its memo off are measured again, with their control, and
 	// keep nothing of before. Next.js and Start keep everything, and so do the numbers all share.
 	tifaBuilt := maps.Clone(stamps)
@@ -142,6 +138,10 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 	b, log, err = restore("shared", tifaBuilt, version)
 	if err != nil {
 		t.Fatalf("a new build of Tifa: %v", err)
+	}
+	// The servers measured again are what the check of the machine is played for (checkMachine).
+	if !slices.Equal(b.stale, []string{"tifa", "tifa-nocache"}) {
+		t.Errorf("a new build of Tifa: %v measured again", b.stale)
 	}
 	for fw, want := range map[string]bool{"tifa": false, "tifa-nocache": false, "nextjs": true, "start": true} {
 		if kept(b.res, fw) != want {
@@ -226,14 +226,14 @@ func TestAResultContinuesWithTheServersWhoseStampsAreTheSame(t *testing.T) {
 }
 
 // When Next.js is measured again, the latency rounds of every server go with it: they were all played
-// at half of the rate Next.js sustained.
+// at a rate taken from the closed rounds of Next.js.
 func TestMeasuringNextJSAgainDropsTheLatencyOfEveryServer(t *testing.T) {
 	sc := mustScenario("shop")
-	r := &BrowseResult{Sustain: map[string]*Sustain{sustainKey(sc.Name, "nextjs"): {Rate: 20, Done: true}}, LatencyRate: map[string]float64{sc.Name: 10}, LatencyBase: map[string]string{sc.Name: "nextjs"},
+	r := &BrowseResult{LatencyRate: map[string]float64{sc.Name: 10}, LatencyBase: map[string]string{sc.Name: "nextjs"},
 		Latency: []Round{{Framework: "tifa", Scenario: sc.Name}, {Framework: "nextjs", Scenario: sc.Name}}}
 	what := r.forget("nextjs")
-	if len(r.Latency) != 0 || r.LatencyRate[sc.Name] != 0 || r.LatencyBase[sc.Name] != "" || r.Sustain[sustainKey(sc.Name, "nextjs")] != nil {
-		t.Errorf("after Next.js was dropped: %d latency rounds, rate %v, search %v", len(r.Latency), r.LatencyRate, r.Sustain)
+	if len(r.Latency) != 0 || r.LatencyRate[sc.Name] != 0 || r.LatencyBase[sc.Name] != "" {
+		t.Errorf("after Next.js was dropped: %d latency rounds, rate %v", len(r.Latency), r.LatencyRate)
 	}
 	if !strings.Contains(what, "latency") {
 		t.Errorf("it does not say that the latency rounds of every server went: %q", what)
@@ -259,60 +259,6 @@ func TestAResultKeepsTheStampOfEachServer(t *testing.T) {
 		if got.Stamp != want || got.Trace != fileHash(TracePath(b.o.TraceDir, traceName(b.specs[name]))) || got.Date == "" {
 			t.Errorf("%s: kept %+v, want the stamp %s, the hash of its trace and a date", name, got, want)
 		}
-	}
-}
-
-// The search of the sustainable rate starts within its cap, so a cap under 4 visits a second still
-// measures, and halves below that.
-func TestTheRateSearchStartsWithinTheCap(t *testing.T) {
-	for _, tc := range []struct {
-		max    float64
-		passes float64 // the highest rate that passes
-		tried  []float64
-		lo, hi float64
-	}{
-		{2, 1, []float64{2, 1}, 1, 2},
-		{3, 100, []float64{3}, 3, 0},
-		{16384, 40, []float64{4, 8, 16, 32, 64}, 32, 64},
-		{16384, 1, []float64{4, 2, 1}, 1, 2},
-	} {
-		var tried []float64
-		lo, hi, limited, err := searchRate(tc.max, func(rate float64) (string, error) {
-			tried = append(tried, rate)
-			return map[bool]string{true: trialPass, false: trialFail}[rate <= tc.passes], nil
-		})
-		if err != nil || limited || lo != tc.lo || hi != tc.hi || !reflect.DeepEqual(tried, tc.tried) {
-			t.Errorf("cap %v, passing up to %v: lo %v hi %v tried %v (%v), want %v %v %v", tc.max, tc.passes, lo, hi, tried, err, tc.lo, tc.hi, tc.tried)
-		}
-	}
-	if _, err := (Env{}).Browse(context.Background(), BrowseOptions{MaxRate: 0.25}); err == nil || !strings.Contains(err.Error(), "-max-rate") {
-		t.Errorf("a cap under half a visit a second: %v", err)
-	}
-}
-
-// A scenario where Next.js has no sustainable rate in range has no open run: that is its result, and
-// the latency phase goes on with the other scenarios.
-func TestNoSustainableRateSkipsTheOpenRunOfThatScenarioOnly(t *testing.T) {
-	sc, _ := BrowseScenarioByName("shop")
-	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3}, servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, res: &BrowseResult{
-		Sustain:     map[string]*Sustain{sustainKey(sc.Name, openBase): {Done: true, Note: "no rate passed its confirmation rounds"}},
-		LatencyRate: map[string]float64{}, LatencyBase: map[string]string{},
-	}}
-	if err := b.latency(context.Background(), sc); err != nil {
-		t.Fatalf("the latency phase stopped: %v", err)
-	}
-	if len(b.res.Latency) != 0 {
-		t.Fatalf("open rounds were run: %d", len(b.res.Latency))
-	}
-	r := b.res
-	r.Scenarios, r.Servers, r.Version = []BrowseScenario{sc}, b.servers, map[string]string{}
-	if md := r.Markdown(); !strings.Contains(md, "No open run: Next.js has no sustainable rate in range on this scenario (no rate passed its confirmation rounds)") {
-		t.Errorf("the report does not say why there is no open run:\n%s", md)
-	}
-	// Without a search done it is still an error: the sustain phase did not run.
-	b.res.Sustain = map[string]*Sustain{}
-	if err := b.latency(context.Background(), sc); err == nil {
-		t.Error("no search and no error")
 	}
 }
 
@@ -345,7 +291,7 @@ func TestARoundOutsideTheWindowResizesItsCell(t *testing.T) {
 // A cell with no valid round says why its rounds failed, not only how many there were.
 func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 	sc, _ := BrowseScenarioByName("shop")
-	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}, Sustain: map[string]*Sustain{}}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{}}
 	for round := 1; round <= 3; round++ {
 		r.Closed = append(r.Closed, closedRound("nextjs", sc.Name, 32, round, 400, 10, true))
 		bad := closedRound("tifa", sc.Name, 32, 1, 4000, 59, false)
@@ -362,7 +308,7 @@ func TestACellWithNoValidRoundSaysWhyItsRoundsFailed(t *testing.T) {
 // A result of the old format, which counted users and had no planned visits, is refused with a clear
 // error, by the report and by a run that would continue it: there is no reading of it.
 func TestAResultOfTheOldFormatIsRefused(t *testing.T) {
-	cur := &BrowseResult{Config: browseConfig(BrowseOptions{Sessions: 8}, "", "", ""), Closed: []Round{{VisitsPlanned: 4}}, Sustain: map[string]*Sustain{}}
+	cur := &BrowseResult{Config: browseConfig(BrowseOptions{Sessions: 8}, "", "", ""), Closed: []Round{{VisitsPlanned: 4}}}
 	data, err := cur.json()
 	if err != nil {
 		t.Fatal(err)

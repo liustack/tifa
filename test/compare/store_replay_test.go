@@ -411,25 +411,6 @@ func TestTheControlRunsOnTheFirstScenario(t *testing.T) {
 	}
 }
 
-// The rate of the open run is half of what Next.js sustains on the scenario, whatever the others
-// sustain: a server that cannot hold it fails at it.
-func TestTheOpenRateIsHalfOfNextjs(t *testing.T) {
-	sc := BrowseScenario{Name: "shop"}
-	res := &BrowseResult{Sustain: map[string]*Sustain{
-		"shop/nextjs": {Rate: 21.5, Done: true}, "shop/tifa-nocache": {Rate: 5, Done: true}, "shop/start": {Rate: 400, Done: true}}}
-	if rate, err := openRate(res, sc); err != nil || rate != 10.75 {
-		t.Errorf("rate %v, %v", rate, err)
-	}
-	res.Sustain["shop/nextjs"] = &Sustain{Done: true, Note: "no rate passed"}
-	if _, err := openRate(res, sc); err == nil || !strings.Contains(err.Error(), "Next.js") {
-		t.Errorf("a Next.js with no rate: %v", err)
-	}
-	delete(res.Sustain, "shop/nextjs")
-	if _, err := openRate(res, sc); err == nil {
-		t.Error("a scenario whose Next.js was not searched has a rate")
-	}
-}
-
 func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 	env := Env{Shop: "/shop"}
 	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs", "start": "start", "start-gzip": "start", NextNoPrefetch: NextNoPrefetch} {

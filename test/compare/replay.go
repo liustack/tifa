@@ -25,7 +25,7 @@ import (
 // shopper visit does is the plan's (mix.go, the same in every scenario). Staff is the share of the
 // visits made by the staff, and Edit and Ship the shares of the staff visits that edit a product and
 // that ship an order. Throughput says that the scenario has the closed tables, and Latency the open
-// run (the search for the rate of Next.js and every server at half of it). ReadOnly is the read-only
+// run (every server at a rate taken from the closed rounds of Next.js, latencyRate). ReadOnly is the read-only
 // control: the same visits with no writes.
 type BrowseScenario struct {
 	Name       string  `json:"name"`
@@ -67,8 +67,8 @@ func (s BrowseScenario) viewsPerVisit() float64 {
 	return (ShopperViewsMean*ShopperBlockVisits + StaffViewsMean*float64(s.staffVisits())) / float64(s.blockVisits())
 }
 
-// openBase is the server whose sustainable rate sets the rate of an open run: half of it, for every
-// server of the scenario.
+// openBase is the server whose closed rounds set the rate of the latency rounds of every server of
+// a scenario (latencyRate).
 const openBase = "nextjs"
 
 // BrowseScenarios are the scenarios of the browse comparison: one, the shop with the mix of mix.go,
@@ -417,8 +417,12 @@ type acc struct {
 	pages                               map[string]int
 	renders, responses                  map[string]int
 	lat                                 map[string][]float64
-	samples                             []viewSample // every page view that completed, for the series
-	lastAction                          time.Time
+	// parts are the latencies of the full loads and the client navigations of an open round by the part
+	// of the round its visits were planned to start in (Round.Parts), and parted says that it has them.
+	parts      [latencyParts]map[string][]float64
+	parted     bool
+	samples    []viewSample // every page view that completed, for the series
+	lastAction time.Time
 	// kinds counts the writes by kind.
 	kinds map[string]int
 	// refused counts the requests the shop refused with 409 or 422 (see refuse).
@@ -489,6 +493,8 @@ type visitState struct {
 	client *http.Client
 	// seq is the number of the visit in the sequence of visits.
 	seq int
+	// part is the part of an open round the visit was planned to start in, from 1 (0 for none).
+	part int
 	// subs are what the visit puts in place of the placeholders of its plan in every request it sends:
 	// the value of its landing parameter and the word of its search (visitSubs).
 	subs   visitSubs
@@ -790,10 +796,23 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s
 	class := pageClass(s.Page)
 	a.mu.Lock()
 	a.lat[kind] = append(a.lat[kind], ms(last.Sub(scheduled)))
-	// Every page the browser loaded whole is a full page load, the first page of a visit and a later
-	// one alike: the report times them together, beside the client navigations.
+	// What the server answered: a whole page (`document`, a full load), the first page of a visit and a
+	// later one the browser loaded whole alike, or data alone for the client router (`click nav`, a
+	// client navigation). The report counts and times the page views by these two.
+	answered := "click nav"
 	if kind == "load" || s.document() {
+		answered = "document"
+	}
+	if answered == "document" {
 		a.lat["document"] = append(a.lat["document"], ms(last.Sub(scheduled)))
+	}
+	if v.part > 0 {
+		p := &a.parts[v.part-1]
+		if *p == nil {
+			*p = map[string][]float64{}
+		}
+		(*p)[answered] = append((*p)[answered], ms(last.Sub(scheduled)))
+		a.parted = true
 	}
 	if kind == "click" {
 		// A click is an action on the page, by the step of the plan. The browser did it as a document
@@ -822,6 +841,9 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, step int, s
 type pacer struct {
 	open  bool
 	start time.Time
+	// part is the part of the round the visit was planned to start in, from 1 (Round.Parts), and 0 for
+	// a round that is not split.
+	part int
 }
 
 func (p pacer) at(j int) time.Time {
@@ -845,7 +867,7 @@ func (r *runner) runVisit(ctx context.Context, tr *http.Transport, a *acc, seq i
 	} else {
 		jar, _ = cookiejar.New(nil)
 	}
-	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), subs: subsFor(r.seed, seq, plan), seq: seq}
+	v := &visitState{client: &http.Client{Transport: tr, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sem: make(chan struct{}, maxConns), subs: subsFor(r.seed, seq, plan), seq: seq, part: p.part}
 	// Every way out of the visit waits for its background requests, so that a round ends after its
 	// last request and a warm-up does not run on into the round.
 	defer v.bg.Wait()

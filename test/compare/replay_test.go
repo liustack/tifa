@@ -225,7 +225,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	plans, traces := onePlan(steps...)
 	r := testRunner(srv, plans, traces, nil)
 	// 8 visits a second for 1 s: the two actions of a visit are 1 s apart.
-	round := r.RunOpen(context.Background(), 8, 8, 5*time.Second, 0)
+	round := r.RunOpen(context.Background(), 8, 2, 8, 5*time.Second, 0)
 	if round.Visits != 8 || round.PageViews != 16 || round.TimedOut {
 		t.Fatalf("%+v", round)
 	}
@@ -238,7 +238,7 @@ func TestOpenModelScoresFromTheScheduledTimeAndFindsABacklog(t *testing.T) {
 	// A server that holds everything: the visits cannot finish and the round times out.
 	plans, traces = onePlan(TraceStep{Kind: StepLoad, Page: "/p", Reqs: []TraceReq{req("/hold-x", "doc", 0, 5)}})
 	r = testRunner(srv, plans, traces, nil)
-	round = r.RunOpen(context.Background(), 4, 4, 300*time.Millisecond, 0)
+	round = r.RunOpen(context.Background(), 4, 2, 4, 300*time.Millisecond, 0)
 	if !round.TimedOut || round.Visits != 0 {
 		t.Errorf("a hung server: %+v", round)
 	}
@@ -395,7 +395,7 @@ func TestTheWarmUpSendsTheWritesOfItsVisits(t *testing.T) {
 		r.prepared, r.warm = 2, 3
 		var round *Round
 		if open {
-			round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+			round = r.RunOpen(context.Background(), 50, 2, 2, time.Second, 0)
 		} else {
 			round = r.RunClosed(context.Background(), 1, 2, 10*time.Second)
 		}
@@ -476,7 +476,7 @@ func TestAWarmUpThatDidNotEndAsPlannedDecidesTheRound(t *testing.T) {
 			r.prepared, r.warm = 2, 2
 			var round *Round
 			if tc.open {
-				round = r.RunOpen(context.Background(), 50, 2, time.Second, 0)
+				round = r.RunOpen(context.Background(), 50, 2, 2, time.Second, 0)
 			} else {
 				round = r.RunClosed(context.Background(), 1, 2, 500*time.Millisecond)
 			}
@@ -597,13 +597,6 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 			}
 		}
 	}
-	// Every open run plays whole cycles of all 380 plans: a part of a cycle has another page mix.
-	if n := visitsFor(8, 30*time.Second, 380); n%380 != 0 || n < 240 {
-		t.Errorf("visits for 8 visits/s: %d", n)
-	}
-	if visitsFor(0.1, time.Second, 380) != 380 || visitsFor(2000, time.Minute, 380)%380 != 0 {
-		t.Error("an open run is whole cycles")
-	}
 }
 
 // A cycle of the site plays, for each block of plans, its 1000 shopper visits and the staff visits
@@ -662,54 +655,6 @@ func TestEveryBlockOfTheCycleHasTheMixOfItsScenario(t *testing.T) {
 		if r.WritesPlanned != 0 || r.Mix.Adds+r.Mix.Edits+r.Mix.Ships+r.Mix.Checkouts != 0 {
 			t.Errorf("%s read-only: %d writes planned", tc.name, r.WritesPlanned)
 		}
-	}
-}
-
-func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t *testing.T) {
-	var ran []float64
-	run := func(passAt func(rate float64, round int) bool) func(float64, int) (*Round, error) {
-		ran = nil
-		return func(rate float64, round int) (*Round, error) {
-			ran = append(ran, rate)
-			return &Round{Rate: rate, Pass: passAt(rate, round), Valid: true}, nil
-		}
-	}
-	// 100 fails, 90 fails in its second round, 81 passes all three.
-	rate, rounds, _, err := ConfirmRate(100, 4, 3, run(func(r float64, round int) bool {
-		if r == 90 {
-			return round == 1
-		}
-		return r < 85
-	}), 0)
-	if err != nil || rate != 81 {
-		t.Fatalf("rate %v, %v", rate, err)
-	}
-	if len(rounds) != 1+2+3 || rounds[0].Attempt != 1 || rounds[5].Attempt != 3 || rounds[5].Round != 3 {
-		t.Errorf("%d rounds kept: %+v", len(rounds), rounds)
-	}
-	// The first try passes: one step 10% above it is tried, and published if it passes too.
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 110 }), 0)
-	if rate != 110 || len(rounds) != 6 || rounds[3].Attempt != 2 {
-		t.Errorf("a passing step up: rate %v, %d rounds", rate, len(rounds))
-	}
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 100 }), 0)
-	if rate != 100 || len(rounds) != 4 {
-		t.Errorf("a failing step up leaves the first rate: %v, %d rounds", rate, len(rounds))
-	}
-	// Four tries that all fail: no rate, and no untested rate is made up.
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }), 0)
-	if rate != 0 || len(rounds) != 4 {
-		t.Errorf("rate %v after %d rounds", rate, len(rounds))
-	}
-	for _, r := range ran {
-		if r == 65.61 {
-			t.Error("the rate after the last try was run or published")
-		}
-	}
-	// The step up stays within the cap of the search.
-	rate, rounds, _, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return true }), 105)
-	if rate != 100 || len(rounds) != 3 {
-		t.Errorf("a step up over the cap: rate %v, %d rounds", rate, len(rounds))
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 // path: it keeps the results of the server (current), measures it again (stale, with why), refuses
 // the whole file, or finds none (missing). It then says how many rounds of each part the file holds
 // of it, out of how many: the closed rounds at the base sessions and whether its steps are done, the
-// control for Tifa, the rate of a server whose rate was searched, and the latency rounds. dir is the
+// control for Tifa, and the latency rounds with their rate. dir is the
 // folder of the traces. It reads and changes nothing else. A version of the server is not compared
 // here: browse.sh puts the versions a server depends on in the stamp of its trace.
 func BrowseStatus(path, dir, stamp string, stamps map[string]string, server string) (string, error) {
@@ -59,7 +59,7 @@ func BrowseStatus(path, dir, stamp string, stamps map[string]string, server stri
 			}
 		}
 		steps := "steps not done"
-		if t := res.Throughput[sustainKey(sc.Name, server)]; t != nil {
+		if t := res.Throughput[serverKey(sc.Name, server)]; t != nil {
 			steps = fmt.Sprintf("steps done (%s at %d sessions)", t.Result, t.Sessions)
 		}
 		fmt.Fprintf(&b, "  throughput: %d of %s at %d sessions, %s\n", done, of(want), sessions, steps)
@@ -72,29 +72,24 @@ func BrowseStatus(path, dir, stamp string, stamps map[string]string, server stri
 			}
 			fmt.Fprintf(&b, "  control: %d of 1 round\n", n)
 		}
-		if s := res.Sustain[sustainKey(sc.Name, server)]; s != nil {
-			if s.Done {
-				fmt.Fprintf(&b, "  sustain: %.2f visits/s\n", s.Rate)
-			} else {
-				b.WriteString("  sustain: searching\n")
-			}
-		}
-		done = 0
-		for round := 1; round <= rounds; round++ {
-			tries := 0
-			for _, x := range res.Latency {
-				if x.Framework == server && x.Scenario == sc.Name && x.Round == round {
-					tries++
-					if x.Valid {
-						tries = maxTries
-					}
+		// The one latency round is done with a valid try, or with the tries it gets.
+		done, tries := 0, 0
+		for _, x := range res.Latency {
+			if x.Framework == server && x.Scenario == sc.Name {
+				tries++
+				if x.Valid {
+					tries = maxTries
 				}
 			}
-			if tries >= maxTries {
-				done++
-			}
 		}
-		fmt.Fprintf(&b, "  latency: %d of %s\n", done, of(rounds))
+		if tries >= maxTries {
+			done = 1
+		}
+		at := "no rate yet"
+		if rate := res.LatencyRate[sc.Name]; rate > 0 {
+			at = fmt.Sprintf("at %.2f visits/s", rate)
+		}
+		fmt.Fprintf(&b, "  latency: %d of 1 round, %s\n", done, at)
 	}
 	return b.String(), nil
 }

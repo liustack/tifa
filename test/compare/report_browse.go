@@ -104,20 +104,14 @@ func p50Cell(rounds []Round, kind string) string {
 
 // Markdown writes the report of the browse comparison. The body holds the results alone: for every
 // scenario its throughput table and its latency table, each with a link to the diagnostics behind
-// it, then the mix with the source of every number. The appendix after it holds how the comparison
-// is made and every diagnostic: the steps of the sessions and what the rounds did, the rate Next.js
-// sustains, the render memo of Tifa, the read-only control, the time series and whether the traces
-// replay.
+// it, and the notes under them, then the mix with the source of every number. The appendix after it
+// holds how the comparison is made and every diagnostic: the steps of the sessions and what the
+// rounds did, the render memo of Tifa, the read-only control, the time series, the parts of the
+// latency rounds and whether the traces replay.
 func (r *BrowseResult) Markdown() string {
 	var b strings.Builder
-	v := r.Version
-	fmt.Fprintf(&b, "Measured %s. Go %s, Node %s", r.Date, strings.TrimPrefix(v["go"], "go"), v["node"])
-	for _, k := range sortedKeys(r.Version) {
-		if !slices.Contains([]string{"go", "node"}, k) {
-			fmt.Fprintf(&b, ", %s %s", k, r.Version[k])
-		}
-	}
-	fmt.Fprintf(&b, ". %s, %s. Placement: %s.\n", r.Machine.CPU, r.Machine.Kernel, r.Place.Note)
+	// The date each server was measured on and the versions are in the notes under the tables.
+	fmt.Fprintf(&b, "The run started %s. %s, %s. Placement: %s.\n", r.Date, r.Machine.CPU, r.Machine.Kernel, r.Place.Note)
 	if off := r.notFormal(); len(off) > 0 {
 		fmt.Fprintf(&b, "\n**Not a formal run.** It differs from a formal run (FormalBrowse, pinned, by browse.sh, every server) in: %s. Its numbers are not results of the comparison.\n", strings.Join(off, ", "))
 	}
@@ -164,11 +158,12 @@ func (r *BrowseResult) resultsMarkdown(b *strings.Builder, sc BrowseScenario, ro
 		b.WriteString("\nThis scenario has no throughput table: it is measured for its latency at a fixed arrival rate only.\n")
 	}
 	if r.latencyMarkdown(b, sc) {
-		fmt.Fprintf(b, "\nDiagnostics: [the arrival rate Next.js sustains, the writes and what the rounds did](#%s).\n", diagnosticsAnchor(sc, "latency"))
+		fmt.Fprintf(b, "\nDiagnostics: [the writes and what the rounds did](#%s).\n", diagnosticsAnchor(sc, "latency"))
 	}
 	if !sc.Latency {
 		b.WriteString("\nThis scenario has no open run: it is measured for its throughput only.\n")
 	}
+	r.notesMarkdown(b, sc)
 }
 
 // diagnosticsMarkdown writes, in the appendix, the diagnostics behind the result tables of a
@@ -199,7 +194,7 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 					// No round of the cell was valid: say why the last one failed, with what made it invalid.
 					last := tries[len(tries)-1]
 					fmt.Fprintf(b, " not decided (no valid round of %d: %s) |", len(tries), strings.Join(slices.DeleteFunc([]string{last.Why, last.WhyInvalid}, func(s string) bool { return s == "" }), "; "))
-				case got == trialFail:
+				case got == stepFail:
 					fmt.Fprintf(b, " failed (%s) |", why)
 				case got == stepUndecided:
 					fmt.Fprintf(b, " not decided (%s) |", why)
@@ -219,7 +214,6 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	r.seriesMarkdown(b, sc)
 	fmt.Fprintf(b, "\n<a id=\"%s\"></a>\n\n### %s: what is behind the latency\n", diagnosticsAnchor(sc, "latency"), sc.Title)
 	r.latencyMethodMarkdown(b, sc)
-	r.sustainMarkdown(b, sc)
 	if rs := func(f string) []Round { return r.latencyRounds(f, sc.Name) }; slices.ContainsFunc(fw, func(f string) bool { return len(rs(f)) > 0 }) {
 		b.WriteString("\n#### The rounds at the same arrival rate\n")
 		r.writesMarkdown(b, sc, rs)
@@ -227,41 +221,56 @@ func (r *BrowseResult) diagnosticsMarkdown(b *strings.Builder, sc BrowseScenario
 	}
 }
 
-// peopleCell reads page views a second as the active people who would make them at one page every
-// 5 to 10 seconds: a reading aid, not a measurement.
-func peopleCell(views float64) string {
-	return fmt.Sprintf("%.0f to %.0f", 5*views, 10*views)
+// bodyOrder is the order of the rows of the tables of the body: the frameworks compared first, then
+// the references, each in the order of the run.
+func bodyOrder(servers []string) []string {
+	var main, refs []string
+	for _, f := range servers {
+		if _, ok := browseReferences[f]; ok {
+			refs = append(refs, f)
+		} else {
+			main = append(main, f)
+		}
+	}
+	return append(main, refs...)
 }
 
 // throughputMarkdown is the table of what the steps of the sessions found for each server: the
-// results alone (throughputMethodMarkdown in the appendix says how the steps ran).
+// results alone (throughputMethodMarkdown in the appendix says how the steps ran). It has no latency:
+// that is the latency table, at a rate every server shares.
 func (r *BrowseResult) throughputMarkdown(b *strings.Builder, sc BrowseScenario, rounds int) {
-	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up, %d rounds a step. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. "+stepClassNote+" The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity. Active people is the page views a second times 5 to 10, as if each person read a page for 5 to 10 seconds: a reading aid, not something this run measured.\n\n", r.baseSessions(), rounds)
+	fmt.Fprintf(b, "#### Throughput\n\nEvery server starts at %d concurrent sessions with no think time and is stepped up while it keeps up. A main server plays %d rounds a step and a reference one. A row is where its steps ended, at the sessions it gives, so servers are compared at their own working points, not at the same concurrency. "+stepClassNote+" The result says how the steps ended, and the appendix says what each result means. A failed round is never used as a capacity.\n\n", r.baseSessions(), rounds)
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round {
-		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+		if t := r.Throughput[serverKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
 			return r.cellRounds(f, sc.Name, t.Sessions)
 		}
 		return nil
 	})
-	b.WriteString("| | result | sessions | page views/s | active people at one page per 5 to 10 s | full page load P50 / P99 ms (n) | client navigation P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | result | sessions | page views/s | full loads/s | client navigations/s | CPU ms/page view | body KB/page view | peak RSS MiB |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	marked := false
-	for _, f := range r.Servers[sc.Name] {
-		t := r.Throughput[sustainKey(sc.Name, f)]
+	for _, f := range bodyOrder(r.Servers[sc.Name]) {
+		t := r.Throughput[serverKey(sc.Name, f)]
 		switch {
 		case t == nil:
-			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - | - | - |\n", BrowseLabel(f))
+			fmt.Fprintf(b, "| %s | not measured | - | - | - | - | - | - | - |\n", BrowseLabel(f))
 		case t.Sessions == 0:
-			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - | - | - |\n", BrowseLabel(f), t.Result)
+			fmt.Fprintf(b, "| %s | %s | - | - | - | - | - | - | - |\n", BrowseLabel(f), t.Result)
 		default:
 			rs := r.cellRounds(f, sc.Name, t.Sessions)
-			views := each(rs, pageViewsPerSecond)
-			cell := fmtCell(views, "%.1f")
+			cell := fmtCell(each(rs, pageViewsPerSecond), "%.1f")
 			if slices.ContainsFunc(rs, func(x Round) bool { return x.Capped }) {
 				cell += cappedMark
 				marked = true
 			}
-			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, cell, peopleCell(Median(views)),
-				typeCell(rs, "document"), typeCell(rs, "click nav"), typeCell(rs, "write"), crawlerRate(rs), typeCell(rs, "crawler"))
+			perView := func(get func(*Round) float64, format string) string {
+				return fmtCell(each(rs, func(x *Round) float64 { return get(x) / float64(max(1, x.PageViews)) }), format)
+			}
+			fmt.Fprintf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), t.Result, t.Sessions, cell,
+				fmtCell(each(rs, func(x *Round) float64 { return float64(x.Types["document"].N) / x.Seconds }), "%.1f"),
+				fmtCell(each(rs, func(x *Round) float64 { return float64(x.Types["click nav"].N) / x.Seconds }), "%.1f"),
+				perView(func(x *Round) float64 { return 1000 * x.CPUSeconds }, "%.2f"),
+				perView(func(x *Round) float64 { return float64(x.Bytes) / 1024 }, "%.1f"),
+				fmtCell(each(rs, func(x *Round) float64 { return x.PeakRSS }), "%.0f"))
 		}
 	}
 	if marked {
@@ -327,7 +336,7 @@ func (r *BrowseResult) throughputMethodMarkdown(b *strings.Builder, sc BrowseSce
 	}
 	b.WriteString("| | server cores | why the steps stopped | sessions played |\n| --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
-		t := r.Throughput[sustainKey(sc.Name, f)]
+		t := r.Throughput[serverKey(sc.Name, f)]
 		switch {
 		case t == nil:
 			fmt.Fprintf(b, "| %s | - | not measured | - |\n", BrowseLabel(f))
@@ -344,7 +353,7 @@ func (r *BrowseResult) throughputMethodMarkdown(b *strings.Builder, sc BrowseSce
 func (r *BrowseResult) closedDetail(b *strings.Builder, sc BrowseScenario, sessions int) {
 	fw := r.Servers[sc.Name]
 	fmt.Fprintf(b, "\n#### %d concurrent sessions\n\n", sessions)
-	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | full page load P50 / P99 ms (n) | client navigation P50 / P99 ms (n) | write P50 / P99 ms (n) | server cores | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| | page views/s | visits/s | CPU ms/page view | peak RSS MiB | requests/page view | body KB/page view | full loads P50 / P99 ms (n) | client navigations P50 / P99 ms (n) | write P50 / P99 ms (n) | server cores | client cores |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, f := range fw {
 		rs := r.cellRounds(f, sc.Name, sessions)
 		if len(rs) == 0 {
@@ -444,82 +453,83 @@ func (r *BrowseResult) achievedMarkdown(b *strings.Builder, sc BrowseScenario, r
 	}
 }
 
-func (r *BrowseResult) sustainMarkdown(b *strings.Builder, sc BrowseScenario) {
-	fw := r.Servers[sc.Name]
-	if !slices.ContainsFunc(fw, func(f string) bool { return r.Sustain[sustainKey(sc.Name, f)] != nil }) {
-		return
-	}
-	fmt.Fprintf(b, "\n#### The arrival rate %s sustains\n\nOpen model: visits start on schedule whether or not the earlier ones are done, and the actions of a visit are planned one second apart. A rate is sustained when the first pages of visits, the pages after them and writes each have a P99 of at most 1 s, nothing fails, no backlog is left, and the load generator keeps up, in %d rounds. The search doubles the rate, narrows it to within 10%%, then confirms it (and tries 10%% above it, within the cap of the search). It is run for %s only, whose rate sets the rate of the open run. A confirmed rate is kept in `test/compare/rates.json` with what it was measured under (the scenario, the plans and the traces, the sources, the cpu and its pinning, the Node and Next.js versions, the spacing of actions, the rule, the search and the confirmation), and a later run under all the same conditions reads it from there.\n\n| | sustained rate, visits/s | page views/s | notes |\n| --- | --- | --- | --- |\n", BrowseLabel(openBase), r.rounds(), BrowseLabel(openBase))
-	for _, f := range fw {
-		s := r.Sustain[sustainKey(sc.Name, f)]
-		if s == nil {
-			continue
-		}
-		if !s.Done {
-			fmt.Fprintf(b, "| %s | - | - | not measured |\n", BrowseLabel(f))
-			continue
-		}
-		if s.Rate == 0 {
-			fmt.Fprintf(b, "| %s | none in range | - | %s |\n", BrowseLabel(f), s.Note)
-			continue
-		}
-		note := s.Note
-		if s.Limited {
-			note = strings.TrimSpace(note + " the load generator ended the search: the rate is a lower bound")
-		}
-		if s.From != nil {
-			passed := 0
-			for _, x := range s.From.Confirm {
-				if x.Pass && x.Valid {
-					passed++
-				}
-			}
-			note = strings.TrimSpace(fmt.Sprintf("%s from test/compare/rates.json: confirmed on %s with Tifa %s (%s), %d of %d confirmation rounds passed", note, s.From.Date, s.From.Tifa, s.From.Result, passed, len(s.From.Confirm)))
-		}
-		fmt.Fprintf(b, "| %s | %.2f | %.0f | %s |\n", BrowseLabel(f), s.Rate, sc.viewsPerVisit()*s.Rate, note)
-	}
-}
-
 // latencyMarkdown writes the latency table of a scenario, and reports whether it had rounds to show.
+// It has no throughput: that is the throughput table.
 func (r *BrowseResult) latencyMarkdown(b *strings.Builder, sc BrowseScenario) bool {
 	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
-		if s := r.Sustain[sustainKey(sc.Name, openBase)]; sc.Latency && s != nil && s.Done && s.Rate == 0 {
-			fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nNo open run: %s has no sustainable rate in range on this scenario (%s).\n", BrowseLabel(openBase), s.Note)
-		}
 		return false
 	}
 	rate := r.LatencyRate[sc.Name]
-	fmt.Fprintf(b, "\n#### Latency at the same arrival rate, half of %s's confirmed rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned), half of the rate %s was confirmed to sustain on this scenario. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. "+stepClassNote+" P50 / P99 in ms and the number of samples, over %d rounds, the failed ones too.\n\n", BrowseLabel(r.LatencyBase[sc.Name]), rate, sc.viewsPerVisit()*rate, BrowseLabel(r.LatencyBase[sc.Name]), r.rounds())
+	fmt.Fprintf(b, "\n#### Latency at the same arrival rate\n\nEvery server gets %.2f visits/s (%.0f page views/s planned) in one round. The notes below say how the rate was set. Latency is counted from the time an action was scheduled to the end of its foreground requests, queueing included. Full loads and client navigations are the pages of the throughput table. P50 / P99 in ms and the number of samples, over the round.\n\n", rate, sc.viewsPerVisit()*rate)
 	compressionMarkdown(b, r.Servers[sc.Name], func(f string) []Round { return r.latencyRounds(f, sc.Name) })
-	b.WriteString("| | full page loads | client navigations | writes | crawler documents | rounds |\n| --- | --- | --- | --- | --- | --- |\n")
-	for _, f := range r.Servers[sc.Name] {
-		// Every round it played at the rate is shown, the failed ones too: a failed round is part of
-		// its result, with its errors and its tail latency.
-		// Every server is listed: having no valid round, or too few to decide, is its result too.
-		shown, want := r.latencyRounds(f, sc.Name), r.rounds()
+	b.WriteString("| | full loads P50 / P99 ms (n) | client navigations P50 / P99 ms (n) | rule |\n| --- | --- | --- | --- |\n")
+	for _, f := range bodyOrder(r.Servers[sc.Name]) {
+		// Every server is listed: having no valid round is its result too, and a failed round is part of
+		// its result, with its tail latency.
+		shown := r.latencyRounds(f, sc.Name)
 		if len(shown) == 0 {
-			fmt.Fprintf(b, "| %s | - | - | - | - | no valid result: 0 of %d rounds valid |\n", BrowseLabel(f), want)
+			fmt.Fprintf(b, "| %s | - | - | no valid result: none of its %d tries was valid |\n", BrowseLabel(f), len(r.latencyTries(f, sc.Name)))
 			continue
 		}
-		var notes []string
-		for _, x := range shown {
-			if !x.Pass {
-				notes = append(notes, fmt.Sprintf("round %d failed: %s", x.Round, x.Why))
-			}
+		note := "passed"
+		if x := shown[0]; !x.Pass {
+			note = "failed the rule: " + x.Why
 		}
-		var note string
-		switch {
-		case len(notes) > 0: // a valid round that failed decides it, however many were valid
-			note = fmt.Sprintf("failed the rule in %d of %d rounds: %s", len(notes), len(shown), strings.Join(notes, "; "))
-		case len(shown) < want:
-			note = fmt.Sprintf("not decided: %d of %d rounds valid, %d of %d passed", len(shown), want, len(shown), len(shown))
-		default:
-			note = fmt.Sprintf("%d of %d rounds passed", len(shown), len(shown))
-		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "document"), typeCell(shown, "click nav"), typeCell(shown, "write"), typeCell(shown, "crawler"), note)
+		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "document"), typeCell(shown, "click nav"), note)
 	}
 	r.referencesMarkdown(b, sc)
 	return true
+}
+
+// notesMarkdown writes the notes under the tables of a scenario: when each server was measured, the
+// versions, how many rounds a row of each table is, how the rate of the latency round was set, and
+// the checks of the machine that ran.
+func (r *BrowseResult) notesMarkdown(b *strings.Builder, sc BrowseScenario) {
+	b.WriteString("\nNotes:\n\n")
+	for _, f := range bodyOrder(r.Servers[sc.Name]) {
+		if s, ok := r.ServerStamps[f]; ok && s.Date != "" {
+			fmt.Fprintf(b, "- %s was measured on %s.\n", BrowseLabel(f), s.Date)
+		}
+	}
+	if v := versionsText(r.Version); v != "" {
+		fmt.Fprintf(b, "- Versions: %s.\n", v)
+	}
+	if sc.Throughput {
+		fmt.Fprintf(b, "- A row of a main server in the throughput table is the median of its %d rounds at its sessions, with their range. A row of a reference is one round.\n", r.rounds())
+	}
+	if rate := r.LatencyRate[sc.Name]; rate > 0 {
+		var visits, blocks int
+		if i := slices.IndexFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }); i >= 0 {
+			visits, blocks = r.Latency[i].VisitsPlanned, r.Latency[i].Blocks
+		}
+		base, sessions := r.LatencyBase[sc.Name], r.baseSessions()
+		cell := r.cellRounds(base, sc.Name, sessions)
+		fmt.Fprintf(b, "- A row of the latency table is one round of %d visits (%d blocks) at %.2f visits/s. The rate is %.0f%% of the median %.2f visits a second %s completed in its %d closed rounds at %d sessions, to the nearest 0.25.\n",
+			visits, blocks, rate, 100*latencyShare, visitsPerSecond(cell), BrowseLabel(base), len(cell), sessions)
+	}
+	for _, c := range r.MachineChecks {
+		if c.Scenario == sc.Name {
+			fmt.Fprintf(b, "- The machine was checked on %s before servers were measured again beside the kept results: %d closed rounds of %s at %d sessions did %s page views/s, a median of %.1f against %.1f for its kept rounds, %+.1f%% (within %.0f%%).\n",
+				c.Date, len(c.Values), BrowseLabel(c.Server), c.Sessions, fmtList(c.Values), c.Median, c.KeptMedian, c.Diff, 100*machineMargin)
+		}
+	}
+}
+
+// versionsText lists the versions of a result: Go and Node first, then the others by name.
+func versionsText(v map[string]string) string {
+	var out []string
+	if g, ok := v["go"]; ok {
+		out = append(out, "Go "+strings.TrimPrefix(g, "go"))
+	}
+	if n, ok := v["node"]; ok {
+		out = append(out, "Node "+n)
+	}
+	for _, k := range sortedKeys(v) {
+		if k != "go" && k != "node" {
+			out = append(out, k+" "+v[k])
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // latencyMethodMarkdown is, in the appendix, how the rounds at the same arrival rate ran: the rule,
@@ -529,7 +539,7 @@ func (r *BrowseResult) latencyMethodMarkdown(b *strings.Builder, sc BrowseScenar
 	if !slices.ContainsFunc(r.Latency, func(x Round) bool { return x.Scenario == sc.Name }) {
 		return
 	}
-	b.WriteString("\n#### How the rounds at the same arrival rate ran\n\nEvery server gets the same arrival rate, not half of its own capacity. A server that cannot hold that rate fails at it: the rate is not lowered for it. The latency table gives every valid round the server played at the rate, the failed ones too, and a server with a failed round failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named here.\n\n| | failures | visits failed / unfinished, of planned | server CPU ms/page view | not valid, run again |\n| --- | --- | --- | --- | --- |\n")
+	b.WriteString("\n#### How the rounds at the same arrival rate ran\n\nEvery server gets the same arrival rate, not half of its own capacity. A server that cannot hold that rate fails at it: the rate is not lowered for it. Every server plays one round at the rate, a reference too, and the latency table gives its valid round, a failed one too: a server whose round failed failed the rule. A round in which the load generator fell behind is not valid, is run again and is only named here.\n\n| | failures | visits failed / unfinished, of planned | server CPU ms/page view | not valid, run again |\n| --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Servers[sc.Name] {
 		shown := r.latencyRounds(f, sc.Name)
 		var invalid []string
@@ -553,6 +563,48 @@ func (r *BrowseResult) latencyMethodMarkdown(b *strings.Builder, sc BrowseScenar
 			fmtCell(each(shown, func(x *Round) float64 { return 1000 * x.CPUSeconds / float64(max(1, x.PageViews)) }), "%.2f"), again)
 	}
 	r.clickKindsMarkdown(b, sc)
+	r.latencyOthersMarkdown(b, sc)
+	r.latencyPartsMarkdown(b, sc)
+}
+
+// latencyOthersMarkdown is, in the appendix, the latency of what the rounds at the same arrival rate
+// did besides the pages of people: the writes and the crawler documents.
+func (r *BrowseResult) latencyOthersMarkdown(b *strings.Builder, sc BrowseScenario) {
+	b.WriteString("\nThe writes and the crawler documents of these rounds, P50 / P99 in ms with the number of samples. They are no page views, and the latency table of the body leaves them out.\n\n| | write P50 / P99 ms (n) | crawler document P50 / P99 ms (n) |\n| --- | --- | --- |\n")
+	for _, f := range bodyOrder(r.Servers[sc.Name]) {
+		if shown := r.latencyRounds(f, sc.Name); len(shown) > 0 {
+			fmt.Fprintf(b, "| %s | %s | %s |\n", BrowseLabel(f), typeCell(shown, "write"), typeCell(shown, "crawler"))
+		}
+	}
+}
+
+// latencyPartsMarkdown is, in the appendix, the three parts of the latency round of each server, by
+// the planned start of their visits: whether the latency held over the round or changed as it went.
+// Rounds of an older run, which kept no parts, have no row.
+func (r *BrowseResult) latencyPartsMarkdown(b *strings.Builder, sc BrowseScenario) {
+	var rows []string
+	for _, f := range bodyOrder(r.Servers[sc.Name]) {
+		for _, x := range r.latencyRounds(f, sc.Name) {
+			for i, p := range x.Parts {
+				rows = append(rows, fmt.Sprintf("| %s | %d of %d | %s | %s |\n", BrowseLabel(f), i+1, len(x.Parts), statCell(p.FullLoads), statCell(p.ClientNavs)))
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\nThe latency round of each server in %d equal parts by the planned start of its visits, P50 / P99 in ms with the number of samples: whether its latency held over the round.\n\n| | part | full loads P50 / P99 ms (n) | client navigations P50 / P99 ms (n) |\n| --- | --- | --- | --- |\n", latencyParts)
+	for _, row := range rows {
+		b.WriteString(row)
+	}
+}
+
+// statCell is the P50 / P99 of one sample set, with its size, or "-" when it has none.
+func statCell(t TypeStat) string {
+	if t.N == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f / %.0f (%d)", t.P50, t.P99, t.N)
 }
 
 // clickKindsMarkdown is, in the appendix, the clicks of the rounds at the same arrival rate by how the
@@ -570,7 +622,7 @@ func (r *BrowseResult) clickKindsMarkdown(b *strings.Builder, sc BrowseScenario)
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\nThe pages after the first of a visit in these rounds, by how the browser reached them. A visitor reaches such a page by an action on the page on screen, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does a search from the header, a filter by a plain link and the next page of a list as a document load, and leaves the others to the router of the framework, as the recorded traces tell. P50 / P99 in ms over the rounds, with the number of pages. The two kinds do other work on the server and are not the same pages, so their times are not to be compared with each other, only server with server.\n\n| | pages after the first of a visit | of them full page loads | of them client navigations |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\nThe later pages of a visit in these rounds (every page after the first), by how the browser did them. A visitor reaches such a page by an action on the page on screen, by the step of the plan: a click on a link, a search, filters, a sort or the next page of a list. The browser does a search from the header, a filter by a plain link and the next page of a list as a document load, and leaves the others to the router of the framework, as the recorded traces tell. P50 / P99 in ms over the round, with the number of pages. The two kinds do other work on the server and are not the same pages, so their times are not to be compared with each other, only server with server.\n\n| | later pages of a visit | of them loaded whole | of them by the router |\n| --- | --- | --- | --- |\n")
 	for _, row := range rows {
 		b.WriteString(row)
 	}
@@ -638,7 +690,7 @@ func (r *BrowseResult) detailSessions(sc string) []int {
 	var out []int
 	for _, n := range played {
 		if n == r.baseSessions() || slices.ContainsFunc(r.Servers[sc], func(f string) bool {
-			t := r.Throughput[sustainKey(sc, f)]
+			t := r.Throughput[serverKey(sc, f)]
 			return t != nil && t.Sessions == n
 		}) {
 			out = append(out, n)
@@ -832,7 +884,7 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 	var rows []string
 	for _, f := range r.Servers[sc.Name] {
 		sessions := r.baseSessions()
-		if t := r.Throughput[sustainKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
+		if t := r.Throughput[serverKey(sc.Name, f)]; t != nil && t.Sessions > 0 {
 			sessions = t.Sessions
 		}
 		show := func(label string, rs []Round) {
@@ -858,10 +910,10 @@ func (r *BrowseResult) seriesMarkdown(b *strings.Builder, sc BrowseScenario) {
 }
 
 // visitsText is what the report says about how the visits are played.
-const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a landing on a page, then actions on the page on screen (no reloads): a click on a link, a search, filters, a sort or the next page of a list, each done the way the page does it, a client navigation for what its router takes and a document load for a plain link or a form without a router, as a real browser did it against that framework (Chromium, 1280x800, the pointer off the page but for its clicks, the browser's own prefetching, caching and route discovery). A click moves the pointer onto its target and presses, and the pointer then goes at once to a fixed place in the margin of the page, where no page has a link or a control. So the recording does not do what a hand does on the way to its next click: pass over other links and stop on them. Tifa and TanStack Start preload the link a pointer lies on, and none of that is recorded or replayed, while Next.js prefetches the links that come into view, with no pointer, and all of that is. This is not equal: it leans towards Tifa and TanStack Start, by an amount that was not measured. Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Before the clock of each round every server gets the same warm-up: the visits after those the data was made for, as many as the longest closed round any server was sized to (in an open round, as many as the round plays), with the mix and the writes of the round, played as the round plays (its sessions, or its rate). It counts in no result. The render memo of Tifa is empty before the warm-up, and the appendix gives what it held after it. The Node servers have no other warm-up: this one warms their JIT on the code the round runs. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
+const visitsText = "Dynamic-traffic replay of whole visits recorded in Chromium: documents and the data requests of the client router, with no scripts, styles, images or fonts, no rendering and no hydration. It measures what each framework's server does for a visitor, not how fast a browser shows a page. A visit is a landing on a page, then actions on the page on screen (no reloads): a click on a link, a search, filters, a sort or the next page of a list, each done the way the page does it, a client navigation for what its router takes and a document load for a plain link or a form without a router, as a real browser did it against that framework (Chromium, 1280x800, the pointer off the page but for its clicks, the browser's own prefetching, caching and route discovery). A click moves the pointer onto its target and presses, and the pointer then goes at once to a fixed place in the margin of the page, where no page has a link or a control. So the recording does not do what a hand does on the way to its next click: pass over other links and stop on them. Tifa and TanStack Start preload the link a pointer lies on, and none of that is recorded or replayed, while Next.js prefetches the links that come into view, with no pointer, and all of that is. This is not equal: it leans towards Tifa and TanStack Start, by an amount that was not measured. Requests the browser cancelled are cancelled at the same time. Cookies are kept within a visit and not across visits. The writes are requests inserted into the recorded visits, since the traces hold none, and the refresh after a write is not replayed: a browser would fetch data again once a write is answered, while here a write costs the server its own request only. Every round, closed or open, starts a fresh server, so every round starts with the same data. Before the clock of each round every server gets the same warm-up: the visits after those the data was made for, as many as the longest closed round any server was sized to (in an open round, as many as the round plays), with the mix and the writes of the round, played as a closed round plays: with the sessions of the round, or before an open round with the base sessions, as fast as the server takes them. It counts in no result. The render memo of Tifa is empty before the warm-up, and the appendix gives what it held after it. The Node servers have no other warm-up: this one warms their JIT on the code the round runs. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n"
 
 // siteText is what the report says about the one site.
-const siteText = "The comparison plays the shop as one site: shoppers on the storefront (the home, the product list with its filters, 150 products, the cart, the checkout, the journal and its posts, in English or Chinese) and the staff in the back office, at once on the same server. Throughput is the page views of the whole site. Crawlers ask for the public pages of the storefront as a stream of their own, 9% of the HTML requests, which are the documents the browsers of people ask for (every landing, and every action the page does as a document load, such as a plain link to a category or to a page of the list, counted from the recorded traces) and the requests of crawlers: a crawler request is no visit and no page view, and the tables list the crawler requests apart from people. A shopper visit stays in one language. A shopper who adds to the cart adds the product of the product page they are on, in a colour, a size and a quantity drawn from the seed and the visit, and one who checks out does so after the checkout page, with a name, an email and an address of the visit's own (it answers 303 to the page of the order, which is not followed). A returning visitor comes back to a cart of their own, made for that visit alone, so the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit, while a new visitor sees the demonstration cart, the same for every new visitor, as the empty cart of a real shop is the same for every anonymous visitor. A staff visit reads the orders, the stats and the projects of the back office, and some edit a product or ship an order: an edit is one PATCH of one field of a product, a price or a stock drawn from the seed and the visit, with nothing read first, and each ship ships an order of its own, placed for it before the clock. Before the clock every server of a scenario gets the same requests, none of which renders a page, made for the same visits whatever the server was sized to: a restock that gives every product the stock the orders can take, then the orders of the ships, then the carts of the returning visitors. Then every server gets the same warm-up, counted in no result: visits of the mix after those of the round, with their writes, played as the round plays (its sessions, or its rate). The orders that checkouts place are orders of the back office that no ship takes. As in a real shop, the time of an order is the clock of the server when it is placed, before the clock of the round or in it. Orders and carts pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders of the back office each server held at the end of a round. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js and TanStack Start render every request: a check before the run makes sure none of them sends anything that lets an answer be kept (an ETag, a Last-Modified, a positive max-age, a Next.js cache header). Tifa keeps rendered pages in its render memo.\n\nPlans come in blocks of 1000 shopper visits with the mix below exactly (by quota) and a set of staff visits, so every round plans the mix of its scenario, whose share of staff visits and of edits is placed by quota in every cycle of the site. A round is not valid, and is played again, when the visits it planned miss the mix of its scenario, when the load generator did not start every visit, when a request of the setup before the clock (the restock, the orders of the ships, the carts of the returning visitors) rendered a page or got another status than planned, or, for Tifa, when its metrics route said that its render memo held a page right before the warm-up (something filled it before), or the shop refused a request of the warm-up with 409 or 422.\n\n"
+const siteText = "The comparison plays the shop as one site: shoppers on the storefront (the home, the product list with its filters, 150 products, the cart, the checkout, the journal and its posts, in English or Chinese) and the staff in the back office, at once on the same server. Throughput is the page views of the whole site. Crawlers ask for the public pages of the storefront as a stream of their own, 9% of the HTML requests, which are the documents the browsers of people ask for (every landing, and every action the page does as a document load, such as a plain link to a category or to a page of the list, counted from the recorded traces) and the requests of crawlers: a crawler request is no visit and no page view, and the appendix lists the crawler requests apart from people. A shopper visit stays in one language. A shopper who adds to the cart adds the product of the product page they are on, in a colour, a size and a quantity drawn from the seed and the visit, and one who checks out does so after the checkout page, with a name, an email and an address of the visit's own (it answers 303 to the page of the order, which is not followed). A returning visitor comes back to a cart of their own, made for that visit alone, so the private data of every visit that has some (the cart of a returning visitor, a checkout) is drawn for that visit alone from the seed and the visit, while a new visitor sees the demonstration cart, the same for every new visitor, as the empty cart of a real shop is the same for every anonymous visitor. A staff visit reads the orders, the stats and the projects of the back office, and some edit a product or ship an order: an edit is one PATCH of one field of a product, a price or a stock drawn from the seed and the visit, with nothing read first, and each ship ships an order of its own, placed for it before the clock. Before the clock every server of a scenario gets the same requests, none of which renders a page, made for the same visits whatever the server was sized to: a restock that gives every product the stock the orders can take, then the orders of the ships, then the carts of the returning visitors. Then every server gets the same warm-up, counted in no result: visits of the mix after those of the round, with their writes, played as a closed round plays (its sessions, and the base sessions before an open round). The orders that checkouts place are orders of the back office that no ship takes. As in a real shop, the time of an order is the clock of the server when it is placed, before the clock of the round or in it. Orders and carts pile up while a server runs, and so does the memory that holds them: the table of writes says how many orders of the back office each server held at the end of a round. The product pages also tell the shop which product the visitor looked at (`POST /store/mine`), and the traces keep that request with its body. Next.js and TanStack Start render every request: a check before the run makes sure none of them sends anything that lets an answer be kept (an ETag, a Last-Modified, a positive max-age, a Next.js cache header). Tifa keeps rendered pages in its render memo.\n\nPlans come in blocks of 1000 shopper visits with the mix below exactly (by quota) and a set of staff visits, so every round plans the mix of its scenario, whose share of staff visits and of edits is placed by quota in every cycle of the site. A round is not valid, and is played again, when the visits it planned miss the mix of its scenario, when the load generator did not start every visit, when a request of the setup before the clock (the restock, the orders of the ships, the carts of the returning visitors) rendered a page or got another status than planned, or, for Tifa, when its metrics route said that its render memo held a page right before the warm-up (something filled it before), or the shop refused a request of the warm-up with 409 or 422.\n\n"
 
 // assumptionsMarkdown lists the numbers of the mix with their sources, and what each scenario sets.
 func (r *BrowseResult) assumptionsMarkdown(b *strings.Builder) {
@@ -1054,7 +1106,7 @@ func (r *BrowseResult) renderWhyMarkdown(b *strings.Builder, servers []string, r
 func (r *BrowseResult) notFormal() []string {
 	var off []string
 	formal := browseConfig(FormalBrowse, "", "", "")
-	for _, k := range []string{"sessions", "rounds", "sizing", "target", "trialWindow", "finalWindow", "maxRate", "seed"} {
+	for _, k := range []string{"sessions", "rounds", "sizing", "target", "latencyBlocks", "seed"} {
 		if v, ok := r.Config[k]; !ok {
 			off = append(off, fmt.Sprintf("%s not recorded (formal %s)", k, formal[k]))
 		} else if v != formal[k] {
@@ -1114,7 +1166,7 @@ func (r *BrowseResult) warmUpMarkdown(b *strings.Builder, sc BrowseScenario) {
 	if len(rows) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "\n#### The warm-up before each round\n\nWhat the warm-up before the clock of each round did, every try: the visits and the writes it did of those it planned, its failures and how long it took. After its last request ended every server was left alone for %.0f seconds before the clock, so that it could end what it still did for a request the trace cancelled. The last column is the cores the server used in the last second of that pause (- where the cpu of the server was not read).\n\n| | round | try | valid | visits done | writes done | failures | seconds | server cores in the last second before the clock |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", settlePause.Seconds())
+	fmt.Fprintf(b, "\n#### The warm-up before each round\n\nWhat the warm-up before the clock of each round did, every try: the visits and the writes it did of those it planned, its failures and how long it took. After its last request ended every server was left alone before the clock, %.0f seconds before a closed round and %.0f before an open one, so that it could end what it still did for a request the trace cancelled, and, before an open round, what the warm-up at full speed left. The last column is the cores the server used in the last second of that pause (- where the cpu of the server was not read).\n\n| | round | try | valid | visits done | writes done | failures | seconds | server cores in the last second before the clock |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", settlePause.Seconds(), openWarmPause.Seconds())
 	for _, row := range rows {
 		b.WriteString(row)
 	}
@@ -1268,7 +1320,7 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 	for _, k := range crawlerKinds {
 		by = append(by, fmt.Sprintf("%s %d", k, kinds[k]))
 	}
-	fmt.Fprintf(b, "\nThe crawler requests (they are no visits and no page views, so no count of people above has them, and the CPU of the server and its memory include them). U holds %d URLs, %d in each language (%s), and O holds %d old URLs that answer 404. Each request is drawn from U or O by its number in the stream of crawler requests, the same for every server, and is sent with the User-Agent of a crawler. The Node frameworks may read it. In the installed sources, TanStack Start asks `isbot`, which names every User-Agent of the mix a bot, and Next.js takes Googlebot for a bot that runs JavaScript and does not know the AI User-Agents. What each does for a bot beyond that was not checked. Each answers a crawler as it ships, so a crawler document can cost more or less than a page view of a person: that is not a fault of the test. Over the rounds:\n\n| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers |\n| --- | --- | --- | --- | --- | --- | --- |\n",
+	fmt.Fprintf(b, "\nThe crawler requests (they are no visits and no page views, so no count of people above has them, and the CPU of the server and its memory include them). U holds %d URLs, %d in each language (%s), and O holds %d old URLs that answer 404. Each request is drawn from U or O by its number in the stream of crawler requests, the same for every server, and is sent with the User-Agent of a crawler. The Node frameworks may read it. In the installed sources, TanStack Start asks `isbot`, which names every User-Agent of the mix a bot, and Next.js takes Googlebot for a bot that runs JavaScript and does not know the AI User-Agents. What each does for a bot beyond that was not checked. Each answers a crawler as it ships, so a crawler document can cost more or less than a page view of a person: that is not a fault of the test. Over the rounds:\n\n| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers | crawler requests/s | crawler document P50 / P99 ms (n) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n",
 		len(public), len(public)/len(StoreLangs), strings.Join(by, ", "), len(old))
 	for _, f := range servers {
 		var planned, done, failed int
@@ -1292,7 +1344,8 @@ func (r *BrowseResult) crawlerMarkdown(b *strings.Builder, sc BrowseScenario, se
 				old += n
 			}
 		}
-		fmt.Fprintf(b, "| %s | %d | %d | %d | %.1f | %.1f | %s |\n", BrowseLabel(f), planned, done, failed, float64(bytes)/1024/float64(max(done, 1)), float64(oldBytes)/1024/float64(max(old, 1)), strings.Join(answers, ", "))
+		rs := r.cellRounds(f, sc.Name, sessions)
+		fmt.Fprintf(b, "| %s | %d | %d | %d | %.1f | %.1f | %s | %s | %s |\n", BrowseLabel(f), planned, done, failed, float64(bytes)/1024/float64(max(done, 1)), float64(oldBytes)/1024/float64(max(old, 1)), strings.Join(answers, ", "), crawlerRate(rs), typeCell(rs, "crawler"))
 	}
 	b.WriteString("\nThe old URLs are 404 pages of the shop that every server answers with a 404, but not with the same work: Next.js answers an old URL with an error document and renders no page for it on the server (the browser would draw it from the payload, and a crawler runs no script), and the other two servers render a whole page for it, which the body of an old URL above shows. Real deployments of Next.js answer so, and it is measured as shipped, as the compression of TanStack Start is. The old URLs are 5% of the crawler requests, about 0.45% of all the HTML requests.\n")
 	// How Tifa answered them, by what they ask for: the set, the language and the kind of URL.
@@ -1438,6 +1491,18 @@ func notComparableNote(rounds []Round) string {
 	return fmt.Sprintf("not comparable: %s (%d of %d rounds)", first, n, len(rounds))
 }
 
-// stepClassNote says, over the two tables of the body, what their columns full page load and client
-// navigation hold: the pages by how the browser reached them.
-const stepClassNote = "A full page load is a page the browser loads whole: the first page of every visit, and a later page where the page leaves the action to the browser (a search from the header, a plain link such as one of the category bar or to the next page of a list). A client navigation is a later page the router of the framework takes without a full page load (a click on a link, the form of the filters, a sort)."
+// stepClassNote says, over the throughput table of the body, what the full loads and the client
+// navigations of both tables are: the page views by what the server answered (`document` and
+// `click nav` in a round).
+const stepClassNote = "A full load is a page view the server answered with a whole page: the landing of a visit, and a later page the browser loads whole (a search form, a plain link). A client navigation is a page view the client router of the framework answered with data alone. Full loads and client navigations add up to the page views. The appendix also splits the later pages of a visit by how the browser did them."
+
+// latencyTries are all the latency tries of a server in a scenario, the invalid ones too.
+func (r *BrowseResult) latencyTries(fw, sc string) []Round {
+	var out []Round
+	for _, x := range r.Latency {
+		if x.Framework == fw && x.Scenario == sc {
+			out = append(out, x)
+		}
+	}
+	return out
+}

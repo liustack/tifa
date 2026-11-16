@@ -135,6 +135,9 @@ type Round struct {
 	Landing   map[string]map[string]int `json:"landing,omitempty"`
 	Responses map[string]int            `json:"responses,omitempty"`
 	Types     map[string]TypeStat       `json:"types"`
+	// Parts are the full loads and the client navigations of an open round in latencyParts parts of the
+	// same length, by the planned start of their visits (nil for a closed round).
+	Parts []RoundPart `json:"parts,omitempty"`
 	// Series is page views a second and their P99 in steps of SeriesLength from the first request: how the
 	// round went as the cache filled or the JIT warmed.
 	Series []SeriesStep `json:"series,omitempty"`
@@ -156,18 +159,29 @@ type Round struct {
 	// behind does not make a round invalid: that round is valid, and fails.
 	Valid      bool   `json:"valid"`
 	WhyInvalid string `json:"whyInvalid,omitempty"`
-	// Pass says that every class of action met the rule: P99 of full loads, clicks and writes at
+	// Pass says that every class of action met the rule: P99 of landings, clicks and writes at
 	// most a second, no unexpected failure, no backlog left.
 	Pass bool   `json:"pass"`
 	Why  string `json:"why,omitempty"`
 }
+
+// RoundPart is the latencies of one part of an open round: its full loads (the page views answered
+// with a whole page, `document`) and its client navigations (those the client router answered with
+// data alone, `click nav`).
+type RoundPart struct {
+	FullLoads  TypeStat `json:"fullLoads"`
+	ClientNavs TypeStat `json:"clientNavigations"`
+}
+
+// latencyParts is how many parts of the same length an open round is split into (Round.Parts).
+const latencyParts = 3
 
 // idleConn is how long the load generator keeps an idle connection. It is shorter than the 5 seconds
 // after which Node closes a connection nobody uses, so that it does not send a request on one that is
 // being closed (the server resets it) and count a failure that no browser would see.
 const idleConn = 3 * time.Second
 
-// LatencyLimit is the P99 that full loads, clicks and writes must meet.
+// LatencyLimit is the P99 that landings, clicks and writes must meet.
 const LatencyLimit = 1000.0
 
 func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end time.Time, rss int64) {
@@ -200,8 +214,13 @@ func (a *acc) round(r *Round, cpu0, cpu1, client0, client1 float64, start, end t
 	r.Series = viewSeries(a.samples, start, end)
 	r.Types = map[string]TypeStat{}
 	for kind, l := range a.lat {
-		sorted := sortedCopy(l)
-		r.Types[kind] = TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
+		r.Types[kind] = typeStat(l)
+	}
+	if a.parted {
+		r.Parts = make([]RoundPart, latencyParts)
+		for i, p := range a.parts {
+			r.Parts[i] = RoundPart{FullLoads: typeStat(p["document"]), ClientNavs: typeStat(p["click nav"])}
+		}
 	}
 	if r.PageViews > 0 {
 		r.ClickShare = float64(r.Clicks) / float64(r.PageViews)
@@ -297,7 +316,7 @@ func (r *Round) Judge(sc BrowseScenario) {
 		}
 	}
 	if r.Types["load"].N == 0 || r.Types["click"].N == 0 {
-		fail("no full load or no click completed")
+		fail("no landing or no click completed")
 	}
 }
 
@@ -312,7 +331,7 @@ func (r *runner) RunClosed(ctx context.Context, sessions, visits int, timeout ti
 	var seen map[string]bool
 	if ok {
 		// The warm-up has as long for each visit as the round.
-		seen, ok = r.warmUp(ctx, round, visits, func(w *Round) *acc {
+		seen, ok = r.warmUp(ctx, round, visits, settlePause, func(w *Round) *acc {
 			return r.playClosed(ctx, w, sessions, r.prepared, r.warm, time.Duration(float64(timeout)*max(1, float64(r.warm)/float64(max(visits, 1)))), nil)
 		})
 	}
@@ -390,7 +409,8 @@ type WarmUp struct {
 	// for its round as well.
 	TimedOut bool `json:"timedOut,omitempty"`
 	// IdleCores are the cores the server used in the last second of the pause after the warm-up
-	// (settlePause), where its cpu is read: what it still did with no request in flight.
+	// (settlePause, or openWarmPause before an open round), where its cpu is read: what it still did
+	// with no request in flight.
 	IdleCores *float64 `json:"idleCores,omitempty"`
 }
 
@@ -404,12 +424,13 @@ const settleWait = 30 * time.Second
 // the same for every server.
 const settlePause = 2 * time.Second
 
-// settle waits settlePause and returns the cores the server used in its last second, or nil where
-// the cpu of the server is not read.
-func (r *runner) settle() *float64 {
-	time.Sleep(settlePause - time.Second)
+// settle waits pause and returns the cores the server used in its last second (all of it, when it is
+// shorter), or nil where the cpu of the server is not read.
+func (r *runner) settle(pause time.Duration) *float64 {
+	last := min(pause, time.Second)
+	time.Sleep(pause - last)
 	cpu0, t0 := r.cpu(), time.Now()
-	time.Sleep(time.Second)
+	time.Sleep(last)
 	if !r.cpuKnown {
 		return nil
 	}
@@ -418,17 +439,17 @@ func (r *runner) settle() *float64 {
 }
 
 // warmUp plays the warm-up of a round before its clock, when the run has one (r.warm visits from
-// visit r.prepared on, after the visits the data is prepared for), with play, which plays them as
-// the round plays its own (with its sessions, or at its rate) and with their writes, into a round of
-// their own. Then it waits until no request of it is in flight and reads the render memo of Tifa
-// again (Memo.Warm), after a pause that leaves the server time to end what it still does
-// (settle). It returns the URLs Tifa answered in it, and whether the round can start: a
+// visit r.prepared on, after the visits the data is prepared for), with play, which plays them with
+// sessions as a closed round plays (its own, or the base sessions before an open round) and with
+// their writes, into a round of their own. Then it waits until no request of it is in flight and
+// reads the render memo of Tifa again (Memo.Warm), after pause, which leaves the server time to end
+// what it still does (settle). It returns the URLs Tifa answered in it, and whether the round can start: a
 // warm-up the shop refused a request of with 409 or 422 (after the restock no write of the plan is
 // one it refuses), whose requests did not end, or after which the memo could not be read, makes the
 // round invalid (SetupError), since the servers would not start the clock with the same data. The
 // round is played after a warm-up that was cut off or whose visits or writes failed, and Judge
 // decides it from what the warm-up did, as from the round.
-func (r *runner) warmUp(ctx context.Context, round *Round, visits int, play func(w *Round) *acc) (map[string]bool, bool) {
+func (r *runner) warmUp(ctx context.Context, round *Round, visits int, pause time.Duration, play func(w *Round) *acc) (map[string]bool, bool) {
 	if r.warm == 0 {
 		return nil, true
 	}
@@ -449,7 +470,7 @@ func (r *runner) warmUp(ctx context.Context, round *Round, visits int, play func
 		round.SetupError = fmt.Sprintf("the shop refused %d requests of the warm-up with 409 or 422", w.Refused)
 		return nil, false
 	}
-	round.WarmUp.IdleCores = r.settle()
+	round.WarmUp.IdleCores = r.settle(pause)
 	if !r.warmMemo(ctx, round) {
 		return nil, false
 	}
@@ -525,16 +546,20 @@ func BlocksFor(rate float64, target time.Duration, planBlocks, blockVisits int) 
 // n visits in all (a whole number of blocks, so that the mix comes out exact). The actions of a
 // visit are planned spacing apart, and latency is counted from the planned time. It ends when
 // the last visit has finished, or drain after the last planned action. The visits are the global
-// sequence from seq0. Before its clock come the setup and the warm-up (warmUp), played at the same
-// rate, with warmDrain.
-func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Duration, seq0 int) *Round {
-	round := &Round{Model: "open", Rate: rate}
+// sequence from seq0. Before its clock come the setup and the warm-up (warmUp), the same visits
+// with the same writes as at the rate, played as a closed round plays its warm-up: with sessions
+// concurrent sessions as fast as the server takes them, no think time. A warm-up whose visits did not
+// end in the time they take at the rate, and warmDrain, is cut off there. Then every server is left
+// alone for openWarmPause before the clock.
+func (r *runner) RunOpen(ctx context.Context, rate float64, sessions, n int, drain time.Duration, seq0 int) *Round {
+	round := &Round{Model: "open", Rate: rate, Blocks: n / r.wl.blockVisits()}
 	r.expectRound(round, n, seq0)
 	ok := r.setup(ctx, round, seq0, n)
 	var seen map[string]bool
 	if ok {
-		seen, ok = r.warmUp(ctx, round, seq0+n, func(w *Round) *acc {
-			return r.playOpen(ctx, w, rate, r.warm, warmDrain, r.prepared, nil)
+		seen, ok = r.warmUp(ctx, round, seq0+n, openWarmPause, func(w *Round) *acc {
+			at := time.Duration(float64(r.warm) / rate * float64(time.Second))
+			return r.playClosed(ctx, w, sessions, r.prepared, r.warm, at+warmDrain, nil)
 		})
 	}
 	if !ok {
@@ -547,8 +572,13 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	return round
 }
 
-// warmDrain is how long after its last planned action the warm-up of an open round may run: its
-// visits end, or are cut off, before the clock of the round. Tests shorten it.
+// openWarmPause is how long every server is left alone after the warm-up of an open round, before
+// the clock: the warm-up is played as fast as the server takes it, and the pause lets what it left
+// end before visits arrive at the rate of the round. Tests shorten it.
+var openWarmPause = 5 * time.Second
+
+// warmDrain is how much longer than its visits take at the rate of the round the warm-up of an open
+// round may run: its visits end, or are cut off, before the clock of the round. Tests shorten it.
 var warmDrain = 20 * time.Second
 
 // playOpen plays visits seq0 to seq0+n-1 at rate a second, as RunOpen says, and fills round with
@@ -621,7 +651,7 @@ func (r *runner) playOpen(ctx context.Context, round *Round, rate float64, n int
 				for old := lag.Load(); int64(l) > old && !lag.CompareAndSwap(old, int64(l)); old = lag.Load() {
 				}
 			}
-			r.playSlot(vctx, tr, a, t0+k, pacer{open: true, start: at})
+			r.playSlot(vctx, tr, a, t0+k, pacer{open: true, start: at, part: k*latencyParts/slots + 1})
 		}()
 	}
 	close(offering)
@@ -790,3 +820,9 @@ func (f *flight) count(crawler bool) *atomic.Int64 {
 
 // visits is the visits of people in flight.
 func (f *flight) visits() int64 { return f.people.Load() }
+
+// typeStat is the count, the P50 and the P99 of latencies in milliseconds.
+func typeStat(l []float64) TypeStat {
+	sorted := sortedCopy(l)
+	return TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
+}

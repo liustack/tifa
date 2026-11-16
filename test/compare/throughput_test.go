@@ -132,13 +132,13 @@ func TestTheThroughputResultIsTypedByHowTheStepsEnded(t *testing.T) {
 // A cell fails on its first failed round, whatever the count of rounds: the rounds after it are
 // not needed for the verdict. A cell with too few valid rounds and none failed is not decided.
 func TestACellFailsOnItsFirstFailedRound(t *testing.T) {
-	if got, why := stepOf(cellAt([]float64{90}, 0.8, false), 3); got != trialFail || !strings.Contains(why, "click P99") {
+	if got, why := stepOf(cellAt([]float64{90}, 0.8, false), 3); got != stepFail || !strings.Contains(why, "click P99") {
 		t.Errorf("one failed round of three: %s %q", got, why)
 	}
 	if got, why := stepOf(cellAt([]float64{90, 91}, 0.8, true), 3); got != stepUndecided || why != "2 of 3 rounds were valid" {
 		t.Errorf("two passing rounds of three: %s %q", got, why)
 	}
-	if got, _ := stepOf(cellAt([]float64{90, 91, 92}, 0.8, true), 3); got != trialPass {
+	if got, _ := stepOf(cellAt([]float64{90, 91, 92}, 0.8, true), 3); got != stepPass {
 		t.Errorf("three passing rounds: %s", got)
 	}
 }
@@ -166,7 +166,7 @@ func TestAReferenceServerPlaysOneClosedRound(t *testing.T) {
 	b := &browse{o: BrowseOptions{Log: io.Discard, Rounds: 3, Sessions: 8, Scenarios: []BrowseScenario{sc}},
 		set: &PlanSet{Blocks: 1}, specs: map[string]Spec{"tifa": tifa, "tifa-nocache": nocache}, servers: map[string][]string{sc.Name: {"tifa", "tifa-nocache"}},
 		res: &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "tifa-nocache"}}, Version: map[string]string{}, Config: map[string]string{"rounds": "3", "sessions": "8"},
-			Blocks: map[string]int{sc.Name + "/8/tifa": 1, sc.Name + "/8/tifa-nocache": 1}, Prepared: map[string]int{sc.Name: 2 * sc.blockVisits()}, WarmVisits: map[string]int{sc.Name: sc.blockVisits()}, Sustain: map[string]*Sustain{}}}
+			Blocks: map[string]int{sc.Name + "/8/tifa": 1, sc.Name + "/8/tifa-nocache": 1}, Prepared: map[string]int{sc.Name: 2 * sc.blockVisits()}, WarmVisits: map[string]int{sc.Name: sc.blockVisits()}}}
 	// Any round more than those already played starts a server, which fails the test.
 	b.launch = func(_ context.Context, spec Spec) (*liveServer, error) {
 		t.Fatalf("a server of %s was started: it has all its rounds", spec.Name)
@@ -181,7 +181,7 @@ func TestAReferenceServerPlaysOneClosedRound(t *testing.T) {
 	}
 	// Its cores are not known (no pinning), so the steps stop at the base sessions, which passed.
 	for _, name := range []string{"tifa", "tifa-nocache"} {
-		if got := b.res.Throughput[sustainKey(sc.Name, name)]; got == nil || got.Result != ThroughputCoresUnknown || got.Sessions != 8 {
+		if got := b.res.Throughput[serverKey(sc.Name, name)]; got == nil || got.Result != ThroughputCoresUnknown || got.Sessions != 8 {
 			t.Errorf("%s: %+v, want %q at 8 sessions", name, got, ThroughputCoresUnknown)
 		}
 	}

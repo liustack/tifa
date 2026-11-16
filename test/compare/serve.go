@@ -28,8 +28,7 @@ type Target struct {
 }
 
 // environ is the environment the server of t starts with: the one it inherits, then its own (Env),
-// with one value a name, the last one given, in the place of the first. The rate of Next.js is bound
-// to the same environment (nextjsServer).
+// with one value a name, the last one given, in the place of the first.
 func (t Target) environ(inherited []string) []string {
 	var env []string
 	at := map[string]int{}
