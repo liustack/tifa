@@ -391,9 +391,11 @@ function withRouterQuery(url: string) {
 // browserHistory is the history of the browser with the query of the address bar read in the
 // router's spelling, for a router with a rewrite. The address bar keeps the URL as the visitor wrote
 // it: without this the router would replace it with its own spelling right after hydration, and load
-// the page again. It reads the location as the default one of @tanstack/history does (parseHref),
-// which it does not export: a path that starts with several slashes keeps one, and a state without
-// a key gets a new one.
+// the page again. It reads the location as the default one of @tanstack/history does (parseHref):
+// a path that starts with several slashes keeps one, and a state without a key gets a new one.
+// @tanstack/history does export parseHref, but react-router does not re-export it and an app does
+// not install @tanstack/history itself, so this is a copy. TanStackCopies in internal/bundle
+// fingerprints the original.
 export function browserHistory(win: Window = window): RouterHistory {
   return createBrowserHistory({
     window: win,
