@@ -18,7 +18,7 @@ A Tifa program runs with no proxy in front, so it has to compress its own answer
 
 ## Conclusions
 
-- **For pages, compressing is lost in the render.** gzip takes 131 to 280 µs a page and zstd at its default level 107 to 152 µs, against renders of 10 to 35 ms (see [How fast a page renders](../performance.md#how-fast-a-page-renders)). Whole page requests are as fast either way, and pages go out about 6 times smaller.
+- **For pages, compressing is lost in the render.** gzip takes 131 to 280 µs a page and zstd at its default level 107 to 152 µs, against renders of 10 to 35 ms (see [How fast a page renders](capacity.md#how-fast-a-page-renders)). Whole page requests are as fast either way, and pages go out about 6 times smaller.
 - **zstd at its default level, not at gzhttp's fastest.** The fastest level saves 14 to 31 µs a page but gives pages 3% to 11% larger than gzip. The default level is within 3% smaller to 4% larger than gzip and still faster.
 - **No brotli.** At levels 4 and 5 the pure Go encoder takes 3.7 to 5.6 times as long as gzip, for pages 3% to 16% smaller. Who wants brotli can put a proxy in front and turn `server.compress` off.
 - **Navigation data shows the cost.** Its answers take 0.15 to 0.26 ms of CPU, so 22 to 43 µs of compressing is 8% to 20% fewer answers a second on a saturated core, for answers 1.8 to 5.4 times smaller.
