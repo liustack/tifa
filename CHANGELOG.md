@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The `README.md` that `tifa new` writes says what the app is: a working starter to replace with your own domain, not a todo list product.
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed
