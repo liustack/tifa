@@ -291,3 +291,28 @@ func TestLdflagsRefuseAPackagePattern(t *testing.T) {
 		}
 	}
 }
+
+// A relative -o means the place under the folder the user stands in, not under --dir.
+func TestRelativeOutputIsAgainstTheWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	cwd, err := os.Getwd() // the temporary folder may be behind a link
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(cwd, "apps", "shop")
+	got, err := outputPath("out/app", root, "example.com/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(cwd, "out", "app"); got != want {
+		t.Errorf("-o out/app with --dir apps/shop writes %s, want %s", got, want)
+	}
+	got, err = outputPath("", root, "example.com/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "bin", "shop"); got != want {
+		t.Errorf("without -o tifa build writes %s, want %s", got, want)
+	}
+}

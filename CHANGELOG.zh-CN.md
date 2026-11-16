@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 修复
+
+- `tifa build --dir apps/shop -o out/app` 把可执行文件写到当前目录下的 `out/app`。以前写到应用目录下，却仍然打印 `built out/app`。
+
 ## [0.0.6] - 2026-11-16
 
 ### 变更

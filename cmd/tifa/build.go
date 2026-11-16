@@ -80,17 +80,18 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return fmt.Errorf("node: %w", err)
 			}
 			// 4. go build, which embeds .tifa/dist.
-			if output == "" {
-				output = defaultOutput(root, m.Module)
+			out, err := outputPath(output, root, m.Module)
+			if err != nil {
+				return err
 			}
 			flags, err := buildFlags(cmd.Context(), root, settings, languagesLDFlag(m))
 			if err != nil {
 				return err
 			}
-			if _, err := goBuild(cmd.Context(), root, output, flags, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+			if _, err := goBuild(cmd.Context(), root, out, flags, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				return fmt.Errorf("go build: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", output, id)
+			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", out, id)
 			return nil
 		},
 	}
@@ -356,8 +357,17 @@ func missingDependencyHint(stderr string) string {
 	return ""
 }
 
+// outputPath is where tifa build writes the executable: the value of -o, which when relative is
+// against the working directory (go build runs at the root of the application), or the default.
+func outputPath(output, root, modulePath string) (string, error) {
+	if output == "" {
+		return defaultOutput(root, modulePath), nil
+	}
+	return filepath.Abs(output)
+}
+
 // defaultOutput is where tifa build writes the executable without -o: bin/ of the application,
 // named after the last element of the module path, as Go projects keep their binaries.
-func defaultOutput(root, module string) string {
-	return filepath.Join(root, "bin", path.Base(module))
+func defaultOutput(root, modulePath string) string {
+	return filepath.Join(root, "bin", path.Base(modulePath))
 }
