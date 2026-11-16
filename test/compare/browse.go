@@ -156,7 +156,7 @@ type browse struct {
 	// stale are the servers a continued result is measuring again (measureAgain), and playCheck plays
 	// the round of the check of the machine in the tests (nil: checkRound plays it).
 	stale     []string
-	playCheck func(fw string, sc BrowseScenario, try int) (*Round, error)
+	playCheck func(fw string, sc BrowseScenario, round, try int) (*Round, error)
 }
 
 // cutoff is how long a closed round of the target window may run before it is stopped: twice the

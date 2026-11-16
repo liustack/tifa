@@ -1118,7 +1118,7 @@ func TestTheBodyHasAThroughputAndALatencyTableWithTheirNotes(t *testing.T) {
 	}
 	r.ServerStamps["tifa"] = ServerStamp{Stamp: "tifa", Date: "2026-11-14 10:00:00 UTC"}
 	r.Closed[3] = closedRound("tifa-nocache", sc.Name, 8, 1, 2000, 10, true) // a reference that does less, so the order is not by speed
-	r.MachineChecks = []MachineCheck{{Server: "start", Scenario: sc.Name, Sessions: 8, Value: 101, Min: 98, Max: 106.08, Date: "2026-11-16 09:00:00 UTC"}}
+	r.MachineChecks = []MachineCheck{{Server: "start", Scenario: sc.Name, Sessions: 8, Values: []float64{81.9, 76.3, 76.5}, Median: 76.5, KeptMedian: 78.8, Diff: -2.92, Date: "2026-11-16 09:00:00 UTC"}}
 	md := r.Markdown()
 	body, appendix, _ := strings.Cut(md, "\n## Appendix\n")
 	tput, lat, ok := strings.Cut(body, "#### Latency at the same arrival rate")
@@ -1157,7 +1157,7 @@ func TestTheBodyHasAThroughputAndALatencyTableWithTheirNotes(t *testing.T) {
 		"- Versions: Go 1.27, Node 24.11.0, next 16.0.1.",
 		"- A row of a main server in the throughput table is the median of its 3 rounds at its sessions, with their range. A row of a reference is one round.",
 		"- A row of the latency table is one round of 1200 visits (3 blocks) at 40.00 visits/s. The rate is 40% of the median 100.00 visits a second Next.js completed in its 3 closed rounds at 8 sessions, to the nearest 0.25.",
-		"- The machine was checked on 2026-11-16 09:00:00 UTC before servers were measured again beside the kept results: a closed round of TanStack Start at 8 sessions did 101.0 page views/s, within 98.0 to 106.1 (its kept rounds, 2% wider on each side).",
+		"- The machine was checked on 2026-11-16 09:00:00 UTC before servers were measured again beside the kept results: 3 closed rounds of TanStack Start at 8 sessions did 81.9, 76.3 and 76.5 page views/s, a median of 76.5 against 78.8 for its kept rounds, -2.9% (within 3%).",
 	} {
 		if !strings.Contains(lat, want) {
 			t.Errorf("the notes under the tables lack %q:\n%s", want, lat)

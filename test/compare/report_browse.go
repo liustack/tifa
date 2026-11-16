@@ -509,8 +509,8 @@ func (r *BrowseResult) notesMarkdown(b *strings.Builder, sc BrowseScenario) {
 	}
 	for _, c := range r.MachineChecks {
 		if c.Scenario == sc.Name {
-			fmt.Fprintf(b, "- The machine was checked on %s before servers were measured again beside the kept results: a closed round of %s at %d sessions did %.1f page views/s, within %.1f to %.1f (its kept rounds, %.0f%% wider on each side).\n",
-				c.Date, BrowseLabel(c.Server), c.Sessions, c.Value, c.Min, c.Max, 100*machineMargin)
+			fmt.Fprintf(b, "- The machine was checked on %s before servers were measured again beside the kept results: %d closed rounds of %s at %d sessions did %s page views/s, a median of %.1f against %.1f for its kept rounds, %+.1f%% (within %.0f%%).\n",
+				c.Date, len(c.Values), BrowseLabel(c.Server), c.Sessions, fmtList(c.Values), c.Median, c.KeptMedian, c.Diff, 100*machineMargin)
 		}
 	}
 }
