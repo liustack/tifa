@@ -617,7 +617,7 @@ func TestNewAgentNotesHaveOneManagedBlock(t *testing.T) {
 	}
 	inside := strings.Join(lines[begin[0]+1:end[0]], "\n")
 	outside := strings.Join(lines[:begin[0]], "\n") + "\n" + strings.Join(lines[end[0]+1:], "\n")
-	for _, want := range []string{"## Commands", "## Routes", "## Hooks", "`go tool tifa docs`", "`go tool tifa check`"} {
+	for _, want := range []string{"## Commands", "## Routes", "## Hooks", "`go tool tifa docs`", "`go tool tifa check`", "Coming from another framework"} {
 		if !strings.Contains(inside, want) {
 			t.Errorf("the managed block has no %q", want)
 		}

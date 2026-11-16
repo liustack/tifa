@@ -6,6 +6,9 @@
 // Requests:
 //
 //	{op: "exports", files}       the names each TypeScript or JavaScript file exports
+//	{op: "foreign", files}       the module names each file imports, its directives, the names it
+//	                             exports with the kind of value, and its calls of imported
+//	                             functions, each with line and column, for tifa check
 //	{op: "htmlLang", files}      where each file sets lang in an htmlAttributes object it writes out:
 //	                             the exported htmlAttributes of a Layout, or the htmlAttributes a
 //	                             head returns, as {line, column} of the lang key
@@ -299,6 +302,79 @@ function langKeys(program) {
   return offsets
 }
 
+// foreignFacts lists what tifa check needs to tell code written for another framework: the module
+// names an app imports, its directives, the names it exports with the kind of value, and the calls
+// of imported functions. Each comes with its line and column. A file that does not parse has none:
+// the build reports its syntax error.
+function foreignFacts(program, code) {
+  const facts = { imports: [], directives: [], exports: [], calls: [] }
+  const place = (offset) => {
+    const before = code.slice(0, offset)
+    return { line: before.split('\n').length, column: offset - before.lastIndexOf('\n') }
+  }
+  const bound = new Map()
+  const unwrap = (node) => {
+    while (node && ['TSAsExpression', 'TSSatisfiesExpression', 'TSNonNullExpression', 'ParenthesizedExpression'].includes(node.type)) node = node.expression
+    return node
+  }
+  // kind says what an exported value is, for the names that other frameworks and Tifa both could use.
+  const kind = (node) => {
+    node = unwrap(node)
+    switch (node?.type) {
+      case 'FunctionDeclaration':
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+        return { kind: 'function' }
+      case 'ObjectExpression':
+        return { kind: 'object' }
+      case 'Literal':
+        return { kind: typeof node.value, value: String(node.value) }
+      default:
+        return { kind: 'other' }
+    }
+  }
+  const source = (node) => (node?.source && typeof node.source.value === 'string' ? node.source : undefined)
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (node === null || typeof node !== 'object') return
+    switch (node.type) {
+      case 'ImportDeclaration':
+        for (const s of node.specifiers) bound.set(s.local.name, node.source.value)
+      // falls through
+      case 'ExportAllDeclaration':
+      case 'ExportNamedDeclaration':
+      case 'ImportExpression':
+        if (source(node)) facts.imports.push({ spec: source(node).value, ...place(node.start) })
+        break
+      case 'ExpressionStatement':
+        if (typeof node.directive === 'string') facts.directives.push({ value: node.directive, ...place(node.start) })
+        break
+      case 'CallExpression':
+        if (node.callee.type === 'Identifier') facts.calls.push({ name: node.callee.name, ...place(node.start) })
+        break
+    }
+    for (const key in node) if (key !== 'parent') walk(node[key])
+  }
+  walk(program)
+  for (const call of facts.calls) call.from = bound.get(call.name) ?? ''
+  for (const statement of program.body) {
+    if (statement.type !== 'ExportNamedDeclaration' || statement.exportKind === 'type' || source(statement)) continue
+    const d = statement.declaration
+    if (d) {
+      if (d.type === 'VariableDeclaration') {
+        for (const v of d.declarations) if (v.id.type === 'Identifier') facts.exports.push({ name: v.id.name, ...kind(v.init), ...place(v.id.start) })
+      } else if (d.type === 'FunctionDeclaration' && d.id) facts.exports.push({ name: d.id.name, kind: 'function', ...place(d.id.start) })
+      continue
+    }
+    for (const s of statement.specifiers) {
+      if (s.exportKind === 'type') continue
+      const name = s.exported.type === 'Identifier' ? s.exported.name : s.exported.value
+      facts.exports.push({ name, kind: 'other', ...place(s.exported.start) })
+    }
+  }
+  return facts
+}
+
 const ops = {
   async exports({ files }) {
     const exports = {}
@@ -320,6 +396,16 @@ const ops = {
       exports[file] = [...names].sort()
     }
     return { exports }
+  },
+
+  async foreign({ files }) {
+    const found = {}
+    for (const file of files) {
+      const code = fs.readFileSync(file, 'utf8')
+      const result = vite.parseSync(file, code, { lang: path.extname(file).slice(1), sourceType: 'module' })
+      if (result.errors.length === 0) found[file] = foreignFacts(result.program, code)
+    }
+    return { found }
   },
 
   async htmlLang({ files }) {

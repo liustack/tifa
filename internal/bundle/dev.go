@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/liustack/tifa/internal/content"
+	"github.com/liustack/tifa/internal/foreign"
 )
 
 // DevBase is where Vite's dev server serves modules under tifa dev, base in js/vite/plugin.js.
@@ -93,6 +94,11 @@ func NewDev(root string, port int, output io.Writer, notices Notices) (*Dev, err
 
 // LangKeys reads lang keys like Node.LangKeys.
 func (d *Dev) LangKeys(files []string) (map[string][]LangKey, error) { return d.node.LangKeys(files) }
+
+// Foreign reads files like Node.Foreign.
+func (d *Dev) Foreign(files []string) (map[string]*foreign.Facts, error) {
+	return d.node.Foreign(files)
+}
 
 // Exports reads exports like Node.Exports.
 func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.node.Exports(files) }

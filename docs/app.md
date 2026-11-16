@@ -1,6 +1,7 @@
 ---
-summary: 'How to write a Tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, hooks.ts and the setup it runs before the first render, 404s and errors, a site in several languages, the SSR, memo and Cache switches, which query parameters the server render sees and `Cache` for CDNs (a page that is the same for everyone, which a CDN may keep for a set time), what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code and whole requests with tifatest.Start, how Load may use Ctx, query parameter types for Link and navigate, method handlers with typed input and result, files in the input and the body limit and read time of a route, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a Tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, hooks.ts and the setup it runs before the first render, 404s and errors, a site in several languages, the SSR, memo and Cache switches, which query parameters the server render sees and `Cache` for CDNs (a page that is the same for everyone, which a CDN may keep for a set time), what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code and whole requests with tifatest.Start, how Load may use Ctx, query parameter types for Link and navigate, method handlers with typed input and result, files in the input and the body limit and read time of a route, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, what the check says about code written for another framework (Next.js, Remix, React Router, TanStack Start, SvelteKit, other Go web frameworks) and what to write in Tifa instead, and the JSON rules for data, inputs and results'
 read_when:
+  - The check, build or dev run reports code of another framework, or you are about to write a Tifa app from the habits of Next.js, Remix, React Router, TanStack Start or SvelteKit
   - Creating a Tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
@@ -91,6 +92,29 @@ A folder has at most three convention files:
 - A folder with only `route.go` is an API route when it declares a method handler, and gives the pages below it their Layout data when it declares `Layout`. It can do both. `Load` is only allowed next to a `page.tsx`.
 - `route.tsx` is not a convention file. A `route.tsx` fails the build with the message to rename it to `page.tsx`, so a page is never taken for a plain component.
 - `tifa build` also writes a `route.gen.ts` module for each folder with a page, a Layout or a method handler, which `page.tsx`, `layout.tsx` and `layout_.tsx` import (see [page.tsx](#pagetsx)).
+
+## Coming from another framework
+
+`tifa check`, `tifa build` and `tifa dev` recognize code written for Next.js, Remix, React Router, TanStack Start and SvelteKit, and for Go web frameworks. Each finding is one line: `<file>:<line>: <what it is>. In Tifa: <what to write>. See <doc>`. An error stops the command. A warning ends in `(warning)` and stops nothing: the code builds, and Tifa never uses it.
+
+| You wrote | In Tifa | |
+| --- | --- | --- |
+| An import of `next` or `next/*`, `react-router`, `react-router-dom`, `@remix-run/*`, `@tanstack/react-start`, `@tanstack/start`, `$app/*`, `@sveltejs/kit` or `astro:*` | `Link` and `useNavigate` come from `@tanstack/react-router`. Data comes from `Load` in `route.go`, read with `page.useLoaderData()`. A redirect is `return tifa.Redirect(url, status)` in Go. `next/head` is the `head` export, `next/dynamic` is `clientOnly`, `next/headers` is `c.Cookie` and `c.Header`, `next/server` is a method handler or `OnRequest` | error |
+| `'use client'` | Nothing: every component renders on the server and hydrates in the browser. Put a component that needs the browser in a `*.client.tsx` file and load it with `clientOnly` | warning |
+| `'use server'` | There are no server actions, and the function would run in the browser. Write a method handler in `route.go` and call its function from `./route.gen` | error |
+| `export const getServerSideProps`, `getStaticProps`, `loader`, `clientLoader` | `Load` in `route.go` | warning |
+| `export const getStaticPaths`, `generateStaticParams` | Nothing: a folder `name+` matches any value, and `Load` returns `tifa.ErrNotFound` for one that does not exist | warning |
+| `export const generateMetadata`, `metadata` | The `head` export, and `documentHead` in the root `layout.tsx` | warning |
+| `export const action`, `clientAction` | A method handler in `route.go`, such as `func POST(c *tifa.Ctx, in AddInput) (Todo, error)` | warning |
+| `export const revalidate`, `dynamic` | `const Cache` in `route.go` lets a CDN keep a page. Every page already loads and renders on each request | warning |
+| `createFileRoute`, `createRootRoute`, `createServerFn` called in a page or Layout | The folder is the route, `./route.gen` exports it as `page`, and a server function is a method handler | warning |
+| A folder named `[id]`, `[...slug]`, `$id`, `:id`, `(group)` or `@slot` | `id+` and `slug++` (see [URLs come from folders](#urls-come-from-folders)). There are no route groups and no parallel routes | error |
+| `+page.svelte`, `+page.server.ts`, `_index.tsx` | `page.tsx`, `layout.tsx` and `route.go` (see [The files of a folder](#the-files-of-a-folder)) | error |
+| `page.js`, `layout.jsx`, `route.ts` without `page.tsx`, `layout.tsx` or `route.go` beside them, `$id.tsx` | The same | warning |
+| `middleware.ts`, and `loading`, `error` or `not-found` files in a route folder | `OnRequest` in `hooks.go`, and the `Error` export (see [404](#404)) | warning |
+| In `route.go`, a function `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `Load` or `Layout` that takes `http.ResponseWriter`, `*http.Request`, `*gin.Context`, `echo.Context` or `*fiber.Ctx` | `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`, or `func POST(c *tifa.Ctx) error` with `c.Writer()` and `c.Request()` (see [Method handlers with input and result](#method-handlers-with-input-and-result)) | error |
+
+What Tifa allows is not reported. `@tanstack/react-router` and `@tanstack/react-query` are fine. A page may export `action`, `loader`, `metadata`, `revalidate` or `dynamic` for its own use when the value is not what the other framework writes (a function for `loader` and `action`, an object for `metadata`, a number or `false` for `revalidate`, one of `auto`, `force-dynamic`, `error` and `force-static` for `dynamic`). The exports and calls are read in `page.tsx`, `layout.tsx` and `layout_.tsx` only. Imports and directives are read in every TypeScript file of `app/` and in `hooks.ts`, except tests.
 
 ## route.go
 

@@ -61,12 +61,15 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkLangAttribute(root, m, node.LangKeys); err != nil {
 				return err
 			}
+			_, pages := files["client.ts"]
+			if err := checkForeign(root, pages, cmd.ErrOrStderr(), node.Foreign); err != nil {
+				return err
+			}
 			// 3. Bundles: the browser and SSR bundles and the public files, into .tifa/dist.
 			settings, err := codegen.BuildSettings(root)
 			if err != nil {
 				return err
 			}
-			_, pages := files["client.ts"]
 			if err := checkTanStack(root, settings, pages); err != nil {
 				return err
 			}
@@ -159,13 +162,25 @@ func checkReact(root string, pages bool) error {
 // the warnings about the content, such as entries without a translation, and the entries that
 // wait for their date.
 func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
+	// Idioms of other frameworks come first: they name the Tifa way, where the analysis only
+	// says that a name or a signature is wrong.
+	foreignErrs, err := scanForeign(root, cmd.ErrOrStderr())
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range foreignErrs {
+		fmt.Fprintln(cmd.ErrOrStderr(), line)
+	}
 	m, err := analyze.Analyze(root)
 	var violations analyze.Errors
 	if errors.As(err, &violations) {
 		for _, v := range violations {
 			fmt.Fprintln(cmd.ErrOrStderr(), v)
 		}
-		return nil, fmt.Errorf("found %d convention violation(s)", len(violations))
+		return nil, fmt.Errorf("found %d convention violation(s)", len(violations)+len(foreignErrs))
+	}
+	if err == nil && len(foreignErrs) > 0 {
+		return nil, fmt.Errorf("found %d convention violation(s)", len(foreignErrs))
 	}
 	if err == nil && m.Content != nil {
 		for _, w := range m.Content.Warnings {

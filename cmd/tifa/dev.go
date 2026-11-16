@@ -122,7 +122,7 @@ it and stop it.`,
 				// The app may wait shutdown_timeout for requests, again for handlers, and once more
 				// for OnShutdown.
 				StopTimeout: 3*settings.Server.ShutdownTimeout + time.Second,
-				Pipeline:    &devPipeline{root: root, exe: exe, front: front},
+				Pipeline:    &devPipeline{root: root, exe: exe, front: front, warn: cmd.ErrOrStderr()},
 				Stdout:      cmd.OutOrStdout(),
 				Stderr:      cmd.ErrOrStderr(),
 			})
@@ -151,6 +151,7 @@ type devPipeline struct {
 	root  string
 	exe   string
 	front *bundle.Dev
+	warn  io.Writer         // where the warnings of the checks go
 	m     *analyze.Manifest // the last successful analysis
 	files map[string][]byte // the generated files of that analysis, as written last
 	// public is build.public of that analysis, see Public.
@@ -165,23 +166,32 @@ type devPipeline struct {
 //
 // The drafts are kept, as tifa dev shows them.
 func (p *devPipeline) Analyze(context.Context) (string, error) {
+	lines, err := scanForeign(p.root, p.warn)
+	if err != nil {
+		return "", err
+	}
 	m, err := analyze.AnalyzeWith(p.root, analyze.Options{Drafts: true})
 	var violations analyze.Errors
 	if errors.As(err, &violations) {
-		lines := make([]string, len(violations))
-		for i, v := range violations {
-			lines[i] = v.Error()
+		for _, v := range violations {
+			lines = append(lines, v.Error())
 		}
 		return "", errors.New(strings.Join(lines, "\n"))
 	}
 	if err != nil {
 		return "", err
 	}
+	if len(lines) > 0 {
+		return "", errors.New(strings.Join(lines, "\n"))
+	}
 	files, err := codegen.Generate(p.root, m, true, p.front.Exports)
 	if err != nil {
 		return "", err
 	}
 	if err := checkLangAttribute(p.root, m, p.front.LangKeys); err != nil {
+		return "", err
+	}
+	if err := checkForeign(p.root, hasPages(files), nil, p.front.Foreign); err != nil {
 		return "", err
 	}
 	settings, err := codegen.BuildSettings(p.root)
@@ -263,6 +273,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if err := checkLangAttribute(p.root, p.m, p.front.LangKeys); err != nil {
+		return "", err
+	}
+	if err := checkForeign(p.root, hasPages(files), p.warn, p.front.Foreign); err != nil {
 		return "", err
 	}
 	if err := codegen.Write(p.root, files); err != nil {

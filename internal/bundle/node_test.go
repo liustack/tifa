@@ -1,7 +1,9 @@
 package bundle
 
 import (
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/liustack/tifa/internal/foreign"
 	"github.com/liustack/tifa/js"
 )
 
@@ -198,5 +201,127 @@ func TestNodeTooOldForVite(t *testing.T) {
 		if err == nil || err.Error() != want {
 			t.Errorf("Node %s: %v, want %q", version, err, want)
 		}
+	}
+}
+
+func TestNodeReadsWhatCodeOfOtherFrameworksLeavesBehind(t *testing.T) {
+	root := t.TempDir()
+	if err := symlinkModules(t, root); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{
+		"page.tsx": "'use client'\nimport Link from 'next/link'\nimport type { Metadata } from 'next'\nimport { createFileRoute } from '@tanstack/react-router'\n" +
+			"export const metadata = { title: 'x' }\nexport async function getServerSideProps() { return {} }\nexport const revalidate = 60\nexport const action = 'save'\n" +
+			"export { Link as dynamic }\nexport type T = number\n" +
+			"export const Route = createFileRoute('/a')({})\nexport default function P() { 'use server'; return import('remix-x') }\n",
+	})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	page := filepath.Join(root, "page.tsx")
+	got, err := n.Foreign([]string{page, filepath.Join(root, "missing-is-an-error.tsx")})
+	if err == nil {
+		t.Fatalf("got %v, want an error for the file that does not exist", got)
+	}
+	got, err = n.Foreign([]string{page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := got[page]
+	var specs []string
+	for _, i := range f.Imports {
+		specs = append(specs, fmt.Sprintf("%s@%d", i.Spec, i.Line))
+	}
+	if want := []string{"next/link@2", "next@3", "@tanstack/react-router@4", "remix-x@12"}; !slices.Equal(specs, want) {
+		t.Errorf("imports %q, want %q", specs, want)
+	}
+	if len(f.Directives) != 2 || f.Directives[0].Value != "use client" || f.Directives[0].Line != 1 || f.Directives[1].Value != "use server" || f.Directives[1].Line != 12 {
+		t.Errorf("directives %+v", f.Directives)
+	}
+	var exports []string
+	for _, e := range f.Exports {
+		exports = append(exports, fmt.Sprintf("%s:%s:%s@%d", e.Name, e.Kind, e.Value, e.Line))
+	}
+	want := []string{"metadata:object:@5", "getServerSideProps:function:@6", "revalidate:number:60@7", "action:string:save@8", "dynamic:other:@9", "Route:other:@11"}
+	if !slices.Equal(exports, want) {
+		t.Errorf("exports %q, want %q", exports, want)
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Name != "createFileRoute" || f.Calls[0].From != "@tanstack/react-router" || f.Calls[0].Line != 11 {
+		t.Errorf("calls %+v", f.Calls)
+	}
+}
+
+// The idioms of other frameworks in TypeScript, read by the driver and judged by the table of
+// internal/foreign: each is found where it stands, and an app that only looks like them reports nothing.
+func TestForeignIdiomsInTypeScriptAreFoundAndLookAlikesAreNot(t *testing.T) {
+	copyApp := func(name string) string {
+		root := t.TempDir()
+		if err := symlinkModules(t, root); err != nil {
+			t.Fatal(err)
+		}
+		src := filepath.Join("..", "foreign", "testdata", name)
+		err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(src, p)
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			writeTree(t, root, map[string]string{rel: string(data)})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return root
+	}
+	check := func(name string) []string {
+		root := copyApp(name)
+		files, err := foreign.SourceFiles(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := NewNode(root, io.Discard)
+		defer n.Close()
+		facts, err := n.Foreign(files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, f := range files {
+			rel, _ := filepath.Rel(root, f)
+			for _, found := range foreign.CheckFacts(filepath.ToSlash(rel), facts[f]) {
+				kind := "error"
+				if found.Warning {
+					kind = "warning"
+				}
+				got = append(got, fmt.Sprintf("%s:%d %s %s", found.File, found.Line, kind, strings.SplitN(found.Msg, ".", 2)[0]))
+			}
+		}
+		return got
+	}
+	want := []string{
+		"app/layout.tsx:1 warning 'use client' is a directive of React Server Components (Next",
+		"app/layout.tsx:2 error next/link is a module of Next",
+		"app/layout.tsx:3 warning an exported metadata object is how Next",
+		"app/orders/page.tsx:1 error @remix-run/react is a module of Remix or React Router",
+		"app/orders/page.tsx:2 error react-router-dom is a module of Remix or React Router",
+		"app/orders/page.tsx:4 error @tanstack/react-start is a module of TanStack Start (@tanstack/react-router is fine)",
+		"app/orders/page.tsx:5 warning an exported loader is how Remix and React Router load data",
+		"app/orders/page.tsx:6 warning an exported action is how Remix and React Router change data",
+		"app/orders/page.tsx:7 warning an exported revalidate sets how long Next",
+		"app/orders/page.tsx:8 warning an exported dynamic sets how Next",
+		"app/orders/page.tsx:9 warning getServerSideProps is the data function of Next",
+		"app/orders/page.tsx:10 warning createFileRoute makes a route by hand in TanStack Router (and Start)",
+		"app/orders/page.tsx:11 error 'use server' marks a server action in React Server Components (Next",
+		"app/util.ts:1 error next/headers is a module of Next",
+		"hooks.ts:1 error @remix-run/node is a module of Remix or React Router",
+	}
+	if got := check("tsidioms"); !slices.Equal(got, want) {
+		t.Errorf("tsidioms:\n got %q\nwant %q", got, want)
+	}
+	if got := check("tsclean"); len(got) != 0 {
+		t.Errorf("tsclean has findings: %q", got)
 	}
 }

@@ -358,6 +358,13 @@ func TestViolations(t *testing.T) {
 			{"app/id+/x/id+/page.tsx:1:", "twice"},
 			{"app/x~1/page.tsx:1:", "x~1"},
 		}},
+		{"foreignfolders", [][]string{
+			{"app/$id/page.tsx:1:", "Remix or React Router", "id+", ". See docs/app.md#urls-come-from-folders"},
+			{"app/(marketing)/page.tsx:1:", "route group of Next.js", "there are no route groups"},
+			{"app/[...slug]/page.tsx:1:", "catch-all route of Next.js", "slug++"},
+			{"app/@modal/page.tsx:1:", "parallel route slot of Next.js"},
+			{"app/[id]/page.tsx:1:", "dynamic route of Next.js and SvelteKit", "id+"},
+		}},
 		{"layoutparam", [][]string{{"app/projects/route.go:8:", `"projectId"`, `"/projects"`}}},
 		{"layoutpath", [][]string{
 			{"app/shop/route.go:7:", "c.Path", "Layout", "page"},
@@ -694,7 +701,8 @@ func TestDirSegments(t *testing.T) {
 		{"app/a b", `" "`},
 		{"app/%61", `"%"`},
 		{"app/{x}", `"{"`},
-		{"app/$x", `"$"`},
+		{"app/$x", "name the folder x+"},
+		{"app/$", `"$"`},
 	}
 	for _, tc := range bad {
 		if _, err := dirSegments(tc.dir); err == nil || !strings.Contains(err.Error(), tc.want) {

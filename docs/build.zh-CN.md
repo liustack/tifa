@@ -166,7 +166,7 @@ tifa check [--dir 应用根目录]
 
 用一条命令跑完应用的全部检查，遇到第一个失败的步骤就停：
 
-1. `analyze`：`tifa build` 的静态分析。每处违反约定都按 `文件:行号: 原因` 打印。
+1. `analyze`：`tifa build` 的静态分析。每处违反约定都按 `文件:行号: 原因` 打印。还会读代码里其他框架的写法，如 `next/link`、`'use client'` 或导出的 `loader`，并说明在 Tifa 里该怎么写（见[从其他框架转过来](app.zh-CN.md#从其他框架转过来)）。TypeScript 里的写法在有 Node 的 `generate` 一步里读。
 2. `generate`：和 `tifa build` 一样写出 `.tifa/`，让 TypeScript 这一步用到的类型是最新的。只有带页面的应用才会启动 Node。应用里有 `tifa dev` 或 `tifa build` 在跑时，`.tifa/` 的锁在它手里，文件由它保持最新，而构建写出的文件不是 `tifa dev` 要的那一份。所以这一步这时什么都不写，打印一行说明，后面的检查用它在内存里生成的文件继续。它从不等这把锁。
 3. `go vet ./...`
 4. `go test ./...`

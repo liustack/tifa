@@ -9,6 +9,7 @@
 - `tifa dev --background` 让开发服务脱离终端在后台启动，应用能应答时才返回，编程 agent 或脚本可以启动它后接着干别的。命令的其他参数和环境变量都会传给服务，服务的全部输出写进 `.tifa/dev.log`。`tifa dev status [--json]` 说明它有没有在运行、地址、进程号、启动时间和上次构建成没成。`tifa dev logs [-n 行数] [-f]` 打印日志。`tifa dev stop` 停掉它，并等到锁释放。有没有在运行看锁 `.tifa/dev.lock`，不看文件里的进程号，所以重启或崩溃后留下的文件算 `not running`，也不会向任何进程发信号。再开第二个 `tifa dev` 时，报错现在会提示用 `tifa dev status` 和 `tifa dev stop`。`tifa new` 写出的 `AGENTS.md` 让 agent 用这些命令。见[给 agent 和脚本用](docs/dev.zh-CN.md#给-agent-和脚本用)。
 - 处理函数入参上的 `Validate` 可以带 Ctx：`func (in SignUp) Validate(c *tifa.Ctx) error`。它能读请求，所以提示可以用 `c.Language()` 给出访客的语言。`func() error` 照常能用。`Validate`（或它把 Ctx 传进去的函数）写响应、再读请求体、改会话或调用 `tifa.Use` 时，`tifa build` 会失败。表单和多语言指南讲了什么时候在 Go 里翻译，什么时候返回代码让页面翻译。
 - 新增 `c.Path()`：访客在地址栏里看到的页面路径，带语言前缀、不带查询，比如 `/en-US/store/items/a%20b`。页面加载和客户端导航的数据请求拿到的路径一样，方法函数拿到的是自己的路径，`tifatest.NewCtx` 和 `tifatest.Start` 里也一致。`Load` 不能调用 `c.Request()`，要写 `next` 地址时可以用它。`Layout` 的数据由它下面所有页面共用，`tifa build` 在 `Layout` 里拒绝它。
+- `tifa check`、`tifa build` 和 `tifa dev` 能认出按 Next.js、Remix、React Router、TanStack Start、SvelteKit 以及其他 Go Web 框架写法写的代码：`next/link` 这类导入，`'use client'` 和 `'use server'` 指令，`getServerSideProps`、`loader`、`metadata` 这类导出，`[id]`、`(group)` 这类目录，`+page.svelte`、`middleware.ts` 这类文件，以及参数是 `http.ResponseWriter`、`*gin.Context`、`echo.Context` 或 `*fiber.Ctx` 的 `route.go` 处理函数。每条都带文件和行号、框架名和 Tifa 里的写法，分为错误（应用不可能是对的）和警告（能构建，但没有用）。Tifa 允许的写法不会报。见[从其他框架转过来](docs/app.zh-CN.md#从其他框架转过来)。
 
 ### 变更
 
