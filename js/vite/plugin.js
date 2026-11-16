@@ -23,7 +23,7 @@ const reactModule = /[/\\]react[/\\]cjs[/\\]react\.production\.js$/
 // React's production JSX runtime, which has jsx and jsxs, see inlineElements.
 const reactJsxRuntime = /[/\\]react[/\\]cjs[/\\]react-jsx-runtime\.production\.js$/
 // The hash of @emotion/hash 0.9, which emotion takes of every style it serializes, and the
-// dist files that have it. internal/ssr gives the VMs the same hash in Go as __tifa_murmur2__.
+// dist files that have it. internal/ssr gives the VMs the same hash of the engine as __tifa_murmur2__.
 const emotionHash = /[/\\]@emotion[/\\]hash[/\\]dist[/\\]emotion-hash\.(?:esm|cjs\.prod|cjs\.dev)\.js$/
 const murmur2Source = `function murmur2(str) {
   // 'm' and 'r' are mixing constants generated offline.
@@ -2243,7 +2243,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           )
           return null
         }
-        return source.replace(murmur2Source, () => hashInGo(murmur2Source))
+        return source.replace(murmur2Source, () => hashInEngine(murmur2Source))
       }
       if (reactJsxRuntime.test(id)) {
         const text = fs.readFileSync(id, 'utf8')
@@ -3126,10 +3126,10 @@ function tifaCheckEnd(type) {
   )
 }
 
-// hashInGo returns the source of murmur2, source, asking __tifa_murmur2__ first, which hashes a
-// string in Go, the same as the loop of murmur2 does. It gives undefined for anything else, and
+// hashInEngine returns the source of murmur2, source, asking __tifa_murmur2__ first, which hashes a
+// string in the engine, the same as the loop of murmur2 does. It gives undefined for anything else, and
 // then murmur2 hashes as before. The lines stay where they were.
-function hashInGo(source) {
+function hashInEngine(source) {
   const [first, ...rest] = source.split('\n')
   return [
     first +
