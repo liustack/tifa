@@ -4,13 +4,17 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa dev --background` 让开发服务脱离终端在后台启动，应用能应答时才返回，编程 agent 或脚本可以启动它后接着干别的。命令的其他参数和环境变量都会传给服务，服务的全部输出写进 `.tifa/dev.log`。`tifa dev status [--json]` 说明它有没有在运行、地址、进程号、启动时间和上次构建成没成。`tifa dev logs [-n 行数] [-f]` 打印日志。`tifa dev stop` 停掉它，并等到锁释放。有没有在运行看锁 `.tifa/dev.lock`，不看文件里的进程号，所以重启或崩溃后留下的文件算 `not running`，也不会向任何进程发信号。再开第二个 `tifa dev` 时，报错现在会提示用 `tifa dev status` 和 `tifa dev stop`。`tifa new` 写出的 `AGENTS.md` 让 agent 用这些命令。见[给 agent 和脚本用](docs/dev.zh-CN.md#给-agent-和脚本用)。
+
 ### 修复
 
 - `tifa dev` 对原地保存的文件只重建一次，机器繁忙或轮询恰好在保存中途看到文件时也一样。以前它可能把写到一半的空文件当成已稳定的改动，随后又为写完的文件再重建一次。现在取一批改动前，先让文件监视器处理完手头的事件和轮询。
 
 ## [0.0.10] - 2026-11-16
 
-### Changed
+### 变更
 
 - 服务端渲染改用 slowjs v0.31.2。HTML 不变。slowjs 在 AMD EPYC 7B13 上按 16 种代码布局取平均计时，一个 MUI 应用的三个页面比 v0.31.1 少用 3.0% 的时间，示例商店的店面页面少 2.7%，工作台页面的变化在 1% 以内。`img` 等空元素、`input` 和内联 `style` 的开始标签现在由引擎写，emotion 的样式哈希改用 C 算。v0.31.1 给每个正则多带的字节，现在只有用得上的正则才带。`Intl.NumberFormat` 新增 `formatRange` 和 `formatRangeToParts`。
 

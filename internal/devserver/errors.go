@@ -190,3 +190,28 @@ func sameOrigin(r *http.Request) bool {
 	origin, err := url.Parse(r.Header.Get("Origin"))
 	return err == nil && origin.Scheme == "http" && origin.Host == r.Host
 }
+
+// serveStatus answers `tifa dev status` and `tifa dev --background` with the state of the builds,
+// at once: unlike serveErrors it does not wait for a build to end.
+func (d *dev) serveStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(deverrors.PIDHeader, strconv.Itoa(os.Getpid()))
+	if !plainHost(r.Host) {
+		http.Error(w, "tifa dev answers only under localhost or an IP address", http.StatusForbidden)
+		return
+	}
+	st := deverrors.Status{State: deverrors.OK}
+	select {
+	case <-d.first:
+		if _, building := d.buildState(); building != nil {
+			st.State = deverrors.Building
+		} else if cur := d.hub.current(); cur.Error != "" {
+			st.State, st.Failure = deverrors.Failed, &deverrors.Failure{Title: cur.Title, Error: cur.Error}
+		}
+	default:
+		st.State = deverrors.Starting
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	data, _ := json.Marshal(st)
+	_, _ = w.Write(append(data, '\n'))
+}

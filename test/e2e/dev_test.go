@@ -38,7 +38,8 @@ func devApp(t *testing.T) string {
 func copyApp(t *testing.T, name string) string {
 	t.Helper()
 	src := filepath.Join(repoRoot(t), "test", "apps", name)
-	if _, err := os.Stat(filepath.Join(src, "node_modules")); err != nil {
+	_, usesNode := os.Stat(filepath.Join(src, "package.json"))
+	if _, err := os.Stat(filepath.Join(src, "node_modules")); err != nil && usesNode == nil {
 		t.Skipf("run pnpm install --frozen-lockfile in test/apps/%s first", name)
 	}
 	dst := t.TempDir()
@@ -54,8 +55,10 @@ func copyApp(t *testing.T, name string) string {
 			t.Fatalf("copy %s: %v\n%s", e.Name(), err, out)
 		}
 	}
-	if err := os.Symlink(filepath.Join(src, "node_modules"), filepath.Join(dst, "node_modules")); err != nil {
-		t.Fatal(err)
+	if usesNode == nil {
+		if err := os.Symlink(filepath.Join(src, "node_modules"), filepath.Join(dst, "node_modules")); err != nil {
+			t.Fatal(err)
+		}
 	}
 	gomod := filepath.Join(dst, "go.mod")
 	data, err := os.ReadFile(gomod)

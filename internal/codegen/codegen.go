@@ -90,7 +90,11 @@ const DistDir = "dist"
 // LockFile is the file under Dir that tifa dev and tifa build lock, see cmd/tifa. Write leaves it alone.
 const LockFile = "dev.lock"
 
-// Write makes root/.tifa hold exactly files besides dist/ and the lock file: it writes the files whose content
+// LogFile is the file under Dir that holds the output of a tifa dev started with --background. Write
+// leaves it alone.
+const LogFile = "dev.log"
+
+// Write makes root/.tifa hold exactly files besides dist/, the lock file and the log file: it writes the files whose content
 // changed and removes the files that are no longer generated, so tools watching the directory
 // see only real changes.
 func Write(root string, files map[string][]byte) error {
@@ -113,7 +117,7 @@ func Write(root string, files map[string][]byte) error {
 		if err != nil {
 			return err
 		}
-		if rel == LockFile {
+		if rel == LockFile || rel == LogFile {
 			return nil
 		}
 		if _, ok := files[filepath.ToSlash(rel)]; !ok {

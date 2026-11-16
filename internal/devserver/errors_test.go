@@ -244,3 +244,54 @@ func TestErrorsReadsAgainAfterABuildStarts(t *testing.T) {
 		t.Fatalf("report = %+v, want the failure of the build that started while it was read", r)
 	}
 }
+
+// status asks tifa dev for the state of its builds, as `tifa dev status` does.
+func askStatus(t *testing.T, url string) (deverrors.Status, string) {
+	t.Helper()
+	resp, err := http.Get(url + deverrors.StatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st deverrors.Status
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		t.Fatalf("GET %s: %v", deverrors.StatusPath, err)
+	}
+	return st, resp.Header.Get(deverrors.PIDHeader)
+}
+
+// The state answers at once: during a build it says so and does not wait, and a failure comes with
+// its error.
+func TestStatusAnswersAtOnce(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	st, pid := askStatus(t, d.url)
+	if st.State != deverrors.OK || st.Failure != nil || pid == "" {
+		t.Fatalf("running: %+v, pid %q", st, pid)
+	}
+
+	bundling := make(chan chan struct{})
+	d.p.mu.Lock()
+	d.p.bundling = bundling
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	var release chan struct{}
+	select {
+	case release = <-bundling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no bundle within 5s")
+	}
+	if st, _ := askStatus(t, d.url); st.State != deverrors.Building {
+		t.Fatalf("during a build: %+v", st)
+	}
+	close(release)
+	d.waitVersionAfter(t, "")
+
+	d.p.setFail("GoBuild")
+	writeFile(t, d.dir, "app/store.go", "package app // broken")
+	d.waitStatus(t, func(st status) bool { return st.Error != "" })
+	st, _ = askStatus(t, d.url)
+	if st.State != deverrors.Failed || st.Failure == nil || st.Failure.Title != "Build failed" || !strings.Contains(st.Failure.Error, "undefined: x") {
+		t.Fatalf("after a failed build: %+v", st)
+	}
+}
