@@ -29,7 +29,7 @@ func latencyRate(res *BrowseResult, sc string, sessions, rounds int) (float64, e
 	if len(cell) < rounds {
 		return 0, fmt.Errorf("%s: the latency rate is %.0f%% of the closed throughput of %s at %d sessions, and it has %d of the %d valid closed rounds there: run the throughput phase first", sc, 100*latencyShare, BrowseLabel(openBase), sessions, len(cell), rounds)
 	}
-	median := Median(each(cell, func(x *Round) float64 { return float64(x.Visits) / x.Seconds }))
+	median := visitsPerSecond(cell)
 	rate := math.Round(latencyShare*median*4) / 4
 	if rate <= 0 {
 		return 0, fmt.Errorf("%s: %.0f%% of the %.3f visits a second %s completes in its closed rounds at %d sessions rounds to 0", sc, 100*latencyShare, median, BrowseLabel(openBase), sessions)
@@ -108,4 +108,9 @@ func (b *browse) latency(ctx context.Context, sc BrowseScenario) error {
 		}
 	}
 	return nil
+}
+
+// visitsPerSecond is the median of the visits a second of closed rounds, which sets the latency rate.
+func visitsPerSecond(rounds []Round) float64 {
+	return Median(each(rounds, func(x *Round) float64 { return float64(x.Visits) / x.Seconds }))
 }

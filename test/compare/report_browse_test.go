@@ -38,7 +38,7 @@ func TestBrowseReportShowsFailedCellsAndTheLatencyRule(t *testing.T) {
 		"| Tifa | 300.0 | 400.0 |",
 		"| Next.js | 38.0 | failed (click P99 1200 ms over 1000 ms) |", // one of three rounds failed: the cell failed
 		"#### Latency at the same arrival rate",
-		"40% of the visits a second Next.js completed in its closed rounds at 32 sessions",
+		"40% of the median 10.00 visits a second Next.js completed in its 3 closed rounds at 32 sessions, to the nearest 0.25",
 		"not half of its own capacity",
 		"The writes are requests inserted into the recorded visits",
 		"the refresh after a write is not replayed",
@@ -63,7 +63,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	a := closedRound("nextjs", mix.Name, 0, 1, 1000, 100, false)
 	a.Model, a.TimedOut, a.Failures = "open", true, 20
 	a.Why = "the workload did not finish in time: a backlog was left"
-	a.Types["document"] = TypeStat{N: 5, P50: 3000, P99: 3000}
+	a.Types["load"] = TypeStat{N: 5, P50: 3000, P99: 3000}
 	b := closedRound("tifa", mix.Name, 0, 1, 1000, 100, true)
 	b.Model = "open"
 	r.Latency = append(r.Latency, a, b)
@@ -71,7 +71,7 @@ func TestLatencyTableKeepsFailedRoundsAndSaysSo(t *testing.T) {
 	for _, want := range []string{
 		"| Next.js | 3000.0 / 3000 (5) |", "| 20 |",
 		"failed the rule: the workload did not finish in time",
-		"| Tifa | 3.0 / 35 (200) | 1.0 / 8 (200) | 5.0 / 9 (20) | - | passed |", "| Tifa | 0 |"} {
+		"| Tifa | 4.0 / 30 (100) | 2.0 / 15 (300) | passed |", "| Tifa | 0 |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
@@ -322,10 +322,10 @@ func TestBrowseReportTypesTheThroughputOfEachServer(t *testing.T) {
 	md := r.Markdown()
 	for _, want := range []string{
 		"#### Throughput",
-		"| | result | sessions | page views/s | active people at one page per 5 to 10 s | full page load P50 / P99 ms (n) |",
+		"| | result | sessions | page views/s | full loads/s | client navigations/s | CPU ms/page view | body KB/page view | peak RSS MiB |",
 		"| | server cores | why the steps stopped | sessions played |",
-		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 2500 to 5000 |", "| Tifa | 0.50 |",
-		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 200 to 400 |", "| Next.js | 0.50 |",
+		"| Tifa | core used | 13 | 500.0 (499.0 to 501.0) | 125.0 (124.7 to 125.2) | 375.0 (374.2 to 375.7) | 1.00 | 4.0 | 100 |", "| Tifa | 0.50 |",
+		"| Next.js | highest passing step | 8 | 40.0 (39.0 to 41.0) | 10.0 (9.7 to 10.2) | 30.0 (29.2 to 30.7) | 12.50 (12.20 to 12.82) | 4.0 | 100 |", "| Next.js | 0.50 |",
 		"| TanStack Start | no passing step | - | - |",
 		"| | 4 sessions | 6 sessions | 8 sessions | 10 sessions | 13 sessions |",
 		"| Next.js | - | - | 40.0 (39.0 to 41.0) | failed (click P99 1200 ms over 1000 ms) | - |",
@@ -501,17 +501,21 @@ func TestTheReportBodyHoldsTheResultsAndTheAppendixTheDiagnostics(t *testing.T) 
 	}
 	var want []string
 	for range scs {
-		want = append(want, "| | result | sessions | page views/s | active people at one page per 5 to 10 s | full page load P50 / P99 ms (n) | client navigation P50 / P99 ms (n) | write P50 / P99 ms (n) | crawler requests/s | crawler document P50 / P99 ms (n) |",
-			"| | full page loads | client navigations | writes | crawler documents | rounds |")
+		want = append(want, "| | result | sessions | page views/s | full loads/s | client navigations/s | CPU ms/page view | body KB/page view | peak RSS MiB |",
+			"| | full loads P50 / P99 ms (n) | client navigations P50 / P99 ms (n) | rule |")
 	}
 	want = append(want, "| | value | source |")
 	if !slices.Equal(heads, want) {
 		t.Errorf("the tables of the body have the columns\n%s\nwant\n%s", strings.Join(heads, "\n"), strings.Join(want, "\n"))
 	}
-	// The two tables have the columns full page load and client navigation, and the text over each says
-	// which pages are which.
-	if n := strings.Count(body, stepClassNote); n != 2*len(scs) || !strings.Contains(stepClassNote, "A client navigation is") {
-		t.Errorf("the body says %d times what a full page load and a client navigation are, want over each of its %d tables: %q", n, 2*len(scs), stepClassNote)
+	// The two tables have the columns full loads and client navigations, and the text over the first
+	// says which pages are which: the landings and the clicks, which add up to the page views. The body
+	// never calls them clicks.
+	if n := strings.Count(body, stepClassNote); n != len(scs) || !strings.Contains(stepClassNote, "A client navigation is") || !strings.Contains(stepClassNote, "add up to the page views") {
+		t.Errorf("the body says %d times what a full load and a client navigation are, want over the throughput table of each of its %d scenarios: %q", n, len(scs), stepClassNote)
+	}
+	if tables, _, _ := strings.Cut(body, "\n### The mix\n"); strings.Contains(tables, "click") {
+		t.Errorf("the result tables say click:\n%s", tables)
 	}
 	for _, method := range []string{
 		"| | server cores | why the steps stopped | sessions played |",
@@ -627,7 +631,7 @@ func TestTheLatencyTableListsEveryServerWithWhatItsRoundsDecide(t *testing.T) {
 		return ""
 	}
 	for label, want := range map[string]string{
-		"Tifa":                       "| Tifa | - | - | - | - | no valid result: none of its 3 tries was valid |",
+		"Tifa":                       "| Tifa | - | - | no valid result: none of its 3 tries was valid |",
 		"TanStack Start":             "| passed |",
 		"Next.js":                    "| passed |",
 		"Tifa, memo off (reference)": "| failed the rule: click P99 1200 ms over 1000 ms |",
@@ -1006,10 +1010,9 @@ func crawled(x Round) Round {
 	return x
 }
 
-// The two tables of the body list the crawler requests apart from the people: the page views a second
-// of people stay the main number, and the crawler requests a second and the latency of the crawler
-// documents come after them, with their samples.
-func TestTheBodyTablesListTheCrawlerRequestsApartFromThePeople(t *testing.T) {
+// The tables of the body hold the people alone: the crawler requests, and the latency of the writes and
+// of the crawler documents, are in the appendix, with their samples.
+func TestTheCrawlerAndTheWritesAreInTheAppendixAlone(t *testing.T) {
 	sc := mustScenario("shop")
 	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: {"tifa", "nextjs"}}, Version: map[string]string{},
 		Config: map[string]string{"sessions": "8"}, LatencyRate: map[string]float64{"shop": 4}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}}
@@ -1018,23 +1021,28 @@ func TestTheBodyTablesListTheCrawlerRequestsApartFromThePeople(t *testing.T) {
 		for round := 1; round <= 3; round++ {
 			x := crawled(closedRound(f, sc.Name, 8, round, 4000, 10, true))
 			r.Closed = append(r.Closed, x)
-			l := x
-			l.Model, l.Rate, l.Sessions = "open", 4, 0
-			r.Latency = append(r.Latency, l)
+			if round == 1 {
+				l := x
+				l.Model, l.Rate, l.Sessions = "open", 4, 0
+				r.Latency = append(r.Latency, l)
+			}
 		}
 	}
-	body, _, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	body, appendix, _ := strings.Cut(r.Markdown(), "\n## Appendix\n")
+	tables, _, _ := strings.Cut(body, "\n### The mix\n")
+	for _, word := range []string{"crawler", "write P50", "active people"} {
+		if strings.Contains(tables, word) {
+			t.Errorf("the body has %q:\n%s", word, body)
+		}
+	}
 	for _, want := range []string{
-		"| Tifa | core used | 8 | 400.0 | 2000 to 4000 | 3.0 / 35 (600) | 1.0 / 8 (600) | 5.0 / 9 (60) | 10.1 | 12.0 / 480 (303) |",
-		"| Next.js | core used | 8 | 400.0 | 2000 to 4000 | 3.0 / 35 (600) | 1.0 / 8 (600) | 5.0 / 9 (60) | 10.1 | 12.0 / 480 (303) |",
+		"| | write P50 / P99 ms (n) | crawler document P50 / P99 ms (n) |",
+		"| Tifa | 5.0 / 9 (20) | 12.0 / 480 (101) |",
+		"| Next.js | 5.0 / 9 (20) | 12.0 / 480 (101) |",
+		"| Tifa | 303 | 303 | 0 | 58.6 | 14.6 | O 404 x15, U 200 x288 | 10.1 | 12.0 / 480 (303) |",
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the throughput table lacks %q:\n%s", want, body)
-		}
-	}
-	for _, want := range []string{"| Tifa | 3.0 / 35 (600) | 1.0 / 8 (600) | 5.0 / 9 (60) | 12.0 / 480 (303) |", "| Next.js | 3.0 / 35 (600) | 1.0 / 8 (600) | 5.0 / 9 (60) | 12.0 / 480 (303) |"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the latency table lacks %q:\n%s", want, body)
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
 		}
 	}
 	// A server with no crawler request in its rounds shows none, not 0.
@@ -1060,9 +1068,9 @@ func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 	for _, want := range []string{
 		fmt.Sprintf("U holds %d URLs", len(u)),
 		fmt.Sprintf("O holds %d old URLs", len(o)),
-		"| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers |",
-		"| Tifa | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
-		"| Next.js | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 |",
+		"| | crawler requests planned | answered as expected | failed | body KB/request | body KB/request of an old URL (404) | answers | crawler requests/s | crawler document P50 / P99 ms (n) |",
+		"| Tifa | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 | 10.1 | 12.0 / 480 (202) |",
+		"| Next.js | 202 | 202 | 0 | 58.6 | 14.6 | O 404 x10, U 200 x192 | 10.1 | 12.0 / 480 (202) |",
 		"Next.js answers an old URL with an error document and renders no page for it on the server",
 		"the other two servers render a whole page for it",
 		"| | answers by | answers | from the memo | shared a render in progress | rendered in a VM |",
@@ -1081,5 +1089,95 @@ func TestTheAppendixListsWhatTheCrawlerRequestsDid(t *testing.T) {
 	}
 	if strings.Contains(appendix, "| Next.js | U |") {
 		t.Error("the split of the answers has a row for Next.js, which says nothing of its renders")
+	}
+}
+
+// The body of a scenario has a throughput table and, apart from it, a latency table, each with the
+// three main servers first and the references after them, and under them the notes: when each
+// server was measured, the versions, how many rounds a row is, how the latency round and its rate were
+// made, and the check of the machine when one ran. The appendix gives the three parts of each latency
+// round.
+func TestTheBodyHasAThroughputAndALatencyTableWithTheirNotes(t *testing.T) {
+	sc := mustScenario("shop")
+	servers := []string{"tifa", "tifa-nocache", "nextjs", "start-gzip", "start"}
+	r := &BrowseResult{Scenarios: []BrowseScenario{sc}, Servers: map[string][]string{sc.Name: servers}, Date: "2026-11-14 09:00:00 UTC",
+		Version: map[string]string{"go": "go1.27", "node": "24.11.0", "next": "16.0.1"}, Config: map[string]string{"sessions": "8", "rounds": "3"},
+		LatencyRate: map[string]float64{"shop": 40}, LatencyBase: map[string]string{"shop": "nextjs"}, Throughput: map[string]*Throughput{}, ServerStamps: map[string]ServerStamp{}}
+	for _, f := range servers {
+		r.Throughput[serverKey(sc.Name, f)] = &Throughput{Result: ThroughputCoreUsed, Sessions: 8, Steps: []int{8}}
+		r.ServerStamps[f] = ServerStamp{Stamp: f, Date: "2026-11-15 10:00:00 UTC"}
+		for round := 1; round <= closedRounds(f, 3); round++ {
+			r.Closed = append(r.Closed, closedRound(f, sc.Name, 8, round, 4000, 10, true))
+		}
+		l := closedRound(f, sc.Name, 0, 1, 4800, 300, true)
+		l.Model, l.Rate, l.VisitsPlanned, l.Blocks = "open", 40, 1200, 3
+		for range 3 {
+			l.Parts = append(l.Parts, RoundPart{Load: TypeStat{N: 33, P50: 4, P99: 30}, Click: TypeStat{N: 99, P50: 2, P99: 15}})
+		}
+		r.Latency = append(r.Latency, l)
+	}
+	r.ServerStamps["tifa"] = ServerStamp{Stamp: "tifa", Date: "2026-11-14 10:00:00 UTC"}
+	r.Closed[3] = closedRound("tifa-nocache", sc.Name, 8, 1, 2000, 10, true) // a reference that does less, so the order is not by speed
+	r.MachineChecks = []MachineCheck{{Server: "start", Scenario: sc.Name, Sessions: 8, Value: 101, Min: 98, Max: 106.08, Date: "2026-11-16 09:00:00 UTC"}}
+	md := r.Markdown()
+	body, appendix, _ := strings.Cut(md, "\n## Appendix\n")
+	tput, lat, ok := strings.Cut(body, "#### Latency at the same arrival rate")
+	if !ok {
+		t.Fatalf("the body has no latency table:\n%s", body)
+	}
+	if strings.Contains(tput, "P50") || strings.Contains(tput, "P99") {
+		t.Errorf("the throughput table has a latency column:\n%s", tput)
+	}
+	for _, want := range []string{
+		"| Tifa | core used | 8 | 400.0 | 100.0 | 300.0 | 1.25 | 4.0 | 100 |",
+		"| Tifa, memo off (reference) | core used | 8 | 200.0 | 50.0 | 150.0 | 2.50 | 4.0 | 100 |",
+		"A main server plays 3 rounds a step and a reference one",
+	} {
+		if !strings.Contains(tput, want) {
+			t.Errorf("the throughput table lacks %q:\n%s", want, tput)
+		}
+	}
+	if want := "| Tifa | 4.0 / 30 (100) | 2.0 / 15 (300) | passed |"; !strings.Contains(lat, want) {
+		t.Errorf("the latency table lacks %q:\n%s", want, lat)
+	}
+	labels := []string{"| Tifa |", "| Next.js |", "| TanStack Start |", "| Tifa, memo off (reference) |", "| TanStack Start, gzip added (reference) |"}
+	for name, table := range map[string]string{"throughput": tput, "latency": lat} {
+		at := -1
+		for _, l := range labels {
+			i := strings.Index(table, l)
+			if i <= at {
+				t.Errorf("the %s table does not list %s after the rows before it:\n%s", name, l, table)
+			}
+			at = i
+		}
+	}
+	for _, want := range []string{
+		"- Tifa was measured on 2026-11-14 10:00:00 UTC.",
+		"- TanStack Start, gzip added (reference) was measured on 2026-11-15 10:00:00 UTC.",
+		"- Versions: Go 1.27, Node 24.11.0, next 16.0.1.",
+		"- A row of a main server in the throughput table is the median of its 3 rounds at its sessions, with their range. A row of a reference is one round.",
+		"- A row of the latency table is one round of 1200 visits (3 blocks) at 40.00 visits/s. The rate is 40% of the median 100.00 visits a second Next.js completed in its 3 closed rounds at 8 sessions, to the nearest 0.25.",
+		"- The machine was checked on 2026-11-16 09:00:00 UTC before servers were measured again beside the kept results: a closed round of TanStack Start at 8 sessions did 101.0 page views/s, within 98.0 to 106.1 (its kept rounds, 2% wider on each side).",
+	} {
+		if !strings.Contains(lat, want) {
+			t.Errorf("the notes under the tables lack %q:\n%s", want, lat)
+		}
+	}
+	if strings.Contains(r.Markdown(), "Go 1.27, Node 24.11.0, next 16.0.1.\n\n### the shop") {
+		t.Error("the versions are above the tables")
+	}
+	for _, want := range []string{
+		"| | part | full loads P50 / P99 ms (n) | client navigations P50 / P99 ms (n) |",
+		"| Tifa | 1 of 3 | 4.0 / 30 (33) | 2.0 / 15 (99) |",
+		"| Tifa | 3 of 3 | 4.0 / 30 (33) | 2.0 / 15 (99) |",
+		"| TanStack Start, gzip added (reference) | 2 of 3 | 4.0 / 30 (33) | 2.0 / 15 (99) |",
+	} {
+		if !strings.Contains(appendix, want) {
+			t.Errorf("the appendix lacks %q:\n%s", want, appendix)
+		}
+	}
+	r.MachineChecks = nil
+	if strings.Contains(r.Markdown(), "machine was checked") {
+		t.Error("the notes name a check of the machine that did not run")
 	}
 }

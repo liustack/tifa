@@ -9,7 +9,7 @@ import (
 )
 
 // The throughput of a scenario starts with every server at the same number of concurrent sessions
-// (8 by default, no think time), three rounds each in a rotating order. From there each server is
+// (8 by default, no think time), three rounds each (one for a reference) in a rotating order. From there each server is
 // stepped on its own: up about 25% a step (10, 13, 16 and so on) while its median server cores stay
 // under 0.95 of its cpus and every round passes, or down to 6 and 4 sessions when it fails at 8. A
 // step with too few valid rounds is not decided: it is not a failure, and nothing steps down from it.
