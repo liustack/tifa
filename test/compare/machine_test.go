@@ -168,11 +168,12 @@ func TestTheMachineCheckPlaysAKeptMainServer(t *testing.T) {
 
 // The rounds of the check are closed rounds of the cell as they are played, each try on a server of
 // its own after the sizing it keeps, the setup and the warm-up, as many valid rounds as the cell has,
-// and none of them is kept: no closed round, no new size of the cell. A try that is not valid is
-// played again and logged as a round of the cell is: with a target of 200 ms, the wall clock of the
-// fake servers puts a try outside the window of its length now and then, and it is resized. Whether
-// the fake servers agree within 3% with the kept round is up to the machine, so the test takes either
-// outcome.
+// and none of them is kept: no closed round, no new size of the cell. Every try is logged. The length
+// of a round is not the subject here (anyLength in warmBrowse): with a target of 200 ms a slow test machine puts a
+// try of the fake servers outside the window of its length, which left the cell without its kept
+// rounds and so without a check. TestAnInvalidMachineCheckRoundIsPlayedAgain covers a try that is not
+// valid. Whether the fake servers agree within 3% with the kept round is up to the machine, so the
+// test takes either outcome.
 func TestTheMachineCheckRoundsAreClosedRoundsOfTheCellAndNoResult(t *testing.T) {
 	tifa, _, node := warmSpecs()
 	sc := mustScenario("shop")
