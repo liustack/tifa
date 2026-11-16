@@ -494,7 +494,7 @@ func TestPagesApp(t *testing.T) {
 		t.Errorf("built with the profile %q", pgo)
 	}
 
-	base, _, _ := start(t, exe)
+	base, _, output := start(t, exe)
 	// A browser dates the matches it hydrates by the age of the data the server sends.
 	expectDatesInBrowser(t, "tifa-e2e-pa", base+"/shops/north", true)
 	var built struct{ BuildID, Head string }
@@ -528,6 +528,30 @@ func TestPagesApp(t *testing.T) {
 			t.Errorf("receipt lacks %s:\n%s", want, body)
 		}
 	}
+	// A browser reads a JSON number as a double, so tifa refuses to send an integer it would read as
+	// another number. A field with `json:",string"` arrives whole, as a string, in the page and in the
+	// data of a navigation. The numbers a double holds stay numbers: a time in milliseconds and a
+	// float64 of any size.
+	_, _, body = get(t, base+"/bigid")
+	for _, want := range []string{`<p id="id">9007199254740993</p>`, `<p id="stamp">1763300000123</p>`, `<p id="big">100000000000000000</p>`, `\"id\":\"9007199254740993\",\"stamp\":1763300000123,\"big\":100000000000000000`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bigid lacks %s:\n%s", want, body)
+		}
+	}
+	_, _, bigAnswer := get(t, dataURL(base+"/bigid", built.BuildID, "01"))
+	if !strings.Contains(bigAnswer, `"data":{"id":"9007199254740993","stamp":1763300000123,"big":100000000000000000}`) {
+		t.Errorf("bigid data request: %s", bigAnswer)
+	}
+	// The same id without the tag is refused: the page and its data request fail, and the log says where.
+	for _, target := range []string{base + "/bigid/refused", dataURL(base+"/bigid/refused", built.BuildID, "01")} {
+		if status, _, body := get(t, target); status != 500 || strings.Contains(body, "9007199254740992") {
+			t.Errorf("GET %s: %d %s, want 500 and no rounded number", target, status, body)
+		}
+	}
+	output.waitFor(t, func(out string) bool {
+		return strings.Contains(out, "the Load of /bigid/refused writes the number 9007199254740993 at id, and a browser reads it as 9007199254740992")
+	})
+	expectBigIDInBrowser(t, "tifa-e2e-bi", base+"/bigid")
 	// Data made of what could break a page reaches it, and the browser, as the text Go wrote: the
 	// server fills the page with the data after the VM wrote it, in every form the page goes out in.
 	_, _, answer := get(t, dataURL(base+"/hostile", built.BuildID, "001"))

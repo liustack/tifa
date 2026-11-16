@@ -98,3 +98,22 @@ func expectDatesInBrowser(t *testing.T, name, url string, dated bool, want ...st
 		}
 	}
 }
+
+// expectBigIDInBrowser opens the page of the field tagged `json:",string"` in a browser and checks
+// that the id reads whole after the page hydrates, and that the router holds it as a string.
+func expectBigIDInBrowser(t *testing.T, name, url string) {
+	t.Helper()
+	if _, err := exec.LookPath("playwright-cli"); err != nil {
+		t.Log("playwright-cli is not installed: the id of /bigid is not checked in a browser")
+		return
+	}
+	pw, _ := openBrowser(t, name)
+	pw("open", url)
+	waitFor(t, "the page to hydrate", func() bool {
+		return strings.Contains(pw("eval", `() => document.readyState === "complete" && window.__TSR_ROUTER__?.stores.matches.get().length > 0`), "true")
+	})
+	out := pw("eval", `() => document.getElementById("id").textContent + " " + typeof window.__TSR_ROUTER__.stores.matches.get().at(-1).loaderData.id`)
+	if !strings.Contains(out, "9007199254740993 string") {
+		t.Errorf("%s in a browser: %s", url, out)
+	}
+}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -180,5 +181,15 @@ func TestSessionRefusesARoundedNumber(t *testing.T) {
 	}
 	if len(*seen) == 0 || !strings.Contains((*seen)[0].Error(), "session") {
 		t.Errorf("OnError saw %v", *seen)
+	}
+}
+
+func TestDevPageShowsTheRoundedNumber(t *testing.T) {
+	app, _ := roundedApp(map[string]any{"big": bigRow{ID: 1<<53 + 1}})
+	s, _ := newFrontServer(t, app)
+	s.dev = http.NotFoundHandler()
+	w := get(s, "/p?v=big")
+	if body := w.Body.String(); w.Code != 500 || !strings.Contains(body, "the Load of /page writes the number 9007199254740993 at id") {
+		t.Errorf("%d %s", w.Code, body)
 	}
 }
