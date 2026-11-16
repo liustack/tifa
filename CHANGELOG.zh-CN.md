@@ -16,6 +16,7 @@
 
 ### 变更
 
+- 服务端渲染改用 slowjs v0.31.3。HTML 不变。slowjs 在 AMD EPYC 7B13 上按 16 种代码布局取平均计时，示例商店的店面页面比 v0.31.2 少用 4.2% 的时间，工作台页面少 3.5%，一个 MUI 应用的三个页面少 1.7%，商店的每个页面都更快（2.8% 到 6.6%）。每个 VM 多用 0.4% 到 1.4% 的内存，用在引擎给每处按名字读属性的代码留的缓存上。一个正则最多可以有 32,767 个捕获组，shiki 的语法要用到。带自定义 `exec` 的 `replace` 和 `split`、很长的正则字面量、对一长串区域调用 `Intl`，现在在渲染被叫停时会停下。
 - 登录指南新增 `RequireUser` 守卫，用 `c.Path()` 把没登录的访客送到 `/login?next=`，并用 `tifatest.Start` 测了整个登录和登出。
 - 页面对没有入参也没有结果的方法函数的调用，比如 `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`，在方法函数什么都没写时，现在会把新的会话带给浏览器。以前 `SignedIn`、`SignedOut` 和 `useSession` 会保持旧状态，直到下一次导航。回答是 200、`X-Tifa-Session: 1`，正文是会话，生成的 TypeScript 不变。自己写响应的方法函数不受影响。
 - `skills/tifa` 里的 skill 补上了 `tifa dev --background` 和 `status`、`logs`、`stop`、对其他框架写法的检查，以及不带入参的退出登录处理函数。它的链接改成指向所装版本文档的路径，不再指向 GitHub。
