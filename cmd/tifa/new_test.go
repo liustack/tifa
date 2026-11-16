@@ -85,6 +85,10 @@ func TestNewWritesAnApp(t *testing.T) {
 		return err
 	})
 	want := []string{
+		".claude/skills/tifa/SKILL.md",
+		".claude/skills/tifa/references/build-and-deploy.md", ".claude/skills/tifa/references/errors-and-404.md", ".claude/skills/tifa/references/i18n.md",
+		".claude/skills/tifa/references/rendering.md", ".claude/skills/tifa/references/routing-and-data.md", ".claude/skills/tifa/references/structure.md",
+		".claude/skills/tifa/references/testing.md",
 		".gitignore", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",

@@ -10,12 +10,13 @@
 - 处理函数入参上的 `Validate` 可以带 Ctx：`func (in SignUp) Validate(c *tifa.Ctx) error`。它能读请求，所以提示可以用 `c.Language()` 给出访客的语言。`func() error` 照常能用。`Validate`（或它把 Ctx 传进去的函数）写响应、再读请求体、改会话或调用 `tifa.Use` 时，`tifa build` 会失败。表单和多语言指南讲了什么时候在 Go 里翻译，什么时候返回代码让页面翻译。
 - 新增 `c.Path()`：访客在地址栏里看到的页面路径，带语言前缀、不带查询，比如 `/en-US/store/items/a%20b`。页面加载和客户端导航的数据请求拿到的路径一样，方法函数拿到的是自己的路径，`tifatest.NewCtx` 和 `tifatest.Start` 里也一致。`Load` 不能调用 `c.Request()`，要写 `next` 地址时可以用它。`Layout` 的数据由它下面所有页面共用，`tifa build` 在 `Layout` 里拒绝它。
 - `tifa check`、`tifa build` 和 `tifa dev` 能认出按 Next.js、Remix、React Router、TanStack Start、SvelteKit 以及其他 Go Web 框架写法写的代码：`next/link` 这类导入，`'use client'` 和 `'use server'` 指令，`getServerSideProps`、`loader`、`metadata` 这类导出，`[id]`、`(group)` 这类目录，`+page.svelte`、`middleware.ts` 这类文件，以及参数是 `http.ResponseWriter`、`*gin.Context`、`echo.Context` 或 `*fiber.Ctx` 的 `route.go` 处理函数。每条都带文件和行号、框架名和 Tifa 里的写法，分为错误（应用不可能是对的）和警告（能构建，但没有用）。Tifa 允许的写法不会报。见[从其他框架转过来](docs/app.zh-CN.md#从其他框架转过来)。
+- 新增 `go tool tifa agents`：按应用所用的 Tifa 版本，把 Tifa skill 写进应用（`.claude/skills/tifa/`），并刷新 `AGENTS.md` 里 `tifa:begin` 和 `tifa:end` 两行之间的块。以前 skill 是仓库文件夹的一份拷贝，升级后原样不动，链接指向 GitHub `main` 上的文档，那个块也没有任何东西会刷新。现在 skill 的链接指向所装版本的文档。升级后再运行一次这个命令。`--check` 什么都不改，有文件过期就以 1 退出并列出文件名，给 CI 用。Tifa 写的文件会被覆盖，你改过也一样，不是它写的文件不动，`AGENTS.md` 标记之外的文字永远不碰。`AGENTS.md` 没有标记时把块追加到末尾，没有 `AGENTS.md` 时写一个。`tifa new` 跑同一段代码，应用里有这些文件而且过期时，`tifa check` 会打印一行提示。见 [`tifa agents`](docs/build.zh-CN.md#tifa-agents)。
 
 ### 变更
 
 - 登录指南新增 `RequireUser` 守卫，用 `c.Path()` 把没登录的访客送到 `/login?next=`，并用 `tifatest.Start` 测了整个登录和登出。
 - 页面对没有入参也没有结果的方法函数的调用，比如 `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`，在方法函数什么都没写时，现在会把新的会话带给浏览器。以前 `SignedIn`、`SignedOut` 和 `useSession` 会保持旧状态，直到下一次导航。回答是 200、`X-Tifa-Session: 1`，正文是会话，生成的 TypeScript 不变。自己写响应的方法函数不受影响。
-- `tifa new` 写出的 `AGENTS.md` 里，Tifa 管理的那一段开头的注释改成了实情：升级 Tifa 时没有任何东西会刷新这一段。[构建](docs/build.zh-CN.md#agentsmd-里-tifa-管理的块)里也这样写。
+- `skills/tifa` 里的 skill 补上了 `tifa dev --background` 和 `status`、`logs`、`stop`、对其他框架写法的检查，以及不带入参的退出登录处理函数。它的链接改成指向所装版本文档的路径，不再指向 GitHub。
 - `tifa new` 写出的 `README.md` 说明应用是什么：一个可以运行的起步模板，用你自己的领域替换它，而不是待办事项产品。
 
 ### 修复

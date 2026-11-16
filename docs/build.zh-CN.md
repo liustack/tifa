@@ -1,9 +1,10 @@
 ---
-summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、`tifa gen` 写出什么、Tifa docs 打印什么和 AGENTS.md 里 Tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、前端为什么用 Vite 打包、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
+summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、`tifa gen` 写出什么、Tifa docs 打印什么、`tifa agents` 写什么（skill 和 AGENTS.md 里 Tifa 管理的块）以及怎么让它们保持最新、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、前端为什么用 Vite 打包、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 改 `tifa check`，或想知道它跑哪些步骤、需要什么
   - 改 `tifa docs`、`tifa new` 写出的 `AGENTS.md`，或其中由 Tifa 管理的部分
+  - 改 `tifa agents`、`skills/tifa` 里的 skill 或应用得到的 `.claude/skills/tifa`，或 agent 读的文件已经过期
   - 新建一个 Tifa 应用，或给 test/apps 加应用
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
@@ -37,7 +38,8 @@ tifa new <目录> [--module 模块路径]
 | `app/about/page.tsx` | 没有 `route.go` 的页面 |
 | `*_test.go` | 测试和被测代码放在一起：待办领域、数据库和钩子的测试，以及用 `tifatest` 写的路由代码测试，每个测试用临时目录里的一个新数据库 |
 | `tifa.yaml` | [config.zh-CN.md](config.zh-CN.md) 里的全部设置，按默认值写好并注释掉。`ssr.vms` 的默认值是 GOMAXPROCS，最多 4，随机器而变，所以写的是示例值 |
-| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：Tifa 应用怎么运作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，Tifa 管理的部分夹在两行标记之间（见 [AGENTS.md 里 Tifa 管理的块](#agentsmd-里-tifa-管理的块)）。`CLAUDE.md` 只指向 `AGENTS.md` |
+| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：Tifa 应用怎么运作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，Tifa 管理的部分夹在两行标记之间（见 [AGENTS.md 里 Tifa 管理的块](#agentsmd-里-tifa-管理的块)，由 `tifa agents` 刷新）。`CLAUDE.md` 只指向 `AGENTS.md` |
+| `.claude/skills/tifa/` | 给编程 agent 的 Tifa skill，`SKILL.md` 和它的 references，由和 `tifa agents` 同一段代码写出（见 [`tifa agents`](#tifa-agents)） |
 | `package.json`、`tsconfig.json`、`vite.config.ts`、`.gitignore`、`README.md` | npm 包、TypeScript 与 Vite 配置、要忽略的构建产物和数据库文件，以及常用命令 |
 
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。`tifa new` 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
@@ -224,6 +226,36 @@ docs/build.md - ...
 
 索引的格式同 Tifa 仓库里的 `scripts/docs-list.sh`：每篇文档一行，写路径和它 front matter 里的 summary，再一行写 `read_when` 各条，用 ` | ` 连接。文档按路径排序。中文版（`*.zh-CN.md`）、`docs/archive/` 和 `docs/research/` 不列，没有 summary 的文档不列，并在 stderr 打一条警告。
 
+## `tifa agents`
+
+```sh
+tifa agents [--dir 应用根目录] [--check] [--skills-dir .claude/skills/tifa]
+```
+
+把编程 agent 要读的文件写进应用，内容取自应用所用的 Tifa 版本（`go tool tifa` 由 `go.mod` 里的模块构建，所以它里面带的文件就是那个版本的）：
+
+- Tifa skill，写在 `.claude/skills/tifa/`：`SKILL.md` 和它的 `references/`。它们就是 Tifa 仓库里 [`skills/tifa`](../skills/tifa) 的文件，由命令自己带着，每个文件多一行，说明是哪个版本的 Tifa 写的，升级后要再运行 `go tool tifa agents`。里面的链接指向所装版本的文档（`docs/app.md#testing`，在 `go tool tifa docs` 打印的文件夹里），不指向 GitHub。
+- `AGENTS.md` 里两行标记之间的部分（见 [AGENTS.md 里 Tifa 管理的块](#agentsmd-里-tifa-管理的块)）。
+
+`tifa new` 跑的是同一段代码，所以新应用一开始就有这两样。升级 Tifa 之后再运行 `go tool tifa agents`，两样都会换成新版本的。别的命令不会自己运行它，`tifa build` 和 `tifa dev` 都不会。`tifa check` 在应用有其中任何一样、且已过期时，会在 `check passed` 前打印一行提示，两样都没有的应用不提。
+
+```text
+$ go tool tifa agents
+AGENTS.md: refreshed the block between the markers
+.claude/skills/tifa/SKILL.md: updated
+.claude/skills/tifa/references/testing.md: updated
+$ go tool tifa agents
+AGENTS.md and .claude/skills/tifa are up to date (Tifa v0.0.11)
+```
+
+- `.claude/skills/tifa/` 里 Tifa 写的文件会被覆盖，你改过也一样。自己的规则写在 `AGENTS.md` 的标记之外，或写进自己的文件。该文件夹里不是 Tifa 写的文件不动。旧版本 Tifa 写过、新版本已经没有的文件会被删掉。
+- 再运行一次什么都不变，修改时间也不变。
+- `--check` 什么都不改。它列出每个已过期的文件，以状态 1 退出，CI 任务可以据此失败。两样都最新时以 0 退出。
+- `--skills-dir` 是 skill 的文件夹，相对应用根目录，给从别处读 skill 的 agent 用。
+- 每个文件那一行里的版本，是命令构建时所属的版本：`Tifa v0.0.11`，在源码仓库里构建或模块被 replace 的命令写 `a development build of Tifa`。
+- 说明里要填的值从应用里读。模块路径取自 `go.mod`。根包名取自根目录 Go 文件声明的包，一个 Go 文件都没有时，按 `tifa new` 的办法由模块路径决定。安装命令取自 lock 文件（`pnpm-lock.yaml`、`package-lock.json`、`yarn.lock`、`bun.lock`）。没有 lock 文件时沿用 AGENTS.md 里已有的命令，也没有 AGENTS.md 时和 `tifa new` 一样挑。凡是猜的，命令写文件时都会打印一行 `note:`。
+- 它不写 `CLAUDE.md`，`tifa new` 会写，内容是 `@AGENTS.md` 一行。应用没有 `CLAUDE.md` 时，它会提醒 Claude Code 读的是 `CLAUDE.md`。
+
 ### AGENTS.md 里 Tifa 管理的块
 
 `AGENTS.md` 中由 Tifa 写的部分，夹在两行标记之间：
@@ -238,7 +270,11 @@ docs/build.md - ...
 ## This app
 ```
 
-每个标记独占一行，各出现一次，`tifa:begin` 在 `tifa:end` 之前。两者之间都归 Tifa：命令、约定和去哪读更多。这一段目前没有任何东西会替换。`tifa new` 只写一次，没有命令刷新它，升级 Tifa 之后它保持原样。留着标记，是为了以后的 Tifa 可以只替换这一段，文件其余部分不动。应用自己的说明写在标记之外（`tifa new` 用 `## This app` 开头）。想现在就拿到较新的块，可以在一个空文件夹里运行 `tifa new`，把它两个标记之间的内容复制过来。`go tool tifa docs` 打印的永远是应用所用版本的文档，不管这个块怎么写。
+每个标记独占一行，各出现一次，`tifa:begin` 在 `tifa:end` 之前。两者之间都归 Tifa：命令、约定和去哪读更多。`tifa agents` 把这一段换成所用 Tifa 版本的，文件其余的每个字节都不动。应用自己的说明写在标记之外（`tifa new` 用 `## This app` 开头）。
+
+- 没有 `AGENTS.md` 时，写一个，内含标题和这个块。
+- 有 `AGENTS.md` 但没有标记时，把这个块追加到末尾并说明。给这个块加上标记，以后就会原地刷新。
+- 标记不是按顺序的一对、或不是各独占一行时，报错停下，笔记和 skill 都不写。
 
 ## Tifa routes
 

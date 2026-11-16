@@ -168,3 +168,21 @@ func TestCheckNeedsTheAppsTypeScript(t *testing.T) {
 		t.Errorf("typeCheck without node_modules: %v", err)
 	}
 }
+
+// tifa check passes and adds one line when the skill or the managed notes of the app are out of
+// date, and nothing when the app has neither.
+func TestCheckMentionsStaleAgentFiles(t *testing.T) {
+	dir := apiApp(t)
+	out, _, err := run(t, "check", "--dir", dir)
+	if err != nil || strings.Contains(out, "tifa agents") {
+		t.Fatalf("an app with neither: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, "agents", "--dir", dir); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, ".claude", "skills", "tifa", "SKILL.md"), "old")
+	out, _, err = run(t, "check", "--dir", dir)
+	if err != nil || strings.Count(out, "go tool tifa agents") != 1 || !strings.Contains(out, "tifa agents\ncheck passed\n") {
+		t.Errorf("stale skill: %v\n%s", err, out)
+	}
+}

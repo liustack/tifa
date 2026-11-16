@@ -5,15 +5,15 @@ description: Build, change, test and deploy apps with Tifa, a full-stack Go fram
 
 # Tifa
 
-Tifa is a full-stack framework for Go developers. Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML inside the same process, and TanStack Router takes over in the browser. `tifa build` makes one executable that you copy to a small VPS or container and run. A CDN in front is fine, a reverse proxy, Redis or a Node service is not needed.
+Tifa is a full-stack framework for Go developers. Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML inside the same process, and TanStack Router takes over in the browser. `tifa build` makes one executable that you copy to a small VPS or container and run.
 
-It fits: sites and apps whose logic and data are already in Go, that want the React ecosystem for pages, and that should run as one process on little hardware (1 CPU and 1 GB is a target).
+It fits: sites and apps whose logic and data are in Go, that want React for pages, and run as one process on little hardware.
 
 It does not do: streaming SSR, React Server Components, rendering that waits for timers or network, or Windows for `tifa dev` (use WSL). The server render runs on linux and darwin, on amd64 and arm64, and windows/amd64. Tifa is early, so APIs can change.
 
 ## Docs of the installed version
 
-These skill files link to the docs on the `main` branch of GitHub. The app may use another Tifa version. When the app has an `AGENTS.md` written by `tifa new`, run `go tool tifa docs` first. It prints the path to the docs that match the version in `go.mod`, with when to read each. If a GitHub doc and the installed docs disagree, the installed docs win.
+Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and when to read each. The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
 
 ## Commands
 
@@ -22,14 +22,15 @@ Run them in the app root (the folder with `go.mod` and `app/`). They need Go 1.2
 | Command | What it does |
 | --- | --- |
 | `go run github.com/liustack/tifa/cmd/tifa@latest new myapp` | Write a small working app (a todo list on SQLite) into `myapp/`. Then `cd myapp`, `go mod tidy`, `pnpm install`. Add `--module example.com/myapp` to set the module path |
-| `go tool tifa dev` | Dev server at http://127.0.0.1:9527 (`--addr` changes it). TSX and CSS edits update the open page in place, Go edits rebuild and reload |
-| `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors with their stack in your sources, browser errors of open pages (hydration mismatches, uncaught errors, unhandled rejections) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. Exit status 0 means no error, 1 errors, 2 no `tifa dev`. `--json` prints JSON |
+| `go tool tifa dev --background` | Start the dev server detached and return once it answers, at http://127.0.0.1:9527 (`--addr` changes it). A plain `tifa dev` holds your terminal, so do not run it. Then `go tool tifa dev status` (`--json`, exit 1 when none runs), `go tool tifa dev logs` (`-n 100`, `-f`) and `go tool tifa dev stop`. Stop it when you finish. TSX and CSS edits update the open page in place, Go edits rebuild and reload |
+| `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors with their stack in your sources, browser errors of open pages (hydration mismatches, uncaught errors) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. Exit status 1 means errors, 2 no `tifa dev`. `--json` prints JSON |
 | `go tool tifa build` | Analyze, generate `.tifa/`, bundle with Vite, build `bin/<app>` with the front end embedded |
 | `go tool tifa check` | The one command to run before you finish. It runs the Tifa analysis, generates `.tifa/`, then `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa routes` | List the routes. `--json` prints the full manifest with Go types |
 | `go tool tifa docs` | Print where the docs of this Tifa version are |
+| `go tool tifa agents` | Write this skill and the managed block of `AGENTS.md` from the installed Tifa. `--check` changes nothing and exits 1 when they are out of date |
 
-An existing app already has the tool in `go.mod` (`go get -tool github.com/liustack/tifa/cmd/tifa` adds it). Use the package manager the app already uses. `tifa new` picks pnpm when it is installed.
+An existing app already has the tool in `go.mod` (`go get -tool github.com/liustack/tifa/cmd/tifa` adds it). Use the package manager the app already uses.
 
 `go vet` and `go test` alone are not enough: they skip `.tifa/`, and only `tifa check` runs the convention analysis and `tsc`.
 
@@ -86,22 +87,24 @@ Go side:
 
 Sessions (see `references/routing-and-data.md`):
 
-- Rolling your own sign-in cookie or session table. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, keep the record in memory without a store, and `tifa.SetSessionStore` in `OnStart` moves it to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`, and sign out with a POST.
-- Showing who is signed in from the data of a `Load`. Use `useSession()`, `<SignedIn>` and `<SignedOut>` from `tifa/client`, which wrap one element each and are right from the first paint. Give the session type an `Exposed()` method that returns only what the browser may keep, and read it as `data`. Keep the Layouts above a page free of personal data: a page with `const Cache` is made once for everyone, so its `Load` and Layouts see no cookie, header or session, and the build fails when they read one. The render memo keys pages by data and session, so it never mixes up visitors. Take the user, and anything else that is the visitor's own such as a cart, from `useSession` or from a handler the browser calls after the page has loaded.
+- Rolling your own sign-in cookie or session table. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, and `tifa.SetSessionStore` in `OnStart` moves the record from memory to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`. Sign out with a POST handler, `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`, which needs no input type.
+- Showing who is signed in from the data of a `Load`. Use `useSession()`, `<SignedIn>` and `<SignedOut>` from `tifa/client`, which wrap one element each and are right from the first paint. Give the session type an `Exposed()` method that returns only what the browser may keep, and read it as `data`. A page with `const Cache` is made once for everyone, so its `Load` and Layouts see no cookie, header or session (the build fails when they read one). Take the user, and anything else the visitor owns such as a cart, from `useSession` or from a handler the browser calls after the page has loaded.
+
+Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/app.md#coming-from-another-framework`).
 
 Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFound` or `Document`, declaring `const Path`, a `form` struct tag, `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `Error` export, with a check `error instanceof RouteError && error.status === 404`.
 
 Build and deploy:
 
-14. Forgetting to reload page data after a write. Tifa never reloads it for you, not after a `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen` either. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
+14. Forgetting to reload page data after a write. Tifa does not reload it, also not after a function from `route.gen`. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
 15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the Tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
-16. Changing the React or TanStack Router versions by hand. Tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build stops with the versions when they are wrong.
-17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = true` (the time is the setting `cache_control.s_maxage`, 1m by default) or `const Cache = 10 * time.Minute` in its `route.go`, and Tifa then sends the public headers itself. Tifa keeps nothing of the page: a CDN does. Navigation data is never public. `Memo = false` is the other switch: it only turns the render memo off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
+16. Changing the React or TanStack Router versions by hand. Tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build says which when they are wrong.
+17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Answers are `private, no-cache` by default, since a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = true` (time: `cache_control.s_maxage`, 1m by default) or `const Cache = 10 * time.Minute` in its `route.go`, and Tifa sends the public headers itself. Navigation data is never public. `Memo = false` only turns the render memo off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
 18. Editing `schema.sql` of a `tifa new` app and expecting `tifa dev` to pick it up. It does not watch that file, so restart it.
 
 ## References
 
-Read the one that matches the task. Each is short and links to the full docs.
+Read the one that matches the task.
 
 | File | Read when |
 | --- | --- |
@@ -113,4 +116,4 @@ Read the one that matches the task. Each is short and links to the full docs.
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
 | [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 
-The full docs are at https://github.com/liustack/tifa/tree/main/docs and the example app (a shop with a workbench and a two-language storefront) is at https://github.com/liustack/tifa/tree/main/examples/shop.
+The example app, a shop with a workbench and a two-language storefront, is at https://github.com/liustack/tifa/tree/main/examples/shop (GitHub `main`, not the installed version).

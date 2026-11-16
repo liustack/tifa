@@ -148,11 +148,10 @@ go tool tifa build
 
 ## 配合编程 agent 使用
 
-[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。把这个文件夹复制到项目的 `.claude/skills/` 下（想让所有项目都能用，就复制到 `~/.claude/skills/`）：
+[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。在你的应用里，按应用所用的 Tifa 版本把它写进 `.claude/skills/tifa/`。新应用已经带着它，升级 Tifa 之后运行同一条命令，就换成新版本的：
 
 ```sh
-git clone --depth 1 https://github.com/liustack/tifa.git tifa-src
-mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
+go tool tifa agents
 ```
 
 `tifa new` 生成的应用本来就带一份 `AGENTS.md`。这个 skill 讲的是同一批内容，更细，并链到文档。

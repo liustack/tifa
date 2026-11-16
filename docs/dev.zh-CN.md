@@ -152,6 +152,8 @@ tifa dev: ready at http://127.0.0.1:9527 (pid 41231)
 
 关掉终端不会停掉它。`--background` 是唯一的开关：Tifa 不会去识别 agent，不带它的 `tifa dev` 仍在前台运行。
 
+告诉 agent 这些命令的 skill 和说明，由 [`tifa agents`](build.zh-CN.md#tifa-agents) 写出。
+
 - 命令的其他所有参数和所有环境变量原样传给服务，包括 `--dir` 和 `--addr`。
 - 服务的全部输出写进 `.tifa/dev.log`：`tifa dev:` 开头的日志、应用的输出和 Vite 的消息。再次 `tifa dev --background` 会让文件从头开始。`tifa gen` 和 `tifa build` 不碰它。
 - 命令最多等 5 分钟。服务先退出了（会附上日志末尾）、第一次构建失败、或者 `GET /` 回了 5xx，它都以退出码 1 结束并说明原因。第一次构建失败后服务仍在运行，保存文件后会重新构建，所以改好代码，再运行 `tifa errors` 或 `tifa dev status`。`tifa dev stop` 可以停掉它。

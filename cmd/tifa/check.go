@@ -89,6 +89,9 @@ func runCheck(cmd *cobra.Command, root string) error {
 			return fmt.Errorf("check failed at typescript (tsc --noEmit): %w", err)
 		}
 	}
+	if hint := agentsHint(root); hint != "" {
+		fmt.Fprintln(stdout, hint)
+	}
 	fmt.Fprintln(stdout, "check passed")
 	return nil
 }

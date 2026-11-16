@@ -2,7 +2,7 @@
 
 Contents: URLs from folders, `route.go`, `Load`, Layouts and `tifa.Use`, method handlers, `Ctx`, what `Load` may do with `Ctx`, the page side (`route.gen`), JSON rules, `hooks.go`, sessions.
 
-Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md).
+Full docs (in the folder `go tool tifa docs` prints): `docs/app.md`.
 
 ## URLs come from folders
 
@@ -87,7 +87,7 @@ export default function ProjectLayout() {
 - Moving between pages under one Layout keeps the Layout mounted and its state. When a path parameter the Layout function reads changes, it remounts. A query parameter only loads the data again: state set from `Load` data needs a `key` or an effect to follow it.
 - `tifa.Use(c, project.Layout)` gives a `Load` or `Layout` the result of a Layout above it (same folder or an ancestor), for the current request. It runs once per request however many callers ask. The argument must be a package-level `Layout` function of a Layout that wraps the caller. Anything else fails the build.
 - On browser navigation only the `Load` and `Layout` of routes not already loaded run. A Layout whose data is cached does not run. Never rely on a Layout alone for a permission check. Put it in `OnRequest`, or make the page's `Load` call `tifa.Use` on the checking Layout so the check runs on every request.
-- Name the file `layout_.tsx` to show a section without any Layout above it, for example a storefront inside a site that has an admin shell. Details in [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#a-layout-without-the-layouts-above).
+- Name the file `layout_.tsx` to show a section without any Layout above it, for example a storefront inside a site that has an admin shell. Details in `docs/app.md#a-layout-without-the-layouts-above`.
 
 ## Method handlers with input and result
 
@@ -101,7 +101,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them, with no `MarshalText` or `UnmarshalText` on a field type or its element (a form never calls them).
 - Fields are named by their `json` tags. A `form` tag fails the build.
 - If the input type has `Validate() error` or `Validate(c *tifa.Ctx) error` (the Ctx gives `c.Language()` for a message in the visitor's language, and may only read the request), it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Collect into a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when empty. Any other plain error answers 400 with its text, which the user sees.
-- A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: [uploads](https://github.com/liustack/tifa/blob/main/docs/guides/uploads.md).
+- A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: uploads (`docs/guides/uploads.md`).
 - `const BodyLimit = 20 << 20` and `const ReadTimeout = 5 * time.Minute` in a `route.go` replace `server.body_limit` and `server.read_timeout` for its method handlers (not the GET of its page). Either may be a var, such as a `tifa.Size` setting. 408 when the body is too slow.
 - A body that does not decode answers 400 (413 over the body limit, 415 for another content type, 408 when it does not arrive in time). The handler does not run.
 - A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`.
@@ -143,7 +143,7 @@ func page(c *tifa.Ctx, tab string) (Page, error) { return build(c.Context(), c.P
 func param(c *tifa.Ctx, name string) string { return c.Param(name) }
 ```
 
-Full rules: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#how-load-may-use-ctx).
+Full rules: `docs/app.md#how-load-may-use-ctx`.
 
 ## The page side
 
@@ -300,9 +300,9 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - Without a store, sessions live in the memory of the process (up to `session.memory_limit`) and a restart signs everyone out. To keep them in Redis or SQL, call `tifa.SetSessionStore(store)` in `OnStart`, with a type that has `Get`, `Put` and `Delete` (`tifa.SessionStore`). `tifatest.TestSessionStore(t, store)` checks it.
 - The cookie is `__Host-tifa_session`, `HttpOnly`, `Secure`, `SameSite=Lax`, for 30 days (`session.cookie` and `session.max_age` change it). Under `tifa dev` it is `tifa_session` without `Secure`. Keep the record under 4 KiB: an ID and a few display fields.
 - In the browser, `useSession()` from `tifa/client` returns `{ signedIn, data, ready }`, where `data` is what `Exposed()` returned (type `SessionData` from `.tifa/session.gen`). `<SignedIn>` and `<SignedOut>` each wrap one element and show it only for a signed-in or signed-out visitor. The child must pass its props on to its DOM element. The server writes `<html data-session="in">`, so the first paint is right before any script runs. The copy only decides what to show, so check access in Go.
-- A call to a handler that signs in or out brings the new session, and the page and its Layouts load again. A redirect from the handler goes through the router.
+- A call to a handler that signs in or out brings the new session, also for one with no input and no result such as the logout above, and the page and its Layouts load again. A redirect from the handler goes through the router.
 - Writing `Cache-Control` on an answer that carries the session: only `no-store`, or `private, no-cache`. Anything else fails the request.
 - On a page with `Cache`, `tifa.Session` is nil whoever asks, `SetSession` and `ClearSession` fail (sign-in and OAuth callbacks belong on routes without `Cache`), and the HTML carries no session. The browser gets it after the page has loaded: `useSession`, `<SignedIn>` and `<SignedOut>` follow the copy in `localStorage`, and the navigation data of the page carries the session of that browser. Known limits: the render memo keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
 - The shop in `examples/shop` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `SignedIn` and `SignedOut`).
 
-Full docs: [Sessions](https://github.com/liustack/tifa/blob/main/docs/sessions.md).
+Full docs (in the folder `go tool tifa docs` prints): Sessions (`docs/sessions.md`).
