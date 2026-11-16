@@ -34,6 +34,7 @@ const usage = `usage:
   compare links [flags]
   compare deps [flags]
   compare browse [flags]
+  compare status [flags]
   compare report out.json
   compare diff old.json new.json`
 
@@ -45,7 +46,7 @@ func main() {
 	switch os.Args[1] {
 	case "build", "measure":
 		measure(os.Args[1], os.Args[2:])
-	case "plans", "record", "links", "deps", "browse":
+	case "plans", "record", "links", "deps", "browse", "status":
 		browseCmd(os.Args[1], os.Args[2:])
 	case "report":
 		if len(os.Args) != 3 {
@@ -172,10 +173,12 @@ func measure(cmd string, args []string) {
 	fmt.Println(rec.Markdown())
 }
 
-// browseCmd is plans, record, links, deps and browse: the comparison of whole visits. plans writes the
-// visit plans, record plays them in a browser against each framework and keeps what the browser
-// sent, links makes store_links.json, the links of the storefront pages, deps makes store_deps.json,
-// which products each page shows, and browse replays those traces at load and measures them.
+// browseCmd is plans, record, links, deps, browse and status: the comparison of whole visits. plans
+// writes the visit plans, record plays them in a browser against each framework and keeps what the
+// browser sent, links makes store_links.json, the links of the storefront pages, deps makes
+// store_deps.json, which products each page shows, browse replays those traces at load and measures
+// them, and status says what a run with the stamps given does with the result of -out, server by
+// server.
 func browseCmd(cmd string, args []string) {
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	var (
@@ -206,6 +209,10 @@ func browseCmd(cmd string, args []string) {
 		if err := compare.WritePlans(*dir, *seed, *blocks); err != nil {
 			fatal(err)
 		}
+		return
+	}
+	if cmd == "status" {
+		browseStatus(*dir, list)
 		return
 	}
 	if why := compare.MissingTools(); why != "" {

@@ -58,23 +58,42 @@ func countCPUs(list string) int {
 	return n
 }
 
-func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, servers []string) {
-	o := &browseOpts
-	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs), Probe: o.probe,
-		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Sizing: o.sizing, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, MaxRate: o.maxRate, Log: os.Stderr}
-	for _, pair := range strings.Split(o.serverStamps, ",") {
+// serverStamps reads -server-stamps, spec=stamp pairs, comma separated.
+func serverStamps() map[string]string {
+	list := browseOpts.serverStamps
+	var out map[string]string
+	for _, pair := range strings.Split(list, ",") {
 		if pair = strings.TrimSpace(pair); pair == "" {
 			continue
 		}
 		name, stamp, ok := strings.Cut(pair, "=")
 		if !ok || name == "" {
-			fatal(fmt.Errorf("-server-stamps %s: want spec=stamp, comma separated", o.serverStamps))
+			fatal(fmt.Errorf("-server-stamps %s: want spec=stamp, comma separated", list))
 		}
-		if opts.ServerStamps == nil {
-			opts.ServerStamps = map[string]string{}
+		if out == nil {
+			out = map[string]string{}
 		}
-		opts.ServerStamps[name] = stamp
+		out[name] = stamp
 	}
+	return out
+}
+
+// browseStatus prints, for each server, what a run with these stamps does with the result of -out
+// (compare.BrowseStatus). It reads and changes nothing else.
+func browseStatus(dir string, servers []string) {
+	for _, server := range servers {
+		status, err := compare.BrowseStatus(browseOpts.out, dir, browseOpts.stamp, serverStamps(), server)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Print(status)
+	}
+}
+
+func browseRun(ctx context.Context, env compare.Env, dir string, seed uint64, servers []string) {
+	o := &browseOpts
+	opts := compare.BrowseOptions{TraceDir: dir, OutJSON: o.out, Seed: seed, Servers: servers, ServerCPUs: o.serverCPUs, LoadCPUs: o.loadCPUs, LoadCPUCount: countCPUs(o.loadCPUs), ServerCPUCount: countCPUs(o.serverCPUs), Probe: o.probe,
+		Phases: strings.Split(o.phases, ","), Sessions: o.sessions, Rounds: o.rounds, Sizing: o.sizing, Target: o.target, TrialWindow: o.trial, FinalWindow: o.final, Stamp: o.stamp, ServerStamps: serverStamps(), MaxRate: o.maxRate, Log: os.Stderr}
 	for _, lock := range strings.Split(o.locks, ",") {
 		if lock = strings.TrimSpace(lock); lock != "" {
 			opts.Locks = append(opts.Locks, lock)

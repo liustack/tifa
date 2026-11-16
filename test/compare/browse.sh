@@ -8,6 +8,8 @@
 #                                    (needs a working Chromium)
 #   test/compare/browse.sh run       replay the traces at load and write the JSON and the report
 #   test/compare/browse.sh report    write the report again from the JSON
+#   test/compare/browse.sh status    for each server: whether its trace is current, whether its result is
+#                                    current, stale or missing, and its rounds done (changes nothing)
 #   test/compare/browse.sh stamp [TRACE]   print what each trace is bound to (runstamp: the results)
 #
 # Recording and running can be done on two machines: `record` where Chromium works, copy the folder
@@ -264,6 +266,23 @@ do_run() {
   do_report
 }
 
+do_status() {
+  build_tool
+  local s name why shared stamps
+  shared=$(run_stamp | sha)
+  stamps=$(server_stamps)
+  for s in $(echo "$servers" | tr "," " "); do
+    name=${s%%-*}
+    echo "$s"
+    if why=$(traces_current "$name"); then
+      echo "  trace $name: current"
+    else
+      echo "  trace $name: not current: $why" | sed '2,$s/^/  /'
+    fi
+    "$compare" status -dir "$traces" -servers "$s" -out "$out/browse.json" -stamp "$shared" -server-stamps "$stamps"
+  done
+}
+
 do_report() {
   build_tool
   "$compare" report "$out/browse.json" >"$out/browse.md"
@@ -276,6 +295,7 @@ case "${1:-}" in
   record) do_record ;;
   run) do_run ;;
   report) do_report ;;
+  status) do_status ;;
   stamp) if [ -n "${2:-}" ]; then trace_stamp "$2"; else all_trace_stamps; fi ;;
   runstamp) all_run_stamps ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 2 ;;
