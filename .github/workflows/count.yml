@@ -1,4 +1,4 @@
-# Instructions of one render of each page of the example shop at two refs, counted by
+# Instructions of one render of each page of the example shop (or the MUI test app) at two refs, counted by
 # callgrind on the same runner. Started by hand. See "Counting instructions" in docs/testing.md.
 name: count
 
@@ -11,16 +11,20 @@ on:
       base:
         description: "The commit or branch to count it against"
         default: main
+      app:
+        description: "The app whose pages are counted: shop or mui"
+        default: shop
 
 permissions:
   contents: read
 
 env:
   CGO_ENABLED: "0"
+  COUNT_APP: ${{ inputs.app }}
 
 jobs:
   count:
-    name: count (${{ inputs.base }} and ${{ inputs.ref || github.ref_name }})
+    name: count ${{ inputs.app }} (${{ inputs.base }} and ${{ inputs.ref || github.ref_name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -65,11 +69,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends valgrind
           valgrind --version
-      - name: Build the shop at both sides
+      - name: Build the app at both sides
         run: |
+          case $COUNT_APP in
+          shop) dir=examples/shop ;;
+          mui) dir=test/apps/mui ;;
+          *) echo "no app $COUNT_APP" >&2; exit 1 ;;
+          esac
           for side in ref base; do
             (
-              cd "$side/examples/shop"
+              cd "$side/$dir"
               pnpm install --frozen-lockfile
               go tool tifa build
             ) &

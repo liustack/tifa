@@ -158,10 +158,38 @@ const probe = () => {
   const s = sep.getFixedT('en')
   return [p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: 'reverse' }), p('ppx', { postProcess: ['reverse'] }), p('titlex'), p('titlex'), shop.t('titlex'), c('ppx', { postProcess: 'reverse' }), c('ppx', { postProcess: 'reverse' }), s('extra.title'), s('extra.title')]
 }
+// flips changes what one t is for between its calls, the way a page can set the properties of a t,
+// in place and with values that differ only in their type or sign, as the cache must tell apart a
+// call from the call before it.
+const flips = () => {
+  const t = shop.getFixedT('en')
+  const r = [t('title')]
+  const again = (change) => (change(), r.push(t('title'), t('greet', { name: 'N' })))
+  again(() => (t.lng = 'de'))
+  again(() => (t.lng = ''))
+  again(() => (t.lng = 'en'))
+  again(() => (t.keyPrefix = 'nested'))
+  again(() => (t.keyPrefix = undefined))
+  again(() => (t.ns = 'common'))
+  again(() => (t.ns = ['common']))
+  again(() => (t.ns[0] = 'translation'))
+  again(() => (t.ns = 'translation'))
+  again(() => (t.lngs = ['de', 'en']))
+  again(() => (t.lng = undefined))
+  again(() => (t.lngs[0] = 'en'))
+  again(() => (t.lngs = undefined))
+  again(() => (t.lng = "en"))
+  again(() => (t.keyPrefix = 0))
+  again(() => (t.keyPrefix = -0))
+  again(() => (t.keyPrefix = NaN))
+  again(() => (t.keyPrefix = undefined))
+  r.push(t('title', undefined), t('title', undefined, 'x'), t('title', 'x'), t('title', null), t('title', {}))
+  return r
+}
 const runs = []
 const step = (name, change) => {
   if (change) change()
-  runs.push([name, calls().concat([probe()])])
+  runs.push([name, calls().concat([probe(), flips()])])
 }
 step('first')
 step('again')

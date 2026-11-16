@@ -1,8 +1,8 @@
 package ssr_test
 
-// Instructions of one render of each page of the shop, counted by callgrind. Run it with
-// scripts/count-instructions.sh, which builds this test, runs it under valgrind and reads the
-// dumps. Build the shop first (see shop_test.go).
+// Instructions of one render of each page of the shop, or with TIFA_COUNT_APP=mui of the MUI test
+// app, counted by callgrind. Run it with scripts/count-instructions.sh, which builds this test, runs
+// it under valgrind and reads the dumps. Build the app first (see shop_test.go).
 //
 // One VM renders every page TIFA_COUNT_WARM times, then each page in turn TIFA_COUNT_TIMED times
 // with the counters of callgrind zeroed before and dumped after. The window holds the renders
@@ -51,6 +51,31 @@ var countPages = []struct {
 	{"store-zh-CN-post", "/zh-CN/store/journal/stock-sync-api", 2},
 }
 
+// muiCountPages are the pages of test/apps/mui that are counted: its dashboard, the first page of
+// its order table and an order.
+var muiCountPages = []struct {
+	name, url string
+	layers    int
+}{
+	{"mui-dashboard", "/", 2},
+	{"mui-orders", "/orders", 2},
+	{"mui-order", "/orders/ORD-1240", 2},
+}
+
+// countApp is the folder and program of the app TIFA_COUNT_APP names, and its pages.
+func countApp(b *testing.B) (dir, exe string, env []string) {
+	switch app := os.Getenv("TIFA_COUNT_APP"); app {
+	case "", "shop":
+		return shopDir, filepath.Join(shopDir, "bin", "shop"), []string{"SHOP_OPEN=1"}
+	case "mui":
+		countPages = muiCountPages
+		return "../apps/mui", "../apps/mui/bin/muitest", nil
+	default:
+		b.Fatalf("TIFA_COUNT_APP=%s: no such app, it is shop or mui", app)
+	}
+	return
+}
+
 // countInput is a page's input as the file TIFA_COUNT_INPUTS keeps it. Texts do not go into the JSON of an
 // ssr.Input, so they come beside it.
 type countInput struct {
@@ -58,17 +83,17 @@ type countInput struct {
 	Texts []string
 }
 
-// fetchCountInputs asks the running shop for the data of every page of countPages.
-func fetchCountInputs(b *testing.B) []countInput {
+// fetchCountInputs asks the running app for the data of every page of countPages.
+func fetchCountInputs(b *testing.B, dir, exe string, env []string) []countInput {
 	var built struct{ BuildID string }
-	data, err := os.ReadFile(filepath.Join(shopDir, ".tifa", "dist", "build.json"))
+	data, err := os.ReadFile(filepath.Join(dir, ".tifa", "dist", "build.json"))
 	if err != nil {
-		b.Fatalf("run tifa build in examples/shop first: %v", err)
+		b.Fatalf("run tifa build in %s first: %v", dir, err)
 	}
 	if err := json.Unmarshal(data, &built); err != nil {
 		b.Fatal(err)
 	}
-	base := startShop(b)
+	base := startProgram(b, exe, env...)
 	var out []countInput
 	for _, p := range countPages {
 		req, err := http.NewRequest("GET", base+dataURL(p.url, built.BuildID, strings.Repeat(",", p.layers-1)), nil)
@@ -99,12 +124,13 @@ func BenchmarkCountPages(b *testing.B) {
 	if os.Getenv("TIFA_SSR_SHOP") == "" {
 		b.Skip("set TIFA_SSR_SHOP=1 after running tifa build in examples/shop")
 	}
+	dir, exe, env := countApp(b)
 	file := os.Getenv("TIFA_COUNT_INPUTS")
 	if file == "" {
 		b.Fatal("set TIFA_COUNT_INPUTS to a file name: scripts/count-instructions.sh does it, and runs this under valgrind (Linux, amd64)")
 	}
 	if _, err := os.Stat(file); err != nil {
-		data, err := json.Marshal(fetchCountInputs(b))
+		data, err := json.Marshal(fetchCountInputs(b, dir, exe, env))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -116,9 +142,9 @@ func BenchmarkCountPages(b *testing.B) {
 	if !cg.Running() && os.Getenv("TIFA_COUNT_NATIVE") == "" {
 		b.Fatal("run this under valgrind --tool=callgrind: scripts/count-instructions.sh does it (Linux, amd64). TIFA_COUNT_NATIVE=1 renders without counting, to check the pages")
 	}
-	source, err := os.ReadFile(filepath.Join(shopDir, ".tifa", "dist", "ssr.js"))
+	source, err := os.ReadFile(filepath.Join(dir, ".tifa", "dist", "ssr.js"))
 	if err != nil {
-		b.Fatalf("run tifa build in examples/shop first: %v", err)
+		b.Fatalf("run tifa build in %s first: %v", dir, err)
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
