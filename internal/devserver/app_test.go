@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -199,5 +200,31 @@ func TestAppReadyFailsWhenAnotherProgramHoldsTheAddress(t *testing.T) {
 	err = a.waitReady(context.Background(), addr, 5*time.Second)
 	if err == nil || !strings.Contains(err.Error(), "exited") {
 		t.Fatalf("got %v, want an error saying the app exited, as it could not listen", err)
+	}
+}
+
+// The address of the app is never the one of Vite's dev server. Both are ports that were free when
+// they were chosen and that nothing holds yet, so the system may give the same one twice.
+func TestAppAddressIsNotTheOneOfVite(t *testing.T) {
+	vite, err := freeAddr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := listenLoopback
+	t.Cleanup(func() { listenLoopback = real })
+	calls := 0
+	listenLoopback = func() (net.Listener, error) {
+		calls++
+		if calls == 1 {
+			return net.Listen("tcp", vite) // the system gives the port of Vite again
+		}
+		return real()
+	}
+	addr, err := freeAddrBut(vite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr == vite || calls != 2 {
+		t.Fatalf("the app got %s after %d tries, want another address than %s on the second try", addr, calls, vite)
 	}
 }

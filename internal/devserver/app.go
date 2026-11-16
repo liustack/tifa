@@ -137,14 +137,33 @@ func (a *app) stop(timeout time.Duration) error {
 	return fmt.Errorf("the app was still running %s after an interrupt, killed it", timeout)
 }
 
+// listenLoopback listens on a loopback port the system chooses. A test replaces it.
+var listenLoopback = func() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") }
+
 // freeAddr returns a loopback address with a port that is free right now.
-func freeAddr() (string, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
+func freeAddr() (string, error) { return freeAddrBut("") }
+
+// freeAddrBut returns a loopback address with a port that is free right now and that is not taken,
+// the address chosen for Vite's dev server. That port was free when it was chosen too, and nothing
+// holds it until Vite starts, so the system may give it again. A listener that got it stays open
+// until another address is found, so the next one differs.
+func freeAddrBut(taken string) (string, error) {
+	var held []net.Listener
+	defer func() {
+		for _, ln := range held {
+			ln.Close()
+		}
+	}()
+	for {
+		ln, err := listenLoopback()
+		if err != nil {
+			return "", err
+		}
+		held = append(held, ln)
+		if addr := ln.Addr().String(); addr != taken {
+			return addr, nil
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().String(), nil
 }
 
 // The limits of what tail keeps.
