@@ -14,6 +14,7 @@
 
 ### 变更
 
+- Tifa 不再发送浏览器会读成另一个数的数字。浏览器和服务端渲染都把 JSON 数字按双精度浮点数读，所以超过 9007199254740991 的整数，比如雪花 ID、`uint64` 哈希或 `time.UnixNano()`，以前到了页面会被取整，而且没有任何报错。现在请求会按意外错误失败（走 `OnError`，返回 500，开发页和 `tifa errors` 里都能看到），报错信息写明是哪个 `Load`、`Layout`、handler 或会话，数字所在的路径（如 `rows[3].id`），以及这个数字的原文和浏览器读出来的值。范围是 `Load` 和 `Layout` 的结果、`Exposed` 给出的会话数据，以及从页面的生成函数发起的调用得到的 handler 结果。handler 对不带 `X-Tifa-Call` 的客户端的答复，和应用自己用 `c.JSON` 写的内容不变。`float64`、毫秒时间戳和计数器不会触发。在字段上加 `json:",string"` 就把它当字符串发送（类型是 `string`），或者改发毫秒。见 [JSON 规则](docs/app.zh-CN.md#json-规则)。
 - 登录指南新增 `RequireUser` 守卫，用 `c.Path()` 把没登录的访客送到 `/login?next=`，并用 `tifatest.Start` 测了整个登录和登出。
 - 页面对没有入参也没有结果的方法函数的调用，比如 `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`，在方法函数什么都没写时，现在会把新的会话带给浏览器。以前 `SignedIn`、`SignedOut` 和 `useSession` 会保持旧状态，直到下一次导航。回答是 200、`X-Tifa-Session: 1`，正文是会话，生成的 TypeScript 不变。自己写响应的方法函数不受影响。
 - `skills/tifa` 里的 skill 补上了 `tifa dev --background` 和 `status`、`logs`、`stop`、对其他框架写法的检查，以及不带入参的退出登录处理函数。它的链接改成指向所装版本文档的路径，不再指向 GitHub。

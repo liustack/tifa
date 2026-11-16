@@ -68,26 +68,26 @@ Folder names are URL segments. `order+` is a parameter, and `path++` is the rest
 
 Rendering on the server:
 
-1. Reading `Date.now()`, `new Date()`, `Math.random()`, `crypto.randomUUID()` or `Temporal.Now` while rendering. The server and the browser get different values and React reports a hydration mismatch. Compute the value in `Load`, or set it in an effect.
+1. Reading `Date.now()`, `new Date()`, `Math.random()`, `crypto.randomUUID()` or `Temporal.Now` while rendering. The server and the browser get different values and React reports a hydration mismatch. Compute it in `Load`, or set it in an effect.
 2. Calling `toLocaleString`, `Intl.NumberFormat` or `Intl.DateTimeFormat` without a locale (and, for dates, a `timeZone`). The server uses `en-US` and `UTC`, the browser uses its user's. Pass both from `Load` data.
 3. Using `window`, `document`, `localStorage`, `fetch`, `setTimeout` or `process` while rendering or at the top level of a module. The server has none of them. Effects and event handlers are fine. Otherwise guard with `typeof`, or move the component to a `*.client.tsx` file.
 4. Fetching the main data of a page in an effect. Return it from `Load` instead. The server render cannot wait for the network.
-5. Keeping request or user data in module-level variables, such as a store or a query client created outside a component. VMs are reused, so the next request sees it. Create them inside a component.
+5. Keeping request or user data in module-level variables, such as a store or a query client created outside a component. VMs are reused, so the next request sees it. Create them in a component.
 
 Go side:
 
 6. Putting `Load`, `Layout`, `Memo`, a handler and so on in a file other than `route.go` of the folder. The build fails. A `Load` needs a `page.tsx` beside it, and a folder with `page.tsx` cannot declare `GET`.
-7. Calling `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Query("x")`, `c.QueryValues("x")`, `c.Header`, `c.Cookie`, `c.Context()`. Pass these a constant string, and do not store, return or convert `c` (see `references/routing-and-data.md`).
-8. Doing permission checks only in a `Layout`. On browser navigation a cached Layout does not run again. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
-9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted.
+7. Calling `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Query("x")`, `c.QueryValues("x")`, `c.Header`, `c.Cookie`, `c.Context()`. Pass them constant strings, never store or convert `c` (see `references/routing-and-data.md`).
+8. Doing permission checks only in a `Layout`: a cached Layout does not run again on navigation. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
+9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted. Integers a browser would round (above 9007199254740991, such as snowflake IDs or `UnixNano`) fail the request: tag the field `json:",string"`, or send milliseconds.
 10. Changing state in a `GET`. The cross-site write check covers POST, PUT, PATCH and DELETE only.
-11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Open resources in `OnStart`, close them in `OnShutdown`.
+11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Use `OnStart` and `OnShutdown` for resources.
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.
-13. Reading options with `os.Getenv` or your own flags. Define them in `options.go` at the root with `tifa.String`, `tifa.Int`, `tifa.Bool` and the like, so `./bin/app config` lists them and a bad value stops the program before `OnStart`.
+13. Reading options with `os.Getenv` or your own flags. Define them in `options.go` at the root with `tifa.String`, `tifa.Int`, `tifa.Bool` and the like: `./bin/app config` lists them and a bad value stops startup.
 
 Sessions (see `references/routing-and-data.md`):
 
-- Rolling your own sign-in cookie or session table. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, and `tifa.SetSessionStore` in `OnStart` moves the record from memory to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`. Sign out with a POST handler, `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`, which needs no input type.
+- Rolling your own session cookie. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, and `tifa.SetSessionStore` in `OnStart` moves the record from memory to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`. Sign out with `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`.
 - Showing who is signed in from the data of a `Load`. Use `useSession()`, `<SignedIn>` and `<SignedOut>` from `tifa/client`, which wrap one element each and are right from the first paint. Give the session type an `Exposed()` method that returns only what the browser may keep, and read it as `data`. A page with `const Cache` is made once for everyone, so its `Load` and Layouts see no cookie, header or session (the build fails when they read one). Take the user, and anything else the visitor owns such as a cart, from `useSession` or from a handler the browser calls after the page has loaded.
 
 Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/app.md#coming-from-another-framework`).
