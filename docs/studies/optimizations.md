@@ -12,13 +12,13 @@ read_when:
 
 This study keeps the record of how rendering got faster. The biggest step was the C engine of quickjs v0.29, which renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it. After it, each rewrite the Vite plugin makes to the SSR bundle gains a little. Check the list of ideas that were tried and dropped before you try one again.
 
-[Performance](../performance.md) has the numbers a reader needs to size a machine or compare frameworks. This page has the numbers behind it. "The machine above" and "the machine below" mean the machines described in [How the numbers were measured](../performance.md#how-the-numbers-were-measured). Later releases can change the numbers, so read each one as it was on its day.
+[Performance](../performance.md) has the numbers a reader needs to size a machine or compare frameworks. This page has the numbers behind it. "The machine above" and "the machine below" mean the machines described in [How the numbers were measured](capacity.md#how-the-numbers-were-measured). Later releases can change the numbers, so read each one as it was on its day.
 
 ## The redesigned shop
 
 The redesign made the shop's pages as heavy as those of a real shop: product photos, a category menu and a cart drawer on every storefront page, a carousel, galleries, reviews with photos and questions, facets and a comparison on the product pages, and an order list of 25 rows a page with filters, row menus and bulk actions. An order shows its log, notes, payment, stock check and packing list, and the stats page a table of every product, a heatmap and the carriers. These numbers are for the new pages. They are not a change in Tifa's speed, so they are not compared with the old ones, except that the order and stats pages are given before and after their second round of modules.
 
-Measured on 2026-10-29 on the machine in [How the numbers were measured](../performance.md#how-the-numbers-were-measured), with Tifa phase5/tifa-switch, quickjs 0cc6d332 (the C engine), built with the profile Tifa shipped then, which made no difference: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, two runs, the mean of the runs. The last column is the P50 with quickjs v0.28.6, measured on 2026-10-28.
+Measured on 2026-10-29 on the machine in [How the numbers were measured](capacity.md#how-the-numbers-were-measured), with Tifa phase5/tifa-switch, quickjs 0cc6d332 (the C engine), built with the profile Tifa shipped then, which made no difference: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, two runs, the mean of the runs. The last column is the P50 with quickjs v0.28.6, measured on 2026-10-28.
 
 | Page | HTML | P50 ms | P99 ms | P50 ms, quickjs v0.28.6 |
 | --- | --- | --- | --- | --- |

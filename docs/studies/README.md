@@ -11,6 +11,7 @@ Each study gives one question its full method, data and limits. [Performance](..
 
 | Study | Measured | Question |
 | --- | --- | --- |
+| [Capacity measurements](capacity.md) | 2026-10-24 to 2026-11-17 | What are the full tables behind Performance: render times against C QuickJS and Node, scaling with cores, overload, memory per VM and compression? |
 | [Next.js and TanStack Start](nextjs-and-tanstack-start.md) | 2026-10-19, 2026-10-24, 2026-10-29 | On whole HTTP requests for the same pages, how much more do Next.js and TanStack Start serve than Tifa, and what does Tifa give back in memory, start-up and deployment? |
 | [React PR 37022 and React Compiler](react-layer.md) | 2026-10-20 | Do one push per start tag or React Compiler, in its normal or SSR mode, make renders in QuickJS faster? |
 | [What others do to go faster](industry-survey.md) | 2026-10-20 | Which known ways to speed up React server rendering fit Tifa, and what might each give? |
