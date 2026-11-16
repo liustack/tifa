@@ -623,7 +623,6 @@ function tifaI18nTake(v) {
   tifaI18nIsPart = part;
   return r;
 }
-function tifaI18nSame(a, b) { return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b; }
 function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
   let m = 0, a, b, c, d, e, g, f = 0, h = '';
   if ((a = tifaI18nTake(fixedT.lng)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 1;
@@ -640,7 +639,7 @@ function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
   const defaults = options.interpolation.defaultVariables;
   if (defaults) { if (typeof defaults !== 'object' || (h = tifaI18nObjectPart(defaults)) === undefined) return; }
   const l = tifaI18nLast;
-  if (l.m === m && tifaI18nSame(l.a, a) && tifaI18nSame(l.b, b) && tifaI18nSame(l.c, c) && tifaI18nSame(l.d, d) && tifaI18nSame(l.e, e) && tifaI18nSame(l.g, g) && l.f === f && l.h === h) return l.prefix;
+  if (l.m === m && ${objectIsInPlace('l.a', 'a')} && ${objectIsInPlace('l.b', 'b')} && ${objectIsInPlace('l.c', 'c')} && ${objectIsInPlace('l.d', 'd')} && ${objectIsInPlace('l.e', 'e')} && ${objectIsInPlace('l.g', 'g')} && l.f === f && l.h === h) return l.prefix;
   const prefix = (m & 1 ? a : tifaI18nPart(a)) + (m & 4 ? (m & 2 ? b : tifaI18nPart(b)) : '') + (m & 8 ? c : tifaI18nPart(c)) + (m & 16 ? d : tifaI18nPart(d)) +
     (m & 32 ? e : tifaI18nPart(e)) + (m & 64 ? g : tifaI18nPart(g)) + (f ? 'f' + f + ';' : '') + h;
   tifaI18nLast = { m: m, a: a, b: b, c: c, d: d, e: e, g: g, f: f, h: h, prefix: prefix };
