@@ -347,6 +347,13 @@ func TestViolations(t *testing.T) {
 			{"app/id+/x/id+/page.tsx:1:", "twice"},
 			{"app/x~1/page.tsx:1:", "x~1"},
 		}},
+		{"foreignfolders", [][]string{
+			{"app/$id/page.tsx:1:", "Remix or React Router", "id+", ". See docs/app.md#urls-come-from-folders"},
+			{"app/(marketing)/page.tsx:1:", "route group of Next.js", "there are no route groups"},
+			{"app/[...slug]/page.tsx:1:", "catch-all route of Next.js", "slug++"},
+			{"app/@modal/page.tsx:1:", "parallel route slot of Next.js"},
+			{"app/[id]/page.tsx:1:", "dynamic route of Next.js and SvelteKit", "id+"},
+		}},
 		{"layoutparam", [][]string{{"app/projects/route.go:8:", `"projectId"`, `"/projects"`}}},
 		{"usenonancestor", [][]string{
 			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},

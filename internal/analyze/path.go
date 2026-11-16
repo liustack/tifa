@@ -1,10 +1,13 @@
 package analyze
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"unicode"
+
+	"github.com/liustack/tifa/internal/foreign"
 )
 
 // segment is one segment of a Path: a literal, {name} or the trailing {name...}.
@@ -46,6 +49,9 @@ func dirSegments(dir string) ([]segment, error) {
 			name, param = strings.CutSuffix(part, "+")
 		}
 		if !param {
+			if msg, ok := foreign.Folder(part); ok {
+				return nil, errors.New(msg)
+			}
 			if j := strings.IndexFunc(part, func(r rune) bool { return !isLiteralRune(r) }); j >= 0 {
 				return nil, fmt.Errorf("directory %q holds %q: a directory name below app/ is a URL segment of letters, digits, - . _ and ~, or name+ for a parameter and name++ for the rest of the path", part, part[j:j+1])
 			}

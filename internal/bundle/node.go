@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/liustack/tifa/internal/foreign"
 	"github.com/liustack/tifa/js"
 )
 
@@ -407,6 +408,31 @@ func (n *Node) Exports(files []string) (map[string][]string, error) {
 	out := make(map[string][]string, len(files))
 	for i, f := range files {
 		out[f] = result.Exports[abs[i]]
+	}
+	return out, nil
+}
+
+// Foreign reads the files like Exports and returns, by file, what the check for code of other
+// frameworks needs. Files that do not parse are left out.
+func (n *Node) Foreign(files []string) (map[string]*foreign.Facts, error) {
+	abs := make([]string, len(files))
+	for i, f := range files {
+		var err error
+		if abs[i], err = filepath.Abs(f); err != nil {
+			return nil, err
+		}
+	}
+	var result struct {
+		Found map[string]*foreign.Facts `json:"found"`
+	}
+	if err := n.call("foreign", map[string]any{"files": abs}, &result); err != nil {
+		return nil, err
+	}
+	out := make(map[string]*foreign.Facts, len(files))
+	for i, f := range files {
+		if facts := result.Found[abs[i]]; facts != nil {
+			out[f] = facts
+		}
 	}
 	return out, nil
 }
