@@ -238,3 +238,16 @@ func TestGeneratedRouterPrefixesLanguages(t *testing.T) {
 		t.Fatalf("tsc: %v\n%s", err, output)
 	}
 }
+
+// guardBuild is routerBuild for testdata/router/guard.test.tsx.
+var guardBuild = strings.Replace(routerBuild, "const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],\n  ['session.test.tsx', 'node', false], ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]", "const entries = [['guard.test.tsx', 'node', false], ['guard-browser.test.tsx', 'browser', false]]", 1)
+
+// TestTanStackMembersStay runs testdata/router/guard.test.tsx, which checks that the members of
+// TanStack Router that tifa uses without TanStack documenting them are still there, and says
+// what in tifa breaks when one is not.
+func TestTanStackMembersStay(t *testing.T) {
+	_, _, _, run := routerApp(t, filepath.Join("testdata", "router"), guardBuild, nil)
+	run("build.mjs")
+	run(filepath.Join("out", "guard.test.mjs"))
+	run(filepath.Join("out", "guard-browser.test.mjs"))
+}
