@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.13] - 2026-11-17
+
 ### Added
 
 - `tifa new` writes a `pnpm-workspace.yaml` with `minimumReleaseAge: 4320`, so pnpm 10.16 or later installs no package version that is less than 3 days old. A npm package that is compromised is usually found and pulled within days. The versions `package.json` pins are all older than that. See [`tifa new`](docs/build.md#tifa-new).

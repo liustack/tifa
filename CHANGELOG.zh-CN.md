@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.0.13] - 2026-11-17
+
 ### 新增
 
 - `tifa new` 会写一个 `pnpm-workspace.yaml`，里面是 `minimumReleaseAge: 4320`，让 pnpm 10.16 及以上不安装发布不满 3 天的包版本。被投毒的 npm 包通常在几天内就会被发现并下架。`package.json` 里写死的版本都比这个时间早。见 [`tifa new`](docs/build.zh-CN.md#tifa-new)。
