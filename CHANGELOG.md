@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- `tifa dev` rebuilds once for a file saved in place, also when the machine is busy or a poll looks at the file in the middle of the save. It could take the empty file for a settled change and rebuild twice, the second time for the finished file. Before it takes a batch, it now lets the file watcher catch up with its events and polls.
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed
