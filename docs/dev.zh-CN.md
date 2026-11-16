@@ -1,10 +1,11 @@
 ---
-summary: '`tifa dev` 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、浏览器里的错误怎么显示、`tifa errors` 怎么打印上次构建以来的错误、开发产物放在哪、大应用怎么监视'
+summary: '`tifa dev` 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、浏览器里的错误怎么显示、`tifa errors` 怎么打印上次构建以来的错误、agent 或脚本怎么在后台启动 `tifa dev` 并查看状态、日志和停止（`--background`、`status`、`logs`、`stop`）、开发产物放在哪、大应用怎么监视'
 read_when:
   - 第一次在本地跑 Tifa 应用
   - 改 internal/devserver、cmd/tifa 的 dev 命令或 internal/bundle 的开发构建
   - `tifa dev` 改了文件页面却没更新，或报出看不懂的错误
   - 想在脚本或编程 agent 里查改动有没有弄坏构建、请求或浏览器里的页面，或者要改 `tifa errors`
+  - 想在脚本或编程 agent 里启动、查看或停止 `tifa dev`，或者要改 `tifa dev --background`、`status`、`logs`、`stop`
 ---
 
 [English](dev.md) · 简体中文
@@ -12,7 +13,7 @@ read_when:
 # `tifa dev`
 
 ```sh
-tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
+tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527] [--background]
 ```
 
 启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [`tifa build`](build.zh-CN.md)，应用的第一次构建要几秒到一分钟，见[日志](#日志)），启动应用。浏览器只连 `--addr`。`tifa dev` 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C、SIGTERM 和 SIGHUP（终端关闭时会发出）停掉应用、Vite 和 `tifa dev`。用 `nohup` 启动的 `tifa dev` 会忽略 SIGHUP。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。`tifa dev` 自己被强行杀掉时，应用和 Vite 也会自行退出：应用像收到 SIGTERM 一样关停，Vite 在这 5 秒内退出。`tifa dev` 只把点名要给应用和 Vite 的文件交给它们，自己继承来的文件（比如脚本用 `flock` 持有的锁）不会传下去。
@@ -131,6 +132,73 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 刷新和浮层走 `tifa dev` 自己的连接 `/__tifa/dev/events`，不走 Vite 的 HMR websocket。Vite 开发服务器要到第一次 bundle 步骤才启动，排在静态分析和代码生成之后，没有页面的应用根本不启动它。没有应用在跑的时候（首次构建失败或应用崩溃）返回的那个页面，照样要显示错误、修好后自动刷新，这只有 `tifa dev` 从一开始就自己提供的连接做得到。同一个浏览器的所有标签页通过 SharedWorker 共用这一条连接。
 
+## 给 agent 和脚本用
+
+```sh
+go tool tifa dev --background    # 启动，应用能应答时返回
+go tool tifa dev status [--json] # 有没有在跑、在哪、上次构建成没成
+go tool tifa dev logs [-n 100] [-f]
+go tool tifa dev stop
+```
+
+编程 agent 或脚本没法让 `tifa dev` 一直占着终端。`tifa dev --background` 让它脱离终端在后台启动，等构建结束、`GET /` 有应答后才返回。它会打印地址和进程号，再告诉你怎么看日志、怎么停：
+
+```text
+tifa dev: ready at http://127.0.0.1:9527 (pid 41231)
+  log:    go tool tifa dev logs
+  status: go tool tifa dev status
+  stop:   go tool tifa dev stop
+```
+
+关掉终端不会停掉它。`--background` 是唯一的开关：Tifa 不会去识别 agent，不带它的 `tifa dev` 仍在前台运行。
+
+- 命令的其他所有参数和所有环境变量原样传给服务，包括 `--dir` 和 `--addr`。
+- 服务的全部输出写进 `.tifa/dev.log`：`tifa dev:` 开头的日志、应用的输出和 Vite 的消息。再次 `tifa dev --background` 会让文件从头开始。`tifa gen` 和 `tifa build` 不碰它。
+- 命令最多等 5 分钟。服务先退出了（会附上日志末尾）、第一次构建失败、或者 `GET /` 回了 5xx，它都以退出码 1 结束并说明原因。第一次构建失败后服务仍在运行，保存文件后会重新构建，所以改好代码，再运行 `tifa errors` 或 `tifa dev status`。`tifa dev stop` 可以停掉它。
+- 再开第二个 `tifa dev`（前台或 `--background`）仍然失败。报错里有已在运行的那个的地址和进程号，并提示用 `tifa dev status` 和 `tifa dev stop`。
+
+### status
+
+`tifa dev status` 说明应用里有没有 `tifa dev` 在运行，以及它的地址、进程号、启动时间和上次构建的状态。有在运行时退出码是 0，没有是 1。
+
+```text
+tifa dev is running in this app
+  url:     http://127.0.0.1:9527
+  pid:     41231
+  started: 2026-11-16 22:22:50 (2m3s ago)
+  build:   failed: go build: app/store.go:3:2: undefined: x
+  log:     /work/shop/.tifa/dev.log
+```
+
+`--json` 打印一个对象。`build.state` 是 `starting`（第一次构建在进行）、`building`、`ok`、`failed`（此时 `build.error` 是错误的第一行）或 `unknown`（服务没有应答，`build.error` 写明原因）。打印到终端的 `tifa dev` 没有日志文件，`log` 为空。没有在运行时打印 `{"running": false}`。
+
+```json
+{
+  "running": true,
+  "pid": 41231,
+  "url": "http://127.0.0.1:9527",
+  "started": "2026-11-16T14:22:50Z",
+  "build": {"state": "ok"},
+  "log": "/work/shop/.tifa/dev.log"
+}
+```
+
+### logs
+
+`tifa dev logs` 打印 `.tifa/dev.log` 的最后 100 行，`-n <行数>` 可以改行数。加 `-f` 会接着打印新增的行，`tifa dev` 结束时它也结束。服务退出后日志还在，所以 `tifa dev logs` 也能告诉你它为什么停了。没有用 `--background` 启动的 `tifa dev` 打印到自己的终端，不留日志，`logs` 会这样告诉你。
+
+### stop
+
+`tifa dev stop` 像 Ctrl-C 一样请服务退出，等它退出并且锁已释放后返回（应用最多有 3 倍 `server.shutdown_timeout` 再加 1 秒）。没有 `tifa dev` 在运行时它也以 0 退出，脚本可以用它确保没有服务在跑。等 60 秒还没停就放弃并说明，不会强杀任何进程。
+
+### 怎么判断有没有在运行
+
+`tifa dev` 在运行，指的是它持有锁 `.tifa/dev.lock`。进程不管怎么结束，系统都会释放这把锁。文件里还记着进程号、地址和启动时间，但已结束的服务留下的记录什么也证明不了，它的进程号现在可能属于别的程序。所以 `status` 和 `stop` 先看锁：只有残留文件、没人持有锁，就是 `not running`，不会向任何进程发信号。
+
+`stop` 也不单凭记录里的进程号动手。只有记录的地址上的程序在 `/__tifa/dev/status` 作答，并在 `X-Tifa-Dev-Pid` 里给出同一个进程号后，它才发信号。持有锁却不这样作答的（比如新的持有者还没写好记录），它不会碰，而是说明情况并以 1 退出。它也从不动 `tifa build`，后者用同一把锁。
+
+Windows 上 `tifa dev` 还不能运行，这些命令（包括 `--background`）会直接说明并停下，请用 WSL。
+
 ## Tifa errors
 
 ```sh
@@ -177,6 +245,8 @@ Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
 | 路径 | 内容 |
 | --- | --- |
 | `.tifa/` | 生成代码，与 `tifa build` 相同 |
+| `.tifa/dev.lock` | `tifa dev` 和 `tifa build` 的锁，里面记着持有者的进程号、地址和启动时间 |
+| `.tifa/dev.log` | `tifa dev --background` 打印的全部内容，见[给 agent 和脚本用](#给-agent-和脚本用) |
 | `.tifa/dist/` | SSR 包、`build.json`、公共文件，有集合的应用还有 `content.json` 和 `content/` 里的正文。浏览器模块改由 Vite 开发服务器提供 |
 | `bin/tifa-dev` | 开发用的可执行文件 |
 

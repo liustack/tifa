@@ -1,10 +1,11 @@
 ---
-summary: 'How to use `tifa dev`: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, how `tifa errors` prints the errors since the last build, where dev output goes, and how large apps are watched'
+summary: 'How to use `tifa dev`: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, how `tifa errors` prints the errors since the last build, how an agent or script starts `tifa dev` in the background and reads its state, log and stop (`--background`, `status`, `logs`, `stop`), where dev output goes, and how large apps are watched'
 read_when:
   - Running a Tifa app locally for the first time
   - Changing internal/devserver, the dev command in cmd/tifa, or the dev build in internal/bundle
   - `tifa dev` did not update the page after a file change, or reports an error you do not understand
   - Checking from a script or a coding agent whether a change broke the build, a request or a page in the browser, or changing `tifa errors`
+  - Starting, watching or stopping `tifa dev` from a script or a coding agent, or changing `tifa dev --background`, `status`, `logs` or `stop`
 ---
 
 English · [简体中文](dev.zh-CN.md)
@@ -12,7 +13,7 @@ English · [简体中文](dev.zh-CN.md)
 # `tifa dev`
 
 ```sh
-tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
+tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 ```
 
 On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [`tifa build`](build.md), and the first one of an app takes several seconds to a minute, see [Log](#log)) and starts the app. The browser connects to `--addr` only. `tifa dev` forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C, SIGTERM and SIGHUP, which a terminal sends when it closes, stop the app, Vite and `tifa dev`. A `tifa dev` started with `nohup` ignores SIGHUP. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If `tifa dev` itself is killed, the app and Vite stop on their own: the app shuts down as it does on SIGTERM, and Vite within the same 5 seconds. `tifa dev` hands the app and Vite only the files it names for them, not the ones it inherited, such as the lock a script holds with `flock`.
@@ -131,6 +132,73 @@ These pages show internal errors. `tifa dev` listens on `127.0.0.1` by default. 
 
 Reloads and the overlay come over `tifa dev`'s own connection, `/__tifa/dev/events`, not Vite's HMR websocket. Vite's dev server only starts in the first bundle step, after static analysis and code generation, and an app without pages never starts it. The page that answers while no app runs, after a first build that failed or a crash, must still show the error and reload once things are fixed, and that works only over a connection that `tifa dev` itself serves from the start. Every tab of a browser shares this connection through a SharedWorker.
 
+## Agents and scripts
+
+```sh
+go tool tifa dev --background    # start, and return once the app answers
+go tool tifa dev status [--json] # is it running, where, and did the last build work
+go tool tifa dev logs [-n 100] [-f]
+go tool tifa dev stop
+```
+
+A coding agent or a script cannot keep `tifa dev` open in a terminal. `tifa dev --background` starts it detached from the terminal and returns once the build ended and `GET /` answers. It prints the address and the process ID, then how to read the log and how to stop it:
+
+```text
+tifa dev: ready at http://127.0.0.1:9527 (pid 41231)
+  log:    go tool tifa dev logs
+  status: go tool tifa dev status
+  stop:   go tool tifa dev stop
+```
+
+Closing the terminal does not stop it. `--background` is the only switch: Tifa does not look for an agent, and a plain `tifa dev` stays in the foreground.
+
+- Every other flag and every environment variable of the command reaches the server as given, `--dir` and `--addr` included.
+- All output of the server goes to `.tifa/dev.log`: the `tifa dev:` lines, the output of the app and Vite's messages. A new `tifa dev --background` starts the file again. `tifa gen` and `tifa build` leave it alone.
+- The command waits up to 5 minutes. It exits with status 1 and says why when the server ended first (with the end of its log), when the first build failed, or when `GET /` answered a 5xx status. After a failed first build the server keeps running and builds again when you save a file, so fix the code, then run `tifa errors` or `tifa dev status`. `tifa dev stop` stops it.
+- A second `tifa dev`, in the foreground or with `--background`, fails as before. Its message names the address and the process ID of the one that runs, and says to use `tifa dev status` and `tifa dev stop`.
+
+### Status
+
+`tifa dev status` says whether a `tifa dev` runs in the app, its address, process ID, start time and the state of its last build. It exits with status 0 when one runs and 1 when none does.
+
+```text
+tifa dev is running in this app
+  url:     http://127.0.0.1:9527
+  pid:     41231
+  started: 2026-11-16 22:22:50 (2m3s ago)
+  build:   failed: go build: app/store.go:3:2: undefined: x
+  log:     /work/shop/.tifa/dev.log
+```
+
+`--json` prints one object. `build.state` is `starting` (the first build runs), `building`, `ok`, `failed` (then `build.error` has the first line of the error) or `unknown` (the server did not answer, `build.error` says why). `log` is empty for a `tifa dev` that prints to its terminal. When none runs it prints `{"running": false}`.
+
+```json
+{
+  "running": true,
+  "pid": 41231,
+  "url": "http://127.0.0.1:9527",
+  "started": "2026-11-16T14:22:50Z",
+  "build": {"state": "ok"},
+  "log": "/work/shop/.tifa/dev.log"
+}
+```
+
+### Logs
+
+`tifa dev logs` prints the last 100 lines of `.tifa/dev.log`, `-n <lines>` as many as you say. With `-f` it then prints new lines as they come, and ends when the `tifa dev` ends. The log stays after the server ended, so `tifa dev logs` also tells why it stopped. A `tifa dev` that was not started with `--background` prints to its terminal and keeps no log: `logs` says so.
+
+### Stop
+
+`tifa dev stop` asks the server to stop as Ctrl-C does, and returns once it is gone and the lock is free (the app gets up to 3 times `server.shutdown_timeout` plus 1 second). It exits with status 0 also when no `tifa dev` runs, so a script can use it to make sure none does. It gives up after 60 seconds and says so, without killing anything.
+
+### How it tells what runs
+
+A `tifa dev` runs when it holds the lock `.tifa/dev.lock`, which the system frees when the process ends, however it ends. The file also records the process ID, the address and the start time, but a record left by a server that ended proves nothing, and its process ID may belong to another program by now. So `status` and `stop` ask the lock first: a leftover file and no holder is `not running`, and nothing is signalled.
+
+`stop` also does not trust the record's process ID by itself. It signals only after the program at the recorded address has answered at `/__tifa/dev/status` with that same process ID in `X-Tifa-Dev-Pid`. A holder that does not answer so, for instance a record that the new holder has not written yet, is left alone: the command says so and exits with status 1. It never touches a `tifa build`, which takes the same lock.
+
+On Windows `tifa dev` does not run yet, so these commands, `--background` included, say so and stop. Use WSL.
+
 ## Tifa errors
 
 ```sh
@@ -177,6 +245,8 @@ The command reads the process ID and the address that `tifa dev` wrote into `.ti
 | Path | Contents |
 | --- | --- |
 | `.tifa/` | Generated code, the same as `tifa build` |
+| `.tifa/dev.lock` | The lock of `tifa dev` and `tifa build`, with the process ID, address and start time of its holder |
+| `.tifa/dev.log` | Everything a `tifa dev --background` prints, see [Agents and scripts](#agents-and-scripts) |
 | `.tifa/dist/` | The SSR bundle, `build.json`, the public files, and `content.json` and the bodies in `content/` of an app with collections. The browser modules come from Vite's dev server instead |
 | `bin/tifa-dev` | The dev executable |
 
