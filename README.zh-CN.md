@@ -91,24 +91,6 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 **[渲染记忆](docs/memo.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
 
-渲染记忆关掉，每个请求都渲染：
-
-| | 每秒请求数 | P50 | P99 | RSS 峰值 |
-| :-- | --: | --: | --: | --: |
-| Tifa | 42 | 19.2 ms | 44.8 ms | 57 MiB |
-| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
-| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
-| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
-| Next.js, `--jitless` | 26 | 35.6 ms | 64.6 ms | 337 MiB |
-| TanStack Start, `--jitless` | 30 | 30.2 ms | 60.6 ms | 276 MiB |
-| React Router, `--jitless` | 24 | 37.4 ms | 70.5 ms | 355 MiB |
-
-Tifa 没有 JIT。`--jitless` 那几行是把 Node 的 JIT 也关掉，作为参照：每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。
-
-每个请求都要求 gzip。TanStack Start 默认不压缩页面，所以每页发约 146 KB，Tifa 和 Next.js 约 16 KB，React Router 约 44 KB。压缩让 Next.js 每秒少处理 16% 的请求，Start 要是压缩，多半也要付出差不多的代价。
-
-每个服务器只用 Google Cloud `c2d-standard-8` 虚拟机（AMD EPYC 7B13）的一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
-
 整站访问，用真实浏览器在示例商店上录下来再回放：顾客、员工和爬虫同时访问同一台服务器，每个服务器都是出厂设置，先吃同样的预热（2026-11-16）：
 
 | | 每秒页面数 | 整页加载 P50 / P99 | 客户端导航 P50 / P99 |
