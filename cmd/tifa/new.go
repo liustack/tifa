@@ -44,6 +44,8 @@ type newApp struct {
 	// ReactRouter is the version of @tanstack/react-router in package.json, the one tifa is
 	// tested with.
 	ReactRouter string
+	// Written says which tifa wrote the notes and the skill: Tifa v0.0.5, or a development build of Tifa.
+	Written string
 }
 
 // lookPath finds a program on PATH. Tests replace it.
@@ -90,11 +92,16 @@ PATH and npm otherwise.`,
 			if app.Version = releaseVersion(info); app.Version == "" {
 				app.Version = "v0.0.0"
 			}
+			app.Written = writtenBy(info)
 			if err := writeApp(dir, app); err != nil {
+				return err
+			}
+			if _, err := syncAgents(dir, app); err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "created %s in %s\n", app.Module, dir)
+			fmt.Fprintf(out, "wrote AGENTS.md and the Tifa skill in %s for coding agents\n", defaultSkillsDir)
 			if app.Version == "v0.0.0" {
 				fmt.Fprintf(out, "\nThis tifa is not a released version, so go.mod requires %s v0.0.0: the replace step below points it at your tifa checkout.\n", tifaModule)
 			}
@@ -126,13 +133,7 @@ func appNames(modulePath string, fromFolder bool) (newApp, error) {
 	if problem := importProblem(modulePath); problem != "" {
 		return newApp{}, fmt.Errorf("tifa new does not take the module path %s: %s", modulePath, problem)
 	}
-	title := path.Base(prefix)
-	pkg := strings.Map(func(r rune) rune {
-		if 'a' <= r && r <= 'z' || '0' <= r && r <= '9' {
-			return r
-		}
-		return -1
-	}, strings.ToLower(title))
+	title, pkg := deriveNames(prefix)
 	// The Go files under app/ import the root package by its name, and Go does not take init as
 	// the name of an imported package.
 	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" || pkg == "init" {
@@ -150,6 +151,19 @@ func appNames(modulePath string, fromFolder bool) (newApp, error) {
 		npm = npm[:214]
 	}
 	return newApp{Module: modulePath, Package: pkg, Title: title, NPM: npm, ReactRouter: bundle.TestedReactRouter}, nil
+}
+
+// deriveNames returns the title (the last element of the module path without its major version
+// suffix) and the root package name made from it: lowercased, with its letters and digits only.
+func deriveNames(prefix string) (title, pkg string) {
+	title = path.Base(prefix)
+	pkg = strings.Map(func(r rune) rune {
+		if 'a' <= r && r <= 'z' || '0' <= r && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.ToLower(title))
+	return title, pkg
 }
 
 // rootNameClashes lists the names a root package may not have, each with what already uses it.
