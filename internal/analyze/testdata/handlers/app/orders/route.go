@@ -35,7 +35,7 @@ type Item struct {
 // Validate takes the Ctx, as it may: it reads the request and answers nothing.
 func (in *ShipInput) Validate(c *tifa.Ctx) error {
 	if in.Carrier == "" {
-		return errors.New(c.Language() + c.Query("lang"))
+		return errors.New(c.Language() + c.Query("lang") + c.Path())
 	}
 	return needCarrier(c, in.Carrier)
 }

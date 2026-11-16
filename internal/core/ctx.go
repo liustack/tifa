@@ -104,6 +104,11 @@ func (c *Ctx) Cookie(name string) (*http.Cookie, error) { return c.r.Cookie(name
 // Pattern is the matched route pattern, empty when the URL matched no route.
 func (c *Ctx) Pattern() string { return c.pattern }
 
+// Path is the path of the page as the visitor sees it in the address bar: escaped the way the
+// browser writes it, with the language prefix and without the query. The page load and the data
+// request of a client navigation give the same path, and a handler gets its own path.
+func (c *Ctx) Path() string { return c.r.URL.EscapedPath() }
+
 // IsData reports whether this is a client navigation asking for route data.
 func (c *Ctx) IsData() bool { return DataOf(c.r) != nil }
 

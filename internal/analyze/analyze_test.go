@@ -359,6 +359,10 @@ func TestViolations(t *testing.T) {
 			{"app/x~1/page.tsx:1:", "x~1"},
 		}},
 		{"layoutparam", [][]string{{"app/projects/route.go:8:", `"projectId"`, `"/projects"`}}},
+		{"layoutpath", [][]string{
+			{"app/shop/route.go:7:", "c.Path", "Layout", "page"},
+			{"app/shop/route.go:10:", "c.Path", "Layout", "page"},
+		}},
 		{"usenonancestor", [][]string{
 			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},
 			{"app/shop/route.go:19:", "tifa.Use(c, Layout)", "its own result"},

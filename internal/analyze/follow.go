@@ -25,6 +25,7 @@ type loadWalk struct {
 	self     string // import path of the package of a Layout function, "" for a page's Load
 	load     *Load
 	validate bool // the walk of a Validate method, which only reads the request (see refusedInValidate)
+	layout   bool // the walk of a Layout function
 	uses     []paramUse
 	visited  map[string]bool // followed functions by full name, against recursion
 	unrun    []*ast.FuncLit  // closures of the body being walked that are declared and not called on the spot
@@ -40,7 +41,7 @@ type useCall struct {
 // walkLoad walks the function decl of pkg that loads the data of the route or Layout in the
 // directory owner. layout reports whether it is a Layout function.
 func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, load *Load, decl *ast.FuncDecl) []paramUse {
-	w := &loadWalk{a: a, owner: owner, load: load, visited: map[string]bool{}}
+	w := &loadWalk{a: a, owner: owner, load: load, visited: map[string]bool{}, layout: layout}
 	if layout {
 		w.self = pkg.PkgPath
 	}
@@ -111,6 +112,10 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		} else {
 			if what := identityCall(fn); what != "" {
 				a.identity[w.load] = append(a.identity[w.load], identityRead{pos: call.Pos(), what: what})
+			}
+			if why := refusedInLayout(fn); why != "" && w.layout {
+				a.errorAt(call.Pos(), "%s", why)
+				return
 			}
 			if why := refusedInLoad(fn); why != "" {
 				a.errorAt(call.Pos(), "%s", why)
@@ -273,7 +278,7 @@ func refusedInLoad(fn *types.Func) string {
 	}
 	switch fn.Name() {
 	case "Request", "Writer":
-		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.QueryValues, c.Header, c.Cookie or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
+		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.QueryValues, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
 	case "BindQuery":
 		return `c.BindQuery reads query parameters the analyzer cannot name, so the page would not load again when they change: in Load and the functions it calls, read each one with c.Query("name"), or c.QueryValues("name") for a repeated one. c.BindQuery is for the GET, POST, PUT, PATCH and DELETE handlers`
 	case "Bind":
@@ -351,6 +356,24 @@ func refusedInValidate(fn *types.Func) string {
 		return "c." + fn.Name() + " changes the response, which cannot be done in Validate or the functions it calls: Validate only checks the input, and what it returns is the answer. Return an error, or tifa.Fields for single fields, and write the response in the method handler"
 	case "Bind", "BindQuery", "SetBodyLimit":
 		return "c." + fn.Name() + " reads or limits the request body, which is already decoded when Validate runs: use the fields of the input"
+	}
+	return ""
+}
+
+// refusedInLayout returns why fn may not run in a Layout function and the functions it calls, and
+// an empty string when it may. The data of a Layout is shared by every page below it and is not
+// loaded again when the visitor goes from one of them to another, so it cannot hold anything of
+// the one page that happened to load it first.
+func refusedInLayout(fn *types.Func) string {
+	recv := fn.Signature().Recv()
+	if recv == nil {
+		return ""
+	}
+	if named, ok := types.Unalias(derefType(recv.Type())).(*types.Named); !ok || !isCtxNamed(named) {
+		return ""
+	}
+	if fn.Name() == "Path" {
+		return "c.Path is the path of the page, which a Layout does not have: its data is shared by every page below it and is not loaded again when the visitor goes from one of them to another. Call c.Path in the Load of a page, or in a method handler"
 	}
 	return ""
 }
