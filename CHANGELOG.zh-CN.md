@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 带 emotion 样式的页面在服务端渲染时，每个组件的工作更少。每个 MUI 组件都会调用的 `@emotion/utils` 的 `getRegisteredStyles`，现在遍历类名时不再建数组和函数。HTML 相同。用 callgrind 计数，MUI 测试应用的三个页面执行的指令少 1.0%。
+
 ## [0.0.12] - 2026-11-17
 
 ### 变更

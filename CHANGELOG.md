@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Server renders of pages with emotion styles do less work for each component. `getRegisteredStyles` of `@emotion/utils`, which every MUI component calls, walks its class names without making an array and a function. The HTML is the same. Counted with callgrind, the three pages of the MUI test app run 1.0% fewer instructions.
+
 ## [0.0.12] - 2026-11-17
 
 ### Changed
