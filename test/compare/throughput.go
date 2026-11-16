@@ -227,8 +227,18 @@ func stepSessions(base, cpus, want int, run func(sessions int) ([]Round, error))
 	}
 }
 
+// closedRounds is how many closed rounds a cell of a server plays, at the base sessions and at every
+// step: one for a reference (browseReferences), which is not compared, and rounds for the others.
+func closedRounds(spec string, rounds int) int {
+	if _, ok := browseReferences[spec]; ok {
+		return 1
+	}
+	return rounds
+}
+
 // throughput is the phase of the closed tables of a scenario: every server at the base sessions,
-// the rounds in a rotating order with fresh servers, then each server stepped on its own.
+// the rounds in a rotating order with fresh servers, then each server stepped on its own. A
+// reference plays one round a cell (closedRounds).
 func (b *browse) throughput(ctx context.Context, sc BrowseScenario) error {
 	if !sc.Throughput {
 		return nil
@@ -236,7 +246,7 @@ func (b *browse) throughput(ctx context.Context, sc BrowseScenario) error {
 	base := b.o.Sessions
 	for round := 1; round <= b.o.Rounds; round++ {
 		for _, fw := range Rotate(b.servers[sc.Name], round-1) {
-			if b.res.closedDone(fw, sc.Name, base, round) || b.res.cellFailed(fw, sc.Name, base) {
+			if round > closedRounds(fw, b.o.Rounds) || b.res.closedDone(fw, sc.Name, base, round) || b.res.cellFailed(fw, sc.Name, base) {
 				continue
 			}
 			if _, err := b.closedRound(ctx, fw, sc, base, round); err != nil {
@@ -252,7 +262,7 @@ func (b *browse) throughput(ctx context.Context, sc BrowseScenario) error {
 		if b.res.Throughput[key] != nil {
 			continue
 		}
-		t, err := stepSessions(base, b.o.ServerCPUCount, b.o.Rounds, func(sessions int) ([]Round, error) { return b.cell(ctx, fw, sc, sessions) })
+		t, err := stepSessions(base, b.o.ServerCPUCount, closedRounds(fw, b.o.Rounds), func(sessions int) ([]Round, error) { return b.cell(ctx, fw, sc, sessions) })
 		if err != nil {
 			return err
 		}
@@ -268,7 +278,7 @@ func (b *browse) throughput(ctx context.Context, sc BrowseScenario) error {
 // cell plays the rounds of one server at a number of sessions that are not done yet, up to the
 // first one that fails the rule (which decides the cell), and returns the valid rounds of the cell.
 func (b *browse) cell(ctx context.Context, fw string, sc BrowseScenario, sessions int) ([]Round, error) {
-	for round := 1; round <= b.o.Rounds; round++ {
+	for round := 1; round <= closedRounds(fw, b.o.Rounds); round++ {
 		if b.res.closedDone(fw, sc.Name, sessions, round) {
 			continue
 		}
