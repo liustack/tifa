@@ -21,6 +21,8 @@ type ServerStats = core.Stats
 //	Failed      of those, renders that failed: an exception, ssr.timeout or ssr.vm_memory
 //	RenderTime  how long the renders took, together. RenderTime / Renders is the mean
 //	Rejected    renders refused with ErrSSRBusy and answered 503: the queue was full, or the wait passed ssr.wait_timeout
+//	Replaced    VMs replaced because they grew: after a collection one held more than half of ssr.vm_memory
+//	Memory      what the VMs hold now, in bytes: the sum of the size each had after its last collection
 type SSRStats = core.SSRStats
 
 // MemoStats is the render memo in ServerStats.

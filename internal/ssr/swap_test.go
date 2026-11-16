@@ -604,3 +604,91 @@ func (h countingHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 	return h.Handler.Handle(ctx, r)
 }
+
+// liveSum is the sum of what the VMs held after their last collection, read from the VMs themselves.
+// It waits until every VM is idle, and puts them back.
+func liveSum(t *testing.T, p *Pool, vms int) (live, baseline int64) {
+	t.Helper()
+	held := make([]*pooledVM, 0, vms)
+	for range vms {
+		select {
+		case vm := <-p.idle:
+			held = append(held, vm)
+			live += int64(vm.live)
+			baseline += int64(vm.baseline)
+		case <-time.After(5 * time.Second):
+			t.Fatal("VMs not idle")
+		}
+	}
+	for _, vm := range held {
+		p.idle <- vm
+	}
+	return live, baseline
+}
+
+// Stats.Memory is what the loaded VMs hold by the engine's count, the sum of the size each had after
+// its last collection: the baselines after loading, more after a render that keeps memory.
+func TestStatsMemoryFollowsTheVMs(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(2))
+	_, baseline := liveSum(t, p, 2)
+	if got := p.Stats().Memory; got != baseline || baseline <= 0 {
+		t.Fatalf("Memory %d, the baselines of the VMs %d", got, baseline)
+	}
+	leakRender(t, p)
+	deadline := time.Now().Add(5 * time.Second)
+	for p.Stats().Memory <= baseline {
+		if time.Now().After(deadline) {
+			t.Fatalf("Memory %d did not move above %d after a render that keeps memory", p.Stats().Memory, baseline)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	live, _ := liveSum(t, p, 2)
+	if got := p.Stats().Memory; got != live {
+		t.Fatalf("Memory %d, the live sizes of the VMs %d", got, live)
+	}
+}
+
+// Stats.Memory is read while renders and collections run, and a VM that closes takes its size out.
+func TestStatsMemoryIsSafeAndDropsClosedVMs(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(2))
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = p.Stats()
+			}
+		}
+	})
+	for range 20 {
+		if _, err := p.Render(context.Background(), Input{URL: "/small-leak"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+	liveSum(t, p, 2)
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Stats().Memory; got != 0 {
+		t.Fatalf("Memory %d after Close", got)
+	}
+}
+
+// Stats.Replaced counts the VMs the pool replaced because they grew.
+func TestStatsReplacedCountsGrownVMs(t *testing.T) {
+	sizeRule(t)
+	p := newTestPool(t, leakSource, testConfig(1))
+	if got := p.Stats().Replaced; got != 0 {
+		t.Fatalf("Replaced %d before a swap", got)
+	}
+	leakRender(t, p)
+	waitReplacements(t, p, 1)
+	if got := p.Stats().Replaced; got != 1 {
+		t.Fatalf("Replaced %d after one swap", got)
+	}
+}
