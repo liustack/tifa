@@ -88,8 +88,8 @@ func want0(t *testing.T, data any, url string) any {
 	return list
 }
 
-// TestFilteredListsShowTheSameText builds the shop as a tifa program and as a Next.js, a TanStack
-// Start and a React Router app, and checks that an order list with filters and a page in the URL
+// TestFilteredListsShowTheSameText builds the shop as a tifa program and as a Next.js and a TanStack
+// Start app, and checks that an order list with filters and a page in the URL
 // shows the same title and text, with as many table rows, links, buttons and inputs, and as many
 // rows as the Go code gives it.
 func TestFilteredListsShowTheSameText(t *testing.T) {
@@ -134,7 +134,7 @@ func TestFilteredListsShowTheSameText(t *testing.T) {
 			}
 		}
 	}
-	// A search shows only the order it finds, the same in all four.
+	// A search shows only the order it finds, the same in all three.
 	for _, name := range names {
 		for i, f := range compare.FilterPages {
 			if f.Name != "list studio order number" || len(views[name]) <= i {

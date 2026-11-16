@@ -64,7 +64,7 @@ func decoded(t *testing.T, text string) map[string]any {
 // layer, the search word is the word of the visit, and nothing else of the request has changed.
 //
 // In the recordings of the shop so far the placeholder is in the URL of the document of the search
-// and nowhere else, in all four frameworks: a search is a document load, and the page after it sends
+// and nowhere else, in all three frameworks: a search is a document load, and the page after it sends
 // no query of the page before. So no recorded request carries the placeholder in these two places
 // today. The test is for the day one does, such as a filter of the form applied to the list of a
 // search for a word of the visit's own.

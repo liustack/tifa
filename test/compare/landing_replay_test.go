@@ -357,18 +357,18 @@ func TestATraceThatLostItsSearchPlaceholderIsRefused(t *testing.T) {
 			break
 		}
 	}
-	dir := writeTraces(t, set, []string{"reactrouter"}, func(_ string, form Plan) Trace {
+	dir := writeTraces(t, set, []string{"start"}, func(_ string, form Plan) Trace {
 		tr := browserTrace(form)
 		if form.ID == with.ID {
 			tr.Steps[at].Reqs[0].URL = strings.Replace(tr.Steps[at].Reqs[0].URL, SearchPlaceholder, "kettle", 1)
 		}
 		return tr
 	})
-	_, _, err := LoadTraces(dir, []string{"reactrouter"})
+	_, _, err := LoadTraces(dir, []string{"start"})
 	if err == nil {
 		t.Fatal("a trace recorded with another word than the placeholder was loaded")
 	}
-	for _, want := range []string{fmt.Sprintf("plan %d", with.ID), fmt.Sprintf("page view %d", at), SearchPlaceholder, "reactrouter.jsonl"} {
+	for _, want := range []string{fmt.Sprintf("plan %d", with.ID), fmt.Sprintf("page view %d", at), SearchPlaceholder, "start.jsonl"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error lacks %q: %v", want, err)
 		}

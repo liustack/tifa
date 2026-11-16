@@ -12,13 +12,13 @@ import (
 )
 
 // Prepare builds everything the comparison needs, writing the commands and their failures to log:
-// the shop as a tifa program, the sources of the three Node apps copied from the shop, and the three
+// the shop as a tifa program, the sources of the two Node apps copied from the shop, and the two
 // apps.
 func (e Env) Prepare(ctx context.Context, log io.Writer) error {
 	if err := e.BuildShop(ctx, log); err != nil {
 		return err
 	}
-	for _, app := range []struct{ dir, kind string }{{e.Next, "next"}, {e.Start, "start"}, {e.React, "reactrouter"}} {
+	for _, app := range []struct{ dir, kind string }{{e.Next, "next"}, {e.Start, "start"}} {
 		if err := e.Sync(app.dir, app.kind); err != nil {
 			return err
 		}
@@ -38,8 +38,8 @@ func (e Env) BuildShop(ctx context.Context, log io.Writer) error {
 }
 
 // BuildApp installs the packages of a Node app from its lockfile, builds it and type checks it, with
-// the port in domain/ and the pages copied from the shop. The build writes the route types of Start
-// and React Router, so the check comes after it.
+// the port in domain/ and the pages copied from the shop. The build writes the route types of Start,
+// so the check comes after it.
 func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 	env := []string{"NEXT_TELEMETRY_DISABLED=1"}
 	if err := run(ctx, log, dir, env, "pnpm", "install", "--frozen-lockfile"); err != nil {
@@ -73,7 +73,7 @@ func isDir(path string) bool {
 }
 
 // Sync copies what the workbench pages are made of from the shop into dir/shop, where the app
-// imports it as `@/`. kind is "next", "start" or "reactrouter". The folder is made new every time. The data the
+// imports it as `@/`. kind is "next" or "start". The folder is made new every time. The data the
 // pages show is not copied: the apps compute it from the domain code in test/compare/domain.
 //
 // Copied as they are: the shadcn components, the helpers, the root Layout and its account, hooks.ts, the stylesheet, the
@@ -152,8 +152,6 @@ func (e Env) Sync(dir, kind string) error {
 			edit = nextRoute
 		case "start":
 			edit = startWorkbenchRoute
-		case "reactrouter":
-			edit = reactRouterRoute
 		}
 		return copyFile(path, to, edit)
 	})
@@ -176,7 +174,7 @@ func (e Env) Sync(dir, kind string) error {
 		return err
 	}
 	// The files the shop serves from the root of the site as they are (its public folder: robots.txt) go
-	// to the public folder of the app, which each of the three serves the same way.
+	// to the public folder of the app, which each of the two serves the same way.
 	if public := filepath.Join(e.Shop, "public"); isDir(public) {
 		if err := copyTree(public, filepath.Join(dir, "public"), nil); err != nil {
 			return err
@@ -189,10 +187,6 @@ func (e Env) Sync(dir, kind string) error {
 		}
 	case "next":
 		if err := e.syncNextStore(dir); err != nil {
-			return err
-		}
-	case "reactrouter":
-		if err := e.syncStoreReactRouter(dir); err != nil {
 			return err
 		}
 	}
@@ -260,15 +254,4 @@ func writeImages(path string, files []string) error {
 func startWorkbenchRoute(src []byte) []byte {
 	const id = "/_app/projects/$project/products"
 	return []byte(strings.Replace(string(src), `getRouteApi("`+id+`")`, `getRouteApi("`+id+`/")`, 1))
-}
-
-// reactRouterRoute turns a generated module of the shop into one for React Router: getRouteApi
-// becomes loaderRoute, which finds the data of the route with that id through useRouteLoaderData.
-// The ids of app/routes.ts in test/compare/reactrouter are the ones getRouteApi is given.
-func reactRouterRoute(src []byte) []byte {
-	s := string(src)
-	s = strings.Replace(s, `import { getRouteApi } from "@tanstack/react-router"`, `import { loaderRoute } from "@/runtime/loader"`, 1)
-	s = strings.Replace(s, "layout = getRouteApi(", "layout = loaderRoute<LayoutData>(", 1)
-	s = strings.Replace(s, "page = getRouteApi(", "page = loaderRoute<PageData>(", 1)
-	return []byte(s)
 }

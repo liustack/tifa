@@ -40,9 +40,7 @@ func CacheSigns(h http.Header) []string {
 
 // replayedGets are the requests of the traces of a workload that the check of the caches asks for
 // (CheckNoCache): the documents and the navigation data the browser fetched and did not cancel, one
-// of each path (the query of a navigation, such as the _rsc of Next.js, changes with the visit). The
-// route manifest of React Router (__manifest) is not among them: it holds the routes of the build and
-// no data of a page, and React Router sends it with a max-age of a year, as it does its assets.
+// of each path (the query of a navigation, such as the _rsc of Next.js, changes with the visit).
 func replayedGets(wl *Workload) []TraceReq {
 	var out []TraceReq
 	seen := map[string]bool{}
@@ -53,9 +51,6 @@ func replayedGets(wl *Workload) []TraceReq {
 					continue
 				}
 				path, _, _ := strings.Cut(q.URL, "?")
-				if strings.HasSuffix(path, "/__manifest") {
-					continue
-				}
 				if key := q.Class + " " + path; !seen[key] {
 					seen[key] = true
 					out = append(out, q)

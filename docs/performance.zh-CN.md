@@ -79,7 +79,7 @@ shop 做成三个版本：Tifa，以及 Next.js 和 TanStack Start 两个应用�
 
 Node 应用的表单能渲染但不能提交，Node 的服务器流式发送页面而 Tifa 整页写出。更早几次测量的方法和[还有哪些不对等](studies/nextjs-and-tanstack-start.md#what-is-not-equal)见 [Tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
 
-怎么复测见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)（英文）。
+怎么复测见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)（英文）。
 
 ### 整站访问（2026-11-16）
 
@@ -297,6 +297,6 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 完整请求：构建 `examples/shop`，用 `taskset` 把环境里有 `SHOP_OPEN=1` 的 `bin/shop --server-addr 127.0.0.1:0 --ssr-memo-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
-Next.js、TanStack Start 和 React Router：`go run ./test/compare/cmd/compare measure` 构建这几个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)，英文）。
+Next.js 和 TanStack Start：`go run ./test/compare/cmd/compare measure` 构建这几个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)，英文）。
 
 Node：SSR 包是 ES 模块，把同一份 `.tifa/dist/ssr.js` 复制成 `ssr.mjs`，用 `import()` 加载，渲染同样的输入，先热几百次，在 QuickJS 基准用的那个核上各跑一遍有 JIT 和 `--jitless`。导入之前，先把 Node 在 `globalThis` 上的 getter（比如 `crypto` 和 `navigator`）换成普通值，因为包会给它们赋值，再补上 `Iterator.concat`，TanStack Router 会调用它，而 Node 24.13 没有。找下一个该改的地方时，比较每个函数在 QuickJS 和 `--jitless` 的 Node 里各花多少时间：倍数远高于整体的函数就是候选。

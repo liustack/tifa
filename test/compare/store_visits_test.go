@@ -36,7 +36,7 @@ func TestPlannedStoreWritesAreTakenByEveryApp(t *testing.T) {
 	need := compare.StockFor(1, visits)
 	buildID := shopBuildID(t, env)
 	located := regexp.MustCompile(`^(?:/zh-CN)?/store/checkout\?placed=SH-[0-9]+$`)
-	for _, name := range []string{"tifa-nocache", "nextjs", "start", "reactrouter"} {
+	for _, name := range []string{"tifa-nocache", "nextjs", "start"} {
 		var spec compare.Spec
 		for _, s := range env.Specs() {
 			if s.Name == name {

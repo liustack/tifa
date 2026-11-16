@@ -257,7 +257,7 @@ var methodFiles = []string{"cmd/compare/browse_cmd.go", "cmd/compare/main.go", "
 // sources of the other apps, the closed-loop steps of the throughput, and what only the other
 // comparisons and the tests use. Every source file is in methodFiles or here
 // (TestEverySourceOfCompareIsInOrOutOfTheMethod).
-var rateExcluded = []string{"announce.go", "attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "hold.go", "locks.go", "locks_other.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_reactrouter.go", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
+var rateExcluded = []string{"announce.go", "attrs.go", "conns.go", "counted.go", "deps.go", "expected.go", "filters.go", "hold.go", "locks.go", "locks_other.go", "parity.go", "report.go", "report_browse.go", "specs.go", "store_deps.json", "store_start.go", "throughput.go", "tracecheck.go", "versions.go"}
 
 // methodHash is a short hash of the files of the method, or "" when one cannot be read.
 func methodHash(root string) string {
@@ -323,7 +323,7 @@ func appHash(root string) string {
 // nextTraceSources are the lines of the stamp of the traces that the trace of Next.js was recorded
 // from: the trees of the shop (whose pages are copied into the app), the Next.js app, the domain code
 // and the overlays it shares, the recorder and the plan generators, and the version of Next.js, the
-// browser, the site and the plans. The trees of Tifa, Start and React Router are not among them.
+// browser, the site and the plans. The trees of Tifa and Start are not among them.
 var nextTraceSources = []string{"tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/domain ", "tree test/compare/overlay ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree test/compare/landing.go ", "tree test/compare/mix.go ", "tree test/compare/store_plan.go ", "tree test/compare/store_links.json ", "next ", "playwright ", "site ", "plans "}
 
 // stampHash is a short hash of the lines of the stamp of the traces that the trace of Next.js was

@@ -215,7 +215,7 @@ func TestStoreWritesGoToThePathOfTheAppWithTheCookiesOfTheVisit(t *testing.T) {
 			newAdds++
 		}
 	}
-	for name, write := range map[string]func(string) string{"shop": SameStorePath, "nextjs": NextStorePath, "reactrouter": ReactRouterStorePath} {
+	for name, write := range map[string]func(string) string{"shop": SameStorePath, "nextjs": NextStorePath} {
 		t.Run(name, func(t *testing.T) {
 			f, srv := newFakeStore(t, write)
 			wl, err := NewWorkload(&set, traces, sc, 1)
@@ -373,7 +373,7 @@ func TestEveryScenarioRunsEachServerOnce(t *testing.T) {
 		for _, s := range specs {
 			names = append(names, s.Name)
 		}
-		if got := strings.Join(names, ","); got != "tifa,nextjs,start,reactrouter,tifa-nocache,start-gzip,nextjsnoprefetch" {
+		if got := strings.Join(names, ","); got != "tifa,nextjs,start,tifa-nocache,start-gzip,nextjsnoprefetch" {
 			t.Errorf("%s runs %s", sc.Name, got)
 		}
 	}
@@ -432,7 +432,7 @@ func TestTheOpenRateIsHalfOfNextjs(t *testing.T) {
 
 func TestTifaVariantsReplayTheTracesOfTifa(t *testing.T) {
 	env := Env{Shop: "/shop"}
-	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs", "start": "start", "reactrouter": "reactrouter", "start-gzip": "start", NextNoPrefetch: NextNoPrefetch} {
+	for name, want := range map[string]string{"tifa": "tifa", "tifa-nocache": "tifa", "nextjs": "nextjs", "start": "start", "start-gzip": "start", NextNoPrefetch: NextNoPrefetch} {
 		i := slices.IndexFunc(env.Specs(), func(s Spec) bool { return s.Name == name })
 		if got := traceName(env.Specs()[i]); got != want {
 			t.Errorf("%s replays the traces of %s, want %s", name, got, want)

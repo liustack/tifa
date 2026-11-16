@@ -25,7 +25,7 @@ func listURL(project string, kv ...string) string {
 	return "/projects/" + project + "?" + q.Encode()
 }
 
-// FilterPages are order lists with the filters and the page in the URL: the pages the four servers
+// FilterPages are order lists with the filters and the page in the URL: the pages the three servers
 // must show the same, and the data the port must compute as the Go code does. Rows is how many orders
 // the page shows, or -1 when the test reads it from the data of the shop.
 var FilterPages = []struct {

@@ -23,9 +23,8 @@ import (
 
 // CrawlerAgent is a crawler a request can come from: its class (search, which is Googlebot, or AI), its
 // name, its share among the crawlers of its class, and the User-Agent it sends. The Node frameworks may
-// read it. What the installed sources show (React Router, TanStack Start, Next.js 16.4.2): the
-// default `entry.server` of React Router asks `isbot` and waits for the whole page (`onAllReady`) for a
-// bot, TanStack Start asks `isbot` in `renderRouterToStream`, and `isbot` says yes to every User-Agent
+// read it. What the installed sources show (TanStack Start, Next.js 16.4.2):
+// TanStack Start asks `isbot` in `renderRouterToStream`, and `isbot` says yes to every User-Agent
 // of the mix. Next.js reads it with its `is-bot`, which takes Googlebot for a "dom" bot, and no
 // User-Agent of the AI crawlers is in its `htmlLimitedBots` list or taken for Googlebot. What each
 // framework then does for a bot beyond that was not checked, and each answers as it ships.
