@@ -419,9 +419,8 @@ func (a *analyzer) packageError(e packages.Error) Error {
 var importCycleRe = regexp.MustCompile(`^(could not import (\S+)) \(import cycle: \[([^\]]*)\]\)$`)
 
 // explainCycle says what an import cycle error of the type checker means for an app. A package
-// that imports itself is the usual mistake: the file already is in that package. A cycle through
-// the root package, which imports something under app/, breaks the convention that the root
-// package imports nothing under app/.
+// that imports itself is the usual mistake: the file already is in that package. Any other cycle
+// is left as the type checker wrote it: how the app arranges its packages is its own choice.
 func (a *analyzer) explainCycle(msg string) string {
 	m := importCycleRe.FindStringSubmatch(msg)
 	if m == nil {
@@ -430,9 +429,6 @@ func (a *analyzer) explainCycle(msg string) string {
 	cycle := strings.Fields(m[3])
 	if len(cycle) == 1 && cycle[0] == m[2] {
 		return fmt.Sprintf("%s: this file is already in package %s, so it cannot import it. Drop the import and use the names of the package directly (import cycle: [%s])", m[1], m[2], m[3])
-	}
-	if slices.Contains(cycle, a.module) && slices.ContainsFunc(cycle, func(p string) bool { return strings.HasPrefix(p, a.module+"/app/") }) {
-		return msg[:len(msg)-1] + "). The root package must not import packages under app/, because the domains import the root package for its shared resources: move what the root needs out of app/ (see docs/structure.md#which-way-imports-go)"
 	}
 	return msg
 }

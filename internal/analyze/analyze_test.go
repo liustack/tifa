@@ -1278,7 +1278,7 @@ func TestImportCycleMessages(t *testing.T) {
 		want []string
 	}{
 		{"selfimport", []string{"app/products/route.go:6:", "already in package example.com/selfimport/app/products", "Drop the import"}},
-		{"rootcycle", []string{"hooks.go:6:", "import cycle: [example.com/rootcycle/app/products example.com/rootcycle]", "root package must not import packages under app/", "structure.md#which-way-imports-go"}},
+		{"rootcycle", []string{"hooks.go:6:", "import cycle: [example.com/rootcycle/app/products example.com/rootcycle]"}},
 	}
 	for _, c := range cases {
 		_, err := analyzeApp(t, c.app)
