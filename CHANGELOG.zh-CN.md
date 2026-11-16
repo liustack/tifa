@@ -6,6 +6,7 @@
 
 ### 新增
 
+- 服务端渲染里有了 `performance.now()` 和 `performance.timeOrigin`，渲染时读时间的库，比如 framer-motion 的 motion value（`useMotionValue`、`useTransform`、`useSpring`），可以在服务端渲染，不会再让页面报 `ReferenceError: 'performance' is not defined`。
 - 用 `go install github.com/liustack/tifa/cmd/tifa@latest` 装的 `tifa`，在应用里运行时会把命令交给应用锁定的版本，效果和 `go tool tifa` 一样，不会按别的 Tifa 版本生成代码。`go tool tifa` 仍是主要方式（见[全局安装命令](docs/build.zh-CN.md#全局安装命令)）。
 - `tifa gen` 把生成的代码写进 `.tifa/`，不做构建，新克隆的项目在编辑器和 `tsc` 里就能看到类型。`tifa new` 写出的 `package.json` 在 `prepare` 脚本里跑它，所以 `pnpm install` 或 `npm install` 之后就有了。已有的应用：在 `package.json` 的 `scripts` 里加上 `"prepare": "go tool tifa gen"`（见 [`tifa gen`](docs/build.zh-CN.md#tifa-gen)）。
 - 内置多语言。`app/` 里带 `_locales` 目录的目录，只要里面有 `zh-CN.json`、`en-US.json` 这样的文件，它的页面和 API 路由就有这些语言。默认语言由 `tifa.yaml` 的 `i18n.default` 指定，URL 保持原样（`/store/cart`），其他语言放在路径第一段（`/en-US/store/cart`）。`i18n.prefix: always` 让默认语言也带前缀。在 `tifa.yaml` 里写上 `site.url`，Tifa 就会写 `<html lang>`、`hreflang` 和 `x-default` 链接以及 canonical 链接。代码里，`c.Language()` 和 `useLanguage()` 给出语言，`useAlternates()` 给出页面每种语言的 URL，用来做语言切换，页面的 slug 不同时用 `c.SetAlternates` 说明它有哪些版本，`tifa.Languages()` 给内容集合用（`Languages: tifa.Languages()`），新的 `tifa/i18n` 适配器用一个覆盖所有语言的 i18next 实例和 react-i18next 翻译，格式化函数写在 `hooks.ts` 的 `onStart` 里。`<Link to="/store/cart">` 这样的链接和 Markdown 里以 `/` 开头的链接会自己加上前缀。见[多语言网站](docs/guides/i18n.zh-CN.md)。原来把语言放在自己的 `lang+` 目录里、又没有 `_locales` 目录的应用照旧能用。要迁过来：把文案放进 `_locales`，用 `lang+` 目录里的内容取代它，删掉检查语言的 `Layout` 和手写的 `hreflang`、`lang`，不再需要的话也删掉 `Accept-Language` 的重定向。`app/` 顶层有目录和网站某种语言同名，以及这样的网站在 `htmlAttributes` 里写 `lang`，现在都会让构建失败。
@@ -19,6 +20,7 @@
 
 ### 变更
 
+- 用 rehype-highlight 给代码上色的页面渲染更快。rehype-highlight 在 Markdown 组件的每次渲染里都新建一个带 37 种语言的 highlight.js，现在服务端渲染的包为每个 `languages` 对象只保留一个。示例商店的两个文章页一次渲染的指令数少 15.9% 和 20.0%，HTML 不变。带 `aliases` 选项的调用和以前一样。见[构建](docs/build.zh-CN.md)。
 - 没有匹配任何路由、且最后一段带文件扩展名（`/wp-login.php`）或者有一段以点开头（`/.env`、`/.git/config`）的 URL，现在得到和 `/assets/` 下缺失文件一样的纯文本 404，不跑 `Load`、不渲染，以前是 404 页面。扫描器会成百上千地请求这类路径。路由能匹配的 URL（包括 catch-all 路由）和导航数据请求不受影响，`/.well-known/` 下的路由或公共文件也不受影响，`OnRequest` 照常运行（见 [404](docs/app.zh-CN.md#404)）。
 - 服务端渲染的 `URL` 和 `URLSearchParams` 改由引擎提供，在 Go 里解析 URL，取代宿主脚本里带的 core-js polyfill，宿主脚本因此变小，每个 VM 占的内存变少。有多语言的网站，路由每写一个链接就建一个 `URL`，这些页面渲染更快，HTML 不变：在 AMD EPYC 7B13 的一个核上，示例商店的三个店面页面用时是原来的 0.703，六个工作台页面是 0.886。没有多语言的网站渲染时不建 `URL`，没有提升。页面能看到的变化有三处，都和浏览器一致：`URL` 对象没有自有属性，违反 UTS 46 Bidi 规则的主机名无效，无效的 URL 抛 `TypeError: Failed to construct 'URL': Invalid URL`。没有了 `URL.createObjectURL` 和 `URL.revokeObjectURL`（这里没有 `Blob`）（[服务端渲染时有什么](docs/app.zh-CN.md#服务端渲染时有什么)）。
 - 示例商店的店面卖 150 件商品，原来是 28 件。新加的是前 28 件换了颜色和名字的款，和原款共用照片：商品在数据里写明照片所在的文件夹（`photo`），页面从那里取图，不再按 slug 取。商品放在一个文件里，`app/store/products/catalogue.json`，商店把它打包进程序，对比用的应用也读这个文件。商品列表有 7 页，每种语言有 150 个商品页。

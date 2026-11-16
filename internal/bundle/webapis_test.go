@@ -33,6 +33,7 @@ Math.random = () => { throw new Error('Unexpected insecure random fallback') }
 	cases := []struct{ name, source, want string }{
 		{"zod base64 validation", `import {z} from 'zod'; globalThis.result=String(z.base64().safeParse('YQ==').success);`, "true"},
 		{"zod base64 encoding", `import {util} from 'zod/v4/core'; globalThis.result=util.uint8ArrayToBase64(new Uint8Array([97]));`, "YQ=="},
+		{"performance", `const a=performance.now(),b=performance.now();globalThis.result=String(typeof a==="number"&&Number.isFinite(a)&&a>=0&&b>=a&&Math.abs(performance.timeOrigin-Date.now())<5000);`, "true"},
 		{"uuid", `import {v4} from 'uuid';const id=v4();const fallback=v4({});globalThis.result=String(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)&&id!==fallback&&calls.uuid===1&&calls.random===1);`, "true"},
 		{"serialize load", `import serialize from 'serialize-javascript';globalThis.result=String(calls.random>0&&serialize({x:/x/}).includes('RegExp'));`, "true"},
 		{"field array", `import {useForm,useFieldArray} from 'react-hook-form';function Page(){const {control}=useForm({defaultValues:{rows:[{name:'A'},{name:'B'}]}});const {fields}=useFieldArray({control,name:'rows'});return <p>{fields.map(f=>f.name).join(',')}</p>}globalThis.result=renderToString(<Page/>)+','+calls.uuid;`, "<p>A,B</p>,2"},
