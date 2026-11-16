@@ -166,10 +166,13 @@ func TestTheMachineCheckPlaysAKeptMainServer(t *testing.T) {
 	}
 }
 
-// The rounds of the check are closed rounds of the cell as they are played, each on a server of its
-// own after the sizing it keeps, the setup and the warm-up, as many as the cell has, and none of them
-// is kept: no closed round, no new size of the cell. Whether the fake servers of the test agree within
-// 3% with the kept round is up to the machine, so the test takes either outcome.
+// The rounds of the check are closed rounds of the cell as they are played, each try on a server of
+// its own after the sizing it keeps, the setup and the warm-up, as many valid rounds as the cell has,
+// and none of them is kept: no closed round, no new size of the cell. A try that is not valid is
+// played again and logged as a round of the cell is: with a target of 200 ms, the wall clock of the
+// fake servers puts a try outside the window of its length now and then, and it is resized. Whether
+// the fake servers agree within 3% with the kept round is up to the machine, so the test takes either
+// outcome.
 func TestTheMachineCheckRoundsAreClosedRoundsOfTheCellAndNoResult(t *testing.T) {
 	tifa, _, node := warmSpecs()
 	sc := mustScenario("shop")
@@ -184,6 +187,8 @@ func TestTheMachineCheckRoundsAreClosedRoundsOfTheCellAndNoResult(t *testing.T) 
 	}
 	b.res.ServerStamps = map[string]ServerStamp{"tifa": {Stamp: "t"}, "nextjs": {Stamp: "n"}}
 	closed, blocks, before := len(b.res.Closed), maps.Clone(b.res.Blocks), len(busy(servers()))
+	var log strings.Builder
+	b.o.Log = &log
 	err := b.checkMachine(context.Background(), []string{"nextjs"})
 	switch {
 	case err == nil:
@@ -200,9 +205,27 @@ func TestTheMachineCheckRoundsAreClosedRoundsOfTheCellAndNoResult(t *testing.T) 
 	if len(b.res.Closed) != closed || !maps.Equal(b.res.Blocks, blocks) {
 		t.Errorf("the check kept a round (%d of %d) or a size (%v of %v)", len(b.res.Closed), closed, b.res.Blocks, blocks)
 	}
+	// Every try of the check is logged, and played on a server of its own. The tries are round 1 until
+	// one is valid, then round 2 until one is valid.
+	var tries []string
+	for line := range strings.Lines(log.String()) {
+		if strings.HasPrefix(line, "check  ") && strings.Contains(line, " (try ") {
+			round, _, _ := strings.Cut(line[strings.Index(line, " round ")+1:], ":")
+			tries = append(tries, fmt.Sprintf("%s valid %v", round, strings.Contains(line, " valid true")))
+		}
+	}
+	valid, try := 0, 1
+	for i, got := range tries {
+		if want := fmt.Sprintf("round %d (try %d)", valid+1, try); !strings.HasPrefix(got, want) {
+			t.Errorf("try %d of the check is %q, want %q: %q", i+1, got, want, tries)
+		}
+		if try++; strings.HasSuffix(got, "valid true") {
+			valid, try = valid+1, 1
+		}
+	}
 	list := busy(servers())[before:]
-	if len(list) != 2 {
-		t.Fatalf("the check started %d servers, want one for each of its 2 rounds", len(list))
+	if valid != 2 || len(list) != len(tries) {
+		t.Fatalf("the check played %d tries (%d valid) on %d servers, want one server a try and 2 valid rounds: %q", len(tries), valid, len(list), tries)
 	}
 	for _, l := range list {
 		if l.spec != "tifa" || len(l.phase(1)) == 0 || len(l.phase(2)) == 0 {

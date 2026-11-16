@@ -129,8 +129,8 @@ func fmtList(values []float64) string {
 }
 
 // checkRound plays a round of the check of the machine on a server of a scenario at the base sessions,
-// as a round of its cell is played from blocks, again while it is not valid (up to maxTries), and
-// returns it with the size the next round plays. It keeps nothing in the result: the round, and the
+// as a round of its cell is played from blocks, again while it is not valid (up to maxTries), logs
+// every try, and returns it with the size the next round plays. It keeps nothing in the result: the round, and the
 // size of the cell it may correct, are thrown away. A round still not valid after its tries stops the
 // run. The tests set playCheck.
 func (b *browse) checkRound(ctx context.Context, fw string, sc BrowseScenario, round, blocks int) (*Round, int, error) {
@@ -143,6 +143,10 @@ func (b *browse) checkRound(ctx context.Context, fw string, sc BrowseScenario, r
 			return nil, err
 		}
 		out.Round, out.Attempt = round, try
+		// Every try is logged, as a try of a round of the cell is: one that is not valid (most often a
+		// round outside the window of its length, resized) is played again on a server of its own.
+		b.logf("check  %-10s %2d sessions %-12s round %d (try %d): %d blocks, %.1f page views/s, valid %v %s\n",
+			sc.Name, b.o.Sessions, fw, round, try, out.Blocks, pageViewsPerSecond(out), out.Valid, out.WhyInvalid)
 		if next > 0 {
 			blocks = next
 		}
