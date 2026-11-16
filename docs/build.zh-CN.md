@@ -504,7 +504,7 @@ Tifa 用应用自己的 Vite 打包前端，因为有页面的应用就是 React
 
 代价：
 
-- 构建有页面的应用需要 Node、`vite` 和 `@vitejs/plugin-react`。没有页面的应用构建不需要 Node，除非它的内容集合里有条目。
+- 构建有页面的应用需要 Node、`vite` 和 `@vitejs/plugin-react`。Node 要 20.19、22.12 或更新，这是 Vite 8 的要求：更旧的版本上，`tifa build`、`tifa dev`、`tifa gen` 和 `tifa check` 会停下，并用一行字说出找到的版本。没有页面的应用构建不需要 Node，除非它的内容集合里有条目。
 - `tifa dev` 在应用旁边跑一个 Node 进程，Vite 的开发服务器在同一个地址后面，SSR 包在单独的工作线程上构建，因为 Vite 每个线程只选一次 React 的构建版本。
 - 有些功能要读 Vite 和 Rolldown 内部做了什么（比如 `dist/inputs.json` 背后的模块列表），所以新版 Vite 可能要配新版 Tifa。
 

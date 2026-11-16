@@ -503,7 +503,7 @@ What the app gets:
 
 What it costs:
 
-- Building an app with pages needs Node, `vite` and `@vitejs/plugin-react`. An app without pages builds without Node, unless its content collections have entries.
+- Building an app with pages needs Node, `vite` and `@vitejs/plugin-react`. Node must be 20.19, 22.12 or later, what Vite 8 needs: on an older one `tifa build`, `tifa dev`, `tifa gen` and `tifa check` stop with a line that names the version found. An app without pages builds without Node, unless its content collections have entries.
 - `tifa dev` runs one Node process next to the app, with Vite's dev server behind the same address and the SSR bundle built on a worker thread of its own, since Vite picks the build of React once per thread.
 - Some features read what Vite and Rolldown do inside, such as the module list behind `dist/inputs.json`, so a new Vite can need a new Tifa.
 

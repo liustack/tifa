@@ -64,6 +64,14 @@ if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[2]} i
 
 const answer = (value) => fs.writeSync(3, JSON.stringify(value) + '\n')
 
+// Vite 8 needs Node 20.19, 22.12 or later. On an older Node it fails with a syntax or import error
+// from inside Vite, so the driver says what is wrong before it loads Vite.
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number)
+if (!(nodeMajor > 22 || (nodeMajor === 22 && nodeMinor >= 12) || (nodeMajor === 20 && nodeMinor >= 19))) {
+  answer({ id: 0, error: `tifa needs Node 20.19, 22.12 or later to run Vite, found Node ${process.versions.node}` })
+  process.exit(0)
+}
+
 let vite
 try {
   vite = await import('vite')
