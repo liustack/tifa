@@ -686,7 +686,8 @@ func TestDirSegments(t *testing.T) {
 		{"app/a b", `" "`},
 		{"app/%61", `"%"`},
 		{"app/{x}", `"{"`},
-		{"app/$x", `"$"`},
+		{"app/$x", "name the folder x+"},
+		{"app/$", `"$"`},
 	}
 	for _, tc := range bad {
 		if _, err := dirSegments(tc.dir); err == nil || !strings.Contains(err.Error(), tc.want) {
