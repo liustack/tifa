@@ -701,6 +701,65 @@ func TestSignIn(t *testing.T) {
 
 `tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../app.md#testing-a-whole-request)).
 
+A signed-out visitor is sent to the sign-in page when the browser loads `/account` and when a click on a link asks for its data. `tifatest.Start` has no front end, so it answers the data request with the plain 302 of a page load. `tifatest.StartPages` serves the data request as the program does, with the redirect in a 200 answer that the router follows. Run `go tool tifa build` before this test, since `tifa check` does not bundle. `app/account/request_test.go`:
+
+```go
+package account_test
+
+import (
+	"encoding/json"
+	"net/url"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/liustack/tifa/tifatest"
+
+	"signin/.tifa/tifaapp"
+)
+
+func TestSignedOutVisitorIsRedirected(t *testing.T) {
+	srv := tifatest.StartPages(t, tifaapp.App)
+	client := srv.Client() // does not follow redirects
+	next := "/login?next=" + url.QueryEscape("/account")
+
+	// A page load: 302 with Location.
+	res, err := client.Get(srv.URL + "/account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 302 || res.Header.Get("Location") != next {
+		t.Fatalf("page load: %d to %q, want 302 to %q", res.StatusCode, res.Header.Get("Location"), next)
+	}
+
+	// A click on a link: the router asks for the data with _tifa, which holds the build and a
+	// digit for each route. OnRequest answers before the digits are read.
+	var build struct{ BuildID string }
+	file, err := os.ReadFile(filepath.Join("..", "..", ".tifa", "dist", "build.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(file, &build); err != nil {
+		t.Fatal(err)
+	}
+	res, err = client.Get(srv.URL + "/account?_tifa=" + build.BuildID + ".1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var answer struct {
+		Redirect string
+		Status   int
+	}
+	if err := json.NewDecoder(res.Body).Decode(&answer); err != nil || res.StatusCode != 200 || answer.Redirect != next || answer.Status != 302 {
+		t.Fatalf("client navigation: %d %+v (%v), want 200 with a redirect to %q", res.StatusCode, answer, err, next)
+	}
+}
+```
+
+This test was run in a scratch app with the guide's `OnRequest` and `/account` route. It fails when `OnRequest` stops guarding `/account`.
+
 ## Decisions
 
 **Sessions in memory or in a store.** Without a store, sessions live in the memory of the process and a restart signs everyone out. That is fine to start with. When it matters, give `OnStart` a store (see [Where to store sessions](../sessions.md#where-to-store-sessions)).

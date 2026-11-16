@@ -693,6 +693,65 @@ func TestSignIn(t *testing.T) {
 
 `tifatest.NewCtx` 给测试一个它自己的会话存储，所以 `SetSession` 能用。`SetSession` 一返回，cookie 就在 recorder 里。每个请求用一个新的 `NewCtx`，函数返回后再读 `rec.Result()`：recorder 记下的是第一次调用 `Result()` 时的头，一个 recorder 用于两次请求，第二次的 cookie 永远看不到。同一个测试的 `Ctx` 共用存储，所以前一个请求的 cookie 能让下一个登录（见[测试会话](../sessions.zh-CN.md#测试会话)）。要测试需要用户的函数、又不想真的登录，用 `tifatest.WithSession`（见[测试会话](../sessions.zh-CN.md#测试会话)）。要像浏览器那样走完整个登录，从受保护的页面经过重定向和表单再回到页面，就用 `tifatest.Start` 启动应用（见[测整个请求](../app.zh-CN.md#测整个请求)）。
 
+没登录的访客，不管是浏览器直接加载 `/account`，还是点链接时请求它的数据，都会被送到登录页。`tifatest.Start` 没有前端，数据请求它也只答页面加载那样的普通 302。`tifatest.StartPages` 按程序的方式回答数据请求：重定向放在一个 200 的回答里，由路由器跟过去。运行这个测试前先运行 `go tool tifa build`，因为 `tifa check` 不打包。`app/account/request_test.go`：
+
+```go
+package account_test
+
+import (
+	"encoding/json"
+	"net/url"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/liustack/tifa/tifatest"
+
+	"signin/.tifa/tifaapp"
+)
+
+func TestSignedOutVisitorIsRedirected(t *testing.T) {
+	srv := tifatest.StartPages(t, tifaapp.App)
+	client := srv.Client() // does not follow redirects
+	next := "/login?next=" + url.QueryEscape("/account")
+
+	// A page load: 302 with Location.
+	res, err := client.Get(srv.URL + "/account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 302 || res.Header.Get("Location") != next {
+		t.Fatalf("page load: %d to %q, want 302 to %q", res.StatusCode, res.Header.Get("Location"), next)
+	}
+
+	// A click on a link: the router asks for the data with _tifa, which holds the build and a
+	// digit for each route. OnRequest answers before the digits are read.
+	var build struct{ BuildID string }
+	file, err := os.ReadFile(filepath.Join("..", "..", ".tifa", "dist", "build.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(file, &build); err != nil {
+		t.Fatal(err)
+	}
+	res, err = client.Get(srv.URL + "/account?_tifa=" + build.BuildID + ".1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var answer struct {
+		Redirect string
+		Status   int
+	}
+	if err := json.NewDecoder(res.Body).Decode(&answer); err != nil || res.StatusCode != 200 || answer.Redirect != next || answer.Status != 302 {
+		t.Fatalf("client navigation: %d %+v (%v), want 200 with a redirect to %q", res.StatusCode, answer, err, next)
+	}
+}
+```
+
+这个测试在一个临时应用里跑过，用的是本指南的 `OnRequest` 和 `/account` 路由。`OnRequest` 不再保护 `/account` 时它会失败。
+
 ## 要做的选择
 
 **会话放内存还是存储里。** 没有存储时会话放在进程的内存里，重启就让所有人登出。刚开始这样就行。到它成了问题时，在 `OnStart` 里给它一个存储（见[会话存在哪](../sessions.zh-CN.md#会话存在哪)）。
