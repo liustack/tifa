@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 服务端渲染里每次调 `useCallback` 和每次查 i18next 缓存做的事更少了。HTML 不变。用 callgrind 计数，示例商店的店面页面少跑 0.91% 的指令，工作台页面少 0.65%。React 比较 `useCallback` 的依赖时抛出的错误，栈里原来写 `useMemo` 的那一帧改写 `tifaUseCallback`。
+
 ## [0.0.10] - 2026-11-16
 
 ### Changed
