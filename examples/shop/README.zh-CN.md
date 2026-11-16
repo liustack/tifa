@@ -48,6 +48,7 @@ go tool tifa check
 ## 目录
 
 ```text
+options.go                     选项 shop.open
 hooks.go                       OnRequest 把没登录的访客挡在工作台和指标外，OnError 记录意外错误
 session.go                     会话类型、演示账号和密码校验
 components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
@@ -83,7 +84,7 @@ app/
     storekit/                  店面共用的部分：两种语言、各自的币种和时区、价格
     _locales/                  各语言的文案，zh-CN.json 和 en-US.json
     layout_.tsx                店面 Layout（分类菜单、搜索、语言切换、购物车抽屉、页脚），外面不套工作台
-    route.go  page.tsx         首页和 Layout 函数，缓存 10 分钟
+    route.go  page.tsx         首页和 Layout 函数
     i18n.ts                    文案里金额和日期的格式化，页面标题
     product-card.tsx           各个列表共用的商品卡片、商品图和价格
     images.ts  images/         商品、首页和手记的配图，AVIF 格式
@@ -91,9 +92,9 @@ app/
     products/
       product.go  catalogue.go  review.go    商品领域：商品、搜索、筛选和各项计数、评价、规格、最近看过
       edit.go                  工作台的修改、库存，以及订单从商品目录里取的商品行
-      route.go  page.tsx       商品列表，筛选条件放在查询字符串里，缓存 5 分钟
+      route.go  page.tsx       商品列表，筛选条件放在查询字符串里
       filter-schema.ts         筛选表单的 zod schema
-      product+/                /store/products/{product}：商品详情，缓存 10 分钟，POST 加入购物车
+      product+/                /store/products/{product}：商品详情，POST 加入购物车
     cart/
       cart.go  checkout.go     购物车领域：商品行、优惠码、配送、订单的检查，以及作为第一家店铺的订单下单
       recent.go                放在内存里的购物车和已下订单，有数量上限，过期就丢掉
@@ -103,10 +104,10 @@ app/
     journal/
       post.go  posts/          手记领域：Markdown 文章，每种语言一个文件
       markdown.tsx             带 GitHub 表格和代码高亮的 Markdown
-      post+/                   /store/journal/{post}，缓存 1 小时
+      post+/                   /store/journal/{post}
 ```
 
-每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子和会话。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.md)。
+每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子、会话和选项 `shop.open`。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.md)。
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 

@@ -10,7 +10,7 @@ read_when:
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Measuring what one VM costs the process, how long the Go GC stops the program while VMs render, or whether two builds write the same HTML
-  - Timing the SSR tests and benchmarks against another build of quickjs
+  - Timing the SSR tests and benchmarks against another build of slowjs
   - Counting the instructions of a render to check a small speedup, or running the `count` workflow
   - Changing `internal/ssr` or `test/ssr`
   - Checking how large a page can get before it fails, or that it fails cleanly
@@ -194,7 +194,7 @@ The tests start the program with `testproc.Start` (see [Writing tests](#writing-
 | `/nest/<levels>` | 500, 1,000, 5,000, 10,000 | Components that only pass on children, plain, `memo`, `forwardRef` and context readers in turn: deep JavaScript calls |
 | `/deep/<levels>` | 400, 600 | Nested `div`s. Browsers stop nesting at about 512, so 600 only shows what the server does |
 | `/inject/<MB>` | 1, 5, 20, 40 | A product catalogue of that many MB of JSON in the page |
-| `/json/<levels>` | 1,999, 2,001 | Data nested that deep. The C engine of quickjs parses JSON at most 2,000 levels deep |
+| `/json/<levels>` | 1,999, 2,001 | Data nested that deep. The C engine of slowjs parses JSON at most 2,000 levels deep |
 | `/table/<rows>` | 1,000, 5,000, 10,000 | A TanStack Table of 10 columns |
 | `/providers/<levels>` | 200, 500, 1,000 | That many context providers, each a different context, all read at the bottom |
 | `/charts/12` | 12 | Line, bar, area and scatter charts drawn on the server with d3 |
@@ -216,7 +216,7 @@ TIFA_SSR_EXTREME=1 go test -run ExtremeIsolation -v ./test/ssr
 - `BenchmarkExtreme` (3 to 6 minutes, mostly the sizes that fail) renders each size with the default settings, in a VM of its own, and fills the slots of long data texts in Go as the server does. For a size that renders it reports the P50 and P99 of warm renders, `vm-MiB`, the VM's memory right after its first render, and `stack-KiB`, how much the goroutine stack grew during it. The `/inject` sizes also report the data request (`load-ms`), escaping it (`escape-ms`) and parsing it in a VM (`parse-ms`). For a size that fails, it logs how and after how long, and what it takes with 1 GiB and 60 seconds instead, and skips. Run it with `-v` to see these lines.
 - `TestExtremeIsolation` (about 20 seconds with 4 CPUs) renders `/table/25` with three of four VMs while the fourth renders `/markdown/200` again and again: once with time to finish, once with a budget of half a second, so the pool stops and replaces that VM each time. The P99 of the light page must not be more than 1.5 times, or 5 ms, worse when VMs are stopped. It needs 4 CPUs, and with fewer only prints the numbers.
 
-`/json/2001` must fail: the engine of quickjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Optimizations](studies/optimizations.md#extreme-pages).
+`/json/2001` must fail: the engine of slowjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Optimizations](studies/optimizations.md#extreme-pages).
 
 ## Performance comparisons
 
@@ -278,9 +278,9 @@ gh workflow run count.yml --ref my-branch -f ref=my-branch -f base=main -f app=m
 
 How big the noise is: the same commit against itself, on the same runner, changes a page by 0.00% to 0.14% (most pages under 0.05%, the 68M instruction cart page the most) and the sum of the pages by 0.01% or less. So a change under 0.15% on one page is not a change, and a change under 0.02% on the sum is not one either. The three MUI pages against themselves change by under 0.01%. Known result: `6357683f^` against `6357683f` (one lowlight kept for rehype-highlight) gives 15.8% and 19.9% fewer on the two article pages and 0.0% to 0.3% on the others (the commit also touches the plugin), matching the 15.9% and 20.0% in [optimizations](studies/optimizations.md).
 
-### Timing a build of quickjs against another
+### Timing a build of slowjs against another
 
-To time one build of quickjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a quickjs checkout whose engine is generated, use `go tool measure bench` in quickjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
+To time one build of slowjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a slowjs checkout whose engine is generated, use `go tool measure bench` in slowjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
@@ -425,7 +425,7 @@ There are two configurations. `default` is each framework as shipped: Tifa with 
 
 **Placement rule.** On Linux the command reads `/sys/devices/system/cpu/cpuN/topology` and refuses to run when a cpu of the server and a cpu of the client are the same cpu or two threads of one physical core. The client pins itself with `taskset` and the servers are started under it. With hyperthreads, cpus `n` and `n+4` on a 4-core machine usually share a core, and cpus 1 and 2 on the GCP machine do not. Off Linux nothing is pinned, nothing is checked, and the record says `not checked`.
 
-The record (`-json`) keeps the Go, quickjs, Node, Next.js and Start versions, the Tifa commit, the CPU model, the kernel, the placement, the settings and every run of every round. Raw records stay out of the repository.
+The record (`-json`) keeps the Go, slowjs, Node, Next.js and Start versions, the Tifa commit, the CPU model, the kernel, the placement, the settings and every run of every round. Raw records stay out of the repository.
 
 **Scenarios.** `read` is the six pages in turn and is what the engine table, the memory table, the per-page table and the A/A check use. `read-write` has the same timed reads and, before the first order page after each 10 reads, one untimed write: a `PATCH` of the address of that order (the shop's own call on the order route, with the customer and the phone it already has), with an address that carries the number of the read and always has the same length. So the data of the page is new every time, does not grow, and an earlier version cannot be served again, and the render memo of Tifa must miss there. Lists and stats show who an order is for but not where it goes, so a write cannot change them and writes come before order pages only. It runs for the default configuration, and the report has an out of the box table for it with the hit rate. `write-each` is for Tifa only, with the cache on and with `--ssr-memo-size 0`: it reads the two order pages in turn and writes the order before every read, so the cache never hits. The report prints the miss overhead of the cache from it: P50 and requests per second with the cache against without. Only reads are timed in all three.
 

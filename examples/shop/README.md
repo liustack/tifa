@@ -48,6 +48,7 @@ To look at the workbench without signing in, start the program with `SHOP_OPEN=1
 ## Folders
 
 ```text
+options.go                     the option shop.open
 hooks.go                       OnRequest keeps visitors who are not signed in out of the workbench and the metrics, OnError logs unexpected errors
 session.go                     the session type, the demo account and the password check
 components/                    shadcn/ui components in ui/ and the hooks they use in hooks/, imported as @/components/...
@@ -83,7 +84,7 @@ app/
     storekit/                  what the storefront shares: its two languages, their currency and time zone, prices
     _locales/                  the texts of each language, zh-CN.json and en-US.json
     layout_.tsx                the storefront Layout (category menu, search, language switch, cart drawer, footer) without the workbench around it
-    route.go  page.tsx         the home page and the Layout function, kept for 10 minutes
+    route.go  page.tsx         the home page and the Layout function
     i18n.ts                    the formatters of money and dates for the texts, page titles
     product-card.tsx           the product card of every list, product photos and prices
     images.ts  images/         the product, home page and journal photos, in AVIF
@@ -91,9 +92,9 @@ app/
     products/
       product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews, specifications, recently viewed
       edit.go                  the edits of the workbench, the stock and the lines orders take from the catalogue
-      route.go  page.tsx       product list, filters in the query string, kept for 5 minutes
+      route.go  page.tsx       product list, filters in the query string
       filter-schema.ts         the zod schema of the filter form
-      product+/                /store/products/{product}: product page kept for 10 minutes, POST adds to the cart
+      product+/                /store/products/{product}: product page, POST adds to the cart
     cart/
       cart.go  checkout.go     cart domain: lines, coupons, delivery, the checks of an order, placing it as an order of the first shop
       recent.go                carts and placed orders kept in memory, with a limit and an expiry
@@ -103,10 +104,10 @@ app/
     journal/
       post.go  posts/          journal domain: articles in Markdown, one file per language
       markdown.tsx             Markdown with GitHub tables and highlighted code
-      post+/                   /store/journal/{post}, kept for an hour
+      post+/                   /store/journal/{post}
 ```
 
-Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks and the session. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
+Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks, the session and the option `shop.open`. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 
