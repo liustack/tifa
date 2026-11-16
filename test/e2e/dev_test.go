@@ -705,7 +705,16 @@ func expectNoErrors(t *testing.T, dir, when string) {
 	if err := json.Unmarshal([]byte(out), &r); err != nil || code != 0 || !r.Empty() {
 		t.Fatalf("tifa errors %s: %d %v\n%s", when, code, err, out)
 	}
-	if code, out := tifaErrors(t, dir, false); code != 0 || out != "No errors since the last build.\n" {
-		t.Fatalf("tifa errors %s: %d %s", when, code, out)
+	// The warnings of the build come after that line, and the app has one: the route that returns
+	// a number above 2^53 to show the refusal.
+	code, text := tifaErrors(t, dir, false)
+	rest, ok := strings.CutPrefix(text, "No errors since the last build.\n")
+	if code != 0 || !ok || len(r.Warnings) == 0 != (rest == "") || rest != "" && !strings.HasPrefix(rest, "\nWarnings (they do not fail anything):\n") {
+		t.Fatalf("tifa errors %s: %d %s", when, code, text)
+	}
+	for _, w := range r.Warnings {
+		if !strings.Contains(w, "bigid/refused/route.go") {
+			t.Fatalf("tifa errors %s lists a warning the app is not known to have: %s", when, w)
+		}
 	}
 }
