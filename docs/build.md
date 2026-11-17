@@ -228,7 +228,7 @@ docs/app.md - How to write a Tifa app
 docs/build.md - How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes
 ```
 
-With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps.| `. Docs are sorted by path. The Chinese versions (`*.zh-CN.md`), `docs/archive/` and `docs/research/` are left out, and a doc without a summary is left out with a warning on stderr.
+With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps. `docs/research/` is left out, and a doc without a summary is left out with a warning on stderr.
 
 ## `tifa agents`
 
