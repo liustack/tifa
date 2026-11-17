@@ -58,62 +58,81 @@ type pinChange struct{ Name, From, To string }
 // setPins sets the version of each package of pins that the "dependencies" or "devDependencies" of
 // the package.json in data lists, and changes nothing else: the other packages and keys stay, and
 // so do the spaces, the line ends and the order. A package of pins that the file does not list is
-// not added. The changes come sorted by name.
-func setPins(data []byte, pins map[string]string) ([]byte, []pinChange, error) {
+// not added. A package that is already newer than its pin stays, since only the packages in strict
+// must equal theirs, and a version that is not exact (a range, a tag, workspace:) is not guessed at:
+// each of these gives a note that says so, and the file keeps it. The changes come sorted by name.
+func setPins(data []byte, pins map[string]string, strict map[string]bool) ([]byte, []pinChange, []string, error) {
 	type edit struct {
 		start, end int
 		change     pinChange
 	}
 	var edits []edit
+	var notes []string
+	fail := func(err error) ([]byte, []pinChange, []string, error) {
+		return nil, nil, nil, fmt.Errorf("package.json: %w", err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	next := func() (json.Token, error) { return dec.Token() }
-	if tok, err := next(); err != nil || tok != json.Delim('{') {
-		return nil, nil, errors.New("package.json is not a JSON object")
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, nil, nil, errors.New("package.json is not a JSON object")
 	}
 	for dec.More() {
-		keyTok, err := next()
+		keyTok, err := dec.Token()
 		if err != nil {
-			return nil, nil, fmt.Errorf("package.json: %w", err)
+			return fail(err)
 		}
 		key, _ := keyTok.(string)
 		if key != "dependencies" && key != "devDependencies" {
 			var skip json.RawMessage
 			if err := dec.Decode(&skip); err != nil {
-				return nil, nil, fmt.Errorf("package.json: %w", err)
+				return fail(err)
 			}
 			continue
 		}
-		if tok, err := next(); err != nil || tok != json.Delim('{') {
-			return nil, nil, fmt.Errorf("package.json: %q is not an object", key)
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+			return nil, nil, nil, fmt.Errorf("package.json: %q is not an object", key)
 		}
 		for dec.More() {
-			nameTok, err := next()
+			nameTok, err := dec.Token()
 			if err != nil {
-				return nil, nil, fmt.Errorf("package.json: %w", err)
+				return fail(err)
 			}
 			name, _ := nameTok.(string)
-			valTok, err := next()
+			valTok, err := dec.Token()
 			if err != nil {
-				return nil, nil, fmt.Errorf("package.json: %w", err)
+				return fail(err)
 			}
 			from, ok := valTok.(string)
 			if !ok {
-				return nil, nil, fmt.Errorf("package.json: the version of %s in %q is not a string", name, key)
+				return nil, nil, nil, fmt.Errorf("package.json: the version of %s in %q is not a string", name, key)
 			}
 			to, pinned := pins[name]
 			if !pinned || from == to {
+				continue
+			}
+			// Only an exact version is compared. A range, a tag or workspace: says something
+			// that is not guessed at.
+			if semver.Canonical("v"+from) != "v"+from {
+				if strict[name] {
+					notes = append(notes, fmt.Sprintf("%s is written as %s, and Tifa needs exactly %s: set it by hand", name, from, to))
+				} else {
+					notes = append(notes, fmt.Sprintf("%s is written as %s, not an exact version, left as it is. Tifa is tested with %s", name, from, to))
+				}
+				continue
+			}
+			if !strict[name] && semver.Compare("v"+from, "v"+to) > 0 {
+				notes = append(notes, fmt.Sprintf("%s %s is newer than the %s Tifa is tested with, left as it is", name, from, to))
 				continue
 			}
 			// The offset after the value is the end of its quotes, so its start is a quote too.
 			end := int(dec.InputOffset())
 			start := end - len(from) - 2
 			if start < 0 || data[start] != '"' || data[end-1] != '"' || string(data[start+1:end-1]) != from {
-				return nil, nil, fmt.Errorf("package.json: cannot find where the version of %s is written, is it written with escapes?", name)
+				return nil, nil, nil, fmt.Errorf("package.json: cannot find where the version of %s is written, is it written with escapes?", name)
 			}
 			edits = append(edits, edit{start + 1, end - 1, pinChange{name, from, to}})
 		}
-		if _, err := next(); err != nil {
-			return nil, nil, fmt.Errorf("package.json: %w", err)
+		if _, err := dec.Token(); err != nil {
+			return fail(err)
 		}
 	}
 	var out bytes.Buffer
@@ -127,7 +146,7 @@ func setPins(data []byte, pins map[string]string) ([]byte, []pinChange, error) {
 	}
 	out.Write(data[last:])
 	sortPinChanges(changes)
-	return out.Bytes(), changes, nil
+	return out.Bytes(), changes, notes, nil
 }
 
 func sortPinChanges(c []pinChange) {

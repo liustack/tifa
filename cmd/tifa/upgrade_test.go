@@ -62,20 +62,21 @@ const appPackageJSON = `{
 }
 `
 
+var strictPins = map[string]bool{"@tanstack/react-router": true}
+
 func TestSetPinsChangesOnlyThePinnedPackages(t *testing.T) {
 	pins := map[string]string{
 		"react": "19.3.0", "react-dom": "19.3.0", "vite": "8.3.4", "typescript": "6.0.3",
 		"@tanstack/react-router": "1.170.46",
 		"@vitejs/plugin-react":   "6.1.2", // the app does not have it: it is not added
 	}
-	got, changes, err := setPins([]byte(appPackageJSON), pins)
+	got, changes, notes, err := setPins([]byte(appPackageJSON), pins, strictPins)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := strings.NewReplacer(
 		`"1.100.0"`, `"1.170.46"`,
 		`"react": "19.2.0",`, `"react": "19.3.0",`,
-		`"^19.2.0"`, `"19.3.0"`,
 		`"5.9.0"`, `"6.0.3"`,
 	).Replace(appPackageJSON)
 	if string(got) != want {
@@ -84,22 +85,66 @@ func TestSetPinsChangesOnlyThePinnedPackages(t *testing.T) {
 	wantChanges := []pinChange{
 		{"@tanstack/react-router", "1.100.0", "1.170.46"},
 		{"react", "19.2.0", "19.3.0"},
-		{"react-dom", "^19.2.0", "19.3.0"},
 		{"typescript", "5.9.0", "6.0.3"},
 	}
 	if !reflect.DeepEqual(changes, wantChanges) {
 		t.Errorf("changes %v, want %v", changes, wantChanges)
 	}
-	// A second run changes nothing.
-	again, changes, err := setPins(got, pins)
-	if err != nil || string(again) != string(got) || len(changes) != 0 {
-		t.Errorf("second run: %v, %v, changed %v", err, string(again) == string(got), changes)
+	// react-dom is written as a range: it is not guessed at.
+	if len(notes) != 1 || !strings.Contains(notes[0], "react-dom") || !strings.Contains(notes[0], "^19.2.0") || !strings.Contains(notes[0], "left as it is") {
+		t.Errorf("notes %q, want one about react-dom ^19.2.0", notes)
+	}
+	// A second run changes nothing and says the same.
+	again, changes, again2, err := setPins(got, pins, strictPins)
+	if err != nil || string(again) != string(got) || len(changes) != 0 || !reflect.DeepEqual(again2, notes) {
+		t.Errorf("second run: %v, %v, changed %v, notes %q", err, string(again) == string(got), changes, again2)
+	}
+}
+
+// A package that is newer than the pin stays, with a line that says so. Only an exact version is
+// compared: a range, a tag or a workspace: reference is left alone with a line. The router must
+// equal the pin, so a newer one is set back, and a router written as a range is left to the user.
+func TestSetPinsLeavesNewerAndUnclearVersions(t *testing.T) {
+	pins := map[string]string{"react": "19.3.0", "vite": "8.3.4", "typescript": "6.0.3", "@tanstack/react-router": "1.170.46", "react-dom": "19.3.0"}
+	for _, c := range []struct {
+		name, in string
+		change   bool   // the file changes
+		note     string // text of the one note, "" for none
+	}{
+		{"newer", `"react": "19.4.0"`, false, "react 19.4.0 is newer than the 19.3.0 Tifa is tested with, left as it is"},
+		{"newer prerelease of the next", `"react": "19.4.0-canary.1"`, false, "react 19.4.0-canary.1 is newer"},
+		{"older prerelease", `"react": "19.3.0-canary.1"`, true, ""},
+		{"caret", `"react": "^19.2.0"`, false, "react is written as ^19.2.0"},
+		{"tilde", `"react": "~19.3.0"`, false, "react is written as ~19.3.0"},
+		{"range", `"react": ">=19.2.0 <20"`, false, "react is written as >=19.2.0 <20"},
+		{"workspace", `"react": "workspace:*"`, false, "react is written as workspace:*"},
+		{"tag", `"react": "latest"`, false, "react is written as latest"},
+		{"router newer is set back", `"@tanstack/react-router": "1.180.0"`, true, ""},
+		{"router range", `"@tanstack/react-router": "^1.170.0"`, false, "@tanstack/react-router is written as ^1.170.0, and Tifa needs exactly 1.170.46: set it by hand"},
+		{"same", `"react": "19.3.0"`, false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := "{\n  \"dependencies\": {\n    " + c.in + "\n  }\n}\n"
+			got, changes, notes, err := setPins([]byte(in), pins, strictPins)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if changed := string(got) != in; changed != c.change || (len(changes) > 0) != c.change {
+				t.Errorf("changed %v with changes %v, want changed %v:\n%s", changed, changes, c.change, got)
+			}
+			switch {
+			case c.note == "" && len(notes) != 0:
+				t.Errorf("notes %q, want none", notes)
+			case c.note != "" && (len(notes) != 1 || !strings.Contains(notes[0], c.note)):
+				t.Errorf("notes %q, want one with %q", notes, c.note)
+			}
+		})
 	}
 }
 
 func TestSetPinsKeepsOtherFormatting(t *testing.T) {
 	in := "{\r\n\t\"dependencies\" : { \"react\" :\"19.2.0\" ,\"x\":\"1\" }\r\n}"
-	got, _, err := setPins([]byte(in), map[string]string{"react": "19.3.0"})
+	got, _, _, err := setPins([]byte(in), map[string]string{"react": "19.3.0"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +155,7 @@ func TestSetPinsKeepsOtherFormatting(t *testing.T) {
 
 func TestSetPinsRefusesBadJSON(t *testing.T) {
 	for _, in := range []string{``, `{"dependencies": [`, `[]`, `{"dependencies": {"react": 19}}`} {
-		if _, _, err := setPins([]byte(in), map[string]string{"react": "19.3.0"}); err == nil {
+		if _, _, _, err := setPins([]byte(in), map[string]string{"react": "19.3.0"}, nil); err == nil {
 			t.Errorf("%q: no error", in)
 		}
 	}

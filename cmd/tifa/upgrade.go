@@ -215,12 +215,15 @@ func upgradePackages(root string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	updated, changes, err := setPins(data, pins)
+	updated, changes, notes, err := setPins(data, pins, tifaChecksVersionOf)
 	if err != nil {
 		return err
 	}
 	if len(changes) == 0 {
-		fmt.Fprintln(out, "the pinned packages are already at the versions of this Tifa")
+		fmt.Fprintln(out, "no pinned package needs a change")
+	}
+	for _, n := range notes {
+		fmt.Fprintf(out, "note: %s\n", n)
 	}
 	for _, c := range changes {
 		fmt.Fprintf(out, "%s: %s -> %s\n", c.Name, c.From, c.To)
@@ -261,3 +264,8 @@ func printUpgradeNotes(root, old, current string, out io.Writer) {
 	}
 	fmt.Fprintf(out, "note: could not read the CHANGELOG.md of %s %s (%v). It is at https://github.com/liustack/tifa/blob/%s/CHANGELOG.md\n", tifaModule, current, err, current)
 }
+
+// tifaChecksVersionOf are the pinned packages that tifa build refuses unless they have exactly the
+// pinned version (see bundle.TestedReactRouter). The others only have to be new enough, so a newer
+// version of them stays.
+var tifaChecksVersionOf = map[string]bool{"@tanstack/react-router": true}
