@@ -69,6 +69,8 @@ func TestForwardTarget(t *testing.T) {
 			return ""
 		}, ""},
 		{"new never forwards", []string{"new", "x"}, app, releaseInfo("v0.2.0"), noEnv, ""},
+		// The app's own tifa may be too old to have the command, and the command is what moves it.
+		{"upgrade never forwards", []string{"upgrade"}, app, releaseInfo("v0.2.0"), noEnv, ""},
 		{"go.work forces forwarding", []string{"dev"}, app, releaseInfo("v0.3.0"), func(k string) string {
 			if k == "GOWORK" {
 				return filepath.Join(app, "go.work")
