@@ -67,6 +67,13 @@ if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[2]} i
 
 const answer = (value) => fs.writeSync(3, JSON.stringify(value) + '\n')
 
+// takeWarnings returns the warnings the tifa plugin of this thread printed since the last call, see
+// warningsPlugin in js/vite/plugin.js. The worker thread of the SSR build runs its source text, so it
+// is passed to it with the other helpers.
+function takeWarnings() {
+  return (globalThis[Symbol.for('tifa.warnings')] ??= []).splice(0)
+}
+
 // Vite 8 needs Node 20.19, 22.12 or later. On an older Node it fails with a syntax or import error
 // from inside Vite, so the driver says what is wrong before it loads Vite.
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number)
@@ -435,15 +442,17 @@ const ops = {
 
   async ssr({ assets, minify }) {
     if (process.env.NODE_ENV === 'production') {
-      return await buildSSR(createBuilder, await records(), { assets, minify })
+      const built = await buildSSR(createBuilder, await records(), { assets, minify })
+      return { ...built, warnings: takeWarnings() }
     }
     ssrWorker ??= startSSRWorker()
+    takeWarnings() // what the dev server of this thread collected is not part of the bundle
     for (;;) {
       await restartsDone()
       const begun = restarts.begun
       try {
-        const { styles, modules, incomplete } = await ssrWorker.build({ assets, minify })
-        return { styles: styleLinks(styles), modules, incomplete }
+        const { styles, modules, incomplete, warnings } = await ssrWorker.build({ assets, minify })
+        return { styles: styleLinks(styles), modules, incomplete, warnings }
       } catch (err) {
         // A restart came in between: build again once it is done.
         if (restarts.begun === begun && !restarts.running) throw err
@@ -723,8 +732,9 @@ async function ssrThread() {
     }
     try {
       const styles = []
+      takeWarnings()
       const { modules, incomplete } = await buildSSR(createBuilder, await record(), request, [devAssets, devStyles(styles)])
-      parentPort.postMessage({ id, styles, modules, incomplete })
+      parentPort.postMessage({ id, styles, modules, incomplete, warnings: takeWarnings() })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)
       if (err?.frame && !text.includes(err.frame)) text += '\n' + err.frame
@@ -737,7 +747,7 @@ async function ssrThread() {
 // bundle, and throws the error of a failed build. Its close returns once the worker has ended and
 // all it printed is in the output of this process.
 function startSSRWorker() {
-  const worker = new Worker(`${addInput}\n${watchedBuilds}\n${buildSSR}\n(${ssrThread})()`, {
+  const worker = new Worker(`${addInput}\n${takeWarnings}\n${watchedBuilds}\n${buildSSR}\n(${ssrThread})()`, {
     eval: true,
     env: { ...process.env, NODE_ENV: 'production' },
     workerData: { vite: import.meta.resolve('vite'), root },

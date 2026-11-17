@@ -1193,7 +1193,19 @@ export function tifa(settings = {}) {
     markdownPlugin(() => root, settings.markdown),
     ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache, query: settings.query }),
     localesPlugin(() => root),
+    warningsPlugin(),
   ]
+}
+
+// warningsPlugin gives the driver the warnings the plugins of tifa print, see takeWarnings. A
+// warning of Vite or of Rolldown is not one of them, and it is printed as before.
+function warningsPlugin() {
+  return {
+    name: 'tifa:warnings',
+    onLog(level, log) {
+      if (level === 'warn' && log.plugin?.startsWith('tifa')) (globalThis[Symbol.for('tifa.warnings')] ??= []).push(log.message)
+    },
+  }
 }
 
 const localesModule = 'virtual:tifa-locales'

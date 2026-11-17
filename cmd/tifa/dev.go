@@ -248,7 +248,7 @@ func contentWarnings(c *analyze.Content) []string {
 }
 
 // stepOrder is the order of Warnings.
-var stepOrder = []string{"foreign files", "analysis", "foreign code", "content"}
+var stepOrder = []string{"foreign files", "analysis", "foreign code", "build plugins", "content"}
 
 // setWarnings replaces the warnings of a step.
 func (p *devPipeline) setWarnings(step string, lines []string) {
@@ -384,6 +384,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 		return "", err
 	}
 	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
+	if err == nil {
+		p.setWarnings("build plugins", p.front.Warnings())
+	}
 	return "", err
 }
 

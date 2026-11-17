@@ -57,6 +57,8 @@ type Dev struct {
 	poll bool // PollFiles came before the dev server ran
 	// reads are the files in the root that the last SSR bundle read, see Reads.
 	reads map[string]bool
+	// warnings are the warnings of the tifa plugin in the last SSR bundle, see Warnings.
+	warnings []string
 }
 
 // Reads returns whether the last SSR bundle that Build made read the file rel, given relative to
@@ -154,6 +156,7 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	var b Build
 	var modules []string
 	incomplete := ""
+	var warnings []string
 	if pages {
 		d.mu.Lock()
 		if d.head == "" {
@@ -173,12 +176,14 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 				Styles     string   `json:"styles"`
 				Modules    []string `json:"modules"`
 				Incomplete string   `json:"incomplete"`
+				Warnings   []string `json:"warnings"`
 			}
 			// Unminified, so that errors in the server render point at readable code.
 			if err := d.node.call("ssr", map[string]any{"assets": d.styles + d.head, "minify": false}, &result); err != nil {
 				return "", err
 			}
 			modules, incomplete = result.Modules, result.Incomplete
+			warnings = result.Warnings
 			if result.Styles == d.styles {
 				break
 			}
@@ -213,6 +218,7 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 		return "", err
 	}
 	d.mu.Lock()
+	d.warnings = warnings
 	d.reads = map[string]bool{}
 	for _, f := range read {
 		d.reads[f] = true
@@ -403,4 +409,17 @@ func holdsAny(dir string, files []string) bool {
 		}
 	}
 	return false
+}
+
+// Warnings lists the warnings the tifa plugin printed in the last SSR bundle, one line each, in
+// the form of the other warnings: the place when the warning has one, and (warning) at the end.
+// Each build replaces them. A warning of Vite or Rolldown is not among them.
+func (d *Dev) Warnings() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	lines := make([]string, len(d.warnings))
+	for i, w := range d.warnings {
+		lines[i] = w + " (warning)"
+	}
+	return lines
 }
