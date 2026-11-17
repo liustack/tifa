@@ -102,6 +102,7 @@ const realRoot = fs.realpathSync(root)
 let server = null
 let listening = false // server.listen returned
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
+const retiring = new Set() // the closes of the SSR workers that ssrWorkerBuilds replaced
 let watched = null // what records returns
 // records returns record of watchedBuilds for the builds of this thread.
 const records = () => (watched ??= watchedBuilds(import.meta.resolve('vite')))
@@ -451,7 +452,11 @@ const ops = {
       await restartsDone()
       const begun = restarts.begun
       try {
-        const { styles, modules, incomplete, warnings } = await ssrWorker.build({ assets, minify })
+        const worker = ssrWorker
+        // A failed build leaves as much behind, so it counts too.
+        const { styles, modules, incomplete, warnings } = await worker.build({ assets, minify }).finally(() => {
+          if (++worker.builds === ssrWorkerBuilds) replaceSSRWorker(worker)
+        })
         return { styles: styleLinks(styles), modules, incomplete, warnings }
       } catch (err) {
         // A restart came in between: build again once it is done.
@@ -748,9 +753,27 @@ async function ssrThread() {
   })
 }
 
+// ssrWorkerBuilds is how many SSR bundles one worker thread builds before replaceSSRWorker replaces
+// it. Every build creates a Vite builder, and a thread never frees all of one: Vite loads the
+// bundled Vite config as a new ES module three times per builder (once for the config and once per
+// environment), which Node never unloads, and Rolldown's native callbacks keep the plugins and
+// environments of each build (rolldown/rolldown#10887, fixed in 1.2.16, and #11444, fixed after
+// 1.3.2). In a small app that is about 5 MB of heap per build, more with a larger config. Ending the thread frees all of it. The new worker loads Vite while tifa dev
+// waits for the next edit, so the price is one build with cold code every ssrWorkerBuilds builds.
+const ssrWorkerBuilds = 10
+
+// replaceSSRWorker starts a new SSR worker for the next builds and closes old.
+function replaceSSRWorker(old) {
+  ssrWorker = startSSRWorker()
+  const closed = old.close(closeTimeout).finally(() => retiring.delete(closed))
+  retiring.add(closed)
+}
+
 // startSSRWorker starts the SSR worker thread. Its build returns once the worker has built the
-// bundle, and throws the error of a failed build. Its close returns once the worker has ended and
-// all it printed is in the output of this process.
+// bundle, and throws the error of a failed build. builds counts the calls of build, for
+// replaceSSRWorker. Its close returns once the worker has ended and all it printed is in the
+// output of this process. Given a timeout in milliseconds, close stops a worker that has not
+// ended by then, which may drop the end of what it printed.
 function startSSRWorker() {
   const worker = new Worker(`${addInput}\n${takeWarnings}\n${watchedBuilds}\n${buildSSR}\n(${ssrThread})()`, {
     eval: true,
@@ -789,6 +812,7 @@ function startSSRWorker() {
   worker.on('exit', (code) => fail(new Error(`the SSR worker thread exited with code ${code}`)))
   worker.unref()
   return {
+    builds: 0,
     build(request) {
       if (failed) return Promise.reject(failed)
       const id = ++next
@@ -797,13 +821,22 @@ function startSSRWorker() {
         worker.postMessage({ id, request })
       })
     },
-    async close() {
+    async close(timeout) {
       // An unreferenced worker would let this process end before the worker does.
       worker.ref()
       worker.postMessage({ close: true })
-      // A plugin may keep the worker alive, then the close timeout ends the process.
+      // A plugin may keep the worker alive. Without a timeout, the close timeout of the driver
+      // then ends the process.
+      if (timeout === undefined) {
+        await exited
+        await printed
+        return
+      }
+      const timer = setTimeout(() => worker.terminate(), timeout)
       await exited
-      await printed
+      clearTimeout(timer)
+      // The streams of a stopped worker may not end.
+      await Promise.race([printed, new Promise((resolve) => setTimeout(resolve, timeout).unref())])
     },
   }
 }
@@ -923,7 +956,7 @@ lines.on('close', async () => {
   // Exiting stops the worker. It may drop the end of what the worker printed.
   setTimeout(() => process.exit(0), closeTimeout)
   await queue
-  await ssrWorker?.close()
+  await Promise.all([ssrWorker?.close(), ...retiring])
   await server?.close()
   // Node writes to a pipe in the background, and exit drops what it has not written yet.
   await Promise.all([written(process.stdout), written(process.stderr)])

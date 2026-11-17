@@ -428,6 +428,49 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 	}
 }
 
+// A thread that builds the SSR bundle again and again keeps memory of every build, so tifa dev
+// builds it on a new worker thread after ssrWorkerBuilds (10) builds, in js/vite/driver.mjs. The
+// builds go on as before, also when a plugin keeps the old thread alive, which is then stopped.
+func TestDevBuildsOnANewWorkerAfterTenBuilds(t *testing.T) {
+	shortCloseTimeout(t)
+	root := devApp(t)
+	threads := filepath.Join(root, "threads.txt")
+	writeTree(t, root, map[string]string{"vite.config.ts": "import react from '@vitejs/plugin-react'\n" +
+		"import tifa from './.tifa/vite.js'\nimport fs from 'node:fs'\nimport { isMainThread, threadId } from 'node:worker_threads'\n" +
+		"const thread = { name: 'thread', applyToEnvironment: (env) => env.name === 'ssr', generateBundle() {\n" +
+		"  if (isMainThread) return\n" +
+		"  fs.appendFileSync(" + strconv.Quote(threads) + ", threadId + '\\n')\n" +
+		"  globalThis.keepAlive ??= setInterval(() => {}, 60000)\n" +
+		"} }\n" +
+		"export default { plugins: [tifa(), react(), thread] }\n"})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	for i := 1; i <= 12; i++ {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+			t.Fatalf("build %d: %v", i, err)
+		}
+	}
+	text, err := os.ReadFile(threads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := strings.Fields(string(text))
+	if len(ids) != 12 {
+		t.Fatalf("%d SSR builds ran on a worker, want 12: %v", len(ids), ids)
+	}
+	for i, id := range ids {
+		if want := ids[i/10*10]; id != want {
+			t.Errorf("build %d ran on thread %s, want %s: %v", i+1, id, want, ids)
+		}
+	}
+	if ids[9] == ids[10] {
+		t.Errorf("builds 10 and 11 ran on the same thread %s", ids[10])
+	}
+}
+
 // A Vite plugin can add tags to the head with transformIndexHtml. tifa build has no index.html,
 // so it never carries them. tifa dev lets through only the Vite client and the React refresh
 // runtime, and warns once of any other tag, naming it and saying production will not have it.
