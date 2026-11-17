@@ -207,7 +207,7 @@ The `package.json` that `tifa new` writes runs it on install:
 }
 ```
 
-pnpm and npm run the `prepare` script of the project after `pnpm install` and `npm install`, so installing the npm packages of a clone also writes `.tifa/`. Run `go mod download` (or `go mod tidy`) before, as `go tool tifa` needs the modules.
+pnpm and npm run the `prepare` script of the project after `pnpm install` and `npm install`, so installing the npm packages of a clone also writes `.tifa/`. Run `go mod download` (or `go mod tidy`) before, as `go tool tifa` needs the modules. An install with `--ignore-scripts` skips `prepare`, so run `go tool tifa gen` after it.
 
 ## Tifa docs
 
@@ -322,6 +322,8 @@ go tool tifa build
 | `dist/` | Frontend output, see below |
 
 An app without pages (no `page.tsx` at all) generates only Go files, and `dist/` holds only `build.json` and the public files. With content collections it also gets `.tifa/vite.js` for its `vite.config.ts`, and `dist/` the bodies and the files they refer to.
+
+The names an app may refer to are these, and they stay: `.tifa/vite.js` (imported by `vite.config.ts`), `.tifa/tsconfig.json` (extended by `tsconfig.json`), `.tifa/runtime/client.ts` and `.tifa/runtime/i18n.tsx` (the `tifa/client` and `tifa/i18n` paths of `tsconfig.json`), `./route.gen` imports, and the Go package `<module>/.tifa/tifaapp` (for tests). Everything else in `.tifa/` can change in any release.
 
 ## Frontend output
 
