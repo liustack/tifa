@@ -371,3 +371,16 @@ func clientExports(t *testing.T) map[string]bool {
 	}
 	return names
 }
+
+// The notes of a new app say that a call does not reload page data and where to read about it.
+func TestAgentNotesPointToReloadingAfterAWrite(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("newapp", "AGENTS.md.tmpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"router.invalidate()", "docs/app.md#calling-method-handlers-from-the-browser"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("AGENTS.md.tmpl does not mention %q", want)
+		}
+	}
+}

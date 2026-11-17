@@ -64,7 +64,7 @@ func (e *busyError) who() string {
 }
 
 func (e *busyError) Error() string {
-	return strings.TrimSpace(e.who() + " in this app " + e.Detail() + ". Stop it first: both write .tifa/dist")
+	return strings.TrimSpace(e.who() + " in this app " + e.Detail() + ". Stop it first: both write .tifa/dist. `go tool tifa check` and `go tool tifa gen` can run meanwhile")
 }
 
 // appLock is the exclusive lock on .tifa/dev.lock. tifa dev holds it while it runs, and tifa build

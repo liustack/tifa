@@ -718,3 +718,28 @@ func expectNoErrors(t *testing.T, dir, when string) {
 		}
 	}
 }
+
+// Editing the root layout.tsx updates the server render and the module Vite serves, with no
+// restart of the app and no Go build. The test pins what the page shows after the edit.
+func TestDevRootLayoutEdit(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	dir := devApp(t)
+	d := startDev(t, dir)
+	d.waitLog(t, 0, ready)
+	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
+	expectBody(t, d.base+"/", "North shop")
+	hmr := dialHMR(t, d.base)
+	expectBody(t, d.base+"/__tifa/vite/app/layout.tsx", "import")
+
+	mark := d.edit(t, "app/layout.tsx", `<Link to="/">{site.name}</Link>`, `<Link to="/">{site.name} headquarters</Link>`)
+	expectBody(t, d.base+"/", "headquarters")
+	expectSteps(t, "root layout edit", d.waitLog(t, mark, ready), "bundle")
+	d.waitStatus(t, func(st devStatus) bool { return st.Version == v1 && st.Error == "" })
+	expectBody(t, d.base+"/", "headquarters")
+	expectBody(t, d.base+"/shops/north", "headquarters")
+	expectBody(t, d.base+"/__tifa/vite/app/layout.tsx", "headquarters")
+	hmr.waitUpdate(t, "/app/layout.tsx")
+}
