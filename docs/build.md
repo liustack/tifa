@@ -265,11 +265,13 @@ v0.0.16: read the parameter in the `Load` ...
 check passed
 ```
 
-- It refuses a version older than the one in `go.mod`, and says that the app is already there when it is the same one. It refuses an app whose `go.mod` replaces Tifa, since the version in `go.mod` is not what the app builds with then. Nothing is changed when it refuses.
+- It refuses a version older than the one in `go.mod`, and says that the app is already there when it is the same one. It refuses an app whose `go.mod` replaces Tifa, since the version in `go.mod` is not what the app builds with then. Nothing is changed when it refuses. It also refuses when a `go.work` file is in use (`GOWORK` set, or one in or above the app), since `go get` would write to the workspace and `go tool` follows it: run `GOWORK=off go tool tifa upgrade` instead.
 - It never forwards to the Tifa of the app, so it also works in an app whose Tifa is too old to have this command: run it with the Tifa you installed (see [Installing the command globally](#installing-the-command-globally)), or `go run github.com/liustack/tifa/cmd/tifa@latest upgrade`.
 - Versions are compared as semantic versions, and only exact ones. React and React DOM may be newer than the pin (`tifa build` only needs 19.3.0 or later), so a newer one is yours to keep.
 - An `Upgrading:` note is the text after the word, up to the end of its bullet in the changelog, so an entry writes it last (see [commit.md](commit.md#changelog)).
 - It asks nothing and has no dry run. The files it can change are `go.mod`, `go.sum`, `package.json`, the lock file, `AGENTS.md` and `.claude/skills/tifa/`, so `git diff` is the dry run.
+
+When a step after `go get` fails (a failing `pnpm install`, or `tifa check`), the command exits with the status of the failure and ends with one line: Go is already at the new version, and the steps after it did not finish. Fix the cause and run the line it prints, `cd <app> && go tool tifa upgrade --after <old version>`, which does the steps after `go mod tidy` again. `--after` takes the version the app had, written as `v0.0.17`.
 
 If a step fails, the error says which, and you can do the steps by hand: `go get -tool github.com/liustack/tifa/cmd/tifa@<version>`, `go mod tidy`, change the pinned versions in `package.json` to those of `tifa new` for that version, install, `go tool tifa agents`, read the `Upgrading:` lines of the changelog, `go tool tifa check`. `go tool tifa upgrade --after <old version>` runs everything after `go mod tidy` again.
 

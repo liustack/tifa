@@ -49,3 +49,4 @@ refactor: rename Go module to github.com/liustack/tifa
 
 - An entry that apps must act on ends its bullet with `Upgrading: <what to do>`. `go tool tifa upgrade` prints that text, from the word to the end of the bullet, for every release between the old version and the new one. Keep the bullet on one paragraph, and write what the app does, not what Tifa did.
 - Do not write `Upgrading:` for a change that needs nothing from the app.
+- The command reads the word followed by a colon anywhere in a bullet, so an entry that only talks about it, such as the one about `tifa upgrade`, writes it without the colon.
