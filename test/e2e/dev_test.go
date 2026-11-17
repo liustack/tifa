@@ -743,3 +743,51 @@ func TestDevRootLayoutEdit(t *testing.T) {
 	expectBody(t, d.base+"/__tifa/vite/app/layout.tsx", "headquarters")
 	hmr.waitUpdate(t, "/app/layout.tsx")
 }
+
+// The warnings of the tifa plugin in Vite, such as a read of import.meta.env.VITE_*, are listed by
+// tifa errors after the build that printed them, and a build without them drops them.
+func TestDevListsPluginWarnings(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	dir := devApp(t)
+	d := startDev(t, dir)
+	d.waitLog(t, 0, ready)
+	const read = "export const head = () => ({ meta: [{ title: 'Home ' + import.meta.env.VITE_E2E_KEY }] })\n"
+	mark := d.edit(t, "app/page.tsx", "export const head = () => ({ meta: [{ title: 'Home' }] })\n", read)
+	d.waitLog(t, mark, ready)
+	_, out := tifaErrors(t, dir, true)
+	var report deverrors.Report
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("tifa errors --json: %v\n%s", err, out)
+	}
+	found := slices.IndexFunc(report.Warnings, func(w string) bool {
+		return strings.HasPrefix(w, "app/page.tsx:") && strings.Contains(w, "import.meta.env.VITE_E2E_KEY is fixed when the build runs")
+	})
+	if found < 0 {
+		t.Fatalf("tifa errors lacks the warning of the plugin:\n%s", out)
+	}
+	if !slices.ContainsFunc(report.Warnings, func(w string) bool { return strings.Contains(w, "bigid/refused/route.go") }) {
+		t.Fatalf("the warning of the plugin pushed out those of the analysis:\n%s", out)
+	}
+	mark = d.edit(t, "app/page.tsx", read, "export const head = () => ({ meta: [{ title: 'Home' }] })\n")
+	d.waitLog(t, mark, ready)
+	expectNoErrors(t, dir, "after the read is gone")
+}
+
+// Under tifa dev a page that reads import.meta.env renders what the browser reads: the values of the
+// dev server, so the page hydrates with the same text.
+func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	dir := devApp(t)
+	d := startDev(t, dir)
+	d.waitLog(t, 0, ready)
+	mark := d.edit(t, "app/page.tsx", "    <main>\n", "    <main>\n      <p id=\"env\">{`${import.meta.env.MODE} ${import.meta.env.DEV ? 'dev' : 'prod'} ${import.meta.env.BASE_URL}`}</p>\n")
+	d.waitLog(t, mark, ready)
+	waitBody(t, d.base+"/", "development dev /__tifa/vite/", d)
+	expectNoErrors(t, dir, "after a page read import.meta.env")
+}

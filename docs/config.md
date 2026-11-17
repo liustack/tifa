@@ -176,23 +176,7 @@ var (
 
 ### A value for the browser that is known at run time
 
-`import.meta.env.VITE_*` is read by Vite when `tifa build` runs and is written into the bundle, so a new value needs a new build. For a value that is known only when the program runs, such as a public key or the base URL of an API, define it as an option and return it from `Load` (or from a `Layout`, for every page below it). It reaches the browser with the rest of the data of the page:
-
-```go
-// options.go
-var PublicKey = tifa.String("stripe.public_key", "", "Public key the browser uses")
-
-// app/checkout/route.go
-type Page struct {
-	PublicKey string `json:"publicKey"`
-}
-
-func Load(c *tifa.Ctx) (Page, error) { return Page{PublicKey: shop.PublicKey}, nil }
-// app/checkout/page.tsx
-const { publicKey } = page.useLoaderData()
-```
-
-Everything a `Load` returns is in the page, so return only what any visitor may see. Do not return a `tifa.Secret`.
+`import.meta.env.VITE_*` is fixed when `tifa build` runs, so a new value needs a new build. For a value that is known only when the program runs, such as a public key or the base URL of an API, define it as an option and return it from `Load` (or from a `Layout`, for every page below it). Everything a `Load` returns is in the page, so never return a `tifa.Secret`. See [Values from the environment](guides/environment.md).
 
 ## Render queue
 

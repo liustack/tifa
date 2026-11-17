@@ -1201,7 +1201,19 @@ export function tifa(settings = {}) {
     markdownPlugin(() => root, settings.markdown),
     ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache, query: settings.query }),
     localesPlugin(() => root),
+    warningsPlugin(),
   ]
+}
+
+// warningsPlugin gives the driver the warnings the plugins of tifa print, see takeWarnings. A
+// warning of Vite or of Rolldown is not one of them, and it is printed as before.
+function warningsPlugin() {
+  return {
+    name: 'tifa:warnings',
+    onLog(level, log) {
+      if (level === 'warn' && log.plugin?.startsWith('tifa')) (globalThis[Symbol.for('tifa.warnings')] ??= []).push(log.message)
+    },
+  }
 }
 
 const localesModule = 'virtual:tifa-locales'
@@ -2037,6 +2049,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
   let reactHooks // React's react.production.js files to the hooks they export as wrappers of the dispatcher
   let rawQueryWarned // the places of the reads of the raw query the build has warned about
+  let viteEnvWarned // the names of import.meta.env the build has warned about
   const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -2050,6 +2063,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       jsxRuntimes = new Map()
       reactHooks = new Map()
       rawQueryWarned = new Set()
+      viteEnvWarned = new Set()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -2101,9 +2115,24 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       },
     },
     transform: {
-      filter: { code: /\$\$FORM_ACTION|\.formatter\b|\buse(?:Search|Location|RouterState)\b/ },
+      filter: { code: /import\.meta\.env|\$\$FORM_ACTION|\.formatter\b|\buse(?:Search|Location|RouterState)\b/ },
       async handler(code, id) {
         if (code.includes('$$FORM_ACTION') && packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
+        // A read of import.meta.env.VITE_* in the app is fixed when the build runs, see viteEnvReads.
+        if (code.includes('import.meta.env') && !id.includes('?') && !id.startsWith('\0') && packageName(id) === '' && /\.(?:tsx?|jsx?|mjs)$/.test(id) && fs.existsSync(id)) {
+          const source = fs.readFileSync(id, 'utf8')
+          const lang = path.extname(id).slice(1)
+          const parsed = (await loadVite()).parseSync(id, source, { lang: lang === 'mjs' ? 'js' : lang, sourceType: 'module' })
+          const file = path.relative(getRoot(), id).split(path.sep).join('/')
+          for (const r of parsed.errors.length > 0 ? [] : viteEnvReads(parsed.program)) {
+            if (viteEnvWarned.has(r.name)) continue
+            viteEnvWarned.add(r.name)
+            const before = source.slice(0, r.offset)
+            this.warn(
+              `${file}:${before.split('\n').length}:${r.offset - before.lastIndexOf('\n')}: import.meta.env.${r.name} is fixed when the build runs, so every environment gets the value of the build. A value that is known only when the program runs comes from the Load of the page (see docs/guides/environment.md).`,
+            )
+          }
+        }
         // A component of the app that reads, while rendering, a query parameter the server may not
         // render it with gets a warning (see rawQueryReads): the server renders with the parameters
         // the Loads read only (renderURL in server/page.go), so another one renders differently in
@@ -5442,6 +5471,47 @@ function lastAtOrBefore(sorted, value, key) {
     else high = middle
   }
   return low - 1
+}
+
+// viteEnvReads finds where the code reads a variable of import.meta.env that a name prefix of
+// the build gave it: import.meta.env.VITE_X, import.meta.env['VITE_X'] and the name in a
+// destructuring, const { VITE_X } = import.meta.env. Vite writes the value into the bundle when the
+// build runs. The names Vite always has (DEV, PROD, MODE, SSR, BASE_URL) are not reads of those.
+// A read through another name, such as const env = import.meta.env, is not found. It returns the
+// name and the offset of each read, in the order of the source.
+function viteEnvReads(program) {
+  const bare = (node) => {
+    while (node && (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSNonNullExpression' || node.type === 'ParenthesizedExpression' || node.type === 'ChainExpression'))
+      node = node.expression
+    return node
+  }
+  const isEnv = (node) => {
+    node = bare(node)
+    if (node?.type !== 'MemberExpression' || node.computed || node.property.name !== 'env') return false
+    const meta = bare(node.object)
+    return meta?.type === 'MetaProperty' && meta.meta.name === 'import' && meta.property.name === 'meta'
+  }
+  const found = []
+  const add = (name, offset) => {
+    if (typeof name === 'string' && name.startsWith('VITE_')) found.push({ name, offset })
+  }
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (node === null || typeof node !== 'object' || typeof node.type !== 'string') return
+    if (node.type === 'MemberExpression' && isEnv(node.object)) {
+      if (!node.computed) add(node.property.name, bare(node.object).start)
+      else if (node.property.type === 'Literal') add(node.property.value, bare(node.object).start)
+    } else if (node.type === 'VariableDeclarator' && node.init && isEnv(node.init) && node.id.type === 'ObjectPattern') {
+      for (const p of node.id.properties) {
+        if (p.type !== 'Property') continue
+        if (!p.computed && p.key.type === 'Identifier') add(p.key.name, p.key.start)
+        else if (p.key.type === 'Literal') add(p.key.value, p.key.start)
+      }
+    }
+    for (const key in node) if (key !== 'parent') walk(node[key])
+  }
+  walk(program)
+  return found.sort((a, b) => a.offset - b.offset)
 }
 
 // clockReads finds the formatters given to i18next in a program, as

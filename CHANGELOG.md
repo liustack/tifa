@@ -4,6 +4,15 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- Under `tifa dev`, the server render and the browser read the same `import.meta.env.MODE`, `DEV`, `PROD` and `BASE_URL`. Before, a page that read one of them rendered other text on the server than in the browser and failed to hydrate. React keeps its production build in the render.
+
+### Added
+
+- `tifa build` and `tifa dev` warn when app code reads `import.meta.env.VITE_*`, once for each name, with the place of the first read. The value is fixed when the build runs, and a value that is known only when the program runs comes from `Load`. See the new guide [Values from the environment](docs/guides/environment.md).
+- `go tool tifa errors` also lists the warnings of the Tifa plugin in Vite, such as the one for a read of `import.meta.env.VITE_*`, under `Warnings`. A build that no longer has one drops it.
+
 ### Changed
 
 - Pages that use i18next render faster. The key of the translation cache is no longer rebuilt for each `t` call when it is the same as the call before. On the example shop the storefront pages run 1.1% to 1.5% fewer instructions per render, and the article pages 0.2% (counted with callgrind, not timed).
