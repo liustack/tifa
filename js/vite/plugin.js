@@ -3071,10 +3071,12 @@ const routerCoreRewrite = new RegExp(
 // only characters a URL leaves as they are in the path, the query and the fragment (no space,
 // quote, backslash, non-ASCII, nor the ' that a URL escapes in a query), and the path has no
 // ?, # or % (so no escaped dot segment) and no dot segment. A URL would then give the path as it
-// is, which is all the rewrite reads.
+// is, which is all the rewrite reads. Both checks first look for a character outside the set (or a
+// dot, ?, # or % in the path) with a class the engine scans quickly, which a path nearly always passes,
+// and leave the exact test to the old regexes only when it does not.
 const routerCorePathOnly = `
 function tifaPathOnly(fullPath, nextPathname) {
-  return /^\\/(?!\\/)[A-Za-z0-9\\-._~!$&()*+,;=:@\\/?#%]*$/.test(fullPath) && !/[?#%]|\\/\\.\\.?(?:\\/|$)/.test(nextPathname);
+  return fullPath.charCodeAt(0) === 47 && fullPath.charCodeAt(1) !== 47 && !/[^A-Za-z0-9\\-._~!$&()*+,;=:@\\/?#%]/.test(fullPath) && (!/[?#%.]/.test(nextPathname) || !/[?#%]|\\/\\.\\.?(?:\\/|$)/.test(nextPathname));
 }
 `
 
