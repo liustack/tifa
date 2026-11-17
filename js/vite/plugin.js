@@ -587,6 +587,10 @@ const looksLikeObjectPath = (key, nsSeparator, keySeparator) => {
   if (possibleChars.length === 0) return true;
   const r = looksLikeObjectPathRegExpCache.getRegExp(\`(\${possibleChars.map(c => c === '?' ? '\\\\?' : c).join('|')})\`);
 `
+// The first lines of tifaI18nPrefix in i18nextCacheSource read the inputs of the prefix made last, and
+// give that prefix when each input is the value it was and all were plain values (no array or
+// object, no default variables). Arrays and default variables are compared by content, so those
+// calls go the long way. The source is joined into one line, so it can have no // comments.
 // i18nextCacheSource is what the tifa plugin adds to i18next for build.i18next_cache, see
 // i18nextCache. It is one line, which goes before the line that makes i18next's default
 // instance, and so after all classes of i18next and before any instance exists.
@@ -641,6 +645,11 @@ function tifaI18nTake(v) {
   return r;
 }
 function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
+  const l = tifaI18nLast;
+  if (l.fast) {
+    const lng = fixedT.lng, lngs = fixedT.lngs, ns = fixedT.ns, own = fixedT.keyPrefix, format = i18n.services.i18nFormat, language = lng ? undefined : i18n.translator.language;
+    if (${objectIsInPlace('l.a', 'lng')} && (lng || ${objectIsInPlace('l.b', 'language')}) && ${objectIsInPlace('l.c', 'lngs')} && ${objectIsInPlace('l.d', 'ns')} && ${objectIsInPlace('l.e', 'own')} && ${objectIsInPlace('l.g', 'keyPrefix')} && l.formats === (format && format.formats) && !options.interpolation.defaultVariables) return l.prefix;
+  }
   let m = 0, a, b, c, d, e, g, f = 0, h = '';
   if ((a = tifaI18nTake(fixedT.lng)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 1;
   if (!fixedT.lng) { if ((b = tifaI18nTake(i18n.translator.language)) === tifaI18nNo) return; m |= tifaI18nIsPart ? 6 : 4; }
@@ -655,11 +664,10 @@ function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
   }
   const defaults = options.interpolation.defaultVariables;
   if (defaults) { if (typeof defaults !== 'object' || (h = tifaI18nObjectPart(defaults)) === undefined) return; }
-  const l = tifaI18nLast;
   if (l.m === m && ${objectIsInPlace('l.a', 'a')} && ${objectIsInPlace('l.b', 'b')} && ${objectIsInPlace('l.c', 'c')} && ${objectIsInPlace('l.d', 'd')} && ${objectIsInPlace('l.e', 'e')} && ${objectIsInPlace('l.g', 'g')} && l.f === f && l.h === h) return l.prefix;
   const prefix = (m & 1 ? a : tifaI18nPart(a)) + (m & 4 ? (m & 2 ? b : tifaI18nPart(b)) : '') + (m & 8 ? c : tifaI18nPart(c)) + (m & 16 ? d : tifaI18nPart(d)) +
     (m & 32 ? e : tifaI18nPart(e)) + (m & 64 ? g : tifaI18nPart(g)) + (f ? 'f' + f + ';' : '') + h;
-  tifaI18nLast = { m: m, a: a, b: b, c: c, d: d, e: e, g: g, f: f, h: h, prefix: prefix };
+  tifaI18nLast = { m: m, a: a, b: b, c: c, d: d, e: e, g: g, f: f, h: h, prefix: prefix, formats: formats, fast: (m & ~4) === 0 && !defaults };
   return prefix;
 }
 function tifaI18nFind(i18n, fixedT, keyPrefix, key, opts, rest) {

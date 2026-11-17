@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- Pages that use i18next render faster. The key of the translation cache is no longer rebuilt for each `t` call when it is the same as the call before. On the example shop the storefront pages run 1.1% to 1.5% fewer instructions per render, and the article pages 0.2% (counted with callgrind, not timed).
 - `tifa build` and `tifa dev` that stop because another `tifa dev` or `tifa build` runs now say that `go tool tifa check` and `go tool tifa gen` can run meanwhile.
 - The notes of a new app, and `go tool tifa agents`, now point to the docs on reloading page data after a write, next to the line that a call never reloads it.
 
