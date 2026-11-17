@@ -31,7 +31,7 @@ func waitFor(t *testing.T, limit time.Duration, what string, cond func() bool) {
 func renderBig(t *testing.T, p *Pool) {
 	t.Helper()
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	idleVM(p, func(vm *pooledVM) { live = vm.size })
 	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(9*live/10/objectSize(t, holdJS)))); err != nil {
 		t.Fatal(err)
 	}

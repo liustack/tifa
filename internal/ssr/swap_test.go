@@ -344,6 +344,109 @@ func TestMemorySwapBound(t *testing.T) {
 	}
 }
 
+// The bound on the plain size is three quarters of the limit, and never below the bound on the live
+// size, so a bundle that starts near the limit is not replaced again and again by the second bound.
+func TestMemorySwapSizeBound(t *testing.T) {
+	for _, tc := range []struct{ baseline, memory, want uintptr }{{100, 1000, 750}, {100, 400, 300}, {100, 300, 225}, {100, 200, 175}, {100, 120, 175}} {
+		vm := pooledVM{baseline: tc.baseline}
+		if got := vm.sizeBound(tc.memory); got != tc.want {
+			t.Errorf("%+v: bound %d", tc, got)
+		}
+		if vm.sizeBound(tc.memory) < vm.hardBound(tc.memory) {
+			t.Errorf("%+v: the bound on the size is under the bound on the live size", tc)
+		}
+	}
+}
+
+// A VM after Load: what it holds without free slots is under what the engine counts, and the baseline
+// is the first.
+func TestOpenVMKeepsTheLiveSizeWithoutFreeSlots(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	idleVM(p, func(vm *pooledVM) {
+		if vm.live == 0 || vm.live > vm.size || vm.baseline != vm.live {
+			t.Errorf("after Load: live %d, size %d, baseline %d", vm.live, vm.size, vm.baseline)
+		}
+	})
+}
+
+// A full GC between renders sets the live size from MemorySize less MemoryFree, and the size from
+// MemorySize.
+func TestFullGCKeepsTheLiveSizeWithoutFreeSlots(t *testing.T) {
+	p := newTestPool(t, warmSource, testConfig(1))
+	for page := range 150 {
+		if _, err := p.Render(context.Background(), Input{URL: fmt.Sprintf("/page/%d", page)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idleVM(p, func(vm *pooledVM) {
+		if err := p.runGC(vm, true); err != nil {
+			t.Fatal(err)
+		}
+		if vm.size != vm.MemorySize() || vm.live > vm.size || vm.live != vm.size-vm.MemoryFree() {
+			t.Errorf("live %d, size %d, MemorySize %d, MemoryFree %d", vm.live, vm.size, vm.MemorySize(), vm.MemoryFree())
+		}
+	})
+}
+
+// fakeSizes sets what the idle VM of p held after its last full GC, and puts it back as a render
+// does, which makes the pool decide whether to replace it.
+func fakeSizes(p *Pool, live, size uintptr) {
+	vm := <-p.idle
+	vm.live, vm.size = live, size
+	p.putIdle(vm)
+}
+
+// A VM whose live size is under its bound but whose size, free slots included, is past the second
+// bound is replaced: free slots must not fill it up to the limit unseen.
+func TestMemorySwapReplacesAVMWhoseSizeIsPastItsBound(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	defer p.Close()
+	memory := uintptr(p.memory)
+	fakeSizes(p, memory/4, memory*3/4+1)
+	waitReplacements(t, p, 1)
+}
+
+// A VM whose size is large because of free slots, but under the second bound, with a small live
+// size, is kept.
+func TestMemorySwapKeepsAVMWithFreeSlots(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	defer p.Close()
+	memory := uintptr(p.memory)
+	fakeSizes(p, memory/8, memory/2+memory/4)
+	time.Sleep(100 * time.Millisecond)
+	if s := p.stats(); s.replaced != 0 || s.created != 1 {
+		t.Fatalf("replaced a VM whose size is under the bound and whose live size is small: %+v", s)
+	}
+}
+
+// A VM whose live size is past its bound is replaced though its size is no more than the live size
+// plus nothing: the first bound still works alone.
+func TestMemorySwapReplacesAVMWhoseLiveSizeIsPastItsBound(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	defer p.Close()
+	memory := uintptr(p.memory)
+	fakeSizes(p, memory/2+1, memory/2+1)
+	waitReplacements(t, p, 1)
+}
+
+// The VM that replaced a grown one and is past the bound on the size within refitRenders renders is a
+// misfit, as one past the bound on the live size is.
+func TestMemorySwapMisfitCountsTheBoundOnTheSize(t *testing.T) {
+	p := newTestPool(t, leakSource, testConfig(1))
+	defer p.Close()
+	memory := uintptr(p.memory)
+	vm := <-p.idle
+	vm.replacement, vm.renders = true, 1
+	vm.live, vm.size = memory/8, memory*3/4+1
+	p.putIdle(vm)
+	p.mu.Lock()
+	wait, swapping := time.Until(p.refitAfter), p.swapping
+	p.mu.Unlock()
+	if wait < 50*time.Second || swapping || !p.misfit {
+		t.Fatalf("a fresh VM past the bound on the size: wait %v, swapping %v, misfit %v", wait, swapping, p.misfit)
+	}
+}
+
 func TestMemorySwapCloseStopsBackoff(t *testing.T) {
 	sizeRule(t)
 	p := newTestPool(t, leakSource, testConfig(1))
@@ -482,7 +585,7 @@ func TestPutIdleDoesNotReadVMAfterSend(t *testing.T) {
 	go func() {
 		for range 2000 {
 			v := <-p.idle
-			v.live = v.baseline
+			v.live, v.size = v.baseline, v.baseline
 			back <- struct{}{}
 		}
 	}()
@@ -605,17 +708,17 @@ func (h countingHandler) Handle(ctx context.Context, r slog.Record) error {
 	return h.Handler.Handle(ctx, r)
 }
 
-// liveSum is the sum of what the VMs held after their last collection, read from the VMs themselves.
-// It waits until every VM is idle, and puts them back.
-func liveSum(t *testing.T, p *Pool, vms int) (live, baseline int64) {
+// sizeSum is the sum of the size the VMs had after their last collection, by the engine's count,
+// read from the VMs themselves. It waits until every VM is idle, and puts them back.
+func sizeSum(t *testing.T, p *Pool, vms int) int64 {
 	t.Helper()
 	held := make([]*pooledVM, 0, vms)
+	var sum int64
 	for range vms {
 		select {
 		case vm := <-p.idle:
 			held = append(held, vm)
-			live += int64(vm.live)
-			baseline += int64(vm.baseline)
+			sum += int64(vm.size)
 		case <-time.After(5 * time.Second):
 			t.Fatal("VMs not idle")
 		}
@@ -623,16 +726,17 @@ func liveSum(t *testing.T, p *Pool, vms int) (live, baseline int64) {
 	for _, vm := range held {
 		p.idle <- vm
 	}
-	return live, baseline
+	return sum
 }
 
-// Stats.Memory is what the loaded VMs hold by the engine's count, the sum of the size each had after
-// its last collection: the baselines after loading, more after a render that keeps memory.
+// Stats.Memory is what the loaded VMs hold by the engine's count, free slots included (the size its
+// limit counts), the sum of the size each had after its last collection: the sizes after loading, more
+// after a render that keeps memory.
 func TestStatsMemoryFollowsTheVMs(t *testing.T) {
 	p := newTestPool(t, leakSource, testConfig(2))
-	_, baseline := liveSum(t, p, 2)
+	baseline := sizeSum(t, p, 2)
 	if got := p.Stats().Memory; got != baseline || baseline <= 0 {
-		t.Fatalf("Memory %d, the baselines of the VMs %d", got, baseline)
+		t.Fatalf("Memory %d, the sizes of the VMs %d", got, baseline)
 	}
 	leakRender(t, p)
 	deadline := time.Now().Add(5 * time.Second)
@@ -642,9 +746,9 @@ func TestStatsMemoryFollowsTheVMs(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	live, _ := liveSum(t, p, 2)
-	if got := p.Stats().Memory; got != live {
-		t.Fatalf("Memory %d, the live sizes of the VMs %d", got, live)
+	size := sizeSum(t, p, 2)
+	if got := p.Stats().Memory; got != size {
+		t.Fatalf("Memory %d, the sizes of the VMs %d", got, size)
 	}
 }
 
@@ -670,7 +774,7 @@ func TestStatsMemoryIsSafeAndDropsClosedVMs(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
-	liveSum(t, p, 2)
+	sizeSum(t, p, 2)
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}

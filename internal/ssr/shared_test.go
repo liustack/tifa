@@ -29,9 +29,9 @@ func TestPoolSharesTheSource(t *testing.T) {
 	padded := newTestPool(t, testSource(t)+"\nglobalThis.padded = "+fn+";\n", testConfig(2))
 
 	var small, large uintptr
-	borrow(t, plain, func(vm *pooledVM) { small = vm.live })
+	borrow(t, plain, func(vm *pooledVM) { small = vm.size })
 	borrow(t, padded, func(vm *pooledVM) {
-		large = vm.live
+		large = vm.size
 		got, err := vm.Eval("String(globalThis.padded)", 0)
 		if err != nil {
 			t.Fatal(err)

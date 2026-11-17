@@ -71,11 +71,11 @@ func TestPoolRunsAYoungGCAfterEachRender(t *testing.T) {
 			if size := vm.MemorySize(); size >= loaded+loaded/2+loaded/8 {
 				t.Fatalf("render %d: an idle VM holds %d bytes, %d after Load", i, size, loaded)
 			}
-			if vm.live > loaded+loaded/8 {
-				t.Fatalf("render %d: a GC left %d bytes, %d after Load", i, vm.live, loaded)
+			if vm.size > loaded+loaded/8 {
+				t.Fatalf("render %d: a GC left %d bytes, %d after Load", i, vm.size, loaded)
 			}
-			if got := vm.GCThreshold(); got != 2*vm.live {
-				t.Fatalf("render %d: GC threshold %d, want twice the live size %d", i, got, vm.live)
+			if got := vm.GCThreshold(); got != 2*vm.size {
+				t.Fatalf("render %d: GC threshold %d, want twice the live size %d", i, got, vm.size)
 			}
 		})
 	}
@@ -94,7 +94,7 @@ func TestPoolRunsAYoungGCAfterEachRender(t *testing.T) {
 func TestFullGCWhenOldGarbageGrows(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	idleVM(p, func(vm *pooledVM) { live = vm.size })
 	// Each render leaves about 0.3 times the live size that only a full GC frees.
 	count := fmt.Sprint(live * 3 / 10 / objectSize(t, oldCyclesJS))
 	for i := range 20 {
@@ -102,8 +102,8 @@ func TestFullGCWhenOldGarbageGrows(t *testing.T) {
 			t.Fatal(err)
 		}
 		idleVM(p, func(vm *pooledVM) {
-			if size := vm.MemorySize(); size >= vm.live+vm.live/2 {
-				t.Fatalf("render %d: an idle VM holds %d bytes, 1.5 times the live size %d or more", i, size, vm.live)
+			if size := vm.MemorySize(); size >= vm.size+vm.size/2 {
+				t.Fatalf("render %d: an idle VM holds %d bytes, 1.5 times the live size %d or more", i, size, vm.size)
 			}
 		})
 	}
@@ -163,7 +163,7 @@ func TestLoadCollects(t *testing.T) {
 // size to the limit, so cycles are collected before they fill the VM.
 func TestGCThresholdStaysUnderTheLimit(t *testing.T) {
 	var live uintptr
-	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
+	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.size })
 	cfg := testConfig(1)
 	cfg.VMMemory = int64(live * 5 / 2)
 	p := newTestPool(t, testSource(t), cfg)
@@ -172,12 +172,12 @@ func TestGCThresholdStaysUnderTheLimit(t *testing.T) {
 			t.Fatalf("render %d: %v", i, err)
 		}
 		idleVM(p, func(vm *pooledVM) {
-			limit := vm.live + (p.memory-vm.live)/2
-			if limit >= 2*vm.live {
-				t.Fatalf("render %d: live size %d, limit %d leave room for twice the live size", i, vm.live, p.memory)
+			limit := vm.size + (p.memory-vm.size)/2
+			if limit >= 2*vm.size {
+				t.Fatalf("render %d: live size %d, limit %d leave room for twice the live size", i, vm.size, p.memory)
 			}
 			if got := vm.GCThreshold(); got > limit || got+1 < limit {
-				t.Fatalf("render %d: GC threshold %d, want half way from the live size %d to the limit %d", i, got, vm.live, p.memory)
+				t.Fatalf("render %d: GC threshold %d, want half way from the live size %d to the limit %d", i, got, vm.size, p.memory)
 			}
 		})
 	}
@@ -193,7 +193,7 @@ func TestGCThresholdStaysUnderTheLimit(t *testing.T) {
 func TestGCThresholdIsResetAfterTheEnginesGC(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	idleVM(p, func(vm *pooledVM) { live = vm.size })
 	// About 1.15 times the live size: the engine collects once, at twice the live size, and what is
 	// left after the render stays under 1.5 times.
 	count := fmt.Sprint(live * 23 / 20 / objectSize(t, cyclesJS))
@@ -201,8 +201,8 @@ func TestGCThresholdIsResetAfterTheEnginesGC(t *testing.T) {
 		t.Fatal(err)
 	}
 	idleVM(p, func(vm *pooledVM) {
-		if got := vm.GCThreshold(); got != 2*vm.live {
-			t.Fatalf("GC threshold %d after the engine's GC, want twice the live size %d", got, vm.live)
+		if got := vm.GCThreshold(); got != 2*vm.size {
+			t.Fatalf("GC threshold %d after the engine's GC, want twice the live size %d", got, vm.size)
 		}
 	})
 	if s := p.stats(); s.renderGCs != 1 || s.idleGCs != 1 || s.youngGCs != 0 {
@@ -216,7 +216,7 @@ func TestGCThresholdIsResetAfterTheEnginesGC(t *testing.T) {
 func TestGCThresholdLeavesRoomForWhatARenderHolds(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	idleVM(p, func(vm *pooledVM) { live = vm.size })
 	// The render holds about 1.5 times the live size.
 	count := fmt.Sprint(live * 3 / 2 / objectSize(t, holdJS))
 	for i := range 20 {
@@ -228,8 +228,8 @@ func TestGCThresholdLeavesRoomForWhatARenderHolds(t *testing.T) {
 		}
 	}
 	idleVM(p, func(vm *pooledVM) {
-		if got := vm.GCThreshold(); got <= 2*vm.live || got > vm.live/2+p.memory/2 {
-			t.Fatalf("GC threshold %d, want more than twice the live size %d and under the limit", got, vm.live)
+		if got := vm.GCThreshold(); got <= 2*vm.size || got > vm.size/2+p.memory/2 {
+			t.Fatalf("GC threshold %d, want more than twice the live size %d and under the limit", got, vm.size)
 		}
 	})
 }
@@ -281,7 +281,7 @@ func TestCloseWaitsForGCBetweenRenders(t *testing.T) {
 func TestGCThresholdComesBackAfterABigRender(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	idleVM(p, func(vm *pooledVM) { live = vm.size })
 	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
 		t.Fatal(err)
 	}
@@ -289,8 +289,8 @@ func TestGCThresholdComesBackAfterABigRender(t *testing.T) {
 		t.Fatalf("a render that holds three times the live size ran no GC: %+v", s)
 	}
 	idleVM(p, func(vm *pooledVM) {
-		if got := vm.GCThreshold(); got > 4*vm.live {
-			t.Fatalf("GC threshold %d after a big render, want at most four times the live size %d", got, vm.live)
+		if got := vm.GCThreshold(); got > 4*vm.size {
+			t.Fatalf("GC threshold %d after a big render, want at most four times the live size %d", got, vm.size)
 		}
 	})
 	for i := range 1000 {
@@ -299,8 +299,8 @@ func TestGCThresholdComesBackAfterABigRender(t *testing.T) {
 		}
 	}
 	idleVM(p, func(vm *pooledVM) {
-		if got := vm.GCThreshold(); got >= 3*vm.live {
-			t.Fatalf("GC threshold %d after 1000 small renders, want under three times the live size %d", got, vm.live)
+		if got := vm.GCThreshold(); got >= 3*vm.size {
+			t.Fatalf("GC threshold %d after 1000 small renders, want under three times the live size %d", got, vm.size)
 		}
 	})
 }
@@ -310,7 +310,7 @@ func TestGCThresholdComesBackAfterABigRender(t *testing.T) {
 // young GCs keep, is collected during renders or between them, before it fills the VM.
 func TestGCBetweenRendersUnderALowLimit(t *testing.T) {
 	var live uintptr
-	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
+	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.size })
 	cfg := testConfig(1)
 	// The garbage of one render is about 0.4 times the live size, so the limit leaves the threshold
 	// (half way to it) under that, whatever the registered builtins add to the live size.
@@ -468,7 +468,7 @@ globalThis.startRender = () => { globalThis.renderResult = '<p>ok</p>' }`
 // Once Close has started, a VM that needs a GC goes back to the pool as it is, for Close to close.
 func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 	var live uintptr
-	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
+	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.size })
 	// About 0.75 times the live size: no GC during the render, a young one after it.
 	count := fmt.Sprint(live * 3 / 4 / objectSize(t, cyclesJS))
 	open := newTestPool(t, testSource(t), testConfig(1))
@@ -480,8 +480,8 @@ func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 		// page: the engine holds the register code of each function that ran, and its register
 		// stack grows in segments. With this bundle that is 40,648 bytes, 0.16 of the live size,
 		// measured with a render that makes no cycles. Cycles left behind would add 0.75 of it.
-		if size := vm.MemorySize(); size >= vm.live+vm.live/4 {
-			t.Fatalf("a young GC left %d bytes of a live size of %d", size, vm.live)
+		if size := vm.MemorySize(); size >= vm.size+vm.size/4 {
+			t.Fatalf("a young GC left %d bytes of a live size of %d", size, vm.size)
 		}
 	})
 	if s := open.stats(); s.renderGCs != 0 || s.youngGCs != 1 || s.idleGCs != 0 {
@@ -536,7 +536,7 @@ func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
 	var before slowjs.MemoryUsage
-	idleVM(p, func(vm *pooledVM) { live, before = vm.live, vm.MemoryUsage() })
+	idleVM(p, func(vm *pooledVM) { live, before = vm.size, vm.MemoryUsage() })
 	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
 		t.Fatal(err)
 	}
@@ -545,8 +545,8 @@ func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 		if s := p.stats(); s.idleGCs != 1 {
 			t.Fatalf("want one full GC after the big render, got %+v", s)
 		}
-		if vm.GCThreshold() <= 2*vm.live {
-			t.Fatalf("the threshold %d is back to twice the live size %d, the render did not raise it", vm.GCThreshold(), vm.live)
+		if vm.GCThreshold() <= 2*vm.size {
+			t.Fatalf("the threshold %d is back to twice the live size %d, the render did not raise it", vm.GCThreshold(), vm.size)
 		}
 		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(live/2) {
 			t.Fatalf("the full GC gave back %d bytes, live size %d, threshold %d, footprint %d before the render, %d now",
@@ -564,7 +564,7 @@ func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 func TestFullGCGivesBackFreeMemory(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	idleVM(p, func(vm *pooledVM) { live = vm.size })
 	count := fmt.Sprint(live / 2 / objectSize(t, holdJS))
 	for i := range fullGCEvery - 1 {
 		if _, err := p.Render(context.Background(), input("hold", count)); err != nil {
@@ -581,8 +581,8 @@ func TestFullGCGivesBackFreeMemory(t *testing.T) {
 		if s := p.stats(); s.idleGCs != 1 {
 			t.Fatalf("want one full GC, got %+v", s)
 		}
-		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(vm.live/4) {
-			t.Fatalf("the full GC gave back %d bytes, live size %d, threshold %d, footprint %d", given, vm.live, vm.GCThreshold(), u.Footprint)
+		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(vm.size/4) {
+			t.Fatalf("the full GC gave back %d bytes, live size %d, threshold %d, footprint %d", given, vm.size, vm.GCThreshold(), u.Footprint)
 		}
 	})
 }

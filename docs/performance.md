@@ -77,7 +77,7 @@ At 1.5 times its capacity, the shop rejected 34% of the requests and answered th
 - **A VM grows as it renders more kinds of pages, then stays.** One VM of the shop holds 9 MB after loading, 17 to 25 MB after all its pages, and up to 39 MB when the data of every render is new. Plan on up to 40 MiB per VM for an app with many pages.
 - **Measured**: one VM serving 525 pages of the shop at 58 requests a second for 40 minutes levels at about 105 MiB for the process (Tifa v0.0.13). At full load on one core, the whole-visits run peaked at 256 MiB with the render memo and 111 MiB without it.
 - **The render memo** keeps up to [`ssr.memo_size`](config.md#settings), 64 MiB by default.
-- **`ssr.vm_memory`** (128 MiB by default) limits each VM. The pool replaces a VM in the background when it holds more than half of that after a collection, so an app that leaks keeps at most 64 MiB in each VM. Set it lower to replace sooner. If the log says a fresh VM does not fit, raise it.
+- **`ssr.vm_memory`** (128 MiB by default) limits each VM. The pool replaces a VM in the background when it holds more than half of that after a collection, not counting free space the allocator keeps, or more than three quarters counting it. So an app that leaks keeps about 64 MiB in each VM. Set it lower to replace sooner. If the log says a fresh VM does not fit, raise it.
 - **Idle VMs give free memory back** to the system after a second without a render.
 
 How a VM is collected and replaced, and what each number was measured with: [Memory](studies/capacity.md#memory).

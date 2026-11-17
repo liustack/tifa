@@ -121,7 +121,7 @@ type Pool struct {
 	// renders in a VM now, rendered and failed count the renders that ended and those that retired
 	// their VM, renderTime is their time in nanoseconds, and rejected counts ErrSSRBusy.
 	busy, rendered, failed, renderTime, rejected atomic.Int64
-	// held is the sum of the live sizes of the loaded VMs, for Stats. A live size is written by the
+	// held is the sum of the sizes of the loaded VMs, for Stats (what ssr.vm_memory counts). A size is written by the
 	// goroutine that owns the VM, so held follows it: openVM adds the size after Load, runGC the
 	// change of a full GC, closeVM takes the size out.
 	held atomic.Int64
@@ -147,7 +147,13 @@ type Pool struct {
 // pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
 type pooledVM struct {
 	*VM
-	// live is the live size, what the VM held after its last full GC between renders, or after Load.
+	// size is what the engine counts for the VM (MemorySize) after its last full GC between renders,
+	// or after Load, free slots in its arenas included. The GC threshold is made from it, and the limit
+	// ssr.vm_memory counts it.
+	size uintptr
+	// live is size less the free slots (MemoryFree), read at the same time: what the VM's objects and
+	// the runtime hold. It stays the same while the VM keeps the same objects, where size moves with
+	// the holes garbage leaves in the arenas, so the bound that replaces a VM that grew reads it.
 	live uintptr
 	// young counts the renders since that GC.
 	young int
@@ -177,7 +183,7 @@ const needDecay = 1024
 
 // setThreshold sets the GC threshold of vm from its live size and need under the limit memory.
 func (vm *pooledVM) setThreshold(memory uintptr) {
-	vm.threshold = gcThreshold(vm.live, vm.need, memory)
+	vm.threshold = gcThreshold(vm.size, vm.need, memory)
 	vm.SetGCThreshold(vm.threshold)
 }
 
@@ -206,8 +212,10 @@ const fullGCEvery = 256
 var (
 	retryDelay = time.Second
 	loadVM     = openVM
-	// growthBound is the live size past which the pool replaces a VM, see grown.
+	// growthBound is the live size past which the pool replaces a VM, and sizeBound the size past
+	// which it does, see grown.
 	growthBound = (*pooledVM).hardBound
+	sizeBound   = (*pooledVM).sizeBound
 )
 
 const maxRetryDelay = 30 * time.Second
@@ -530,8 +538,9 @@ func openVM(p *Pool) (*pooledVM, error) {
 	p.mu.Unlock()
 	// Load ended with a GC and set the threshold.
 	size := vm.MemorySize()
+	live := size - vm.MemoryFree()
 	p.held.Add(int64(size))
-	return &pooledVM{VM: vm, live: size, baseline: size, threshold: vm.GCThreshold()}, nil
+	return &pooledVM{VM: vm, size: size, live: live, baseline: live, threshold: vm.GCThreshold()}, nil
 }
 
 // load loads a VM for refill and replaceGrown, which retry a Go panic, from the engine, as they
@@ -562,12 +571,12 @@ func (p *Pool) release(vm *pooledVM) {
 		// The engine collected during the render and set the threshold to 1.5 times what its GC
 		// left, which counts what the render held then, so the live size stays the one of the last
 		// GC between renders.
-		vm.need = min(max(vm.need, vm.GCThreshold()), 4*vm.live)
+		vm.need = min(max(vm.need, vm.GCThreshold()), 4*vm.size)
 		p.mu.Lock()
 		p.counts.renderGCs++
 		p.mu.Unlock()
-	} else if vm.need > 2*vm.live {
-		vm.need -= (vm.need - 2*vm.live) / needDecay
+	} else if vm.need > 2*vm.size {
+		vm.need -= (vm.need - 2*vm.size) / needDecay
 	}
 	vm.setThreshold(p.memory)
 	vm.young++
@@ -611,7 +620,8 @@ func (p *Pool) finalize(vm *pooledVM) (err error) {
 }
 
 // grown says whether the pool should replace vm with a fresh VM: its live size after a full GC is
-// past growthBound, and the pool is not waiting after a misfit (see refitRenders). Called under mu.
+// past growthBound or its size is past sizeBound, and the pool is not waiting after a misfit (see
+// refitRenders). Called under mu.
 //
 // The bound is set by the limit, not by what the VM held after Load. A VM grows as its pages warm
 // up and then stays: each kind of page loads its modules and libraries the first time it renders,
@@ -621,17 +631,35 @@ func (p *Pool) finalize(vm *pooledVM) (err error) {
 // on every render. A fresh VM grows the same way, so a bound tied to the size after Load replaced
 // the shop's VMs over and over.
 func (p *Pool) grown(vm *pooledVM) bool {
-	return vm.live > growthBound(vm, p.memory) && !time.Now().Before(p.refitAfter)
+	return p.past(vm) && !time.Now().Before(p.refitAfter)
 }
 
-// hardBound is the live size past which a VM is replaced: half of ssr.vm_memory, 64 MiB of the
-// default 128 MiB. The shop's VM settles at 18 to 39 MB, so a healthy VM stays well under it, and
-// the other half is room for what a render allocates: a page of the shop takes 2 to 3 MiB above
-// the live size and a 100 KB Markdown document 35 MiB. A VM that leaks is replaced there, before
-// its renders run out of memory. It is at least 175% of the baseline, so a bundle that starts near
-// the limit does not cause repeated reloads without recovering any space.
+// past says whether vm is past either bound.
+func (p *Pool) past(vm *pooledVM) bool {
+	return vm.live > growthBound(vm, p.memory) || vm.size > sizeBound(vm, p.memory)
+}
+
+// hardBound is the live size (the size less the free slots) past which a VM is replaced: half of
+// ssr.vm_memory, 64 MiB of the default 128 MiB. The shop's VM settles at 18 to 39 MB, so a healthy VM
+// stays well under it, and the other half is room for what a render allocates: a page of the shop
+// takes 2 to 3 MiB above the live size and a 100 KB Markdown document 35 MiB. A VM that leaks is
+// replaced there, before its renders run out of memory. It is at least 175% of the baseline, so a
+// bundle that starts near the limit does not cause repeated reloads without recovering any space.
 func (vm *pooledVM) hardBound(memory uintptr) uintptr {
 	return max(vm.baseline+vm.baseline/2+vm.baseline/4, memory/2)
+}
+
+// sizeBound is the size, free slots included, past which a VM is replaced: three quarters of
+// ssr.vm_memory, 96 MiB of the default 128 MiB. The limit counts the free slots, but a render takes
+// them again for blocks of their size, so below hardBound they are room. Free slots grow with the
+// garbage a collection frees among objects that stay, and nothing but this bound would stop them
+// from filling the VM up to the limit unseen. The quarter above it is room for a render the free
+// slots do not serve, 32 MiB of the default: a page of the shop takes 2 to 3 MiB, and the 100 KB
+// Markdown document that takes 35 MiB over the live size, mostly in blocks larger than the arenas,
+// is the rare page that may fail then, as it may with a VM at the bound on the live size. It is
+// never below hardBound, so a bundle that starts near the limit is not replaced again and again.
+func (vm *pooledVM) sizeBound(memory uintptr) uintptr {
+	return max(memory/4*3, vm.hardBound(memory))
 }
 
 // refitRenders is how many renders a VM loaded to replace a grown VM must run before it grows past
@@ -647,7 +675,7 @@ const (
 	maxRefitPause = time.Hour
 )
 
-// noteMisfit records that a VM loaded to replace a grown VM grew past growthBound within
+// noteMisfit records that a VM loaded to replace a grown VM grew past growthBound or sizeBound within
 // refitRenders renders, and says whether to log it, the first time. Called under mu.
 func (p *Pool) noteMisfit() (log bool) {
 	p.refitPause = min(max(2*p.refitPause, minRefitPause), maxRefitPause)
@@ -668,11 +696,12 @@ func (p *Pool) putIdle(vm *pooledVM) {
 	grown := p.grown(vm)
 	var misfit bool
 	live, bound := vm.live, growthBound(vm, p.memory)
+	size, sizeLimit := vm.size, sizeBound(vm, p.memory)
 	if vm.replacement && vm.renders < refitRenders {
 		if grown {
 			misfit, grown = p.noteMisfit(), false
 		}
-	} else if vm.replacement && vm.renders == refitRenders && live <= bound {
+	} else if vm.replacement && vm.renders == refitRenders && !p.past(vm) {
 		p.refitPause = 0 // a fresh VM fits
 	}
 	pause := p.refitPause
@@ -687,7 +716,7 @@ func (p *Pool) putIdle(vm *pooledVM) {
 		core.Logger().Error("tifa: ssr: a VM loaded to replace one that grew past the memory it may keep grew past it too, "+
 			"so the pages of this app need more than ssr.vm_memory leaves: raise ssr.vm_memory. "+
 			"The pool waits before it replaces a grown VM again, longer each time this repeats",
-			"live_bytes", live, "bound_bytes", bound, "vm_memory_bytes", p.memory, "renders", refitRenders, "pause", pause)
+			"live_bytes", live, "bound_bytes", bound, "size_bytes", size, "size_bound_bytes", sizeLimit, "vm_memory_bytes", p.memory, "renders", refitRenders, "pause", pause)
 	}
 }
 
@@ -877,7 +906,7 @@ func (p *Pool) replaceGrown() {
 		if fresh != nil {
 			p.counts.replaced++
 			p.mu.Unlock()
-			core.Logger().Warn("tifa: ssr: replaced a growing VM", "baseline_bytes", old.baseline, "live_bytes", old.live, "bound_bytes", growthBound(old, p.memory), "fresh_bytes", freshLive)
+			core.Logger().Warn("tifa: ssr: replaced a growing VM", "baseline_bytes", old.baseline, "live_bytes", old.live, "bound_bytes", growthBound(old, p.memory), "size_bytes", old.size, "size_bound_bytes", sizeBound(old, p.memory), "fresh_bytes", freshLive)
 			fresh = nil
 			p.closeVM(old)
 			delay, warned = retryDelay, false
@@ -918,7 +947,7 @@ func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	}
 	if !full && vm.young < fullGCEvery {
 		vm.RunYoungGC()
-		if vm.MemorySize() < vm.live+vm.live/2 {
+		if vm.MemorySize() < vm.size+vm.size/2 {
 			p.mu.Lock()
 			p.counts.youngGCs++
 			p.mu.Unlock()
@@ -927,9 +956,9 @@ func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	}
 	vm.RunGC()
 	vm.young = 0
-	live := vm.MemorySize()
-	p.held.Add(int64(live) - int64(vm.live))
-	vm.live = live
+	size := vm.MemorySize()
+	p.held.Add(int64(size) - int64(vm.size))
+	vm.size, vm.live = size, size-vm.MemoryFree()
 	vm.setThreshold(p.memory)
 	// What the VM holds free goes back to the system, as after Load. The renders until the next full GC
 	// take what they need again, and a full GC is rare (see fullGCEvery). Keeping the room the
@@ -965,7 +994,7 @@ func (p *Pool) closeVM(vm *pooledVM) {
 		}
 		return vm.Close()
 	}()
-	p.held.Add(-int64(vm.live))
+	p.held.Add(-int64(vm.size))
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.counts.closed++
