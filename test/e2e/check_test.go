@@ -69,3 +69,41 @@ func TestCheckAppWithoutPages(t *testing.T) {
 		t.Fatalf("tifa check on test/apps/api: %v\n%s", err, out)
 	}
 }
+
+// The 422 of a tifa.Fields reaches browser code as TifaError.fields, typed Record<string, string>
+// and not keyed by the input's field names: reading it as a string compiles, as a number it does
+// not, and a misspelled field name is not caught.
+func TestCheckFieldErrorsAreTyped(t *testing.T) {
+	skipUnlessEnabled(t)
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "test", "apps", "upload", "node_modules")); err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/upload first")
+	}
+	dir := copyApp(t, "upload")
+	file := filepath.Join(dir, "app", "photos", "fielderrors.ts")
+	const head = `import { TifaError } from 'tifa/client'
+import { POST } from './route.gen'
+
+export async function submit(title: string) {
+  try {
+    await POST({ input: { title, file: null } })
+  } catch (e) {
+    if (!(e instanceof TifaError)) throw e
+    const status: number = e.status
+    const fields: Record<string, string> = e.fields
+    const file: string = e.fields.file
+    const typo: string = e.fields.fiel
+    return { status, fields, file, typo }
+  }
+}
+`
+	write(t, file, head)
+	if out, err := tifaCheck(t, dir); err != nil || !strings.Contains(out, "check passed") {
+		t.Fatalf("reading TifaError.fields as strings: %v\n%s", err, out)
+	}
+
+	write(t, file, strings.Replace(head, "const file: string = e.fields.file", "const file: number = e.fields.file", 1))
+	out, err := tifaCheck(t, dir)
+	if err == nil || !strings.Contains(out, "check failed at typescript (tsc --noEmit)") || !strings.Contains(out, "fielderrors.ts") || !strings.Contains(out, "TS2322") {
+		t.Fatalf("reading TifaError.fields.file as a number: %v\n%s", err, out)
+	}
+}
