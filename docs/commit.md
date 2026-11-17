@@ -44,3 +44,8 @@ refactor: rename Go module to github.com/liustack/tifa
 - Do not develop directly on `main`. Run `git switch -c <branch>` first.
 - Independent pieces of work can each get their own worktree and run in parallel. Put them next to the repository, such as `../tifa-<topic>`. Delete the worktree after merging.
 - Before committing, run the checks in [testing.md](testing.md).
+
+## CHANGELOG
+
+- An entry that apps must act on ends its bullet with `Upgrading: <what to do>`. `go tool tifa upgrade` prints that text, from the word to the end of the bullet, for every release between the old version and the new one. Keep the bullet on one paragraph, and write what the app does, not what Tifa did.
+- Do not write `Upgrading:` for a change that needs nothing from the app.

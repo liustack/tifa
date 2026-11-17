@@ -148,7 +148,7 @@ go tool tifa build
 
 ## 配合编程 agent 使用
 
-[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。在你的应用里，按应用所用的 Tifa 版本把它写进 `.claude/skills/tifa/`。新应用已经带着它，升级 Tifa 之后运行同一条命令，就换成新版本的：
+[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。在你的应用里，按应用所用的 Tifa 版本把它写进 `.claude/skills/tifa/`。新应用已经带着它，`go tool tifa upgrade` 把应用升到新版 Tifa 时会重新写一遍，不升级时 `go tool tifa agents` 也能做同样的事：
 
 ```sh
 go tool tifa agents
