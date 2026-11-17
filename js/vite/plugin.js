@@ -3083,6 +3083,13 @@ const routerCoreEdits = [
     () =>
       'const middlewares = opts._includeValidateSearch ? getSearchMiddlewares(destRoutes, opts._includeValidateSearch) : destRoutes.tifaMiddlewares ??= getSearchMiddlewares(destRoutes, opts._includeValidateSearch);',
   ],
+  // The params of a link are used for the template of its path only (and by params.stringify of a
+  // route, which has its own line). A path with no template takes none, so the link does not work
+  // them out, a function of them excepted, which is still called.
+  [
+    knownForm('nextParams ??= resolveNextParams(dest.params, needsInheritedParams(dest.params, interpolation) ? currentMatch()[3] : EMPTY_RECORD);'),
+    (block) => 'if (interpolation || typeof dest.params === "function") ' + block,
+  ],
 ]
 // tifaPathOnly says whether a link can be built without a URL: fullPath is a single "/" and
 // only characters a URL leaves as they are in the path, the query and the fragment (no space,

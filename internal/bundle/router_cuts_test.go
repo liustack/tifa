@@ -67,7 +67,9 @@ const countedParams = () => ({ get x() { paramReads++; return 1 } })
 })
 `
 
-// buildLocation asks a route for its search middlewares once for all the links to it.
+// buildLocation asks a route for its search middlewares once for all the links to it, and does not
+// work out the params of a link whose path has no template. and does not
+// work out the params of a link whose path has no template.
 func TestSSRBuildLocationDoesNotRepeatWork(t *testing.T) {
 	code, printed := i18nextApp(t, prefixLinksRoot(t), cutsPage, `{ target: ["es2022"] }`)
 	if strings.Contains(printed, notRecognized) {
@@ -107,5 +109,8 @@ func TestSSRBuildLocationDoesNotRepeatWork(t *testing.T) {
 	}
 	if r.ValidateReads != 2 {
 		t.Errorf("the search of a route is read %d times for two links that ask for the validators, want 2", r.ValidateReads)
+	}
+	if r.ParamReads != 0 {
+		t.Errorf("the params of a link without a template are read %d times, want 0", r.ParamReads)
 	}
 }
