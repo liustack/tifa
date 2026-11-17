@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-11-17
+
 ### Fixed
 
 - Under `tifa dev`, the server render and the browser read the same `import.meta.env.MODE`, `DEV`, `PROD` and `BASE_URL`. Before, a page that read one of them rendered other text on the server than in the browser and failed to hydrate. React keeps its production build in the render.
