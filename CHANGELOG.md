@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa new` writes `.vscode/settings.json`, which makes VS Code label the tabs of `page.tsx`, `layout.tsx`, `route.go`, `route_test.go` and `route.gen.ts` with their folder, such as `orders/page.tsx`. Before, a dozen open tabs all said `page.tsx`. It is not in `.gitignore`, so a team shares it. See [`tifa new`](docs/build.md#tifa-new).
+
 ## [0.0.16] - 2026-11-17
 
 ### Changed
