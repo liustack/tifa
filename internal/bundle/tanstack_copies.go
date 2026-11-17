@@ -86,12 +86,6 @@ var TanStackCopies = []Copy{
 		CompareAgain: "routerCorePlugin in js/vite/plugin.js (function executeRewriteOutput hashed, the fast path calls output itself)",
 	},
 	{
-		Package: "@tanstack/router-core", File: "src/router.ts",
-		Start: "  buildLocation: BuildLocationFn = (opts) => {", End: "  _commitPromise: (Promise<void> & { resolve: () => void }) | undefined",
-		SHA256:       "f705fcc713c7b21b8282cbd353ab92910c971ea9996e65fc39d4fe75c15654db",
-		CompareAgain: "routerCoreEdits in js/vite/plugin.js (the whole buildLocation hashed: the search middlewares of a route, the params of a link and the rewrite branch)",
-	},
-	{
 		Package: "@tanstack/history", File: "src/index.ts",
 		Start: "export function normalizeProtocolRelative(", End: "}",
 		SHA256:       "8bf00980d104ed46e3ab4aae78a0ca79afdacb8d6d9fe6eed5fcf8ec7b858678",
