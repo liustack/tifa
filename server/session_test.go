@@ -380,7 +380,7 @@ func TestStartupUsesTheStoreOfOnStartAndLogsTheDefault(t *testing.T) {
 	var log syncBuffer
 	oldDefault := logDefault(&log)
 	defer oldDefault()
-	runUntilListening(t, func() { log.Write([]byte("onstart-returns\n")) }, &log)
+	runWithSessionsUntilListening(t, true, func() { log.Write([]byte("onstart-returns\n")) }, &log)
 	out := log.String()
 	i, j := strings.Index(out, "onstart-returns"), strings.Index(out, "sessions are kept in memory")
 	if i < 0 || j < i {
@@ -389,8 +389,20 @@ func TestStartupUsesTheStoreOfOnStartAndLogsTheDefault(t *testing.T) {
 	var log2 syncBuffer
 	oldDefault2 := logDefault(&log2)
 	defer oldDefault2()
-	runUntilListening(t, func() { tifa.SetSessionStore(tifa.NewMemoryStore(1 << 20)) }, &log2)
+	runWithSessionsUntilListening(t, true, func() { tifa.SetSessionStore(tifa.NewMemoryStore(1 << 20)) }, &log2)
 	if strings.Contains(log2.String(), "sessions are kept in memory") {
 		t.Fatalf("the default was logged though OnStart set a store:\n%s", log2.String())
+	}
+}
+
+// An app that never uses sessions gets no line about where they are kept: it has nothing to lose
+// on a restart.
+func TestStartupLogsNoSessionStoreForAnAppWithoutSessions(t *testing.T) {
+	var log syncBuffer
+	oldDefault := logDefault(&log)
+	defer oldDefault()
+	runUntilListening(t, func() {}, &log)
+	if strings.Contains(log.String(), "sessions are kept in memory") {
+		t.Fatalf("an app without sessions logged the session store:\n%s", log.String())
 	}
 }

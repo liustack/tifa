@@ -14,9 +14,19 @@ import (
 // to show in out, and stops it.
 func runUntilListening(t *testing.T, onStart func(), out *syncBuffer) {
 	t.Helper()
+	runWithSessionsUntilListening(t, false, onStart, out)
+}
+
+// runWithSessionsUntilListening is runUntilListening for an app that uses sessions when sessions
+// is set.
+func runWithSessionsUntilListening(t *testing.T, sessions bool, onStart func(), out *syncBuffer) {
+	t.Helper()
 	cfg := config.Default()
 	cfg.Server.Addr = "127.0.0.1:0"
 	s := newServer(cfg, Hooks{OnStart: func(context.Context) error { onStart(); return nil }})
+	if sessions {
+		s.enableSessions(nil)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.run(ctx) }()
