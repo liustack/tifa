@@ -52,6 +52,9 @@ const cases: Array<Record<string, unknown>> = [
   { '': '' },
   { 'a b': 'c&d=e', 'café': '中文' },
   { a: [undefined, 'x', 1] },
+  // A key that cannot be encoded is never encoded when it has no item to write.
+  { ['\ud800']: [], ok: '1' },
+  { ['\ud800']: undefined, ok: '1' },
   Object.create(null, { a: { value: 'b', enumerable: true } }),
   Object.assign(Object.create({ inherited: 'yes' }), { own: 'no' }),
 ]

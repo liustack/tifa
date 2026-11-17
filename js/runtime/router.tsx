@@ -361,11 +361,15 @@ export function stringifySearch(search: Record<string, unknown>): string {
   for (const key in search) {
     const value = search[key]
     if (value === undefined) continue
-    const name = encodeQueryPart(key) + '='
     if (Array.isArray(value)) {
-      for (const item of value) text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(item))
+      // The name is written for the first item, as an empty list has none to write it for.
+      let name: string | undefined
+      for (const item of value) {
+        name ??= encodeQueryPart(key) + '='
+        text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(item))
+      }
     } else {
-      text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(value))
+      text += (text === '' ? '?' : '&') + encodeQueryPart(key) + '=' + encodeQueryPart(String(value))
     }
   }
   return text
