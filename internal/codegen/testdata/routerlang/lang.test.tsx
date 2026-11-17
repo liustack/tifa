@@ -49,6 +49,7 @@ async function client(url: string, language: string, always = false) {
 const href = (router: any, to: string, search?: object) => router.buildLocation({ to, search }).publicHref
 
 test('a router builds URLs with its own prefix, only for routes that have the language', async () => {
+  assert(makeRewrite(languages, 'en-US').pathOnly === true, 'the prefix rewrite is not marked pathOnly')
   const en = (await client('/en-US/store', 'en-US')).router
   assert(href(en, '/store/cart') === '/en-US/store/cart', href(en, '/store/cart'))
   assert(href(en, '/store') === '/en-US/store', href(en, '/store'))

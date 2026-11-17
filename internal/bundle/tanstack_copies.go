@@ -53,6 +53,39 @@ var TanStackCopies = []Copy{
 		CompareAgain: "routesAt in js/runtime/router.tsx (function findGlobalNotFoundRouteId hashed)",
 	},
 	{
+		Package: "@tanstack/router-core", File: "src/router.ts",
+		Start: "      const fullPath = `${nextPathname}${searchStr}${hashStr}`", End: "        publicHref = href",
+		SHA256:       "4f4c438ece32204316f86ce119a32c0c7dbc4fdac7dfc2ad204ead8fe64cd817",
+		CompareAgain: "routerCorePlugin and tifaPathOnly in js/vite/plugin.js, and pathOnly in js/runtime/prefix.ts (buildLocation from fullPath to publicHref hashed)",
+	},
+	// What the fast path of buildLocation leans on: which object is this.rewrite, and what the
+	// functions that make or call a rewrite do. A basepath that carries pathOnly into a composed
+	// rewrite would change these.
+	{
+		Package: "@tanstack/router-core", File: "src/router.ts",
+		Start: "    const nextBasepath = this.options.basepath ?? '/'", End: "          : nextRewriteOption",
+		SHA256:       "437d16feb794317a256beeea992ada5f1bb1f9c0ffd24d8fe7121b65dd69a901",
+		CompareAgain: "pathOnly in js/runtime/prefix.ts and routerCorePlugin in js/vite/plugin.js (update() of router-core, from nextBasepath to this.rewrite)",
+	},
+	{
+		Package: "@tanstack/router-core", File: "src/rewrite.ts",
+		Start: "export function composeRewrites(", End: "}",
+		SHA256:       "711f7495abda71c5ff42165fd4f0cf03afcdef31fa355447770ea5c1dd984bbe",
+		CompareAgain: "pathOnly in js/runtime/prefix.ts and routerCorePlugin in js/vite/plugin.js (function composeRewrites hashed)",
+	},
+	{
+		Package: "@tanstack/router-core", File: "src/rewrite.ts",
+		Start: "export function rewriteBasepath(", End: "}",
+		SHA256:       "b30a910dc7a4868c007fe79703bf61e06bc8408e4fd5aeb26a8c0b8ee759e5e9",
+		CompareAgain: "pathOnly in js/runtime/prefix.ts and routerCorePlugin in js/vite/plugin.js (function rewriteBasepath hashed)",
+	},
+	{
+		Package: "@tanstack/router-core", File: "src/rewrite.ts",
+		Start: "export function executeRewriteOutput(", End: "}",
+		SHA256:       "a95b19bfd6fd9e12a89e6dafb98ed9c1b451a0d1f7a21b9bce64e73c8e7a74bd",
+		CompareAgain: "routerCorePlugin in js/vite/plugin.js (function executeRewriteOutput hashed, the fast path calls output itself)",
+	},
+	{
 		Package: "@tanstack/react-router", File: "src/headContentUtils.tsx",
 		SHA256:       "ad540a3b6a693851a71d0446450e243d4c0d16c1eff940862436c7f4220b7537",
 		CompareAgain: "the head code in js/runtime/head.ts (whole file hashed)",
