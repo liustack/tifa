@@ -166,6 +166,28 @@ func TestNodeTakesTheDriverAsAFile(t *testing.T) {
 	}
 }
 
+// Node runs in the root, so the path of the driver it gets must lead there from the root too, also
+// for a root given relative to the working directory, as go generate ./js gives js/host.
+func TestNodeFindsTheDriverFromARelativeRoot(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.Mkdir("app", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	n := NewNode("app", io.Discard)
+	cmd, remove, err := n.driverCommand("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove()
+	script := cmd.Args[1]
+	if !filepath.IsAbs(script) {
+		script = filepath.Join("app", script)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Errorf("node, run in the root, does not find the driver %q: %v", cmd.Args[1], err)
+	}
+}
+
 // The file of the driver is gone once the driver runs, so .tifa/ holds nothing of it.
 func TestNodeLeavesNoDriverFile(t *testing.T) {
 	root := t.TempDir()

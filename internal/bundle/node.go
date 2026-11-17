@@ -93,7 +93,12 @@ func (n *Node) driverCommand(node string) (*exec.Cmd, func(), error) {
 		return nil, nil, err
 	}
 	remove := func() { os.RemoveAll(dir) }
-	script := filepath.Join(dir, "driver.mjs")
+	// Node runs in the root, so a root relative to the working directory must not reach it as is.
+	script, err := filepath.Abs(filepath.Join(dir, "driver.mjs"))
+	if err != nil {
+		remove()
+		return nil, nil, err
+	}
 	if err := os.WriteFile(script, []byte(js.ViteDriver), 0o644); err != nil {
 		remove()
 		return nil, nil, err
