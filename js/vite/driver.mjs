@@ -758,8 +758,9 @@ async function ssrThread() {
 // bundled Vite config as a new ES module three times per builder (once for the config and once per
 // environment), which Node never unloads, and Rolldown's native callbacks keep the plugins and
 // environments of each build (rolldown/rolldown#10887, fixed in 1.2.16, and #11444, fixed after
-// 1.3.2). In a small app that is about 5 MB of heap per build, more with a larger config. Ending the thread frees all of it. The new worker loads Vite while tifa dev
-// waits for the next edit, so the price is one build with cold code every ssrWorkerBuilds builds.
+// 1.3.2). In a small app that is about 5 MB of heap per build, more with a larger config. Ending
+// the thread frees all of it. The new worker loads Vite while tifa dev waits for the next edit, so
+// the price is one build with cold code every ssrWorkerBuilds builds.
 const ssrWorkerBuilds = 10
 
 // replaceSSRWorker starts a new SSR worker for the next builds and closes old.
