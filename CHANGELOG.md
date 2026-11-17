@@ -1,6 +1,6 @@
 # Changelog
 
-What changed in Tifa that apps and their users can see. From v0.0.1 on, changes are grouped by release. Older changes are grouped by the date they reached `main`. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [Performance](docs/performance.md) has how each speedup was measured.
+What changed in Tifa that apps and their users can see. From v0.0.1 on, changes are grouped by release. Older changes are grouped by the date they reached `main`. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [Performance](docs/performance.md) has how each speedup was measured. An entry that apps must act on ends its bullet with the word Upgrading, a colon and the steps, which `go tool tifa upgrade` prints.
 
 ## [Unreleased]
 
@@ -12,6 +12,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa build` and `tifa dev` warn when app code reads `import.meta.env.VITE_*`, once for each name, with the place of the first read. The value is fixed when the build runs, and a value that is known only when the program runs comes from `Load`. See the new guide [Values from the environment](docs/guides/environment.md).
 - `go tool tifa errors` also lists the warnings of the Tifa plugin in Vite, such as the one for a read of `import.meta.env.VITE_*`, under `Warnings`. A build that no longer has one drops it.
+- `go tool tifa upgrade [version]` moves an app to a newer Tifa, the latest release without a version. It runs `go get -tool` and `go mod tidy`, and then the new Tifa does the rest: it sets the versions of the packages `tifa new` pins in `package.json` (React, React DOM, TanStack Router, Vite and the others, only when the app lists them with an exact version older than the pin: a newer one stays, a range such as `^19.2.0` is never guessed at, and both get a line that says so. TanStack Router is the exception, since the build needs exactly the pinned one), installs, writes the skill and the block of `AGENTS.md` again, prints the migration notes of the changelog entries between the two versions, and runs `tifa check`. It refuses an older version or the same one, and changes none of the app's code. Before, an upgrade was `go get -tool` and `go mod tidy`, and then finding out by hand which packages and files had to follow. See [Upgrading Tifa](docs/build.md#upgrading-tifa).
+- `tifa new` writes `.vscode/settings.json`, which makes VS Code label the tabs of `page.tsx`, `layout.tsx`, `route.go`, `route_test.go` and `route.gen.ts` with their folder, such as `orders/page.tsx`. Before, a dozen open tabs all said `page.tsx`. It is not in `.gitignore`, so a team shares it. See [`tifa new`](docs/build.md#tifa-new).
 
 ### Changed
 

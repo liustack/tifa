@@ -148,7 +148,7 @@ go tool tifa build
 
 ## Use it with a coding agent
 
-[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. In your app, write it into `.claude/skills/tifa/` from the Tifa version the app uses. A new app already has it, and after you upgrade Tifa the same command brings it to the new version:
+[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. In your app, write it into `.claude/skills/tifa/` from the Tifa version the app uses. A new app already has it, and `go tool tifa upgrade` writes it again when it moves the app to a newer Tifa, and `go tool tifa agents` does the same without an upgrade:
 
 ```sh
 go tool tifa agents

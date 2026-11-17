@@ -21,13 +21,13 @@ const toolPackage = tifaModule + "/cmd/tifa"
 //
 // The app is the folder of --dir, else cwd, or the nearest folder above it with a go.mod. tifa
 // forwards when that module requires github.com/liustack/tifa and has the tool line for the
-// command, unless the marker is set, the command is new, or this binary already is the version
+// command, unless the marker is set, the command is new or upgrade, or this binary already is the version
 // the app pins: info names a release of the module, equal to the required version, and go.mod has
 // no replace for the module. A go.work file in use (GOWORK, or one above the app) can change which
 // tifa the app gets without touching go.mod, so then it always forwards, and go tool follows the
 // workspace.
 func forwardTarget(args []string, cwd string, info *debug.BuildInfo, getenv func(string) string) (root string, ok bool) {
-	if getenv(forwardedEnv) != "" || len(args) > 0 && args[0] == "new" {
+	if getenv(forwardedEnv) != "" || len(args) > 0 && (args[0] == "new" || args[0] == "upgrade") {
 		return "", false
 	}
 	dir := cwd

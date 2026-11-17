@@ -25,7 +25,8 @@ import (
 )
 
 // newapp holds the files of a new app. Each ends in .tmpl, so the go command neither builds the
-// Go files nor takes go.mod for a module, and gitignore.tmpl becomes .gitignore.
+// Go files nor takes go.mod for a module. gitignore.tmpl becomes .gitignore and
+// vscode-settings.json.tmpl becomes .vscode/settings.json.
 //
 //go:embed newapp
 var newapp embed.FS
@@ -273,8 +274,12 @@ func writeApp(dir string, app newApp) error {
 			return err
 		}
 		rel := strings.TrimSuffix(strings.TrimPrefix(name, "newapp/"), ".tmpl")
-		if rel == "gitignore" {
+		// A folder or file whose name starts with a dot is left out of an embedded folder.
+		switch rel {
+		case "gitignore":
 			rel = ".gitignore"
+		case "vscode-settings.json":
+			rel = ".vscode/settings.json"
 		}
 		target := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

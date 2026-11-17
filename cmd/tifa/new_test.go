@@ -89,7 +89,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		".claude/skills/tifa/references/build-and-deploy.md", ".claude/skills/tifa/references/errors-and-404.md", ".claude/skills/tifa/references/i18n.md",
 		".claude/skills/tifa/references/rendering.md", ".claude/skills/tifa/references/routing-and-data.md", ".claude/skills/tifa/references/structure.md",
 		".claude/skills/tifa/references/testing.md",
-		".gitignore", "AGENTS.md", "CLAUDE.md", "README.md",
+		".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
@@ -664,5 +664,36 @@ func TestNewAppSetsAMinimumReleaseAge(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "\nminimumReleaseAge: 4320\n") {
 		t.Errorf("pnpm-workspace.yaml:\n%s", data)
+	}
+}
+
+// VS Code shows the name of the file on each editor tab, and every folder of an app has a page.tsx
+// or a route.go, so the tabs of a new app label these files with their folder. The file must stay
+// in version control: it is for everyone who opens the app.
+func TestNewLabelsTheRepeatedFileNames(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	if _, _, err := run(t, "new", dir); err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".vscode", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]map[string]string
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf(".vscode/settings.json is not JSON: %v\n%s", err, data)
+	}
+	patterns := settings["workbench.editor.customLabels.patterns"]
+	for _, name := range []string{"page.tsx", "layout.tsx", "route.go", "route_test.go", "route.gen.ts"} {
+		if got := patterns["**/app/**/"+name]; got != "${dirname}/${filename}.${extname}" {
+			t.Errorf("the label of %s is %q, want the folder and the file name", name, got)
+		}
+	}
+	if len(patterns) != 5 {
+		t.Errorf("patterns %v, want the five repeated file names only", patterns)
+	}
+	ignore, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if strings.Contains(string(ignore), "vscode") {
+		t.Errorf(".gitignore ignores .vscode:\n%s", ignore)
 	}
 }

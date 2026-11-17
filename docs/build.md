@@ -1,9 +1,10 @@
 ---
-summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints, what `tifa agents` writes (the skill and the managed block of AGENTS.md) and how it keeps them current, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, why the front end builds with Vite, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints, how `tifa upgrade` moves an app to a newer Tifa, what `tifa agents` writes (the skill and the managed block of AGENTS.md) and how it keeps them current, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, why the front end builds with Vite, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
 audience: app
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Changing `tifa check`, or finding out which steps it runs and what it needs
+  - Changing `tifa upgrade`, or upgrading an app to a newer Tifa
   - Changing `tifa docs` or the `AGENTS.md` that `tifa new` writes, or the part of it that Tifa manages
   - Changing `tifa agents`, the skill in `skills/tifa` or the `.claude/skills/tifa` an app gets, or an agent works from files that are out of date
   - Creating a Tifa app, or adding an app to test/apps
@@ -43,6 +44,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | `.claude/skills/tifa/` | The Tifa skill for coding agents, `SKILL.md` and its references, written by the same code as `tifa agents` (see [`tifa agents`](#tifa-agents)) |
 | `package.json`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `README.md` | The npm packages, the TypeScript and Vite setup, the ignored build output and database files, and the commands |
 | `pnpm-workspace.yaml` | `minimumReleaseAge: 4320`, so pnpm installs no package version that is less than 3 days old (see below) |
+| `.vscode/settings.json` | Labels the editor tabs of VS Code with the folder for the file names every folder repeats, such as `orders/page.tsx` and `orders/route.go` (`page.tsx`, `layout.tsx`, `route.go`, `route_test.go` and `route.gen.ts` under `app/`), through `workbench.editor.customLabels.patterns`. Other editors ignore it |
 
 - The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. `tifa new` refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
 - The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. It must be a Go identifier that is not a keyword, `main` or `init` (Go does not take `init` as the name of an imported package). The Go files under `app/` import it by that name, so it may not be a name that means something else where they use it: a package they import, such as the domain `todos` or `tifa`, a predeclared name they use, such as `error`, or a parameter or variable in whose scope they use the root package, such as `db` or `ctx`. `tifa new` keeps a list of these names and refuses them, so `tifa new todos` fails and asks for another folder name or `--module`, and `--module example.com/todos` fails and asks for another last element of `--module`. Other names they use, such as `c` or `rows`, are fine. The name in `package.json` is the same, cut to 214 characters, the npm limit.
@@ -230,6 +232,49 @@ docs/build.md - How `tifa new` starts an app, what `tifa build` does, what `tifa
 
 With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps. `docs/research/` is left out, and a doc without a summary is left out with a warning on stderr.
 
+## Upgrading Tifa
+
+```sh
+go tool tifa upgrade [version] [--dir app-root]
+```
+
+Moves the app to another release of Tifa and brings along what that release pins or manages. Without a version it takes the latest release. Run it in a clean checkout, so `git diff` shows what it changed.
+
+1. `go get -tool github.com/liustack/tifa/cmd/tifa@<version>`, then `go mod tidy`.
+2. The command hands the rest to the new Tifa, as `go tool tifa upgrade --after <old version>`. The old binary does not do it, because only the new Tifa knows which versions it pins and what its skill says.
+3. The packages that `tifa new` writes with an exact version (`react`, `react-dom`, `@tanstack/react-router`, `vite` and the others in its `package.json`) are set to the versions of the new Tifa, when the app lists them as an exact version that is older. Every other package, every other key and the layout of the file stay as they are. A package that is newer than the pin stays, with a line such as `react 19.4.0 is newer than the 19.3.0 Tifa is tested with, left as it is`. A version written as `^19.2.0`, `~19.2.0`, a range, a tag or `workspace:` is never guessed at: it stays, with a line that says so. The exception is `@tanstack/react-router`, which `tifa build` refuses unless it is exactly the pinned version (see [Upgrading TanStack Router](#upgrading-tanstack-router)): an exact version of it, older or newer, is set to the pin, and one written as a range stays with a line that asks you to set it by hand. Then the install command runs, `pnpm install` or the one of your lock file.
+4. The skill and the managed block of `AGENTS.md` are written again, as [`tifa agents`](#tifa-agents) does.
+5. It prints every `Upgrading:` note of the [CHANGELOG.md](../CHANGELOG.md) entries after your old version, up to the new one, each with its version. These are the steps that need your hands: the command never edits your Go or TypeScript code.
+6. `tifa check` runs, and its result is the result of `tifa upgrade`.
+
+```text
+$ go tool tifa upgrade
+==> tifa v0.0.15 to v0.0.16
+==> go get -tool github.com/liustack/tifa/cmd/tifa@v0.0.16
+==> go mod tidy
+==> go tool tifa upgrade --after v0.0.15
+==> package.json
+react: 19.2.0 -> 19.3.0
+==> pnpm install
+==> agent files
+.claude/skills/tifa/SKILL.md: updated
+==> Upgrading notes, v0.0.15 to v0.0.16
+v0.0.16: read the parameter in the `Load` ...
+==> go vet ./...
+...
+check passed
+```
+
+- It refuses a version older than the one in `go.mod`, and says that the app is already there when it is the same one. It refuses an app whose `go.mod` replaces Tifa, since the version in `go.mod` is not what the app builds with then. Nothing is changed when it refuses. It also refuses when a `go.work` file is in use (`GOWORK` set, or one in or above the app), since `go get` would write to the workspace and `go tool` follows it: run `GOWORK=off go tool tifa upgrade` instead.
+- It never forwards to the Tifa of the app, so it also works in an app whose Tifa is too old to have this command: run it with the Tifa you installed (see [Installing the command globally](#installing-the-command-globally)), or `go run github.com/liustack/tifa/cmd/tifa@latest upgrade`.
+- Versions are compared as semantic versions, and only exact ones. React and React DOM may be newer than the pin (`tifa build` only needs 19.3.0 or later), so a newer one is yours to keep.
+- An `Upgrading:` note is the text after the word, up to the end of its bullet in the changelog, so an entry writes it last (see [commit.md](commit.md#changelog)).
+- It asks nothing and has no dry run. The files it can change are `go.mod`, `go.sum`, `package.json`, the lock file, `AGENTS.md` and `.claude/skills/tifa/`, so `git diff` is the dry run.
+
+When a step after `go get` fails (a failing `pnpm install`, or `tifa check`), the command exits with the status of the failure and ends with one line: Go is already at the new version, and the steps after it did not finish. Fix the cause and run the line it prints, `cd <app> && go tool tifa upgrade --after <old version>`, which does the steps after `go mod tidy` again. `--after` takes the version the app had, written as `v0.0.17`.
+
+If a step fails, the error says which, and you can do the steps by hand: `go get -tool github.com/liustack/tifa/cmd/tifa@<version>`, `go mod tidy`, change the pinned versions in `package.json` to those of `tifa new` for that version, install, `go tool tifa agents`, read the `Upgrading:` lines of the changelog, `go tool tifa check`. `go tool tifa upgrade --after <old version>` runs everything after `go mod tidy` again.
+
 ## `tifa agents`
 
 ```sh
@@ -241,7 +286,7 @@ Writes what a coding agent reads in the app, from the Tifa version the app uses 
 - The Tifa skill, in `.claude/skills/tifa/`: `SKILL.md` and its `references/`. They are the files of [`skills/tifa`](../skills/tifa) in the Tifa repository, which the command carries inside it, with one added line that says which Tifa wrote the file and to run `go tool tifa agents` again after an upgrade. Its links point at the docs of the installed version (`docs/app.md#testing`, in the folder `go tool tifa docs` prints), not at GitHub.
 - The part of `AGENTS.md` between the marker lines (see [The managed block of AGENTS.md](#the-managed-block-of-agentsmd)).
 
-`tifa new` runs the same code, so a new app has both. Run `go tool tifa agents` again after you upgrade Tifa, and it brings both to the new version. Nothing else runs it: not `tifa build`, not `tifa dev`. `tifa check` prints one line, after `check passed`, when the skill or the block is out of date and the app has either, and says nothing for an app that has neither.
+`tifa new` runs the same code, so a new app has both. `go tool tifa upgrade` runs it after it moves the app. To bring both to the version you have without an upgrade, run `go tool tifa agents`. Nothing else runs it: not `tifa build`, not `tifa dev`. `tifa check` prints one line, after `check passed`, when the skill or the block is out of date and the app has either, and says nothing for an app that has neither.
 
 ```text
 $ go tool tifa agents
@@ -301,7 +346,7 @@ go tool tifa build
 - The generated main imports `github.com/liustack/tifa/server`. `go mod tidy` skips `.tifa/` and does not see that import. The Tifa command imports server itself, and `go mod tidy` keeps every module a tool needs, so server's dependencies (cobra, yaml, slowjs and others) always stay in `go.mod` and `go.sum`.
 - `tifa build` does not change `go.mod` or `go.sum`. An app that has run `go mod tidy` builds as is, and so does CI with `GOFLAGS=-mod=readonly`.
 - If a dependency is missing, the build fails and tells you to run the `go get -tool` above and `go mod tidy`.
-- After upgrading Tifa (`go get -tool github.com/liustack/tifa/cmd/tifa@<version>`), run `go mod tidy` once. If the new command or runtime library added dependencies, it adds them to `go.mod`.
+- To upgrade Tifa, run `go tool tifa upgrade` (see [Upgrading Tifa](#upgrading-tifa)). By hand, it is `go get -tool github.com/liustack/tifa/cmd/tifa@<version>` and then `go mod tidy`, which adds the dependencies that the new command or runtime library needs to `go.mod`.
 - Some npm packages carry `.go` files, such as `flatted`, which eslint pulls in. The line `ignore node_modules` keeps every `node_modules` folder, at any depth, out of `./...`, so `go test ./...`, `go vet ./...`, `go mod tidy` and the analysis of `tifa build` skip them. `tifa new` writes it. Add it to an older app with `go mod edit -ignore=node_modules`.
 
 ## Files in .tifa/
