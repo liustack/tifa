@@ -6,7 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
-- Pages that use i18next render faster. The key of the translation cache is no longer rebuilt for each `t` call when it is the same as the call before. On the example shop the storefront pages run XX% fewer instructions.
+- Pages that use i18next render faster. The key of the translation cache is no longer rebuilt for each `t` call when it is the same as the call before. On the example shop the storefront pages run 1.1% to 1.5% fewer instructions per render, and the article pages 0.2% (counted with callgrind, not timed).
 
 ## [0.0.16] - 2026-11-17
 
