@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-11-17
+
 ### Fixed
 
 - The Node process of `tifa dev` no longer grows with every rebuild of the SSR bundle. Each build kept about 5 MB alive on its worker thread, more with a larger Vite config, and the process grew about 8 to 10 MB per rebuild with garbage on top: past 2.8 GB after 200 edits on a one-core Linux machine. The SSR bundle now moves to a new worker thread every 10 builds, which frees it all. On the test app over 150 edits the process stays between 700 and 970 MB, and rebuilds no longer slow down as it grows.
