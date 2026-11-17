@@ -14,7 +14,7 @@ var hostDir = filepath.Join("..", "..", "js", "host")
 
 func hostDeps(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(hostDir, "node_modules", "core-js")); err != nil {
+	if _, err := os.Stat(filepath.Join(hostDir, "node_modules", "vite")); err != nil {
 		t.Skip("js/host has no node_modules, run pnpm install --frozen-lockfile there")
 	}
 }
