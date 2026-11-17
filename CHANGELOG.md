@@ -20,6 +20,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - Pages that use i18next render faster. The key of the translation cache is no longer rebuilt for each `t` call when it is the same as the call before. On the example shop the storefront pages run 1.1% to 1.5% fewer instructions per render, and the article pages 0.2% (counted with callgrind, not timed).
 - `tifa build` and `tifa dev` that stop because another `tifa dev` or `tifa build` runs now say that `go tool tifa check` and `go tool tifa gen` can run meanwhile.
 - The notes of a new app, and `go tool tifa agents`, now point to the docs on reloading page data after a write, next to the line that a call never reloads it.
+- Server rendering runs on slowjs v0.31.5. The HTML is the same. On the example shop a render, with the garbage collection that follows it, takes 1.5% less time on the storefront and 1.9% less on the workbench. A VM holds about 0.8% more memory (20.2 MB against 20.0 MB after a 20 minute run).
 
 ## [0.0.16] - 2026-11-17
 
@@ -44,7 +45,6 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - The docs are in English only. The README and the example shop's README keep a Chinese version, and the other `*.zh-CN.md` files and `CHANGELOG.zh-CN.md` are gone.
 - Server rendering runs on slowjs v0.31.4. The HTML is the same. Renders take about 0.5% to 0.9% less time by the engine's own timing.
-- Server rendering runs on slowjs v0.31.5. The HTML is the same. On the example shop a render, with the garbage collection that follows it, takes 1.5% less time on the storefront and 1.9% less on the workbench. A VM holds about 0.8% more memory (20.2 MB against 20.0 MB after a 20 minute run).
 - An import cycle through the root package is reported as Go reports it, without a rule about where the root package may import from. The generated `AGENTS.md`, the skill and the docs no longer say the root package imports nothing under `app/`: they say what Go allows, that the root package cannot import a domain that uses `DB`, and how to call such code from `hooks.go`.
 - The i18n guide says that a folder with a `_locales` folder that holds only the default language's file is served at one URL, for pages as well as API routes.
 - `go tool tifa docs` prints about 2 KB, not 43 KB: one line for each doc about writing an app. `--when` adds when to read each doc, and `--all` also lists the docs about developing Tifa itself. The skill no longer sends an app to the example shop on GitHub, and its examples use an app-neutral module path.
