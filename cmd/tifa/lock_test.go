@@ -99,7 +99,7 @@ func holdDevLock(t *testing.T) string {
 func TestBuildStopsWhenDevRuns(t *testing.T) {
 	root := holdDevLock(t)
 	_, _, err := run(t, "build", "--dir", root)
-	if err == nil || !strings.Contains(err.Error(), "tifa dev is running") || !strings.Contains(err.Error(), "pid "+strconv.Itoa(os.Getpid())) || !strings.Contains(err.Error(), "http://127.0.0.1:9527") {
+	if err == nil || !strings.Contains(err.Error(), "tifa dev is running") || !strings.Contains(err.Error(), "pid "+strconv.Itoa(os.Getpid())) || !strings.Contains(err.Error(), "http://127.0.0.1:9527") || !strings.Contains(err.Error(), "go tool tifa check` and `go tool tifa gen` can run") {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestDevStopsWhileBuildRuns(t *testing.T) {
 	}
 	t.Cleanup(func() { l.Close() })
 	_, _, err = run(t, "dev", "--dir", root)
-	want := "tifa build is running in this app (pid " + strconv.Itoa(os.Getpid()) + "). Stop it first: both write .tifa/dist"
+	want := "tifa build is running in this app (pid " + strconv.Itoa(os.Getpid()) + "). Stop it first: both write .tifa/dist. `go tool tifa check` and `go tool tifa gen` can run meanwhile"
 	if err == nil || err.Error() != want {
 		t.Fatalf("dev: %v, want %q", err, want)
 	}

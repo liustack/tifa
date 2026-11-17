@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `tifa build` and `tifa dev` that stop because another `tifa dev` or `tifa build` runs now say that `go tool tifa check` and `go tool tifa gen` can run meanwhile.
+
 ## [0.0.16] - 2026-11-17
 
 ### Changed
