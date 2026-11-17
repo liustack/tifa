@@ -650,13 +650,13 @@ async function watchedBuilds(vite) {
 // and incomplete, why those are not all of them (see watchedBuilds, whose record is record). The
 // SSR worker thread runs its source text, so it uses only its arguments, watchedBuilds and
 // addInput.
-async function buildSSR(createBuilder, record, { assets, minify }, plugins = []) {
+async function buildSSR(createBuilder, record, { assets, minify }, plugins = [], define = {}) {
   const modules = new Set()
   const incomplete = await record('ssr', modules, async (inputs) => {
     const builder = await createBuilder({
       plugins: [...plugins, inputs],
       environments: {
-        ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets) }, build: { minify } },
+        ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets), ...define }, build: { minify } },
       },
     })
     await builder.build(builder.environments.ssr)
@@ -685,6 +685,11 @@ async function ssrThread() {
     vite.createBuilder({ root: workerData.root, logLevel: 'warn', customLogger: logger, ...inline })
   let watched = null
   const record = () => (watched ??= watchedBuilds(workerData.vite))
+  // The worker builds with NODE_ENV production, which gives React its production build and Vite the
+  // env of a build. The browser modules of tifa dev get the env of Vite's dev server, and a page that
+  // reads it renders other text on the server than in the browser, so the bundle gets the same values,
+  // BASE_URL among them (DevBase in internal/bundle/dev.go).
+  const devEnv = { 'import.meta.env.MODE': '"development"', 'import.meta.env.DEV': 'true', 'import.meta.env.PROD': 'false', 'import.meta.env.BASE_URL': '"/__tifa/vite/"' }
   const loads = new Map() // the loads the main thread has not answered, by ref
   let nextLoad = 0
   const devAssets = {
@@ -733,7 +738,7 @@ async function ssrThread() {
     try {
       const styles = []
       takeWarnings()
-      const { modules, incomplete } = await buildSSR(createBuilder, await record(), request, [devAssets, devStyles(styles)])
+      const { modules, incomplete } = await buildSSR(createBuilder, await record(), request, [devAssets, devStyles(styles)], devEnv)
       parentPort.postMessage({ id, styles, modules, incomplete, warnings: takeWarnings() })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)

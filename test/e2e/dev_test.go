@@ -750,3 +750,19 @@ func TestDevListsPluginWarnings(t *testing.T) {
 	d.waitLog(t, mark, ready)
 	expectNoErrors(t, dir, "after the read is gone")
 }
+
+// Under tifa dev a page that reads import.meta.env renders what the browser reads: the values of the
+// dev server, so the page hydrates with the same text.
+func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	dir := devApp(t)
+	d := startDev(t, dir)
+	d.waitLog(t, 0, ready)
+	mark := d.edit(t, "app/page.tsx", "    <main>\n", "    <main>\n      <p id=\"env\">{`${import.meta.env.MODE} ${import.meta.env.DEV ? 'dev' : 'prod'} ${import.meta.env.BASE_URL}`}</p>\n")
+	d.waitLog(t, mark, ready)
+	waitBody(t, d.base+"/", "development dev /__tifa/vite/", d)
+	expectNoErrors(t, dir, "after a page read import.meta.env")
+}

@@ -58,9 +58,11 @@ What `Load` returns, every visitor can see. Never return a secret, such as a `ti
 
 Vite still fills `import.meta.env` with these values:
 
-- `MODE`, `DEV` and `PROD`: in `tifa build` both bundles get `production`, `false` and `true`. Under `tifa dev` the modules of the browser get `development`, `true` and `false`, but the bundle the server renders with is built for production and gets the values of a build. So do not let what a page renders depend on them: the server and the browser would write different HTML.
-- `SSR`: whether the code runs in the server render.
-- `BASE_URL`: the base path of the app (`/__tifa/vite/` in the browser modules of `tifa dev`).
+- `MODE`, `DEV` and `PROD`: `production`, `false` and `true` in `tifa build`, in the browser bundle and in the server render. `development`, `true` and `false` in `tifa dev`, in the browser modules and in the server render alike.
+- `SSR`: `true` in the server render and `false` in the browser.
+- `BASE_URL`: `/` in `tifa build`, and `/__tifa/vite/` in `tifa dev`, where Vite's dev server serves the browser modules, in the server render too.
+
+The server render of `tifa dev` still runs the production build of React and of other libraries: `process.env.NODE_ENV` is `production` there.
 
 Vite also writes into the bundle every variable that starts with `VITE_` in the environment of the shell that runs `tifa build`, and every `import.meta.env.*` constant the app gives to `define` in its `vite.config.ts`. These are fixed when the build runs. They fit values that are the same everywhere the build runs, and not the ones that change with the environment.
 
