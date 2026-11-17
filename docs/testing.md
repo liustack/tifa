@@ -172,6 +172,12 @@ TIFA_SSR_SOAK=1 go test -run Soak -v ./internal/ssr
 
 They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is github.com/liustack/slowjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
+`TestDevManyRebuilds` in `test/e2e` keeps `tifa dev` running on `test/apps/pages` for many edits, four of `page.tsx` for each one of a `route.go`, and waits after each until the page shows the change. After each it writes the RSS of `tifa dev`, of Vite's Node process and of the app to a CSV and logs the time of each kind of rebuild. It fails when the app grows more than 50% within one run of it, or `tifa dev` or Vite more than doubles from the 20th edit to the last. It needs `TIFA_DEV_SOAK=1` too, and takes about 4 minutes for 200 edits on a Mac (10 on one core of Linux):
+
+```sh
+TIFA_E2E=1 TIFA_DEV_SOAK=1 TIFA_DEV_SOAK_N=200 TIFA_DEV_SOAK_OUT=soak.csv go test -run TestDevManyRebuilds -v -timeout 60m ./test/e2e/
+```
+
 ## SSR tests with the example app (`test/ssr`)
 
 `test/ssr` runs the SSR pool of `internal/ssr` on the real React bundle of `examples/shop`, which it treats as an app from outside. All of it skips unless `TIFA_SSR_SHOP=1`. First run `pnpm install --frozen-lockfile && go tool tifa build` in `examples/shop`: the tests read `.tifa/dist/ssr.js` and start the built `bin/shop`, fetching each page's data through navigation data requests and writing it in the form a full-page render gets, each route's data as the JSON text Go wrote, passed as an argument of its own. Rebuild after changing the example app, then run again.
