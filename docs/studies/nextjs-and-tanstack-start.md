@@ -6,7 +6,7 @@ read_when:
   - Running the comparison again after a change to the engine, the server, the SSR bundle or the workbench pages of the shop
   - Someone asks whether the comparison was fair, or whether one side compressed its answers
   - Changing the apps in test/compare
-measured: '2026-11-17 with Tifa ed3312ad (slowjs v0.31.2). The cache hit section: 2026-11-02 with Tifa 6cf6015 (quickjs v0.29.8)'
+measured: '2026-11-17 with Tifa v0.0.15 (slowjs v0.31.4). The cache hit section: 2026-11-02 with Tifa 6cf6015 (quickjs v0.29.8)'
 versions: 'Next.js 16.4.2 (App Router, Turbopack build), TanStack Start 1.169.3 (react-router 1.170.45, nitro 3.0.260903-beta), React 19.3.1 in all three, Tifa with TanStack Router 1.170.46, Go 1.27.4, Node 24.13.0'
 ---
 
@@ -22,13 +22,13 @@ On whole HTTP requests for the same pages, when every request loads its data and
 
 ## Conclusions
 
-From the run of 2026-11-17 on one core, one request at a time, every cache off.
+From the run of 2026-11-17 with Tifa v0.0.15, on one core, one request at a time, every cache off.
 
-- **Node with JIT serves 1.3 to 1.7 times as much.** With the six pages in turn, Next.js answers 1.34 times as many requests as Tifa (72.5 against 54.2 a second) and TanStack Start 1.66 times (90.1).
-- **The gap depends on the page.** Next.js is ahead 1.15 to 1.52 times and Start 1.54 to 1.75 times. The gap is widest on the largest page, the order list of 42 orders.
-- **Tifa takes a fraction of the memory.** Peak RSS: 65 MiB against 474 MiB for Next.js and 369 MiB for Start.
-- **Tifa is at full speed from its first request.** It answers its first request 511 ms after the process starts, Next.js 918 ms and Start 480 ms. Tifa's latency settles from request 1. Next.js settles at about request 250 and Start between requests 258 and later than 1,000, as their JIT warms up. Over the first 100 requests Tifa is the fastest: 19.4 ms on average against 28.0 and 22.3.
-- **The slowest requests are close.** P99 is 34.9 ms for Tifa, 35.2 for Next.js and 31.8 for Start. The largest is 50 ms for Tifa, 103 for Next.js and 82 for Start.
+- **Node with JIT serves 1.3 to 1.7 times as much.** With the six pages in turn, Next.js answers 1.31 times as many requests as Tifa (70.7 against 54.1 a second) and TanStack Start 1.65 times (89.4).
+- **The gap depends on the page.** Next.js is ahead 1.09 to 1.49 times and Start 1.46 to 1.73 times. The gap is widest on the largest page, the order list of 42 orders.
+- **Tifa takes a fraction of the memory.** Peak RSS: 61 MiB against 474 MiB for Next.js and 374 MiB for Start.
+- **Tifa is at full speed from its first request.** It answers its first request 509 ms after the process starts, Next.js 919 ms and Start 486 ms. Tifa's latency settles from request 1. Next.js settled at request 250 in one round and not within 1,000 requests in the other, and Start not within 1,000 in either, as their JIT warms up. Over the first 100 requests Tifa is the fastest: 18.5 ms on average against 28.2 and 22.3.
+- **The slowest requests are close.** P99 is 36.4 ms for Tifa, 34.4 for Next.js and 31.7 for Start. The largest is 40 ms for Tifa, 96 for Next.js and 90 for Start.
 - **A cache hit against a cache hit, Tifa answers 4.6 times as many requests as Next.js** (2026-11-02). See [Cache hit against cache hit](#cache-hit-against-cache-hit).
 
 ## The apps
@@ -44,7 +44,7 @@ From the run of 2026-11-17 on one core, one request at a time, every cache off.
 
 `TIFA_COMPARE=1 go test ./test/compare` fetches the six pages from each server with `Accept-Encoding: identity` and compares them after removing `script`, `style` and `template` elements: the title, every text node in order, and the number of `tr`, `a`, `svg`, `button`, `li`, `time`, `img`, `table`, `h1` to `h3`, `nav` and `input` elements. Two more checks keep the work equal: `TestDomainMatchesGo` for the data, and the counters described below.
 
-Bytes of each page as sent in the run of 2026-11-17, uncompressed:
+Bytes of each page as sent in the runs of 2026-11-17, uncompressed:
 
 | Page | Tifa | Next.js | Start |
 | --- | --: | --: | --: |
@@ -64,7 +64,7 @@ Next.js pages are 5.8 to 6.4 KB larger than Tifa's, mostly its RSC payload. Star
 - **Machine:** a Google Cloud `t2d-standard-4` VM, 4 cores of an AMD EPYC 7B13 with no hyperthreads, Linux 7.0. The server is pinned to cpu 0 and the client to cpu 2, so they share no core.
 - **Load:** the command is the client, one request in flight, the six pages in turn, `Accept-Encoding: identity`. Every request has a query of its own, so no two requests share a render. Each server starts fresh for each round and is timed from the start of its process, with no warm-up: 300 requests of a cold part, then 20 seconds of a steady part. Two rounds, with the order of the servers rotated.
 - **What each number is:** requests a second, P50, P99 and the largest latency are from the steady part. First answer is from process start to the end of the first answer. The first 100 and first 1000 are mean latencies from the start, so the first 1000 run into the steady part. A server settles at the request after which the median of every window of 30 requests stays within 10% of the steady latency of their pages. Peak RSS is of the process and its children over the whole round.
-- **Work per request, counted:** `TestEveryRequestComputesAndRenders` counts rather than infers from the configuration. The Tifa program is built a second time with `go build -overlay`, which adds a counter on `ordersOf` and a path that reads it, so no file of the shop changes, and the measured program is the plain one. The Node apps count the same calls in the port, and the runs of the root Layout, the project Layout and the page's `Load`, and the renders of the page on the server, and answer with the counts at `/compare-counts`. For each page the test asks once and reads what the counters gained, then asks five times more and checks that they gained five times as much. A request for a page queries the orders 4 times for an order list, 6 for an order and 5 for the stats in all three. In the run itself every Tifa answer, 1,385 a round, said `X-Tifa-Render: vm`, so each was rendered in a VM.
+- **Work per request, counted:** `TestEveryRequestComputesAndRenders` counts rather than infers from the configuration. The Tifa program is built a second time with `go build -overlay`, which adds a counter on `ordersOf` and a path that reads it, so no file of the shop changes, and the measured program is the plain one. The Node apps count the same calls in the port, and the runs of the root Layout, the project Layout and the page's `Load`, and the renders of the page on the server, and answer with the counts at `/compare-counts`. For each page the test asks once and reads what the counters gained, then asks five times more and checks that they gained five times as much. A request for a page queries the orders 4 times for an order list, 6 for an order and 5 for the stats in all three. In the run itself every Tifa answer, 1,381 and 1,387 in the two rounds, said `X-Tifa-Render: vm`, so each was rendered in a VM.
 - **Nothing that could keep a page:** `TestNoCachingBetweenRequests` finds neither app has `cacheComponents`, `use cache`, `unstable_cache`, a `revalidate` setting or a `QueryClient` in its sources or its `package.json` and config. Next.js answers a page with `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate`. Start answers a page with no `Cache-Control`, `ETag`, `Last-Modified`, `Expires` or `Age`.
 
 ## Data
@@ -73,32 +73,32 @@ Six pages in turn, one request in flight, median of two rounds with their range 
 
 | | Requests/s | Times Tifa | P50 ms | P99 ms | Largest ms | Peak RSS MiB |
 | --- | --: | --: | --: | --: | --: | --: |
-| Tifa | 54.2 | 1 | 15.09 | 34.9 | 49.8 | 65 |
-| Next.js | 72.5 (72.1 to 73.0) | 1.34 | 11.63 | 35.2 | 103.2 | 474 (461 to 487) |
-| TanStack Start | 90.1 (89.5 to 90.7) | 1.66 | 8.35 | 31.8 | 81.7 | 369 |
+| Tifa | 54.1 (54.0 to 54.3) | 1 | 15.06 | 36.4 | 39.8 | 61 |
+| Next.js | 70.7 (70.3 to 71.1) | 1.31 | 11.99 | 34.4 | 96.4 | 474 |
+| TanStack Start | 89.4 (87.0 to 91.7) | 1.65 | 8.60 | 31.7 | 90.3 | 374 (368 to 379) |
 
 Start-up and warm-up:
 
 | | RSS after start MiB | First answer ms | First 100, mean ms | First 1000, mean ms | Settles at request |
 | --- | --: | --: | --: | --: | --: |
-| Tifa | 50 | 511 | 19.4 | 18.7 | 1 |
-| Next.js | 89 | 918 | 28.0 | 19.6 | 248 (240 to 256) |
-| TanStack Start | 56 | 480 | 22.3 | 15.9 | 258 to >1000 |
+| Tifa | 50 | 509 | 18.5 | 18.2 | 1 |
+| Next.js | 88 | 919 | 28.2 | 19.6 | 250 and >1000 |
+| TanStack Start | 56 | 486 | 22.3 | 16.3 | >1000 |
 
 Each page, from the same runs, requests a second (P50 ms):
 
 | Page | Tifa | Next.js | Start |
 | --- | --: | --: | --: |
-| Order list, studio | 29.7 (33.3) | 45.1 (19.6), 1.52x | 52.0 (16.9), 1.75x |
-| Order list, weekend | 46.8 (21.2) | 65.3 (13.7), 1.39x | 76.9 (11.0), 1.64x |
-| Order SH-1042 | 67.1 (14.6) | 82.1 (10.8), 1.22x | 103.2 (8.2), 1.54x |
-| Order WK-0201 | 79.7 (12.3) | 91.8 (9.7), 1.15x | 125.6 (6.9), 1.58x |
-| Stats, studio | 64.3 (15.3) | 87.1 (10.3), 1.35x | 110.5 (7.9), 1.72x |
-| Stats, weekend | 79.7 (12.3) | 94.7 (9.0), 1.19x | 132.7 (6.5), 1.67x |
+| Order list, studio | 29.9 (33.0) | 44.6 (20.2), 1.49x | 51.9 (16.9), 1.73x |
+| Order list, weekend | 46.3 (21.3) | 64.1 (14.0), 1.39x | 78.1 (11.1), 1.69x |
+| Order SH-1042 | 66.6 (14.6) | 80.9 (11.2), 1.22x | 108.1 (8.1), 1.62x |
+| Order WK-0201 | 80.3 (12.1) | 87.5 (9.9), 1.09x | 117.1 (6.9), 1.46x |
+| Stats, studio | 64.3 (15.2) | 83.5 (10.6), 1.30x | 109.0 (7.8), 1.70x |
+| Stats, weekend | 79.2 (12.2) | 91.4 (9.3), 1.15x | 125.5 (6.5), 1.58x |
 
 The P50 of the six pages in turn is the middle of a mix of fast and slow pages, so it is lower than the mean of the pages' own P50.
 
-Runs before 2026-11-17 put the server and the client on the two threads of one physical core and used older engines and apps. They gave Node a lead of 2 to 4 times, and their numbers are not comparable with these.
+A run earlier the same day with Tifa ed3312ad (slowjs v0.31.2), before the fix that keeps each render's router from outliving the render, gave the same requests a second for Tifa (54.2), a peak RSS of 65 MiB and a largest latency of 50 ms. Runs before 2026-11-17 put the server and the client on the two threads of one physical core and used older engines and apps. They gave Node a lead of 2 to 4 times, and their numbers are not comparable with these.
 
 ## Why
 

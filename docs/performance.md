@@ -15,7 +15,7 @@ Tifa renders pages in slowjs, QuickJS compiled to Go assembly. It has no JIT, so
 ## At a glance
 
 - **A whole site on one core** (2026-11-16): Tifa answers 97.0 page views a second, Next.js 29.5 and TanStack Start 76.5, each as shipped. See [whole visits](#whole-visits-to-the-shop-2026-11-16).
-- **Every request renders, one at a time** (2026-11-17): Next.js answers 1.34 times as many page requests as Tifa and TanStack Start 1.66 times, at 7 and 6 times Tifa's peak memory. See [the study](studies/nextjs-and-tanstack-start.md#conclusions).
+- **Every request renders, one at a time** (2026-11-17): Next.js answers 1.31 times as many page requests as Tifa and TanStack Start 1.65 times, at 8 and 6 times Tifa's peak memory. See [the study](studies/nextjs-and-tanstack-start.md#conclusions).
 - **Sizing for every request rendering** (render memo off): plan on about 42 page requests a second per physical core for pages like the shop's workbench.
 - **Cores**: 3 physical cores answer 2.94 times as many requests as one.
 - **Memory**: one VM serving the whole shop levels at about 105 MiB for the process. Each more VM adds 9 MiB when it starts and up to about 40 MiB once it has rendered many pages.
