@@ -3009,9 +3009,27 @@ export function serovalPlugin() {
 
 // The file of router-core that has buildLocation.
 const routerCoreFile = /^(.*[/\\]node_modules[/\\]@tanstack[/\\]router-core)[/\\]dist[/\\]esm[/\\]router\.js$/
-// What buildLocation of that file does for a router with a rewrite: it makes a URL from the path,
-// hands it to the rewrite and reads the path back.
-const routerCoreRewrite = /if \(this\.rewrite\) \{(\s*)const url = new URL\(fullPath, this\.origin\);/g
+// What buildLocation of that file does for a router with a rewrite, from the test to the line
+// that sets publicHref: it makes a URL from the path, hands it to the rewrite, reads the path
+// back and checks whether the rewrite left the origin. The plugin changes the code only when
+// all of it is there, with any change of whitespace. The text is the one of the tested
+// @tanstack/router-core (see TanStackCopies in internal/bundle).
+const routerCoreBlock = `if (this.rewrite) {
+  const url = new URL(fullPath, this.origin);
+  const origin = url.origin;
+  const rewrittenUrl = executeRewriteOutput(this.rewrite, url);
+  href = getUrlPath(url);
+  if (isExternalUrl(rewrittenUrl, origin)) {
+    publicHref = rewrittenUrl.href;
+    external = true;
+  } else publicHref = normalizeProtocolRelative(getUrlPath(rewrittenUrl));`
+const routerCoreRewrite = new RegExp(
+  routerCoreBlock
+    .split(/\s+/)
+    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+'),
+  'g',
+)
 // tifaPathOnly says whether a link can be built without a URL: fullPath is a single "/" and
 // only characters a URL leaves as they are in the path, the query and the fragment (no space,
 // quote, backslash, non-ASCII, nor the ' that a URL escapes in a query), and the path has no
@@ -3030,38 +3048,37 @@ function tifaPathOnly(fullPath, nextPathname) {
 // the URL. It warns when the bundle loads router-core and the code of buildLocation is not in
 // the form it knows.
 export function routerCorePlugin() {
-  let core = '' // directory of the router-core the bundle loads buildLocation of, '' for none
-  let changed = false
+  let unknown // the files of router-core the bundle loads that have no buildLocation in the known form
   return {
     name: 'tifa:router-core',
     applyToEnvironment: (env) => env.name === 'ssr',
     buildStart() {
-      core = ''
-      changed = false
+      unknown = new Map()
     },
     load(id) {
       const dir = id.match(routerCoreFile)?.[1]
       if (!dir) return null
-      core = dir
       const source = fs.readFileSync(id, 'utf8')
-      if ([...source.matchAll(routerCoreRewrite)].length !== 1) return null
-      changed = true
+      if ([...source.matchAll(routerCoreRewrite)].length !== 1) {
+        unknown.set(id, dir)
+        return null
+      }
       return (
         source.replace(
           routerCoreRewrite,
-          (_, space) =>
-            'if (this.rewrite && this.rewrite.pathOnly === true && tifaPathOnly(fullPath, nextPathname)) { const url = { pathname: nextPathname }; this.rewrite.output({ url }); href = publicHref = url.pathname + searchStr + hashStr; } ' +
-            `else if (this.rewrite) {${space}const url = new URL(fullPath, this.origin);`,
+          (block) =>
+            'if (this.rewrite && this.rewrite.pathOnly === true && tifaPathOnly(fullPath, nextPathname)) { const url = { pathname: nextPathname }; this.rewrite.output({ url }); href = publicHref = url.pathname + searchStr + hashStr; } else ' +
+            block,
         ) + routerCorePathOnly
       )
     },
     buildEnd() {
-      if (core && !changed) {
+      for (const [id, dir] of unknown) {
         this.warn(
           notRecognized +
-            `@tanstack/router-core ${packageVersion(core)} at ${core}: buildLocation in dist/esm/router.js is not in ` +
-            'the form the tifa plugin knows, so links on a site with languages are built with a URL each. Pages ' +
-            'render the same, but they take longer',
+            `@tanstack/router-core ${packageVersion(dir)}: ${id} has no buildLocation in the form the tifa plugin ` +
+            'knows, so links on a site with languages are built with a URL each. Pages render the same, but they ' +
+            'take longer',
         )
       }
     },

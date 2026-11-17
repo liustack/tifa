@@ -4,8 +4,12 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/liustack/tifa/js"
 )
 
 // prefixLinksPage builds the links of a site with two languages with two routers that differ in
@@ -166,5 +170,137 @@ func TestSSRRouterCoreInAnotherFormPrintsTheText(t *testing.T) {
 	}
 	if strings.Contains(code, "tifaPathOnly") {
 		t.Error("the plugin changed a file it does not know")
+	}
+}
+
+// routerCoreSource is the dist/esm/router.js of the router-core test/apps/pages installs.
+func routerCoreSource(t *testing.T) string {
+	t.Helper()
+	modules, err := filepath.Abs(filepath.Join("..", "..", "test", "apps", "pages", "node_modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _, err := findPackage(filepath.Join(modules, ".."), "@tanstack/react-router")
+	if err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+	}
+	core, _, err := findPackage(dir, "@tanstack/router-core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(core, "dist", "esm", "router.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(source)
+}
+
+// routerCorePlugin, called as Vite calls it but without Vite, changes the buildLocation of
+// router-core only when all of the code of its rewrite branch is the one it knows (whitespace
+// aside), and warns once for each file of router-core that it does not change, also when another
+// copy in the same build is the known form.
+func TestRouterCorePluginChangesOnlyTheKnownForm(t *testing.T) {
+	known := routerCoreSource(t)
+	const tail = "normalizeProtocolRelative(getUrlPath(rewrittenUrl))"
+	if strings.Count(known, tail) != 1 {
+		t.Fatalf("router-core has %d of %q, the test needs one", strings.Count(known, tail), tail)
+	}
+	variants := map[string]string{
+		"known":      known,
+		"reflowed":   strings.ReplaceAll(known, "\t", "  "),
+		"tail moved": strings.Replace(known, tail, "getUrlPath(rewrittenUrl)", 1),
+		"head moved": strings.Replace(known, "const url = new URL(fullPath, this.origin);", "const url = new URL(fullPath, 'http://x');", 1),
+	}
+	cases := []struct {
+		name  string
+		files []string
+		// changed says for each file whether the plugin changed it, warned for the files that it did not.
+		changed []bool
+	}{
+		{"known", []string{"known"}, []bool{true}},
+		{"reflowed", []string{"reflowed"}, []bool{true}},
+		{"tail moved", []string{"tail moved"}, []bool{false}},
+		{"head moved", []string{"head moved"}, []bool{false}},
+		{"known then unknown", []string{"known", "tail moved"}, []bool{true, false}},
+		{"unknown then known", []string{"tail moved", "known"}, []bool{false, true}},
+		{"two unknown", []string{"tail moved", "head moved"}, []bool{false, false}},
+	}
+	root := t.TempDir()
+	type input struct {
+		Name  string   `json:"name"`
+		Files []string `json:"files"`
+	}
+	var inputs []input
+	for i, c := range cases {
+		in := input{Name: c.name}
+		for j, v := range c.files {
+			dir := filepath.Join(root, "case"+strconv.Itoa(i), "copy"+strconv.Itoa(j), "node_modules", "@tanstack", "router-core")
+			writeTree(t, dir, map[string]string{
+				"package.json":       `{ "name": "@tanstack/router-core", "version": "7.` + strconv.Itoa(j) + `.0" }`,
+				"dist/esm/router.js": variants[v],
+			})
+			in.Files = append(in.Files, filepath.Join(dir, "dist", "esm", "router.js"))
+		}
+		inputs = append(inputs, in)
+	}
+	data, err := json.Marshal(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := `
+const { routerCorePlugin } = await import(process.argv[1])
+const cases = JSON.parse(await (await import('node:stream/consumers')).text(process.stdin))
+const out = cases.map(({ name, files }) => {
+  const plugin = routerCorePlugin()
+  const warnings = []
+  plugin.buildStart()
+  const changed = files.map((file) => {
+    const code = plugin.load(file)
+    return code !== null && code.includes('tifaPathOnly(fullPath, nextPathname)') && code.includes('function tifaPathOnly(')
+  })
+  plugin.buildEnd.call({ warn: (message) => warnings.push(message) })
+  return { name, changed, warnings }
+})
+process.stdout.write(JSON.stringify(out))
+`
+	cmd := nodeWithInput(testdata(t), script, data, plugin)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	raw, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	var got []struct {
+		Name     string   `json:"name"`
+		Changed  []bool   `json:"changed"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("%v: %s", err, raw)
+	}
+	for i, c := range cases {
+		g := got[i]
+		if !slices.Equal(g.Changed, c.changed) {
+			t.Errorf("%s: changed %v, want %v", c.name, g.Changed, c.changed)
+		}
+		wantWarnings := 0
+		for j, changed := range c.changed {
+			if changed {
+				continue
+			}
+			wantWarnings++
+			// The warning names the copy it is about, by its version and its file.
+			want := notRecognized + "@tanstack/router-core 7." + strconv.Itoa(j) + ".0: "
+			if !slices.ContainsFunc(g.Warnings, func(w string) bool { return strings.HasPrefix(w, want) && strings.Contains(w, "copy"+strconv.Itoa(j)) }) {
+				t.Errorf("%s: no warning that starts %q for copy %d in %q", c.name, want, j, g.Warnings)
+			}
+		}
+		if len(g.Warnings) != wantWarnings {
+			t.Errorf("%s: %d warnings, want %d: %q", c.name, len(g.Warnings), wantWarnings, g.Warnings)
+		}
 	}
 }
