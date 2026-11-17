@@ -471,6 +471,36 @@ func TestDevBuildsOnANewWorkerAfterTenBuilds(t *testing.T) {
 	}
 }
 
+// A plugin can end the SSR worker thread with an error nothing catches. That build fails, and once
+// the plugin is fixed the next build runs on a new thread instead of failing with the same error.
+func TestDevBuildsOnANewWorkerAfterTheThreadDied(t *testing.T) {
+	shortCloseTimeout(t)
+	root := devApp(t)
+	broken := filepath.Join(root, "broken")
+	writeTree(t, root, map[string]string{"broken": "", "vite.config.ts": "import react from '@vitejs/plugin-react'\n" +
+		"import tifa from './.tifa/vite.js'\nimport fs from 'node:fs'\nimport { isMainThread } from 'node:worker_threads'\n" +
+		"const crash = { name: 'crash', applyToEnvironment: (env) => env.name === 'ssr', buildStart() {\n" +
+		"  if (isMainThread || !fs.existsSync(" + strconv.Quote(broken) + ")) return\n" +
+		"  setImmediate(() => { throw new Error('the plugin broke') })\n" +
+		"  return new Promise(() => {})\n" +
+		"} }\n" +
+		"export default { plugins: [tifa(), react(), crash] }\n"})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err == nil {
+		t.Fatal("the build on the thread the plugin ended worked")
+	}
+	if err := os.Remove(broken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("the build after the plugin was fixed: %v", err)
+	}
+}
+
 // A Vite plugin can add tags to the head with transformIndexHtml. tifa build has no index.html,
 // so it never carries them. tifa dev lets through only the Vite client and the React refresh
 // runtime, and warns once of any other tag, naming it and saying production will not have it.

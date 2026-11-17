@@ -453,9 +453,10 @@ const ops = {
       const begun = restarts.begun
       try {
         const worker = ssrWorker
-        // A failed build leaves as much behind, so it counts too.
+        // A failed build leaves as much behind, so it counts too. A thread that ended, such as by an
+        // error a plugin did not catch, would fail every later build with that error.
         const { styles, modules, incomplete, warnings } = await worker.build({ assets, minify }).finally(() => {
-          if (++worker.builds === ssrWorkerBuilds) replaceSSRWorker(worker)
+          if (++worker.builds === ssrWorkerBuilds || worker.failed) replaceSSRWorker(worker)
         })
         return { styles: styleLinks(styles), modules, incomplete, warnings }
       } catch (err) {
@@ -772,7 +773,7 @@ function replaceSSRWorker(old) {
 
 // startSSRWorker starts the SSR worker thread. Its build returns once the worker has built the
 // bundle, and throws the error of a failed build. builds counts the calls of build, for
-// replaceSSRWorker. Its close returns once the worker has ended and all it printed is in the
+// replaceSSRWorker, and failed reports whether the thread ended or failed. Its close returns once the worker has ended and all it printed is in the
 // output of this process. Given a timeout in milliseconds, close stops a worker that has not
 // ended by then, which may drop the end of what it printed.
 function startSSRWorker() {
@@ -814,6 +815,9 @@ function startSSRWorker() {
   worker.unref()
   return {
     builds: 0,
+    get failed() {
+      return failed !== null
+    },
     build(request) {
       if (failed) return Promise.reject(failed)
       const id = ++next
