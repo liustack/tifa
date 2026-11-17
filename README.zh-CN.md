@@ -164,7 +164,8 @@ go tool tifa agents
 | 做法：[表单](docs/guides/forms.md)、[上传](docs/guides/uploads.md)、[登录](docs/guides/sign-in.md)、[数据库](docs/guides/database.md)、[后台任务](docs/guides/jobs.md)、[邮件](docs/guides/email.md)、[多语言](docs/guides/i18n.md)、[流式输出](docs/guides/streaming.md)、[环境变量的值](docs/guides/environment.md) | 要加一个常见功能，想要一套实测过的写法 |
 | [哲学](docs/philosophy.md) | 想知道 Tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
-| [应用怎么写](docs/app.md) | 安排目录、路由、Layout、钩子、404、head 标签和给 CDN 用的 `Cache` |
+| [应用怎么写](docs/app.md) | 安排目录，弄清目录怎么变成 URL，以及接下来该读哪篇 |
+| 应用的各个部分：[路由](docs/routes.md)、[页面](docs/pages.md)、[渲染开关与缓存](docs/ssr-and-cache.md)、[服务端渲染](docs/server-render.md)、[样式](docs/styles.md)、[钩子](docs/hooks.md)、[测试](docs/testing-apps.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码和 Go 测试 |
 | [会话](docs/sessions.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
 | [内容](docs/content.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
 | [构建与运行](docs/build.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |

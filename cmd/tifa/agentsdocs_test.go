@@ -378,7 +378,7 @@ func TestAgentNotesPointToReloadingAfterAWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"router.invalidate()", "docs/app.md#calling-method-handlers-from-the-browser"} {
+	for _, want := range []string{"router.invalidate()", "docs/pages.md#calling-method-handlers-from-the-browser"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("AGENTS.md.tmpl does not mention %q", want)
 		}

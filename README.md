@@ -164,7 +164,8 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [streaming](docs/guides/streaming.md), [values from the environment](docs/guides/environment.md) | Adding a common feature and you want a tested way to do it |
 | [Philosophy](docs/philosophy.md) | You want to know why a Tifa app is organized the way it is |
 | [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
-| [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and `Cache` for CDNs |
+| [Writing an app](docs/app.md) | Laying out folders, how they become URLs, and which doc to read next |
+| The parts of an app: [routes](docs/routes.md), [pages](docs/pages.md), [render switches and caches](docs/ssr-and-cache.md), [server render](docs/server-render.md), [styles](docs/styles.md), [hooks](docs/hooks.md), [testing](docs/testing-apps.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code and Go tests |
 | [Sessions](docs/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
 | [Content](docs/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
 | [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |

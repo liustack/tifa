@@ -11,7 +11,7 @@ read_when:
 
 A page where visitors upload pictures with a title, and see them listed. The handler checks the title, the size and the kind of file, keeps the file in a folder and serves it back.
 
-The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../app.md#files-in-the-input), [body limit and read time of a route](../app.md#body-limit-and-read-time-of-a-route), [options of the app](../config.md#options-of-the-app).
+The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../routes.md#files-in-the-input), [body limit and read time of a route](../routes.md#body-limit-and-read-time-of-a-route), [options of the app](../config.md#options-of-the-app).
 
 ## How a file gets to the handler
 
@@ -423,7 +423,7 @@ func TestPOSTRefusesText(t *testing.T) {
 }
 ```
 
-The test calls the handler directly: `Validate`, the body limit and the read time are the server's part, see [Testing](../app.md#testing).
+The test calls the handler directly: `Validate`, the body limit and the read time are the server's part, see [Testing](../testing-apps.md#testing).
 
 ## Decisions
 

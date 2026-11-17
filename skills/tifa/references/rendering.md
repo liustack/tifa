@@ -2,7 +2,7 @@
 
 Contents: how a render works, what the server has and lacks, dates and numbers that must match, Temporal, browser-only components, libraries, `head` and the document shell, `SSR` and `Memo`, styles.
 
-Full docs (in the folder `go tool tifa docs` prints): `docs/app.md`.
+Full docs (in the folder `go tool tifa docs` prints): `docs/ssr-and-cache.md`, `docs/server-render.md`, `docs/styles.md`.
 
 ## How it works
 
