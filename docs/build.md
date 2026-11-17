@@ -242,7 +242,7 @@ Moves the app to another release of Tifa and brings along what that release pins
 
 1. `go get -tool github.com/liustack/tifa/cmd/tifa@<version>`, then `go mod tidy`.
 2. The command hands the rest to the new Tifa, as `go tool tifa upgrade --after <old version>`. The old binary does not do it, because only the new Tifa knows which versions it pins and what its skill says.
-3. The packages that `tifa new` writes with an exact version (`react`, `react-dom`, `@tanstack/react-router`, `vite` and the others in its `package.json`) are set to the versions of the new Tifa, when the app lists them. Every other package, every other key and the layout of the file stay as they are. Then the install command runs, `pnpm install` or the one of your lock file.
+3. The packages that `tifa new` writes with an exact version (`react`, `react-dom`, `@tanstack/react-router`, `vite` and the others in its `package.json`) are set to the versions of the new Tifa, when the app lists them as an exact version that is older. Every other package, every other key and the layout of the file stay as they are. A package that is newer than the pin stays, with a line such as `react 19.4.0 is newer than the 19.3.0 Tifa is tested with, left as it is`. A version written as `^19.2.0`, `~19.2.0`, a range, a tag or `workspace:` is never guessed at: it stays, with a line that says so. The exception is `@tanstack/react-router`, which `tifa build` refuses unless it is exactly the pinned version (see [Upgrading TanStack Router](#upgrading-tanstack-router)): an exact version of it, older or newer, is set to the pin, and one written as a range stays with a line that asks you to set it by hand. Then the install command runs, `pnpm install` or the one of your lock file.
 4. The skill and the managed block of `AGENTS.md` are written again, as [`tifa agents`](#tifa-agents) does.
 5. It prints every `Upgrading:` note of the [CHANGELOG.md](../CHANGELOG.md) entries after your old version, up to the new one, each with its version. These are the steps that need your hands: the command never edits your Go or TypeScript code.
 6. `tifa check` runs, and its result is the result of `tifa upgrade`.
@@ -267,7 +267,7 @@ check passed
 
 - It refuses a version older than the one in `go.mod`, and says that the app is already there when it is the same one. It refuses an app whose `go.mod` replaces Tifa, since the version in `go.mod` is not what the app builds with then. Nothing is changed when it refuses.
 - It never forwards to the Tifa of the app, so it also works in an app whose Tifa is too old to have this command: run it with the Tifa you installed (see [Installing the command globally](#installing-the-command-globally)), or `go run github.com/liustack/tifa/cmd/tifa@latest upgrade`.
-- A pinned package is set to the exact version of `tifa new`, also when yours is newer. Tifa is tested with that version only (see [Upgrading TanStack Router](#upgrading-tanstack-router)).
+- Versions are compared as semantic versions, and only exact ones. React and React DOM may be newer than the pin (`tifa build` only needs 19.3.0 or later), so a newer one is yours to keep.
 - An `Upgrading:` note is the text after the word, up to the end of its bullet in the changelog, so an entry writes it last (see [commit.md](commit.md#changelog)).
 - It asks nothing and has no dry run. The files it can change are `go.mod`, `go.sum`, `package.json`, the lock file, `AGENTS.md` and `.claude/skills/tifa/`, so `git diff` is the dry run.
 
