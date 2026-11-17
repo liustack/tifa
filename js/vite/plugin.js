@@ -3137,6 +3137,9 @@ function knownForm(text) {
     'g',
   )
 }
+// The pattern the function above looks at the first characters for. The check is only as wide as
+// this pattern, so the plugin changes the function only when the pattern is this one, with these flags.
+const historyPrefix = knownForm(String.raw`var protocolRelativePrefix = /^[\x00-\x20]*(?:[\\/][\t\n\r]*){2,}/;`)
 const historyNormalize = knownForm(`function normalizeProtocolRelative(url) {
   const match = protocolRelativePrefix.exec(url);
   return match ? "/" + url.slice(match[0].length) : url;
@@ -3161,7 +3164,7 @@ export function historyPlugin() {
       const dir = id.match(historyFile)?.[1]
       if (!dir) return null
       const source = fs.readFileSync(id, 'utf8')
-      if ([...source.matchAll(historyNormalize)].length !== 1) {
+      if ([historyPrefix, historyNormalize].some((form) => [...source.matchAll(form)].length !== 1)) {
         unknown.set(id, dir)
         return null
       }

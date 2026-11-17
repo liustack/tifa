@@ -96,7 +96,10 @@ func TestHistoryPluginChangesOnlyTheKnownForm(t *testing.T) {
 		t.Fatalf("history has %d of %q, the test needs one", strings.Count(known, body), body)
 	}
 	root := t.TempDir()
-	files := map[string]string{"known": known, "reflowed": strings.ReplaceAll(known, "\t", "  "), "moved": strings.Replace(known, body, `return match ? url.slice(match[0].length) : url;`, 1)}
+	files := map[string]string{"known": known, "reflowed": strings.ReplaceAll(known, "\t", "  "), "moved": strings.Replace(known, body, `return match ? url.slice(match[0].length) : url;`, 1),
+		// Only the pattern the pre-check was written for changes, or its flags.
+		"pattern wider": strings.Replace(known, `[\x00-\x20]*`, `[\x00-\x20\u00a0]*`, 1),
+		"pattern flags": strings.Replace(known, `{2,}/;`, `{2,}/u;`, 1)}
 	paths := map[string]string{}
 	for name, source := range files {
 		d := filepath.Join(root, name, "node_modules", "@tanstack", "history")
@@ -139,7 +142,7 @@ process.stdout.write(JSON.stringify(out))
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("%v: %s", err, raw)
 	}
-	for name, want := range map[string]bool{"known": true, "reflowed": true, "moved": false} {
+	for name, want := range map[string]bool{"known": true, "reflowed": true, "moved": false, "pattern wider": false, "pattern flags": false} {
 		g := got[name]
 		if g.Changed != want {
 			t.Errorf("%s: changed %v, want %v", name, g.Changed, want)

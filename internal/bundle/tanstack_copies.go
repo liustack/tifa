@@ -87,9 +87,9 @@ var TanStackCopies = []Copy{
 	},
 	{
 		Package: "@tanstack/history", File: "src/index.ts",
-		Start: "export function normalizeProtocolRelative(", End: "}",
-		SHA256:       "8bf00980d104ed46e3ab4aae78a0ca79afdacb8d6d9fe6eed5fcf8ec7b858678",
-		CompareAgain: "historyPlugin in js/vite/plugin.js (function normalizeProtocolRelative hashed)",
+		Start: "const protocolRelativePrefix = ", End: "}",
+		SHA256:       "9db0cc265b3189da87c044495a5f317bcaabaf5f3e6a0b3a44bbce82eaaea7ac",
+		CompareAgain: "historyPlugin in js/vite/plugin.js (protocolRelativePrefix and function normalizeProtocolRelative hashed, the pre-check is as wide as the pattern)",
 	},
 	{
 		Package: "@tanstack/react-router", File: "src/headContentUtils.tsx",
