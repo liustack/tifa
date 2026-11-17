@@ -92,6 +92,12 @@ var TanStackCopies = []Copy{
 		CompareAgain: "routerCoreEdits in js/vite/plugin.js (the whole buildLocation hashed: the search middlewares of a route, the params of a link and the rewrite branch)",
 	},
 	{
+		Package: "@tanstack/history", File: "src/index.ts",
+		Start: "export function normalizeProtocolRelative(", End: "}",
+		SHA256:       "8bf00980d104ed46e3ab4aae78a0ca79afdacb8d6d9fe6eed5fcf8ec7b858678",
+		CompareAgain: "historyPlugin in js/vite/plugin.js (function normalizeProtocolRelative hashed)",
+	},
+	{
 		Package: "@tanstack/react-router", File: "src/headContentUtils.tsx",
 		SHA256:       "ad540a3b6a693851a71d0446450e243d4c0d16c1eff940862436c7f4220b7537",
 		CompareAgain: "the head code in js/runtime/head.ts (whole file hashed)",

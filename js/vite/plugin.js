@@ -2679,7 +2679,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       }
     },
   }
-  return [plugin, serovalPlugin(), routerCorePlugin(), prerenderPlugin()]
+  return [plugin, serovalPlugin(), routerCorePlugin(), historyPlugin(), prerenderPlugin()]
 }
 
 // rolldownRuntime is the ID of the module of rolldown's helpers.
@@ -3142,6 +3142,56 @@ export function routerCorePlugin() {
           notRecognized +
             `@tanstack/router-core ${packageVersion(dir)}: ${id} has no buildLocation in the form the tifa plugin ` +
             'knows, so links on a site with languages are built with a URL each. Pages render the same, but they ' +
+            'take longer',
+        )
+      }
+    },
+  }
+}
+
+// The file of @tanstack/history that has normalizeProtocolRelative.
+const historyFile = /^(.*[/\\]node_modules[/\\]@tanstack[/\\]history)[/\\]dist[/\\]esm[/\\]index\.js$/
+const historyNormalize = knownForm(`function normalizeProtocolRelative(url) {
+  const match = protocolRelativePrefix.exec(url);
+  return match ? "/" + url.slice(match[0].length) : url;
+}`)
+
+// historyPlugin applies to the SSR build only. normalizeProtocolRelative runs for every href a
+// link writes, twice, and runs a regular expression each time that matches only when the URL starts
+// with a control character, a space, a backslash or a slash that another slash or backslash
+// follows (a tab, line feed or carriage return may stand between them). The plugin looks at the
+// first one or two characters first and returns the URL when they cannot start such a prefix,
+// which an ordinary path never does. For the rest it runs the same code. It warns when the bundle
+// loads @tanstack/history and the function is not in the form it knows.
+export function historyPlugin() {
+  let unknown // the files of @tanstack/history the bundle loads that have the function in no known form
+  return {
+    name: 'tifa:history',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    buildStart() {
+      unknown = new Map()
+    },
+    load(id) {
+      const dir = id.match(historyFile)?.[1]
+      if (!dir) return null
+      const source = fs.readFileSync(id, 'utf8')
+      if ([...source.matchAll(historyNormalize)].length !== 1) {
+        unknown.set(id, dir)
+        return null
+      }
+      return source.replace(
+        historyNormalize,
+        (block) =>
+          'function normalizeProtocolRelative(url) { const first = url.charCodeAt(0); if (first > 32 && first !== 47 && first !== 92) return url; if (first === 47) { const second = url.charCodeAt(1); if (second !== 47 && second !== 92 && second !== 9 && second !== 10 && second !== 13) return url; } ' +
+          block.slice(block.indexOf('{') + 1),
+      )
+    },
+    buildEnd() {
+      for (const [id, dir] of unknown) {
+        this.warn(
+          notRecognized +
+            `@tanstack/history ${packageVersion(dir)}: ${id} has no normalizeProtocolRelative in the form the tifa ` +
+            'plugin knows, so every href is checked with a regular expression. Pages render the same, but they ' +
             'take longer',
         )
       }
