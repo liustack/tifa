@@ -7035,25 +7035,41 @@ function writeOutRound(code, scopes) {
 export function inlineSmallFunctions(source, parse) {
   // throwHelper goes after the last line, so the lines before keep their places in the source map,
   // and a function declaration is set from the start of the module. A source that has the name
-  // already does not get it, and its bodies that throw stay. When no written-out body throws, the
+  // already does not get it: when the top level of the module declares a function of that name that
+  // only throws its argument (throwHelperOf), as the host script of tifa does, the bodies that throw
+  // use it, and when the name means anything else they stay. When no written-out body throws, the
   // helper is left out again.
   const helper = source.includes(throwHelper) ? '' : (source.endsWith('\n') ? '' : '\n') + throwHelperSource
-  const result = writeOutSmallFunctions(source + helper, parse, helper !== '')
+  const result = writeOutSmallFunctions(source + helper, parse)
   if (!result.code.endsWith(helper)) throw new Error(`the tifa plugin lost ${throwHelper} at the end of the bundle`)
   const code = result.code.slice(0, result.code.length - helper.length)
   return code.includes(throwHelper) ? result : { ...result, code }
 }
 
-// writeOutSmallFunctions is inlineSmallFunctions on a source that ends with throwHelper when
-// withHelper is set.
-function writeOutSmallFunctions(source, parse, withHelper) {
+// throwHelperOf gives the binding of the function throwHelper at the top level of the module when
+// it is a function with one parameter and nothing in it but a throw of the parameter, declared
+// once and set by nothing, so a call of it is a throw of its argument. It gives undefined when the
+// module has no such function.
+function throwHelperOf(scopes) {
+  const binding = scopes.root.vars.get(throwHelper)
+  if (!binding || binding.kind !== 'function' || binding.defs.length !== 1 || binding.assigns !== 0) return undefined
+  const fn = binding.defs[0].function
+  if (!fn || fn.async || fn.generator || fn.params.length !== 1 || fn.params[0].type !== 'Identifier') return undefined
+  const [only, ...rest] = fn.body.body
+  const ok = rest.length === 0 && only && only.type === 'ThrowStatement' && only.argument.type === 'Identifier' && only.argument.name === fn.params[0].name
+  return ok ? binding : undefined
+}
+
+// writeOutSmallFunctions is inlineSmallFunctions on a source that ends with throwHelper when it
+// had none of its own.
+function writeOutSmallFunctions(source, parse) {
   let accepted = { code: source, count: 0, warning: '' }
   let code = source
   let count = 0
   let names = null
   for (let round = 0; ; round++) {
     const scopes = analyzeScopes(parse(code), code)
-    if (withHelper) scopes.throwHelper = scopes.root.vars.get(throwHelper)
+    scopes.throwHelper = throwHelperOf(scopes)
     const unresolved = [...scopes.unresolved].sort()
     if (names === null) {
       if (scopes.unsupported) return { ...accepted, warning: `the tifa plugin does not write out small functions: the bundle has ${scopes.unsupported}` }

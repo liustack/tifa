@@ -180,6 +180,11 @@ var current = null;
 function resolve() { if (null === current) throw Error('no component ' + current); return current; }
 function run() { current = log('c'); var a = resolve(); current = null; try { return a + resolve(); } catch (e) { return a + ' ' + e.message; } }
 `, contains: []string{"(null === current) ? tifaThrow(Error('no component ' + current)) : current", "function tifaThrow(error) { throw error; }"}},
+		{name: "an if that throws, in a module that has the helper from another module", want: 2, source: `
+function check(n) { if (null === n) throw Error('none'); return n; }
+function run() { try { return check(1) + check(null); } catch (e) { return e.message; } }
+function tifaThrow(e){throw e}
+`, contains: []string{"tifaThrow(Error('none'))"}, lacks: []string{"function tifaThrow(error)"}},
 		{name: "an if that throws, then an object", want: 2, source: `
 var rerenders = 0;
 function createHook() { if (0 < rerenders) throw Error('too many'); return { memoizedState: null, queue: null, next: null }; }
@@ -554,6 +559,22 @@ function run() { try { fail('x'); } catch (e) { return e.message; } }
 var tifaThrow = 1;
 function check(n) { if (n) throw n; return tifaThrow; }
 function run() { return check(0); }
+`},
+		{name: "a body that throws, in a module whose tifaThrow does more than throw", source: `
+function tifaThrow(e) { log('seen'); throw e; }
+function check(n) { if (n) throw n; return 0; }
+function run() { try { return check(1); } catch (e) { return e; } }
+`},
+		{name: "a body that throws, in a module whose tifaThrow throws something else", source: `
+function tifaThrow(e) { throw 7; }
+function check(n) { if (n) throw n; return 0; }
+function run() { try { return check(1); } catch (e) { return e; } }
+`},
+		{name: "a body that throws, in a module whose tifaThrow is set again", source: `
+function tifaThrow(e) { throw e; }
+tifaThrow = function (e) { throw 8; };
+function check(n) { if (n) throw n; return 0; }
+function run() { try { return check(1); } catch (e) { return e; } }
 `},
 		{name: "a body that throws, called where the name of the helper means another binding", source: `
 function check(n) { if (n) throw n; return 0; }

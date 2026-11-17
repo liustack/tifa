@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- Pages render about 0.7% faster again on the shop's workbench pages and the MUI test app (0.6% on the storefront pages), with the same HTML. A change of 2026-11-13 that writes out small functions whose body throws, such as React DOM's `resolveCurrentlyRenderingComponent` that every hook calls, stopped working on 2026-11-16 when the Tifa host script got a `tifaThrow` of its own, so every SSR bundle kept those calls. The build now reuses a top-level `tifaThrow` that only throws its argument, and still leaves alone any other function of that name. Instructions of one render, 20 pages of the shop: -0.71% on the workbench, -0.56% on the storefront, -0.59% in all. MUI test app: -0.73%.
+
 ## [0.0.18] - 2026-11-17
 
 ### Fixed
