@@ -3060,13 +3060,30 @@ const routerCoreBlock = `if (this.rewrite) {
     publicHref = rewrittenUrl.href;
     external = true;
   } else publicHref = normalizeProtocolRelative(getUrlPath(rewrittenUrl));`
-const routerCoreRewrite = new RegExp(
-  routerCoreBlock
-    .split(/\s+/)
-    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('\\s+'),
-  'g',
-)
+// knownForm is the regular expression for a piece of router-core's code: the tokens of text with
+// any whitespace between them.
+function knownForm(text) {
+  return new RegExp(
+    text
+      .split(/\s+/)
+      .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('\\s+'),
+    'g',
+  )
+}
+const routerCoreRewrite = knownForm(routerCoreBlock)
+// The other pieces of buildLocation the plugin changes, each with the text that takes its place.
+// The plugin changes the file only when each of them, and the rewrite branch above, is there once.
+const routerCoreEdits = [
+  // A route's search middlewares are the same for every link to it (the options of a route do not
+  // change once the router has it, and a router given other routes makes other branches), so they
+  // are asked of the branch once. A link that asks for the validators is not answered from it.
+  [
+    knownForm('const middlewares = getSearchMiddlewares(destRoutes, opts._includeValidateSearch);'),
+    () =>
+      'const middlewares = opts._includeValidateSearch ? getSearchMiddlewares(destRoutes, opts._includeValidateSearch) : destRoutes.tifaMiddlewares ??= getSearchMiddlewares(destRoutes, opts._includeValidateSearch);',
+  ],
+]
 // tifaPathOnly says whether a link can be built without a URL: fullPath is a single "/" and
 // only characters a URL leaves as they are in the path, the query and the fragment (no space,
 // quote, backslash, non-ASCII, nor the ' that a URL escapes in a query), and the path has no
@@ -3098,18 +3115,19 @@ export function routerCorePlugin() {
       const dir = id.match(routerCoreFile)?.[1]
       if (!dir) return null
       const source = fs.readFileSync(id, 'utf8')
-      if ([...source.matchAll(routerCoreRewrite)].length !== 1) {
+      const forms = [routerCoreRewrite, ...routerCoreEdits.map(([form]) => form)]
+      if (forms.some((form) => [...source.matchAll(form)].length !== 1)) {
         unknown.set(id, dir)
         return null
       }
-      return (
-        source.replace(
-          routerCoreRewrite,
-          (block) =>
-            'if (this.rewrite && this.rewrite.pathOnly === true && tifaPathOnly(fullPath, nextPathname)) { const url = { pathname: nextPathname }; this.rewrite.output({ url }); href = publicHref = url.pathname + searchStr + hashStr; } else ' +
-            block,
-        ) + routerCorePathOnly
+      let out = source.replace(
+        routerCoreRewrite,
+        (block) =>
+          'if (this.rewrite && this.rewrite.pathOnly === true && tifaPathOnly(fullPath, nextPathname)) { const url = { pathname: nextPathname }; this.rewrite.output({ url }); href = publicHref = url.pathname + searchStr + hashStr; } else ' +
+          block,
       )
+      for (const [form, change] of routerCoreEdits) out = out.replace(form, change)
+      return out + routerCorePathOnly
     },
     buildEnd() {
       for (const [id, dir] of unknown) {
