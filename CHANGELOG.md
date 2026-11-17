@@ -4,9 +4,11 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.15] - 2026-11-17
+
 ### Fixed
 
-- A site with languages holds less memory in each render VM and collects less often. Each render's router used to stay in memory until the next full collection, so a VM grew by about 26 KB per render, and now it does not grow.
+- A site with languages holds less memory in each render VM and collects less often. Each render's router used to stay in memory until the next full collection, so a VM grew by about 26 KB per render between full collections, and now it does not grow. Serving the example shop for 20 minutes at 58 requests a second, its one VM holds 20 MB where it held 34 MB, and the process peaks at 85 MB where it peaked at 111 MB.
 
 ## [0.0.14] - 2026-11-17
 
