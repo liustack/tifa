@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa build` and `tifa dev` warn when app code reads `import.meta.env.VITE_*`, once for each name, with the place of the first read. The value is fixed when the build runs, and a value that is known only when the program runs comes from `Load`. See the new guide [Values from the environment](docs/guides/environment.md).
+
 ## [0.0.16] - 2026-11-17
 
 ### Changed
