@@ -10,6 +10,9 @@ import { routesAt } from './router'
 // PrefixRewrite takes the language prefix off a URL on the way in and puts the prefix of the
 // document's language on on the way out, for the routes that have that language.
 export interface PrefixRewrite extends LocationRewrite {
+  // output reads and writes url.pathname only, so router-core's buildLocation may build a link
+  // without a URL when the path is plain (the SSR build does that, see routerCorePlugin).
+  readonly pathOnly: true
   // The language of the document.
   readonly language: string
   // Gives the rewrite the router it matches routes with. createAppRouter calls it.
@@ -48,6 +51,7 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
   }
   return {
     language,
+    pathOnly: true,
     attach(r) {
       router = r
       // The router parsed its first location before it had routes and this rewrite, so input

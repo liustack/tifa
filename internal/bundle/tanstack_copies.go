@@ -53,6 +53,12 @@ var TanStackCopies = []Copy{
 		CompareAgain: "routesAt in js/runtime/router.tsx (function findGlobalNotFoundRouteId hashed)",
 	},
 	{
+		Package: "@tanstack/router-core", File: "src/router.ts",
+		Start: "      const fullPath = `${nextPathname}${searchStr}${hashStr}`", End: "        publicHref = href",
+		SHA256:       "4f4c438ece32204316f86ce119a32c0c7dbc4fdac7dfc2ad204ead8fe64cd817",
+		CompareAgain: "routerCorePlugin and tifaPathOnly in js/vite/plugin.js, and pathOnly in js/runtime/prefix.ts (buildLocation from fullPath to publicHref hashed)",
+	},
+	{
 		Package: "@tanstack/react-router", File: "src/headContentUtils.tsx",
 		SHA256:       "ad540a3b6a693851a71d0446450e243d4c0d16c1eff940862436c7f4220b7537",
 		CompareAgain: "the head code in js/runtime/head.ts (whole file hashed)",

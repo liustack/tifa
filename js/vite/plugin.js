@@ -2642,7 +2642,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       }
     },
   }
-  return [plugin, serovalPlugin(), prerenderPlugin()]
+  return [plugin, serovalPlugin(), routerCorePlugin(), prerenderPlugin()]
 }
 
 // rolldownRuntime is the ID of the module of rolldown's helpers.
@@ -3001,6 +3001,67 @@ export function serovalPlugin() {
           `${name}: no file of it that the SSR bundle loads has parseObject or parseObjectAsync, so the tifa plugin ` +
             'changes neither, and seroval takes an array as an array before it asks its plugins. Pages render the ' +
             'same, but the data of a route that is an array takes longer to write',
+        )
+      }
+    },
+  }
+}
+
+// The file of router-core that has buildLocation.
+const routerCoreFile = /^(.*[/\\]node_modules[/\\]@tanstack[/\\]router-core)[/\\]dist[/\\]esm[/\\]router\.js$/
+// What buildLocation of that file does for a router with a rewrite: it makes a URL from the path,
+// hands it to the rewrite and reads the path back.
+const routerCoreRewrite = /if \(this\.rewrite\) \{(\s*)const url = new URL\(fullPath, this\.origin\);/g
+// tifaPathOnly says whether a link can be built without a URL: fullPath is a single "/" and
+// only characters a URL leaves as they are in the path, the query and the fragment (no space,
+// quote, backslash, non-ASCII, nor the ' that a URL escapes in a query), and the path has no
+// ?, # or % (so no escaped dot segment) and no dot segment. A URL would then give the path as it
+// is, which is all the rewrite reads.
+const routerCorePathOnly = `
+function tifaPathOnly(fullPath, nextPathname) {
+  return /^\\/(?!\\/)[A-Za-z0-9\\-._~!$&()*+,;=:@\\/?#%]*$/.test(fullPath) && !/[?#%]|\\/\\.\\.?(?:\\/|$)/.test(nextPathname);
+}
+`
+
+// routerCorePlugin applies to the SSR build only. A router whose rewrite is marked pathOnly (the
+// PrefixRewrite of a site with languages) builds a link without a URL when the path is plain,
+// which a rewrite that reads and writes url.pathname only does not need one for. Any other
+// rewrite, a composed one with a basepath included, and any path the check does not know keeps
+// the URL. It warns when the bundle loads router-core and the code of buildLocation is not in
+// the form it knows.
+export function routerCorePlugin() {
+  let core = '' // directory of the router-core the bundle loads buildLocation of, '' for none
+  let changed = false
+  return {
+    name: 'tifa:router-core',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    buildStart() {
+      core = ''
+      changed = false
+    },
+    load(id) {
+      const dir = id.match(routerCoreFile)?.[1]
+      if (!dir) return null
+      core = dir
+      const source = fs.readFileSync(id, 'utf8')
+      if ([...source.matchAll(routerCoreRewrite)].length !== 1) return null
+      changed = true
+      return (
+        source.replace(
+          routerCoreRewrite,
+          (_, space) =>
+            'if (this.rewrite && this.rewrite.pathOnly === true && tifaPathOnly(fullPath, nextPathname)) { const url = { pathname: nextPathname }; this.rewrite.output({ url }); href = publicHref = url.pathname + searchStr + hashStr; } ' +
+            `else if (this.rewrite) {${space}const url = new URL(fullPath, this.origin);`,
+        ) + routerCorePathOnly
+      )
+    },
+    buildEnd() {
+      if (core && !changed) {
+        this.warn(
+          notRecognized +
+            `@tanstack/router-core ${packageVersion(core)} at ${core}: buildLocation in dist/esm/router.js is not in ` +
+            'the form the tifa plugin knows, so links on a site with languages are built with a URL each. Pages ' +
+            'render the same, but they take longer',
         )
       }
     },
