@@ -225,7 +225,7 @@ A store on a database client that takes a `ctx` returns these errors by itself. 
 
 A `Load` runs for a GET, which must not change anything, so signing in belongs in a method handler or in `OnRequest`.
 
-On a page with `Cache` the GET and HEAD requests are anonymous: `Session` is nil there whoever asks, and `SetSession` and `ClearSession` return an error. The promise is about the request headers Tifa hands to your code. A value that a `net/http` middleware from `tifa.SetHTTPHandler` put into the context still arrives, so recognize visitors in `OnRequest` and not in that middleware (see [Cache for CDNs](app.md#cache-for-cdns)).
+On a page with `Cache` the GET and HEAD requests are anonymous: `Session` is nil there whoever asks, and `SetSession` and `ClearSession` return an error. The promise is about the request headers Tifa hands to your code. A value that a `net/http` middleware from `tifa.SetHTTPHandler` put into the context still arrives, so recognize visitors in `OnRequest` and not in that middleware (see [Cache for CDNs](ssr-and-cache.md#cache-for-cdns)).
 
 ## Sign-in libraries
 
@@ -287,7 +287,7 @@ A request without the header `X-Tifa-Call` (curl, a form, another program) gets 
 
 The browser keeps the session in memory and in `localStorage` under the cookie name and `:v1`, such as `__Host-tifa_session:v1`. Whatever answer arrives with a session writes both copies: signed in writes, signed out clears them, an answer without a session leaves them alone, and `<html data-session>` follows. The session a page carries wins over `localStorage`. If `localStorage` fails in any step, as in a private window, the copy in memory is used and nothing stops. When requests cross, the answer to the one sent last wins.
 
-A page the server answers for every visitor alike, such as one with `Cache` (see [Cache for CDNs](app.md#cache-for-cdns)), carries no session and no `data-session`. Only there, a script at the start of the head sets `data-session="in"` from `localStorage` before the first paint, `useSession` renders signed out until the page has hydrated, and then switches to the copy in `localStorage` and asks `/__tifa/session` once to check it. With no copy it asks nothing. If `localStorage` cannot be read it asks once too.
+A page the server answers for every visitor alike, such as one with `Cache` (see [Cache for CDNs](ssr-and-cache.md#cache-for-cdns)), carries no session and no `data-session`. Only there, a script at the start of the head sets `data-session="in"` from `localStorage` before the first paint, `useSession` renders signed out until the page has hydrated, and then switches to the copy in `localStorage` and asks `/__tifa/session` once to check it. With no copy it asks nothing. If `localStorage` cannot be read it asks once too.
 
 Calling a handler function from the browser updates the copy when the call changed the session. The data requests of later navigations bring the session too. This holds for every shape of handler, also one with no input and no result (`func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`): when it wrote nothing, the answer is the session alone. A handler that writes its own response with `c.JSON` or `c.Text` cannot carry the session in its answer, so sign in and out in a handler that does not.
 
@@ -317,7 +317,7 @@ tifatest.WithSession(c, &auth.Session{UserID: 1})
 
 `WithSession` only sets the state of the request. It does not check the cookie and store flow, which Tifa's own tests cover. To test a store of your own, see [Testing a store](#testing-a-store).
 
-To test signing in as a browser does, from the form through the cookie to the next page, start the app with `tifatest.Start`: its client keeps the cookie, and the store is the one the app sets in `OnStart`, or a memory store of the test server (see [Testing a whole request](app.md#testing-a-whole-request)).
+To test signing in as a browser does, from the form through the cookie to the next page, start the app with `tifatest.Start`: its client keeps the cookie, and the store is the one the app sets in `OnStart`, or a memory store of the test server (see [Testing a whole request](testing-apps.md#testing-a-whole-request)).
 
 ## Errors
 

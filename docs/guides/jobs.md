@@ -108,7 +108,7 @@ On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeou
 
 Tifa knows nothing of the goroutines you start. Two things follow:
 
-- **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives stays valid, but it is done as soon as the stop signal comes, while the last requests are still running (see [hooks.go](../app.md#hooksgo)). A goroutine on its own context keeps working while those requests finish, and one of them may still queue a job.
+- **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives stays valid, but it is done as soon as the stop signal comes, while the last requests are still running (see [hooks.go](../hooks.md#hooksgo)). A goroutine on its own context keeps working while those requests finish, and one of them may still queue a job.
 - **Catch their panics.** Tifa turns a panic in a request into a 500 and goes on. A panic in your own goroutine ends the whole program. Every loop below recovers.
 
 ## The pieces
@@ -536,7 +536,7 @@ func TestRunDoesAJobAndRetriesAFailure(t *testing.T) {
 }
 ```
 
-The same file tests a job that panics, `EnqueueOnce` with a taken key, a job left `running` by a crash, a stop in the middle of a job (it goes back to `queued` with no attempt used), and `Every` after a panic. The hooks are tested together: `OnStart` with a temporary `DBPath`, then `OnShutdown`, which must return without error and leave the database closed. See [Testing](../app.md#testing) for tests of route code.
+The same file tests a job that panics, `EnqueueOnce` with a taken key, a job left `running` by a crash, a stop in the middle of a job (it goes back to `queued` with no attempt used), and `Every` after a panic. The hooks are tested together: `OnStart` with a temporary `DBPath`, then `OnShutdown`, which must return without error and leave the database closed. See [Testing](../testing-apps.md#testing) for tests of route code.
 
 ## Check it on the real program
 

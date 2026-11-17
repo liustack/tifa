@@ -6,7 +6,7 @@ import (
 )
 
 // What a page finds when it renders on the server: the host script of every SSR bundle, Intl, Temporal and
-// the engine itself. docs/app.md lists the same in "What the server render has", so a change here
+// the engine itself. docs/server-render.md lists the same in "What the server render has", so a change here
 // is a change to that section.
 
 func hostPool(t *testing.T) *Pool {

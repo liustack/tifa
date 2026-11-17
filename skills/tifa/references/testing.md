@@ -2,7 +2,7 @@
 
 Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML.
 
-Full docs (in the folder `go tool tifa docs` prints): `docs/app.md#testing`. The `docs/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
+Full docs (in the folder `go tool tifa docs` prints): `docs/testing-apps.md#testing`. The `docs/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
 
 ## The check command
 

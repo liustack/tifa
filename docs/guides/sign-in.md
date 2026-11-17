@@ -299,7 +299,7 @@ func SignInRedirect(next string) error {
 
 `c.Path()` is the path of the page as the visitor sees it in the address bar: the language prefix is in it, and the query is not. It is the same when the page is loaded whole and when a link click asks for its data, and for a handler it is the path of the handler. `c.Request()` is not for this: `Load` may not call it, and on a link click the request is a data request, not the page. `RequireUser` works in `OnRequest`, in a `Load` and in the functions they call.
 
-The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../app.md#how-load-may-use-ctx)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
+The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../routes.md#how-load-may-use-ctx)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
 
 ## The hooks
 
@@ -557,7 +557,7 @@ func POST(c *tifa.Ctx, in RenameInput) error {
 - **Read the session, then the database.** Take the ID from the session and load the rest. The session is a copy made at sign-in. A name changed later, a role taken away or a disabled account is not in it.
 - **Guard in two places.** `OnRequest` turns visitors away from a whole area before any `Load` runs, for page loads and link clicks alike. A handler is a URL of its own and can be called without its page, so each handler that needs a user checks the session itself. A `Load` that returns a user's data should do the same, with `RequireUser`.
 - **Keep the copy in step.** When something in the session changes, call `SetSession` again, as `POST` does. The call brings the new session to the browser, so the header follows at once.
-- **Pages with `Cache`.** On a page with `Cache`, `Session` is nil for everyone, so such a page cannot be private (see [Cache for CDNs](../app.md#cache-for-cdns)).
+- **Pages with `Cache`.** On a page with `Cache`, `Session` is nil for everyone, so such a page cannot be private (see [Cache for CDNs](../ssr-and-cache.md#cache-for-cdns)).
 
 `app/account/page.tsx`:
 
@@ -735,7 +735,7 @@ func TestSignIn(t *testing.T) {
 }
 ```
 
-`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../app.md#testing-a-whole-request)).
+`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../testing-apps.md#testing-a-whole-request)).
 
 `app/account/request_test.go` walks the whole path as a browser does, with `tifatest.Start`: the guard, the sign-in, the page, the sign-out and the guard again. It is in a package of its own because `tifaapp` imports every route:
 
@@ -791,7 +791,7 @@ func TestSignInAndOut(t *testing.T) {
 }
 ```
 
-`Start` runs `OnStart`, so the demo account exists. `client` keeps the session cookie from the sign-in and sends it on the next request, and the sign-out drops it. The test fails with a message to run `go tool tifa check` when `.tifa/tifaapp` is out of date (see [Testing a whole request](../app.md#testing-a-whole-request)).
+`Start` runs `OnStart`, so the demo account exists. `client` keeps the session cookie from the sign-in and sends it on the next request, and the sign-out drops it. The test fails with a message to run `go tool tifa check` when `.tifa/tifaapp` is out of date (see [Testing a whole request](../testing-apps.md#testing-a-whole-request)).
 
 ## Decisions
 

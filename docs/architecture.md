@@ -210,4 +210,4 @@ flowchart TD
 - **Pages with `Cache`.** The memo is all Tifa keeps for them. The request is made anonymous (`anonymize`), the Loads run on every request, and once they are done the Cache-Control for shared caches is set (`setShared`), unless OnRequest, a Load or a Layout made the answer private. A CDN in front holds the page, not Tifa.
 - `tifa.Stats` reads the counts of the pool and of the memo. Renders and memo lookups count with atomics, under no new lock.
 
-Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [Cache for CDNs](app.md#cache-for-cdns). The answers Tifa sends for each case are in [Page requests](build.md#page-requests).
+Rules for apps are in [SSR and cache](ssr-and-cache.md#ssr-and-cache) and [Cache for CDNs](ssr-and-cache.md#cache-for-cdns). The answers Tifa sends for each case are in [Page requests](build.md#page-requests).

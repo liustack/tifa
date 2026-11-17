@@ -568,7 +568,7 @@ go run ./test/compare/cmd/compare calibrate  # how fast the machine is now (-jso
 
 ## Render clock
 
-`tifa.WithRenderClock(ctx, now)` supplies the source for Date, Temporal.Now and Intl date formatting without a date in one render. Use a closure returning a fixed `time.Time` for deterministic assertions. Set the context on the test request before calling `tifatest.NewCtx`, or set it in `OnRequest` with `c.WithContext`. `tifatest.NewCtx` tests route functions and preserves the context. It does not run SSR. The public API and the module initialization and cache boundaries are described in [app.md](app.md#render-clock).
+`tifa.WithRenderClock(ctx, now)` supplies the source for Date, Temporal.Now and Intl date formatting without a date in one render. Use a closure returning a fixed `time.Time` for deterministic assertions. Set the context on the test request before calling `tifatest.NewCtx`, or set it in `OnRequest` with `c.WithContext`. `tifatest.NewCtx` tests route functions and preserves the context. It does not run SSR. The public API and the module initialization and cache boundaries are described in [testing-apps.md](testing-apps.md#render-clock).
 
 `go test -p 2 ./internal/ssr ./server -run 'RenderClock|Temporal'` covers fixed time across promises, saved functions and formatters, live module initialization, VM reuse, replacement, parallel renders and middleware through a real server render. Repeat the touched packages with `-race`. `TestRenderClockFromMiddleware` also uses `tifatest.NewCtx` and a closure for `next` to exercise the same middleware in a route test.
 

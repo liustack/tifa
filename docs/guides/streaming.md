@@ -11,7 +11,7 @@ read_when:
 
 A page that shows the time of the server, updated every second, and answers a question word by word, the way a language model writes. The first is a stream of server-sent events that stays open. The second is an answer that is sent while it is being made, and ends.
 
-The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../app.md#method-handlers-with-input-and-result), [Long requests](../config.md#long-requests).
+The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../routes.md#method-handlers-with-input-and-result), [Long requests](../config.md#long-requests).
 
 ## What Tifa does for a stream
 
@@ -232,7 +232,7 @@ function Ask() {
 
 ## Caches
 
-- A stream is a handler, never a page, so neither the render memo nor a CDN that keeps a page with [`Cache`](../app.md#cache-for-cdns) holds it. A page with `Cache` may open a stream: the HTML is the same for everyone, and each browser opens its own stream once the page runs.
+- A stream is a handler, never a page, so neither the render memo nor a CDN that keeps a page with [`Cache`](../ssr-and-cache.md#cache-for-cdns) holds it. A page with `Cache` may open a stream: the HTML is the same for everyone, and each browser opens its own stream once the page runs.
 - Without a `Cache-Control` of yours the answer is `private, no-cache`, so a CDN does not keep it. Leave it so.
 - nginx holds back the answers it passes on until it has enough of them. `X-Accel-Buffering: no` turns that off for one answer. Other proxies and CDNs have settings of their own. If events arrive in bursts, look there first.
 - Over HTTP/1.1 a browser opens at most 6 connections to a site, and each open `EventSource` keeps one. With [HTTPS](../config.md#https) on, the program speaks HTTP/2, and all the streams of a browser share one connection.
@@ -247,7 +247,7 @@ On SIGTERM or SIGINT the program closes the channel of `tifa.ShuttingDown`, stop
 
 ## Test it
 
-Call the handler with the `Ctx` of `tifatest.NewCtx`, as any handler (see [Testing](../app.md#testing)). It takes the flushes and the deadlines as the server does, but never runs out of time, so such a test does not catch a deadline left running while the stream waits. `tifa.ShuttingDown` is nil outside a server, so the loop runs until the context of the request ends: give it a timeout. `app/clock/route_test.go`:
+Call the handler with the `Ctx` of `tifatest.NewCtx`, as any handler (see [Testing](../testing-apps.md#testing)). It takes the flushes and the deadlines as the server does, but never runs out of time, so such a test does not catch a deadline left running while the stream waits. `tifa.ShuttingDown` is nil outside a server, so the loop runs until the context of the request ends: give it a timeout. `app/clock/route_test.go`:
 
 ```go
 package clock
