@@ -357,14 +357,18 @@ function unescapeQuery(text: string): string | undefined {
 // browsers and forms send it, so the router keeps the URL of a request as it is: a space is +,
 // and only the characters that would change the meaning, or that browsers escape, are escaped.
 export function stringifySearch(search: Record<string, unknown>): string {
-  const parts: string[] = []
+  let text = ''
   for (const key in search) {
     const value = search[key]
     if (value === undefined) continue
-    for (const item of Array.isArray(value) ? value : [value])
-      parts.push(encodeQueryPart(key) + '=' + encodeQueryPart(String(item)))
+    const name = encodeQueryPart(key) + '='
+    if (Array.isArray(value)) {
+      for (const item of value) text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(item))
+    } else {
+      text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(value))
+    }
   }
-  return parts.length > 0 ? '?' + parts.join('&') : ''
+  return text
 }
 
 // routerQuery is a query spelled the way stringifySearch writes it.
