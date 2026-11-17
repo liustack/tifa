@@ -56,13 +56,12 @@ What `Load` returns, every visitor can see. Never return a secret, such as a `ti
 
 ## What `import.meta.env` is still for
 
-Vite still fills `import.meta.env` with these values, which are right for every environment:
+Vite still fills `import.meta.env` with these values:
 
-- `DEV` and `PROD`: whether this is `tifa dev` or a build for production.
-- `MODE`: `development` or `production`.
+- `MODE`, `DEV` and `PROD`: in `tifa build` both bundles get `production`, `false` and `true`. Under `tifa dev` the modules of the browser get `development`, `true` and `false`, but the bundle the server renders with is built for production and gets the values of a build. So do not let what a page renders depend on them: the server and the browser would write different HTML.
 - `SSR`: whether the code runs in the server render.
-- `BASE_URL`: the base path of the app.
+- `BASE_URL`: the base path of the app (`/__tifa/vite/` in the browser modules of `tifa dev`).
 
 Vite also writes into the bundle every variable that starts with `VITE_` in the environment of the shell that runs `tifa build`, and every `import.meta.env.*` constant the app gives to `define` in its `vite.config.ts`. These are fixed when the build runs. They fit values that are the same everywhere the build runs, and not the ones that change with the environment.
 
-`tifa build` and `tifa dev` warn when app code reads `import.meta.env.VITE_*`: once for each name, with the place of the first read. The warning covers `import.meta.env.VITE_X`, `import.meta.env['VITE_X']` and `const { VITE_X } = import.meta.env`. It does not cover `import.meta.env` handed on under another name. Code in `node_modules` is not checked.
+`tifa build` and `tifa dev` warn when app code reads `import.meta.env.VITE_*`: once for each name, with the place of the first read. Under `tifa dev` the warning is also in `go tool tifa errors`, under `Warnings`, until a build that no longer has it. The warning covers `import.meta.env.VITE_X`, `import.meta.env['VITE_X']` and `const { VITE_X } = import.meta.env`. It does not cover `import.meta.env` handed on under another name. Code in `node_modules` is not checked.
