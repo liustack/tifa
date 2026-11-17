@@ -4,11 +4,15 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.14] - 2026-11-17
+
 ### Added
 
 - `tifa.Stats().SSR` has two more fields: `Replaced`, how many VMs the pool replaced because they grew (they held more than half of `ssr.vm_memory` after a collection), and `Memory`, what the loaded VMs hold now in bytes, by the engine's count after each VM's last collection, the size `ssr.vm_memory` limits. A monitoring route can now see how much memory the VMs hold and how often one is replaced. The example shop's `/metrics` writes them as `tifa_vms_replaced_total` and `tifa_vms_memory_bytes`. See [Metrics](docs/deploy.md#metrics).
+
 ### Changed
 
+- The docs are in English only. The README and the example shop's README keep a Chinese version, and the other `*.zh-CN.md` files and `CHANGELOG.zh-CN.md` are gone.
 - Server rendering runs on slowjs v0.31.4. The HTML is the same. Renders take about 0.5% to 0.9% less time by the engine's own timing.
 - An import cycle through the root package is reported as Go reports it, without a rule about where the root package may import from. The generated `AGENTS.md`, the skill and the docs no longer say the root package imports nothing under `app/`: they say what Go allows, that the root package cannot import a domain that uses `DB`, and how to call such code from `hooks.go`.
 - The i18n guide says that a folder with a `_locales` folder that holds only the default language's file is served at one URL, for pages as well as API routes.
