@@ -165,8 +165,17 @@ func TestDevBackground(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "tifa dev stopped (pid "+strconv.Itoa(st.PID)+")") {
 		t.Fatalf("dev stop: %d\n%s%s", code, out, errOut)
 	}
-	if err := syscall.Kill(st.PID, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Errorf("the server (pid %d) runs after stop: %v", st.PID, err)
+	// The lock goes as the last thing tifa dev does, so the process may still be ending, and once it
+	// has ended it stays until the process that took it in as an orphan reaps it.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		err := syscall.Kill(st.PID, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("the server (pid %d) runs 5s after stop: %v", st.PID, err)
+			break
+		}
 	}
 	if conn, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
 		conn.Close()

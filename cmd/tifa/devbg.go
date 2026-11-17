@@ -545,7 +545,8 @@ func newDevStopCmd(dir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the tifa dev of the app",
-		Long: `stop stops the tifa dev that holds .tifa/dev.lock and waits until it is gone and the lock is free.
+		Long: `stop stops the tifa dev that holds .tifa/dev.lock and waits until the lock is free, which tifa dev
+lets go of last, after its address and the app have stopped.
 It signals a process only after that process, at the address the lock records, has answered as
 the tifa dev of this app. A record left by a tifa dev that ended, with no process holding the lock,
 signals nothing: it says that no tifa dev runs and exits with status 0.`,
