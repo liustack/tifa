@@ -419,7 +419,12 @@ export function browserHistory(win: Window = window): RouterHistory {
 // escapes and this list leaves escaped.
 const keptInQuery = /%(24|2C|2F|3A|3F|40|5B|5C|5D|5E|60|7B|7C|7D)/g
 
+// A value of letters, digits and -._~ is written as it is: encodeURIComponent leaves each of them
+// alone, and so do the replacements below. Most names and values of a query are such text.
+const needsEscape = /[^A-Za-z0-9\-._~]/
+
 function encodeQueryPart(text: string) {
+  if (!needsEscape.test(text)) return text
   return encodeURIComponent(text)
     .replace(keptInQuery, (escape) => decodeURIComponent(escape))
     .replace(/'/g, '%27')
