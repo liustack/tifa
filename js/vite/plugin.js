@@ -647,8 +647,8 @@ function tifaI18nTake(v) {
 function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
   const l = tifaI18nLast;
   if (l.fast) {
-    const lng = fixedT.lng, lngs = fixedT.lngs, ns = fixedT.ns, own = fixedT.keyPrefix, format = i18n.services.i18nFormat;
-    if (${objectIsInPlace('l.a', 'lng')} && (lng || ${objectIsInPlace('l.b', 'i18n.translator.language')}) && ${objectIsInPlace('l.c', 'lngs')} && ${objectIsInPlace('l.d', 'ns')} && ${objectIsInPlace('l.e', 'own')} && ${objectIsInPlace('l.g', 'keyPrefix')} && l.formats === (format && format.formats) && !options.interpolation.defaultVariables) return l.prefix;
+    const lng = fixedT.lng, lngs = fixedT.lngs, ns = fixedT.ns, own = fixedT.keyPrefix, format = i18n.services.i18nFormat, language = lng ? undefined : i18n.translator.language;
+    if (${objectIsInPlace('l.a', 'lng')} && (lng || ${objectIsInPlace('l.b', 'language')}) && ${objectIsInPlace('l.c', 'lngs')} && ${objectIsInPlace('l.d', 'ns')} && ${objectIsInPlace('l.e', 'own')} && ${objectIsInPlace('l.g', 'keyPrefix')} && l.formats === (format && format.formats) && !options.interpolation.defaultVariables) return l.prefix;
   }
   let m = 0, a, b, c, d, e, g, f = 0, h = '';
   if ((a = tifaI18nTake(fixedT.lng)) === tifaI18nNo) return; if (tifaI18nIsPart) m |= 1;
@@ -667,7 +667,7 @@ function tifaI18nPrefix(i18n, options, fixedT, keyPrefix) {
   if (l.m === m && ${objectIsInPlace('l.a', 'a')} && ${objectIsInPlace('l.b', 'b')} && ${objectIsInPlace('l.c', 'c')} && ${objectIsInPlace('l.d', 'd')} && ${objectIsInPlace('l.e', 'e')} && ${objectIsInPlace('l.g', 'g')} && l.f === f && l.h === h) return l.prefix;
   const prefix = (m & 1 ? a : tifaI18nPart(a)) + (m & 4 ? (m & 2 ? b : tifaI18nPart(b)) : '') + (m & 8 ? c : tifaI18nPart(c)) + (m & 16 ? d : tifaI18nPart(d)) +
     (m & 32 ? e : tifaI18nPart(e)) + (m & 64 ? g : tifaI18nPart(g)) + (f ? 'f' + f + ';' : '') + h;
-  tifaI18nLast = { m: m, a: a, b: b, c: c, d: d, e: e, g: g, f: f, h: h, prefix: prefix, formats: format && format.formats, fast: (m & ~4) === 0 && !defaults };
+  tifaI18nLast = { m: m, a: a, b: b, c: c, d: d, e: e, g: g, f: f, h: h, prefix: prefix, formats: formats, fast: (m & ~4) === 0 && !defaults };
   return prefix;
 }
 function tifaI18nFind(i18n, fixedT, keyPrefix, key, opts, rest) {
