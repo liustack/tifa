@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Pages with links render faster. The router no longer repeats work for each link that gives the same answer every time: it checks the first characters of an href before a regular expression, and writes a query into one string, leaving plain names and values as they are. The check that lets prefix links skip a `URL` is cheaper too. On the example shop the storefront pages run 0.4% to 4.7% fewer instructions per render (1.4% fewer over its seven pages in both languages) and the workbench pages 0.1% to 0.3% fewer. The MUI test app runs the same, within 0.04% (counted with callgrind, not timed). The pages are byte for byte the same.
+
 ### Fixed
 
 - Pages render about 0.7% faster again on the shop's workbench pages and the MUI test app (0.6% on the storefront pages), with the same HTML. A change of 2026-11-13 that writes out small functions whose body throws, such as React DOM's `resolveCurrentlyRenderingComponent` that every hook calls, stopped working on 2026-11-16 when the Tifa host script got a `tifaThrow` of its own, so every SSR bundle kept those calls. The build now reuses a top-level `tifaThrow` that only throws its argument, and still leaves alone any other function of that name. Instructions of one render, 20 pages of the shop: -0.71% on the workbench, -0.56% on the storefront, -0.59% in all. MUI test app: -0.73%.

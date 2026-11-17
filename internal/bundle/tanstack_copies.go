@@ -86,6 +86,12 @@ var TanStackCopies = []Copy{
 		CompareAgain: "routerCorePlugin in js/vite/plugin.js (function executeRewriteOutput hashed, the fast path calls output itself)",
 	},
 	{
+		Package: "@tanstack/history", File: "src/index.ts",
+		Start: "const protocolRelativePrefix = ", End: "}",
+		SHA256:       "9db0cc265b3189da87c044495a5f317bcaabaf5f3e6a0b3a44bbce82eaaea7ac",
+		CompareAgain: "historyPlugin in js/vite/plugin.js (protocolRelativePrefix and function normalizeProtocolRelative hashed, the pre-check is as wide as the pattern)",
+	},
+	{
 		Package: "@tanstack/react-router", File: "src/headContentUtils.tsx",
 		SHA256:       "ad540a3b6a693851a71d0446450e243d4c0d16c1eff940862436c7f4220b7537",
 		CompareAgain: "the head code in js/runtime/head.ts (whole file hashed)",

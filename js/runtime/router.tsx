@@ -357,14 +357,22 @@ function unescapeQuery(text: string): string | undefined {
 // browsers and forms send it, so the router keeps the URL of a request as it is: a space is +,
 // and only the characters that would change the meaning, or that browsers escape, are escaped.
 export function stringifySearch(search: Record<string, unknown>): string {
-  const parts: string[] = []
+  let text = ''
   for (const key in search) {
     const value = search[key]
     if (value === undefined) continue
-    for (const item of Array.isArray(value) ? value : [value])
-      parts.push(encodeQueryPart(key) + '=' + encodeQueryPart(String(item)))
+    if (Array.isArray(value)) {
+      // The name is written for the first item, as an empty list has none to write it for.
+      let name: string | undefined
+      for (const item of value) {
+        name ??= encodeQueryPart(key) + '='
+        text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(item))
+      }
+    } else {
+      text += (text === '' ? '?' : '&') + encodeQueryPart(key) + '=' + encodeQueryPart(String(value))
+    }
   }
-  return parts.length > 0 ? '?' + parts.join('&') : ''
+  return text
 }
 
 // routerQuery is a query spelled the way stringifySearch writes it.
@@ -419,7 +427,12 @@ export function browserHistory(win: Window = window): RouterHistory {
 // escapes and this list leaves escaped.
 const keptInQuery = /%(24|2C|2F|3A|3F|40|5B|5C|5D|5E|60|7B|7C|7D)/g
 
+// A value of letters, digits and -._~ is written as it is: encodeURIComponent leaves each of them
+// alone, and so do the replacements below. Most names and values of a query are such text.
+const needsEscape = /[^A-Za-z0-9\-._~]/
+
 function encodeQueryPart(text: string) {
+  if (!needsEscape.test(text)) return text
   return encodeURIComponent(text)
     .replace(keptInQuery, (escape) => decodeURIComponent(escape))
     .replace(/'/g, '%27')

@@ -52,6 +52,8 @@ const cases: Array<[string, any]> = [
   ['no languages', { to: '/projects' }],
   ['non-ascii param', { to: '/store/$id', params: { id: 'café' } }],
   ['apostrophe in search', { to: '/store', search: { q: "it's" } }],
+  ['dot in name', { to: '/store/$id', params: { id: 'a.b' } }],
+  ['dot file', { to: '/store/$id', params: { id: 'x.tar.gz' } }],
   ['dot segments', { to: '/store/$id', params: { id: '%2e%2e' } }],
   ['dot segment', { to: '/store/$id', params: { id: '..' } }],
   ['space', { to: '/store/$id', params: { id: 'a b' } }],
@@ -122,7 +124,9 @@ func TestSSRPathOnlyRewriteBuildsTheSameLinksWithoutURL(t *testing.T) {
 	// The cases the fast path takes. The others must keep the URL, and the link stays the same.
 	fast := map[string]bool{"plain": true, "param": true, "search": true, "hash": true, "no languages": true, "percent": false,
 		// The router writes a quote or a space of a search value as %27 or +, so the path is plain.
-		"apostrophe in search": true, "space in search": true}
+		"apostrophe in search": true, "space in search": true,
+		// A dot in a name is no dot segment: the plain checks decide it.
+		"dot in name": true, "dot file": true}
 	ran := 0
 	for _, r := range results {
 		if !r.Same {
