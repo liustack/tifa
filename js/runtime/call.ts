@@ -44,6 +44,7 @@ interface Router {
   navigate(options: { href: string }): Promise<void>
   parseLocation(location: { href: string; pathname: string; search: string; hash: string; state: object }): Location
   state: { location: Location }
+  options: { rewrite?: unknown }
 }
 
 let router: Router | undefined

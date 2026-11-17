@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- A site with languages holds less memory in each render VM and collects less often. Each render's router used to stay in memory until the next full collection, so a VM grew by about 26 KB per render, and now it does not grow.
+
 ## [0.0.14] - 2026-11-17
 
 ### Added

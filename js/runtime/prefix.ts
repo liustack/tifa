@@ -23,8 +23,6 @@ export interface PrefixRewrite extends LocationRewrite {
   reaches(href: string): boolean
 }
 
-const attached = new WeakMap<object, PrefixRewrite>()
-
 // prefixOf is the language the path starts with, if it is one of the site's.
 function prefixOf(i18n: I18n, pathname: string): string | undefined {
   const first = pathname.split('/', 2)[1]
@@ -52,7 +50,6 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
     language,
     attach(r) {
       router = r
-      attached.set(r, this)
       // The router parsed its first location before it had routes and this rewrite, so input
       // could not look at them. Giving it the rewrite now has it parse the location again.
       r.update({ rewrite: this })
@@ -102,6 +99,7 @@ export function makeRewrite(i18n: I18n, language: string): PrefixRewrite {
 
 // reaches says whether the router can go to the public URL href in place. A router without
 // languages can go anywhere.
-export function reaches(router: object, href: string): boolean {
-  return attached.get(router)?.reaches(href) ?? true
+export function reaches(router: { options: { rewrite?: unknown } }, href: string): boolean {
+  // attach gave the router its rewrite, and router-core keeps the object it was given in options.
+  return (router.options.rewrite as PrefixRewrite | undefined)?.reaches(href) ?? true
 }

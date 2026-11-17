@@ -116,7 +116,7 @@ func countReplacements(t *testing.T) *atomic.Int32 {
 
 // A VM of the shop grows as it renders new pages and stays at its new size: a fresh VM of the pool
 // renders about 150 distinct pages three times without the pool replacing it, though the VM ends
-// above twice its baseline.
+// above 175% of its baseline.
 func TestShopWarmVMIsNotReplaced(t *testing.T) {
 	source, inputs := warmPages(t)
 	if len(inputs) < 140 {
@@ -136,7 +136,7 @@ func TestShopWarmVMIsNotReplaced(t *testing.T) {
 	if n := replaced.Load(); n != 0 {
 		t.Errorf("the pool replaced its warm VM %d times", n)
 	}
-	// The same pages take a VM past twice its baseline, so the pool sees a VM above that bound.
+	// The same pages take a VM past 175% of its baseline, the baseline part of the pool's growth bound (hardBound), so a smaller ssr.vm_memory would replace it.
 	cfg := shopConfig(1)
 	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
 	if err != nil {
@@ -161,8 +161,8 @@ func TestShopWarmVMIsNotReplaced(t *testing.T) {
 	}
 	live := ssr.VMMemory(vm.VM, true).MallocSize
 	t.Logf("%d pages: a VM holds %.1f MB after them, %.2f times its baseline of %.1f MB", len(inputs), float64(live)/1e6, float64(live)/float64(baseline), float64(baseline)/1e6)
-	if uintptr(live) <= 2*baseline {
-		t.Errorf("the pages took a VM to %d bytes, not past twice its baseline %d: the test tests nothing", live, baseline)
+	if uintptr(live) <= baseline+baseline/2+baseline/4 {
+		t.Errorf("the pages took a VM to %d bytes, not past 175%% of its baseline %d: the test tests nothing", live, baseline)
 	}
 }
 

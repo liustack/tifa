@@ -30,6 +30,8 @@ const router = {
     hash: hash.slice(1),
   }),
   state: { location: { pathname: '/notes/1', search: {}, hash: '' } },
+  // A router without languages has no rewrite in its options.
+  options: {},
 }
 const invalidated = () => refreshes
 const assigned: string[] = []
