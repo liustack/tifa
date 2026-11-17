@@ -13,8 +13,8 @@ import (
 // The clock runs on the rendering goroutine and must not block. If requests
 // share it, it must be safe for concurrent calls. It does not change Go's
 // time.Now, deadlines, or module initialization during VM prewarming.
-// Cached pages may skip rendering or share another request's render. The
-// clock is not a cache key. Pass displayed times through Load data instead.
+// A request with a render clock skips the render memo, so it always renders
+// and never shares a render with another request.
 func WithRenderClock(ctx context.Context, now func() time.Time) context.Context {
 	return core.WithRenderClock(ctx, now)
 }

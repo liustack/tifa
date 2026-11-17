@@ -42,8 +42,9 @@ func (s *server) sessionEnv() *core.SessionEnv {
 	return s.sess.env
 }
 
-// startSessions picks the store once OnStart has returned: what the app set, or a store in memory
-// with the line that says so. It returns the function that stops what it made.
+// startSessions picks the store once OnStart has returned: what the app set, or a store in memory,
+// with a line that says so for an app that uses sessions. It returns the function that stops what
+// it made.
 func (s *server) startSessions() (stop func()) {
 	if store := core.SealedSessionStore(); store != nil {
 		s.sess.store = store
@@ -51,7 +52,9 @@ func (s *server) startSessions() (stop func()) {
 	}
 	m := core.NewMemoryStore(s.sess.cfg.MemoryLimit)
 	s.sess.store = m
-	core.Logger().Info("tifa: sessions are kept in memory: a restart signs everyone out")
+	if s.sess.enabled {
+		core.Logger().Info("tifa: sessions are kept in memory: a restart signs everyone out")
+	}
 	return m.Close
 }
 
