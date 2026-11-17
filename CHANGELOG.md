@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Pages of a site with languages render faster. Every link used to make a `URL` in the render, and a plain link no longer does. On the example shop a render takes 1.9% to 10.2% fewer instructions on the storefront pages and 0.4% to 0.9% fewer on the workbench pages. The HTML is the same.
+
 ## [0.0.15] - 2026-11-17
 
 ### Fixed
