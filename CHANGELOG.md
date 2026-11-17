@@ -33,6 +33,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - The docs are in English only. The README and the example shop's README keep a Chinese version, and the other `*.zh-CN.md` files and `CHANGELOG.zh-CN.md` are gone.
 - Server rendering runs on slowjs v0.31.4. The HTML is the same. Renders take about 0.5% to 0.9% less time by the engine's own timing.
+- Server rendering runs on slowjs v0.31.5. The HTML is the same. Renders take XX% less time by the engine's own timing, for XX% more memory in a VM.
 - An import cycle through the root package is reported as Go reports it, without a rule about where the root package may import from. The generated `AGENTS.md`, the skill and the docs no longer say the root package imports nothing under `app/`: they say what Go allows, that the root package cannot import a domain that uses `DB`, and how to call such code from `hooks.go`.
 - The i18n guide says that a folder with a `_locales` folder that holds only the default language's file is served at one URL, for pages as well as API routes.
 - `go tool tifa docs` prints about 2 KB, not 43 KB: one line for each doc about writing an app. `--when` adds when to read each doc, and `--all` also lists the docs about developing Tifa itself. The skill no longer sends an app to the example shop on GitHub, and its examples use an app-neutral module path.
