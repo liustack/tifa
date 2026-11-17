@@ -154,7 +154,8 @@ func TestSetPinsKeepsOtherFormatting(t *testing.T) {
 }
 
 func TestSetPinsRefusesBadJSON(t *testing.T) {
-	for _, in := range []string{``, `{"dependencies": [`, `[]`, `{"dependencies": {"react": 19}}`} {
+	for _, in := range []string{``, `{"dependencies": [`, `[]`, `{"dependencies": {"react": 19}}`,
+		`{"dependencies": {"react": "19.2.0"}`, `{"dependencies": {"react": "19.2.0"}} x`, `{"dependencies": {"react": "19.2.0"}} {}`, `{"dependencies": {"react": "19.2.0"}},`} {
 		if _, _, _, err := setPins([]byte(in), map[string]string{"react": "19.3.0"}, nil); err == nil {
 			t.Errorf("%q: no error", in)
 		}
@@ -263,15 +264,113 @@ func TestUpgradeRefuses(t *testing.T) {
 	}
 }
 
-// The step after go get checks the version it is told the app had.
+func readFile(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// A workspace can give the app another tifa than go.mod names, and go get would write to the
+// workspace's files. The command stops before it changes anything.
+func TestUpgradeRefusesAWorkspace(t *testing.T) {
+	t.Setenv("GOWORK", "")
+	app := writeMod(t, "v0.0.5", toolLine)
+	work := filepath.Join(filepath.Dir(app), "go.work")
+	if err := os.WriteFile(work, []byte("go 1.27.0\n\nuse "+app+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(work) })
+	before := readFile(t, filepath.Join(app, "go.mod"))
+	_, _, err := run(t, "upgrade", "v0.0.6", "--dir", app)
+	if err == nil || !strings.Contains(err.Error(), "go.work") || !strings.Contains(err.Error(), "GOWORK=off go tool tifa upgrade") {
+		t.Fatalf("error %v, want one that names go.work and GOWORK=off go tool tifa upgrade", err)
+	}
+	if after := readFile(t, filepath.Join(app, "go.mod")); after != before {
+		t.Errorf("go.mod changed:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(app, "go.sum")); err == nil {
+		t.Error("go.sum was written")
+	}
+	// GOWORK=off lifts it: the command goes on to the version check, which refuses this one.
+	t.Setenv("GOWORK", "off")
+	if _, _, err := run(t, "upgrade", "v0.0.5", "--dir", app); err == nil || !strings.Contains(err.Error(), "already v0.0.5") {
+		t.Errorf("with GOWORK=off: %v", err)
+	}
+}
+
+// The step after go get takes the old version from --after, and refuses what is no version or not
+// older than go.mod, before it changes a file.
 func TestUpgradeAfterNeedsAnOlderVersion(t *testing.T) {
 	app := writeMod(t, "v0.0.5", toolLine)
-	for _, old := range []string{"v0.0.5", "v0.0.6", "0.0.4"} {
-		if _, _, err := run(t, "upgrade", "--after", old, "--dir", app); err == nil {
-			t.Errorf("--after %s: no error", old)
+	if err := os.WriteFile(filepath.Join(app, "package.json"), []byte(appPackageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"go.mod", "package.json"}
+	before := map[string]string{}
+	for _, f := range files {
+		before[f] = readFile(t, filepath.Join(app, f))
+	}
+	for _, c := range []struct{ old, want string }{
+		{"v0.0.5", "already v0.0.5"},
+		{"v0.0.6", "v0.0.5 is older than v0.0.6"},
+		{"0.0.4", `"0.0.4" is not a version`},
+		{"latest", `"latest" is not a version`},
+		{"v0.0", `"v0.0" is not a version`},
+		{"v1", `"v1" is not a version`},
+		{"v0.0.4+meta", "is not a version"},
+		{" v0.0.4", "is not a version"},
+	} {
+		_, _, err := run(t, "upgrade", "--after", c.old, "--dir", app)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--after %q: error %v, want one with %q", c.old, err, c.want)
+		}
+		for _, f := range files {
+			if got := readFile(t, filepath.Join(app, f)); got != before[f] {
+				t.Errorf("--after %q changed %s:\n%s", c.old, f, got)
+			}
 		}
 	}
-	if _, _, err := run(t, "upgrade", "v0.0.6", "--after", "v0.0.4", "--dir", app); err == nil {
-		t.Error("a version with --after: no error")
+	if _, _, err := run(t, "upgrade", "v0.0.6", "--after", "v0.0.4", "--dir", app); err == nil || !strings.Contains(err.Error(), "takes no version") {
+		t.Errorf("a version with --after: %v", err)
+	}
+}
+
+// When a step after go get fails, the error says Go is at the new version and how to run the rest.
+func TestUpgradeFinishTellsHowToResume(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "pnpm"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	app := writeMod(t, "v0.0.6", toolLine)
+	if err := os.WriteFile(filepath.Join(app, "package.json"), []byte(appPackageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := run(t, "upgrade", "--after", "v0.0.5", "--dir", app)
+	if err == nil {
+		t.Fatal("no error although pnpm failed")
+	}
+	for _, want := range []string{"pnpm install failed", "Go is at v0.0.6", "cd " + cdOperand(app) + " && go tool tifa upgrade --after v0.0.5"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q has no %q", err, want)
+		}
+	}
+	if n := strings.Count(err.Error(), "\n"); n != 1 {
+		t.Errorf("error has %d line breaks, want the cause and one line on how to go on:\n%s", n, err)
+	}
+}
+
+// The entry about tifa upgrade in the changelog must not hold the literal that the command reads
+// as a migration note: it would be printed to every app that upgrades past it.
+func TestChangelogEntriesAboutUpgradeAreNoNotes(t *testing.T) {
+	data := readFile(t, filepath.Join("..", "..", "CHANGELOG.md"))
+	data = strings.Replace(data, "## [Unreleased]", "## [0.0.9999] - 2099-01-01", 1)
+	for _, n := range upgradingNotes(data, "v0.0.16", "v0.0.9999") {
+		if strings.Contains(strings.ToLower(n.Text), "upgrade") {
+			t.Errorf("the changelog gives the note %q for %s: write the word without its colon in the entry", n.Text, n.Version)
+		}
 	}
 }

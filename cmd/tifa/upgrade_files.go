@@ -66,6 +66,9 @@ func setPins(data []byte, pins map[string]string, strict map[string]bool) ([]byt
 		start, end int
 		change     pinChange
 	}
+	if !json.Valid(data) {
+		return nil, nil, nil, errors.New("package.json is not valid JSON")
+	}
 	var edits []edit
 	var notes []string
 	fail := func(err error) ([]byte, []pinChange, []string, error) {

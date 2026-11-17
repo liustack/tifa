@@ -4,6 +4,9 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"os/exec"
@@ -49,10 +52,10 @@ func (i memInfo) IsDir() bool        { return false }
 func (i memInfo) Sys() any           { return nil }
 
 // writeTifaProxy writes a module proxy folder with the checkout as the module github.com/liustack/tifa
-// at v0.0.901 (a go.mod only, the app starts there) and v0.0.902 (the whole module, with a CHANGELOG.md
+// at v0.0.901 (a go.mod only, the app starts there) and a version made from the files (the whole module, with a CHANGELOG.md
 // of its own), so tifa upgrade has a release to move to without the network. The examples and the
 // tests of the checkout are left out: they are other modules, or no part of what an app uses.
-func writeTifaProxy(t *testing.T, changelog string) string {
+func writeTifaProxy(t *testing.T, changelog string) (proxy, version string) {
 	t.Helper()
 	root := repoRoot(t)
 	list := func(args ...string) []string {
@@ -69,7 +72,8 @@ func writeTifaProxy(t *testing.T, changelog string) string {
 		nested[path.Dir(m)] = true
 	}
 	var files []modzip.File
-	mod := tifaPath + "@v0.0.902"
+	// The version is made from the files, so that a module cache never holds an older tree under it.
+	sum := fnv.New32a()
 	for _, name := range list("--cached", "--others", "--exclude-standard") {
 		if _, err := os.Lstat(filepath.Join(root, name)); err != nil {
 			continue // deleted in the working tree, not yet staged
@@ -82,10 +86,12 @@ func writeTifaProxy(t *testing.T, changelog string) string {
 			continue
 		}
 		f := treeFile{path: name, abs: filepath.Join(root, name)}
+		if data, err := os.ReadFile(f.abs); err == nil {
+			sum.Write([]byte(name))
+			sum.Write(data)
+		}
 		if name == "CHANGELOG.md" {
-			f.data = []byte(changelog)
-			files = append(files, memFile{f})
-			continue
+			continue // the zip gets the changelog of the test
 		}
 		files = append(files, f)
 	}
@@ -93,7 +99,9 @@ func writeTifaProxy(t *testing.T, changelog string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := filepath.Join(t.TempDir(), "proxy")
+	version = fmt.Sprintf("v0.0.%d", 1000+sum.Sum32()%1000000000)
+	proxy = filepath.Join(t.TempDir(), "proxy")
+	files = append(files, memFile{treeFile{path: "CHANGELOG.md", data: []byte(strings.ReplaceAll(changelog, "{NEW}", strings.TrimPrefix(version, "v")))}})
 	dir := filepath.Join(proxy, filepath.FromSlash(tifaPath), "@v")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -103,17 +111,17 @@ func writeTifaProxy(t *testing.T, changelog string) string {
 			t.Fatal(err)
 		}
 	}
-	for _, v := range []string{"v0.0.901", "v0.0.902"} {
+	for _, v := range []string{"v0.0.901", version} {
 		write(v+".info", []byte(`{"Version":"`+v+`","Time":"2026-11-17T00:00:00Z"}`))
 		write(v+".mod", gomod)
 	}
-	write("list", []byte("v0.0.901\nv0.0.902\n"))
+	write("list", []byte("v0.0.901\n"+version+"\n"))
 	var zipped bytes.Buffer
-	if err := modzip.Create(&zipped, module.Version{Path: tifaPath, Version: "v0.0.902"}, files); err != nil {
-		t.Fatalf("zip %s: %v", mod, err)
+	if err := modzip.Create(&zipped, module.Version{Path: tifaPath, Version: version}, files); err != nil {
+		t.Fatalf("zip %s: %v", version, err)
 	}
-	write("v0.0.902.zip", zipped.Bytes())
-	return proxy
+	write(version+".zip", zipped.Bytes())
+	return proxy, version
 }
 
 const upgradeChangelog = `# Changelog
@@ -122,7 +130,7 @@ const upgradeChangelog = `# Changelog
 
 - Not released. Upgrading: you will not see this.
 
-## [0.0.902] - 2026-11-18
+## [{NEW}] - 2026-11-18
 
 ### Changed
 
@@ -163,12 +171,15 @@ func TestUpgrade(t *testing.T) {
 	}
 	bin := t.TempDir()
 	called := filepath.Join(bin, "pnpm-called")
-	if err := os.WriteFile(filepath.Join(bin, "pnpm"), []byte("#!/bin/sh\necho \"$@\" >> '"+called+"'\n"), 0o755); err != nil {
+	fail := filepath.Join(bin, "pnpm-fails") // while this file exists, pnpm exits with 1
+	if err := os.WriteFile(filepath.Join(bin, "pnpm"), []byte("#!/bin/sh\necho \"$@\" >> '"+called+"'\n[ -e '"+fail+"' ] && exit 1\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	proxy, newV := writeTifaProxy(t, upgradeChangelog)
+	nv := func(s string) string { return strings.ReplaceAll(s, "v0.0.902", newV) }
 	env := append(os.Environ(),
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"GOPROXY=file://"+writeTifaProxy(t, upgradeChangelog)+",https://proxy.golang.org,direct",
+		"GOPROXY=file://"+proxy+",https://proxy.golang.org,direct",
 		"GOSUMDB=off", "GOFLAGS=-modcacherw", "GOWORK=off")
 	run := func(dir string, name string, args ...string) (string, error) {
 		cmd := exec.Command(name, args...)
@@ -219,16 +230,33 @@ func TestUpgrade(t *testing.T) {
 		t.Fatalf("a refused upgrade changed go.mod:\n%s", read("go.mod"))
 	}
 
-	out, err := run(dir, cli(t), "upgrade", "v0.0.902")
+	// A step after go get fails: the exit status stays, and the output says how to go on.
+	if err := os.WriteFile(fail, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(dir, cli(t), "upgrade", nv("v0.0.902"))
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("tifa upgrade with a failing pnpm: %v, want exit status 1\n%s", err, out)
+	}
+	for _, want := range []string{nv("==> tifa v0.0.901 to v0.0.902"), "react: 19.2.0 -> 19.3.0", "vite: 8.0.0 -> 8.3.4", "pnpm install failed", nv("Go is at v0.0.902"), "go tool tifa upgrade --after v0.0.901"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the output has no %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "go tool tifa upgrade --after v0.0.901\n"); n < 1 || strings.Count(out, "Go is at") != 1 {
+		t.Errorf("the hint should come once:\n%s", out)
+	}
+	if err := os.Remove(fail); err != nil {
+		t.Fatal(err)
+	}
+	// Run what it says: the rest is done, and the old version in --after is what the notes start from.
+	out, err = run(dir, "go", "tool", "tifa", "upgrade", "--after", "v0.0.901")
 	if err != nil {
-		t.Fatalf("tifa upgrade: %v\n%s", err, out)
+		t.Fatalf("go tool tifa upgrade --after v0.0.901: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"==> tifa v0.0.901 to v0.0.902",
-		"==> go tool tifa upgrade --after v0.0.901",
-		"react: 19.2.0 -> 19.3.0",
-		"vite: 8.0.0 -> 8.3.4",
-		"v0.0.902: move the read of `utm` into the Load.",
+		nv("v0.0.902: move the read of `utm` into the Load."),
 		"check passed",
 	} {
 		if !strings.Contains(out, want) {
@@ -238,18 +266,18 @@ func TestUpgrade(t *testing.T) {
 	if strings.Contains(out, "you will not see this") {
 		t.Errorf("the output has a note of a version it should not:\n%s", out)
 	}
-	if !strings.Contains(read("go.mod"), "github.com/liustack/tifa v0.0.902\n") {
-		t.Errorf("go.mod does not require v0.0.902:\n%s", read("go.mod"))
+	if !strings.Contains(read("go.mod"), nv("github.com/liustack/tifa v0.0.902\n")) {
+		t.Errorf(nv("go.mod does not require v0.0.902:\n%s"), read("go.mod"))
 	}
 	// Only the pinned packages changed, and zod stayed.
 	if want := strings.Replace(fresh, `"typescript": `, `"zod": "3.0.0",`+"\n    "+`"typescript": `, 1); read("package.json") != want {
 		t.Errorf("package.json:\n%s\nwant:\n%s", read("package.json"), want)
 	}
-	if got, _ := os.ReadFile(called); string(got) != "install\n" {
-		t.Errorf("pnpm was called with %q, want one install", got)
+	if got, _ := os.ReadFile(called); string(got) != "install\ninstall\n" {
+		t.Errorf("pnpm was called with %q, want the failed install and the one after it", got)
 	}
-	if !strings.Contains(read("AGENTS.md"), "<!-- tifa:begin -->") || !strings.Contains(read(".claude/skills/tifa/SKILL.md"), "Written by Tifa v0.0.902 ") {
-		t.Errorf("the agent files were not written by Tifa v0.0.902:\n%s", read(".claude/skills/tifa/SKILL.md")[:400])
+	if !strings.Contains(read("AGENTS.md"), "<!-- tifa:begin -->") || !strings.Contains(read(".claude/skills/tifa/SKILL.md"), nv("Written by Tifa v0.0.902 ")) {
+		t.Errorf(nv("the agent files were not written by Tifa v0.0.902:\n%s"), read(".claude/skills/tifa/SKILL.md")[:400])
 	}
 	for name, was := range before {
 		if read(name) != was {
@@ -258,7 +286,7 @@ func TestUpgrade(t *testing.T) {
 	}
 
 	// Run again: the app has v0.0.902 now.
-	if out, err := run(dir, cli(t), "upgrade", "v0.0.902"); err == nil || !strings.Contains(out, "already v0.0.902") {
+	if out, err := run(dir, cli(t), "upgrade", nv("v0.0.902")); err == nil || !strings.Contains(out, nv("already v0.0.902")) {
 		t.Errorf("a second upgrade: %v\n%s", err, out)
 	}
 }

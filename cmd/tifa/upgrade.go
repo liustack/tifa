@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/semver"
 )
 
 func newUpgradeCmd() *cobra.Command {
@@ -119,6 +120,9 @@ func upgradeStart(cmd *cobra.Command, root, version string) error {
 	if err != nil {
 		return err
 	}
+	if workspaceInUse(root, os.Getenv) {
+		return fmt.Errorf("a go.work file is in use (GOWORK, or a go.work in or above %s). go get would change the workspace, and go tool follows it, so the version in go.mod is not the one the app gets. Run it again without the workspace: GOWORK=off go tool tifa upgrade", root)
+	}
 	if replaced {
 		return fmt.Errorf("go.mod replaces %s, so the version in it is not the one the app builds with. Remove the replace (go mod edit -dropreplace %s) and run tifa upgrade again", tifaModule, tifaModule)
 	}
@@ -148,11 +152,12 @@ func upgradeStart(cmd *cobra.Command, root, version string) error {
 	fmt.Fprintf(out, "==> go tool tifa upgrade --after %s\n", current)
 	env := append(os.Environ(), forwardedEnv+"=1")
 	if err := runIn(root, out, errOut, env, "go", "tool", "tifa", "upgrade", "--after", current); err != nil {
+		// The new tifa has said what failed and how to go on, and its exit status stays.
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && exit.ExitCode() > 0 {
 			return &exitError{code: exit.ExitCode()}
 		}
-		return fmt.Errorf("go tool tifa failed: %w\nBy hand: go tool tifa upgrade --after %s", err, current)
+		return fmt.Errorf("go tool tifa could not run: %w\n%s", err, resumeHint(root, version, current))
 	}
 	return nil
 }
@@ -169,6 +174,9 @@ func runIn(root string, stdout, stderr io.Writer, env []string, name string, arg
 // upgradeFinish does what comes after go get, as the tifa that the app now requires. old is the
 // version the app had.
 func upgradeFinish(cmd *cobra.Command, root, old string) error {
+	if semver.Canonical(old) != old {
+		return fmt.Errorf("--after %q is not a version: write it as v0.0.17", old)
+	}
 	current, _, err := appTifaVersion(root)
 	if err != nil {
 		return err
@@ -177,27 +185,37 @@ func upgradeFinish(cmd *cobra.Command, root, old string) error {
 		return fmt.Errorf("--after %s: %w", old, err)
 	}
 	out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
+	// A step that fails ends with the line that says how to run the rest.
+	fail := func(err error) error { return fmt.Errorf("%w\n%s", err, resumeHint(root, current, old)) }
 	fmt.Fprintln(out, "==> package.json")
 	if err := upgradePackages(root, out, errOut); err != nil {
-		return fmt.Errorf("package.json: %w", err)
+		return fail(err)
 	}
 	fmt.Fprintln(out, "==> agent files")
 	plan, err := planAgents(root, defaultSkillsDir)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	if len(plan.files) == 0 {
 		fmt.Fprintln(out, "AGENTS.md and "+defaultSkillsDir+" are up to date")
 	}
 	for _, c := range plan.files {
 		if err := c.apply(root); err != nil {
-			return err
+			return fail(err)
 		}
 		fmt.Fprintf(out, "%s: %s\n", c.rel, c.what)
 	}
 	fmt.Fprintf(out, "==> Upgrading notes, %s to %s\n", old, current)
 	printUpgradeNotes(root, old, current, out)
-	return runCheck(cmd, root)
+	if err := runCheck(cmd, root); err != nil {
+		return fail(err)
+	}
+	return nil
+}
+
+// resumeHint is the line that says how to run the steps after go get again, when one of them failed.
+func resumeHint(root, current, old string) string {
+	return fmt.Sprintf("Go is at %s, but the steps after it did not finish. Fix the cause, then run: cd %s && go tool tifa upgrade --after %s", current, cdOperand(root), old)
 }
 
 // upgradePackages sets the pinned versions in the package.json of root and installs, with the
