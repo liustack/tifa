@@ -106,9 +106,8 @@ type docEntry struct {
 	audience string
 }
 
-// readDocs reads the front matter of every Markdown file under docs/ in dir but the Chinese
-// versions (*.zh-CN.md), docs/archive and docs/research, in byte order of the paths. A doc without
-// a summary is left out, and a warning says so.
+// readDocs reads the front matter of every Markdown file under docs/ in dir but docs/research,
+// in byte order of the paths. A doc without a summary is left out, and a warning says so.
 func readDocs(dir string) (docs []docEntry, warnings []string, err error) {
 	var paths []string
 	err = fs.WalkDir(os.DirFS(dir), "docs", func(p string, d fs.DirEntry, err error) error {
@@ -117,10 +116,10 @@ func readDocs(dir string) (docs []docEntry, warnings []string, err error) {
 		}
 		switch {
 		case d.IsDir():
-			if p == "docs/archive" || p == "docs/research" {
+			if p == "docs/research" {
 				return fs.SkipDir
 			}
-		case strings.HasSuffix(p, ".md") && !strings.HasSuffix(p, ".zh-CN.md"):
+		case strings.HasSuffix(p, ".md"):
 			paths = append(paths, p)
 		}
 		return nil
