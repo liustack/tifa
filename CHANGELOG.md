@@ -4,10 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-19
+
 ### Fixed
 
 - Server rendering runs on slowjs v0.31.7, a release of engine fixes: a timeout, an interrupt or running out of memory now stops compiling, async functions, generators, modules and promise jobs cleanly, and loading many modules takes linear time. The HTML is the same. Instructions of one render: +0.08% on the shop's workbench pages, +0.10% on the storefront, -0.08% on the MUI test app.
-- The v0.1.0 module carried a 41 MB `tifa` binary that was committed by mistake, so `go get` downloaded it with the source. It is gone.
+- The v0.1.0 module carried a 41 MB `tifa` binary that was committed by mistake, so `go get` downloaded it with the source. It is gone, and v0.1.0 is retracted, so `go get` and `go list -m -u` point to v0.1.1.
 
 ## [0.1.0] - 2026-11-18
 
