@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
+- `tifa new --empty` writes a skeleton in place of the todo list app: the root files with the sessions table, a root Layout with its error component and a home page of one line. It builds, passes its own `go test` and `go vet`, and starts. Without the flag nothing changes.
 - A sign-in over plain HTTP from a host that is not localhost logs a warning, once per process: browsers drop the `Secure` session cookie there, so the user stays signed out with no other sign. Requests over TLS, with `X-Forwarded-Proto: https` or `Forwarded: proto=https`, and to localhost do not warn.
 
 ### Changed

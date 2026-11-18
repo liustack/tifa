@@ -697,3 +697,60 @@ func TestNewLabelsTheRepeatedFileNames(t *testing.T) {
 		t.Errorf(".gitignore ignores .vscode:\n%s", ignore)
 	}
 }
+
+// --empty writes the skeleton: the root files and the sessions table, a root Layout and a one line
+// page, with no todo list anywhere.
+func TestNewEmptyWritesTheSkeleton(t *testing.T) {
+	withPnpm(t, true)
+	dir := filepath.Join(t.TempDir(), "My-App")
+	if _, _, err := run(t, "new", dir, "--empty"); err != nil {
+		t.Fatalf("new --empty: %v", err)
+	}
+	var files []string
+	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dir, p)
+			if !strings.HasPrefix(filepath.ToSlash(rel), ".claude/") {
+				files = append(files, filepath.ToSlash(rel))
+			}
+		}
+		return err
+	})
+	want := []string{
+		".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
+		"app/layout.tsx", "app/page.tsx", "app/styles.css",
+		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "options.go", "package.json", "pnpm-workspace.yaml", "schema.sql",
+		"sessions.go", "sessions_test.go", "tifa.yaml", "tsconfig.json", "vite.config.ts",
+	}
+	if !reflect.DeepEqual(files, want) {
+		t.Fatalf("files %q, want %q", files, want)
+	}
+	read := func(name string) string {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	if schema := read("schema.sql"); strings.Contains(schema, "todos") || !strings.Contains(schema, "CREATE TABLE IF NOT EXISTS sessions") {
+		t.Errorf("schema.sql is not the sessions table alone:\n%s", schema)
+	}
+	if page := read("app/page.tsx"); strings.Count(page, "\n") > 3 || !strings.Contains(page, "<h1>My-App</h1>") {
+		t.Errorf("app/page.tsx is not a one line page:\n%s", page)
+	}
+	for _, name := range files {
+		text := read(name)
+		if name == "AGENTS.md" {
+			// The managed block holds examples that name todos, which tifa agents writes for every app.
+			_, text, _ = strings.Cut(text, "<!-- tifa:end -->")
+		}
+		if strings.Contains(strings.ToLower(text), "todo") {
+			t.Errorf("%s still talks about the todo list:\n%s", name, text)
+		}
+		if strings.HasSuffix(name, ".go") {
+			if formatted, err := format.Source([]byte(text)); err != nil || string(formatted) != text {
+				t.Errorf("%s is not gofmt'ed Go: %v", name, err)
+			}
+		}
+	}
+}
