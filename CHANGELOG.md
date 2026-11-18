@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-19
+
 ### Fixed
 
 - A render that ran up against the memory limit could, in rare cases, leave a freed shape in an object, and a later collection then stopped the engine. That render's request answered 500 and the VM was replaced. Server rendering now runs on slowjs v0.31.8, which fixes it. The bug was in slowjs v0.31.4 to v0.31.7, so in Tifa v0.0.14 to v0.1.1. The HTML and the instructions of one render are the same.
