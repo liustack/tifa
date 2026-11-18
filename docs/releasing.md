@@ -17,7 +17,7 @@ Tifa is released as Git tags on `main`, starting at `v0.0.1`. The Go module prox
 
 ## Steps
 
-1. Make sure `main` is clean and up to date with `origin/main`, and nothing that should ship is still on a branch. If the release changes an npm version that new apps pin (React, TanStack Router, Vite), that version must have been published at least 3 days ago: a new app's `pnpm-workspace.yaml` makes pnpm refuse younger ones. `pnpm view <package>@<version> 'time[<version>]'` prints the date.
+1. Make sure `main` is clean and up to date with `origin/main`, and nothing that should ship is still on a branch. Run `scripts/check-files.sh`: a binary or a file over 1 MB in the tree goes into every module download, and a pushed tag cannot be fixed. If the release changes an npm version that new apps pin (React, TanStack Router, Vite), that version must have been published at least 3 days ago: a new app's `pnpm-workspace.yaml` makes pnpm refuse younger ones. `pnpm view <package>@<version> 'time[<version>]'` prints the date.
 2. Run the checks of [Testing](testing.md) on `main`: `go test ./...`, `go vet ./...`, `CGO_ENABLED=0 go build ./...` and `TIFA_E2E=1 go test -timeout 30m ./test/e2e/`.
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.0.N] - YYYY-MM-DD` and put a new empty `## [Unreleased]` above it. Read the entries first: an entry that needs a change in the app's code ends with an "Upgrading:" sentence that says exactly what to change, and an entry that needs nothing says nothing. Add the missing sentence now if a change skipped it. Commit it as `chore(release): release v0.0.N`.
 4. Tag that commit and push both:
@@ -35,4 +35,4 @@ Tifa is released as Git tags on `main`, starting at `v0.0.1`. The Go module prox
    cd myapp && go mod tidy && pnpm install && go tool tifa build && ./bin/myapp
    ```
 
-   `go.mod` must require `github.com/liustack/tifa v0.0.N`, and the page must answer. If anything fails, fix it on `main` and release the next patch. A tag is never moved or deleted once pushed.
+   `go.mod` must require `github.com/liustack/tifa v0.0.N`, and the page must answer. The module zip that `go mod download -json github.com/liustack/tifa@v0.0.N` reports should be about the size of the last one (4.4 MB at v0.1.1). If anything fails, fix it on `main` and release the next patch. A tag is never moved or deleted once pushed.

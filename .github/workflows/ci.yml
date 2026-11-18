@@ -72,11 +72,9 @@ jobs:
       - name: Docs have a summary
         run: scripts/docs-list.sh --check
       # A binary built in the checkout and committed by mistake goes into every
-      # module download. No source file of Tifa comes near 1 MB.
-      - name: No file over 1 MB
-        run: |
-          big=$(git ls-tree -r -l HEAD | awk '$4 > 1000000 {print $4, $5}')
-          if [ -n "$big" ]; then echo "$big"; exit 1; fi
+      # module download.
+      - name: No binaries or files over 1 MB
+        run: scripts/check-files.sh
 
   e2e:
     # The end-to-end tests build the CLI and the apps under test/apps and
