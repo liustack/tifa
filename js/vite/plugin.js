@@ -334,6 +334,26 @@ const memoThemeArg = `const arg = {
 };`
 // memoThemeSize is how many themes memoThemeByContent keeps.
 const memoThemeSize = 8
+// processStyleVariants of @mui/system runs for the variants of each styled MUI component and of its
+// theme (406 times in one render of the MUI test app, about 24 variants each). For each variant it
+// reads variant.props three times and each value of it twice, and props.ownerState again for each
+// key that props does not have. See variantsFast. variantsHead and variantsKeys are the two places it
+// changes in @mui/system 7 to 9.5, the same in createStyled.mjs and createStyled.js.
+const variantsModule = /[/\\]@mui[/\\]system[/\\]createStyled[/\\]createStyled\.m?js$/
+const variantsHead = `function processStyleVariants(props, variants, results = [], layerName = undefined) {
+  let mergedState; // We might not need it, initialized lazily
+
+  variantLoop: for (let i = 0; i < variants.length; i += 1) {
+    const variant = variants[i];
+    if (typeof variant.props === 'function') {`
+const variantsKeys = `    } else {
+      for (const key in variant.props) {
+        if (props[key] !== variant.props[key] && props.ownerState?.[key] !== variant.props[key]) {
+          continue variantLoop;
+        }
+      }
+    }
+`
 // rehype-highlight calls createLowlight(languages) each time rehypeHighlight(options) is called,
 // which react-markdown does on every render of a Markdown component. That makes a new highlight.js
 // instance, registers the 37 common languages and compiles their grammars again. The tifa plugin
@@ -2248,6 +2268,19 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         return byContent ?? null
       }
+      if (variantsModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const faster = variantsFast(source)
+        if (!faster && source.includes('processStyleVariants')) {
+          this.warn(
+            notRecognized +
+            `@mui/system ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no processStyleVariants the tifa plugin knows, so ` +
+              'it reads the props of each variant of a MUI component again and again. Pages render the same, but take ' +
+              'longer to render',
+          )
+        }
+        return faster ?? null
+      }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         const copied = reactI18nextCopy(source)
@@ -3748,6 +3781,42 @@ function registeredStylesFast(source) {
 }
 `,
   )
+}
+
+// variantsFast returns the source of @mui/system's createStyled with processStyleVariants reading
+// variant.props once for each variant, each of its values once, and props.ownerState once for the
+// call, or undefined when the source does not have the two places it knows. The loop over the keys
+// is still for-in, over the same object, so it visits the same keys in the same order, the inherited
+// ones too. Nothing between the reads of a call changes props, which are the arguments of the call,
+// so a read of props.ownerState gives the same value at each key unless a getter of props or of the
+// variant changes its answer or has an effect, and a variant that is a plain object reads once what
+// it read many times. The rest of the function stays as it is.
+function variantsFast(source) {
+  if (source.split(variantsHead).length !== 2 || source.split(variantsKeys).length !== 2) return undefined
+  return source
+    .replace(
+      variantsHead,
+      () => `function processStyleVariants(props, variants, results = [], layerName = undefined) {
+  let mergedState; // We might not need it, initialized lazily
+  const ownerState = props.ownerState;
+
+  variantLoop: for (let i = 0; i < variants.length; i += 1) {
+    const variant = variants[i];
+    const variantProps = variant.props;
+    if (typeof variantProps === 'function') {`,
+    )
+    .replace(
+      variantsKeys,
+      () => `    } else {
+      for (const key in variantProps) {
+        const wanted = variantProps[key];
+        if (props[key] !== wanted && ownerState?.[key] !== wanted) {
+          continue variantLoop;
+        }
+      }
+    }
+`,
+    )
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call

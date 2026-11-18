@@ -136,6 +136,12 @@ type memoThemeCase struct {
 // test's. Material is copied too, so that it imports the copy of @mui/system.
 func withMUI(t *testing.T, change func(string) string) string {
 	t.Helper()
+	return withMUIFiles(t, []string{"memoTheme.mjs", "memoTheme.js"}, change)
+}
+
+// withMUIFiles is withMUI for the files of @mui/system that change names, as paths in the package.
+func withMUIFiles(t *testing.T, files []string, change func(string) string) string {
+	t.Helper()
 	root := copyTestdata(t, "ssr", false)
 	modules := testModules(t)
 	link := func(from, to string) {
@@ -193,8 +199,8 @@ func withMUI(t *testing.T, change func(string) string) string {
 	}
 	linkAll(modules)
 	if change != nil {
-		for _, file := range []string{"memoTheme.mjs", "memoTheme.js"} {
-			path := filepath.Join(root, "node_modules", "@mui", "system", file)
+		for _, file := range files {
+			path := filepath.Join(root, "node_modules", "@mui", "system", filepath.FromSlash(file))
 			source, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
