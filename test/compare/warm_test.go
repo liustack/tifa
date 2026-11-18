@@ -3,6 +3,7 @@ package compare
 import (
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -617,6 +618,12 @@ func TestAWarmUpThatFailsOrIsCutOffFailsTheOpenRound(t *testing.T) {
 	pause := openWarmPause
 	openWarmPause = 10 * time.Millisecond
 	t.Cleanup(func() { openWarmPause = pause })
+	// The round after the warm-up offers 1000 visits a second, and a test machine under load can
+	// start one more than 250 ms late, which makes the round invalid. That is the generator's
+	// verdict, and this test is about the warm-up's: the round must stay valid with it failed.
+	lag := maxStartLagMs
+	maxStartLagMs = math.Inf(1)
+	t.Cleanup(func() { maxStartLagMs = lag })
 	_, _, node := warmSpecs()
 	node.Metrics = "/metrics"
 	sc := mustScenario("shop")

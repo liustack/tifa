@@ -1166,12 +1166,17 @@ func calibrate(out *Round, target time.Duration, planBlocks, blockVisits int) in
 	return BlocksFor(float64(ended)/out.Seconds, target, planBlocks, blockVisits)
 }
 
+// maxStartLagMs is how late, in milliseconds, a visit of an open round may start before the load
+// generator is blamed for it. Tests whose subject is not the generator can raise it, since how
+// soon a goroutine runs on a busy test machine is not theirs to check.
+var maxStartLagMs = 250.0
+
 // generatorFault says why the load generator, not the server, limited a round, or "" when it did not:
 // visits of an open round must start on time, and it must have processor time to spare (checked only
 // when it has cpus of its own, loadCPUs).
 func generatorFault(out *Round, loadCPUs int) string {
 	why := ""
-	if out.LagMs > 250 {
+	if out.LagMs > maxStartLagMs {
 		why = fmt.Sprintf("the load generator started a visit %.0f ms late", out.LagMs)
 	}
 	if loadCPUs > 0 && out.Seconds > 0 && out.ClientCPU/out.Seconds > 0.8*float64(loadCPUs) {
