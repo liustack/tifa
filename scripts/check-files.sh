@@ -1,7 +1,7 @@
 #!/bin/sh
 # Fails when the repository holds a file that should not be committed: a file over
-# 1 MB, or a binary file that is not an image or a font, such as a program built in
-# the checkout. With --staged it checks what the next commit would hold (the
+# 1 MB, a binary file that is not an image or a font, such as a program built in
+# the checkout, or a secret, a credential or a profile by its name. With --staged it checks what the next commit would hold (the
 # pre-commit hook), otherwise the files of HEAD (CI).
 #
 #   scripts/check-files.sh            check HEAD
@@ -31,7 +31,20 @@ else
 fi
 
 bad=$(printf '%s\n' "$binaries" | grep -Ev "$allowed" | grep . || true)
+# Names that are never ours to track: secrets, credentials and profiles.
+if [ "$mode" = staged ]; then
+	names=$(git diff --cached --name-only --diff-filter=AM "$base")
+else
+	names=$(git ls-tree -r --name-only HEAD)
+fi
+never=$(printf '%s\n' "$names" | grep -E '(^|/)(\.env(\.[^/]*)?|hosts\.yml|id_(rsa|ed25519|ecdsa)[^/]*|[^/]*\.(pem|key|p12|pfx|pprof|prof|pyc))$' || true)
+never=$(printf '%s\n' "$never" | grep -Ev '(^|/)\.env\.example$' | grep . || true)
 status=0
+if [ -n "$never" ]; then
+	echo "Files that must never be committed (secrets, credentials, profiles):"
+	echo "$never"
+	status=1
+fi
 if [ -n "$big" ]; then
 	echo "Files over 1 MB (bytes, path):"
 	echo "$big"
