@@ -63,6 +63,10 @@ func Check(source string, sourceMap []byte) error {
 const (
 	checkMemory  = 1 << 30
 	checkTimeout = time.Minute
+	// startTimeout is how long compiling the bundle and loading a VM (the bundle's top level code)
+	// may take. ssr.timeout is the budget of a render, and a slow or busy machine can take longer
+	// than a short one to start, so it does not limit this. The limit only stops code that never ends.
+	startTimeout = time.Minute
 )
 
 // Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
@@ -88,6 +92,9 @@ const (
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
 // stack of the render, not in the memory the limit counts: a slot takes about 1 KB.
 //
+// The bundle's top level code runs under startTimeout, not under timeout, the budget of a render,
+// which only limits the finalizer callbacks that run once loading ends.
+//
 // Load takes the functions RenderVM calls from the global object once, so that a render parses no
 // code of its own: globalThis.startRender as the bundle left it, which a render calls even when
 // the bundle replaces it later.
@@ -99,7 +106,7 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 	vm := &VM{VM: js}
 	vm.SetMemoryLimit(memory)
 	vm.SetMaxStackSize(stack)
-	if err = vm.SetEvalTimeout(timeout); err == nil {
+	if err = vm.SetEvalTimeout(startTimeout); err == nil {
 		// The engine asks for url.Register after the eval timeout and before intl.Register.
 		err = registerURL(vm.VM)
 	}
