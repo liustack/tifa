@@ -47,7 +47,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { RouteError, useSession } from 'tifa/client'
+import { TifaError, useSession } from 'tifa/client'
 import { Account } from './account'
 import { layout, type LayoutData } from './route.gen'
 import './styles.css'
@@ -388,7 +388,7 @@ function Notifications({ projects }: { projects: Project[] }) {
 // Error shows inside this Layout when a project does not exist or fails to load, and for a URL
 // that matches no page.
 export function ErrorBoundary({ error }: { error: unknown }) {
-  const missing = error instanceof RouteError && error.status === 404
+  const missing = error instanceof TifaError && error.status === 404
   return (
     <Empty className="min-h-[60vh]">
       <EmptyHeader>
@@ -397,7 +397,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
         </EmptyMedia>
         <EmptyTitle>{missing ? 'Page not found' : 'Something went wrong'}</EmptyTitle>
         <EmptyDescription>
-          {missing ? 'The address may be wrong, or the shop is gone.' : error instanceof RouteError ? error.message : 'Please try again later.'}
+          {missing ? 'The address may be wrong, or the shop is gone.' : error instanceof TifaError ? error.message : 'Please try again later.'}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>

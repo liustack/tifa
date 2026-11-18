@@ -1,5 +1,5 @@
 import { Link, Outlet } from '@tanstack/react-router'
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import './styles.css'
 
 export const htmlAttributes = { lang: 'en' }
@@ -28,9 +28,9 @@ export default function Root() {
 }
 
 // Error shows inside this Layout when a page fails to load or render and has no Error of its
-// own, and for a URL that matches no page, as a RouteError with status 404.
+// own, and for a URL that matches no page, as a TifaError with status 404.
 export function ErrorBoundary({ error }: { error: unknown }) {
-  if (error instanceof RouteError && error.status === 404) {
+  if (error instanceof TifaError && error.status === 404) {
     return (
       <>
         <h1>Page not found</h1>
@@ -43,7 +43,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
   return (
     <>
       <h1>Something went wrong</h1>
-      <p role="alert">{error instanceof RouteError ? error.message : 'Try again in a moment.'}</p>
+      <p role="alert">{error instanceof TifaError ? error.message : 'Try again in a moment.'}</p>
       <p>
         <Link to="/">Back to the todos</Link>
       </p>

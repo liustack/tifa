@@ -396,7 +396,7 @@ func TestStaticErrorsWrapNoSuspense(t *testing.T) {
 	}
 }
 
-// NotFound is no export of page.tsx or layout.tsx: a 404 reaches Error as a RouteError with
+// NotFound is no export of page.tsx or layout.tsx: a 404 reaches Error as a TifaError with
 // status 404, so a module that still exports NotFound fails the build instead of being left out
 // silently.
 func TestNotFoundExportFails(t *testing.T) {

@@ -1,4 +1,4 @@
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import { layout } from './route.gen'
 
@@ -25,6 +25,6 @@ export default function App() {
 
 // Shown in the Outlet of the root Layout for a failure below it, and for a URL that matches no page.
 export function ErrorBoundary({ error }: { error: unknown }) {
-  if (error instanceof RouteError && error.status === 404) return <p>APP_404</p>
-  return <p>APP_ERROR {error instanceof RouteError ? `${error.status} ${error.message}` : 'other'}</p>
+  if (error instanceof TifaError && error.status === 404) return <p>APP_404</p>
+  return <p>APP_ERROR {error instanceof TifaError ? `${error.status} ${error.message}` : 'other'}</p>
 }

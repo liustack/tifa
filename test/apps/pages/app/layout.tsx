@@ -1,4 +1,4 @@
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { Link, Outlet } from '@tanstack/react-router'
 import { layout } from './route.gen'
 import './site.css'
@@ -18,6 +18,6 @@ export default function Site() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  if (error instanceof RouteError && error.status === 404) return <p>This page does not exist.</p>
-  return <p role="alert">{error instanceof RouteError ? error.message : 'Something went wrong.'}</p>
+  if (error instanceof TifaError && error.status === 404) return <p>This page does not exist.</p>
+  return <p role="alert">{error instanceof TifaError ? error.message : 'Something went wrong.'}</p>
 }

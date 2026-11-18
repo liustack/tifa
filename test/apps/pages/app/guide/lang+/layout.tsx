@@ -1,4 +1,4 @@
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { Link, Outlet } from '@tanstack/react-router'
 import { layout, type LayoutData } from './route.gen'
 
@@ -32,6 +32,6 @@ export default function GuideLayout() {
 
 export function ErrorBoundary({ error }: { error: unknown }) {
   const guide = layout.useLoaderData()
-  if (error instanceof RouteError && error.status === 404) return <p>{guide.notFound}</p>
-  return <p role="alert">{error instanceof RouteError ? error.message : 'Something went wrong.'}</p>
+  if (error instanceof TifaError && error.status === 404) return <p>{guide.notFound}</p>
+  return <p role="alert">{error instanceof TifaError ? error.message : 'Something went wrong.'}</p>
 }

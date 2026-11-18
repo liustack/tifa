@@ -233,7 +233,7 @@ When you save, `tifa dev` regenerates `./route.gen`, and it now exports a `PATCH
 ```tsx
 import { useState, type FormEvent } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
-import { RouteError, TifaError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { ErrorBoundary as RootErrorBoundary } from '../../layout'
 import { page, PATCH, POST, type PageData } from './route.gen'
 ```
@@ -319,7 +319,7 @@ func Layout(c *tifa.Ctx) (todos.Counts, error) {
 And read it in `app/layout.tsx`:
 
 ```diff
- import { RouteError } from 'tifa/client'
+ import { TifaError } from 'tifa/client'
 +import { layout } from './route.gen'
  import './styles.css'
 ```

@@ -1,4 +1,4 @@
-import { clientOnly, RouteError } from 'tifa/client'
+import { clientOnly, TifaError } from 'tifa/client'
 import { page } from './route.gen'
 import { layout as shopRoute } from '../../route.gen'
 
@@ -20,6 +20,6 @@ export default function ItemPage() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  if (error instanceof RouteError && error.status === 404) return <p>No such item.</p>
+  if (error instanceof TifaError && error.status === 404) return <p>No such item.</p>
   return <p role="alert">{error instanceof globalThis.Error ? error.message : 'Failed'}</p>
 }

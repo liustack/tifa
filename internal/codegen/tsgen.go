@@ -775,7 +775,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	}
 	for _, n := range nodes {
 		if n.exported("NotFound") {
-			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export ErrorBoundary and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
+			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export ErrorBoundary and check error instanceof TifaError && error.status === 404", n.dir, n.tsxFile())
 		}
 		if n.exported("Error") {
 			return nil, nil, fmt.Errorf("%s/%s: exports Error, which tifa no longer reads: rename it to ErrorBoundary, so that the name does not hide the global Error in the file", n.dir, n.tsxFile())
@@ -828,7 +828,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		return "DefaultError"
 	}
 	// notFoundOf names the component that shows the 404 of a URL that matches nothing below n:
-	// errorFrom(n) with a RouteError of status 404, made once for each Error, n0 for the
+	// errorFrom(n) with a TifaError of status 404, made once for each Error, n0 for the
 	// framework's.
 	notFoundVars := map[string]string{}
 	notFoundOf := func(n *tsNode) string {

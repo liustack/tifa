@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from 'cn'
 import { orderDate, orderTime, waited, yuan } from '../../../../format'
 import { photo } from '../../../../store/images'
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { layout as project } from '../../route.gen'
 import { OrderStatus } from '../../order-status'
 import { page, type PageData } from './route.gen'
@@ -293,7 +293,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 })
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  const missing = error instanceof RouteError && error.status === 404
+  const missing = error instanceof TifaError && error.status === 404
   return (
     <Empty className="min-h-[50vh]">
       <EmptyHeader>
@@ -302,7 +302,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
         </EmptyMedia>
         <EmptyTitle>{missing ? 'Order not found' : 'The order could not be opened'}</EmptyTitle>
         <EmptyDescription>
-          {missing ? 'The order number may be wrong, or the order belongs to another shop.' : error instanceof RouteError ? error.message : 'Please try again later.'}
+          {missing ? 'The order number may be wrong, or the order belongs to another shop.' : error instanceof TifaError ? error.message : 'Please try again later.'}
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

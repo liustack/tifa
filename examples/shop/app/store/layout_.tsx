@@ -10,7 +10,7 @@ import { cn } from 'cn'
 import { LocaleContext, useHref, useStore } from './i18n'
 import { refreshMine, useMine } from './mine'
 import { catalogueNo, Price, ProductImage } from './product-card'
-import { RouteError, useAlternates } from 'tifa/client'
+import { TifaError, useAlternates } from 'tifa/client'
 import { I18nProvider, i18n } from 'tifa/i18n'
 import { layout, type LayoutData } from './route.gen'
 
@@ -431,7 +431,7 @@ function StoreFooter() {
 // matches no page, in the language of the URL, and for a page that fails.
 export function ErrorBoundary({ error }: { error: unknown }) {
   const { t } = useStore()
-  const shown = error instanceof RouteError && error.status === 404 ? 'notFound' : 'failed'
+  const shown = error instanceof TifaError && error.status === 404 ? 'notFound' : 'failed'
   return (
     <Empty className={cn('min-h-[50vh] border')}>
       <EmptyHeader>

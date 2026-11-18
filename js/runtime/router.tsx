@@ -11,7 +11,7 @@ import {
   type HistoryLocation,
   type RouterHistory,
 } from '@tanstack/react-router'
-import { goJSON, RouteError, type Source } from './data'
+import { goJSON, TifaError, type Source } from './data'
 import type { PrefixRewrite } from './prefix'
 import type { SessionEnvelope } from './session'
 import type { PageAlternates } from './head'
@@ -110,7 +110,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   // them from its options when it dehydrates and hydrates. Setting them on a router of its own
   // is not documented (TanStack/router#7796), so the router tests check that loader data still
   // goes through loaderDataAdapter.
-  router.options.serializationAdapters = [loaderDataAdapter, routeErrorAdapter]
+  router.options.serializationAdapters = [loaderDataAdapter, tifaErrorAdapter]
   // The rewrite goes in after the router has its routes, see attach in prefix.ts.
   options.rewrite?.attach(router)
   return router
@@ -129,14 +129,15 @@ const loaderDataAdapter = createSerializationAdapter({
   fromSerializable: (text: string) => JSON.parse(text) as object,
 })
 
-// routeErrorAdapter carries a RouteError from the server render to the browser as a
-// RouteError with its status. The default serializer would make it a plain Error, and the
-// Error components would show something else after hydration.
-const routeErrorAdapter = createSerializationAdapter({
-  key: 'tifa.RouteError',
-  test: (value): value is RouteError => value instanceof RouteError,
-  toSerializable: (error: RouteError) => ({ status: error.status, message: error.message }),
-  fromSerializable: (value: { status: number; message: string }) => new RouteError(value.status, value.message),
+// tifaErrorAdapter carries a TifaError from the server render to the browser as a TifaError with
+// its status and fields. The default serializer would make it a plain Error, and the
+// ErrorBoundary components would show something else after hydration.
+const tifaErrorAdapter = createSerializationAdapter({
+  key: 'tifa.TifaError',
+  test: (value): value is TifaError => value instanceof TifaError,
+  toSerializable: (error: TifaError) => ({ status: error.status, message: error.message, fields: error.fields }),
+  fromSerializable: (value: { status: number; message: string; fields: Record<string, string> }) =>
+    new TifaError(value.status, value.message, value.fields),
 })
 
 // A redirect a Load asked for carries this option, so that the server render can tell it from the
@@ -175,7 +176,7 @@ interface LoadData {
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result
 // at the URL being loaded. preload is true when the router loads it ahead of a navigation. A
-// redirect becomes redirect(), a failure, 404 included, a RouteError for the Error components.
+// redirect becomes redirect(), a failure, 404 included, a TifaError for the Error components.
 export async function load<T>(
   context: RouterContext,
   id: string,
@@ -202,7 +203,7 @@ export async function load<T>(
     }
     throw redirect({ href: result.location, statusCode: result.status, [askedByLoad]: true } as Parameters<typeof redirect>[0])
   }
-  throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
+  throw new TifaError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
 }
 
 function withoutHash(href: string): string {
@@ -270,7 +271,7 @@ const notFoundMessage = 'Not Found'
 // at its own URL. Go matches no route there and answers with a 404 inside the Layout, so the
 // route fails with one, which its Error shows in the Layout's Outlet.
 export function unmatched(): never {
-  throw new RouteError(404, notFoundMessage)
+  throw new TifaError(404, notFoundMessage)
 }
 
 // outside makes the params.parse of the route that tifa build adds for the rest of a URL below
@@ -291,10 +292,10 @@ export function outside(prefixes: ReadonlyArray<ReadonlyArray<string | null>>) {
 }
 
 // missing makes the notFoundComponent of a Layout from the Error it shows: a URL that matches
-// nothing below the Layout reaches that Error as a RouteError with status 404. preload loads a
+// nothing below the Layout reaches that Error as a TifaError with status 404. preload loads a
 // lazy Error with the route, so hydration does not wait for it.
 export function missing(Error: ComponentType<ErrorComponentProps> & { preload?: () => Promise<void> | undefined }) {
-  const error = new RouteError(404, notFoundMessage)
+  const error = new TifaError(404, notFoundMessage)
   const NotFound = () => <Error error={error} reset={() => {}} />
   NotFound.preload = Error.preload
   return NotFound
@@ -457,9 +458,9 @@ export function pick(search: object, keys: string[]): Record<string, unknown> {
 }
 
 // DefaultError is the Error of a route with no Error of its own or above it: the 404 page for a
-// RouteError with status 404, and an error page for anything else.
+// TifaError with status 404, and an error page for anything else.
 export function DefaultError({ error }: ErrorComponentProps) {
-  if (error instanceof RouteError && error.status === 404)
+  if (error instanceof TifaError && error.status === 404)
     return (
       <main>
         <h1>Page not found</h1>
@@ -468,7 +469,7 @@ export function DefaultError({ error }: ErrorComponentProps) {
   return (
     <main>
       <h1>Something went wrong</h1>
-      <p>{error instanceof RouteError ? error.message : 'Reload the page to try again.'}</p>
+      <p>{error instanceof TifaError ? error.message : 'Reload the page to try again.'}</p>
     </main>
   )
 }

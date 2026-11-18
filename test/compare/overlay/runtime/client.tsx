@@ -1,5 +1,5 @@
 // The module "tifa/client" for the comparison apps: clientOnly is tifa's own (copied from the
-// shop's generated code), TifaError is what a handler function throws, RouteError what the Error
+// shop's generated code), TifaError is what a handler function throws and what the ErrorBoundary
 // components of the shop's routes receive.
 export { clientOnly } from './client-only'
 import { cloneElement, createContext, useContext, type ReactElement } from 'react'
@@ -13,15 +13,6 @@ export class TifaError extends Error {
     this.name = 'TifaError'
     this.status = status
     this.fields = fields
-  }
-}
-
-export class RouteError extends Error {
-  readonly status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.name = 'RouteError'
-    this.status = status
   }
 }
 

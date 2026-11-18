@@ -1,4 +1,4 @@
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { page, type PageData } from './route.gen'
 
 export default function Detail() {
@@ -7,5 +7,5 @@ export default function Detail() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  return <p>{error instanceof RouteError && error.status === 404 ? 'no such order' : 'the order failed'}</p>
+  return <p>{error instanceof TifaError && error.status === 404 ? 'no such order' : 'the order failed'}</p>
 }

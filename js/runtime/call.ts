@@ -1,24 +1,11 @@
 // The runtime of the handler functions that tifa build writes into each route.gen module, one per
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
-import { buildHeader, callHeader, isRedirected, redirectHeader, sessionHeader } from './data'
+import { buildHeader, callHeader, isRedirected, redirectHeader, sessionHeader, TifaError } from './data'
 import { acceptSession, beginSession } from './session'
 import { languageAt, reaches } from './prefix'
 import { reloadForBuild } from './skew'
 import { i18n } from '../i18n.gen'
-
-// TifaError is what a handler function throws when the server answers with an error. message is
-// the public message of the answer, fields the messages per input field of a tifa.Fields.
-export class TifaError extends Error {
-  readonly status: number
-  readonly fields: Record<string, string>
-  constructor(status: number, message: string, fields: Record<string, string> = {}) {
-    super(message)
-    this.name = 'TifaError'
-    this.status = status
-    this.fields = fields
-  }
-}
 
 // CallOptions are what every handler function takes besides params and input.
 export interface CallOptions {

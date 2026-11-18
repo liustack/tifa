@@ -3187,7 +3187,7 @@ export function serovalPlugin() {
       // The data of a route that is an array goes through the tifa.data adapter as the JSON text
       // Go wrote only when seroval asks its plugins for arrays. Otherwise seroval writes each of
       // its values, which takes several times as long in QuickJS. The other plugins of a page,
-      // TanStack Router's and the one of RouteError, take errors and streams, which no array is,
+      // TanStack Router's and the one of TifaError, take errors and streams, which no array is,
       // so they write the same as before.
       if (serovalParses.some((fn) => source.includes(fn))) {
         parses = true

@@ -25,16 +25,16 @@ In `Load`, `c.JSON`, `c.Text` and `c.NoContent` return an error. You can set hea
 `page.tsx`, `layout.tsx` and `layout_.tsx` can export `ErrorBoundary`. It shows in place of that route when its `Load` or `Layout` fails, when a 404 lands there, or when a component below it throws.
 
 ```tsx
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  if (error instanceof RouteError && error.status === 404) return <p>No such order</p>
-  if (error instanceof RouteError && error.status === 403) return <p>No access</p>
+  if (error instanceof TifaError && error.status === 404) return <p>No such order</p>
+  if (error instanceof TifaError && error.status === 403) return <p>No access</p>
   return <p>Something went wrong</p>
 }
 ```
 
-- A failed `Load` or `Layout` arrives as a `RouteError` with `status` and the public message. It is the same on the server and after hydration.
+- A failed `Load` or `Layout` arrives as a `TifaError` with `status` and the public message. It is the same on the server and after hydration.
 - A route with no `ErrorBoundary` of its own uses the nearest ancestor's, then the framework's default page. The ancestors stop at a `layout_.tsx`.
 - The status code of the page is that of the outermost failed route.
 - Exporting `NotFound` fails the build. Show the 404 inside `ErrorBoundary`, under `error.status === 404`. So does an `Error` export: rename it to `ErrorBoundary`.
