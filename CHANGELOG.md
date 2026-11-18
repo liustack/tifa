@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- Server rendering runs on slowjs v0.31.7, a release of engine fixes: a timeout, an interrupt or running out of memory now stops compiling, async functions, generators, modules and promise jobs cleanly, and loading many modules takes linear time. The HTML is the same.
+
 ## [0.1.0] - 2026-11-18
 
 ### Added
