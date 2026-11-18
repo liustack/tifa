@@ -106,7 +106,7 @@ Throughput at 8 concurrent sessions with no pause between pages, the median of 3
 
 A full load is a request the server answers with a whole page: the landing of a visit, and a search or another action that loads a page. A client navigation is one the router answers with data alone. Every server plays the same visits, so about a third of the page views of every row are full loads.
 
-Latency at 3 visits a second, 40% of what Next.js sustains, one round:
+Latency at 3 visits a second, half of what Next.js sustains, one round:
 
 | | Full load P50 / P99 | Client navigation P50 / P99 |
 | :-- | --: | --: |
@@ -117,7 +117,7 @@ Latency at 3 visits a second, 40% of what Next.js sustains, one round:
 | For reference: TanStack Start with gzip | 37.8 / 90 ms | 4.2 / 19 ms |
 | For reference: Next.js with prefetch off | 35.5 / 86 ms | 8.0 / 37 ms |
 
-The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Versions: Tifa c8de6a62, quickjs v0.31.5, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-18) has the mix, what each default costs and what the numbers mean.
+The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Versions: Tifa c8de6a62, slowjs v0.31.5, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-18) has the mix, what each default costs and what the numbers mean.
 
 ## Start an app
 

@@ -106,7 +106,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 整页加载是服务器回整个页面的请求：每次访问的落地页，以及搜索这类重新加载页面的动作。客户端导航是路由只取数据的请求。每个服务器回放的是同一批访问，所以每一行的页面里都有约三分之一是整页加载。
 
-延迟，每秒 3 次访问（Next.js 稳定速率的 40%），一轮：
+延迟，每秒 3 次访问（Next.js 稳定速率的一半），一轮：
 
 | | 整页加载 P50 / P99 | 客户端导航 P50 / P99 |
 | :-- | --: | --: |
@@ -117,7 +117,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 | 参考：TanStack Start 开 gzip | 37.8 / 90 ms | 4.2 / 19 ms |
 | 参考：Next.js 关掉预取 | 35.5 / 86 ms | 8.0 / 37 ms |
 
-前三行是出厂设置的框架。参考行各改一个设置，说明这个默认设置花掉或换来多少。版本：Tifa c8de6a62，quickjs v0.31.5，Next.js 16.4.2，TanStack Start 1.169.3，Node 24.13.0。每个服务器只用 Google Cloud `t2d-standard-4` 虚拟机（AMD EPYC 7B13）的一个核。访问配比、各家默认设置的代价和这些数字的含义见[整站访问](docs/performance.md#whole-visits-to-the-shop-2026-11-18)。
+前三行是出厂设置的框架。参考行各改一个设置，说明这个默认设置花掉或换来多少。版本：Tifa c8de6a62，slowjs v0.31.5，Next.js 16.4.2，TanStack Start 1.169.3，Node 24.13.0。每个服务器只用 Google Cloud `t2d-standard-4` 虚拟机（AMD EPYC 7B13）的一个核。访问配比、各家默认设置的代价和这些数字的含义见[整站访问](docs/performance.md#whole-visits-to-the-shop-2026-11-18)。
 
 ## 新建应用
 

@@ -6,7 +6,7 @@ read_when:
   - Running the comparison again after a change to the engine, the server, the SSR bundle or the workbench pages of the shop
   - Someone asks whether the comparison was fair, or whether one side compressed its answers
   - Changing the apps in test/compare
-measured: '2026-11-18 with Tifa c8de6a62 (quickjs v0.31.5). The cache hit section: 2026-11-02 with Tifa 6cf6015 (quickjs v0.29.8)'
+measured: '2026-11-18 with Tifa c8de6a62 (slowjs v0.31.5). The cache hit section: 2026-11-02 with Tifa 6cf6015 (quickjs v0.29.8)'
 versions: 'Next.js 16.4.2 (App Router, Turbopack build), TanStack Start 1.169.3 (react-router 1.170.45, nitro 3.0.260903-beta), React 19.3.1 in all three, Tifa with TanStack Router 1.170.46, Go 1.27.4, Node 24.13.0'
 ---
 
@@ -22,7 +22,7 @@ On whole HTTP requests for the same pages, when every request loads its data and
 
 ## Conclusions
 
-From the run of 2026-11-18 with Tifa c8de6a62 and quickjs v0.31.5, on one core, one request at a time, every cache off.
+From the run of 2026-11-18 with Tifa c8de6a62 and slowjs v0.31.5, on one core, one request at a time, every cache off.
 
 - **Node with JIT serves 1.2 to 1.6 times as much.** With the six pages in turn, Next.js answers 1.25 times as many requests as Tifa (68.8 against 54.9 a second) and TanStack Start 1.64 times (89.8).
 - **The gap depends on the page.** Next.js is ahead 1.05 to 1.43 times and Start 1.57 to 1.73 times. The gap is widest on the largest page, the order list of 42 orders.

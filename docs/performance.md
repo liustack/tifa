@@ -26,7 +26,7 @@ The shop built three ways: as Tifa and as a Next.js and a TanStack Start app, al
 
 ### Whole visits to the shop (2026-11-18)
 
-Real browsers were recorded visiting the shop on each framework, and the recorded visits were played back against each server. The storefront and the back office are one site: shoppers browse, search, add to the cart and check out, staff edit the back office, and crawlers fetch the public pages, at once. Each framework runs as shipped, one process on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13), after the same warm-up. Tifa c8de6a62 with quickjs v0.31.5, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0. [The traffic and the method](studies/capacity.md#whole-visits-the-traffic-and-the-method).
+Real browsers were recorded visiting the shop on each framework, and the recorded visits were played back against each server. The storefront and the back office are one site: shoppers browse, search, add to the cart and check out, staff edit the back office, and crawlers fetch the public pages, at once. Each framework runs as shipped, one process on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13), after the same warm-up. Tifa c8de6a62 with slowjs v0.31.5, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0. [The traffic and the method](studies/capacity.md#whole-visits-the-traffic-and-the-method).
 
 Throughput, 8 concurrent sessions with no think time, the median of 3 rounds:
 
