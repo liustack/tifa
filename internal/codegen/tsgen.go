@@ -775,7 +775,10 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	}
 	for _, n := range nodes {
 		if n.exported("NotFound") {
-			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export Error and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
+			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export ErrorBoundary and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
+		}
+		if n.exported("Error") {
+			return nil, nil, fmt.Errorf("%s/%s: exports Error, which tifa no longer reads: rename it to ErrorBoundary, so that the name does not hide the global Error in the file", n.dir, n.tsxFile())
 		}
 	}
 
@@ -799,7 +802,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		if !ok {
 			v = fmt.Sprintf("e%d", index[n])
 			errorVars[n], errorNodes[v] = v, n
-			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "Error"))
+			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "ErrorBoundary"))
 		}
 		return v
 	}
@@ -818,7 +821,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	// errorFrom names the first Error going up from n, n included, or the framework's.
 	errorFrom := func(n *tsNode) string {
 		for a := n; a.parent != nil; a = a.parent {
-			if a.exported("Error") {
+			if a.exported("ErrorBoundary") {
 				return errorOf(a)
 			}
 		}

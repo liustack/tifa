@@ -29,7 +29,7 @@ export default function Root() {
 
 // Error shows inside this Layout when a page fails to load or render and has no Error of its
 // own, and for a URL that matches no page, as a RouteError with status 404.
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) {
     return (
       <>

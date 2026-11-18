@@ -6,6 +6,6 @@ export default function Detail() {
   return <p>{order?.id}</p>
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   return <p>{error instanceof RouteError && error.status === 404 ? 'no such order' : 'the order failed'}</p>
 }

@@ -295,7 +295,7 @@ func TestReplaceLayoutHangsFromTheFrameworksRoot(t *testing.T) {
 	root := t.TempDir()
 	const store = "app/store/lang+"
 	for _, f := range []string{"app/layout.tsx", "app/page.tsx", store + "/layout_.tsx", store + "/page.tsx", store + "/cart/layout.tsx", store + "/cart/page.tsx"} {
-		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\nexport function Error() { return null }\n")
+		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\nexport function ErrorBoundary() { return null }\n")
 	}
 	m := &analyze.Manifest{
 		Module: "example.com/x",
@@ -341,7 +341,7 @@ func TestErrorBoundaries(t *testing.T) {
 		// The root Layout fails: nothing is above it but the framework's Error. A URL that
 		// matches no page below it shows its own Error in its Outlet.
 		"id: \"_app\",\n  component: m1.default,\n  errorComponent: DefaultError,\n  notFoundComponent: n1,",
-		"const e1 = m1.Error\n",
+		"const e1 = m1.ErrorBoundary\n",
 		"const n1 = missing(e1)\n",
 		// The project Layout fails: the root Layout's Error shows in its place.
 		"path: \"projects/$projectId\",\n  component: lazyRouteComponent(m3),\n  errorComponent: e1,\n  notFoundComponent: n3,",
@@ -349,7 +349,7 @@ func TestErrorBoundaries(t *testing.T) {
 		// A page shows its own Error, or else the one of its Layout.
 		"path: \"/\",\n  component: lazyRouteComponent(m7),\n  errorComponent: e3,",
 		"path: \"orders/$orderId\",\n  component: lazyRouteComponent(m8),\n  errorComponent: e8,",
-		"const e8 = lazyRouteComponent(m8, \"Error\")\n",
+		"const e8 = lazyRouteComponent(m8, \"ErrorBoundary\")\n",
 		// /auth has a Layout but no page: the index route below it shows the root Layout's Error.
 		"path: \"auth\",\n  component: lazyRouteComponent(m2),\n  errorComponent: e1,\n  notFoundComponent: n1,",
 		"path: \"/\",\n  errorComponent: e1,\n  loader: unmatched,",
@@ -378,7 +378,7 @@ func TestStaticErrorsWrapNoSuspense(t *testing.T) {
 		t.Fatalf("routes.tsx imports the team Layout or the root Layout lazily:\n%s", tree)
 	}
 	errorVar := func(module string) string {
-		m := regexp.MustCompile(`const (e\d+) = ` + module + `\.Error\n`).FindStringSubmatch(tree)
+		m := regexp.MustCompile(`const (e\d+) = ` + module + `\.ErrorBoundary\n`).FindStringSubmatch(tree)
 		if m == nil {
 			t.Fatalf("routes.tsx names no Error of %s:\n%s", module, tree)
 		}
@@ -411,6 +411,25 @@ func TestNotFoundExportFails(t *testing.T) {
 	_, err := Generate(root, m, false, fakeExports)
 	if err == nil || !strings.Contains(err.Error(), "app/page/page.tsx") || !strings.Contains(err.Error(), "status === 404") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// Error is no export of page.tsx or layout.tsx either: it was renamed ErrorBoundary, so a module
+// that still exports Error fails the build with the new name instead of losing its component.
+func TestErrorExportFails(t *testing.T) {
+	for _, export := range []string{"export function Error() { return null }", "export const Error = () => null", "export async function Error() { return null }"} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\n")
+		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n"+export+"\n")
+		m := &analyze.Manifest{
+			Module:  "example.com/x",
+			Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
+			Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
+		}
+		_, err := Generate(root, m, false, fakeExports)
+		if err == nil || !strings.Contains(err.Error(), "app/page/page.tsx") || !strings.Contains(err.Error(), "rename it to ErrorBoundary") {
+			t.Fatalf("%s: got %v", export, err)
+		}
 	}
 }
 

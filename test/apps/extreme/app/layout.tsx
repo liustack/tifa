@@ -17,7 +17,7 @@ export default function Root() {
   return <Outlet />
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (!(error instanceof RouteError && error.status === 404)) return <p>出错了，请稍后再试</p>
   return (
     <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-start justify-center gap-3 px-6">

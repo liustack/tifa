@@ -12,7 +12,7 @@ export default function Site() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) return <p className="p-6">This page does not exist.</p>
   return <p className="p-6">Something went wrong.</p>
 }

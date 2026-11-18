@@ -1,6 +1,6 @@
 # Errors, 404 and redirects
 
-Contents: what to return, what the user sees, writing `Error`, how a 404 is placed, render failures, `OnError`.
+Contents: what to return, what the user sees, writing `ErrorBoundary`, how a 404 is placed, render failures, `OnError`.
 
 Full docs (in the folder `go tool tifa docs` prints): `docs/pages.md#404` and `docs/build.md#page-requests`.
 
@@ -20,14 +20,14 @@ The messages of `tifa.Error` and `OnError` reach the user. Never put internal de
 
 In `Load`, `c.JSON`, `c.Text` and `c.NoContent` return an error. You can set headers and cookies there.
 
-## Writing the Error component
+## Writing the ErrorBoundary component
 
-`page.tsx`, `layout.tsx` and `layout_.tsx` can export `Error`. It shows in place of that route when its `Load` or `Layout` fails, when a 404 lands there, or when a component below it throws.
+`page.tsx`, `layout.tsx` and `layout_.tsx` can export `ErrorBoundary`. It shows in place of that route when its `Load` or `Layout` fails, when a 404 lands there, or when a component below it throws.
 
 ```tsx
 import { RouteError } from 'tifa/client'
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) return <p>No such order</p>
   if (error instanceof RouteError && error.status === 403) return <p>No access</p>
   return <p>Something went wrong</p>
@@ -35,19 +35,19 @@ export function Error({ error }: { error: unknown }) {
 ```
 
 - A failed `Load` or `Layout` arrives as a `RouteError` with `status` and the public message. It is the same on the server and after hydration.
-- A route with no `Error` of its own uses the nearest ancestor's, then the framework's default page. The ancestors stop at a `layout_.tsx`.
+- A route with no `ErrorBoundary` of its own uses the nearest ancestor's, then the framework's default page. The ancestors stop at a `layout_.tsx`.
 - The status code of the page is that of the outermost failed route.
-- Exporting `NotFound` fails the build. Show the 404 inside `Error`, under `error.status === 404`.
-- Put an `Error` in the root `layout.tsx`. It also shows the 404 of URLs that match no page, and `tifa new` writes one.
+- Exporting `NotFound` fails the build. Show the 404 inside `ErrorBoundary`, under `error.status === 404`. So does an `Error` export: rename it to `ErrorBoundary`.
+- Put an `ErrorBoundary` in the root `layout.tsx`. It also shows the 404 of URLs that match no page, and `tifa new` writes one.
 
-## Which Error shows for a 404
+## Which ErrorBoundary shows for a 404
 
 | Case | Shown |
 | --- | --- |
-| A page's `Load` returns `tifa.ErrNotFound` | The first `Error` going up from that page. Outer Layouts show as usual |
-| A `Layout` returns `tifa.ErrNotFound` | The first `Error` going up from the Layout one level up |
-| The URL matches no page | The first `Error` going up from the deepest Layout the URL matches, inside that Layout |
-| No route has an `Error` | The framework's default 404 page |
+| A page's `Load` returns `tifa.ErrNotFound` | The first `ErrorBoundary` going up from that page. Outer Layouts show as usual |
+| A `Layout` returns `tifa.ErrNotFound` | The first `ErrorBoundary` going up from the Layout one level up |
+| The URL matches no page | The first `ErrorBoundary` going up from the deepest Layout the URL matches, inside that Layout |
+| No route has an `ErrorBoundary` | The framework's default 404 page |
 
 The status is 404 in every case, also after browser navigation. For a URL that matches no page, Tifa compares the URL with the Layout and page paths segment by segment. A literal wins over a parameter. A page in a `name++` folder takes every URL below it, so its `Load` decides.
 
@@ -55,7 +55,7 @@ A language or tenant segment is checked in the `Layout` of its folder. Returning
 
 ## When a component throws on the server
 
-A component that throws while rendering is an unexpected error. `OnError` sees it once and picks the status and public message. The page renders again with that error in place of the page, so the first `Error` from the page upward shows it inside the Layouts. If that fails too, the error moves one route up, and finally Go answers with a plain error page. The browser hydrates the page with the error where the server put it. Such an answer is never cached.
+A component that throws while rendering is an unexpected error. `OnError` sees it once and picks the status and public message. The page renders again with that error in place of the page, so the first `ErrorBoundary` from the page upward shows it inside the Layouts. If that fails too, the error moves one route up, and finally Go answers with a plain error page. The browser hydrates the page with the error where the server put it. Such an answer is never cached.
 
 A render that runs past `ssr.timeout`, or that uses up `ssr.vm_memory`, stops at once. No `catch` or `finally` in your code runs for it. A render that finds all VMs busy answers 503 with `Retry-After: 1` and does not call `OnError`.
 

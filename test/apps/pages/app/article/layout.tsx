@@ -12,7 +12,7 @@ export default function Shelf() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   return (
     <p id="article-error">
       {error instanceof RouteError ? error.message : 'The article failed.'}{' '}

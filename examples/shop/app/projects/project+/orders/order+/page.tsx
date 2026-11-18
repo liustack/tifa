@@ -292,7 +292,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: loaderData ? [{ title: `${loaderData.order.id} · Shanhai Workbench` }] : [],
 })
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   const missing = error instanceof RouteError && error.status === 404
   return (
     <Empty className="min-h-[50vh]">

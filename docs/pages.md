@@ -8,7 +8,7 @@ read_when:
   - Calling a method handler from a page, or the page does not show what a write changed
   - Setting the title, meta tags or `<html>` attributes of a page, or the head of a 404 or error page
   - Giving a part of the site its own frame with `layout_.tsx`
-  - Showing a 404 or an error in a page, or finding out which `Error` shows
+  - Showing a 404 or an error in a page, or finding out which `ErrorBoundary` shows
 ---
 
 # Pages and Layouts
@@ -29,7 +29,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 ```
 
 - UI only, no data loading. `./route.gen` is a generated module, one per folder, that exports `page` and `layout` (the TanStack routes of the page and the Layout, only when the folder has them), `PageData` and `LayoutData` (the return types of `Load` and `Layout`), `PageSearch` and `LayoutSearch` (the query parameters they read, see [Query parameters in Link and navigate](#query-parameters-in-link-and-navigate)), `Params`, and a function per method handler. Child components in the same folder also import `./route.gen`. A Layout's data comes from the `route.gen` of its folder: `layout.tsx` imports `layout` from `'./route.gen'`, and a page reads its project Layout with `layout` from `'../../route.gen'`, for example. A folder with no generated module fails the build when something imports its `route.gen`.
-- The default export is the page component. Optional exports: `head` and `Error`. A 404 shows in `Error` too (see [404](#404)), and exporting `NotFound` fails the build.
+- The default export is the page component. Optional exports: `head` and `ErrorBoundary`. A 404 shows in `ErrorBoundary` too (see [404](#404)), and exporting `NotFound` fails the build.
 - In the browser, each `page.tsx`, and each `layout.tsx` or `layout_.tsx` but the root Layout's, is a chunk of its own with everything it imports, `head` included. It loads the first time its route is needed, and the router waits for it before it shows the page or runs `head`. The HTML of a page preloads the chunks of its Layouts and route, so they arrive with the entry script. Code at the top level of the file, side-effect imports included, runs then and not when the app starts, so put setup that every page needs in the root Layout or a module it imports. See [Route modules in the browser](build.md#route-modules-in-the-browser).
 - Go slices and maps are never `null`: a nil slice arrives as `[]` and a nil map as `{}`, and their TypeScript types have no `| null` (see [JSON rules](routes.md#json-rules)).
 - Put components that need browser features at the module top level into a `.client.tsx` file, and load them lazily with `clientOnly` from `tifa/client`. They are left out of the SSR bundle, and the first paint shows a placeholder. Components that render but show nothing until the browser draws them belong there too, see [Components that draw only in the browser](server-render.md#components-that-draw-only-in-the-browser):
@@ -214,19 +214,19 @@ app/
 
 - The pages below it, also those further down, do not render the Layouts above it, and their `Layout` functions do not run for them: not for a page, not for the navigation data request of the browser, not for the 404 of a URL below it that no page has. So their data never reaches these pages.
 - The `Layout` in the `route.go` of the same folder gives it data as usual. The folders below it nest as usual: a `layout.tsx` further down shows inside it and its `Layout` runs. A `layout_.tsx` further down drops it in turn, with everything above it.
-- What belongs to the document still applies: the root Layout's `htmlAttributes` and `documentHead`, and `OnRequest`. What belongs to the Layouts above does not: their `head`, their `Error` and their `LayoutSSR`. When the `Layout` of a `layout_.tsx` fails, or returns `tifa.ErrNotFound`, no Layout is above it to show the error, so the framework's default page shows. Its own `Error` shows for what fails below it, as with any Layout. To show your own page when that `Layout` fails, put the `layout_.tsx` one folder higher, with an `<Outlet />` and an `Error`, as the shop does in `app/store`.
+- What belongs to the document still applies: the root Layout's `htmlAttributes` and `documentHead`, and `OnRequest`. What belongs to the Layouts above does not: their `head`, their `ErrorBoundary` and their `LayoutSSR`. When the `Layout` of a `layout_.tsx` fails, or returns `tifa.ErrNotFound`, no Layout is above it to show the error, so the framework's default page shows. Its own `ErrorBoundary` shows for what fails below it, as with any Layout. To show your own page when that `Layout` fails, put the `layout_.tsx` one folder higher, with an `<Outlet />` and an `ErrorBoundary`, as the shop does in `app/store`.
 - In the browser, a move between a page below it and a page outside it swaps the whole frame, and the Layouts of the new page load their data when the router has none of it yet.
 - The build fails for a `layout_.tsx` in `app/`, which has no Layout above it, for `layout.tsx` and `layout_.tsx` in the same folder, and for `tifa.Use` of a Layout that a `layout_.tsx` drops, from a page or Layout below it. It also fails for a Layout whose pages are all below a `layout_.tsx`, since it wraps none of them.
 - React Router and TanStack Router also end a name with `_` to keep a route out of a Layout, but only out of the Layout of the segment before it: the root route and the Layouts further up still wrap it. Tifa's `layout_.tsx` drops every Layout above it, the root Layout too.
 
 ## 404
 
-A 404 shows in the `Error` of a route (see [Errors on a page](#errors-on-a-page)), which gets it as a `RouteError` with `status` 404:
+A 404 shows in the `ErrorBoundary` of a route (see [Errors on a page](#errors-on-a-page)), which gets it as a `RouteError` with `status` 404:
 
 ```tsx
 import { RouteError } from 'tifa/client'
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) return <p>No such order</p>
   return <p>Something went wrong</p>
 }
@@ -234,10 +234,10 @@ export function Error({ error }: { error: unknown }) {
 
 | Case | What is shown |
 | --- | --- |
-| A page's `Load` returns `tifa.ErrNotFound` | The first `Error` going up from that page. Outer Layouts are shown as usual |
-| A `Layout` function returns `tifa.ErrNotFound` | The first `Error` going up from the Layout one level up |
-| The URL matches no page | The first `Error` going up from the deepest Layout the URL matches, inside that Layout. The Layouts from the outermost one down to it run and show as usual: from the root, or from the `layout_.tsx` above it |
-| No route has an `Error` | The framework's default 404 page |
+| A page's `Load` returns `tifa.ErrNotFound` | The first `ErrorBoundary` going up from that page. Outer Layouts are shown as usual |
+| A `Layout` function returns `tifa.ErrNotFound` | The first `ErrorBoundary` going up from the Layout one level up |
+| The URL matches no page | The first `ErrorBoundary` going up from the deepest Layout the URL matches, inside that Layout. The Layouts from the outermost one down to it run and show as usual: from the root, or from the `layout_.tsx` above it |
+| No route has an `ErrorBoundary` | The framework's default 404 page |
 
 The status code is 404 in all these cases, also after a navigation in the browser, whose data request answers with the data of the Layouts and status 404.
 
@@ -261,28 +261,28 @@ app/teams/new/page.tsx
 
 - A page in a `name++` folder takes every URL below it, so such a URL matches that page, and its `Load` decides what to answer.
 - `OnRequest` runs for a URL that matches no page with an empty `c.Pattern()`. `next(c)` runs the Layouts and returns `tifa.ErrNotFound`. When `OnRequest` returns `tifa.ErrNotFound` itself, without calling `next`, no Layout runs, and the page shows as when the outermost `Layout` of that URL returns `tifa.ErrNotFound`: the root one, or that of the `layout_.tsx` above it.
-- The `Error` of a Layout only ever shows in place of a route below it, in the Layout's `Outlet`, so it can read the Layout's data and the context its component provides. When a Layout fails, the `Error` of the Layout above shows, and when the root Layout or a Layout in `layout_.tsx` fails, the framework's default page.
-- A `NotFound` export in `page.tsx` or `layout.tsx` fails the build. Move what it shows into `Error`, under `error.status === 404`.
+- The `ErrorBoundary` of a Layout only ever shows in place of a route below it, in the Layout's `Outlet`, so it can read the Layout's data and the context its component provides. When a Layout fails, the `ErrorBoundary` of the Layout above shows, and when the root Layout or a Layout in `layout_.tsx` fails, the framework's default page.
+- A `NotFound` export in `page.tsx` or `layout.tsx` fails the build. Move what it shows into `ErrorBoundary`, under `error.status === 404`. An `Error` export fails the build too: rename it to `ErrorBoundary`.
 
 ## Errors on a page
 
-`page.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails, when a 404 shows there (see [404](#404)), or when a component below it throws:
+`page.tsx` and `layout.tsx` can export `ErrorBoundary`, shown in place of that route when its `Load` or `Layout` fails, when a 404 shows there (see [404](#404)), or when a component below it throws:
 
 ```tsx
 import { RouteError } from 'tifa/client'
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 403) return <p>No access</p>
   return <p>Something went wrong</p>
 }
 ```
 
-- A failed `Load` or `Layout` reaches `Error` as a `RouteError` with `status` and the public message (the `tifa.Error` message, or what `OnError` returned). It is the same on the server and after hydration.
-- A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default. The ancestors end at a `layout_.tsx`.
+- A failed `Load` or `Layout` reaches `ErrorBoundary` as a `RouteError` with `status` and the public message (the `tifa.Error` message, or what `OnError` returned). It is the same on the server and after hydration.
+- A route without its own `ErrorBoundary` uses the one of the closest ancestor that exports one, then the framework's default. The ancestors end at a `layout_.tsx`.
 - The status code of the page is that of the outermost failed route.
-- A component that throws while the page renders on the server is an unexpected error: `OnError` sees it once and picks the status (500 without `OnError`) and the public message. The page then renders again with that error in place of the page, as a `RouteError`, so the first `Error` from the page up shows it inside the Layouts. If that render fails too, because the `Error` or a Layout around it throws, the error moves one route up, in place of the Layout the page is in, and so on up to the outermost Layout, the root one or a `layout_.tsx`. Only when the error in place of that Layout fails too does the browser get a plain error page from Go with the status and the public message. The browser hydrates the page with the error where the server put it, and does not run the route that threw again. No browser or CDN keeps such an answer (`Cache-Control: no-store`). The built app remembers it for 5 seconds instead: a request for the same page with the same data and session in that time gets the same answer without a render, and `X-Tifa-Render` says `memo`. Requests that wait for the page at the same time share the renders that place the error. `OnError` still sees every request, the first with the whole error and the others with its first line and a note that it was not rendered again. `tifa dev` remembers nothing, so a fix shows on the next reload. The stack trace shows only under `tifa dev`, over the page with the `Error`, and the page reloads once you save a fix (see [`tifa dev`](dev.md#when-a-page-fails-to-render)).
+- A component that throws while the page renders on the server is an unexpected error: `OnError` sees it once and picks the status (500 without `OnError`) and the public message. The page then renders again with that error in place of the page, as a `RouteError`, so the first `ErrorBoundary` from the page up shows it inside the Layouts. If that render fails too, because the `ErrorBoundary` or a Layout around it throws, the error moves one route up, in place of the Layout the page is in, and so on up to the outermost Layout, the root one or a `layout_.tsx`. Only when the error in place of that Layout fails too does the browser get a plain error page from Go with the status and the public message. The browser hydrates the page with the error where the server put it, and does not run the route that threw again. No browser or CDN keeps such an answer (`Cache-Control: no-store`). The built app remembers it for 5 seconds instead: a request for the same page with the same data and session in that time gets the same answer without a render, and `X-Tifa-Render` says `memo`. Requests that wait for the page at the same time share the renders that place the error. `OnError` still sees every request, the first with the whole error and the others with its first line and a note that it was not rendered again. `tifa dev` remembers nothing, so a fix shows on the next reload. The stack trace shows only under `tifa dev`, over the page with the `ErrorBoundary`, and the page reloads once you save a fix (see [`tifa dev`](dev.md#when-a-page-fails-to-render)).
 - A server render that uses up `ssr.vm_memory` or runs past `ssr.timeout` (see [config.md](config.md)) stops right there. No `catch`, `finally` or promise handler in your code or in a library runs for it, so a page cannot catch it to show something else. The VM is replaced with a fresh one. A render that used up `ssr.vm_memory` renders again with the error once, on a fresh VM, in place of the outermost Layout, since the same data would use up the memory at any level. Its answer is remembered as above. A render that ran past `ssr.timeout`, or found every VM busy, does not: Go answers with its plain error page at once. All the renders of one request share one `ssr.timeout`, counted from the first, and a render with the error that runs out of it ends the tries. Code that recurses without end gets `RangeError: Maximum call stack size exceeded`, as in Node, which a `catch` can take (see [stack depth](config.md#stack-depth)). When nothing catches it, it fails the render like any other error.
 - The page that shows the error gets the head of a page whose `Load` failed. The route the error replaces runs its `head` without data, the routes below it add no tags, and the `head` of every route above it runs again over the matches as they now are, so `status` tells it that a route failed (see [A site in several languages](app.md#a-site-in-several-languages)). Tags and `htmlAttributes` that a route gave for the page that did not render are not on the error page. The browser works out the same head when it hydrates.
-- Once the browser has taken over, a component that throws shows the nearest `Error`, the same as a failed `Load`.
+- Once the browser has taken over, a component that throws shows the nearest `ErrorBoundary`, the same as a failed `Load`.
 - The document shell stays complete whatever fails, so the page still loads its scripts and styles.
 

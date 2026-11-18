@@ -14,7 +14,7 @@ export default function ShopLayout() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) return <p>No such shop.</p>
   return <p role="alert">{error instanceof RouteError ? error.message : 'Something went wrong.'}</p>
 }

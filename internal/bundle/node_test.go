@@ -24,7 +24,7 @@ func TestNodeReadsExports(t *testing.T) {
 		"route.tsx": `import x from './y'
 export default function Page() { return <p>Don't {x}</p> }
 export const head = () => ({})
-export function Error() {}
+export function ErrorBoundary() {}
 export type T = number
 export interface I {}
 export declare const declared: number

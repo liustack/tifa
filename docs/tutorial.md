@@ -58,7 +58,7 @@ Every folder under `app/` is a URL, and the files in it say what the URL does:
 | File | What it is |
 | --- | --- |
 | `app/route.go`, `app/page.tsx` | The page `/`. `Load` in Go returns the data, the page shows it. `POST` takes the form |
-| `app/layout.tsx` | The root Layout around every page, with the nav and the `Error` that shows the 404 |
+| `app/layout.tsx` | The root Layout around every page, with the nav and the `ErrorBoundary` that shows the 404 |
 | `app/todos/todo.go` | The todos domain: the type and the SQLite queries, next to the pages that use it |
 | `app/todos/todo+/` | `/todos/{todo}`. A folder that ends in `+` is a URL parameter, read with `c.Param("todo")` |
 | `app/about/page.tsx` | A page that needs no data: `page.tsx` alone |
@@ -234,7 +234,7 @@ When you save, `tifa dev` regenerates `./route.gen`, and it now exports a `PATCH
 import { useState, type FormEvent } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
 import { RouteError, TifaError } from 'tifa/client'
-import { Error as RootError } from '../../layout'
+import { ErrorBoundary as RootErrorBoundary } from '../../layout'
 import { page, PATCH, POST, type PageData } from './route.gen'
 ```
 

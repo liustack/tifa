@@ -253,8 +253,8 @@ func ruleMiddleware(name string) Rule {
 
 var specialFiles = map[string]struct{ instead, doc string }{
 	"loading":      {"a page renders whole on the server, so there is no loading state to show. A component that waits uses Suspense", docLoading},
-	"error":        {"export Error from page.tsx or layout.tsx, such as export function Error({ error }) { ... }", docErrors},
-	"global-error": {"export Error from the root layout.tsx, such as export function Error({ error }) { ... }", docErrors},
+	"error":        {"export ErrorBoundary from page.tsx or layout.tsx, such as export function ErrorBoundary({ error }) { ... }", docErrors},
+	"global-error": {"export ErrorBoundary from the root layout.tsx, such as export function ErrorBoundary({ error }) { ... }", docErrors},
 	"not-found":    {"a 404 shows in the Error export of page.tsx or layout.tsx: check error instanceof RouteError && error.status === 404", docNotFound},
 }
 

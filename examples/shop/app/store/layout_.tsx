@@ -429,7 +429,7 @@ function StoreFooter() {
 // Error shows inside this Layout when a product, a post or an order does not exist, or the order
 // is another visitor's, so its 404 names none of them. It also shows for a URL of the store that
 // matches no page, in the language of the URL, and for a page that fails.
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   const { t } = useStore()
   const shown = error instanceof RouteError && error.status === 404 ? 'notFound' : 'failed'
   return (

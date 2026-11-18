@@ -2,7 +2,7 @@
 // The client components the Next.js layout and pages of the storefront render: the components of
 // examples/shop as they are, and the providers of their loader data.
 
-import StoreLayoutComponent, { Error as StoreErrorComponent } from '@/app/store/layout_'
+import StoreLayoutComponent, { ErrorBoundary as StoreErrorComponent } from '@/app/store/layout_'
 import HomeComponent from '@/app/store/page'
 import ListComponent from '@/app/store/products/page'
 import ProductComponent from '@/app/store/products/product+/page'

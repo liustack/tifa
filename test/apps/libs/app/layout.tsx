@@ -18,7 +18,7 @@ export default function Root() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) return <p>This page does not exist.</p>
   return <p>Something went wrong.</p>
 }

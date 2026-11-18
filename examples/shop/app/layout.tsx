@@ -387,7 +387,7 @@ function Notifications({ projects }: { projects: Project[] }) {
 
 // Error shows inside this Layout when a project does not exist or fails to load, and for a URL
 // that matches no page.
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   const missing = error instanceof RouteError && error.status === 404
   return (
     <Empty className="min-h-[60vh]">

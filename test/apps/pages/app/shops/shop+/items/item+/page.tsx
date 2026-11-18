@@ -19,7 +19,7 @@ export default function ItemPage() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   if (error instanceof RouteError && error.status === 404) return <p>No such item.</p>
   return <p role="alert">{error instanceof globalThis.Error ? error.message : 'Failed'}</p>
 }

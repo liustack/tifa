@@ -46,7 +46,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 `,
 	"app/throws/page.tsx": "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/fails/page.tsx": "export default function Fails(): never {\n  throw new globalThis.Error('PAGE_FAILS')\n}\n\n" +
-		"export function Error(): never {\n  throw new globalThis.Error('ERROR_FAILS')\n}\n",
+		"export function ErrorBoundary(): never {\n  throw new globalThis.Error('ERROR_FAILS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
 	"app/legacy/page.tsx":   "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
 	// A component that suspends on a promise that never settles, and a lazy one whose import
@@ -106,7 +106,7 @@ export default function Forbidden() {
   return <p>{page.useLoaderData()}</p>
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   return <p>{error instanceof RouteError ? 'FORBIDDEN_' + error.status : 'OTHER'}</p>
 }
 `,
@@ -130,7 +130,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start404 := "export function Error({ error }: { error: unknown }) {\n"
+	start404 := "export function ErrorBoundary({ error }: { error: unknown }) {\n"
 	looping := strings.Replace(string(data), start404, start404+"  if (error instanceof RouteError && error.status === 404) for (;;) {}\n", 1)
 	if looping == string(data) {
 		t.Fatal("app/layout.tsx has no Error to change")

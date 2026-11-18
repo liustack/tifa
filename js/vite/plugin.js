@@ -2066,7 +2066,7 @@ export function lazyRoutes(environments = ['client']) {
 }
 
 // lazyRouteModule is the stand-in lazyRoutes gives routes.tsx for the route module module, with
-// lazyRouteComponent imported from router. routes.tsx reads default, head and Error of
+// lazyRouteComponent imported from router. routes.tsx reads default, head and ErrorBoundary of
 // a route module (TestHeadModulesReadOnlyWhatTheirStandInExports in internal/codegen holds it to
 // that). A stand-in for an export the module lacks is never read, and the bundler leaves it out.
 export function lazyRouteModule(router, module) {
@@ -2074,8 +2074,8 @@ export function lazyRouteModule(router, module) {
     `import { lazyRouteComponent } from ${JSON.stringify(router)}\n` +
     `const load = () => import(${JSON.stringify(module)})\n` +
     'export default lazyRouteComponent(load)\n' +
-    'const error = /* @__PURE__ */ lazyRouteComponent(load, "Error")\n' +
-    'export { error as Error }\n' +
+    'const error = /* @__PURE__ */ lazyRouteComponent(load, "ErrorBoundary")\n' +
+    'export { error as ErrorBoundary }\n' +
     'export const head = (context) => load().then((module) => module.head(context))\n'
   )
 }

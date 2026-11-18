@@ -11,6 +11,6 @@ export default function ProjectLayout() {
   )
 }
 
-export function Error() {
+export function ErrorBoundary() {
   return <p>project failed</p>
 }

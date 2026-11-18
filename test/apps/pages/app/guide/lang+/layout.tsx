@@ -30,7 +30,7 @@ export default function GuideLayout() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
+export function ErrorBoundary({ error }: { error: unknown }) {
   const guide = layout.useLoaderData()
   if (error instanceof RouteError && error.status === 404) return <p>{guide.notFound}</p>
   return <p role="alert">{error instanceof RouteError ? error.message : 'Something went wrong.'}</p>
