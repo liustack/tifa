@@ -56,7 +56,7 @@ myapp/
 | File | Holds |
 | --- | --- |
 | `route.go` | All Go names of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Memo`, `Cache`, `BodyLimit`, `ReadTimeout` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
-| `page.tsx` | The page component (default export), and optional `head` and `Error` exports |
+| `page.tsx` | The page component (default export), and optional `head` and `ErrorBoundary` exports |
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |
 | `route.gen` | Generated typed module you import, never create it: `import { page, POST, type PageData } from './route.gen'` |
@@ -93,14 +93,14 @@ Sessions (see `references/routing-and-data.md`):
 
 Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/app.md#coming-from-another-framework`).
 
-Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFound` or `Document`, declaring `const Path`, a `form` struct tag, `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `Error` export, with a check `error instanceof RouteError && error.status === 404`.
+Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFound`, `Document` or `Error` (rename it to `ErrorBoundary`), declaring `const Path`, a `form` struct tag (also in a struct passed to `c.Bind` or `c.BindQuery`), `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `ErrorBoundary` export, with a check `error instanceof TifaError && error.status === 404`.
 
 Build and deploy:
 
 14. Forgetting to reload page data after a write. Tifa does not reload it, also not after a function from `route.gen`. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
 15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the Tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
 16. Changing the React or TanStack Router versions by hand. Tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build says which when they are wrong.
-17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Answers are `private, no-cache` by default, since a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = true` (time: `cache_control.s_maxage`, 1m by default) or `const Cache = 10 * time.Minute` in its `route.go`, and Tifa sends the public headers itself. Navigation data is never public. `Memo = false` only turns the render memo off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
+17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Answers are `private, no-cache` by default, since a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = true` (time: `cache.s_maxage`, 1m by default) or `const Cache = 10 * time.Minute` in its `route.go`, and Tifa sends the public headers itself. Navigation data is never public. `Memo = false` only turns the render memo off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
 18. Editing `schema.sql` of a `tifa new` app and expecting `tifa dev` to pick it up. It does not watch that file, so restart it.
 
 ## References

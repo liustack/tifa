@@ -1,4 +1,7 @@
-import { useState, type FormEvent } from 'react'
+{{if .Empty}}export default function HomePage() {
+  return <h1>{{.Title}}</h1>
+}
+{{else}}import { useState, type FormEvent } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
 import { TifaError } from 'tifa/client'
 import { page, POST, type PageData } from './route.gen'
@@ -90,3 +93,4 @@ function AddTodo() {
     </form>
   )
 }
+{{end}}

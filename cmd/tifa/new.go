@@ -47,6 +47,8 @@ type newApp struct {
 	ReactRouter string
 	// Written says which tifa wrote the notes and the skill: Tifa v0.0.5, or a development build of Tifa.
 	Written string
+	// Empty is set by --empty: the skeleton without the todo list.
+	Empty bool
 }
 
 // lookPath finds a program on PATH. Tests replace it.
@@ -62,6 +64,7 @@ func packageManager() (install, run string) {
 
 func newNewCmd() *cobra.Command {
 	var modulePath string
+	var empty bool
 	cmd := &cobra.Command{
 		Use:   "new <dir>",
 		Short: "Create a new application in an empty directory",
@@ -70,7 +73,10 @@ the database in the root package, the todos domain next to its pages under app/,
 tifa.yaml, notes for coding agents (AGENTS.md) and the Tifa skill in
 .claude/skills/tifa, the same files tifa agents writes. It runs nothing and needs no
 network. The next steps it prints download the Go and npm dependencies, with pnpm when it is on
-PATH and npm otherwise.`,
+PATH and npm otherwise.
+
+With --empty the app is a skeleton with no todo list: the same root files and the sessions
+table, a root Layout and a home page of one line.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
@@ -86,6 +92,7 @@ PATH and npm otherwise.`,
 			if err != nil {
 				return err
 			}
+			app.Empty = empty
 			app.Install, app.Run = packageManager()
 			if app.Go, err = goDirective(runtime.Version()); err != nil {
 				return err
@@ -116,6 +123,7 @@ PATH and npm otherwise.`,
 		},
 	}
 	cmd.Flags().StringVar(&modulePath, "module", "", "module path of the app (default: the name of dir)")
+	cmd.Flags().BoolVar(&empty, "empty", false, "write a skeleton without the todo list")
 	return cmd
 }
 
@@ -274,6 +282,9 @@ func writeApp(dir string, app newApp) error {
 			return err
 		}
 		rel := strings.TrimSuffix(strings.TrimPrefix(name, "newapp/"), ".tmpl")
+		if app.Empty && todoFile(rel) {
+			return nil
+		}
 		// A folder or file whose name starts with a dot is left out of an embedded folder.
 		switch rel {
 		case "gitignore":
@@ -287,6 +298,16 @@ func writeApp(dir string, app newApp) error {
 		}
 		return os.WriteFile(target, out, 0o644)
 	})
+}
+
+// todoFile reports whether rel, a path of newapp without .tmpl, belongs to the todo list that an
+// app made with --empty leaves out.
+func todoFile(rel string) bool {
+	switch rel {
+	case "app/about/page.tsx", "app/route.go", "app/route_test.go":
+		return true
+	}
+	return strings.HasPrefix(rel, "app/todos/")
 }
 
 // renderFile runs the template name of files with app.

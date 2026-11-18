@@ -9,7 +9,7 @@ export const metadata = 'shop'
 export const revalidate = () => 60
 export const dynamic = true
 export const head = () => ({ meta: [] })
-export function Error() { return null }
+export function ErrorBoundary() { return null }
 
 function getServerSideProps() {}
 function createServerFn() {}

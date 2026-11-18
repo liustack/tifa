@@ -113,13 +113,13 @@ func TestCachePageStaysPrivateWhenALoadSaysSo(t *testing.T) {
 	}
 }
 
-// serverWithCache builds a server whose cache_control.s_maxage is sMaxage (the default when zero) and
+// serverWithCache builds a server whose cache.s_maxage is sMaxage (the default when zero) and
 // that has the page /a with the Cache the route gives.
 func serverWithCache(t *testing.T, sMaxage time.Duration, route Route) *server {
 	t.Helper()
 	cfg := config.Default()
 	if sMaxage != 0 {
-		cfg.CacheControl.SMaxage = sMaxage
+		cfg.Cache.SMaxage = sMaxage
 	}
 	app := frontApp()
 	route.ID, route.Path, route.Page, route.SSR, route.Layouts = "app/a", "/a", true, true, []string{"app/layout"}
@@ -138,9 +138,9 @@ func sharedFor(seconds string) string {
 	return "public, max-age=0, s-maxage=" + seconds + ", stale-if-error=86400"
 }
 
-// const Cache = true takes its time from cache_control.s_maxage, 1m unless the setting says another.
+// const Cache = true takes its time from cache.s_maxage, 1m unless the setting says another.
 func TestCacheTrueUsesTheSettingForItsTime(t *testing.T) {
-	if got := config.Default().CacheControl.SMaxage; got != time.Minute {
+	if got := config.Default().Cache.SMaxage; got != time.Minute {
 		t.Fatalf("the default s_maxage is %v, want 1m", got)
 	}
 	if cc := cacheControl(get(serverWithCache(t, 0, Route{CacheDefault: true}), "/a")); cc != sharedFor("60") {

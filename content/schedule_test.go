@@ -132,15 +132,15 @@ func watch(t *testing.T) func() int {
 func ids(posts []post) []string {
 	var out []string
 	for _, p := range posts {
-		out = append(out, p.Lang+"/"+p.ID)
+		out = append(out, p.Language+"/"+p.ID)
 	}
 	return out
 }
 
-func langs(ts []Translation) []string {
+func languages(ts []Translation) []string {
 	var out []string
 	for _, x := range ts {
-		out = append(out, x.Lang)
+		out = append(out, x.Language)
 	}
 	return out
 }
@@ -164,7 +164,7 @@ func TestEntriesArePublishedAtTheirDate(t *testing.T) {
 		t.Fatalf("All before the date = %q", got)
 	}
 	launch, _ := blog.Get("zh-CN", "202611/launch")
-	if got := langs(launch.Translations); !slices.Equal(got, []string{"zh-CN"}) {
+	if got := languages(launch.Translations); !slices.Equal(got, []string{"zh-CN"}) {
 		t.Errorf("Translations before the date = %q", got)
 	}
 	if _, err := blog.Get("en", "202611/release-notes"); !errors.Is(err, tifa.ErrNotFound) {
@@ -186,8 +186,8 @@ func TestEntriesArePublishedAtTheirDate(t *testing.T) {
 	}
 	launch, _ = blog.Get("zh-CN", "202611/launch")
 	notes, err := blog.Get("en", "202611/release-notes")
-	if err != nil || !slices.Equal(langs(launch.Translations), []string{"zh-CN", "en"}) || !slices.Equal(langs(notes.Translations), []string{"zh-CN", "en"}) {
-		t.Errorf("Translations at the date = %q and %q, %v", langs(launch.Translations), langs(notes.Translations), err)
+	if err != nil || !slices.Equal(languages(launch.Translations), []string{"zh-CN", "en"}) || !slices.Equal(languages(notes.Translations), []string{"zh-CN", "en"}) {
+		t.Errorf("Translations at the date = %q and %q, %v", languages(launch.Translations), languages(notes.Translations), err)
 	}
 	if published() != 1 {
 		t.Errorf("published was called %d times", published())

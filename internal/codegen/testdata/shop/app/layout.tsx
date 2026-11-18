@@ -10,6 +10,6 @@ export default function Root() {
   )
 }
 
-export function Error() {
+export function ErrorBoundary() {
   return <p>missing</p>
 }

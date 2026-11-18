@@ -117,7 +117,7 @@ func (s *scanner) undeclared(declared []string) {
 
 // candidate is a Markdown file that may be an entry.
 type candidate struct {
-	lang   string
+	language   string
 	rel    string // below the language folder, or the collection folder without languages
 	file   string // relative to the app root, such as content/blog/en/a/index.md
 	bundle bool   // index.md of a folder of its own
@@ -201,7 +201,7 @@ func (s *scanner) collection(c Collection) {
 		if c.LanguagesAt != "" {
 			at = c.LanguagesAt
 		}
-		byLang := map[string][]candidate{}
+		byLanguage := map[string][]candidate{}
 		for _, e := range entries {
 			name, p := e.Name(), dir+"/"+e.Name()
 			if skipped(name) {
@@ -217,7 +217,7 @@ func (s *scanner) collection(c Collection) {
 					s.fail(p, "not a language of the collection %s (%s), set in %s", c.Name, strings.Join(c.Languages, ", "), at)
 					continue
 				}
-				byLang[name] = s.walk(p, name, "", []string{s.limit, real})
+				byLanguage[name] = s.walk(p, name, "", []string{s.limit, real})
 			case strings.HasSuffix(name, ".mdx"):
 				s.mdx(p)
 			case strings.HasSuffix(name, ".md"):
@@ -225,7 +225,7 @@ func (s *scanner) collection(c Collection) {
 			}
 		}
 		for _, l := range c.Languages {
-			cands = append(cands, byLang[l]...)
+			cands = append(cands, byLanguage[l]...)
 		}
 	}
 	if c.Match != "" {
@@ -234,7 +234,7 @@ func (s *scanner) collection(c Collection) {
 	// In path order, so that guide.md comes before guide/index.md, and of two entries that
 	// clash the later one is reported.
 	slices.SortStableFunc(cands, func(a, b candidate) int {
-		return cmp.Or(cmp.Compare(slices.Index(c.Languages, a.lang), slices.Index(c.Languages, b.lang)), cmp.Compare(a.rel, b.rel))
+		return cmp.Or(cmp.Compare(slices.Index(c.Languages, a.language), slices.Index(c.Languages, b.language)), cmp.Compare(a.rel, b.rel))
 	})
 	recs, md := s.entries(c, cands)
 	if len(s.res.Errors) > before {
@@ -242,7 +242,7 @@ func (s *scanner) collection(c Collection) {
 	}
 	s.res.Markdown = append(s.res.Markdown, md...)
 	slices.SortStableFunc(recs, func(a, b content.Record) int {
-		return cmp.Or(cmp.Compare(a.ID, b.ID), cmp.Compare(slices.Index(c.Languages, a.Lang), slices.Index(c.Languages, b.Lang)))
+		return cmp.Or(cmp.Compare(a.ID, b.ID), cmp.Compare(slices.Index(c.Languages, a.Language), slices.Index(c.Languages, b.Language)))
 	})
 	s.res.File[c.Name] = recs
 	s.missing(c, recs)
@@ -282,7 +282,7 @@ func isDir(p string) bool {
 // the language folder starts with rel. A folder holding index.md is one entry, and nothing below
 // it is another. base itself is never such a folder. folders holds the real paths of the folders
 // from the collection folder down to this one, which a link must not lead back to.
-func (s *scanner) walk(base, lang, rel string, folders []string) []candidate {
+func (s *scanner) walk(base, language, rel string, folders []string) []candidate {
 	dir := path.Join(base, rel)
 	here := folders[len(folders)-1]
 	entries, err := os.ReadDir(here)
@@ -311,12 +311,12 @@ func (s *scanner) walk(base, lang, rel string, folders []string) []candidate {
 			switch {
 			case fileExists(filepath.Join(real, "index.md")):
 				if s.inside(p + "/index.md") {
-					out = append(out, candidate{lang: lang, rel: r + "/index.md", file: p + "/index.md", bundle: true})
+					out = append(out, candidate{language: language, rel: r + "/index.md", file: p + "/index.md", bundle: true})
 				}
 			case fileExists(filepath.Join(real, "index.mdx")):
 				s.mdx(p + "/index.mdx")
 			default:
-				out = append(out, s.walk(base, lang, r, append(slices.Clip(folders), real))...)
+				out = append(out, s.walk(base, language, r, append(slices.Clip(folders), real))...)
 			}
 			continue
 		}
@@ -324,7 +324,7 @@ func (s *scanner) walk(base, lang, rel string, folders []string) []candidate {
 		case strings.HasSuffix(name, ".mdx"):
 			s.mdx(p)
 		case strings.HasSuffix(name, ".md"):
-			out = append(out, candidate{lang: lang, rel: r, file: p})
+			out = append(out, candidate{language: language, rel: r, file: p})
 		}
 	}
 	return out
@@ -384,31 +384,31 @@ func (s *scanner) entries(c Collection, cands []candidate) ([]content.Record, []
 		}
 		group := cmp.Or(m.group, id)
 		here := func(at pos) seenAt { return seenAt{x.file, at} }
-		if other, ok := ids[[2]string{x.lang, id}]; ok {
+		if other, ok := ids[[2]string{x.language, id}]; ok {
 			s.fail(x.file, "the ID %s is also the ID of %s", id, other.file)
 			continue
 		}
-		ids[[2]string{x.lang, id}] = here(pos{})
-		if other, ok := paths[[2]string{x.lang, entryPath}]; ok {
+		ids[[2]string{x.language, id}] = here(pos{})
+		if other, ok := paths[[2]string{x.language, entryPath}]; ok {
 			s.clash(here(m.slugAt), other, "the path %s is also the path of %s", entryPath)
 			continue
 		}
-		paths[[2]string{x.lang, entryPath}] = here(m.slugAt)
-		if other, ok := groups[[2]string{x.lang, group}]; ok {
+		paths[[2]string{x.language, entryPath}] = here(m.slugAt)
+		if other, ok := groups[[2]string{x.language, group}]; ok {
 			s.clash(here(m.groupAt), other, "translationKey %q is also used by %s: a language has one entry per translation", group)
 			continue
 		}
-		groups[[2]string{x.lang, group}] = here(m.groupAt)
+		groups[[2]string{x.language, group}] = here(m.groupAt)
 		if m.draft && !s.opts.Drafts {
 			continue
 		}
-		out := content.BodyFile(c.Name, x.lang, id)
+		out := content.BodyFile(c.Name, x.language, id)
 		recs = append(recs, content.Record{
-			ID: id, Lang: x.lang, Slug: slug, Path: entryPath, Group: group,
+			ID: id, Language: x.language, Slug: slug, Path: entryPath, Group: group,
 			Date: m.date, Draft: m.draft, Words: countWords(m.body), Source: x.file, File: out, Data: m.data,
 		})
 		md = append(md, content.Markdown{
-			Collection: c.Name, Lang: x.lang, ID: id, Source: x.file, Out: out,
+			Collection: c.Name, Language: x.language, ID: id, Source: x.file, Out: out,
 			Text: strings.Repeat("\n", m.lines) + string(m.body), Frontmatter: m.data,
 		})
 	}
@@ -416,7 +416,7 @@ func (s *scanner) entries(c Collection, cands []candidate) ([]content.Record, []
 	// too, a draft or one still to come included.
 	if len(c.Languages) > 0 {
 		for i := range md {
-			if md[i].Lang == c.Languages[0] {
+			if md[i].Language == c.Languages[0] {
 				continue
 			}
 			if other, ok := groups[[2]string{c.Languages[0], recs[i].Group}]; ok {
@@ -442,23 +442,23 @@ func (s *scanner) missing(c Collection, recs []content.Record) {
 	if len(c.Languages) < 2 {
 		return
 	}
-	langs := map[string]map[string]bool{} // by group
+	languages := map[string]map[string]bool{} // by group
 	first := map[string]string{}          // the ID of the first version of each group
 	var order []string
 	for _, r := range recs {
-		if langs[r.Group] == nil {
-			langs[r.Group] = map[string]bool{}
+		if languages[r.Group] == nil {
+			languages[r.Group] = map[string]bool{}
 			order = append(order, r.Group)
 		}
-		langs[r.Group][r.Lang] = true
-		if _, ok := first[r.Group]; !ok || r.Lang == c.Languages[0] {
+		languages[r.Group][r.Language] = true
+		if _, ok := first[r.Group]; !ok || r.Language == c.Languages[0] {
 			first[r.Group] = r.ID
 		}
 	}
 	for _, l := range c.Languages {
 		var ids []string
 		for _, g := range order {
-			if !langs[g][l] {
+			if !languages[g][l] {
 				ids = append(ids, first[g])
 			}
 		}

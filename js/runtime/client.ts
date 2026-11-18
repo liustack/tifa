@@ -1,11 +1,11 @@
 // The module "tifa/client": what page code imports from the framework.
 export { clientOnly } from './client-only'
-export { RouteError } from './data'
-export { TifaError } from './call'
+export { TifaError } from './data'
 export { SignedIn, SignedOut, useSession } from './session'
 export { useLanguage } from './language'
 export { useAlternates } from './alternates'
 export type { Alternate } from './alternates'
 export type { SessionResult } from './session'
+export type { SessionData } from '../session.gen'
 export { HTML } from './html'
 export type { HTMLHolder, HTMLProps } from './html'

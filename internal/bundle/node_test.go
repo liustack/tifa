@@ -24,7 +24,7 @@ func TestNodeReadsExports(t *testing.T) {
 		"route.tsx": `import x from './y'
 export default function Page() { return <p>Don't {x}</p> }
 export const head = () => ({})
-export function Error() {}
+export function ErrorBoundary() {}
 export type T = number
 export interface I {}
 export declare const declared: number
@@ -44,7 +44,7 @@ export const { a, b: [c] } = { a: 1, b: [2] }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Error", "NotFound", "Zed", "a", "c", "default", "head", "ns"}; !slices.Equal(got[route], want) {
+	if want := []string{"ErrorBoundary", "NotFound", "Zed", "a", "c", "default", "head", "ns"}; !slices.Equal(got[route], want) {
 		t.Errorf("route.tsx exports %q, want %q", got[route], want)
 	}
 	if want := []string{"htmlAttributes"}; !slices.Equal(got[layout], want) {

@@ -106,7 +106,7 @@ func TestUseTurnsPanicIntoError(t *testing.T) {
 type input struct {
 	Name  string   `json:"name"`
 	Count int      `json:"count"`
-	Tags  []string `form:"tag"`
+	Tags  []string `json:"tag"`
 	Ready bool     `json:"ready"`
 }
 
@@ -465,5 +465,18 @@ func TestAlternatesAreWhatTheLastLoadSet(t *testing.T) {
 	c.SetAlternates(nil)
 	if got, set := AlternatesOf(c); !set || len(got) != 0 {
 		t.Errorf("after SetAlternates(nil): %v (set %t)", got, set)
+	}
+}
+
+// A form tag names nothing: Bind reads json tags and Go names, as a typed handler input does.
+func TestBindIgnoresFormTags(t *testing.T) {
+	type in struct {
+		Name string `form:"n" json:"name"`
+		Page int    `form:"p"`
+	}
+	c, _ := newCtx("POST", "name=a&n=b&Page=2&p=9", "application/x-www-form-urlencoded", 1024)
+	var got in
+	if err := c.Bind(&got); err != nil || got.Name != "a" || got.Page != 2 {
+		t.Fatalf("%v %+v", err, got)
 	}
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -119,32 +120,39 @@ func TestServeIsTheDefaultCommand(t *testing.T) {
 	}
 }
 
-// The flags of the removed settings are refused with what to do instead, whatever the command.
-func TestRemovedFlagsSayWhatToDo(t *testing.T) {
+// The flags and variables of retired settings still work as far as starting goes. Each gets one
+// warning that says what to do instead.
+func TestRetiredSettingsWarnAndStart(t *testing.T) {
 	for _, tc := range []struct {
-		args []string
-		want []string
+		args    []string
+		environ []string
+		want    []string
 	}{
-		{[]string{"--cache-size=0"}, []string{"cache.size", "--ssr-memo-size", "SSR_MEMO_SIZE"}},
-		{[]string{"--cache-size", "0"}, []string{"--ssr-memo-size"}},
-		{[]string{"--cache-whole-page"}, []string{"cache.whole_page", "removed"}},
-		{[]string{"--cache-whole-page=false"}, []string{"cache.whole_page", "removed"}},
-		{[]string{"serve", "--cache-ignore-query=ref"}, []string{"cache.ignore_query", "removed"}},
-		{[]string{"config", "--cache-size=0"}, []string{"--ssr-memo-size"}},
+		{[]string{"config", "--cache-size=0"}, nil, []string{"cache.size", "no longer used", "--ssr-memo-size", "SSR_MEMO_SIZE"}},
+		{[]string{"config", "--cache-size", "0"}, nil, []string{"--ssr-memo-size"}},
+		{[]string{"config", "--cache-whole-page"}, nil, []string{"cache.whole_page", "no longer used"}},
+		{[]string{"config", "--cache-control-s-maxage", "5m"}, nil, []string{"cache_control.s_maxage", "--cache-s-maxage", "CACHE_S_MAXAGE"}},
+		{[]string{"config"}, []string{"CACHE_CONTROL_S_MAXAGE=5m"}, []string{"env CACHE_CONTROL_S_MAXAGE", "cache.s_maxage"}},
 	} {
-		_, _, err := runApp(t, context.Background(), App{}, nil, tc.args...)
-		if err == nil {
-			t.Errorf("%v: no error", tc.args)
-			continue
+		var logs bytes.Buffer
+		old := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+		_, _, err := runApp(t, context.Background(), App{}, tc.environ, tc.args...)
+		slog.SetDefault(old)
+		if err != nil {
+			t.Errorf("%v: %v", tc.args, err)
+		}
+		if strings.Count(logs.String(), "level=WARN") != 1 {
+			t.Errorf("%v: log %q", tc.args, logs.String())
 		}
 		for _, w := range tc.want {
-			if !strings.Contains(err.Error(), w) {
-				t.Errorf("%v: %q lacks %q", tc.args, err, w)
+			if !strings.Contains(logs.String(), w) {
+				t.Errorf("%v: log %q lacks %q", tc.args, logs.String(), w)
 			}
 		}
 	}
 	// A flag that never existed stays what Cobra says.
-	if _, _, err := runApp(t, context.Background(), App{}, nil, "--cache-nope"); err == nil || !strings.Contains(err.Error(), "unknown flag") || strings.Contains(err.Error(), "removed") {
+	if _, _, err := runApp(t, context.Background(), App{}, nil, "--cache-nope"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Errorf("unknown flag: %v", err)
 	}
 }

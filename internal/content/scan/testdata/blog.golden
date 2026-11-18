@@ -4,7 +4,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
   "blog": [
     {
       "id": "202608/free-search",
-      "lang": "zh-CN",
+      "language": "zh-CN",
       "slug": "free-search",
       "path": "202608/free-search",
       "group": "202608/free-search",
@@ -25,7 +25,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "202608/free-search",
-      "lang": "en",
+      "language": "en",
       "slug": "free-web-search",
       "path": "202608/free-web-search",
       "group": "202608/free-search",
@@ -43,7 +43,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "202611/launch",
-      "lang": "zh-CN",
+      "language": "zh-CN",
       "slug": "launch",
       "path": "202611/launch",
       "group": "launch-2026-11",
@@ -58,7 +58,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "202611/release-notes",
-      "lang": "en",
+      "language": "en",
       "slug": "release-notes",
       "path": "202611/release-notes",
       "group": "launch-2026-11",
@@ -73,7 +73,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "about",
-      "lang": "zh-CN",
+      "language": "zh-CN",
       "slug": "about",
       "path": "about",
       "group": "about",
@@ -89,7 +89,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
   "docs": [
     {
       "id": "guide",
-      "lang": "en",
+      "language": "en",
       "slug": "guide",
       "path": "guide",
       "group": "guide",
@@ -103,7 +103,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "guide/data",
-      "lang": "en",
+      "language": "en",
       "slug": "data",
       "path": "guide/data",
       "group": "guide/data",
@@ -117,7 +117,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "guide/routing",
-      "lang": "en",
+      "language": "en",
       "slug": "routing",
       "path": "guide/routing",
       "group": "guide/routing",
@@ -131,7 +131,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "index",
-      "lang": "zh-CN",
+      "language": "zh-CN",
       "slug": "index",
       "path": "index",
       "group": "index",
@@ -144,7 +144,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "index",
-      "lang": "en",
+      "language": "en",
       "slug": "index",
       "path": "index",
       "group": "index",
@@ -157,7 +157,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "install",
-      "lang": "zh-CN",
+      "language": "zh-CN",
       "slug": "install",
       "path": "install",
       "group": "install",
@@ -171,7 +171,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
     },
     {
       "id": "install",
-      "lang": "en",
+      "language": "en",
       "slug": "install",
       "path": "install",
       "group": "install",

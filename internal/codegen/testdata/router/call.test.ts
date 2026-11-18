@@ -6,6 +6,7 @@ import { POST as upload } from './app/api/photos/route.gen'
 import { setRouter } from './.tifa/runtime/call'
 import { resetReloads } from './.tifa/runtime/skew'
 import { TifaError } from 'tifa/client'
+import { TifaError as RouteSideError } from './.tifa/runtime/data'
 import { sessionSnapshot, startSession } from './.tifa/runtime/session'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -123,6 +124,8 @@ assert(requests.length === sentBeforeWrite + 1 && invalidated() === 0, `a write 
 // An error answer throws TifaError and refreshes nothing.
 answer = () => Response.json({ error: 'Unprocessable Entity', fields: { text: 'write something' } }, { status: 422 })
 const failed = await caught(POST({ params: { note: '1' }, input: { text: '', next: null } }))
+// The error of a call and the error a failed route gives its ErrorBoundary are one class.
+assert(failed instanceof RouteSideError && RouteSideError === TifaError, 'a call error is the TifaError of the routes')
 assert(failed instanceof TifaError && failed.status === 422 && failed.fields.text === 'write something', `422: ${failed}`)
 assert(invalidated() === 0, "a failure reloaded")
 answer = () => new Response('bad gateway', { status: 502, statusText: 'Bad Gateway' })

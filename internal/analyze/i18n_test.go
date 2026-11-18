@@ -243,7 +243,7 @@ func TestContentTakesTheLanguagesOfTheSite(t *testing.T) {
 	}
 	var langs []string
 	for _, r := range m.Content.File["journal"] {
-		langs = append(langs, r.Lang+"/"+r.ID)
+		langs = append(langs, r.Language+"/"+r.ID)
 	}
 	if want := []string{"zh-CN/hello", "en-US/hello", "zh-CN/only-zh"}; !reflect.DeepEqual(langs, want) {
 		t.Errorf("entries = %v, want %v", langs, want)

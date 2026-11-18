@@ -16,12 +16,14 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/langs"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
@@ -531,6 +533,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
 	a.checkDirectCalls()
+	a.checkBindTags()
 	a.propagateQuery(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
@@ -542,7 +545,7 @@ func (a *analyzer) build() *Manifest {
 	for _, r := range routes {
 		m.Routes = append(m.Routes, r.Route)
 	}
-	m.Warnings = a.bigSourceWarnings(m)
+	m.Warnings = append(a.retiredWarnings(), a.bigSourceWarnings(m)...)
 	return m
 }
 
@@ -1338,7 +1341,7 @@ func (a *analyzer) hooks() []string {
 }
 
 // cacheConst reads Cache, which lets a shared cache in front of the program keep the page. It is true,
-// which leaves the time to the setting cache_control.s_maxage (the second result), false for none, or
+// which leaves the time to the setting cache.s_maxage (the second result), false for none, or
 // a time.Duration constant of at least a second, such as 10 * time.Minute (the first result). Both are
 // zero/false when the page does not set it.
 func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
@@ -1450,4 +1453,56 @@ func (a *analyzer) routeLimits(pkg *packages.Package, handlers bool) (bodyLimit,
 		return isNamed(t, "time", "Duration")
 	}, "a time.Duration constant or variable, such as const ReadTimeout = 5 * time.Minute, or var ReadTimeout = UploadTime for a setting made with tifa.Duration")
 	return bodyLimit, readTimeout
+}
+
+// checkBindTags reports a form tag in a struct passed to c.Bind or c.BindQuery, as it does for the
+// input of a typed handler: those read a field by its json tag only. The argument is checked by its
+// static type, so a value behind an interface or built by reflection is not seen.
+func (a *analyzer) checkBindTags() {
+	for _, pkg := range a.pkgs {
+		for _, f := range pkg.Syntax {
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) != 1 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "Bind" && sel.Sel.Name != "BindQuery") {
+					return true
+				}
+				fn, ok := pkg.TypesInfo.Uses[sel.Sel].(*types.Func)
+				if !ok || fn.Signature().Recv() == nil {
+					return true
+				}
+				if named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named); !ok || !isCtxNamed(named) {
+					return true
+				}
+				t := pkg.TypesInfo.TypeOf(call.Args[0])
+				if t == nil {
+					return true
+				}
+				root := types.ExprString(call.Args[0])
+				root = strings.TrimPrefix(root, "&")
+				walkFields(t, root, map[types.Type]bool{}, func(path string, field *types.Var, tag string) {
+					if _, has := reflect.StructTag(tag).Lookup("form"); has {
+						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag: c.%s names a field by its json tag only, as a typed handler input does, so remove the form tag", sel.Sel.Name, path, sel.Sel.Name), field))
+					}
+				})
+				return true
+			})
+		}
+	}
+}
+
+// retiredWarnings reports the retired keys that tifa.yaml still holds. They do not stop the build.
+func (a *analyzer) retiredWarnings() []Warning {
+	data, err := os.ReadFile(filepath.Join(a.root, "tifa.yaml"))
+	if err != nil {
+		return nil
+	}
+	var out []Warning
+	for _, w := range config.ProjectWarnings(data) {
+		out = append(out, Warning{Pos: token.Position{Filename: "tifa.yaml"}, Msg: w})
+	}
+	return out
 }

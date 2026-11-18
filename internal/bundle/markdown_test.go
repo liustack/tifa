@@ -89,10 +89,10 @@ func convertWith(t *testing.T, root string, entries []content.Markdown, links *c
 
 // markdownEntry is an entry of collection blog to convert, whose Markdown is in the app at source.
 // Its front matter is three lines.
-func markdownEntry(lang, id, source, fallback, body string) content.Markdown {
+func markdownEntry(language, id, source, fallback, body string) content.Markdown {
 	return content.Markdown{
-		Collection: "blog", Lang: lang, ID: id, Source: source, Fallback: fallback,
-		Out: content.BodyFile("blog", lang, id), Text: "\n\n\n" + body,
+		Collection: "blog", Language: language, ID: id, Source: source, Fallback: fallback,
+		Out: content.BodyFile("blog", language, id), Text: "\n\n\n" + body,
 		Frontmatter: []byte(`{"title":"T"}`),
 	}
 }
@@ -144,7 +144,7 @@ function rehypeSee() {
     visit(tree)
     const t = file.data.tifa
     tree.children.push({ type: 'element', tagName: 'p', properties: { id: 'seen' }, children: [{ type: 'text',
-      value: [ids.join(','), srcs.join(','), comments, file.path.endsWith('/content/blog/en/a/index.md'), t.collection, t.lang, t.id, t.frontmatter.title].join(' | ') }] })
+      value: [ids.join(','), srcs.join(','), comments, file.path.endsWith('/content/blog/en/a/index.md'), t.collection, t.language, t.id, t.frontmatter.title].join(' | ') }] })
   }
 }
 markdown = { remarkPlugins: [remarkShout], rehypePlugins: [rehypeSee] }

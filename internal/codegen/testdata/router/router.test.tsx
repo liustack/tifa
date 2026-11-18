@@ -8,7 +8,7 @@ import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { alternateTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
-import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
+import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { SessionContext } from './.tifa/runtime/session'
 import { HTML, type HTML as HTMLValue } from './.tifa/runtime/html'
@@ -316,7 +316,7 @@ test('a render that failed reports its levels, and renders again with the error 
   const { router, calls } = await hydrateFrom(page, '/throws')
   assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
   const match = router.state.matches[router.state.matches.length - 1]
-  assert(match.status === 'error' && match.error instanceof RouteError && match.error.status === 503, `after hydration: ${match.status} ${match.error}`)
+  assert(match.status === 'error' && match.error instanceof TifaError && match.error.status === 503, `after hydration: ${match.status} ${match.error}`)
   // Level 1 is the root Layout: the framework's Error shows in its place.
   const layout = await placed(1)
   contains(layout, '<html lang="xx" ', 'Something went wrong', 'down')
@@ -586,14 +586,14 @@ test('a route module that exports head loads with its route in the browser build
   assert(JSON.stringify(await head) === '{"meta":[{"title":"TEAM z"}]}', `head gives ${JSON.stringify(await head)}`)
 })
 
-test('a RouteError keeps its class and status through hydration', async () => {
+test('a TifaError keeps its class and status through hydration', async () => {
   const url = '/teams/x/one'
   const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': { status: 403, error: 'permission denied' } })
   const { router, calls } = await hydrateFrom(html, url)
   assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
   const match = router.state.matches.find((m: any) => m.routeId.endsWith('/one'))
   assert(
-    match?.error instanceof RouteError && match.error.status === 403 && match.error.message === 'permission denied',
+    match?.error instanceof TifaError && match.error.status === 403 && match.error.message === 'permission denied' && Object.keys(match.error.fields).length === 0,
     `error after hydration: ${match?.error} ${JSON.stringify(match?.error)}`,
   )
 })
@@ -848,7 +848,7 @@ test('array loader data is written as JSON and comes back as the server had it',
   }
 })
 
-test('404, redirect and RouteError results keep their paths', async () => {
+test('404, redirect and TifaError results keep their paths', async () => {
   const url = '/teams/x/one'
   const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing })
   contains(html, 'TEAM_404')
@@ -860,7 +860,7 @@ test('404, redirect and RouteError results keep their paths', async () => {
     `states after hydration ${JSON.stringify(states)}`,
   )
   const notFound = router.state.matches.at(-1)?.error
-  assert(notFound instanceof RouteError && notFound.status === 404 && notFound.message === 'Not Found', `404 after hydration ${notFound}`)
+  assert(notFound instanceof TifaError && notFound.status === 404 && notFound.message === 'Not Found', `404 after hydration ${notFound}`)
   const redirected = await renderResult('/hello', { 'app/layout': { status: 302, location: '/login' } })
   assert(JSON.stringify(redirected.redirect) === '{"location":"/login","status":302}', `redirect ${JSON.stringify(redirected)}`)
   // A redirect a Load asked for keeps the status it asked for, 307 included.
@@ -869,7 +869,7 @@ test('404, redirect and RouteError results keep their paths', async () => {
   const failed = await render('/hello', { 'app/layout': { status: 403, error: 'no' } })
   const hydrated = await hydrateFrom(failed, '/hello')
   const error = hydrated.router.state.matches[1].error
-  assert(error instanceof RouteError && error.status === 403 && error.message === 'no', `root error ${error}`)
+  assert(error instanceof TifaError && error.status === 403 && error.message === 'no', `root error ${error}`)
 })
 
 test('loaders keep the freshness defaults of the router, stale at once and loaded again in the background', async () => {
@@ -958,7 +958,7 @@ test('a grouped answer reaches every route whatever the HTTP status', async () =
     () => undefined,
     (error) => error,
   )
-  assert(failed instanceof RouteError && failed.status === 500 && failed.message === 'down', `failure ${failed}`)
+  assert(failed instanceof TifaError && failed.status === 500 && failed.message === 'down', `failure ${failed}`)
 })
 
 test('a redirect of the server reaches every route as a redirect', async () => {
@@ -1008,7 +1008,7 @@ async function standing(promise: Promise<unknown>) {
   let result = 'pending'
   promise.then(
     () => (result = 'resolved'),
-    (error) => (result = error instanceof RouteError ? `RouteError ${error.status}` : String(error)),
+    (error) => (result = error instanceof TifaError ? `TifaError ${error.status}` : String(error)),
   )
   await settle()
   return result
@@ -1036,7 +1036,7 @@ test('the page reloaded for a build shows the error when that build disagrees ag
   // storage is the same.
   resetReloads()
   const again = await standing(source('/second', 'app/a/layout', alone('app/a/layout')))
-  assert(win.reloads() === 1 && again === 'RouteError 409', `second: reloads ${win.reloads()}, ${again}`)
+  assert(win.reloads() === 1 && again === 'TifaError 409', `second: reloads ${win.reloads()}, ${again}`)
   // Another build is another reason to reload.
   resetReloads()
   stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'newer' })
@@ -1053,7 +1053,7 @@ test('a 409 without a build in it, from an old server, reloads once too', async 
   await settle()
   resetReloads()
   const again = await standing(source('/second', 'app/a/layout', alone('app/a/layout')))
-  assert(win.reloads() === 1 && again === 'RouteError 409', `reloads ${win.reloads()}, ${again}`)
+  assert(win.reloads() === 1 && again === 'TifaError 409', `reloads ${win.reloads()}, ${again}`)
 })
 
 // A page that cannot keep a mark of its reload does not reload: the build may go on disagreeing,
@@ -1066,7 +1066,7 @@ test('with the storage blocked or forgetful a page never reloads, in any documen
     for (let document = 1; document <= 3; document++) {
       resetReloads() // the next document of the tab, which the visitor reloaded or the browser did
       const failed = await standing(source('/page', 'app/a/layout', alone('app/a/layout')))
-      assert(failed === 'RouteError 409' && win.reloads() === 0, `${storage}, document ${document}: ${failed}, reloads ${win.reloads()}`)
+      assert(failed === 'TifaError 409' && win.reloads() === 0, `${storage}, document ${document}: ${failed}, reloads ${win.reloads()}`)
     }
     watchChunks(() => 'b1')
     const chunk = preloadError(chunkMessage)
@@ -1084,7 +1084,7 @@ test('a build that keeps disagreeing reloads the page once in the first document
     resetReloads()
     const failed = await standing(source('/page', 'app/a/layout', alone('app/a/layout')))
     // The first document waits for its reload. The reloaded ones show the failure.
-    assert(failed === (document === 1 ? 'pending' : 'RouteError 409') && win.reloads() === 1, `document ${document}: ${failed}, reloads ${win.reloads()}`)
+    assert(failed === (document === 1 ? 'pending' : 'TifaError 409') && win.reloads() === 1, `document ${document}: ${failed}, reloads ${win.reloads()}`)
   }
 })
 
