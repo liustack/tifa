@@ -91,33 +91,33 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 
 The **[render memo](docs/memo.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
 
-Whole visits, played back from real browsers on the example shop: shoppers, staff and crawlers on one server at once, every server as shipped and warmed up with the same visits first (2026-11-16).
+Whole visits, played back from real browsers on the example shop: shoppers, staff and crawlers on one server at once, every server as shipped and warmed up with the same visits first (2026-11-18).
 
 Throughput at 8 concurrent sessions with no pause between pages, the median of 3 rounds:
 
 | | Page views/s | Full loads/s | Client navigations/s |
 | :-- | --: | --: | --: |
-| Tifa | 97.0 | 31.3 | 65.7 |
-| Next.js | 29.5 | 9.5 | 20.0 |
-| TanStack Start, uncompressed | 76.5 | 24.7 | 51.8 |
-| For reference: Tifa with the render memo off | 64.7 | 20.9 | 43.8 |
-| For reference: TanStack Start with gzip | 57.9 | 18.7 | 39.2 |
-| For reference: Next.js with prefetch off | 56.4 | 18.2 | 38.2 |
+| Tifa | 119.6 | 38.6 | 81.0 |
+| Next.js | 28.8 | 9.3 | 19.5 |
+| TanStack Start, uncompressed | 95.2 | 30.7 | 64.5 |
+| For reference: Tifa with the render memo off | 78.3 | 25.2 | 53.1 |
+| For reference: TanStack Start with gzip | 68.6 | 22.1 | 46.5 |
+| For reference: Next.js with prefetch off | 66.3 | 21.4 | 44.9 |
 
 A full load is a request the server answers with a whole page: the landing of a visit, and a search or another action that loads a page. A client navigation is one the router answers with data alone. Every server plays the same visits, so about a third of the page views of every row are full loads.
 
-Latency at 3 visits a second, half of what Next.js sustains, one round:
+Latency at 3 visits a second, 40% of what Next.js sustains, one round:
 
 | | Full load P50 / P99 | Client navigation P50 / P99 |
 | :-- | --: | --: |
-| Tifa | 39.5 / 80 ms | 2.4 / 30 ms |
-| Next.js | 51.6 / 146 ms | 16.6 / 139 ms |
-| TanStack Start, uncompressed | 34.9 / 73 ms | 3.3 / 24 ms |
-| For reference: Tifa with the render memo off | 53.2 / 107 ms | 3.0 / 41 ms |
-| For reference: TanStack Start with gzip | 50.7 / 121 ms | 4.7 / 31 ms |
-| For reference: Next.js with prefetch off | 46.0 / 107 ms | 8.1 / 46 ms |
+| Tifa | 32.5 / 62 ms | 2.4 / 20 ms |
+| Next.js | 41.9 / 130 ms | 14.5 / 125 ms |
+| TanStack Start, uncompressed | 27.1 / 58 ms | 3.2 / 17 ms |
+| For reference: Tifa with the render memo off | 35.8 / 69 ms | 2.3 / 22 ms |
+| For reference: TanStack Start with gzip | 37.8 / 90 ms | 4.2 / 19 ms |
+| For reference: Next.js with prefetch off | 35.5 / 86 ms | 8.0 / 37 ms |
 
-The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-16) has the mix, what each default costs and what the numbers mean.
+The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Versions: Tifa c8de6a62, quickjs v0.31.5, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-18) has the mix, what each default costs and what the numbers mean.
 
 ## Start an app
 

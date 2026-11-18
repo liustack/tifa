@@ -5,8 +5,8 @@ read_when:
   - Looking for the method or the full table behind a number in Performance
   - Changing how the pool collects garbage, gives memory back or replaces a VM
   - Measuring render times, scaling, overload or memory again
-measured: '2026-10-24 to 2026-11-17'
-versions: 'Each section says what it was measured with: Tifa c729ad2 with quickjs v0.28.6 (2026-10-24), Tifa aacb96bf with quickjs v0.30.1 (2026-11-06), Tifa f02030b9 with quickjs v0.31.1 (2026-11-16)'
+measured: '2026-10-24 to 2026-11-18'
+versions: 'Each section says what it was measured with: Tifa c729ad2 with quickjs v0.28.6 (2026-10-24), Tifa aacb96bf with quickjs v0.30.1 (2026-11-06), Tifa c8de6a62 with quickjs v0.31.5 (2026-11-18)'
 ---
 
 # Capacity measurements
@@ -67,7 +67,7 @@ The MUI rows were measured again with the C engine (quickjs 0cc6d332, 2026-10-29
 
 ## Whole visits: the traffic and the method
 
-The numbers are in [Performance](../performance.md#whole-visits-to-the-shop-2026-11-16).
+The numbers are in [Performance](../performance.md#whole-visits-to-the-shop-2026-11-18).
 
 [Testing](../testing.md#whole-visits-compare-plans-record-links-deps-and-browse) has every rule with where it is checked.
 
