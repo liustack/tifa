@@ -36,7 +36,9 @@ refactor: rename Go module to github.com/liustack/tifa
 - One commit does one thing, and can be verified and reverted on its own.
 - A behavior change and its tests go in the same commit.
 - Mechanical changes such as pure refactors, formatting and renames are committed separately, not mixed with behavior changes.
-- Do not commit build output (`.tifa/`, and `internal/ssr/assets/` and `web/generated/` in `examples/shop` and the like are already in `.gitignore`).
+- Do not commit build output (`.tifa/`, and `internal/ssr/assets/` and `web/generated/` in `examples/shop` and the like are already in `.gitignore`). Build programs with `go build -o` into a folder outside the checkout: a plain `go build ./cmd/tifa` writes a `tifa` binary at the repository root.
+- Add files by name. Never `git add -A`, `git add .` or `git commit -a`, which pick up whatever a build or a test left behind.
+- `scripts/check-files.sh` fails on a file over 1 MB or a binary that is not an image or a font. CI runs it, and it works as a local pre-commit hook: `ln -s ../../scripts/check-files.sh .git/hooks/pre-commit`.
 - Do not use summaries like "WIP" or "fix stuff" that do not say what changed.
 
 ## Branches
