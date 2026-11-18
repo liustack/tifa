@@ -354,6 +354,13 @@ const variantsKeys = `    } else {
       }
     }
 `
+// The render function of a styled component in @emotion/styled 11 (base) serializes the styles of
+// the component with the class names registered styles of its className prop added: it copies the
+// array of styles with concat even when there are none, see styledConcatFast. styledBaseModule is
+// the dist files of the base, the ES modules and the CommonJS files of every build, which have the
+// same text for the call, and styledConcat the text.
+const styledBaseModule = /[/\\]@emotion[/\\]styled[/\\]base[/\\]dist[/\\]emotion-styled-base(?:\.[a-z-]+)*\.(?:esm|cjs)\.js$/
+const styledConcat = 'serializeStyles(styles.concat(classInterpolations), cache.registered, mergedProps)'
 // rehype-highlight calls createLowlight(languages) each time rehypeHighlight(options) is called,
 // which react-markdown does on every render of a Markdown component. That makes a new highlight.js
 // instance, registers the 37 common languages and compiles their grammars again. The tifa plugin
@@ -2281,6 +2288,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         return faster ?? null
       }
+      if (styledBaseModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const faster = styledFast(source)
+        if (!faster) {
+          this.warn(
+            notRecognized +
+            `@emotion/styled ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} has no styled component the tifa plugin knows, so ` +
+              'each styled component copies its array of styles on every render. Pages render the same, but take longer to render',
+          )
+        }
+        return faster ?? null
+      }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         const copied = reactI18nextCopy(source)
@@ -3817,6 +3836,20 @@ function variantsFast(source) {
     }
 `,
     )
+}
+
+// styledFast returns the source of @emotion/styled's base with the styles of a component handed to
+// serializeStyles as they are when no registered class name added any, or undefined when the source
+// does not have the call it knows. serializeStyles only reads its first argument (the array of
+// styles, which concat copies with the same elements in the same order), and the array is the one
+// the component keeps for its whole life, so what it reads of the copy it reads of the original. With
+// classInterpolations that has an element it is concat as before.
+function styledFast(source) {
+  if (source.split(styledConcat).length !== 2) return undefined
+  return source.replace(
+    styledConcat,
+    () => 'serializeStyles(classInterpolations.length === 0 ? styles : styles.concat(classInterpolations), cache.registered, mergedProps)',
+  )
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call
