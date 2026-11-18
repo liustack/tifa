@@ -684,14 +684,20 @@ func (d *dev) watchExit(a *app) {
 // unusedConns keeps the connections that have not carried a request yet. Browsers open spare
 // ones, and http.Server.Shutdown waits up to 5s for each before it counts it as idle.
 type unusedConns struct {
-	mu sync.Mutex
-	m  map[net.Conn]struct{}
+	mu     sync.Mutex
+	m      map[net.Conn]struct{}
+	closed bool // a connection that arrives later is closed on arrival
 }
 
 func (u *unusedConns) track(c net.Conn, st http.ConnState) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if st == http.StateNew {
+		if u.closed {
+			// The server took it from the listener after close ran, and Shutdown would wait for it.
+			c.Close()
+			return
+		}
 		u.m[c] = struct{}{}
 	} else {
 		delete(u.m, c)
@@ -702,6 +708,7 @@ func (u *unusedConns) track(c net.Conn, st http.ConnState) {
 func (u *unusedConns) close() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	u.closed = true
 	for c := range u.m {
 		c.Close()
 	}
