@@ -14,8 +14,8 @@ Tifa renders pages in slowjs, QuickJS compiled to Go assembly. It has no JIT, so
 
 ## At a glance
 
-- **A whole site on one core** (2026-11-18): Tifa answers 119.6 page views a second, Next.js 28.8 and TanStack Start 95.2, each as shipped. See [whole visits](#whole-visits-to-the-shop-2026-11-18).
-- **Every request renders, one at a time** (2026-11-18): Next.js answers 1.25 times as many page requests as Tifa and TanStack Start 1.64 times, at 8 and 6 times Tifa's peak memory. See [the study](studies/nextjs-and-tanstack-start.md#conclusions).
+- **A whole site on one core** (2026-11-18): Tifa answers 118.8 page views a second, Next.js 28.3 and TanStack Start 94.7, each as shipped. See [whole visits](#whole-visits-to-the-shop-2026-11-18).
+- **Every request renders, one at a time** (2026-11-18): Next.js answers 1.17 times as many page requests as Tifa and TanStack Start 1.57 times, at 7 and 6 times Tifa's peak memory. See [the study](studies/nextjs-and-tanstack-start.md#conclusions).
 - **Sizing for every request rendering** (render memo off): plan on about 42 page requests a second per physical core for pages like the shop's workbench.
 - **Cores**: 3 physical cores answer 2.94 times as many requests as one.
 - **Memory**: one VM serving the whole shop levels at about 105 MiB for the process. Each more VM adds 9 MiB when it starts and up to about 40 MiB once it has rendered many pages.
@@ -26,34 +26,34 @@ The shop built three ways: as Tifa and as a Next.js and a TanStack Start app, al
 
 ### Whole visits to the shop (2026-11-18)
 
-Real browsers were recorded visiting the shop on each framework, and the recorded visits were played back against each server. The storefront and the back office are one site: shoppers browse, search, add to the cart and check out, staff edit the back office, and crawlers fetch the public pages, at once. Each framework runs as shipped, one process on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13), after the same warm-up. Tifa c8de6a62 with slowjs v0.31.5, Next.js 16.4.2, TanStack Start 1.169.3, Node 24.13.0. [The traffic and the method](studies/capacity.md#whole-visits-the-traffic-and-the-method).
+Real browsers were recorded visiting the shop on each framework, and the recorded visits were played back against each server. The storefront and the back office are one site: shoppers browse, search, add to the cart and check out, staff edit the back office, and crawlers fetch the public pages, at once. Each framework runs as shipped, one process on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13), after the same warm-up. Tifa v0.1.0 with slowjs v0.31.6, Next.js 16.4.6, TanStack Start 1.169.3, Node 24.13.0. [The traffic and the method](studies/capacity.md#whole-visits-the-traffic-and-the-method).
 
 Throughput, 8 concurrent sessions with no think time, the median of 3 rounds:
 
 | | Page views/s | Full loads/s | Client navigations/s | CPU per page view | Bytes per page view | Peak RSS |
 | --- | --: | --: | --: | --: | --: | --: |
-| Tifa | 119.6 | 38.6 | 81.0 | 8.4 ms | 12 KB | 247 MiB |
-| Next.js | 28.8 | 9.3 | 19.5 | 34.7 ms | 15 KB | 613 MiB |
-| TanStack Start | 95.2 | 30.7 | 64.5 | 10.5 ms | 178 KB, not compressed | 447 MiB |
-| For reference: Tifa with the render memo off | 78.3 | 25.2 | 53.1 | 12.8 ms | 12 KB | 84 MiB |
-| For reference: TanStack Start with gzip | 68.6 | 22.1 | 46.5 | 14.6 ms | 29 KB | 491 MiB |
-| For reference: Next.js with prefetch off | 66.3 | 21.4 | 44.9 | 15.1 ms | 13 KB | 609 MiB |
+| Tifa | 118.8 | 38.3 | 80.5 | 8.4 ms | 12 KB | 245 MiB |
+| Next.js | 28.3 | 9.1 | 19.2 | 35.3 ms | 14 KB | 613 MiB |
+| TanStack Start | 94.7 | 30.5 | 64.2 | 10.6 ms | 178 KB, not compressed | 451 MiB |
+| For reference: Tifa with the render memo off | 78.0 | 25.1 | 52.8 | 12.8 ms | 12 KB | 84 MiB |
+| For reference: TanStack Start with gzip | 64.5 | 20.8 | 43.7 | 15.5 ms | 29 KB | 492 MiB |
+| For reference: Next.js with prefetch off | 61.7 | 19.9 | 41.8 | 16.2 ms | 12 KB | 632 MiB |
 
-Latency at 3 visits a second, P50 / P99 of one round of 3,060 visits:
+Latency at 2.75 visits a second, P50 / P99 of one round of 3,060 visits:
 
 | | Full loads | Client navigations |
 | --- | --: | --: |
-| Tifa | 32.5 / 62 ms | 2.4 / 20 ms |
-| Next.js | 41.9 / 130 ms | 14.5 / 125 ms |
-| TanStack Start | 27.1 / 58 ms | 3.2 / 17 ms |
-| For reference: Tifa with the render memo off | 35.8 / 69 ms | 2.3 / 22 ms |
-| For reference: TanStack Start with gzip | 37.8 / 90 ms | 4.2 / 19 ms |
-| For reference: Next.js with prefetch off | 35.5 / 86 ms | 8.0 / 37 ms |
+| Tifa | 31.3 / 65 ms | 2.3 / 30 ms |
+| Next.js | 45.1 / 125 ms | 18.0 / 118 ms |
+| TanStack Start | 27.5 / 62 ms | 3.4 / 31 ms |
+| For reference: Tifa with the render memo off | 36.5 / 69 ms | 2.6 / 37 ms |
+| For reference: TanStack Start with gzip | 40.7 / 107 ms | 4.3 / 37 ms |
+| For reference: Next.js with prefetch off | 36.2 / 108 ms | 7.7 / 59 ms |
 
 - A full load is a request answered with a whole page. A client navigation is one the router answers with data alone. About a third of the page views are full loads.
 - The main rows are the frameworks as shipped. Each reference row changes one setting and says what that setting costs or buys.
 - Next.js prefetches the links that come into view, and the server answers those too. TanStack Start sends its pages uncompressed.
-- Tifa's render memo answered 41% of the answers (6,530 of 15,780). The rest were pages asked for the first time or changed by a write.
+- Tifa's render memo answered 41% of the answers (6,545 of 15,780). The rest were pages asked for the first time or changed by a write.
 
 ## Sizing a machine
 

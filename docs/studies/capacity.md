@@ -6,7 +6,7 @@ read_when:
   - Changing how the pool collects garbage, gives memory back or replaces a VM
   - Measuring render times, scaling, overload or memory again
 measured: '2026-10-24 to 2026-11-18'
-versions: 'Each section says what it was measured with: Tifa c729ad2 with quickjs v0.28.6 (2026-10-24), Tifa aacb96bf with quickjs v0.30.1 (2026-11-06), Tifa c8de6a62 with slowjs v0.31.5 (2026-11-18)'
+versions: 'Each section says what it was measured with: Tifa c729ad2 with quickjs v0.28.6 (2026-10-24), Tifa aacb96bf with quickjs v0.30.1 (2026-11-06), Tifa v0.1.0 with slowjs v0.31.6 (2026-11-18)'
 ---
 
 # Capacity measurements
