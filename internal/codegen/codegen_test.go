@@ -896,6 +896,22 @@ func TestRuntimeHasTheI18nAdapterOnlyWithLanguagesAndI18next(t *testing.T) {
 			if len(files["runtime/client.ts"]) == 0 {
 				t.Error("the rest of the runtime is missing")
 			}
+			// tifa/* of the app's tsconfig points into .tifa/tifa, which holds the public entries and
+			// nothing else: tifa/client always, tifa/i18n with the adapter.
+			var entries []string
+			for name := range files {
+				if strings.HasPrefix(name, "tifa/") {
+					entries = append(entries, name)
+				}
+			}
+			slices.Sort(entries)
+			want := []string{"tifa/client.ts"}
+			if tc.want {
+				want = append(want, "tifa/i18n.ts")
+			}
+			if !slices.Equal(entries, want) {
+				t.Errorf("files under tifa/ are %v, want %v", entries, want)
+			}
 		})
 	}
 }

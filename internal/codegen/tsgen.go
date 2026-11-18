@@ -272,6 +272,13 @@ import { htmlAttributes, routeTree } from "./routes"
 		files[name] = data
 		return err
 	})
+	// The public entries of the app's tsconfig paths, "tifa/*": ["./.tifa/tifa/*"]. Nothing but
+	// the modules an app may import goes into .tifa/tifa, so a module of the runtime added later
+	// is not public until it has an entry here.
+	files["tifa/client.ts"] = []byte(tsHeader + `export * from "../runtime/client"` + "\n")
+	if locales {
+		files["tifa/i18n.ts"] = []byte(tsHeader + `export * from "../runtime/i18n"` + "\n")
+	}
 	return files, err
 }
 
@@ -346,10 +353,10 @@ func hooksOf(root string, exportsOf Exports) ([]string, error) {
 
 // tsconfig makes TypeScript see each generated .tifa/app/<dir>/route.gen.ts as if it were next
 // to the TSX of that directory (rootDirs). It sets no paths and no include: the
-// application's own tsconfig.json, which extends this one, declares tifa/client and @/, so that
+// application's own tsconfig.json, which extends this one, declares tifa/* and @/, so that
 // tools that read it alone, such as the shadcn CLI, find @/ even before the first build, and no
 // generated file can stand in for an application file. Its include adds .tifa, which TypeScript's
-// patterns skip as a directory whose name starts with a dot. Vite resolves @/ and tifa/client by
+// patterns skip as a directory whose name starts with a dot. Vite resolves @/ and tifa/* by
 // these paths too, for the files the include of the application's tsconfig.json matches. An
 // include here would be inherited, and Vite reads it relative to the application root.
 const tsconfig = `{

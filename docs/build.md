@@ -356,9 +356,10 @@ go tool tifa build
 | `main.go` | Embeds the frontend output `dist/` with `go:embed`, sets it as the `Dist` of `tifaapp.App` and calls `server.Main` (`server.DevMain` under [`tifa dev`](dev.md)) |
 | `tifaapp/app.go` | The package `tifaapp` with one variable, `App`: the application as `tifa build` found it. It fills in only the hooks that actually exist in `hooks.go`, holds the runtime settings of `tifa.yaml` as Go code (`Settings`), imports the root package when its `options.go` defines settings or its `content.go` declares collections and there is no `hooks.go`, and registers the session type. Each `Load` and `Layout` function is wrapped as `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`, and `pkg.Layout` for a Layout. A method handler with an input or a result goes through `server.Input`, `server.Output` or `server.InputOutput`, which decode the input with `(*tifa.Ctx).Bind` or, for GET and DELETE, `(*tifa.Ctx).BindQuery`, run its `Validate` and write the result. `Fingerprint` is a hash of the file, which `tifatest.Start` checks against the code. Tests of the app import it as `<module>/.tifa/tifaapp` (see [Testing](testing-apps.md#testing)) |
 | `routes.tsx` | The TanStack route tree and the `Register` type registration |
-| `session.gen.ts` | `SessionData`, the JSON that the `Exposed` method of the session type returns, and `SessionEnabled` (`true` when the app calls `tifa.SetSession`). `SessionData` is `never` when the app has no session or its type has no `Exposed`. Pages import it as `@/.tifa/session.gen` (see [Sessions](sessions.md)) |
+| `session.gen.ts` | `SessionData`, the JSON that the `Exposed` method of the session type returns, and `SessionEnabled` (`true` when the app calls `tifa.SetSession`). `SessionData` is `never` when the app has no session or its type has no `Exposed`. Pages import the type from `tifa/client` (see [Sessions](sessions.md)) |
 | `i18n.gen.ts` | `i18n`, the languages of the app for the browser runtime, `undefined` when no folder has a `_locales` folder: the default language, whether `i18n.prefix` is `always`, the languages of the site, and `routes`, the languages of each route of the route tree that is in an area, by its TanStack route ID (a Layout, a page, and the route that shows the 404 of a Layout). A route outside every area is not in `routes`: it has no language and no prefix |
 | `app/<folder>/route.gen.ts` | One module for each folder with a page, a Layout or a method handler. It exports `page` for the page and `layout` for the Layout (the TanStack route objects, only when the folder has them), `PageData` and `LayoutData` (the result types of `Load` and `Layout`), `Params`, and a function per method handler with its `<METHOD>Input` and `<METHOD>Output` types. The functions call `runtime/call.ts` |
+| `tifa/` | The public entries of the app's `tifa/*` path: `client.ts` and, for an app with the i18next adapter, `i18n.ts`. Each re-exports a module of `runtime/`. Nothing else is in this folder |
 | `server.ts`, `client.ts` | The SSR entry and the browser entry. Under `tifa dev`, the browser entry also imports `runtime/dev-client.js` |
 | `tsconfig.json` | See below |
 | `vite.js`, `vite.d.ts`, `vite/plugin.js` | The Vite plugins of Tifa for `vite.config.ts`, see below. `vite/plugin.js` is a copy of the repository's `js/vite/plugin.js` |
@@ -368,7 +369,7 @@ go tool tifa build
 
 An app without pages (no `page.tsx` at all) generates only Go files, and `dist/` holds only `build.json` and the public files. With content collections it also gets `.tifa/vite.js` for its `vite.config.ts`, and `dist/` the bodies and the files they refer to.
 
-The names an app may refer to are these, and they stay: `.tifa/vite.js` (imported by `vite.config.ts`), `.tifa/tsconfig.json` (extended by `tsconfig.json`), `.tifa/runtime/client.ts` and `.tifa/runtime/i18n.tsx` (the `tifa/client` and `tifa/i18n` paths of `tsconfig.json`), `./route.gen` imports, and the Go package `<module>/.tifa/tifaapp` (for tests). Everything else in `.tifa/` can change in any release.
+The names an app may refer to are these, and they stay: `.tifa/vite.js` (imported by `vite.config.ts`), `.tifa/tsconfig.json` (extended by `tsconfig.json`), the folder `.tifa/tifa/` with `client.ts` and, for an app with the i18next adapter, `i18n.ts` (the one `tifa/*` path of `tsconfig.json`, which makes `tifa/client` and `tifa/i18n`, and holds only these public entries), `./route.gen` imports, and the Go package `<module>/.tifa/tifaapp` (for tests). Everything else in `.tifa/` can change in any release.
 
 ## Frontend output
 
@@ -554,8 +555,7 @@ An app with pages has these two files in its root. `tifa new` writes them:
   "compilerOptions": {
     "paths": {
       "@/*": ["./*"],
-      "tifa/client": ["./.tifa/runtime/client.ts"],
-      "tifa/i18n": ["./.tifa/runtime/i18n.tsx"]
+      "tifa/*": ["./.tifa/tifa/*"]
     }
   },
   "include": ["**/*", ".tifa/**/*"]
@@ -574,7 +574,7 @@ export default defineConfig({
 ```
 
 - The generated tsconfig sets `rootDirs: ["..", "."]`: TypeScript treats `.tifa/app/x/route.gen.ts` as `app/x/route.gen.ts`, so `import { page } from './route.gen'` in your source resolves, and so does the module of a folder above, such as `'../../route.gen'` for the Layout data of that folder. The app's `include` names `.tifa/**/*` on its own, because TypeScript globs skip folders whose names start with a dot. The generated tsconfig also loads the types of `vite/client`, so imports of images and stylesheets and `import.meta.env` type-check.
-- `paths` lives in the app's own tsconfig, so tools that read it from there, such as the shadcn CLI, see the app root. `@/` is the app root: `@/components/ui/button` is `components/ui/button.tsx`. `tifa/client` is the fixed module name page code uses to import `clientOnly` and `RouteError`. Both work before the first build.
+- `paths` lives in the app's own tsconfig, so tools that read it from there, such as the shadcn CLI, see the app root. `@/` is the app root: `@/components/ui/button` is `components/ui/button.tsx`. `tifa/client` is the fixed module name page code uses to import `clientOnly`, `TifaError`, the session hooks and the `SessionData` type, and `tifa/i18n` the one of the i18next adapter. These two names, `tifa/client` and `tifa/i18n`, and `@tanstack/react-router` do not change. A module added to Tifa later gets its own entry under `.tifa/tifa/`, so `paths` never needs another line. Both work before the first build.
 - Vite resolves imports by the same `paths` (its `resolve.tsconfigPaths`), so a path you add or change, such as `"@/components/*": ["./src/components/*"]`, applies to type checking and bundling alike. Vite applies `paths` only to the files that `include` matches, so keep `**/*` in it.
 - `tifa()` from `.tifa/vite.js` returns the Vite plugins of Tifa, with `build.target` of the project config passed in. Its option `markdown` (`{ remarkPlugins, rehypePlugins }`) adds plugins of the app to the conversion of content collections, see [Content](content.md#markdown-to-html). They resolve `./route.gen` the same way TypeScript does: any relative import whose last segment is `route.gen`, with or without `.js` or `.ts`, and that points to a folder under `app/`, however many levels it goes through (`'../../page/route.gen'` works too), resolves to the matching file in `.tifa/`. If the folder has no generated module, the build fails. They also set the entries and outputs below, and build the SSR bundle.
 - `@vitejs/plugin-react` compiles JSX and adds React Fast Refresh under `tifa dev`. Add other Vite plugins after these two, such as `@tailwindcss/vite` (see [styles.md](styles.md#tailwind-css)). Leave the entries, `base`, outputs and the `ssr` environment to Tifa.

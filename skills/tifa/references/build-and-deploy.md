@@ -40,7 +40,7 @@ Everything under `.tifa/` is generated. Do not edit it, and keep it out of git (
 
 - `go.mod` has `tool github.com/liustack/tifa/cmd/tifa` (`go get -tool github.com/liustack/tifa/cmd/tifa`), so `go tool tifa` uses the version in `go.mod`. `tifa build` does not change `go.mod` or `go.sum`. After upgrading Tifa run `go mod tidy` once.
 - `go.mod` also has the line `ignore node_modules`, so `go test ./...` and `go vet ./...` skip Go files inside npm packages (`go mod edit -ignore=node_modules` adds it to an older app).
-- `tsconfig.json` extends `./.tifa/tsconfig.json` and sets `paths` for `@/*` and `tifa/client`. `vite.config.ts` uses `plugins: [tifa(), react()]` with `tifa` from `./.tifa/vite.js`. Copy both from `tifa new`. Add other Vite plugins after these two.
+- `tsconfig.json` extends `./.tifa/tsconfig.json` and sets `paths` for `@/*` and `tifa/*` (`./.tifa/tifa/*`, which holds `tifa/client` and `tifa/i18n`). `vite.config.ts` uses `plugins: [tifa(), react()]` with `tifa` from `./.tifa/vite.js`. Copy both from `tifa new`. Add other Vite plugins after these two.
 - `package.json` needs `react`, `react-dom`, `@tanstack/react-router` and, as dev dependencies, `vite`, `@vitejs/plugin-react`, `typescript`, `@types/react`, `@types/react-dom`. React and React DOM must be 19.3.0 or later. `@tanstack/react-router` must be the version `tifa new` writes. The build stops with an error that names the versions otherwise. To move to a newer TanStack Router, upgrade Tifa.
 - `tifa new` picks pnpm when it is on PATH. Use pnpm and `pnpm dlx` in new commands if the app has a `pnpm-lock.yaml`.
 
