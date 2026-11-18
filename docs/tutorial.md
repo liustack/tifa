@@ -22,6 +22,8 @@ go mod tidy
 pnpm install
 ```
 
+On a machine that has never built a Tifa app, `go mod tidy`, `pnpm install` and the first `go tool tifa dev` or `go tool tifa build` download Go and npm packages and compile Tifa, which can take a few minutes. Later runs use the caches and take seconds.
+
 `tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [`tifa new`](build.md#tifa-new).
 
 ## 2. Run it and look around
