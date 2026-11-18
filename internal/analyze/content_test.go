@@ -29,7 +29,7 @@ func TestContentCollections(t *testing.T) {
 	}
 	var ids []string
 	for _, r := range c.File["blog"] {
-		ids = append(ids, r.Lang+"/"+r.ID+"/"+r.Path)
+		ids = append(ids, r.Language+"/"+r.ID+"/"+r.Path)
 	}
 	if want := []string{"zh-CN/202608/hello/202608/hello", "en/202608/hello/202608/hello-world", "zh-CN/about/about"}; !slices.Equal(ids, want) {
 		t.Errorf("blog entries = %q, want %q", ids, want)
@@ -64,7 +64,7 @@ func TestScanContentAgain(t *testing.T) {
 	titles := func(c *Content) []string {
 		var got []string
 		for _, r := range c.File["blog"] {
-			if r.Lang == "zh-CN" {
+			if r.Language == "zh-CN" {
 				got = append(got, fmt.Sprintf("%s %s %v", r.ID, r.Data, r.Draft))
 			}
 		}

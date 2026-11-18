@@ -39,7 +39,7 @@ func TestHeadModulesReadOnlyWhatTheirStandInExports(t *testing.T) {
 	names := []string{"default", "head"}
 	for _, m := range stringLiteral.FindAllSubmatch(source, -1) {
 		// Document and NotFound are names the generator refuses, never reads.
-		if name := string(m[1]); !slices.Contains(names, name) && name != "Document" && name != "NotFound" {
+		if name := string(m[1]); !slices.Contains(names, name) && name != "Document" && name != "NotFound" && name != "Error" {
 			names = append(names, name)
 		}
 	}

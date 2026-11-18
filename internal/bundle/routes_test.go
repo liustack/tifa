@@ -44,13 +44,13 @@ func routeApp(t *testing.T) string {
 			"const site = 'PAGE-SITE'\n" +
 			"export default function Page() { return 'PAGE-COMPONENT ' + site }\n" +
 			"export const head = () => ({ meta: [{ title: 'PAGE-HEAD ' + site }] })\n" +
-			"export function Error() { return 'PAGE-ERROR' }\n",
+			"export function ErrorBoundary() { return 'PAGE-ERROR' }\n",
 		"app/other/page.tsx": "export default function Other() { return 'OTHER-COMPONENT' }\n",
 		".tifa/routes.tsx": "import { lazyRouteComponent } from '@tanstack/react-router'\n" +
 			"import * as m1 from '../app/layout'\n" +
 			"import * as m2 from '../app/page/page'\n" +
 			"const m3 = () => import('../app/other/page')\n" +
-			"export const parts = { layout: m1.default, page: m2.default, head: m2.head, error: m2.Error, " +
+			"export const parts = { layout: m1.default, page: m2.default, head: m2.head, error: m2.ErrorBoundary, " +
 			"other: lazyRouteComponent(m3) }\n",
 		".tifa/client.ts": "import { parts } from './routes'\n(globalThis as any).parts = parts\n",
 		".tifa/server.ts": "import { parts } from './routes'\n" +

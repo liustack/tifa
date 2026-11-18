@@ -243,13 +243,13 @@ Writes from other sites are refused before any of this runs (see [Cross-site wri
 - `Load` or `Layout`, or a function they pass the Ctx to, calls `SetSession` or `ClearSession`
 - a page or API route path starts with `/__tifa/`, or `public/__tifa/` holds a file (`/__tifa/session` is the path of the session answer)
 
-The session type may have a method `Exposed() M` (a pointer receiver works too). It returns the part of the session that may go to the browser. It is written into the page HTML and kept in the browser's `localStorage`, so every field in it must be fine to stay on the visitor's device for a long time. Put no credentials and no secrets in it, and always check access with the server-side session. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
+The session type may have a method `Exposed() M` (a pointer receiver works too). It returns the part of the session that may go to the browser. It is written into the page HTML and kept in the browser's `localStorage`, so every field in it must be fine to stay on the visitor's device for a long time. Put no credentials and no secrets in it, and always check access with the server-side session. `M` follows the rules of a `Load` result, and the build writes its TypeScript type, which `tifa/client` exports as `SessionData`:
 
 ```tsx
-import type { SessionData } from '@/.tifa/session.gen'
+import type { SessionData } from 'tifa/client'
 ```
 
-The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Exposed` method or the app has no session. A `Exposed` with parameters, with more than one result, or whose result cannot be JSON fails the build.
+`SessionData` is `never` when the type has no `Exposed` method or the app has no session. The type is written to `.tifa/session.gen.ts`, which also holds `SessionEnabled` for the runtime and is not for app code. A `Exposed` with parameters, with more than one result, or whose result cannot be JSON fails the build.
 
 ## In the browser
 

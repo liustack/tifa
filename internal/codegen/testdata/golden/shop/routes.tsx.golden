@@ -18,11 +18,11 @@ import type { PageData as D8 } from "./app/projects/projectId+/orders/orderId+/r
 const publicPaths: string[] = ["/favicon.svg", "/img/logo.png", "/robots.txt"]
 
 const n0 = missing(DefaultError)
-const e1 = m1.Error
+const e1 = m1.ErrorBoundary
 const n1 = missing(e1)
-const e3 = lazyRouteComponent(m3, "Error")
+const e3 = lazyRouteComponent(m3, "ErrorBoundary")
 const n3 = missing(e3)
-const e8 = lazyRouteComponent(m8, "Error")
+const e8 = lazyRouteComponent(m8, "ErrorBoundary")
 
 const root = createRootRouteWithContext<RouterContext>()({
   errorComponent: DefaultError,

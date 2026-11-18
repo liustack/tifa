@@ -207,7 +207,7 @@ func routerApp(t *testing.T, src, build string, extra map[string]string) (node, 
 		t.Fatal(err)
 	}
 	// The tsconfig.json of an application, which declares tifa/client for Vite and TypeScript.
-	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "compilerOptions": { "paths": { "@/*": ["./*"], "tifa/client": ["./.tifa/runtime/client.ts"] } }, "include": ["**/*", ".tifa/**/*"] }`
+	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "compilerOptions": { "paths": { "@/*": ["./*"], "tifa/*": ["./.tifa/tifa/*"] } }, "include": ["**/*", ".tifa/**/*"] }`
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
 		t.Fatal(err)
 	}

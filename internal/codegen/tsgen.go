@@ -272,6 +272,13 @@ import { htmlAttributes, routeTree } from "./routes"
 		files[name] = data
 		return err
 	})
+	// The public entries of the app's tsconfig paths, "tifa/*": ["./.tifa/tifa/*"]. Nothing but
+	// the modules an app may import goes into .tifa/tifa, so a module of the runtime added later
+	// is not public until it has an entry here.
+	files["tifa/client.ts"] = []byte(tsHeader + `export * from "../runtime/client"` + "\n")
+	if locales {
+		files["tifa/i18n.ts"] = []byte(tsHeader + `export * from "../runtime/i18n"` + "\n")
+	}
 	return files, err
 }
 
@@ -346,10 +353,10 @@ func hooksOf(root string, exportsOf Exports) ([]string, error) {
 
 // tsconfig makes TypeScript see each generated .tifa/app/<dir>/route.gen.ts as if it were next
 // to the TSX of that directory (rootDirs). It sets no paths and no include: the
-// application's own tsconfig.json, which extends this one, declares tifa/client and @/, so that
+// application's own tsconfig.json, which extends this one, declares tifa/* and @/, so that
 // tools that read it alone, such as the shadcn CLI, find @/ even before the first build, and no
 // generated file can stand in for an application file. Its include adds .tifa, which TypeScript's
-// patterns skip as a directory whose name starts with a dot. Vite resolves @/ and tifa/client by
+// patterns skip as a directory whose name starts with a dot. Vite resolves @/ and tifa/* by
 // these paths too, for the files the include of the application's tsconfig.json matches. An
 // include here would be inherited, and Vite reads it relative to the application root.
 const tsconfig = `{
@@ -775,7 +782,10 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	}
 	for _, n := range nodes {
 		if n.exported("NotFound") {
-			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export Error and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
+			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export ErrorBoundary and check error instanceof TifaError && error.status === 404", n.dir, n.tsxFile())
+		}
+		if n.exported("Error") {
+			return nil, nil, fmt.Errorf("%s/%s: exports Error, which tifa no longer reads: rename it to ErrorBoundary, so that the name does not hide the global Error in the file", n.dir, n.tsxFile())
 		}
 	}
 
@@ -799,7 +809,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		if !ok {
 			v = fmt.Sprintf("e%d", index[n])
 			errorVars[n], errorNodes[v] = v, n
-			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "Error"))
+			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "ErrorBoundary"))
 		}
 		return v
 	}
@@ -818,14 +828,14 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	// errorFrom names the first Error going up from n, n included, or the framework's.
 	errorFrom := func(n *tsNode) string {
 		for a := n; a.parent != nil; a = a.parent {
-			if a.exported("Error") {
+			if a.exported("ErrorBoundary") {
 				return errorOf(a)
 			}
 		}
 		return "DefaultError"
 	}
 	// notFoundOf names the component that shows the 404 of a URL that matches nothing below n:
-	// errorFrom(n) with a RouteError of status 404, made once for each Error, n0 for the
+	// errorFrom(n) with a TifaError of status 404, made once for each Error, n0 for the
 	// framework's.
 	notFoundVars := map[string]string{}
 	notFoundOf := func(n *tsNode) string {

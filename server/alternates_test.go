@@ -37,7 +37,7 @@ func (t *translations) entry() content.Entry {
 func entryAlternates(base string, e content.Entry) []tifa.Alternate {
 	var out []tifa.Alternate
 	for _, t := range e.Translations {
-		out = append(out, tifa.Alternate{Language: t.Lang, Path: base + t.Slug})
+		out = append(out, tifa.Alternate{Language: t.Language, Path: base + t.Slug})
 	}
 	return out
 }
@@ -53,7 +53,7 @@ type altEnv struct {
 func newAltEnv(t *testing.T, always bool) *altEnv {
 	t.Helper()
 	e := &altEnv{tr: &translations{}}
-	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "ni-hao"}, content.Translation{Lang: "en-US", Slug: "hello"})
+	e.tr.set(content.Translation{Language: "zh-CN", Slug: "ni-hao"}, content.Translation{Language: "en-US", Slug: "hello"})
 	app := wireApp()
 	app.I18n = &I18n{Default: "zh-CN", Always: always, Languages: allLanguages, SiteURL: "https://a.example.com/"}
 	app.Routes = append(app.Routes,
@@ -154,7 +154,7 @@ func TestSetAlternatesReplacesTheList(t *testing.T) {
 		t.Errorf("got %s\nwant %s", got, want)
 	}
 	// An entry in one language only has one version: no links.
-	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "ni-hao"})
+	e.tr.set(content.Translation{Language: "zh-CN", Slug: "ni-hao"})
 	get(e.s, "/store/journal/ni-hao")
 	if got := e.lastAlternates(t); !strings.HasSuffix(got, `"list":[{"language":"zh-CN","url":"/store/journal/ni-hao"}],"custom":true}`) {
 		t.Errorf("an entry with one version carries %s", got)
@@ -213,7 +213,7 @@ func TestNavigationDataCarriesOnlyTheListsOfTheApp(t *testing.T) {
 		t.Errorf("a page with a list of its own: %s", got)
 	}
 	// An entry with one version has a list of one, which the browser takes as no links.
-	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "only-zh"})
+	e.tr.set(content.Translation{Language: "zh-CN", Slug: "only-zh"})
 	if got := body("/store/journal/only-zh", "01"); !strings.Contains(got, `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/only-zh"}]}`) {
 		t.Errorf("a page with one version: %s", got)
 	}
@@ -255,7 +255,7 @@ func TestPageWithCacheGetsTheListOfAPublishedTranslation(t *testing.T) {
 	if w := getData(e.s, "/store/journal/ni-hao", "b1", "01"); !strings.Contains(w.Body.String(), two+"}") {
 		t.Errorf("data before: %s", w.Body.String())
 	}
-	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "ni-hao"}, content.Translation{Lang: "en-US", Slug: "hello"}, content.Translation{Lang: "de", Slug: "hallo"})
+	e.tr.set(content.Translation{Language: "zh-CN", Slug: "ni-hao"}, content.Translation{Language: "en-US", Slug: "hello"}, content.Translation{Language: "de", Slug: "hallo"})
 	w := get(e.s, "/store/journal/ni-hao")
 	if w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("after publishing: %q", w.Header().Get("X-Tifa-Render"))

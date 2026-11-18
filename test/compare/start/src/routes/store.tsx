@@ -1,5 +1,5 @@
 import { createFileRoute, isNotFound, notFound, useRouterState } from '@tanstack/react-router'
-import StoreLayout, { Error, head as storeHead } from '@/app/store/layout_'
+import StoreLayout, { ErrorBoundary, head as storeHead } from '@/app/store/layout_'
 import { AlternatesContext, LanguageContext } from '@/runtime/client'
 import { inLanguage, languageOf, pageLinks, versionsOf } from '@/runtime/languages'
 import { notFoundWith } from '../compare/not-found'
@@ -34,9 +34,9 @@ export const Route = createFileRoute('/store')({
     const failed = match.matches.some((m) => m.status !== 'success' || m._notFound)
     return failed || !match.loaderData ? own : { ...own, links: pageLinks(inLanguage(match.matches[match.matches.length - 1].pathname.replace(/\/$/, ''), match.loaderData.locale.code)) }
   },
-  errorComponent: Error,
+  errorComponent: ErrorBoundary,
   wrapInSuspense: false,
-  notFoundComponent: notFoundWith(Error),
+  notFoundComponent: notFoundWith(ErrorBoundary),
   loader: ({ location }) =>
     shellFn({ data: languageOf(location.publicHref) }).catch((e: unknown) => {
       throw isNotFound(e) ? notFound({ routeId: '/store' }) : e

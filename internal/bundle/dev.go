@@ -397,7 +397,7 @@ func linkFile(from, to string) error {
 
 // sameMarkdown reports whether a and b turn into the same body.
 func sameMarkdown(a, b content.Markdown) bool {
-	return a.Collection == b.Collection && a.Lang == b.Lang && a.ID == b.ID && a.Source == b.Source &&
+	return a.Collection == b.Collection && a.Language == b.Language && a.ID == b.ID && a.Source == b.Source &&
 		a.Fallback == b.Fallback && a.Out == b.Out && a.Text == b.Text && bytes.Equal(a.Frontmatter, b.Frontmatter)
 }
 

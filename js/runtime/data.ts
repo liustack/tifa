@@ -78,13 +78,18 @@ export interface Slot {
 // Source answers the RouteResult of one route at one URL.
 export type Source = (url: string, id: string, slot: Slot) => Promise<RouteResult>
 
-// RouteError is what a loader throws for a failed Load. Error components receive it.
-export class RouteError extends Error {
+// TifaError is the one error class of a page. A handler function throws it when the server answers
+// with an error, and a route that fails, a failed Load or a 404 among them, reaches its
+// ErrorBoundary as one. message is the public message of the answer, fields the messages per input
+// field of a tifa.Fields, an empty object when the answer has none.
+export class TifaError extends Error {
   readonly status: number
-  constructor(status: number, message: string) {
+  readonly fields: Record<string, string>
+  constructor(status: number, message: string, fields: Record<string, string> = {}) {
     super(message)
-    this.name = 'RouteError'
+    this.name = 'TifaError'
     this.status = status
+    this.fields = fields
   }
 }
 
@@ -201,7 +206,7 @@ export function collector(buildId: () => string): Source {
           for (const waiter of list) waiter.resolve({ status: body.status, location: body.redirect })
         return
       }
-      if (!isEnvelope(body)) throw new RouteError(response.status, errorMessage(response, body))
+      if (!isEnvelope(body)) throw new TifaError(response.status, errorMessage(response, body))
       acceptSession(seq, body.session)
       noteAlternates(url, body.alternates)
       // Each route gets its own result, whatever the HTTP status of the whole answer.

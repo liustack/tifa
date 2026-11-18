@@ -46,7 +46,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 `,
 	"app/throws/page.tsx": "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/fails/page.tsx": "export default function Fails(): never {\n  throw new globalThis.Error('PAGE_FAILS')\n}\n\n" +
-		"export function Error(): never {\n  throw new globalThis.Error('ERROR_FAILS')\n}\n",
+		"export function ErrorBoundary(): never {\n  throw new globalThis.Error('ERROR_FAILS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
 	"app/legacy/page.tsx":   "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
 	// A component that suspends on a promise that never settles, and a lazy one whose import
@@ -99,15 +99,15 @@ import "github.com/liustack/tifa"
 
 func Load(c *tifa.Ctx) (string, error) { return "", tifa.Error{Status: 403, Message: "no entry"} }
 `,
-	"app/forbidden/page.tsx": `import { RouteError } from 'tifa/client'
+	"app/forbidden/page.tsx": `import { TifaError } from 'tifa/client'
 import { page } from './route.gen'
 
 export default function Forbidden() {
   return <p>{page.useLoaderData()}</p>
 }
 
-export function Error({ error }: { error: unknown }) {
-  return <p>{error instanceof RouteError ? 'FORBIDDEN_' + error.status : 'OTHER'}</p>
+export function ErrorBoundary({ error }: { error: unknown }) {
+  return <p>{error instanceof TifaError ? 'FORBIDDEN_' + error.status : 'OTHER'}</p>
 }
 `,
 }
@@ -130,8 +130,8 @@ func TestErrorFlowInTheVM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start404 := "export function Error({ error }: { error: unknown }) {\n"
-	looping := strings.Replace(string(data), start404, start404+"  if (error instanceof RouteError && error.status === 404) for (;;) {}\n", 1)
+	start404 := "export function ErrorBoundary({ error }: { error: unknown }) {\n"
+	looping := strings.Replace(string(data), start404, start404+"  if (error instanceof TifaError && error.status === 404) for (;;) {}\n", 1)
 	if looping == string(data) {
 		t.Fatal("app/layout.tsx has no Error to change")
 	}
@@ -155,7 +155,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 			}
 			// The page shows the root Layout's Error with the public message of OnError, and
 			// the browser hydrates that error.
-			if !strings.Contains(body, `<p role="alert">reported</p>`) || !strings.Contains(body, `"tifa.RouteError"`) {
+			if !strings.Contains(body, `<p role="alert">reported</p>`) || !strings.Contains(body, `"tifa.TifaError"`) {
 				t.Errorf("request %d shows no Error: %s", i, body)
 			}
 		}
@@ -310,9 +310,9 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		}
 	})
 
-	t.Run("a RouteError is dehydrated with its status", func(t *testing.T) {
+	t.Run("a TifaError is dehydrated with its status", func(t *testing.T) {
 		code, _, body := get(t, base+"/forbidden")
-		if code != 403 || !strings.Contains(body, "FORBIDDEN_403") || !strings.Contains(body, `"tifa.RouteError"`) {
+		if code != 403 || !strings.Contains(body, "FORBIDDEN_403") || !strings.Contains(body, `"tifa.TifaError"`) {
 			t.Errorf("%d %s", code, body)
 		}
 	})

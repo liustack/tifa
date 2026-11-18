@@ -2,7 +2,7 @@
 // The client components the Next.js layout and pages of the storefront render: the components of
 // examples/shop as they are, and the providers of their loader data.
 
-import StoreLayoutComponent, { Error as StoreErrorComponent } from '@/app/store/layout_'
+import StoreLayoutComponent, { ErrorBoundary as StoreErrorComponent } from '@/app/store/layout_'
 import HomeComponent from '@/app/store/page'
 import ListComponent from '@/app/store/products/page'
 import ProductComponent from '@/app/store/products/product+/page'
@@ -20,7 +20,7 @@ import { page as post } from '@/app/store/journal/post+/route.gen'
 import { OutletProvider as OutletProviderComponent } from '@/runtime/router'
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useEffect, useState } from 'react'
-import { AlternatesContext, LanguageContext, RouteError } from 'tifa/client'
+import { AlternatesContext, LanguageContext, TifaError } from 'tifa/client'
 import { languageOf, versionsOf } from '@/runtime/languages'
 import { counts } from '../../../../domain/counts.ts'
 
@@ -50,7 +50,7 @@ export function StoreNotFound() {
   const path = usePathname()
   const failed = useContext(FailedPage)
   useEffect(() => failed(path), [failed, path])
-  return <StoreErrorComponent error={new RouteError(404, 'not found')} />
+  return <StoreErrorComponent error={new TifaError(404, 'not found')} />
 }
 export function HomePage() {
   return <HomeComponent />

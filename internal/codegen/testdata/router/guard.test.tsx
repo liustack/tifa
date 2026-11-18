@@ -8,7 +8,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
-import { injected, RouteError, type Injected, type RouteResult } from './.tifa/runtime/data'
+import { injected, TifaError, type Injected, type RouteResult } from './.tifa/runtime/data'
 
 type Anything = any
 
@@ -105,7 +105,7 @@ check(
 )
 check(
   'router.options.serializationAdapters (written on the server)',
-  'the data of a Load is written with the default serializer, not as the JSON text Go sent, and RouteError turns into a plain Error',
+  'the data of a Load is written with the default serializer, not as the JSON text Go sent, and TifaError turns into a plain Error',
   'js/runtime/router.tsx',
   () => page.includes('tifa.data'),
 )
@@ -143,7 +143,7 @@ try {
     'js/runtime/router.tsx',
     () => browser.state.matches.some((m: Anything) => m.loaderData?.name === 'router'),
   )
-  // A RouteError goes through its own adapter: without it the browser shows a plain Error.
+  // A TifaError goes through its own adapter: without it the browser shows a plain Error.
   const failed: Anything = createAppRouter(routeTree, injected({ url, buildId: 'b1', data: { 'app/layout': { status: 403, error: 'no' } } }), { buildId: 'b1', serverURL: url })
   attachRouterServerSsrUtils({ router: failed, manifest: undefined })
   await failed.load()
@@ -162,10 +162,10 @@ try {
   await hydrated(again, "a failed Load")
   const error = again.state.matches[1]?.error
   check(
-    'router.options.serializationAdapters (RouteError read in the browser)',
+    'router.options.serializationAdapters (TifaError read in the browser)',
     'an error shown after hydration is a plain Error with no status',
     'js/runtime/router.tsx',
-    () => error instanceof RouteError && error.status === 403,
+    () => error instanceof TifaError && error.status === 403,
   )
 } finally {
   Object.assign(g, saved)

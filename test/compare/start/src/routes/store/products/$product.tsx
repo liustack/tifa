@@ -2,7 +2,7 @@ import { requestLanguage } from '../../../compare/language'
 import { languageOf } from '@/runtime/languages'
 import { createFileRoute } from '@tanstack/react-router'
 import ProductPage, { head } from '@/app/store/products/product+/page'
-import { Error } from '@/app/store/layout_'
+import { ErrorBoundary } from '@/app/store/layout_'
 import { notFoundWith } from '../../../compare/not-found'
 import { pick } from '../../../compare/search'
 import { productFn } from '../../../compare/store-fns'
@@ -14,8 +14,8 @@ export const Route = createFileRoute('/store/products/$product')({
   component: ProductPage,
   // A function of its own that names the params of the route: the shop's head declares only the language, and that would hide the others from the types of the route.
   head: (match: Parameters<typeof head>[0] & { params: { product: string } }) => head(match),
-  errorComponent: Error,
-  notFoundComponent: notFoundWith(Error),
+  errorComponent: ErrorBoundary,
+  notFoundComponent: notFoundWith(ErrorBoundary),
   wrapInSuspense: false,
   loaderDeps: ({ search }) => pick(search, ['reviews']),
   loader: ({ params, deps, location }) => productFn({ data: { lang: languageOf(location.publicHref), product: params.product, query: deps } }),

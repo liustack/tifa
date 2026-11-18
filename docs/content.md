@@ -158,14 +158,14 @@ Its keys are the `json` names of the fields of the schema struct, and the build 
 | `slug` | The slug, see above. |
 | `translationKey` | Links the versions of an entry in different languages. |
 
-- `id`, `lang`, `path`, `translations` and `words` are set by Tifa, and writing them fails the build. A schema field with one of the json names of `content.Entry` or the name `translationKey` fails the build too.
+- `id`, `language`, `path`, `translations` and `words` are set by Tifa, and writing them fails the build. A schema field with one of the json names of `content.Entry` or the name `translationKey` fails the build too.
 
 `content.Entry` holds what Tifa sets:
 
 ```go
 type Entry struct {
 	ID           string        `json:"id"`
-	Lang         string        `json:"lang"`
+	Language     string        `json:"language"`
 	Slug         string        `json:"slug"`
 	Path         string        `json:"path"`
 	Date         time.Time     `json:"date,omitzero"`
@@ -210,22 +210,22 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 | Method of `*content.Collection[T]` | Returns |
 | --- | --- |
 | `All() []T` | The entries of every language that can be seen now, sorted by ID and, for one ID, in the order of `Languages`. Each call returns a new slice the caller may sort or change. |
-| `In(lang string) []T` | The entries of one language, sorted by ID. `nil` for a language the collection does not have. For a collection without languages, `In("")` is `All()`. |
-| `Get(lang, id string) (T, error)` | One entry. `tifa.ErrNotFound` when there is none or it cannot be seen yet, so a `Load` can return the error as it is. For a collection without languages, `lang` is `""`, and anything else panics. |
+| `In(language string) []T` | The entries of one language, sorted by ID. `nil` for a language the collection does not have. For a collection without languages, `In("")` is `All()`. |
+| `Get(language, id string) (T, error)` | One entry. `tifa.ErrNotFound` when there is none or it cannot be seen yet, so a `Load` can return the error as it is. For a collection without languages, `language` is `""`, and anything else panics. |
 | `Languages() []string` | The declared languages, the default first. |
 
 Sorting by date or by an `order` field, and finding by slug or tag, are a few lines of Go in the domain (`app/lang+/blog/post.go`):
 
 ```go
 // Published is the posts of a language that can be seen now, newest first.
-func Published(lang string) []contenttest.Post {
-	list := contenttest.Blog.In(lang) // sorted by ID, drafts and posts still to come left out
+func Published(language string) []contenttest.Post {
+	list := contenttest.Blog.In(language) // sorted by ID, drafts and posts still to come left out
 	slices.SortStableFunc(list, func(a, b contenttest.Post) int { return b.Date.Compare(a.Date) })
 	return list
 }
 
-func BySlug(lang, slug string) (contenttest.Post, error) {
-	for _, p := range contenttest.Blog.In(lang) {
+func BySlug(language, slug string) (contenttest.Post, error) {
+	for _, p := range contenttest.Blog.In(language) {
 		if p.Slug == slug {
 			return p, nil
 		}
@@ -342,7 +342,7 @@ export function rehypeLazyImages() {
 ```
 
 - The steps of Tifa cannot be turned off. To undo one, such as the links GFM makes of bare URLs, add a plugin of your own.
-- The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, lang, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
+- The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, language, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
 - An error a plugin throws fails the build with the file, the place the plugin gives and the name of the plugin. A warning it adds is printed.
 - MDX is not supported: a body is HTML and cannot hold React components. Put components in the page.
 
@@ -410,7 +410,7 @@ One request that reads a collection several times may see both sides of that mom
 | Output | What it holds |
 | --- | --- |
 | `dist/content.json` | The entries of every collection that are not drafts: the fields of `content.Entry`, the translation key, the file of the body, its headings and the front matter converted to JSON by the schema |
-| `dist/content/<collection>/<lang>/<ID>.html` | The body of each entry, without the language folder for a collection without languages. The server does not serve these files and the build does not compress them. A draft is never converted, so its text is not in the program |
+| `dist/content/<collection>/<language>/<ID>.html` | The body of each entry, without the language folder for a collection without languages. The server does not serve these files and the build does not compress them. A draft is never converted, so its text is not in the program |
 | `dist/assets/<name>-<hash>.<ext>` | The files the bodies refer to |
 
 An ID whose body file `go:embed` would refuse, such as one with `'` in it, fails the build, and so does an entry whose body file would sit below the body file of another, such as `a.html/b.md` next to `a.md`. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.
@@ -436,8 +436,8 @@ func TestBySlugFindsTheTranslation(t *testing.T) {
 
 func TestTagged(t *testing.T) {
 	tifatest.SetContent(t, contenttest.Blog,
-		contenttest.Post{Entry: content.Entry{ID: "a", Lang: "en", Slug: "a", Path: "a"}, Tags: []string{"go"}},
-		contenttest.Post{Entry: content.Entry{ID: "b", Lang: "en", Slug: "b", Path: "b"}},
+		contenttest.Post{Entry: content.Entry{ID: "a", Language: "en", Slug: "a", Path: "a"}, Tags: []string{"go"}},
+		contenttest.Post{Entry: content.Entry{ID: "b", Language: "en", Slug: "b", Path: "b"}},
 	)
 	if got := Tagged("en", "go"); len(got) != 1 || got[0].ID != "a" {
 		t.Errorf("Tagged = %+v", got)
@@ -520,5 +520,5 @@ When the program starts:
 ```text
 tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover must start with https://static.example.com/
 content: collection blog has no data yet: read it from OnStart on, not while packages are initialized
-content: Get on collection docs, which has no languages, with lang "en": pass ""
+content: Get on collection docs, which has no languages, with language "en": pass ""
 ```

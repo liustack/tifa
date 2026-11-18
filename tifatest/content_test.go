@@ -33,7 +33,7 @@ func TestLoadContentReadsTheSourceFiles(t *testing.T) {
 		LoadContent(t)
 		var got []string
 		for _, p := range testBlog.All() {
-			got = append(got, fmt.Sprintf("%s/%s %q %d words, %d translations", p.Lang, p.ID, p.Title, p.Words, len(p.Translations)))
+			got = append(got, fmt.Sprintf("%s/%s %q %d words, %d translations", p.Language, p.ID, p.Title, p.Words, len(p.Translations)))
 		}
 		want := []string{`zh-CN/hello "你好" 4 words, 2 translations`, `en/hello "Hello" 3 words, 2 translations`}
 		if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -68,12 +68,12 @@ func TestLoadContentRunsValidate(t *testing.T) {
 func TestSetContent(t *testing.T) {
 	t.Run("set", func(t *testing.T) {
 		SetContent(t, testBlog,
-			testPost{Entry: content.Entry{ID: "a", Lang: "en", Slug: "a", Path: "a", Words: 5}, Title: "A"},
-			testPost{Entry: content.Entry{ID: "a", Lang: "zh-CN", Slug: "a", Path: "a"}, Title: "甲"},
-			testPost{Entry: content.Entry{ID: "b", Lang: "en", Slug: "b", Path: "b"}, Title: "invalid"},
+			testPost{Entry: content.Entry{ID: "a", Language: "en", Slug: "a", Path: "a", Words: 5}, Title: "A"},
+			testPost{Entry: content.Entry{ID: "a", Language: "zh-CN", Slug: "a", Path: "a"}, Title: "甲"},
+			testPost{Entry: content.Entry{ID: "b", Language: "en", Slug: "b", Path: "b"}, Title: "invalid"},
 		)
 		a, err := testBlog.Get("en", "a")
-		if err != nil || a.Words != 5 || len(a.Translations) != 2 || a.Translations[0].Lang != "zh-CN" {
+		if err != nil || a.Words != 5 || len(a.Translations) != 2 || a.Translations[0].Language != "zh-CN" {
 			t.Errorf("Get = %+v, %v", a, err)
 		}
 		if len(testBlog.In("en")) != 2 {
@@ -81,7 +81,7 @@ func TestSetContent(t *testing.T) {
 		}
 	})
 	msg := fatal(t, func(t testing.TB) {
-		SetContent(t, testBlog, testPost{Entry: content.Entry{ID: "a", Lang: "fr"}})
+		SetContent(t, testBlog, testPost{Entry: content.Entry{ID: "a", Language: "fr"}})
 	})
 	if !strings.Contains(msg, `tifatest.SetContent: entry a has the language "fr"`) {
 		t.Errorf("message %q", msg)
@@ -94,7 +94,7 @@ func TestSetContentTime(t *testing.T) {
 	visible := func() []string {
 		var got []string
 		for _, p := range testBlog.All() {
-			got = append(got, p.Lang+"/"+p.ID)
+			got = append(got, p.Language+"/"+p.ID)
 		}
 		return got
 	}
@@ -125,7 +125,7 @@ func TestSetContentTime(t *testing.T) {
 		}
 	})
 	t.Run("with SetContent", func(t *testing.T) {
-		SetContent(t, testBlog, testPost{Entry: content.Entry{ID: "a", Lang: "en", Slug: "a", Path: "a", Date: later}})
+		SetContent(t, testBlog, testPost{Entry: content.Entry{ID: "a", Language: "en", Slug: "a", Path: "a", Date: later}})
 		if got := visible(); len(got) != 0 {
 			t.Errorf("before the date: %q", got)
 		}

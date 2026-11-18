@@ -54,8 +54,8 @@ func TestBodyInTests(t *testing.T) {
 
 func TestTagged(t *testing.T) {
 	tifatest.SetContent(t, contenttest.Blog,
-		contenttest.Post{Entry: content.Entry{ID: "a", Lang: "en", Slug: "a", Path: "a"}, Tags: []string{"go"}},
-		contenttest.Post{Entry: content.Entry{ID: "b", Lang: "en", Slug: "b", Path: "b"}},
+		contenttest.Post{Entry: content.Entry{ID: "a", Language: "en", Slug: "a", Path: "a"}, Tags: []string{"go"}},
+		contenttest.Post{Entry: content.Entry{ID: "b", Language: "en", Slug: "b", Path: "b"}},
 	)
 	if got := Tagged("en", "go"); len(got) != 1 || got[0].ID != "a" {
 		t.Errorf("Tagged = %+v", got)
