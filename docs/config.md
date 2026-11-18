@@ -98,6 +98,8 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 
 ## Settings
 
+Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`, `session.memory_limit`) take a whole number with the unit `B`, `KiB`, `MiB` or `GiB`, such as `64MiB`. The unit is case sensitive and has no space before it. `4MB`, `4mb` and `1.5MiB` are refused and the program does not start. See [Value formats](#value-formats).
+
 | Key | Default | Flag and environment variable | What it does |
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | project file only | JavaScript target of the browser bundle that Vite builds, a comma-separated list: one ECMAScript version (`es2015` to `es2029`, `esnext`) plus browsers with versions, from chrome, edge, firefox, ios, opera and safari, such as `es2019,chrome90,safari14`. The SSR bundle always targets ES2022 |
@@ -438,7 +440,7 @@ What a lower depth breaks:
 
 ## Value formats
 
-- Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `ssr.memo_size` may be 0.
+- Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. `MB`, `KB`, `GB` and `4 MiB` are refused, and so is a decimal such as `1.5MiB` (write `1536KiB`). Only `ssr.memo_size` may be 0.
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`. A `tifa.Duration` of the app may also be 0 or negative.
 - In a YAML file a whole number setting is a number (`vms: 2`, not `"2"`), a `true` or `false` setting a bool, and every other setting text. A size may be a number of bytes or text with a unit.
 - `ssr.vms` is a whole number of at least 1.
