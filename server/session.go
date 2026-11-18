@@ -32,7 +32,7 @@ func (s *server) sessionEnv() *core.SessionEnv {
 			s.sess.owned = core.NewMemoryStore(s.sess.cfg.MemoryLimit)
 			s.sess.store = s.sess.owned
 		}
-		env := &core.SessionEnv{Store: s.sess.store, Cookie: s.sess.cfg.Cookie, Secure: true, MaxAge: s.sess.cfg.MaxAge}
+		env := &core.SessionEnv{Store: s.sess.store, Cookie: s.sess.cfg.Cookie, Secure: true, MaxAge: s.sess.cfg.MaxAge, WarnInsecure: true}
 		if s.dev != nil {
 			env.Secure = false
 			env.Cookie = strings.TrimPrefix(env.Cookie, "__Host-")

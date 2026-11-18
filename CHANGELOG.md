@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A sign-in over plain HTTP from a host that is not localhost logs a warning, once per process: browsers drop the `Secure` session cookie there, so the user stays signed out with no other sign. Requests over TLS, with `X-Forwarded-Proto: https` or `Forwarded: proto=https`, and to localhost do not warn.
+
 ### Changed
 
 - Pages that use MUI or emotion's `styled` render faster. A styled component no longer copies its array of styles when no registered class name adds to it, copies its props with a spread when they have a plain shape, and `processStyleVariants` of `@mui/system` reads each variant's props once. On the MUI test app the three pages run 2.5% to 3.2% fewer instructions per render (2.9% fewer over the three, counted with callgrind, not timed) with the same HTML, and the pages of the example shop, which has no MUI or emotion, are the same bundle.
