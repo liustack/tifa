@@ -86,6 +86,10 @@ for (const [form, base] of [['esm', esm], ['cjs', cjs]] as [string, any][]) {
 ;(globalThis as any).result = JSON.stringify(out)
 `
 
+// styledSpread is the copy of the props with a spread that the plugin guards, minified, and
+// styledLoop the loop that stays for the props it does not take.
+var styledSpread = regexp.MustCompile("Object\\.getOwnPropertySymbols\\(\\w+\\)\\.length===0&&!Object\\.prototype\\.hasOwnProperty\\.call\\(\\w+,`__proto__`\\)")
+
 // styledConcatCall is the call of serializeStyles with the copy of the styles as it is without the
 // plugin, minified.
 var styledConcatCall = regexp.MustCompile(`\(\w+\.concat\(\w+\),\w+\.registered,\w+\)`)
@@ -109,10 +113,12 @@ func emotionStyledRender(t *testing.T, root string) ([]string, string, string) {
 
 // The render function of a styled component of @emotion/styled hands serializeStyles a copy of its
 // array of styles with the registered styles of its className added, a copy of the array too when
-// there are none. The tifa plugin hands the array as it is then. The pages are the same as without
-// the change, for every form of props and className, in the ES module and in the CommonJS file, and
-// a styled base of another text is left as it is, with a warning.
-func TestSSREmotionStyledHandsTheStylesWithoutACopy(t *testing.T) {
+// there are none, and copies its props key by key when they have no theme. The tifa plugin hands the
+// array as it is when there is no registered class name, and copies props of a plain shape with a
+// spread. The pages are the same as without the change, for every form of props and className, in
+// the ES module and in the CommonJS file, and a styled base of another text is left as it is, with
+// a warning.
+func TestSSREmotionStyledCopiesLess(t *testing.T) {
 	changed, code, printed := emotionStyledRender(t, copyTestdata(t, "ssr", true))
 	if strings.Contains(printed, notRecognized) {
 		t.Errorf("the build prints:\n%s", printed)
@@ -120,30 +126,41 @@ func TestSSREmotionStyledHandsTheStylesWithoutACopy(t *testing.T) {
 	if n := len(styledConcatCall.FindAllString(code, -1)); n != 0 {
 		t.Errorf("%d styled components copy the styles on every render", n)
 	}
+	if n := len(styledSpread.FindAllString(code, -1)); n != 2 {
+		t.Errorf("%d styled components copy their props with a spread, want 2 (the ES module and the CommonJS file)", n)
+	}
 	all := strings.Join(changed, "\n")
 	for _, want := range []string{"extra", "padding:2px", "top:1px", "css-nope-1", `"a","inherited"`, `[true,false,["a","b","theme"]`} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no page has %s", want)
 		}
 	}
+	// A file with a change in either of the two places the plugin knows stays as it is, whole.
 	for _, file := range []string{"emotion-styled-base.edge-light.esm.js", "emotion-styled-base.cjs.js"} {
-		root := withChangedPackage(t, "@emotion/styled", filepath.Join("base", "dist", file), func(source string) string {
-			const call = "(styles.concat(classInterpolations), cache.registered, mergedProps)"
-			if strings.Count(source, call) != 1 {
-				t.Fatalf("%s does not have %q once", file, call)
+		for _, edit := range [][2]string{
+			{"(styles.concat(classInterpolations), cache.registered, mergedProps)", "(styles.concat(classInterpolations) /* changed */, cache.registered, mergedProps)"},
+			{"        mergedProps = {};\n", "        mergedProps = {}; /* changed */\n"},
+		} {
+			root := withChangedPackage(t, "@emotion/styled", filepath.Join("base", "dist", file), func(source string) string {
+				if strings.Count(source, edit[0]) != 1 {
+					t.Fatalf("%s does not have %q once", file, edit[0])
+				}
+				return strings.Replace(source, edit[0], edit[1], 1)
+			})
+			plain, code, printed := emotionStyledRender(t, root)
+			if !strings.Contains(printed, notRecognized+"@emotion/styled 11.14.1: ") || !strings.Contains(printed, "has no styled component the tifa plugin knows") {
+				t.Errorf("an unknown %s (%q): the build prints:\n%s", file, edit[1], printed)
 			}
-			return strings.Replace(source, call, "(styles.concat(classInterpolations) /* changed */, cache.registered, mergedProps)", 1)
-		})
-		plain, code, printed := emotionStyledRender(t, root)
-		if !strings.Contains(printed, notRecognized+"@emotion/styled 11.14.1: ") || !strings.Contains(printed, "has no styled component the tifa plugin knows") {
-			t.Errorf("an unknown %s: the build prints:\n%s", file, printed)
-		}
-		if n := len(styledConcatCall.FindAllString(code, -1)); n != 1 {
-			t.Errorf("an unknown %s: %d styled components copy the styles, want 1", file, n)
-		}
-		for i, p := range plain {
-			if changed[i] != p {
-				t.Errorf("an unknown %s: page %d is\n%s\nwant\n%s", file, i, p, changed[i])
+			if n := len(styledConcatCall.FindAllString(code, -1)); n != 1 {
+				t.Errorf("an unknown %s (%q): %d styled components copy the styles, want 1", file, edit[1], n)
+			}
+			if n := len(styledSpread.FindAllString(code, -1)); n != 1 {
+				t.Errorf("an unknown %s (%q): %d styled components copy their props with a spread, want 1", file, edit[1], n)
+			}
+			for i, p := range plain {
+				if changed[i] != p {
+					t.Errorf("an unknown %s (%q): page %d is\n%s\nwant\n%s", file, edit[1], i, p, changed[i])
+				}
 			}
 		}
 	}

@@ -361,6 +361,16 @@ const variantsKeys = `    } else {
 // same text for the call, and styledConcat the text.
 const styledBaseModule = /[/\\]@emotion[/\\]styled[/\\]base[/\\]dist[/\\]emotion-styled-base(?:\.[a-z-]+)*\.(?:esm|cjs)\.js$/
 const styledConcat = 'serializeStyles(styles.concat(classInterpolations), cache.registered, mergedProps)'
+// The same function copies its props, when they have no theme (the props of every MUI component have
+// none), into a new object with a for-in loop that takes about 25 ns for each key in QuickJS, where
+// a spread of the same keys takes about 4 ns, see styledFast. styledPropsCopy is the text of the copy.
+const styledPropsCopy = `      if (props.theme == null) {
+        mergedProps = {};
+
+        for (var key in props) {
+          mergedProps[key] = props[key];
+        }
+`
 // rehype-highlight calls createLowlight(languages) each time rehypeHighlight(options) is called,
 // which react-markdown does on every render of a Markdown component. That makes a new highlight.js
 // instance, registers the 37 common languages and compiles their grammars again. The tifa plugin
@@ -3844,12 +3854,35 @@ function variantsFast(source) {
 // styles, which concat copies with the same elements in the same order), and the array is the one
 // the component keeps for its whole life, so what it reads of the copy it reads of the original. With
 // classInterpolations that has an element it is concat as before.
+//
+// The copy of the props takes the spread only when the loop and the spread cannot differ. The loop
+// assigns each key that for-in visits, the own and the inherited enumerable string keys. A spread
+// defines the own enumerable keys, strings and symbols, in the same order. So the spread is taken
+// when the prototype of props is Object.prototype (nothing inherited, as long as nobody gave
+// Object.prototype an enumerable key), when props has no symbol key (the spread would copy it, the
+// loop does not) and no own key named __proto__ (the assignment sets the prototype, the spread
+// defines a key). A getter runs once for each key either way. Any other props go through the loop.
 function styledFast(source) {
-  if (source.split(styledConcat).length !== 2) return undefined
-  return source.replace(
-    styledConcat,
-    () => 'serializeStyles(classInterpolations.length === 0 ? styles : styles.concat(classInterpolations), cache.registered, mergedProps)',
-  )
+  if (source.split(styledConcat).length !== 2 || source.split(styledPropsCopy).length !== 2) return undefined
+  return source
+    .replace(
+      styledConcat,
+      () => 'serializeStyles(classInterpolations.length === 0 ? styles : styles.concat(classInterpolations), cache.registered, mergedProps)',
+    )
+    .replace(
+      styledPropsCopy,
+      () => `      if (props.theme == null) {
+        if (Object.getPrototypeOf(props) === Object.prototype && Object.getOwnPropertySymbols(props).length === 0 && !Object.prototype.hasOwnProperty.call(props, '__proto__')) {
+          mergedProps = { ...props };
+        } else {
+          mergedProps = {};
+
+          for (var key in props) {
+            mergedProps[key] = props[key];
+          }
+        }
+`,
+    )
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call
