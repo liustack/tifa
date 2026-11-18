@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -531,6 +532,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
 	a.checkDirectCalls()
+	a.checkBindTags()
 	a.propagateQuery(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
@@ -1450,4 +1452,43 @@ func (a *analyzer) routeLimits(pkg *packages.Package, handlers bool) (bodyLimit,
 		return isNamed(t, "time", "Duration")
 	}, "a time.Duration constant or variable, such as const ReadTimeout = 5 * time.Minute, or var ReadTimeout = UploadTime for a setting made with tifa.Duration")
 	return bodyLimit, readTimeout
+}
+
+// checkBindTags reports a form tag in a struct passed to c.Bind or c.BindQuery, as it does for the
+// input of a typed handler: those read a field by its json tag only. The argument is checked by its
+// static type, so a value behind an interface or built by reflection is not seen.
+func (a *analyzer) checkBindTags() {
+	for _, pkg := range a.pkgs {
+		for _, f := range pkg.Syntax {
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) != 1 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "Bind" && sel.Sel.Name != "BindQuery") {
+					return true
+				}
+				fn, ok := pkg.TypesInfo.Uses[sel.Sel].(*types.Func)
+				if !ok || fn.Signature().Recv() == nil {
+					return true
+				}
+				if named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named); !ok || !isCtxNamed(named) {
+					return true
+				}
+				t := pkg.TypesInfo.TypeOf(call.Args[0])
+				if t == nil {
+					return true
+				}
+				root := types.ExprString(call.Args[0])
+				root = strings.TrimPrefix(root, "&")
+				walkFields(t, root, map[types.Type]bool{}, func(path string, field *types.Var, tag string) {
+					if _, has := reflect.StructTag(tag).Lookup("form"); has {
+						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag: c.%s names a field by its json tag only, as a typed handler input does, so remove the form tag", sel.Sel.Name, path, sel.Sel.Name), field))
+					}
+				})
+				return true
+			})
+		}
+	}
 }

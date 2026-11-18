@@ -303,6 +303,8 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:23:", "PUT input", "Tagged.Name", "form tag", "app/api/route.go:10"},
 			{"app/api/route.go:27:", "DELETE input", "Embeds.Tagged", "embedded"},
 			{"app/api/route.go:27:", "DELETE input", "Embeds.Tagged.Name", "form tag"},
+			{"app/bindform/route.go:16:", "c.Bind", "in.Filter.Tag", "form tag", "json"},
+			{"app/bindform/route.go:23:", "c.BindQuery", "q.Tag", "form tag", "json"},
 			{"app/more/route.go:15:", "GET input", ".Data", "query string"},
 			{"app/more/route.go:17:", "POST input", "Iface.V", "interface"},
 			{"app/more/route.go:19:", "PUT result", "chan"},
