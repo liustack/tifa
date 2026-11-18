@@ -115,7 +115,7 @@ For the front page of a group of docs, write a file named like the folder (`guid
 
 - **ID**: the path of the file below the collection and language folders, without the extension and a final `/index`. `content/blog/zh-CN/202608/free-search/index.md` has the ID `202608/free-search`. Front matter cannot change it. One language of a collection has each ID once.
 - **Slug**: the `slug` of the front matter, or the last segment of the ID. It must be one URL segment: not empty, not `.` or `..`, no `/`, `?`, `#`, `%`, spaces or control characters. Letters of other languages are fine.
-- **Path**: the ID with its last segment replaced by the slug, so the ID itself when there is no `slug`. One language of a collection has each path once. Slugs may repeat (`guide/install` and `api/install` are both `install`). A blog whose URLs use the slug checks in a test that its slugs do not repeat, as `TestSlugsAreUnique` in `app/lang+/blog/post_test.go` does.
+- **Path**: the ID with its last segment replaced by the slug, so the ID itself when there is no `slug`. One language of a collection has each path once. Slugs may repeat (`guide/install` and `api/install` are both `install`). A blog whose URLs use the slug checks in a test that its slugs do not repeat, as `TestSlugsAreUnique` in `app/blog/post_test.go` does.
 
 With `Languages`, every entry is in a language folder, the default language too. A first-level folder that is not a language, or a `.md` file right in the collection folder, fails the build. A language without a folder has no entries. Without `Languages` there is no language level and `Entry.Lang` is `""`.
 
@@ -214,7 +214,7 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 | `Get(language, id string) (T, error)` | One entry. `tifa.ErrNotFound` when there is none or it cannot be seen yet, so a `Load` can return the error as it is. For a collection without languages, `language` is `""`, and anything else panics. |
 | `Languages() []string` | The declared languages, the default first. |
 
-Sorting by date or by an `order` field, and finding by slug or tag, are a few lines of Go in the domain (`app/lang+/blog/post.go`):
+Sorting by date or by an `order` field, and finding by slug or tag, are a few lines of Go in the domain (`app/blog/post.go`):
 
 ```go
 // Published is the posts of a language that can be seen now, newest first.
@@ -238,7 +238,7 @@ The content is loaded before `OnStart`, so `OnStart` can read it. Reading a coll
 
 ## Showing the body
 
-`Body()` and `Headings()` are methods of `content.Entry`, not fields, so a list of entries in the data of a page carries none of the bodies. An article page puts them in its data itself (`app/lang+/blog/post+/route.go`):
+`Body()` and `Headings()` are methods of `content.Entry`, not fields, so a list of entries in the data of a page carries none of the bodies. An article page puts them in its data itself (`app/blog/post+/route.go`):
 
 ```go
 type Page struct {
@@ -248,11 +248,7 @@ type Page struct {
 }
 
 func Load(c *tifa.Ctx) (Page, error) {
-	s, err := tifa.Use(c, lang.Layout)
-	if err != nil {
-		return Page{}, err
-	}
-	p, err := blog.BySlug(s.Lang, c.Param("post"))
+	p, err := blog.BySlug(c.Language(), c.Param("post"))
 	if err != nil {
 		return Page{}, err
 	}
@@ -417,7 +413,7 @@ An ID whose body file `go:embed` would refuse, such as one with `'` in it, fails
 
 ## Tests
 
-`go test` has no build output, so tests read the content with `tifatest` (`app/lang+/blog/post_test.go`):
+`go test` has no build output, so tests read the content with `tifatest` (`app/blog/post_test.go`):
 
 ```go
 func TestBySlugFindsTheTranslation(t *testing.T) {

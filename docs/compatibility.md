@@ -18,7 +18,7 @@ From v0.1, a change that breaks anything on the stable list below ships in a min
 
 **File conventions.** The root files (`go.mod`, `tifa.yaml`, `hooks.go`, `hooks.ts`, `options.go`, `content.go`, `content/`, `public/`, `app/`), the meaning of folder names in `app/` (`name`, `name+`, `name++`), the convention files in a folder (`route.go`, `page.tsx`, `layout.tsx`, `layout_.tsx`), what `page.tsx` and `layout.tsx` export, `_locales/<language>.json`, and `*.client.tsx`.
 
-**Generated paths an app imports.** `.tifa/vite.js`, `.tifa/tsconfig.json`, `tifa/client` and `tifa/i18n` (mapped by the app's `tsconfig.json`), `./route.gen` and its exports, `@/.tifa/session.gen`, and the Go package `<module>/.tifa/tifaapp` with its variable `App`.
+**Generated paths an app imports.** `.tifa/vite.js`, `.tifa/tsconfig.json`, `tifa/client` and `tifa/i18n` (mapped by the app's `tsconfig.json`), `./route.gen` and its exports, the `SessionData` type of `tifa/client`, and the Go package `<module>/.tifa/tifaapp` with its variable `App`.
 
 **Commands and flags.** The commands of `go tool tifa` (`new`, `build`, `dev`, `gen`, `check`, `routes`, `errors`, `docs`, `agents`, `upgrade`) with their flags. The built program's `serve`, `config` and `version`, `-c/--config`, and one flag for every setting.
 

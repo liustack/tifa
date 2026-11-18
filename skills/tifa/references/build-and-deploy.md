@@ -10,7 +10,7 @@ Full docs (in the folder `go tool tifa docs` prints): `docs/dev.md`, `docs/build
 go tool tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 ```
 
-A terminal that cannot stay open, such as yours as an agent, needs `go tool tifa dev --background`. It starts the server detached and returns once the build ended and `GET /` answers, printing the address and PID. Then `go tool tifa dev status` (`--json`, exit 1 when none runs) says where it runs and how the last build went, `go tool tifa dev logs` (`-n 100`, `-f`) prints `.tifa/dev.log`, which holds all output, and `go tool tifa dev stop` stops it, also when none runs. Stop it when you finish. A second `tifa dev` in the same app fails and names the one that runs.
+A terminal that cannot stay open, such as yours as an agent, needs `go tool tifa dev --background`. It starts the server detached and returns once the build ended and `GET /` answers, printing the address and PID. Then `go tool tifa dev status` (`--json`, exit 1 when none runs) says where it runs and how the last build went, `go tool tifa dev logs` (`-n 100`, `-f`) prints `.tifa/dev.log`, which holds all output, and `go tool tifa dev stop` stops it, also when none runs. Stop it when you finish. A second `tifa dev` in the same app fails and names the one that runs. The first `tifa dev` or `tifa build` on a machine downloads Go and npm packages and compiles Tifa, which can take a few minutes: give the command time before you decide it hangs.
 
 - The first build compiles QuickJS and SQLite, so it takes several seconds up to a minute. Later builds use Go's build cache. A page opened during the first build waits 2 seconds, then shows "building" and reloads on its own.
 - What an edit triggers: `.ts`, `.tsx`, `.css`, `.json` update open pages in place through Vite (React Fast Refresh) and rebuild the SSR bundle without a restart. `.go`, `go.mod` and `go:embed` files rebuild the Go program and reload the page. A new or removed `page.tsx`, `layout.tsx` or `layout_.tsx`, or a changed `tifa.yaml`, runs every step. A changed `.env` only restarts the app.
@@ -98,7 +98,7 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 scp bin/myapp-linux server:/srv/myapp/myapp
 ```
 
-`GOOS=linux go tool tifa build` does not work, because `GOOS` then also applies to building the Tifa command itself.
+`GOOS=linux go tool tifa build` does not work, because `GOOS` then also applies to building the Tifa command itself. Build on your machine or in CI and copy the binary. Do not build on a 1 GB VPS: the build needs more memory than the running app.
 
 On the server:
 

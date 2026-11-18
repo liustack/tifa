@@ -248,6 +248,8 @@ Moves the app to another release of Tifa and brings along what that release pins
 5. It prints every `Upgrading:` note of the [CHANGELOG.md](../CHANGELOG.md) entries after your old version, up to the new one, each with its version. These are the steps that need your hands: the command never edits your Go or TypeScript code.
 6. `tifa check` runs, and its result is the result of `tifa upgrade`.
 
+What Tifa keeps stable between releases, and what may change in any release, is in [Compatibility](compatibility.md).
+
 ```text
 $ go tool tifa upgrade
 ==> tifa v0.0.15 to v0.0.16
