@@ -50,7 +50,7 @@ func routeApp(t *testing.T) string {
 			"import * as m1 from '../app/layout'\n" +
 			"import * as m2 from '../app/page/page'\n" +
 			"const m3 = () => import('../app/other/page')\n" +
-			"export const parts = { layout: m1.default, page: m2.default, head: m2.head, error: m2.Error, " +
+			"export const parts = { layout: m1.default, page: m2.default, head: m2.head, error: m2.ErrorBoundary, " +
 			"other: lazyRouteComponent(m3) }\n",
 		".tifa/client.ts": "import { parts } from './routes'\n(globalThis as any).parts = parts\n",
 		".tifa/server.ts": "import { parts } from './routes'\n" +

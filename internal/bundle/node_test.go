@@ -44,7 +44,7 @@ export const { a, b: [c] } = { a: 1, b: [2] }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Error", "NotFound", "Zed", "a", "c", "default", "head", "ns"}; !slices.Equal(got[route], want) {
+	if want := []string{"ErrorBoundary", "NotFound", "Zed", "a", "c", "default", "head", "ns"}; !slices.Equal(got[route], want) {
 		t.Errorf("route.tsx exports %q, want %q", got[route], want)
 	}
 	if want := []string{"htmlAttributes"}; !slices.Equal(got[layout], want) {
