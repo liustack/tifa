@@ -16,7 +16,7 @@ read_when:
 ```go
 const SSR = false              // the page, default true
 const Memo = false             // the page, turns the render memo off, default on
-const Cache = true             // the page, the same for everyone, a CDN may keep it for cache_control.s_maxage, default off
+const Cache = true             // the page, the same for everyone, a CDN may keep it for cache.s_maxage, default off
 // const Cache = 10 * time.Minute
 const LayoutSSR = false        // the Layout of the folder, default true
 ```
@@ -48,12 +48,12 @@ A page sees the query parameters its `Load` and the Layouts above it read with `
 
 ```go
 // app/blog/slug+/route.go
-const Cache = true             // s-maxage from cache_control.s_maxage, 1m by default
+const Cache = true             // s-maxage from cache.s_maxage, 1m by default
 // or
 const Cache = 10 * time.Minute // its own time
 ```
 
-A page with `Cache` tells the CDN or proxy in front of the program that it is the same for everyone and may be kept for that long. Use it for pages that are public and that many visitors read: articles, docs, product and landing pages. `Cache = true` takes the time from `cache_control.s_maxage` (1 minute unless you change it, see [config.md](config.md)), a duration sets the time of this page, at least a second, and `Cache = false` is the same as no line. The program keeps nothing of the page itself. Its `Load`s run on every request, so what the origin answers is never old, and the [render memo](memo.md) still skips the render when their data is the same. A visitor behind a CDN sees a change up to `Cache` late.
+A page with `Cache` tells the CDN or proxy in front of the program that it is the same for everyone and may be kept for that long. Use it for pages that are public and that many visitors read: articles, docs, product and landing pages. `Cache = true` takes the time from `cache.s_maxage` (1 minute unless you change it, see [config.md](config.md)), a duration sets the time of this page, at least a second, and `Cache = false` is the same as no line. The program keeps nothing of the page itself. Its `Load`s run on every request, so what the origin answers is never old, and the [render memo](memo.md) still skips the render when their data is the same. A visitor behind a CDN sees a change up to `Cache` late.
 
 - **Everyone is anonymous.** The GET and HEAD of the page, and the requests the browser sends for its data when you navigate to it, lose all request headers but a short list before `OnRequest`: `Host`, `Accept-Encoding`, `If-None-Match`, `If-Modified-Since`, `Cache-Control`, `Pragma`, `Content-Length`, `Connection`, `Origin` and `Sec-Fetch-*`. `Cookie` and `Authorization` go, and so do `Accept-Language`, `User-Agent`, `Referer`, `Forwarded`, `X-Forwarded-*` and a header that a proxy or login gateway sets such as `X-User-ID`, so none of them can reach a `Load` through `OnRequest` and the context. `tifa.Session` returns nil, `c.Cookie` finds nothing, `c.Header` and `c.Request().Header` have only the list, and the request is the same for `c.Request()`. `tifa.SetSession` and `tifa.ClearSession` return an error that says sign-in and OAuth callbacks belong on routes without `Cache`. A page can only be shared if what it says does not depend on who asks. A `Set-Cookie` on the HTML of such a page is removed, since a cookie in a shared answer would reach every visitor. The answer to a navigation (the request with `_tifa`) is for one browser and keeps its `Set-Cookie`, and it carries the session of that browser (see [Sessions](sessions.md#in-the-browser)). Method handlers of the same URL, a POST say, are not anonymous.
 - **The edge of anonymous.** What Tifa guarantees is the request headers: on a page with `Cache`, `OnRequest`, `Load` and `Layout` see a request with only the headers of the list, and `tifa.Session` is nil. A `net/http` middleware set with `tifa.SetHTTPHandler` runs outside Tifa and gets the request as it came, and what it puts into the context of the request reaches `OnRequest` and the `Load` unchanged. Do not recognize visitors there: do it in `OnRequest` on routes without `Cache`. The address of the connection and the TLS state also remain, and values an outer middleware puts into the context and headers on the list (such as `Origin`) can still tell requests apart. None of them may be used to build personalized shared content.

@@ -1252,7 +1252,7 @@ func TestOptionsInOldConfigGoFile(t *testing.T) {
 	}
 }
 
-// const Cache is true, false or a time.Duration: true leaves the time to cache_control.s_maxage.
+// const Cache is true, false or a time.Duration: true leaves the time to cache.s_maxage.
 func TestCacheConstIsABoolOrADuration(t *testing.T) {
 	m, err := analyzeApp(t, "cachebool")
 	if err != nil {

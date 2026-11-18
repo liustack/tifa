@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache_control.s_maxage session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -849,10 +849,10 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	}
 }
 
-// cache_control.s_maxage is the time of a page that writes const Cache = true: 1m by default, and
+// cache.s_maxage is the time of a page that writes const Cache = true: 1m by default, and
 // at least a second.
 func TestCacheControlSMaxage(t *testing.T) {
-	if got := Default().CacheControl.SMaxage; got != time.Minute {
+	if got := Default().Cache.SMaxage; got != time.Minute {
 		t.Fatalf("default %v", got)
 	}
 	for name, tc := range map[string]struct {
@@ -860,34 +860,34 @@ func TestCacheControlSMaxage(t *testing.T) {
 		file          string
 		want          time.Duration
 	}{
-		"flag": {args: []string{"--cache-control-s-maxage", "5m"}, want: 5 * time.Minute},
-		"env":  {environ: []string{"CACHE_CONTROL_S_MAXAGE=90s"}, want: 90 * time.Second},
-		"file": {file: "cache_control:\n  s_maxage: 10m\n", want: 10 * time.Minute},
+		"flag": {args: []string{"--cache-s-maxage", "5m"}, want: 5 * time.Minute},
+		"env":  {environ: []string{"CACHE_S_MAXAGE=90s"}, want: 90 * time.Second},
+		"file": {file: "cache:\n  s_maxage: 10m\n", want: 10 * time.Minute},
 	} {
 		file := ""
 		if tc.file != "" {
 			file = "tifa.yaml"
 		}
 		c, err := load(t, tc.args, tc.environ, file, tc.file)
-		if err != nil || c.CacheControl.SMaxage != tc.want {
-			t.Errorf("%s: %v, %v", name, c.CacheControl.SMaxage, err)
+		if err != nil || c.Cache.SMaxage != tc.want {
+			t.Errorf("%s: %v, %v", name, c.Cache.SMaxage, err)
 		}
 	}
 	for _, bad := range []string{"0s", "500ms", "soon"} {
-		_, err := load(t, []string{"--cache-control-s-maxage", bad}, nil, "", "")
-		if err == nil || !strings.Contains(err.Error(), "cache_control.s_maxage") || !strings.Contains(err.Error(), "at least one second") {
+		_, err := load(t, []string{"--cache-s-maxage", bad}, nil, "", "")
+		if err == nil || !strings.Contains(err.Error(), "cache.s_maxage") || !strings.Contains(err.Error(), "at least one second") {
 			t.Errorf("%q: %v", bad, err)
 		}
 	}
 }
 
-// The settings that were removed or renamed are errors in every place they could be given, and say
-// what to do. They used to be ignored, so a deployment that turned the cache off would have gone on
-// with the default.
-func TestRemovedSettingsAreErrors(t *testing.T) {
-	size := []string{"cache.size", "ssr.memo_size", "--ssr-memo-size", "SSR_MEMO_SIZE"}
-	whole := []string{"cache.whole_page", "removed"}
-	ignore := []string{"cache.ignore_query", "removed"}
+// The settings that were retired or renamed are warnings in every place they could be given, and
+// say what to do. A program with one still starts, and the old value is not used.
+func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
+	size := []string{"cache.size", "no longer used", "ssr.memo_size", "--ssr-memo-size", "SSR_MEMO_SIZE"}
+	whole := []string{"cache.whole_page", "no longer used"}
+	ignore := []string{"cache.ignore_query", "no longer used"}
+	smax := []string{"cache_control.s_maxage", "no longer used", "cache.s_maxage", "--cache-s-maxage", "CACHE_S_MAXAGE"}
 	dir := dotenvDir(t, "CACHE_SIZE=0\n")
 	for name, tc := range map[string]struct {
 		args, environ []string
@@ -899,29 +899,49 @@ func TestRemovedSettingsAreErrors(t *testing.T) {
 		"size env":                  {environ: []string{"CACHE_SIZE=0"}, want: size},
 		"size in the file of -c":    {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  size: 1MiB\n")}, want: size},
 		"size in .env":              {dotenv: true, want: size},
+		"size flag":                 {args: []string{"--cache-size", "0"}, want: size},
+		"size flag with equals":     {args: []string{"--cache-size=0"}, want: size},
 		"whole_page project file":   {project: "cache:\n  whole_page: false\n", want: whole},
 		"whole_page env":            {environ: []string{"CACHE_WHOLE_PAGE=false"}, want: whole},
+		"whole_page flag no value":  {args: []string{"--cache-whole-page"}, want: whole},
 		"ignore_query project file": {project: "cache:\n  ignore_query: ref\n", want: ignore},
 		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
+		"s_maxage project file":     {project: "cache_control:\n  s_maxage: 10m\n", want: smax},
+		"s_maxage env":              {environ: []string{"CACHE_CONTROL_S_MAXAGE=10m"}, want: smax},
+		"s_maxage flag":             {args: []string{"--cache-control-s-maxage", "10m"}, want: smax},
 	} {
-		var err error
+		var warnings []string
 		switch {
 		case tc.project != "":
-			_, _, err = Project([]byte(tc.project))
-		case tc.dotenv:
-			_, _, err = Load(Read(nil, nil, dir), nil)
+			_, _, err := Project([]byte(tc.project))
+			if err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			warnings = ProjectWarnings([]byte(tc.project))
 		default:
-			_, err = load(t, tc.args, tc.environ, "", "")
+			src := Read(tc.args, tc.environ, "")
+			if tc.dotenv {
+				src = Read(nil, nil, dir)
+			}
+			if _, _, err := Load(src, nil); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			warnings = src.RetiredWarnings()
 		}
-		if err == nil {
-			t.Errorf("%s: no error", name)
+		if len(warnings) != 1 {
+			t.Errorf("%s: %d warnings %q", name, len(warnings), warnings)
 			continue
 		}
 		for _, w := range tc.want {
-			if !strings.Contains(err.Error(), w) {
-				t.Errorf("%s: %v lacks %q", name, err, w)
+			if !strings.Contains(warnings[0], w) {
+				t.Errorf("%s: %q lacks %q", name, warnings[0], w)
 			}
 		}
+	}
+	// A renamed key does not carry its value over.
+	c, err := load(t, nil, []string{"CACHE_CONTROL_S_MAXAGE=10m"}, "", "")
+	if err != nil || c.Cache.SMaxage != time.Minute {
+		t.Errorf("the old key applied: %v, %v", c.Cache.SMaxage, err)
 	}
 	// The other keys of an app stay its own.
 	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "tifa.yaml", "cache:\n  ttl: 5\n"); err != nil {

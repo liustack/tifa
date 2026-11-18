@@ -133,10 +133,21 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
 | `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`, `SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
 | `ssr.memo_size` | `64MiB` | `--ssr-memo-size`, `SSR_MEMO_SIZE` | Size of the render memo, counting the bytes it keeps: one form of each page, its gzip form with `server.compress` on and its HTML otherwise (see [Compression](build.md#compression)). When it is full the least recently used pages go. `0` turns it off, though requests that miss the same page at the same time still share one render. What the render memo is and why it is safe: [The render memo](memo.md). A page turns the render memo off for itself with `Memo = false` (see [SSR and cache](ssr-and-cache.md#ssr-and-cache)) |
-| `cache_control.s_maxage` | `1m` | `--cache-control-s-maxage`, `CACHE_CONTROL_S_MAXAGE` | The `s-maxage` of a page that writes `const Cache = true`: how long a shared cache in front of the program, such as a CDN, may keep it. At least one second. A page with `const Cache = 10 * time.Minute` uses its own time. See [Cache for CDNs](ssr-and-cache.md#cache-for-cdns) |
+| `cache.s_maxage` | `1m` | `--cache-s-maxage`, `CACHE_S_MAXAGE` | The `s-maxage` of a page that writes `const Cache = true`: how long a shared cache in front of the program, such as a CDN, may keep it. At least one second. A page with `const Cache = 10 * time.Minute` uses its own time. See [Cache for CDNs](ssr-and-cache.md#cache-for-cdns) |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](sessions.md) |
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
+
+### Retired settings
+
+A setting that Tifa drops is listed here for at least the next minor version. A program or a build that still gets one, from a flag, an environment variable, `.env`, the file of `-c` or `tifa.yaml`, prints one warning, "no longer used", with what to do instead. It starts and builds all the same, and the value is not used: a renamed setting does not carry its value over, so set the new name or its default applies.
+
+| Retired | Instead |
+| --- | --- |
+| `cache_control.s_maxage` (`--cache-control-s-maxage`, `CACHE_CONTROL_S_MAXAGE`) | `cache.s_maxage` (`--cache-s-maxage`, `CACHE_S_MAXAGE`) |
+| `cache.size` (`--cache-size`, `CACHE_SIZE`) | `ssr.memo_size` (`--ssr-memo-size`, `SSR_MEMO_SIZE`) |
+| `cache.whole_page` | None. Pages with `Cache` are no longer kept in the program |
+| `cache.ignore_query` | None. There is no key to clean |
 
 ## Options of the app
 

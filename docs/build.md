@@ -714,7 +714,7 @@ A page with `Cache` in its `route.go` (see [Cache for CDNs](ssr-and-cache.md#cac
 
 | Answer | `Cache-Control` |
 | --- | --- |
-| The HTML, a 304 and HEAD | `public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. The seconds are `Cache`, or `cache_control.s_maxage` for `Cache = true`. The answer has no `Age` and no `Cache-Status`: Tifa keeps nothing of the page |
+| The HTML, a 304 and HEAD | `public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. The seconds are `Cache`, or `cache.s_maxage` for `Cache = true`. The answer has no `Age` and no `Cache-Status`: Tifa keeps nothing of the page |
 | The HTML when `OnRequest`, a `Load` or a `Layout` set `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding` | What the app set, as for a page without `Cache` |
 | Data request (`_tifa`) | Always `private, no-cache` |
 

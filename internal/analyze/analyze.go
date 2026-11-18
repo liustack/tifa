@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/langs"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
@@ -544,7 +545,7 @@ func (a *analyzer) build() *Manifest {
 	for _, r := range routes {
 		m.Routes = append(m.Routes, r.Route)
 	}
-	m.Warnings = a.bigSourceWarnings(m)
+	m.Warnings = append(a.retiredWarnings(), a.bigSourceWarnings(m)...)
 	return m
 }
 
@@ -1340,7 +1341,7 @@ func (a *analyzer) hooks() []string {
 }
 
 // cacheConst reads Cache, which lets a shared cache in front of the program keep the page. It is true,
-// which leaves the time to the setting cache_control.s_maxage (the second result), false for none, or
+// which leaves the time to the setting cache.s_maxage (the second result), false for none, or
 // a time.Duration constant of at least a second, such as 10 * time.Minute (the first result). Both are
 // zero/false when the page does not set it.
 func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
@@ -1491,4 +1492,17 @@ func (a *analyzer) checkBindTags() {
 			})
 		}
 	}
+}
+
+// retiredWarnings reports the retired keys that tifa.yaml still holds. They do not stop the build.
+func (a *analyzer) retiredWarnings() []Warning {
+	data, err := os.ReadFile(filepath.Join(a.root, "tifa.yaml"))
+	if err != nil {
+		return nil
+	}
+	var out []Warning
+	for _, w := range config.ProjectWarnings(data) {
+		out = append(out, Warning{Pos: token.Position{Filename: "tifa.yaml"}, Msg: w})
+	}
+	return out
 }
