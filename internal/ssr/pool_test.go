@@ -806,3 +806,15 @@ func TestRenderReportsTheLevelsOfAFailedPage(t *testing.T) {
 		t.Fatalf("got %s, want %s", html, want)
 	}
 }
+
+// ssr.timeout is the budget of one render. Compiling the bundle and loading a VM are not renders:
+// a pool with a budget no render could keep still starts, and every render then fails on the
+// budget alone. Under load, a short budget cut the start of a pool off at random.
+func TestStartingAPoolIsNotLimitedByTheRenderBudget(t *testing.T) {
+	cfg := testConfig(1)
+	cfg.Timeout = time.Nanosecond
+	p := newTestPool(t, testSource(t), cfg)
+	if _, err := p.Render(context.Background(), input("ok", "")); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a render with a budget of 1ns: got %v, want the budget to end it", err)
+	}
+}
