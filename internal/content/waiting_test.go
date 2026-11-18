@@ -11,11 +11,11 @@ func TestWaitingListsTheEntriesStillToCome(t *testing.T) {
 	at9 := time.Date(2026, 11, 20, 9, 0, 0, 0, time.FixedZone("", 8*3600))
 	f := File{
 		"blog": {
-			{ID: "202608/free-search", Lang: "zh-CN", Date: now.AddDate(0, -3, 0)},
-			{ID: "202611/launch", Lang: "zh-CN", Date: at9},
-			{ID: "202611/release-notes", Lang: "en", Date: at9},
-			{ID: "202612/later", Lang: "en", Date: time.Date(2026, 12, 1, 0, 0, 30, 0, time.UTC)},
-			{ID: "now", Lang: "en", Date: now},
+			{ID: "202608/free-search", Language: "zh-CN", Date: now.AddDate(0, -3, 0)},
+			{ID: "202611/launch", Language: "zh-CN", Date: at9},
+			{ID: "202611/release-notes", Language: "en", Date: at9},
+			{ID: "202612/later", Language: "en", Date: time.Date(2026, 12, 1, 0, 0, 30, 0, time.UTC)},
+			{ID: "now", Language: "en", Date: now},
 		},
 		"docs":  {{ID: "guide", Date: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}},
 		"notes": {{ID: "a"}},

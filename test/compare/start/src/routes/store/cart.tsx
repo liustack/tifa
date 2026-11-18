@@ -3,7 +3,7 @@ import { languageOf } from '@/runtime/languages'
 import { notFoundWith } from '../../compare/not-found'
 import { createFileRoute } from '@tanstack/react-router'
 import CartPage, { head } from '@/app/store/cart/page'
-import { Error } from '@/app/store/layout_'
+import { ErrorBoundary } from '@/app/store/layout_'
 import { cartFn } from '../../compare/store-fns'
 import { applyCoupon, changeQuantity, refusing } from '../../compare/store-handlers'
 
@@ -12,8 +12,8 @@ import { applyCoupon, changeQuantity, refusing } from '../../compare/store-handl
 export const Route = createFileRoute('/store/cart')({
   component: CartPage,
   head,
-  errorComponent: Error,
-  notFoundComponent: notFoundWith(Error),
+  errorComponent: ErrorBoundary,
+  notFoundComponent: notFoundWith(ErrorBoundary),
   wrapInSuspense: false,
   loader: ({ location }) => cartFn({ data: languageOf(location.publicHref) }),
   server: {

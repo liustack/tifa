@@ -38,7 +38,7 @@ A second `tifa dev` in the same app does not start. It prints `tifa: tifa dev is
 
 | What changed | Steps that run | Open pages |
 | --- | --- | --- |
-| `.ts`, `.tsx`, `.js`, `.css`, `.json` outside `content/`, such as a component, or a `page.tsx` that exports only its component and `Error` | bundle (the SSR bundle) | Update in place through Vite |
+| `.ts`, `.tsx`, `.js`, `.css`, `.json` outside `content/`, such as a component, or a `page.tsx` that exports only its component and `ErrorBoundary` | bundle (the SSR bundle) | Update in place through Vite |
 | A module that exports more than components, such as a `page.tsx` or `layout.tsx` that exports `head`, or a root `layout.tsx` with `htmlAttributes` or `documentHead` | bundle (the SSR bundle) | Reload, started by Vite |
 | A file in the app root that the last SSR bundle read, of any type, such as a Markdown or YAML file imported with `?raw`: edited or removed | bundle (the SSR bundle) | Through Vite, as for any front end change |
 | A file added to the public folder or removed from it | bundle (the code is generated again first) | Through Vite, as for any front end change |
@@ -121,11 +121,11 @@ Errors that happen in the browser show in a small panel in the bottom right corn
 - `Uncaught error`: a component threw with no error boundary around it, or any other error reached `window`.
 - `Unhandled rejection`: a promise failed and nothing handled it.
 
-The same error again adds to a counter (`×3`) instead of adding an entry. The panel keeps the last 20 different errors. Each can be dismissed, and a reload clears them. Errors that an `Error` component caught are not shown, as before they only reach the console. `tifa dev` keeps the same errors for [Tifa errors](#tifa-errors). A built app has none of this: the code is only in the dev build.
+The same error again adds to a counter (`×3`) instead of adding an entry. The panel keeps the last 20 different errors. Each can be dismissed, and a reload clears them. Errors that an `ErrorBoundary` component caught are not shown, as before they only reach the console. `tifa dev` keeps the same errors for [Tifa errors](#tifa-errors). A built app has none of this: the code is only in the dev build.
 
 ## When a page fails to render
 
-When a component throws while the page renders on the server, the app renders the page again with the error shown by an `Error` component (see [Errors on a page](pages.md#errors-on-a-page)). Under `tifa dev` an overlay over that page names the request, shows the public message when it differs from the status text, and shows the whole error with its stack trace in your source files. When no `Error` renders, or a page request fails before the app can render a page, such as when `OnRequest` returns an unexpected error, the app answers with a plain page from Go, which under `tifa dev` shows the same. Either page has the status code that `OnError` picked, so `curl -i` sees it too, and reloads once you save a fix, also a fix in TSX that does not reload other pages. A built app shows only the status and the public message.
+When a component throws while the page renders on the server, the app renders the page again with the error shown by an `ErrorBoundary` component (see [Errors on a page](pages.md#errors-on-a-page)). Under `tifa dev` an overlay over that page names the request, shows the public message when it differs from the status text, and shows the whole error with its stack trace in your source files. When no `ErrorBoundary` renders, or a page request fails before the app can render a page, such as when `OnRequest` returns an unexpected error, the app answers with a plain page from Go, which under `tifa dev` shows the same. Either page has the status code that `OnError` picked, so `curl -i` sees it too, and reloads once you save a fix, also a fix in TSX that does not reload other pages. A built app shows only the status and the public message.
 
 These pages show internal errors. `tifa dev` listens on `127.0.0.1` by default. With `--addr 0.0.0.0:<port>`, other machines on the network can see them.
 

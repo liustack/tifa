@@ -1845,8 +1845,8 @@ function prefixLinks() {
   return (tree, file) => {
     const state = contentFiles.get(file.data)
     const links = state?.links
-    const lang = file.data.tifa?.lang
-    if (!links || !lang || (lang === links.default && !links.always)) return
+    const language = file.data.tifa?.language
+    if (!links || !language || (language === links.default && !links.always)) return
     eachElement(tree, (node) => {
       const href = node.tagName === 'a' ? node.properties?.href : undefined
       if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//')) return
@@ -1869,7 +1869,7 @@ function prefixLinks() {
         if (score && (!best || moreSpecific(score, best.score))) best = { route, score }
       }
       // The home of a language is /en-US, not /en-US/.
-      if (best?.route.languages.includes(lang)) node.properties.href = '/' + lang + (pathPart === '/' ? href.slice(1) : href)
+      if (best?.route.languages.includes(language)) node.properties.href = '/' + language + (pathPart === '/' ? href.slice(1) : href)
     })
   }
 }
@@ -1938,7 +1938,7 @@ export async function convertContent(root, entries, { markdown, links, command, 
         if (/\.md$/i.test(rel)) {
           let stem = path.posix.basename(rel, path.posix.extname(rel))
           if (stem === 'index') stem = path.posix.basename(path.posix.dirname(path.posix.normalize(rel))) || stem
-          const page = ['', entry.lang, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
+          const page = ['', entry.language, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
           return fail(`${url} is a Markdown file and has no URL of its own: link to the page that shows it, such as ${page}`)
         }
         const shown = (p) => path.relative(root, p).split(path.sep).join('/')
@@ -1970,7 +1970,7 @@ export async function convertContent(root, entries, { markdown, links, command, 
       },
     }
     // The vfile unified makes keeps this data object, by which the steps of tifa find state.
-    const data = { tifa: { collection: entry.collection, lang: entry.lang, id: entry.id, frontmatter: entry.frontmatter } }
+    const data = { tifa: { collection: entry.collection, language: entry.language, id: entry.id, frontmatter: entry.frontmatter } }
     contentFiles.set(data, state)
     let out
     try {
@@ -2066,7 +2066,7 @@ export function lazyRoutes(environments = ['client']) {
 }
 
 // lazyRouteModule is the stand-in lazyRoutes gives routes.tsx for the route module module, with
-// lazyRouteComponent imported from router. routes.tsx reads default, head and Error of
+// lazyRouteComponent imported from router. routes.tsx reads default, head and ErrorBoundary of
 // a route module (TestHeadModulesReadOnlyWhatTheirStandInExports in internal/codegen holds it to
 // that). A stand-in for an export the module lacks is never read, and the bundler leaves it out.
 export function lazyRouteModule(router, module) {
@@ -2074,8 +2074,8 @@ export function lazyRouteModule(router, module) {
     `import { lazyRouteComponent } from ${JSON.stringify(router)}\n` +
     `const load = () => import(${JSON.stringify(module)})\n` +
     'export default lazyRouteComponent(load)\n' +
-    'const error = /* @__PURE__ */ lazyRouteComponent(load, "Error")\n' +
-    'export { error as Error }\n' +
+    'const error = /* @__PURE__ */ lazyRouteComponent(load, "ErrorBoundary")\n' +
+    'export { error as ErrorBoundary }\n' +
     'export const head = (context) => load().then((module) => module.head(context))\n'
   )
 }
@@ -3187,7 +3187,7 @@ export function serovalPlugin() {
       // The data of a route that is an array goes through the tifa.data adapter as the JSON text
       // Go wrote only when seroval asks its plugins for arrays. Otherwise seroval writes each of
       // its values, which takes several times as long in QuickJS. The other plugins of a page,
-      // TanStack Router's and the one of RouteError, take errors and streams, which no array is,
+      // TanStack Router's and the one of TifaError, take errors and streams, which no array is,
       // so they write the same as before.
       if (serovalParses.some((fn) => source.includes(fn))) {
         parses = true

@@ -94,7 +94,7 @@ type Route struct {
 	// Cache is how long a shared cache in front of the program may keep the page (s-maxage), from
 	// route.go's const Cache = 10 * time.Minute. Zero for none.
 	Cache time.Duration
-	// CacheDefault is true for const Cache = true: the time is cache_control.s_maxage.
+	// CacheDefault is true for const Cache = true: the time is cache.s_maxage.
 	CacheDefault bool
 	// BodyLimit and ReadTimeout are route.go's BodyLimit and ReadTimeout: the body limit and the read
 	// timeout of the requests the method handlers of the route answer, in place of

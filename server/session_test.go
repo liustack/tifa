@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/core"
 )
 
 type sessUser struct {
@@ -116,7 +117,7 @@ func sessionServer(t *testing.T, app App, store tifa.SessionStore) *server {
 }
 
 func newStore(t *testing.T) *countingStore {
-	m := tifa.NewMemoryStore(1 << 20)
+	m := core.NewMemoryStore(1 << 20)
 	t.Cleanup(m.Close)
 	return &countingStore{SessionStore: m}
 }
@@ -389,7 +390,7 @@ func TestStartupUsesTheStoreOfOnStartAndLogsTheDefault(t *testing.T) {
 	var log2 syncBuffer
 	oldDefault2 := logDefault(&log2)
 	defer oldDefault2()
-	runWithSessionsUntilListening(t, true, func() { tifa.SetSessionStore(tifa.NewMemoryStore(1 << 20)) }, &log2)
+	runWithSessionsUntilListening(t, true, func() { tifa.SetSessionStore(core.NewMemoryStore(1 << 20)) }, &log2)
 	if strings.Contains(log2.String(), "sessions are kept in memory") {
 		t.Fatalf("the default was logged though OnStart set a store:\n%s", log2.String())
 	}

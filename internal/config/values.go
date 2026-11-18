@@ -574,7 +574,7 @@ func (v siteURLValue) Set(s string) error {
 func (v siteURLValue) String() string { return *v.p }
 func (v siteURLValue) kind() string   { return "string" }
 
-// sharedAgeValue is cache_control.s_maxage: a duration of at least a second, the unit of s-maxage.
+// sharedAgeValue is cache.s_maxage: a duration of at least a second, the unit of s-maxage.
 type sharedAgeValue struct{ p *time.Duration }
 
 func (v sharedAgeValue) Set(s string) error {

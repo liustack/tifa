@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { HeadContent, Scripts, createRootRoute, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
-import { Error, documentHead } from '@/app/layout'
+import { ErrorBoundary, documentHead } from '@/app/layout'
 import { notFoundWith } from '../compare/not-found'
 
 // The metas that name the same thing twice (the theme colour for a light and for a dark scheme).
@@ -15,7 +15,7 @@ export const Route = createRootRoute({
     meta: documentHead.meta.filter((m) => !('name' in m && m.name === 'theme-color')),
   }),
   shellComponent: RootDocument,
-  notFoundComponent: notFoundWith(Error),
+  notFoundComponent: notFoundWith(ErrorBoundary),
 })
 
 function RootDocument({ children }: { children: ReactNode }) {

@@ -31,7 +31,7 @@ func (f File) Waiting(now time.Time) []string {
 			j := i
 			var names []string
 			for ; j < len(waiting) && waiting[j].Date.Equal(waiting[i].Date); j++ {
-				names = append(names, path.Join(waiting[j].Lang, waiting[j].ID))
+				names = append(names, path.Join(waiting[j].Language, waiting[j].ID))
 			}
 			groups = append(groups, joinAnd(names)+" at "+FormatDate(waiting[i].Date))
 			i = j

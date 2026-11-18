@@ -96,7 +96,7 @@ type Route struct {
 	// Cache is how long a shared cache may keep the page, Cache = 10 * time.Minute in route.go, zero when
 	// absent.
 	Cache time.Duration `json:"cache"`
-	// CacheDefault is true when route.go writes Cache = true: the time is the setting cache_control.s_maxage.
+	// CacheDefault is true when route.go writes Cache = true: the time is the setting cache.s_maxage.
 	CacheDefault bool `json:"cacheDefault"`
 	// BodyLimit and ReadTimeout report whether route.go declares them: the body limit and the read
 	// timeout of the requests its method handlers answer, in place of server.body_limit and

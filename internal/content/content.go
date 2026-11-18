@@ -22,7 +22,7 @@ const FileName = "content.json"
 // Record is one entry of a collection as dist/content.json holds it.
 type Record struct {
 	ID   string `json:"id"`
-	Lang string `json:"lang,omitempty"`
+	Language string `json:"language,omitempty"`
 	Slug string `json:"slug"`
 	Path string `json:"path"`
 	// Group is the translation key: the translationKey of the front matter, or the ID.
@@ -50,16 +50,16 @@ type Heading struct {
 	Text  string `json:"text"`
 }
 
-// BodyFile is where the body of an entry goes in dist: content/<collection>/<lang>/<ID>.html,
+// BodyFile is where the body of an entry goes in dist: content/<collection>/<language>/<ID>.html,
 // without the language folder for a collection without languages.
-func BodyFile(collection, lang, id string) string {
-	return path.Join("content", collection, lang, id+".html")
+func BodyFile(collection, language, id string) string {
+	return path.Join("content", collection, language, id+".html")
 }
 
 // Markdown is one entry that the tifa Vite plugin turns into HTML, as EntriesFile lists it.
 type Markdown struct {
 	Collection string `json:"collection"`
-	Lang       string `json:"lang"`
+	Language       string `json:"language"`
 	ID         string `json:"id"`
 	// Source is the Markdown file relative to the app root, which relative URLs start from.
 	Source string `json:"source"`

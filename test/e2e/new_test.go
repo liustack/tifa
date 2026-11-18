@@ -8,16 +8,12 @@ import (
 	"testing"
 )
 
-// TestNewApp creates an app with tifa new, follows the steps it prints, and checks that the app
-// tests, builds and answers.
-func TestNewApp(t *testing.T) {
-	skipUnlessEnabled(t)
-	modules := filepath.Join(repoRoot(t), "test", "apps", "pages", "node_modules")
-	if _, err := os.Stat(modules); err != nil {
-		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
-	}
+// createNewApp runs tifa new in a temporary folder with args and follows the steps it prints,
+// in their order. It returns the folder of the app.
+func createNewApp(t *testing.T, args ...string) string {
+	t.Helper()
 	dir := filepath.Join(t.TempDir(), "hello")
-	out, err := exec.Command(cli(t), "new", dir).CombinedOutput()
+	out, err := exec.Command(cli(t), append([]string{"new", dir}, args...)...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("tifa new: %v\n%s", err, out)
 	}
@@ -57,6 +53,18 @@ func TestNewApp(t *testing.T) {
 	if strings.Join(ran, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("steps %q, want %q", ran, want)
 	}
+	return dir
+}
+
+// TestNewApp creates an app with tifa new, follows the steps it prints, and checks that the app
+// tests, builds and answers.
+func TestNewApp(t *testing.T) {
+	skipUnlessEnabled(t)
+	modules := filepath.Join(repoRoot(t), "test", "apps", "pages", "node_modules")
+	if _, err := os.Stat(modules); err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+	}
+	dir := createNewApp(t)
 	// npm packages may carry Go files, such as flatted, a dependency of eslint, which has no
 	// go.mod of its own. The ignore line of go.mod keeps them out of ./... at any depth.
 	broken := filepath.Join(dir, "web", "node_modules", "broken")
@@ -159,4 +167,42 @@ func TestNewAppRootPackageNames(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNewEmptyApp creates the skeleton with tifa new --empty and checks that it vets, tests,
+// builds, starts and answers, with the sessions table and no todo list.
+func TestNewEmptyApp(t *testing.T) {
+	skipUnlessEnabled(t)
+	modules := filepath.Join(repoRoot(t), "test", "apps", "pages", "node_modules")
+	if _, err := os.Stat(modules); err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+	}
+	dir := createNewApp(t, "--empty")
+	for _, step := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"go", "mod", "tidy", "-diff"}} {
+		cmd := exec.Command(step[0], step[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(step, " "), err, out)
+		}
+	}
+	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	exe := buildAt(t, dir)
+	db := filepath.Join(t.TempDir(), "app.db")
+	t.Setenv("DB_PATH", db)
+	base, _, output := start(t, exe)
+	if status, _, body := get(t, base+"/"); status != 200 || !strings.Contains(body, "<title>hello</title>") || !strings.Contains(body, "<h1>hello</h1>") {
+		t.Fatalf("GET /: %d\n%s\n%s", status, body, output)
+	}
+	if _, err := os.Stat(db); err != nil {
+		t.Fatalf("the app did not open its database at DB_PATH: %v", err)
+	}
+	if status, _, body := get(t, base+"/nowhere"); status != 404 || !strings.Contains(body, "Page not found") {
+		t.Fatalf("GET /nowhere: %d\n%s", status, body)
+	}
+	if out, err := tifaCheck(t, dir); err != nil {
+		t.Fatalf("tifa check: %v\n%s", err, out)
+	}
+	typecheck(t, dir)
 }

@@ -95,12 +95,12 @@ func TestOnRequestRedirectsAnonymous(t *testing.T) {
 }
 ```
 
-To test code that needs someone signed in, skip the cookie and call `tifatest.WithSession(c, &auth.Session{UserID: 1, Name: "Ann"})` after `NewCtx`. It sets the state of the request only, so `tifa.Session[auth.Session](c)` returns it in `OnRequest`, `Load` and `Layout`. `NewCtx` also gives each test a memory session store, so `SetSession` and `ClearSession` work and the recorder holds the `Set-Cookie`. `tifatest.TestSessionStore(t, store)` checks a store of your own.
+To test code that needs someone signed in, skip the cookie and call `tifatest.SignIn(t, c, &auth.Session{UserID: 1, Name: "Ann"})` after `NewCtx`. It sets the state of the request only, so `tifa.Session[auth.Session](c)` returns it in `OnRequest`, `Load` and `Layout`. `NewCtx` also gives each test a memory session store, so `SetSession` and `ClearSession` work and the recorder holds the `Set-Cookie`. `tifatest.TestSessionStore(t, store)` checks a store of your own.
 
 ```go
 func TestLayoutShowsTheUser(t *testing.T) {
 	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
-	tifatest.WithSession(c, &auth.Session{UserID: 1, Name: "Ann"})
+	tifatest.SignIn(t, c, &auth.Session{UserID: 1, Name: "Ann"})
 	shell, err := tifa.Use(c, Layout)
 	// check shell.User and err
 }

@@ -55,14 +55,14 @@ type richPost struct {
 	Image       *image         `json:"image"`
 }
 
-func collection(t *testing.T, name string, schema any, langs []string, match string) Collection {
+func collection(t *testing.T, name string, schema any, languages []string, match string) Collection {
 	t.Helper()
 	typ := reflect.TypeOf(schema)
 	tree, problems := FromReflect(typ)
 	if len(problems) > 0 {
 		t.Fatalf("schema %s: %v", typ, problems)
 	}
-	return Collection{Name: name, Languages: langs, Match: match, Schema: tree, Type: typ.String(), LanguagesAt: "content.go:9:60"}
+	return Collection{Name: name, Languages: languages, Match: match, Schema: tree, Type: typ.String(), LanguagesAt: "content.go:9:60"}
 }
 
 // golden compares what a scan found with testdata/<name>.golden.
@@ -104,10 +104,10 @@ func golden(t *testing.T, name string, res Result) {
 }
 
 func TestScanBlogAndDocs(t *testing.T) {
-	langs := []string{"zh-CN", "en"}
+	languages := []string{"zh-CN", "en"}
 	res := Scan(filepath.Join("testdata", "blog"), []Collection{
-		collection(t, "blog", post{}, langs, ""),
-		collection(t, "docs", doc{}, langs, ""),
+		collection(t, "blog", post{}, languages, ""),
+		collection(t, "docs", doc{}, languages, ""),
 	}, []string{"blog", "docs"}, Options{})
 	golden(t, "blog", res)
 	if data, _ := res.File.Marshal(); strings.Contains(string(data), "DRAFT") || strings.Contains(string(data), "wip") {
@@ -132,13 +132,13 @@ func TestScanListsTheMarkdownToConvert(t *testing.T) {
 		t.Errorf("%d entries to convert for %d records", len(byOut), len(res.File["blog"]))
 	}
 	for _, r := range res.File["blog"] {
-		if _, ok := byOut[r.File]; !ok || r.File != internalcontent.BodyFile("blog", r.Lang, r.ID) {
-			t.Errorf("record %s %s has the file %q, which is not converted", r.Lang, r.ID, r.File)
+		if _, ok := byOut[r.File]; !ok || r.File != internalcontent.BodyFile("blog", r.Language, r.ID) {
+			t.Errorf("record %s %s has the file %q, which is not converted", r.Language, r.ID, r.File)
 		}
 	}
 	en := byOut["content/blog/en/202608/free-search.html"]
 	want := internalcontent.Markdown{
-		Collection: "blog", Lang: "en", ID: "202608/free-search",
+		Collection: "blog", Language: "en", ID: "202608/free-search",
 		Source:   "content/blog/en/202608/free-search/index.md",
 		Fallback: "content/blog/zh-CN/202608/free-search",
 		Out:      "content/blog/en/202608/free-search.html",
@@ -195,9 +195,9 @@ func TestScanWithMatch(t *testing.T) {
 }
 
 func TestScanFileErrors(t *testing.T) {
-	langs := []string{"zh-CN", "en"}
+	languages := []string{"zh-CN", "en"}
 	res := Scan(filepath.Join("testdata", "badfiles"), []Collection{
-		collection(t, "blog", post{}, langs, ""),
+		collection(t, "blog", post{}, languages, ""),
 		collection(t, "docs", doc{}, []string{"en"}, ""),
 		collection(t, "missing", doc{}, nil, ""),
 	}, []string{"blog", "docs", "missing"}, Options{})

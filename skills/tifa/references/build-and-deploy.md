@@ -40,7 +40,7 @@ Everything under `.tifa/` is generated. Do not edit it, and keep it out of git (
 
 - `go.mod` has `tool github.com/liustack/tifa/cmd/tifa` (`go get -tool github.com/liustack/tifa/cmd/tifa`), so `go tool tifa` uses the version in `go.mod`. `tifa build` does not change `go.mod` or `go.sum`. After upgrading Tifa run `go mod tidy` once.
 - `go.mod` also has the line `ignore node_modules`, so `go test ./...` and `go vet ./...` skip Go files inside npm packages (`go mod edit -ignore=node_modules` adds it to an older app).
-- `tsconfig.json` extends `./.tifa/tsconfig.json` and sets `paths` for `@/*` and `tifa/client`. `vite.config.ts` uses `plugins: [tifa(), react()]` with `tifa` from `./.tifa/vite.js`. Copy both from `tifa new`. Add other Vite plugins after these two.
+- `tsconfig.json` extends `./.tifa/tsconfig.json` and sets `paths` for `@/*` and `tifa/*` (`./.tifa/tifa/*`, which holds `tifa/client` and `tifa/i18n`). `vite.config.ts` uses `plugins: [tifa(), react()]` with `tifa` from `./.tifa/vite.js`. Copy both from `tifa new`. Add other Vite plugins after these two.
 - `package.json` needs `react`, `react-dom`, `@tanstack/react-router` and, as dev dependencies, `vite`, `@vitejs/plugin-react`, `typescript`, `@types/react`, `@types/react-dom`. React and React DOM must be 19.3.0 or later. `@tanstack/react-router` must be the version `tifa new` writes. The build stops with an error that names the versions otherwise. To move to a newer TanStack Router, upgrade Tifa.
 - `tifa new` picks pnpm when it is on PATH. Use pnpm and `pnpm dlx` in new commands if the app has a `pnpm-lock.yaml`.
 
@@ -72,7 +72,7 @@ Common settings (full table in config.md):
 | `ssr.timeout` | `3s` | `SSR_TIMEOUT` | One render. Over it is an unexpected error |
 | `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `3s` | `SSR_QUEUE_LIMIT`, `SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
 | `ssr.memo_size` | `64MiB` | `--ssr-memo-size`, `SSR_MEMO_SIZE` | Size of the render memo, 0 turns it off |
-| `cache_control.s_maxage` | `1m` | `--cache-control-s-maxage`, `CACHE_CONTROL_S_MAXAGE` | The `s-maxage` of a page that writes `const Cache = true`. A duration in `Cache` sets its own time |
+| `cache.s_maxage` | `1m` | `--cache-s-maxage`, `CACHE_S_MAXAGE` | The `s-maxage` of a page that writes `const Cache = true`. A duration in `Cache` sets its own time |
 | `session.cookie`, `session.max_age`, `session.memory_limit` | `__Host-tifa_session`, `720h`, `64MiB` | `SESSION_COOKIE`, `SESSION_MAX_AGE`, `SESSION_MEMORY_LIMIT` | Name and lifetime of the session cookie, and the memory of the default session store |
 | `build.target` | `es2020` | project file only | Browser bundle target, such as `es2019,chrome90,safari14` |
 | `build.public` | `public` | project file only | Folder of static files served from `/` |

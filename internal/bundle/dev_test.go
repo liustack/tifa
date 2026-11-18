@@ -254,7 +254,7 @@ func aliasApp(t *testing.T) string {
 	root := devApp(t)
 	writeTree(t, root, map[string]string{
 		"tsconfig.json": `{"extends": "./.tifa/tsconfig.json", "compilerOptions": {"paths": {` +
-			`"@/*": ["./*"], "@/components/*": ["./custom/*"], "tifa/client": ["./.tifa/runtime/client.ts"]}},` +
+			`"@/*": ["./*"], "@/components/*": ["./custom/*"], "tifa/*": ["./.tifa/tifa/*"]}},` +
 			` "include": ["**/*", ".tifa/**/*"]}`,
 		".tifa/tsconfig.json":   `{"compilerOptions": {"module": "ESNext", "moduleResolution": "bundler", "jsx": "react-jsx"}}`,
 		"custom/message.ts":     "export default 'tsconfig alias'\n",
@@ -262,6 +262,7 @@ func aliasApp(t *testing.T) string {
 		"lib/utils.ts":          "export const join = (a: string, b: string) => a + ' ' + b\n",
 		"shadcn/ui/badge.ts":    "import { join } from '@/lib/utils'\nexport default join('badge', 'ok')\n",
 		"app/page/view.tsx":     "import message from '@/components/message'\nimport badge from '@/shadcn/ui/badge'\nimport { clientOnly } from 'tifa/client'\nexport default message + ', ' + badge + ', ' + clientOnly\n",
+		".tifa/tifa/client.ts":  "export * from '../runtime/client'\n",
 		".tifa/client.ts":       "import view from '../app/page/view'\nconsole.log(view)\n",
 		".tifa/server.ts":       "import view from '../app/page/view'\n(globalThis as any).result = view\n",
 	})

@@ -1,4 +1,4 @@
-import { RouteError } from 'tifa/client'
+import { TifaError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import { layout } from './route.gen'
 
@@ -12,7 +12,7 @@ export default function Solo() {
   )
 }
 
-export function Error({ error }: { error: unknown }) {
-  if (error instanceof RouteError && error.status === 404) return <p>SOLO_404</p>
-  return <p>SOLO_ERROR {error instanceof RouteError ? `${error.status} ${error.message}` : 'other'}</p>
+export function ErrorBoundary({ error }: { error: unknown }) {
+  if (error instanceof TifaError && error.status === 404) return <p>SOLO_404</p>
+  return <p>SOLO_ERROR {error instanceof TifaError ? `${error.status} ${error.message}` : 'other'}</p>
 }

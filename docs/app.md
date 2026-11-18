@@ -97,7 +97,7 @@ A folder has at most three convention files:
 | A folder named `[id]`, `[...slug]`, `$id`, `:id`, `(group)` or `@slot` | `id+` and `slug++` (see [URLs come from folders](#urls-come-from-folders)). There are no route groups and no parallel routes | error |
 | `+page.svelte`, `+page.server.ts`, `_index.tsx` | `page.tsx`, `layout.tsx` and `route.go` (see [The files of a folder](#the-files-of-a-folder)) | error |
 | `page.js`, `layout.jsx`, `route.ts` without `page.tsx`, `layout.tsx` or `route.go` beside them, `$id.tsx` | The same | warning |
-| `middleware.ts`, and `loading`, `error` or `not-found` files in a route folder | `OnRequest` in `hooks.go`, and the `Error` export (see [404](pages.md#404)) | warning |
+| `middleware.ts`, and `loading`, `error` or `not-found` files in a route folder | `OnRequest` in `hooks.go`, and the `ErrorBoundary` export (see [404](pages.md#404)) | warning |
 | In `route.go`, a function `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `Load` or `Layout` that takes `http.ResponseWriter`, `*http.Request`, `*gin.Context`, `echo.Context` or `*fiber.Ctx` | `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`, or `func POST(c *tifa.Ctx) error` with `c.Writer()` and `c.Request()` (see [Method handlers with input and result](routes.md#method-handlers-with-input-and-result)) | error |
 
 What Tifa allows is not reported. `@tanstack/react-router` and `@tanstack/react-query` are fine. A page may export `action`, `loader`, `metadata`, `revalidate` or `dynamic` for its own use when the value is not what the other framework writes (a function for `loader` and `action`, an object for `metadata`, a number or `false` for `revalidate`, one of `auto`, `force-dynamic`, `error` and `force-static` for `dynamic`). The exports and calls are read in `page.tsx`, `layout.tsx` and `layout_.tsx` only. Imports and directives are read in every TypeScript file of `app/` and in `hooks.ts`, except tests.
@@ -140,7 +140,7 @@ The [guide](guides/i18n.md) goes through all of it: translating, the language sw
 ## Where to read next
 
 - [Routes and Ctx](routes.md): `route.go`, method handlers, errors, `Ctx`, the rules for `Load` and the JSON rules.
-- [Pages and Layouts](pages.md): `page.tsx`, `route.gen`, Layouts, head, 404 and `Error`, calling handlers from the browser.
+- [Pages and Layouts](pages.md): `page.tsx`, `route.gen`, Layouts, head, 404 and `ErrorBoundary`, calling handlers from the browser.
 - [Render switches and caches](ssr-and-cache.md): `SSR`, `Memo`, `Cache`, and query parameters in the server render.
 - [The server render](server-render.md): what the server has, components to load only in the browser, Intl and Temporal.
 - [Styles](styles.md): CSS, Tailwind CSS and shadcn/ui.

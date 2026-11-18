@@ -51,8 +51,9 @@ label {
   margin: 0;
   color: #b42318;
 }
-
+{{if not .Empty}}
 .todos .done a {
   color: #888;
   text-decoration: line-through;
 }
+{{end}}

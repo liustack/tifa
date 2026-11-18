@@ -13,7 +13,7 @@ func request(t *testing.T, path string, signedIn bool) (redirect string, reached
 	t.Helper()
 	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", path, nil))
 	if signedIn {
-		tifatest.WithSession(c, &Session{UserID: "u-1", Name: "顾遥", Initials: "顾"})
+		tifatest.SignIn(t, c, &Session{UserID: "u-1", Name: "顾遥", Initials: "顾"})
 	}
 	err := OnRequest(c, func(*tifa.Ctx) error { reached = true; return nil })
 	var r *tifa.RedirectError

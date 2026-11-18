@@ -162,8 +162,8 @@ func textMethods(t reflect.Type) string {
 	return strings.Join(names, " and ")
 }
 
-// decodeForm fills the exported fields of a struct. A field is named by its form tag, then its
-// json tag, then its Go name. files are the files of a multipart form, which fill the fields of
+// decodeForm fills the exported fields of a struct. A field is named by its json tag, then its
+// Go name. files are the files of a multipart form, which fill the fields of
 // type *multipart.FileHeader (the first file) and []*multipart.FileHeader. what names a value in
 // errors, such as "form field". When flat, v is an input that comes only as a form or query string,
 // and every field must be one a form fills: another one is a mistake in the program, refused
@@ -239,11 +239,11 @@ func setFiles(f reflect.Value, files []*multipart.FileHeader, texts []string) er
 	return nil
 }
 
+// formName is the name of a field in a form or query string: its json tag, as for the input of a
+// typed handler, then its Go name. "-" leaves the field out.
 func formName(field reflect.StructField) string {
-	for _, tag := range []string{"form", "json"} {
-		if name, _, _ := strings.Cut(field.Tag.Get(tag), ","); name != "" {
-			return name
-		}
+	if name, _, _ := strings.Cut(field.Tag.Get("json"), ","); name != "" {
+		return name
 	}
 	return field.Name
 }

@@ -14,16 +14,6 @@ import "github.com/liustack/tifa/internal/core"
 // All three return an error when ctx is done.
 type SessionStore = core.SessionStore
 
-// MemoryStore is the SessionStore that keeps records in the memory of the process. A restart signs
-// everyone out. NewMemoryStore makes one.
-type MemoryStore = core.MemoryStore
-
-// NewMemoryStore returns a store that holds at most maxBytes bytes, counting the key, the data and
-// a fixed cost per record. When it is full, a Put drops the records that expire first. A record
-// that alone is larger than maxBytes makes Put return an error. It panics when maxBytes is not
-// positive. The server uses one of 64 MiB (session.memory_limit) when OnStart sets no store.
-func NewMemoryStore(maxBytes int64) *MemoryStore { return core.NewMemoryStore(maxBytes) }
-
 // SetSessionStore sets where sessions are kept, for example a store on Redis or SQL, in place of
 // the in-memory one. Call it in OnStart: it panics once the server listens. nil restores the
 // in-memory store.

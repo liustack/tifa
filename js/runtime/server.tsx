@@ -8,7 +8,7 @@ import { LanguageContext, toLanguage } from './language'
 import { AlternatesContext } from './alternates'
 import { makeRewrite } from './prefix'
 import { i18n } from '../i18n.gen'
-import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
+import { injected, rootElementId, TifaError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
   defaultHTMLAttributes,
@@ -97,7 +97,7 @@ export type RenderInput = Omit<Injected, 'data'> & {
 
 // PlacedError is an error a render shows at a level of the matches: level 0 is the match that
 // shows what the URL matched, the first that did not load or the last one, each level above it one
-// match further out. The match there renders its errorComponent with a RouteError of the status
+// match further out. The match there renders its errorComponent with a TifaError of the status
 // and message.
 export type PlacedError = { status: number; message: string; level: number }
 
@@ -307,7 +307,7 @@ async function placed(router: ReturnType<typeof createAppRouter>, shown: number,
   if (error.level < 0 || at < 0) throw new Error(`the matches have no level ${error.level} to show the error at`)
   const matches = router.state.matches.map((match, i) =>
     i === at
-      ? { ...match, status: 'error' as const, error: new RouteError(error.status, error.message), loaderData: undefined, _notFound: undefined }
+      ? { ...match, status: 'error' as const, error: new TifaError(error.status, error.message), loaderData: undefined, _notFound: undefined }
       : i < at
         ? { ...match }
         : match,

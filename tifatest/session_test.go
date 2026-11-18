@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/core"
 	"github.com/liustack/tifa/tifatest"
 )
 
@@ -62,25 +63,25 @@ func TestNewCtxStoreSurvivesBetweenRequestsOfATest(t *testing.T) {
 	})
 }
 
-func TestWithSessionOnlyInjectsRequestState(t *testing.T) {
+func TestSignInOnlyInjectsRequestState(t *testing.T) {
 	c, w := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
 	in := &account{UserID: 9}
-	tifatest.WithSession(c, in)
+	tifatest.SignIn(t, c, in)
 	if got := tifa.Session[account](c); got != in {
 		t.Fatalf("session %p, want %p", got, in)
 	}
 	if len(w.Header().Values("Set-Cookie")) != 0 {
-		t.Error("WithSession wrote a cookie")
+		t.Error("SignIn wrote a cookie")
 	}
 	// A fresh Ctx of the same test has no session: nothing reached the store.
 	other, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
 	if tifa.Session[account](other) != nil {
-		t.Error("WithSession reached the store")
+		t.Error("SignIn reached the store")
 	}
 }
 
 func TestMemoryStoreIsAValidStore(t *testing.T) {
-	m := tifa.NewMemoryStore(1 << 20)
+	m := core.NewMemoryStore(1 << 20)
 	defer m.Close()
 	tifatest.TestSessionStore(t, m)
 }

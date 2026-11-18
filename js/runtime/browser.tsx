@@ -3,7 +3,7 @@ import { Await, RouterProvider, type AnyRoute, type AnyRouter } from '@tanstack/
 import { hydrate as hydrateRouter } from '@tanstack/react-router/ssr/client'
 import { createAppRouter, type Dehydrated } from './router'
 import { SessionContext, settleSession, startSession, type Snapshot } from './session'
-import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
+import { bootElementId, collector, injected, TifaError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 import { LanguageContext, toLanguage } from './language'
@@ -31,7 +31,7 @@ export function reportBrowserError(kind: 'recoverable' | 'uncaught', error: unkn
 
 export const rootOptions = {
   onCaughtError: (error: unknown, info: { componentStack?: string }) => {
-    if (error instanceof RouteError && error.status === 404) return
+    if (error instanceof TifaError && error.status === 404) return
     console.error(error, info.componentStack ?? '')
   },
   // Hydration mismatches arrive as recoverable errors, with the diff in the message. Setting
