@@ -311,7 +311,7 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 	tw.session = pattern == sessionPath
 	// The cookie of an HTML answer would be kept and sent to everyone. A navigation answer is for
 	// one browser and may set one.
-	tw.noCookies = anon && !c.IsData()
+	tw.noCookies = anon && !c.IsDataRequest()
 	if anon {
 		core.SetAnonymous(c)
 	}
@@ -352,7 +352,7 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 		if clientLeft(r, err, tw.wrote) {
 			err = errClientGone
 		}
-		page = page && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
+		page = page && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD") && !c.IsDataRequest()
 		s.fail(c, tw, err, page)
 	}
 }
@@ -415,7 +415,7 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	}
 	// Only the collector sends _tifa. It also reaches a redirect of ServeMux, which has no
 	// pattern.
-	data := c.IsData() && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD")
+	data := c.IsDataRequest() && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD")
 	switch {
 	case failure != nil && failure.data:
 		_ = s.writeData(c, http.StatusOK, items)

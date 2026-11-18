@@ -143,7 +143,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 | `c.Context()`, `c.WithContext(ctx)` | The request context, and a copy of `c` that carries another one, to store request-scoped values. `c` itself does not change |
 | `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
 | `c.Path()` | The path of the page as the visitor sees it in the address bar: escaped, with the language prefix, without the query, such as `/en-US/store/items/a%20b`. The same for a page load and for the data request of a navigation. In a method handler it is the path of the handler. Not allowed in a `Layout`, see [How Load may use Ctx](#how-load-may-use-ctx) |
-| `c.IsData()` | Whether this is a navigation data request of the browser router rather than a page load |
+| `c.IsDataRequest()` | Whether this is a navigation data request of the browser router rather than a page load |
 | `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above. Not allowed in `Load` |

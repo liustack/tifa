@@ -115,7 +115,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Header(name)`, `c.Cookie(name)` | Request header, request cookie |
 | `c.Context()`, `c.WithContext(ctx)` | Request context, and a copy of `c` that carries another one (`c` does not change) |
 | `c.Pattern()` | The matched route, such as `/projects/{project}` |
-| `c.IsData()` | True for the browser router's navigation data request |
+| `c.IsDataRequest()` | True for the browser router's navigation data request |
 | `c.Path()` | Path of the page as in the address bar: escaped, language prefix included, no query. Same for a page load and a navigation data request. A handler gets its own path. Not in `Layout` |
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |
