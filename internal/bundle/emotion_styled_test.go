@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -140,6 +141,7 @@ func TestSSREmotionStyledCopiesLess(t *testing.T) {
 		for _, edit := range [][2]string{
 			{"(styles.concat(classInterpolations), cache.registered, mergedProps)", "(styles.concat(classInterpolations) /* changed */, cache.registered, mergedProps)"},
 			{"        mergedProps = {};\n", "        mergedProps = {}; /* changed */\n"},
+			{"        className += \" \" + targetClassName;\n", "        className += \" \" + targetClassName; /* changed */\n"},
 		} {
 			root := withChangedPackage(t, "@emotion/styled", filepath.Join("base", "dist", file), func(source string) string {
 				if strings.Count(source, edit[0]) != 1 {
@@ -162,6 +164,46 @@ func TestSSREmotionStyledCopiesLess(t *testing.T) {
 					t.Errorf("an unknown %s (%q): page %d is\n%s\nwant\n%s", file, edit[1], i, p, changed[i])
 				}
 			}
+		}
+	}
+}
+
+// The concat is left out only while serializeStyles of the @emotion/serialize that the styled module
+// imports is the function the plugin knows, which neither keeps nor changes the array. A
+// serializeStyles that keeps the array it gets (here in a WeakMap, as a cache by the identity of its
+// arguments would) makes the plugin leave the concat in both files of the styled base and warn, and
+// the props still go through the spread. The pages are those of the unchanged code.
+func TestSSREmotionStyledKeepsTheCopyForAnotherSerializer(t *testing.T) {
+	changed, _, _ := emotionStyledRender(t, withCopies(t, []string{"@emotion/styled", "@emotion/serialize"}))
+	root := withCopies(t, []string{"@emotion/styled", "@emotion/serialize"})
+	for _, file := range []string{"emotion-serialize.esm.js", "emotion-serialize.cjs.js"} {
+		path := filepath.Join(root, "node_modules", "@emotion", "serialize", "dist", file)
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const signature = "function serializeStyles(args, registered, mergedProps) {\n"
+		if strings.Count(string(source), signature) != 1 {
+			t.Fatalf("%s does not have %q once", file, signature)
+		}
+		changedSource := strings.Replace(string(source), signature, "var kept = new WeakMap();\n"+signature+"  kept.set(args, true);\n", 1)
+		if err := os.WriteFile(path, []byte(changedSource), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept, code, printed := emotionStyledRender(t, root)
+	if !strings.Contains(printed, notRecognized+"@emotion/serialize 1.3.3: ") || !strings.Contains(printed, "has no serializeStyles the tifa plugin knows") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if n := len(styledConcatCall.FindAllString(code, -1)); n != 2 {
+		t.Errorf("%d styled components copy the styles, want 2 (the ES module and the CommonJS file)", n)
+	}
+	if n := len(styledSpread.FindAllString(code, -1)); n != 2 {
+		t.Errorf("%d styled components copy their props with a spread, want 2", n)
+	}
+	for i, p := range kept {
+		if changed[i] != p {
+			t.Errorf("page %d is\n%s\nwant\n%s", i, p, changed[i])
 		}
 	}
 }
