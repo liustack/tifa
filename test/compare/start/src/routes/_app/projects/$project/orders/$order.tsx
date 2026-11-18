@@ -1,12 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
-import OrderPage, { Error, head } from '@/app/projects/project+/orders/order+/page'
+import OrderPage, { ErrorBoundary, head } from '@/app/projects/project+/orders/order+/page'
 import { notFoundWith } from '../../../../../compare/not-found'
 import { orderFn } from '../../../../../compare/fns'
 
 export const Route = createFileRoute('/_app/projects/$project/orders/$order')({
   component: OrderPage,
   head,
-  notFoundComponent: notFoundWith(Error),
+  notFoundComponent: notFoundWith(ErrorBoundary),
   loader: async ({ params, parentMatchPromise }) =>
     orderFn({ data: { project: (await parentMatchPromise).loaderData!, order: params.order } }),
   remountDeps: ({ params }) => [params.project, params.order],
