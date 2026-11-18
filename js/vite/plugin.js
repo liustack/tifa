@@ -334,6 +334,160 @@ const memoThemeArg = `const arg = {
 };`
 // memoThemeSize is how many themes memoThemeByContent keeps.
 const memoThemeSize = 8
+// processStyleVariants of @mui/system runs for the variants of each styled MUI component and of its
+// theme (406 times in one render of the MUI test app, about 24 variants each). For each variant it
+// reads variant.props three times and each value of it twice. See variantsFast. variantsSource is the
+// whole function in @mui/system 9.5, as createStyled.mjs has it. The plugin takes it as it is, white
+// space aside, and a change anywhere in it, or a function of another text, is left as it is.
+const variantsModule = /[/\\]@mui[/\\]system[/\\]createStyled[/\\]createStyled\.m?js$/
+const variantsSource = `function processStyleVariants(props, variants, results = [], layerName = undefined) {
+  let mergedState; // We might not need it, initialized lazily
+
+  variantLoop: for (let i = 0; i < variants.length; i += 1) {
+    const variant = variants[i];
+    if (typeof variant.props === 'function') {
+      mergedState ??= {
+        ...props,
+        ...props.ownerState,
+        ownerState: props.ownerState
+      };
+      if (!variant.props(mergedState)) {
+        continue;
+      }
+    } else {
+      for (const key in variant.props) {
+        if (props[key] !== variant.props[key] && props.ownerState?.[key] !== variant.props[key]) {
+          continue variantLoop;
+        }
+      }
+    }
+    if (typeof variant.style === 'function') {
+      mergedState ??= {
+        ...props,
+        ...props.ownerState,
+        ownerState: props.ownerState
+      };
+      results.push(layerName ? shallowLayer(serializeStyles(variant.style(mergedState)), layerName) : variant.style(mergedState));
+    } else {
+      results.push(layerName ? shallowLayer(serializeStyles(variant.style), layerName) : variant.style);
+    }
+  }
+  return results;
+}
+`
+// The render function of a styled component in @emotion/styled 11 (base) serializes the styles of
+// the component with the registered styles of its className prop added: it copies the array of
+// styles with concat even when there are none, and its props, when they have no theme (the props of
+// every MUI component have none), into a new object with a for-in loop that takes about 25 ns for each
+// key in QuickJS, where a spread of the same keys takes about 4 ns. See styledFast. styledSource is the
+// whole function as the ES modules of the base have it (white space aside), and the CommonJS files
+// have it with the names of their requires. styledBaseModule is the dist files of the base.
+const styledBaseModule = /[/\\]@emotion[/\\]styled[/\\]base[/\\]dist[/\\]emotion-styled-base(?:\.[a-z-]+)*\.(?:esm|cjs)\.js$/
+const styledSource = `    var Styled = withEmotionCache(function (props, cache, ref) {
+      var FinalTag = shouldUseAs && props.as || baseTag;
+      var className = '';
+      var classInterpolations = [];
+      var mergedProps = props;
+
+      if (props.theme == null) {
+        mergedProps = {};
+
+        for (var key in props) {
+          mergedProps[key] = props[key];
+        }
+
+        mergedProps.theme = React.useContext(ThemeContext);
+      }
+
+      if (typeof props.className === 'string') {
+        className = getRegisteredStyles(cache.registered, classInterpolations, props.className);
+      } else if (props.className != null) {
+        className = props.className + " ";
+      }
+
+      var serialized = serializeStyles(styles.concat(classInterpolations), cache.registered, mergedProps);
+      className += cache.key + "-" + serialized.name;
+
+      if (targetClassName !== undefined) {
+        className += " " + targetClassName;
+      }
+
+      var finalShouldForwardProp = shouldUseAs && shouldForwardProp === undefined ? getDefaultShouldForwardProp(FinalTag) : defaultShouldForwardProp;
+      var newProps = {};
+
+      for (var _key in props) {
+        if (shouldUseAs && _key === 'as') continue;
+
+        if (finalShouldForwardProp(_key)) {
+          newProps[_key] = props[_key];
+        }
+      }
+
+      newProps.className = className;
+
+      if (ref) {
+        newProps.ref = ref;
+      }
+
+      return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Insertion, {
+        cache: cache,
+        serialized: serialized,
+        isStringTag: typeof FinalTag === 'string'
+      }), /*#__PURE__*/React.createElement(FinalTag, newProps));
+    });
+`
+// serializeStyles of @emotion/serialize 1.3, which the render function above calls with the array of
+// styles. The concat is left out only when it is this function, as the ES module has it, or as the
+// CommonJS file has it (the hash is called through hashString__default). The function reads the array
+// and keeps neither it nor a part of it.
+const serializeStylesSource = `function serializeStyles(args, registered, mergedProps) {
+  if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && args[0].styles !== undefined) {
+    return args[0];
+  }
+
+  var stringMode = true;
+  var styles = '';
+  cursor = undefined;
+  var strings = args[0];
+
+  if (strings == null || strings.raw === undefined) {
+    stringMode = false;
+    styles += handleInterpolation(mergedProps, registered, strings);
+  } else {
+    var asTemplateStringsArr = strings;
+
+    styles += asTemplateStringsArr[0];
+  } // we start at 1 since we've already handled the first arg
+
+
+  for (var i = 1; i < args.length; i++) {
+    styles += handleInterpolation(mergedProps, registered, args[i]);
+
+    if (stringMode) {
+      var templateStringsArr = strings;
+
+      styles += templateStringsArr[i];
+    }
+  } // using a global regex with .exec is stateful so lastIndex has to be reset each time
+
+
+  labelPattern.lastIndex = 0;
+  var identifierName = '';
+  var match; // https://esbench.com/bench/5b809c2cf2949800a0f61fb5
+
+  while ((match = labelPattern.exec(styles)) !== null) {
+    identifierName += '-' + match[1];
+  }
+
+  var name = hashString(styles) + identifierName;
+
+  return {
+    name: name,
+    styles: styles,
+    next: cursor
+  };
+}
+`
 // rehype-highlight calls createLowlight(languages) each time rehypeHighlight(options) is called,
 // which react-markdown does on every render of a Markdown component. That makes a new highlight.js
 // instance, registers the 37 common languages and compiles their grammars again. The tifa plugin
@@ -2180,7 +2334,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         return null
       },
     },
-    load(id) {
+    async load(id) {
       if (id === nodeHelper) return { code: nodeHelperCode, map: { mappings: '' } }
       if (id === asyncHooksHelper) return { code: asyncHooksCode, map: { mappings: '' } }
       if (id.startsWith(nodeStub)) return nodeModuleCode(id, (code) => this.parse(code), this.getModuleInfo(nodeStubImporter(id)))
@@ -2247,6 +2401,38 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           )
         }
         return byContent ?? null
+      }
+      if (variantsModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const faster = variantsFast(source)
+        if (!faster && source.includes('processStyleVariants')) {
+          this.warn(
+            notRecognized +
+            `@mui/system ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no processStyleVariants the tifa plugin knows, so ` +
+              'it reads the props of each variant of a MUI component again and again. Pages render the same, but take ' +
+              'longer to render',
+          )
+        }
+        return faster ?? null
+      }
+      if (styledBaseModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const serializer = await serializeStylesKnown(this, id)
+        const faster = styledFast(source, serializer.known)
+        if (!faster) {
+          this.warn(
+            notRecognized +
+            `@emotion/styled ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} has no styled component the tifa plugin knows, so ` +
+              'each styled component copies its props key by key and its array of styles on every render. Pages render the same, but take longer to render',
+          )
+        } else if (!serializer.known) {
+          this.warn(
+            notRecognized +
+            `@emotion/serialize ${serializer.file ? packageVersion(path.resolve(serializer.file, '..', '..')) : '(not found)'}: ${serializer.file || id} has no serializeStyles the tifa plugin knows, so ` +
+              'each styled component copies its array of styles on every render. Pages render the same, but take longer to render',
+          )
+        }
+        return faster ?? null
       }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
@@ -3748,6 +3934,136 @@ function registeredStylesFast(source) {
 }
 `,
   )
+}
+
+// squashed is text without its white space, with which a function is compared to the text the plugin
+// knows: a different layout is the same function, and any other difference is not.
+function squashed(text) {
+  return text.replace(/\s+/g, '')
+}
+
+// replaceKnownFunction returns source with the one function that starts at head and ends at the first
+// match of tail after it replaced by rewrite(known), where known is the text in knowns that the
+// function has, white space aside, or undefined when head is not in source once or the function is not
+// one of knowns.
+function replaceKnownFunction(source, head, tail, knowns, rewrite) {
+  const start = source.search(head)
+  if (start < 0 || source.slice(start + 1).search(head) >= 0) return undefined
+  const stop = tail.exec(source.slice(start))
+  if (!stop) return undefined
+  const end = start + stop.index + stop[0].length
+  const text = squashed(source.slice(start, end))
+  const known = knowns.find((k) => squashed(k) === text)
+  if (known === undefined) return undefined
+  return source.slice(0, start) + rewrite(known) + source.slice(end)
+}
+
+// edited returns text with each from of the edits, which the text has once, written as its to.
+// The edits are of text the plugin holds, so a miss is a mistake in the plugin and throws.
+function edited(text, ...edits) {
+  for (const [from, to] of edits) {
+    if (text.split(from).length !== 2) throw new Error(`tifa plugin: ${JSON.stringify(from)} is not once in the text it edits`)
+    text = text.replace(from, () => to)
+  }
+  return text
+}
+
+// The CommonJS file of createStyled has the function with a different form of ??= and of the call of
+// serializeStyles, and the CommonJS file of the styled base and of the serializer have the names of
+// their requires.
+const variantsKnowns = [
+  variantsSource,
+  edited(
+    variantsSource,
+    ['mergedState ??= {\n        ...props,\n        ...props.ownerState,\n        ownerState: props.ownerState\n      };\n      if (!variant.props', 'mergedState ?? (mergedState = {\n        ...props,\n        ...props.ownerState,\n        ownerState: props.ownerState\n      });\n      if (!variant.props'],
+    ['mergedState ??= {\n        ...props,\n        ...props.ownerState,\n        ownerState: props.ownerState\n      };\n      results.push(layerName ? shallowLayer(serializeStyles(variant.style(mergedState))', 'mergedState ?? (mergedState = {\n        ...props,\n        ...props.ownerState,\n        ownerState: props.ownerState\n      });\n      results.push(layerName ? shallowLayer((0, _styledEngine.internal_serializeStyles)(variant.style(mergedState))'],
+    ['shallowLayer(serializeStyles(variant.style), layerName)', 'shallowLayer((0, _styledEngine.internal_serializeStyles)(variant.style), layerName)'],
+  ),
+]
+const styledKnowns = [
+  styledSource,
+  edited(
+    styledSource,
+    ['var Styled = withEmotionCache(', 'var Styled = react.withEmotionCache('],
+    ['React.useContext(ThemeContext)', 'React__namespace.useContext(react.ThemeContext)'],
+    ['className = getRegisteredStyles(', 'className = utils.getRegisteredStyles('],
+    ['var serialized = serializeStyles(', 'var serialized = serialize.serializeStyles('],
+    ['/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Insertion,', '/*#__PURE__*/React__namespace.createElement(React__namespace.Fragment, null, /*#__PURE__*/React__namespace.createElement(Insertion,'],
+    ['/*#__PURE__*/React.createElement(FinalTag, newProps)', '/*#__PURE__*/React__namespace.createElement(FinalTag, newProps)'],
+  ),
+]
+const serializeStylesKnowns = [serializeStylesSource, edited(serializeStylesSource, ['hashString(styles)', 'hashString__default["default"](styles)'])]
+
+// variantsFast returns the source of @mui/system's createStyled with processStyleVariants reading
+// variant.props once for each variant, and each of its values once, or undefined when the source does
+// not have the whole function as the plugin knows it. The loop over the keys is still for-in, over
+// the same object, so it visits the same keys in the same order, the inherited ones too, and
+// props.ownerState is read where it was, and only when props does not have the value. The reads
+// differ from the old ones only for a getter or a Proxy that answers differently when asked twice, or
+// that has an effect: the value of a key of variant.props is read before the one of props, and once,
+// where the old code read it once or twice after. The rest of the function stays as it is.
+function variantsFast(source) {
+  return replaceKnownFunction(source, /function processStyleVariants\(/, /\r?\n\}/, variantsKnowns, (known) =>
+    edited(
+      known,
+      [
+        '    const variant = variants[i];\n    if (typeof variant.props === \'function\') {',
+        '    const variant = variants[i];\n    const variantProps = variant.props;\n    if (typeof variantProps === \'function\') {',
+      ],
+      [
+        '      for (const key in variant.props) {\n        if (props[key] !== variant.props[key] && props.ownerState?.[key] !== variant.props[key]) {',
+        '      for (const key in variantProps) {\n        const wanted = variantProps[key];\n        if (props[key] !== wanted && props.ownerState?.[key] !== wanted) {',
+      ],
+    ),
+  )
+}
+
+// styledFast returns the source of @emotion/styled's base with the render function of a styled
+// component handing serializeStyles the styles as they are when no registered class name added any
+// (only when concat is true) and copying its props with a spread when the loop and the spread cannot
+// differ, or undefined when the source does not have the whole function as the plugin knows it.
+//
+// serializeStyles reads its first argument and keeps neither it nor a part of it (stylesSafe in the
+// load hook checks that this is the function the module imports), and the array is the one the
+// component keeps for its whole life, so what it reads of the copy it reads of the original. With a
+// classInterpolations that has an element the array is concat as before.
+//
+// The loop copies each key that for-in visits with an assignment: the own and the inherited
+// enumerable string keys, in the order of for-in. A spread defines the own enumerable keys, strings
+// and symbols, in the same order. So the spread is taken only when the prototype of props is
+// Object.prototype (nothing inherited), when props has no symbol key (the spread would copy it, the
+// loop does not) and no own key named __proto__ (the assignment sets the prototype, the spread
+// defines a key). Any other props go through the loop. A getter runs once for each key either way.
+// Known differences, which no real app has: a key that is enumerable or a setter that someone adds to
+// Object.prototype, and a getter that changes whether another key is enumerable while the props are
+// copied.
+function styledFast(source, concat) {
+  return replaceKnownFunction(source, /var Styled = (?:react\.)?withEmotionCache\(function \(props, cache, ref\) \{/, /\r?\n    \}\);/, styledKnowns, (known) => {
+    const spread = edited(known, [
+      '      if (props.theme == null) {\n        mergedProps = {};\n\n        for (var key in props) {\n          mergedProps[key] = props[key];\n        }\n',
+      '      if (props.theme == null) {\n        if (Object.getPrototypeOf(props) === Object.prototype && Object.getOwnPropertySymbols(props).length === 0 && !Object.prototype.hasOwnProperty.call(props, \'__proto__\')) {\n          mergedProps = { ...props };\n        } else {\n          mergedProps = {};\n\n          for (var key in props) {\n            mergedProps[key] = props[key];\n          }\n        }\n',
+    ])
+    if (!concat) return spread
+    return edited(spread, ['styles.concat(classInterpolations), cache.registered, mergedProps)', 'classInterpolations.length === 0 ? styles : styles.concat(classInterpolations), cache.registered, mergedProps)'])
+  })
+}
+
+// serializeStylesKnown reports whether the function serializeStyles of the @emotion/serialize that the
+// styled file id imports is the whole function the plugin knows, white space aside. The package is
+// the one that resolves from the file, as pnpm can have several. A wrapper module (the .mjs of the
+// CommonJS build) is followed to the file it takes the function from.
+async function serializeStylesKnown(context, id) {
+  const resolved = await context.resolve('@emotion/serialize', id, { kind: /\.cjs\.js$/.test(id) ? 'require-call' : 'import-statement' })
+  if (!resolved || resolved.external) return { known: false, file: '' }
+  let file = resolved.id.replace(/\?.*$/, '')
+  let source = fs.readFileSync(file, 'utf8')
+  const wrapper = /from '(\.\/emotion-serialize[a-z.-]*\.js)'/.exec(source)
+  if (!source.includes('function serializeStyles(') && wrapper) {
+    file = path.resolve(file, '..', wrapper[1])
+    source = fs.readFileSync(file, 'utf8')
+  }
+  const known = replaceKnownFunction(source, /function serializeStyles\(/, /\r?\n\}/, serializeStylesKnowns, (k) => k) !== undefined
+  return { known, file }
 }
 
 // clsxFast returns the source of clsx with the function that joins the class names doing for a call

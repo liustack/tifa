@@ -136,6 +136,13 @@ type memoThemeCase struct {
 // test's. Material is copied too, so that it imports the copy of @mui/system.
 func withMUI(t *testing.T, change func(string) string) string {
 	t.Helper()
+	return withMUIFiles(t, []string{"memoTheme.mjs", "memoTheme.js"}, change)
+}
+
+// withCopies returns a copy of testdata/ssr with copies of the packages names, which a test then
+// changes, and links to every other package, so that the copies import each other and not the store's.
+func withCopies(t *testing.T, names []string) string {
+	t.Helper()
 	root := copyTestdata(t, "ssr", false)
 	modules := testModules(t)
 	link := func(from, to string) {
@@ -176,25 +183,42 @@ func withMUI(t *testing.T, change func(string) string) string {
 			}
 		}
 	}
-	for _, name := range []string{"system", "material"} {
-		real, err := filepath.EvalSymlinks(filepath.Join(modules, "@mui", name))
+	var reals []string
+	for _, name := range names {
+		real, err := filepath.EvalSymlinks(filepath.Join(modules, name))
 		if err != nil {
-			t.Fatal(err)
+			// A package of no test dependency of its own is found in the store of pnpm.
+			found, globErr := filepath.Glob(filepath.Join(modules, ".pnpm", strings.ReplaceAll(name, "/", "+")+"@*", "node_modules", name))
+			if globErr != nil || len(found) != 1 {
+				t.Fatalf("no %s: %v %v", name, err, found)
+			}
+			real = found[0]
 		}
-		target := filepath.Join(root, "node_modules", "@mui", name)
+		target := filepath.Join(root, "node_modules", name)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.CopyFS(target, os.DirFS(real)); err != nil {
 			t.Fatal(err)
 		}
-		// The packages next to the real folder are its own dependencies.
+		reals = append(reals, real)
+	}
+	// The packages next to a real folder are its own dependencies. They are linked after the copies
+	// are made, so that a copy never goes through a link into the store.
+	for _, real := range reals {
 		linkAll(filepath.Dir(filepath.Dir(real)))
 	}
 	linkAll(modules)
+	return root
+}
+
+// withMUIFiles is withMUI for the files of @mui/system that change names, as paths in the package.
+func withMUIFiles(t *testing.T, files []string, change func(string) string) string {
+	t.Helper()
+	root := withCopies(t, []string{"@mui/system", "@mui/material"})
 	if change != nil {
-		for _, file := range []string{"memoTheme.mjs", "memoTheme.js"} {
-			path := filepath.Join(root, "node_modules", "@mui", "system", file)
+		for _, file := range files {
+			path := filepath.Join(root, "node_modules", "@mui", "system", filepath.FromSlash(file))
 			source, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
