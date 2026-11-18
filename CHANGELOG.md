@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- `tifa new` pins `github.com/liustack/sqlite` v0.1.5. The WAL file stops growing past 64 MiB (`_wal_limit` in the DSN changes it, 0 turns it off), writes next to overlapping reads are faster, queries of computing run 6% to 10% faster, and a connection that hit an out of memory, I/O or disk full error is dropped once its transaction ends. Two rules changed. A connection in a read transaction that tries to write while another holds the write lock gets `SQLITE_BUSY` at once, no longer after `busy_timeout`. When a group commit ends because one statement failed, the statements of the group that ran before get `SQLITE_ABORT_ROLLBACK`, and the caller decides whether to run them again. Errors are of the exported type `sqlite.Error`, with the result code. Existing apps: `go get github.com/liustack/sqlite@v0.1.5`.
 - Pages with links render faster. The router no longer repeats work for each link that gives the same answer every time: it checks the first characters of an href before a regular expression, and writes a query into one string, leaving plain names and values as they are. The check that lets prefix links skip a `URL` is cheaper too. On the example shop the storefront pages run 0.4% to 4.7% fewer instructions per render (1.4% fewer over its seven pages in both languages) and the workbench pages 0.1% to 0.3% fewer. The MUI test app runs the same, within 0.04% (counted with callgrind, not timed). The pages are byte for byte the same.
 
 ### Fixed
