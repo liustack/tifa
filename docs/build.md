@@ -21,7 +21,7 @@ read_when:
 ## `tifa new`
 
 ```sh
-tifa new <dir> [--module module-path]
+tifa new <dir> [--module module-path] [--empty]
 ```
 
 Writes a small working app into `dir`, which must be missing or empty: a todo list stored in SQLite that shows how a Tifa app is laid out.
@@ -46,6 +46,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | `pnpm-workspace.yaml` | `minimumReleaseAge: 4320`, so pnpm installs no package version that is less than 3 days old (see below) |
 | `.vscode/settings.json` | Labels the editor tabs of VS Code with the folder for the file names every folder repeats, such as `orders/page.tsx` and `orders/route.go` (`page.tsx`, `layout.tsx`, `route.go`, `route_test.go` and `route.gen.ts` under `app/`), through `workbench.editor.customLabels.patterns`. Other editors ignore it |
 
+- `--empty` writes a skeleton in place of the todo list: the same root files (`go.mod`, `tifa.yaml`, `package.json`, the Vite and TypeScript config, `.gitignore`, `AGENTS.md`, `CLAUDE.md`, `hooks.go`, `db.go`, `sessions.go`, `options.go`) with a `schema.sql` that holds only the sessions table, a root `layout.tsx` with its error component, a `page.tsx` of one line and `styles.css`. It has no `app/todos/`, about page, route or route tests. It builds, passes `go test` and `go vet`, and starts. Without the flag you get the todo list.
 - The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. `tifa new` refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
 - The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. It must be a Go identifier that is not a keyword, `main` or `init` (Go does not take `init` as the name of an imported package). The Go files under `app/` import it by that name, so it may not be a name that means something else where they use it: a package they import, such as the domain `todos` or `tifa`, a predeclared name they use, such as `error`, or a parameter or variable in whose scope they use the root package, such as `db` or `ctx`. `tifa new` keeps a list of these names and refuses them, so `tifa new todos` fails and asks for another folder name or `--module`, and `--module example.com/todos` fails and asks for another last element of `--module`. Other names they use, such as `c` or `rows`, are fine. The name in `package.json` is the same, cut to 214 characters, the npm limit.
 - `go.mod` requires the version of the Tifa command that ran when the go command downloaded it: `go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`, or `go tool tifa new` in an app. A command built in a Tifa checkout, or replaced by one, writes `v0.0.0` and adds a step that points `go.mod` at the checkout with `go mod edit -replace`.
@@ -714,7 +715,7 @@ A page with `Cache` in its `route.go` (see [Cache for CDNs](ssr-and-cache.md#cac
 
 | Answer | `Cache-Control` |
 | --- | --- |
-| The HTML, a 304 and HEAD | `public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. The seconds are `Cache`, or `cache_control.s_maxage` for `Cache = true`. The answer has no `Age` and no `Cache-Status`: Tifa keeps nothing of the page |
+| The HTML, a 304 and HEAD | `public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. The seconds are `Cache`, or `cache.s_maxage` for `Cache = true`. The answer has no `Age` and no `Cache-Status`: Tifa keeps nothing of the page |
 | The HTML when `OnRequest`, a `Load` or a `Layout` set `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding` | What the app set, as for a page without `Cache` |
 | Data request (`_tifa`) | Always `private, no-cache` |
 

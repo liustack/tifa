@@ -109,8 +109,8 @@ func (c *Ctx) Pattern() string { return c.pattern }
 // request of a client navigation give the same path, and a handler gets its own path.
 func (c *Ctx) Path() string { return c.r.URL.EscapedPath() }
 
-// IsData reports whether this is a client navigation asking for route data.
-func (c *Ctx) IsData() bool { return DataOf(c.r) != nil }
+// IsDataRequest reports whether this is a client navigation asking for route data.
+func (c *Ctx) IsDataRequest() bool { return DataOf(c.r) != nil }
 
 // SetBodyLimit changes the request body limit. Call it before anything reads the body, on the goroutine
 // that handles the request, usually in OnRequest. Once reading has started it returns an error and the

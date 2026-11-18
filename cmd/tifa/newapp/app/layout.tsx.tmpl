@@ -14,13 +14,13 @@ export const documentHead = {
 export default function Root() {
   return (
     <>
-      <header>
+{{if not .Empty}}      <header>
         <nav>
           <Link to="/">Todos</Link>
           <Link to="/about">About</Link>
         </nav>
       </header>
-      <main>
+{{end}}      <main>
         <Outlet />
       </main>
     </>
@@ -35,7 +35,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
       <>
         <h1>Page not found</h1>
         <p>
-          <Link to="/">Back to the todos</Link>
+          <Link to="/">{{if .Empty}}Back to the home page{{else}}Back to the todos{{end}}</Link>
         </p>
       </>
     )
@@ -45,7 +45,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
       <h1>Something went wrong</h1>
       <p role="alert">{error instanceof TifaError ? error.message : 'Try again in a moment.'}</p>
       <p>
-        <Link to="/">Back to the todos</Link>
+        <Link to="/">{{if .Empty}}Back to the home page{{else}}Back to the todos{{end}}</Link>
       </p>
     </>
   )

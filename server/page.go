@@ -527,7 +527,7 @@ func runChain(c *tifa.Ctx, chain []load, ssr bool, key string) (items map[string
 	values, errs := runLoads(c, chain)
 	for i, err := range errs {
 		if err != nil {
-			return nil, loads, &loadFailure{chain: chain, values: values, errs: errs, failed: i, data: c.IsData(), ssr: ssr, key: key, loads: loads}
+			return nil, loads, &loadFailure{chain: chain, values: values, errs: errs, failed: i, data: c.IsDataRequest(), ssr: ssr, key: key, loads: loads}
 		}
 	}
 	items = make(map[string]routeResult, len(chain))
@@ -592,7 +592,7 @@ func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if !s.pagesServed() {
 			return loadsAsJSON(c, chain)
 		}
-		if c.IsData() {
+		if c.IsDataRequest() {
 			return s.dataRequest(c, chain, r.Path)
 		}
 		items, loads, err := runChain(c, chain, r.SSR, r.Path)

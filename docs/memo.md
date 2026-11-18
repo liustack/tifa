@@ -37,7 +37,7 @@ A cache is another thing. An HTTP cache or a CDN, which `const Cache` talks to, 
 | Old data | Never | Up to `Cache` late |
 | Pages | Any, signed-in ones too | Public pages, the same for everyone |
 | Request | Seen as it is | Made anonymous |
-| Setting | `ssr.memo_size`, route `Memo = false` | `cache_control.s_maxage` for `Cache = true` |
+| Setting | `ssr.memo_size`, route `Memo = false` | `cache.s_maxage` for `Cache = true` |
 
 Tifa itself keeps nothing for a page with `Cache`. Its `Load`s run on every request, and the memo still skips the render when their data is the same. See [Cache for CDNs](ssr-and-cache.md#cache-for-cdns).
 

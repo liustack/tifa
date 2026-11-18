@@ -25,9 +25,9 @@ type Config struct {
 	Site   Site
 	Server Server
 	SSR    SSR
-	// CacheControl holds the Cache-Control a page with Cache sends.
-	CacheControl CacheControl
-	Session      Session
+	// Cache holds the Cache-Control a page with Cache sends.
+	Cache   Cache
+	Session Session
 }
 
 // I18n is read by the tifa CLI only, from the project tifa.yaml. Default names the default language,
@@ -155,9 +155,9 @@ type SSR struct {
 	MemoSize int64
 }
 
-// CacheControl holds the settings of the Cache-Control that pages with Cache send. SMaxage is the
+// Cache holds the settings of the Cache-Control that pages with Cache send. SMaxage is the
 // s-maxage of a page that writes const Cache = true.
-type CacheControl struct {
+type Cache struct {
 	SMaxage time.Duration
 }
 
@@ -189,12 +189,12 @@ const maxDefaultVMs = 4
 // CPU limits, up to maxDefaultVMs.
 func Default() Config {
 	return Config{
-		Build:        Build{Target: "es2020", Public: "public", I18nextCache: true},
-		I18n:         I18n{Prefix: "off"},
-		Server:       Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
-		SSR:          SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
-		CacheControl: CacheControl{SMaxage: time.Minute},
-		Session:      Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
+		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
+		I18n:    I18n{Prefix: "off"},
+		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
+		SSR:     SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
+		Cache:   Cache{SMaxage: time.Minute},
+		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
 }
 
@@ -246,7 +246,7 @@ func fields(c *Config) []field {
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
 		{"ssr.memo_size", "Size of the render memo of rendered pages, 0 turns it off", sizeValue{&c.SSR.MemoSize, 0}},
-		{"cache_control.s_maxage", "s-maxage of a page that writes const Cache = true, at least one second", sharedAgeValue{&c.CacheControl.SMaxage}},
+		{"cache.s_maxage", "s-maxage of a page that writes const Cache = true, at least one second", sharedAgeValue{&c.Cache.SMaxage}},
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
@@ -282,7 +282,6 @@ func Load(s *Sources, settings map[string]string) (c Config, from map[string]str
 		}
 		errs = append(errs, ferrs...)
 	}
-	errs = append(errs, s.removedErrors()...)
 	return c, from, errors.Join(errs...)
 }
 
@@ -297,11 +296,6 @@ func Project(data []byte) (Config, map[string]string, error) {
 	}
 	settings := map[string]string{}
 	var errs []error
-	for _, r := range removedKeys {
-		if e, ok := entries[r.key]; ok {
-			errs = append(errs, fmt.Errorf("config: tifa.yaml line %d: %s is not a setting any more, %s", e.line, r.key, r.hint))
-		}
-	}
 	for _, f := range fields(&c) {
 		e, ok := entries[f.key]
 		if !ok {
@@ -323,46 +317,58 @@ func Project(data []byte) (Config, map[string]string, error) {
 	return c, settings, errors.Join(errs...)
 }
 
-// removedKeys are settings that existed in an earlier version and are gone. They are errors where
-// they used to work, since ignoring them would have a deployment go on with the default.
-var removedKeys = []struct{ key, hint string }{
-	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE)"},
-	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program"},
-	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean"},
+// retiredKeys are settings that existed in an earlier version and are gone. A retired key in the
+// project file, the file of -c, .env or the environment, or a retired flag, gets one warning
+// ("no longer used", with what to do) and is otherwise ignored: the program starts and the build
+// goes on. The value of a renamed key is not carried over to its new name, so the hint says to set
+// the new one. Retire a key here in the release that removes it, and keep it for at least the next
+// minor version. bool says the flag takes no value, as a bool setting does.
+var retiredKeys = []struct {
+	key, hint string
+	bool      bool
+}{
+	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE), and the old value is ignored", false},
+	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program", true},
+	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false},
+	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false},
 }
 
-// removedErrors reports the removed settings that the file, the environment and .env name. Their
-// flags never reach it: the command line refuses an unknown flag first (see RemovedFlagError). projectFile is the entries of
-// the project tifa.yaml, nil when Load reads the sources of a running program.
-func (s *Sources) removedErrors() []error {
-	var errs []error
-	for _, r := range removedKeys {
-		report := func(where string) {
-			errs = append(errs, fmt.Errorf("config: %s: %s is not a setting any more, %s", where, r.key, r.hint))
+func retiredWarning(where, key, hint string) string {
+	return fmt.Sprintf("config: %s: %s is no longer used, %s", where, key, hint)
+}
+
+// ProjectWarnings lists the retired keys the project tifa.yaml still holds, one warning each.
+func ProjectWarnings(data []byte) []string {
+	entries, err := yamlEntries(data)
+	if err != nil {
+		return nil // Project reports it
+	}
+	var out []string
+	for _, r := range retiredKeys {
+		if e, ok := entries[r.key]; ok {
+			out = append(out, retiredWarning(fmt.Sprintf("tifa.yaml line %d", e.line), r.key, r.hint))
 		}
+	}
+	return out
+}
+
+// RetiredWarnings lists the retired settings that the file of -c, .env, the environment and the
+// command line still name, one warning each.
+func (s *Sources) RetiredWarnings() []string {
+	var out []string
+	for _, r := range retiredKeys {
 		if _, ok := s.file[r.key]; ok {
-			report("file " + s.fileName)
+			out = append(out, retiredWarning("file "+s.fileName, r.key, r.hint))
 		}
 		if _, ok := s.env[EnvName(r.key)]; ok {
-			report("env " + EnvName(r.key))
+			out = append(out, retiredWarning("env "+EnvName(r.key), r.key, r.hint))
 		}
 		if _, ok := s.dotenv[EnvName(r.key)]; ok {
-			report(".env " + EnvName(r.key))
+			out = append(out, retiredWarning(".env "+EnvName(r.key), r.key, r.hint))
+		}
+		if _, ok, _ := s.flag(FlagName(r.key), r.bool); ok {
+			out = append(out, retiredWarning("flag --"+FlagName(r.key), r.key, r.hint))
 		}
 	}
-	return errs
-}
-
-// RemovedFlagError adds to the "unknown flag" error of the command line what to do about the flag
-// of a removed setting. Any other error is returned as it is.
-func RemovedFlagError(err error) error {
-	if err == nil {
-		return nil
-	}
-	for _, r := range removedKeys {
-		if strings.Contains(err.Error(), "unknown flag: --"+FlagName(r.key)) {
-			return fmt.Errorf("config: flag --%s: %s is not a setting any more, %s", FlagName(r.key), r.key, r.hint)
-		}
-	}
-	return err
+	return out
 }

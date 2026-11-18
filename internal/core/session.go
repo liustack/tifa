@@ -8,7 +8,9 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
 	"reflect"
 	"strings"
 	"sync"
@@ -29,6 +31,11 @@ type SessionEnv struct {
 	Cookie string        // name of the cookie
 	Secure bool          // the cookie has the Secure attribute, false under tifa dev
 	MaxAge time.Duration // how long a session lasts, from SetSession
+	// WarnInsecure makes SetSession log, once, when it answers a request that is neither local nor
+	// HTTPS, where the browser drops a Secure cookie. The server sets it, tifatest does not.
+	WarnInsecure bool
+
+	warned sync.Once
 }
 
 // Phase says where a request is in the code of the app, which decides whether SetSession and
@@ -252,6 +259,7 @@ func SetSession[S any](c *Ctx, s *S) error {
 		}
 	}
 	c.writeSessionCookie(token, int(st.env.MaxAge/time.Second))
+	st.env.warnIfDropped(c.r)
 	st.hash, st.have, st.data = hash, true, data
 	st.decoded, st.value, st.vtype = false, nil, t
 	st.changed.Store(true)
@@ -345,4 +353,43 @@ func validToken(s string) bool {
 		}
 	}
 	return true
+}
+
+// warnIfDropped logs once that the browser will drop the Secure session cookie the request just
+// got, which makes every sign-in over it fail without a trace. Browsers keep a Secure cookie from
+// HTTPS and from localhost. The server does not trust X-Forwarded-Proto for anything: here it only
+// decides whether to warn, so a proxy that ends HTTPS does not get a false alarm.
+func (e *SessionEnv) warnIfDropped(r *http.Request) {
+	if !e.WarnInsecure || !e.Secure || r.TLS != nil || isLocalHost(r.Host) || forwardedHTTPS(r) {
+		return
+	}
+	e.warned.Do(func() {
+		Logger().Warn("tifa: a sign-in came over plain HTTP, so browsers will drop the session cookie and the user stays signed out. Use HTTPS (server.tls_domains or a proxy that sets X-Forwarded-Proto), or http://localhost", "cookie", e.Cookie, "host", r.Host)
+	})
+}
+
+func isLocalHost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
+}
+
+func forwardedHTTPS(r *http.Request) bool {
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
+		return true
+	}
+	for _, v := range r.Header.Values("Forwarded") {
+		for _, part := range strings.FieldsFunc(v, func(r rune) bool { return r == ';' || r == ',' }) {
+			if k, val, ok := strings.Cut(strings.TrimSpace(part), "="); ok && strings.EqualFold(k, "proto") && strings.EqualFold(strings.Trim(val, `"`), "https") {
+				return true
+			}
+		}
+	}
+	return false
 }

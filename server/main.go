@@ -154,8 +154,6 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 			cmd.Flags().IntVar(&lifelineFD, "lifeline-fd", -1, "stop when this file descriptor reaches the end of its file, which it does when tifa dev ends (tifa dev)")
 		}
 	}
-	// A flag of a removed setting is refused with what to do instead.
-	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return config.RemovedFlagError(err) })
 	root.AddCommand(serveCmd, configCmd, versionCmd)
 	root.SetArgs(src.Args())
 	root.SetOut(stdout)
@@ -189,6 +187,9 @@ func withoutHTTPS(c config.Server) config.Server {
 // the app started.
 func loadConfig(app App, src *config.Sources) (config.Config, map[string]string, error) {
 	cfg, from, err := config.Load(src, app.Settings)
+	for _, w := range src.RetiredWarnings() {
+		core.Logger().Warn(w)
+	}
 	return cfg, from, errors.Join(src.Err(), err, config.AppErr())
 }
 

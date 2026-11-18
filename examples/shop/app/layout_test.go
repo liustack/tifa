@@ -53,7 +53,7 @@ func TestLayoutDataIsTheSameForEveryone(t *testing.T) {
 		t.Fatal(err)
 	}
 	signedIn, _ := tifatest.NewCtx(t, r)
-	tifatest.WithSession(signedIn, &shop.Session{UserID: "u-9", Name: "周宁", Initials: "周"})
+	tifatest.SignIn(t, signedIn, &shop.Session{UserID: "u-9", Name: "周宁", Initials: "周"})
 	got, err := tifa.Use(signedIn, Layout)
 	if err != nil {
 		t.Fatal(err)

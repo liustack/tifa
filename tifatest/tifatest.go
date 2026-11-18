@@ -40,7 +40,7 @@ import (
 // The Ctx has a session store that belongs to the test, in memory, so tifa.SetSession and
 // tifa.ClearSession work and write their Set-Cookie to the recorder. Every Ctx of the same t shares
 // the store, so a cookie from one can sign in the next. If r carries the session cookie, the Ctx
-// starts signed in. WithSession sets up a signed-in request without any of that.
+// starts signed in. SignIn sets up a signed-in request without any of that.
 //
 // The Ctx is the one a method handler receives. Run a Load or a Layout function through
 // tifa.Use(c, Load) to get the rules it runs under in the server: it runs once per request, and
@@ -98,11 +98,14 @@ func sessionEnv(t testing.TB) *core.SessionEnv {
 	return env
 }
 
-// WithSession makes the request of c signed in with s, as tifa.Session[S] returns it, without a
+// SignIn makes the request of c signed in with s, as tifa.Session[S] returns it, without a
 // cookie and without the store. Use it to set up the signed-in state of a Load, a method handler or
 // OnRequest. It does not check that the cookie and store flow works, which the framework's own
 // tests do. S needs no Exposed method or anything else to be used here.
-func WithSession[S any](c *tifa.Ctx, s *S) { core.InjectSession(c, s) }
+func SignIn[S any](t testing.TB, c *tifa.Ctx, s *S) {
+	t.Helper()
+	core.InjectSession(c, s)
+}
 
 // committer tells the session functions whether the response is out, as the server's writer does:
 // a body write, a final status or a flush commits it. The recorder behind it stays what the test reads.

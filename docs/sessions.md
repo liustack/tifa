@@ -4,7 +4,7 @@ audience: app
 read_when:
   - Signing users in and out, or reading who is signed in
   - Keeping sessions in Redis, SQL or a file instead of the memory of the process, or writing a store for tifa.SetSessionStore
-  - Sizing the memory store with tifa.NewMemoryStore or session.memory_limit
+  - Sizing the memory store with session.memory_limit
   - Showing the name of the signed-in user in a header, `useSession`, `SignedIn`, `data-session`, or a CSP that blocks the script at the start of the head
   - Changing the session cookie, how long a session lasts, or the cookie name
   - A SetSession or ClearSession call returns an error, or the build fails with a message about the session type
@@ -49,7 +49,7 @@ err := tifa.ClearSession(c)
 
 ## The cookie
 
-The cookie is `__Host-tifa_session` with `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, and no `Domain`. A session lasts 30 days from `SetSession`. It does not renew, so a request never writes to the store. Change the name and the lifetime with `session.cookie` and `session.max_age` (see [Configuration](config.md#settings)). Under `tifa dev` the cookie is `tifa_session` without `Secure`, since dev serves plain HTTP on localhost. A cookie that is not 43 characters of `A-Z a-z 0-9 - _` is dropped without asking the store. A cookie whose record the store no longer has, because it expired or the process restarted with the memory store, is dropped too, and the request is signed out.
+The cookie is `__Host-tifa_session` with `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, and no `Domain`. A session lasts 30 days from `SetSession`. It does not renew, so a request never writes to the store. Change the name and the lifetime with `session.cookie` and `session.max_age` (see [Configuration](config.md#settings)). Under `tifa dev` the cookie is `tifa_session` without `Secure`, since dev serves plain HTTP on localhost. Browsers drop a `Secure` cookie that comes over plain HTTP from anything but localhost, so a sign-in at `http://<IP>:9527` seems to work and the user is signed out on the next request. The first `SetSession` that answers such a request logs one warning, once per process. It counts a request as HTTPS when it came over TLS or carries `X-Forwarded-Proto: https` or `Forwarded: proto=https`, and as local when its host is `localhost`, a `.localhost` name or a loopback address. Test over HTTPS, through a proxy that sets the header, or at `http://localhost`. A cookie that is not 43 characters of `A-Z a-z 0-9 - _` is dropped without asking the store. A cookie whose record the store no longer has, because it expired or the process restarted with the memory store, is dropped too, and the request is signed out.
 
 An answer that sets or drops the cookie goes out as `Cache-Control: no-store` without `ETag` or `Last-Modified`, whatever the app set, and it keeps its status: it is never turned into a 304.
 
@@ -85,83 +85,10 @@ type SessionStore interface {
 
 ### The memory store
 
-The store Tifa uses when `OnStart` sets none is a `*tifa.MemoryStore` of `session.memory_limit` bytes. To make one yourself, for example to give sessions less memory, call `tifa.NewMemoryStore(maxBytes)` and pass it on:
+The store Tifa uses when `OnStart` sets none keeps records in the memory of the process, up to `session.memory_limit` bytes (see [Configuration](config.md#settings)). Set that to give sessions more or less memory. `tifa.SetSessionStore(nil)` brings the memory store back after a store was set.
 
-```go
-func OnStart(ctx context.Context) error {
-	tifa.SetSessionStore(tifa.NewMemoryStore(8 << 20))
-	return nil
-}
-```
-
-- A store you set replaces the default one, so `session.memory_limit` no longer applies.
-- `maxBytes` counts, for each record, its key, its data and a fixed cost. When the store is full, a `Put` drops the records that expire first. A record that alone costs more than `maxBytes` makes `Put` return an error, so `SetSession` fails. `maxBytes` must be positive, or `NewMemoryStore` panics.
-- It runs a goroutine that removes expired records once a minute. The server stops the store it made. Call `Close` yourself on one you made (in a test, `defer m.Close()`). The store keeps working after `Close`, as `Get` never returns an expired record.
-
-### A store of your own
-
-Write the three methods of `tifa.SessionStore` on top of Redis, SQL or a file, and give it to `tifa.SetSessionStore` in `OnStart`. The session test app (`test/apps/session`) keeps sessions in a file, so that a second process finds the sessions of the first. It rewrites the whole file on every call, which is fine for a test and wrong for traffic:
-
-```go
-type fileStore struct {
-	mu   sync.Mutex
-	path string
-}
-
-type fileRecord struct {
-	Data    []byte    `json:"data"`
-	Expires time.Time `json:"expires"`
-}
-
-func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, false, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	records, err := s.load()
-	if err != nil {
-		return nil, false, err
-	}
-	r, ok := records[key]
-	if !ok || !time.Now().Before(r.Expires) {
-		return nil, false, nil
-	}
-	return r.Data, true, nil
-}
-
-func (s *fileStore) Put(ctx context.Context, key string, data []byte, expiry time.Time) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	records, err := s.load()
-	if err != nil {
-		return err
-	}
-	records[key] = fileRecord{Data: append([]byte(nil), data...), Expires: expiry}
-	return s.save(records)
-}
-
-func (s *fileStore) Delete(ctx context.Context, key string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	records, err := s.load()
-	if err != nil {
-		return err
-	}
-	delete(records, key)
-	return s.save(records)
-}
-```
-
-`load` reads the file into a map, with no records while the file does not exist yet, and returns the error when the file cannot be read or decoded. `save` writes the map back. Note what the methods do: each returns `ctx.Err()` first, a missing or expired key is `found == false` with a nil error, a file that cannot be read is an error and not an empty store, `Put` copies `data`, and a key that is not there is not an error for `Delete`.
-
-With Redis or SQL, let the database remove expired records (`EXPIRE` or `SET ... EX` in Redis, a `DELETE` of old rows or an index on the expiry column in SQL), and still check `expiry` in `Get`.
+- `session.memory_limit` counts, for each record, its key, its data and a fixed cost. When the store is full, a `Put` drops the records that expire first. A record that alone costs more than the limit makes `Put` return an error, so `SetSession` fails.
+- It runs a goroutine that removes expired records once a minute, and the server stops it. The store keeps working after that, as `Get` never returns an expired record.
 
 ### Testing a store
 
@@ -174,15 +101,7 @@ func TestRedisStoreIsAValidStore(t *testing.T) {
 }
 ```
 
-(`newRedisStore` and `testClient` stand for your own code.) Tifa's own tests call it on the memory store, the same way:
-
-```go
-func TestMemoryStoreIsAValidStore(t *testing.T) {
-	m := tifa.NewMemoryStore(1 << 20)
-	defer m.Close()
-	tifatest.TestSessionStore(t, m)
-}
-```
+(`newRedisStore` and `testClient` stand for your own code.) Tifa's own tests call it on its memory store.
 
 What it checks, in order:
 
@@ -312,10 +231,10 @@ These are for the default cookie `__Host-tifa_session`. The script holds the nam
 
 ```go
 c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
-tifatest.WithSession(c, &auth.Session{UserID: 1})
+tifatest.SignIn(t, c, &auth.Session{UserID: 1})
 ```
 
-`WithSession` only sets the state of the request. It does not check the cookie and store flow, which Tifa's own tests cover. To test a store of your own, see [Testing a store](#testing-a-store).
+`SignIn` only sets the state of the request. It does not check the cookie and store flow, which Tifa's own tests cover. To test a store of your own, see [Testing a store](#testing-a-store).
 
 To test signing in as a browser does, from the form through the cookie to the next page, start the app with `tifatest.Start`: its client keeps the cookie, and the store is the one the app sets in `OnStart`, or a memory store of the test server (see [Testing a whole request](testing-apps.md#testing-a-whole-request)).
 

@@ -338,7 +338,7 @@ func identityCall(fn *types.Func) string {
 // refusedInValidate returns why fn may not run in a Validate method of an input and the functions
 // it passes the Ctx to, and an empty string when it may. Validate checks the input, then the
 // handler runs: it may read the request (Param, Query, QueryValues, Header, Cookie, Language,
-// Path, Pattern, IsData, Context, Request and tifa.Session) and answers with an error. It may not
+// Path, Pattern, IsDataRequest, Context, Request and tifa.Session) and answers with an error. It may not
 // write the response, read the body again, change the session or touch the Layout data.
 func refusedInValidate(fn *types.Func) string {
 	if isSessionWrite(fn) {

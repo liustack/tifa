@@ -99,7 +99,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
 - The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them, with no `MarshalText` or `UnmarshalText` on a field type or its element (a form never calls them).
-- Fields are named by their `json` tags. A `form` tag fails the build.
+- Fields are named by their `json` tags. A `form` tag fails the build, also in a struct passed to `c.Bind` or `c.BindQuery`, which name fields the same way.
 - If the input type has `Validate() error` or `Validate(c *tifa.Ctx) error` (the Ctx gives `c.Language()` for a message in the visitor's language, and may only read the request), it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Collect into a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when empty. Any other plain error answers 400 with its text, which the user sees.
 - A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: uploads (`docs/guides/uploads.md`).
 - `const BodyLimit = 20 << 20` and `const ReadTimeout = 5 * time.Minute` in a `route.go` replace `server.body_limit` and `server.read_timeout` for its method handlers (not the GET of its page). Either may be a var, such as a `tifa.Size` setting. 408 when the body is too slow.
@@ -115,7 +115,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Header(name)`, `c.Cookie(name)` | Request header, request cookie |
 | `c.Context()`, `c.WithContext(ctx)` | Request context, and a copy of `c` that carries another one (`c` does not change) |
 | `c.Pattern()` | The matched route, such as `/projects/{project}` |
-| `c.IsData()` | True for the browser router's navigation data request |
+| `c.IsDataRequest()` | True for the browser router's navigation data request |
 | `c.Path()` | Path of the page as in the address bar: escaped, language prefix included, no query. Same for a page load and a navigation data request. A handler gets its own path. Not in `Layout` |
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |

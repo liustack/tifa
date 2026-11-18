@@ -172,7 +172,7 @@ func (s *server) unmatched(c *tifa.Ctx) error {
 	if !s.pagesServed() || r.Method != "GET" && r.Method != "HEAD" {
 		return tifa.ErrNotFound
 	}
-	if !c.IsData() && asksForFile(r.URL.Path) {
+	if !c.IsDataRequest() && asksForFile(r.URL.Path) {
 		return errPlainNotFound
 	}
 	layout := s.notFoundAt(r)
@@ -180,7 +180,7 @@ func (s *server) unmatched(c *tifa.Ctx) error {
 		return tifa.ErrNotFound
 	}
 	at := s.layouts[layout]
-	if c.IsData() {
+	if c.IsDataRequest() {
 		selected, err := s.listedLoads(c, at.chain)
 		if err != nil {
 			return err
