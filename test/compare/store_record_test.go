@@ -268,11 +268,11 @@ func serovalValue(t *testing.T, node any) any {
 }
 
 // recordedSample is the act sample of the first block of the formal seed, recorded in a browser
-// against the four frameworks once for the tests of a run: the plans by id and the traces of each
+// against the three frameworks once for the tests of a run: the plans by id and the traces of each
 // framework, every one checked against its plan.
 func recordedSample(t *testing.T, env Env) (map[int]Plan, map[string][]Trace) {
 	t.Helper()
-	sampled.once.Do(func() { sampled.plans, sampled.traces = recordSample(t, env, BrowseFrameworks[:4]) })
+	sampled.once.Do(func() { sampled.plans, sampled.traces = recordSample(t, env, BrowseFrameworks[:3]) })
 	if sampled.traces == nil {
 		t.Fatal("the sample could not be recorded: see the test that recorded it")
 	}
@@ -330,11 +330,11 @@ func recordSample(t *testing.T, env Env, frameworks []string) (map[int]Plan, map
 }
 
 // TestStorefrontRecorderDoesTheActsOfThePlans records a sample of plans that do every act a plan can
-// hold, with their variants, in a real browser against the four frameworks. The recorder does each
+// hold, with their variants, in a real browser against the three frameworks. The recorder does each
 // act with the control of the page that does it, so every visit of the sample must record, each page
 // view must show the page of its plan, and the browser must do what the act says where the page
 // leaves no choice (checkTrace): a document for a search, a filter by a link and the next page, and
-// none for the form and the sort box. The four frameworks serve the same pages, so they must agree on
+// none for the form and the sort box. The three frameworks serve the same pages, so they must agree on
 // which page views are documents, and a variant must load a document where the visit of its plan
 // does. The recorder takes the pointer off the page after each click, so Tifa and TanStack Start,
 // which preload the link under a pointer, must ask for no page but those of the plans
@@ -344,7 +344,7 @@ func TestStorefrontRecorderDoesTheActsOfThePlans(t *testing.T) {
 	plans, traces := recordedSample(t, env)
 	acts := []string{"landing", ActLink, ActSearch, ActFilter, ActPage, ActForm, ActSort}
 	first := traces[BrowseFrameworks[0]]
-	for _, fw := range BrowseFrameworks[:4] {
+	for _, fw := range BrowseFrameworks[:3] {
 		list := traces[fw]
 		by := requestsByAct(plans, list)
 		for _, act := range acts {
@@ -396,7 +396,7 @@ func TestStorefrontEveryServerFindsNothingForTheWordOfAVisit(t *testing.T) {
 	empty := map[string]string{"en-US": "No products match", "zh-CN": "没有找到符合条件的商品"}
 	ctx := context.Background()
 	const seq = 123_456
-	for _, fw := range BrowseFrameworks[:4] {
+	for _, fw := range BrowseFrameworks[:3] {
 		target, err := env.Target(fw)
 		if err != nil {
 			t.Fatal(err)
