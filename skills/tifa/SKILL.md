@@ -49,7 +49,7 @@ myapp/
         route.go  page.tsx              Load and POST for /todos/{todo}, and the page
     store/
       layout_.tsx                       a Layout without the Layouts above it
-      lang+/ ...
+      _locales/                         zh-CN.json, en-US.json: the languages of this folder
   .tifa/                                generated, never edit, ignored by git
 ```
 
@@ -112,7 +112,7 @@ Read the one that matches the task.
 | [references/routing-and-data.md](references/routing-and-data.md) | Adding a page, a Layout or an API route. Writing `Load`, `Layout`, `tifa.Use`, method handlers with input and result, calling them from the browser, JSON rules, `hooks.go`, auth and sessions with `OnRequest`, or the build complains about `Ctx` usage |
 | [references/rendering.md](references/rendering.md) | A page fails to render on the server or does not hydrate. Using a library, date, number, chart or browser API in a page. `head` tags, `SSR` and `Memo` switches, Tailwind or shadcn/ui |
 | [references/errors-and-404.md](references/errors-and-404.md) | Showing a 404, a 403 or a failed `Load`. Redirects. Choosing between `tifa.ErrNotFound`, `tifa.Error`, `tifa.Fields` and `OnError` |
-| [references/i18n.md](references/i18n.md) | A site in several languages, language in the URL, `lang` on `<html>`, translations with i18next |
+| [references/i18n.md](references/i18n.md) | A site in several languages: `_locales` folders, language prefixes in URLs, `c.Language()`, translations with i18next, `hreflang` links |
 | [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers, `OnRequest` or code that needs a signed-in user, and checking the real HTML |
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
 | [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
