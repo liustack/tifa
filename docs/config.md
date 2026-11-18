@@ -63,6 +63,7 @@ Each setting has a key, a flag and an environment variable, all from one rule:
 
 - A key is lower case letters, digits and underscores, in at least two parts joined with dots.
 - The flag replaces dots and underscores with hyphens. The environment variable replaces dots with underscores and is in upper case. There is no prefix.
+- Kubernetes puts an environment variable into every pod for each Service in the namespace, such as `DB_PORT=tcp://10.0.0.5:5432` for a Service called `db`. An option or setting whose key ends in `.port` after a Service's name picks that value up. Set `enableServiceLinks: false` in the pod spec, or do not name option keys `<service>.port`.
 - In a YAML file each part of the key is one level: `db.url` is `url` under `db:`.
 - A flag takes its value after a space or after `=`: `--ssr-vms 4` or `--ssr-vms=4`. A word that starts with `-` is always a flag and never a value, so a value that starts with `-`, such as a negative number, goes after `=`: `--ssr-vms=-1`. A flag without its value fails. The program reads no flag after `--`.
 
