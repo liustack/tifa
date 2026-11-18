@@ -2,6 +2,9 @@ module github.com/liustack/tifa
 
 go 1.27.0
 
+// v0.1.0 carried a 41 MB binary committed by mistake. Use v0.1.1 or later.
+retract v0.1.0
+
 require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/klauspost/compress v1.20.3
