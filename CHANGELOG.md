@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- Pages that use MUI or emotion's `styled` render faster. A styled component no longer copies its array of styles when no registered class name adds to it, copies its props with a spread when they have a plain shape, and `processStyleVariants` of `@mui/system` reads each variant's props once. On the MUI test app the three pages run 2.6% to 3.4% fewer instructions per render (3.1% fewer over the three, counted with callgrind, not timed) with the same HTML, and the pages of the example shop, which has no MUI or emotion, are the same bundle.
 - Pages with links render faster. The router no longer repeats work for each link that gives the same answer every time: it checks the first characters of an href before a regular expression, and writes a query into one string, leaving plain names and values as they are. The check that lets prefix links skip a `URL` is cheaper too. On the example shop the storefront pages run 0.4% to 4.7% fewer instructions per render (1.4% fewer over its seven pages in both languages) and the workbench pages 0.1% to 0.3% fewer. The MUI test app runs the same, within 0.04% (counted with callgrind, not timed). The pages are byte for byte the same.
 
 ### Fixed
