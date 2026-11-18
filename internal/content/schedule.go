@@ -28,7 +28,7 @@ type Clock struct {
 
 // Shown is an entry that can be seen from now on.
 type Shown struct {
-	Collection, Lang, ID string
+	Collection, Language, ID string
 	Date                 time.Time
 }
 
@@ -197,7 +197,7 @@ func notifyLocked() {
 func publishedLine(shown []Shown) string {
 	var names, dates []string
 	for i, s := range shown {
-		name := path.Join(s.Lang, s.ID)
+		name := path.Join(s.Language, s.ID)
 		if i == 0 || shown[i-1].Collection != s.Collection {
 			name = s.Collection + " " + name
 		}

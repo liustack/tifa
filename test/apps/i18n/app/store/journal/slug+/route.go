@@ -11,9 +11,9 @@ import (
 // entries holds the translations of each entry by the slug of any of its versions, as a collection
 // holds them in entry.Translations.
 var entries = map[string][]content.Translation{
-	"ni-hao":  {{Lang: "zh-CN", Slug: "ni-hao"}, {Lang: "en-US", Slug: "hello"}},
-	"hello":   {{Lang: "zh-CN", Slug: "ni-hao"}, {Lang: "en-US", Slug: "hello"}},
-	"only-zh": {{Lang: "zh-CN", Slug: "only-zh"}},
+	"ni-hao":  {{Language: "zh-CN", Slug: "ni-hao"}, {Language: "en-US", Slug: "hello"}},
+	"hello":   {{Language: "zh-CN", Slug: "ni-hao"}, {Language: "en-US", Slug: "hello"}},
+	"only-zh": {{Language: "zh-CN", Slug: "only-zh"}},
 }
 
 type Data struct {
@@ -30,7 +30,7 @@ func Load(c *tifa.Ctx) (Data, error) {
 	// without a translation is left out, and the entry has no page there.
 	var versions []tifa.Alternate
 	for _, t := range translations {
-		versions = append(versions, tifa.Alternate{Language: t.Lang, Path: "/store/journal/" + t.Slug})
+		versions = append(versions, tifa.Alternate{Language: t.Language, Path: "/store/journal/" + t.Slug})
 	}
 	c.SetAlternates(versions)
 	return Data{Slug: slug}, nil

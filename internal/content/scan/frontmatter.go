@@ -48,7 +48,7 @@ const (
 )
 
 // setByTifa are the json names of content.Entry that tifa works out and front matter cannot set.
-var setByTifa = map[string]bool{"id": true, "lang": true, "path": true, "translations": true, "words": true}
+var setByTifa = map[string]bool{"id": true, "language": true, "path": true, "translations": true, "words": true}
 
 // parseMatter reads src, a Markdown file, against the schema tree of the type named typeName.
 func parseMatter(src []byte, schema *Node, typeName string) *matter {

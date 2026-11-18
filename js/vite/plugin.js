@@ -1845,8 +1845,8 @@ function prefixLinks() {
   return (tree, file) => {
     const state = contentFiles.get(file.data)
     const links = state?.links
-    const lang = file.data.tifa?.lang
-    if (!links || !lang || (lang === links.default && !links.always)) return
+    const language = file.data.tifa?.language
+    if (!links || !language || (language === links.default && !links.always)) return
     eachElement(tree, (node) => {
       const href = node.tagName === 'a' ? node.properties?.href : undefined
       if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//')) return
@@ -1869,7 +1869,7 @@ function prefixLinks() {
         if (score && (!best || moreSpecific(score, best.score))) best = { route, score }
       }
       // The home of a language is /en-US, not /en-US/.
-      if (best?.route.languages.includes(lang)) node.properties.href = '/' + lang + (pathPart === '/' ? href.slice(1) : href)
+      if (best?.route.languages.includes(language)) node.properties.href = '/' + language + (pathPart === '/' ? href.slice(1) : href)
     })
   }
 }
@@ -1938,7 +1938,7 @@ export async function convertContent(root, entries, { markdown, links, command, 
         if (/\.md$/i.test(rel)) {
           let stem = path.posix.basename(rel, path.posix.extname(rel))
           if (stem === 'index') stem = path.posix.basename(path.posix.dirname(path.posix.normalize(rel))) || stem
-          const page = ['', entry.lang, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
+          const page = ['', entry.language, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
           return fail(`${url} is a Markdown file and has no URL of its own: link to the page that shows it, such as ${page}`)
         }
         const shown = (p) => path.relative(root, p).split(path.sep).join('/')
@@ -1970,7 +1970,7 @@ export async function convertContent(root, entries, { markdown, links, command, 
       },
     }
     // The vfile unified makes keeps this data object, by which the steps of tifa find state.
-    const data = { tifa: { collection: entry.collection, lang: entry.lang, id: entry.id, frontmatter: entry.frontmatter } }
+    const data = { tifa: { collection: entry.collection, language: entry.language, id: entry.id, frontmatter: entry.frontmatter } }
     contentFiles.set(data, state)
     let out
     try {

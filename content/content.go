@@ -53,8 +53,8 @@ type Entry struct {
 	// ID is the path of the file below the language folder, without .md and without the /index of
 	// an index.md in a folder of its own, such as 202608/free-search.
 	ID string `json:"id"`
-	// Lang is the language of the entry, "" in a collection without languages.
-	Lang string `json:"lang"`
+	// Language is the language of the entry, "" in a collection without languages.
+	Language string `json:"language"`
 	// Slug is the slug of the front matter, or else the last segment of ID.
 	Slug string `json:"slug"`
 	// Path is ID with its last segment replaced by Slug.
@@ -94,7 +94,7 @@ type body struct {
 // with <HTML value={...}> of tifa/client.
 //
 // Tests have no build: for an entry of tifatest.LoadContent or tifatest.SetContent, Body returns
-// the placeholder <p>tifatest: body of <collection> <lang>/<ID></p>. Body panics for an entry that
+// the placeholder <p>tifatest: body of <collection> <language>/<ID></p>. Body panics for an entry that
 // no collection holds, such as one made in place.
 func (e Entry) Body() tifa.HTML {
 	b := e.body
@@ -102,11 +102,11 @@ func (e Entry) Body() tifa.HTML {
 	case b == nil:
 		panic(fmt.Sprintf("content: Body of the entry %q, which no collection holds: read entries from a collection, or in a test from tifatest.SetContent", e.ID))
 	case b.dist == nil:
-		return tifa.HTML("<p>tifatest: body of " + html.EscapeString(b.collection+" "+path.Join(e.Lang, e.ID)) + "</p>")
+		return tifa.HTML("<p>tifatest: body of " + html.EscapeString(b.collection+" "+path.Join(e.Language, e.ID)) + "</p>")
 	}
 	data, err := fs.ReadFile(b.dist, b.file)
 	if err != nil {
-		panic(fmt.Sprintf("content: the body of %s %s: %v", b.collection, path.Join(e.Lang, e.ID), err))
+		panic(fmt.Sprintf("content: the body of %s %s: %v", b.collection, path.Join(e.Language, e.ID), err))
 	}
 	return tifa.HTML(data)
 }
@@ -129,7 +129,7 @@ type Heading struct {
 
 // Translation is one version of an entry.
 type Translation struct {
-	Lang string `json:"lang"`
+	Language string `json:"language"`
 	ID   string `json:"id"`
 	Slug string `json:"slug"`
 	Path string `json:"path"`
@@ -156,7 +156,7 @@ type data[T any] struct {
 // view holds the entries that can be seen at one time, with their Translations.
 type view[T any] struct {
 	all    []T
-	byLang map[string][]T
+	byLanguage map[string][]T
 	index  map[[2]string]int // by language and ID, into all
 }
 
@@ -255,7 +255,7 @@ func (c *Collection[T]) decode(recs []content.Record, dist fs.FS) (func(), error
 		if err := json.Unmarshal(r.Data, &v); err != nil {
 			return nil, fmt.Errorf("%s: %w", r.Source, err)
 		}
-		*entryOf(&v) = Entry{ID: r.ID, Lang: r.Lang, Slug: r.Slug, Path: r.Path, Date: r.Date, Draft: r.Draft, Words: r.Words, body: c.body(dist, r)}
+		*entryOf(&v) = Entry{ID: r.ID, Language: r.Language, Slug: r.Slug, Path: r.Path, Date: r.Date, Draft: r.Draft, Words: r.Words, body: c.body(dist, r)}
 		if val, ok := any(&v).(validator); ok {
 			if err := val.Validate(); err != nil {
 				return nil, fmt.Errorf("%s: Validate: %w", r.Source, err)
@@ -290,15 +290,15 @@ func (c *Collection[T]) set(values []any) (func(), error) {
 		}
 		e := entryOf(&v)
 		switch {
-		case len(c.src.Languages) == 0 && e.Lang != "":
-			return nil, fmt.Errorf("entry %s has the language %q, and collection %s has no languages: leave Lang empty", e.ID, e.Lang, c.src.Dir)
-		case len(c.src.Languages) > 0 && !slices.Contains(c.src.Languages, e.Lang):
-			return nil, fmt.Errorf("entry %s has the language %q, which is not a language of collection %s (%s)", e.ID, e.Lang, c.src.Dir, joinLangs(c.src.Languages))
-		case seen[[2]string{e.Lang, e.ID}]:
-			return nil, fmt.Errorf("collection %s has the entry %q of language %q twice", c.src.Dir, e.ID, e.Lang)
+		case len(c.src.Languages) == 0 && e.Language != "":
+			return nil, fmt.Errorf("entry %s has the language %q, and collection %s has no languages: leave Language empty", e.ID, e.Language, c.src.Dir)
+		case len(c.src.Languages) > 0 && !slices.Contains(c.src.Languages, e.Language):
+			return nil, fmt.Errorf("entry %s has the language %q, which is not a language of collection %s (%s)", e.ID, e.Language, c.src.Dir, joinLanguages(c.src.Languages))
+		case seen[[2]string{e.Language, e.ID}]:
+			return nil, fmt.Errorf("collection %s has the entry %q of language %q twice", c.src.Dir, e.ID, e.Language)
 		}
 		e.body = &body{collection: c.src.Dir}
-		seen[[2]string{e.Lang, e.ID}] = true
+		seen[[2]string{e.Language, e.ID}] = true
 		items = append(items, item[T]{v: v, group: e.ID})
 	}
 	return c.commit(items), nil
@@ -308,7 +308,7 @@ func (c *Collection[T]) set(values []any) (func(), error) {
 func (c *Collection[T]) commit(items []item[T]) func() {
 	slices.SortStableFunc(items, func(a, b item[T]) int {
 		x, y := entryOf(&a.v), entryOf(&b.v)
-		return cmp.Or(cmp.Compare(x.ID, y.ID), cmp.Compare(c.langIndex(x.Lang), c.langIndex(y.Lang)))
+		return cmp.Or(cmp.Compare(x.ID, y.ID), cmp.Compare(c.languageIndex(x.Language), c.languageIndex(y.Language)))
 	})
 	return func() {
 		c.data.Store(&data[T]{items: items, view: c.makeView(items, content.VisibleAt())})
@@ -330,8 +330,8 @@ func (c *Collection[T]) show(t time.Time) ([]content.Shown, time.Time) {
 		var shown []content.Shown
 		for _, x := range v.all {
 			e := entryOf(&x)
-			if _, ok := d.view.index[[2]string{e.Lang, e.ID}]; !ok {
-				shown = append(shown, content.Shown{Collection: c.src.Dir, Lang: e.Lang, ID: e.ID, Date: e.Date})
+			if _, ok := d.view.index[[2]string{e.Language, e.ID}]; !ok {
+				shown = append(shown, content.Shown{Collection: c.src.Dir, Language: e.Language, ID: e.ID, Date: e.Date})
 			}
 		}
 		var next time.Time
@@ -344,7 +344,7 @@ func (c *Collection[T]) show(t time.Time) ([]content.Shown, time.Time) {
 	}
 }
 
-func (c *Collection[T]) langIndex(lang string) int { return slices.Index(c.src.Languages, lang) }
+func (c *Collection[T]) languageIndex(language string) int { return slices.Index(c.src.Languages, language) }
 
 // makeView returns the entries that can be seen at t, with their Translations: an entry whose
 // date comes after t is left out.
@@ -357,19 +357,19 @@ func (c *Collection[T]) makeView(items []item[T], t time.Time) *view[T] {
 			continue
 		}
 		visible = append(visible, it)
-		groups[it.group] = append(groups[it.group], Translation{Lang: e.Lang, ID: e.ID, Slug: e.Slug, Path: e.Path})
+		groups[it.group] = append(groups[it.group], Translation{Language: e.Language, ID: e.ID, Slug: e.Slug, Path: e.Path})
 	}
 	for _, g := range groups {
-		slices.SortStableFunc(g, func(a, b Translation) int { return cmp.Compare(c.langIndex(a.Lang), c.langIndex(b.Lang)) })
+		slices.SortStableFunc(g, func(a, b Translation) int { return cmp.Compare(c.languageIndex(a.Language), c.languageIndex(b.Language)) })
 	}
-	v := &view[T]{all: make([]T, 0, len(visible)), byLang: map[string][]T{}, index: map[[2]string]int{}}
+	v := &view[T]{all: make([]T, 0, len(visible)), byLanguage: map[string][]T{}, index: map[[2]string]int{}}
 	for _, it := range visible {
 		x := it.v
 		e := entryOf(&x)
 		e.Translations = slices.Clone(groups[it.group])
-		v.index[[2]string{e.Lang, e.ID}] = len(v.all)
+		v.index[[2]string{e.Language, e.ID}] = len(v.all)
 		v.all = append(v.all, x)
-		v.byLang[e.Lang] = append(v.byLang[e.Lang], x)
+		v.byLanguage[e.Language] = append(v.byLanguage[e.Language], x)
 	}
 	return v
 }
@@ -393,29 +393,29 @@ func (c *Collection[T]) All() []T { return slices.Clone(c.current().all) }
 
 // In returns the entries of one language, sorted by ID, as All does. It returns nil for a language
 // the collection does not have. In a collection without languages, In("") is All().
-func (c *Collection[T]) In(lang string) []T {
+func (c *Collection[T]) In(language string) []T {
 	v := c.current()
 	if len(c.src.Languages) == 0 {
-		if lang != "" {
+		if language != "" {
 			return nil
 		}
 		return slices.Clone(v.all)
 	}
-	if !slices.Contains(c.src.Languages, lang) {
+	if !slices.Contains(c.src.Languages, language) {
 		return nil
 	}
-	return slices.Clone(v.byLang[lang])
+	return slices.Clone(v.byLanguage[language])
 }
 
 // Get returns the entry of a language by ID. It returns tifa.ErrNotFound when there is none, or it
 // cannot be seen yet, so a Load can return the error as it is. In a collection without languages
-// lang must be "", and Get panics on another value, which is a mistake in the code.
-func (c *Collection[T]) Get(lang, id string) (T, error) {
+// language must be "", and Get panics on another value, which is a mistake in the code.
+func (c *Collection[T]) Get(language, id string) (T, error) {
 	v := c.current()
-	if len(c.src.Languages) == 0 && lang != "" {
-		panic(fmt.Sprintf("content: Get on collection %s, which has no languages, with lang %q: pass \"\"", c.src.Dir, lang))
+	if len(c.src.Languages) == 0 && language != "" {
+		panic(fmt.Sprintf("content: Get on collection %s, which has no languages, with language %q: pass \"\"", c.src.Dir, language))
 	}
-	i, ok := v.index[[2]string{lang, id}]
+	i, ok := v.index[[2]string{language, id}]
 	if !ok {
 		var zero T
 		return zero, tifa.ErrNotFound
@@ -426,4 +426,4 @@ func (c *Collection[T]) Get(lang, id string) (T, error) {
 // Languages returns the languages of the collection, the default one first, nil without any.
 func (c *Collection[T]) Languages() []string { return slices.Clone(c.src.Languages) }
 
-func joinLangs(langs []string) string { return strings.Join(langs, ", ") }
+func joinLanguages(languages []string) string { return strings.Join(languages, ", ") }

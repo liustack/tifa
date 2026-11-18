@@ -55,10 +55,10 @@ var (
 	notes = Define[post](Source{Dir: "testnotes"})
 )
 
-func record(id, lang, slug, group string, date time.Time, title string) content.Record {
+func record(id, language, slug, group string, date time.Time, title string) content.Record {
 	path := id[:strings.LastIndex(id, "/")+1] + slug
-	return content.Record{ID: id, Lang: lang, Slug: slug, Path: path, Group: group, Date: date, Words: 7,
-		Source: fmt.Sprintf("content/testblog/%s/%s/index.md", lang, id), Data: []byte(fmt.Sprintf(`{"title":%q,"tags":["go"]}`, title))}
+	return content.Record{ID: id, Language: language, Slug: slug, Path: path, Group: group, Date: date, Words: 7,
+		Source: fmt.Sprintf("content/testblog/%s/%s/index.md", language, id), Data: []byte(fmt.Sprintf(`{"title":%q,"tags":["go"]}`, title))}
 }
 
 // load gives the collections of this test their entries, and takes them away when t ends.
@@ -87,7 +87,7 @@ func TestEntriesTranslationsAndVisibility(t *testing.T) {
 	}
 	var ids []string
 	for _, p := range blog.All() {
-		ids = append(ids, p.Lang+"/"+p.ID)
+		ids = append(ids, p.Language+"/"+p.ID)
 	}
 	if want := []string{"en/202607/old", "zh-CN/202608/free-search", "en/202608/free-search", "zh-CN/about"}; !slices.Equal(ids, want) {
 		t.Errorf("All = %q, want %q", ids, want)
@@ -106,11 +106,11 @@ func TestEntriesTranslationsAndVisibility(t *testing.T) {
 	if p.Title != "免费搜索" || p.Words != 7 || !p.Date.Equal(day) || !slices.Equal(p.Tags, []string{"go"}) {
 		t.Errorf("Get = %+v", p)
 	}
-	want := []Translation{{Lang: "zh-CN", ID: "202608/free-search", Slug: "free-search", Path: "202608/free-search"}, {Lang: "en", ID: "202608/free-search", Slug: "free-web-search", Path: "202608/free-web-search"}}
+	want := []Translation{{Language: "zh-CN", ID: "202608/free-search", Slug: "free-search", Path: "202608/free-search"}, {Language: "en", ID: "202608/free-search", Slug: "free-web-search", Path: "202608/free-web-search"}}
 	if !slices.Equal(p.Translations, want) {
 		t.Errorf("Translations = %+v, want %+v", p.Translations, want)
 	}
-	if about, _ := blog.Get("zh-CN", "about"); len(about.Translations) != 1 || about.Translations[0].Lang != "zh-CN" {
+	if about, _ := blog.Get("zh-CN", "about"); len(about.Translations) != 1 || about.Translations[0].Language != "zh-CN" {
 		t.Errorf("Translations of an entry in one language = %+v", about.Translations)
 	}
 	for _, x := range [][2]string{{"zh-CN", "202611/launch"}, {"en", "202611/release-notes"}, {"en", "about"}, {"fr", "about"}} {
@@ -148,7 +148,7 @@ func TestCollectionWithoutLanguages(t *testing.T) {
 		t.Errorf("Get = %+v, %v", p, err)
 	}
 	defer func() {
-		if r := recover(); r != `content: Get on collection testnotes, which has no languages, with lang "en": pass ""` {
+		if r := recover(); r != `content: Get on collection testnotes, which has no languages, with language "en": pass ""` {
 			t.Errorf("panic = %v", r)
 		}
 	}()
@@ -171,25 +171,25 @@ func TestSetMakesTranslationsByID(t *testing.T) {
 	c := content.Lookup(blog)
 	t.Cleanup(c.Save())
 	commit, err := c.Set([]any{
-		post{Entry: Entry{ID: "a", Lang: "en", Slug: "a", Path: "a"}, Title: "A"},
-		post{Entry: Entry{ID: "a", Lang: "zh-CN", Slug: "a", Path: "a"}, Title: "甲"},
-		post{Entry: Entry{ID: "b", Lang: "en", Slug: "b", Path: "b", Words: 3}, Title: "B"},
+		post{Entry: Entry{ID: "a", Language: "en", Slug: "a", Path: "a"}, Title: "A"},
+		post{Entry: Entry{ID: "a", Language: "zh-CN", Slug: "a", Path: "a"}, Title: "甲"},
+		post{Entry: Entry{ID: "b", Language: "en", Slug: "b", Path: "b", Words: 3}, Title: "B"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	commit()
 	a, _ := blog.Get("en", "a")
-	if len(a.Translations) != 2 || a.Translations[0].Lang != "zh-CN" {
+	if len(a.Translations) != 2 || a.Translations[0].Language != "zh-CN" {
 		t.Errorf("Translations = %+v", a.Translations)
 	}
 	if b, _ := blog.Get("en", "b"); b.Words != 3 {
 		t.Errorf("Words = %d", b.Words)
 	}
-	if _, err := c.Set([]any{post{Entry: Entry{ID: "a", Lang: "fr"}}}); err == nil || !strings.Contains(err.Error(), `language "fr"`) {
+	if _, err := c.Set([]any{post{Entry: Entry{ID: "a", Language: "fr"}}}); err == nil || !strings.Contains(err.Error(), `language "fr"`) {
 		t.Errorf("a language the collection lacks: %v", err)
 	}
-	if _, err := c.Set([]any{post{Entry: Entry{ID: "a", Lang: "en"}}, post{Entry: Entry{ID: "a", Lang: "en"}}}); err == nil {
+	if _, err := c.Set([]any{post{Entry: Entry{ID: "a", Language: "en"}}, post{Entry: Entry{ID: "a", Language: "en"}}}); err == nil {
 		t.Error("the same entry twice is no error")
 	}
 }
