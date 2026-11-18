@@ -1086,3 +1086,17 @@ func (p *buildPipeline) Reads() func(string) bool {
 	}
 	return p.reads
 }
+
+// The server may take a connection from the listener after Run closed the unused ones, and
+// before Shutdown closed the listener. That connection must not hold up the stop either.
+func TestUnusedConnsClosesOnesThatArriveAfterTheClose(t *testing.T) {
+	u := &unusedConns{m: map[net.Conn]struct{}{}}
+	u.close()
+	server, client := net.Pipe()
+	defer client.Close()
+	u.track(server, http.StateNew)
+	_ = client.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := client.Read(make([]byte, 1)); err != io.EOF {
+		t.Fatalf("got %v, want the connection closed (EOF)", err)
+	}
+}
