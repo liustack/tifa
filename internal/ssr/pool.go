@@ -248,7 +248,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		warned:      map[string]bool{},
 	}
 	var err error
-	if p.bytecode, err = Compile(source, p.memory, p.timeout); err != nil {
+	if p.bytecode, err = Compile(source, p.memory, startTimeout); err != nil {
 		return nil, fmt.Errorf("ssr: compile bundle: %w", p.sources.explain(err, true))
 	}
 	for range cfg.VMs {
