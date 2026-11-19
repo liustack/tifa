@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -31,6 +32,10 @@ var (
 	sitemapURLs  = 50_000
 	sitemapBytes = 50 << 20
 )
+
+// errNoPage is what sitePage returns for a Path that no page matches. sitePages leaves such a page
+// out and logs it.
+var errNoPage = errors.New("tifa: SetSitemap: Path matches no page")
 
 // sitePage is one page of the sitemap.
 type sitePage struct {
@@ -278,8 +283,17 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 	listed := map[[2]string]sitePage{} // by language and path
 	listedRoutes := map[string]bool{}
 	var params []sitePage
+	// A Path that no route matches, as when a route was renamed, and a route with parameters that has
+	// no page, as a blog before its first post, leave their pages out. The files answer with the
+	// rest, and the log says what is missing on each request, so a search engine still gets a
+	// sitemap while the app is being fixed.
+	var nowhere, unlisted []string
 	for _, sp := range sm.Pages {
 		p, pattern, err := s.sitePage(sp)
+		if errors.Is(err, errNoPage) {
+			nowhere = append(nowhere, sp.Path)
+			continue
+		}
 		if err != nil {
 			return sm, nil, err
 		}
@@ -302,7 +316,7 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 		}
 		if strings.Contains(pattern, "{") {
 			if s.sitemap != nil && !listedRoutes[pattern] {
-				return sm, nil, fmt.Errorf("tifa: SetSitemap: the pages of %s are not in Pages: list them, or exclude the route", pattern)
+				unlisted = append(unlisted, pattern)
 			}
 			continue
 		}
@@ -317,6 +331,12 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 			}
 			pages = append(pages, p)
 		}
+	}
+	if len(nowhere) > 0 {
+		core.Logger().ErrorContext(c.Context(), "tifa: SetSitemap: the sitemap leaves out "+strings.Join(nowhere, ", ")+": no page has that Path")
+	}
+	if len(unlisted) > 0 {
+		core.Logger().ErrorContext(c.Context(), "tifa: SetSitemap: the sitemap has no page of "+strings.Join(unlisted, ", ")+": list them in Pages, or exclude the route")
 	}
 	// A page without parameters listed in a language its route has: listed above. Others are
 	// errors sitePage reported.
@@ -347,7 +367,7 @@ func (s *server) sitePage(sp tifa.SitemapPage) (sitePage, string, error) {
 	}
 	pattern, ok := s.pageOf(sp.Path)
 	if !ok {
-		return fail("Path matches no page")
+		return sitePage{}, "", errNoPage
 	}
 	langs := s.pageLanguages(pattern)
 	if !slices.Contains(langs, sp.Language) {

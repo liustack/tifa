@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -259,9 +260,6 @@ Source: https://shop.example.com/store/journal/solo
 func TestSitemapMistakesFailTheRequest(t *testing.T) {
 	sitePosts(t)
 	for name, sm := range map[string]tifa.Sitemap{
-		"a page with parameters left out": {Exclude: []string{"/projects/{project}"}},
-		"a path of no page": {Exclude: []string{"/projects/{project}", "/store/journal/{post}"},
-			Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/store/nowhere/at/all"}}},
 		"an exclude of no page": {Exclude: []string{"/projects/{project}", "/store/journal/{post}", "/nope"}},
 		"a language prefix": {Exclude: []string{"/projects/{project}"},
 			Pages: []tifa.SitemapPage{{Language: "en-US", Path: "/en-US/store/journal/hi"}}},
@@ -295,6 +293,66 @@ func TestSitemapMistakesFailTheRequest(t *testing.T) {
 	}
 	if w := get(s, "/sitemap.xml"); w.Code != 200 || strings.Contains(w.Body.String(), "projects") {
 		t.Errorf("GET /sitemap.xml: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// A route with parameters that has no page in the sitemap, such as a blog without posts yet, and a
+// Path that no route matches leave their pages out: the files answer with the rest, and each
+// request logs one error line that names what is missing.
+func TestSitemapMismatchesAreLoggedAndLeftOut(t *testing.T) {
+	var log bytes.Buffer
+	defer func(l *slog.Logger) { slog.SetDefault(l) }(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&log, nil)))
+	s := newSiteServer(t, siteApp(), siteDist())
+	s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) {
+		return tifa.Sitemap{Pages: []tifa.SitemapPage{
+			{Language: "zh-CN", Path: "/store/nowhere/at/all"},
+			{Language: "en-US", Path: "/store/journal/hi", Title: "Hi"},
+			{Language: "zh-CN", Path: "/also/nowhere"},
+		}}, nil
+	}
+	for _, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt"} {
+		log.Reset()
+		w := get(s, p)
+		if w.Code != 200 || p != "/llms-full.txt" && !strings.Contains(w.Body.String(), "https://shop.example.com/store") || strings.Contains(w.Body.String(), "nowhere") {
+			t.Errorf("GET %s: %d %s", p, w.Code, w.Body.String())
+		}
+		if p != "/llms-full.txt" && !strings.Contains(w.Body.String(), "https://shop.example.com/en-US/store/journal/hi") {
+			t.Errorf("GET %s lacks the page listed: %s", p, w.Body.String())
+		}
+		lines := strings.Split(strings.TrimSpace(log.String()), "\n")
+		if len(lines) != 2 ||
+			!strings.Contains(lines[0], "level=ERROR") || !strings.Contains(lines[0], "/store/nowhere/at/all, /also/nowhere") ||
+			!strings.Contains(lines[1], "level=ERROR") || !strings.Contains(lines[1], "/projects/{project}, /projects/{project}/orders") || strings.Contains(lines[1], "journal") {
+			t.Errorf("GET %s logged:\n%s", p, log.String())
+		}
+	}
+	// A blog without posts yet: nothing to list, and the sitemap still answers.
+	log.Reset()
+	s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) { return tifa.Sitemap{Exclude: []string{"/projects"}}, nil }
+	if w := get(s, "/sitemap.xml"); w.Code != 200 || !strings.Contains(w.Body.String(), "<loc>https://shop.example.com/store</loc>") {
+		t.Errorf("GET /sitemap.xml: %d %s", w.Code, w.Body.String())
+	}
+	if got := log.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "/store/journal/{post}") {
+		t.Errorf("logged %q", got)
+	}
+}
+
+// An error the function of SetSitemap returns is an unexpected error of the request.
+func TestSitemapFunctionErrorFailsTheRequest(t *testing.T) {
+	app := siteApp()
+	var seen error
+	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error {
+		seen = err
+		return tifa.Error{Status: 500, Message: "down"}
+	}
+	s := newSiteServer(t, app, siteDist())
+	s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) { return tifa.Sitemap{}, errors.New("the database is down") }
+	for _, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt"} {
+		seen = nil
+		if w := get(s, p); w.Code != 500 || seen == nil || seen.Error() != "the database is down" {
+			t.Errorf("GET %s: %d %v", p, w.Code, seen)
+		}
 	}
 }
 
