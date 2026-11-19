@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-20
+
 ### Added
 
 - A site with `site.url` serves `/sitemap.xml` with `lastmod` and the `hreflang` links of each page, a default `/robots.txt` that allows everything and names the sitemap, and `/llms.txt` and `/llms-full.txt` for language models. The pages without parameters are in them on their own. `tifa.SetSitemap` in `OnStart` lists the pages with parameters, leaves routes out with `Exclude`, and adds titles, dates and translations. A page that shows a content entry has a Markdown version at its URL with `.md`, which `llms.txt` links to. A `public/robots.txt` or a route of the app at one of these paths wins, and a site without `site.url` gets none of them. A site with pages with parameters and no `SetSitemap` logs one line at start. A mistake in what `SetSitemap` returns, such as a route with parameters it neither lists nor excludes (a blog with no posts yet), a path that matches no route, a wrong language or a page listed twice, leaves that page or pattern out: the files still answer, and each request logs one error line per kind of mistake naming them. Only an error the function itself returns answers 500 through `OnError`. See [Search engines and language models](docs/guides/seo.md).
