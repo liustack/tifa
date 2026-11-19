@@ -7,6 +7,7 @@ read_when:
   - Writing a test that starts a server or another program that keeps running, or finding a program a killed test run left behind
   - An SSR test shows skip and you want to know how to turn it on
   - Changing `internal/bundle`, or a bundle test shows skip
+  - Changing `tifa deploy` (`cmd/tifa/deploy*.go`), or checking it against a real server
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Measuring what one VM costs the process, how long the Go GC stops the program while VMs render, or whether two builds write the same HTML
@@ -152,6 +153,18 @@ Before changing how certificates are got, also check a built program against [Pe
 2. Start `pebble-challtestsrv -defaultIPv4 127.0.0.1 -dnsserver 127.0.0.1:8053 -http01 "" -https01 "" -tlsalpn01 "" -doh ""`, which answers every name with 127.0.0.1.
 3. Start `PEBBLE_VA_NOSLEEP=1 PEBBLE_WFE_NONCEREJECT=0 pebble -config pebble.json -dnsserver 127.0.0.1:8053`, with the `test/config/pebble-config.json` of Pebble changed to `"httpPort": 80, "tlsPort": 443`. Its certificates are in `test/certs` of the Pebble module.
 4. `sudo setcap cap_net_bind_service=+ep ./bin/shop`, then run it with `SERVER_ADDR=:443 SERVER_TLS_DOMAINS=shop.example.test SERVER_TLS_CACHE=./certs SERVER_TLS_CA=https://localhost:14000/dir SSL_CERT_FILE=<test/certs/pebble.minica.pem>`. The log shows the certificate, and `curl --http2 --resolve shop.example.test:443:127.0.0.1 --cacert <root>` (the root from `https://localhost:15000/roots/0`) gets a page over HTTP/2. After a restart, Pebble's log shows no new `POST /order-plz`. With `"tlsPort"` set to a port nothing listens on, the certificate comes through http-01 instead.
+
+## Deploy tests (`cmd/tifa`)
+
+`TestDeployFlow` and the other `TestDeploy*` tests run without a server. They check the choices `tifa deploy` makes (the app name, the target of `uname`, the port, the release to roll back to or to go back to, the releases to delete, the unit files) and run the scripts it sends to the server against a fake `ssh` that runs them on this machine, with fake `systemctl`, `curl`, `flock`, `uname`, `sleep` and `journalctl` in the `PATH`: a deploy, one whose `/healthz` answers 503 and goes back, a rollback, and a first deploy that fails and stops the app. They skip on Windows, where there is no `sh`.
+
+What only a real server shows (systemd user units with linger, socket activation, ssh, the user `tifa`) is checked by hand with `scripts/deploy-check.sh <host> <app root> [path]`, from the root of the checkout. It needs a Linux server with systemd that `ssh root@<host>` reaches, and changes it. It runs setup and a deploy, deploys again while the server asks the app for `path` every 10 ms and fails when one request fails, and rolls back. Run it after changing `cmd/tifa/deploy*.go`. To see a failed check go back, give the app a `/healthz` that answers 503 and run `tifa deploy`. To clean the server afterwards, as root:
+
+```sh
+loginctl disable-linger tifa
+loginctl terminate-user tifa
+userdel -r tifa   # removes /srv/tifa with every app, its units and its data
+```
 
 ## Bundle tests (`internal/bundle`)
 

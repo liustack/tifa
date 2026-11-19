@@ -1,6 +1,6 @@
 # Build, configure and deploy
 
-Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, search engines and language models, building for Linux, running the program, HTTPS, running behind a CDN or proxy, sizing, license notices.
+Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, search engines and language models, `tifa deploy`, building for Linux, running the program, HTTPS, running behind a CDN or proxy, sizing, license notices.
 
 Full docs (in the folder `go tool tifa docs` prints): `docs/dev.md`, `docs/build.md`, `docs/config.md`, `docs/performance.md`.
 
@@ -117,6 +117,30 @@ func OnStart(ctx context.Context) error {
 - A mistake in what the function returns never fails the request: a route with parameters that is neither listed nor excluded (a blog with no posts yet), a `Path` that matches no route or has a language prefix, a language the page does not have, or wrong `Alternates` leave that page out. A page listed twice keeps the first, `Exclude` wins over `Pages`, a stale `Exclude` pattern is ignored and a `Content` that is no collection entry is dropped. The files still answer, and each request logs one `ERROR` line per kind of mistake naming them. Only an error the function itself returns makes the request answer 500 through `OnError`. Test it with `tifatest.Start` and a GET of `/sitemap.xml`, and look at the log.
 
 See `docs/guides/seo.md`.
+
+## `tifa deploy`
+
+Puts the app on a Linux server with systemd over ssh, several apps per server:
+
+```yaml
+# tifa.yaml
+deploy:
+  host: vps                  # a Host of ~/.ssh/config or an address, no user, no port
+  domain: shop.example.com
+```
+
+```sh
+go tool tifa deploy setup      # once per app, logs in as root
+go tool tifa deploy            # build for the server, upload, restart, check /healthz
+go tool tifa deploy rollback   # back to the release before
+```
+
+- Tifa runs the system `ssh`, so `~/.ssh/config`, a Cloudflare Tunnel `ProxyCommand` and Tailscale names work. `--host` or `DEPLOY_HOST` replace `deploy.host`, such as in CI.
+- Setup creates the user `tifa`, `/srv/tifa/<app>/` (`<app>` is the last part of the module path) with an empty `shared/.env` and the data folder `shared/` the app runs in, a free port from 9527 on `127.0.0.1`, and the user units `tifa-<app>.socket` and `.service`. It prints the route to add in front, such as `shop.example.com -> http://127.0.0.1:9527` in a Cloudflare Tunnel. Fill `.env` on the server: deploys never upload it.
+- A deploy builds on this machine (never on the server), uploads to `releases/<id>/`, switches `current`, restarts through the socket (no request is refused) and asks `GET /healthz` on the server for up to 30 seconds. Below 500 passes, so an app without the route passes with 404. Otherwise it prints the log of the app, starts the release before again and exits with 1. Write a `/healthz` that checks the database.
+- The log of the app: `journalctl --user -u tifa-<app>` as `tifa`. Records: `/srv/tifa/<app>/deploys.log`. The last 5 releases stay.
+
+See `docs/deploy.md#deploy-with-tifa-deploy`.
 
 ## Building for Linux and running it
 

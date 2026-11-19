@@ -141,6 +141,8 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 `go tool -n tifa` prints the path of the Tifa command for this machine without running it. `GOOS=linux go tool tifa build` does not work: `GOOS` then also applies to building the Tifa command itself, which fails to start with `exec format error`.
 
+`go tool tifa deploy` does this for you: it asks the server for its system and builds for it (see [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy)).
+
 ### Notices to ship with the program
 
 The program holds code and data under several licenses: Tifa (MIT), Go (BSD-3-Clause), the engine slowjs and the QuickJS it comes from (MIT and BSD-3-Clause), the other Go modules it links, the locale and time zone data of [Intl](server-render.md#intl-in-server-rendering) (Unicode License V3, ICU's and Chromium's notices), and the npm packages in its bundles. These licenses ask that their notices come with every copy of the program, in its documentation or in files next to it. When you hand the program to others, ship them with it.

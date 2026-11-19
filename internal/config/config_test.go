@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.host deploy.domain"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -846,6 +846,49 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	// Empty is not set, as the example file of tifa new shows them.
 	if c, _, err := Project([]byte("i18n:\n  default: \"\"\nsite:\n  url: \"\"\n")); err != nil || c.I18n.Default != "" || c.Site.URL != "" {
 		t.Errorf("empty: %+v %+v, %v", c.I18n, c.Site, err)
+	}
+}
+
+// deploy.host and deploy.domain are read by tifa deploy from the project file only. The host is
+// handed to ssh, so it is a name and nothing that ssh could read as an option or a user.
+func TestDeployIsAProjectFileSetting(t *testing.T) {
+	if d := Default().Deploy; d.Host != "" || d.Domain != "" {
+		t.Fatalf("defaults: %+v", d)
+	}
+	c, settings, err := Project([]byte("deploy:\n  host: shop-vps\n  domain: Shop.Example.com\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Deploy.Host != "shop-vps" || c.Deploy.Domain != "shop.example.com" {
+		t.Errorf("got %+v", c.Deploy)
+	}
+	if len(settings) != 0 {
+		t.Errorf("the program does not read them, but runtime settings are %v", settings)
+	}
+	if _, err := load(t, nil, []string{"DEPLOY_HOST=other"}, "", ""); err != nil {
+		t.Errorf("the program reads DEPLOY_HOST: %v", err)
+	}
+	for _, host := range []string{"149.248.3.250", "vps.example.com", "my_box", "fe80::1"} {
+		if c, _, err := Project([]byte("deploy:\n  host: \"" + host + "\"\n")); err != nil || c.Deploy.Host != host {
+			t.Errorf("host %q: %+v, %v", host, c.Deploy, err)
+		}
+	}
+	for yaml, want := range map[string]string{
+		"deploy:\n  host: root@vps\n":           "deploy.host",
+		"deploy:\n  host: \"-oProxyCommand\"\n": "deploy.host",
+		"deploy:\n  host: \"a b\"\n":            "deploy.host",
+		"deploy:\n  host: ssh://vps\n":          "deploy.host",
+		"deploy:\n  domain: https://a.com\n":    "deploy.domain",
+		"deploy:\n  domain: localhost\n":        "deploy.domain",
+		"deploy:\n  domain: a.com:8080\n":       "deploy.domain",
+	} {
+		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v", yaml, err)
+		}
+	}
+	// Empty is not set, as the example file of tifa new shows them.
+	if c, _, err := Project([]byte("deploy:\n  host: \"\"\n  domain: \"\"\n")); err != nil || c.Deploy != (Deploy{}) {
+		t.Errorf("empty: %+v, %v", c.Deploy, err)
 	}
 }
 

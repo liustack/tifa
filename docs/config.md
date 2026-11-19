@@ -13,6 +13,7 @@ read_when:
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
   - Setting the browser target, or the static files folder of a build
   - Setting the default language of an app, the language prefix in its URLs, or the address of the site
+  - Setting the server or the domain of `tifa deploy`
   - The program refuses to start with a config error
   - A page must be shown in a frame on another site, or a header such as Referrer-Policy or Content-Security-Policy needs another value
   - Turning on a Content-Security-Policy, or a script or style of a page is blocked by one
@@ -36,7 +37,7 @@ From highest to lowest priority:
 
 A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of Tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
-`tifa.yaml` holds values of the settings of Tifa. `build.*`, `i18n.*` and `site.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
+`tifa.yaml` holds values of the settings of Tifa. `build.*`, `i18n.*`, `site.*` and `deploy.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
 
 ```yaml
 # tifa.yaml
@@ -139,6 +140,8 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](sessions.md) |
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
+| `deploy.host` | none | project file only, `--host` and `DEPLOY_HOST` of `tifa deploy` | The server `tifa deploy` puts the app on: a Host of `~/.ssh/config`, a host name or an IP address, without a user (Tifa logs in as `root` for setup and as `tifa` after) and without a port (put it in `~/.ssh/config`). `--host`, then `DEPLOY_HOST`, take its place. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
+| `deploy.domain` | none | project file only | The domain that reaches the app, such as `shop.example.com`. `tifa deploy setup` prints it in the route to add in front of the app |
 
 ### Retired settings
 

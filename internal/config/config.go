@@ -28,6 +28,8 @@ type Config struct {
 	// Cache holds the Cache-Control a page with Cache sends.
 	Cache   Cache
 	Session Session
+	// Deploy is where tifa deploy puts the app.
+	Deploy Deploy
 }
 
 // I18n is read by the tifa CLI only, from the project tifa.yaml. Default names the default language,
@@ -41,6 +43,14 @@ type I18n struct {
 // site is served at, without a trailing slash, empty when not set.
 type Site struct {
 	URL string
+}
+
+// Deploy is read by the tifa CLI only, from the project tifa.yaml, for tifa deploy. Host is the
+// server as ssh knows it, a name of ~/.ssh/config or an address, and Domain the domain that
+// reaches the app. Both are empty when not set.
+type Deploy struct {
+	Host   string
+	Domain string
 }
 
 // Build is read by the tifa CLI only. It may appear in the project tifa.yaml and nowhere else.
@@ -205,9 +215,10 @@ type field struct {
 }
 
 // projectOnly reports whether the setting is read by the tifa CLI from the project tifa.yaml and
-// nowhere else: the build settings, the languages of the app and the address of the site.
+// nowhere else: the build settings, the languages of the app, the address of the site and where
+// tifa deploy puts the app.
 func (f field) projectOnly() bool {
-	return strings.HasPrefix(f.key, "build.") || strings.HasPrefix(f.key, "i18n.") || strings.HasPrefix(f.key, "site.")
+	return strings.HasPrefix(f.key, "build.") || strings.HasPrefix(f.key, "i18n.") || strings.HasPrefix(f.key, "site.") || strings.HasPrefix(f.key, "deploy.")
 }
 
 func fields(c *Config) []field {
@@ -250,6 +261,8 @@ func fields(c *Config) []field {
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
+		{"deploy.host", "Server tifa deploy puts the app on, a host name of ~/.ssh/config or an address", sshHostValue{&c.Deploy.Host}},
+		{"deploy.domain", "Domain that reaches the app, such as shop.example.com", domainValue{&c.Deploy.Domain}},
 	}
 }
 
