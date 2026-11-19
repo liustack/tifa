@@ -257,37 +257,90 @@ Source: https://shop.example.com/store/journal/solo
 	}
 }
 
-func TestSitemapMistakesFailTheRequest(t *testing.T) {
-	sitePosts(t)
-	for name, sm := range map[string]tifa.Sitemap{
-		"an exclude of no page": {Exclude: []string{"/projects/{project}", "/store/journal/{post}", "/nope"}},
-		"a language prefix": {Exclude: []string{"/projects/{project}"},
-			Pages: []tifa.SitemapPage{{Language: "en-US", Path: "/en-US/store/journal/hi"}}},
-		"a language of no page": {Exclude: []string{"/projects/{project}"},
-			Pages: []tifa.SitemapPage{{Language: "fr", Path: "/store/journal/hi"}}},
-		"a language outside every area": {Exclude: []string{"/store/journal/{post}"},
-			Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/projects/a"}}},
-		"a page twice": {Exclude: []string{"/projects/{project}"},
-			Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/store/journal/a"}, {Language: "zh-CN", Path: "/store/journal/a"}}},
-		"a page excluded": {Exclude: []string{"/projects"},
-			Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/store/journal/a"}, {Path: "/projects/a/orders"}}},
-		"an entry made in place": {Exclude: []string{"/projects/{project}"},
-			Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/store/journal/a", Content: content.Entry{ID: "a"}}}},
-		"a bad path": {Exclude: []string{"/projects/{project}"},
-			Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/store/journal/a b"}}},
+// Anything wrong with one page of Pages or one Exclude pattern leaves it out: the files answer
+// with the rest, and each request logs one error line per kind of mistake that names them.
+func TestEachSitemapMistakeIsLoggedAndLeftOut(t *testing.T) {
+	var hello serverPost
+	for _, p := range sitePosts(t).All() {
+		if p.ID == "hello" {
+			hello = p
+		}
+	}
+	var log bytes.Buffer
+	defer func(l *slog.Logger) { slog.SetDefault(l) }(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&log, nil)))
+	// ok is a page of the journal that is right, so the route of the journal is listed.
+	ok := tifa.SitemapPage{Language: "zh-CN", Path: "/store/journal/ok", Title: "OK"}
+	for _, tc := range []struct {
+		name    string
+		sm      tifa.Sitemap
+		in, out []string // in /llms.txt
+		log     string
+	}{
+		{"an exclude of no page",
+			tifa.Sitemap{Exclude: []string{"/projects", "/nope", "/store/nope/{x}"}, Pages: []tifa.SitemapPage{ok}},
+			[]string{"[OK]"}, nil, "Exclude patterns that match no page are ignored: /nope, /store/nope/{x}"},
+		{"a language prefix",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Language: "en-US", Path: "/en-US/store/journal/hi", Title: "Hi"}}},
+			[]string{"[OK]"}, []string{"[Hi]"}, "pages whose Path is no escaped path without a language prefix are left out: /en-US/store/journal/hi (en-US)"},
+		{"a bad path",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Language: "zh-CN", Path: "/store/journal/a b", Title: "AB"}}},
+			[]string{"[OK]"}, []string{"[AB]"}, "pages whose Path is no escaped path without a language prefix are left out: /store/journal/a b (zh-CN)"},
+		{"a language of no page",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Language: "fr", Path: "/store/journal/hi", Title: "Hi"}}},
+			[]string{"[OK]"}, []string{"[Hi]"}, "pages whose Language is none of the languages of their route are left out: /store/journal/hi (fr)"},
+		{"a language outside every area",
+			tifa.Sitemap{Exclude: []string{"/store/journal/{post}"}, Pages: []tifa.SitemapPage{{Path: "/projects/b"}, {Path: "/projects/b/orders"}, {Language: "zh-CN", Path: "/projects/a"}}},
+			[]string{"(https://shop.example.com/projects/b)"}, []string{"projects/a)"}, "pages whose Language is none of the languages of their route are left out: /projects/a (zh-CN)"},
+		{"wrong versions",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Language: "zh-CN", Path: "/store/journal/v", Title: "V",
+				Alternates: []tifa.Alternate{{Language: "fr", Path: "/store/journal/v"}}}}},
+			[]string{"[OK]"}, []string{"[V]"}, "pages whose Alternates are wrong are left out: /store/journal/v (zh-CN)"},
+		{"a page twice",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Language: "zh-CN", Path: "/store/journal/ok", Title: "Again"}}},
+			[]string{"[OK]"}, []string{"[Again]"}, "pages listed twice keep the first: /store/journal/ok (zh-CN)"},
+		{"a page excluded",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Path: "/projects/a/orders"}}},
+			[]string{"[OK]"}, []string{"projects"}, "pages that Exclude leaves out are left out: /projects/a/orders"},
+		{"an entry made in place",
+			tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{ok, {Language: "zh-CN", Path: "/store/journal/hello", Title: "Hello", Content: content.Entry{ID: "a"}}}},
+			[]string{"[OK]", "[Hello](https://shop.example.com/store/journal/hello)"}, []string{"hello.md"}, "pages whose Content is no entry of a collection are kept without it: /store/journal/hello (zh-CN)"},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			s := newSiteServer(t, siteApp(), siteDist())
-			s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) { return sm, nil }
-			for _, p := range []string{"/sitemap.xml", "/llms.txt"} {
-				if w := get(s, p); w.Code != 500 {
-					t.Errorf("GET %s: %d %s", p, w.Code, w.Body.String())
+			s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) { return tc.sm, nil }
+			for _, p := range []string{"/sitemap.xml", "/llms-full.txt", "/llms.txt"} {
+				log.Reset()
+				w := get(s, p)
+				if w.Code != 200 {
+					t.Fatalf("GET %s: %d %s", p, w.Code, w.Body.String())
+				}
+				if got := strings.TrimSpace(log.String()); strings.Count(got, "\n") != 0 || !strings.Contains(got, "level=ERROR") || !strings.Contains(got, tc.log) {
+					t.Errorf("GET %s logged:\n%s\nwant one line with %q", p, got, tc.log)
+				}
+			}
+			body := get(s, "/llms.txt").Body.String()
+			for _, want := range tc.in {
+				if !strings.Contains(body, want) {
+					t.Errorf("llms.txt lacks %s:\n%s", want, body)
+				}
+			}
+			for _, gone := range tc.out {
+				if strings.Contains(body, gone) {
+					t.Errorf("llms.txt has %s:\n%s", gone, body)
 				}
 			}
 		})
 	}
-	// Exclude takes the routes below a folder that has no page of its own.
+	// A good entry keeps its Content.
 	s := newSiteServer(t, siteApp(), siteDist())
+	s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) {
+		return tifa.Sitemap{Exclude: []string{"/projects"}, Pages: []tifa.SitemapPage{{Language: "zh-CN", Path: "/store/journal/hello", Content: hello}}}, nil
+	}
+	if w := get(s, "/llms.txt"); !strings.Contains(w.Body.String(), "hello.md") {
+		t.Errorf("GET /llms.txt: %s", w.Body.String())
+	}
+	// Exclude takes the routes below a folder that has no page of its own.
 	s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) {
 		return tifa.Sitemap{Exclude: []string{"/projects", "/store/journal/{post}"}}, nil
 	}
@@ -322,7 +375,7 @@ func TestSitemapMismatchesAreLoggedAndLeftOut(t *testing.T) {
 		}
 		lines := strings.Split(strings.TrimSpace(log.String()), "\n")
 		if len(lines) != 2 ||
-			!strings.Contains(lines[0], "level=ERROR") || !strings.Contains(lines[0], "/store/nowhere/at/all, /also/nowhere") ||
+			!strings.Contains(lines[0], "level=ERROR") || !strings.Contains(lines[0], "pages whose Path matches no page are left out: /store/nowhere/at/all (zh-CN), /also/nowhere (zh-CN)") ||
 			!strings.Contains(lines[1], "level=ERROR") || !strings.Contains(lines[1], "/projects/{project}, /projects/{project}/orders") || strings.Contains(lines[1], "journal") {
 			t.Errorf("GET %s logged:\n%s", p, log.String())
 		}

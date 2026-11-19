@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"encoding/xml"
-	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -32,10 +30,6 @@ var (
 	sitemapURLs  = 50_000
 	sitemapBytes = 50 << 20
 )
-
-// errNoPage is what sitePage returns for a Path that no page matches. sitePages leaves such a page
-// out and logs it.
-var errNoPage = errors.New("tifa: SetSitemap: Path matches no page")
 
 // sitePage is one page of the sitemap.
 type sitePage struct {
@@ -255,9 +249,50 @@ func pageMarkdown(p sitePage) (string, error) {
 	return "# " + pageTitle(p) + "\n\n" + md, nil
 }
 
-// sitePages calls the function of SetSitemap and returns what it said with the pages of the
-// sitemap: the pages without parameters in the order of their routes and languages, a page the
-// function lists in place of its own, then the other pages the function lists in its order.
+// The kinds of mistakes in what the function of SetSitemap returns. A mistake leaves out the page
+// or the Exclude pattern it is in, or the Content of a page, and the files answer with the rest:
+// a search engine still gets a sitemap while the app is being fixed. Each request logs one line
+// per kind, which names the pages, by their path and language, or the patterns.
+const (
+	stalePattern  = "Exclude patterns that match no page are ignored"
+	noPage        = "pages whose Path matches no page are left out"
+	badPath       = "pages whose Path is no escaped path without a language prefix are left out"
+	badLanguage   = "pages whose Language is none of the languages of their route are left out"
+	badAlternates = "pages whose Alternates are wrong are left out"
+	listedTwice   = "pages listed twice keep the first"
+	pageExcluded  = "pages that Exclude leaves out are left out"
+	strayContent  = "pages whose Content is no entry of a collection are kept without it"
+	unlistedRoute = "routes with parameters that are neither in Pages nor excluded have no pages in the sitemap"
+)
+
+var mistakeKinds = []string{stalePattern, noPage, badPath, badLanguage, badAlternates, listedTwice, pageExcluded, strayContent, unlistedRoute}
+
+// mistakes collects the mistakes of one request by kind.
+type mistakes map[string][]string
+
+func (m mistakes) add(kind, name string) { m[kind] = append(m[kind], name) }
+
+// log writes one error line per kind of mistake.
+func (m mistakes) log(c *tifa.Ctx) {
+	for _, kind := range mistakeKinds {
+		if names := m[kind]; len(names) > 0 {
+			core.Logger().ErrorContext(c.Context(), "tifa: SetSitemap: "+kind+": "+strings.Join(names, ", "))
+		}
+	}
+}
+
+// pageName names a page of Pages in the log: its path, and its language in brackets.
+func pageName(sp tifa.SitemapPage) string {
+	if sp.Language == "" {
+		return sp.Path
+	}
+	return sp.Path + " (" + sp.Language + ")"
+}
+
+// sitePages returns what the function of SetSitemap returns and the pages of the sitemap: the pages
+// without parameters in each of their languages, those of Pages in their place, then the other
+// pages of Pages. An error is one the function returned. A mistake in what it returned is logged,
+// see mistakeKinds.
 func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 	var sm tifa.Sitemap
 	if s.sitemap != nil {
@@ -266,43 +301,37 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 			return sm, nil, err
 		}
 	}
+	m := mistakes{}
+	defer m.log(c)
 	routes := slices.Sorted(maps.Keys(s.pages))
-	excluded := func(pattern string) string {
-		for _, e := range sm.Exclude {
-			if e == "/" || pattern == e || strings.HasPrefix(pattern, e+"/") {
-				return e
-			}
-		}
-		return ""
-	}
+	covers := func(e, pattern string) bool { return e == "/" || pattern == e || strings.HasPrefix(pattern, e+"/") }
+	var exclude []string
 	for _, e := range sm.Exclude {
-		if !slices.ContainsFunc(routes, func(p string) bool { return e == "/" || p == e || strings.HasPrefix(p, e+"/") }) {
-			return sm, nil, fmt.Errorf("tifa: SetSitemap: Exclude has %q, which is no page and has no page below it", e)
+		if slices.ContainsFunc(routes, func(p string) bool { return covers(e, p) }) {
+			exclude = append(exclude, e)
+		} else {
+			m.add(stalePattern, e)
 		}
+	}
+	excluded := func(pattern string) bool {
+		return slices.ContainsFunc(exclude, func(e string) bool { return covers(e, pattern) })
 	}
 	listed := map[[2]string]sitePage{} // by language and path
 	listedRoutes := map[string]bool{}
 	var params []sitePage
-	// A Path that no route matches, as when a route was renamed, and a route with parameters that has
-	// no page, as a blog before its first post, leave their pages out. The files answer with the
-	// rest, and the log says what is missing on each request, so a search engine still gets a
-	// sitemap while the app is being fixed.
-	var nowhere, unlisted []string
 	for _, sp := range sm.Pages {
-		p, pattern, err := s.sitePage(sp)
-		if errors.Is(err, errNoPage) {
-			nowhere = append(nowhere, sp.Path)
+		p, pattern, ok := s.sitePage(sp, func(kind string) { m.add(kind, pageName(sp)) })
+		if !ok {
 			continue
 		}
-		if err != nil {
-			return sm, nil, err
-		}
-		if e := excluded(pattern); e != "" {
-			return sm, nil, fmt.Errorf("tifa: SetSitemap: page %s is listed in Pages, and Exclude leaves out %s", sp.Path, e)
+		if excluded(pattern) {
+			m.add(pageExcluded, pageName(sp))
+			continue
 		}
 		key := [2]string{p.language, p.path}
 		if _, ok := listed[key]; ok {
-			return sm, nil, fmt.Errorf("tifa: SetSitemap: page %s is listed twice for language %q", sp.Path, sp.Language)
+			m.add(listedTwice, pageName(sp))
+			continue
 		}
 		listed[key], listedRoutes[pattern] = p, true
 		if strings.Contains(pattern, "{") {
@@ -311,12 +340,12 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 	}
 	var pages []sitePage
 	for _, pattern := range routes {
-		if excluded(pattern) != "" {
+		if excluded(pattern) {
 			continue
 		}
 		if strings.Contains(pattern, "{") {
 			if s.sitemap != nil && !listedRoutes[pattern] {
-				unlisted = append(unlisted, pattern)
+				m.add(unlistedRoute, pattern)
 			}
 			continue
 		}
@@ -325,21 +354,12 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 				pages = append(pages, p)
 				continue
 			}
-			p, _, err := s.sitePage(tifa.SitemapPage{Language: language, Path: pattern})
-			if err != nil {
-				return sm, nil, err
+			sp := tifa.SitemapPage{Language: language, Path: pattern}
+			if p, _, ok := s.sitePage(sp, func(kind string) { m.add(kind, pageName(sp)) }); ok {
+				pages = append(pages, p)
 			}
-			pages = append(pages, p)
 		}
 	}
-	if len(nowhere) > 0 {
-		core.Logger().ErrorContext(c.Context(), "tifa: SetSitemap: the sitemap leaves out "+strings.Join(nowhere, ", ")+": no page has that Path")
-	}
-	if len(unlisted) > 0 {
-		core.Logger().ErrorContext(c.Context(), "tifa: SetSitemap: the sitemap has no page of "+strings.Join(unlisted, ", ")+": list them in Pages, or exclude the route")
-	}
-	// A page without parameters listed in a language its route has: listed above. Others are
-	// errors sitePage reported.
 	return sm, append(pages, params...), nil
 }
 
@@ -352,29 +372,28 @@ func (s *server) pageLanguages(pattern string) []string {
 	return []string{""}
 }
 
-// sitePage checks a page the function of SetSitemap lists and returns it with its route.
-func (s *server) sitePage(sp tifa.SitemapPage) (sitePage, string, error) {
-	fail := func(format string, args ...any) (sitePage, string, error) {
-		return sitePage{}, "", fmt.Errorf("tifa: SetSitemap: page %s: "+format, append([]any{sp.Path}, args...)...)
-	}
+// sitePage checks a page the function of SetSitemap lists and returns it with its route. It calls
+// report with the kind of each mistake, and returns false when the page is left out.
+func (s *server) sitePage(sp tifa.SitemapPage, report func(kind string)) (sitePage, string, bool) {
 	if !validPath(sp.Path) {
-		return fail("Path must be an escaped URL path that starts with one slash, with no query or fragment")
+		report(badPath)
+		return sitePage{}, "", false
 	}
 	if s.i18n != nil {
 		if seg, _, _ := strings.Cut(strings.TrimPrefix(sp.Path, "/"), "/"); s.known[seg] {
-			return fail("write Path without the language prefix %s, and the language in Language", seg)
+			report(badPath)
+			return sitePage{}, "", false
 		}
 	}
 	pattern, ok := s.pageOf(sp.Path)
 	if !ok {
-		return sitePage{}, "", errNoPage
+		report(noPage)
+		return sitePage{}, "", false
 	}
 	langs := s.pageLanguages(pattern)
 	if !slices.Contains(langs, sp.Language) {
-		if langs[0] == "" {
-			return fail("the page has no languages, so Language must be empty, not %q", sp.Language)
-		}
-		return fail("Language %q is none of the languages of the page %v", sp.Language, langs)
+		report(badLanguage)
+		return sitePage{}, "", false
 	}
 	p := sitePage{
 		language: sp.Language, path: sp.Path, url: sp.Path, modified: sp.Modified,
@@ -383,11 +402,6 @@ func (s *server) sitePage(sp tifa.SitemapPage) (sitePage, string, error) {
 	if sp.Language != "" {
 		p.url = s.languagePath(sp.Language, sp.Path)
 	}
-	if sp.Content != nil {
-		if p.body = content.BodyOf(sp.Content); p.body == nil {
-			return fail("Content is an entry that no collection holds: read it from a collection")
-		}
-	}
 	switch {
 	case sp.Language == "":
 	case len(sp.Alternates) == 0:
@@ -395,21 +409,23 @@ func (s *server) sitePage(sp tifa.SitemapPage) (sitePage, string, error) {
 			p.versions = append(p.versions, alternateLink{Language: l, URL: s.languagePath(l, sp.Path)})
 		}
 	default:
+		// A language the page does not have, one given twice or a path that is no path.
 		seen := map[string]bool{}
 		for _, a := range sp.Alternates {
-			switch {
-			case !slices.Contains(langs, a.Language):
-				return fail("Alternates has the language %q, which is none of the languages of the page %v", a.Language, langs)
-			case seen[a.Language]:
-				return fail("Alternates has the language %q twice", a.Language)
-			case !validPath(a.Path):
-				return fail("Alternates has the path %q for %s, which must be an escaped URL path that starts with one slash, with no query or fragment", a.Path, a.Language)
+			if !slices.Contains(langs, a.Language) || seen[a.Language] || !validPath(a.Path) {
+				report(badAlternates)
+				return sitePage{}, "", false
 			}
 			seen[a.Language] = true
 			p.versions = append(p.versions, alternateLink{Language: a.Language, URL: s.languagePath(a.Language, a.Path)})
 		}
 	}
-	return p, pattern, nil
+	if sp.Content != nil {
+		if p.body = content.BodyOf(sp.Content); p.body == nil {
+			report(strayContent)
+		}
+	}
+	return p, pattern, true
 }
 
 // validPath reports whether p is an escaped URL path that starts with one slash, with no query or
