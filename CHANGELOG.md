@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `go tool tifa deploy` puts the app on a Linux server with systemd over ssh. It builds on your machine for the system of the server, uploads the program into a new release, restarts the app through its systemd socket so no request is refused, asks the new program for `/healthz` on the server and starts the release before again when it does not answer below 500 within 30 seconds. It never uploads `.env`, keeps the last 5 releases and writes each deploy into `deploys.log` on the server. `go tool tifa deploy setup`, once per app as root, creates the user `tifa` that runs every app of the server, the folder of the app with an empty `.env`, a free loopback port and the systemd units, and prints the Cloudflare Tunnel route to add. `go tool tifa deploy rollback` goes back to the release before. The server is `deploy.host` in `tifa.yaml`, `--host` or `DEPLOY_HOST`, and Tifa runs your own `ssh`, so `~/.ssh/config`, a Cloudflare Tunnel or Tailscale work as they do in a terminal. See [Deploy with tifa deploy](docs/deploy.md#deploy-with-tifa-deploy).
+
 ## [0.1.5] - 2026-11-20
 
 ### Added

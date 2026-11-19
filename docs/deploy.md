@@ -1,8 +1,10 @@
 ---
-summary: 'How to put a built Tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: tifa deploy setup, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
+  - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
+  - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
   - Pages show old content or a missing script after a deploy
@@ -16,6 +18,88 @@ read_when:
 # Deploying
 
 A Tifa app is one executable. The server needs that file, the settings in its environment, and a folder it may write data to. It needs no Node, no process manager and no Redis. The default session store lives in memory, so for more than one copy of the program give it a [store of your own](sessions.md#where-to-store-sessions).
+
+## Deploy with tifa deploy
+
+`go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. Several apps can share one server. The server needs no Docker, no Node and no deploy program of its own.
+
+What you need:
+
+- A Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<host>` once. It is tested on Ubuntu 24.04.
+- On your machine, what `tifa build` needs (Go, and Node for an app with pages), and `ssh`.
+
+Name the server in `tifa.yaml`:
+
+```yaml
+deploy:
+  host: vps                  # a Host of ~/.ssh/config, a host name or an address
+  domain: shop.example.com   # the domain that reaches the app
+```
+
+Tifa runs your system's `ssh` with this name, so whatever `ssh vps` does works the same: `~/.ssh/config`, a `ProxyCommand` such as `cloudflared access ssh`, a Tailscale name, keys in an agent. Write the port and other ssh options in `~/.ssh/config`. `--host` on the command line, or the environment variable `DEPLOY_HOST`, takes the place of `deploy.host`, such as in CI.
+
+### Set up the server
+
+```sh
+go tool tifa deploy setup
+```
+
+Run it once per app and server. It logs in as root and makes:
+
+| What | Where |
+| --- | --- |
+| The user `tifa`, which owns and runs every app of the server, and may log in with the keys of root | home `/srv/tifa` |
+| The folder of the app | `/srv/tifa/<app>` |
+| Its settings, an empty `.env` that deploys never touch | `/srv/tifa/<app>/shared/.env` |
+| The folder the app runs in, which holds its data, such as `app.db` | `/srv/tifa/<app>/shared` |
+| Its port, the first free one from 9527 | `/srv/tifa/<app>/port` |
+| A systemd socket on `127.0.0.1:<port>` and a service, user units of `tifa` | `/srv/tifa/.config/systemd/user/tifa-<app>.socket` and `.service` |
+
+`<app>` is the last part of the module path in `go.mod`, the name `tifa build` gives the program. Running setup again keeps the port and what is there, and writes the units again. Fill `.env` on the server, as `tifa` or root: the app reads it at each start.
+
+Setup prints the route to add in front of the app, such as `shop.example.com -> http://127.0.0.1:9527`. The app listens on the loopback address only, so something on the server must take the visitors to it:
+
+- **Cloudflare Tunnel** (recommended): add a public hostname to the tunnel of the server with that domain and service. One tunnel serves every app of the server, and the server opens no port.
+- **Caddy**, or another proxy that gets certificates, when the server takes visitors itself. A Caddyfile:
+
+  ```
+  shop.example.com {
+    reverse_proxy 127.0.0.1:9527
+  }
+  ```
+
+Set up the CDN as [CDN settings](#cdn-settings) says.
+
+### Deploy
+
+```sh
+go tool tifa deploy
+```
+
+1. Asks the server for its system and builds the app for it on your machine, as [Building for another system](build.md#building-for-another-system) does. Nothing is built on the server.
+2. Uploads the program, gzipped, into `/srv/tifa/<app>/releases/<id>/`, where `<id>` is the time of the deploy in UTC, and checks its SHA-256 there.
+3. Points `/srv/tifa/<app>/current` at it and restarts the service. The socket stays open, so requests that come meanwhile wait and get answered (see [Restart without dropping requests](#restart-without-dropping-requests)).
+4. Checks the new program on the server: `GET /healthz` once a second, for up to 30 seconds, until it answers with a status below 500. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](#health-check) that looks at the database to make the check mean more.
+5. When the check passes, writes the deploy down and keeps the last 5 releases. When it fails, it prints the last lines of the log of the app, starts the release that ran before again, and exits with 1. If there is no release that ever passed, it stops the app.
+
+Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, the release, the git commit (with `-dirty` when the app had changes not committed), `deploy` or `rollback`, and `ok` or `failed`. The upload never includes `.env`. One deploy of an app runs at a time.
+
+### Roll back
+
+```sh
+go tool tifa deploy rollback
+```
+
+It starts the newest earlier release that passed its check, and checks it the same way. Run it again to go back further. The next `tifa deploy` makes a new release from your code.
+
+### On the server
+
+- The log of an app: `journalctl --user -u tifa-<app>` as `tifa` (`sudo -iu tifa`).
+- Start, stop or look at it: `systemctl --user status tifa-<app>.service` as `tifa`. Restart the service, never the socket.
+- The apps start at boot, before the first visitor.
+- Several apps: each has its own folder, port and units. Run `tifa deploy setup` in each.
+
+The rest of this page is the way to do it by hand, and what `tifa deploy` does underneath.
 
 ## Build for the server
 
@@ -188,6 +272,7 @@ func GET(c *tifa.Ctx) error {
 }
 ```
 
+- `tifa deploy` asks for `/healthz` after each deploy and goes back when it does not answer below 500 within 30 seconds (see [Deploy](#deploy)).
 - Point the load balancer, the `HEALTHCHECK` of a container or a Kubernetes probe at `/healthz`. The program listens only once `OnStart` is done and the VMs are loaded, so the first 204 means it can render. When it is told to stop, new connections fail and the check goes red.
 - The route renders nothing, so a full render queue does not fail it, and a busy program is not restarted for being busy. Watch `tifa_renders_rejected_total` in the metrics below for that.
 

@@ -98,7 +98,7 @@ Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFou
 Build and deploy:
 
 14. Forgetting to reload page data after a write. Tifa does not reload it, also not after a function from `route.gen`. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
-15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the Tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
+15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the Tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`, or `go tool tifa deploy`, which builds for the server itself.
 16. Changing the React or TanStack Router versions by hand. Tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build says which when they are wrong.
 17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Answers are `private, no-cache` by default, since a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = true` (time: `cache.s_maxage`, 1m by default) or `const Cache = 10 * time.Minute` in its `route.go`, and Tifa sends the public headers itself. Navigation data is never public. `Memo = false` only turns the render memo off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
 18. Editing `schema.sql` of a `tifa new` app and expecting `tifa dev` to pick it up. It does not watch that file, so restart it.
@@ -115,6 +115,6 @@ Read the one that matches the task.
 | [references/i18n.md](references/i18n.md) | A site in several languages: `_locales` folders, language prefixes in URLs, `c.Language()`, translations with i18next, `hreflang` links |
 | [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers, `OnRequest` or code that needs a signed-in user, and checking the real HTML |
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
-| [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, a sitemap, `robots.txt` or `llms.txt` with `tifa.SetSitemap`, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
+| [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, deploying with `tifa deploy`, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, a sitemap, `robots.txt` or `llms.txt` with `tifa.SetSitemap`, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 
 The docs show code from an example shop, a workbench with a two-language storefront. Its files are not in your module: read the snippets in the docs, and run `go tool tifa docs --all` to list every doc.
