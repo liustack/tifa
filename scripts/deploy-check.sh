@@ -6,6 +6,11 @@
 #
 #   scripts/deploy-check.sh <host> <app root> [path to ask for, default /]
 #
+# With DEPLOY_CHECK_URL set to the public address of the app behind Cloudflare, such as
+# https://shop.example.com, the second deploy also gets 16 loops of requests from this machine
+# through Cloudflare, and the script prints what the Cloudflare cache did with an asset, the page
+# and /__tifa/session.
+#
 # Run it from the root of the checkout. The app needs a git commit only for the deploy records.
 set -eu
 
@@ -41,6 +46,16 @@ ssh -l root -- "$host" "rm -f /tmp/tifa-deploy-check.stop; ok=0; bad=0; slowest=
 	echo \"sent \$((ok + bad)), failed \$bad, slowest \${slowest}s\"
 	[ \"\$bad\" = 0 ]" > "$tmp/loop" 2>&1 &
 loop=$!
+public=""
+if [ -n "${DEPLOY_CHECK_URL:-}" ]; then
+	rm -f "$tmp/stop"
+	for i in $(seq 1 16); do
+		(while [ ! -e "$tmp/stop" ]; do
+			curl -s -o /dev/null -w '%{http_code} %{time_total}\n' --max-time 15 "$DEPLOY_CHECK_URL$path" || echo "000 0"
+		done) > "$tmp/public-$i" &
+		public="$public $!"
+	done
+fi
 sleep 3
 tifa deploy
 sleep 3
@@ -48,6 +63,16 @@ ssh -l root -- "$host" "touch /tmp/tifa-deploy-check.stop"
 status=0
 wait "$loop" || status=$?
 cat "$tmp/loop"
+if [ -n "$public" ]; then
+	touch "$tmp/stop"
+	# shellcheck disable=SC2086
+	wait $public
+	cat "$tmp"/public-* | awk '{ n++; if ($1 !~ /^[23]/) bad++; if ($2 > m) m = $2 } END { printf "through Cloudflare: sent %d, failed %d, slowest %ss\n", n, bad, m; exit bad > 0 }' || status=1
+	asset=$(curl -s "$DEPLOY_CHECK_URL$path" | grep -o '/assets/[^"]*\.js' | head -n 1)
+	for p in "$asset" "$asset" "$asset" "$path" "$path" /__tifa/session; do
+		printf '%s %s\n' "$(curl -s -o /dev/null -D - "$DEPLOY_CHECK_URL$p" | tr -d '\r' | sed -n 's/^cf-cache-status: //p')" "$p"
+	done
+fi
 
 step rollback
 start=$(date +%s)

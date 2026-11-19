@@ -1,9 +1,10 @@
 ---
-summary: 'How to put a Tifa app on a server: tifa deploy setup, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: tifa deploy setup, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, several apps on one server, a Cloudflare Tunnel that setup makes with cf (DNS and cache rules for the host name) or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
+  - Putting an app behind a Cloudflare Tunnel with cf, or finding what tifa deploy setup changed in Cloudflare and how to remove it
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
@@ -57,18 +58,30 @@ Run it once per app and server. It logs in as root and makes:
 
 `<app>` is the last part of the module path in `go.mod`, the name `tifa build` gives the program. Running setup again keeps the port and what is there, and writes the units again. Fill `.env` on the server, as `tifa` or root: the app reads it at each start.
 
-Setup prints the route to add in front of the app, such as `shop.example.com -> http://127.0.0.1:9527`. The app listens on the loopback address only, so something on the server must take the visitors to it:
+The app listens on the loopback address only, so something on the server must take the visitors to it.
 
-- **Cloudflare Tunnel** (recommended): add a public hostname to the tunnel of the server with that domain and service. One tunnel serves every app of the server, and the server opens no port.
-- **Caddy**, or another proxy that gets certificates, when the server takes visitors itself. A Caddyfile:
+**Cloudflare Tunnel** (recommended). The server opens no port: cloudflared on the server connects out to Cloudflare, and one tunnel serves every app of the server. With `deploy.domain` set and [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed and logged in (`cf auth login`), setup does it all with your login of cf. Tifa keeps no Cloudflare token: the token of the tunnel goes from cf to the server only.
 
-  ```
-  shop.example.com {
+1. Finds the zone of the domain in your account.
+2. Creates the tunnel of the server, `tifa-<host name>-<start of its machine ID>`, when the server has none, and keeps its ID in `/etc/tifa/tunnel`.
+3. Installs cloudflared on the server when it has none, with apt from [Cloudflare's package repository](https://pkg.cloudflare.com/): apt checks the package against Cloudflare's signing key, and the setting `/etc/apt/apt.conf.d/52tifa-cloudflared` lets unattended-upgrades install new versions. Tifa downloads no program itself: on a server without apt, install cloudflared from your system's packages first, or setup stops before Cloudflare and says so. Runs cloudflared as the system service `tifa-tunnel`, with the token in `/etc/tifa/tunnel-token` (root only) handed to it as a systemd credential, and restarts it when cloudflared changes (`tifa-tunnel-upgrade.path`).
+4. Adds the route `deploy.domain -> http://127.0.0.1:<port>` to the tunnel, keeping the routes of the other apps.
+5. Adds a proxied CNAME record of the domain to `<tunnel ID>.cfargotunnel.com`. A record of the domain that points elsewhere is left alone, and setup stops.
+6. Adds rules that hold for that host name only, as [CDN settings](#cdn-settings) says: a cache rule that caches what the `Cache-Control` of the app allows and nothing without one (so `/assets/` is cached and pages are not, unless they have `Cache`), a cache rule that never caches `/__tifa/` or navigation data (`?_tifa=`), and a configuration rule that turns off Rocket Loader, Email Address Obfuscation, Cloudflare Fonts, Zaraz and the Web Analytics script, which write into the HTML. Settings of the whole zone are not changed, so the other sites of the zone keep theirs.
+
+Each step says whether it was already there. Running setup again changes nothing, or puts back a rule changed by hand. `--cloudflare=false` leaves Cloudflare alone. Without cf, or not logged in, setup prints these steps to do by hand.
+
+To take an app off the web, delete its DNS record and its three rules (their names start with `tifa deploy: <domain>`) and its route in the tunnel. To remove the tunnel of a server, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa` and `/etc/systemd/system/tifa-tunnel*` on the server, then delete the tunnel in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
+
+**Caddy**, or another proxy that gets certificates, when the server takes visitors itself. Run setup with `--cloudflare=false`. A Caddyfile:
+
+```
+shop.example.com {
     reverse_proxy 127.0.0.1:9527
-  }
-  ```
+}
+```
 
-Set up the CDN as [CDN settings](#cdn-settings) says.
+Set up the CDN, if any, as [CDN settings](#cdn-settings) says.
 
 ### Deploy
 
@@ -236,6 +249,8 @@ Checked against the vendors' own documentation on 2026-11-04. Names and defaults
 - `stale-if-error` is supported, and capped by the maximum TTL ([expiration](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html#stale-content)).
 
 **Cloudflare**
+
+`tifa deploy setup` with cf adds these rules for its domain itself (see [Set up the server](#set-up-the-server)). On 2026-11-20 they gave, through a tunnel to the example shop: an `/assets/` file `HIT` from the second or third request, pages `BYPASS`, `/__tifa/session` `DYNAMIC`.
 
 - **Caching.** HTML and JSON are not cached by default, because Cloudflare decides by file extension ([default cache behavior](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)). To cache pages with `Cache`, add a Cache Rule for their paths with "Eligible for cache" and set Edge TTL to "Use cache-control header if present, bypass cache if not". Never "Ignore cache-control header and use this TTL" ([cache rule settings](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/)).
 - **`private` and `no-store`** are never cached. `s-maxage` is honored. The documentation does not say how `s-maxage=N` works next to `max-age=0`, which is what a page with `Cache` sends, so check that the second request for such a page is a cache hit ([Cache-Control directives](https://developers.cloudflare.com/cache/concepts/cache-control/)). `stale-if-error` is honored for 5xx answers.

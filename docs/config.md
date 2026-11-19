@@ -141,7 +141,7 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
 | `deploy.host` | none | project file only, `--host` and `DEPLOY_HOST` of `tifa deploy` | The server `tifa deploy` puts the app on: a Host of `~/.ssh/config`, a host name or an IP address, without a user (Tifa logs in as `root` for setup and as `tifa` after) and without a port (put it in `~/.ssh/config`). `--host`, then `DEPLOY_HOST`, take its place. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
-| `deploy.domain` | none | project file only | The domain that reaches the app, such as `shop.example.com`. `tifa deploy setup` prints it in the route to add in front of the app |
+| `deploy.domain` | none | project file only | The domain that reaches the app, such as `shop.example.com`. `tifa deploy setup` puts the app behind a Cloudflare Tunnel at this domain with cf, the Cloudflare CLI, or prints the steps without it. See [Deploy with tifa deploy](deploy.md#set-up-the-server) |
 
 ### Retired settings
 
