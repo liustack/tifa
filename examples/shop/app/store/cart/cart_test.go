@@ -192,7 +192,8 @@ func TestPlacingAnOrderEmptiesTheCart(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _ = visit(t, id)
-	now := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	// The store reads the clock to forget idle carts and orders, so the order is placed now.
+	now := time.Now()
 	order, err := PlaceOrder(c, zh, goodOrder(), now)
 	if err != nil || !strings.HasPrefix(order, "SH-") {
 		t.Fatalf("PlaceOrder: %q %v", order, err)
