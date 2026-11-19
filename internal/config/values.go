@@ -633,3 +633,9 @@ func (v domainValue) Set(s string) error {
 }
 func (v domainValue) String() string { return *v.p }
 func (v domainValue) kind() string   { return "string" }
+
+// CheckDeployHost checks a value for deploy.host given another way, such as a flag of tifa deploy.
+func CheckDeployHost(s string) error {
+	var host string
+	return sshHostValue{&host}.Set(s)
+}
