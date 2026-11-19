@@ -587,3 +587,49 @@ func (v sharedAgeValue) Set(s string) error {
 }
 func (v sharedAgeValue) String() string { return v.p.String() }
 func (v sharedAgeValue) kind() string   { return "duration" }
+
+// sshHostValue is deploy.host: the server as ssh knows it, a Host of ~/.ssh/config, a host name or
+// an IP address, empty when not set. tifa deploy picks the user, so a user@ is refused, and text
+// that ssh could read as an option, a URI or a second argument is refused too.
+type sshHostValue struct{ p *string }
+
+func (v sshHostValue) Set(s string) error {
+	switch {
+	case s == "":
+	case strings.Contains(s, "@"):
+		return fmt.Errorf("%q: write the host without a user, tifa deploy logs in as root for setup and as tifa after", s)
+	case strings.Contains(s, "://"):
+		return fmt.Errorf("%q: write the host name, without a scheme, and put a port in ~/.ssh/config", s)
+	case strings.HasPrefix(s, "-"):
+		return fmt.Errorf("%q: a host does not start with -", s)
+	case strings.ContainsFunc(s, func(r rune) bool {
+		return !('a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || strings.ContainsRune(".-_:", r))
+	}):
+		return fmt.Errorf("%q: a host is letters, digits, dots, hyphens, underscores and colons, such as vps or 203.0.113.7", s)
+	}
+	*v.p = s
+	return nil
+}
+func (v sshHostValue) String() string { return *v.p }
+func (v sshHostValue) kind() string   { return "string" }
+
+// domainValue is deploy.domain: one host name, as server.tls_domains takes them, empty when not set.
+type domainValue struct{ p *string }
+
+func (v domainValue) Set(s string) error {
+	var domains []string
+	if err := (domainsValue{&domains}).Set(s); err != nil {
+		return err
+	}
+	switch len(domains) {
+	case 0:
+		*v.p = ""
+	case 1:
+		*v.p = domains[0]
+	default:
+		return fmt.Errorf("%q: write one domain", s)
+	}
+	return nil
+}
+func (v domainValue) String() string { return *v.p }
+func (v domainValue) kind() string   { return "string" }
