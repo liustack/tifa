@@ -65,9 +65,14 @@ func (e *cfError) Error() string {
 func (e *cfError) Unwrap() error { return e.err }
 
 // cfNotFound reports whether err is cf saying that what it was asked for does not exist.
+//
+// cf gives no way to tell this apart other than its text: it exits 1 for every error, a missing
+// tunnel as much as a bad flag, and prints the error as a box of text on stderr, not as JSON.
+// This matches the status line cf 1.0.0-beta.18 prints, "404 Not Found · HTTP <path>", and may
+// need to change with cf. TestCFError holds a sample of it.
 func cfNotFound(err error) bool {
 	var e *cfError
-	return errors.As(err, &e) && strings.Contains(e.stderr, "404")
+	return errors.As(err, &e) && strings.Contains(e.stderr, "404 Not Found")
 }
 
 // cfJSON runs cf and decodes its output into v.

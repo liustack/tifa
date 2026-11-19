@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -398,8 +399,20 @@ func TestCFError(t *testing.T) {
 	if got := err.Error(); got != "cf tunnels config update id: [1000] bad\n400 Bad Request" {
 		t.Errorf("got %q", got)
 	}
-	if cfNotFound(err) || !cfNotFound(&cfError{stderr: "404 Not Found"}) {
-		t.Error("cfNotFound")
+	if cfNotFound(err) {
+		t.Error("a 400 counts as not found")
+	}
+	// What cf 1.0.0-beta.18 prints for a tunnel that does not exist.
+	missing := "┌ APIError\n│ [1002] Tunnel not found\n│ 404 Not Found · HTTP /accounts/a1b2/cfd_tunnel/00000000-0000-0000-0000-000000000000\n└"
+	if !cfNotFound(&cfError{stderr: missing}) {
+		t.Error("a 404 does not count as not found")
+	}
+	// A 404 in the path of another error is not a 404.
+	if cfNotFound(&cfError{stderr: "│ [1000] down\n│ 500 Internal Server Error · HTTP /accounts/f404e1/cfd_tunnel/x\n"}) {
+		t.Error("a 500 counts as not found")
+	}
+	if cfNotFound(errors.New("404 Not Found")) {
+		t.Error("an error that is not from cf counts as not found")
 	}
 }
 
