@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"html"
 	"io/fs"
-	"path"
 	"reflect"
 	"regexp"
 	"slices"
@@ -72,22 +71,17 @@ type Entry struct {
 	// one, and so is each run of other letters and digits.
 	Words int `json:"words"`
 
-	// body is where the body and the headings of the entry come from, nil for an entry that no
-	// collection holds.
-	body *body
+	// handle says where the body, the headings and the Markdown of the entry come from, and holds
+	// none for an entry that no collection holds. Embedded, it makes the value of every schema type
+	// one that tifa.SitemapPage.Content takes.
+	handle `json:"-"`
 }
+
+// handle is the Handle of internal/content, embedded in Entry under a name of this package.
+type handle = content.Handle
 
 // entry gives the content package the Entry inside any schema type.
 func (e *Entry) entry() *Entry { return e }
-
-// body is what an entry knows of its body.
-type body struct {
-	collection string
-	// dist holds the files of the build, nil in tests.
-	dist     fs.FS
-	file     string
-	headings []Heading
-}
 
 // Body returns the body of the entry, the HTML tifa build made from its Markdown. It reads the file
 // of the build on each call (tifa dev reads it from .tifa/dist) and keeps no copy. A page shows it
@@ -97,16 +91,16 @@ type body struct {
 // the placeholder <p>tifatest: body of <collection> <language>/<ID></p>. Body panics for an entry that
 // no collection holds, such as one made in place.
 func (e Entry) Body() tifa.HTML {
-	b := e.body
+	b := content.BodyOf(e)
 	switch {
 	case b == nil:
 		panic(fmt.Sprintf("content: Body of the entry %q, which no collection holds: read entries from a collection, or in a test from tifatest.SetContent", e.ID))
-	case b.dist == nil:
-		return tifa.HTML("<p>tifatest: body of " + html.EscapeString(b.collection+" "+path.Join(e.Language, e.ID)) + "</p>")
+	case b.Dist == nil:
+		return tifa.HTML("<p>tifatest: body of " + html.EscapeString(b.Name()) + "</p>")
 	}
-	data, err := fs.ReadFile(b.dist, b.file)
+	data, err := fs.ReadFile(b.Dist, b.File)
 	if err != nil {
-		panic(fmt.Sprintf("content: the body of %s %s: %v", b.collection, path.Join(e.Language, e.ID), err))
+		panic(fmt.Sprintf("content: the body of %s: %v", b.Name(), err))
 	}
 	return tifa.HTML(data)
 }
@@ -114,10 +108,15 @@ func (e Entry) Body() tifa.HTML {
 // Headings returns the h1 to h6 of the body in the order they come, with the id each has in the
 // HTML. In tests they are nil, see Body. The slice is new on each call.
 func (e Entry) Headings() []Heading {
-	if e.body == nil {
+	b := content.BodyOf(e)
+	if b == nil || b.Headings == nil {
 		return nil
 	}
-	return slices.Clone(e.body.headings)
+	out := make([]Heading, len(b.Headings))
+	for i, h := range b.Headings {
+		out[i] = Heading(h)
+	}
+	return out
 }
 
 // Heading is one h1 to h6 of a body: its level, its id and its text.
@@ -255,7 +254,7 @@ func (c *Collection[T]) decode(recs []content.Record, dist fs.FS) (func(), error
 		if err := json.Unmarshal(r.Data, &v); err != nil {
 			return nil, fmt.Errorf("%s: %w", r.Source, err)
 		}
-		*entryOf(&v) = Entry{ID: r.ID, Language: r.Language, Slug: r.Slug, Path: r.Path, Date: r.Date, Draft: r.Draft, Words: r.Words, body: c.body(dist, r)}
+		*entryOf(&v) = Entry{ID: r.ID, Language: r.Language, Slug: r.Slug, Path: r.Path, Date: r.Date, Draft: r.Draft, Words: r.Words, handle: c.body(dist, r)}
 		if val, ok := any(&v).(validator); ok {
 			if err := val.Validate(); err != nil {
 				return nil, fmt.Errorf("%s: Validate: %w", r.Source, err)
@@ -267,16 +266,13 @@ func (c *Collection[T]) decode(recs []content.Record, dist fs.FS) (func(), error
 }
 
 // body says where the body of the entry of r is, in dist when there is a build.
-func (c *Collection[T]) body(dist fs.FS, r content.Record) *body {
-	b := &body{collection: c.src.Dir}
+func (c *Collection[T]) body(dist fs.FS, r content.Record) handle {
+	b := &content.Body{Collection: c.src.Dir, Language: r.Language, ID: r.ID}
 	if dist != nil {
-		b.dist, b.file = dist, r.File
-		b.headings = make([]Heading, len(r.Headings))
-		for i, h := range r.Headings {
-			b.headings[i] = Heading(h)
-		}
+		// A built entry has a list of headings, empty when the body has none.
+		b.Dist, b.File, b.Headings = dist, r.File, append(make([]content.Heading, 0, len(r.Headings)), r.Headings...)
 	}
-	return b
+	return content.NewHandle(b)
 }
 
 // set makes values the entries of the collection, each its own translation key by ID.
@@ -297,7 +293,7 @@ func (c *Collection[T]) set(values []any) (func(), error) {
 		case seen[[2]string{e.Language, e.ID}]:
 			return nil, fmt.Errorf("collection %s has the entry %q of language %q twice", c.src.Dir, e.ID, e.Language)
 		}
-		e.body = &body{collection: c.src.Dir}
+		e.handle = content.NewHandle(&content.Body{Collection: c.src.Dir, Language: e.Language, ID: e.ID})
 		seen[[2]string{e.Language, e.ID}] = true
 		items = append(items, item[T]{v: v, group: e.ID})
 	}

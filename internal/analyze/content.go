@@ -214,12 +214,16 @@ func (a *analyzer) content() *Content {
 
 // bodyFileErrors reports the entries whose body would go into a file of dist that go:embed does
 // not take, which allows the names of module.CheckFilePath only, and those whose body would go
-// below the body of another entry, as into a folder: a.html/b.md next to a.md.
+// below the body of another entry, or below the Markdown the build writes next to it, as into a
+// folder: a.html/b.md or a.md/b.md next to a.md.
 func bodyFileErrors(f content.File) []Error {
 	sources := map[string]string{} // file of a body to the Markdown it comes from
+	written := map[string]string{} // what the file is to that Markdown
 	for _, recs := range f {
 		for _, r := range recs {
-			sources[r.File] = r.Source
+			sources[r.File], written[r.File] = r.Source, "the body"
+			md := content.MarkdownFile(r.File)
+			sources[md], written[md] = r.Source, "the Markdown"
 		}
 	}
 	var errs []Error
@@ -230,7 +234,7 @@ func bodyFileErrors(f content.File) []Error {
 			}
 			for dir := path.Dir(r.File); dir != "." && dir != "/"; dir = path.Dir(dir) {
 				if other, ok := sources[dir]; ok {
-					errs = append(errs, Error{Pos: token.Position{Filename: r.Source}, Msg: fmt.Sprintf("the body of this entry goes into %s, below %s, which is the body of %s: a file cannot also be a folder. Rename one of the two", r.File, dir, other)})
+					errs = append(errs, Error{Pos: token.Position{Filename: r.Source}, Msg: fmt.Sprintf("the body of this entry goes into %s, below %s, which is %s of %s: a file cannot also be a folder. Rename one of the two", r.File, dir, written[dir], other)})
 					break
 				}
 			}

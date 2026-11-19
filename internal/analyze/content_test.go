@@ -192,6 +192,8 @@ func TestBodyFileCannotBeTheFolderOfAnother(t *testing.T) {
 			{ID: "a.html/b", Source: "content/blog/a.html/b.md", File: "content/blog/a.html/b.html"},
 			{ID: "a.html/c/d", Source: "content/blog/a.html/c/d.md", File: "content/blog/a.html/c/d.html"},
 			{ID: "a.htmlx", Source: "content/blog/a.htmlx.md", File: "content/blog/a.htmlx.html"},
+			// The Markdown of a.md goes into a.md next to its body.
+			{ID: "a.md/e", Source: "content/blog/a.md/e.md", File: "content/blog/a.md/e.html"},
 		},
 		"docs": {
 			{ID: "x", Source: "content/docs/en/x.md", File: "content/docs/en/x.html"},
@@ -205,6 +207,7 @@ func TestBodyFileCannotBeTheFolderOfAnother(t *testing.T) {
 	want := []string{
 		"content/blog/a.html/b.md: the body of this entry goes into content/blog/a.html/b.html, below content/blog/a.html, which is the body of content/blog/a.md: a file cannot also be a folder. Rename one of the two",
 		"content/blog/a.html/c/d.md: the body of this entry goes into content/blog/a.html/c/d.html, below content/blog/a.html, which is the body of content/blog/a.md: a file cannot also be a folder. Rename one of the two",
+		"content/blog/a.md/e.md: the body of this entry goes into content/blog/a.md/e.html, below content/blog/a.md, which is the Markdown of content/blog/a.md: a file cannot also be a folder. Rename one of the two",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("errors\n%q\nwant\n%q", got, want)

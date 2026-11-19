@@ -16,6 +16,7 @@ import (
 // converted is what convertContent of the tifa Vite plugin returned, or the message it failed with.
 type converted struct {
 	HTML     map[string]string
+	Markdown map[string]string
 	Headings map[string][]content.Heading
 	Warnings []string
 	Error    string
@@ -29,13 +30,14 @@ import path from 'node:path'
 import { convertContent } from './plugin.mjs'
 const root = process.cwd()
 const real = fs.realpathSync(root)
-const { entries, links } = JSON.parse(fs.readFileSync('.tifa/content/entries.json', 'utf8'))
+const { entries, links, site } = JSON.parse(fs.readFileSync('.tifa/content/entries.json', 'utf8'))
 let markdown
 %s
 try {
   const result = await convertContent(root, entries, {
     markdown,
     links,
+    site,
     command: 'tifa build',
     asset: (file) => 'asset:' + path.relative(real, file).split(path.sep).join('/'),
   })
@@ -69,10 +71,17 @@ func convertWith(t *testing.T, root string, entries []content.Markdown, links *c
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeTree(t, root, map[string]string{".tifa/content/entries.json": string(list)})
+	return convertEntries(t, root, setup)
+}
+
+// convertEntries runs convertContent on the entries that .tifa/content/entries.json of the app at
+// root lists, see convertScript.
+func convertEntries(t *testing.T, root, setup string) converted {
+	t.Helper()
 	writeTree(t, root, map[string]string{
-		".tifa/content/entries.json": string(list),
-		"plugin.mjs":                 js.VitePlugin,
-		"convert.mjs":                strings.Replace(convertScript, "%s", setup, 1),
+		"plugin.mjs":  js.VitePlugin,
+		"convert.mjs": strings.Replace(convertScript, "%s", setup, 1),
 	})
 	cmd := exec.Command("node", "convert.mjs")
 	cmd.Dir = root
@@ -580,5 +589,72 @@ func TestMarkdownLeavesLinksToPublicFiles(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("the HTML lacks %s:\n%s", want, html)
 		}
+	}
+}
+
+// The Markdown version of an entry keeps the text as written, without the front matter and the
+// comments, and has the URLs of the HTML: files as their URLs, links with the prefix of the
+// language, and root-relative URLs in full with site.url. Code is left as it is.
+func TestMarkdownVersionHasTheURLsOfTheHTML(t *testing.T) {
+	root := markdownApp(t, map[string]string{
+		"content/blog/en-US/a/diagram.png": "png",
+		"content/blog/en-US/a/my file.pdf": "pdf",
+	})
+	body := strings.Join([]string{
+		"# Title",
+		"",
+		"<!-- a note for the author -->",
+		"",
+		`![own](./diagram.png "A title") [pdf](./my%20file.pdf#page=2) [cart](/store/cart) [ext](https://example.org/x) [hash](#top)`,
+		"",
+		"[![wrapped *a*](./diagram.png)](/store/products/42)",
+		"",
+		"[ref link][r] ![ref image][i]",
+		"",
+		`[r]: /store/cart "Cart"`,
+		"[i]: ./diagram.png",
+		"",
+		`<img src="./diagram.png" alt="x"> <a href='/store?a=1&amp;b=2'>store</a> <!-- inline note -->`,
+		"",
+		"```md",
+		"[not](./nope.png)",
+		"```",
+		"",
+	}, "\n")
+	list, err := json.Marshal(content.Entries{
+		Entries: []content.Markdown{markdownEntry("en-US", "a", "content/blog/en-US/a/index.md", "", body)},
+		Links:   linksTable(false), Site: "https://shop.example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{".tifa/content/entries.json": string(list)})
+	c := convertEntries(t, root, "")
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	want := strings.Join([]string{
+		"# Title",
+		"",
+		"",
+		"",
+		`![own](asset:content/blog/en-US/a/diagram.png "A title") [pdf](<asset:content/blog/en-US/a/my file.pdf#page=2>) [cart](https://shop.example.com/en-US/store/cart) [ext](https://example.org/x) [hash](#top)`,
+		"",
+		"[![wrapped a](asset:content/blog/en-US/a/diagram.png)](https://shop.example.com/en-US/store/products/42)",
+		"",
+		"[ref link][r] ![ref image][i]",
+		"",
+		`[r]: https://shop.example.com/en-US/store/cart "Cart"`,
+		"[i]: asset:content/blog/en-US/a/diagram.png",
+		"",
+		`<img src="asset:content/blog/en-US/a/diagram.png" alt="x"> <a href="https://shop.example.com/en-US/store?a=1&amp;b=2">store</a> `,
+		"",
+		"```md",
+		"[not](./nope.png)",
+		"```",
+		"",
+	}, "\n")
+	if got := c.Markdown["content/blog/en-US/a.html"]; got != want {
+		t.Errorf("Markdown:\n%s\nwant:\n%s", got, want)
 	}
 }
