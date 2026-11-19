@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-19
+
 ### Fixed
 
 - Server rendering runs on slowjs v0.31.9. A render that sat just under its memory limit ran a full collection each time an array grew, and could end at the render timeout. It now finishes. `toLocaleString` on an array passes its locales and options to each element, so `[1234.5].toLocaleString("de")` gives `1.234,5` as in the browser. The instructions of one render are within 0.1% of v0.31.8.
