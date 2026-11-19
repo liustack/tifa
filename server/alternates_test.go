@@ -60,7 +60,8 @@ func newAltEnv(t *testing.T, always bool) *altEnv {
 	app.Routes = append(app.Routes,
 		// Every page of the area exists in each of its languages.
 		Route{ID: "app/store/items", Path: "/store/items/{id}", Page: true, SSR: true, Languages: allLanguages, Layouts: []string{"app/layout"},
-			Load: func(c *tifa.Ctx) (any, error) { return c.Param("id"), nil }},
+			Query: []string{"page"},
+			Load:  func(c *tifa.Ctx) (any, error) { return c.Param("id") + c.Query("page"), nil }},
 		Route{ID: "app/store/plain", Path: "/store/plain", Page: true, SSR: false, Languages: allLanguages, Layouts: []string{"app/layout"}},
 		// An entry with its own slug in each language and a version that may be missing.
 		Route{ID: "app/store/journal", Path: "/store/journal/{slug}", Page: true, SSR: true, Languages: allLanguages, Layouts: []string{"app/layout"},
@@ -100,8 +101,11 @@ func TestPageHasAVersionInEachLanguageOfItsArea(t *testing.T) {
 	e := newAltEnv(t, false)
 	for _, tc := range []struct{ target, want string }{
 		{"/store/items/7", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/store/items/7","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
-		// The query is no part of any URL, and a prefix is swapped, not stacked.
+		// The versions have no query, and a prefix is swapped, not stacked. The canonical URL keeps
+		// the parameters the Loads read, as the render sees them, so page 2 of a list is a page
+		// of its own.
 		{"/en-US/store/items/7?x=1", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/en-US/store/items/7","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
+		{"/en-US/store/items/7?utm_source=x&page=2", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/en-US/store/items/7?page=2","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
 		// A parameter value keeps the escapes it came with.
 		{"/de/store/items/a%2Fb", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/de/store/items/a%2Fb","list":[{"language":"zh-CN","url":"/store/items/a%2Fb"},{"language":"en-US","url":"/en-US/store/items/a%2Fb"},{"language":"de","url":"/de/store/items/a%2Fb"}]}`},
 		// One language, or no area: one version, nothing to link but the page itself.
@@ -276,6 +280,9 @@ func TestPageWithCacheGetsTheListOfAPublishedTranslation(t *testing.T) {
 func TestEveryPageOfASiteHasItsCanonicalURL(t *testing.T) {
 	app := frontApp()
 	app.SiteURL = "https://blog.example.com/"
+	app.Routes = append(app.Routes, Route{ID: "app/list", Path: "/list", Page: true, SSR: true, Layouts: []string{"app/layout"},
+		Query: []string{"page", "sort"},
+		Load:  func(c *tifa.Ctx) (any, error) { return c.Query("page") + c.Query("sort"), nil }})
 	s, r := newFrontServer(t, app)
 	last := func() string {
 		r.mu.Lock()
@@ -283,7 +290,11 @@ func TestEveryPageOfASiteHasItsCanonicalURL(t *testing.T) {
 		return string(r.inputs[len(r.inputs)-1].Alternates)
 	}
 	for target, want := range map[string]string{
-		"/stats?x=1":      `{"site":"https://blog.example.com","canonical":"/stats"}`,
+		// A page that reads no query parameter has none in its canonical URL. One that reads some
+		// keeps those, by name, each with its values in the order of the request, spelled as the
+		// render sees them.
+		"/stats?x=1": `{"site":"https://blog.example.com","canonical":"/stats"}`,
+		"/list?utm_source=news&sort=new%20first&page=2&page=3": `{"site":"https://blog.example.com","canonical":"/list?page=2\u0026page=3\u0026sort=new+first"}`,
 		"/projects/a%2Fb": `{"site":"https://blog.example.com","canonical":"/projects/a%2Fb"}`,
 		// A page that is not found has none.
 		"/nope": `{"site":"https://blog.example.com"}`,

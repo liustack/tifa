@@ -9,6 +9,7 @@ import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from '
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { alternateTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
 import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
+import { renderQuery } from './.tifa/runtime/alternates'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { SessionContext } from './.tifa/runtime/session'
 import { HTML, type HTML as HTMLValue } from './.tifa/runtime/html'
@@ -120,6 +121,14 @@ test('the browser reads a query as Go does and hydrates from the page of the ren
     assert(JSON.stringify(ids) === JSON.stringify(server), `?${c.query}: matches ${JSON.stringify(ids)}, the server rendered ${JSON.stringify(server)}`)
     assert(router.state.matches.every((m: any) => m.status === 'success'), `?${c.query}: ${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
     assert(calls.length === 0, `?${c.query} asked for ${JSON.stringify(calls)}`)
+  }
+})
+
+test('the browser keeps the query of the render URL as Go does, for the canonical link', async () => {
+  const keep = (queryCases as unknown as { keep: string[] }).keep
+  for (const c of queryCases.cases) {
+    const got = queryCases.path + renderQuery(queryCases.path + (c.query === '' ? '' : '?' + c.query) + '#top', keep)
+    assert(got === c.render, `?${c.query} keeps ${got}, Go ${c.render}`)
   }
 })
 

@@ -169,9 +169,11 @@ function loadsAt(router: AnyRouter, pathname: string): string[] {
     .filter((id): id is string => id !== undefined)
 }
 
-// LoadData is the staticData of a route with a Go Load: the ID of that Load.
+// LoadData is the staticData of a route with a Go Load: the ID of that Load, and the query parameters
+// it reads, sorted, when it reads some (the canonical link keeps them, see versionsOf in alternates.ts).
 interface LoadData {
   load: string
+  query?: readonly string[]
 }
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result

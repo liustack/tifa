@@ -902,6 +902,10 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		}
 		if n.load != nil {
 			static = append(static, "load: "+jsString(n.id))
+			// The query parameters the Load reads, which the canonical link of the page keeps.
+			if len(n.load.AllQuery) > 0 {
+				static = append(static, "query: "+jsStrings(n.load.AllQuery))
+			}
 		}
 		staticData := "staticData: { " + strings.Join(static, ", ") + " }"
 		var query []string

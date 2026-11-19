@@ -474,7 +474,7 @@ export interface PageAlternates {
   site?: string
   // The language of x-default, the default language of the site.
   default?: string
-  // The path of the page itself, without the query.
+  // The URL of the page itself: its path and the query parameters its Loads read, as the server renders it.
   canonical?: string
   // The versions. A server render gets them all, and sets custom when a Load of the page called
   // c.SetAlternates. The page carries them to the browser only then, which works out the rest.

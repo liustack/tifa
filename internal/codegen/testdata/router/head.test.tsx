@@ -468,17 +468,19 @@ test('the links of the versions follow the page the router shows, computed in th
         { language: 'en-US', url: '/en-US/anfrage' },
       ],
     })
-    await router.navigate({ to: '/q', search: { q: '1' } as never })
+    // The canonical URL keeps the query parameters the Load reads, as the server renders the page with them,
+    // and leaves the others out.
+    await router.navigate({ to: '/q', search: { utm_source: 'news', q: '1' } as never })
     await wait(() => hreflangs().includes('anfrage'))
     assert(
       hreflangs() ===
-        'link rel=alternate hreflang=zh-CN href=https://a.example.com/q|link rel=alternate hreflang=en-US href=https://a.example.com/en-US/anfrage|link rel=alternate hreflang=x-default href=https://a.example.com/q|link rel=canonical href=https://a.example.com/en-US/q',
+        'link rel=alternate hreflang=zh-CN href=https://a.example.com/q|link rel=alternate hreflang=en-US href=https://a.example.com/en-US/anfrage|link rel=alternate hreflang=x-default href=https://a.example.com/q|link rel=canonical href=https://a.example.com/en-US/q?q=1',
       `a page with a list of its own: ${hreflangs()}`,
     )
     // A list with one version is a list: the page has no links to versions, only its canonical one.
     const one = 'link rel=canonical href=https://a.example.com/en-US/hello'
     noteAlternates('/hello', { list: [{ language: 'zh-CN', url: '/hello' }] })
-    await router.navigate({ to: '/hello' })
+    await router.navigate({ to: '/hello', search: { page: '2' } as never })
     await wait(() => hreflangs() === one)
     assert(hreflangs() === one, `a page with one version: ${hreflangs()}`)
     // An answer of every Load that set no list drops the one held: the page has the list worked out.

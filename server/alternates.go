@@ -23,7 +23,8 @@ type pageAlternates struct {
 	Site string `json:"site,omitempty"`
 	// Default is the default language of the site, whose version x-default stands for.
 	Default string `json:"default,omitempty"`
-	// Canonical is the path of the page as it was asked for, without the query.
+	// Canonical is the URL of the page as its render sees it (renderURL): the path as it was asked
+	// for and only the query parameters the Loads of the page read.
 	Canonical string `json:"canonical,omitempty"`
 	// List holds a link per version, the page itself included.
 	List []alternateLink `json:"list,omitempty"`
@@ -72,9 +73,12 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 	if site == nil {
 		return nil, nil
 	}
+	// The canonical URL keeps the query parameters the render sees, so that page 2 of a list is a
+	// page of its own, and a tracking parameter is no other page.
+	query := renderQuery(c.Request().URL, s.query[c.Pattern()])
 	langs := s.langs[c.Pattern()]
 	if s.i18n == nil || len(langs) == 0 {
-		site.Canonical = c.Request().URL.EscapedPath()
+		site.Canonical = c.Request().URL.EscapedPath() + query
 		return site, nil
 	}
 	language, rest := c.Language(), c.Request().URL.EscapedPath()
@@ -104,7 +108,7 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 			list = append(list, alternateLink{Language: l, URL: s.languagePath(l, rest)})
 		}
 	}
-	site.Canonical, site.List, site.Custom = s.languagePath(language, rest), list, custom
+	site.Canonical, site.List, site.Custom = s.languagePath(language, rest)+query, list, custom
 	return site, nil
 }
 

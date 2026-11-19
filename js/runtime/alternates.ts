@@ -61,25 +61,104 @@ interface Located {
     // pathname is the path the routes match, without the language prefix when the router has a
     // rewrite. publicHref is the URL of the page, with it.
     location: { pathname: string; publicHref: string }
-    matches: ReadonlyArray<{ routeId: string; status: string; _notFound?: unknown }>
+    // staticData.query lists the query parameters the Go Load of a route reads (LoadData in
+    // router.tsx).
+    matches: ReadonlyArray<{ routeId: string; status: string; _notFound?: unknown; staticData?: { query?: readonly string[] } }>
   }
 }
 
-// versionsOf returns the versions of the page the router shows in language, and the path of the
-// page itself: nothing for a page that is not found, and no versions for a page outside the areas
-// and a page of a site without languages.
+// renderQuery is the query of the URL the server renders the page at href with, with its ?, ""
+// without one: only the parameters in keep, which the Loads of the page read, by name, each with
+// its values in the order of href. It is renderQuery in server/page.go, so the canonical link the
+// browser writes is the one of the server render. Like Go it works on the bytes: a part with a
+// semicolon or a broken escape is no parameter, and the names and values are written back as
+// url.QueryEscape writes them.
+export function renderQuery(href: string, keep: readonly string[]): string {
+  const at = href.indexOf('?')
+  if (at < 0 || keep.length === 0) return ''
+  const hash = href.indexOf('#', at)
+  const raw = href.slice(at + 1, hash < 0 ? undefined : hash)
+  const wanted = new Map(keep.map((name) => [queryEscape(unescapeQuery(encodeURIComponent(name))!), [] as string[]]))
+  for (const part of raw.split('&')) {
+    if (part === '' || part.includes(';')) continue
+    const eq = part.indexOf('=')
+    const name = unescapeQuery(eq < 0 ? part : part.slice(0, eq))
+    const value = unescapeQuery(eq < 0 ? '' : part.slice(eq + 1))
+    if (name === undefined || value === undefined) continue
+    wanted.get(queryEscape(name))?.push(queryEscape(value))
+  }
+  let out = ''
+  for (const [name, values] of wanted) for (const value of values) out += (out === '' ? '?' : '&') + name + '=' + value
+  return out
+}
+
+// unescapeQuery gives the bytes of a part of a query as url.QueryUnescape reads them: + is a
+// space and %XX a byte. A % without two hex digits after it is an error, undefined.
+function unescapeQuery(text: string): number[] | undefined {
+  const bytes: number[] = []
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (c === '+') bytes.push(0x20)
+    else if (c === '%') {
+      const hex = text.slice(i + 1, i + 3)
+      if (!/^[0-9A-Fa-f]{2}$/.test(hex)) return undefined
+      bytes.push(parseInt(hex, 16))
+      i += 2
+    } else if (c.charCodeAt(0) < 0x80) bytes.push(c.charCodeAt(0))
+    else {
+      // A character a URL should have escaped: its UTF-8 bytes, as Go gets them.
+      const code = text.codePointAt(i)!
+      let escaped: string
+      try {
+        escaped = encodeURIComponent(String.fromCodePoint(code))
+      } catch {
+        return undefined // a lone surrogate, which no URL can hold
+      }
+      for (let j = 0; j < escaped.length; j += 3) bytes.push(parseInt(escaped.slice(j + 1, j + 3), 16))
+      if (code > 0xffff) i++
+    }
+  }
+  return bytes
+}
+
+// queryEscape writes bytes as url.QueryEscape does: letters, digits and -_.~ as they are, a space
+// as +, any other byte as %XX.
+function queryEscape(bytes: number[]): string {
+  let out = ''
+  for (const b of bytes) {
+    const c = String.fromCharCode(b)
+    if (/[A-Za-z0-9\-_.~]/.test(c)) out += c
+    else if (b === 0x20) out += '+'
+    else out += '%' + b.toString(16).toUpperCase().padStart(2, '0')
+  }
+  return out
+}
+
+// keptQuery is the query the server renders the page of the matches at href with: the parameters
+// the Loads of its routes read.
+function keptQuery(matches: Located['state']['matches'], href: string): string {
+  const names = new Set<string>()
+  for (const m of matches) for (const name of m.staticData?.query ?? []) names.add(name)
+  return renderQuery(href, [...names].sort())
+}
+
+// versionsOf returns the versions of the page the router shows in language, and the URL of the
+// page itself, the canonical one: nothing for a page that is not found, and no versions for a page
+// outside the areas and a page of a site without languages. The versions have no query. The
+// canonical URL has the query the server renders the page with.
 function versionsOf(router: Located, language: string): { list: readonly Alternate[]; canonical: string } | undefined {
   const { matches, location } = router.state
   if (matches.length === 0 || matches.some((m) => m.status !== 'success' || m._notFound)) return undefined
+  const query = keptQuery(matches, location.publicHref)
   const languages = table && language !== '' ? table.routes[matches[matches.length - 1]!.routeId] : undefined
-  if (!languages) return { list: none, canonical: location.pathname }
+  if (!languages) return { list: none, canonical: location.pathname + query }
   // The path without the prefix of the language, whether the router sees it or not.
   let rest = location.pathname
   const prefix = '/' + language
   if (rest === prefix || rest.startsWith(prefix + '/')) rest = rest.slice(prefix.length) || '/'
   const pathIn = (l: string) => (l === table!.default && !table!.always ? rest : rest === '/' ? '/' + l : '/' + l + rest)
   const listed = own.get(pathOf(location.publicHref))
-  return { list: listed ?? languages.map((l) => ({ language: l, url: pathIn(l) })), canonical: pathIn(language) }
+  return { list: listed ?? languages.map((l) => ({ language: l, url: pathIn(l) })), canonical: pathIn(language) + query }
 }
 
 // pageLinks gives the head the tags of the versions of the page the router shows. The head is
