@@ -384,7 +384,7 @@ What else changes at that moment:
 | Pages with `Cache` | Their `Load`s run on every request, so the next request reads the new entry. A page whose data did not change comes from the render memo, without a new render. |
 | The page of the entry | It answered 404 before, so it opens at that moment. |
 | A CDN in front of the program | A page with `Cache` goes out with `s-maxage` set to that time, so a CDN may show the old list for up to that long. |
-| RSS, a sitemap and other handlers | They read the collection on each request and have the entry. Something worked out from the content in `OnStart` and kept does not. |
+| RSS, the sitemap and other handlers | They read the collection on each request and have the entry: the function of `tifa.SetSitemap` runs on each request for `/sitemap.xml` and `/llms.txt` too. Something worked out from the content in `OnStart` and kept does not. |
 
 One request that reads a collection several times may see both sides of that moment, as it may with a row just written to a database.
 
@@ -407,6 +407,7 @@ One request that reads a collection several times may see both sides of that mom
 | --- | --- |
 | `dist/content.json` | The entries of every collection that are not drafts: the fields of `content.Entry`, the translation key, the file of the body, its headings and the front matter converted to JSON by the schema |
 | `dist/content/<collection>/<language>/<ID>.html` | The body of each entry, without the language folder for a collection without languages. The server does not serve these files and the build does not compress them. A draft is never converted, so its text is not in the program |
+| `dist/content/<collection>/<language>/<ID>.md` | The Markdown of each entry next to its body, with the URLs of the HTML, written in full when the app has `site.url`, and without comments. It is the [Markdown version](guides/seo.md#markdown-versions) of the page that lists the entry as its `Content`. Drafts are left out here too |
 | `dist/assets/<name>-<hash>.<ext>` | The files the bodies refer to |
 
 An ID whose body file `go:embed` would refuse, such as one with `'` in it, fails the build, and so does an entry whose body file would sit below the body file of another, such as `a.html/b.md` next to `a.md`. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.
