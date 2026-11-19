@@ -1,11 +1,11 @@
 ---
-summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what makes a request fail, and how to test it'
+summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
 audience: app
 read_when:
   - Putting a Tifa site in front of search engines, or adding a sitemap or a robots.txt
   - Letting ChatGPT, Claude and other language models read a site through llms.txt or the Markdown of its pages
   - The log says sitemap.xml lists the pages without parameters only
-  - /sitemap.xml or /llms.txt answers 500, or a page is missing from them or should not be there
+  - /sitemap.xml or /llms.txt answers 500, a page is missing from them or should not be there, or the log has a line from SetSitemap
   - Keeping pages that need sign-in, a cart or a checkout out of the sitemap
 ---
 
@@ -212,18 +212,19 @@ With it, your file is served as it is and Tifa adds nothing. Add the `Sitemap:` 
 
 The sitemap, the `llms` files and the Markdown versions are requests like any other: `OnRequest` runs for them, and `c.Pattern()` is `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, or the route of the page with `.md`, such as `/blog/{slug}.md` (`/index.md` for `/`). `c.Language()` is the language of the page of a `.md` path, and the default language for the other files. A guard in `OnRequest` that sends signed-out visitors to the sign-in page also guards these files, so let them through when it should not.
 
-Two mismatches between the sitemap and the routes leave pages out and keep the files answering. Each request logs one `ERROR` line that names what is missing:
+A mistake in what the function returns never fails the request. The page or the `Exclude` pattern it is in is left out, the files answer with the rest, and each request logs one `ERROR` line per kind of mistake that names the pages (by path and language) or the patterns:
 
-- A route with parameters that has no page in `Pages` and is not excluded, such as a blog before its first post. Its pages are not in the files until you list them, or exclude the route to stop the line.
-- A `Path` that matches no route, such as the path of a route you renamed. That page is left out, the others stay.
-
-Other mistakes in what the function returns answer 500 through `OnError`, and the log names the page. A test catches them (see below):
-
-- A `Path` that has a language prefix, or is not an escaped path.
-- A `Language` that the page does not have, or a language on a page outside every folder with `_locales`.
-- An `Exclude` pattern that is no page and has no page below it.
-- A page listed twice in the same language, or listed while `Exclude` leaves it out.
-- A `Content` that is no entry of a collection, such as `content.Entry{ID: "a"}` written in place.
+| Mistake | What happens |
+| --- | --- |
+| A route with parameters that has no page in `Pages` and is not excluded, such as a blog before its first post | It has no pages in the files until you list them. Exclude it to stop the line |
+| A `Path` that matches no route, such as the path of a route you renamed | The page is left out |
+| A `Path` with a language prefix, or one that is not an escaped path | The page is left out |
+| A `Language` the route of the page does not have, or a language on a page outside every folder with `_locales` | The page is left out |
+| `Alternates` with a language the page does not have, a language twice or a path that is not an escaped path | The page is left out |
+| A page listed twice in the same language | The first one stays |
+| A page listed while `Exclude` leaves it out | `Exclude` wins |
+| A `Content` that is no entry of a collection, such as `content.Entry{ID: "a"}` written in place | The page stays, without a Markdown version |
+| An `Exclude` pattern that is no page and has no page below it | It is ignored |
 
 An error the function itself returns, such as a failed query, is an unexpected error of the request, as in a handler: `OnError` gets it, and the answer is 500.
 
@@ -246,7 +247,7 @@ func TestSitemapListsTheStorefront(t *testing.T) {
 }
 ```
 
-A mistake that fails the request fails the test with 500. The two that leave pages out show in the log of the test, and in a missing `<loc>`. An entry that a test sets with `tifatest` has a placeholder for its body (see [Tests](../content.md#tests)), and its Markdown version holds a placeholder too.
+An error of the function fails the test with 500. A mistake in what it returns shows in the log of the test, and in a missing `<loc>`. An entry that a test sets with `tifatest` has a placeholder for its body (see [Tests](../content.md#tests)), and its Markdown version holds a placeholder too.
 
 ## What Tifa does not do
 
