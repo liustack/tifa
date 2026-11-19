@@ -14,6 +14,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - With `site.url`, every page has a canonical link, also on a site with one language and on a page with one version. Before, only a page with several versions had one. A 404 or an error page still has none.
 - The canonical link keeps the query parameters the `Load` and Layouts of the page read, as the server renders the page, and drops the others. `/store/products?page=2&utm_source=news` now names `/store/products?page=2` when its `Load` reads `page`, where it named `/store/products` and told search engines that page 2 was a copy of page 1. The browser writes the same link after it hydrates and after a navigation. The `hreflang` links stay without a query.
 
+### Fixed
+
+- Server rendering runs on slowjs v0.31.10. An `await` on a promise whose `constructor` getter throws now throws at the `await`, so a `catch` or `finally` around it runs. Before, the async function stayed stuck there. The instructions of one render are within 0.03% of v0.31.9.
+
 ## [0.1.4] - 2026-11-19
 
 ### Fixed
