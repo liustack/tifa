@@ -123,6 +123,7 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 	root, release := core.SealHTTPHandler(s)
 	undo = append(undo, release)
 	s.root = root
+	s.startSitemap()
 	undo = append(undo, s.startSessions())
 
 	g := new(gate)

@@ -19,6 +19,7 @@ var wiring struct {
 type wired struct {
 	wrap         func(http.Handler) http.Handler // SetHTTPHandler
 	sessionStore SessionStore                    // SetSessionStore
+	sitemap      func(*Ctx) (Sitemap, error)     // SetSitemap
 }
 
 // SaveWiring returns a function that puts back what the SetXxx functions have set now. A server of

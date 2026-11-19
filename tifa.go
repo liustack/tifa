@@ -72,3 +72,19 @@ func ShuttingDown(ctx context.Context) <-chan struct{} { return core.ShuttingDow
 // marker in place of the value, and <HTML> reads the markup back from the page when the browser
 // hydrates it. Navigation data and a page with SSR = false carry the string.
 type HTML string
+
+// Sitemap is what the app says about its pages, which sitemap.xml, llms.txt, llms-full.txt and the
+// Markdown versions of the pages are made from. See SetSitemap.
+type Sitemap = core.Sitemap
+
+// SitemapPage is one page of a Sitemap.
+type SitemapPage = core.SitemapPage
+
+// SetSitemap sets the function that lists the pages of the site. With site.url set, the program
+// answers /sitemap.xml, /robots.txt, /llms.txt and /llms-full.txt, and the Markdown version of a
+// page whose SitemapPage has Content at its path with .md (/index.md for the home page). The pages
+// without parameters are in the sitemap without it. The function runs on each request for those
+// files, so pages that a date publishes show up at that date. An error it returns, a Path that
+// matches no page and a page with parameters that is neither listed nor excluded answer 500.
+// Call it in OnStart: it panics once the server listens. nil removes it.
+func SetSitemap(f func(c *Ctx) (Sitemap, error)) { core.SetSitemap(f) }
