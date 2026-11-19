@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-19
+
 ### Fixed
 
 - `tifa new` pins `github.com/liustack/sqlite` v0.1.7. A write no longer waits behind readers that keep every core busy, and a pool of connections no longer reads slower beside writes. An existing app can upgrade with `go get github.com/liustack/sqlite@v0.1.7`.
