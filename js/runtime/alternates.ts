@@ -66,14 +66,13 @@ interface Located {
 }
 
 // versionsOf returns the versions of the page the router shows in language, and the path of the
-// page itself: nothing for a page outside the areas, a page that is not found and a document of a
-// site without languages.
+// page itself: nothing for a page that is not found, and no versions for a page outside the areas
+// and a page of a site without languages.
 function versionsOf(router: Located, language: string): { list: readonly Alternate[]; canonical: string } | undefined {
-  if (!table || language === '') return undefined
   const { matches, location } = router.state
   if (matches.length === 0 || matches.some((m) => m.status !== 'success' || m._notFound)) return undefined
-  const languages = table.routes[matches[matches.length - 1]!.routeId]
-  if (!languages) return undefined
+  const languages = table && language !== '' ? table.routes[matches[matches.length - 1]!.routeId] : undefined
+  if (!languages) return { list: none, canonical: location.pathname }
   // The path without the prefix of the language, whether the router sees it or not.
   let rest = location.pathname
   const prefix = '/' + language

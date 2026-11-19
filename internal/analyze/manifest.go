@@ -25,6 +25,10 @@ type Manifest struct {
 	Settings []string `json:"settings"`
 	// I18n is the languages of the app, nil without a _locales folder.
 	I18n *I18n `json:"i18n,omitempty"`
+	// SiteURL is site.url of the project tifa.yaml, the scheme and host the site is served at,
+	// empty when not set. With it every page gets a canonical link and the program serves
+	// sitemap.xml, robots.txt and llms.txt.
+	SiteURL string `json:"siteUrl,omitempty"`
 	// Embedded is what the go:embed lines of the module's packages bring in. It is not part of the
 	// route manifest, so it is not written out.
 	Embedded *Embedded `json:"-"`

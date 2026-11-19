@@ -538,7 +538,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkCacheIdentity(routes, layouts)
 
 	i18n := a.i18n(routes, layouts)
-	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages), Settings: a.settings(), I18n: i18n, Content: a.content()}
+	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages), Settings: a.settings(), I18n: i18n, SiteURL: a.siteURL(), Content: a.content()}
 	for _, l := range layouts {
 		m.Layouts = append(m.Layouts, l.Layout)
 	}

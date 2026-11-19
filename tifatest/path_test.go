@@ -31,7 +31,8 @@ func TestCtxPathIsThePathOfTheRequest(t *testing.T) {
 // for the Load of a page, which has no front end here and answers with its data.
 func TestStartPathHasTheLanguagePrefix(t *testing.T) {
 	app := server.App{
-		I18n: &server.I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}, SiteURL: "https://a.example.com"},
+		I18n:    &server.I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}},
+		SiteURL: "https://a.example.com",
 		Routes: []server.Route{
 			{ID: "app/store/route", Path: "/store", Page: true, SSR: true, Layouts: []string{}, Languages: []string{"zh-CN", "en-US"},
 				Load: func(c *tifa.Ctx) (any, error) { return c.Path(), nil },

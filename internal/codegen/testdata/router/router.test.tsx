@@ -1472,10 +1472,12 @@ test('a page with more than one version links to each, to x-default and to itsel
     assert(head.indexOf(links[0]!) < head.indexOf(links[1]!) && head.indexOf(links[2]!) < head.indexOf(links[3]!), `order in ${head}`)
     // The page and the switch read the same list, and the page carries it to the browser.
     contains(html, 'PAGE_LANGS', 'en-US=/en-US/langs', 'alternates:$R')
-    // One version, or no site to name in full URLs: no links, but the switch still has its list.
-    for (const alternates of [undefined, { ...versions, list: versions.list.slice(0, 1) }]) {
-      lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates }), 'hreflang', 'rel="canonical"')
-    }
+    // One version: no links to versions, the page is still its own canonical URL.
+    const one = await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, list: versions.list.slice(0, 1) } })
+    lacks(one, 'hreflang')
+    contains(one, links[3]!)
+    // No alternates, or no site to name in full URLs: no links, but the switch still has its list.
+    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' }), 'hreflang', 'rel="canonical"')
     lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, site: undefined } }), 'hreflang', 'rel="canonical"')
   })
 })
@@ -1487,6 +1489,9 @@ test('a canonical link the app writes wins over the one of the page', async () =
   // Without x-default when the list has no version in the default language.
   const noDefault = alternateTags([], { ...versions, list: [{ language: 'en-US', url: '/en-US/a' }, { language: 'de', url: '/de/a' }] }, versions.site)
   assert(!noDefault.some((tag) => tag.attrs.hreflang === 'x-default') && noDefault.length === 3, `tags ${JSON.stringify(noDefault)}`)
+  // A site without languages: the canonical link alone.
+  const plain = alternateTags([], { site: 'https://blog.example.com', canonical: '/posts/a' }, 'https://blog.example.com')
+  assert(JSON.stringify(plain) === '[{"tag":"link","attrs":{"rel":"canonical","href":"https://blog.example.com/posts/a"}}]', `tags ${JSON.stringify(plain)}`)
 })
 
 test('a page without a list has an empty switch', async () => {

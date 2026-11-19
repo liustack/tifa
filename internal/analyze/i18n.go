@@ -35,8 +35,6 @@ type I18n struct {
 	// Languages are the languages of the site, the union of the areas, the default language first
 	// and then the others in byte order.
 	Languages []string `json:"languages"`
-	// SiteURL is site.url, empty when not set.
-	SiteURL string `json:"siteUrl,omitempty"`
 	// Areas is sorted by Dir.
 	Areas []Area `json:"areas"`
 }
@@ -69,13 +67,8 @@ func (a *analyzer) i18n(routes []*route, layouts []*layout) *I18n {
 	if len(a.locales) == 0 {
 		return nil
 	}
-	cfg := config.Default()
-	data, err := os.ReadFile(filepath.Join(a.root, "tifa.yaml"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		a.errs = append(a.errs, Error{Pos: token.Position{Filename: "tifa.yaml"}, Msg: err.Error()})
-		return nil
-	}
-	if cfg, _, err = config.Project(data); err != nil {
+	cfg, err := a.project()
+	if err != nil {
 		// codegen reports the same, but an app with languages must not be read with a guessed default.
 		a.errs = append(a.errs, Error{Pos: token.Position{Filename: "tifa.yaml"}, Msg: err.Error()})
 		return nil
@@ -103,7 +96,7 @@ func (a *analyzer) i18n(routes []*route, layouts []*layout) *I18n {
 	case def != "" && len(all) > 0 && !site[def]:
 		a.errs = append(a.errs, Error{Pos: token.Position{Filename: "tifa.yaml"}, Msg: "i18n.default is \"" + def + "\", which no _locales folder has a file for (" + strings.Join(all, ", ") + ")"})
 	}
-	m := &I18n{Default: def, Always: cfg.I18n.Prefix == "always", Languages: langs.Order(all, def), SiteURL: cfg.Site.URL}
+	m := &I18n{Default: def, Always: cfg.I18n.Prefix == "always", Languages: langs.Order(all, def)}
 	if len(all) > 1 && cfg.Site.URL == "" {
 		a.errs = append(a.errs, Error{Pos: token.Position{Filename: "tifa.yaml"}, Msg: "the app has several languages, so site.url must name the scheme and host it is served at, such as https://shop.example.com, which the alternate links to each language need"})
 	}
@@ -154,4 +147,24 @@ func (a *analyzer) i18n(routes []*route, layouts []*layout) *I18n {
 	}
 	a.site = m.Languages
 	return m
+}
+
+// project reads the project tifa.yaml over the defaults, the defaults without one.
+func (a *analyzer) project() (config.Config, error) {
+	data, err := os.ReadFile(filepath.Join(a.root, "tifa.yaml"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return config.Config{}, err
+	}
+	cfg, _, err := config.Project(data)
+	return cfg, err
+}
+
+// siteURL returns site.url of the project tifa.yaml, empty when it is not set or the file does
+// not load, which codegen reports.
+func (a *analyzer) siteURL() string {
+	cfg, err := a.project()
+	if err != nil {
+		return ""
+	}
+	return cfg.Site.URL
 }

@@ -295,10 +295,12 @@ func TestI18nApp(t *testing.T) {
 			t.Errorf("the switch of /en-US/store/journal/hello: %.600s", body)
 		}
 		// An entry in one language has one version, and a page outside every area, a page that is not
-		// found and one that is not an entry have none.
+		// found and one that is not an entry have none. A page found is its own canonical URL.
 		for path, status := range map[string]int{"/store/journal/only-zh": 200, "/projects": 200, "/store/zzz": 404, "/store/journal/nope": 404} {
-			if head, _ := headOf(t, path, status); strings.Contains(head, "hreflang") || strings.Contains(head, `rel="canonical"`) {
-				t.Errorf("the head of %s has links:\n%s", path, head)
+			head, _ := headOf(t, path, status)
+			canonical := `<link rel="canonical" href="` + site + path + `">`
+			if strings.Contains(head, "hreflang") || strings.Contains(head, canonical) != (status == 200) || strings.Count(head, `rel="canonical"`) > 1 {
+				t.Errorf("the head of %s:\n%s", path, head)
 			}
 		}
 		// A canonical the app writes wins, the links of the versions stay.

@@ -12,8 +12,9 @@ import (
 func i18nManifest() *analyze.Manifest {
 	both := []string{"zh-CN", "en-US"}
 	return &analyze.Manifest{
-		Module: "example.com/x",
-		I18n: &analyze.I18n{Default: "zh-CN", Languages: both, SiteURL: "https://a.example.com",
+		Module:  "example.com/x",
+		SiteURL: "https://a.example.com",
+		I18n: &analyze.I18n{Default: "zh-CN", Languages: both,
 			Areas: []analyze.Area{{Dir: "app/store", Languages: both}}},
 		Layouts: []analyze.Layout{
 			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/projects/route", "app/store/route"}},
@@ -55,7 +56,7 @@ func TestAppGoCarriesTheLanguages(t *testing.T) {
 	if strings.Count(app, `Languages: []string{"zh-CN", "en-US"},`) != 3 { // the site, the store Layout, the store route
 		t.Errorf("app.go:\n%s", app)
 	}
-	// An app without languages writes none of it.
+	// An app without languages writes none of it, and site.url alone.
 	m.I18n = nil
 	for i := range m.Layouts {
 		m.Layouts[i].Area, m.Layouts[i].Languages = "", nil
@@ -67,7 +68,7 @@ func TestAppGoCarriesTheLanguages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app := string(files["tifaapp/app.go"]); strings.Contains(app, "Languages") || strings.Contains(app, "I18n") {
+	if app := string(files["tifaapp/app.go"]); strings.Contains(app, "Languages") || strings.Contains(app, "I18n") || !strings.Contains(strings.Join(strings.Fields(app), " "), `SiteURL: "https://a.example.com"`) {
 		t.Errorf("app.go of an app without languages:\n%s", app)
 	}
 }

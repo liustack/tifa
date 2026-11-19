@@ -9,7 +9,8 @@ import (
 
 func pathApp() App {
 	app := frontApp()
-	app.I18n = &I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}, SiteURL: "https://a.example.com"}
+	app.I18n = &I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}}
+	app.SiteURL = "https://a.example.com"
 	app.Routes = append(app.Routes,
 		Route{ID: "app/store/items/item+", Path: "/store/items/{id}", Page: true, SSR: true, Languages: storeLanguages, Layouts: []string{"app/layout"},
 			Query: []string{"tab"},

@@ -65,6 +65,8 @@ type server struct {
 	known       map[string]bool
 	langs       map[string][]string
 	layoutLangs map[string][]string
+	// site is site.url without a trailing slash, empty when not set, see setSite.
+	site string
 	// layouts holds the Loads of each Layout's chain by its ID, for a URL that matches no page
 	// and shows its 404 inside that Layout. candidates are what notFoundAt picks that Layout from.
 	layouts    map[string]layoutChain
