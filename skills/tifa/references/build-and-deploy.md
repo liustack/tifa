@@ -114,7 +114,7 @@ func OnStart(ctx context.Context) error {
 - The function runs on each request for those files, so keep it fast. `OnRequest` runs for them too.
 - `Path` is written like the `Path` of `tifa.Alternate`: escaped, without the language prefix or query. `Exclude` takes route patterns and leaves out the pages below them too. `Content` is an entry read from a collection, and gives the page its `.md` version.
 - `Alternates` lists the versions of a page in each language when they differ from the default (same path in every language of its folder).
-- A route with parameters that is neither listed nor excluded, a `Path` that matches no page, a language the page does not have, or a page listed twice makes the request answer 500 through `OnError`. Test it with `tifatest.Start` and a GET of `/sitemap.xml`.
+- A route with parameters that is neither listed nor excluded (a blog with no posts yet), or a `Path` that matches no route, leaves those pages out: the files still answer, and each request logs one `ERROR` line naming them. A language the page does not have, a page listed twice, an `Exclude` of no route, or an error the function returns makes the request answer 500 through `OnError`. Test it with `tifatest.Start` and a GET of `/sitemap.xml`.
 
 See `docs/guides/seo.md`.
 

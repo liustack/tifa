@@ -212,15 +212,20 @@ With it, your file is served as it is and Tifa adds nothing. Add the `Sitemap:` 
 
 The sitemap, the `llms` files and the Markdown versions are requests like any other: `OnRequest` runs for them, and `c.Pattern()` is `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, or the route of the page with `.md`, such as `/blog/{slug}.md` (`/index.md` for `/`). `c.Language()` is the language of the page of a `.md` path, and the default language for the other files. A guard in `OnRequest` that sends signed-out visitors to the sign-in page also guards these files, so let them through when it should not.
 
-A mistake in what the function returns answers 500 through `OnError`, and the log names the page. A test catches it (see below):
+Two mismatches between the sitemap and the routes leave pages out and keep the files answering. Each request logs one `ERROR` line that names what is missing:
 
-- A `Path` that matches no page, has a language prefix, or is not an escaped path.
+- A route with parameters that has no page in `Pages` and is not excluded, such as a blog before its first post. Its pages are not in the files until you list them, or exclude the route to stop the line.
+- A `Path` that matches no route, such as the path of a route you renamed. That page is left out, the others stay.
+
+Other mistakes in what the function returns answer 500 through `OnError`, and the log names the page. A test catches them (see below):
+
+- A `Path` that has a language prefix, or is not an escaped path.
 - A `Language` that the page does not have, or a language on a page outside every folder with `_locales`.
-- A route with parameters that has no page in `Pages` and is not excluded. Exclude a route that has no pages yet, such as a blog before its first post.
 - An `Exclude` pattern that is no page and has no page below it.
 - A page listed twice in the same language, or listed while `Exclude` leaves it out.
 - A `Content` that is no entry of a collection, such as `content.Entry{ID: "a"}` written in place.
-- An error the function returns.
+
+An error the function itself returns, such as a failed query, is an unexpected error of the request, as in a handler: `OnError` gets it, and the answer is 500.
 
 ## Test it
 
@@ -241,7 +246,7 @@ func TestSitemapListsTheStorefront(t *testing.T) {
 }
 ```
 
-A mistake in the function fails it with 500. An entry that a test sets with `tifatest` has a placeholder for its body (see [Tests](../content.md#tests)), and its Markdown version holds a placeholder too.
+A mistake that fails the request fails the test with 500. The two that leave pages out show in the log of the test, and in a missing `<loc>`. An entry that a test sets with `tifatest` has a placeholder for its body (see [Tests](../content.md#tests)), and its Markdown version holds a placeholder too.
 
 ## What Tifa does not do
 
