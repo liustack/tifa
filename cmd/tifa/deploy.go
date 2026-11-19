@@ -132,6 +132,7 @@ func (t deployTarget) state(ctx context.Context, stderr io.Writer) (serverState,
 
 func newDeployCmd() *cobra.Command {
 	var dir, host string
+	var cloudflare bool
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
@@ -157,15 +158,18 @@ and deploy exits with 1. It never uploads .env. Run tifa deploy setup once per a
 		Short: "Prepare the server for the app, once, as root over ssh",
 		Long: `setup logs in as root and creates the user tifa (shared by the apps of the server) with the
 keys root logs in with, the folder of the app with an empty shared/.env, a free loopback port, and a
-systemd socket and service for the app that run as tifa. It prints the route to add in front of the
-app. Running it again changes nothing that is there and keeps the port.`,
+systemd socket and service for the app that run as tifa. With deploy.domain set and cf, the
+Cloudflare CLI, installed and logged in, it puts the app behind the Cloudflare Tunnel of the server:
+it creates the tunnel and runs cloudflared on the server when the server has none, and adds the
+route, a proxied DNS record and cache rules for the domain. Without cf it prints these steps.
+Running it again changes nothing that is there and keeps the port.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			t, err := loadDeployTarget(dir, host)
 			if err != nil {
 				return err
 			}
-			return deploySetup(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deploySetup(cmd.Context(), t, cloudflare, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	rollback := &cobra.Command{
@@ -182,6 +186,7 @@ restarts the app through its socket. Run it again to go further back.`,
 			return deployRollback(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
+	setup.Flags().BoolVar(&cloudflare, "cloudflare", true, "set up the Cloudflare Tunnel, DNS and cache rules of deploy.domain with cf when it is logged in")
 	cmd.AddCommand(setup, rollback)
 	return cmd
 }
@@ -192,6 +197,10 @@ type setupState struct {
 	Home     string // home of the deploy user, empty before it exists
 	Port     int    // port of the app, 0 before its setup
 	Used     []int  // ports of the other apps, and ports something listens on
+	// TunnelID is the Cloudflare Tunnel the server runs, from /etc/tifa/tunnel, empty without one.
+	TunnelID string
+	// Machine is the host name of the server and the start of its machine ID, which name its tunnel.
+	Machine string
 }
 
 func parseSetupState(out string) (setupState, error) {
@@ -217,12 +226,16 @@ func parseSetupState(out string) (setupState, error) {
 			}
 		case "listen":
 			s.Used = append(s.Used, listeningPorts(value)...)
+		case "tunnel":
+			s.TunnelID = strings.TrimSpace(value)
+		case "machine":
+			s.Machine = strings.TrimSpace(value)
 		}
 	}
 	return s, nil
 }
 
-func deploySetup(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error {
+func deploySetup(ctx context.Context, t deployTarget, cloudflare bool, stdout, stderr io.Writer) error {
 	var out bytes.Buffer
 	if err := t.ssh(ctx, "root", setupProbeScript(t.app), nil, &out, stderr); err != nil {
 		return err
@@ -253,21 +266,49 @@ func deploySetup(ctx context.Context, t deployTarget, stdout, stderr io.Writer) 
 		}
 	}
 	dir := home + "/" + t.app
-	domain := t.domain
-	if domain == "" {
-		domain = "<your domain>"
-	}
 	fmt.Fprintf(stdout, `set up %[1]s on %[2]s
   folder      %[3]s, owned by the user %[4]s
   settings    %[3]s/shared/.env, empty: fill it on the server, deploys never touch it
   data        %[3]s/shared, the folder the app runs in
   listens on  127.0.0.1:%[5]d, held by the systemd socket %[6]s.socket of %[4]s
-
-Route a domain to it in your Cloudflare Tunnel (public hostname):
-  %[7]s -> http://127.0.0.1:%[5]d
-Then deploy it with go tool tifa deploy
-`, t.app, t.host, dir, deployUser, port, unitName(t.app), domain)
+`, t.app, t.host, dir, deployUser, port, unitName(t.app))
+	switch {
+	case t.domain == "":
+		fmt.Fprint(stdout, "\nSet deploy.domain in tifa.yaml and run setup again to put the app on the web.\n")
+	case !cloudflare:
+		printTunnelSteps(stdout, t.domain, port, "")
+	case !cfLoggedIn(ctx):
+		printTunnelSteps(stdout, t.domain, port, "cf, the Cloudflare CLI, is not installed or not logged in, so Tifa did not set up Cloudflare. With cf logged in (cf auth login), setup does these steps itself. ")
+	default:
+		fmt.Fprintln(stdout)
+		err := cloudflareSetup(ctx, tunnelSetup{
+			app: t.app, domain: t.domain, port: port, tunnelID: s.TunnelID, tunnelName: "tifa-" + s.Machine,
+			server: func(ctx context.Context, id, token string) (string, error) {
+				var out bytes.Buffer
+				if err := t.ssh(ctx, "root", tunnelScript(id), strings.NewReader(token), &out, stderr); err != nil {
+					return "", fmt.Errorf("running the tunnel on the server: %w", err)
+				}
+				lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+				return lines[len(lines)-1], nil
+			},
+		}, stdout)
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Fprint(stdout, "Then deploy it with go tool tifa deploy\n")
 	return nil
+}
+
+// printTunnelSteps prints what to do by hand to put the app behind a Cloudflare Tunnel.
+func printTunnelSteps(w io.Writer, domain string, port int, why string) {
+	fmt.Fprintf(w, `
+%[3]sTo put the app on the web through a Cloudflare Tunnel:
+  1. Create a tunnel in Cloudflare (Zero Trust, Networks, Tunnels), or open the one of this server,
+     and run its cloudflared on the server.
+  2. Add a public hostname to it: %[1]s -> http://127.0.0.1:%[2]d
+  3. Set up caching for %[1]s as docs/deploy.md, CDN settings, says.
+`, domain, port, why)
 }
 
 func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error {

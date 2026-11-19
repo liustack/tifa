@@ -275,6 +275,8 @@ if [ -n "$home" ]; then
 	done
 fi
 ss -Hltn | sed 's/^/listen /'
+if [ -f /etc/tifa/tunnel ]; then echo "tunnel $(cat /etc/tifa/tunnel)"; fi
+echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
 `
 
 // setupProbeScript is setupProbeBody for app.
@@ -446,4 +448,79 @@ func activateScript(a activation) string {
 	return script(activateBody, "app", a.App, "id", a.ID, "commit", a.Commit, "port", strconv.Itoa(a.Port),
 		"action", a.Action, "back", a.Back, "prune", strings.Join(a.Prune, " "), "health", healthPath,
 		"tries", strconv.Itoa(a.Tries))
+}
+
+// tunnelUnit runs cloudflared for the tunnel of the server as a system service. The token reaches
+// cloudflared as a systemd credential, so it is in no command line, and cloudflared runs as a
+// user of its own with no rights on the apps.
+func tunnelUnit(cloudflared string) string {
+	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again each time it runs.
+[Unit]
+Description=Cloudflare Tunnel of the Tifa apps
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%s --no-autoupdate tunnel run --token-file %%d/token
+LoadCredential=token:/etc/tifa/tunnel-token
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+`, cloudflared)
+}
+
+// tunnelBody runs as root with the token of the tunnel on its input. It installs cloudflared from
+// its GitHub releases when the server has none, keeps the ID and the token of the tunnel in
+// /etc/tifa, and runs the service tifa-tunnel, restarting it only when something changed. It
+// prints one line that says what it did.
+const tunnelBody = `set -eu
+umask 077
+token=$(cat)
+if [ -z "$token" ]; then echo "tifa: no tunnel token arrived" >&2; exit 1; fi
+did=""
+bin=$(command -v cloudflared || true)
+if [ -z "$bin" ]; then
+	case "$(uname -m)" in
+	x86_64) a=amd64 ;;
+	aarch64 | arm64) a=arm64 ;;
+	*) echo "tifa: no cloudflared for $(uname -m)" >&2; exit 1 ;;
+	esac
+	curl -fsSL -o /usr/local/bin/cloudflared.part "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$a"
+	chmod 755 /usr/local/bin/cloudflared.part
+	mv /usr/local/bin/cloudflared.part /usr/local/bin/cloudflared
+	bin=/usr/local/bin/cloudflared
+	did="installed $($bin --version | head -n 1)"
+fi
+install -d -m 755 /etc/tifa
+changed=""
+if [ "$(cat /etc/tifa/tunnel 2>/dev/null)" != "$tunnel" ]; then printf '%s\n' "$tunnel" > /etc/tifa/tunnel; chmod 644 /etc/tifa/tunnel; changed=1; fi
+if [ "$(cat /etc/tifa/tunnel-token 2>/dev/null)" != "$token" ]; then printf '%s' "$token" > /etc/tifa/tunnel-token; changed=1; fi
+unit=/etc/systemd/system/tifa-tunnel.service
+want=$(printf '%s' "$unit_text" | sed "s|@CLOUDFLARED@|$bin|")
+if [ "$(cat "$unit" 2>/dev/null)" != "$want" ]; then
+	printf '%s\n' "$want" > "$unit"
+	chmod 644 "$unit"
+	systemctl daemon-reload
+	changed=1
+fi
+systemctl enable --quiet tifa-tunnel.service
+if [ -n "$changed" ] || ! systemctl is-active --quiet tifa-tunnel.service; then
+	systemctl restart tifa-tunnel.service
+	did="${did:+$did, }started tifa-tunnel.service"
+fi
+i=0
+until systemctl is-active --quiet tifa-tunnel.service; do
+	i=$((i + 1))
+	if [ "$i" -gt 15 ]; then echo "tifa: tifa-tunnel.service does not run, see journalctl -u tifa-tunnel" >&2; exit 1; fi
+	sleep 1
+done
+echo "${did:-already running}"
+`
+
+// tunnelScript is tunnelBody for the tunnel id.
+func tunnelScript(id string) string {
+	return script(tunnelBody, "tunnel", id, "unit_text", strings.TrimSuffix(tunnelUnit("@CLOUDFLARED@"), "\n"))
 }
