@@ -434,8 +434,56 @@ func TestTunnelUnit(t *testing.T) {
 	if !strings.Contains(s, "tunnel='tunnel-1'\n") || !strings.Contains(s, "token=$(cat)") || strings.Contains(s, "secret") {
 		t.Errorf("script:\n%s", s)
 	}
-	st, err := parseSetupState("tunnel tunnel-1\nmachine vps-1234abcd\n")
-	if err != nil || st.TunnelID != "tunnel-1" || st.Machine != "vps-1234abcd" {
+	st, err := parseSetupState("tunnel tunnel-1\nmachine vps-1234abcd\ncloudflared /usr/bin/cloudflared\napt yes\n")
+	if err != nil || st.TunnelID != "tunnel-1" || st.Machine != "vps-1234abcd" || st.Cloudflared != "/usr/bin/cloudflared" || !st.Apt {
 		t.Errorf("setup state %+v, %v", st, err)
+	}
+}
+
+// cloudflared comes from the signed package repository of Cloudflare through apt, which checks
+// its signature and lets unattended-upgrades keep it current. Nothing is downloaded by hand.
+func TestTunnelInstall(t *testing.T) {
+	s := tunnelScript("tunnel-1")
+	for _, want := range []string{
+		"https://pkg.cloudflare.com/cloudflare-main.gpg",
+		"deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main",
+		"apt-get install",
+		`Unattended-Upgrade::Origins-Pattern { "site=pkg.cloudflare.com,origin=cloudflared"; };`,
+		"PathChanged=",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("script lacks %q", want)
+		}
+	}
+	for _, bad := range []string{"github.com", "/usr/local/bin"} {
+		if strings.Contains(s, bad) {
+			t.Errorf("script has %q", bad)
+		}
+	}
+	path, service := tunnelUpgradeUnits("/usr/bin/cloudflared")
+	if !strings.Contains(path, "PathChanged=/usr/bin/cloudflared\n") || !strings.Contains(service, "ExecStart=systemctl try-restart tifa-tunnel.service\n") {
+		t.Errorf("upgrade units:\n%s\n%s", path, service)
+	}
+}
+
+// A server with neither cloudflared nor apt gets nothing installed: setup stops the Cloudflare
+// part and says how to install cloudflared.
+func TestCloudflaredMissing(t *testing.T) {
+	for _, c := range []struct {
+		s    setupState
+		stop bool
+	}{
+		{setupState{Apt: true}, false},
+		{setupState{Cloudflared: "/usr/bin/cloudflared"}, false},
+		{setupState{Cloudflared: "/usr/bin/cloudflared", Apt: true}, false},
+		{setupState{}, true},
+	} {
+		why := cloudflaredMissing(c.s)
+		if (why != "") != c.stop {
+			t.Errorf("%+v: %q", c.s, why)
+		}
+		if c.stop && !strings.Contains(why, "https://pkg.cloudflare.com/") {
+			t.Errorf("no install step: %q", why)
+		}
 	}
 }

@@ -201,6 +201,10 @@ type setupState struct {
 	TunnelID string
 	// Machine is the host name of the server and the start of its machine ID, which name its tunnel.
 	Machine string
+	// Cloudflared is where cloudflared is on the server, empty without it.
+	Cloudflared string
+	// Apt says the server has apt, to install cloudflared with.
+	Apt bool
 }
 
 func parseSetupState(out string) (setupState, error) {
@@ -230,6 +234,10 @@ func parseSetupState(out string) (setupState, error) {
 			s.TunnelID = strings.TrimSpace(value)
 		case "machine":
 			s.Machine = strings.TrimSpace(value)
+		case "cloudflared":
+			s.Cloudflared = strings.TrimSpace(value)
+		case "apt":
+			s.Apt = true
 		}
 	}
 	return s, nil
@@ -277,6 +285,8 @@ func deploySetup(ctx context.Context, t deployTarget, cloudflare bool, stdout, s
 		fmt.Fprint(stdout, "\nSet deploy.domain in tifa.yaml and run setup again to put the app on the web.\n")
 	case !cloudflare:
 		printTunnelSteps(stdout, t.domain, port, "")
+	case cloudflaredMissing(s) != "":
+		printTunnelSteps(stdout, t.domain, port, cloudflaredMissing(s))
 	case !cfLoggedIn(ctx):
 		printTunnelSteps(stdout, t.domain, port, "cf, the Cloudflare CLI, is not installed or not logged in, so Tifa did not set up Cloudflare. With cf logged in (cf auth login), setup does these steps itself. ")
 	default:
@@ -298,6 +308,16 @@ func deploySetup(ctx context.Context, t deployTarget, cloudflare bool, stdout, s
 	}
 	fmt.Fprint(stdout, "Then deploy it with go tool tifa deploy\n")
 	return nil
+}
+
+// cloudflaredMissing says why setup leaves Cloudflare alone when the server has no cloudflared
+// and no apt to install it from the signed packages of Cloudflare, and is empty otherwise. Tifa
+// downloads no program by itself.
+func cloudflaredMissing(s setupState) string {
+	if s.Cloudflared != "" || s.Apt {
+		return ""
+	}
+	return "The server has neither cloudflared nor apt, so Tifa installed nothing and did not set up Cloudflare. Install cloudflared with the packages of the system (Cloudflare has them for Debian, Ubuntu and RHEL at https://pkg.cloudflare.com/) and run setup again. "
 }
 
 // printTunnelSteps prints what to do by hand to put the app behind a Cloudflare Tunnel.

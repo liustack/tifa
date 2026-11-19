@@ -276,6 +276,8 @@ if [ -n "$home" ]; then
 fi
 ss -Hltn | sed 's/^/listen /'
 if [ -f /etc/tifa/tunnel ]; then echo "tunnel $(cat /etc/tifa/tunnel)"; fi
+echo "cloudflared $(command -v cloudflared || true)"
+if command -v apt-get >/dev/null 2>&1; then echo "apt yes"; fi
 echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
 `
 
@@ -472,41 +474,85 @@ WantedBy=multi-user.target
 `, cloudflared)
 }
 
-// tunnelBody runs as root with the token of the tunnel on its input. It installs cloudflared from
-// its GitHub releases when the server has none, keeps the ID and the token of the tunnel in
-// /etc/tifa, and runs the service tifa-tunnel, restarting it only when something changed. It
-// prints one line that says what it did.
+// tunnelUpgradeUnits restart tifa-tunnel when apt, or anything else, replaces cloudflared, so
+// the tunnel runs the new version and not only the next boot.
+func tunnelUpgradeUnits(cloudflared string) (path, service string) {
+	path = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again each time it runs.
+[Unit]
+Description=Restart the Cloudflare Tunnel of the Tifa apps when cloudflared changes
+
+[Path]
+PathChanged=%s
+
+[Install]
+WantedBy=paths.target
+`, cloudflared)
+	service = `# Written by tifa deploy setup, which writes it again each time it runs.
+[Unit]
+Description=Restart the Cloudflare Tunnel of the Tifa apps on a new cloudflared
+
+[Service]
+Type=oneshot
+ExecStart=systemctl try-restart tifa-tunnel.service
+`
+	return path, service
+}
+
+// The package repository of Cloudflare. apt checks the packages against its key, and the
+// apt setting lets unattended-upgrades install new versions of cloudflared from it.
+const (
+	cloudflareKey     = "https://pkg.cloudflare.com/cloudflare-main.gpg"
+	cloudflareRepo    = "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main"
+	cloudflareUpgrade = `// Written by tifa deploy setup: lets unattended-upgrades keep cloudflared current.
+Unattended-Upgrade::Origins-Pattern { "site=pkg.cloudflare.com,origin=cloudflared"; };`
+)
+
+// tunnelBody runs as root with the token of the tunnel on its input. When the server has no
+// cloudflared it installs it with apt from the package repository of Cloudflare, and refuses
+// without apt. It keeps the ID and the token of the tunnel in /etc/tifa, and runs the service
+// tifa-tunnel, restarting it only when something changed. It prints one line that says what it
+// did.
 const tunnelBody = `set -eu
-umask 077
 token=$(cat)
 if [ -z "$token" ]; then echo "tifa: no tunnel token arrived" >&2; exit 1; fi
+umask 022
 did=""
 bin=$(command -v cloudflared || true)
 if [ -z "$bin" ]; then
-	case "$(uname -m)" in
-	x86_64) a=amd64 ;;
-	aarch64 | arm64) a=arm64 ;;
-	*) echo "tifa: no cloudflared for $(uname -m)" >&2; exit 1 ;;
-	esac
-	curl -fsSL -o /usr/local/bin/cloudflared.part "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$a"
-	chmod 755 /usr/local/bin/cloudflared.part
-	mv /usr/local/bin/cloudflared.part /usr/local/bin/cloudflared
-	bin=/usr/local/bin/cloudflared
-	did="installed $($bin --version | head -n 1)"
+	if ! command -v apt-get >/dev/null 2>&1; then
+		echo "tifa: the server has neither cloudflared nor apt, install cloudflared from https://pkg.cloudflare.com/ or the packages of the system" >&2
+		exit 1
+	fi
+	install -d -m 755 /usr/share/keyrings
+	curl -fsSL -o /usr/share/keyrings/cloudflare-main.gpg.part "$key_url"
+	mv /usr/share/keyrings/cloudflare-main.gpg.part /usr/share/keyrings/cloudflare-main.gpg
+	printf '%s\n' "$repo_line" > /etc/apt/sources.list.d/cloudflared.list
+	printf '%s\n' "$upgrade_text" > /etc/apt/apt.conf.d/52tifa-cloudflared
+	# needrestart would restart other services of the server after the install, and say so.
+	export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
+	apt-get update -q </dev/null >/dev/null
+	apt-get install -y -q cloudflared </dev/null >/dev/null
+	bin=$(command -v cloudflared)
+	did="installed $("$bin" --version | head -n 1) from pkg.cloudflare.com"
 fi
-install -d -m 755 /etc/tifa
+# put writes $2 to the file $1 when it holds something else, and says whether it did.
+put() {
+	if [ "$(cat "$1" 2>/dev/null)" = "$2" ]; then return 1; fi
+	printf '%s\n' "$2" > "$1"
+	return 0
+}
 changed=""
-if [ "$(cat /etc/tifa/tunnel 2>/dev/null)" != "$tunnel" ]; then printf '%s\n' "$tunnel" > /etc/tifa/tunnel; chmod 644 /etc/tifa/tunnel; changed=1; fi
+units=""
+if put /etc/systemd/system/tifa-tunnel.service "$(printf '%s' "$unit_text" | sed "s|@CLOUDFLARED@|$bin|")"; then changed=1; units=1; fi
+if put /etc/systemd/system/tifa-tunnel-upgrade.path "$(printf '%s' "$path_text" | sed "s|@CLOUDFLARED@|$bin|")"; then units=1; fi
+if put /etc/systemd/system/tifa-tunnel-upgrade.service "$restart_text"; then units=1; fi
+install -d -m 755 /etc/tifa
+if put /etc/tifa/tunnel "$tunnel"; then changed=1; fi
+umask 077
 if [ "$(cat /etc/tifa/tunnel-token 2>/dev/null)" != "$token" ]; then printf '%s' "$token" > /etc/tifa/tunnel-token; changed=1; fi
-unit=/etc/systemd/system/tifa-tunnel.service
-want=$(printf '%s' "$unit_text" | sed "s|@CLOUDFLARED@|$bin|")
-if [ "$(cat "$unit" 2>/dev/null)" != "$want" ]; then
-	printf '%s\n' "$want" > "$unit"
-	chmod 644 "$unit"
-	systemctl daemon-reload
-	changed=1
-fi
-systemctl enable --quiet tifa-tunnel.service
+if [ -n "$units" ]; then systemctl daemon-reload; fi
+systemctl enable --quiet tifa-tunnel.service tifa-tunnel-upgrade.path
+if [ -n "$units" ]; then systemctl restart tifa-tunnel-upgrade.path; else systemctl start tifa-tunnel-upgrade.path; fi
 if [ -n "$changed" ] || ! systemctl is-active --quiet tifa-tunnel.service; then
 	systemctl restart tifa-tunnel.service
 	did="${did:+$did, }started tifa-tunnel.service"
@@ -522,5 +568,9 @@ echo "${did:-already running}"
 
 // tunnelScript is tunnelBody for the tunnel id.
 func tunnelScript(id string) string {
-	return script(tunnelBody, "tunnel", id, "unit_text", strings.TrimSuffix(tunnelUnit("@CLOUDFLARED@"), "\n"))
+	path, service := tunnelUpgradeUnits("@CLOUDFLARED@")
+	return script(tunnelBody, "tunnel", id,
+		"key_url", cloudflareKey, "repo_line", cloudflareRepo, "upgrade_text", cloudflareUpgrade,
+		"unit_text", strings.TrimSuffix(tunnelUnit("@CLOUDFLARED@"), "\n"),
+		"path_text", strings.TrimSuffix(path, "\n"), "restart_text", strings.TrimSuffix(service, "\n"))
 }
