@@ -161,10 +161,10 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 			app.WriteString("Always: true,\n")
 		}
 		fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(m.I18n.Languages))
-		if m.I18n.SiteURL != "" {
-			fmt.Fprintf(&app, "SiteURL: %q,\n", m.I18n.SiteURL)
-		}
 		app.WriteString("},\n")
+	}
+	if m.SiteURL != "" {
+		fmt.Fprintf(&app, "SiteURL: %q,\n", m.SiteURL)
 	}
 	if len(settings) > 0 {
 		// The runtime settings of tifa.yaml, which tifa build checked: the program does not read the file.

@@ -75,6 +75,7 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 			s.devErrors = &devErrors{}
 		}
 		s.setI18n(app.I18n)
+		s.setSite(app.SiteURL)
 		s.register(app.Layouts, app.Routes)
 		if app.Session != nil {
 			s.enableSessions(app.Session)

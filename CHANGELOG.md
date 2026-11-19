@@ -4,6 +4,16 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A site with `site.url` serves `/sitemap.xml` with `lastmod` and the `hreflang` links of each page, a default `/robots.txt` that allows everything and names the sitemap, and `/llms.txt` and `/llms-full.txt` for language models. The pages without parameters are in them on their own. `tifa.SetSitemap` in `OnStart` lists the pages with parameters, leaves routes out with `Exclude`, and adds titles, dates and translations. A page that shows a content entry has a Markdown version at its URL with `.md`, which `llms.txt` links to. A `public/robots.txt` or a route of the app at one of these paths wins, and a site without `site.url` gets none of them. A site with pages with parameters and no `SetSitemap` logs one line at start. A mistake in what `SetSitemap` returns, such as a route with parameters it neither lists nor excludes (a blog with no posts yet), a path that matches no route, a wrong language or a page listed twice, leaves that page or pattern out: the files still answer, and each request logs one error line per kind of mistake naming them. Only an error the function itself returns answers 500 through `OnError`. See [Search engines and language models](docs/guides/seo.md).
+- `tifa build` writes the Markdown of each content entry next to its HTML, with the URLs the HTML has. Drafts are left out, as before.
+
+### Changed
+
+- With `site.url`, every page has a canonical link, also on a site with one language and on a page with one version. Before, only a page with several versions had one. A 404 or an error page still has none.
+- The canonical link keeps the query parameters the `Load` and Layouts of the page read, as the server renders the page, and drops the others. `/store/products?page=2&utm_source=news` now names `/store/products?page=2` when its `Load` reads `page`, where it named `/store/products` and told search engines that page 2 was a copy of page 1. The browser writes the same link after it hydrates and after a navigation. The `hreflang` links stay without a query.
+
 ## [0.1.4] - 2026-11-19
 
 ### Fixed

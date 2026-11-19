@@ -79,6 +79,8 @@ func newAppServer(t *testing.T, app App) *server {
 	t.Helper()
 	s := newServer(config.Default(), app.Hooks)
 	t.Cleanup(s.close)
+	s.setI18n(app.I18n)
+	s.setSite(app.SiteURL)
 	s.register(app.Layouts, app.Routes)
 	return s
 }

@@ -1,6 +1,6 @@
 # Build, configure and deploy
 
-Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, building for Linux, running the program, HTTPS, running behind a CDN or proxy, sizing, license notices.
+Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, search engines and language models, building for Linux, running the program, HTTPS, running behind a CDN or proxy, sizing, license notices.
 
 Full docs (in the folder `go tool tifa docs` prints): `docs/dev.md`, `docs/build.md`, `docs/config.md`, `docs/performance.md`.
 
@@ -88,6 +88,35 @@ var DBURL = tifa.String("db.url", "app.db", "Database file") // --db-url, DB_URL
 `tifa.Strings` (comma-separated), `tifa.Int`, `tifa.Bool`, `tifa.Duration` and `tifa.Size` work the same way. They come from the same sources (not `tifa.yaml`), keep their defaults in `go test`, and may only be written there: `tifa build` reports any other place, a key that is no string literal and names that clash. Packages the root package imports get the values from `OnStart`. `./bin/app version` prints versions.
 
 Cache headers: a page with `const Cache = true` or `const Cache = <duration>` in its `route.go` sends `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400` on its HTML, unless `OnRequest`, a `Load` or a `Layout` made the answer private. Its requests are anonymous and its `Load`s run on every request. Every other answer that goes through routing (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless your code sets `Cache-Control` itself. JSON errors, the plain error page from Go, the page with an error and the busy 503 are sent with `no-store`. Files under `/assets/` are content-hashed with `Cache-Control: public, max-age=31536000, immutable`. Files from `public/` get `no-cache` and an ETag. The render memo keeps the render inside the process only and does not change the header.
+
+## Search engines and language models
+
+`site.url` in `tifa.yaml` (scheme and host, no path) marks the site as public. With it every page gets a canonical link, and the program serves `/sitemap.xml`, a default `/robots.txt` (`Allow: /` and a `Sitemap:` line, unless `public/robots.txt` exists), `/llms.txt`, `/llms-full.txt` and a Markdown version at `<path>.md` of each page that shows a content entry. Without `site.url` there is none of this. A file in `public/` or a route at the same path wins.
+
+The pages without parameters are in the sitemap on their own. Pages with parameters need `tifa.SetSitemap` in `OnStart`, otherwise the program logs one line at start naming the routes it left out:
+
+```go
+func OnStart(ctx context.Context) error {
+	tifa.SetSitemap(func(c *tifa.Ctx) (tifa.Sitemap, error) {
+		sm := tifa.Sitemap{Name: "Acme Blog", Summary: "Notes on Go web apps.", Exclude: []string{"/account", "/login"}}
+		for _, p := range Blog.All() {
+			sm.Pages = append(sm.Pages, tifa.SitemapPage{
+				Language: p.Language, Path: "/blog/" + p.Slug, Modified: p.Date,
+				Title: p.Title, Description: p.Description, Content: p,
+			})
+		}
+		return sm, nil
+	})
+	return nil
+}
+```
+
+- The function runs on each request for those files, so keep it fast. `OnRequest` runs for them too.
+- `Path` is written like the `Path` of `tifa.Alternate`: escaped, without the language prefix or query. `Exclude` takes route patterns and leaves out the pages below them too. `Content` is an entry read from a collection, and gives the page its `.md` version.
+- `Alternates` lists the versions of a page in each language when they differ from the default (same path in every language of its folder).
+- A mistake in what the function returns never fails the request: a route with parameters that is neither listed nor excluded (a blog with no posts yet), a `Path` that matches no route or has a language prefix, a language the page does not have, or wrong `Alternates` leave that page out. A page listed twice keeps the first, `Exclude` wins over `Pages`, a stale `Exclude` pattern is ignored and a `Content` that is no collection entry is dropped. The files still answer, and each request logs one `ERROR` line per kind of mistake naming them. Only an error the function itself returns makes the request answer 500 through `OnError`. Test it with `tifatest.Start` and a GET of `/sitemap.xml`, and look at the log.
+
+See `docs/guides/seo.md`.
 
 ## Building for Linux and running it
 

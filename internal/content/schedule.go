@@ -3,14 +3,13 @@ package content
 import (
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"path"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/liustack/tifa/internal/core"
 )
 
 // An entry whose date is still to come is hidden until that moment. Each collection keeps the
@@ -160,7 +159,9 @@ func refreshLocked(published bool) {
 	}
 	setTimerLocked(next)
 	if published && len(shown) > 0 {
-		core.Logger().Info("tifa: content: " + publishedLine(shown))
+		// slog.Default as core.Logger gives it: core imports this package for the entries of a
+		// sitemap.
+		slog.Default().Info("tifa: content: " + publishedLine(shown))
 		notifyLocked()
 	}
 }

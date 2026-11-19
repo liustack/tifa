@@ -41,7 +41,7 @@ const r3 = createRoute({
   errorComponent: DefaultError,
   validateSearch: searchTypes<S3>(),
   loader: ({ context, location, preload }) => load<D3>(context, "app/files/path++/route", location, preload),
-  staticData: { page: true, load: "app/files/path++/route" },
+  staticData: { page: true, load: "app/files/path++/route", query: ["rev"] },
   loaderDeps: ({ search }) => pick(search, ["rev"]),
   remountDeps: ({ params }) => [params._splat],
 })

@@ -72,7 +72,7 @@ func TestAreasAndLanguages(t *testing.T) {
 	if m.I18n == nil {
 		t.Fatal("no I18n")
 	}
-	if m.I18n.Default != "zh-CN" || m.I18n.Always || m.I18n.SiteURL != "https://shop.example.com" {
+	if m.I18n.Default != "zh-CN" || m.I18n.Always || m.SiteURL != "https://shop.example.com" {
 		t.Errorf("I18n = %+v", m.I18n)
 	}
 	if want := []string{"zh-CN", "de", "en-US"}; !reflect.DeepEqual(m.I18n.Languages, want) {
@@ -285,5 +285,20 @@ func TestHiddenLocalesAreNoArea(t *testing.T) {
 	}
 	if got := langs.Site(root); !reflect.DeepEqual(got, m.I18n.Languages) {
 		t.Errorf("tifa.Languages reads %v, tifa build %v", got, m.I18n.Languages)
+	}
+}
+
+func TestSiteURLWithoutLanguages(t *testing.T) {
+	root := i18nApp(t, map[string]string{
+		"tifa.yaml":      "site:\n  url: https://blog.example.com\n",
+		"app/page.tsx":   page,
+		"app/layout.tsx": page,
+	})
+	m, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.I18n != nil || m.SiteURL != "https://blog.example.com" {
+		t.Errorf("I18n = %+v, SiteURL = %q", m.I18n, m.SiteURL)
 	}
 }

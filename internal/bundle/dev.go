@@ -295,7 +295,7 @@ func (d *Dev) Content(ctx context.Context, pages bool, c *Content, all bool, cha
 			keep[m.Out] = true
 		}
 	}
-	if err := writeEntries(d.root, todo, c.Links); err != nil {
+	if err := writeEntries(d.root, todo, c.Links, c.Site); err != nil {
 		return 0, err
 	}
 	headings := map[string][]content.Heading{}
@@ -322,8 +322,11 @@ func (d *Dev) Content(ctx context.Context, pages bool, c *Content, all bool, cha
 	for _, m := range c.Markdown {
 		converted[m.Out] = m
 		if keep[m.Out] {
-			if err := linkFile(filepath.Join(d.dist, filepath.FromSlash(bodyIn(d.last, m.Out))), filepath.Join(d.dist, filepath.FromSlash(bodyIn(n, m.Out)))); err != nil {
-				return 0, errors.Join(err, d.removeBodies(d.loaded, d.last))
+			// The HTML of the body and its Markdown next to it.
+			for _, out := range []string{m.Out, content.MarkdownFile(m.Out)} {
+				if err := linkFile(filepath.Join(d.dist, filepath.FromSlash(bodyIn(d.last, out))), filepath.Join(d.dist, filepath.FromSlash(bodyIn(n, out)))); err != nil {
+					return 0, errors.Join(err, d.removeBodies(d.loaded, d.last))
+				}
 			}
 			known[m.Out] = d.headings[m.Out]
 		} else {

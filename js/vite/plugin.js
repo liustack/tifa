@@ -1492,6 +1492,7 @@ export function markdownPlugin(getRoot, markdown) {
       const result = await convertContent(root, list.entries, {
         markdown,
         links: list.links,
+        site: list.site,
         command: 'tifa build',
         asset: (file) => {
           let url = urls.get(file)
@@ -1525,7 +1526,7 @@ export function markdownPlugin(getRoot, markdown) {
           if (!partial) fs.rmSync(assets, { recursive: true, force: true })
           asset = (file) => '/assets/' + encodePath(writeAsset(assets, file))
         }
-        const result = await convertContent(root, list.entries, { markdown, links: list.links, command: by, asset })
+        const result = await convertContent(root, list.entries, { markdown, links: list.links, site: list.site, command: by, asset })
         writeContent(root, result, partial)
         return result.warnings
       },
@@ -1555,6 +1556,8 @@ function writeContent(root, result, partial = false) {
     const file = path.join(dist, out)
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, html)
+    // The Markdown next to it: content/blog/en/a.md for content/blog/en/a.html (MarkdownFile).
+    fs.writeFileSync(file.replace(/\.html$/, '.md'), result.markdown[out])
   }
   fs.writeFileSync(path.join(root, '.tifa', contentHeadings), JSON.stringify(result.headings))
 }
@@ -1844,34 +1847,43 @@ function isFile(file) {
 function prefixLinks() {
   return (tree, file) => {
     const state = contentFiles.get(file.data)
-    const links = state?.links
-    const language = file.data.tifa?.language
-    if (!links || !language || (language === links.default && !links.always)) return
+    if (!state) return
     eachElement(tree, (node) => {
       const href = node.tagName === 'a' ? node.properties?.href : undefined
-      if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//')) return
-      const cut = href.search(/[?#]/)
-      const pathPart = cut < 0 ? href : href.slice(0, cut)
-      const segments = pathPart === '/' ? [] : pathPart.split('/').slice(1)
-      if (segments.length > 1 && segments[segments.length - 1] === '') segments.pop()
-      if (links.languages.includes(segments[0])) return
-      let decoded
-      try {
-        decoded = segments.map(decodeURIComponent)
-      } catch {
-        return
-      }
-      // The server answers the path of a public file with the file, before any route.
-      if (links.public && isFile(path.join(state.root, links.public, ...decoded))) return
-      let best
-      for (const route of links.routes) {
-        const score = routeScore(route.path, decoded)
-        if (score && (!best || moreSpecific(score, best.score))) best = { route, score }
-      }
-      // The home of a language is /en-US, not /en-US/.
-      if (best?.route.languages.includes(language)) node.properties.href = '/' + language + (pathPart === '/' ? href.slice(1) : href)
+      if (typeof href !== 'string') return
+      const prefixed = prefixedLink(state, file.data.tifa?.language, href)
+      if (prefixed !== undefined) node.properties.href = prefixed
     })
   }
+}
+
+// prefixedLink returns href, a link of an entry in language, with the prefix of the language when
+// prefixLinks gives it one, and undefined when it stays as it is.
+function prefixedLink(state, language, href) {
+  const links = state.links
+  if (!links || !language || (language === links.default && !links.always)) return undefined
+  if (!href.startsWith('/') || href.startsWith('//')) return undefined
+  const cut = href.search(/[?#]/)
+  const pathPart = cut < 0 ? href : href.slice(0, cut)
+  const segments = pathPart === '/' ? [] : pathPart.split('/').slice(1)
+  if (segments.length > 1 && segments[segments.length - 1] === '') segments.pop()
+  if (links.languages.includes(segments[0])) return undefined
+  let decoded
+  try {
+    decoded = segments.map(decodeURIComponent)
+  } catch {
+    return undefined
+  }
+  // The server answers the path of a public file with the file, before any route.
+  if (links.public && isFile(path.join(state.root, links.public, ...decoded))) return undefined
+  let best
+  for (const route of links.routes) {
+    const score = routeScore(route.path, decoded)
+    if (score && (!best || moreSpecific(score, best.score))) best = { route, score }
+  }
+  // The home of a language is /en-US, not /en-US/.
+  if (!best?.route.languages.includes(language)) return undefined
+  return '/' + language + (pathPart === '/' ? href.slice(1) : href)
 }
 
 // collectHeadings records the depth, the id and the text of each h1 to h6, in order.
@@ -1910,10 +1922,14 @@ function within(dir, p) {
  * languages of the site, see prefixLinks. Every problem of every
  * entry fails it at once, one line each, as file:line:col: reason.
  */
-export async function convertContent(root, entries, { markdown, links, command, asset, packages }) {
-  const processor = markdownProcessor(packages ?? (await loadMarkdown(root, command)), markdown)
+export async function convertContent(root, entries, { markdown, links, site = '', command, asset, packages }) {
+  const p = packages ?? (await loadMarkdown(root, command))
+  const processor = markdownProcessor(p, markdown)
+  // The Markdown version of an entry is parsed as CommonMark with GFM, without the plugins of the
+  // app, which change the HTML and not the text.
+  const parser = p.unified().use(p.remarkParse).use(p.remarkGfm).freeze()
   const realRoot = fs.realpathSync(root)
-  const result = { html: {}, headings: {}, warnings: [] }
+  const result = { html: {}, markdown: {}, headings: {}, warnings: [] }
   const problems = []
   for (const entry of entries) {
     const collection = path.join(root, 'content', entry.collection)
@@ -1979,12 +1995,115 @@ export async function convertContent(root, entries, { markdown, links, command, 
       problems.push(...contentError(entry, err))
       continue
     }
+    const md = markdownOf(parser, entry, state, site)
+    if (state.problems.length > 0) {
+      problems.push(...state.problems)
+      continue
+    }
     result.html[entry.out] = String(out)
+    result.markdown[entry.out] = md
     result.headings[entry.out] = state.headings
     for (const m of out.messages) result.warnings.push(`${messagePlace(entry, m)}: ${m.reason ?? m.message}`)
   }
   if (problems.length > 0) throw new Error(problems.join('\n'))
   return result
+}
+
+// markdownOf returns the Markdown of entry for the .md version of its page: the body without the
+// front matter and the HTML comments, with the URLs its HTML has. A relative URL becomes the URL of
+// its file, a root-relative link gets the prefix of the language of the entry, and with site, the
+// scheme and host of the site, every root-relative URL is written in full. The rest of the text
+// stays as the author wrote it. A URL that does not resolve adds to state.problems.
+function markdownOf(parser, entry, state, site) {
+  const tree = parser.parse(entry.text)
+  // The definitions the references use, by identifier: a link takes the URL as a link, an image as
+  // a file.
+  const used = new Map()
+  visitMarkdown(tree, (node) => {
+    if (node.type === 'linkReference') used.set(node.identifier, 'link')
+    else if (node.type === 'imageReference' && !used.has(node.identifier)) used.set(node.identifier, 'image')
+  })
+  const final = (value, kind, node, link) => {
+    let out = value
+    if (value !== '' && !notRelative.test(value)) {
+      // The HTML has the URL escaped, where a % that starts no escape is %25.
+      const found = state.resolve(value.replace(/%(?![0-9A-Fa-f]{2})/g, '%25'), kind, node.position?.start)
+      if (found === undefined) return value
+      out = found
+    } else if (link) {
+      out = prefixedLink(state, entry.language, value) ?? value
+    }
+    if (site && out.startsWith('/') && !out.startsWith('//')) out = site + out
+    return out
+  }
+  const edits = [] // [start, end, text], by offsets into entry.text
+  visitMarkdown(tree, (node) => {
+    const at = node.position
+    if (!at) return
+    switch (node.type) {
+      case 'link': {
+        const to = final(node.url, 'link', node, true)
+        if (to === node.url) return
+        // Only the part after the text: an image in the text has an edit of its own.
+        const last = node.children?.at(-1)?.position
+        edits.push([last ? last.end.offset : at.start.offset + 1, at.end.offset, `](${destination(to)}${titlePart(node.title)})`])
+        return
+      }
+      case 'image': {
+        const to = final(node.url, 'image', node, false)
+        if (to !== node.url) edits.push([at.start.offset, at.end.offset, `![${(node.alt ?? '').replace(/[\\[\]]/g, '\\$&')}](${destination(to)}${titlePart(node.title)})`])
+        return
+      }
+      case 'definition': {
+        const kind = used.get(node.identifier)
+        const to = kind ? final(node.url, kind, node, kind === 'link') : node.url
+        if (to !== node.url) edits.push([at.start.offset, at.end.offset, `[${node.label}]: ${destination(to)}${titlePart(node.title)}`])
+        return
+      }
+      case 'html': {
+        const value = htmlURLs(node.value.replace(/<!--[\s\S]*?(?:-->|$)/g, ''), (v, kind, link) => final(v, kind, node, link))
+        if (value !== node.value) edits.push([at.start.offset, at.end.offset, value])
+      }
+    }
+  })
+  let text = entry.text
+  edits.sort((a, b) => b[0] - a[0])
+  for (const [start, end, value] of edits) text = text.slice(0, start) + value + text.slice(end)
+  // The front matter is empty lines.
+  return text.replace(/^\s*\n/, '').trimEnd() + '\n'
+}
+
+// visitMarkdown calls f for node and each node below it, parents before their children.
+function visitMarkdown(node, f) {
+  f(node)
+  for (const child of node.children ?? []) visitMarkdown(child, f)
+}
+
+// destination writes url as the destination of a Markdown link, in <> when it holds a space, a
+// parenthesis or an angle bracket.
+function destination(url) {
+  return /[\s()<>]/.test(url) ? '<' + url.replace(/[<>]/g, encodeURIComponent) + '>' : url
+}
+
+// titlePart writes the title of a Markdown link after its destination, nothing without one.
+function titlePart(title) {
+  return title == null ? '' : ` "${title.replace(/["\\]/g, '\\$&')}"`
+}
+
+// htmlURLs returns html with the URLs of the elements rewriteURLs rewrites passed through final,
+// which gets the URL, what a message calls it, and whether it is the href of a link.
+function htmlURLs(html, final) {
+  return html.replace(/<([a-zA-Z]+)\b[^>]*>/g, (tag, name) => {
+    const props = urlProperties[name.toLowerCase()]
+    if (!props) return tag
+    return tag.replace(/(\s([a-zA-Z]+)\s*=\s*)(?:"([^"]*)"|'([^']*)')/g, (attr, before, prop, double, single) => {
+      const kind = props.find(([p]) => p === prop.toLowerCase())?.[1]
+      if (!kind) return attr
+      const value = (double ?? single).replace(/&amp;/g, '&')
+      const to = final(value, kind, name.toLowerCase() === 'a' && kind === 'link')
+      return to === value ? attr : `${before}"${to.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`
+    })
+  })
 }
 
 // messagePlace is file:line:col of a message of unified, file alone when it has no place.

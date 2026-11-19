@@ -22,8 +22,9 @@ type pageAlternates struct {
 	// Site is site.url without a trailing slash.
 	Site string `json:"site,omitempty"`
 	// Default is the default language of the site, whose version x-default stands for.
-	Default string `json:"default"`
-	// Canonical is the path of the page as it was asked for, without the query.
+	Default string `json:"default,omitempty"`
+	// Canonical is the URL of the page as its render sees it (renderURL): the path as it was asked
+	// for and only the query parameters the Loads of the page read.
 	Canonical string `json:"canonical,omitempty"`
 	// List holds a link per version, the page itself included.
 	List []alternateLink `json:"list,omitempty"`
@@ -50,17 +51,34 @@ func (s *server) languagePath(language, rest string) string {
 	return "/" + language + rest
 }
 
+// siteAlternates is the list of a page with no version of its own: the site and the default
+// language. It is nil for a site without languages and without site.url, which has nothing to say.
+func (s *server) siteAlternates() *pageAlternates {
+	switch {
+	case s.i18n != nil:
+		return &pageAlternates{Site: s.site, Default: s.i18n.Default}
+	case s.site != "":
+		return &pageAlternates{Site: s.site}
+	}
+	return nil
+}
+
 // alternatesOf works out the versions of the page c answers, once its Loads have returned. It
-// returns nil for a site without languages. A page outside every area, a page with one version and
-// a page that is not found have a list of fewer than two versions: the render writes no links for
-// it.
+// returns nil for a site without languages and without site.url. A page outside every area, a page
+// with one version and a page that is not found have a list of fewer than two versions: the render
+// writes no hreflang links for it. Every page found has its canonical path, which the render
+// writes when the site has site.url.
 func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
-	if s.i18n == nil {
+	site := s.siteAlternates()
+	if site == nil {
 		return nil, nil
 	}
-	site := &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Default: s.i18n.Default}
+	// The canonical URL keeps the query parameters the render sees, so that page 2 of a list is a
+	// page of its own, and a tracking parameter is no other page.
+	query := renderQuery(c.Request().URL, s.query[c.Pattern()])
 	langs := s.langs[c.Pattern()]
-	if len(langs) == 0 {
+	if s.i18n == nil || len(langs) == 0 {
+		site.Canonical = c.Request().URL.EscapedPath() + query
 		return site, nil
 	}
 	language, rest := c.Language(), c.Request().URL.EscapedPath()
@@ -90,11 +108,12 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 			list = append(list, alternateLink{Language: l, URL: s.languagePath(l, rest)})
 		}
 	}
-	site.Canonical, site.List, site.Custom = s.languagePath(language, rest), list, custom
+	site.Canonical, site.List, site.Custom = s.languagePath(language, rest)+query, list, custom
 	return site, nil
 }
 
-// alternatesJSON is the list as JSON a script element can hold, nil for a site without languages.
+// alternatesJSON is the list as JSON a script element can hold, nil for a site without languages
+// and without site.url.
 func alternatesJSON(a *pageAlternates) (jsontext.Value, error) {
 	if a == nil {
 		return nil, nil
@@ -140,10 +159,7 @@ func navigationJSON(a *pageAlternates, clear bool) (jsontext.Value, error) {
 // failed has none.
 func (s *server) pageAlternatesFor(c *tifa.Ctx, status int) (*pageAlternates, error) {
 	if status != http.StatusOK {
-		if s.i18n == nil {
-			return nil, nil
-		}
-		return &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Default: s.i18n.Default}, nil
+		return s.siteAlternates(), nil
 	}
 	return s.alternatesOf(c)
 }

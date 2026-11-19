@@ -116,3 +116,17 @@ func TestSetSessionStoreIsSealedWhileListening(t *testing.T) {
 		t.Fatalf("store after reset %v", got)
 	}
 }
+
+func TestSetSitemapOnlyBeforeTheServerListens(t *testing.T) {
+	defer SetSitemap(nil)
+	f := func(*Ctx) (Sitemap, error) { return Sitemap{Name: "a"}, nil }
+	SetSitemap(f)
+	_, release := SealHTTPHandler(http.NewServeMux())
+	if sm, _ := SealedSitemap()(nil); sm.Name != "a" {
+		t.Errorf("SealedSitemap gave %+v", sm)
+	}
+	if msg := panicOf(func() { SetSitemap(nil) }); !strings.Contains(msg, "OnStart") {
+		t.Errorf("panic %q", msg)
+	}
+	release()
+}

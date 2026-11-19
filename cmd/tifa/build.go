@@ -76,7 +76,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m, m.Content, settings.Public))
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m, m.Content, settings.Public, m.SiteURL))
 			if err != nil {
 				return err
 			}
@@ -200,12 +200,13 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 }
 
 // contentOf returns the content collections of an analysis for the build, nil without any. public
-// is build.public.
-func contentOf(m *analyze.Manifest, c *analyze.Content, public string) *bundle.Content {
+// is build.public, and site is site.url for tifa build and empty for tifa dev, whose Markdown keeps
+// the URLs of the machine.
+func contentOf(m *analyze.Manifest, c *analyze.Content, public, site string) *bundle.Content {
 	if c == nil {
 		return nil
 	}
-	return &bundle.Content{File: c.File, Markdown: c.Markdown, Links: linksOf(m, public)}
+	return &bundle.Content{File: c.File, Markdown: c.Markdown, Links: linksOf(m, public), Site: site}
 }
 
 // linksOf returns the languages of the routes of m and the public folder for the links in

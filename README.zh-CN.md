@@ -161,7 +161,7 @@ go tool tifa agents
 | 文档 | 什么时候读 |
 | :-- | :-- |
 | [教程](docs/tutorial.md) | 第一次用 Tifa，想从第一个目录做到一个能跑的小应用 |
-| 做法：[表单](docs/guides/forms.md)、[上传](docs/guides/uploads.md)、[登录](docs/guides/sign-in.md)、[数据库](docs/guides/database.md)、[后台任务](docs/guides/jobs.md)、[邮件](docs/guides/email.md)、[多语言](docs/guides/i18n.md)、[流式输出](docs/guides/streaming.md)、[环境变量的值](docs/guides/environment.md) | 要加一个常见功能，想要一套实测过的写法 |
+| 做法：[表单](docs/guides/forms.md)、[上传](docs/guides/uploads.md)、[登录](docs/guides/sign-in.md)、[数据库](docs/guides/database.md)、[后台任务](docs/guides/jobs.md)、[邮件](docs/guides/email.md)、[多语言](docs/guides/i18n.md)、[搜索引擎和大模型](docs/guides/seo.md)、[流式输出](docs/guides/streaming.md)、[环境变量的值](docs/guides/environment.md) | 要加一个常见功能，想要一套实测过的写法 |
 | [哲学](docs/philosophy.md) | 想知道 Tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
 | [应用怎么写](docs/app.md) | 安排目录，弄清目录怎么变成 URL，以及接下来该读哪篇 |

@@ -187,3 +187,9 @@ func unescapedSegment(seg string) string {
 	}
 	return v
 }
+
+// setSite gives the server site.url, the scheme and host the site is served at, empty when not
+// set. It is called before the first request.
+func (s *server) setSite(url string) {
+	s.site = strings.TrimRight(url, "/")
+}

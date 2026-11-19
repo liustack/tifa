@@ -1521,9 +1521,13 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 // url.QueryEscape writes them, and what url.ParseQuery drops, and so c.Query never sees, is left out
 // too. The path stays as it came, so the router still redirects another spelling of it.
 func renderURL(u *url.URL, keep []string) string {
-	p := u.EscapedPath()
+	return u.EscapedPath() + renderQuery(u, keep)
+}
+
+// renderQuery is the query of renderURL, with its ?, or "" when it keeps no parameter.
+func renderQuery(u *url.URL, keep []string) string {
 	if len(keep) == 0 || u.RawQuery == "" {
-		return p
+		return ""
 	}
 	values := map[string][]string{}
 	for part := range strings.SplitSeq(u.RawQuery, "&") {
@@ -1542,7 +1546,7 @@ func renderURL(u *url.URL, keep []string) string {
 			b.WriteString(url.QueryEscape(k) + "=" + url.QueryEscape(v))
 		}
 	}
-	return p + b.String()
+	return b.String()
 }
 
 // keptPart decodes one name=value part of a query and reports whether renderURL keeps it: it

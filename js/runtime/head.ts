@@ -474,7 +474,7 @@ export interface PageAlternates {
   site?: string
   // The language of x-default, the default language of the site.
   default?: string
-  // The path of the page itself, without the query.
+  // The URL of the page itself: its path and the query parameters its Loads read, as the server renders it.
   canonical?: string
   // The versions. A server render gets them all, and sets custom when a Load of the page called
   // c.SetAlternates. The page carries them to the browser only then, which works out the rest.
@@ -493,17 +493,20 @@ function isCanonical(tag: Tag) {
   return tag.tag === 'link' && typeof tag.attrs.rel === 'string' && tag.attrs.rel.toLowerCase().split(/\s+/).includes('canonical')
 }
 
-// alternateTags writes the links of a page that has more than one version: a link for each
-// version with its language, x-default, which is the version in the default language, and the page
-// itself as its canonical URL, unless the page's own head has a canonical link, which wins. URLs
-// are full, from site. A page with one version, or a site that does not say where it is served,
-// has none.
+// alternateTags writes the links of a page: for a page that has more than one version, a link for
+// each version with its language and x-default, which is the version in the default language, and
+// for every page found the page itself as its canonical URL, unless the page's own head has a
+// canonical link, which wins. URLs are full, from site. A site that does not say where it is
+// served has none.
 export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | undefined, site: string): Tag[] {
-  const list = page?.list ?? []
-  if (!page || !site || list.length < 2) return []
-  const tags: Tag[] = list.map((a) => ({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.language, href: site + a.url } }))
-  const fallback = list.find((a) => a.language === page.default)
-  if (fallback) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: site + fallback.url } })
+  if (!page || !site) return []
+  const list = page.list ?? []
+  const tags: Tag[] = []
+  if (list.length >= 2) {
+    for (const a of list) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.language, href: site + a.url } })
+    const fallback = list.find((a) => a.language === page.default)
+    if (fallback) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: site + fallback.url } })
+  }
   if (page.canonical && !own.some(isCanonical)) tags.push({ tag: 'link', attrs: { rel: 'canonical', href: site + page.canonical } })
   return tags
 }

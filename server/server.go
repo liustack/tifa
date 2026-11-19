@@ -65,6 +65,10 @@ type server struct {
 	known       map[string]bool
 	langs       map[string][]string
 	layoutLangs map[string][]string
+	// site is site.url without a trailing slash, empty when not set, see setSite.
+	site string
+	// sitemap is the function of tifa.SetSitemap, nil without one, see startSitemap.
+	sitemap func(*tifa.Ctx) (tifa.Sitemap, error)
 	// layouts holds the Loads of each Layout's chain by its ID, for a URL that matches no page
 	// and shows its 404 inside that Layout. candidates are what notFoundAt picks that Layout from.
 	layouts    map[string]layoutChain
@@ -194,7 +198,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		s.refuseCrossSite(w, r, err)
 		return
 	}
-	if s.serveDev(w, r) || s.serveStatic(w, r) {
+	if s.serveDev(w, r) || s.serveStatic(w, r) || s.serveSite(w, r) {
 		return
 	}
 	r = core.SplitData(r)
@@ -728,6 +732,7 @@ func (s *server) run(ctx context.Context) error {
 	root, release := core.SealHTTPHandler(s)
 	defer release()
 	s.root = root
+	s.startSitemap()
 	defer s.startSessions()()
 	ln, fromSystemd, err := listen(sockets, socketAddr, s.cfg.Addr)
 	if err != nil {

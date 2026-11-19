@@ -90,6 +90,9 @@ type Entries struct {
 	// Links is what the plugin needs to give the root-relative links of an entry the prefix of its
 	// language. Nil on a site without languages.
 	Links *Links `json:"links,omitempty"`
+	// Site is site.url, which the plugin writes the root-relative URLs of the Markdown of an entry
+	// in full with. Empty without site.url and under tifa dev, whose URLs are those of the machine.
+	Site string `json:"site,omitempty"`
 }
 
 // Links are the languages of the site and of each route, for the links in Markdown.

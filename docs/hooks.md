@@ -43,7 +43,7 @@ Tifa looks up `slog.Default()` for each message, so a later `slog.SetDefault` al
 
 ### Setting up in OnStart
 
-`OnStart` is where the app wires what the whole process shares: the log handler, plain `net/http` middleware and the [session store](sessions.md#where-to-store-sessions).
+`OnStart` is where the app wires what the whole process shares: the log handler, plain `net/http` middleware, the [session store](sessions.md#where-to-store-sessions) and the pages of the [sitemap](guides/seo.md) with `tifa.SetSitemap`.
 
 ```go
 import (

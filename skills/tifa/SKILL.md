@@ -115,6 +115,6 @@ Read the one that matches the task.
 | [references/i18n.md](references/i18n.md) | A site in several languages: `_locales` folders, language prefixes in URLs, `c.Language()`, translations with i18next, `hreflang` links |
 | [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers, `OnRequest` or code that needs a signed-in user, and checking the real HTML |
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
-| [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
+| [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, a sitemap, `robots.txt` or `llms.txt` with `tifa.SetSitemap`, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 
 The docs show code from an example shop, a workbench with a two-language storefront. Its files are not in your module: read the snippets in the docs, and run `go tool tifa docs --all` to list every doc.

@@ -244,13 +244,14 @@ func TestI18nApp(t *testing.T) {
 	})
 
 	t.Run("a page with more than one version links to each of them", func(t *testing.T) {
-		head, _ := headOf(t, "/store?q=a", 200)
+		head, _ := headOf(t, "/store?utm_source=x&q=a", 200)
 		// The links come in the order of the languages, x-default after them and the page itself last,
-		// as full URLs from site.url and without the query.
+		// as full URLs from site.url. The versions have no query. The canonical URL keeps the query
+		// parameters the Load reads, q here, as the render sees them, and drops the others.
 		want := `<link rel="alternate" hreflang="zh-CN" href="` + site + `/store">` +
 			`<link rel="alternate" hreflang="en-US" href="` + site + `/en-US/store">` +
 			`<link rel="alternate" hreflang="x-default" href="` + site + `/store">` +
-			`<link rel="canonical" href="` + site + `/store">`
+			`<link rel="canonical" href="` + site + `/store?q=a">`
 		if !strings.Contains(head, want) {
 			t.Errorf("the head of /store lacks the links:\n%s", head)
 		}
@@ -276,7 +277,7 @@ func TestI18nApp(t *testing.T) {
 				`<link rel="alternate" hreflang="zh-CN" href="` + site + `/store">` +
 					`<link rel="alternate" hreflang="en-US" href="` + site + `/en-US/store">` +
 					`<link rel="alternate" hreflang="x-default" href="` + site + `/store">` +
-					`<link rel="canonical" href="` + site + `/en-US/store">`,
+					`<link rel="canonical" href="` + site + `/en-US/store?q=a">`,
 			},
 			"/en-US/store/journal/hello": {
 				`<link rel="alternate" hreflang="zh-CN" href="` + site + `/store/journal/ni-hao">`,
@@ -295,10 +296,13 @@ func TestI18nApp(t *testing.T) {
 			t.Errorf("the switch of /en-US/store/journal/hello: %.600s", body)
 		}
 		// An entry in one language has one version, and a page outside every area, a page that is not
-		// found and one that is not an entry have none.
+		// found and one that is not an entry have none. A page found is its own canonical URL, without
+		// the query its Loads do not read.
 		for path, status := range map[string]int{"/store/journal/only-zh": 200, "/projects": 200, "/store/zzz": 404, "/store/journal/nope": 404} {
-			if head, _ := headOf(t, path, status); strings.Contains(head, "hreflang") || strings.Contains(head, `rel="canonical"`) {
-				t.Errorf("the head of %s has links:\n%s", path, head)
+			head, _ := headOf(t, path+"?page=2&utm_source=x", status)
+			canonical := `<link rel="canonical" href="` + site + path + `">`
+			if strings.Contains(head, "hreflang") || strings.Contains(head, canonical) != (status == 200) || strings.Count(head, `rel="canonical"`) > 1 {
+				t.Errorf("the head of %s:\n%s", path, head)
 			}
 		}
 		// A canonical the app writes wins, the links of the versions stay.
@@ -343,6 +347,59 @@ func TestI18nApp(t *testing.T) {
 		_, _, body := cacheSend(t, "GET", base+"/api/languages", "")
 		if !strings.Contains(body, `"atInit":["zh-CN","en-US"]`) || !strings.Contains(body, `"now":["zh-CN","en-US"]`) {
 			t.Errorf("%s", body)
+		}
+	})
+
+	t.Run("the sitemap, robots.txt, llms.txt and the Markdown of the journal", func(t *testing.T) {
+		status, h, body := cacheSend(t, "GET", base+"/robots.txt", "")
+		if status != 200 || body != "User-agent: *\nAllow: /\n\nSitemap: https://i18n.example.com/sitemap.xml\n" {
+			t.Errorf("GET /robots.txt: %d %s", status, body)
+		}
+		status, h, body = cacheSend(t, "GET", base+"/sitemap.xml", "")
+		hello := `<xhtml:link rel="alternate" hreflang="zh-CN" href="https://i18n.example.com/store/journal/ni-hao"/><xhtml:link rel="alternate" hreflang="en-US" href="https://i18n.example.com/en-US/store/journal/hello"/><xhtml:link rel="alternate" hreflang="x-default" href="https://i18n.example.com/store/journal/ni-hao"/></url>`
+		for _, want := range []string{
+			`<url><loc>https://i18n.example.com/projects</loc></url>`,
+			`<url><loc>https://i18n.example.com/en-US/store/news</loc><xhtml:link rel="alternate" hreflang="zh-CN" href="https://i18n.example.com/store/news"/>`,
+			`<url><loc>https://i18n.example.com/store/journal/ni-hao</loc><lastmod>2026-01-01T10:00:00Z</lastmod>` + hello,
+			`<url><loc>https://i18n.example.com/en-US/store/journal/hello</loc><lastmod>2026-01-01T10:00:00Z</lastmod>` + hello,
+			`<url><loc>https://i18n.example.com/store/journal/only-zh</loc><lastmod>2026-02-01T00:00:00Z</lastmod></url>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the sitemap lacks %s:\n%s", want, body)
+			}
+		}
+		if status != 200 || h.Get("Content-Type") != "application/xml; charset=utf-8" || strings.Contains(body, "/store/leave") {
+			t.Errorf("GET /sitemap.xml: %d %s\n%s", status, h, body)
+		}
+		_, _, body = cacheSend(t, "GET", base+"/llms.txt", "")
+		for _, want := range []string{
+			"# I18n Store\n\n> A store in two languages.\n\n## zh-CN\n\n",
+			"- [你好](https://i18n.example.com/store/journal/ni-hao.md): The first entry of the journal.\n",
+			"- [/store/journal/only-zh](https://i18n.example.com/store/journal/only-zh)\n",
+			"\n## en-US\n\n",
+			"- [Hello](https://i18n.example.com/en-US/store/journal/hello.md): The first entry of the journal.\n",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("llms.txt lacks %q:\n%s", want, body)
+			}
+		}
+		// The Markdown has the links of the page, absolute.
+		en := "[news](https://i18n.example.com/en-US/store/news) [projects](https://i18n.example.com/projects) [icon](https://i18n.example.com/favicon.svg) [search](https://i18n.example.com/en-US/store?q=a#top) [chinese](https://i18n.example.com/zh-CN/store/news) [external](https://example.org/store/news)\n"
+		status, h, body = cacheSend(t, "GET", base+"/en-US/store/journal/hello.md", "")
+		if status != 200 || body != "# Hello\n\n"+en || h.Get("Content-Type") != "text/markdown; charset=utf-8" {
+			t.Errorf("GET /en-US/store/journal/hello.md: %d %s\n%s", status, h, body)
+		}
+		if status, _, body := cacheSend(t, "GET", base+"/store/journal/ni-hao.md", ""); status != 200 || !strings.HasPrefix(body, "# 你好\n\n[新闻](https://i18n.example.com/store/news) ") {
+			t.Errorf("GET /store/journal/ni-hao.md: %d %s", status, body)
+		}
+		for _, path := range []string{"/store/journal/only-zh.md", "/store/journal/hello.md", "/store.md", "/index.md"} {
+			if status, _, _ := cacheSend(t, "GET", base+path, ""); status != 404 {
+				t.Errorf("GET %s: %d, want 404", path, status)
+			}
+		}
+		_, _, body = cacheSend(t, "GET", base+"/llms-full.txt", "")
+		if !strings.Contains(body, "# Hello\n\nSource: https://i18n.example.com/en-US/store/journal/hello\n\n"+en) || !strings.Contains(body, "# 你好\n\nSource: https://i18n.example.com/store/journal/ni-hao\n\n") {
+			t.Errorf("GET /llms-full.txt:\n%s", body)
 		}
 	})
 
@@ -643,19 +700,24 @@ func TestI18nInBrowser(t *testing.T) {
 	// A query spelled another way than the router writes it (%20 for +, %2F for /), an empty value
 	// and a key given twice around another stay in the address bar as they were typed, with a
 	// prefix and without, and the page asks for no data after it hydrates.
-	for _, c := range []struct{ path, want string }{
-		{"/en-US/store?q=a%20b&utm=x%2Fy", "store go=en-US react=en-US path=/store q=a b"},
-		{"/en-US/store?utm=&q=a%2Fb&utm=c%20d", "store go=en-US react=en-US path=/store q=a/b"},
-		{"/store?q=a%20b&e=&q=c%2Fd", "store go=zh-CN react=zh-CN path=/store q=a b"},
-		{"/en-US/store/csr?x=a%20b&y=&x=%2F", "csr go=en-US react=en-US"},
-		{"/store/csr?x=a%20b&y=&x=%2F", "csr go=zh-CN react=zh-CN"},
-		{"/projects?next=%2Fa&q=a%20b", "projects go=zh-CN react=zh-CN"},
+	// The canonical link the browser keeps after it hydrates is the one of the server render: the
+	// query parameters the Loads read, in Go's spelling, and no other.
+	for _, c := range []struct{ path, want, canonical string }{
+		{"/en-US/store?q=a%20b&utm=x%2Fy", "store go=en-US react=en-US path=/store q=a b", "/en-US/store?q=a+b"},
+		{"/en-US/store?utm=&q=a%2Fb&utm=c%20d", "store go=en-US react=en-US path=/store q=a/b", "/en-US/store?q=a%2Fb"},
+		{"/store?q=a%20b&e=&q=c%2Fd", "store go=zh-CN react=zh-CN path=/store q=a b", "/store?q=a+b&q=c%2Fd"},
+		{"/en-US/store/csr?x=a%20b&y=&x=%2F", "csr go=en-US react=en-US", "/en-US/store/csr"},
+		{"/store/csr?x=a%20b&y=&x=%2F", "csr go=zh-CN react=zh-CN", "/store/csr"},
+		{"/projects?next=%2Fa&q=a%20b", "projects go=zh-CN react=zh-CN", "/projects"},
 	} {
 		open(c.path, c.want)
 		// The router replaces the address bar and loads the page again right after hydration.
 		time.Sleep(500 * time.Millisecond)
 		if got := eval(here); got != c.path {
 			t.Errorf("%s: the address bar shows %v", c.path, got)
+		}
+		if got := eval(`() => [...document.querySelectorAll('link[rel="canonical"]')].map((e) => e.getAttribute("href")).join(" ")`); got != "https://i18n.example.com"+c.canonical {
+			t.Errorf("%s: the canonical link after hydrating is %v, want %s", c.path, got, c.canonical)
 		}
 		if got := eval(`() => performance.getEntriesByType("resource").map((e) => e.name).filter((n) => n.includes("_tifa=")).join(" ")`); got != "" {
 			t.Errorf("%s: asked for data after hydrating: %v", c.path, got)

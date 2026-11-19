@@ -26,6 +26,9 @@ type App struct {
 	Session func()
 	// I18n holds the languages of the app, nil for an app without a _locales folder.
 	I18n *I18n
+	// SiteURL is site.url, the scheme and host the site is served at, empty when not set. With it
+	// every page gets a canonical link and the server answers sitemap.xml, robots.txt and llms.txt.
+	SiteURL string
 	// Dist is the .tifa directory's embedded dist/ (the FS holds dist/ at its root): build.json,
 	// the SSR bundle, the browser assets and the public files that tifa build writes.
 	Dist fs.FS
@@ -45,8 +48,6 @@ type I18n struct {
 	// Languages are the languages of the site, the default one first and then the others in byte
 	// order.
 	Languages []string
-	// SiteURL is site.url, the scheme and host the site is served at, empty when not set.
-	SiteURL string
 }
 
 // Layout is one directory whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.

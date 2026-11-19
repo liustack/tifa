@@ -1,6 +1,7 @@
 package content
 
 import (
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -110,4 +111,36 @@ func TestBodyOfAMissingFilePanics(t *testing.T) {
 		}
 	}()
 	p.Body()
+}
+
+// The value of a schema type is an entry tifa.SitemapPage.Content takes: it carries where its
+// Markdown is, which the JSON of the entry does not show.
+func TestEntryCarriesItsMarkdown(t *testing.T) {
+	dist := fstest.MapFS{
+		"content.json":             {Data: []byte(noteRecord)},
+		"content/testnotes/a.html": {Data: []byte("<h2 id=\"intro\">Intro</h2>\n")},
+		"content/testnotes/a.md":   {Data: []byte("## Intro\n")},
+	}
+	if err := loadDist(t, dist); err != nil {
+		t.Fatal(err)
+	}
+	p, err := notes.Get("", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e content.Entry = p
+	b := content.BodyOf(e)
+	if b == nil {
+		t.Fatal("no body")
+	}
+	if md, err := b.Markdown(); err != nil || md != "## Intro\n" {
+		t.Errorf("Markdown() = %q, %v", md, err)
+	}
+	if b := content.BodyOf(Entry{ID: "x"}); b != nil {
+		t.Errorf("an entry made in place has the body %+v", b)
+	}
+	data, err := json.Marshal(p)
+	if err != nil || strings.Contains(string(data), "handle") || strings.Contains(string(data), "a.md") {
+		t.Errorf("JSON %s, %v", data, err)
+	}
 }

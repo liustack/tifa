@@ -17,7 +17,8 @@ func echo(c *tifa.Ctx) error {
 
 func i18nTestApp(always bool) App {
 	return App{
-		I18n: &I18n{Default: "zh-CN", Always: always, Languages: []string{"zh-CN", "de", "en-US"}, SiteURL: "https://a.example.com"},
+		I18n:    &I18n{Default: "zh-CN", Always: always, Languages: []string{"zh-CN", "de", "en-US"}},
+		SiteURL: "https://a.example.com",
 		Routes: []Route{
 			{ID: "app/store/mine/route", Path: "/store/mine", GET: echo, Languages: storeLanguages},
 			{ID: "app/store/items/route", Path: "/store/items/{id}", GET: echo, Languages: storeLanguages},

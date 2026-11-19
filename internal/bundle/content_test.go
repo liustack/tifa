@@ -88,6 +88,7 @@ func readDist(t *testing.T, root, name string) string {
 // /assets/ with a hash, and content.json gets the headings of each body.
 func TestAppConvertsTheContent(t *testing.T) {
 	root, c := contentApp(t)
+	c.Site = "https://blog.example.com"
 	n := NewNode(root, io.Discard)
 	defer n.Close()
 	if _, err := App(n, root, filepath.Join(root, "public"), true, c); err != nil {
@@ -103,6 +104,10 @@ func TestAppConvertsTheContent(t *testing.T) {
 	}
 	if got := readDist(t, root, strings.TrimPrefix(m[1], "/")); got != "png" {
 		t.Errorf("%s = %q", m[1], got)
+	}
+	// The Markdown next to the body has the URL of the image, in full.
+	if got, want := readDist(t, root, "content/blog/a.md"), "## Hello a\n\n![x](https://blog.example.com"+m[1]+")\n"; got != want {
+		t.Errorf("a.md = %q, want %q", got, want)
 	}
 	if got := readDist(t, root, "content.json"); !strings.Contains(got, `"file":"content/blog/a.html","headings":[{"depth":2,"id":"hello-a","text":"Hello a"}]`) {
 		t.Errorf("content.json:\n%s", got)
@@ -280,6 +285,10 @@ func TestDevConvertsTheContent(t *testing.T) {
 	}
 	if n, err := d.Content(context.Background(), true, c, false, nil); err != nil || n != 0 {
 		t.Errorf("Content again = %d, %v: want nothing converted", n, err)
+	}
+	// The Markdown of a body that was not converted again is there too, with the URLs of tifa dev.
+	if got := readDist(t, root, content.MarkdownFile(bodyFile(t, root, "a"))); got != "## Hello a\n\n![x](/__tifa/vite/content/blog/a/x.png)\n" {
+		t.Errorf("a.md = %q", got)
 	}
 	// The image is next to a.md, in content/blog: both entries are in that folder.
 	if n, err := d.Content(context.Background(), true, c, false, []string{"content/blog/a/x.png", "content/blog/a.md"}); err != nil || n != 2 {
