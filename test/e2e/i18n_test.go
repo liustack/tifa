@@ -348,6 +348,59 @@ func TestI18nApp(t *testing.T) {
 		}
 	})
 
+	t.Run("the sitemap, robots.txt, llms.txt and the Markdown of the journal", func(t *testing.T) {
+		status, h, body := cacheSend(t, "GET", base+"/robots.txt", "")
+		if status != 200 || body != "User-agent: *\nAllow: /\n\nSitemap: https://i18n.example.com/sitemap.xml\n" {
+			t.Errorf("GET /robots.txt: %d %s", status, body)
+		}
+		status, h, body = cacheSend(t, "GET", base+"/sitemap.xml", "")
+		hello := `<xhtml:link rel="alternate" hreflang="zh-CN" href="https://i18n.example.com/store/journal/ni-hao"/><xhtml:link rel="alternate" hreflang="en-US" href="https://i18n.example.com/en-US/store/journal/hello"/><xhtml:link rel="alternate" hreflang="x-default" href="https://i18n.example.com/store/journal/ni-hao"/></url>`
+		for _, want := range []string{
+			`<url><loc>https://i18n.example.com/projects</loc></url>`,
+			`<url><loc>https://i18n.example.com/en-US/store/news</loc><xhtml:link rel="alternate" hreflang="zh-CN" href="https://i18n.example.com/store/news"/>`,
+			`<url><loc>https://i18n.example.com/store/journal/ni-hao</loc><lastmod>2026-01-01T10:00:00Z</lastmod>` + hello,
+			`<url><loc>https://i18n.example.com/en-US/store/journal/hello</loc><lastmod>2026-01-01T10:00:00Z</lastmod>` + hello,
+			`<url><loc>https://i18n.example.com/store/journal/only-zh</loc><lastmod>2026-02-01T00:00:00Z</lastmod></url>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the sitemap lacks %s:\n%s", want, body)
+			}
+		}
+		if status != 200 || h.Get("Content-Type") != "application/xml; charset=utf-8" || strings.Contains(body, "/store/leave") {
+			t.Errorf("GET /sitemap.xml: %d %s\n%s", status, h, body)
+		}
+		_, _, body = cacheSend(t, "GET", base+"/llms.txt", "")
+		for _, want := range []string{
+			"# I18n Store\n\n> A store in two languages.\n\n## zh-CN\n\n",
+			"- [你好](https://i18n.example.com/store/journal/ni-hao.md): The first entry of the journal.\n",
+			"- [/store/journal/only-zh](https://i18n.example.com/store/journal/only-zh)\n",
+			"\n## en-US\n\n",
+			"- [Hello](https://i18n.example.com/en-US/store/journal/hello.md): The first entry of the journal.\n",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("llms.txt lacks %q:\n%s", want, body)
+			}
+		}
+		// The Markdown has the links of the page, absolute.
+		en := "[news](https://i18n.example.com/en-US/store/news) [projects](https://i18n.example.com/projects) [icon](https://i18n.example.com/favicon.svg) [search](https://i18n.example.com/en-US/store?q=a#top) [chinese](https://i18n.example.com/zh-CN/store/news) [external](https://example.org/store/news)\n"
+		status, h, body = cacheSend(t, "GET", base+"/en-US/store/journal/hello.md", "")
+		if status != 200 || body != "# Hello\n\n"+en || h.Get("Content-Type") != "text/markdown; charset=utf-8" {
+			t.Errorf("GET /en-US/store/journal/hello.md: %d %s\n%s", status, h, body)
+		}
+		if status, _, body := cacheSend(t, "GET", base+"/store/journal/ni-hao.md", ""); status != 200 || !strings.HasPrefix(body, "# 你好\n\n[新闻](https://i18n.example.com/store/news) ") {
+			t.Errorf("GET /store/journal/ni-hao.md: %d %s", status, body)
+		}
+		for _, path := range []string{"/store/journal/only-zh.md", "/store/journal/hello.md", "/store.md", "/index.md"} {
+			if status, _, _ := cacheSend(t, "GET", base+path, ""); status != 404 {
+				t.Errorf("GET %s: %d, want 404", path, status)
+			}
+		}
+		_, _, body = cacheSend(t, "GET", base+"/llms-full.txt", "")
+		if !strings.Contains(body, "# Hello\n\nSource: https://i18n.example.com/en-US/store/journal/hello\n\n"+en) || !strings.Contains(body, "# 你好\n\nSource: https://i18n.example.com/store/journal/ni-hao\n\n") {
+			t.Errorf("GET /llms-full.txt:\n%s", body)
+		}
+	})
+
 	t.Run("go test in a folder of the app reads the files", func(t *testing.T) {
 		cmd := exec.Command("go", "test", "./app/api/languages")
 		cmd.Dir = dir
