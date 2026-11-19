@@ -111,3 +111,32 @@ jobs:
         run: go test -count=1 ./test/e2e/ -v -timeout 25m
         env:
           TIFA_E2E: "1"
+
+  compare-apps:
+    # The Next.js and TanStack Start apps of test/compare copy the shop's pages, so a rename in the
+    # shop breaks them. Nothing else builds them, and a benchmark run found the last break days late.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: compare apps (linux/amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            examples/shop/pnpm-lock.yaml
+            test/compare/*/pnpm-lock.yaml
+
+      # Builds the shop, copies its pages into both apps, installs their packages, builds them and
+      # type checks them. This is the prepare step of the comparison, without any measuring.
+      - name: Build the comparison apps
+        run: go run ./test/compare/cmd/compare build
