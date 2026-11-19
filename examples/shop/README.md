@@ -49,7 +49,8 @@ To look at the workbench without signing in, start the program with `SHOP_OPEN=1
 
 ```text
 options.go                     the option shop.open
-hooks.go                       OnRequest keeps visitors who are not signed in out of the workbench and the metrics, OnError logs unexpected errors
+hooks.go                       OnStart sets the sitemap, OnRequest keeps visitors who are not signed in out of the workbench and the metrics, OnError logs unexpected errors
+sitemap.go                     the products, the journal posts and the storefront sections for /sitemap.xml and /llms.txt, without the workbench, the cart and the checkout
 session.go                     the session type, the demo account and the password check
 components/                    shadcn/ui components in ui/ and the hooks they use in hooks/, imported as @/components/...
 public/robots.txt              served at /robots.txt: keeps crawlers out of the search results and the filtered product lists

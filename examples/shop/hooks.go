@@ -2,12 +2,19 @@
 package shop
 
 import (
+	"context"
 	"log/slog"
 	"net/url"
 	"strings"
 
 	"github.com/liustack/tifa"
 )
+
+// OnStart lists the products and the journal posts for sitemap.xml and llms.txt.
+func OnStart(context.Context) error {
+	tifa.SetSitemap(sitemap)
+	return nil
+}
 
 // OnRequest keeps visitors who are not signed in out of the workbench and the metrics and sends
 // them to the sign-in page, which sends them back afterwards. The storefront needs no sign-in.
