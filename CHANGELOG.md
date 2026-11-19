@@ -12,6 +12,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Changed
 
 - With `site.url`, every page has a canonical link, also on a site with one language and on a page with one version. Before, only a page with several versions had one. A 404 or an error page still has none.
+- The canonical link keeps the query parameters the `Load` and Layouts of the page read, as the server renders the page, and drops the others. `/store/products?page=2&utm_source=news` now names `/store/products?page=2` when its `Load` reads `page`, where it named `/store/products` and told search engines that page 2 was a copy of page 1. The browser writes the same link after it hydrates and after a navigation. The `hreflang` links stay without a query.
 
 ## [0.1.4] - 2026-11-19
 

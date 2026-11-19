@@ -35,7 +35,7 @@ site:
 | `/llms-full.txt` | The Markdown of every page that shows a content entry, one after the other |
 | `<path>.md` | The Markdown version of a page that shows a content entry, such as `/blog/hello.md` |
 
-Every page also gets `<link rel="canonical">` with its full URL, without the query. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
+Every page also gets `<link rel="canonical">` with its full URL: the path and the query parameters its `Load` and Layouts read, the URL the server renders it with (see [Query parameters](../memo.md#query-parameters)). Other parameters are left out. So `/store/products?page=2&utm_source=news` has the canonical URL `/store/products?page=2` when its `Load` reads `page`: page 2 of a list is a page of its own, and a link with a tracking parameter is no copy. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
 
 Without `site.url` none of this happens: no canonical link, no sitemap and no `robots.txt`. A file in `public/` or a route of the app at one of these paths wins over Tifa's, so an app that has its own sitemap keeps it.
 
