@@ -4,13 +4,15 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-21
+
 ### Added
 
 - With `deploy.ssh: tailscale`, `tifa deploy setup` asks on a terminal for the ID and secret of your Tailscale OAuth client, checks that it can make keys for `tag:ci`, and keeps them as the secrets of the repository. `tifa deploy setup --tailscale-oauth` replaces them. Setup no longer tells you to run `gh secret set`.
 
 ### Changed
 
-- The plan of `tifa deploy setup` is short. It lists only what will be added, changed or removed, counts what is already right in one line (`--all` lists it), and ends with a numbered list of what setup cannot do for you, each with its reason. When everything is right it prints one line and asks nothing. Setup now does all it can and then exits with an error when something is left for you or the cache purge token step failed. Upgrading: a script that runs `tifa deploy setup` must expect a non-zero exit when something needs you.
+- The plan of `tifa deploy setup` is short. It lists only what will be added, changed or removed, counts what is already right in one line (`--all` lists it), and ends with a numbered list of what setup cannot do for you, each with its reason. When everything is right it prints one line and asks nothing. Setup now does all it can and then exits with an error when something is left for you or a step failed, such as a cache purge token that Cloudflare refused three times. Upgrading: a script that runs `tifa deploy setup` must expect a non-zero exit when something needs you.
 - `deploy.front` is now `deploy.cdn`, with the same values `none` and `cloudflare`. `tifa deploy` and `setup` stop on the old key and name the new one. Upgrading: in `tifa.yaml`, rename `front:` under `deploy:` to `cdn:`.
 - The Cloudflare cache purge token `CF_CACHE_PURGE_TOKEN` is optional. Setup lists it as optional when it cannot ask for it, and an empty line at its prompt skips it, without failing the run. It asks on the first CI setup only, and `tifa deploy setup --cache-purge-token` adds or replaces the token later. A deploy without a token or a cf login prints `cache: not cleared for <host>` and what that costs, not a warning: a page with `Cache` can stay old on the CDN for up to its `Cache` time.
 
