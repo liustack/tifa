@@ -1,10 +1,10 @@
 package main
 
 // What tifa deploy and tifa deploy rollback do after a release is live: clear the CDN cache of
-// deploy.domain, and write the result into the summary of a GitHub Actions run.
+// the domain of the app, and write the result into the summary of a GitHub Actions run.
 //
 // The cache is cleared by host name, never the whole zone. On a machine with cf logged in it is
-// cf that does it. In CI there is no cf: CF_PURGE_TOKEN, a Cloudflare API token that can only
+// cf that does it. In CI there is no cf: CF_CACHE_PURGE_TOKEN, a Cloudflare API token that can only
 // purge the cache of one zone, and CF_ZONE_ID, the ID of that zone (not a secret, the workflow
 // carries it), go to the Cloudflare API directly. Tifa keeps neither.
 
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ import (
 
 // Names of the environment variables CI sets for the purge.
 const (
-	envPurgeToken = "CF_PURGE_TOKEN"
+	envPurgeToken = "CF_CACHE_PURGE_TOKEN"
 	envZoneID     = "CF_ZONE_ID"
 	// envStepSummary is the file GitHub Actions gives a step to write a Markdown summary into.
 	envStepSummary = "GITHUB_STEP_SUMMARY"
@@ -41,9 +42,14 @@ func purgeBody(hosts ...string) []byte {
 // purgeWithToken asks the Cloudflare API to clear the cache of host in the zone. The token is in
 // the Authorization header only, and in no error.
 func purgeWithToken(ctx context.Context, token, zoneID, host string) error {
+	return purgeRequest(ctx, token, zoneID, purgeBody(host))
+}
+
+// purgeRequest sends body to the purge endpoint of the zone with the token.
+func purgeRequest(ctx context.Context, token, zoneID string, body []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cloudflareAPI+"/zones/"+zoneID+"/purge_cache", bytes.NewReader(purgeBody(host)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cloudflareAPI+"/zones/"+zoneID+"/purge_cache", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -91,7 +97,7 @@ type cacheResult struct {
 func (r cacheResult) String() string {
 	switch {
 	case r.Host == "":
-		return "not used, deploy.domain is not set"
+		return "not used, deploy.front is not cloudflare"
 	case r.Cleared:
 		return "cleared for " + r.Host
 	}
@@ -218,79 +224,30 @@ func (h *healthCapture) Write(p []byte) (int, error) {
 	return h.w.Write(p)
 }
 
-// purge token of a repository: a user API token that can only clear the cache of one zone.
+// The purge token of a repository is an account API token that can only clear the cache of one
+// zone. The developer makes it in the Cloudflare dashboard, because a login of cf cannot make API
+// tokens. Tifa gets it pasted, checks it and hands it to gh, and keeps it nowhere else.
 
-// purgeTokenName names the token of a repository for a zone. The prefix with the repository finds
-// the tokens to remove when the zone changes or the repository leaves.
-func purgeTokenName(repo, zone string) string { return purgeTokenPrefix(repo) + zone }
+// purgeTokenName is the name the form of the token suggests.
+func purgeTokenName(repo string) string { return "tifa cache purge " + repo }
 
-func purgeTokenPrefix(repo string) string {
-	return "tifa-purge-" + strings.ReplaceAll(repo, "/", "-") + "-"
+// purgeTokenLink is the Cloudflare form of an account API token with the permission Cache Purge,
+// filled in. https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
+func purgeTokenLink(repo string) string {
+	esc := func(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+	return "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=" +
+		esc(`[{"key":"cache","type":"purge"}]`) + "&name=" + esc(purgeTokenName(repo))
 }
 
-type cfToken struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// purgeTokens lists the tokens of the repository, whatever zone they are for.
-func purgeTokens(ctx context.Context, repo string) ([]cfToken, error) {
-	all, err := cfPages[cfToken](ctx, "user", "tokens", "list")
-	if err != nil {
-		return nil, err
-	}
-	var out []cfToken
-	for _, t := range all {
-		if strings.HasPrefix(t.Name, purgeTokenPrefix(repo)) {
-			out = append(out, t)
-		}
-	}
-	return out, nil
-}
-
-// createPurgeToken makes the token called name, with the permission Cache Purge on the zone and
-// nothing else, and returns its value, which Cloudflare shows only now.
-func createPurgeToken(ctx context.Context, name string, zone cfZone) (string, error) {
-	var groups []struct {
-		ID     string   `json:"id"`
-		Name   string   `json:"name"`
-		Scopes []string `json:"scopes"`
-	}
-	if err := cfJSON(ctx, &groups, "user", "tokens", "permission-groups", "list", "--name", "Cache Purge"); err != nil {
-		return "", err
-	}
-	id := ""
-	for _, g := range groups {
-		zoneScoped := len(g.Scopes) == 0
-		for _, sc := range g.Scopes {
-			zoneScoped = zoneScoped || strings.HasSuffix(sc, ".zone")
-		}
-		if g.Name == "Cache Purge" && zoneScoped {
-			id = g.ID
-		}
-	}
-	if id == "" {
-		return "", errors.New(`Cloudflare lists no permission group "Cache Purge" for a zone`)
-	}
-	policies, _ := json.Marshal([]map[string]any{{
-		"effect":            "allow",
-		"resources":         map[string]string{"com.cloudflare.api.account.zone." + zone.ID: "*"},
-		"permission_groups": []map[string]string{{"id": id}},
-	}})
-	var made struct {
-		ID    string `json:"id"`
-		Value string `json:"value"`
-	}
-	if err := cfJSON(ctx, &made, "user", "tokens", "create", "--name", name, "--policies", string(policies)); err != nil {
-		return "", err
-	}
-	if made.Value == "" {
-		return "", errors.New("cf gave no token value tifa can read")
-	}
-	return made.Value, nil
+// checkPurgeToken clears a file that does not exist, which proves the token may purge the zone
+// without touching a cached page.
+func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
+	body, _ := json.Marshal(map[string][]string{"files": {"https://" + domain + "/.well-known/tifa-purge-check"}})
+	return purgeRequest(ctx, token, zoneID, body)
 }
 
 // purgeTokenManual says how to make the token by hand and give it to the repository.
-func purgeTokenManual(zone, domain string) string {
-	return fmt.Sprintf("make it in the Cloudflare dashboard (My Profile, API Tokens, Create Token, Custom token) with the one permission Zone, Cache Purge, Purge, on the zone %s only, then run gh secret set %s, which asks for the value. Without it a deploy still works and prints a warning that the cache of %s was not cleared", zone, envPurgeToken, domain)
+func purgeTokenManual(repo, zone, domain string) string {
+	return fmt.Sprintf("open %s, set Zone Resources to %s only, create the token, then run gh secret set %s --repo %s, which asks for the value. Without it a deploy still works and prints a warning that the cache of %s was not cleared",
+		purgeTokenLink(repo), zone, envPurgeToken, repo, domain)
 }

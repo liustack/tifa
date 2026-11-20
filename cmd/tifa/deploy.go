@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,17 +50,44 @@ var buildForServer = func(ctx context.Context, root, goos, goarch, out string, s
 
 // deployTarget is an app and the server it goes to.
 type deployTarget struct {
-	root   string
-	app    string
-	host   string
+	root string
+	app  string
+	host string
+	// domain is the host of site.url when deploy.front is cloudflare, else empty.
 	domain string
-	// ssh is how CI reaches the server: direct, cloudflare or tailscale. github says the
-	// GitHub Actions of the repository deploy the app.
+	// sshMode is how CI reaches the server: direct, cloudflare or tailscale. github says
+	// deploy.ci is github: the GitHub Actions of the repository deploy the app.
 	sshMode string
 	github  bool
 }
 
-// loadDeployTarget reads the app at dir: its name from go.mod, deploy.domain from tifa.yaml, and
+// deployDomain checks the deploy settings against each other and returns the domain of the app:
+// the host of site.url when deploy.front is cloudflare, else empty.
+func deployDomain(d config.Deploy, siteURL string) (string, error) {
+	domain := ""
+	if d.Front == "cloudflare" {
+		if siteURL == "" {
+			return "", errors.New("deploy.front is cloudflare, which needs site.url: set it in tifa.yaml, such as https://shop.example.com")
+		}
+		u, err := url.Parse(siteURL)
+		if err != nil {
+			return "", fmt.Errorf("site.url: %w", err)
+		}
+		if u.Port() != "" {
+			return "", fmt.Errorf("site.url has the port %s, and Cloudflare serves the host name only: write https://%s, or set deploy.front to none", u.Port(), u.Hostname())
+		}
+		domain = u.Hostname()
+	}
+	switch {
+	case d.SSH == "cloudflare" && d.Front != "cloudflare":
+		return "", errors.New("deploy.ssh is cloudflare, and the ssh host name is made from the domain of site.url: set deploy.front to cloudflare")
+	case d.SSH != "direct" && d.CI != "github":
+		return "", fmt.Errorf("deploy.ssh is %s, which is how GitHub Actions reaches the server: set deploy.ci to github, or deploy.ssh to direct (deploys from this machine use ~/.ssh/config)", d.SSH)
+	}
+	return domain, nil
+}
+
+// loadDeployTarget reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml, and
 // the host from the flag, else DEPLOY_HOST, else deploy.host.
 func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	root, err := filepath.Abs(dir)
@@ -82,7 +110,14 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	if err != nil {
 		return deployTarget{}, err
 	}
-	t := deployTarget{root: root, app: app, host: settings.Deploy.Host, domain: settings.Deploy.Domain, sshMode: settings.Deploy.SSH, github: settings.Deploy.GitHub}
+	if err := retiredDeployKeys(root); err != nil {
+		return deployTarget{}, err
+	}
+	domain, err := deployDomain(settings.Deploy, settings.Site.URL)
+	if err != nil {
+		return deployTarget{}, err
+	}
+	t := deployTarget{root: root, app: app, host: settings.Deploy.Host, domain: domain, sshMode: settings.Deploy.SSH, github: settings.Deploy.CI == "github"}
 	switch env := os.Getenv(deployHostEnv); {
 	case hostFlag != "":
 		if err := config.CheckDeployHost(hostFlag); err != nil {
@@ -99,6 +134,21 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 		return t, fmt.Errorf("no server to deploy to: set deploy.host in tifa.yaml (a host of ~/.ssh/config or an address), or pass --host or %s", deployHostEnv)
 	}
 	return t, nil
+}
+
+// retiredDeployKeys fails when tifa.yaml still has deploy.domain or deploy.github. They are
+// ignored otherwise, and setup would then plan to take away what they asked for.
+func retiredDeployKeys(root string) error {
+	data, err := os.ReadFile(filepath.Join(root, "tifa.yaml"))
+	if err != nil {
+		return nil // no project file: the defaults apply
+	}
+	for _, w := range config.ProjectWarnings(data) {
+		if strings.Contains(w, ": deploy.") {
+			return errors.New(w)
+		}
+	}
+	return nil
 }
 
 // ssh runs script with sh on the server, logged in as user, with stdin as its input.
@@ -168,7 +218,7 @@ func newDeployCmd() *cobra.Command {
 DEPLOY_HOST), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
-and deploy exits with 1. With deploy.domain set it then clears the CDN cache of that host name.
+and deploy exits with 1. With deploy.front cloudflare it then clears the CDN cache of the host of site.url.
 It never uploads .env. On a server that setup prepared it makes the folder and units of a new
 app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.`,
 		Args: cobra.NoArgs,
@@ -192,9 +242,10 @@ it with one line for each step. It can run again at any time.
 
   server    the user tifa and its systemd at boot, the first time as root
   app       the folder, port and systemd units of this app, as tifa
-  domain    with deploy.domain: the Cloudflare Tunnel, route, DNS and cache rules (needs cf)
-  github    with deploy.github: a key for the repository, secrets, and the workflow (needs gh,
-            and with deploy.ssh cloudflare also cf)
+  front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
+            the host of site.url (needs cf)
+  ci        with deploy.ci github: a key for the repository, secrets, and the workflow (needs
+            gh, and with deploy.ssh cloudflare also cf)
 
 It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
 		Args: cobra.NoArgs,

@@ -304,6 +304,8 @@ func (a *fakeAccess) install(t *testing.T) {
 		if len(args) < 4 || args[0] != "zero-trust" {
 			return inner(ctx, args...)
 		}
+		fakeMu.Lock()
+		defer fakeMu.Unlock()
 		a.calls = append(a.calls, strings.Join(args, " "))
 		v, err := a.answer2(args)
 		if err != nil {
@@ -472,7 +474,7 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if doc["permissions"].(map[string]any)["contents"] != "read" {
 		t.Error("permissions")
 	}
-	for _, want := range []string{"CF_PURGE_TOKEN: ${{ secrets.CF_PURGE_TOKEN }}", "CF_ZONE_ID: zone-9"} {
+	for _, want := range []string{"CF_CACHE_PURGE_TOKEN: ${{ secrets.CF_CACHE_PURGE_TOKEN }}", "CF_ZONE_ID: zone-9"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
@@ -484,7 +486,7 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if _, ok := on["push"]; !ok {
 		t.Error("no push trigger without CI")
 	}
-	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "CF_PURGE_TOKEN") {
+	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "CF_CACHE_PURGE_TOKEN") {
 		t.Errorf("fallback:\n%s", push)
 	}
 }

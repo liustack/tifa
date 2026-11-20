@@ -90,7 +90,7 @@ func cfNotFound(err error) bool {
 
 // cfJSON runs cf and decodes its output into v.
 func cfJSON(ctx context.Context, v any, args ...string) error {
-	out, err := runCF(ctx, args...)
+	out, err := readCF(ctx, args...)
 	if err != nil {
 		return err
 	}
@@ -370,7 +370,7 @@ func ensureDNS(ctx context.Context, zone, hostname, target, app string, apply bo
 		}
 	}
 	if len(records) > 0 {
-		return "", fmt.Errorf("%s already has a %s record in Cloudflare, which tifa leaves alone: delete it, or set deploy.domain to another name", hostname, records[0].Type)
+		return "", fmt.Errorf("%s already has a %s record in Cloudflare, which tifa leaves alone: delete it, or change site.url to another name", hostname, records[0].Type)
 	}
 	body, _ := json.Marshal(map[string]any{"type": "CNAME", "name": hostname, "content": target, "proxied": true, "ttl": 1,
 		"comment": dnsComment + app})

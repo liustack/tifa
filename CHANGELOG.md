@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `tifa deploy setup` reads the server, Cloudflare and GitHub at the same time and each thing once, says what it is reading, and ignores keys pressed before it asks. Planning went from 49 s to 7 s on a slow link.
+
+- The `deploy` section of `tifa.yaml` has new keys. `deploy.domain` is gone: the domain is the host of `site.url`, and `deploy.front: cloudflare` (default `none`) turns on the Cloudflare Tunnel, DNS, cache rules and cache clearing for it. `deploy.github` is now `deploy.ci` (`none` or `github`). `deploy` commands refuse a mix that cannot work, such as `front: cloudflare` without `site.url`, a port in `site.url`, `ssh: cloudflare` without `front: cloudflare`, or `ssh` other than `direct` without `ci: github`. A login of cf cannot make API tokens, so setup no longer tries to: on a terminal it prints a prefilled Cloudflare form, reads the token hidden, checks it and sets the secret, now named `CF_CACHE_PURGE_TOKEN`. Without a terminal the plan shows the link and the `gh secret set` command. Upgrading: replace `deploy.domain: X` with `site.url: https://X` (if not set) and `deploy.front: cloudflare`. Replace `deploy.github: true` with `deploy.ci: github`. Rerun `go tool tifa deploy setup`, which asks for the token again under the new name and removes the old secret `CF_PURGE_TOKEN`.
+
 ## [0.1.7] - 2026-11-20
 
 ### Added

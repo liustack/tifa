@@ -66,7 +66,7 @@ func TestPurgeFailureIsAWarning(t *testing.T) {
 		t.Errorf("result %+v", r)
 	}
 	api.path = ""
-	if r := clearCache(context.Background(), ""); r.Cleared || api.path != "" || r.String() != "not used, deploy.domain is not set" {
+	if r := clearCache(context.Background(), ""); r.Cleared || api.path != "" || r.String() != "not used, deploy.front is not cloudflare" {
 		t.Errorf("no domain: %+v, %q", r, api.path)
 	}
 	t.Setenv(envZoneID, "")
@@ -83,6 +83,8 @@ func TestPurgeWithCF(t *testing.T) {
 	inner := runCF
 	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
 		if args[0] == "cache" {
+			fakeMu.Lock()
+			defer fakeMu.Unlock()
 			f.calls = append(f.calls, strings.Join(args, " "))
 			return []byte(`{}`), nil
 		}
@@ -106,7 +108,7 @@ func TestDeployGoesThroughWhenThePurgeFails(t *testing.T) {
 	t.Setenv(envZoneID, "zone-9")
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  domain: shop.example.com\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n")
 	t.Setenv(deployHostEnv, "")
 	summary := filepath.Join(t.TempDir(), "summary.md")
 	t.Setenv(envStepSummary, summary)

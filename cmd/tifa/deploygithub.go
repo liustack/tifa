@@ -92,13 +92,23 @@ func findGitHubRepo(ctx context.Context, dir string) (githubRepo, error) {
 	if !haveGH() {
 		return githubRepo{}, errors.New("gh, the GitHub CLI, is not installed (https://cli.github.com/)")
 	}
-	if _, err := runGH(ctx, dir, nil, "auth", "status"); err != nil {
+	if _, err := readGH(ctx, dir, nil, "auth", "status"); err != nil {
 		return githubRepo{}, fmt.Errorf("gh is not logged in: run gh auth login (%w)", err)
 	}
-	out, err := runGH(ctx, dir, nil, "repo", "view", "--json", "nameWithOwner,defaultBranchRef")
+	out, err := readRepoView(ctx, dir)
 	if err != nil {
 		return githubRepo{}, fmt.Errorf("%s is not the folder of a GitHub repository you can use: %w", dir, err)
 	}
+	return parseRepoView(out)
+}
+
+// readRepoView asks gh for the repository of the folder.
+func readRepoView(ctx context.Context, dir string) ([]byte, error) {
+	return readGH(ctx, dir, nil, "repo", "view", "--json", "nameWithOwner,defaultBranchRef")
+}
+
+// parseRepoView reads what gh repo view printed.
+func parseRepoView(out []byte) (githubRepo, error) {
 	var v struct {
 		NameWithOwner    string `json:"nameWithOwner"`
 		DefaultBranchRef *struct {

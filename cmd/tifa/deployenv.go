@@ -158,6 +158,7 @@ var promptSecret = func(in io.Reader, prompt io.Writer, name string) (string, er
 	if !ok {
 		return "", errors.New("no terminal to ask on")
 	}
+	flushInput(f)
 	fmt.Fprintf(prompt, "Value of %s (hidden): ", name)
 	b, err := term.ReadPassword(int(f.Fd()))
 	fmt.Fprintln(prompt)

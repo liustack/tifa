@@ -613,27 +613,6 @@ func (v sshHostValue) Set(s string) error {
 func (v sshHostValue) String() string { return *v.p }
 func (v sshHostValue) kind() string   { return "string" }
 
-// domainValue is deploy.domain: one host name, as server.tls_domains takes them, empty when not set.
-type domainValue struct{ p *string }
-
-func (v domainValue) Set(s string) error {
-	var domains []string
-	if err := (domainsValue{&domains}).Set(s); err != nil {
-		return err
-	}
-	switch len(domains) {
-	case 0:
-		*v.p = ""
-	case 1:
-		*v.p = domains[0]
-	default:
-		return fmt.Errorf("%q: write one domain", s)
-	}
-	return nil
-}
-func (v domainValue) String() string { return *v.p }
-func (v domainValue) kind() string   { return "string" }
-
 // CheckDeployHost checks a value for deploy.host given another way, such as a flag of tifa deploy.
 func CheckDeployHost(s string) error {
 	var host string
@@ -656,3 +635,37 @@ func (v sshModeValue) Set(s string) error {
 }
 func (v sshModeValue) String() string { return *v.p }
 func (v sshModeValue) kind() string   { return "string" }
+
+// frontValue is deploy.front: what visitors pass through. Empty means none.
+type frontValue struct{ p *string }
+
+func (v frontValue) Set(s string) error {
+	switch m := strings.ToLower(s); m {
+	case "":
+		*v.p = "none"
+	case "none", "cloudflare":
+		*v.p = m
+	default:
+		return fmt.Errorf("%q: use none or cloudflare", s)
+	}
+	return nil
+}
+func (v frontValue) String() string { return *v.p }
+func (v frontValue) kind() string   { return "string" }
+
+// ciValue is deploy.ci: who deploys automatically. Empty means none.
+type ciValue struct{ p *string }
+
+func (v ciValue) Set(s string) error {
+	switch m := strings.ToLower(s); m {
+	case "":
+		*v.p = "none"
+	case "none", "github":
+		*v.p = m
+	default:
+		return fmt.Errorf("%q: use none or github", s)
+	}
+	return nil
+}
+func (v ciValue) String() string { return *v.p }
+func (v ciValue) kind() string   { return "string" }
