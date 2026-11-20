@@ -259,4 +259,4 @@ func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
 const noTokenCost = "a page with Cache stays on the CDN until its Cache time runs out. That copy may ask for scripts the new build no longer has"
 
 // noTokenHow says how to have the cache cleared at each deploy.
-const noTokenHow = "To clear it at each deploy: tifa deploy setup --cdn-token, or cf auth login on this machine"
+const noTokenHow = "To clear it at each deploy: tifa deploy setup --cache-purge-token, or cf auth login on this machine"

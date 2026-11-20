@@ -644,7 +644,7 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 		} else if err == nil || !strings.Contains(err.Error(), "1 thing needs you") || !strings.Contains(out, "warning cloudflare: a token that can only clear the cache") {
 			t.Fatalf("%s: a refused token must fail the run: %v\n%s", name, err, out)
 		}
-		if !strings.Contains(out, "tifa deploy setup --cdn-token") {
+		if !strings.Contains(out, "tifa deploy setup --cache-purge-token") {
 			t.Errorf("%s:\n%s", name, out)
 		}
 		if s.gh.secrets[secretPurge] != "" || s.asked != len(tokens) {
@@ -659,7 +659,7 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 		// Setup asks on the first CI setup only. Run again, it notes the command that adds the
 		// token, asks nothing and succeeds.
 		out, err = runSetup(t, s.root, true, "", "--yes")
-		if err != nil || s.asked != len(tokens) || !strings.Contains(out, "(optional)") || !strings.Contains(out, "tifa deploy setup --cdn-token") {
+		if err != nil || s.asked != len(tokens) || !strings.Contains(out, "(optional)") || !strings.Contains(out, "tifa deploy setup --cache-purge-token") {
 			t.Errorf("%s: second run: %v, asked %d\n%s", name, err, s.asked, out)
 		}
 		if strings.Contains(out, "gh secret") {
@@ -668,20 +668,20 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 	}
 }
 
-// --cdn-token asks for the token even when the secret is there, and replaces it. It needs a
+// --cache-purge-token asks for the token even when the secret is there, and replaces it. It needs a
 // terminal, deploy.cdn cloudflare and deploy.ci github.
-func TestSetupCDNTokenFlag(t *testing.T) {
+func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	s := newPurgeSetup(t, "tok-good")
 	s.gh.secrets[secretPurge] = "set earlier"
-	out, err := runSetup(t, s.root, true, "", "--yes", "--cdn-token")
+	out, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token")
 	if err != nil || !strings.Contains(out, "change  cloudflare: a token that can only clear the cache") || s.gh.secrets[secretPurge] != "tok-good" {
 		t.Fatalf("%v, secret %q\n%s", err, s.gh.secrets[secretPurge], out)
 	}
-	if _, err := runSetup(t, s.root, false, "", "--yes", "--cdn-token"); err == nil || !strings.Contains(err.Error(), "terminal") {
+	if _, err := runSetup(t, s.root, false, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Errorf("no terminal: %v", err)
 	}
 	writeFile(t, filepath.Join(s.root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n")
-	if _, err := runSetup(t, s.root, true, "", "--yes", "--cdn-token"); err == nil || !strings.Contains(err.Error(), "deploy.cdn") {
+	if _, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "deploy.cdn") {
 		t.Errorf("cdn none: %v", err)
 	}
 }
@@ -697,7 +697,7 @@ func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 	if strings.Contains(out, "gh secret") {
 		t.Errorf("setup tells to run gh:\n%s", out)
 	}
-	for _, want := range []string{"1. cloudflare: a token that can only clear the cache of shop.example.com", "(optional)", "Cache time", "tifa deploy setup --cdn-token"} {
+	for _, want := range []string{"1. cloudflare: a token that can only clear the cache of shop.example.com", "(optional)", "Cache time", "tifa deploy setup --cache-purge-token"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}

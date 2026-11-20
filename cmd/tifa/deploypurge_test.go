@@ -88,7 +88,7 @@ func TestNoPurgeTokenIsNoWarning(t *testing.T) {
 	}
 	var out strings.Builder
 	printCache(&out, r)
-	if got := out.String(); strings.Contains(got, "warning") || !strings.Contains(got, "cache: not cleared for shop.example.com") || !strings.Contains(got, "Cache time") || !strings.Contains(got, "tifa deploy setup --cdn-token") {
+	if got := out.String(); strings.Contains(got, "warning") || !strings.Contains(got, "cache: not cleared for shop.example.com") || !strings.Contains(got, "Cache time") || !strings.Contains(got, "tifa deploy setup --cache-purge-token") {
 		t.Errorf("printed %q", got)
 	}
 	md := deploySummary{App: "shop", Action: "deploy", Cache: r}.markdown()
