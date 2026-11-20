@@ -7,7 +7,7 @@ read_when:
   - Choosing deploy.host, deploy.front, deploy.ssh or deploy.ci in tifa.yaml
   - Deploying on every push with GitHub Actions after CI, or taking away the key CI deploys with
   - Putting an app behind a Cloudflare Tunnel with cf, or finding what tifa deploy setup changed in Cloudflare and how to remove it
-  - A deploy printed a warning that the CDN cache was not cleared, or the token CF_CACHE_PURGE_TOKEN needs making
+  - A deploy said the CDN cache was not cleared, or you want to add the token CF_CACHE_PURGE_TOKEN
   - Giving a second developer machine access to deploy
   - Setting a secret or a setting in the .env of a deployed app, with tifa deploy env
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
@@ -75,9 +75,9 @@ Plan for shop on vps
 Already right: server 1 (--all lists them)
 
 You need to do 1 thing that setup cannot:
-  1. cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN
-     there is no terminal to paste on.
-     open https://dash.cloudflare.com/... (the rest says how to make the token)
+  1. cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN (optional)
+     There is no terminal to paste on.
+     By hand: open https://dash.cloudflare.com/... (the rest says how to make the token and what going without costs)
 
 Apply this plan? [y/N]
 ```
@@ -88,7 +88,7 @@ On a terminal it asks, and only when there is something to change. Without one, 
 shop on vps matches tifa.yaml: 9 things checked (--all lists them).
 ```
 
-Setup exits with an error when an item is left for you or a step that may fail (the cache purge token) failed, after it did all the rest. A tip marked `(optional)`, such as writing an ssh alias in place of an IP address in `deploy.host`, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. Run it again whenever `tifa.yaml` changes: it only does what differs.
+Setup exits with an error when an item is left for you or a step that may fail failed (a cache purge token that Cloudflare refused three times), after it did all the rest. An item marked `(optional)`, such as the cache purge token or an ssh alias in place of an IP address in `deploy.host`, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. Run it again whenever `tifa.yaml` changes: it only does what differs.
 
 Setup removes only what Tifa made and marked (it cannot delete the Cloudflare token you made: the plan says to delete it in the dashboard): the lines in `authorized_keys` with the comment `tifa-github <owner>/<repo>`, Cloudflare objects whose names start with `tifa`, the route and DNS record of a domain it added, the repository variable `TIFA_DEPLOY` and the secrets set with it, and the workflow file that starts with Tifa's line. Set `front: none` or `ci: none`, and the plan lists those removals before anything goes.
 
@@ -154,8 +154,11 @@ It starts the newest earlier release that passed its check, checks it the same w
 
 With `front: cloudflare`, a deploy and a rollback clear the cache of that host name in Cloudflare, by host name and nothing wider: the rest of the zone keeps its cache. A page with `Cache` would otherwise show the old HTML, whose scripts are gone, until its `s-maxage` runs out.
 
+Clearing is optional. No CDN, and no framework, makes every visitor see a new build the moment it is up: a cache that is not cleared keeps its copy until it runs out. Without a way to clear it, a page with `Cache` can be up to its `Cache` time old after a deploy, and that old copy may ask for scripts the new build no longer has. That is the price of a CDN, and Tifa says so on each deploy without calling it an error.
+
 - On your machine, cf does it with your login.
 - In CI there is no cf. The workflow gives Tifa a token that can only clear the cache of that one zone, `CF_CACHE_PURGE_TOKEN`, and the ID of the zone, `CF_ZONE_ID`, which is not a secret and sits in the workflow file. Tifa calls the Cloudflare API with them. The token needs no Zone Read, because the ID is already known. Tifa keeps neither.
+- With neither, the deploy prints `cache: not cleared for <host>` with what that costs, and is no warning.
 - A clearing that fails does not fail the deploy: it prints a warning and exits with 0, and the summary of the run shows it. Clear the cache by hand in Cloudflare, Caching, Configuration, Custom Purge, by host name.
 
 Purging by host name works on every Cloudflare plan.
@@ -177,7 +180,7 @@ For the repository, setup:
 1. Makes a key for this repository alone, and adds its public key to `/srv/tifa/.ssh/authorized_keys` on the server with the comment `tifa-github <owner>/<repo>`. The key cannot open a terminal or forward ports. Keep the secret `DEPLOY_SSH_KEY` as it is made: to rotate the key, set `ci: none`, run setup, set it back and run setup again.
 2. Reads the host keys of the server over your own ssh and keeps them as the secret `DEPLOY_KNOWN_HOSTS`, so CI trusts that server and no other. CI never runs `ssh-keyscan`.
 3. Sets `DEPLOY_HOST`, where CI logs in. With `ssh: direct` it is the address that `ssh -G <deploy.host>` gives, so an alias from `~/.ssh/config` works, and a port other than 22 is written into the workflow. A host that ssh reaches through `ProxyJump` or `ProxyCommand` cannot be copied into CI: use one of the two ways below.
-4. With `front: cloudflare`, needs a token that can only clear the cache of the zone, kept as `CF_CACHE_PURGE_TOKEN`. A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <owner>/<repo>`. Set Zone Resources to the zone of the domain only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and gives it to gh on its input. An empty line skips: the step warns and setup goes on. Without a terminal the plan lists it among what you must do, with the link: make the token, then run `gh secret set CF_CACHE_PURGE_TOKEN --repo <owner>/<repo>`. GitHub secrets are write-only, so a secret that is there is taken as right. To replace the token, delete the secret and run setup again. Setup also removes a secret named `CF_PURGE_TOKEN`.
+4. With `front: cloudflare`, asks for a token, which is optional, that can only clear the cache of the zone, kept as `CF_CACHE_PURGE_TOKEN`. A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <owner>/<repo>`. Set Zone Resources to the zone of the domain only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and gives it to gh on its input. An empty line skips it, and setup goes on and succeeds. Without a terminal the plan lists it as optional, with the link: make the token, then run `gh secret set CF_CACHE_PURGE_TOKEN --repo <owner>/<repo>`. GitHub secrets are write-only, so a secret that is there is taken as right. To replace the token, delete the secret and run setup again. Setup also removes a secret named `CF_PURGE_TOKEN`.
 5. Keeps `TIFA_DEPLOY`, a repository variable that marks the secrets as Tifa's and holds a fingerprint of the connection, so a second run sees what is current.
 
 Secret values go to gh on its input: they are never printed, never written to a file and never on a command line.
@@ -465,7 +468,7 @@ What to read, and what to change:
 
 - A visitor who had a page open keeps working: the next click or handler call sees the new build, and the browser reloads the page once. See [Pages open while you deploy](deploy.md#pages-open-while-you-deploy).
 - If your `OnRequest` or a CDN rule lets a CDN keep pages other than the ones with `Cache`, clear them on every deploy. Otherwise a visitor can get an old page whose scripts are gone.
-- A CDN that keeps pages with `Cache` hands out the old HTML until `s-maxage` runs out, and the scripts that HTML names may be gone. With `front: cloudflare`, `tifa deploy` clears the host name for you (see [Clearing the CDN cache](#clearing-the-cdn-cache)). On another CDN, clear those pages when you deploy. A browser that asks the program itself gets the new page at once.
+- A CDN that keeps pages with `Cache` hands out the old HTML until `s-maxage` runs out, and the scripts that HTML names may be gone. With `front: cloudflare`, `tifa deploy` clears the host name for you when it has the token or a cf login (see [Clearing the CDN cache](#clearing-the-cdn-cache)). Without them the old page stays until `s-maxage` runs out, the accepted cost of a CDN. On another CDN, clear those pages when you deploy. A browser that asks the program itself gets the new page at once.
 - The render memo of the program lives in memory and starts empty after a restart.
 
 ## Pages open while you deploy

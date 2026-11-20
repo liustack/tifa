@@ -630,16 +630,21 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 	}
 }
 
-// An empty line skips the token, and three refused ones give up. Either way the step is a warning
-// with the way by hand, nothing is stored, and the steps after it still run.
+// An empty line skips the token: the token is optional, so the run still succeeds and says what
+// skipping costs. Three refused tokens give up with a warning, since the developer wanted one.
+// Either way the way by hand is printed, nothing is stored, and the steps after it still run.
 func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 	for name, tokens := range map[string][]string{"empty": {""}, "refused three times": {"tok-1", "tok-2", "tok-3"}} {
 		s := newPurgeSetup(t, tokens...)
 		out, err := runSetup(t, s.root, true, "", "--yes")
-		if err == nil || !strings.Contains(err.Error(), "1 thing needs you") {
-			t.Fatalf("%s: a skipped token must fail the run: %v\n%s", name, err, out)
+		if name == "empty" {
+			if err != nil || !strings.Contains(out, "skipped cloudflare: a token that can only clear the cache") || !strings.Contains(out, "Cache time") {
+				t.Fatalf("%s: %v\n%s", name, err, out)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), "1 thing needs you") || !strings.Contains(out, "warning cloudflare: a token that can only clear the cache") {
+			t.Fatalf("%s: a refused token must fail the run: %v\n%s", name, err, out)
 		}
-		if !strings.Contains(out, "warning cloudflare: a token that can only clear the cache") || !strings.Contains(out, "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop") {
+		if !strings.Contains(out, "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop") {
 			t.Errorf("%s:\n%s", name, out)
 		}
 		if s.gh.secrets[secretPurge] != "" || s.asked != len(tokens) {
@@ -654,14 +659,15 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 	}
 }
 
-// Without a terminal there is nobody to paste a token: the plan says how to make it and set it.
+// Without a terminal there is nobody to paste a token: the plan notes, as optional, how to make it
+// and set it and what going without costs. The run succeeds.
 func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 	s := newPurgeSetup(t)
 	out, err := runSetup(t, s.root, false, "", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "1 thing needs you") {
+	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"1. cloudflare: a token that can only clear the cache of shop.example.com", "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=", "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop"} {
+	for _, want := range []string{"1. cloudflare: a token that can only clear the cache of shop.example.com", "(optional)", "Cache time", "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=", "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -732,9 +738,9 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
 	gh := newFakeGH()
 	gh.install(t)
-	// The cache token needs a terminal to paste on, so setup does the rest and then fails.
+	// The cache token needs a terminal to paste on. It is optional, so setup only notes it.
 	out, err := runSetup(t, root, false, "", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "1 thing needs you") {
+	if err != nil || !strings.Contains(out, "(optional)") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if gh.secrets[secretHost] != "deploy-a-ssh.example.com" || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
@@ -764,7 +770,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n")
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
-	if err == nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
+	if err != nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if len(cf.apps) != 0 || len(cf.tokens) != 0 || len(cf.policies) != 0 || gh.secrets[secretCFID] != "" {

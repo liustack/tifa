@@ -75,6 +75,28 @@ func TestPurgeFailureIsAWarning(t *testing.T) {
 	}
 }
 
+// Without a token or a cf login the cache is left as it is. That is the choice of the developer, so
+// the line says what it costs and is no warning.
+func TestNoPurgeTokenIsNoWarning(t *testing.T) {
+	t.Setenv(envPurgeToken, "")
+	oldHave := haveCF
+	t.Cleanup(func() { haveCF = oldHave })
+	haveCF = func() bool { return false }
+	r := clearCache(context.Background(), "shop.example.com")
+	if r.Cleared || !r.NoToken || r.Warning != "" {
+		t.Fatalf("result %+v", r)
+	}
+	var out strings.Builder
+	printCache(&out, r)
+	if got := out.String(); strings.Contains(got, "warning") || !strings.Contains(got, "cache: not cleared for shop.example.com") || !strings.Contains(got, "Cache time") {
+		t.Errorf("printed %q", got)
+	}
+	md := deploySummary{App: "shop", Action: "deploy", Cache: r}.markdown()
+	if strings.Contains(md, "Warning") || !strings.Contains(md, "| CDN cache | not cleared for shop.example.com") {
+		t.Errorf("summary:\n%s", md)
+	}
+}
+
 // On a machine with cf logged in, cf clears the cache of the host name.
 func TestPurgeWithCF(t *testing.T) {
 	t.Setenv(envPurgeToken, "")
