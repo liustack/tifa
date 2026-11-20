@@ -81,6 +81,7 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 ## Highlights
 
 - **One file to deploy.** Pure Go, `CGO_ENABLED=0`, cross-compiles like any Go program. The browser bundle, styles and server renderer are embedded in the executable.
+- **Live on every push.** `tifa deploy setup` sets up the server, Cloudflare and GitHub Actions in one command. After that every push is checked and goes live, and a release that fails its health check rolls back by itself. See [Deploying](docs/deploy.md#deploy-with-tifa-deploy).
 - **Real HTML on the first request.** Go runs the page's `Load` and every `Layout` function first, then renders React to complete HTML inside the process with a pure Go QuickJS. Search engines and link previews see the content, title and meta tags. Each page renders whole in one pass: there is no streaming and there are no React Server Components.
 - **Your frontend tools keep working.** Vite, Tailwind and shadcn work as usual on your machine. The server runs one Go file and never installs Node.
 - **Types from Go to React.** The TypeScript type of each page's data is generated from what its Go `Load` returns.

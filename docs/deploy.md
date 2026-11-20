@@ -27,6 +27,8 @@ A Tifa app is one executable. The server needs that file, the settings in its en
 
 ## Deploy with tifa deploy
 
+`tifa deploy` puts a Tifa app on your own server, and one command sets up the whole CI/CD path from push to live.
+
 `go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. Several apps can share one server. The server needs no Docker, no Node and no deploy program of its own.
 
 `tifa.yaml` says what you want. `go tool tifa deploy setup` makes the server, Cloudflare and GitHub match it. No secret goes in `tifa.yaml`.
