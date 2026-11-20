@@ -233,6 +233,11 @@ func TestHostRules(t *testing.T) {
 	if cache[0].ActionParameters["edge_ttl"].(map[string]any)["mode"] != "bypass_by_default" || cache[1].ActionParameters["cache"] != false {
 		t.Errorf("cache rules %+v", cache)
 	}
+	// The zone's Browser Cache TTL (4 hours by default) would rewrite max-age=0 and no-cache of
+	// what the edge keeps, so browsers would hold a page with Cache or a public file for hours.
+	if bt, _ := cache[0].ActionParameters["browser_ttl"].(map[string]any); bt["mode"] != "respect_origin" {
+		t.Errorf("the cache rule does not keep the browser TTL of the origin: %+v", cache[0].ActionParameters)
+	}
 	for _, want := range []string{`"/__tifa/"`, `"_tifa="`} {
 		if !strings.Contains(cache[1].Expression, want) || !strings.Contains(cache[0].Expression, "not ") {
 			t.Errorf("the rule that skips the cache lacks %s: %s", want, cache[1].Expression)
