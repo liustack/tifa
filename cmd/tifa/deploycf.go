@@ -90,7 +90,7 @@ func cfNotFound(err error) bool {
 
 // cfJSON runs cf and decodes its output into v.
 func cfJSON(ctx context.Context, v any, args ...string) error {
-	out, err := runCF(ctx, args...)
+	out, err := readCF(ctx, args...)
 	if err != nil {
 		return err
 	}

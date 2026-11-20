@@ -8,8 +8,12 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
+
+// fakeMu guards the fakes of cf and gh: setup reads from several goroutines while it plans.
+var fakeMu sync.Mutex
 
 // fakeCF stands in for the cf of the user: an account with zones, tunnels, DNS records and entry
 // point rulesets, which answers the calls setup makes as cf does and records them.
@@ -36,6 +40,8 @@ func (f *fakeCF) install(t *testing.T) {
 	t.Cleanup(func() { runCF, haveCF = oldRun, oldHave })
 	haveCF = func() bool { return true }
 	runCF = func(_ context.Context, args ...string) ([]byte, error) {
+		fakeMu.Lock()
+		defer fakeMu.Unlock()
 		f.calls = append(f.calls, strings.Join(args, " "))
 		v, err := f.answer(args)
 		if err != nil {

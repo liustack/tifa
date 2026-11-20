@@ -304,6 +304,8 @@ func (a *fakeAccess) install(t *testing.T) {
 		if len(args) < 4 || args[0] != "zero-trust" {
 			return inner(ctx, args...)
 		}
+		fakeMu.Lock()
+		defer fakeMu.Unlock()
 		a.calls = append(a.calls, strings.Join(args, " "))
 		v, err := a.answer2(args)
 		if err != nil {

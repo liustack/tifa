@@ -83,6 +83,8 @@ func TestPurgeWithCF(t *testing.T) {
 	inner := runCF
 	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
 		if args[0] == "cache" {
+			fakeMu.Lock()
+			defer fakeMu.Unlock()
 			f.calls = append(f.calls, strings.Join(args, " "))
 			return []byte(`{}`), nil
 		}

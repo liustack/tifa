@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeGH stands in for gh: one repository, its secrets and variables.
@@ -36,6 +37,8 @@ func (g *fakeGH) install(t *testing.T) {
 	t.Cleanup(func() { runGH, haveGH = oldRun, oldHave })
 	haveGH = func() bool { return true }
 	runGH = func(_ context.Context, _ string, stdin io.Reader, args ...string) ([]byte, error) {
+		fakeMu.Lock()
+		defer fakeMu.Unlock()
 		g.calls = append(g.calls, strings.Join(args, " "))
 		switch {
 		case slices.Equal(args, []string{"auth", "status"}):
@@ -163,6 +166,13 @@ func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 // runSetup runs deploy setup with the given terminal state and answers.
 func runSetup(t *testing.T, root string, terminal bool, input string, args ...string) (string, error) {
 	t.Helper()
+	out, _, err := runSetupIO(t, root, terminal, input, args...)
+	return out, err
+}
+
+// runSetupIO is runSetup that also returns what went to stderr.
+func runSetupIO(t *testing.T, root string, terminal bool, input string, args ...string) (string, string, error) {
+	t.Helper()
 	old := stdinIsTerminal
 	t.Cleanup(func() { stdinIsTerminal = old })
 	stdinIsTerminal = func(io.Reader) bool { return terminal }
@@ -173,7 +183,7 @@ func runSetup(t *testing.T, root string, terminal bool, input string, args ...st
 	cmd.SetIn(strings.NewReader(input))
 	cmd.SetArgs(append([]string{"deploy", "setup", "--dir", root}, args...))
 	err := cmd.Execute()
-	return out.String(), err
+	return out.String(), errOut.String(), err
 }
 
 // An unprepared server: tifa cannot log in, so the plan adds the server as root and then the app as
@@ -258,6 +268,8 @@ func (c *cfEverything) install(t *testing.T) {
 	inner := runCF
 	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
 		if strings.Contains(" "+strings.Join(args[:min(5, len(args))], " ")+" ", " delete ") {
+			fakeMu.Lock()
+			defer fakeMu.Unlock()
 			c.calls = append(c.calls, strings.Join(args, " "))
 			c.deleted = append(c.deleted, strings.Join(args, " "))
 			c.applyDelete(args)
@@ -771,5 +783,87 @@ func TestSetupSSHModesNeedThings(t *testing.T) {
 	out, _ := runSetup(t, root, false, "")
 	if !strings.Contains(out, "cannot  github: the Tailscale secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET") || !strings.Contains(out, "gh secret set") {
 		t.Errorf("out:\n%s", out)
+	}
+}
+
+// While it plans, setup says which part it is reading, on stderr, one line each.
+func TestSetupProgressOnStderr(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cfSetup(t, "example.com")
+	newFakeGH().install(t)
+	out, errOut, err := runSetupIO(t, root, false, "")
+	if err == nil {
+		t.Fatalf("no --yes and no terminal, but no error:\n%s", out)
+	}
+	want := "Reading the server...\nReading Cloudflare...\nReading GitHub...\n"
+	if errOut != want {
+		t.Errorf("stderr:\n%q\nwant\n%q", errOut, want)
+	}
+	if strings.Contains(out, "Reading") {
+		t.Errorf("progress went to stdout:\n%s", out)
+	}
+
+	// Nothing of Cloudflare or GitHub is asked for here, so nothing is said about them.
+	root = setupApp(t, "deploy:\n  host: vps\n", nil)
+	_, errOut, _ = runSetupIO(t, root, false, "")
+	if errOut != "Reading the server...\n" {
+		t.Errorf("stderr: %q", errOut)
+	}
+}
+
+// One plan reads each thing once, however many steps look at it.
+func TestSetupPlanReadsOnce(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	gh := newFakeGH()
+	gh.install(t)
+	if _, err := runSetup(t, root, false, ""); err == nil {
+		t.Fatal("no --yes and no terminal, but no error")
+	}
+	seen := map[string]int{}
+	for _, c := range append(slices.Clone(cf.calls), gh.calls...) {
+		seen[c]++
+	}
+	if len(seen) < 10 {
+		t.Fatalf("too few calls, did the plan run?\n%v", seen)
+	}
+	for c, n := range seen {
+		if n != 1 {
+			t.Errorf("%q ran %d times in one plan", c, n)
+		}
+	}
+}
+
+// The reads that do not depend on each other run together: with every call slow, the plan takes
+// far less than all its calls one after the other.
+func TestSetupPlanReadsTogether(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	gh := newFakeGH()
+	gh.install(t)
+	const delay = 100 * time.Millisecond
+	innerCF, innerGH := runCF, runGH
+	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
+		time.Sleep(delay)
+		return innerCF(ctx, args...)
+	}
+	runGH = func(ctx context.Context, dir string, in io.Reader, args ...string) ([]byte, error) {
+		time.Sleep(delay)
+		return innerGH(ctx, dir, in, args...)
+	}
+	start := time.Now()
+	if _, err := runSetup(t, root, false, ""); err == nil {
+		t.Fatal("no --yes and no terminal, but no error")
+	}
+	calls := len(cf.calls) + len(gh.calls)
+	took := time.Since(start)
+	t.Logf("%d calls, %v", calls, took)
+	if took > time.Duration(calls)*delay/2 {
+		t.Errorf("%d calls of %v took %v: they ran one after the other", calls, delay, took)
 	}
 }

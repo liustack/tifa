@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/term"
 )
@@ -148,13 +149,22 @@ type setupRun struct {
 }
 
 func (r *setupRun) refresh(ctx context.Context) error {
-	st, err := r.t.state(ctx, r.stderr)
+	st, err := r.readState(ctx)
 	if err != nil {
 		return err
 	}
 	r.st, r.haveServer = st, true
 	return nil
 }
+
+// readState asks the server about the app. Inside a plan it asks once.
+func (r *setupRun) readState(ctx context.Context) (serverState, error) {
+	return memoRead(ctx, "ssh-state", func() (serverState, error) { return r.t.state(ctx, r.stderr) })
+}
+
+// progress says which part of the plan is being read. Reading takes seconds, and a terminal that
+// stays silent looks hung.
+func (r *setupRun) progress(what string) { fmt.Fprintf(r.stderr, "Reading %s...\n", what) }
 
 func (r *setupRun) appPort() (int, error) {
 	if r.st.Port != 0 {
@@ -171,16 +181,30 @@ func sha(s string) string {
 // buildSetupPlan reads the server, Cloudflare and GitHub, and compares them with tifa.yaml. It
 // changes nothing.
 func buildSetupPlan(ctx context.Context, t deployTarget, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
-	r := &setupRun{t: t, in: in, stdout: stdout, stderr: stderr}
+	// The reads run on several goroutines, and each one may write to stderr.
+	r := &setupRun{t: t, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}}
+	// The plan reads each thing once. The steps it returns run later, with the context of the
+	// caller, which has no memo, so they see what they changed.
+	ctx, cancel := context.WithCancel(withReadMemo(ctx))
+	var reads sync.WaitGroup
+	defer func() {
+		cancel()
+		reads.Wait()
+	}()
+	r.prefetch(ctx, &reads)
 	var p setupPlan
 	if net.ParseIP(t.host) != nil {
 		p.notes = append(p.notes, fmt.Sprintf("deploy.host is the address %s. tifa.yaml is committed, and a public repository then shows where your server is. Write an ssh alias instead, a Host of ~/.ssh/config, so the address stays on each machine.", t.host))
 	}
+	r.progress("the server")
 	if err := r.serverSteps(ctx, &p); err != nil {
 		return p, r, err
 	}
 	if err := r.appSteps(&p); err != nil {
 		return p, r, err
+	}
+	if t.domain != "" {
+		r.progress("Cloudflare")
 	}
 	if err := r.domainSteps(ctx, &p); err != nil {
 		return p, r, err
@@ -446,33 +470,52 @@ func (r *setupRun) ghSecret(ctx context.Context, name, value string) error {
 }
 
 func (r *setupRun) ghLists(ctx context.Context) error {
-	out, err := runGH(ctx, r.t.root, nil, "secret", "list", "--repo", r.repo.Name, "--json", "name")
+	names, err := ghSecretNames(ctx, r.t.root, r.repo.Name)
 	if err != nil {
 		return err
+	}
+	vars, err := ghVariables(ctx, r.t.root, r.repo.Name)
+	if err != nil {
+		return err
+	}
+	r.ghNames, r.ghVars = names, vars
+	return nil
+}
+
+// ghSecretNames lists the names of the secrets of the repository.
+func ghSecretNames(ctx context.Context, dir, repo string) (map[string]bool, error) {
+	out, err := readGH(ctx, dir, nil, "secret", "list", "--repo", repo, "--json", "name")
+	if err != nil {
+		return nil, err
 	}
 	var names []struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(out, &names); err != nil {
-		return fmt.Errorf("gh secret list printed what tifa cannot read: %w", err)
+		return nil, fmt.Errorf("gh secret list printed what tifa cannot read: %w", err)
 	}
-	r.ghNames = map[string]bool{}
+	got := map[string]bool{}
 	for _, n := range names {
-		r.ghNames[n.Name] = true
+		got[n.Name] = true
 	}
-	out, err = runGH(ctx, r.t.root, nil, "variable", "list", "--repo", r.repo.Name, "--json", "name,value")
+	return got, nil
+}
+
+// ghVariables lists the variables of the repository with their values.
+func ghVariables(ctx context.Context, dir, repo string) (map[string]string, error) {
+	out, err := readGH(ctx, dir, nil, "variable", "list", "--repo", repo, "--json", "name,value")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var vars []struct{ Name, Value string }
 	if err := json.Unmarshal(out, &vars); err != nil {
-		return fmt.Errorf("gh variable list printed what tifa cannot read: %w", err)
+		return nil, fmt.Errorf("gh variable list printed what tifa cannot read: %w", err)
 	}
-	r.ghVars = map[string]string{}
+	got := map[string]string{}
 	for _, v := range vars {
-		r.ghVars[v.Name] = v.Value
+		got[v.Name] = v.Value
 	}
-	return nil
+	return got, nil
 }
 
 func hasMarker(path string) (text string, marked bool, err error) {
@@ -498,6 +541,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	if !t.github && !marked && len(r.st.GitHubKeys) == 0 {
 		return nil
 	}
+	r.progress("GitHub")
 	repo, repoErr := findGitHubRepo(ctx, t.root)
 	if repoErr == nil {
 		r.repo = repo
