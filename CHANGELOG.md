@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-20
+
 ### Changed
 
 - `tifa deploy setup` reads the server, Cloudflare and GitHub at the same time and each thing once, says what it is reading, and ignores keys pressed before it asks. Planning went from 49 s to 7 s on a slow link.
