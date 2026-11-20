@@ -40,6 +40,9 @@ func TestMain(m *testing.M) {
 	// tifa would hand every command to go tool tifa, a second build of the same code, so the
 	// marker of a forwarded command keeps it running the commands itself.
 	os.Setenv("TIFA_FORWARDED", "1")
+	// In GitHub Actions tifa prints its findings as workflow commands in place of the lines the
+	// tests read.
+	os.Unsetenv("GITHUB_ACTIONS")
 	code := m.Run()
 	if left := leftDaemons(); len(left) > 0 {
 		fmt.Fprintf(os.Stderr, "playwright-cli daemons of this run still running: %v\n", left)
