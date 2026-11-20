@@ -51,9 +51,12 @@ type planStep struct {
 	soft bool
 }
 
+// planNote is something the developer may want to do, though setup works without it.
+type planNote struct{ what, why string }
+
 type setupPlan struct {
 	steps []planStep
-	notes []string
+	notes []planNote
 }
 
 func (p *setupPlan) add(op planOp, text string, do func(context.Context) (string, error)) {
@@ -74,19 +77,93 @@ func (p setupPlan) todo() (n int) {
 	return n
 }
 
-func (p setupPlan) print(w io.Writer, app, host string) {
-	fmt.Fprintf(w, "Plan for %s on %s\n\n", app, host)
+// count counts the steps with the given op.
+func (p setupPlan) count(op planOp) (n int) {
 	for _, s := range p.steps {
-		if s.op == opCannot {
-			fmt.Fprintf(w, "  %-7s %s (%s)\n", s.op, s.text, s.why)
-		} else {
-			fmt.Fprintf(w, "  %-7s %s\n", s.op, s.text)
+		if s.op == op {
+			n++
 		}
 	}
-	for _, n := range p.notes {
-		fmt.Fprintf(w, "\nNote: %s\n", n)
+	return n
+}
+
+// areaNames shows the word before the first ":" of a step in the form the developer knows.
+var areaNames = map[string]string{"cloudflare": "Cloudflare", "github": "GitHub"}
+
+// alreadyRight counts the ok steps by area, in the order the areas first show.
+func (p setupPlan) alreadyRight() string {
+	var areas []string
+	counts := map[string]int{}
+	for _, s := range p.steps {
+		if s.op != opOK {
+			continue
+		}
+		area, _, _ := strings.Cut(s.text, ":")
+		if name, ok := areaNames[area]; ok {
+			area = name
+		}
+		if counts[area] == 0 {
+			areas = append(areas, area)
+		}
+		counts[area]++
+	}
+	parts := make([]string, len(areas))
+	for i, a := range areas {
+		parts[i] = fmt.Sprintf("%s %d", a, counts[a])
+	}
+	return strings.Join(parts, ", ")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// print shows what will change, what is already right and what the developer has to do. With all
+// it lists the ok lines instead of counting them.
+func (p setupPlan) print(w io.Writer, app, host string, all bool) {
+	fmt.Fprintf(w, "Plan for %s on %s\n", app, host)
+	first := true
+	for _, s := range p.steps {
+		if s.op == opCannot || (s.op == opOK && !all) {
+			continue
+		}
+		if first {
+			fmt.Fprintln(w)
+			first = false
+		}
+		fmt.Fprintf(w, "  %-7s %s\n", s.op, s.text)
+	}
+	if !all && p.count(opOK) > 0 {
+		fmt.Fprintf(w, "\nAlready right: %s (--all lists them)\n", p.alreadyRight())
+	}
+	cannot := p.count(opCannot)
+	if n := cannot + len(p.notes); n > 0 {
+		fmt.Fprintf(w, "\nYou need to do %d %s that setup cannot:\n", n, plural(n, "thing", "things"))
+		i := 0
+		for _, s := range p.steps {
+			if s.op == opCannot {
+				i++
+				printItem(w, i, s.text, s.why)
+			}
+		}
+		for _, n := range p.notes {
+			i++
+			printItem(w, i, n.what+" (optional)", n.why)
+		}
 	}
 	fmt.Fprintln(w)
+}
+
+// printItem writes one numbered item: what on its line, and the reason below it, a sentence to a
+// line.
+func printItem(w io.Writer, i int, what, why string) {
+	fmt.Fprintf(w, "  %d. %s\n", i, what)
+	for _, line := range strings.SplitAfter(why, ". ") {
+		fmt.Fprintf(w, "     %s\n", strings.TrimSpace(line))
+	}
 }
 
 // stdinIsTerminal tells whether the developer can answer a question. Tests replace it.
@@ -114,7 +191,8 @@ func confirm(in io.Reader, out io.Writer, yes bool) error {
 	return nil
 }
 
-func (p setupPlan) apply(ctx context.Context, w io.Writer) error {
+// apply runs the steps and says how many soft ones failed.
+func (p setupPlan) apply(ctx context.Context, w io.Writer) (warnings int, err error) {
 	for _, s := range p.steps {
 		if s.do == nil {
 			continue
@@ -123,16 +201,17 @@ func (p setupPlan) apply(ctx context.Context, w io.Writer) error {
 		switch {
 		case err != nil && s.soft:
 			fmt.Fprintf(w, "  warning %s: %v\n", s.text, err)
+			warnings++
 		case err != nil:
 			fmt.Fprintf(w, "  failed  %s\n", s.text)
-			return err
+			return warnings, err
 		case res != "":
 			fmt.Fprintf(w, "  done    %s: %s\n", s.text, res)
 		default:
 			fmt.Fprintf(w, "  done    %s\n", s.text)
 		}
 	}
-	return nil
+	return warnings, nil
 }
 
 // setupRun holds what the steps of one setup share.
@@ -197,7 +276,10 @@ func buildSetupPlan(ctx context.Context, t deployTarget, in io.Reader, stdout, s
 	r.prefetch(ctx, &reads)
 	var p setupPlan
 	if net.ParseIP(t.host) != nil {
-		p.notes = append(p.notes, fmt.Sprintf("deploy.host is the address %s. tifa.yaml is committed, and a public repository then shows where your server is. Write an ssh alias instead, a Host of ~/.ssh/config, so the address stays on each machine.", t.host))
+		p.notes = append(p.notes, planNote{
+			what: "deploy.host is the address " + t.host,
+			why:  "tifa.yaml is committed, and a public repository then shows where your server is. Write an ssh alias instead, a Host of ~/.ssh/config, so the address stays on each machine.",
+		})
 	}
 	r.progress("the server")
 	if err := r.serverSteps(ctx, &p); err != nil {
@@ -926,31 +1008,30 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 	return nil
 }
 
-// deploySetup plans, asks and applies.
-func deploySetup(ctx context.Context, t deployTarget, yes bool, in io.Reader, stdout, stderr io.Writer) error {
+// deploySetup plans, asks and applies. It fails when something needs the developer, after it did
+// all it could.
+func deploySetup(ctx context.Context, t deployTarget, yes, all bool, in io.Reader, stdout, stderr io.Writer) error {
 	plan, _, err := buildSetupPlan(ctx, t, in, stdout, stderr)
 	if err != nil {
 		return err
 	}
-	plan.print(stdout, t.app, t.host)
-	cannot := 0
-	for _, s := range plan.steps {
-		if s.op == opCannot {
-			cannot++
-		}
+	cannot := plan.count(opCannot)
+	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !all {
+		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
+		return nil
 	}
-	if plan.todo() == 0 {
-		fmt.Fprintln(stdout, "Nothing to change.")
-	} else {
+	plan.print(stdout, t.app, t.host, all)
+	warnings := 0
+	if plan.todo() > 0 {
 		if err := confirm(in, stdout, yes); err != nil {
 			return err
 		}
-		if err := plan.apply(ctx, stdout); err != nil {
+		if warnings, err = plan.apply(ctx, stdout); err != nil {
 			return err
 		}
 	}
-	if cannot > 0 {
-		fmt.Fprintf(stdout, "\n%d item(s) could not be done, see above. Fix what they need and run setup again.\n", cannot)
+	if n := cannot + warnings; n > 0 {
+		return fmt.Errorf("%d %s, see above", n, plural(n, "thing needs you", "things need you"))
 	}
 	return nil
 }

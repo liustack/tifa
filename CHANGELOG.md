@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The plan of `tifa deploy setup` is short. It lists only what will be added, changed or removed, counts what is already right in one line (`--all` lists it), and ends with a numbered list of what setup cannot do for you, each with its reason. When everything is right it prints one line and asks nothing. Setup now does all it can and then exits with an error when something is left for you or the cache purge token step failed. Upgrading: a script that runs `tifa deploy setup` must expect a non-zero exit when something needs you.
+
 ## [0.1.9] - 2026-11-20
 
 ### Added
