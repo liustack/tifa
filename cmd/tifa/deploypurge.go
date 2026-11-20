@@ -92,6 +92,9 @@ type cacheResult struct {
 	Cleared bool
 	// Warning says why the cache was not cleared. A deploy does not fail for it.
 	Warning string
+	// NoToken is set when there is neither a token nor a cf login. Then the cache is left to run
+	// out, which the developer chose, so it is no warning.
+	NoToken bool
 }
 
 func (r cacheResult) String() string {
@@ -100,6 +103,8 @@ func (r cacheResult) String() string {
 		return "not used, deploy.front is not cloudflare"
 	case r.Cleared:
 		return "cleared for " + r.Host
+	case r.NoToken:
+		return "not cleared for " + r.Host + ": " + noTokenCost + ". " + noTokenHow
 	}
 	return "NOT cleared for " + r.Host + ": " + r.Warning
 }
@@ -125,7 +130,8 @@ func clearCache(ctx context.Context, domain string) cacheResult {
 			_, err = runCF(ctx, "cache", "purge", "-z", zone.Name, "--force", "--body", string(purgeBody(domain)))
 		}
 	default:
-		err = fmt.Errorf("cf is not logged in and %s is not set: clear it in Cloudflare, Caching, Configuration, Custom Purge, by host name", envPurgeToken)
+		r.NoToken = true
+		return r
 	}
 	if err != nil {
 		r.Warning = err.Error()
@@ -141,6 +147,8 @@ func printCache(w io.Writer, r cacheResult) {
 	case r.Host == "":
 	case r.Cleared:
 		fmt.Fprintf(w, "cache: cleared for %s\n", r.Host)
+	case r.NoToken:
+		fmt.Fprintf(w, "cache: not cleared for %s: %s. %s\n", r.Host, noTokenCost, noTokenHow)
 	default:
 		fmt.Fprintf(w, "warning: the CDN cache of %s was not cleared: %s\n", r.Host, r.Warning)
 	}
@@ -180,7 +188,7 @@ func (s deploySummary) markdown() string {
 	} else {
 		row("Error", strings.ReplaceAll(s.Err.Error(), "\n", " "))
 	}
-	if s.Cache.Host != "" && !s.Cache.Cleared && s.Err == nil {
+	if s.Cache.Host != "" && !s.Cache.Cleared && !s.Cache.NoToken && s.Err == nil {
 		fmt.Fprintf(&b, "\n> Warning: the CDN cache of %s was not cleared. The deploy itself went through.\n", s.Cache.Host)
 	}
 	b.WriteString("\n")
@@ -247,7 +255,14 @@ func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
 }
 
 // purgeTokenManual says how to make the token by hand and give it to the repository.
-func purgeTokenManual(repo, zone, domain string) string {
-	return fmt.Sprintf("open %s, set Zone Resources to %s only, create the token, then run gh secret set %s --repo %s, which asks for the value. Without it a deploy still works and prints a warning that the cache of %s was not cleared",
-		purgeTokenLink(repo), zone, envPurgeToken, repo, domain)
+func purgeTokenManual(repo, zone string) string {
+	return fmt.Sprintf("open %s, set Zone Resources to %s only, create the token, then run gh secret set %s --repo %s, which asks for the value. Without it a deploy still works, but %s.",
+		purgeTokenLink(repo), zone, envPurgeToken, repo, noTokenCost)
 }
+
+// noTokenCost is what a deploy that does not clear the CDN cache costs. A CDN keeps its copies
+// until they run out: that is the price of a CDN, not an error.
+const noTokenCost = "a page with Cache stays on the CDN until its Cache time runs out. That copy may ask for scripts the new build no longer has"
+
+// noTokenHow says how to have the cache cleared at each deploy.
+const noTokenHow = "tifa deploy setup asks for " + envPurgeToken + ", or log in with cf auth login on this machine"

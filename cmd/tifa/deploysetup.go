@@ -191,6 +191,12 @@ func confirm(in io.Reader, out io.Writer, yes bool) error {
 	return nil
 }
 
+// skipped is what a step returns when the developer chose to leave an optional thing out. It is
+// not a failure, so it is no warning either.
+type skipped struct{ why string }
+
+func (s skipped) Error() string { return s.why }
+
 // apply runs the steps and says how many soft ones failed.
 func (p setupPlan) apply(ctx context.Context, w io.Writer) (warnings int, err error) {
 	for _, s := range p.steps {
@@ -199,6 +205,8 @@ func (p setupPlan) apply(ctx context.Context, w io.Writer) (warnings int, err er
 		}
 		res, err := s.do(ctx)
 		switch {
+		case errors.As(err, new(skipped)):
+			fmt.Fprintf(w, "  skipped %s: %v\n", s.text, err)
 		case err != nil && s.soft:
 			fmt.Fprintf(w, "  warning %s: %v\n", s.text, err)
 			warnings++
@@ -852,9 +860,9 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	case r.ghNames[secretPurge]:
 		p.ok("github: the secret " + secretPurge + ". GitHub does not show it: to replace the token, delete the secret and run setup again")
 	case r.zone.ID == "":
-		p.cannot(text, "needs cf logged in, for the zone: cf auth login. By hand: "+purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
+		p.notes = append(p.notes, planNote{what: text, why: "Setup needs cf logged in to find the zone: cf auth login, then run setup again. By hand: " + purgeTokenManual(r.repo.Name, r.zoneText())})
 	case !stdinIsTerminal(r.in):
-		p.cannot(text, "there is no terminal to paste on. "+purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
+		p.notes = append(p.notes, planNote{what: text, why: "There is no terminal to paste on. By hand: " + purgeTokenManual(r.repo.Name, r.zoneText())})
 	default:
 		p.steps = append(p.steps, planStep{op: opAdd, text: text, soft: true, do: r.pastePurgeToken})
 	}
@@ -869,16 +877,16 @@ const purgeTokenTries = 3
 func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
-	say("Open this link, set Zone Resources to %s only, create the token, and paste it here:", r.zoneText())
+	say("Open this link, set Zone Resources to %s only, create the token, and paste it here, or press Enter to skip:", r.zoneText())
 	say("%s", purgeTokenLink(r.repo.Name))
 	for try := 1; try <= purgeTokenTries; try++ {
 		token, err := promptSecret(r.in, r.stdout, secretPurge)
 		if err != nil {
-			return "", fmt.Errorf("reading the token: %w. Do it by hand: %s", err, purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
+			return "", fmt.Errorf("reading the token: %w. Do it by hand: %s", err, purgeTokenManual(r.repo.Name, r.zoneText()))
 		}
 		token = strings.TrimSpace(token)
 		if token == "" {
-			return "", fmt.Errorf("skipped. Do it by hand: %s", purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
+			return "", skipped{"to add it later: " + purgeTokenManual(r.repo.Name, r.zoneText())}
 		}
 		err = checkPurgeToken(ctx, token, r.zone.ID, t.domain)
 		if err == nil {
@@ -886,7 +894,7 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 		}
 		why := strings.ReplaceAll(err.Error(), "\n", " ")
 		if try == purgeTokenTries {
-			return "", fmt.Errorf("the token was refused: %s. Do it by hand: %s", why, purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
+			return "", fmt.Errorf("the token was refused: %s. Do it by hand: %s", why, purgeTokenManual(r.repo.Name, r.zoneText()))
 		}
 		say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
 	}

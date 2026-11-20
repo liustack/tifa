@@ -1,5 +1,5 @@
 ---
-summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports'
+summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports'
 audience: dev
 read_when:
   - Proposing a new API, convention, setting or design for Tifa, to check it was not turned down before
@@ -22,9 +22,19 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Instead.**
 - A page of an older build reloads once when it meets the new one: [Pages open while you deploy](deploy.md#pages-open-while-you-deploy). Next.js self-hosted, SvelteKit and Nuxt do the same.
-- Old HTML that a CDN still holds is taken away by clearing the CDN cache on deploy: [Clearing the CDN cache](deploy.md#clearing-the-cdn-cache).
+- Old HTML that a CDN still holds is taken away by clearing the CDN cache on deploy, when the app gives a token: [Clearing the CDN cache](deploy.md#clearing-the-cdn-cache). Without one, the old copy stays until it runs out, which is the accepted cost of a CDN.
 
 **Reopen when** old HTML in a CDN still breaks pages in practice although the cache is cleared on deploy, or an app needs open pages to keep working through a deploy without a reload.
+
+## A reload that skips the CDN
+
+**Turned down (2026-11-21).** When a page meets a new build, it would reload to its own URL plus a build ID, such as `?_tb=<build>`, so the CDN misses and the new page comes from the program. Clearing the cache would then only make new pages show up sooner.
+
+**Why not.** The reload is code in the page's scripts, and the pages that need it most cannot run it. A visitor who opens an old page from the CDN gets HTML whose scripts the new build no longer has: no script runs, so nothing reloads. The idea only helps a tab that was already open and working, which the plain reload already handles once the CDN copy runs out. No framework or CDN removes this gap entirely: Vercel, Netlify and Cloudflare Workers route old pages to old builds only on their own platforms and only for a limited time.
+
+**Instead.** Clear the CDN cache on deploy when the app gives a token. Without one, a page with `Cache` can be up to its `Cache` time old after a deploy, an accepted cost: [Clearing the CDN cache](deploy.md#clearing-the-cdn-cache).
+
+**Reopen when** a page can recover even when its entry script is gone.
 
 ## A scheduled job API
 
