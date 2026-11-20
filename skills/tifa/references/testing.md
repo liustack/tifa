@@ -12,6 +12,8 @@ go tool tifa check
 
 Run it before you finish. It runs, and stops at the first failure: the Tifa analysis, the `.tifa/` generation, `go vet ./...`, `go test ./...` and the TypeScript check (`tsc --noEmit` with the app's own `typescript`). An app without pages skips the TypeScript step. The TypeScript step needs `pnpm install` (or npm) to have been run.
 
+A new app has `.github/workflows/ci.yml`, which runs this command on pull requests and pushes to `main`.
+
 For a quick Go-only loop, `go test ./...` works on its own. `tifa build` reads no `_test.go` files, so tests may sit in any folder under `app/`.
 
 ## Domain code
