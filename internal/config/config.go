@@ -51,6 +51,10 @@ type Site struct {
 type Deploy struct {
 	Host   string
 	Domain string
+	// SSH is how CI reaches the server: direct, cloudflare or tailscale.
+	SSH string
+	// GitHub says the GitHub Actions of the repository deploy the app.
+	GitHub bool
 }
 
 // Build is read by the tifa CLI only. It may appear in the project tifa.yaml and nowhere else.
@@ -205,6 +209,7 @@ func Default() Config {
 		SSR:     SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
 		Cache:   Cache{SMaxage: time.Minute},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
+		Deploy:  Deploy{SSH: "direct"},
 	}
 }
 
@@ -263,6 +268,8 @@ func fields(c *Config) []field {
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 		{"deploy.host", "Server tifa deploy puts the app on, a host name of ~/.ssh/config or an address", sshHostValue{&c.Deploy.Host}},
 		{"deploy.domain", "Domain that reaches the app, such as shop.example.com", domainValue{&c.Deploy.Domain}},
+		{"deploy.ssh", "How CI reaches the server over ssh: direct, cloudflare or tailscale", sshModeValue{&c.Deploy.SSH}},
+		{"deploy.github", "true lets the GitHub Actions of the repository deploy the app, set up by tifa deploy setup", boolValue{&c.Deploy.GitHub}},
 	}
 }
 
