@@ -75,7 +75,7 @@ Common settings (full table in config.md):
 | `cache.s_maxage` | `1m` | `--cache-s-maxage`, `CACHE_S_MAXAGE` | The `s-maxage` of a page that writes `const Cache = true`. A duration in `Cache` sets its own time |
 | `session.cookie`, `session.max_age`, `session.memory_limit` | `__Host-tifa_session`, `720h`, `64MiB` | `SESSION_COOKIE`, `SESSION_MAX_AGE`, `SESSION_MEMORY_LIMIT` | Name and lifetime of the session cookie, and the memory of the default session store |
 | `build.target` | `es2020` | project file only | Browser bundle target, such as `es2019,chrome90,safari14` |
-| `build.public` | `public` | project file only | Folder of static files served from `/` |
+| `build.public` | `public` | project file only | Folder of static files that need a fixed name, served from `/` with `no-cache`. Import images and fonts instead (docs/app.md, "Static files") |
 
 Sizes are whole numbers with `B`, `KiB`, `MiB` or `GiB`. Durations use Go's format (`500ms`, `3s`). A bad value stops the program before `OnStart`, listing every one. A flag that is no setting stops the program. Keys and variables that are no setting are left alone, so a misspelt name there changes nothing. `build.*` keys are read only from `tifa.yaml`. `./bin/app config` prints every setting with its value and its source, as a commented file that is a good start for a deployment file.
 

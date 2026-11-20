@@ -1,8 +1,9 @@
 ---
-summary: 'How to start a Tifa app: folder layout, how folders become URLs, the files of a folder (route.go, page.tsx, layout.tsx), what the check says about code written for another framework (Next.js, Remix, React Router, TanStack Start, SvelteKit, other Go web frameworks) and what to write in Tifa instead, and a site in several languages, with links to the docs for each part'
+summary: 'How to start a Tifa app: folder layout, how folders become URLs, the files of a folder (route.go, page.tsx, layout.tsx), what the check says about code written for another framework (Next.js, Remix, React Router, TanStack Start, SvelteKit, other Go web frameworks) and what to write in Tifa instead, a site in several languages, which static files to import and which to keep in `public/`, with links to the docs for each part'
 audience: app
 read_when:
   - Creating a Tifa app, or adding pages, Layouts or API routes to one
+  - Putting images, fonts or icons in an app, or deciding between an import and a file in `public/`
   - The check, build or dev run reports code of another framework, or you are about to write a Tifa app from the habits of Next.js, Remix, React Router, TanStack Start or SvelteKit, or you look for static generation, prerender, `next/image`, `next/font` or `loading.tsx`
   - Deciding which folder a route goes in, or the build rejects a folder name or two routes that overlap
   - Changing the apps in examples/shop or test/apps
@@ -79,6 +80,39 @@ A folder has at most three convention files:
 - `route.tsx` is not a convention file. A `route.tsx` fails the build with the message to rename it to `page.tsx`, so a page is never taken for a plain component.
 - `tifa build` also writes a `route.gen.ts` module for each folder with a page, a Layout or a method handler, which `page.tsx`, `layout.tsx` and `layout_.tsx` import (see [page.tsx](pages.md#pagetsx)).
 
+## Static files
+
+A file is in one of two classes, and one question decides which: does the URL change when the content changes?
+
+- **Import it. The file is in the bundle under `/assets/`.** Vite gives it a name with a content hash, and Tifa serves it with `Cache-Control: public, max-age=31536000, immutable`. The browser keeps it for good, and a new version has a new URL, so it is never stale. Images, fonts and icons that your pages use belong here.
+- **Put it in `public/`.** The file keeps its name, and Tifa serves it with `Cache-Control: no-cache` and an ETag, so each use asks the server and gets a 304 when nothing changed. With a fixed name, any cache time N means up to N of old content, so it is checked every time.
+
+Import what a page uses:
+
+```tsx
+import logo from './logo.svg'
+
+export default function Page() {
+  return <img src={logo} alt="Shop" width={120} height={32} />
+}
+```
+
+```css
+@font-face {
+  font-family: 'Shop Serif';
+  src: url(./shop-serif.woff2) format('woff2');
+  font-display: swap;
+}
+```
+
+`public/` is only for files that must keep their exact name or that no source refers to:
+
+- `favicon.ico`, `robots.txt`, `apple-touch-icon.png`.
+- Files that other sites or crawlers ask for by name: an image that other sites link to (an `og:image`), a web manifest, verification files.
+- Downloads with a stable URL.
+
+Vite says the same: prefer importing assets, and use `public/` for files never referenced in source code or that must keep their name ([Vite: static asset handling](https://vite.dev/guide/assets.html)). `tifa build` and `tifa dev` warn when source refers to an image or a font of `public/` by its path, since an import would do. They do not warn for `favicon.ico`, `apple-touch-icon*.png`, or a file that a `manifest.webmanifest` or `site.webmanifest` lists.
+
 ## Coming from another framework
 
 `tifa check`, `tifa build` and `tifa dev` recognize code written for Next.js, Remix, React Router, TanStack Start and SvelteKit, and for Go web frameworks. Each finding is one line: `<file>:<line>: <what it is>. In Tifa: <what to write>. See <doc>`. An error stops the command. A warning ends in `(warning)` and stops nothing: the code builds, and Tifa never uses it.
@@ -108,7 +142,7 @@ Tifa has no static generation, prerender or export: nothing renders at build tim
 
 ### Images and fonts
 
-Tifa has nothing like `next/image` or `next/font`: no resizing, no format conversion, no automatic lazy loading and no font download at build time. Write a plain `<img>` with `width`, `height` and `loading="lazy"`, and size the files before you add them. A file in `public/` is served at its path with an ETag. An image or font that your CSS references is hashed by Vite and served from `/assets/` with a one-year cache (see [Styles](styles.md#styles)). For fonts, write `@font-face` in your CSS with the font file in the app, and `font-display: swap`. If you need resizing on the fly, put an image service or CDN in front.
+Tifa has nothing like `next/image` or `next/font`: no resizing, no format conversion, no automatic lazy loading and no font download at build time. Write a plain `<img>` with `width`, `height` and `loading="lazy"`, and size the files before you add them. Import the images and fonts your pages use, so that they are hashed and cached for a year, and keep `public/` for files that need a fixed name (see [Static files](#static-files)). For fonts, write `@font-face` in your CSS with the font file in the app, and `font-display: swap`. If you need resizing on the fly, put an image service or CDN in front.
 
 ### Loading states
 

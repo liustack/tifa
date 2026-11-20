@@ -3,12 +3,13 @@ summary: 'How to add CSS, Tailwind CSS and shadcn/ui to an app'
 audience: app
 read_when:
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
+  - Putting a font or an image in a stylesheet, and whether it goes in `public/`
   - A font or an image that a stylesheet names is not found, or you want to know where Vite puts it
 ---
 
 # Styles
 
-Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Vite builds it: every page links one stylesheet with all the CSS of the app, and fonts and images that CSS references get a content hash in their names under `/assets/` (small ones go inline). A URL that starts with `/`, such as `/logo.svg`, is left as it is, so it can name a file of the public folder. Under `tifa dev` the CSS goes through Vite's dev server and updates in place, see [dev.md](dev.md).
+Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Vite builds it: every page links one stylesheet with all the CSS of the app, and fonts and images that CSS references get a content hash in their names under `/assets/` (small ones go inline). A URL that starts with `/`, such as `/logo.svg`, is left as it is and names a file of the public folder. Use a relative URL such as `url(./font.woff2)` for what the page uses, and keep the public folder for files with a fixed name (see [Static files](app.md#static-files)). Under `tifa dev` the CSS goes through Vite's dev server and updates in place, see [dev.md](dev.md).
 
 ## Tailwind CSS
 
