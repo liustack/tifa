@@ -27,6 +27,7 @@ const (
 	docPrivate  = "docs/ssr-and-cache.md#user-independent-pages-and-private-data"
 	docStatic   = "docs/app.md#no-static-generation"
 	docImages   = "docs/app.md#images-and-fonts"
+	docPublic   = "docs/app.md#static-files"
 	docLoading  = "docs/app.md#loading-states"
 )
 

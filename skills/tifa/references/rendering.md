@@ -139,7 +139,7 @@ export const documentHead = {
 }
 ```
 
-Exporting `Document` fails the build. Files in the `public/` folder (set by `build.public`) are served from `/`.
+Exporting `Document` fails the build. Files in the `public/` folder (set by `build.public`) are served from `/`, for files that need a fixed name (see Styles below).
 
 ## SSR and Memo switches
 
@@ -161,7 +161,7 @@ const LayoutSSR = false        // the Layout of the folder, default true
 
 ## Styles
 
-Import CSS from a Layout or page, such as `import './styles.css'` in `app/layout.tsx`. Vite builds one stylesheet with all the CSS of the app. A URL starting with `/` (`/logo.svg`) is left as is and names a file in `public/`.
+Import CSS from a Layout or page, such as `import './styles.css'` in `app/layout.tsx`. Vite builds one stylesheet with all the CSS of the app. Import what pages use, so the file gets a content hash and a one-year cache under `/assets/`: `import logo from './logo.svg'` in TSX, `url(./font.woff2)` in CSS. A URL starting with `/` (`/logo.svg`) is left as is and names a file in `public/`, which is served with `no-cache` and an ETag. Keep `public/` for files that need a fixed name: `favicon.ico`, `robots.txt`, an og image other sites link to, a manifest, downloads. `tifa build` warns when source names an image or font of `public/` by path. See docs/app.md, "Static files".
 
 Tailwind CSS v4 through its Vite plugin:
 

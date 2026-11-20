@@ -1,8 +1,10 @@
 package foreign
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
@@ -108,7 +110,7 @@ func TestEveryMessagePointsToASectionThatExists(t *testing.T) {
 	}
 	anchors := map[string]map[string]bool{}
 	for _, doc := range []string{docFiles, docFolders, docRouteGo, docPage, docLink, docLayout, docHandlers, docCalling, docBrowser, docCtx, docCache,
-		docSSR, docErrors, docNotFound, docHooks, docWaiting, docContent, docPrivate, docStatic, docImages, docLoading} {
+		docSSR, docErrors, docNotFound, docHooks, docWaiting, docContent, docPrivate, docStatic, docImages, docLoading, docPublic} {
 		file, anchor, _ := strings.Cut(doc, "#")
 		if anchors[file] == nil {
 			anchors[file] = map[string]bool{}
@@ -129,5 +131,39 @@ func TestEveryMessagePointsToASectionThatExists(t *testing.T) {
 		if !anchors[file][anchor] {
 			t.Errorf("%s has no section %q", file, anchor)
 		}
+	}
+}
+
+func TestPublicImportsWarnForImagesAndFontsThatCouldBeImported(t *testing.T) {
+	found, err := PublicImports(filepath.Join("testdata", "publicuse"), "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range found {
+		if !f.Warning {
+			t.Errorf("%v is not a warning", f)
+		}
+		got = append(got, fmt.Sprintf("%s:%d", f.File, f.Line))
+	}
+	want := []string{"app/page.tsx:4", "app/page.tsx:12", "app/styles.css:3", "app/styles.css:6"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("warnings at %v, want %v", got, want)
+	}
+	msg := found[0].String()
+	for _, part := range []string{"app/page.tsx:4:", "/logo.png", "public/", "import logo from './logo.png'", docPublic, "(warning)"} {
+		if !strings.Contains(msg, part) {
+			t.Errorf("%q lacks %q", msg, part)
+		}
+	}
+	if css := found[2].Msg; !strings.Contains(css, "url(./a.woff2)") {
+		t.Errorf("css message %q lacks the url() example", css)
+	}
+}
+
+func TestPublicImportsNeedAPublicFolder(t *testing.T) {
+	found, err := PublicImports(filepath.Join("testdata", "clean"), "public")
+	if err != nil || len(found) != 0 {
+		t.Fatalf("got %v, %v", found, err)
 	}
 }

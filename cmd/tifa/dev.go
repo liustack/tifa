@@ -363,8 +363,15 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkLangAttribute(p.root, p.m, p.front.LangKeys); err != nil {
 		return "", err
 	}
+	settings, err := codegen.BuildSettings(p.root)
+	if err != nil {
+		return "", err
+	}
 	if err := p.collect("foreign code", func(w io.Writer) error {
-		return checkForeign(p.root, hasPages(files), w, p.front.Foreign)
+		if err := checkForeign(p.root, hasPages(files), w, p.front.Foreign); err != nil {
+			return err
+		}
+		return warnPublicImports(p.root, settings.Public, hasPages(files), w)
 	}); err != nil {
 		return "", err
 	}
@@ -372,10 +379,6 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 		return "", err
 	}
 	p.files = files
-	settings, err := codegen.BuildSettings(p.root)
-	if err != nil {
-		return "", err
-	}
 	_, pages := files["client.ts"]
 	if err := checkTanStack(p.root, settings, pages); err != nil {
 		return "", err

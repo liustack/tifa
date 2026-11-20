@@ -73,3 +73,17 @@ func hasPages(files map[string][]byte) bool {
 	_, pages := files["client.ts"]
 	return pages
 }
+
+// warnPublicImports prints a warning for each image or font of the public folder that the source
+// of an app with pages names by its path, where an import would do (see foreign.PublicImports).
+func warnPublicImports(root, public string, pages bool, warnings io.Writer) error {
+	if !pages {
+		return nil
+	}
+	found, err := foreign.PublicImports(root, public)
+	if err != nil {
+		return err
+	}
+	report(found, warnings)
+	return nil
+}

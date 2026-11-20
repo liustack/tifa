@@ -138,3 +138,18 @@ func TestDevPipelineKeepsItsWarnings(t *testing.T) {
 		t.Errorf("after the check ran clean:\n%s", got)
 	}
 }
+
+func TestWarnPublicImportsPrintsTheWarningsOfAnAppWithPages(t *testing.T) {
+	root := filepath.Join("..", "..", "internal", "foreign", "testdata", "publicuse")
+	var out strings.Builder
+	if err := warnPublicImports(root, "public", true, &out); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out.String(), "(warning)"); n != 4 {
+		t.Errorf("got %d warnings, want 4:\n%s", n, out.String())
+	}
+	out.Reset()
+	if err := warnPublicImports(root, "public", false, &out); err != nil || out.Len() != 0 {
+		t.Errorf("an app without pages got %q, %v", out.String(), err)
+	}
+}
