@@ -54,11 +54,25 @@ func (e *cfError) Error() string {
 		}
 		words = append(words, a)
 	}
-	msg := e.stderr
+	msg := oneLine(e.stderr)
 	if msg == "" {
 		msg = e.err.Error()
 	}
 	return fmt.Sprintf("cf %s: %s", strings.Join(words, " "), msg)
+}
+
+// oneLine joins the lines cf prints for an error, without the box it draws around an API error
+// ("┌ APIError", "│ " in front of each line, "└").
+func oneLine(stderr string) string {
+	var lines []string
+	for _, l := range strings.Split(stderr, "\n") {
+		l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "│"))
+		if l == "" || l == "└" || strings.HasPrefix(l, "┌") {
+			continue
+		}
+		lines = append(lines, l)
+	}
+	return strings.Join(lines, ", ")
 }
 
 func (e *cfError) Unwrap() error { return e.err }

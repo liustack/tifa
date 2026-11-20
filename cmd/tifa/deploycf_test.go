@@ -252,7 +252,12 @@ func TestCloudflareNotLoggedIn(t *testing.T) {
 // The error of a cf call holds what cf printed on stderr and the command, never its output.
 func TestCFError(t *testing.T) {
 	err := &cfError{args: []string{"tunnels", "config", "update", "id", "--body", "{}"}, stderr: "[1000] bad\n400 Bad Request"}
-	if got := err.Error(); got != "cf tunnels config update id: [1000] bad\n400 Bad Request" {
+	if got := err.Error(); got != "cf tunnels config update id: [1000] bad, 400 Bad Request" {
+		t.Errorf("got %q", got)
+	}
+	// The box cf draws around an API error becomes one line, to fit in a line of the setup plan.
+	boxed := &cfError{args: []string{"user", "tokens", "list"}, stderr: "┌ APIError\n│ [9109] Unauthorized to access requested resource\n│ 403 Forbidden · HTTP /user/tokens\n└\n\n→ Check your API token permissions"}
+	if got := boxed.Error(); got != "cf user tokens list: [9109] Unauthorized to access requested resource, 403 Forbidden · HTTP /user/tokens, → Check your API token permissions" {
 		t.Errorf("got %q", got)
 	}
 	if cfNotFound(err) {
