@@ -772,7 +772,9 @@ func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
 	if r.useCF(ctx) {
 		var err error
 		if tokens, err = purgeTokens(ctx, r.repo.Name); err != nil {
-			return err
+			// The same login could not have made one, but another could have: say what to look for.
+			p.cannot("cloudflare: the tokens tifa made to clear the cache for "+r.repo.Name,
+				err.Error()+". By hand: in the Cloudflare dashboard, My Profile, API Tokens, delete the tokens whose name starts with "+purgeTokenPrefix(r.repo.Name))
 		}
 	}
 	if r.ghNames[secretPurge] {

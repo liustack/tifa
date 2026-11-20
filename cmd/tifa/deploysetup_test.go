@@ -252,6 +252,7 @@ type cfEverything struct {
 	userTokens []map[string]any
 	deleted    []string
 	createFail bool
+	listFail   bool // the cf login may not read API tokens, as an OAuth login of cf cannot
 }
 
 func (c *cfEverything) install(t *testing.T) {
@@ -264,6 +265,9 @@ func (c *cfEverything) install(t *testing.T) {
 			return []byte(`[{"id":"pg-1","name":"Cache Purge","scopes":["com.cloudflare.api.account.zone"]}]`), nil
 		case cmd == "user tokens list":
 			c.calls = append(c.calls, strings.Join(args, " "))
+			if c.listFail {
+				return nil, &cfError{args: args, stderr: "[9109] Unauthorized to access requested resource\n403 Forbidden", err: errors.New("exit 1")}
+			}
 			return page2(c.userTokens, args)
 		case cmd == "user tokens create":
 			c.calls = append(c.calls, strings.Join(args[:6], " ")+" --policies "+flag(args, "--policies"))
@@ -603,6 +607,34 @@ func TestSetupPurgeToken(t *testing.T) {
 	}
 	if gh.secrets[secretPurge] != "" || len(cf.userTokens) != 0 {
 		t.Errorf("left: %v %v", gh.secrets, cf.userTokens)
+	}
+}
+
+// A cf login that may not read API tokens (an OAuth login of cf) makes the purge token a step that
+// cannot be done, both when the domain is there and when it goes: setup still does the rest.
+func TestSetupPurgeTokensUnreadable(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n  domain: shop.example.com\n  github: true\n", nil)
+	srv := newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	cf.listFail = true
+	gh := newFakeGH()
+	gh.install(t)
+	if out, err := runSetup(t, root, false, "", "--yes"); err != nil || !strings.Contains(out, "cannot  cloudflare: a token that can only clear the cache") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  github: false\n")
+	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "cannot  cloudflare: the tokens tifa made to clear the cache for acme/shop") || !strings.Contains(out, "tifa-purge-acme-shop-") {
+		t.Errorf("out:\n%s", out)
+	}
+	if gh.secrets[secretSSHKey] != "" {
+		t.Errorf("the GitHub part was not taken away: %v", gh.secrets)
 	}
 }
 
