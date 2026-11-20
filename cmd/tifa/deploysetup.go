@@ -103,6 +103,9 @@ func confirm(in io.Reader, out io.Writer, yes bool) error {
 	if !stdinIsTerminal(in) {
 		return errors.New("there is no terminal to ask on: read the plan above and run the command again with --yes to apply it")
 	}
+	if f, ok := in.(*os.File); ok {
+		flushInput(f)
+	}
 	fmt.Fprint(out, "Apply this plan? [y/N] ")
 	line, _ := bufio.NewReader(in).ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
