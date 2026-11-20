@@ -254,15 +254,9 @@ func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
 	return purgeRequest(ctx, token, zoneID, body)
 }
 
-// purgeTokenManual says how to make the token by hand and give it to the repository.
-func purgeTokenManual(repo, zone string) string {
-	return fmt.Sprintf("open %s, set Zone Resources to %s only, create the token, then run gh secret set %s --repo %s, which asks for the value. Without it a deploy still works, but %s.",
-		purgeTokenLink(repo), zone, envPurgeToken, repo, noTokenCost)
-}
-
 // noTokenCost is what a deploy that does not clear the CDN cache costs. A CDN keeps its copies
 // until they run out: that is the price of a CDN, not an error.
 const noTokenCost = "a page with Cache stays on the CDN until its Cache time runs out. That copy may ask for scripts the new build no longer has"
 
 // noTokenHow says how to have the cache cleared at each deploy.
-const noTokenHow = "tifa deploy setup asks for " + envPurgeToken + ", or log in with cf auth login on this machine"
+const noTokenHow = "To clear it at each deploy: tifa deploy setup --cdn-token, or cf auth login on this machine"

@@ -236,6 +236,7 @@ type setupRun struct {
 	repo           githubRepo
 	ghNames        map[string]bool
 	ghVars         map[string]string
+	cdnToken       bool // --cdn-token: ask for the purge token and replace the secret
 }
 
 func (r *setupRun) refresh(ctx context.Context) error {
@@ -270,9 +271,9 @@ func sha(s string) string {
 
 // buildSetupPlan reads the server, Cloudflare and GitHub, and compares them with tifa.yaml. It
 // changes nothing.
-func buildSetupPlan(ctx context.Context, t deployTarget, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
+func buildSetupPlan(ctx context.Context, t deployTarget, cdnToken bool, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
 	// The reads run on several goroutines, and each one may write to stderr.
-	r := &setupRun{t: t, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}}
+	r := &setupRun{t: t, cdnToken: cdnToken, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}}
 	// The plan reads each thing once. The steps it returns run later, with the context of the
 	// caller, which has no memo, so they see what they changed.
 	ctx, cancel := context.WithCancel(withReadMemo(ctx))
@@ -842,32 +843,59 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 	return nil
 }
 
-// purgeSteps plans the token CI clears the cache of the domain with. GitHub does not show a
-// secret, so one that is there is taken as right. Otherwise the developer pastes a token made in
-// the Cloudflare dashboard, when there is a terminal to paste on.
+// purgeSteps plans the token CI clears the cache of the domain with. The token is optional, so
+// setup asks for it on the first CI setup only, before the marker variable exists, and later
+// notes the command that adds it. With --cdn-token it asks every time and replaces the secret.
+// GitHub does not show a secret, so one that is there is taken as right.
 func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
 	text := fmt.Sprintf("cloudflare: a token that can only clear the cache of %s, pasted by you and kept as %s", t.domain, secretPurge)
+	have := r.ghNames[secretPurge]
+	switch {
+	case have && !r.cdnToken:
+		p.ok("github: the secret " + secretPurge + ". To replace the token: " + cdnTokenCommand)
+		return nil
+	case !r.cdnToken && r.ghVars[varMarker] != "":
+		p.notes = append(p.notes, planNote{what: text, why: purgeTokenLater})
+		return nil
+	}
+	// left says why setup cannot ask now: a note on its own, a thing that needs you when the
+	// developer asked with --cdn-token.
+	left := func(why string) {
+		if r.cdnToken {
+			p.cannot(text, why)
+			return
+		}
+		p.notes = append(p.notes, planNote{what: text, why: why + ". " + purgeTokenLater})
+	}
 	if r.zone.ID == "" && r.useCF(ctx) {
 		zone, err := findZone(ctx, t.domain)
 		if err != nil {
-			p.cannot(text, err.Error())
+			left(err.Error())
 			return nil
 		}
 		r.zone = zone
 	}
 	switch {
-	case r.ghNames[secretPurge]:
-		p.ok("github: the secret " + secretPurge + ". GitHub does not show it: to replace the token, delete the secret and run setup again")
 	case r.zone.ID == "":
-		p.notes = append(p.notes, planNote{what: text, why: "Setup needs cf logged in to find the zone: cf auth login, then run setup again. By hand: " + purgeTokenManual(r.repo.Name, r.zoneText())})
+		left("Setup needs cf logged in to find the zone: cf auth login")
 	case !stdinIsTerminal(r.in):
-		p.notes = append(p.notes, planNote{what: text, why: "There is no terminal to paste on. By hand: " + purgeTokenManual(r.repo.Name, r.zoneText())})
+		left("There is no terminal to paste on")
 	default:
-		p.steps = append(p.steps, planStep{op: opAdd, text: text, soft: true, do: r.pastePurgeToken})
+		op := opAdd
+		if have {
+			op = opChange
+		}
+		p.steps = append(p.steps, planStep{op: op, text: text, soft: true, do: r.pastePurgeToken})
 	}
 	return nil
 }
+
+// cdnTokenCommand makes setup ask for the token that clears the CDN cache.
+const cdnTokenCommand = "tifa deploy setup --cdn-token"
+
+// purgeTokenLater says what going without the token costs and how to add it.
+const purgeTokenLater = "Without it a deploy still works, but " + noTokenCost + ". To add it: " + cdnTokenCommand
 
 // purgeTokenTries is how many tokens setup takes before it gives up.
 const purgeTokenTries = 3
@@ -882,11 +910,11 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	for try := 1; try <= purgeTokenTries; try++ {
 		token, err := promptSecret(r.in, r.stdout, secretPurge)
 		if err != nil {
-			return "", fmt.Errorf("reading the token: %w. Do it by hand: %s", err, purgeTokenManual(r.repo.Name, r.zoneText()))
+			return "", fmt.Errorf("reading the token: %w. To try again: %s", err, cdnTokenCommand)
 		}
 		token = strings.TrimSpace(token)
 		if token == "" {
-			return "", skipped{"to add it later: " + purgeTokenManual(r.repo.Name, r.zoneText())}
+			return "", skipped{purgeTokenLater}
 		}
 		err = checkPurgeToken(ctx, token, r.zone.ID, t.domain)
 		if err == nil {
@@ -894,7 +922,7 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 		}
 		why := strings.ReplaceAll(err.Error(), "\n", " ")
 		if try == purgeTokenTries {
-			return "", fmt.Errorf("the token was refused: %s. Do it by hand: %s", why, purgeTokenManual(r.repo.Name, r.zoneText()))
+			return "", fmt.Errorf("the token was refused: %s. To try again: %s", why, cdnTokenCommand)
 		}
 		say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
 	}
@@ -1018,8 +1046,16 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 
 // deploySetup plans, asks and applies. It fails when something needs the developer, after it did
 // all it could.
-func deploySetup(ctx context.Context, t deployTarget, yes, all bool, in io.Reader, stdout, stderr io.Writer) error {
-	plan, _, err := buildSetupPlan(ctx, t, in, stdout, stderr)
+func deploySetup(ctx context.Context, t deployTarget, yes, all, cdnToken bool, in io.Reader, stdout, stderr io.Writer) error {
+	if cdnToken {
+		switch {
+		case t.domain == "" || !t.github:
+			return errors.New("--cdn-token is for the token CI clears the CDN cache with, which needs deploy.cdn: cloudflare and deploy.ci: github in tifa.yaml")
+		case !stdinIsTerminal(in):
+			return errors.New("--cdn-token needs a terminal to paste the token on")
+		}
+	}
+	plan, _, err := buildSetupPlan(ctx, t, cdnToken, in, stdout, stderr)
 	if err != nil {
 		return err
 	}
