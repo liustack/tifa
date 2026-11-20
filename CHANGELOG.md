@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- Behind Cloudflare, browsers kept a page with `Cache` and the files of `public/` for 4 hours: the zone's Browser Cache TTL replaced their `max-age=0` and `no-cache`, and no purge reaches a browser. The cache rule `tifa deploy setup` writes now keeps the browser TTL of the origin. Upgrading: run `go tool tifa deploy setup` again, which changes the rule. With a Cloudflare setup of your own, set Browser TTL to "Respect origin TTL" in the Cache Rule of the site.
+
 ### Changed
 
 - The `.gitignore` of `tifa new` ignores `.cloudflare/`, where cf, the Cloudflare CLI, remembers the account for the folder it runs in. An existing app can add the same line.

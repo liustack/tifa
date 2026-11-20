@@ -426,6 +426,10 @@ func hostRules(hostname string) []ruleSet {
 				ActionParameters: map[string]any{
 					"cache":    true,
 					"edge_ttl": map[string]any{"mode": "bypass_by_default"},
+					// Without it the Browser Cache TTL of the zone, 4 hours by default, replaces the
+					// max-age=0 and no-cache of what the edge keeps, and browsers hold a page with
+					// Cache or a public file that long, where no purge reaches.
+					"browser_ttl": map[string]any{"mode": "respect_origin"},
 				},
 				Enabled: true,
 			},
