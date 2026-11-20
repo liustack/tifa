@@ -808,7 +808,7 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 			return err
 		}
 		if found {
-			p.add(opRemove, "cloudflare: the Access service token, policy and application of "+r.repo.Name+", which tifa made", func(ctx context.Context) (string, error) {
+			p.add(opRemove, "cloudflare: the Access service token, policy and application of "+r.repo.Name+", and the route and DNS record of the ssh host name once no repository uses it, which tifa made", func(ctx context.Context) (string, error) {
 				_, err := removeSSHAccess(ctx, r.repo.Name, r.st.TunnelID, true, func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) })
 				return "", err
 			})
