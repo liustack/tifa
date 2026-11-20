@@ -70,6 +70,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err != nil {
 				return err
 			}
+			if err := warnPublicImports(root, settings.Public, pages, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			if err := checkTanStack(root, settings, pages); err != nil {
 				return err
 			}

@@ -1,0 +1,7 @@
+@font-face {
+  font-family: A;
+  src: url(/fonts/a.woff2) format('woff2');
+}
+body {
+  background: url("/logo.png");
+}

@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa build` and `tifa dev` warn when the source of a page names an image or a font of `public/` by its path, such as `<img src="/logo.png">` or `url(/fonts/a.woff2)`. A file you import gets a content hash and a one-year cache under `/assets/`, and a file of `public/` is checked with the server on every use. The docs now say which files to import and which to keep in `public/` (fixed names such as `favicon.ico`, `robots.txt`, or an og image other sites link to). `favicon.ico`, `apple-touch-icon*.png` and files a web manifest lists get no warning.
+
 ### Fixed
 
 - Behind Cloudflare, browsers kept a page with `Cache` and the files of `public/` for 4 hours: the zone's Browser Cache TTL replaced their `max-age=0` and `no-cache`, and no purge reaches a browser. The cache rule `tifa deploy setup` writes now keeps the browser TTL of the origin. Upgrading: run `go tool tifa deploy setup` again, which changes the rule. With a Cloudflare setup of your own, set Browser TTL to "Respect origin TTL" in the Cache Rule of the site.
