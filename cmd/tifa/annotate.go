@@ -13,10 +13,12 @@ const envGitHubActions = "GITHUB_ACTIONS"
 // annotate writes a finding of tifa as a GitHub Actions workflow command, so the run and the pull
 // request mark its file and line. It writes nothing outside GitHub Actions. setup-go and
 // setup-node already mark what go and tsc print, but not the findings of tifa about TypeScript
-// files, and they take a warning for an error. Line and column are left out when zero.
-func annotate(w io.Writer, warning bool, file string, line, col int, msg string) {
+// files, and they take a warning for an error. Line and column are left out when zero. It reports
+// whether it wrote, and then the caller leaves out its plain line: the matcher of setup-go reads a
+// line that starts with a .go file and would mark the finding a second time, as an error.
+func annotate(w io.Writer, warning bool, file string, line, col int, msg string) bool {
 	if w == nil || os.Getenv(envGitHubActions) != "true" {
-		return
+		return false
 	}
 	kind := "error"
 	if warning {
@@ -30,6 +32,7 @@ func annotate(w io.Writer, warning bool, file string, line, col int, msg string)
 		props += fmt.Sprintf(",col=%d", col)
 	}
 	fmt.Fprintf(w, "::%s %s::%s\n", kind, props, escapeData(msg))
+	return true
 }
 
 // escapeData escapes the message of a workflow command, as the runner unescapes it.

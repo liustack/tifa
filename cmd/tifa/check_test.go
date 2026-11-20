@@ -153,8 +153,10 @@ func TestCheckStopsAtConventionViolations(t *testing.T) {
 		t.Errorf("stderr does not name the violation:\n%s", stderr)
 	}
 	t.Setenv(envGitHubActions, "true")
-	if _, stderr, _ := run(t, "check", "--dir", dir); !strings.Contains(stderr, "::error file=app/items/key+/route.go,line=1") {
-		t.Errorf("in GitHub Actions the violation is not marked:\n%s", stderr)
+	// The plain line goes, since the matcher of setup-go would mark it a second time.
+	if _, stderr, _ := run(t, "check", "--dir", dir); !strings.Contains(stderr, "::error file=app/items/key+/route.go,line=1") ||
+		strings.Contains(stderr, "\napp/items/key+/route.go:1:") || strings.HasPrefix(stderr, "app/items/key+/route.go:1:") {
+		t.Errorf("in GitHub Actions the violation is not marked once:\n%s", stderr)
 	}
 	if strings.Contains(out, "==> generate") {
 		t.Errorf("generation started after the violation:\n%s", out)

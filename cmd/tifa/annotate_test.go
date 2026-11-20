@@ -50,4 +50,7 @@ func TestReportAnnotatesFindings(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, b.String())
 		}
 	}
+	if strings.Contains(b.String(), "app/page.tsx:9") {
+		t.Errorf("the warning is printed twice:\n%s", b.String())
+	}
 }
