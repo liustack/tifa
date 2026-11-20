@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.host deploy.domain deploy.ssh deploy.github"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.host deploy.front deploy.ssh deploy.ci"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -849,17 +849,17 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	}
 }
 
-// deploy.host and deploy.domain are read by tifa deploy from the project file only. The host is
+// deploy.host is read by tifa deploy from the project file only. The host is
 // handed to ssh, so it is a name and nothing that ssh could read as an option or a user.
 func TestDeployIsAProjectFileSetting(t *testing.T) {
-	if d := Default().Deploy; d != (Deploy{SSH: "direct"}) {
+	if d := Default().Deploy; d != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
 		t.Fatalf("defaults: %+v", d)
 	}
-	c, settings, err := Project([]byte("deploy:\n  host: shop-vps\n  domain: Shop.Example.com\n"))
+	c, settings, err := Project([]byte("deploy:\n  host: shop-vps\n  front: Cloudflare\n  ci: GitHub\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Deploy.Host != "shop-vps" || c.Deploy.Domain != "shop.example.com" {
+	if c.Deploy.Host != "shop-vps" || c.Deploy.Front != "cloudflare" || c.Deploy.CI != "github" {
 		t.Errorf("got %+v", c.Deploy)
 	}
 	if len(settings) != 0 {
@@ -878,16 +878,15 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 		"deploy:\n  host: \"-oProxyCommand\"\n": "deploy.host",
 		"deploy:\n  host: \"a b\"\n":            "deploy.host",
 		"deploy:\n  host: ssh://vps\n":          "deploy.host",
-		"deploy:\n  domain: https://a.com\n":    "deploy.domain",
-		"deploy:\n  domain: localhost\n":        "deploy.domain",
-		"deploy:\n  domain: a.com:8080\n":       "deploy.domain",
+		"deploy:\n  front: akamai\n":            "deploy.front",
+		"deploy:\n  ci: gitlab\n":               "deploy.ci",
 	} {
 		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v", yaml, err)
 		}
 	}
 	// Empty is not set, as the example file of tifa new shows them.
-	if c, _, err := Project([]byte("deploy:\n  host: \"\"\n  domain: \"\"\n")); err != nil || c.Deploy != (Deploy{SSH: "direct"}) {
+	if c, _, err := Project([]byte("deploy:\n  host: \"\"\n  front: \"\"\n  ci: \"\"\n")); err != nil || c.Deploy != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
 		t.Errorf("empty: %+v, %v", c.Deploy, err)
 	}
 }
@@ -951,6 +950,8 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
 		"s_maxage project file":     {project: "cache_control:\n  s_maxage: 10m\n", want: smax},
 		"s_maxage env":              {environ: []string{"CACHE_CONTROL_S_MAXAGE=10m"}, want: smax},
+		"deploy domain":             {project: "deploy:\n  domain: a.com\n", want: []string{"deploy.domain", "site.url", "deploy.front"}},
+		"deploy github":             {project: "deploy:\n  github: true\n", want: []string{"deploy.github", "deploy.ci"}},
 		"s_maxage flag":             {args: []string{"--cache-control-s-maxage", "10m"}, want: smax},
 	} {
 		var warnings []string
@@ -992,14 +993,14 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 	}
 }
 
-// deploy.ssh says how CI reaches the server and deploy.github turns the deploys of the repository
-// on. Both are project file settings, and ssh is one of three words.
-func TestDeploySSHAndGitHub(t *testing.T) {
-	c, _, err := Project([]byte("deploy:\n  host: vps\n  ssh: Cloudflare\n  github: true\n"))
+// deploy.ssh says how CI reaches the server and deploy.ci says who deploys. Both are project file
+// settings, and ssh is one of three words.
+func TestDeploySSHAndCI(t *testing.T) {
+	c, _, err := Project([]byte("deploy:\n  host: vps\n  ssh: Cloudflare\n  ci: github\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Deploy.SSH != "cloudflare" || !c.Deploy.GitHub {
+	if c.Deploy.SSH != "cloudflare" || c.Deploy.CI != "github" {
 		t.Errorf("got %+v", c.Deploy)
 	}
 	for _, mode := range []string{"direct", "tailscale", ""} {
@@ -1013,9 +1014,8 @@ func TestDeploySSHAndGitHub(t *testing.T) {
 		}
 	}
 	for yaml, want := range map[string]string{
-		"deploy:\n  ssh: proxy\n":    "deploy.ssh",
-		"deploy:\n  github: maybe\n": "deploy.github",
-		"deploy:\n  github: \"\"\n":  "deploy.github",
+		"deploy:\n  ssh: proxy\n": "deploy.ssh",
+		"deploy:\n  ci: maybe\n":  "deploy.ci",
 	} {
 		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v", yaml, err)

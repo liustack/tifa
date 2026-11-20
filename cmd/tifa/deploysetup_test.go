@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -245,38 +247,17 @@ func TestSetupNothingToChange(t *testing.T) {
 	}
 }
 
-// cfEverything adds to fakeAccess what setup needs besides: tokens of the user, the cache purge,
-// and the deletes.
+// cfEverything adds to fakeAccess what setup needs besides: the deletes.
 type cfEverything struct {
 	*fakeAccess
-	userTokens []map[string]any
-	deleted    []string
-	createFail bool
-	listFail   bool // the cf login may not read API tokens, as an OAuth login of cf cannot
+	deleted []string
 }
 
 func (c *cfEverything) install(t *testing.T) {
 	c.fakeAccess.install(t)
 	inner := runCF
 	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
-		cmd := strings.Join(args[:min(3, len(args))], " ")
-		switch {
-		case cmd == "user tokens permission-groups":
-			return []byte(`[{"id":"pg-1","name":"Cache Purge","scopes":["com.cloudflare.api.account.zone"]}]`), nil
-		case cmd == "user tokens list":
-			c.calls = append(c.calls, strings.Join(args, " "))
-			if c.listFail {
-				return nil, &cfError{args: args, stderr: "[9109] Unauthorized to access requested resource\n403 Forbidden", err: errors.New("exit 1")}
-			}
-			return page2(c.userTokens, args)
-		case cmd == "user tokens create":
-			c.calls = append(c.calls, strings.Join(args[:6], " ")+" --policies "+flag(args, "--policies"))
-			if c.createFail {
-				return nil, &cfError{args: args, stderr: "403 Forbidden", err: errors.New("exit 1")}
-			}
-			c.userTokens = append(c.userTokens, map[string]any{"id": "ut-1", "name": flag(args, "--name")})
-			return []byte(`{"id":"ut-1","value":"purge-secret-value"}`), nil
-		case strings.Contains(" "+strings.Join(args[:min(5, len(args))], " ")+" ", " delete "):
+		if strings.Contains(" "+strings.Join(args[:min(5, len(args))], " ")+" ", " delete ") {
 			c.calls = append(c.calls, strings.Join(args, " "))
 			c.deleted = append(c.deleted, strings.Join(args, " "))
 			c.applyDelete(args)
@@ -286,17 +267,11 @@ func (c *cfEverything) install(t *testing.T) {
 	}
 }
 
-func page2(list []map[string]any, args []string) ([]byte, error) {
-	return json.Marshal(page(list, args))
-}
-
 func (c *cfEverything) applyDelete(args []string) {
 	switch strings.Join(args[:min(3, len(args))], " ") {
 	case "dns records delete":
 		z := flag(args, "-z")
 		c.records[z] = slices.DeleteFunc(c.records[z], func(r map[string]any) bool { return r["id"] == args[3] })
-	case "user tokens delete":
-		c.userTokens = slices.DeleteFunc(c.userTokens, func(r map[string]any) bool { return r["id"] == args[3] })
 	case "rulesets rules delete":
 		for _, rs := range c.rulesets {
 			rs["rules"] = slices.DeleteFunc(rs["rules"].([]any), func(r any) bool { return r.(map[string]any)["id"] == args[3] })
@@ -320,7 +295,7 @@ func setFacts(t *testing.T, srv *setupServer, facts string) {
 // secrets reach gh on its input and nowhere else, and a second run has nothing to do. With github
 // false the plan removes what Tifa made and only that.
 func TestSetupGitHub(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  github: true\n", nil)
+	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
 	srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.install(t)
@@ -413,7 +388,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 		t.Errorf("removed something: %v %v", err, gh.secrets)
 	}
 	// A workflow of the developer's own stays with github: true too.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  github: true\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  ci: github\n")
 	out, _ = runSetup(t, root, false, "")
 	if !strings.Contains(out, "has no Tifa line at the top, so it is yours and stays") {
 		t.Errorf("out:\n%s", out)
@@ -422,7 +397,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 
 // Without gh logged in the GitHub items cannot be done, and the plan says what is missing.
 func TestSetupGitHubCannot(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  github: true\n", nil)
+	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -445,7 +420,7 @@ const tunnelFacts = "tunnel tunnel-1\ncloudflared /usr/bin/cloudflared\ntunnel-a
 // token goes to the server and to nobody else, a second run has nothing to do, and removing the
 // domain removes what was added for it.
 func TestSetupDomain(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  domain: shop.example.com\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, ""))
 	cf := cfSetup(t, "example.com")
 
@@ -539,7 +514,7 @@ func TestSetupLeavesForeignDNS(t *testing.T) {
 
 // Without cf the domain cannot be done, and the plan says so.
 func TestSetupDomainNeedsCF(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  domain: shop.example.com\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, ""))
 	oldHave := haveCF
 	t.Cleanup(func() { haveCF = oldHave })
@@ -550,98 +525,196 @@ func TestSetupDomainNeedsCF(t *testing.T) {
 	}
 }
 
-// With a domain and github the repository also gets a token that can only clear the cache of its
-// zone, and the workflow carries the zone ID. When cf cannot make it, setup warns with the way by
-// hand and goes on.
-func TestSetupPurgeToken(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  domain: shop.example.com\n  github: true\n", nil)
-	srv := newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
-	cf := cfSetup(t, "example.com")
-	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
-	cf.createFail = true
-	gh := newFakeGH()
-	gh.install(t)
-	out, err := runSetup(t, root, false, "", "--yes")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	if !strings.Contains(out, "warning") || !strings.Contains(out, "gh secret set CF_PURGE_TOKEN") || gh.secrets[secretPurge] != "" {
-		t.Errorf("failure:\n%s", out)
-	}
-	if gh.secrets[secretSSHKey] == "" {
-		t.Error("the steps after the failed one did not run")
-	}
+// purgeSetup is a setup with front cloudflare and ci github on a prepared server. Tokens are what
+// the hidden prompt returns one after the other, and tried is what it was asked. The Cloudflare
+// API accepts the token tok-good and answers 403 to any other.
+type purgeSetup struct {
+	root   string
+	srv    *setupServer
+	cf     *cfEverything
+	gh     *fakeGH
+	prompt []string
+	asked  int
+	checks []string // Bearer headers and bodies the API got
+}
 
-	cf.createFail = false
-	cf.calls = nil
-	out, err = runSetup(t, root, false, "", "--yes")
+func newPurgeSetup(t *testing.T, tokens ...string) *purgeSetup {
+	s := &purgeSetup{prompt: tokens}
+	s.root = setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n", nil)
+	s.srv = newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
+	s.cf = cfSetup(t, "example.com")
+	s.cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	s.gh = newFakeGH()
+	s.gh.install(t)
+	oldPrompt := promptSecret
+	t.Cleanup(func() { promptSecret = oldPrompt })
+	promptSecret = func(io.Reader, io.Writer, string) (string, error) {
+		if s.asked >= len(s.prompt) {
+			t.Fatalf("asked for a token %d times, the test has %d", s.asked+1, len(s.prompt))
+		}
+		s.asked++
+		return s.prompt[s.asked-1], nil
+	}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		s.checks = append(s.checks, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization")+" "+string(data))
+		if r.Header.Get("Authorization") != "Bearer tok-good" {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}`)
+			return
+		}
+		io.WriteString(w, `{"success":true,"errors":[]}`)
+	}))
+	oldAPI := cloudflareAPI
+	t.Cleanup(func() { api.Close(); cloudflareAPI = oldAPI })
+	cloudflareAPI = api.URL
+	return s
+}
+
+const purgeCheckBody = `{"files":["https://shop.example.com/.well-known/tifa-purge-check"]}`
+
+// With a terminal, setup prints the link of the Cloudflare form, reads the token hidden, checks it
+// against the zone, and hands it to gh on its input. A token that fails the check is asked again.
+func TestSetupPurgeTokenTerminal(t *testing.T) {
+	s := newPurgeSetup(t, "tok-bad", "tok-good")
+	out, err := runSetup(t, s.root, true, "", "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if gh.secrets[secretPurge] != "purge-secret-value" || strings.Contains(out, "purge-secret-value") {
-		t.Errorf("secret %q\n%s", gh.secrets[secretPurge], out)
-	}
-	var create string
-	for _, c := range cf.calls {
-		if strings.HasPrefix(c, "user tokens create") {
-			create = c
+	for _, want := range []string{
+		"add     cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN",
+		"https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22cache%22%2C%22type%22%3A%22purge%22%7D%5D&name=tifa%20cache%20purge%20acme%2Fshop",
+		"Zone Resources",
+		"the token was refused",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
 		}
 	}
-	for _, want := range []string{"--name tifa-purge-acme-shop-example.com", `"com.cloudflare.api.account.zone.z":"*"`, `"permission_groups":[{"id":"pg-1"}]`, `"effect":"allow"`} {
-		if !strings.Contains(create, want) {
-			t.Errorf("create lacks %q: %s", want, create)
+	if s.gh.secrets[secretPurge] != "tok-good" {
+		t.Errorf("secret %q", s.gh.secrets[secretPurge])
+	}
+	if strings.Contains(out, "tok-bad") || strings.Contains(out, "tok-good") {
+		t.Errorf("a token was printed:\n%s", out)
+	}
+	want := []string{"POST /zones/z/purge_cache Bearer tok-bad " + purgeCheckBody, "POST /zones/z/purge_cache Bearer tok-good " + purgeCheckBody}
+	if !slices.Equal(s.checks, want) {
+		t.Errorf("checks %q", s.checks)
+	}
+	for _, c := range s.gh.calls {
+		if strings.Contains(c, "tok-") {
+			t.Errorf("a token is in an argument of gh: %s", c)
 		}
 	}
-	text, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
+	text, _ := os.ReadFile(filepath.Join(s.root, githubWorkflowPath))
 	if !strings.Contains(string(text), "CF_ZONE_ID: z") {
 		t.Errorf("workflow:\n%s", text)
 	}
-	_ = srv
-
-	// The domain goes: the token and the secret go with it.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  github: true\n")
-	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
-	out, err = runSetup(t, root, false, "", "--yes")
-	if err != nil || !strings.Contains(out, "remove  github: the secret CF_PURGE_TOKEN") || !strings.Contains(out, "remove  cloudflare: the token tifa-purge-acme-shop-example.com") {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	if gh.secrets[secretPurge] != "" || len(cf.userTokens) != 0 {
-		t.Errorf("left: %v %v", gh.secrets, cf.userTokens)
+	// The secret is there now, so a second run only says ok and asks nothing.
+	s.asked = len(s.prompt) - 1 // one more ask would fail the test
+	out, err = runSetup(t, s.root, true, "", "--yes")
+	if err != nil || !strings.Contains(out, "ok      github: the secret CF_CACHE_PURGE_TOKEN") || strings.Contains(out, "pasted by you") {
+		t.Errorf("second run: %v\n%s", err, out)
 	}
 }
 
-// A cf login that may not read API tokens (an OAuth login of cf) makes the purge token a step that
-// cannot be done, both when the domain is there and when it goes: setup still does the rest.
-func TestSetupPurgeTokensUnreadable(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  domain: shop.example.com\n  github: true\n", nil)
-	srv := newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
-	cf := cfSetup(t, "example.com")
-	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
-	cf.listFail = true
-	gh := newFakeGH()
-	gh.install(t)
-	if out, err := runSetup(t, root, false, "", "--yes"); err != nil || !strings.Contains(out, "cannot  cloudflare: a token that can only clear the cache") {
-		t.Fatalf("%v\n%s", err, out)
+// An empty line skips the token, and three refused ones give up. Either way the step is a warning
+// with the way by hand, nothing is stored, and the steps after it still run.
+func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
+	for name, tokens := range map[string][]string{"empty": {""}, "refused three times": {"tok-1", "tok-2", "tok-3"}} {
+		s := newPurgeSetup(t, tokens...)
+		out, err := runSetup(t, s.root, true, "", "--yes")
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, out)
+		}
+		if !strings.Contains(out, "warning cloudflare: a token that can only clear the cache") || !strings.Contains(out, "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop") {
+			t.Errorf("%s:\n%s", name, out)
+		}
+		if s.gh.secrets[secretPurge] != "" || s.asked != len(tokens) {
+			t.Errorf("%s: secret %q, asked %d", name, s.gh.secrets[secretPurge], s.asked)
+		}
+		if s.gh.secrets[secretSSHKey] == "" {
+			t.Errorf("%s: the steps after the token did not run", name)
+		}
+		if name == "empty" && len(s.checks) != 0 {
+			t.Errorf("an empty line was checked: %q", s.checks)
+		}
 	}
+}
 
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  github: false\n")
-	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
-	out, err := runSetup(t, root, false, "", "--yes")
+// Without a terminal there is nobody to paste a token: the plan says how to make it and set it.
+func TestSetupPurgeTokenNoTerminal(t *testing.T) {
+	s := newPurgeSetup(t)
+	out, err := runSetup(t, s.root, false, "", "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(out, "cannot  cloudflare: the tokens tifa made to clear the cache for acme/shop") || !strings.Contains(out, "tifa-purge-acme-shop-") {
-		t.Errorf("out:\n%s", out)
+	for _, want := range []string{"cannot  cloudflare: a token that can only clear the cache of shop.example.com", "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=", "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
 	}
-	if gh.secrets[secretSSHKey] != "" {
-		t.Errorf("the GitHub part was not taken away: %v", gh.secrets)
+	if s.asked != 0 || len(s.checks) != 0 || s.gh.secrets[secretPurge] != "" {
+		t.Errorf("asked %d, checks %q, secret %q", s.asked, s.checks, s.gh.secrets[secretPurge])
+	}
+}
+
+// A secret that is already there is ok, whatever its value: GitHub does not show it.
+func TestSetupPurgeTokenPresent(t *testing.T) {
+	s := newPurgeSetup(t)
+	s.gh.secrets[secretPurge] = "set earlier"
+	out, err := runSetup(t, s.root, true, "", "--yes")
+	if err != nil || !strings.Contains(out, "ok      github: the secret CF_CACHE_PURGE_TOKEN") || s.gh.secrets[secretPurge] != "set earlier" || s.asked != 0 {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+// A secret under the old name CF_PURGE_TOKEN is removed, and the new one is asked for.
+func TestSetupPurgeTokenOldName(t *testing.T) {
+	s := newPurgeSetup(t, "tok-good")
+	if _, err := runSetup(t, s.root, true, "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	s.gh.secrets["CF_PURGE_TOKEN"] = "old"
+	out, err := runSetup(t, s.root, true, "", "--yes")
+	if err != nil || !strings.Contains(out, "remove  github: the secret CF_PURGE_TOKEN, the old name of CF_CACHE_PURGE_TOKEN") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, ok := s.gh.secrets["CF_PURGE_TOKEN"]; ok {
+		t.Error("the old secret is still there")
+	}
+}
+
+// Without front, or without ci, the secret tifa set goes, and the plan says to delete the token in
+// Cloudflare, which tifa cannot do.
+func TestSetupPurgeTokenRemoved(t *testing.T) {
+	for name, yaml := range map[string]string{
+		"front none": "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n",
+		"ci none":    "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n",
+	} {
+		s := newPurgeSetup(t, "tok-good")
+		if _, err := runSetup(t, s.root, true, "", "--yes"); err != nil || s.gh.secrets[secretPurge] != "tok-good" {
+			t.Fatalf("%s: setup: %v", name, err)
+		}
+		writeFile(t, filepath.Join(s.root, "tifa.yaml"), yaml)
+		setFacts(t, s.srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+		out, err := runSetup(t, s.root, true, "", "--yes")
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, out)
+		}
+		if !strings.Contains(out, "remove  github: the secret CF_CACHE_PURGE_TOKEN, which tifa set") || !strings.Contains(out, `delete the token "tifa cache purge acme/shop" in the Cloudflare dashboard`) {
+			t.Errorf("%s:\n%s", name, out)
+		}
+		if _, ok := s.gh.secrets[secretPurge]; ok {
+			t.Errorf("%s: the secret is still there", name)
+		}
 	}
 }
 
 // deploy.ssh cloudflare: the ssh host name goes on the tunnel with an Access application that
 // admits the token of the repository. Back to direct, the Access objects go.
 func TestSetupCloudflareSSH(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  domain: deploy-a.example.com\n  ssh: cloudflare\n  github: true\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -675,7 +748,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	}
 
 	// Back to direct.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  domain: deploy-a.example.com\n  github: true\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n")
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
@@ -690,18 +763,12 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	}
 }
 
-// deploy.ssh cloudflare needs a domain, and tailscale secrets are for the developer to add.
+// Tailscale secrets are for the developer to add.
 func TestSetupSSHModesNeedThings(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ssh: cloudflare\n  github: true\n", nil)
-	newSetupServer(t, "", factsOf("shop", 9531, ""))
+	root := setupApp(t, "deploy:\n  host: vps\n  ssh: tailscale\n  ci: github\n", nil)
+	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	out, _ := runSetup(t, root, false, "")
-	if !strings.Contains(out, "the ssh host name is made from deploy.domain") {
-		t.Errorf("out:\n%s", out)
-	}
-	root = setupApp(t, "deploy:\n  host: vps\n  ssh: tailscale\n  github: true\n", nil)
-	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
-	out, _ = runSetup(t, root, false, "")
 	if !strings.Contains(out, "cannot  github: the Tailscale secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET") || !strings.Contains(out, "gh secret set") {
 		t.Errorf("out:\n%s", out)
 	}

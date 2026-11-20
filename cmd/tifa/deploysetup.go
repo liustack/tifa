@@ -139,7 +139,8 @@ type setupRun struct {
 	haveServer     bool // tifa logs in to the server
 	port           int  // the port of the app, picked when it has none yet
 	cfChecked, cf  bool
-	zone           cfZone // of deploy.domain
+	zone           cfZone // of the domain
+	in             io.Reader
 	tunnelID       string
 	repo           githubRepo
 	ghNames        map[string]bool
@@ -169,8 +170,8 @@ func sha(s string) string {
 
 // buildSetupPlan reads the server, Cloudflare and GitHub, and compares them with tifa.yaml. It
 // changes nothing.
-func buildSetupPlan(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
-	r := &setupRun{t: t, stdout: stdout, stderr: stderr}
+func buildSetupPlan(ctx context.Context, t deployTarget, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
+	r := &setupRun{t: t, in: in, stdout: stdout, stderr: stderr}
 	var p setupPlan
 	if net.ParseIP(t.host) != nil {
 		p.notes = append(p.notes, fmt.Sprintf("deploy.host is the address %s. tifa.yaml is committed, and a public repository then shows where your server is. Write an ssh alias instead, a Host of ~/.ssh/config, so the address stays on each machine.", t.host))
@@ -292,7 +293,7 @@ func opOf(how string) planOp {
 	return opChange
 }
 
-// domainSteps puts deploy.domain behind the Cloudflare Tunnel of the server, and takes away the
+// domainSteps puts the domain of site.url behind the Cloudflare Tunnel of the server, and takes away the
 // domains an earlier setup put there that tifa.yaml no longer names.
 func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
@@ -507,10 +508,6 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	if !t.github {
 		return r.githubRemovals(ctx, p, workflow, marked, repoErr)
 	}
-	if t.sshMode == connCloudflare && t.domain == "" {
-		p.cannot("github: deploys from GitHub Actions", "deploy.ssh is cloudflare, and the ssh host name is made from deploy.domain: set it")
-		return nil
-	}
 	if repoErr != nil {
 		p.cannot("github: deploys from GitHub Actions", repoErr.Error())
 		return nil
@@ -635,8 +632,11 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	default:
 		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
 	}
-	if t.domain == "" && (r.ghNames[secretPurge]) {
-		return r.removePurge(ctx, p)
+	r.removeOldPurge(p)
+	if t.domain == "" {
+		if err := r.removePurge(ctx, p); err != nil {
+			return err
+		}
 	}
 	return r.removeAccessIfUnwanted(ctx, p)
 }
@@ -705,19 +705,13 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 	return nil
 }
 
-// purgeSteps makes the token CI clears the cache of deploy.domain with.
+// purgeSteps plans the token CI clears the cache of the domain with. GitHub does not show a
+// secret, so one that is there is taken as right. Otherwise the developer pastes a token made in
+// the Cloudflare dashboard, when there is a terminal to paste on.
 func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
-	text := fmt.Sprintf("cloudflare: a token that can only clear the cache of the zone of %s, kept as %s", t.domain, secretPurge)
-	if !r.useCF(ctx) {
-		if r.ghNames[secretPurge] {
-			p.ok("github: the secret " + secretPurge)
-			return nil
-		}
-		p.cannot(text, "needs cf logged in: cf auth login. By hand: "+purgeTokenManual("of "+t.domain, t.domain))
-		return nil
-	}
-	if r.zone.ID == "" {
+	text := fmt.Sprintf("cloudflare: a token that can only clear the cache of %s, pasted by you and kept as %s", t.domain, secretPurge)
+	if r.zone.ID == "" && r.useCF(ctx) {
 		zone, err := findZone(ctx, t.domain)
 		if err != nil {
 			p.cannot(text, err.Error())
@@ -725,70 +719,75 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 		}
 		r.zone = zone
 	}
-	want := purgeTokenName(r.repo.Name, r.zone.Name)
-	tokens, err := purgeTokens(ctx, r.repo.Name)
-	if err != nil {
-		p.cannot(text, err.Error()+". By hand: "+purgeTokenManual(r.zone.Name, t.domain))
-		return nil
-	}
-	found := false
-	for _, tok := range tokens {
-		if tok.Name == want {
-			found = true
-		}
-	}
-	if found && r.ghNames[secretPurge] {
-		p.ok(text)
-	} else {
-		op := opAdd
-		if found || r.ghNames[secretPurge] {
-			op = opChange
-		}
-		p.steps = append(p.steps, planStep{op: op, text: text, soft: true, do: func(ctx context.Context) (string, error) {
-			value, err := createPurgeToken(ctx, want, r.zone)
-			if err != nil {
-				return "", fmt.Errorf("%w. Do it by hand: %s", err, purgeTokenManual(r.zone.Name, t.domain))
-			}
-			return "", r.ghSecret(ctx, secretPurge, value)
-		}})
-	}
-	for _, tok := range tokens {
-		if tok.Name != want {
-			p.add(opRemove, "cloudflare: the token "+tok.Name+", for another zone", func(ctx context.Context) (string, error) {
-				_, err := runCF(ctx, "user", "tokens", "delete", tok.ID, "--force")
-				return "", err
-			})
-		}
+	switch {
+	case r.ghNames[secretPurge]:
+		p.ok("github: the secret " + secretPurge + ". GitHub does not show it: to replace the token, delete the secret and run setup again")
+	case r.zone.ID == "":
+		p.cannot(text, "needs cf logged in, for the zone: cf auth login. By hand: "+purgeTokenManual(r.repo.Name, t.domain))
+	case !stdinIsTerminal(r.in):
+		p.cannot(text, "there is no terminal to paste on. "+purgeTokenManual(r.repo.Name, t.domain))
+	default:
+		p.steps = append(p.steps, planStep{op: opAdd, text: text, soft: true, do: r.pastePurgeToken})
 	}
 	return nil
 }
 
-// removePurge takes away the purge secret and the tokens of the repository.
+// purgeTokenTries is how many tokens setup takes before it gives up.
+const purgeTokenTries = 3
+
+// pastePurgeToken shows the link, reads the token hidden, checks it against the zone and sets the
+// secret. A token that fails the check is asked for again. An empty line skips.
+func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
+	t := r.t
+	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
+	say("Open this link, set Zone Resources to the zone of %s only, create the token, and paste it here:", t.domain)
+	say("%s", purgeTokenLink(r.repo.Name))
+	for try := 1; try <= purgeTokenTries; try++ {
+		token, err := promptSecret(r.in, r.stdout, secretPurge)
+		if err != nil {
+			return "", fmt.Errorf("reading the token: %w. Do it by hand: %s", err, purgeTokenManual(r.repo.Name, t.domain))
+		}
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return "", fmt.Errorf("skipped. Do it by hand: %s", purgeTokenManual(r.repo.Name, t.domain))
+		}
+		err = checkPurgeToken(ctx, token, r.zone.ID, t.domain)
+		if err == nil {
+			return "", r.ghSecret(ctx, secretPurge, token)
+		}
+		why := strings.ReplaceAll(err.Error(), "\n", " ")
+		if try == purgeTokenTries {
+			return "", fmt.Errorf("the token was refused: %s. Do it by hand: %s", why, purgeTokenManual(r.repo.Name, t.domain))
+		}
+		say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
+	}
+	return "", nil
+}
+
+// oldSecretPurge is the name the purge secret had before CF_CACHE_PURGE_TOKEN.
+const oldSecretPurge = "CF_PURGE_TOKEN"
+
+// removeOldPurge takes away the purge secret under its old name, which tifa set.
+func (r *setupRun) removeOldPurge(p *setupPlan) {
+	if r.ghVars[varMarker] == "" || !r.ghNames[oldSecretPurge] {
+		return
+	}
+	p.add(opRemove, "github: the secret "+oldSecretPurge+", the old name of "+secretPurge, func(ctx context.Context) (string, error) {
+		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", oldSecretPurge, "--repo", r.repo.Name)
+		return "", err
+	})
+}
+
+// removePurge takes away the purge secret. The token behind it is the developer's: tifa cannot
+// delete it, so the plan says to.
 func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
-	if r.ghVars[varMarker] == "" {
+	if r.ghVars[varMarker] == "" || !r.ghNames[secretPurge] {
 		return nil
 	}
-	var tokens []cfToken
-	if r.useCF(ctx) {
-		var err error
-		if tokens, err = purgeTokens(ctx, r.repo.Name); err != nil {
-			// The same login could not have made one, but another could have: say what to look for.
-			p.cannot("cloudflare: the tokens tifa made to clear the cache for "+r.repo.Name,
-				err.Error()+". By hand: in the Cloudflare dashboard, My Profile, API Tokens, delete the tokens whose name starts with "+purgeTokenPrefix(r.repo.Name))
-		}
-	}
-	if r.ghNames[secretPurge] {
-		p.add(opRemove, "github: the secret "+secretPurge+", which tifa set", func(ctx context.Context) (string, error) {
-			_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretPurge, "--repo", r.repo.Name)
-			return "", err
-		})
-	}
-	for _, tok := range tokens {
-		p.add(opRemove, "cloudflare: the token "+tok.Name, func(ctx context.Context) (string, error) {
-			_, err := runCF(ctx, "user", "tokens", "delete", tok.ID, "--force")
-			return "", err
-		})
-	}
+	p.add(opRemove, fmt.Sprintf("github: the secret %s, which tifa set. Tifa cannot delete the Cloudflare token behind it: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", secretPurge, purgeTokenName(r.repo.Name)), func(ctx context.Context) (string, error) {
+		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretPurge, "--repo", r.repo.Name)
+		return "", err
+	})
 	return nil
 }
 
@@ -833,7 +832,7 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 	return nil
 }
 
-// githubRemovals plans what to take away when deploy.github is false.
+// githubRemovals plans what to take away when deploy.ci is none.
 func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow string, marked bool, repoErr error) error {
 	if marked {
 		p.add(opRemove, "github: "+githubWorkflowPath+", which tifa wrote", func(context.Context) (string, error) {
@@ -855,6 +854,7 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 	if r.ghVars[varMarker] == "" {
 		return nil
 	}
+	r.removeOldPurge(p)
 	if err := r.removePurge(ctx, p); err != nil {
 		return err
 	}
@@ -881,7 +881,7 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 
 // deploySetup plans, asks and applies.
 func deploySetup(ctx context.Context, t deployTarget, yes bool, in io.Reader, stdout, stderr io.Writer) error {
-	plan, _, err := buildSetupPlan(ctx, t, stdout, stderr)
+	plan, _, err := buildSetupPlan(ctx, t, in, stdout, stderr)
 	if err != nil {
 		return err
 	}

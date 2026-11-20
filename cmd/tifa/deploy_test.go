@@ -198,9 +198,9 @@ func TestShellQuote(t *testing.T) {
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: from-yaml\n  domain: shop.example.com\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: from-yaml\n  front: cloudflare\n  ci: github\n")
 	t.Setenv(deployHostEnv, "")
-	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "from-yaml" || d.app != "shop" || d.domain != "shop.example.com" {
+	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "from-yaml" || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
 		t.Errorf("tifa.yaml: %+v, %v", d, err)
 	}
 	t.Setenv(deployHostEnv, "from-env")
@@ -221,6 +221,41 @@ func TestDeployHost(t *testing.T) {
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "")
 	if _, err := loadDeployTarget(root, ""); err == nil || !strings.Contains(err.Error(), "deploy.host") {
 		t.Errorf("no host: %v", err)
+	}
+}
+
+// The deploy settings are checked against each other where the target is loaded, so every deploy
+// command refuses a mix that cannot work, and says what to change.
+func TestDeploySettingsChecks(t *testing.T) {
+	site := "site:\n  url: https://shop.example.com\n"
+	for name, tc := range map[string]struct {
+		yaml, want string // want is empty when the settings are fine
+	}{
+		"none":                       {"deploy:\n  host: vps\n", ""},
+		"front needs a site url":     {"deploy:\n  host: vps\n  front: cloudflare\n", "site.url"},
+		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  host: vps\n  front: cloudflare\n", "port"},
+		"port without front":         {"site:\n  url: http://localhost:8080\ndeploy:\n  host: vps\n", ""},
+		"ssh cloudflare needs front": {site + "deploy:\n  host: vps\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
+		"ssh tailscale needs ci":     {site + "deploy:\n  host: vps\n  ssh: tailscale\n", "deploy.ci"},
+		"ssh cloudflare needs ci":    {site + "deploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n", "deploy.ci"},
+		"all set":                    {site + "deploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
+		"old domain":                 {"deploy:\n  host: vps\n  domain: shop.example.com\n", "deploy.front"},
+		"old github":                 {"deploy:\n  host: vps\n  github: true\n", "deploy.ci"},
+	} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+		writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
+		t.Setenv(deployHostEnv, "")
+		d, err := loadDeployTarget(root, "")
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%s: %v", name, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%s: got %v, want %q", name, err, tc.want)
+		}
+		if tc.want == "" && d.domain != map[bool]string{true: "shop.example.com"}[strings.Contains(tc.yaml, "front: cloudflare")] {
+			t.Errorf("%s: domain %q", name, d.domain)
+		}
 	}
 }
 

@@ -370,7 +370,7 @@ func ensureDNS(ctx context.Context, zone, hostname, target, app string, apply bo
 		}
 	}
 	if len(records) > 0 {
-		return "", fmt.Errorf("%s already has a %s record in Cloudflare, which tifa leaves alone: delete it, or set deploy.domain to another name", hostname, records[0].Type)
+		return "", fmt.Errorf("%s already has a %s record in Cloudflare, which tifa leaves alone: delete it, or change site.url to another name", hostname, records[0].Type)
 	}
 	body, _ := json.Marshal(map[string]any{"type": "CNAME", "name": hostname, "content": target, "proxied": true, "ttl": 1,
 		"comment": dnsComment + app})
