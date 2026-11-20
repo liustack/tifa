@@ -1,10 +1,15 @@
 ---
-summary: 'How to put a Tifa app on a server: tifa deploy setup, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, several apps on one server, a Cloudflare Tunnel that setup makes with cf (DNS and cache rules for the host name) or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: the four deploy settings of tifa.yaml (host, domain, ssh, github), tifa deploy setup with its plan of ok, add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, tifa deploy env for the .env of the app on the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
+  - Choosing deploy.host, deploy.domain, deploy.ssh or deploy.github in tifa.yaml
+  - Deploying on every push with GitHub Actions after CI, or taking away the key CI deploys with
   - Putting an app behind a Cloudflare Tunnel with cf, or finding what tifa deploy setup changed in Cloudflare and how to remove it
+  - A deploy printed a warning that the CDN cache was not cleared, or CF_PURGE_TOKEN needs making by hand
+  - Giving a second developer machine access to deploy
+  - Setting a secret or a setting in the .env of a deployed app, with tifa deploy env
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
@@ -24,56 +29,80 @@ A Tifa app is one executable. The server needs that file, the settings in its en
 
 `go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. Several apps can share one server. The server needs no Docker, no Node and no deploy program of its own.
 
-What you need:
-
-- A Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<host>` once. It is tested on Ubuntu 24.04.
-- On your machine, what `tifa build` needs (Go, and Node for an app with pages), and `ssh`.
-
-Name the server in `tifa.yaml`:
+`tifa.yaml` says what you want. `go tool tifa deploy setup` makes the server, Cloudflare and GitHub match it. No secret goes in `tifa.yaml`.
 
 ```yaml
 deploy:
-  host: vps                  # a Host of ~/.ssh/config, a host name or an address
-  domain: shop.example.com   # the domain that reaches the app
+  host: vps        # an ssh alias, or an address
+  domain: ""       # set it to reach the app through Cloudflare Tunnel, and to clear the CDN cache on each deploy
+  ssh: direct      # direct | cloudflare | tailscale: how CI reaches ssh
+  github: false    # true: the GitHub Actions of this repository deploy the app
 ```
 
-Tifa runs your system's `ssh` with this name, so whatever `ssh vps` does works the same: `~/.ssh/config`, a `ProxyCommand` such as `cloudflared access ssh`, a Tailscale name, keys in an agent. Write the port and other ssh options in `~/.ssh/config`. `--host` on the command line, or the environment variable `DEPLOY_HOST`, takes the place of `deploy.host`, such as in CI.
+- `host` is what you give `ssh`: a Host of `~/.ssh/config`, a host name or an address. Write an alias. `tifa.yaml` is committed, and when the repository is public an address shows where your server is. With an alias, the address stays in the `~/.ssh/config` of each machine. Tifa runs your system's `ssh`, so a `ProxyCommand`, a Tailscale name and keys in an agent all work. Write the port and other ssh options in `~/.ssh/config`. `--host` on the command line, or the environment variable `DEPLOY_HOST`, takes the place of `deploy.host`, such as in CI.
+- `domain` is how visitors arrive. Set, Tifa puts the app behind a Cloudflare Tunnel at that name, and `deploy` and `rollback` clear the CDN cache of that host name. Empty, the server takes visitors another way, such as Caddy, and no cache is cleared.
+- `ssh` is how GitHub Actions reaches the ssh of the server. It is independent of `domain`: all four combinations work, and a Tunnel is optional for both. It matters only with `github: true`. `ssh: cloudflare` needs a `domain`, because the ssh host name is made from it.
+- `github` turns the deploys from GitHub Actions on.
 
-### Set up the server
+What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<host>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `domain` and `ssh: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), logged in (`cf auth login`). For `github`, [gh](https://cli.github.com/) logged in (`gh auth login`).
+
+### Set up with a plan
 
 ```sh
 go tool tifa deploy setup
 ```
 
-Run it once per app and server. It logs in as root and makes:
+Setup compares `tifa.yaml` with the server, Cloudflare and GitHub and prints a plan. Each line is `ok`, `add`, `change` or `remove`. A line that cannot be done says what it needs:
 
-| What | Where |
-| --- | --- |
-| The user `tifa`, which owns and runs every app of the server, and may log in with the keys of root | home `/srv/tifa` |
-| The folder of the app | `/srv/tifa/<app>` |
-| Its settings, an empty `.env` that deploys never touch | `/srv/tifa/<app>/shared/.env` |
-| The folder the app runs in, which holds its data, such as `app.db` | `/srv/tifa/<app>/shared` |
-| Its port, the first free one from 9527 | `/srv/tifa/<app>/port` |
-| A systemd socket on `127.0.0.1:<port>` and a service, user units of `tifa` | `/srv/tifa/.config/systemd/user/tifa-<app>.socket` and `.service` |
+```
+Plan for shop on vps
 
-`<app>` is the last part of the module path in `go.mod`, the name `tifa build` gives the program. Running setup again keeps the port and what is there, and writes the units again. Fill `.env` on the server, as `tifa` or root: the app reads it at each start.
+  ok      server: tifa logs in and its systemd runs at boot
+  add     app: /srv/tifa/shop with an empty shared/.env, port 9527, the systemd socket and service tifa-shop
+  add     cloudflare: the tunnel of the server, tifa-vps-1234
+  add     server: install cloudflared when missing and run the tunnel as the service tifa-tunnel, as root
+  add     cloudflare: route shop.example.com -> http://127.0.0.1:9527
+  add     cloudflare: DNS shop.example.com CNAME the tunnel, proxied
+  add     cloudflare: cache rules for shop.example.com
+  add     cloudflare: HTML rewriting off for shop.example.com
+  add     github: a key for acme/shop that may log in as tifa, kept as the secret DEPLOY_SSH_KEY
+  add     github: where CI logs in (direct) and the host keys it trusts, the secrets DEPLOY_HOST and DEPLOY_KNOWN_HOSTS
+  cannot  cloudflare: a token that can only clear the cache of the zone of shop.example.com, kept as CF_PURGE_TOKEN (...)
+  add     github: .github/workflows/tifa-deploy.yml, which you commit and push
 
-The app listens on the loopback address only, so something on the server must take the visitors to it.
+Apply this plan? [y/N]
+```
 
-**Cloudflare Tunnel** (recommended). The server opens no port: cloudflared on the server connects out to Cloudflare, and one tunnel serves every app of the server. With `deploy.domain` set and [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed and logged in (`cf auth login`), setup does it all with your login of cf. Tifa keeps no Cloudflare token: the token of the tunnel goes from cf to the server only.
+On a terminal it asks. Without one, setup prints the plan and stops with an error unless you pass `--yes`. After the answer it applies the plan and prints one line for each step. Run it again whenever `tifa.yaml` changes: it only does what differs.
+
+Setup removes only what Tifa made and marked: the lines in `authorized_keys` with the comment `tifa-github <owner>/<repo>`, Cloudflare objects whose names start with `tifa`, the route and DNS record of a domain it added, the repository variable `TIFA_DEPLOY` and the secrets set with it, and the workflow file that starts with Tifa's line. Take a `domain` out of `tifa.yaml`, or set `github: false`, and the plan lists those removals before anything goes.
+
+The layers of the plan:
+
+| Layer | What | Needs |
+| --- | --- | --- |
+| server | The user `tifa`, which owns and runs every app of the server and may log in with the keys of root (home `/srv/tifa`), and linger, so its systemd runs at boot | `ssh root@<host>`, the first time only |
+| app | `/srv/tifa/<app>`, its empty `shared/.env`, the data folder `shared`, its port (the first free one from 9527) in `port`, and the user units `tifa-<app>.socket` and `.service` | ssh as `tifa` |
+| domain | The Cloudflare Tunnel, cloudflared on the server, the route, the proxied DNS record and the cache rules of `deploy.domain` | cf |
+| github | A key for the repository, the secrets, the token that clears the cache, and the workflow | gh, and cf for the token |
+| ssh: cloudflare | An ssh host name on the tunnel, an Access application and a service token | cf |
+
+`<app>` is the last part of the module path in `go.mod`, the name `tifa build` gives the program. Fill `.env` on the server, as `tifa` or root: the app reads it at each start.
+
+The app listens on the loopback address only, so something on the server must take the visitors to it: the Tunnel of `domain`, or a proxy of yours.
+
+**Cloudflare Tunnel** (`domain`). The server opens no port: cloudflared on the server connects out to Cloudflare, and one tunnel serves every app of the server. Setup uses your login of cf. Tifa keeps no Cloudflare token: the token of the tunnel goes from cf to the server only.
 
 1. Finds the zone of the domain in your account.
 2. Creates the tunnel of the server, `tifa-<host name>-<start of its machine ID>`, when the server has none, and keeps its ID in `/etc/tifa/tunnel`.
-3. Installs cloudflared on the server when it has none, with apt from [Cloudflare's package repository](https://pkg.cloudflare.com/): apt checks the package against Cloudflare's signing key, and the setting `/etc/apt/apt.conf.d/52tifa-cloudflared` lets unattended-upgrades install new versions. Tifa downloads no program itself: on a server without apt, install cloudflared from your system's packages first, or setup stops before Cloudflare and says so. Runs cloudflared as the system service `tifa-tunnel`, with the token in `/etc/tifa/tunnel-token` (root only) handed to it as a systemd credential, and restarts it when cloudflared changes (`tifa-tunnel-upgrade.path`).
+3. Installs cloudflared on the server when it has none, with apt from [Cloudflare's package repository](https://pkg.cloudflare.com/): apt checks the package against Cloudflare's signing key, and the setting `/etc/apt/apt.conf.d/52tifa-cloudflared` lets unattended-upgrades install new versions. Tifa downloads no program itself: on a server without apt, install cloudflared from your system's packages first. Runs cloudflared as the system service `tifa-tunnel`, with the token in `/etc/tifa/tunnel-token` (root only) handed to it as a systemd credential, and restarts it when cloudflared changes.
 4. Adds the route `deploy.domain -> http://127.0.0.1:<port>` to the tunnel, keeping the routes of the other apps.
 5. Adds a proxied CNAME record of the domain to `<tunnel ID>.cfargotunnel.com`. A record of the domain that points elsewhere is left alone, and setup stops.
-6. Adds rules that hold for that host name only, as [CDN settings](#cdn-settings) says: a cache rule that caches what the `Cache-Control` of the app allows and nothing without one (so `/assets/` is cached and pages are not, unless they have `Cache`), a cache rule that never caches `/__tifa/` or navigation data (`?_tifa=`), and a configuration rule that turns off Rocket Loader, Email Address Obfuscation, Cloudflare Fonts, Zaraz and the Web Analytics script, which write into the HTML. Settings of the whole zone are not changed, so the other sites of the zone keep theirs.
+6. Adds rules that hold for that host name only, as [CDN settings](#cdn-settings) says: a cache rule that caches what the `Cache-Control` of the app allows and nothing without one, a cache rule that never caches `/__tifa/` or navigation data (`?_tifa=`), and a configuration rule that turns off Rocket Loader, Email Address Obfuscation, Cloudflare Fonts, Zaraz and the Web Analytics script, which write into the HTML. Settings of the whole zone are not changed.
 
-Each step says whether it was already there. Running setup again changes nothing, or puts back a rule changed by hand. `--cloudflare=false` leaves Cloudflare alone. Without cf, or not logged in, setup prints these steps to do by hand.
+To remove the tunnel of a server, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa` and `/etc/systemd/system/tifa-tunnel*` on the server, then delete the tunnel in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
 
-To take an app off the web, delete its DNS record and its three rules (their names start with `tifa deploy: <domain>`) and its route in the tunnel. To remove the tunnel of a server, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa` and `/etc/systemd/system/tifa-tunnel*` on the server, then delete the tunnel in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
-
-**Caddy**, or another proxy that gets certificates, when the server takes visitors itself. Run setup with `--cloudflare=false`. A Caddyfile:
+**Caddy**, or another proxy that gets certificates, when the server takes visitors itself: leave `domain` empty. A Caddyfile:
 
 ```
 shop.example.com {
@@ -81,7 +110,7 @@ shop.example.com {
 }
 ```
 
-Set up the CDN, if any, as [CDN settings](#cdn-settings) says.
+Set up the CDN, if any, as [CDN settings](#cdn-settings) says, and clear its cache on each deploy as [After a deploy](#after-a-deploy) says.
 
 ### Deploy
 
@@ -89,11 +118,12 @@ Set up the CDN, if any, as [CDN settings](#cdn-settings) says.
 go tool tifa deploy
 ```
 
-1. Asks the server for its system and builds the app for it on your machine, as [Building for another system](build.md#building-for-another-system) does. Nothing is built on the server.
+1. Asks the server for its system and builds the app for it on your machine, as [Building for another system](build.md#building-for-another-system) does. Nothing is built on the server. On a server that setup prepared but that has no folder for this app yet, it makes the folder, port and units first, as `tifa` and without root. On a server that is not prepared, it stops and says to run `go tool tifa deploy setup`.
 2. Uploads the program, gzipped, into `/srv/tifa/<app>/releases/<id>/`, where `<id>` is the time of the deploy in UTC, and checks its SHA-256 there.
 3. Points `/srv/tifa/<app>/current` at it and restarts the service. The socket stays open, so requests that come meanwhile wait and get answered (see [Restart without dropping requests](#restart-without-dropping-requests)).
 4. Checks the new program on the server: `GET /healthz` once a second, for up to 30 seconds, until it answers with a status below 500. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](#health-check) that looks at the database to make the check mean more.
 5. When the check passes, writes the deploy down and keeps the last 5 releases. When it fails, it prints the last lines of the log of the app, starts the release that ran before again, and exits with 1. If there is no release that ever passed, it stops the app.
+6. With `deploy.domain` set, clears the CDN cache of that host name (see below).
 
 Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, the release, the git commit (with `-dirty` when the app had changes not committed), `deploy` or `rollback`, and `ok` or `failed`. The upload never includes `.env`. One deploy of an app runs at a time.
 
@@ -103,14 +133,80 @@ Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, 
 go tool tifa deploy rollback
 ```
 
-It starts the newest earlier release that passed its check, and checks it the same way. Run it again to go back further. The next `tifa deploy` makes a new release from your code.
+It starts the newest earlier release that passed its check, checks it the same way, and clears the CDN cache. Run it again to go back further. The next `tifa deploy` makes a new release from your code.
+
+### Clearing the CDN cache
+
+With `deploy.domain` set, a deploy and a rollback clear the cache of that host name in Cloudflare, by host name and nothing wider: the rest of the zone keeps its cache. A page with `Cache` would otherwise show the old HTML, whose scripts are gone, until its `s-maxage` runs out.
+
+- On your machine, cf does it with your login.
+- In CI there is no cf. The workflow gives Tifa a token that can only clear the cache of that one zone, `CF_PURGE_TOKEN`, and the ID of the zone, `CF_ZONE_ID`, which is not a secret and sits in the workflow file. Tifa calls the Cloudflare API with them. The token needs no Zone Read, because the ID is already known. Tifa keeps neither.
+- A clearing that fails does not fail the deploy: it prints a warning and exits with 0, and the summary of the run shows it. Clear the cache by hand in Cloudflare, Caching, Configuration, Custom Purge, by host name.
+
+Purging by host name works on every Cloudflare plan.
+
+### Deploy from GitHub Actions
+
+Set `github: true`, run `go tool tifa deploy setup`, then commit and push the workflow it wrote. Setup needs gh logged in and the app pushed to a GitHub repository. Actions then builds the app and runs `go tool tifa deploy`.
+
+There are two workflows. `.github/workflows/ci.yml` is written by `tifa new` (or `tifa agents`) and runs `go tool tifa check` on pull requests and pushes. `.github/workflows/tifa-deploy.yml` is written by setup:
+
+- It runs after the `CI` workflow passed on a push to the default branch, and deploys the commit that was checked. Without a `ci.yml` it runs on a push to the default branch instead. GitHub starts a `workflow_run` workflow only from the file on the default branch, so merge the file there before expecting it to run. It runs only for a push of this repository, never for a pull request from a fork.
+- In the Actions tab, Run workflow offers `deploy` or `rollback`, on the ref you run it on.
+- Only one deploy runs at a time, and a deploy that is running is never cancelled. The workflow has the permission `contents: read` only.
+- A file that does not start with Tifa's line is yours: setup leaves it alone. Delete that line before you edit the file.
+- An app with pages needs `pnpm-lock.yaml` in the repository, which CI installs from. The workflow uses the pnpm of `packageManager` in `package.json`, or pnpm 10 without it.
+
+For the repository, setup:
+
+1. Makes a key for this repository alone, and adds its public key to `/srv/tifa/.ssh/authorized_keys` on the server with the comment `tifa-github <owner>/<repo>`. The key cannot open a terminal or forward ports. Keep the secret `DEPLOY_SSH_KEY` as it is made: to rotate the key, set `github: false`, run setup, set it back and run setup again.
+2. Reads the host keys of the server over your own ssh and keeps them as the secret `DEPLOY_KNOWN_HOSTS`, so CI trusts that server and no other. CI never runs `ssh-keyscan`.
+3. Sets `DEPLOY_HOST`, where CI logs in. With `ssh: direct` it is the address that `ssh -G <deploy.host>` gives, so an alias from `~/.ssh/config` works, and a port other than 22 is written into the workflow. A host that ssh reaches through `ProxyJump` or `ProxyCommand` cannot be copied into CI: use one of the two ways below.
+4. With `domain`, makes a token with the one permission Cache Purge on the zone, named `tifa-purge-<owner>-<repo>-<zone>`, and keeps it as `CF_PURGE_TOKEN`. It uses `cf user tokens create`, which needs a cf login that may create API tokens. When cf cannot, the plan line warns and tells you to make it in the Cloudflare dashboard (My Profile, API Tokens, Create Token, Custom token, Zone, Cache Purge, Purge, that zone only) and run `gh secret set CF_PURGE_TOKEN`.
+5. Keeps `TIFA_DEPLOY`, a repository variable that marks the secrets as Tifa's and holds a fingerprint of the connection, so a second run sees what is current.
+
+Secret values go to gh on its input: they are never printed, never written to a file and never on a command line.
+
+**`ssh: direct`** (the default). CI logs in to `DEPLOY_HOST` on port 22 (or the port of your ssh config). Port 22 must then be open to GitHub's runners, whose addresses change, so you cannot allow only some. Allow key-only login (`PasswordAuthentication no`): the key of the repository is the only way in.
+
+**`ssh: cloudflare`**. For a server that opens no port for ssh. It needs `deploy.domain` and the tunnel. With your login of cf, setup:
+
+1. Adds the route `<ssh host> -> ssh://localhost:22` to the tunnel, keeping the other routes, and a proxied DNS record for it. The ssh host is `deploy.domain` with `-ssh` after its first label, because Cloudflare's free certificates cover one level of subdomain: `deploy-a.example.com` becomes `deploy-a-ssh.example.com`, and the apex `example.com` becomes `ssh.example.com`.
+2. Makes a service token called `tifa-github-<owner>-<repo>` that does not expire, a policy that lets in only that token and asks for no login, and a self-hosted Access application for the ssh host with that policy. Another repository for the same server adds its own token and policy to the same application.
+3. Sets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, and `DEPLOY_HOST` is the ssh host.
+
+The workflow installs cloudflared from Cloudflare's signed apt repository and connects with `ProxyCommand cloudflared access ssh`, handing it the token in `TUNNEL_SERVICE_TOKEN_ID` and `TUNNEL_SERVICE_TOKEN_SECRET`.
+
+**`ssh: tailscale`**. The workflow joins your tailnet with `tailscale/github-action`, and `DEPLOY_HOST` is the tailnet name of the server. Tifa cannot make the OAuth client, so the plan shows a `cannot` line until you add two secrets: in Tailscale, make an OAuth client with the `auth_keys` scope for the tag `tag:ci`, then run `gh secret set TS_OAUTH_CLIENT_ID` and `gh secret set TS_OAUTH_SECRET`. The tag `tag:ci` must exist in your tailnet policy (`tagOwners`) and be allowed to reach the server on port 22.
+
+In Actions, `tifa deploy` and `rollback` write a short summary to the run page when the variable `GITHUB_STEP_SUMMARY` is set: the app, release, commit, time, the health check and whether the cache was cleared.
+
+### More developers
+
+Every machine that deploys needs its own access to the server, and setup does not carry it over. From a machine that can log in, add the public key of the new machine to the user `tifa`:
+
+```sh
+ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
+```
+
+The new machine also needs `deploy.host` to resolve: put the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
+
+### Settings and secrets on the server
+
+```sh
+printf %s "$VALUE" | go tool tifa deploy env set API_KEY   # or run it on a terminal for a hidden prompt
+go tool tifa deploy env unset API_KEY
+go tool tifa deploy env list                               # names only
+```
+
+These edit `/srv/tifa/<app>/shared/.env` over ssh as `tifa`, the file the app reads from the folder it runs in (see [.env](config.md#env)). The value is read from the standard input or a hidden prompt, never from an argument, so it stays out of your shell history and the process list. Nothing prints a value. The file keeps mode 600, and your other lines and comments stay as they are. After a change the app restarts through its socket and must pass the health check of a deploy. If it does not, the old file comes back, the app restarts again, and the command says so and exits with 1. The file is read by the app as configuration only: it is not put into the environment of the process or of systemd, so each app on a server keeps its own.
 
 ### On the server
 
 - The log of an app: `journalctl --user -u tifa-<app>` as `tifa` (`sudo -iu tifa`).
 - Start, stop or look at it: `systemctl --user status tifa-<app>.service` as `tifa`. Restart the service, never the socket.
 - The apps start at boot, before the first visitor.
-- Several apps: each has its own folder, port and units. Run `tifa deploy setup` in each.
+- Several apps: each has its own folder, port and units. Run `tifa deploy` in each, after one `tifa deploy setup`.
 
 The rest of this page is the way to do it by hand, and what `tifa deploy` does underneath.
 
@@ -354,7 +450,7 @@ What to read, and what to change:
 
 - A visitor who had a page open keeps working: the next click or handler call sees the new build, and the browser reloads the page once. See [Pages open while you deploy](deploy.md#pages-open-while-you-deploy).
 - If your `OnRequest` or a CDN rule lets a CDN keep pages other than the ones with `Cache`, clear them on every deploy. Otherwise a visitor can get an old page whose scripts are gone.
-- A CDN that keeps pages with `Cache` hands out the old HTML until `s-maxage` runs out, and the scripts that HTML names may be gone. Clear those pages in the CDN too when you deploy. A browser that asks the program itself gets the new page at once.
+- A CDN that keeps pages with `Cache` hands out the old HTML until `s-maxage` runs out, and the scripts that HTML names may be gone. With `deploy.domain` on Cloudflare, `tifa deploy` clears the host name for you (see [Clearing the CDN cache](#clearing-the-cdn-cache)). On another CDN, clear those pages when you deploy. A browser that asks the program itself gets the new page at once.
 - The render memo of the program lives in memory and starts empty after a restart.
 
 ## Pages open while you deploy

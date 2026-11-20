@@ -639,3 +639,20 @@ func CheckDeployHost(s string) error {
 	var host string
 	return sshHostValue{&host}.Set(s)
 }
+
+// sshModeValue is deploy.ssh: how CI reaches the server. Empty means direct.
+type sshModeValue struct{ p *string }
+
+func (v sshModeValue) Set(s string) error {
+	switch m := strings.ToLower(s); m {
+	case "":
+		*v.p = "direct"
+	case "direct", "cloudflare", "tailscale":
+		*v.p = m
+	default:
+		return fmt.Errorf("%q: use direct, cloudflare or tailscale", s)
+	}
+	return nil
+}
+func (v sshModeValue) String() string { return *v.p }
+func (v sshModeValue) kind() string   { return "string" }

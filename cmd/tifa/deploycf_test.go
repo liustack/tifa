@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -186,132 +185,6 @@ func (s *fakeServerTunnel) run(_ context.Context, id, token string) (string, err
 	return how, nil
 }
 
-// A first setup creates the tunnel, hands its token to the server only, routes the domain, adds
-// the proxied record and the rules of the host. Running it again changes nothing. A second app
-// adds its route, record and rules to the same tunnel and rulesets.
-func TestCloudflareSetup(t *testing.T) {
-	f := newFakeCF("example.com")
-	f.install(t)
-	server := &fakeServerTunnel{}
-	setup := func(app, domain string, port int) string {
-		t.Helper()
-		var out bytes.Buffer
-		err := cloudflareSetup(context.Background(), tunnelSetup{app: app, domain: domain, port: port,
-			tunnelID: server.id, tunnelName: "tifa-vps-1234abcd", server: server.run}, &out)
-		if err != nil {
-			t.Fatalf("%s: %v\n%s", app, err, out.String())
-		}
-		if strings.Contains(out.String(), "secret-of") {
-			t.Errorf("the output holds the token:\n%s", out.String())
-		}
-		return out.String()
-	}
-
-	out := setup("shop", "shop.example.com", 9527)
-	wantWrites := []string{
-		"tunnels create --name tifa-vps-1234abcd --config-source cloudflare",
-		"tunnels config update tunnel-1",
-		"dns records create -z example.com",
-		"rulesets entrypoint update http_request_cache_settings -z example.com",
-		"rulesets entrypoint update http_config_settings -z example.com",
-	}
-	if got := f.writes(); !reflect.DeepEqual(got, wantWrites) {
-		t.Errorf("writes:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(wantWrites, "\n"))
-	}
-	if server.id != "tunnel-1" || server.token != "secret-of-tunnel-1" {
-		t.Errorf("the server got %+v", server)
-	}
-	for _, want := range []string{"zone example.com", "tunnel tifa-vps-1234abcd (tunnel-1), created", "route shop.example.com -> http://127.0.0.1:9527, added", "DNS shop.example.com CNAME tunnel-1.cfargotunnel.com, proxied, added"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output lacks %q:\n%s", want, out)
-		}
-	}
-	ingress, _ := json.Marshal(f.configs["tunnel-1"]["ingress"])
-	if string(ingress) != `[{"hostname":"shop.example.com","service":"http://127.0.0.1:9527"},{"service":"http_status:404"}]` {
-		t.Errorf("ingress %s", ingress)
-	}
-	record := f.records["example.com"][0]
-	if record["type"] != "CNAME" || record["content"] != "tunnel-1.cfargotunnel.com" || record["proxied"] != true {
-		t.Errorf("record %v", record)
-	}
-
-	f.calls = nil
-	out = setup("shop", "shop.example.com", 9527)
-	if got := f.writes(); len(got) != 0 {
-		t.Errorf("a second setup wrote %v", got)
-	}
-	if strings.Count(out, "already there")+strings.Count(out, "already running") != 6 {
-		t.Errorf("a second setup:\n%s", out)
-	}
-
-	f.calls = nil
-	setup("notes", "notes.example.com", 9528)
-	wantWrites = []string{
-		"tunnels config update tunnel-1",
-		"dns records create -z example.com",
-		"rulesets rules create ruleset-3 -z example.com",
-		"rulesets rules create ruleset-3 -z example.com",
-		"rulesets rules create ruleset-6 -z example.com",
-	}
-	if got := f.writes(); !reflect.DeepEqual(got, wantWrites) {
-		t.Errorf("second app writes:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(wantWrites, "\n"))
-	}
-	ingress, _ = json.Marshal(f.configs["tunnel-1"]["ingress"])
-	if string(ingress) != `[{"hostname":"shop.example.com","service":"http://127.0.0.1:9527"},{"hostname":"notes.example.com","service":"http://127.0.0.1:9528"},{"service":"http_status:404"}]` {
-		t.Errorf("ingress %s", ingress)
-	}
-
-	// A rule changed by hand is put back, and only that one.
-	cache := f.rulesets["example.com http_request_cache_settings"]["rules"].([]any)[0].(map[string]any)
-	cache["action_parameters"] = map[string]any{"cache": true, "edge_ttl": map[string]any{"mode": "override_origin", "default": 60}}
-	f.calls = nil
-	out = setup("shop", "shop.example.com", 9527)
-	if got := f.writes(); !reflect.DeepEqual(got, []string{"rulesets rules update rule-4 --ruleset-id ruleset-3 -z example.com"}) {
-		t.Errorf("writes after a change by hand: %v", got)
-	}
-	if !strings.Contains(out, "cache rules for shop.example.com, updated") {
-		t.Errorf("output:\n%s", out)
-	}
-}
-
-// A server whose tunnel ID got lost finds its tunnel by name, and one whose tunnel was deleted
-// gets a new one.
-func TestCloudflareSetupFindsTheTunnel(t *testing.T) {
-	f := newFakeCF("example.com")
-	f.install(t)
-	f.tunnels["tunnel-9"] = "tifa-vps-1234abcd"
-	id, how, err := ensureTunnel(context.Background(), "", "tifa-vps-1234abcd")
-	if err != nil || id != "tunnel-9" || how != "already there" {
-		t.Errorf("by name: %s %s %v", id, how, err)
-	}
-	id, how, err = ensureTunnel(context.Background(), "gone", "tifa-other-00000000")
-	if err != nil || how != "created" || f.tunnels[id] != "tifa-other-00000000" {
-		t.Errorf("deleted: %s %s %v", id, how, err)
-	}
-}
-
-// Setup leaves records and zones of others alone.
-func TestCloudflareSetupLeavesOtherRecords(t *testing.T) {
-	f := newFakeCF("example.com")
-	f.install(t)
-	f.records["example.com"] = []map[string]any{{"id": "r", "name": "shop.example.com", "type": "A", "content": "203.0.113.7", "proxied": true}}
-	err := cloudflareSetup(context.Background(), tunnelSetup{app: "shop", domain: "shop.example.com", port: 9527,
-		tunnelName: "tifa-vps", server: (&fakeServerTunnel{}).run}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "already has a A record") {
-		t.Errorf("got %v", err)
-	}
-	for _, w := range f.writes() {
-		if strings.HasPrefix(w, "dns") {
-			t.Errorf("wrote %s", w)
-		}
-	}
-	err = cloudflareSetup(context.Background(), tunnelSetup{app: "shop", domain: "shop.example.org", port: 9527,
-		tunnelName: "tifa-vps", server: (&fakeServerTunnel{}).run}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "no zone") {
-		t.Errorf("other zone: %v", err)
-	}
-}
-
 func TestZoneCandidates(t *testing.T) {
 	if got := zoneCandidates("a.b.example.co.uk"); !reflect.DeepEqual(got, []string{"a.b.example.co.uk", "b.example.co.uk", "example.co.uk", "co.uk"}) {
 		t.Errorf("got %v", got)
@@ -365,23 +238,6 @@ func TestHostRules(t *testing.T) {
 	}
 }
 
-// Without cf, setup prints the steps to do by hand.
-func TestCloudflareWithoutCF(t *testing.T) {
-	oldHave := haveCF
-	t.Cleanup(func() { haveCF = oldHave })
-	haveCF = func() bool { return false }
-	if cfLoggedIn(context.Background()) {
-		t.Error("logged in without cf")
-	}
-	var out bytes.Buffer
-	printTunnelSteps(&out, "shop.example.com", 9527, "")
-	for _, want := range []string{"shop.example.com -> http://127.0.0.1:9527", "cloudflared on the server", "CDN settings"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("lacks %q:\n%s", want, out.String())
-		}
-	}
-}
-
 // A cf that is not logged in counts as missing.
 func TestCloudflareNotLoggedIn(t *testing.T) {
 	oldRun, oldHave := runCF, haveCF
@@ -396,7 +252,12 @@ func TestCloudflareNotLoggedIn(t *testing.T) {
 // The error of a cf call holds what cf printed on stderr and the command, never its output.
 func TestCFError(t *testing.T) {
 	err := &cfError{args: []string{"tunnels", "config", "update", "id", "--body", "{}"}, stderr: "[1000] bad\n400 Bad Request"}
-	if got := err.Error(); got != "cf tunnels config update id: [1000] bad\n400 Bad Request" {
+	if got := err.Error(); got != "cf tunnels config update id: [1000] bad, 400 Bad Request" {
+		t.Errorf("got %q", got)
+	}
+	// The box cf draws around an API error becomes one line, to fit in a line of the setup plan.
+	boxed := &cfError{args: []string{"user", "tokens", "list"}, stderr: "┌ APIError\n│ [9109] Unauthorized to access requested resource\n│ 403 Forbidden · HTTP /user/tokens\n└\n\n→ Check your API token permissions"}
+	if got := boxed.Error(); got != "cf user tokens list: [9109] Unauthorized to access requested resource, 403 Forbidden · HTTP /user/tokens, → Check your API token permissions" {
 		t.Errorf("got %q", got)
 	}
 	if cfNotFound(err) {
@@ -434,7 +295,7 @@ func TestTunnelUnit(t *testing.T) {
 	if !strings.Contains(s, "tunnel='tunnel-1'\n") || !strings.Contains(s, "token=$(cat)") || strings.Contains(s, "secret") {
 		t.Errorf("script:\n%s", s)
 	}
-	st, err := parseSetupState("tunnel tunnel-1\nmachine vps-1234abcd\ncloudflared /usr/bin/cloudflared\napt yes\n")
+	st, err := parseServerState("tunnel tunnel-1\nmachine vps-1234abcd\ncloudflared /usr/bin/cloudflared\napt yes\n")
 	if err != nil || st.TunnelID != "tunnel-1" || st.Machine != "vps-1234abcd" || st.Cloudflared != "/usr/bin/cloudflared" || !st.Apt {
 		t.Errorf("setup state %+v, %v", st, err)
 	}
@@ -463,27 +324,5 @@ func TestTunnelInstall(t *testing.T) {
 	path, service := tunnelUpgradeUnits("/usr/bin/cloudflared")
 	if !strings.Contains(path, "PathChanged=/usr/bin/cloudflared\n") || !strings.Contains(service, "ExecStart=systemctl try-restart tifa-tunnel.service\n") {
 		t.Errorf("upgrade units:\n%s\n%s", path, service)
-	}
-}
-
-// A server with neither cloudflared nor apt gets nothing installed: setup stops the Cloudflare
-// part and says how to install cloudflared.
-func TestCloudflaredMissing(t *testing.T) {
-	for _, c := range []struct {
-		s    setupState
-		stop bool
-	}{
-		{setupState{Apt: true}, false},
-		{setupState{Cloudflared: "/usr/bin/cloudflared"}, false},
-		{setupState{Cloudflared: "/usr/bin/cloudflared", Apt: true}, false},
-		{setupState{}, true},
-	} {
-		why := cloudflaredMissing(c.s)
-		if (why != "") != c.stop {
-			t.Errorf("%+v: %q", c.s, why)
-		}
-		if c.stop && !strings.Contains(why, "https://pkg.cloudflare.com/") {
-			t.Errorf("no install step: %q", why)
-		}
 	}
 }

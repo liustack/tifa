@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +53,10 @@ type deployTarget struct {
 	app    string
 	host   string
 	domain string
+	// ssh is how CI reaches the server: direct, cloudflare or tailscale. github says the
+	// GitHub Actions of the repository deploy the app.
+	sshMode string
+	github  bool
 }
 
 // loadDeployTarget reads the app at dir: its name from go.mod, deploy.domain from tifa.yaml, and
@@ -79,7 +82,7 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	if err != nil {
 		return deployTarget{}, err
 	}
-	t := deployTarget{root: root, app: app, host: settings.Deploy.Host, domain: settings.Deploy.Domain}
+	t := deployTarget{root: root, app: app, host: settings.Deploy.Host, domain: settings.Deploy.Domain, sshMode: settings.Deploy.SSH, github: settings.Deploy.GitHub}
 	switch env := os.Getenv(deployHostEnv); {
 	case hostFlag != "":
 		if err := config.CheckDeployHost(hostFlag); err != nil {
@@ -109,10 +112,21 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 		if user == deployUser {
 			hint = fmt.Sprintf(". If the server has no user %s yet, run go tool tifa deploy setup first", deployUser)
 		}
-		return fmt.Errorf("ssh %s@%s failed%s: %w", user, t.host, hint, err)
+		return &sshLoginError{user: user, host: t.host, hint: hint, err: err}
 	}
 	return err
 }
+
+// sshLoginError is ssh failing to log in, as opposed to a script that ran and failed.
+type sshLoginError struct {
+	user, host, hint string
+	err              error
+}
+
+func (e *sshLoginError) Error() string {
+	return fmt.Sprintf("ssh %s@%s failed%s: %v", e.user, e.host, e.hint, e.err)
+}
+func (e *sshLoginError) Unwrap() error { return e.err }
 
 // state asks the server, as the deploy user, about the app.
 func (t deployTarget) state(ctx context.Context, stderr io.Writer) (serverState, error) {
@@ -124,15 +138,29 @@ func (t deployTarget) state(ctx context.Context, stderr io.Writer) (serverState,
 	if err != nil {
 		return s, err
 	}
-	if s.Port == 0 {
-		return s, fmt.Errorf("%s is not set up on %s yet: run go tool tifa deploy setup", t.app, t.host)
-	}
 	return s, nil
+}
+
+// createApp makes the folder, port and units of the app on a server that is prepared, as the
+// deploy user: no root. A server that is not prepared needs deploy setup.
+func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stderr io.Writer) (serverState, error) {
+	if !s.Prepared() {
+		return s, fmt.Errorf("%s is not prepared for tifa apps: run go tool tifa deploy setup", t.host)
+	}
+	port, err := pickPort(s.Used)
+	if err != nil {
+		return s, err
+	}
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port), nil, io.Discard, stderr); err != nil {
+		return s, err
+	}
+	fmt.Fprintf(stdout, "created %s on %s: %s/%s, port %d, empty shared/.env\n", t.app, t.host, s.Home, t.app, port)
+	return t.state(ctx, stderr)
 }
 
 func newDeployCmd() *cobra.Command {
 	var dir, host string
-	var cloudflare bool
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
@@ -140,7 +168,9 @@ func newDeployCmd() *cobra.Command {
 DEPLOY_HOST), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
-and deploy exits with 1. It never uploads .env. Run tifa deploy setup once per app first.`,
+and deploy exits with 1. With deploy.domain set it then clears the CDN cache of that host name.
+It never uploads .env. On a server that setup prepared it makes the folder and units of a new
+app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			t, err := loadDeployTarget(dir, host)
@@ -155,21 +185,25 @@ and deploy exits with 1. It never uploads .env. Run tifa deploy setup once per a
 
 	setup := &cobra.Command{
 		Use:   "setup",
-		Short: "Prepare the server for the app, once, as root over ssh",
-		Long: `setup logs in as root and creates the user tifa (shared by the apps of the server) with the
-keys root logs in with, the folder of the app with an empty shared/.env, a free loopback port, and a
-systemd socket and service for the app that run as tifa. With deploy.domain set and cf, the
-Cloudflare CLI, installed and logged in, it puts the app behind the Cloudflare Tunnel of the server:
-it creates the tunnel and runs cloudflared on the server when the server has none, and adds the
-route, a proxied DNS record and cache rules for the domain. Without cf it prints these steps.
-Running it again changes nothing that is there and keeps the port.`,
+		Short: "Make the server, Cloudflare and GitHub match the deploy settings of tifa.yaml",
+		Long: `setup compares the deploy section of tifa.yaml with the server, Cloudflare and GitHub, prints
+a plan (each line is ok, add, change or remove, or says why it cannot be done), asks, and applies
+it with one line for each step. It can run again at any time.
+
+  server    the user tifa and its systemd at boot, the first time as root
+  app       the folder, port and systemd units of this app, as tifa
+  domain    with deploy.domain: the Cloudflare Tunnel, route, DNS and cache rules (needs cf)
+  github    with deploy.github: a key for the repository, secrets, and the workflow (needs gh,
+            and with deploy.ssh cloudflare also cf)
+
+It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			t, err := loadDeployTarget(dir, host)
 			if err != nil {
 				return err
 			}
-			return deploySetup(cmd.Context(), t, cloudflare, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deploySetup(cmd.Context(), t, yes, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	rollback := &cobra.Command{
@@ -186,156 +220,24 @@ restarts the app through its socket. Run it again to go further back.`,
 			return deployRollback(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	setup.Flags().BoolVar(&cloudflare, "cloudflare", true, "set up the Cloudflare Tunnel, DNS and cache rules of deploy.domain with cf when it is logged in")
-	cmd.AddCommand(setup, rollback)
+	setup.Flags().BoolVarP(&yes, "yes", "y", false, "apply the plan without asking")
+	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host))
 	return cmd
 }
 
-// setupState is what setupProbeScript prints.
-type setupState struct {
-	OS, Arch string
-	Home     string // home of the deploy user, empty before it exists
-	Port     int    // port of the app, 0 before its setup
-	Used     []int  // ports of the other apps, and ports something listens on
-	// TunnelID is the Cloudflare Tunnel the server runs, from /etc/tifa/tunnel, empty without one.
-	TunnelID string
-	// Machine is the host name of the server and the start of its machine ID, which name its tunnel.
-	Machine string
-	// Cloudflared is where cloudflared is on the server, empty without it.
-	Cloudflared string
-	// Apt says the server has apt, to install cloudflared with.
-	Apt bool
-}
-
-func parseSetupState(out string) (setupState, error) {
-	var s setupState
-	for _, line := range strings.Split(out, "\n") {
-		word, value, _ := strings.Cut(line, " ")
-		switch word {
-		case "os":
-			s.OS = value
-		case "arch":
-			s.Arch = value
-		case "home":
-			s.Home = value
-		case "port", "taken":
-			p, err := strconv.Atoi(strings.TrimSpace(value))
-			if err != nil {
-				return s, fmt.Errorf("the server gave the port %q", value)
-			}
-			if word == "port" {
-				s.Port = p
-			} else {
-				s.Used = append(s.Used, p)
-			}
-		case "listen":
-			s.Used = append(s.Used, listeningPorts(value)...)
-		case "tunnel":
-			s.TunnelID = strings.TrimSpace(value)
-		case "machine":
-			s.Machine = strings.TrimSpace(value)
-		case "cloudflared":
-			s.Cloudflared = strings.TrimSpace(value)
-		case "apt":
-			s.Apt = true
-		}
-	}
-	return s, nil
-}
-
-func deploySetup(ctx context.Context, t deployTarget, cloudflare bool, stdout, stderr io.Writer) error {
-	var out bytes.Buffer
-	if err := t.ssh(ctx, "root", setupProbeScript(t.app), nil, &out, stderr); err != nil {
-		return err
-	}
-	s, err := parseSetupState(out.String())
-	if err != nil {
-		return err
-	}
-	if _, _, err := serverTarget(s.OS, s.Arch); err != nil {
-		return err
-	}
-	port := s.Port
-	if port == 0 {
-		if port, err = pickPort(s.Used); err != nil {
-			return err
-		}
-	}
-	out.Reset()
-	if err := t.ssh(ctx, "root", setupScript(t.app, port), nil, &out, stderr); err != nil {
-		return err
-	}
-	home := deployHome
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-		if h, ok := strings.CutPrefix(line, "home "); ok {
-			home = h
-		} else if line != "" {
-			fmt.Fprintln(stdout, line)
-		}
-	}
-	dir := home + "/" + t.app
-	fmt.Fprintf(stdout, `set up %[1]s on %[2]s
-  folder      %[3]s, owned by the user %[4]s
-  settings    %[3]s/shared/.env, empty: fill it on the server, deploys never touch it
-  data        %[3]s/shared, the folder the app runs in
-  listens on  127.0.0.1:%[5]d, held by the systemd socket %[6]s.socket of %[4]s
-`, t.app, t.host, dir, deployUser, port, unitName(t.app))
-	switch {
-	case t.domain == "":
-		fmt.Fprint(stdout, "\nSet deploy.domain in tifa.yaml and run setup again to put the app on the web.\n")
-	case !cloudflare:
-		printTunnelSteps(stdout, t.domain, port, "")
-	case cloudflaredMissing(s) != "":
-		printTunnelSteps(stdout, t.domain, port, cloudflaredMissing(s))
-	case !cfLoggedIn(ctx):
-		printTunnelSteps(stdout, t.domain, port, "cf, the Cloudflare CLI, is not installed or not logged in, so Tifa did not set up Cloudflare. With cf logged in (cf auth login), setup does these steps itself. ")
-	default:
-		fmt.Fprintln(stdout)
-		err := cloudflareSetup(ctx, tunnelSetup{
-			app: t.app, domain: t.domain, port: port, tunnelID: s.TunnelID, tunnelName: "tifa-" + s.Machine,
-			server: func(ctx context.Context, id, token string) (string, error) {
-				var out bytes.Buffer
-				if err := t.ssh(ctx, "root", tunnelScript(id), strings.NewReader(token), &out, stderr); err != nil {
-					return "", fmt.Errorf("running the tunnel on the server: %w", err)
-				}
-				lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-				return lines[len(lines)-1], nil
-			},
-		}, stdout)
-		if err != nil {
-			return err
-		}
-	}
-	fmt.Fprint(stdout, "Then deploy it with go tool tifa deploy\n")
-	return nil
-}
-
-// cloudflaredMissing says why setup leaves Cloudflare alone when the server has no cloudflared
-// and no apt to install it from the signed packages of Cloudflare, and is empty otherwise. Tifa
-// downloads no program by itself.
-func cloudflaredMissing(s setupState) string {
-	if s.Cloudflared != "" || s.Apt {
-		return ""
-	}
-	return "The server has neither cloudflared nor apt, so Tifa installed nothing and did not set up Cloudflare. Install cloudflared with the packages of the system (Cloudflare has them for Debian, Ubuntu and RHEL at https://pkg.cloudflare.com/) and run setup again. "
-}
-
-// printTunnelSteps prints what to do by hand to put the app behind a Cloudflare Tunnel.
-func printTunnelSteps(w io.Writer, domain string, port int, why string) {
-	fmt.Fprintf(w, `
-%[3]sTo put the app on the web through a Cloudflare Tunnel:
-  1. Create a tunnel in Cloudflare (Zero Trust, Networks, Tunnels), or open the one of this server,
-     and run its cloudflared on the server.
-  2. Add a public hostname to it: %[1]s -> http://127.0.0.1:%[2]d
-  3. Set up caching for %[1]s as docs/deploy.md, CDN settings, says.
-`, domain, port, why)
-}
-
-func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error {
+func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {
 	started := time.Now()
+	sum := deploySummary{App: t.app, Action: "deploy"}
+	health := &healthCapture{w: stdout}
+	defer func() { finishSummary(&sum, started, health, err, stderr) }()
 	s, err := t.state(ctx, stderr)
 	if err != nil {
 		return err
+	}
+	if s.Port == 0 {
+		if s, err = t.createApp(ctx, s, stdout, stderr); err != nil {
+			return err
+		}
 	}
 	goos, goarch, err := serverTarget(s.OS, s.Arch)
 	if err != nil {
@@ -352,20 +254,27 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error
 		return fmt.Errorf("build for %s/%s: %w", goos, goarch, err)
 	}
 	id := deployNow().UTC().Format("20060102T150405Z")
+	sum.Release = id
 	if err := t.upload(ctx, program, id, stdout, stderr); err != nil {
 		return err
 	}
 	a := activation{App: t.app, ID: id, Commit: gitCommit(t.root), Port: s.Port, Action: "deploy",
 		Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: healthTries}
-	if err := t.activate(ctx, a, stdout, stderr); err != nil {
+	sum.Commit = a.Commit
+	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
+	sum.Cache = clearCache(ctx, t.domain)
+	printCache(stdout, sum.Cache)
 	return nil
 }
 
-func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error {
+func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {
 	started := time.Now()
+	sum := deploySummary{App: t.app, Action: "rollback"}
+	health := &healthCapture{w: stdout}
+	defer func() { finishSummary(&sum, started, health, err, stderr) }()
 	s, err := t.state(ctx, stderr)
 	if err != nil {
 		return err
@@ -374,14 +283,25 @@ func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Write
 	if err != nil {
 		return err
 	}
+	sum.Release, sum.Commit = target.ID, target.Commit
 	fmt.Fprintf(stdout, "rolling %s on %s back from %s to %s (commit %s)\n", t.app, t.host, s.Current, target.ID, target.Commit)
 	a := activation{App: t.app, ID: target.ID, Commit: target.Commit, Port: s.Port, Action: "rollback",
 		Back: s.Current, Tries: healthTries}
-	if err := t.activate(ctx, a, stdout, stderr); err != nil {
+	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "rolled back to %s in %s\n", target.ID, time.Since(started).Round(100*time.Millisecond))
+	sum.Cache = clearCache(ctx, t.domain)
+	printCache(stdout, sum.Cache)
 	return nil
+}
+
+// finishSummary writes the summary of a run of GitHub Actions, when there is one to write.
+func finishSummary(sum *deploySummary, started time.Time, health *healthCapture, err error, stderr io.Writer) {
+	sum.Elapsed, sum.Health, sum.Err = time.Since(started), health.line, err
+	if werr := writeStepSummary(*sum); werr != nil {
+		fmt.Fprintf(stderr, "warning: the summary of the run was not written: %v\n", werr)
+	}
 }
 
 // upload sends the program, gzipped, into the release id and checks on the server that it

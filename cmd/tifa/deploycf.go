@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"reflect"
 	"strconv"
@@ -55,11 +54,25 @@ func (e *cfError) Error() string {
 		}
 		words = append(words, a)
 	}
-	msg := e.stderr
+	msg := oneLine(e.stderr)
 	if msg == "" {
 		msg = e.err.Error()
 	}
 	return fmt.Sprintf("cf %s: %s", strings.Join(words, " "), msg)
+}
+
+// oneLine joins the lines cf prints for an error, without the box it draws around an API error
+// ("┌ APIError", "│ " in front of each line, "└").
+func oneLine(stderr string) string {
+	var lines []string
+	for _, l := range strings.Split(stderr, "\n") {
+		l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "│"))
+		if l == "" || l == "└" || strings.HasPrefix(l, "┌") {
+			continue
+		}
+		lines = append(lines, l)
+	}
+	return strings.Join(lines, ", ")
 }
 
 func (e *cfError) Unwrap() error { return e.err }
@@ -98,58 +111,14 @@ func cfLoggedIn(ctx context.Context) bool {
 	return cfJSON(ctx, &who, "auth", "whoami") == nil && who.Authenticated
 }
 
-// tunnelSetup is what the Cloudflare part of setup needs and gives back.
-type tunnelSetup struct {
-	app, domain string
-	port        int
-	// tunnelID is the tunnel the server runs already, from /etc/tifa/tunnel, or empty.
-	tunnelID string
-	// tunnelName names a tunnel setup creates: tifa-<host name>-<start of the machine id>.
-	tunnelName string
-	// server installs cloudflared on the server and runs it with the token, see tunnelScript.
-	server func(ctx context.Context, tunnelID, token string) (string, error)
-}
-
-// cloudflareSetup puts the app behind the tunnel of its server, creating the tunnel when the
-// server has none, and prints one line for each step.
-func cloudflareSetup(ctx context.Context, s tunnelSetup, stdout io.Writer) error {
-	say := func(format string, args ...any) { fmt.Fprintf(stdout, "cloudflare: "+format+"\n", args...) }
-	zone, err := findZone(ctx, s.domain)
-	if err != nil {
-		return err
+// cfWrite runs a cf call that changes the account, and does nothing when apply is false: setup
+// runs every step once without writing, to plan, and again to apply.
+func cfWrite(ctx context.Context, apply bool, args ...string) error {
+	if !apply {
+		return nil
 	}
-	say("zone %s", zone)
-	id, how, err := ensureTunnel(ctx, s.tunnelID, s.tunnelName)
-	if err != nil {
-		return err
-	}
-	say("tunnel %s (%s), %s", s.tunnelName, id, how)
-	token, err := tunnelToken(ctx, id)
-	if err != nil {
-		return err
-	}
-	how, err = s.server(ctx, id, token)
-	if err != nil {
-		return err
-	}
-	say("cloudflared on the server, %s", how)
-	service := "http://127.0.0.1:" + strconv.Itoa(s.port)
-	if how, err = ensureRoute(ctx, id, s.domain, service); err != nil {
-		return err
-	}
-	say("route %s -> %s, %s", s.domain, service, how)
-	if how, err = ensureDNS(ctx, zone, s.domain, id+".cfargotunnel.com", s.app); err != nil {
-		return err
-	}
-	say("DNS %s CNAME %s.cfargotunnel.com, proxied, %s", s.domain, id, how)
-	for _, rs := range hostRules(s.domain) {
-		if how, err = ensureRules(ctx, zone, rs); err != nil {
-			return err
-		}
-		say("%s for %s, %s", rs.what, s.domain, how)
-	}
-	fmt.Fprintf(stdout, "the app answers at https://%s once it is deployed\n", s.domain)
-	return nil
+	_, err := runCF(ctx, args...)
+	return err
 }
 
 // zoneCandidates lists the names the zone of domain can have, longest first, down to two labels.
@@ -162,20 +131,24 @@ func zoneCandidates(domain string) []string {
 	return out
 }
 
+// cfZone is a zone of the account.
+type cfZone struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // findZone returns the zone of the account that holds domain.
-func findZone(ctx context.Context, domain string) (string, error) {
+func findZone(ctx context.Context, domain string) (cfZone, error) {
 	for _, name := range zoneCandidates(domain) {
-		var zones []struct {
-			Name string `json:"name"`
-		}
+		var zones []cfZone
 		if err := cfJSON(ctx, &zones, "zones", "list", "--name", name); err != nil {
-			return "", err
+			return cfZone{}, err
 		}
 		if len(zones) == 1 && zones[0].Name == name {
-			return name, nil
+			return zones[0], nil
 		}
 	}
-	return "", fmt.Errorf("no zone of your Cloudflare account holds %s: add the domain to Cloudflare first, or log cf in to the account that has it", domain)
+	return cfZone{}, fmt.Errorf("no zone of your Cloudflare account holds %s: add the domain to Cloudflare first, or log cf in to the account that has it", domain)
 }
 
 type cfTunnel struct {
@@ -185,8 +158,9 @@ type cfTunnel struct {
 }
 
 // ensureTunnel returns the tunnel the server runs, the tunnel called name when the server has
-// none (a setup that stopped before the server knew it), or a new remotely managed one.
-func ensureTunnel(ctx context.Context, known, name string) (id, how string, err error) {
+// none (a setup that stopped before the server knew it), or a new remotely managed one. Without
+// apply it makes none, and gives an empty id with how "added".
+func ensureTunnel(ctx context.Context, known, name string, apply bool) (id, how string, err error) {
 	if known != "" {
 		var t cfTunnel
 		err := cfJSON(ctx, &t, "tunnels", "get", known)
@@ -206,6 +180,9 @@ func ensureTunnel(ctx context.Context, known, name string) (id, how string, err 
 	}
 	if len(list) > 1 {
 		return "", "", fmt.Errorf("your Cloudflare account has %d tunnels called %s: delete the ones no server runs", len(list), name)
+	}
+	if !apply {
+		return "", "added", nil
 	}
 	var t cfTunnel
 	if err := cfJSON(ctx, &t, "tunnels", "create", "--name", name, "--config-source", "cloudflare"); err != nil {
@@ -276,23 +253,10 @@ func cloneMap(m map[string]any) map[string]any {
 
 // ensureRoute adds the route of hostname to the configuration of the tunnel, keeping its other
 // routes and settings.
-func ensureRoute(ctx context.Context, id, hostname, service string) (string, error) {
-	var got struct {
-		Config map[string]any `json:"config"`
-	}
-	if err := cfJSON(ctx, &got, "tunnels", "config", "get", id); err != nil && !cfNotFound(err) {
+func ensureRoute(ctx context.Context, id, hostname, service string, apply bool) (string, error) {
+	config, ingress, err := tunnelIngress(ctx, id)
+	if err != nil {
 		return "", err
-	}
-	config := got.Config
-	if config == nil {
-		config = map[string]any{}
-	}
-	var ingress []map[string]any
-	if raw, ok := config["ingress"]; ok && raw != nil {
-		data, _ := json.Marshal(raw)
-		if err := json.Unmarshal(data, &ingress); err != nil {
-			return "", fmt.Errorf("the tunnel has ingress rules tifa cannot read: %w", err)
-		}
 	}
 	ingress, changed := withRoute(ingress, hostname, service)
 	if !changed {
@@ -303,15 +267,91 @@ func ensureRoute(ctx context.Context, id, hostname, service string) (string, err
 	if err != nil {
 		return "", err
 	}
-	if _, err := runCF(ctx, "tunnels", "config", "update", id, "--body", string(body)); err != nil {
+	if err := cfWrite(ctx, apply, "tunnels", "config", "update", id, "--body", string(body)); err != nil {
 		return "", err
 	}
 	return "added", nil
 }
 
+// withoutRoute returns the ingress rules without the rule of hostname.
+func withoutRoute(ingress []map[string]any, hostname string) (out []map[string]any, changed bool) {
+	for _, r := range ingress {
+		if r["hostname"] == hostname && r["path"] == nil {
+			changed = true
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, changed
+}
+
+// tunnelIngress reads the ingress rules of the tunnel and the whole configuration they sit in.
+func tunnelIngress(ctx context.Context, id string) (config map[string]any, ingress []map[string]any, err error) {
+	var got struct {
+		Config map[string]any `json:"config"`
+	}
+	if err := cfJSON(ctx, &got, "tunnels", "config", "get", id); err != nil && !cfNotFound(err) {
+		return nil, nil, err
+	}
+	config = got.Config
+	if config == nil {
+		config = map[string]any{}
+	}
+	if raw, ok := config["ingress"]; ok && raw != nil {
+		data, _ := json.Marshal(raw)
+		if err := json.Unmarshal(data, &ingress); err != nil {
+			return nil, nil, fmt.Errorf("the tunnel has ingress rules tifa cannot read: %w", err)
+		}
+	}
+	return config, ingress, nil
+}
+
+// removeRoute takes the route of hostname out of the tunnel, keeping the other routes.
+func removeRoute(ctx context.Context, id, hostname string) error {
+	config, ingress, err := tunnelIngress(ctx, id)
+	if err != nil {
+		return err
+	}
+	ingress, changed := withoutRoute(ingress, hostname)
+	if !changed {
+		return nil
+	}
+	config["ingress"] = ingress
+	body, err := json.Marshal(map[string]any{"config": config})
+	if err != nil {
+		return err
+	}
+	_, err = runCF(ctx, "tunnels", "config", "update", id, "--body", string(body))
+	return err
+}
+
+// dnsComment starts the comment of the DNS records tifa makes, so it deletes no other.
+const dnsComment = "tifa deploy setup: "
+
+// removeDNS deletes the CNAME records of hostname that tifa made for the tunnel.
+func removeDNS(ctx context.Context, zone, hostname, target string) error {
+	var records []struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Content string `json:"content"`
+		Comment string `json:"comment"`
+	}
+	if err := cfJSON(ctx, &records, "dns", "records", "list", "-z", zone, "--name", hostname); err != nil {
+		return err
+	}
+	for _, r := range records {
+		if r.Type == "CNAME" && strings.EqualFold(r.Content, target) && strings.HasPrefix(r.Comment, dnsComment) {
+			if _, err := runCF(ctx, "dns", "records", "delete", r.ID, "-z", zone, "--force"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // ensureDNS makes hostname a proxied CNAME to target. A record of hostname that points elsewhere
 // is left alone, and setup stops.
-func ensureDNS(ctx context.Context, zone, hostname, target, app string) (string, error) {
+func ensureDNS(ctx context.Context, zone, hostname, target, app string, apply bool) (string, error) {
 	var records []struct {
 		ID      string `json:"id"`
 		Type    string `json:"type"`
@@ -333,8 +373,8 @@ func ensureDNS(ctx context.Context, zone, hostname, target, app string) (string,
 		return "", fmt.Errorf("%s already has a %s record in Cloudflare, which tifa leaves alone: delete it, or set deploy.domain to another name", hostname, records[0].Type)
 	}
 	body, _ := json.Marshal(map[string]any{"type": "CNAME", "name": hostname, "content": target, "proxied": true, "ttl": 1,
-		"comment": "tifa deploy setup: " + app})
-	if _, err := runCF(ctx, "dns", "records", "create", "-z", zone, "--body", string(body)); err != nil {
+		"comment": dnsComment + app})
+	if err := cfWrite(ctx, apply, "dns", "records", "create", "-z", zone, "--body", string(body)); err != nil {
 		return "", err
 	}
 	return "added", nil
@@ -376,7 +416,7 @@ type ruleSet struct {
 func hostRules(hostname string) []ruleSet {
 	host := strconv.Quote(hostname)
 	skip := `(starts_with(http.request.uri.path, "/__tifa/") or http.request.uri.query contains "_tifa=")`
-	prefix := "tifa deploy: " + hostname + ": "
+	prefix := rulePrefix(hostname)
 	return []ruleSet{
 		{what: "cache rules", phase: "http_request_cache_settings", rules: []cfRule{
 			{
@@ -418,7 +458,7 @@ func hostRules(hostname string) []ruleSet {
 // ensureRules puts the rules of rs into the entry point ruleset of its phase, matched by their
 // descriptions: missing ones are added at the end, changed ones are updated, and the other rules
 // of the ruleset stay as they are.
-func ensureRules(ctx context.Context, zone string, rs ruleSet) (string, error) {
+func ensureRules(ctx context.Context, zone string, rs ruleSet, apply bool) (string, error) {
 	var entry struct {
 		ID    string   `json:"id"`
 		Rules []cfRule `json:"rules"`
@@ -426,7 +466,7 @@ func ensureRules(ctx context.Context, zone string, rs ruleSet) (string, error) {
 	err := cfJSON(ctx, &entry, "rulesets", "entrypoint", "get", rs.phase, "-z", zone)
 	if cfNotFound(err) {
 		body, _ := json.Marshal(map[string]any{"rules": rs.rules})
-		if _, err := runCF(ctx, "rulesets", "entrypoint", "update", rs.phase, "-z", zone, "--body", string(body)); err != nil {
+		if err := cfWrite(ctx, apply, "rulesets", "entrypoint", "update", rs.phase, "-z", zone, "--body", string(body)); err != nil {
 			return "", err
 		}
 		return "added", nil
@@ -445,12 +485,12 @@ func ensureRules(ctx context.Context, zone string, rs ruleSet) (string, error) {
 		}
 		switch {
 		case i < 0:
-			if _, err := runCF(ctx, "rulesets", "rules", "create", entry.ID, "-z", zone, "--body", string(body)); err != nil {
+			if err := cfWrite(ctx, apply, "rulesets", "rules", "create", entry.ID, "-z", zone, "--body", string(body)); err != nil {
 				return "", err
 			}
 			how = "added"
 		case !sameRule(entry.Rules[i], want):
-			if _, err := runCF(ctx, "rulesets", "rules", "update", entry.Rules[i].ID, "--ruleset-id", entry.ID, "-z", zone, "--body", string(body)); err != nil {
+			if err := cfWrite(ctx, apply, "rulesets", "rules", "update", entry.Rules[i].ID, "--ruleset-id", entry.ID, "-z", zone, "--body", string(body)); err != nil {
 				return "", err
 			}
 			if how == "already there" {
@@ -459,4 +499,35 @@ func ensureRules(ctx context.Context, zone string, rs ruleSet) (string, error) {
 		}
 	}
 	return how, nil
+}
+
+// rulePrefix starts the description of every rule tifa makes for a host name.
+func rulePrefix(hostname string) string { return "tifa deploy: " + hostname + ": " }
+
+// removeRules deletes the rules of hostname that tifa made, in the phases it uses, and says how
+// many it deleted. With apply false it only counts them.
+func removeRules(ctx context.Context, zone, hostname string, apply bool) (int, error) {
+	n := 0
+	for _, rs := range hostRules(hostname) {
+		var entry struct {
+			ID    string   `json:"id"`
+			Rules []cfRule `json:"rules"`
+		}
+		err := cfJSON(ctx, &entry, "rulesets", "entrypoint", "get", rs.phase, "-z", zone)
+		if cfNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return n, err
+		}
+		for _, r := range entry.Rules {
+			if strings.HasPrefix(r.Description, rulePrefix(hostname)) {
+				n++
+				if err := cfWrite(ctx, apply, "rulesets", "rules", "delete", r.ID, "--ruleset-id", entry.ID, "-z", zone, "--force"); err != nil {
+					return n, err
+				}
+			}
+		}
+	}
+	return n, nil
 }

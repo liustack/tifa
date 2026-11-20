@@ -194,21 +194,6 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-func TestDeployParseSetupState(t *testing.T) {
-	out := "os Linux\narch x86_64\nhome /srv/tifa\nport 9528\ntaken 9527\ntaken 9528\nlisten LISTEN 0      128          0.0.0.0:22 0.0.0.0:*\nlisten LISTEN 0 4096 127.0.0.1:9527 0.0.0.0:*\n"
-	s, err := parseSetupState(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := setupState{OS: "Linux", Arch: "x86_64", Home: "/srv/tifa", Port: 9528, Used: []int{9527, 9528, 22, 9527}}
-	if !reflect.DeepEqual(s, want) {
-		t.Errorf("got %+v, want %+v", s, want)
-	}
-	if _, err := parseSetupState("taken x\n"); err == nil {
-		t.Error("a bad port, no error")
-	}
-}
-
 // The host comes from --host, else DEPLOY_HOST, else deploy.host of tifa.yaml.
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
@@ -262,10 +247,11 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 	}
 	tool("ssh", `while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
-HOME=`+shellQuote(home)+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
+HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
 	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log))
 	tool("curl", `rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
+	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", "exit 0")
 	tool("sleep", "exit 0")
 	tool("journalctl", "echo the app said goodbye")
@@ -405,5 +391,77 @@ func TestDeployFirstReleaseFails(t *testing.T) {
 	}
 	if !strings.Contains(calls(), "systemctl --user stop tifa-shop.service") {
 		t.Errorf("the app was not stopped:\n%s", calls())
+	}
+}
+
+// prepareFakeServer makes the fake server one that setup prepared: its systemd runs at boot.
+func prepareFakeServer(t *testing.T, home string) {
+	t.Helper()
+	writeFile(t, filepath.Join(home, ".run", "linger"), "yes\n")
+	writeFile(t, filepath.Join(home, ".run", "bus"), "")
+}
+
+// On a prepared server that has no folder for the app yet, tifa deploy makes it as tifa, with no
+// root: the folder, an empty .env, a port that is free and the units. Its units name the port.
+func TestDeployCreatesTheApp(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	t.Setenv(deployHostEnv, "vps")
+	home := t.TempDir()
+	prepareFakeServer(t, home)
+	writeFile(t, filepath.Join(home, "other", "port"), "9527\n")
+	calls := fakeServer(t, home, nil)
+	oldNow, oldBuild := deployNow, buildForServer
+	t.Cleanup(func() { deployNow, buildForServer = oldNow, oldBuild })
+	deployNow = func() time.Time { return time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC) }
+	buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {
+		return os.WriteFile(out, []byte("program"), 0o755)
+	}
+	out, _, err := run(t, "deploy", "--dir", root)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if port, _ := os.ReadFile(filepath.Join(home, "shop", "port")); string(port) != "9528\n" {
+		t.Errorf("port %q", port)
+	}
+	if st, err := os.Stat(filepath.Join(home, "shop", "shared", ".env")); err != nil || st.Size() != 0 {
+		t.Errorf(".env: %v", err)
+	}
+	socket, _ := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "tifa-shop.socket"))
+	if string(socket) != socketUnit("shop", 9528) {
+		t.Errorf("socket unit %q", socket)
+	}
+	for _, want := range []string{"ssh tifa vps", "systemctl --user enable --now tifa-shop.socket"} {
+		if !strings.Contains(calls(), want) {
+			t.Errorf("calls lack %q:\n%s", want, calls())
+		}
+	}
+	if strings.Contains(calls(), "ssh root") || !strings.Contains(out, "created shop on vps") {
+		t.Errorf("root was used, or no word about it:\n%s\n%s", calls(), out)
+	}
+}
+
+// The probe tells what the server and the app are like, and tolerates a server without ss or
+// loginctl.
+func TestDeployParseProbeFacts(t *testing.T) {
+	out := strings.Join([]string{
+		"os Linux", "arch aarch64", "home /srv/tifa", "bus yes", "linger yes", "port 9528",
+		"taken 9527", "listen LISTEN 0 4096 127.0.0.1:9600 0.0.0.0:*",
+		"unit-socket aa", "unit-service bb", "tunnel t-1", "machine vps-1234", "cloudflared /usr/bin/cloudflared",
+		"tunnel-active yes", "apt yes", "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA", "ghkey acme/shop", "",
+	}, "\n")
+	s, err := parseServerState(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := serverState{OS: "Linux", Arch: "aarch64", Home: "/srv/tifa", Bus: true, Linger: true, Port: 9528,
+		Used: []int{9527, 9600}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
+		Cloudflared: "/usr/bin/cloudflared", TunnelActive: true, Apt: true,
+		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"}}
+	if !reflect.DeepEqual(s, want) || !s.Prepared() {
+		t.Errorf("got %+v", s)
+	}
+	if _, err := parseServerState("hostkey ssh-ed25519 !!!\n"); err == nil {
+		t.Error("a bad host key, no error")
 	}
 }
