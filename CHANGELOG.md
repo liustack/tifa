@@ -6,7 +6,11 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
-- In GitHub Actions, `tifa check`, `tifa build` and `tifa gen` print each finding of their own as a workflow command as well, so the run and the pull request mark its file and line, errors and warnings apart. Findings in TypeScript files were not marked before.
+- In GitHub Actions, `tifa check`, `tifa build` and `tifa gen` print each finding of their own as a workflow command in place of its plain line, so the run and the pull request mark its file and line once, errors and warnings apart. Findings in TypeScript files were not marked before, and a warning about a Go file was marked as an error.
+
+### Changed
+
+- The `ci.yml` of `tifa new` and the deploy workflow of `tifa deploy setup` install with `pnpm install --frozen-lockfile --ignore-scripts`, so the checks run in `tifa check`, where GitHub reads their marks, not in the `prepare` script, whose output pnpm prefixes. An app made before gets the marks by adding `--ignore-scripts` to that line of its `.github/workflows/ci.yml`. Setup offers the new deploy workflow as a change.
 
 ## [0.1.10] - 2026-11-21
 
