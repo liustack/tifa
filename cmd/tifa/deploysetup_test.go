@@ -236,11 +236,11 @@ func TestSetupAsks(t *testing.T) {
 func TestSetupNothingToChange(t *testing.T) {
 	root := setupApp(t, "deploy:\n  host: 203.0.113.7\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, ""))
-	out, err := runSetup(t, root, false, "")
+	out, err := runSetup(t, root, false, "", "--all")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 9531", "Nothing to change.", "Write an ssh alias instead"} {
+	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 9531", "Write an ssh alias instead"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -348,7 +348,7 @@ func TestSetupGitHub(t *testing.T) {
 	setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
 	gh.calls = nil
 	out, err = runSetup(t, root, false, "")
-	if err != nil || !strings.Contains(out, "Nothing to change.") {
+	if err != nil || !strings.Contains(out, "matches tifa.yaml") {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
 	for _, c := range gh.calls {
@@ -360,7 +360,7 @@ func TestSetupGitHub(t *testing.T) {
 	// A host that moved: the connection changes, the key stays.
 	newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
 	out, _ = runSetup(t, root, false, "")
-	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "ok      github: the key of acme/shop") {
+	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 1") {
 		t.Errorf("moved host:\n%s", out)
 	}
 
@@ -393,7 +393,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 	gh.secrets = map[string]string{secretHost: "mine", secretSSHKey: "mine"}
 	gh.install(t)
 	out, err := runSetup(t, root, false, "")
-	if err != nil || !strings.Contains(out, "Nothing to change.") {
+	if err != nil || !strings.Contains(out, "matches tifa.yaml") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(root, githubWorkflowPath)); err != nil || len(gh.secrets) != 2 {
@@ -401,7 +401,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 	}
 	// A workflow of the developer's own stays with github: true too.
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  ci: github\n")
-	out, _ = runSetup(t, root, false, "")
+	out, _ = runSetup(t, root, false, "", "--all")
 	if !strings.Contains(out, "has no Tifa line at the top, so it is yours and stays") {
 		t.Errorf("out:\n%s", out)
 	}
@@ -415,7 +415,7 @@ func TestSetupGitHubCannot(t *testing.T) {
 	gh.loggedIn = false
 	gh.install(t)
 	out, err := runSetup(t, root, false, "")
-	if err != nil || !strings.Contains(out, "cannot  github: deploys from GitHub Actions") || !strings.Contains(out, "gh is not logged in: run gh auth login") || !strings.Contains(out, "1 item(s) could not be done") {
+	if err == nil || !strings.Contains(out, "1. github: deploys from GitHub Actions") || !strings.Contains(out, "gh is not logged in: run gh auth login") || !strings.Contains(out, "1 thing needs you") && !strings.Contains(err.Error(), "1 thing needs you") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
@@ -469,7 +469,7 @@ func TestSetupDomain(t *testing.T) {
 	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts))
 	cf.calls = nil
 	out, err = runSetup(t, root, false, "")
-	if err != nil || !strings.Contains(out, "Nothing to change.") || len(cf.writes()) != 0 {
+	if err != nil || !strings.Contains(out, "matches tifa.yaml") || len(cf.writes()) != 0 {
 		t.Fatalf("second run: %v\n%s\n%v", err, out, cf.writes())
 	}
 
@@ -532,7 +532,7 @@ func TestSetupDomainNeedsCF(t *testing.T) {
 	t.Cleanup(func() { haveCF = oldHave })
 	haveCF = func() bool { return false }
 	out, err := runSetup(t, root, false, "")
-	if err != nil || !strings.Contains(out, "cannot  domain: shop.example.com through the Cloudflare Tunnel") || !strings.Contains(out, "needs cf logged in: cf auth login") {
+	if err == nil || !strings.Contains(out, "1. domain: shop.example.com through the Cloudflare Tunnel") || !strings.Contains(out, "needs cf logged in: cf auth login") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
@@ -624,7 +624,7 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 	}
 	// The secret is there now, so a second run only says ok and asks nothing.
 	s.asked = len(s.prompt) - 1 // one more ask would fail the test
-	out, err = runSetup(t, s.root, true, "", "--yes")
+	out, err = runSetup(t, s.root, true, "", "--yes", "--all")
 	if err != nil || !strings.Contains(out, "ok      github: the secret CF_CACHE_PURGE_TOKEN") || strings.Contains(out, "pasted by you") {
 		t.Errorf("second run: %v\n%s", err, out)
 	}
@@ -636,8 +636,8 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 	for name, tokens := range map[string][]string{"empty": {""}, "refused three times": {"tok-1", "tok-2", "tok-3"}} {
 		s := newPurgeSetup(t, tokens...)
 		out, err := runSetup(t, s.root, true, "", "--yes")
-		if err != nil {
-			t.Fatalf("%s: %v\n%s", name, err, out)
+		if err == nil || !strings.Contains(err.Error(), "1 thing needs you") {
+			t.Fatalf("%s: a skipped token must fail the run: %v\n%s", name, err, out)
 		}
 		if !strings.Contains(out, "warning cloudflare: a token that can only clear the cache") || !strings.Contains(out, "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop") {
 			t.Errorf("%s:\n%s", name, out)
@@ -658,10 +658,10 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 	s := newPurgeSetup(t)
 	out, err := runSetup(t, s.root, false, "", "--yes")
-	if err != nil {
+	if err == nil || !strings.Contains(err.Error(), "1 thing needs you") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"cannot  cloudflare: a token that can only clear the cache of shop.example.com", "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=", "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop"} {
+	for _, want := range []string{"1. cloudflare: a token that can only clear the cache of shop.example.com", "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=", "gh secret set CF_CACHE_PURGE_TOKEN --repo acme/shop"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -675,7 +675,7 @@ func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 func TestSetupPurgeTokenPresent(t *testing.T) {
 	s := newPurgeSetup(t)
 	s.gh.secrets[secretPurge] = "set earlier"
-	out, err := runSetup(t, s.root, true, "", "--yes")
+	out, err := runSetup(t, s.root, true, "", "--yes", "--all")
 	if err != nil || !strings.Contains(out, "ok      github: the secret CF_CACHE_PURGE_TOKEN") || s.gh.secrets[secretPurge] != "set earlier" || s.asked != 0 {
 		t.Errorf("%v\n%s", err, out)
 	}
@@ -732,8 +732,9 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
 	gh := newFakeGH()
 	gh.install(t)
+	// The cache token needs a terminal to paste on, so setup does the rest and then fails.
 	out, err := runSetup(t, root, false, "", "--yes")
-	if err != nil {
+	if err == nil || !strings.Contains(err.Error(), "1 thing needs you") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if gh.secrets[secretHost] != "deploy-a-ssh.example.com" || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
@@ -755,7 +756,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	cf.calls = nil
 	secret := gh.secrets[secretCFSecret]
 	out, _ = runSetup(t, root, false, "", "--yes")
-	if gh.secrets[secretCFSecret] != secret || !strings.Contains(out, "Nothing to change.") {
+	if gh.secrets[secretCFSecret] != secret || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 8, GitHub 3") {
 		t.Errorf("a second run changed the token:\n%s", out)
 	}
 
@@ -763,7 +764,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n")
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
-	if err != nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
+	if err == nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if len(cf.apps) != 0 || len(cf.tokens) != 0 || len(cf.policies) != 0 || gh.secrets[secretCFID] != "" {
@@ -781,7 +782,7 @@ func TestSetupSSHModesNeedThings(t *testing.T) {
 	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	out, _ := runSetup(t, root, false, "")
-	if !strings.Contains(out, "cannot  github: the Tailscale secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET") || !strings.Contains(out, "gh secret set") {
+	if !strings.Contains(out, "1. github: the Tailscale secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET") || !strings.Contains(out, "gh secret set") {
 		t.Errorf("out:\n%s", out)
 	}
 }
@@ -865,5 +866,101 @@ func TestSetupPlanReadsTogether(t *testing.T) {
 	t.Logf("%d calls, %v", calls, took)
 	if took > time.Duration(calls)*delay/2 {
 		t.Errorf("%d calls of %v took %v: they ran one after the other", calls, delay, took)
+	}
+}
+
+// Hidden ok lines: only the changes show, and one line counts what is right, by area.
+func TestSetupHidesOKLines(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	newSetupServer(t, "", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
+	out, err := runSetup(t, root, false, "")
+	if err == nil {
+		t.Fatalf("no --yes and no terminal, but no error:\n%s", out)
+	}
+	for _, want := range []string{"Plan for shop on vps", "add     app:", "Already right: server 1 (--all lists them)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ok      ") {
+		t.Errorf("an ok line shows:\n%s", out)
+	}
+	if strings.Index(out, "add     app:") > strings.Index(out, "Already right") {
+		t.Errorf("order:\n%s", out)
+	}
+}
+
+// --all lists the ok lines and drops the summary.
+func TestSetupAllListsOKLines(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	newSetupServer(t, "", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
+	out, _ := runSetup(t, root, false, "", "--all")
+	if !strings.Contains(out, "ok      server:") || strings.Contains(out, "Already right") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+// Everything is right and nobody has to do anything: one line, no plan, no question.
+func TestSetupAllInOrderOneLine(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, ""))
+	out, err := runSetup(t, root, true, "")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if out != "shop on vps matches tifa.yaml: 2 things checked (--all lists them).\n" {
+		t.Errorf("out: %q", out)
+	}
+}
+
+// What setup cannot do comes last, numbered, with the reason below each item. It makes the exit
+// non-zero, after everything else was done.
+func TestSetupCannotListedLast(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	gh := newFakeGH()
+	gh.loggedIn = false
+	gh.install(t)
+	out, err := runSetup(t, root, false, "")
+	if err == nil || !strings.Contains(err.Error(), "1 thing needs you, see above") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+	want := "Plan for shop on vps\n\nAlready right: server 1, app 1 (--all lists them)\n\nYou need to do 1 thing that setup cannot:\n  1. github: deploys from GitHub Actions\n     gh is not logged in: run gh auth login (gh auth status: You are not logged into any GitHub hosts)\n\n"
+	if out != want || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+// With changes and a cannot item, setup asks, applies, and then fails.
+func TestSetupCannotAfterApply(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
+	srv := newSetupServer(t, "hostname 203.0.113.7\n", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
+	gh := newFakeGH()
+	gh.loggedIn = false
+	gh.install(t)
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "needs you") || !strings.Contains(srv.calls(), "app tifa") {
+		t.Fatalf("err %v\n%s\n%s", err, out, srv.calls())
+	}
+	if strings.Index(out, "  done    app:") < strings.Index(out, "You need to do") || strings.Contains(out, "could not be done") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+// The IP address note is an optional item. Alone it does not make setup fail.
+func TestSetupIPNoteIsOptionalItem(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: 203.0.113.7\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, ""))
+	out, err := runSetup(t, root, false, "")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{"You need to do 1 thing that setup cannot:", "  1. deploy.host is the address 203.0.113.7 (optional)", "Write an ssh alias instead", "Already right: server 1, app 1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Note:") || strings.Contains(out, "matches tifa.yaml") {
+		t.Errorf("out:\n%s", out)
 	}
 }

@@ -210,7 +210,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 
 func newDeployCmd() *cobra.Command {
 	var dir, host string
-	var yes bool
+	var yes, all bool
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
@@ -237,8 +237,10 @@ app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHu
 		Use:   "setup",
 		Short: "Make the server, Cloudflare and GitHub match the deploy settings of tifa.yaml",
 		Long: `setup compares the deploy section of tifa.yaml with the server, Cloudflare and GitHub, prints
-a plan (each line is ok, add, change or remove, or says why it cannot be done), asks, and applies
-it with one line for each step. It can run again at any time.
+a plan, asks, and applies it with one line for each step. The plan lists what will add, change
+or remove, counts what is already right (--all lists it), and ends with what you must do because
+setup cannot. When something is left for you, setup does the rest and then exits with an error.
+When all is right it prints one line and asks nothing. It can run again at any time.
 
   server    the user tifa and its systemd at boot, the first time as root
   app       the folder, port and systemd units of this app, as tifa
@@ -254,7 +256,7 @@ It removes only what Tifa made and marked. Without a terminal, pass --yes to app
 			if err != nil {
 				return err
 			}
-			return deploySetup(cmd.Context(), t, yes, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deploySetup(cmd.Context(), t, yes, all, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	rollback := &cobra.Command{
@@ -272,6 +274,7 @@ restarts the app through its socket. Run it again to go further back.`,
 		},
 	}
 	setup.Flags().BoolVarP(&yes, "yes", "y", false, "apply the plan without asking")
+	setup.Flags().BoolVar(&all, "all", false, "list the things that are already right too")
 	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host))
 	return cmd
 }
