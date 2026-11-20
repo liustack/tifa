@@ -140,7 +140,8 @@ func newDeployCmd() *cobra.Command {
 DEPLOY_HOST), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
-and deploy exits with 1. It never uploads .env. Run tifa deploy setup once per app first.`,
+and deploy exits with 1. It never uploads .env. Run tifa deploy setup once per app first, and
+tifa deploy github once to deploy from GitHub Actions.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			t, err := loadDeployTarget(dir, host)
@@ -187,7 +188,7 @@ restarts the app through its socket. Run it again to go further back.`,
 		},
 	}
 	setup.Flags().BoolVar(&cloudflare, "cloudflare", true, "set up the Cloudflare Tunnel, DNS and cache rules of deploy.domain with cf when it is logged in")
-	cmd.AddCommand(setup, rollback)
+	cmd.AddCommand(setup, rollback, newDeployGitHubCmd(&dir, &host))
 	return cmd
 }
 
