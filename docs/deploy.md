@@ -1,5 +1,5 @@
 ---
-summary: 'How to put a Tifa app on a server: the four deploy settings of tifa.yaml (host, domain, ssh, github), tifa deploy setup with its plan of ok, add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: the four deploy settings of tifa.yaml (host, domain, ssh, github), tifa deploy setup with its plan of ok, add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, tifa deploy env for the .env of the app on the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
@@ -9,6 +9,7 @@ read_when:
   - Putting an app behind a Cloudflare Tunnel with cf, or finding what tifa deploy setup changed in Cloudflare and how to remove it
   - A deploy printed a warning that the CDN cache was not cleared, or CF_PURGE_TOKEN needs making by hand
   - Giving a second developer machine access to deploy
+  - Setting a secret or a setting in the .env of a deployed app, with tifa deploy env
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
@@ -189,6 +190,16 @@ ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
 ```
 
 The new machine also needs `deploy.host` to resolve: put the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
+
+### Settings and secrets on the server
+
+```sh
+printf %s "$VALUE" | go tool tifa deploy env set API_KEY   # or run it on a terminal for a hidden prompt
+go tool tifa deploy env unset API_KEY
+go tool tifa deploy env list                               # names only
+```
+
+These edit `/srv/tifa/<app>/shared/.env` over ssh as `tifa`, the file the app reads from the folder it runs in (see [.env](config.md#env)). The value is read from the standard input or a hidden prompt, never from an argument, so it stays out of your shell history and the process list. Nothing prints a value. The file keeps mode 600, and your other lines and comments stay as they are. After a change the app restarts through its socket and must pass the health check of a deploy. If it does not, the old file comes back, the app restarts again, and the command says so and exits with 1. The file is read by the app as configuration only: it is not put into the environment of the process or of systemd, so each app on a server keeps its own.
 
 ### On the server
 
