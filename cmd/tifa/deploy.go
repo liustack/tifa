@@ -210,7 +210,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 
 func newDeployCmd() *cobra.Command {
 	var dir, host string
-	var yes, all, purgeToken bool
+	var sf setupFlags
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
@@ -256,7 +256,7 @@ It removes only what Tifa made and marked. Without a terminal, pass --yes to app
 			if err != nil {
 				return err
 			}
-			return deploySetup(cmd.Context(), t, yes, all, purgeToken, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deploySetup(cmd.Context(), t, sf, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	rollback := &cobra.Command{
@@ -273,9 +273,10 @@ restarts the app through its socket. Run it again to go further back.`,
 			return deployRollback(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	setup.Flags().BoolVarP(&yes, "yes", "y", false, "apply the plan without asking")
-	setup.Flags().BoolVar(&all, "all", false, "list the things that are already right too")
-	setup.Flags().BoolVar(&purgeToken, "cache-purge-token", false, "ask for the token CI clears the CDN cache with, and replace the one GitHub has")
+	setup.Flags().BoolVarP(&sf.yes, "yes", "y", false, "apply the plan without asking")
+	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
+	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token CI clears the CDN cache with, and replace the one GitHub has")
+	setup.Flags().BoolVar(&sf.tailscaleOAuth, "tailscale-oauth", false, "ask for the OAuth client CI joins your tailnet with, and replace the one GitHub has")
 	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host))
 	return cmd
 }
