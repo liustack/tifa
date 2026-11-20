@@ -100,7 +100,7 @@ func TestGitHubWorkflow(t *testing.T) {
 	if got := uses(steps); !slices.Equal(got, []string{"actions/checkout@v7", "actions/setup-go@v7", "pnpm/action-setup@v6", "actions/setup-node@v7"}) {
 		t.Errorf("pages use %v", got)
 	}
-	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile") || !strings.Contains(pages, "  Port 2222") || !strings.Contains(pages, "version: 10") {
+	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile --ignore-scripts") || !strings.Contains(pages, "  Port 2222") || !strings.Contains(pages, "version: 10") {
 		t.Errorf("pages:\n%s", pages)
 	}
 	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22, Node: true}), "          version:") {

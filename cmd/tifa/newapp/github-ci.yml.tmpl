@@ -24,7 +24,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # The prepare script is skipped: tifa check writes .tifa/ itself, in a step whose findings
+      # GitHub can mark on the files.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 {{- else}}
       - uses: actions/setup-node@v7
         with:
