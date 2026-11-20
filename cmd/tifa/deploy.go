@@ -221,7 +221,7 @@ restarts the app through its socket. Run it again to go further back.`,
 		},
 	}
 	setup.Flags().BoolVarP(&yes, "yes", "y", false, "apply the plan without asking")
-	cmd.AddCommand(setup, rollback)
+	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host))
 	return cmd
 }
 

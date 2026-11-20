@@ -455,6 +455,24 @@ const (
 	activateFailed     = 4 // the release failed its check, and there was nothing to go back to, or that failed too
 )
 
+// healthCheckFunc is the shell function that asks the app for healthPath, shared by the scripts that
+// restart it. It needs $health, $port, $tries and $unit.
+const healthCheckFunc = `check() {
+	i=0
+	while [ "$i" -lt "$tries" ]; do
+		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$health") || code=000
+		if [ "$code" -ge 100 ] && [ "$code" -lt 500 ] && systemctl --user is-active --quiet "$unit.service"; then
+			echo "health check: GET $health answered $code"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	if [ "$code" = 000 ]; then echo "health check: GET $health got no answer in $tries tries"; else echo "health check: GET $health answered $code"; fi
+	return 1
+}
+`
+
 // activateBody runs as the deploy user. It points current at a release, restarts the program
 // through its socket and asks the new program for healthPath until it answers below 500. Then it
 // records the release as ok and deletes the old releases in prune. Otherwise it records the
@@ -476,21 +494,7 @@ start() {
 	systemctl --user reset-failed "$unit.socket" "$unit.service" >/dev/null 2>&1
 	systemctl --user start "$unit.socket" && systemctl --user restart "$unit.service"
 }
-check() {
-	i=0
-	while [ "$i" -lt "$tries" ]; do
-		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$health") || code=000
-		if [ "$code" -ge 100 ] && [ "$code" -lt 500 ] && systemctl --user is-active --quiet "$unit.service"; then
-			echo "health check: GET $health answered $code"
-			return 0
-		fi
-		i=$((i + 1))
-		sleep 1
-	done
-	if [ "$code" = 000 ]; then echo "health check: GET $health got no answer in $tries tries"; else echo "health check: GET $health answered $code"; fi
-	return 1
-}
-echo "starting $id"
+` + healthCheckFunc + `echo "starting $id"
 if start "$id" && check; then
 	record "$id" "$commit" ok
 	for old in $prune; do rm -rf "releases/$old"; done
