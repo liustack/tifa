@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `go tool tifa new` writes `.github/workflows/ci.yml`, a GitHub Actions workflow that runs `go tool tifa check` on pull requests and on pushes to `main`, and `go tool tifa agents` writes it into an app that has no workflow yet. It never replaces a file. See [`tifa new`](docs/build.md#tifa-new).
+
 ## [0.1.6] - 2026-11-20
 
 ### Added
