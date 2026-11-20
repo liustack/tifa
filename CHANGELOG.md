@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The `.gitignore` of `tifa new` ignores `.cloudflare/`, where cf, the Cloudflare CLI, remembers the account for the folder it runs in. An existing app can add the same line.
+
 ## [0.1.8] - 2026-11-20
 
 ### Changed
