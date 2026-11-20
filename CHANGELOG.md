@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-20
+
 ### Added
 
 - The `deploy` section of `tifa.yaml` has two new settings, `deploy.ssh` (`direct`, `cloudflare` or `tailscale`, how CI reaches the server) and `deploy.github` (`true` lets the GitHub Actions of the repository deploy the app). `go tool tifa deploy setup` makes the server, Cloudflare and GitHub match the four settings: it prints a plan of `ok`, `add`, `change` and `remove` lines (and `cannot` lines that say what is missing), asks on a terminal (`--yes` skips the question, and without a terminal it stops after the plan), then applies it with a line for each step. It can run again at any time, and removes only what Tifa made and marked. A `deploy.host` that is an IP address gets a note to write an ssh alias instead. See [Deploying](docs/deploy.md#deploy-with-tifa-deploy).
