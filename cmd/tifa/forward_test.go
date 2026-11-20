@@ -116,6 +116,9 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(1)
 	}
+	// The tests of tifa run in GitHub Actions too, where tifa would add workflow commands to what
+	// they read. A test that wants them sets the variable itself.
+	os.Unsetenv(envGitHubActions)
 	os.Exit(m.Run())
 }
 

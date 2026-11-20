@@ -261,7 +261,9 @@ func githubWorkflow(s githubWorkflowSpec) string {
 		w("        with:")
 		w("          node-version: 24")
 		w("          cache: pnpm")
-		w("      - run: pnpm install --frozen-lockfile")
+		// tifa deploy builds, which writes .tifa/, so the prepare script is skipped: its output,
+		// which pnpm prefixes, would hide the findings from GitHub.
+		w("      - run: pnpm install --frozen-lockfile --ignore-scripts")
 	}
 	switch s.Mode {
 	case connCloudflare:

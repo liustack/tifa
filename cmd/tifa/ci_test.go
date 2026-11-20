@@ -77,7 +77,7 @@ func TestNewWritesTheCIWorkflow(t *testing.T) {
 		got := strings.Join(ciSteps(t, ci), "\n")
 		want := strings.Join([]string{
 			"actions/checkout@v7", "actions/setup-go@v7", "pnpm/action-setup@v6", "actions/setup-node@v7",
-			"run: pnpm install --frozen-lockfile", "run: go tool tifa check",
+			"run: pnpm install --frozen-lockfile --ignore-scripts", "run: go tool tifa check",
 		}, "\n")
 		if got != want {
 			t.Errorf("steps:\n%s\nwant:\n%s", got, want)
