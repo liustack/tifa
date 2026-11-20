@@ -81,11 +81,11 @@ func sshAccessSetup(ctx context.Context, s sshAccess, stdout io.Writer) (sshAcce
 	say("DNS %s CNAME %s.cfargotunnel.com, proxied, %s", host, s.tunnelID, how)
 
 	name := accessName(s.repo)
-	clientID, clientSecret, tokenID, err := renewServiceToken(ctx, name)
+	clientID, clientSecret, tokenID, how, err := renewServiceToken(ctx, name)
 	if err != nil {
 		return sshAccessResult{}, err
 	}
-	say("service token %s, new", name)
+	say("service token %s, %s", name, how)
 	policyID, how, err := ensureTokenPolicy(ctx, name, tokenID)
 	if err != nil {
 		return sshAccessResult{}, err
@@ -98,36 +98,47 @@ func sshAccessSetup(ctx context.Context, s sshAccess, stdout io.Writer) (sshAcce
 	return sshAccessResult{host: host, clientID: clientID, clientSecret: clientSecret}, nil
 }
 
-// renewServiceToken deletes the tokens called name and makes a new one that does not expire, so
-// CI does not stop working a year later: run github again to replace it. It returns the client ID
-// and secret CI presents, and the ID of the token that policies name.
-func renewServiceToken(ctx context.Context, name string) (clientID, clientSecret, tokenID string, err error) {
+// renewServiceToken makes the token called name, one that does not expire so CI does not stop
+// working a year later, or gives the token that is there a new secret, which ends the old one: run
+// github again to replace a secret. The token keeps its ID, because Cloudflare does not delete a
+// token a policy names. It returns the client ID and secret CI presents, and the ID of the token
+// that policies name, and how it got them.
+func renewServiceToken(ctx context.Context, name string) (clientID, clientSecret, tokenID, how string, err error) {
 	type token struct {
 		ID           string `json:"id"`
 		Name         string `json:"name"`
 		ClientID     string `json:"client_id"`
 		ClientSecret string `json:"client_secret"`
 	}
-	old, err := cfPages[token](ctx, "zero-trust", "access", "service-tokens", "list", "--name", name)
+	listed, err := cfPages[token](ctx, "zero-trust", "access", "service-tokens", "list", "--name", name)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	for _, t := range old {
+	var ids []string
+	for _, t := range listed {
 		if t.Name == name {
-			if _, err := runCF(ctx, "zero-trust", "access", "service-tokens", "delete", t.ID); err != nil {
-				return "", "", "", err
-			}
+			ids = append(ids, t.ID)
 		}
 	}
-	body, _ := json.Marshal(map[string]any{"name": name, "duration": "forever"})
 	var made token
-	if err := cfJSON(ctx, &made, "zero-trust", "access", "service-tokens", "create", "--body", string(body)); err != nil {
-		return "", "", "", err
+	switch len(ids) {
+	case 0:
+		how = "created"
+		body, _ := json.Marshal(map[string]any{"name": name, "duration": "forever"})
+		err = cfJSON(ctx, &made, "zero-trust", "access", "service-tokens", "create", "--body", string(body))
+	case 1:
+		how = "new secret, the old one stops working"
+		err = cfJSON(ctx, &made, "zero-trust", "access", "service-tokens", "rotate", ids[0])
+	default:
+		err = fmt.Errorf("Cloudflare has %d service tokens called %s (%s): delete all but one in Zero Trust, Access, Service credentials", len(ids), name, strings.Join(ids, ", "))
+	}
+	if err != nil {
+		return "", "", "", "", err
 	}
 	if made.ID == "" || made.ClientID == "" || made.ClientSecret == "" {
-		return "", "", "", errors.New("cf made the service token but gave no ID or secret tifa can read")
+		return "", "", "", "", errors.New("cf gave no ID or secret of the service token that tifa can read")
 	}
-	return made.ClientID, made.ClientSecret, made.ID, nil
+	return made.ClientID, made.ClientSecret, made.ID, how, nil
 }
 
 // ensureTokenPolicy makes the reusable policy called name, which lets in the service token and
@@ -151,7 +162,7 @@ func ensureTokenPolicy(ctx context.Context, name, tokenID string) (id, how strin
 			if _, err := runCF(ctx, "zero-trust", "access", "policies", "update", p.ID, "--body", string(body)); err != nil {
 				return "", "", err
 			}
-			return p.ID, "points at the new token", nil
+			return p.ID, "set again", nil
 		}
 	}
 	var made struct {

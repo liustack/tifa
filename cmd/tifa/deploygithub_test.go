@@ -617,12 +617,33 @@ func (a *fakeAccess) answer2(args []string) (any, error) {
 	}
 	switch {
 	case strings.HasPrefix(cmd, "zero-trust access service-tokens delete"):
+		// The real cf asks "Continue?" before a delete and fails without a terminal, and Cloudflare
+		// refuses to delete a token a policy names.
+		if !slices.Contains(args, "--force") {
+			return nil, errors.New("? This permanently deletes the resource. Continue?")
+		}
+		for _, p := range a.policies {
+			for _, inc := range p["include"].([]any) {
+				if inc.(map[string]any)["service_token"].(map[string]any)["token_id"] == args[4] {
+					return nil, errors.New("[12139] access.api.error.service_token_in_use")
+				}
+			}
+		}
 		before := len(a.tokens)
 		a.tokens = slices.DeleteFunc(a.tokens, func(t map[string]any) bool { return t["id"] == args[4] })
 		if len(a.tokens) == before {
 			return nil, errors.New("404 Not Found")
 		}
 		return map[string]any{"id": args[4]}, nil
+	case strings.HasPrefix(cmd, "zero-trust access service-tokens rotate"):
+		for _, t := range a.tokens {
+			if t["id"] == args[4] {
+				secret := "client-secret-" + a.id("rot")
+				a.secrets = append(a.secrets, secret)
+				return map[string]any{"id": t["id"], "name": t["name"], "client_id": "client-id-" + args[4] + ".access", "client_secret": secret}, nil
+			}
+		}
+		return nil, errors.New("404 Not Found")
 	case strings.HasPrefix(cmd, "zero-trust access service-tokens create"):
 		b := body(args)
 		if b["duration"] != "forever" {
@@ -747,11 +768,15 @@ func TestGitHubCloudflare(t *testing.T) {
 		t.Errorf("workflow:\n%s", wf)
 	}
 
-	// The same repository again: the old token is deleted, one new token, one policy that names it, one application.
+	// The same repository again: the token keeps its ID and gets a new secret, one policy that names
+	// it, one application.
 	oldID := cf.tokens[0]["id"]
 	run()
-	if len(cf.tokens) != 1 || cf.tokens[0]["id"] == oldID || len(cf.policies) != 1 || len(cf.apps) != 1 || len(cf.records["example.com"]) != 1 {
+	if len(cf.tokens) != 1 || cf.tokens[0]["id"] != oldID || len(cf.policies) != 1 || len(cf.apps) != 1 || len(cf.records["example.com"]) != 1 {
 		t.Errorf("rerun: tokens %v policies %v apps %v", cf.tokens, cf.policies, cf.apps)
+	}
+	if len(cf.secrets) != 2 || gh.secrets[secretCFSecret] != cf.secrets[1] || gh.secrets[secretCFID] != "client-id-"+oldID.(string)+".access" {
+		t.Errorf("rerun did not hand over the new secret: %q", gh.secrets)
 	}
 	if got := cf.policies[0]["include"].([]any)[0].(map[string]any)["service_token"].(map[string]any)["token_id"]; got != cf.tokens[0]["id"] {
 		t.Errorf("the policy still names %v", got)

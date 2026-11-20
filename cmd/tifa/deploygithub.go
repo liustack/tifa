@@ -569,6 +569,7 @@ func deployGitHub(ctx context.Context, t deployTarget, o githubOptions, stdout, 
 	if err := os.MkdirAll(filepath.Dir(workflow), 0o755); err != nil {
 		return err
 	}
+	next := fmt.Sprintf("Every push to %s deploys.", repo.Branch)
 	if string(have) == text {
 		say("%s is up to date", githubWorkflowPath)
 	} else {
@@ -576,6 +577,7 @@ func deployGitHub(ctx context.Context, t deployTarget, o githubOptions, stdout, 
 			return err
 		}
 		say("wrote %s", githubWorkflowPath)
+		next = fmt.Sprintf("Commit and push %s: then every push to %s deploys.", githubWorkflowPath, repo.Branch)
 	}
 	if o.mode == connTailscale {
 		fmt.Fprintf(stdout, `
@@ -585,7 +587,7 @@ repository. The tag tag:ci must exist in the policy of your tailnet (tagOwners),
 server on port 22.
 `, secretTSID, secretTSSecret)
 	}
-	say("\nCommit and push %s. The next push to %s deploys, and Actions, Run workflow, rolls back.", githubWorkflowPath, repo.Branch)
+	say("\n%s To roll back, run the deploy workflow by hand in the Actions tab and pick rollback.", next)
 	return nil
 }
 
