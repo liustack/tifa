@@ -129,7 +129,7 @@ site:
 deploy:
   host: vps        # an ssh alias (a Host of ~/.ssh/config) or an address, no user, no port. An alias keeps the IP out of a public repository
   cdn: none        # none | cloudflare: with cloudflare, visitors arrive through a Cloudflare Tunnel at the host of site.url, and deploy and rollback clear the CDN cache of it
-  ssh: direct      # direct | cloudflare | tailscale: how the GitHub Actions runner reaches ssh. Needs ci: github, and cloudflare needs cdn: cloudflare
+  ssh: direct      # direct | cloudflare | tailscale: how the GitHub Actions runner reaches ssh. Needs ci: github, and cloudflare needs cdn: cloudflare. With tailscale, setup asks for an OAuth client of yours (tifa deploy setup --tailscale-oauth replaces it)
   ci: none         # none | github: with github, the GitHub Actions of this repository deploy the app
 ```
 

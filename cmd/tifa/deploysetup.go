@@ -236,7 +236,7 @@ type setupRun struct {
 	repo           githubRepo
 	ghNames        map[string]bool
 	ghVars         map[string]string
-	purgeToken     bool // --cache-purge-token: ask for the purge token and replace the secret
+	setupFlags
 }
 
 func (r *setupRun) refresh(ctx context.Context) error {
@@ -271,9 +271,9 @@ func sha(s string) string {
 
 // buildSetupPlan reads the server, Cloudflare and GitHub, and compares them with tifa.yaml. It
 // changes nothing.
-func buildSetupPlan(ctx context.Context, t deployTarget, purgeToken bool, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
+func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
 	// The reads run on several goroutines, and each one may write to stderr.
-	r := &setupRun{t: t, purgeToken: purgeToken, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}}
+	r := &setupRun{t: t, setupFlags: f, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}}
 	// The plan reads each thing once. The steps it returns run later, with the context of the
 	// caller, which has no memo, so they see what they changed.
 	ctx, cancel := context.WithCancel(withReadMemo(ctx))
@@ -739,12 +739,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		}
 	}
 	if t.sshMode == connTailscale {
-		if r.ghNames[secretTSID] && r.ghNames[secretTSSecret] {
-			p.ok("github: the Tailscale secrets " + secretTSID + " and " + secretTSSecret)
-		} else {
-			p.cannot("github: the Tailscale secrets "+secretTSID+" and "+secretTSSecret,
-				"Tifa cannot make an OAuth client: in Tailscale, Settings, OAuth clients, make one with the auth_keys scope for the tag tag:ci, which your tailnet policy must own and let reach port 22 of the server, then run gh secret set for both")
-		}
+		r.tailscaleSteps(p)
 	}
 
 	// The token that clears the CDN cache, and the workflow.
@@ -1046,28 +1041,28 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 
 // deploySetup plans, asks and applies. It fails when something needs the developer, after it did
 // all it could.
-func deploySetup(ctx context.Context, t deployTarget, yes, all, purgeToken bool, in io.Reader, stdout, stderr io.Writer) error {
-	if purgeToken {
-		switch {
-		case t.domain == "" || !t.github:
-			return errors.New("--cache-purge-token is for the token CI clears the CDN cache with, which needs deploy.cdn: cloudflare and deploy.ci: github in tifa.yaml")
-		case !stdinIsTerminal(in):
-			return errors.New("--cache-purge-token needs a terminal to paste the token on")
-		}
+func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) error {
+	switch {
+	case f.purgeToken && (t.domain == "" || !t.github):
+		return errors.New("--cache-purge-token is for the token CI clears the CDN cache with, which needs deploy.cdn: cloudflare and deploy.ci: github in tifa.yaml")
+	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
+		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
+	case (f.purgeToken || f.tailscaleOAuth) && !stdinIsTerminal(in):
+		return errors.New("--cache-purge-token and --tailscale-oauth need a terminal to paste on")
 	}
-	plan, _, err := buildSetupPlan(ctx, t, purgeToken, in, stdout, stderr)
+	plan, _, err := buildSetupPlan(ctx, t, f, in, stdout, stderr)
 	if err != nil {
 		return err
 	}
 	cannot := plan.count(opCannot)
-	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !all {
+	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !f.all {
 		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
 		return nil
 	}
-	plan.print(stdout, t.app, t.host, all)
+	plan.print(stdout, t.app, t.host, f.all)
 	warnings := 0
 	if plan.todo() > 0 {
-		if err := confirm(in, stdout, yes); err != nil {
+		if err := confirm(in, stdout, f.yes); err != nil {
 			return err
 		}
 		if warnings, err = plan.apply(ctx, stdout); err != nil {
@@ -1087,4 +1082,12 @@ func (r *setupRun) zoneText() string {
 		return "the zone " + r.zone.Name
 	}
 	return "the zone of " + r.t.domain
+}
+
+// setupFlags are the flags of tifa deploy setup.
+type setupFlags struct {
+	yes, all bool
+	// purgeToken (--cache-purge-token) and tailscaleOAuth (--tailscale-oauth) ask for that
+	// secret even when GitHub has it, and replace it.
+	purgeToken, tailscaleOAuth bool
 }
