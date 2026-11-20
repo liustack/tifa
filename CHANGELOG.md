@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `go tool tifa deploy github` sets up deploys from GitHub Actions, once, with gh logged in. It writes `.github/workflows/deploy.yml` (a push to the default branch deploys, Run workflow can roll back, one deploy at a time, a file you changed is kept unless `--force`), makes a key for that repository alone and adds its public key to the user `tifa` on the server (running it again rotates the key), reads the host keys of the server over your ssh so CI trusts that server and no other, and sets the secrets with gh without printing or writing them. By default CI connects to the address `ssh -G` gives for `deploy.host`. `--cloudflare` adds an ssh route to the tunnel of the server, a DNS record, an Access application and a service token for the repository with cf, and CI connects through cloudflared. `--tailscale` joins the tailnet in the workflow and prints the two Tailscale secrets to add. See [Deploy from GitHub Actions](docs/deploy.md#deploy-from-github-actions).
+
 ## [0.1.6] - 2026-11-20
 
 ### Added

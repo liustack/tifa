@@ -1,9 +1,10 @@
 ---
-summary: 'How to put a Tifa app on a server: tifa deploy setup, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, several apps on one server, a Cloudflare Tunnel that setup makes with cf (DNS and cache rules for the host name) or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: tifa deploy setup, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, deploys from GitHub Actions that tifa deploy github sets up (key, host keys, secrets, directly or through Cloudflare or Tailscale), several apps on one server, a Cloudflare Tunnel that setup makes with cf (DNS and cache rules for the host name) or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
+  - Deploying on every push with GitHub Actions, or rotating or taking away the key CI deploys with
   - Putting an app behind a Cloudflare Tunnel with cf, or finding what tifa deploy setup changed in Cloudflare and how to remove it
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
@@ -104,6 +105,33 @@ go tool tifa deploy rollback
 ```
 
 It starts the newest earlier release that passed its check, and checks it the same way. Run it again to go back further. The next `tifa deploy` makes a new release from your code.
+
+### Deploy from GitHub Actions
+
+```sh
+go tool tifa deploy github
+```
+
+Run it once in the folder of the app, after `deploy setup`, with [gh](https://cli.github.com/) logged in (`gh auth login`) and the app pushed to a GitHub repository. It makes the deploy a push: Actions builds the app and runs `go tool tifa deploy`.
+
+1. Writes `.github/workflows/deploy.yml`. A push to the default branch deploys. In the Actions tab, Run workflow offers `deploy` or `rollback`. Only one deploy runs at a time, and a deploy that is running is never cancelled. Commit and push the file. It is short, so edit it as you like: Tifa will not write over a file that differs unless you pass `--force`.
+2. Makes a new key for this repository alone, and adds its public key to `/srv/tifa/.ssh/authorized_keys` on the server with the comment `tifa-github <owner>/<repo>`. The key cannot open a terminal or forward ports. Running the command again makes a new key and replaces that one line, so this is also how you rotate it. Delete the line to take the repository's access away.
+3. Reads the host keys of the server over your own ssh and keeps them as the secret `DEPLOY_KNOWN_HOSTS`, so CI trusts that server and no other. CI never runs `ssh-keyscan`.
+4. Sets the secrets `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` and `DEPLOY_HOST` with gh. Values go to gh on its input: they are never printed, never written to a file and never on a command line.
+
+`DEPLOY_HOST` is the address that `ssh -G <deploy.host>` gives, so a host name from `~/.ssh/config` works, and a port other than 22 is written into the workflow. A host that ssh reaches through `ProxyJump` or `ProxyCommand` cannot be copied into CI: use one of the two ways below. Without gh, not logged in, or outside a GitHub repository, the command changes nothing and prints what to do by hand.
+
+An app with pages needs `pnpm-lock.yaml` in the repository, which CI installs from. The workflow uses the pnpm of `packageManager` in `package.json`, or pnpm 10 without it.
+
+**Through Cloudflare** (`--cloudflare`). For a server that opens no port for ssh. It needs `deploy.domain`, the tunnel of `deploy setup`, and [cf](https://developers.cloudflare.com/cf/get-started/) logged in. With your login of cf it:
+
+1. Adds the route `<ssh host> -> ssh://localhost:22` to the tunnel of the server, keeping the other routes, and a proxied DNS record for it. The ssh host is `deploy.domain` with `-ssh` after its first label, because Cloudflare's free certificates cover one level of subdomain: `deploy-a.example.com` becomes `deploy-a-ssh.example.com`, and the apex `example.com` becomes `ssh.example.com`.
+2. Makes a service token called `tifa-github-<owner>-<repo>` that does not expire, a policy that lets in only that token and asks for no login, and a self-hosted Access application for the ssh host with that policy. Another repository for the same server adds its own token and policy to the same application, so you can take one away without the others.
+3. Sets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, and `DEPLOY_HOST` is the ssh host.
+
+The workflow installs cloudflared from Cloudflare's signed apt repository and connects with `ProxyCommand cloudflared access ssh`, handing it the token in `TUNNEL_SERVICE_TOKEN_ID` and `TUNNEL_SERVICE_TOKEN_SECRET`. Running the command again deletes the token and makes a new one.
+
+**Through Tailscale** (`--tailscale`). The workflow joins your tailnet with `tailscale/github-action`, and `DEPLOY_HOST` is the tailnet name of the server. Tifa cannot make the OAuth client, so you add two secrets: in Tailscale, make an OAuth client with the `auth_keys` scope for the tag `tag:ci`, then set `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` in the repository. The tag `tag:ci` must exist in your tailnet policy (`tagOwners`) and be allowed to reach the server on port 22.
 
 ### On the server
 

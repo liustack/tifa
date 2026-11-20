@@ -35,7 +35,7 @@ From v0.1, a change that breaks anything on the stable list below ships in a min
 
 ## May change in any release
 
-- `tifa deploy`, `tifa deploy setup` and `tifa deploy rollback` with their flags, the `deploy.*` keys of `tifa.yaml`, and the files, units and records they keep on the server. They are new, and may change while the deploys from CI and from a Cloudflare account are added.
+- `tifa deploy`, `tifa deploy setup`, `tifa deploy rollback` and `tifa deploy github` with their flags, the `deploy.*` keys of `tifa.yaml`, the files, units and records they keep on the server, the workflow `tifa deploy github` writes, and what it sets in GitHub and Cloudflare. They are new, and may change while the deploys from CI and from a Cloudflare account settle.
 - The `server` package. It is public only because generated code in your module imports it. Do not import it. Use `tifa` and `tifatest`.
 - The JSON of `tifa routes --json` and `tifa errors --json`. Read them in scripts at your own risk, or use the text output.
 - The other `X-Tifa-*` headers (`X-Tifa-Redirect`, `X-Tifa-Session`, `X-Tifa-Dev`, `X-Tifa-Reload`), the JSON envelopes between the browser runtime and the program, `Server-Timing` details, the browser's `localStorage` and `sessionStorage` keys, and the element ids of the page. A browser and a program of one build agree on them, and a program of another build answers 409 so the page loads again.
