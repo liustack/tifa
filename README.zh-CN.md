@@ -81,6 +81,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 ## 特点
 
 - **部署只有一个文件。** 纯 Go，`CGO_ENABLED=0`，和普通 Go 程序一样交叉编译。浏览器包、样式和服务端渲染器都嵌在可执行文件里。
+- **push 就上线。** `tifa deploy setup` 一条命令配好服务器、Cloudflare 和 GitHub Actions，之后每次 push 自动检查、上线，健康检查不通过就自动回滚。见[部署](docs/deploy.md#deploy-with-tifa-deploy)。
 - **第一次请求就是完整 HTML。** Go 先跑完页面的 `Load` 和各层 `Layout` 函数，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。每个页面一次渲染完整，不做流式渲染，也没有 React Server Components。
 - **前端工具照常用。** Vite、Tailwind、shadcn 在开发机上照常工作，服务器上只跑一个 Go 文件，不装 Node。
 - **类型从 Go 一路到 React。** 每个页面数据的 TypeScript 类型由 Go `Load` 的返回值生成。
