@@ -1,0 +1,36 @@
+# tifa wrote this file once and never changes it. It is yours to edit.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+{{- if .Node}}
+{{- if eq .Run "pnpm"}}
+      - uses: pnpm/action-setup@v6
+{{- if .PnpmVersion}}
+        with:
+          version: {{.PnpmVersion}}
+{{- end}}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+{{- else}}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+{{- end}}
+{{- end}}
+      - run: go tool tifa check

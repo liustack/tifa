@@ -25,8 +25,9 @@ import (
 )
 
 // newapp holds the files of a new app. Each ends in .tmpl, so the go command neither builds the
-// Go files nor takes go.mod for a module. gitignore.tmpl becomes .gitignore and
-// vscode-settings.json.tmpl becomes .vscode/settings.json.
+// Go files nor takes go.mod for a module. gitignore.tmpl becomes .gitignore,
+// vscode-settings.json.tmpl becomes .vscode/settings.json and github-ci.yml.tmpl becomes
+// .github/workflows/ci.yml.
 //
 //go:embed newapp
 var newapp embed.FS
@@ -49,6 +50,11 @@ type newApp struct {
 	Written string
 	// Empty is set by --empty: the skeleton without the todo list.
 	Empty bool
+	// Node is set when the app has a package.json, which the CI workflow installs from.
+	Node bool
+	// PnpmVersion is the major version pnpm/action-setup gets when package.json has no
+	// packageManager that names pnpm. Empty when it does.
+	PnpmVersion string
 }
 
 // lookPath finds a program on PATH. Tests replace it.
@@ -93,6 +99,7 @@ table, a root Layout and a home page of one line.`,
 				return err
 			}
 			app.Empty = empty
+			app.Node, app.PnpmVersion = true, defaultPnpmVersion // package.json of a new app has no packageManager
 			app.Install, app.Run = packageManager()
 			if app.Go, err = goDirective(runtime.Version()); err != nil {
 				return err
@@ -291,6 +298,8 @@ func writeApp(dir string, app newApp) error {
 			rel = ".gitignore"
 		case "vscode-settings.json":
 			rel = ".vscode/settings.json"
+		case "github-ci.yml":
+			rel = ciPath
 		}
 		target := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

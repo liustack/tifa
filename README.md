@@ -133,7 +133,7 @@ go tool tifa dev     # http://127.0.0.1:9527
 
 On a machine that has never built a Tifa app, `go mod tidy`, `npm install` and the first `tifa dev` also download Go and npm packages, which can take a few minutes. The compile itself takes about 7 seconds on an Apple M4 (an empty build cache, the whole app). Later builds use the caches.
 
-`tifa new` writes a small todo list stored in SQLite to replace with your own domain: a home page with a Go `Load`, a `POST` the page calls from the browser, a page per todo, sessions kept in the database, and tests. The module path is the folder name unless you pass `--module example.com/myapp`.
+`tifa new` writes a small todo list stored in SQLite to replace with your own domain: a home page with a Go `Load`, a `POST` the page calls from the browser, a page per todo, sessions kept in the database, tests, and a GitHub Actions workflow that runs `go tool tifa check`. The module path is the folder name unless you pass `--module example.com/myapp`.
 
 ## Try the example
 
