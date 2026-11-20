@@ -1,5 +1,5 @@
 ---
-summary: 'How to put a Tifa app on a server: the deploy settings of tifa.yaml (host, front, ssh, ci), tifa deploy setup with its plan of ok, add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, tifa deploy env for the .env of the app on the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: the deploy settings of tifa.yaml (host, front, ssh, ci), tifa deploy setup with its plan of add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, tifa deploy env for the .env of the app on the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
@@ -56,12 +56,11 @@ What you need: a Linux server with systemd, on x86_64 or aarch64, that you can r
 go tool tifa deploy setup
 ```
 
-Setup compares `tifa.yaml` with the server, Cloudflare and GitHub and prints a plan. Each line is `ok`, `add`, `change` or `remove`. A line that cannot be done says what it needs:
+Setup compares `tifa.yaml` with the server, Cloudflare and GitHub and prints a plan. The plan lists only what will `add`, `change` or `remove`. What is already right is counted in one line (`--all` lists it). Last comes what setup cannot do for you, as a numbered list with the reason under each item:
 
 ```
 Plan for shop on vps
 
-  ok      server: tifa logs in and its systemd runs at boot
   add     app: /srv/tifa/shop with an empty shared/.env, port 9527, the systemd socket and service tifa-shop
   add     cloudflare: the tunnel of the server, tifa-vps-1234
   add     server: install cloudflared when missing and run the tunnel as the service tifa-tunnel, as root
@@ -71,13 +70,25 @@ Plan for shop on vps
   add     cloudflare: HTML rewriting off for shop.example.com
   add     github: a key for acme/shop that may log in as tifa, kept as the secret DEPLOY_SSH_KEY
   add     github: where CI logs in (direct) and the host keys it trusts, the secrets DEPLOY_HOST and DEPLOY_KNOWN_HOSTS
-  cannot  cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN (...)
   add     github: .github/workflows/tifa-deploy.yml, which you commit and push
+
+Already right: server 1 (--all lists them)
+
+You need to do 1 thing that setup cannot:
+  1. cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN
+     there is no terminal to paste on.
+     open https://dash.cloudflare.com/... (the rest says how to make the token)
 
 Apply this plan? [y/N]
 ```
 
-On a terminal it asks. Without one, setup prints the plan and stops with an error unless you pass `--yes`. After the answer it applies the plan and prints one line for each step. Run it again whenever `tifa.yaml` changes: it only does what differs.
+On a terminal it asks, and only when there is something to change. Without one, setup prints the plan and stops with an error unless you pass `--yes`. After the answer it applies the plan and prints one line for each step. When everything is right and nothing is left for you, setup prints one line and asks nothing:
+
+```
+shop on vps matches tifa.yaml: 9 things checked (--all lists them).
+```
+
+Setup exits with an error when an item is left for you or a step that may fail (the cache purge token) failed, after it did all the rest. A tip marked `(optional)`, such as writing an ssh alias in place of an IP address in `deploy.host`, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. Run it again whenever `tifa.yaml` changes: it only does what differs.
 
 Setup removes only what Tifa made and marked (it cannot delete the Cloudflare token you made: the plan says to delete it in the dashboard): the lines in `authorized_keys` with the comment `tifa-github <owner>/<repo>`, Cloudflare objects whose names start with `tifa`, the route and DNS record of a domain it added, the repository variable `TIFA_DEPLOY` and the secrets set with it, and the workflow file that starts with Tifa's line. Set `front: none` or `ci: none`, and the plan lists those removals before anything goes.
 
@@ -166,7 +177,7 @@ For the repository, setup:
 1. Makes a key for this repository alone, and adds its public key to `/srv/tifa/.ssh/authorized_keys` on the server with the comment `tifa-github <owner>/<repo>`. The key cannot open a terminal or forward ports. Keep the secret `DEPLOY_SSH_KEY` as it is made: to rotate the key, set `ci: none`, run setup, set it back and run setup again.
 2. Reads the host keys of the server over your own ssh and keeps them as the secret `DEPLOY_KNOWN_HOSTS`, so CI trusts that server and no other. CI never runs `ssh-keyscan`.
 3. Sets `DEPLOY_HOST`, where CI logs in. With `ssh: direct` it is the address that `ssh -G <deploy.host>` gives, so an alias from `~/.ssh/config` works, and a port other than 22 is written into the workflow. A host that ssh reaches through `ProxyJump` or `ProxyCommand` cannot be copied into CI: use one of the two ways below.
-4. With `front: cloudflare`, needs a token that can only clear the cache of the zone, kept as `CF_CACHE_PURGE_TOKEN`. A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <owner>/<repo>`. Set Zone Resources to the zone of the domain only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and gives it to gh on its input. An empty line skips: the step warns and setup goes on. Without a terminal the plan shows a `cannot` line with the link: make the token, then run `gh secret set CF_CACHE_PURGE_TOKEN --repo <owner>/<repo>`. GitHub secrets are write-only, so a secret that is there is taken as right. To replace the token, delete the secret and run setup again. Setup also removes a secret named `CF_PURGE_TOKEN`.
+4. With `front: cloudflare`, needs a token that can only clear the cache of the zone, kept as `CF_CACHE_PURGE_TOKEN`. A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <owner>/<repo>`. Set Zone Resources to the zone of the domain only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and gives it to gh on its input. An empty line skips: the step warns and setup goes on. Without a terminal the plan lists it among what you must do, with the link: make the token, then run `gh secret set CF_CACHE_PURGE_TOKEN --repo <owner>/<repo>`. GitHub secrets are write-only, so a secret that is there is taken as right. To replace the token, delete the secret and run setup again. Setup also removes a secret named `CF_PURGE_TOKEN`.
 5. Keeps `TIFA_DEPLOY`, a repository variable that marks the secrets as Tifa's and holds a fingerprint of the connection, so a second run sees what is current.
 
 Secret values go to gh on its input: they are never printed, never written to a file and never on a command line.
@@ -181,7 +192,7 @@ Secret values go to gh on its input: they are never printed, never written to a 
 
 The workflow installs cloudflared from Cloudflare's signed apt repository and connects with `ProxyCommand cloudflared access ssh`, handing it the token in `TUNNEL_SERVICE_TOKEN_ID` and `TUNNEL_SERVICE_TOKEN_SECRET`.
 
-**`ssh: tailscale`**. The workflow joins your tailnet with `tailscale/github-action`, and `DEPLOY_HOST` is the tailnet name of the server. Tifa cannot make the OAuth client, so the plan shows a `cannot` line until you add two secrets: in Tailscale, make an OAuth client with the `auth_keys` scope for the tag `tag:ci`, then run `gh secret set TS_OAUTH_CLIENT_ID` and `gh secret set TS_OAUTH_SECRET`. The tag `tag:ci` must exist in your tailnet policy (`tagOwners`) and be allowed to reach the server on port 22.
+**`ssh: tailscale`**. The workflow joins your tailnet with `tailscale/github-action`, and `DEPLOY_HOST` is the tailnet name of the server. Tifa cannot make the OAuth client, so the plan lists them among what you must do until you add two secrets: in Tailscale, make an OAuth client with the `auth_keys` scope for the tag `tag:ci`, then run `gh secret set TS_OAUTH_CLIENT_ID` and `gh secret set TS_OAUTH_SECRET`. The tag `tag:ci` must exist in your tailnet policy (`tagOwners`) and be allowed to reach the server on port 22.
 
 In Actions, `tifa deploy` and `rollback` write a short summary to the run page when the variable `GITHUB_STEP_SUMMARY` is set: the app, release, commit, time, the health check and whether the cache was cleared.
 
