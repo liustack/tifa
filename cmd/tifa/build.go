@@ -179,6 +179,7 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	if errors.As(err, &violations) {
 		for _, v := range violations {
 			fmt.Fprintln(cmd.ErrOrStderr(), v)
+			annotate(cmd.ErrOrStderr(), false, v.Pos.Filename, v.Pos.Line, v.Pos.Column, v.Msg)
 		}
 		return nil, fmt.Errorf("found %d convention violation(s)", len(violations)+len(foreignErrs))
 	}
@@ -188,6 +189,7 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	if err == nil {
 		for _, w := range m.Warnings {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s (warning)\n", w)
+			annotate(cmd.ErrOrStderr(), true, w.Pos.Filename, w.Pos.Line, w.Pos.Column, w.Msg)
 		}
 	}
 	if err == nil && m.Content != nil {

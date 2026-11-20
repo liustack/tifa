@@ -24,6 +24,7 @@ func scanForeign(root string, warnings io.Writer) (errs []string, err error) {
 // lines of the errors.
 func report(found []foreign.Finding, warnings io.Writer) (errs []string) {
 	for _, f := range found {
+		annotate(warnings, f.Warning, f.File, f.Line, f.Column, f.Msg)
 		switch {
 		case !f.Warning:
 			errs = append(errs, f.String())
