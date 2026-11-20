@@ -100,7 +100,7 @@ type cacheResult struct {
 func (r cacheResult) String() string {
 	switch {
 	case r.Host == "":
-		return "not used, deploy.front is not cloudflare"
+		return "not used, deploy.cdn is not cloudflare"
 	case r.Cleared:
 		return "cleared for " + r.Host
 	case r.NoToken:

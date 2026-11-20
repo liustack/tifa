@@ -59,6 +59,6 @@
 
 # deploy:
 #   host: ""                # server for tifa deploy: an ssh alias (a Host of ~/.ssh/config, so the address stays on each machine) or an address
-#   front: none             # what visitors pass through: none or cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
+#   cdn: none               # the CDN visitors come through: none or cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
 #   ssh: direct             # how the GitHub Actions runner reaches the server over ssh: direct, cloudflare or tailscale
 #   ci: none                # who deploys automatically: none or github (set up by tifa deploy setup)

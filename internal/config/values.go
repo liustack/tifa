@@ -636,10 +636,10 @@ func (v sshModeValue) Set(s string) error {
 func (v sshModeValue) String() string { return *v.p }
 func (v sshModeValue) kind() string   { return "string" }
 
-// frontValue is deploy.front: what visitors pass through. Empty means none.
-type frontValue struct{ p *string }
+// cdnValue is deploy.cdn: the CDN visitors come through. Empty means none.
+type cdnValue struct{ p *string }
 
-func (v frontValue) Set(s string) error {
+func (v cdnValue) Set(s string) error {
 	switch m := strings.ToLower(s); m {
 	case "":
 		*v.p = "none"
@@ -650,8 +650,8 @@ func (v frontValue) Set(s string) error {
 	}
 	return nil
 }
-func (v frontValue) String() string { return *v.p }
-func (v frontValue) kind() string   { return "string" }
+func (v cdnValue) String() string { return *v.p }
+func (v cdnValue) kind() string   { return "string" }
 
 // ciValue is deploy.ci: who deploys automatically. Empty means none.
 type ciValue struct{ p *string }
