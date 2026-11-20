@@ -1,6 +1,6 @@
 package main
 
-// The Cloudflare part of tifa deploy github: CI reaches the ssh of the server through the Cloudflare
+// The Cloudflare part of deploy.ssh cloudflare in tifa deploy setup: CI reaches the ssh of the server through the Cloudflare
 // Tunnel of the server, and Cloudflare Access lets only the service token of one repository in.
 // Like deploycf.go it does everything with the cf of the user, and keeps no Cloudflare token. The
 // secret of the service token goes from cf to the caller, which hands it to gh.
@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -48,54 +47,141 @@ func cfPages[T any](ctx context.Context, args ...string) ([]T, error) {
 	return nil, fmt.Errorf("cf %s lists more than %d pages", strings.Join(args[:min(4, len(args))], " "), maxPages)
 }
 
-type sshAccess struct {
-	app, domain, repo, tunnelID string
-}
-
-// sshAccessResult is what the workflow needs: the host name and the service token.
-type sshAccessResult struct {
-	host, clientID, clientSecret string
-}
-
 // accessName names what one repository owns in Cloudflare.
 func accessName(repo string) string { return "tifa-github-" + strings.ReplaceAll(repo, "/", "-") }
 
-// sshAccessSetup puts the ssh of the server on the tunnel under its own host name and lets the
-// service token of the repository in, printing one line for each step. Running it again makes a
-// new token for the repository, and keeps the rest.
-func sshAccessSetup(ctx context.Context, s sshAccess, stdout io.Writer) (sshAccessResult, error) {
-	say := func(format string, args ...any) { fmt.Fprintf(stdout, "cloudflare: "+format+"\n", args...) }
-	zone, err := findZone(ctx, s.domain)
-	if err != nil {
-		return sshAccessResult{}, err
-	}
-	host := cloudflareSSHHost(s.domain, zone)
-	how, err := ensureRoute(ctx, s.tunnelID, host, sshService)
-	if err != nil {
-		return sshAccessResult{}, err
-	}
-	say("route %s -> %s, %s", host, sshService, how)
-	if how, err = ensureDNS(ctx, zone, host, s.tunnelID+".cfargotunnel.com", s.app); err != nil {
-		return sshAccessResult{}, err
-	}
-	say("DNS %s CNAME %s.cfargotunnel.com, proxied, %s", host, s.tunnelID, how)
+// accessAppPrefix starts the name of the Access applications tifa makes for ssh host names.
+const accessAppPrefix = "tifa deploy ssh "
 
-	name := accessName(s.repo)
-	clientID, clientSecret, tokenID, how, err := renewServiceToken(ctx, name)
+// serviceTokenIDs lists the IDs of the service tokens called name.
+func serviceTokenIDs(ctx context.Context, name string) ([]string, error) {
+	type token struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	listed, err := cfPages[token](ctx, "zero-trust", "access", "service-tokens", "list", "--name", name)
 	if err != nil {
-		return sshAccessResult{}, err
+		return nil, err
 	}
-	say("service token %s, %s", name, how)
-	policyID, how, err := ensureTokenPolicy(ctx, name, tokenID)
+	var ids []string
+	for _, t := range listed {
+		if t.Name == name {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids, nil
+}
+
+type cfPolicy struct {
+	ID      string           `json:"id"`
+	Name    string           `json:"name"`
+	Include []map[string]any `json:"include"`
+}
+
+// policyByName finds the reusable policy called name.
+func policyByName(ctx context.Context, name string) (*cfPolicy, error) {
+	policies, err := cfPages[cfPolicy](ctx, "zero-trust", "access", "policies", "list")
 	if err != nil {
-		return sshAccessResult{}, err
+		return nil, err
 	}
-	say("policy %s, only that token, %s", name, how)
-	if how, err = ensureSSHApp(ctx, host, policyID); err != nil {
-		return sshAccessResult{}, err
+	for _, p := range policies {
+		if p.Name == name {
+			return &p, nil
+		}
 	}
-	say("Access application %s, %s", host, how)
-	return sshAccessResult{host: host, clientID: clientID, clientSecret: clientSecret}, nil
+	return nil, nil
+}
+
+// removeSSHAccess takes away what one repository owns in Cloudflare: its policy leaves the Access
+// applications, and an application that has no policy left goes with its route in the tunnel and
+// its DNS record. Then the policy and the service token go. It reports whether there was anything
+// of the repository, and with apply false it changes nothing.
+func removeSSHAccess(ctx context.Context, repo, tunnelID string, apply bool, say func(string, ...any)) (bool, error) {
+	name := accessName(repo)
+	ids, err := serviceTokenIDs(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	policy, err := policyByName(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	if len(ids) == 0 && policy == nil {
+		return false, nil
+	}
+	if !apply {
+		return true, nil
+	}
+	if policy != nil {
+		apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list")
+		if err != nil {
+			return true, err
+		}
+		for _, app := range apps {
+			appName, _ := app["name"].(string)
+			policies, _ := app["policies"].([]any)
+			if !strings.HasPrefix(appName, accessAppPrefix) || !attachedPolicy(policies, policy.ID) {
+				continue
+			}
+			id, _ := app["id"].(string)
+			host, _ := app["domain"].(string)
+			var rest []map[string]any
+			for _, p := range policies {
+				if m, ok := p.(map[string]any); ok && m["id"] != policy.ID {
+					rest = append(rest, map[string]any{"id": m["id"], "precedence": len(rest) + 1})
+				}
+			}
+			if len(rest) > 0 {
+				for _, k := range []string{"id", "aud", "created_at", "updated_at"} {
+					delete(app, k)
+				}
+				app["policies"] = rest
+				b, _ := json.Marshal(app)
+				if _, err := runCF(ctx, "zero-trust", "access", "applications", "update", id, "--body", string(b)); err != nil {
+					return true, err
+				}
+				say("Access application %s no longer admits the token of %s", host, repo)
+				continue
+			}
+			if _, err := runCF(ctx, "zero-trust", "access", "applications", "delete", id, "--force"); err != nil {
+				return true, err
+			}
+			say("Access application %s removed", host)
+			if tunnelID != "" {
+				if err := removeRoute(ctx, tunnelID, host); err != nil {
+					return true, err
+				}
+				zone, err := findZone(ctx, host)
+				if err != nil {
+					return true, err
+				}
+				if err := removeDNS(ctx, zone.Name, host, tunnelID+".cfargotunnel.com"); err != nil {
+					return true, err
+				}
+				say("route and DNS of %s removed", host)
+			}
+		}
+		if _, err := runCF(ctx, "zero-trust", "access", "policies", "delete", policy.ID, "--force"); err != nil {
+			return true, err
+		}
+		say("policy %s removed", name)
+	}
+	for _, id := range ids {
+		if _, err := runCF(ctx, "zero-trust", "access", "service-tokens", "delete", id, "--force"); err != nil {
+			return true, err
+		}
+		say("service token %s removed", name)
+	}
+	return true, nil
+}
+
+func attachedPolicy(policies []any, id string) bool {
+	for _, p := range policies {
+		if m, ok := p.(map[string]any); ok && m["id"] == id {
+			return true
+		}
+	}
+	return false
 }
 
 // renewServiceToken makes the token called name, one that does not expire so CI does not stop
@@ -110,15 +196,9 @@ func renewServiceToken(ctx context.Context, name string) (clientID, clientSecret
 		ClientID     string `json:"client_id"`
 		ClientSecret string `json:"client_secret"`
 	}
-	listed, err := cfPages[token](ctx, "zero-trust", "access", "service-tokens", "list", "--name", name)
+	ids, err := serviceTokenIDs(ctx, name)
 	if err != nil {
 		return "", "", "", "", err
-	}
-	var ids []string
-	for _, t := range listed {
-		if t.Name == name {
-			ids = append(ids, t.ID)
-		}
 	}
 	var made token
 	switch len(ids) {
@@ -143,27 +223,30 @@ func renewServiceToken(ctx context.Context, name string) (clientID, clientSecret
 
 // ensureTokenPolicy makes the reusable policy called name, which lets in the service token and
 // nothing else without a login (decision non_identity), or points the policy that is there at the
-// new token.
-func ensureTokenPolicy(ctx context.Context, name, tokenID string) (id, how string, err error) {
+// token. tokenID is empty when the token is yet to be made.
+func ensureTokenPolicy(ctx context.Context, name, tokenID string, apply bool) (id, how string, err error) {
 	body, _ := json.Marshal(map[string]any{
 		"name":     name,
 		"decision": "non_identity",
 		"include":  []map[string]any{{"service_token": map[string]any{"token_id": tokenID}}},
 	})
-	policies, err := cfPages[struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}](ctx, "zero-trust", "access", "policies", "list")
+	p, err := policyByName(ctx, name)
 	if err != nil {
 		return "", "", err
 	}
-	for _, p := range policies {
-		if p.Name == name {
-			if _, err := runCF(ctx, "zero-trust", "access", "policies", "update", p.ID, "--body", string(body)); err != nil {
-				return "", "", err
-			}
-			return p.ID, "set again", nil
+	if p != nil {
+		have, _ := json.Marshal(p.Include)
+		want, _ := json.Marshal([]map[string]any{{"service_token": map[string]any{"token_id": tokenID}}})
+		if tokenID != "" && string(have) == string(want) {
+			return p.ID, "already there", nil
 		}
+		if err := cfWrite(ctx, apply, "zero-trust", "access", "policies", "update", p.ID, "--body", string(body)); err != nil {
+			return "", "", err
+		}
+		return p.ID, "set again", nil
+	}
+	if !apply {
+		return "", "created", nil
 	}
 	var made struct {
 		ID string `json:"id"`
@@ -179,7 +262,7 @@ func ensureTokenPolicy(ctx context.Context, name, tokenID string) (id, how strin
 
 // ensureSSHApp makes the self-hosted Access application of the ssh host name and attaches the
 // policy to it, keeping the policies of other repositories that are attached.
-func ensureSSHApp(ctx context.Context, host, policyID string) (string, error) {
+func ensureSSHApp(ctx context.Context, host, policyID string, apply bool) (string, error) {
 	apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list", "--domain", host)
 	if err != nil {
 		return "", err
@@ -192,14 +275,14 @@ func ensureSSHApp(ctx context.Context, host, policyID string) (string, error) {
 	}
 	if app == nil {
 		body, _ := json.Marshal(map[string]any{
-			"name":                 "tifa deploy ssh " + host,
+			"name":                 accessAppPrefix + host,
 			"type":                 "self_hosted",
 			"domain":               host,
 			"session_duration":     "24h",
 			"app_launcher_visible": false,
 			"policies":             []map[string]any{{"id": policyID, "precedence": 1}},
 		})
-		if _, err := runCF(ctx, "zero-trust", "access", "applications", "create", "--body", string(body)); err != nil {
+		if err := cfWrite(ctx, apply, "zero-trust", "access", "applications", "create", "--body", string(body)); err != nil {
 			return "", err
 		}
 		return "created", nil
@@ -230,7 +313,7 @@ func ensureSSHApp(ctx context.Context, host, policyID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := runCF(ctx, "zero-trust", "access", "applications", "update", id, "--body", string(body)); err != nil {
+	if err := cfWrite(ctx, apply, "zero-trust", "access", "applications", "update", id, "--body", string(body)); err != nil {
 		return "", err
 	}
 	return "policy added", nil

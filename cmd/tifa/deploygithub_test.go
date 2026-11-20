@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,19 +169,6 @@ func TestKnownHostsLines(t *testing.T) {
 	}
 }
 
-func TestParseServerFacts(t *testing.T) {
-	f, err := parseServerFacts("tunnel abc-123\nhostkey ssh-ed25519 AAAAC3Nz\nhostkey ssh-rsa AAAAB3Nz\n")
-	if err != nil || f.TunnelID != "abc-123" || !slices.Equal(f.HostKeys, []string{"ssh-ed25519 AAAAC3Nz", "ssh-rsa AAAAB3Nz"}) {
-		t.Errorf("got %+v, %v", f, err)
-	}
-	if _, err := parseServerFacts("tunnel abc\n"); err == nil {
-		t.Error("no host keys, no error")
-	}
-	if _, err := parseServerFacts("hostkey ssh-ed25519 not*base64\n"); err == nil {
-		t.Error("a bad key, no error")
-	}
-}
-
 func TestParseSSHConfig(t *testing.T) {
 	r, err := parseSSHConfig("vps", "user root\nhostname 203.0.113.7\nport 2222\nidentityfile ~/.ssh/id\n")
 	if err != nil || r.Host != "203.0.113.7" || r.Port != 2222 {
@@ -264,19 +249,6 @@ func TestAuthorizeScript(t *testing.T) {
 	}
 }
 
-// The script that reads the facts of a server prints the tunnel and the host keys without their comments.
-func TestFactsBody(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the server scripts run under sh")
-	}
-	// factsBody reads fixed paths, so check the pieces it relies on.
-	for _, want := range []string{"/etc/tifa/tunnel", "/etc/ssh/ssh_host_*_key.pub", "cut -d' ' -f1,2"} {
-		if !strings.Contains(factsBody, want) {
-			t.Errorf("lacks %s", want)
-		}
-	}
-}
-
 func TestDeployKey(t *testing.T) {
 	k, err := newDeployKey("acme/shop")
 	if err != nil {
@@ -302,82 +274,6 @@ func TestDeployKey(t *testing.T) {
 	}
 }
 
-// fakeGH stands in for gh: it knows one repository and keeps the secrets it is given.
-type fakeGH struct {
-	loggedIn bool
-	repo     string
-	branch   string // empty: no default branch yet
-	calls    []string
-	secrets  map[string]string
-}
-
-func newFakeGH() *fakeGH {
-	return &fakeGH{loggedIn: true, repo: "acme/shop", branch: "main", secrets: map[string]string{}}
-}
-
-func (g *fakeGH) install(t *testing.T) {
-	oldRun, oldHave := runGH, haveGH
-	t.Cleanup(func() { runGH, haveGH = oldRun, oldHave })
-	haveGH = func() bool { return true }
-	runGH = func(_ context.Context, _ string, stdin io.Reader, args ...string) ([]byte, error) {
-		g.calls = append(g.calls, strings.Join(args, " "))
-		switch {
-		case slices.Equal(args, []string{"auth", "status"}):
-			if !g.loggedIn {
-				return nil, errors.New("gh auth status: You are not logged into any GitHub hosts")
-			}
-			return nil, nil
-		case args[0] == "repo" && args[1] == "view":
-			ref := "null"
-			if g.branch != "" {
-				ref = fmt.Sprintf(`{"name":%q}`, g.branch)
-			}
-			return []byte(fmt.Sprintf(`{"nameWithOwner":%q,"defaultBranchRef":%s}`, g.repo, ref)), nil
-		case args[0] == "secret" && args[1] == "set":
-			if stdin == nil || len(args) != 5 || args[3] != "--repo" || args[4] != g.repo {
-				return nil, fmt.Errorf("fake gh: bad secret set %v", args)
-			}
-			data, _ := io.ReadAll(stdin)
-			g.secrets[args[2]] = string(data)
-			return nil, nil
-		}
-		return nil, fmt.Errorf("fake gh does not know %v", args)
-	}
-}
-
-// fakeSSH makes a program that stands in for ssh: ssh -G prints cfg, the facts script gets facts,
-// and every other script has its standard input appended to stdin. calls logs the arguments.
-func fakeSSH(t *testing.T, cfg, facts string) (calls, stdin func() string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the fake ssh is a shell script")
-	}
-	dir := t.TempDir()
-	logf, inf := filepath.Join(dir, "calls"), filepath.Join(dir, "stdin")
-	writeFile(t, filepath.Join(dir, "cfg"), cfg)
-	writeFile(t, filepath.Join(dir, "facts"), facts)
-	prog := filepath.Join(dir, "ssh")
-	writeFile(t, prog, `#!/bin/sh
-echo "ssh $*" >> `+shellQuote(logf)+`
-if [ "$1" = -G ]; then cat `+shellQuote(filepath.Join(dir, "cfg"))+`; exit 0; fi
-while [ "$1" != "--" ]; do shift; done
-case "$3" in
-*ssh_host_*) cat `+shellQuote(filepath.Join(dir, "facts"))+` ;;
-*) cat >> `+shellQuote(inf)+` ;;
-esac
-`)
-	if err := os.Chmod(prog, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	old := sshProgram
-	sshProgram = prog
-	t.Cleanup(func() { sshProgram = old })
-	read := func(p string) func() string {
-		return func() string { data, _ := os.ReadFile(p); return string(data) }
-	}
-	return read(logf), read(inf)
-}
-
 func githubApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -391,185 +287,6 @@ func githubApp(t *testing.T, tifaYAML string, files map[string]string) string {
 }
 
 const hostFacts = "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\nhostkey ssh-rsa AAAAB3NzaC1yc2E=\n"
-
-// Direct: the key reaches the server and the secrets, the workflow is written, and the secret
-// values appear in no argument and no output. Running it again rotates the key and keeps the rest.
-func TestGitHubDirect(t *testing.T) {
-	root := githubApp(t, "deploy:\n  host: vps\n", map[string]string{
-		"package.json": `{"name":"shop"}`, "pnpm-lock.yaml": "lockfileVersion: '9.0'\n"})
-	gh := newFakeGH()
-	gh.install(t)
-	calls, stdin := fakeSSH(t, "user root\nhostname 203.0.113.7\nport 2222\n", hostFacts)
-	target, err := loadDeployTarget(root, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out, errOut bytes.Buffer
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connDirect}, &out, &errOut); err != nil {
-		t.Fatalf("%v\n%s", err, out.String())
-	}
-	if gh.secrets[secretHost] != "203.0.113.7" {
-		t.Errorf("host %q", gh.secrets[secretHost])
-	}
-	wantHosts := "[203.0.113.7]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n[203.0.113.7]:2222 ssh-rsa AAAAB3NzaC1yc2E="
-	if gh.secrets[secretKnownHosts] != wantHosts {
-		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
-	}
-	if _, ok := gh.secrets[secretCFID]; ok || len(gh.secrets) != 3 {
-		t.Errorf("secrets %v", gh.secrets)
-	}
-	// The public key the server was given is the one of the private key in the secret.
-	signer, err := ssh.ParsePrivateKey([]byte(gh.secrets[secretSSHKey]))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "restrict " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " tifa-github acme/shop\n"; stdin() != want {
-		t.Errorf("the server got %q, want %q", stdin(), want)
-	}
-	if !strings.Contains(calls(), "-l tifa -- vps") || !strings.Contains(calls(), "ssh -G -- vps") {
-		t.Errorf("ssh calls:\n%s", calls())
-	}
-	// gh got the key on stdin: no secret value in an argument, in the output or in a log.
-	for name, value := range gh.secrets {
-		for _, seen := range []string{strings.Join(gh.calls, "\n"), out.String(), errOut.String(), calls()} {
-			if strings.Contains(seen, value) {
-				t.Errorf("the value of %s shows up: %.60q", name, seen)
-			}
-		}
-	}
-	for _, c := range gh.calls[2:] {
-		if !strings.HasPrefix(c, "secret set DEPLOY_") || !strings.HasSuffix(c, " --repo acme/shop") {
-			t.Errorf("gh call %q", c)
-		}
-	}
-	wf, err := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 2222, Node: true, PnpmVersion: "10"}); string(wf) != want {
-		t.Errorf("workflow:\n%s", wf)
-	}
-	for _, f := range []string{".ssh", "deploy_key", "id_ed25519"} {
-		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
-			t.Errorf("the key touched the disk: %s", f)
-		}
-	}
-
-	// Again: a new key, the same workflow.
-	firstKey := gh.secrets[secretSSHKey]
-	out.Reset()
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connDirect}, &out, &errOut); err != nil {
-		t.Fatalf("%v\n%s", err, out.String())
-	}
-	if gh.secrets[secretSSHKey] == firstKey || !strings.Contains(out.String(), "is up to date") {
-		t.Errorf("second run:\n%s", out.String())
-	}
-
-	// A workflow the user changed is kept, and nothing else happens.
-	writeFile(t, filepath.Join(root, githubWorkflowPath), "name: mine\n")
-	before, beforeGH := calls(), len(gh.calls)
-	err = deployGitHub(context.Background(), target, githubOptions{mode: connDirect}, &out, &errOut)
-	if err == nil || !strings.Contains(err.Error(), "--force") {
-		t.Fatalf("a changed workflow: %v", err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath)); string(got) != "name: mine\n" {
-		t.Error("the workflow was overwritten")
-	}
-	if calls() != before+"ssh -G -- vps\n" || len(gh.calls) != beforeGH+2 {
-		t.Errorf("side effects before the refusal:\n%s\n%v", calls(), gh.calls[beforeGH:])
-	}
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connDirect, force: true}, &out, &errOut); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath)); string(got) != string(wf) {
-		t.Error("--force did not write the workflow")
-	}
-}
-
-// Tailscale sets the ssh secrets and says which two the user sets.
-func TestGitHubTailscale(t *testing.T) {
-	root := githubApp(t, "deploy:\n  host: vps\n", nil)
-	gh := newFakeGH()
-	gh.install(t)
-	fakeSSH(t, "hostname vps.tail1234.ts.net\nport 22\n", hostFacts)
-	target, _ := loadDeployTarget(root, "")
-	var out bytes.Buffer
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connTailscale}, &out, io.Discard); err != nil {
-		t.Fatalf("%v\n%s", err, out.String())
-	}
-	if gh.secrets[secretHost] != "vps.tail1234.ts.net" || len(gh.secrets) != 3 {
-		t.Errorf("secrets %v", gh.secrets)
-	}
-	for _, want := range []string{secretTSID, secretTSSecret, "tag:ci"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %s:\n%s", want, out.String())
-		}
-	}
-	wf, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if !strings.Contains(string(wf), "tailscale/github-action@v4") {
-		t.Errorf("workflow:\n%s", wf)
-	}
-}
-
-// Without gh, not logged in, outside a GitHub repository or in an empty one, nothing changes on
-// the server or in the app, and the steps to do by hand are printed.
-func TestGitHubCannotUseGH(t *testing.T) {
-	root := githubApp(t, "deploy:\n  host: vps\n", nil)
-	calls, _ := fakeSSH(t, "hostname 203.0.113.7\n", hostFacts)
-	target, _ := loadDeployTarget(root, "")
-	for _, c := range []struct {
-		name string
-		set  func(*fakeGH)
-		want string
-	}{
-		{"no gh", func(*fakeGH) { haveGH = func() bool { return false } }, "not installed"},
-		{"not logged in", func(g *fakeGH) { g.loggedIn = false }, "gh auth login"},
-		{"empty repo", func(g *fakeGH) { g.branch = "" }, "no default branch"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			gh := newFakeGH()
-			gh.install(t)
-			c.set(gh)
-			var out bytes.Buffer
-			err := deployGitHub(context.Background(), target, githubOptions{mode: connDirect}, &out, io.Discard)
-			if err == nil || !strings.Contains(out.String(), c.want) || !strings.Contains(out.String(), "ssh-keygen -t ed25519") || !strings.Contains(out.String(), secretKnownHosts) {
-				t.Errorf("%v\n%s", err, out.String())
-			}
-			if len(gh.secrets) != 0 || calls() != "" {
-				t.Errorf("changed something: %v %q", gh.secrets, calls())
-			}
-			if _, err := os.Stat(filepath.Join(root, githubWorkflowPath)); err == nil {
-				t.Error("wrote the workflow")
-			}
-		})
-	}
-}
-
-// A server that reaches the target through a jump host cannot be copied into CI, and an app
-// with a package.json needs its lock file.
-func TestGitHubStopsBeforeChanging(t *testing.T) {
-	gh := newFakeGH()
-	gh.install(t)
-	root := githubApp(t, "deploy:\n  host: vps\n", nil)
-	calls, _ := fakeSSH(t, "hostname 10.0.0.5\nproxyjump bastion\n", hostFacts)
-	target, _ := loadDeployTarget(root, "")
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connDirect}, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "proxyjump") {
-		t.Errorf("jump host: %v", err)
-	}
-	root = githubApp(t, "deploy:\n  host: vps\n", map[string]string{"package.json": "{}"})
-	fakeSSH(t, "hostname 203.0.113.7\n", hostFacts)
-	target, _ = loadDeployTarget(root, "")
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connDirect}, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "pnpm-lock.yaml") {
-		t.Errorf("no lock file: %v", err)
-	}
-	if len(gh.secrets) != 0 || strings.Contains(calls(), "-l tifa") {
-		t.Errorf("changed something: %v", gh.secrets)
-	}
-	// --cloudflare needs the domain and cf before anything else.
-	if err := deployGitHub(context.Background(), target, githubOptions{mode: connCloudflare}, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "deploy.domain") {
-		t.Errorf("no domain: %v", err)
-	}
-}
 
 // fakeAccess adds the Zero Trust Access calls to a fakeCF.
 type fakeAccess struct {
@@ -674,7 +391,7 @@ func (a *fakeAccess) answer2(args []string) (any, error) {
 	case strings.HasPrefix(cmd, "zero-trust access applications list"):
 		var out []map[string]any
 		for _, app := range a.apps {
-			if app["domain"] == flag(args, "--domain") {
+			if flag(args, "--domain") == "" || app["domain"] == flag(args, "--domain") {
 				out = append(out, app)
 			}
 		}
@@ -698,126 +415,6 @@ func (a *fakeAccess) answer2(args []string) (any, error) {
 	return nil, fmt.Errorf("the fake cf does not know %q", strings.Join(args, " "))
 }
 
-// Cloudflare: the ssh route joins the tunnel next to the route of the app and ahead of the rule for
-// the rest, the DNS record is proxied, one Access application admits one token by a policy that
-// needs no login, and the secrets reach gh and nothing else. Running it again replaces the token,
-// and a second repository adds its own policy to the same application.
-func TestGitHubCloudflare(t *testing.T) {
-	root := githubApp(t, "deploy:\n  host: vps\n  domain: deploy-a.example.com\n", nil)
-	cf := &fakeAccess{fakeCF: newFakeCF("example.com")}
-	cf.install(t)
-	cf.tunnels["tunnel-7"] = "tifa-vps"
-	cf.configs["tunnel-7"] = map[string]any{"ingress": []any{
-		map[string]any{"hostname": "deploy-a.example.com", "service": "http://127.0.0.1:9527"},
-		map[string]any{"service": "http_status:404"},
-	}}
-	gh := newFakeGH()
-	gh.install(t)
-	calls, stdin := fakeSSH(t, "", "tunnel tunnel-7\n"+hostFacts)
-	target, _ := loadDeployTarget(root, "")
-	run := func() string {
-		t.Helper()
-		var out, errOut bytes.Buffer
-		if err := deployGitHub(context.Background(), target, githubOptions{mode: connCloudflare}, &out, &errOut); err != nil {
-			t.Fatalf("%v\n%s", err, out.String())
-		}
-		for _, secret := range append(cf.secrets, gh.secrets[secretSSHKey]) {
-			for _, seen := range []string{out.String(), errOut.String(), strings.Join(cf.calls, "\n"), strings.Join(gh.calls, "\n"), calls(), stdin()} {
-				if strings.Contains(seen, secret) {
-					t.Errorf("a secret shows up in %.80q", seen)
-				}
-			}
-		}
-		return out.String()
-	}
-	run()
-
-	ingress := ingressOf(cf, "tunnel-7")
-	if len(ingress) != 3 || ingress[0]["hostname"] != "deploy-a.example.com" || ingress[1]["hostname"] != "deploy-a-ssh.example.com" ||
-		ingress[1]["service"] != "ssh://localhost:22" || ingress[2]["hostname"] != nil {
-		t.Errorf("ingress %v", ingress)
-	}
-	dns := cf.records["example.com"]
-	if len(dns) != 1 || dns[0]["name"] != "deploy-a-ssh.example.com" || dns[0]["content"] != "tunnel-7.cfargotunnel.com" || dns[0]["proxied"] != true {
-		t.Errorf("dns %v", dns)
-	}
-	if len(cf.tokens) != 1 || cf.tokens[0]["name"] != "tifa-github-acme-shop" {
-		t.Errorf("tokens %v", cf.tokens)
-	}
-	if len(cf.policies) != 1 || cf.policies[0]["decision"] != "non_identity" {
-		t.Fatalf("policies %v", cf.policies)
-	}
-	include := cf.policies[0]["include"].([]any)
-	if len(include) != 1 || include[0].(map[string]any)["service_token"].(map[string]any)["token_id"] != cf.tokens[0]["id"] {
-		t.Errorf("policy include %v", include)
-	}
-	if len(cf.apps) != 1 || cf.apps[0]["domain"] != "deploy-a-ssh.example.com" || cf.apps[0]["type"] != "self_hosted" {
-		t.Fatalf("apps %v", cf.apps)
-	}
-	if got := cf.apps[0]["policies"].([]any)[0].(map[string]any)["id"]; got != cf.policies[0]["id"] {
-		t.Errorf("the application has the policy %v, not %v", got, cf.policies[0]["id"])
-	}
-	if gh.secrets[secretHost] != "deploy-a-ssh.example.com" || gh.secrets[secretKnownHosts] != "deploy-a-ssh.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\ndeploy-a-ssh.example.com ssh-rsa AAAAB3NzaC1yc2E=" {
-		t.Errorf("secrets %q", gh.secrets)
-	}
-	if gh.secrets[secretCFID] != "client-id-"+cf.tokens[0]["id"].(string)+".access" || gh.secrets[secretCFSecret] != cf.secrets[0] {
-		t.Errorf("token secrets %q", gh.secrets)
-	}
-	wf, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if want := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare, Port: 22}); string(wf) != want {
-		t.Errorf("workflow:\n%s", wf)
-	}
-
-	// The same repository again: the token keeps its ID and gets a new secret, one policy that names
-	// it, one application.
-	oldID := cf.tokens[0]["id"]
-	run()
-	if len(cf.tokens) != 1 || cf.tokens[0]["id"] != oldID || len(cf.policies) != 1 || len(cf.apps) != 1 || len(cf.records["example.com"]) != 1 {
-		t.Errorf("rerun: tokens %v policies %v apps %v", cf.tokens, cf.policies, cf.apps)
-	}
-	if len(cf.secrets) != 2 || gh.secrets[secretCFSecret] != cf.secrets[1] || gh.secrets[secretCFID] != "client-id-"+oldID.(string)+".access" {
-		t.Errorf("rerun did not hand over the new secret: %q", gh.secrets)
-	}
-	if got := cf.policies[0]["include"].([]any)[0].(map[string]any)["service_token"].(map[string]any)["token_id"]; got != cf.tokens[0]["id"] {
-		t.Errorf("the policy still names %v", got)
-	}
-	if len(cf.apps[0]["policies"].([]any)) != 1 {
-		t.Errorf("application policies %v", cf.apps[0]["policies"])
-	}
-	if len(ingressOf(cf, "tunnel-7")) != 3 {
-		t.Errorf("ingress grew: %v", cf.configs["tunnel-7"]["ingress"])
-	}
-
-	// Another repository on the same host name adds its policy and leaves the first.
-	gh.repo = "acme/shop-fork"
-	run()
-	if len(cf.apps) != 1 || len(cf.policies) != 2 || len(cf.tokens) != 2 || len(cf.apps[0]["policies"].([]any)) != 2 {
-		t.Errorf("second repo: tokens %v policies %v apps %v", cf.tokens, cf.policies, cf.apps)
-	}
-
-	// Nothing in the calls writes anything but what is named above.
-	for _, c := range cf.calls {
-		if strings.Contains(c, "client-secret") {
-			t.Errorf("secret in a cf call: %s", c)
-		}
-	}
-}
-
-// A server without a tunnel is sent to setup, before the key is added.
-func TestGitHubCloudflareNeedsTunnel(t *testing.T) {
-	root := githubApp(t, "deploy:\n  host: vps\n  domain: deploy-a.example.com\n", nil)
-	cf := &fakeAccess{fakeCF: newFakeCF("example.com")}
-	cf.install(t)
-	gh := newFakeGH()
-	gh.install(t)
-	_, stdin := fakeSSH(t, "", hostFacts)
-	target, _ := loadDeployTarget(root, "")
-	err := deployGitHub(context.Background(), target, githubOptions{mode: connCloudflare}, io.Discard, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "deploy setup") || stdin() != "" || len(gh.secrets) != 0 {
-		t.Errorf("%v, %q, %v", err, stdin(), gh.secrets)
-	}
-}
-
 // The ingress rule for ssh goes in like any other route.
 func TestWithRouteSSH(t *testing.T) {
 	in := []map[string]any{
@@ -833,16 +430,6 @@ func TestWithRouteSSH(t *testing.T) {
 	}
 }
 
-func TestGitHubCommand(t *testing.T) {
-	cmd := newRootCmd()
-	cmd.SetArgs([]string{"deploy", "github", "--cloudflare", "--tailscale"})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "none of the others can be") {
-		t.Errorf("both modes: %v", err)
-	}
-}
-
 // ingressOf returns the ingress rules the fake tunnel was given.
 func ingressOf(cf *fakeAccess, id string) []map[string]any {
 	var out []map[string]any
@@ -850,4 +437,66 @@ func ingressOf(cf *fakeAccess, id string) []map[string]any {
 		out = append(out, r.(map[string]any))
 	}
 	return out
+}
+
+// After the CI workflow, the deploy follows it: only a passed push, on the commit that was
+// checked, from the default branch. Without a CI workflow a push deploys.
+func TestWorkflowAfterCI(t *testing.T) {
+	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22, CIName: "CI", ZoneID: "zone-9"})
+	doc, steps := parseWorkflow(t, text)
+	if !strings.HasPrefix(text, workflowMarker) {
+		t.Error("no marker line")
+	}
+	on := doc["on"].(map[string]any)
+	if _, ok := on["push"]; ok {
+		t.Error("deploys on a push as well")
+	}
+	run := on["workflow_run"].(map[string]any)
+	if !slices.Equal(anyStrings(run["workflows"]), []string{"CI"}) || !slices.Equal(anyStrings(run["types"]), []string{"completed"}) || !slices.Equal(anyStrings(run["branches"]), []string{"main"}) {
+		t.Errorf("workflow_run %v", run)
+	}
+	if _, ok := on["workflow_dispatch"]; !ok {
+		t.Error("no manual run")
+	}
+	job := doc["jobs"].(map[string]any)["deploy"].(map[string]any)
+	cond := job["if"].(string)
+	for _, want := range []string{"workflow_run.conclusion == 'success'", "workflow_run.event == 'push'", "workflow_dispatch"} {
+		if !strings.Contains(cond, want) {
+			t.Errorf("if lacks %q: %s", want, cond)
+		}
+	}
+	with := steps[0]["with"].(map[string]any)
+	if with["ref"] != "${{ github.event.workflow_run.head_sha || github.sha }}" {
+		t.Errorf("checkout ref %v", with["ref"])
+	}
+	if doc["permissions"].(map[string]any)["contents"] != "read" {
+		t.Error("permissions")
+	}
+	for _, want := range []string{"CF_PURGE_TOKEN: ${{ secrets.CF_PURGE_TOKEN }}", "CF_ZONE_ID: zone-9"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("lacks %q:\n%s", want, text)
+		}
+	}
+
+	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22})
+	doc, _ = parseWorkflow(t, push)
+	on = doc["on"].(map[string]any)
+	if _, ok := on["push"]; !ok {
+		t.Error("no push trigger without CI")
+	}
+	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "CF_PURGE_TOKEN") {
+		t.Errorf("fallback:\n%s", push)
+	}
+}
+
+// The name of the CI workflow comes from the file of the app.
+func TestCIWorkflowName(t *testing.T) {
+	root := t.TempDir()
+	if got := ciWorkflowName(root); got != "" {
+		t.Errorf("no file: %q", got)
+	}
+	writeFile(t, filepath.Join(root, ciPath), "name: Checks\non: push\n")
+	if got := ciWorkflowName(root); got != "Checks" {
+		t.Errorf("got %q", got)
+	}
 }

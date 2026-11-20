@@ -1,17 +1,16 @@
 package main
 
-// tifa deploy github prepares deploys from GitHub Actions, once, from the machine of the developer.
-// It writes the workflow, makes a key that only this repository uses and lets it log in as the
-// deploy user, reads the host keys of the server over the ssh that is trusted already, and sets the
-// secrets of the repository with gh. The private key and the other secrets go from memory to gh
-// on its standard input: never to a file, a command line or the output.
+// The GitHub part of tifa deploy setup, for deploy.github: true. It writes the workflow, makes a
+// key that only this repository uses and lets it log in as the deploy user, reads the host keys of
+// the server over the ssh that is trusted already, and sets the secrets of the repository with gh.
+// The private key and the other secrets go from memory to gh on its standard input: never to a
+// file, a command line or the output. deploysetup.go plans and applies it.
 
 import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -25,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/liustack/tifa/internal/config"
-	"github.com/spf13/cobra"
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -45,10 +44,15 @@ const (
 	secretCFSecret   = "CF_ACCESS_CLIENT_SECRET"
 	secretTSID       = "TS_OAUTH_CLIENT_ID"
 	secretTSSecret   = "TS_OAUTH_SECRET"
+	secretPurge      = envPurgeToken
 )
 
+// varMarker is the repository variable setup keeps: it marks the secrets as the ones tifa set, and
+// holds a fingerprint of the connection they describe, so a second run can tell they are current.
+const varMarker = "TIFA_DEPLOY"
+
 // githubWorkflowPath is where the workflow goes, relative to the root of the app.
-const githubWorkflowPath = ".github/workflows/deploy.yml"
+const githubWorkflowPath = ".github/workflows/tifa-deploy.yml"
 
 // runGH runs the gh of the user in dir with stdin as its input and returns what it printed. The
 // error holds what gh printed on stderr, never its output. Tests replace it.
@@ -110,30 +114,6 @@ func findGitHubRepo(ctx context.Context, dir string) (githubRepo, error) {
 	return githubRepo{Name: v.NameWithOwner, Branch: v.DefaultBranchRef.Name}, nil
 }
 
-// printGitHubManual prints what to do by hand when gh cannot be used.
-func printGitHubManual(w io.Writer, why error, mode string) {
-	fmt.Fprintf(w, `
-%v
-
-Tifa sets up the deploys from GitHub Actions with gh, the GitHub CLI. Install it
-(https://cli.github.com/), run gh auth login, and run this command again in the folder of
-the repository. To do it by hand instead:
-  1. Make a key for this repository: ssh-keygen -t ed25519 -N '' -C 'tifa-github <owner>/<repo>' -f deploy_key
-  2. Add the public key (deploy_key.pub) to /srv/tifa/.ssh/authorized_keys on the server.
-  3. In the repository, under Settings, Secrets and variables, Actions, add these secrets:
-     %s  the private key (deploy_key)
-     %s  the host keys of the server in known_hosts format, for the name CI connects to
-     %s  the address CI connects to
-`, why, secretSSHKey, secretKnownHosts, secretHost)
-	switch mode {
-	case connCloudflare:
-		fmt.Fprintf(w, "     %s and %s  a Cloudflare Access service token that may reach the ssh host name\n", secretCFID, secretCFSecret)
-	case connTailscale:
-		fmt.Fprintf(w, "     %s and %s  an OAuth client of Tailscale\n", secretTSID, secretTSSecret)
-	}
-	fmt.Fprintln(w, "  4. Delete deploy_key and deploy_key.pub from your machine.")
-}
-
 // sshResolved is what ssh makes of a host: the name it connects to and the port.
 type sshResolved struct {
 	Host string
@@ -167,7 +147,7 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 			r.Port = p
 		case "proxyjump", "proxycommand":
 			if value != "" && value != "none" {
-				return r, fmt.Errorf("%s reaches the server through a %s in your ssh configuration, which GitHub cannot copy: use --cloudflare or --tailscale, or a host that ssh reaches directly", host, word)
+				return r, fmt.Errorf("%s reaches the server through a %s in your ssh configuration, which GitHub cannot copy: set deploy.ssh to cloudflare or tailscale, or use a host that ssh reaches directly", host, word)
 			}
 		}
 	}
@@ -190,11 +170,21 @@ type githubWorkflowSpec struct {
 	Node bool
 	// PnpmVersion is the major version of pnpm when package.json does not say which pnpm to use.
 	PnpmVersion string
+	// CIName is the name of the workflow that checks the app. The deploy runs after it passed.
+	// Empty means the app has none, and a push to the default branch deploys.
+	CIName string
+	// ZoneID is the Cloudflare zone of deploy.domain, whose host name the deploy clears from the
+	// CDN cache. Empty means no cache to clear.
+	ZoneID string
 }
+
+// workflowMarker is the first line of the workflow tifa writes. A file without it is the
+// developer's own, and setup leaves it alone.
+const workflowMarker = "# Written by go tool tifa deploy setup."
 
 var simpleBranch = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 
-// githubWorkflow is the text of .github/workflows/deploy.yml.
+// githubWorkflow is the text of .github/workflows/tifa-deploy.yml.
 func githubWorkflow(s githubWorkflowSpec) string {
 	var b strings.Builder
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
@@ -202,13 +192,22 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	if !simpleBranch.MatchString(branch) {
 		branch = strconv.Quote(branch)
 	}
-	w("# Written by go tool tifa deploy github. Edit it as you like: the command asks for --force")
-	w("# before it writes this file again over a file that differs.")
-	w("name: deploy")
+	w("%s Delete this line before you edit the file: setup then leaves it alone.", workflowMarker)
+	w("name: tifa-deploy")
 	w("")
 	w("on:")
-	w("  push:")
-	w("    branches: [%s]", branch)
+	if s.CIName != "" {
+		// A push is deployed once the workflow that checks it has passed. GitHub starts this only
+		// from the file on the default branch, and runs it on the last commit of that branch, so
+		// the steps below check out the commit that was checked.
+		w("  workflow_run:")
+		w("    workflows: [%s]", strconv.Quote(s.CIName))
+		w("    types: [completed]")
+		w("    branches: [%s]", branch)
+	} else {
+		w("  push:")
+		w("    branches: [%s]", branch)
+	}
 	w("  workflow_dispatch:")
 	w("    inputs:")
 	w("      action:")
@@ -227,10 +226,18 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("")
 	w("jobs:")
 	w("  deploy:")
+	if s.CIName != "" {
+		// Only a push that passed: a run from a fork has the name of a branch too.
+		w("    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')")
+	}
 	w("    runs-on: ubuntu-24.04")
 	w("    timeout-minutes: 30")
 	w("    steps:")
 	w("      - uses: actions/checkout@v7")
+	if s.CIName != "" {
+		w("        with:")
+		w("          ref: ${{ github.event.workflow_run.head_sha || github.sha }}")
+	}
 	w("      - uses: actions/setup-go@v7")
 	w("        with:")
 	w("          go-version-file: go.mod")
@@ -288,6 +295,10 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("        env:")
 	w("          ACTION: ${{ inputs.action }}")
 	w("          DEPLOY_HOST: ${{ secrets.%s }}", secretHost)
+	if s.ZoneID != "" {
+		w("          %s: ${{ secrets.%s }}", envPurgeToken, secretPurge)
+		w("          %s: %s", envZoneID, s.ZoneID)
+	}
 	if s.Mode == connCloudflare {
 		// cloudflared reads these two variables for the service token, see its access command.
 		w("          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.%s }}", secretCFID)
@@ -329,42 +340,6 @@ func githubComment(repo string) string { return "tifa-github " + repo }
 
 func authorizeScript(repo string) string {
 	return script(authorizeBody, "comment", githubComment(repo))
-}
-
-// factsBody runs as the deploy user and prints the tunnel of the server, when it has one, and the
-// public host keys of its sshd.
-const factsBody = `if [ -f /etc/tifa/tunnel ]; then echo "tunnel $(cat /etc/tifa/tunnel)"; fi
-for f in /etc/ssh/ssh_host_*_key.pub; do
-	if [ -f "$f" ]; then echo "hostkey $(cut -d' ' -f1,2 "$f")"; fi
-done
-exit 0
-`
-
-// serverFacts is what factsBody prints.
-type serverFacts struct {
-	TunnelID string
-	HostKeys []string // "<type> <base64>"
-}
-
-func parseServerFacts(out string) (serverFacts, error) {
-	var f serverFacts
-	for _, line := range strings.Split(out, "\n") {
-		word, value, _ := strings.Cut(line, " ")
-		switch word {
-		case "tunnel":
-			f.TunnelID = strings.TrimSpace(value)
-		case "hostkey":
-			typ, b64, ok := strings.Cut(strings.TrimSpace(value), " ")
-			if _, err := base64.StdEncoding.DecodeString(b64); !ok || !strings.HasPrefix(typ, "ssh-") && !strings.HasPrefix(typ, "ecdsa-") || err != nil {
-				return f, fmt.Errorf("the server gave a host key tifa cannot read: %q", value)
-			}
-			f.HostKeys = append(f.HostKeys, typ+" "+b64)
-		}
-	}
-	if len(f.HostKeys) == 0 {
-		return f, errors.New("the server has no /etc/ssh/ssh_host_*_key.pub file, so tifa cannot tell CI which server to trust")
-	}
-	return f, nil
 }
 
 // knownHostsLines writes the host keys for the name CI connects to, with the port in brackets
@@ -412,54 +387,9 @@ func (k deployKey) authorizedLine(repo string) string {
 	return "restrict " + k.Public + " " + githubComment(repo)
 }
 
-type githubOptions struct {
-	mode  string
-	force bool
-}
-
-func newDeployGitHubCmd(dir, host *string) *cobra.Command {
-	var cloudflare, tailscale, force bool
-	cmd := &cobra.Command{
-		Use:   "github",
-		Short: "Prepare deploys from GitHub Actions: workflow, key, host keys and secrets",
-		Long: `github writes .github/workflows/deploy.yml, which deploys the app when the default branch is
-pushed and, from the Actions tab, deploys or rolls back by hand. It makes a key for this repository
-alone, lets it log in as the user tifa on the server (a line in authorized_keys that names the
-repository, replaced when you run this again), reads the host keys of the server over your ssh so
-CI trusts that server and no other, and sets the secrets of the repository with gh (the GitHub CLI,
-logged in). Secrets go to gh on its standard input, and are never written down or printed. Run
-go tool tifa deploy setup first.
-
-By default CI connects to the address ssh resolves for the server. --cloudflare adds an ssh route
-to the Cloudflare Tunnel of the server, a DNS record, an Access application and a service token for
-this repository with cf (the Cloudflare CLI, logged in), and CI connects through cloudflared.
---tailscale makes the workflow join your tailnet, and prints the two Tailscale secrets you add.
-An existing workflow file that differs is kept unless you pass --force.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host)
-			if err != nil {
-				return err
-			}
-			mode := connDirect
-			if cloudflare {
-				mode = connCloudflare
-			} else if tailscale {
-				mode = connTailscale
-			}
-			return deployGitHub(cmd.Context(), t, githubOptions{mode: mode, force: force}, cmd.OutOrStdout(), cmd.ErrOrStderr())
-		},
-	}
-	cmd.Flags().BoolVar(&cloudflare, "cloudflare", false, "connect through the Cloudflare Tunnel of the server, with an Access service token made with cf")
-	cmd.Flags().BoolVar(&tailscale, "tailscale", false, "connect through your tailnet, with the OAuth client of Tailscale")
-	cmd.Flags().BoolVar(&force, "force", false, "replace "+githubWorkflowPath+" when it differs from what this command writes")
-	cmd.MarkFlagsMutuallyExclusive("cloudflare", "tailscale")
-	return cmd
-}
-
 // workflowSpec reads what the workflow needs from the app.
-func workflowSpec(t deployTarget, repo githubRepo, mode string, r sshResolved) (githubWorkflowSpec, error) {
-	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Port: r.Port}
+func workflowSpec(t deployTarget, repo githubRepo, mode string, r sshResolved, zoneID string) (githubWorkflowSpec, error) {
+	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Port: r.Port, ZoneID: zoneID, CIName: ciWorkflowName(t.root)}
 	pkg, err := os.ReadFile(filepath.Join(t.root, "package.json"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -484,112 +414,43 @@ func workflowSpec(t deployTarget, repo githubRepo, mode string, r sshResolved) (
 	return s, nil
 }
 
-func deployGitHub(ctx context.Context, t deployTarget, o githubOptions, stdout, stderr io.Writer) error {
-	say := func(format string, args ...any) { fmt.Fprintf(stdout, format+"\n", args...) }
-	if o.mode == connCloudflare && t.domain == "" {
-		return errors.New("--cloudflare needs deploy.domain in tifa.yaml: the ssh host name is made from it")
-	}
-	if o.mode == connCloudflare && !cfLoggedIn(ctx) {
-		return errors.New("--cloudflare needs cf, the Cloudflare CLI, installed and logged in (cf auth login)")
-	}
-	repo, err := findGitHubRepo(ctx, t.root)
-	if err != nil {
-		printGitHubManual(stdout, err, o.mode)
-		return errors.New("cannot use gh, the steps to do by hand are above")
-	}
-	say("github: %s, default branch %s", repo.Name, repo.Branch)
-
-	// Everything that can fail before the first change comes first.
-	var resolved sshResolved
-	if o.mode != connCloudflare {
-		if resolved, err = resolveSSH(ctx, t.host); err != nil {
-			return err
-		}
-	}
-	spec, err := workflowSpec(t, repo, o.mode, resolved)
-	if err != nil {
-		return err
-	}
-	text := githubWorkflow(spec)
-	workflow := filepath.Join(t.root, filepath.FromSlash(githubWorkflowPath))
-	have, err := os.ReadFile(workflow)
-	if err == nil && string(have) != text && !o.force {
-		return fmt.Errorf("%s differs from what this command writes: keep it and set the secrets by hand, or pass --force to replace it", githubWorkflowPath)
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-
-	var out bytes.Buffer
-	if err := t.ssh(ctx, deployUser, factsBody, nil, &out, stderr); err != nil {
-		return err
-	}
-	facts, err := parseServerFacts(out.String())
-	if err != nil {
-		return err
-	}
-
-	connect, port := resolved.Host, resolved.Port
-	secrets := []secret{}
-	if o.mode == connCloudflare {
-		if facts.TunnelID == "" {
-			return fmt.Errorf("%s has no Cloudflare Tunnel yet: run go tool tifa deploy setup first, with cf logged in", t.host)
-		}
-		access, err := sshAccessSetup(ctx, sshAccess{app: t.app, domain: t.domain, repo: repo.Name, tunnelID: facts.TunnelID}, stdout)
-		if err != nil {
-			return err
-		}
-		connect, port = access.host, 22
-		secrets = append(secrets, secret{secretCFID, access.clientID}, secret{secretCFSecret, access.clientSecret})
-	}
-
-	key, err := newDeployKey(repo.Name)
-	if err != nil {
-		return err
-	}
-	out.Reset()
-	if err := t.ssh(ctx, deployUser, authorizeScript(repo.Name), strings.NewReader(key.authorizedLine(repo.Name)+"\n"), &out, stderr); err != nil {
-		return err
-	}
-	say("server: the key of %s may log in as %s on %s", repo.Name, deployUser, t.host)
-
-	hosts := strings.Join(knownHostsLines(connect, port, facts.HostKeys), "\n")
-	secrets = append([]secret{{secretSSHKey, key.Private}, {secretKnownHosts, hosts}, {secretHost, connect}}, secrets...)
-	for _, s := range secrets {
-		if _, err := runGH(ctx, t.root, strings.NewReader(s.value), "secret", "set", s.name, "--repo", repo.Name); err != nil {
-			return fmt.Errorf("%w (the key on the server is new: run this command again)", err)
-		}
-	}
-	names := make([]string, len(secrets))
-	for i, s := range secrets {
-		names[i] = s.name
-	}
-	say("github: secrets set: %s", strings.Join(names, ", "))
-
-	if err := os.MkdirAll(filepath.Dir(workflow), 0o755); err != nil {
-		return err
-	}
-	next := fmt.Sprintf("Every push to %s deploys.", repo.Branch)
-	if string(have) == text {
-		say("%s is up to date", githubWorkflowPath)
-	} else {
-		if err := os.WriteFile(workflow, []byte(text), 0o644); err != nil {
-			return err
-		}
-		say("wrote %s", githubWorkflowPath)
-		next = fmt.Sprintf("Commit and push %s: then every push to %s deploys.", githubWorkflowPath, repo.Branch)
-	}
-	if o.mode == connTailscale {
-		fmt.Fprintf(stdout, `
-Add two secrets by hand, which Tifa cannot make: in Tailscale, under Settings, OAuth clients,
-make a client with the auth_keys scope for the tag tag:ci, and set %s and %s in the
-repository. The tag tag:ci must exist in the policy of your tailnet (tagOwners), and may reach the
-server on port 22.
-`, secretTSID, secretTSSecret)
-	}
-	say("\n%s To roll back, run the deploy workflow by hand in the Actions tab and pick rollback.", next)
-	return nil
-}
-
 // secret is a repository secret: never printed.
 type secret struct{ name, value string }
+
+// ciWorkflowName is the name of the workflow tifa new writes to check the app, read from the file,
+// or empty when the app has none, or one without a name.
+func ciWorkflowName(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ciPath)))
+	if err != nil {
+		return ""
+	}
+	var doc struct {
+		Name string `yaml:"name"`
+	}
+	if yaml.Unmarshal(data, &doc) != nil {
+		return ""
+	}
+	return doc.Name
+}
+
+// revokeBody runs as the deploy user and writes authorized_keys again without the line of the
+// repository whose comment is $comment. Other lines stay as they are.
+const revokeBody = `set -eu
+umask 077
+d="$HOME/.ssh"
+keys="$d/authorized_keys"
+if [ ! -f "$keys" ]; then exit 0; fi
+tmp=$(mktemp "$d/authorized_keys.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+while IFS= read -r l || [ -n "$l" ]; do
+	case "$l" in *" $comment") continue ;; esac
+	printf '%s\n' "$l" >> "$tmp"
+done < "$keys"
+chmod 600 "$tmp"
+mv "$tmp" "$keys"
+trap - EXIT
+`
+
+func revokeScript(repo string) string {
+	return script(revokeBody, "comment", githubComment(repo))
+}

@@ -58,5 +58,7 @@
 #   memory_limit: 64MiB     # bytes the default in-memory session store may hold
 
 # deploy:
-#   host: ""                # server for tifa deploy, a host name of ~/.ssh/config or an address, such as vps
-#   domain: ""              # domain that reaches the app, such as shop.example.com
+#   host: ""                # server for tifa deploy: an ssh alias (a Host of ~/.ssh/config, so the address stays on each machine) or an address
+#   domain: ""              # when set, visitors arrive through a Cloudflare Tunnel, and deploys clear the CDN cache of this host name
+#   ssh: direct             # how CI reaches the server over ssh: direct, cloudflare or tailscale
+#   github: false           # true: the GitHub Actions of this repository deploy the app, set up by tifa deploy setup

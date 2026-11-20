@@ -14,6 +14,7 @@ package main
 // Every script runs under sh -c, so the login shell of the user does not matter.
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"path"
@@ -111,14 +112,36 @@ type deployRecord struct {
 	Result string // ok, or failed when the health check failed
 }
 
-// serverState is what the probe script prints about an app.
+// serverState is what the probe script prints about the server and the app, as the deploy user.
 type serverState struct {
 	OS, Arch string
-	Port     int    // 0 before setup
+	Home     string // home of the deploy user
+	Port     int    // 0 before the app exists on the server
+	Used     []int  // ports of the other apps, and ports something listens on
 	Current  string // the release current links to, empty before the first deploy
 	Releases []string
 	Records  []deployRecord
+	// Linger and Bus say the systemd of the deploy user runs without a login: what the units of
+	// an app need.
+	Linger, Bus bool
+	// SocketSum and ServiceSum are the SHA-256 of the unit files of the app, empty when missing.
+	SocketSum, ServiceSum string
+	// TunnelID is the Cloudflare Tunnel the server runs, from /etc/tifa/tunnel, empty without one.
+	TunnelID string
+	// Machine is the host name of the server and the start of its machine ID, which name its tunnel.
+	Machine string
+	// Cloudflared is where cloudflared is on the server, empty without it. TunnelActive says the
+	// service tifa-tunnel runs. Apt says the server has apt, to install cloudflared with.
+	Cloudflared       string
+	TunnelActive, Apt bool
+	// HostKeys are the public host keys of its sshd, as "<type> <base64>".
+	HostKeys []string
+	// GitHubKeys are the repositories that have a tifa-github line in authorized_keys.
+	GitHubKeys []string
 }
+
+// Prepared reports whether the server can hold an app: the systemd of the deploy user runs.
+func (s serverState) Prepared() bool { return s.Linger && s.Bus }
 
 // parseServerState reads the output of probeScript: one fact per line, a word and a value.
 func parseServerState(out string) (serverState, error) {
@@ -133,12 +156,46 @@ func parseServerState(out string) (serverState, error) {
 			s.OS = value
 		case "arch":
 			s.Arch = value
-		case "port":
+		case "home":
+			s.Home = value
+		case "bus":
+			s.Bus = true
+		case "linger":
+			s.Linger = value == "yes"
+		case "port", "taken":
 			p, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || p <= 0 || p > 65535 {
 				return s, fmt.Errorf("the server gave the port %q", value)
 			}
-			s.Port = p
+			if word == "port" {
+				s.Port = p
+			} else {
+				s.Used = append(s.Used, p)
+			}
+		case "listen":
+			s.Used = append(s.Used, listeningPorts(value)...)
+		case "unit-socket":
+			s.SocketSum = strings.TrimSpace(value)
+		case "unit-service":
+			s.ServiceSum = strings.TrimSpace(value)
+		case "tunnel":
+			s.TunnelID = strings.TrimSpace(value)
+		case "machine":
+			s.Machine = strings.TrimSpace(value)
+		case "cloudflared":
+			s.Cloudflared = strings.TrimSpace(value)
+		case "tunnel-active":
+			s.TunnelActive = true
+		case "apt":
+			s.Apt = true
+		case "hostkey":
+			typ, b64, ok := strings.Cut(strings.TrimSpace(value), " ")
+			if _, err := base64.StdEncoding.DecodeString(b64); !ok || !strings.HasPrefix(typ, "ssh-") && !strings.HasPrefix(typ, "ecdsa-") || err != nil {
+				return s, fmt.Errorf("the server gave a host key tifa cannot read: %q", value)
+			}
+			s.HostKeys = append(s.HostKeys, typ+" "+b64)
+		case "ghkey":
+			s.GitHubKeys = append(s.GitHubKeys, strings.TrimSpace(value))
 		case "current":
 			s.Current = value
 		case "release":
@@ -212,7 +269,7 @@ func unitName(app string) string { return "tifa-" + app }
 
 // socketUnit holds the port of the app while the program restarts, see docs/deploy.md.
 func socketUnit(app string, port int) string {
-	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again each time it runs.
+	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=%[1]s socket (Tifa)
 
@@ -227,7 +284,7 @@ WantedBy=sockets.target
 // serviceUnit runs the program of the current release in the shared folder, which holds its .env
 // and its data. %h is the home of the deploy user.
 func serviceUnit(app string) string {
-	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again each time it runs.
+	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=%[1]s (Tifa)
 Requires=%[2]s.socket
@@ -256,9 +313,8 @@ func script(body string, vars ...string) string {
 	return b.String() + body
 }
 
-// setupProbeBody runs as root before setup. It checks the server has what the units and the
-// scripts need, and prints the system, the home of the deploy user if it exists, the port of the
-// app if it has one, the ports of the other apps and the ports something listens on.
+// setupProbeBody runs as root before the server is prepared. It checks the server has what the
+// scripts need, and prints its system.
 const setupProbeBody = `set -eu
 if [ "$(id -u)" != 0 ]; then echo "tifa: deploy setup needs root on the server" >&2; exit 1; fi
 for c in systemctl loginctl runuser useradd curl flock gzip sha256sum ss; do
@@ -266,28 +322,14 @@ for c in systemctl loginctl runuser useradd curl flock gzip sha256sum ss; do
 done
 echo "os $(uname -s)"
 echo "arch $(uname -m)"
-home=$(getent passwd "$user" | cut -d: -f6)
-if [ -n "$home" ]; then
-	echo "home $home"
-	if [ -f "$home/$app/port" ]; then echo "port $(cat "$home/$app/port")"; fi
-	for f in "$home"/*/port; do
-		if [ -f "$f" ]; then echo "taken $(cat "$f")"; fi
-	done
-fi
-ss -Hltn | sed 's/^/listen /'
-if [ -f /etc/tifa/tunnel ]; then echo "tunnel $(cat /etc/tifa/tunnel)"; fi
-echo "cloudflared $(command -v cloudflared || true)"
-if command -v apt-get >/dev/null 2>&1; then echo "apt yes"; fi
-echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
 `
 
-// setupProbeScript is setupProbeBody for app.
-func setupProbeScript(app string) string {
-	return script(setupProbeBody, "user", deployUser, "app", app)
-}
+// setupProbeScript is setupProbeBody.
+func setupProbeScript() string { return setupProbeBody }
 
-// setupBody runs as root. Each step leaves what is already there, so it can run again.
-const setupBody = `set -eu
+// serverBody runs as root. Each step leaves what is already there, so it can run again. It makes
+// the deploy user, lets whoever logs in as root log in as it, and starts its systemd without a login.
+const serverBody = `set -eu
 if ! id -u "$user" >/dev/null 2>&1; then
 	useradd --create-home --home-dir "$home" --shell /bin/bash --user-group "$user"
 	# No password, and not locked, which sshd refuses with UsePAM no.
@@ -296,12 +338,6 @@ if ! id -u "$user" >/dev/null 2>&1; then
 fi
 home=$(getent passwd "$user" | cut -d: -f6)
 uid=$(id -u "$user")
-d="$home/$app"
-install -d -o "$user" -g "$user" -m 755 "$d" "$d/releases"
-install -d -o "$user" -g "$user" -m 750 "$d/shared"
-if [ ! -e "$d/shared/.env" ]; then install -o "$user" -g "$user" -m 600 /dev/null "$d/shared/.env"; fi
-printf '%s\n' "$port" > "$d/port"
-chown "$user:$user" "$d/port"
 # Who may log in as root may deploy: the keys of root go to the deploy user.
 install -d -o "$user" -g "$user" -m 700 "$home/.ssh"
 keys="$home/.ssh/authorized_keys"
@@ -314,11 +350,6 @@ if [ -f /root/.ssh/authorized_keys ]; then
 		grep -qxF -- "$key" "$keys" || printf '%s\n' "$key" >> "$keys"
 	done < /root/.ssh/authorized_keys
 fi
-units="$home/.config/systemd/user"
-install -d -o "$user" -g "$user" "$home/.config" "$home/.config/systemd" "$units"
-printf '%s' "$socket_unit" > "$units/tifa-$app.socket"
-printf '%s' "$service_unit" > "$units/tifa-$app.service"
-chown "$user:$user" "$units/tifa-$app.socket" "$units/tifa-$app.service"
 # Linger starts the systemd of the user at boot, without a login.
 loginctl enable-linger "$user"
 i=0
@@ -327,28 +358,72 @@ while [ ! -S "/run/user/$uid/bus" ]; do
 	if [ "$i" -gt 30 ]; then echo "tifa: the systemd of $user did not start" >&2; exit 1; fi
 	sleep 1
 done
-as_user() { runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" "$@"; }
-as_user systemctl --user daemon-reload
-as_user systemctl --user enable --now "tifa-$app.socket"
-echo "home $home"
 `
 
-// setupScript is setupBody for app on port.
-func setupScript(app string, port int) string {
-	return script(setupBody, "user", deployUser, "home", deployHome, "app", app, "port", strconv.Itoa(port),
+// serverScript is serverBody for the deploy user.
+func serverScript() string {
+	return script(serverBody, "user", deployUser, "home", deployHome)
+}
+
+// appBody runs as the deploy user, on a server that serverBody prepared. It makes the folder of
+// the app, its settings file, its port and its systemd units, and opens the socket. Each step
+// leaves what is already there, so it can run again.
+const appBody = `set -eu
+d="$HOME/$app"
+install -d -m 755 "$d" "$d/releases"
+install -d -m 750 "$d/shared"
+if [ ! -e "$d/shared/.env" ]; then (umask 077; : > "$d/shared/.env"); fi
+printf '%s\n' "$port" > "$d/port"
+units="$HOME/.config/systemd/user"
+install -d -m 755 "$HOME/.config" "$HOME/.config/systemd" "$units"
+printf '%s' "$socket_unit" > "$units/tifa-$app.socket"
+printf '%s' "$service_unit" > "$units/tifa-$app.service"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+systemctl --user daemon-reload
+systemctl --user enable --now "tifa-$app.socket"
+`
+
+// appScript is appBody for app on port.
+func appScript(app string, port int) string {
+	return script(appBody, "app", app, "port", strconv.Itoa(port),
 		"socket_unit", socketUnit(app, port), "service_unit", serviceUnit(app))
 }
 
-// probeBody runs as the deploy user and prints what parseServerState reads.
+// probeBody runs as the deploy user and prints what parseServerState reads: the system, whether
+// the systemd of the user runs without a login, the app, the ports taken, the tunnel of the server
+// and the keys of its sshd. Every line is optional, and it never fails.
 const probeBody = `d="$HOME/$app"
+rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 echo "os $(uname -s)"
 echo "arch $(uname -m)"
+echo "home $HOME"
+if [ -e "$rt/bus" ]; then echo "bus yes"; fi
+echo "linger $(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo no)"
 if [ -f "$d/port" ]; then echo "port $(cat "$d/port")"; fi
+for f in "$HOME"/*/port; do
+	if [ -f "$f" ] && [ "$f" != "$d/port" ]; then echo "taken $(cat "$f")"; fi
+done
+ss -Hltn 2>/dev/null | sed 's/^/listen /'
+u="$HOME/.config/systemd/user"
+for n in socket service; do
+	if [ -f "$u/tifa-$app.$n" ]; then echo "unit-$n $(sha256sum < "$u/tifa-$app.$n" | cut -d' ' -f1)"; fi
+done
 if c=$(readlink "$d/current" 2>/dev/null); then echo "current ${c#releases/}"; fi
 for r in "$d"/releases/*/; do
 	if [ -d "$r" ]; then echo "release $(basename "$r")"; fi
 done
 if [ -f "$d/deploys.log" ]; then tail -n 200 "$d/deploys.log" | sed 's/^/record /'; fi
+if [ -f /etc/tifa/tunnel ]; then echo "tunnel $(cat /etc/tifa/tunnel)"; fi
+echo "cloudflared $(command -v cloudflared || true)"
+if systemctl is-active --quiet tifa-tunnel.service 2>/dev/null; then echo "tunnel-active yes"; fi
+if command -v apt-get >/dev/null 2>&1; then echo "apt yes"; fi
+echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
+for f in /etc/ssh/ssh_host_*_key.pub; do
+	if [ -f "$f" ]; then echo "hostkey $(cut -d' ' -f1,2 "$f")"; fi
+done
+if [ -f "$HOME/.ssh/authorized_keys" ]; then
+	sed -n 's/.* tifa-github \([^ ]*\)$/ghkey \1/p' "$HOME/.ssh/authorized_keys"
+fi
 exit 0
 `
 
@@ -456,7 +531,7 @@ func activateScript(a activation) string {
 // cloudflared as a systemd credential, so it is in no command line, and cloudflared runs as a
 // user of its own with no rights on the apps.
 func tunnelUnit(cloudflared string) string {
-	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again each time it runs.
+	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=Cloudflare Tunnel of the Tifa apps
 After=network-online.target
@@ -477,7 +552,7 @@ WantedBy=multi-user.target
 // tunnelUpgradeUnits restart tifa-tunnel when apt, or anything else, replaces cloudflared, so
 // the tunnel runs the new version and not only the next boot.
 func tunnelUpgradeUnits(cloudflared string) (path, service string) {
-	path = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again each time it runs.
+	path = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=Restart the Cloudflare Tunnel of the Tifa apps when cloudflared changes
 
@@ -487,7 +562,7 @@ PathChanged=%s
 [Install]
 WantedBy=paths.target
 `, cloudflared)
-	service = `# Written by tifa deploy setup, which writes it again each time it runs.
+	service = `# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=Restart the Cloudflare Tunnel of the Tifa apps on a new cloudflared
 
