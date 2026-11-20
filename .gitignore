@@ -59,6 +59,7 @@ desktop.ini
 
 # Tools and logs
 .playwright-cli/
+.cloudflare/
 /.claude/worktrees/
 /logs/
 *.log
