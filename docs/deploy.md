@@ -77,7 +77,7 @@ Already right: server 1 (--all lists them)
 You need to do 1 thing that setup cannot:
   1. cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN (optional)
      There is no terminal to paste on.
-     Without it a deploy still works, but ... (the rest says what going without costs, and to add it later with tifa deploy setup --cdn-token)
+     Without it a deploy still works, but ... (the rest says what going without costs, and to add it later with tifa deploy setup --cache-purge-token)
 
 Apply this plan? [y/N]
 ```
@@ -158,7 +158,7 @@ Clearing is optional. No CDN, and no framework, makes every visitor see a new bu
 
 - On your machine, cf does it with your login.
 - In CI there is no cf. The workflow gives Tifa a token that can only clear the cache of that one zone, `CF_CACHE_PURGE_TOKEN`, and the ID of the zone, `CF_ZONE_ID`, which is not a secret and sits in the workflow file. Tifa calls the Cloudflare API with them. The token needs no Zone Read, because the ID is already known. Tifa keeps neither.
-- With neither, the deploy prints `cache: not cleared for <host>` with what that costs and how to add a token (`tifa deploy setup --cdn-token`), and is no warning.
+- With neither, the deploy prints `cache: not cleared for <host>` with what that costs and how to add a token (`tifa deploy setup --cache-purge-token`), and is no warning.
 - A clearing that fails does not fail the deploy: it prints a warning and exits with 0, and the summary of the run shows it. Clear the cache by hand in Cloudflare, Caching, Configuration, Custom Purge, by host name.
 
 Purging by host name works on every Cloudflare plan.
@@ -180,7 +180,7 @@ For the repository, setup:
 1. Makes a key for this repository alone, and adds its public key to `/srv/tifa/.ssh/authorized_keys` on the server with the comment `tifa-github <owner>/<repo>`. The key cannot open a terminal or forward ports. Keep the secret `DEPLOY_SSH_KEY` as it is made: to rotate the key, set `ci: none`, run setup, set it back and run setup again.
 2. Reads the host keys of the server over your own ssh and keeps them as the secret `DEPLOY_KNOWN_HOSTS`, so CI trusts that server and no other. CI never runs `ssh-keyscan`.
 3. Sets `DEPLOY_HOST`, where CI logs in. With `ssh: direct` it is the address that `ssh -G <deploy.host>` gives, so an alias from `~/.ssh/config` works, and a port other than 22 is written into the workflow. A host that ssh reaches through `ProxyJump` or `ProxyCommand` cannot be copied into CI: use one of the two ways below.
-4. With `cdn: cloudflare`, asks for a token, which is optional, that can only clear the cache of the zone, kept as `CF_CACHE_PURGE_TOKEN`. A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <owner>/<repo>`. Set Zone Resources to the zone of the domain only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and gives it to gh on its input. An empty line skips it, and setup goes on and succeeds. Setup asks only on the first CI setup. Later runs, and a first run without a terminal, list it as optional. To add the token later, or to replace it, run `tifa deploy setup --cdn-token` on a terminal: it asks even when the secret is there. GitHub secrets are write-only, so a secret that is there is taken as right. Setup also removes a secret named `CF_PURGE_TOKEN`.
+4. With `cdn: cloudflare`, asks for a token, which is optional, that can only clear the cache of the zone, kept as `CF_CACHE_PURGE_TOKEN`. A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <owner>/<repo>`. Set Zone Resources to the zone of the domain only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and gives it to gh on its input. An empty line skips it, and setup goes on and succeeds. Setup asks only on the first CI setup. Later runs, and a first run without a terminal, list it as optional. To add the token later, or to replace it, run `tifa deploy setup --cache-purge-token` on a terminal: it asks even when the secret is there. GitHub secrets are write-only, so a secret that is there is taken as right. Setup also removes a secret named `CF_PURGE_TOKEN`.
 5. Keeps `TIFA_DEPLOY`, a repository variable that marks the secrets as Tifa's and holds a fingerprint of the connection, so a second run sees what is current.
 
 Secret values go to gh on its input: they are never printed, never written to a file and never on a command line.
