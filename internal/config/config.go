@@ -353,7 +353,7 @@ var retiredKeys = []struct {
 	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false},
 	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false},
 	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false},
-	{"deploy.github", "it is now deploy.ci: github", false},
+	{"deploy.github", "it is now deploy.ci: github for true, none for false", false},
 }
 
 func retiredWarning(where, key, hint string) string {

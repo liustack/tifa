@@ -247,7 +247,7 @@ func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
 }
 
 // purgeTokenManual says how to make the token by hand and give it to the repository.
-func purgeTokenManual(repo, domain string) string {
-	return fmt.Sprintf("open %s, set Zone Resources to the zone of %s only, create the token, then run gh secret set %s --repo %s, which asks for the value. Without it a deploy still works and prints a warning that the cache of %s was not cleared",
-		purgeTokenLink(repo), domain, envPurgeToken, repo, domain)
+func purgeTokenManual(repo, zone, domain string) string {
+	return fmt.Sprintf("open %s, set Zone Resources to %s only, create the token, then run gh secret set %s --repo %s, which asks for the value. Without it a deploy still works and prints a warning that the cache of %s was not cleared",
+		purgeTokenLink(repo), zone, envPurgeToken, repo, domain)
 }

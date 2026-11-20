@@ -723,9 +723,9 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	case r.ghNames[secretPurge]:
 		p.ok("github: the secret " + secretPurge + ". GitHub does not show it: to replace the token, delete the secret and run setup again")
 	case r.zone.ID == "":
-		p.cannot(text, "needs cf logged in, for the zone: cf auth login. By hand: "+purgeTokenManual(r.repo.Name, t.domain))
+		p.cannot(text, "needs cf logged in, for the zone: cf auth login. By hand: "+purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
 	case !stdinIsTerminal(r.in):
-		p.cannot(text, "there is no terminal to paste on. "+purgeTokenManual(r.repo.Name, t.domain))
+		p.cannot(text, "there is no terminal to paste on. "+purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
 	default:
 		p.steps = append(p.steps, planStep{op: opAdd, text: text, soft: true, do: r.pastePurgeToken})
 	}
@@ -740,16 +740,16 @@ const purgeTokenTries = 3
 func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
-	say("Open this link, set Zone Resources to the zone of %s only, create the token, and paste it here:", t.domain)
+	say("Open this link, set Zone Resources to %s only, create the token, and paste it here:", r.zoneText())
 	say("%s", purgeTokenLink(r.repo.Name))
 	for try := 1; try <= purgeTokenTries; try++ {
 		token, err := promptSecret(r.in, r.stdout, secretPurge)
 		if err != nil {
-			return "", fmt.Errorf("reading the token: %w. Do it by hand: %s", err, purgeTokenManual(r.repo.Name, t.domain))
+			return "", fmt.Errorf("reading the token: %w. Do it by hand: %s", err, purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
 		}
 		token = strings.TrimSpace(token)
 		if token == "" {
-			return "", fmt.Errorf("skipped. Do it by hand: %s", purgeTokenManual(r.repo.Name, t.domain))
+			return "", fmt.Errorf("skipped. Do it by hand: %s", purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
 		}
 		err = checkPurgeToken(ctx, token, r.zone.ID, t.domain)
 		if err == nil {
@@ -757,7 +757,7 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 		}
 		why := strings.ReplaceAll(err.Error(), "\n", " ")
 		if try == purgeTokenTries {
-			return "", fmt.Errorf("the token was refused: %s. Do it by hand: %s", why, purgeTokenManual(r.repo.Name, t.domain))
+			return "", fmt.Errorf("the token was refused: %s. Do it by hand: %s", why, purgeTokenManual(r.repo.Name, r.zoneText(), t.domain))
 		}
 		say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
 	}
@@ -906,4 +906,13 @@ func deploySetup(ctx context.Context, t deployTarget, yes bool, in io.Reader, st
 		fmt.Fprintf(stdout, "\n%d item(s) could not be done, see above. Fix what they need and run setup again.\n", cannot)
 	}
 	return nil
+}
+
+// zoneText names the zone of the domain for the steps a developer follows: its name once cf found
+// it, else what to look for.
+func (r *setupRun) zoneText() string {
+	if r.zone.Name != "" {
+		return "the zone " + r.zone.Name
+	}
+	return "the zone of " + r.t.domain
 }
