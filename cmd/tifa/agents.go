@@ -76,14 +76,14 @@ for a CI job.`,
 				fmt.Fprintln(out, "Run: go tool tifa agents")
 				return &exitError{code: 1}
 			}
-			if len(changes) == 0 {
+			if len(changes) == 0 && len(plan.created) == 0 {
 				fmt.Fprintf(out, "AGENTS.md and %s are up to date (%s)\n", skillsDir, plan.written)
 				return nil
 			}
 			for _, n := range plan.notes {
 				fmt.Fprintf(out, "note: %s\n", n)
 			}
-			for _, c := range changes {
+			for _, c := range append(changes, plan.created...) {
 				if err := c.apply(root); err != nil {
 					return err
 				}
@@ -124,6 +124,8 @@ type agentPlan struct {
 	written string // who writes: Tifa v0.0.5, or a development build of Tifa
 	notes   []string
 	files   []agentChange // every file in the skill folder and AGENTS.md that differs
+	// created holds files that are written once and then belong to the app, so --check ignores them.
+	created []agentChange
 }
 
 // planAgents compares the files of the app at root with what this version of tifa writes.
@@ -145,6 +147,14 @@ func planAgents(root, skillsDir string) (agentPlan, error) {
 		return agentPlan{}, err
 	}
 	plan.files = append(plan.files, skillChanges...)
+	ci, notes, err := planCI(root, app, plan.notes)
+	if err != nil {
+		return agentPlan{}, err
+	}
+	plan.notes = notes
+	if ci != nil {
+		plan.created = append(plan.created, *ci)
+	}
 	return plan, nil
 }
 

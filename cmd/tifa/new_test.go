@@ -89,7 +89,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		".claude/skills/tifa/references/build-and-deploy.md", ".claude/skills/tifa/references/errors-and-404.md", ".claude/skills/tifa/references/i18n.md",
 		".claude/skills/tifa/references/rendering.md", ".claude/skills/tifa/references/routing-and-data.md", ".claude/skills/tifa/references/structure.md",
 		".claude/skills/tifa/references/testing.md",
-		".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
+		".github/workflows/ci.yml", ".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
@@ -717,7 +717,7 @@ func TestNewEmptyWritesTheSkeleton(t *testing.T) {
 		return err
 	})
 	want := []string{
-		".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
+		".github/workflows/ci.yml", ".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/layout.tsx", "app/page.tsx", "app/styles.css",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "options.go", "package.json", "pnpm-workspace.yaml", "schema.sql",
 		"sessions.go", "sessions_test.go", "tifa.yaml", "tsconfig.json", "vite.config.ts",
