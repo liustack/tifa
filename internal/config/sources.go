@@ -71,6 +71,19 @@ func Read(args, environ []string, dir string) *Sources {
 	return s
 }
 
+// Lookup returns the value of an environment variable of the app as the program would see it:
+// the environment first, then the .env file. from says which one, as a person reads it, and both
+// are empty when the name is set in neither or set to nothing.
+func (s *Sources) Lookup(name string) (value, from string) {
+	if v := s.env[name]; v != "" {
+		return v, "environment variable " + name
+	}
+	if v := s.dotenv[name]; v != "" {
+		return v, ".env " + name
+	}
+	return "", ""
+}
+
 var (
 	processOnce    sync.Once
 	processSources *Sources

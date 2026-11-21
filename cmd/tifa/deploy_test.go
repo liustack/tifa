@@ -194,21 +194,23 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-// The host comes from --host, else DEPLOY_HOST, else deploy.host of tifa.yaml.
+// The server comes from --host, else DEPLOY_HOST of the environment, else DEPLOY_HOST in the .env
+// at the root of the app. tifa.yaml has no host: the file is committed.
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: from-yaml\n  front: cloudflare\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n")
 	t.Setenv(deployHostEnv, "")
-	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "from-yaml" || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
-		t.Errorf("tifa.yaml: %+v, %v", d, err)
+	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nDEPLOY_HOST=ssh://203.0.113.7:2222\n")
+	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "ssh://203.0.113.7:2222" || d.dest.name != "203.0.113.7" || d.dest.port != 2222 || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
+		t.Errorf(".env: %+v, %v", d, err)
 	}
 	t.Setenv(deployHostEnv, "from-env")
 	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "from-env" {
-		t.Errorf("env: %+v, %v", d, err)
+		t.Errorf("env beats .env: %+v, %v", d, err)
 	}
 	if d, err := loadDeployTarget(root, "from-flag"); err != nil || d.host != "from-flag" {
-		t.Errorf("flag: %+v, %v", d, err)
+		t.Errorf("flag beats env: %+v, %v", d, err)
 	}
 	if _, err := loadDeployTarget(root, "root@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
 		t.Errorf("bad flag: %v", err)
@@ -218,9 +220,38 @@ func TestDeployHost(t *testing.T) {
 		t.Errorf("bad env: %v", err)
 	}
 	t.Setenv(deployHostEnv, "")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "")
-	if _, err := loadDeployTarget(root, ""); err == nil || !strings.Contains(err.Error(), "deploy.host") {
-		t.Errorf("no host: %v", err)
+	writeFile(t, filepath.Join(root, ".env"), "DEPLOY_HOST=tifa@vps\n")
+	if _, err := loadDeployTarget(root, ""); err == nil || !strings.Contains(err.Error(), ".env") || !strings.Contains(err.Error(), "user") {
+		t.Errorf("bad .env: %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadDeployTarget(root, "")
+	if err == nil {
+		t.Fatal("no server named, and no error")
+	}
+	for _, want := range []string{"--host", "environment variable DEPLOY_HOST", ".env", "DEPLOY_HOST=ssh://"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no host: %q lacks %q", err, want)
+		}
+	}
+}
+
+// A tifa.yaml that still has deploy.host stops every deploy command, and says where the server goes.
+func TestDeployHostRetired(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n")
+	t.Setenv(deployHostEnv, "vps")
+	_, err := loadDeployTarget(root, "vps")
+	if err == nil {
+		t.Fatal("deploy.host was accepted")
+	}
+	for _, want := range []string{"deploy.host", "line 2", "DEPLOY_HOST=", ".env", "--host"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q lacks %q", err, want)
+		}
 	}
 }
 
@@ -231,22 +262,22 @@ func TestDeploySettingsChecks(t *testing.T) {
 	for name, tc := range map[string]struct {
 		yaml, want string // want is empty when the settings are fine
 	}{
-		"none":                       {"deploy:\n  host: vps\n", ""},
-		"front needs a site url":     {"deploy:\n  host: vps\n  front: cloudflare\n", "site.url"},
-		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  host: vps\n  front: cloudflare\n", "port"},
-		"port without front":         {"site:\n  url: http://localhost:8080\ndeploy:\n  host: vps\n", ""},
-		"ssh cloudflare needs front": {site + "deploy:\n  host: vps\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
-		"ssh tailscale needs ci":     {site + "deploy:\n  host: vps\n  ssh: tailscale\n", "deploy.ci"},
-		"ssh cloudflare needs ci":    {site + "deploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n", "deploy.ci"},
-		"all set":                    {site + "deploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
-		"old domain":                 {"deploy:\n  host: vps\n  domain: shop.example.com\n", "deploy.front"},
-		"old cdn":                    {"deploy:\n  host: vps\n  cdn: cloudflare\n", "it is now deploy.front"},
-		"old github":                 {"deploy:\n  host: vps\n  github: true\n", "deploy.ci"},
+		"none":                       {"deploy:\n", ""},
+		"front needs a site url":     {"deploy:\n  front: cloudflare\n", "site.url"},
+		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  front: cloudflare\n", "port"},
+		"port without front":         {"site:\n  url: http://localhost:8080", ""},
+		"ssh cloudflare needs front": {site + "deploy:\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
+		"ssh tailscale needs ci":     {site + "deploy:\n  ssh: tailscale\n", "deploy.ci"},
+		"ssh cloudflare needs ci":    {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n", "deploy.ci"},
+		"all set":                    {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
+		"old domain":                 {"deploy:\n  domain: shop.example.com\n", "deploy.front"},
+		"old cdn":                    {"deploy:\n  cdn: cloudflare\n", "it is now deploy.front"},
+		"old github":                 {"deploy:\n  github: true\n", "deploy.ci"},
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
 		writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
-		t.Setenv(deployHostEnv, "")
+		t.Setenv(deployHostEnv, "vps")
 		d, err := loadDeployTarget(root, "")
 		switch {
 		case tc.want == "" && err != nil:
@@ -314,8 +345,8 @@ echo the app said goodbye`)
 func TestDeployFlow(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n")
-	t.Setenv(deployHostEnv, "")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
+	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	for _, dir := range []string{"shop/releases", "shop/shared"} {
 		if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
@@ -509,6 +540,49 @@ func TestDeployParseProbeFacts(t *testing.T) {
 	for _, bad := range []string{"hostkey ssh-ed25519 !!!\n", "unit-rss many\n", "health x\n"} {
 		if _, err := parseServerState(bad); err == nil {
 			t.Errorf("%q: no error", bad)
+		}
+	}
+}
+
+// In GitHub Actions the log hides the secret DEPLOY_HOST, but ssh prints the address it resolved,
+// which is not that exact text. Deploy and rollback first ask the log to hide the host part of
+// the target as well, and never the port.
+func TestDeployMasksTheHostInActions(t *testing.T) {
+	mask := func(host string, actions string) string {
+		t.Helper()
+		t.Setenv(envGitHubActions, actions)
+		h, err := parseDeployHost(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b strings.Builder
+		maskHost(&b, deployTarget{host: h.raw, dest: h})
+		return b.String()
+	}
+	for host, want := range map[string]string{
+		"ssh://203.0.113.7:2222":     "::add-mask::203.0.113.7\n",
+		"ssh://[2001:db8::1]:22":     "::add-mask::2001:db8::1\n",
+		"ssh://vps.example.com:22":   "::add-mask::vps.example.com\n",
+		"deploy-a-ssh-x.example.com": "::add-mask::deploy-a-ssh-x.example.com\n",
+	} {
+		if got := mask(host, "true"); got != want {
+			t.Errorf("%s: %q, want %q", host, got, want)
+		}
+	}
+	if got := mask("ssh://203.0.113.7:2222", ""); got != "" {
+		t.Errorf("outside Actions: %q", got)
+	}
+
+	// Before anything reaches the server.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	t.Setenv(deployHostEnv, "ssh://203.0.113.7:2222")
+	t.Setenv(envGitHubActions, "true")
+	fakeServer(t, t.TempDir(), nil)
+	for _, args := range [][]string{{"deploy", "--dir", root}, {"deploy", "rollback", "--dir", root}} {
+		out, _, _ := run(t, args...)
+		if !strings.HasPrefix(out, "::add-mask::203.0.113.7\n") || strings.Contains(out, "::add-mask::203.0.113.7:2222") {
+			t.Errorf("%v: output %q", args, out)
 		}
 	}
 }

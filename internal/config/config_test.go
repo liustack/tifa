@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -294,7 +295,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.host deploy.front deploy.ssh deploy.ci"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.ssh deploy.ci"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -849,17 +850,17 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	}
 }
 
-// deploy.host is read by tifa deploy from the project file only. The host is
-// handed to ssh, so it is a name and nothing that ssh could read as an option or a user.
+// deploy.front, deploy.ssh and deploy.ci are read by tifa deploy from the project file only.
+// deploy.host is retired: the server is not written in a file that is committed.
 func TestDeployIsAProjectFileSetting(t *testing.T) {
 	if d := Default().Deploy; d != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
 		t.Fatalf("defaults: %+v", d)
 	}
-	c, settings, err := Project([]byte("deploy:\n  host: shop-vps\n  front: Cloudflare\n  ci: GitHub\n"))
+	c, settings, err := Project([]byte("deploy:\n  front: Cloudflare\n  ci: GitHub\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Deploy.Host != "shop-vps" || c.Deploy.Front != "cloudflare" || c.Deploy.CI != "github" {
+	if c.Deploy.Front != "cloudflare" || c.Deploy.CI != "github" {
 		t.Errorf("got %+v", c.Deploy)
 	}
 	if len(settings) != 0 {
@@ -868,26 +869,46 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 	if _, err := load(t, nil, []string{"DEPLOY_HOST=other"}, "", ""); err != nil {
 		t.Errorf("the program reads DEPLOY_HOST: %v", err)
 	}
-	for _, host := range []string{"149.248.3.250", "vps.example.com", "my_box", "fe80::1"} {
-		if c, _, err := Project([]byte("deploy:\n  host: \"" + host + "\"\n")); err != nil || c.Deploy.Host != host {
-			t.Errorf("host %q: %+v, %v", host, c.Deploy, err)
-		}
-	}
 	for yaml, want := range map[string]string{
-		"deploy:\n  host: root@vps\n":           "deploy.host",
-		"deploy:\n  host: \"-oProxyCommand\"\n": "deploy.host",
-		"deploy:\n  host: \"a b\"\n":            "deploy.host",
-		"deploy:\n  host: ssh://vps\n":          "deploy.host",
-		"deploy:\n  front: akamai\n":            "deploy.front",
-		"deploy:\n  ci: gitlab\n":               "deploy.ci",
+		"deploy:\n  front: akamai\n": "deploy.front",
+		"deploy:\n  ci: gitlab\n":    "deploy.ci",
 	} {
 		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v", yaml, err)
 		}
 	}
 	// Empty is not set, as the example file of tifa new shows them.
-	if c, _, err := Project([]byte("deploy:\n  host: \"\"\n  front: \"\"\n  ci: \"\"\n")); err != nil || c.Deploy != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
+	if c, _, err := Project([]byte("deploy:\n  front: \"\"\n  ci: \"\"\n")); err != nil || c.Deploy != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
 		t.Errorf("empty: %+v, %v", c.Deploy, err)
+	}
+}
+
+// deploy.host is retired for the project file only. DEPLOY_HOST in the environment or in .env is
+// where tifa deploy now reads the server from, so the program must not call it a retired setting.
+func TestDeployHostRetiredInProjectFileOnly(t *testing.T) {
+	ws := ProjectWarnings([]byte("site:\n  url: https://a.com\ndeploy:\n  host: vps\n"))
+	if len(ws) != 1 || ws[0].Key != "deploy.host" || ws[0].Line != 4 {
+		t.Fatalf("project file: %+v", ws)
+	}
+	for _, want := range []string{"DEPLOY_HOST=", ".env", "--host"} {
+		if !strings.Contains(ws[0].String(), want) {
+			t.Errorf("%q lacks %q", ws[0].String(), want)
+		}
+	}
+	if _, _, err := Project([]byte("deploy:\n  host: vps\n")); err != nil {
+		t.Errorf("a retired key is a warning, not an error: %v", err)
+	}
+	for name, src := range map[string]*Sources{
+		"env":  Read(nil, []string{"DEPLOY_HOST=vps"}, ""),
+		".env": Read(nil, nil, dotenvDir(t, "DEPLOY_HOST=vps\n")),
+		"flag": Read([]string{"--deploy-host", "vps"}, nil, ""),
+	} {
+		if w := src.RetiredWarnings(); len(w) != 0 {
+			t.Errorf("%s: %q", name, w)
+		}
+	}
+	if slices.Contains(Keys(), "deploy.host") {
+		t.Error("deploy.host is still a setting")
 	}
 }
 
@@ -999,7 +1020,7 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 // deploy.ssh says how CI reaches the server and deploy.ci says who deploys. Both are project file
 // settings, and ssh is one of three words.
 func TestDeploySSHAndCI(t *testing.T) {
-	c, _, err := Project([]byte("deploy:\n  host: vps\n  ssh: Cloudflare\n  ci: github\n"))
+	c, _, err := Project([]byte("deploy:\n  ssh: Cloudflare\n  ci: github\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

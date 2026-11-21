@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -157,7 +158,7 @@ func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	for name, content := range files {
 		writeFile(t, filepath.Join(root, name), content)
 	}
-	t.Setenv(deployHostEnv, "")
+	t.Setenv(deployHostEnv, "vps")
 	// No cf unless the test installs one: the real cf is never run.
 	oldHave := haveCF
 	t.Cleanup(func() { haveCF = oldHave })
@@ -191,7 +192,7 @@ func runSetupIO(t *testing.T, root string, terminal bool, input string, args ...
 // An unprepared server: tifa cannot log in, so the plan adds the server as root and then the app as
 // tifa. Without a terminal and without --yes the plan is printed and nothing runs.
 func TestSetupFreshServer(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
 	srv := newSetupServer(t, "", freshFacts)
 	srv.deny(t)
 
@@ -222,7 +223,7 @@ func TestSetupFreshServer(t *testing.T) {
 
 // With a terminal setup asks: n changes nothing, y applies.
 func TestSetupAsks(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
 	srv := newSetupServer(t, "", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
 	out, err := runSetup(t, root, true, "n\n")
 	if err == nil || strings.Contains(srv.calls(), "app tifa") || !strings.Contains(out, "Apply this plan? [y/N]") {
@@ -234,15 +235,16 @@ func TestSetupAsks(t *testing.T) {
 }
 
 // A prepared server with the app in place: every line is ok and nothing runs, with no terminal and
-// no --yes. A host that is an IP address gets the note about an ssh alias.
+// no --yes. The server may be an address: it is not in a committed file, so it needs no note.
 func TestSetupNothingToChange(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: 203.0.113.7\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
+	t.Setenv(deployHostEnv, "ssh://203.0.113.7:2222")
 	srv := newSetupServer(t, "", factsOf("shop", 9531, ""))
 	out, err := runSetup(t, root, false, "", "--all")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 9531", "Write an ssh alias instead"} {
+	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 9531"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -250,8 +252,11 @@ func TestSetupNothingToChange(t *testing.T) {
 	if strings.Contains(srv.calls(), "app ") {
 		t.Errorf("calls:\n%s", srv.calls())
 	}
-	// An alias gets no note, and units that differ are written again.
-	root = setupApp(t, "deploy:\n  host: vps\n", nil)
+	if strings.Contains(out, "alias") || strings.Contains(out, "You need to do") {
+		t.Errorf("a note about the address:\n%s", out)
+	}
+	// Units that differ are written again.
+	root = setupApp(t, "deploy:\n", nil)
 	newSetupServer(t, "", strings.Replace(factsOf("shop", 9531, ""), "unit-service "+sha(serviceUnit("shop")), "unit-service 00", 1))
 	out, _ = runSetup(t, root, false, "")
 	if strings.Contains(out, "alias") || !strings.Contains(out, "change  app: write the systemd units of shop again") {
@@ -313,7 +318,7 @@ func setFacts(t *testing.T, srv *setupServer, facts string) {
 // secrets reach gh on its input and nowhere else, and a second run has nothing to do. With github
 // false the plan removes what Tifa made and only that.
 func TestSetupGitHub(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
 	srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.install(t)
@@ -332,7 +337,7 @@ func TestSetupGitHub(t *testing.T) {
 		}
 	}
 	if !strings.HasPrefix(gh.secrets[secretSSHKey], "-----BEGIN OPENSSH PRIVATE KEY-----") ||
-		gh.secrets[secretHost] != "203.0.113.7" ||
+		gh.secrets[secretHost] != "ssh://203.0.113.7:2222" ||
 		gh.secrets[secretKnownHosts] != "[203.0.113.7]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n[203.0.113.7]:2222 ssh-rsa AAAAB3NzaC1yc2E=" ||
 		gh.vars[varMarker] == "" {
 		t.Errorf("secrets %v, vars %v", gh.secrets, gh.vars)
@@ -346,8 +351,14 @@ func TestSetupGitHub(t *testing.T) {
 		}
 	}
 	text, err := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") || !strings.Contains(string(text), "Port 2222") {
+	if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") {
 		t.Errorf("workflow %v:\n%s", err, text)
+	}
+	// Where the server is stays in the secret: the workflow has neither the address nor the port.
+	for _, not := range []string{"Port ", "203.0.113.7", "2222"} {
+		if strings.Contains(string(text), not) {
+			t.Errorf("the workflow shows %q:\n%s", not, text)
+		}
 	}
 
 	// Again: nothing to do.
@@ -366,12 +377,12 @@ func TestSetupGitHub(t *testing.T) {
 	// A host that moved: the connection changes, the key stays.
 	newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
 	out, _ = runSetup(t, root, false, "")
-	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 1") {
+	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 2") {
 		t.Errorf("moved host:\n%s", out)
 	}
 
 	// github: false takes it away.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
 	srv = newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\nghkey acme/other\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil {
@@ -393,7 +404,7 @@ func TestSetupGitHub(t *testing.T) {
 // Only what Tifa made and marked goes: a workflow without the line of tifa, and secrets while the
 // variable of tifa is missing, stay.
 func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", map[string]string{githubWorkflowPath: "name: mine\non: push\n"})
+	root := setupApp(t, "deploy:\n", map[string]string{githubWorkflowPath: "name: mine\non: push\n"})
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, "ghkey acme/other\n"))
 	gh := newFakeGH()
 	gh.secrets = map[string]string{secretHost: "mine", secretSSHKey: "mine"}
@@ -406,7 +417,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 		t.Errorf("removed something: %v %v", err, gh.secrets)
 	}
 	// A workflow of the developer's own stays with github: true too.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  ci: github\n")
 	out, _ = runSetup(t, root, false, "", "--all")
 	if !strings.Contains(out, "has no Tifa line at the top, so it is yours and stays") {
 		t.Errorf("out:\n%s", out)
@@ -415,7 +426,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 
 // Without gh logged in the GitHub items cannot be done, and the plan says what is missing.
 func TestSetupGitHubCannot(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -438,7 +449,7 @@ const tunnelFacts = "tunnel tunnel-1\ncloudflared /usr/bin/cloudflared\ntunnel-a
 // token goes to the server and to nobody else, a second run has nothing to do, and removing the
 // domain removes what was added for it.
 func TestSetupDomain(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, ""))
 	cf := cfSetup(t, "example.com")
 
@@ -493,7 +504,7 @@ func TestSetupDomain(t *testing.T) {
 		map[string]any{"hostname": "notes.example.com", "service": "http://127.0.0.1:9600"},
 		map[string]any{"service": "http_status:404"},
 	}
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
 	cf.calls = nil
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "remove  domain: shop.example.com, its route, DNS record and rules, which tifa made") {
@@ -513,7 +524,7 @@ func TestSetupDomain(t *testing.T) {
 // A record of the domain that tifa did not make is not removed, and nothing is removed for a
 // route of another app.
 func TestSetupLeavesForeignDNS(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -532,7 +543,7 @@ func TestSetupLeavesForeignDNS(t *testing.T) {
 
 // Without cf the domain cannot be done, and the plan says so.
 func TestSetupDomainNeedsCF(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, ""))
 	oldHave := haveCF
 	t.Cleanup(func() { haveCF = oldHave })
@@ -558,7 +569,7 @@ type purgeSetup struct {
 
 func newPurgeSetup(t *testing.T, tokens ...string) *purgeSetup {
 	s := &purgeSetup{prompt: tokens}
-	s.root = setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n", nil)
+	s.root = setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
 	s.srv = newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
 	s.cf = cfSetup(t, "example.com")
 	s.cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -625,8 +636,11 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 		}
 	}
 	text, _ := os.ReadFile(filepath.Join(s.root, githubWorkflowPath))
-	if !strings.Contains(string(text), "CF_ZONE_ID: z") {
-		t.Errorf("workflow:\n%s", text)
+	if !strings.Contains(out, "CF_ZONE_ID") {
+		t.Errorf("the plan does not say the zone ID is kept as a secret:\n%s", out)
+	}
+	if !strings.Contains(string(text), "CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}") || strings.Contains(string(text), "CF_ZONE_ID: z\n") || s.gh.secrets[secretZoneID] != "z" {
+		t.Errorf("zone secret %q, workflow:\n%s", s.gh.secrets[secretZoneID], text)
 	}
 	// The secret is there now, so a second run only says ok and asks nothing.
 	s.asked = len(s.prompt) - 1 // one more ask would fail the test
@@ -686,7 +700,7 @@ func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	if _, err := runSetup(t, s.root, false, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Errorf("no terminal: %v", err)
 	}
-	writeFile(t, filepath.Join(s.root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n")
+	writeFile(t, filepath.Join(s.root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  ci: github\n")
 	if _, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "deploy.front") {
 		t.Errorf("front none: %v", err)
 	}
@@ -743,8 +757,8 @@ func TestSetupPurgeTokenOldName(t *testing.T) {
 // Cloudflare, which tifa cannot do.
 func TestSetupPurgeTokenRemoved(t *testing.T) {
 	for name, yaml := range map[string]string{
-		"front none": "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n",
-		"ci none":    "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n",
+		"front none": "site:\n  url: https://shop.example.com\ndeploy:\n  ci: github\n",
+		"ci none":    "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n",
 	} {
 		s := newPurgeSetup(t, "tok-good")
 		if _, err := runSetup(t, s.root, true, "", "--yes"); err != nil || s.gh.secrets[secretPurge] != "tok-good" {
@@ -762,13 +776,18 @@ func TestSetupPurgeTokenRemoved(t *testing.T) {
 		if _, ok := s.gh.secrets[secretPurge]; ok {
 			t.Errorf("%s: the secret is still there", name)
 		}
+		if _, ok := s.gh.secrets[secretZoneID]; ok {
+			t.Errorf("%s: the zone secret is still there", name)
+		}
 	}
 }
+
+var sshHostName = regexp.MustCompile(`^deploy-a-ssh-[a-z2-7]{12}\.example\.com$`)
 
 // deploy.ssh cloudflare: the ssh host name goes on the tunnel with an Access application that
 // admits the token of the repository. Back to direct, the Access objects go.
 func TestSetupCloudflareSSH(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -779,31 +798,47 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	if err != nil || !strings.Contains(out, "(optional)") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if gh.secrets[secretHost] != "deploy-a-ssh.example.com" || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
+	host := gh.secrets[secretHost]
+	if !sshHostName.MatchString(host) || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
 		t.Errorf("secrets %v", gh.secrets)
 	}
-	if !strings.Contains(gh.secrets[secretKnownHosts], "deploy-a-ssh.example.com ssh-ed25519") {
+	if !strings.Contains(gh.secrets[secretKnownHosts], host+" ssh-ed25519") {
 		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
 	}
-	if len(cf.apps) != 1 || cf.apps[0]["domain"] != "deploy-a-ssh.example.com" {
+	if len(cf.apps) != 1 || cf.apps[0]["domain"] != host {
 		t.Errorf("apps %v", cf.apps)
 	}
 	text, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if !strings.Contains(string(text), "ProxyCommand cloudflared access ssh") {
+	if !strings.Contains(string(text), "ProxyCommand cloudflared access ssh") || strings.Contains(string(text), host) {
 		t.Errorf("workflow:\n%s", text)
 	}
 
-	// A second run: nothing, and no new token.
+	// A second run: nothing, no new token, and the same name.
 	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	cf.calls = nil
 	secret := gh.secrets[secretCFSecret]
 	out, _ = runSetup(t, root, false, "", "--yes")
-	if gh.secrets[secretCFSecret] != secret || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 8, GitHub 3") {
-		t.Errorf("a second run changed the token:\n%s", out)
+	if gh.secrets[secretCFSecret] != secret || gh.secrets[secretHost] != host || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 8, GitHub 3") {
+		t.Errorf("a second run changed the token or the name:\n%s", out)
+	}
+
+	// The marker and the secret of the host are gone, as when a run stopped halfway: setup reads
+	// the name back from the tunnel and the Access application, and does not make another.
+	delete(gh.vars, varMarker)
+	delete(gh.secrets, secretHost)
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil || gh.secrets[secretHost] != host || len(cf.apps) != 1 || strings.Contains(out, "remove ") {
+		t.Errorf("the name changed to %q from %q: %v\n%s", gh.secrets[secretHost], host, err, out)
+	}
+	// Only the Access application is left of it: the name is read from there.
+	cf.configs["tunnel-1"]["ingress"] = []any{map[string]any{"service": "http_status:404"}}
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil || gh.secrets[secretHost] != host || len(cf.apps) != 1 || !strings.Contains(out, "add     cloudflare: route "+host) {
+		t.Errorf("the name was not read from the application: %v\n%s", err, out)
 	}
 
 	// Back to direct.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n")
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
@@ -813,14 +848,14 @@ func TestSetupCloudflareSSH(t *testing.T) {
 		t.Errorf("left: apps %v tokens %v policies %v secrets %v", cf.apps, cf.tokens, cf.policies, gh.secrets)
 	}
 	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
-	if strings.Contains(string(ingress), "deploy-a-ssh") {
+	if strings.Contains(string(ingress), "-ssh-") {
 		t.Errorf("the ssh route is still there: %s", ingress)
 	}
 }
 
 // Tailscale secrets are for the developer to add.
 func TestSetupSSHModesNeedThings(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ssh: tailscale\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
 	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	out, _ := runSetup(t, root, false, "")
@@ -833,7 +868,7 @@ func TestSetupSSHModesNeedThings(t *testing.T) {
 // one after the other. The Tailscale API gives a token for the client id-1 with the secret
 // ts-good, asked for the scope auth_keys and the tag tag:ci, and answers 401 otherwise.
 func tailscaleSetup(t *testing.T, answers ...string) (root string, gh *fakeGH, asked *int, checks *[]string) {
-	root = setupApp(t, "deploy:\n  host: vps\n  ssh: tailscale\n  ci: github\n", nil)
+	root = setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
 	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	gh = newFakeGH()
 	gh.install(t)
@@ -905,7 +940,7 @@ func TestSetupTailscaleOAuthSkippedOrMisused(t *testing.T) {
 	if _, err := runSetup(t, root, false, "", "--yes", "--tailscale-oauth"); err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Errorf("no terminal: %v", err)
 	}
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  ci: github\n")
 	if _, err := runSetup(t, root, true, "", "--yes", "--tailscale-oauth"); err == nil || !strings.Contains(err.Error(), "deploy.ssh") {
 		t.Errorf("ssh direct: %v", err)
 	}
@@ -913,7 +948,7 @@ func TestSetupTailscaleOAuthSkippedOrMisused(t *testing.T) {
 
 // While it plans, setup says which part it is reading, on stderr, one line each.
 func TestSetupProgressOnStderr(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cfSetup(t, "example.com")
 	newFakeGH().install(t)
@@ -930,7 +965,7 @@ func TestSetupProgressOnStderr(t *testing.T) {
 	}
 
 	// Nothing of Cloudflare or GitHub is asked for here, so nothing is said about them.
-	root = setupApp(t, "deploy:\n  host: vps\n", nil)
+	root = setupApp(t, "deploy:\n", nil)
 	_, errOut, _ = runSetupIO(t, root, false, "")
 	if errOut != "Reading the server...\n" {
 		t.Errorf("stderr: %q", errOut)
@@ -939,7 +974,7 @@ func TestSetupProgressOnStderr(t *testing.T) {
 
 // One plan reads each thing once, however many steps look at it.
 func TestSetupPlanReadsOnce(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -965,7 +1000,7 @@ func TestSetupPlanReadsOnce(t *testing.T) {
 // The reads that do not depend on each other run together: with every call slow, the plan takes
 // far less than all its calls one after the other.
 func TestSetupPlanReadsTogether(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -995,7 +1030,7 @@ func TestSetupPlanReadsTogether(t *testing.T) {
 
 // Hidden ok lines: only the changes show, and one line counts what is right, by area.
 func TestSetupHidesOKLines(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
 	newSetupServer(t, "", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
 	out, err := runSetup(t, root, false, "")
 	if err == nil {
@@ -1016,7 +1051,7 @@ func TestSetupHidesOKLines(t *testing.T) {
 
 // --all lists the ok lines and drops the summary.
 func TestSetupAllListsOKLines(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
 	newSetupServer(t, "", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
 	out, _ := runSetup(t, root, false, "", "--all")
 	if !strings.Contains(out, "ok      server:") || strings.Contains(out, "Already right") {
@@ -1026,7 +1061,7 @@ func TestSetupAllListsOKLines(t *testing.T) {
 
 // Everything is right and nobody has to do anything: one line, no plan, no question.
 func TestSetupAllInOrderOneLine(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n", nil)
+	root := setupApp(t, "deploy:\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, ""))
 	out, err := runSetup(t, root, true, "")
 	if err != nil {
@@ -1040,7 +1075,7 @@ func TestSetupAllInOrderOneLine(t *testing.T) {
 // What setup cannot do comes last, numbered, with the reason below each item. It makes the exit
 // non-zero, after everything else was done.
 func TestSetupCannotListedLast(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -1057,7 +1092,7 @@ func TestSetupCannotListedLast(t *testing.T) {
 
 // With changes and a cannot item, setup asks, applies, and then fails.
 func TestSetupCannotAfterApply(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
 	srv := newSetupServer(t, "hostname 203.0.113.7\n", "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine m\n"+hostKeysFact)
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -1071,20 +1106,93 @@ func TestSetupCannotAfterApply(t *testing.T) {
 	}
 }
 
-// The IP address note is an optional item. Alone it does not make setup fail.
-func TestSetupIPNoteIsOptionalItem(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: 203.0.113.7\n", nil)
-	newSetupServer(t, "", factsOf("shop", 9531, ""))
-	out, err := runSetup(t, root, false, "")
+// DEPLOY_HOST holds the whole target, so the port is written even when it is 22, and the zone ID
+// is a secret that follows the zone: a run after the zone changed sets the secrets again.
+func TestSetupConnectionSecrets(t *testing.T) {
+	s := newPurgeSetup(t, "tok-good")
+	s.srv = newSetupServer(t, "hostname 203.0.113.7\nport 22\n", factsOf("shop", 9531, tunnelFacts))
+	if out, err := runSetup(t, s.root, true, "", "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got := s.gh.secrets[secretHost]; got != "ssh://203.0.113.7:22" {
+		t.Errorf("DEPLOY_HOST %q", got)
+	}
+	if got := s.gh.secrets[secretKnownHosts]; !strings.HasPrefix(got, "203.0.113.7 ssh-ed25519 ") {
+		t.Errorf("known hosts %q", got)
+	}
+	setFacts(t, s.srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	if out, err := runSetup(t, s.root, true, "", "--yes"); err != nil || !strings.Contains(out, "matches tifa.yaml") {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+	s.gh.secrets[secretZoneID] = "an old zone"
+	delete(s.gh.vars, varMarker)
+	out, err := runSetup(t, s.root, true, "", "--yes")
+	if err != nil || s.gh.secrets[secretZoneID] != "z" || !strings.Contains(out, "change  github: where CI logs in (direct)") {
+		t.Errorf("%v, zone secret %q\n%s", err, s.gh.secrets[secretZoneID], out)
+	}
+}
+
+// An earlier setup made the ssh host name from the domain alone, which anyone can guess. Setup
+// replaces it: the new name gets its route, record and Access application, the old ones go, and
+// the repository gets the new name. Remove finds the new name through the Access application.
+func TestSetupReplacesTheOldSSHHost(t *testing.T) {
+	const old = "deploy-a-ssh.example.com"
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	cf.configs["tunnel-1"] = map[string]any{"ingress": []any{
+		map[string]any{"hostname": old, "service": sshService},
+		map[string]any{"service": "http_status:404"},
+	}}
+	cf.records["example.com"] = []map[string]any{{"id": "record-old", "type": "CNAME", "name": old, "content": "tunnel-1.cfargotunnel.com", "proxied": true, "comment": dnsComment + "shop"}}
+	cf.apps = []map[string]any{{"id": "app-old", "name": accessAppPrefix + old, "type": "self_hosted", "domain": old, "policies": []any{}}}
+	gh := newFakeGH()
+	gh.secrets[secretHost] = old
+	gh.install(t)
+
+	out, err := runSetup(t, root, false, "", "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"You need to do 1 thing that setup cannot:", "  1. deploy.host is the address 203.0.113.7 (optional)", "Write an ssh alias instead", "Already right: server 1, app 1"} {
+	host := gh.secrets[secretHost]
+	if !sshHostName.MatchString(host) {
+		t.Fatalf("DEPLOY_HOST %q\n%s", host, out)
+	}
+	for _, want := range []string{"add     cloudflare: route " + host + " -> ssh://localhost:22", "add     cloudflare: DNS " + host, "remove  cloudflare: the ssh host name " + old} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "Note:") || strings.Contains(out, "matches tifa.yaml") {
-		t.Errorf("out:\n%s", out)
+	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
+	if strings.Contains(string(ingress), old) || !strings.Contains(string(ingress), host) {
+		t.Errorf("ingress %s", ingress)
+	}
+	if len(cf.apps) != 1 || cf.apps[0]["domain"] != host {
+		t.Errorf("apps %v", cf.apps)
+	}
+	for _, r := range cf.records["example.com"] {
+		if r["name"] == old {
+			t.Errorf("the old record is still there: %v", r)
+		}
+	}
+	if !strings.Contains(gh.secrets[secretKnownHosts], host+" ssh-ed25519") {
+		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
+	}
+	// Run again: nothing to do, and the same name.
+	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil || strings.Contains(out, "  add     ") || strings.Contains(out, "  change  ") || strings.Contains(out, "  remove  ") || gh.secrets[secretHost] != host {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+	// ci none: remove finds the name through the application and takes the route and record too.
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n")
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	ingress, _ = json.Marshal(cf.configs["tunnel-1"]["ingress"])
+	if len(cf.apps) != 0 || strings.Contains(string(ingress), "-ssh") {
+		t.Errorf("left: apps %v, ingress %s", cf.apps, ingress)
 	}
 }

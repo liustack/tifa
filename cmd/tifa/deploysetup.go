@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -242,6 +241,10 @@ type setupRun struct {
 	repo           githubRepo
 	ghNames        map[string]bool
 	ghVars         map[string]string
+	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
+	sshName string
+	// afterConnection are steps that wait until CI has what replaces what they take away.
+	afterConnection []planStep
 	setupFlags
 }
 
@@ -290,12 +293,6 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 	}()
 	r.prefetch(ctx, &reads)
 	var p setupPlan
-	if net.ParseIP(t.host) != nil {
-		p.notes = append(p.notes, planNote{
-			what: "deploy.host is the address " + t.host,
-			why:  "tifa.yaml is committed, and a public repository then shows where your server is. Write an ssh alias instead, a Host of ~/.ssh/config, so the address stays on each machine.",
-		})
-	}
 	r.progress("the server")
 	if err := r.serverSteps(ctx, &p); err != nil {
 		return p, r, err
@@ -477,7 +474,7 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 		})
 	}
 	routeText := fmt.Sprintf("cloudflare: route %s -> %s", t.domain, r.service())
-	r.hostSteps(ctx, p, zone, t.domain, "route", routeText, "DNS "+t.domain+" CNAME the tunnel, proxied", r.service)
+	r.hostSteps(ctx, p, zone, t.domain, false, routeText, "DNS "+t.domain+" CNAME the tunnel, proxied", r.service)
 	for _, rs := range hostRules(t.domain) {
 		how, err := ensureRules(ctx, zone.Name, rs, false)
 		if err != nil {
@@ -496,10 +493,11 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	return r.removeOldDomains(ctx, p, t.domain)
 }
 
-// hostSteps adds the route and the DNS record of host to the tunnel.
-func (r *setupRun) hostSteps(ctx context.Context, p *setupPlan, zone cfZone, host, _, routeText, dnsText string, service func() string) {
+// hostSteps adds the route and the DNS record of host to the tunnel. fresh says the name was just
+// made, so nothing of it can be there yet and there is nothing to read.
+func (r *setupRun) hostSteps(ctx context.Context, p *setupPlan, zone cfZone, host string, fresh bool, routeText, dnsText string, service func() string) {
 	check := func(ensure func(apply bool) (string, error)) planOp {
-		if r.tunnelID == "" {
+		if r.tunnelID == "" || fresh {
 			return opAdd
 		}
 		how, err := ensure(false)
@@ -662,9 +660,12 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			return nil
 		}
 	}
-	connect, port := resolved.Host, resolved.Port
-	if t.sshMode == connCloudflare {
-		connect, port = "", 22
+	// connect is the text of the secret DEPLOY_HOST: with a direct login the whole target, port
+	// included, so the workflow needs no Port line and shows no address. port goes with the host
+	// name into the host keys.
+	connect, hostName, port := "", "", 22
+	if t.sshMode != connCloudflare {
+		connect, hostName, port = deployHostURL(resolved.Host, resolved.Port), resolved.Host, resolved.Port
 	}
 	if t.sshMode == connCloudflare {
 		if !r.useCF(ctx) {
@@ -672,8 +673,8 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		} else if err := r.accessSteps(ctx, p); err != nil {
 			return err
 		}
-		if r.zone.ID != "" {
-			connect = cloudflareSSHHost(t.domain, r.zone.Name)
+		if r.sshName != "" {
+			connect, hostName = r.sshName, r.sshName
 		}
 	}
 	repoName := repo.Name
@@ -700,22 +701,41 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		})
 	}
 
-	// The connection: where CI logs in, and the host keys it trusts.
+	// The connection: where CI logs in, the host keys it trusts, and the zone of the domain.
+	// All of it is a secret: a repository that is public must not show where the server is. The
+	// zone ID is kept with them and not by itself: the one marker below says they are current.
 	if r.haveServer && len(r.st.HostKeys) > 0 || !r.haveServer {
-		hostSecret := func(ctx context.Context) (string, string, error) {
-			if len(r.st.HostKeys) == 0 {
-				return "", "", errors.New("the server has no ssh host keys tifa can read")
+		if t.domain != "" && r.zone.ID == "" && r.useCF(ctx) {
+			// A zone that cf could not find is already a plan line of its own.
+			if zone, err := findZone(ctx, t.domain); err == nil {
+				r.zone = zone
 			}
-			c := connect
-			if t.sshMode == connCloudflare {
-				c = cloudflareSSHHost(t.domain, r.zone.Name)
-			}
-			hosts := strings.Join(knownHostsLines(c, port, r.st.HostKeys), "\n")
-			return c, hosts, nil
 		}
-		fp := sha(strings.Join(append([]string{t.sshMode, connect, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
-		current := r.ghNames[secretKnownHosts] && r.ghNames[secretHost] && r.ghVars[varMarker] == fp && r.haveServer
-		text := fmt.Sprintf("github: where CI logs in (%s) and the host keys it trusts, the secrets %s and %s", t.sshMode, secretHost, secretKnownHosts)
+		zoneID := r.zone.ID
+		secrets := func(ctx context.Context) ([]secret, error) {
+			if len(r.st.HostKeys) == 0 {
+				return nil, errors.New("the server has no ssh host keys tifa can read")
+			}
+			hosts := strings.Join(knownHostsLines(hostName, port, r.st.HostKeys), "\n")
+			out := []secret{{secretKnownHosts, hosts}, {secretHost, connect}}
+			if zoneID != "" {
+				out = append(out, secret{secretZoneID, zoneID})
+			}
+			return out, nil
+		}
+		fingerprint := func() string {
+			return sha(strings.Join(append([]string{t.sshMode, connect, strconv.Itoa(port), zoneID}, r.st.HostKeys...), "|"))
+		}
+		names := []string{secretHost, secretKnownHosts}
+		if zoneID != "" {
+			names = append(names, secretZoneID)
+		}
+		current := r.ghVars[varMarker] == fingerprint() && r.haveServer
+		for _, n := range names {
+			current = current && r.ghNames[n]
+		}
+		what := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+		text := fmt.Sprintf("github: where CI logs in (%s) and the host keys it trusts, the secrets %s", t.sshMode, what)
 		if current {
 			p.ok(text)
 		} else {
@@ -724,17 +744,16 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 				op = opChange
 			}
 			p.add(op, text, func(ctx context.Context) (string, error) {
-				c, hosts, err := hostSecret(ctx)
+				all, err := secrets(ctx)
 				if err != nil {
 					return "", err
 				}
-				for _, s := range []secret{{secretKnownHosts, hosts}, {secretHost, c}} {
+				for _, s := range all {
 					if err := r.ghSecret(ctx, s.name, s.value); err != nil {
 						return "", err
 					}
 				}
-				fp := sha(strings.Join(append([]string{t.sshMode, c, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
-				_, err = runGH(ctx, t.root, strings.NewReader(fp), "variable", "set", varMarker, "--repo", repoName)
+				_, err = runGH(ctx, t.root, strings.NewReader(fingerprint()), "variable", "set", varMarker, "--repo", repoName)
 				return "", err
 			})
 		}
@@ -744,14 +763,14 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 
 	// The token that clears the CDN cache, and the workflow.
-	zoneID := ""
+	purge := false
 	if t.domain != "" {
 		if err := r.purgeSteps(ctx, p); err != nil {
 			return err
 		}
-		zoneID = r.zone.ID
+		purge = r.zone.ID != ""
 	}
-	spec, err := workflowSpec(t, repo, t.sshMode, resolved, zoneID)
+	spec, err := workflowSpec(t, repo, t.sshMode, purge)
 	if err != nil {
 		return err
 	}
@@ -766,11 +785,13 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	default:
 		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
 	}
+	p.steps = append(p.steps, r.afterConnection...)
 	r.removeOldPurge(p)
 	if t.domain == "" {
 		if err := r.removePurge(ctx, p); err != nil {
 			return err
 		}
+		r.removeZoneSecret(p)
 	}
 	return r.removeAccessIfUnwanted(ctx, p)
 }
@@ -794,8 +815,29 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 		return nil
 	}
 	r.zone = zone
-	host := cloudflareSSHHost(t.domain, zone.Name)
-	r.hostSteps(ctx, p, zone, host, "ssh", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
+	// The name is read back from what an earlier run made, and made new only when there is none.
+	// It is chosen once and kept, so the steps below and the secrets use the same one.
+	found, err := findSSHHosts(ctx, r.tunnelID, t.domain, zone.Name)
+	if err != nil {
+		return err
+	}
+	host := found.host
+	if host == "" {
+		if host, err = newSSHHost(t.domain, zone.Name); err != nil {
+			p.cannot("cloudflare: ssh host name and Access for CI", err.Error())
+			return nil
+		}
+	}
+	r.sshName = host
+	if found.legacy {
+		legacy := legacySSHHost(t.domain, zone.Name)
+		r.afterConnection = append(r.afterConnection, planStep{op: opRemove,
+			text: fmt.Sprintf("cloudflare: the ssh host name %s that anyone can guess from the domain, its route, DNS record and Access application, which tifa made. %s replaces it", legacy, host),
+			do: func(ctx context.Context) (string, error) {
+				return "", removeSSHHost(ctx, r.tunnelID, zone.Name, legacy)
+			}})
+	}
+	r.hostSteps(ctx, p, zone, host, found.host == "", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
 		"DNS "+host+" CNAME the tunnel, proxied", func() string { return sshService })
 	name := accessName(r.repo.Name)
 	ids, err := serviceTokenIDs(ctx, name)
@@ -952,6 +994,18 @@ func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
 	return nil
 }
 
+// removeZoneSecret takes away the secret that holds the zone ID, which tifa set. The zone is
+// nothing to delete in Cloudflare.
+func (r *setupRun) removeZoneSecret(p *setupPlan) {
+	if r.ghVars[varMarker] == "" || !r.ghNames[secretZoneID] {
+		return
+	}
+	p.add(opRemove, "github: the secret "+secretZoneID+", which tifa set", func(ctx context.Context) (string, error) {
+		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretZoneID, "--repo", r.repo.Name)
+		return "", err
+	})
+}
+
 // removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.ssh is
 // not cloudflare any more.
 func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) error {
@@ -1023,7 +1077,7 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 		return err
 	}
 	var names []string
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {
 		if r.ghNames[n] {
 			names = append(names, n)
 		}

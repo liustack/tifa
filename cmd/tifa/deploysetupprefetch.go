@@ -112,11 +112,16 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 		if repoErr != nil {
 			return
 		}
-		host := cloudflareSSHHost(t.domain, zone.Name)
 		name := accessName(repo.Name)
-		spawn(func() { ensureDNS(ctx, zone.Name, host, target, t.app, false) })
+		spawn(func() {
+			found, err := findSSHHosts(ctx, id, t.domain, zone.Name)
+			if err != nil || found.host == "" {
+				return
+			}
+			spawn(func() { ensureDNS(ctx, zone.Name, found.host, target, t.app, false) })
+			spawn(func() { ensureSSHApp(ctx, found.host, "", false) })
+		})
 		spawn(func() { serviceTokenIDs(ctx, name) })
 		spawn(func() { policyByName(ctx, name) })
-		spawn(func() { ensureSSHApp(ctx, host, "", false) })
 	})
 }

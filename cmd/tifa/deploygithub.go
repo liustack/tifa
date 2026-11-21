@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/liustack/tifa/internal/config"
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh"
 )
@@ -40,11 +39,24 @@ const (
 	secretSSHKey     = "DEPLOY_SSH_KEY"
 	secretKnownHosts = "DEPLOY_KNOWN_HOSTS"
 	secretHost       = "DEPLOY_HOST"
+	secretZoneID     = envZoneID
 	secretCFID       = "CF_ACCESS_CLIENT_ID"
 	secretCFSecret   = "CF_ACCESS_CLIENT_SECRET"
 	secretTSID       = "TS_OAUTH_CLIENT_ID"
 	secretTSSecret   = "TS_OAUTH_SECRET"
 	secretPurge      = envPurgeToken
+)
+
+// The cloudflared that CI runs for deploy.ssh cloudflare: one fixed version of the amd64 package
+// of ubuntu-24.04, and its SHA-256. A newer cloudflared once stopped reading service tokens for
+// access ssh (issue 1673 of cloudflare/cloudflared, 2026.6.0), which would break every deploy
+// through the tunnel, so the workflow never asks for the latest. Raise the version only after a
+// deploy through the tunnel passed with it, and take the checksum of the same file from the
+// release page of that version, as digest of cloudflared-linux-amd64.deb.
+const (
+	cloudflaredVersion   = "2026.11.1"
+	cloudflaredDebSHA256 = "744ce90be92adb361103d51c85f78646314c47e4a68bbaadfe12ab5acc16c9b6"
+	cloudflaredDebURL    = "https://github.com/cloudflare/cloudflared/releases/download/" + cloudflaredVersion + "/cloudflared-linux-amd64.deb"
 )
 
 // varMarker is the repository variable setup keeps: it marks the secrets as the ones tifa set, and
@@ -164,7 +176,7 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 	if r.Host == "" {
 		return r, fmt.Errorf("ssh -G %s gave no host name", host)
 	}
-	if err := config.CheckDeployHost(r.Host); err != nil {
+	if err := checkResolvedHost(r.Host); err != nil {
 		return r, fmt.Errorf("the address of %s: %w", host, err)
 	}
 	return r, nil
@@ -174,8 +186,6 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 type githubWorkflowSpec struct {
 	Branch string
 	Mode   string
-	// Port is the port ssh connects to, written when it is not 22. Not used with Cloudflare.
-	Port int
 	// Node is set for an app with pages: it installs the packages with pnpm.
 	Node bool
 	// PnpmVersion is the major version of pnpm when package.json does not say which pnpm to use.
@@ -183,9 +193,9 @@ type githubWorkflowSpec struct {
 	// CIName is the name of the workflow that checks the app. The deploy runs after it passed.
 	// Empty means the app has none, and a push to the default branch deploys.
 	CIName string
-	// ZoneID is the Cloudflare zone of deploy.domain, whose host name the deploy clears from the
-	// CDN cache. Empty means no cache to clear.
-	ZoneID string
+	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
+	// and the zone ID, both from secrets, since a public repository must not show the zone.
+	Purge bool
 }
 
 // workflowMarker is the first line of the workflow tifa writes. A file without it is the
@@ -267,13 +277,13 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	}
 	switch s.Mode {
 	case connCloudflare:
+		// A fixed version from the release page of cloudflared, and not Cloudflare's apt
+		// repository: apt lists only the newest, so it cannot be pinned there.
 		w("      - name: Install cloudflared")
 		w("        run: |")
-		w("          sudo install -d -m 755 /usr/share/keyrings")
-		w("          curl -fsSL %s | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null", cloudflareKey)
-		w("          echo '%s' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null", cloudflareRepo)
-		w("          sudo apt-get update -q")
-		w("          sudo apt-get install -y -q cloudflared")
+		w("          curl -fsSL -o \"$RUNNER_TEMP/cloudflared.deb\" %s", cloudflaredDebURL)
+		w("          echo '%s  '\"$RUNNER_TEMP/cloudflared.deb\" | sha256sum -c -", cloudflaredDebSHA256)
+		w("          sudo dpkg -i \"$RUNNER_TEMP/cloudflared.deb\"")
 	case connTailscale:
 		w("      - name: Connect to Tailscale")
 		w("        uses: tailscale/github-action@v4")
@@ -296,20 +306,17 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("            IdentityFile ~/.ssh/deploy_key")
 	w("            IdentitiesOnly yes")
 	w("            StrictHostKeyChecking yes")
-	switch {
-	case s.Mode == connCloudflare:
+	if s.Mode == connCloudflare {
 		w("            ProxyCommand cloudflared access ssh --hostname %%h")
-	case s.Port != 22:
-		w("            Port %d", s.Port)
 	}
 	w("          EOF")
 	w("      - name: Deploy")
 	w("        env:")
 	w("          ACTION: ${{ inputs.action }}")
 	w("          DEPLOY_HOST: ${{ secrets.%s }}", secretHost)
-	if s.ZoneID != "" {
+	if s.Purge {
 		w("          %s: ${{ secrets.%s }}", envPurgeToken, secretPurge)
-		w("          %s: %s", envZoneID, s.ZoneID)
+		w("          %s: ${{ secrets.%s }}", envZoneID, secretZoneID)
 	}
 	if s.Mode == connCloudflare {
 		// cloudflared reads these two variables for the service token, see its access command.
@@ -400,8 +407,8 @@ func (k deployKey) authorizedLine(repo string) string {
 }
 
 // workflowSpec reads what the workflow needs from the app.
-func workflowSpec(t deployTarget, repo githubRepo, mode string, r sshResolved, zoneID string) (githubWorkflowSpec, error) {
-	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Port: r.Port, ZoneID: zoneID, CIName: ciWorkflowName(t.root)}
+func workflowSpec(t deployTarget, repo githubRepo, mode string, purge bool) (githubWorkflowSpec, error) {
+	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Purge: purge, CIName: ciWorkflowName(t.root)}
 	pkg, err := os.ReadFile(filepath.Join(t.root, "package.json"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):

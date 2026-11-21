@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -54,7 +55,7 @@ func uses(steps []map[string]any) []string {
 // The workflow of each way to connect is YAML, deploys on a push to the default branch and by
 // hand, never cancels a deploy that runs, and gives the secrets to the steps that need them.
 func TestGitHubWorkflow(t *testing.T) {
-	direct := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22})
+	direct := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
 	doc, steps := parseWorkflow(t, direct)
 	on := doc["on"].(map[string]any)
 	if got := on["push"].(map[string]any)["branches"]; !slices.Equal(anyStrings(got), []string{"main"}) {
@@ -81,7 +82,7 @@ func TestGitHubWorkflow(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, direct)
 		}
 	}
-	for _, not := range []string{"Port ", "cloudflared", "ssh-keyscan", "pnpm"} {
+	for _, not := range []string{"Port ", "cloudflared", "ssh-keyscan", "pnpm", "CF_ZONE_ID"} {
 		if strings.Contains(direct, not) {
 			t.Errorf("a direct workflow of an app without pages holds %q:\n%s", not, direct)
 		}
@@ -95,34 +96,34 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 
 	// Pages: pnpm and Node, with the version of pnpm only when package.json has none.
-	pages := githubWorkflow(githubWorkflowSpec{Branch: "release/1", Mode: connDirect, Port: 2222, Node: true, PnpmVersion: "10"})
+	pages := githubWorkflow(githubWorkflowSpec{Branch: "release/1", Mode: connDirect, Node: true, PnpmVersion: "10"})
 	_, steps = parseWorkflow(t, pages)
 	if got := uses(steps); !slices.Equal(got, []string{"actions/checkout@v7", "actions/setup-go@v7", "pnpm/action-setup@v6", "actions/setup-node@v7"}) {
 		t.Errorf("pages use %v", got)
 	}
-	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile --ignore-scripts") || !strings.Contains(pages, "  Port 2222") || !strings.Contains(pages, "version: 10") {
+	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile --ignore-scripts") || strings.Contains(pages, "Port ") || !strings.Contains(pages, "version: 10") {
 		t.Errorf("pages:\n%s", pages)
 	}
-	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22, Node: true}), "          version:") {
+	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Node: true}), "          version:") {
 		t.Error("pnpm version written though package.json names pnpm")
 	}
 
-	// Cloudflare: cloudflared from the signed repository, the token through the variables
-	// cloudflared reads, and nothing about the token on a command line.
-	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare, Port: 22})
+	// Cloudflare: the pinned cloudflared, the token through the variables cloudflared reads, and
+	// nothing about the token on a command line.
+	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
 	_, steps = parseWorkflow(t, cf)
-	for _, want := range []string{cloudflareKey, cloudflareRepo, "ProxyCommand cloudflared access ssh --hostname %h",
+	for _, want := range []string{"ProxyCommand cloudflared access ssh --hostname %h",
 		"TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}", "TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}"} {
 		if !strings.Contains(cf, want) {
 			t.Errorf("cloudflare workflow lacks %q:\n%s", want, cf)
 		}
 	}
-	if strings.Contains(cf, "--service-token") || strings.Contains(cf, "  Port ") {
+	if strings.Contains(cf, "--service-token") || strings.Contains(cf, "  Port ") || strings.Contains(cf, "apt-get") {
 		t.Errorf("cloudflare workflow:\n%s", cf)
 	}
 
 	// Tailscale.
-	ts := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, Port: 22})
+	ts := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale})
 	_, steps = parseWorkflow(t, ts)
 	if got := uses(steps); !slices.Contains(got, "tailscale/github-action@v4") {
 		t.Errorf("tailscale uses %v", got)
@@ -142,17 +143,80 @@ func anyStrings(v any) []string {
 	return out
 }
 
-func TestCloudflareSSHHost(t *testing.T) {
-	for _, c := range []struct{ domain, zone, want string }{
-		{"deploy-a.tifago.com", "tifago.com", "deploy-a-ssh.tifago.com"},
-		{"tifago.com", "tifago.com", "ssh.tifago.com"},
-		{"example.co.uk", "example.co.uk", "ssh.example.co.uk"},
-		{"shop.example.co.uk", "example.co.uk", "shop-ssh.example.co.uk"},
-		{"a.b.example.com", "example.com", "a-ssh.b.example.com"},
-	} {
-		if got := cloudflareSSHHost(c.domain, c.zone); got != c.want {
-			t.Errorf("%s in %s: got %s, want %s", c.domain, c.zone, got, c.want)
+// CI installs one fixed version of cloudflared, checked against its SHA-256, and not the latest:
+// a release of cloudflared that stops reading service tokens (issue 1673 of cloudflare/cloudflared,
+// 2026.6.0) would break every deploy through the tunnel. The version is raised by hand.
+func TestWorkflowPinsCloudflared(t *testing.T) {
+	if !regexp.MustCompile(`^\d{4}\.\d+\.\d+$`).MatchString(cloudflaredVersion) || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(cloudflaredDebSHA256) {
+		t.Fatalf("version %q, checksum %q", cloudflaredVersion, cloudflaredDebSHA256)
+	}
+	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
+	_, steps := parseWorkflow(t, text)
+	var install string
+	for _, s := range steps {
+		if s["name"] == "Install cloudflared" {
+			install, _ = s["run"].(string)
 		}
+	}
+	for _, want := range []string{
+		"https://github.com/cloudflare/cloudflared/releases/download/" + cloudflaredVersion + "/cloudflared-linux-amd64.deb",
+		cloudflaredDebSHA256 + "  ",
+		"sha256sum -c",
+		"dpkg -i",
+	} {
+		if !strings.Contains(install, want) {
+			t.Errorf("the install step lacks %q:\n%s", want, install)
+		}
+	}
+	// The check comes before the install, and nothing asks for the latest.
+	if strings.Index(install, "sha256sum -c") > strings.Index(install, "dpkg -i") || strings.Contains(install, "apt-get") || strings.Contains(install, "latest") {
+		t.Errorf("install step:\n%s", install)
+	}
+	// Other modes install nothing of it.
+	for _, mode := range []string{connDirect, connTailscale} {
+		if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: mode}), "cloudflared") {
+			t.Errorf("%s workflow mentions cloudflared", mode)
+		}
+	}
+}
+
+// The ssh host name has a random part, so the name of the domain does not tell it. It is still one
+// label below the rest of the domain, which the free certificate of Cloudflare covers.
+func TestCloudflareSSHHost(t *testing.T) {
+	for _, c := range []struct{ domain, zone, pattern, old string }{
+		{"deploy-a.tifago.com", "tifago.com", `^deploy-a-ssh-[a-z2-7]{12}\.tifago\.com$`, "deploy-a-ssh.tifago.com"},
+		{"tifago.com", "tifago.com", `^ssh-[a-z2-7]{12}\.tifago\.com$`, "ssh.tifago.com"},
+		{"example.co.uk", "example.co.uk", `^ssh-[a-z2-7]{12}\.example\.co\.uk$`, "ssh.example.co.uk"},
+		{"shop.example.co.uk", "example.co.uk", `^shop-ssh-[a-z2-7]{12}\.example\.co\.uk$`, "shop-ssh.example.co.uk"},
+		{"a.b.example.com", "example.com", `^a-ssh-[a-z2-7]{12}\.b\.example\.com$`, "a-ssh.b.example.com"},
+	} {
+		got, err := newSSHHost(c.domain, c.zone)
+		if err != nil || !regexp.MustCompile(c.pattern).MatchString(got) {
+			t.Errorf("%s in %s: got %s, %v, want %s", c.domain, c.zone, got, err, c.pattern)
+		}
+		if !isSSHHost(got, c.domain, c.zone) || isSSHHost(c.old, c.domain, c.zone) || isSSHHost(c.domain, c.domain, c.zone) {
+			t.Errorf("%s: isSSHHost is wrong for %s, %s or %s", c.domain, got, c.old, c.domain)
+		}
+		if legacySSHHost(c.domain, c.zone) != c.old {
+			t.Errorf("%s: legacy name %s, want %s", c.domain, legacySSHHost(c.domain, c.zone), c.old)
+		}
+		again, _ := newSSHHost(c.domain, c.zone)
+		if again == got {
+			t.Errorf("%s: the same name twice: %s", c.domain, got)
+		}
+	}
+	// Another domain's name, and a name of the wrong length, are not ours.
+	for _, host := range []string{"other-ssh-abcdefghijkl.tifago.com", "deploy-a-ssh-abc.tifago.com", "deploy-a-ssh-ABCDEFGHIJKL.tifago.com", "deploy-a-ssh-abcdefghijkl.example.com", "x.deploy-a-ssh-abcdefghijkl.tifago.com"} {
+		if isSSHHost(host, "deploy-a.tifago.com", "tifago.com") {
+			t.Errorf("%s was taken as the ssh host of deploy-a.tifago.com", host)
+		}
+	}
+	if !isSSHHost("deploy-a-ssh-abcdefghijkl.tifago.com", "deploy-a.tifago.com", "tifago.com") {
+		t.Error("a name of the pattern was not taken")
+	}
+	// A first label too long for a DNS label once -ssh- and the random part are added.
+	if _, err := newSSHHost(strings.Repeat("a", 50)+".tifago.com", "tifago.com"); err == nil {
+		t.Error("a label of 67 characters was made")
 	}
 }
 
@@ -282,7 +346,7 @@ func githubApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	for name, content := range files {
 		writeFile(t, filepath.Join(root, name), content)
 	}
-	t.Setenv(deployHostEnv, "")
+	t.Setenv(deployHostEnv, "vps")
 	return root
 }
 
@@ -444,7 +508,7 @@ func ingressOf(cf *fakeAccess, id string) []map[string]any {
 // After the CI workflow, the deploy follows it: only a passed push, on the commit that was
 // checked, from the default branch. Without a CI workflow a push deploys.
 func TestWorkflowAfterCI(t *testing.T) {
-	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22, CIName: "CI", ZoneID: "zone-9"})
+	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, CIName: "CI", Purge: true})
 	doc, steps := parseWorkflow(t, text)
 	if !strings.HasPrefix(text, workflowMarker) {
 		t.Error("no marker line")
@@ -474,13 +538,17 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if doc["permissions"].(map[string]any)["contents"] != "read" {
 		t.Error("permissions")
 	}
-	for _, want := range []string{"CF_CACHE_PURGE_TOKEN: ${{ secrets.CF_CACHE_PURGE_TOKEN }}", "CF_ZONE_ID: zone-9"} {
+	for _, want := range []string{"CF_CACHE_PURGE_TOKEN: ${{ secrets.CF_CACHE_PURGE_TOKEN }}", "CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
 	}
+	// The zone ID is a secret like the others: the file of a public repository does not show it.
+	if strings.Contains(text, "zone-9") || regexp.MustCompile(`CF_ZONE_ID: [^$]`).MatchString(text) {
+		t.Errorf("the zone ID is written in the workflow:\n%s", text)
+	}
 
-	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22})
+	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
 	doc, _ = parseWorkflow(t, push)
 	on = doc["on"].(map[string]any)
 	if _, ok := on["push"]; !ok {

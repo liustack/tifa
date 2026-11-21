@@ -120,7 +120,7 @@ func removeFacts(extra string) string {
 // record and rules of its domain, ssh through Cloudflare with Access, and GitHub.
 func cloudSetup(t *testing.T) (root string, srv *setupServer, cf *cfEverything, gh *fakeGH) {
 	t.Helper()
-	root = setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root = setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	srv = newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf = cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -217,7 +217,7 @@ func TestDeployRemoveKeepsTheSharedTunnel(t *testing.T) {
 // Without the logins of cf and gh, what needs them is listed with the login to run, the server
 // part is still removed, and remove then fails.
 func TestDeployRemoveWithoutLogins(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
 	srv := newSetupServer(t, "", removeFacts(""))
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -243,10 +243,10 @@ func TestDeployRemoveWithoutLogins(t *testing.T) {
 
 // The Tailscale secrets setup set go with the others.
 func TestDeployRemoveTailscaleSecrets(t *testing.T) {
-	root := setupApp(t, "deploy:\n  host: vps\n  ssh: tailscale\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
 	gh := newFakeGH()
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {
 		gh.secrets[n] = "set by setup"
 	}
 	gh.vars[varMarker] = "fingerprint"
@@ -261,7 +261,7 @@ func TestDeployRemoveTailscaleSecrets(t *testing.T) {
 // the route, the record and the rules of the domain without the app and its port, and the tunnel.
 func TestDeployRemoveCloudflareLater(t *testing.T) {
 	root, srv, cf, _ := cloudSetup(t)
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n")
 	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"appdir yes\n"))
 	have := haveCF
 	haveCF = func() bool { return false }
