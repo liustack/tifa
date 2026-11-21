@@ -57,6 +57,8 @@ type planNote struct{ what, why string }
 type setupPlan struct {
 	steps []planStep
 	notes []planNote
+	// who is the command that makes the plan, setup when empty.
+	who string
 }
 
 func (p *setupPlan) add(op planOp, text string, do func(context.Context) (string, error)) {
@@ -121,10 +123,10 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// print shows what will change, what is already right and what the developer has to do. With all
-// it lists the ok lines instead of counting them.
-func (p setupPlan) print(w io.Writer, app, host string, all bool) {
-	fmt.Fprintf(w, "Plan for %s on %s\n", app, host)
+// print shows the title, what will change, what is already right and what the developer has to
+// do. With all it lists the ok lines instead of counting them.
+func (p setupPlan) print(w io.Writer, title string, all bool) {
+	fmt.Fprintln(w, title)
 	first := true
 	for _, s := range p.steps {
 		if s.op == opCannot || (s.op == opOK && !all) {
@@ -141,7 +143,11 @@ func (p setupPlan) print(w io.Writer, app, host string, all bool) {
 	}
 	cannot := p.count(opCannot)
 	if n := cannot + len(p.notes); n > 0 {
-		fmt.Fprintf(w, "\nYou need to do %d %s that setup cannot:\n", n, plural(n, "thing", "things"))
+		who := p.who
+		if who == "" {
+			who = "setup"
+		}
+		fmt.Fprintf(w, "\nYou need to do %d %s that %s cannot:\n", n, plural(n, "thing", "things"), who)
 		i := 0
 		for _, s := range p.steps {
 			if s.op == opCannot {
@@ -540,21 +546,16 @@ func (r *setupRun) removeOldDomains(ctx context.Context, p *setupPlan, keep stri
 		if host == "" || host == keep || rule["service"] != "http://127.0.0.1:"+strconv.Itoa(r.st.Port) {
 			continue
 		}
-		p.add(opRemove, fmt.Sprintf("domain: %s, its route, DNS record and rules, which tifa made", host), func(ctx context.Context) (string, error) {
-			zone, err := findZone(ctx, host)
-			if err != nil {
-				return "", err
-			}
-			if _, err := removeRules(ctx, zone.Name, host, true); err != nil {
-				return "", err
-			}
-			if err := removeDNS(ctx, zone.Name, host, id+".cfargotunnel.com"); err != nil {
-				return "", err
-			}
-			return "", removeRoute(ctx, id, host)
+		p.add(opRemove, domainRemoval(host), func(ctx context.Context) (string, error) {
+			return "", removeDomain(ctx, id, host)
 		})
 	}
 	return nil
+}
+
+// domainRemoval is the line of the plan that removes what setup made for host.
+func domainRemoval(host string) string {
+	return fmt.Sprintf("domain: %s, its route, DNS record and rules, which tifa made", host)
 }
 
 // ghSecret sets a secret of the repository. The value goes to gh on its input.
@@ -1059,7 +1060,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
 		return nil
 	}
-	plan.print(stdout, t.app, t.host, f.all)
+	plan.print(stdout, fmt.Sprintf("Plan for %s on %s", t.app, t.host), f.all)
 	warnings := 0
 	if plan.todo() > 0 {
 		if err := confirm(in, stdout, f.yes); err != nil {

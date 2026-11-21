@@ -278,7 +278,7 @@ restarts the app through its socket. Run it again to go further back.`,
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
 	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token CI clears the CDN cache with, and replace the one GitHub has")
 	setup.Flags().BoolVar(&sf.tailscaleOAuth, "tailscale-oauth", false, "ask for the OAuth client CI joins your tailnet with, and replace the one GitHub has")
-	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host))
+	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRemoveCmd(&dir, &host))
 	return cmd
 }
 

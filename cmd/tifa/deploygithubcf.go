@@ -155,7 +155,7 @@ func removeSSHAccess(ctx context.Context, repo, tunnelID string, apply bool, say
 				if err != nil {
 					return true, err
 				}
-				if err := removeDNS(ctx, zone.Name, host, tunnelID+".cfargotunnel.com"); err != nil {
+				if _, err := removeDNS(ctx, zone.Name, host, tunnelID+".cfargotunnel.com", true); err != nil {
 					return true, err
 				}
 				say("route and DNS of %s removed", host)
