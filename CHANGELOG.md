@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-21
+
 ### Added
 
 - In GitHub Actions, `tifa check`, `tifa build` and `tifa gen` print each finding of their own as a workflow command in place of its plain line, so the run and the pull request mark its file and line once, errors and warnings apart. Findings in TypeScript files were not marked before, and a warning about a Go file was marked as an error.
