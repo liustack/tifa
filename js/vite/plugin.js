@@ -1270,6 +1270,15 @@ function devState() {
   return (globalThis[Symbol.for('tifa.dev')] ??= {})
 }
 
+// buildChecks returns the checks of Rolldown for a build. It turns off the PLUGIN_TIMINGS note,
+// which lists the plugin callbacks that took most of a build. It names plugins of Tifa as often as
+// the app's, and an app can do nothing about the time of either from that note. A plugin's config
+// wins over the app's, so what the app sets is passed on: build is its build config, for the
+// environment or for all.
+function buildChecks(build) {
+  return { pluginTimings: false, ...build?.rolldownOptions?.checks }
+}
+
 /**
  * tifa returns the plugins of a tifa application.
  *
@@ -1285,6 +1294,7 @@ export function tifa(settings = {}) {
       root = fs.realpathSync(path.resolve(config.root ?? '.'))
       const gen = path.join(root, '.tifa')
       const dist = path.join(gen, 'dist')
+      const app = (name) => ({ ...config.build, ...config.environments?.[name]?.build })
       return {
         base: command === 'serve' ? devBase : '/',
         appType: 'custom',
@@ -1309,7 +1319,12 @@ export function tifa(settings = {}) {
               copyPublicDir: false,
               cssCodeSplit: false,
               target: settings.target ?? undefined,
+              // Everything a page loads first is one file (see codeSplitting below), so Vite's
+              // default of 500 kB would warn for most apps with a UI library, and its advice to
+              // change codeSplitting is not one an app can take. A file past 1000 kB still warns.
+              chunkSizeWarningLimit: app('client').chunkSizeWarningLimit ?? 1000,
               rolldownOptions: {
+                checks: buildChecks(app('client')),
                 input: path.join(gen, 'client.ts'),
                 output: {
                   entryFileNames: 'assets/app-[hash].js',
@@ -1326,7 +1341,7 @@ export function tifa(settings = {}) {
           },
           // An application may turn the source map off, which the config of a plugin would
           // override.
-          ssr: ssrEnvironment(path.join(gen, 'server.ts'), dist, config.environments?.ssr?.build?.sourcemap),
+          ssr: ssrEnvironment(path.join(gen, 'server.ts'), dist, config.environments?.ssr?.build?.sourcemap, app('ssr')),
         },
       }
     },
@@ -2227,13 +2242,13 @@ export function generated() {
 // require that rolldown makes with createRequire of Node. The syntax target is ES2022, which
 // QuickJS runs as it is: a lower one only slows rendering, a higher one may emit syntax QuickJS
 // lacks. Whoever builds it sets build.minify. sourcemap is build.sourcemap, hidden when
-// undefined.
+// undefined. app is the build config of the app, whose Rolldown checks stay as it sets them.
 //
 // Packages resolve to their main files, not their browser ones, unlike bundlers for Cloudflare
 // Workers. A browser file often takes what the browser has (abort-controller takes
 // AbortController from self, form-data takes FormData from window), and QuickJS has none of it,
 // so renders that work with the main file would fail, with no build warning to point at them.
-export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
+export function ssrEnvironment(entry, dir, sourcemap = 'hidden', app = {}) {
   return {
     consumer: 'server',
     resolve: {
@@ -2257,6 +2272,7 @@ export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
       // it out of ssr.js. The server needs no copy of the sources.
       sourcemap,
       rolldownOptions: {
+        checks: buildChecks(app),
         output: {
           format: 'esm',
           polyfillRequire: false,

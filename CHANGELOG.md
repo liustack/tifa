@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `tifa build` and `tifa deploy` no longer print Rolldown's PLUGIN_TIMINGS lists, and Vite's chunk size warning starts at 1000 kB for the browser bundle (it was 500 kB, which an app with a UI library passes with the one entry file Tifa makes). The app's own `build.chunkSizeWarningLimit` and `build.rolldownOptions.checks` still win.
+
 ### Fixed
 
 - Server rendering runs on slowjs v0.31.11. The render timeout, the stop on shutdown and the memory limit now also hold inside `Intl` on very long inputs: case mapping for Turkish, Azerbaijani, Lithuanian and Greek, locale tags with many variants, `Intl.Segmenter` on long Chinese or Japanese text, `Intl.ListFormat` with many items and `Intl.Collator` on long strings that share a start. The HTML of a render is the same, and its instructions are within 0.24% of v0.31.10.
