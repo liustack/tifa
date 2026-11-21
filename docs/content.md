@@ -337,6 +337,7 @@ export function rehypeLazyImages() {
 }
 ```
 
+- Code highlighting with `@shikijs/rehype` loads all 230 languages of Shiki before the first code block unless you pass `langs`. For 35 docs that took 1.8 s of a 2.6 s conversion. List the languages your docs use: `[rehypeShiki, { themes: { light: 'github-light', dark: 'github-dark' }, langs: ['go', 'tsx', 'sh'] }]`.
 - The steps of Tifa cannot be turned off. To undo one, such as the links GFM makes of bare URLs, add a plugin of your own.
 - The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, language, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
 - An error a plugin throws fails the build with the file, the place the plugin gives and the name of the plugin. A warning it adds is printed.
