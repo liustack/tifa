@@ -39,7 +39,9 @@ for n in socket service; do
 	if [ -f "$u/$unit.$n" ]; then units="$units $unit.$n"; fi
 done
 if [ -n "$units" ]; then
-	systemctl --user disable --now $units
+	# Stop both before disabling: a service whose socket is active gets a warning.
+	systemctl --user stop $units
+	systemctl --user disable --quiet $units
 	rm -f "$u/$unit.socket" "$u/$unit.service"
 	systemctl --user daemon-reload
 fi

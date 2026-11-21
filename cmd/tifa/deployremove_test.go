@@ -86,7 +86,7 @@ func TestDeployRemoveServer(t *testing.T) {
 	if !exists(filepath.Join(home, "notes", "shared", ".env")) || !exists(filepath.Join(units, "tifa-notes.service")) {
 		t.Error("notes was touched")
 	}
-	for _, want := range []string{"systemctl --user disable --now tifa-shop.socket tifa-shop.service", "systemctl --user daemon-reload"} {
+	for _, want := range []string{"systemctl --user stop tifa-shop.socket tifa-shop.service", "systemctl --user disable --quiet tifa-shop.socket tifa-shop.service", "systemctl --user daemon-reload"} {
 		if !strings.Contains(calls(), want) {
 			t.Errorf("calls lack %q:\n%s", want, calls())
 		}

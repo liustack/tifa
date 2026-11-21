@@ -111,7 +111,7 @@ case "$script" in
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && exit 255; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
-*'disable --now'*) echo "removeapp $user" >> "$d/calls" ;;
+*'disable --quiet $units'*) echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
 *'tifa-$app.socket'*) echo "app $user" >> "$d/calls" ;;
 *'line=$(cat)'*) echo "authorize $user" >> "$d/calls"; cat >> "$d/stdin" ;;
