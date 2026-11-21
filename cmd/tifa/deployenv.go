@@ -324,7 +324,12 @@ old file comes back.`,
 			if err != nil {
 				return err
 			}
-			for _, n := range envNames(old) {
+			names := envNames(old)
+			if len(names) == 0 {
+				// On stderr: a script that reads the names gets none.
+				fmt.Fprintf(cmd.ErrOrStderr(), "no names are set in the .env of %s. To add one: tifa deploy env set NAME\n", t.app)
+			}
+			for _, n := range names {
 				fmt.Fprintln(cmd.OutOrStdout(), n)
 			}
 			return nil
