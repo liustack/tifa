@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `tifa new` pins `github.com/liustack/sqlite` v0.1.8. It runs on windows/arm64, and on a target it does not support the build stops with the list of supported ones, instead of failing when the program opens a database. `PRAGMA optimize` no longer fails with `SQLITE_BUSY` while another connection writes, and `_pragma=optimize` in the DSN is refused: run it with `Exec`. Readers that fill every core no longer wait on each other in the WAL index. An existing app can upgrade with `go get github.com/liustack/sqlite@v0.1.8`.
+
 ## [0.1.12] - 2026-11-21
 
 ### Added
