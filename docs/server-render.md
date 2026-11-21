@@ -1,5 +1,5 @@
 ---
-summary: 'What the server render has and lacks: the browser and Node APIs in the QuickJS VM, packages that import Node modules, libraries that render differently there, components to load only in the browser, and how to use Intl and Temporal so hydration matches'
+summary: 'What the server render has and lacks: the browser and Node APIs in the slowjs VM, packages that import Node modules, libraries that render differently there, components to load only in the browser, and how to use Intl and Temporal so hydration matches'
 audience: app
 read_when:
   - A page fails to render on the server or does not hydrate, and you want to know which browser APIs and library features the server has
@@ -14,7 +14,7 @@ read_when:
 
 ## What the server render has
 
-Pages render on the server in a QuickJS VM, not in Node or a browser. The VM has the JavaScript language itself, `Proxy`, `WeakRef`, `FinalizationRegistry` and `new Function` included, and these:
+Pages render on the server in a slowjs VM, not in Node or a browser. The VM has the JavaScript language itself, `Proxy`, `WeakRef`, `FinalizationRegistry` and `new Function` included, and these:
 
 - `URL` and `URLSearchParams`, the whole standard, parsed in Go by the engine. Hosts go through UTS 46 with its Bidi and joiner checks, as in a browser. A URL has no properties of its own, an invalid one throws `TypeError: Failed to construct 'URL': Invalid URL`, and `URL.createObjectURL` and `URL.revokeObjectURL` are missing, as there is no `Blob`.
 - `TextEncoder`, `TextDecoder`, `AbortController`, `Headers`, `Response` and `queueMicrotask`. `TextDecoder` knows UTF-8 only: another encoding, such as `new TextDecoder('latin1')`, throws a `RangeError`.
@@ -159,7 +159,7 @@ A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses
 
 ## Temporal in server rendering
 
-Pages can use `Temporal.Now`, `Instant`, `ZonedDateTime`, `PlainDate`, `PlainTime`, `PlainDateTime`, `PlainYearMonth`, `PlainMonthDay`, `Duration` and `Date.prototype.toTemporalInstant`, including at module load. QuickJS provides the methods V8 ships, IANA time zones and the calendars supported by Intl. Temporal uses the same embedded tz 2026e data as Intl, without reading the machine's zoneinfo.
+Pages can use `Temporal.Now`, `Instant`, `ZonedDateTime`, `PlainDate`, `PlainTime`, `PlainDateTime`, `PlainYearMonth`, `PlainMonthDay`, `Duration` and `Date.prototype.toTemporalInstant`, including at module load. slowjs provides the methods V8 ships, IANA time zones and the calendars supported by Intl. Temporal uses the same embedded tz 2026e data as Intl, without reading the machine's zoneinfo.
 
 `Date.now()`, `new Date()`, `Date()`, `Temporal.Now` and Intl date formatting without a date share the VM clock. By default it stays live during a render. Go can supply a clock for one render with `tifa.WithRenderClock`, see [Render clock](testing-apps.md#render-clock). `Temporal.Now.instant().epochMilliseconds` and `Date.now()` sample that clock separately, so they can differ if time passes between calls. `Temporal.Now.timeZoneId()` is `UTC`, the default zone of Intl, and the other Now methods use UTC when no zone is passed. The process's Go time zone stays unchanged.
 

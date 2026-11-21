@@ -30,7 +30,7 @@ A second `tifa dev` in the same app does not start. It prints `tifa: tifa dev is
 `tifa dev` runs the app's own Vite on Node, with the app's `vite.config.ts` (see [build.md](build.md#the-apps-tsconfig-and-vite-config)):
 
 - Vite's dev server serves the browser modules. It starts with the first build of an app with pages and listens on a free port of 127.0.0.1 that only `tifa dev` talks to. Pages load the Vite client, the React Fast Refresh runtime of `@vitejs/plugin-react` and `.tifa/client.ts` from it.
-- The SSR bundle is still a file, `.tifa/dist/ssr.js`, which the app loads into its QuickJS VMs. It is built on the same Node process as the dev server, on a worker thread of its own: the browser gets the development build of React and QuickJS runs the production one, and Vite picks that build once per thread. Tifa sets `NODE_ENV` itself (development for the dev server, production for the SSR bundle), so a `NODE_ENV` in the shell changes neither. The SSR bundle moves to a new worker thread after every 10 builds, failed ones included, because Node never frees everything a Vite build leaves behind in a thread, and after a build in which the thread ended, such as by an error a plugin did not catch. A plugin that keeps something on `globalThis` of that thread starts over then.
+- The SSR bundle is still a file, `.tifa/dist/ssr.js`, which the app loads into its slowjs VMs. It is built on the same Node process as the dev server, on a worker thread of its own: the browser gets the development build of React and slowjs runs the production one, and Vite picks that build once per thread. Tifa sets `NODE_ENV` itself (development for the dev server, production for the SSR bundle), so a `NODE_ENV` in the shell changes neither. The SSR bundle moves to a new worker thread after every 10 builds, failed ones included, because Node never frees everything a Vite build leaves behind in a thread, and after a build in which the thread ended, such as by an error a plugin did not catch. A plugin that keeps something on `globalThis` of that thread starts over then.
 
 ## What each change triggers
 
@@ -83,10 +83,10 @@ tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
 
-A step that runs longer than 5 seconds says so, and again every 15 seconds. The first go build of an app compiles QuickJS, SQLite and the other dependencies, which takes about 7 seconds on an Apple M4 with an empty build cache and longer on a slower machine, and later builds use Go's build cache. The first ready line also names the address to open:
+A step that runs longer than 5 seconds says so, and again every 15 seconds. The first go build of an app compiles slowjs, SQLite and the other dependencies, which takes about 7 seconds on an Apple M4 with an empty build cache and longer on a slower machine, and later builds use Go's build cache. The first ready line also names the address to open:
 
 ```text
-tifa dev: 07:35:41 go build still running (5s). The first build compiles QuickJS and the other dependencies, later builds use Go's build cache
+tifa dev: 07:35:41 go build still running (5s). The first build compiles slowjs and the other dependencies, later builds use Go's build cache
 tifa dev: 07:35:56 go build still running (20s)
 tifa dev: 07:36:30 go build done in 54.1s
 tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
@@ -109,7 +109,7 @@ When a render calls Intl or a `toLocale*` method without a locale, or for a date
 - If the installed React or React DOM is older than 19.3.0 (see [build.md](build.md#the-apps-tsconfig-and-vite-config)), the bundle step fails with that error. Restart `tifa dev` after installing a newer one.
 - If the very first build fails, there is no old version to serve. Every request gets 502 with the original error, and things recover on their own once fixed.
 - If the app exits right after starting, or does not listen within 30 seconds, the overlay title is `The app did not start`. The body shows the exit status and the last 40 lines the app wrote to stderr, where an `OnStart` error and a panic go. The line of a panic stays even when its stack trace is longer, as long as the output ends with that panic's report. A `panic: ` line the app logged and went on from does not. If the running app exits, as after a panic outside a request, the title is `The app stopped` and the body is the same. Until the next build, page requests get 502 with the same text. The log of `tifa dev` only says the app exited, since the app's output is printed above it already.
-- If the running app cannot load a rebuilt SSR bundle, such as one QuickJS cannot compile, or one whose top-level code throws, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had. The stack trace gives places in the source files, and a package that calls `require`, which QuickJS does not have, is named with what to do.
+- If the running app cannot load a rebuilt SSR bundle, such as one slowjs cannot compile, or one whose top-level code throws, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had. The stack trace gives places in the source files, and a package that calls `require`, which slowjs does not have, is named with what to do.
 
 You can close the overlay. Closing it does not affect later reloads.
 

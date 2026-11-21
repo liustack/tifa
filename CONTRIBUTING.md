@@ -11,7 +11,7 @@ Everything below is for people working on a fork.
 
 ## Scope
 
-Tifa runs a whole app as one Go program on a small VPS or container: Go handles routing, data, caching and background jobs, and React pages are rendered to complete HTML inside the process by a pure Go QuickJS. These stay out:
+Tifa runs a whole app as one Go program on a small VPS or container: Go handles routing, data, caching and background jobs, and React pages are rendered to complete HTML inside the process by slowjs, a pure Go JavaScript engine. These stay out:
 
 - cgo, V8, or a Node process next to the app. The program builds with `CGO_ENABLED=0` and needs no Node to run. `tifa build` and `tifa dev` use the app's own Vite on Node to bundle the front end.
 - streaming SSR and React Server Components. Go loads all data before the render, and the render does no I/O of the app.
