@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-21
+
 ### Changed
 
 - A public repository no longer shows where the server is. `deploy.host` is gone from `tifa.yaml`, which is committed: `tifa deploy` takes the server from `--host`, else the environment variable `DEPLOY_HOST`, else `DEPLOY_HOST` in the `.env` at the root of the app, which git ignores. The value is an ssh alias (a Host of `~/.ssh/config`) or `ssh://host[:port]`, with no user. In GitHub Actions the workflow no longer writes the port or the zone ID: `DEPLOY_HOST` holds the whole target (`ssh://<address>:<port>` for `ssh: direct`), and the zone ID is the new secret `CF_ZONE_ID`. `tifa deploy` and `rollback` ask the log of Actions to hide the host name. With `ssh: cloudflare`, the ssh host name has 12 random characters (`deploy-a-ssh-k3j9x2m5q7wt.example.com`), and setup replaces the old name, which the domain alone gave, in its plan. The workflow installs cloudflared 2026.11.1 and checks its SHA-256, in place of the latest version. Upgrading: move the value of `deploy.host` from `tifa.yaml` to a line `DEPLOY_HOST=<the same value>` in the `.env` of the app (a `deploy.host` left in `tifa.yaml` is a warning at its line, and every `tifa deploy` command stops on it). With `deploy.ci: github`, run `go tool tifa deploy setup` again: it sets the new `DEPLOY_HOST` and `CF_ZONE_ID` and writes the new workflow, which you commit and push, and with `ssh: cloudflare` it also makes the new ssh host name and removes the old one. Another repository that deploys the same domain through `ssh: cloudflare` runs setup again too.
