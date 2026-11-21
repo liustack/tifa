@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -478,6 +479,9 @@ func TestWatcherPollsOnlyLinks(t *testing.T) {
 
 // A link that leads to another directory is followed with everything under it.
 func TestWatcherFollowsARetargetedLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the test points a link elsewhere by renaming a new link over it, which Windows refuses for a link to a directory")
+	}
 	dir, first, second := newApp(t), t.TempDir(), t.TempDir()
 	writeFile(t, first, "kit/a/b/old.tsx", "export {}")
 	writeFile(t, second, "kit/a/b/new.tsx", "export {}")
