@@ -2,9 +2,10 @@ package bundle
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/liustack/tifa/internal/realpath"
 )
 
 // MinReact is the oldest React and React DOM tifa builds with. The Vite plugin rewrites the
@@ -16,7 +17,7 @@ const MinReact = "19.3.0"
 // MinReact, a prerelease of it included. It looks the packages up the way Node and Vite do, from
 // the real directory of the app.
 func CheckReact(root string) error {
-	root, err := filepath.EvalSymlinks(root)
+	root, err := realpath.Resolve(root)
 	if err != nil {
 		return err
 	}

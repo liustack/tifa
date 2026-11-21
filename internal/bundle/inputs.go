@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/liustack/tifa/internal/langs"
+	"github.com/liustack/tifa/internal/realpath"
 	"github.com/liustack/tifa/internal/symwalk"
 	"io"
 	"io/fs"
@@ -85,7 +86,7 @@ func writeInputs(root, dist, public string, modules []string, incomplete string)
 // which a plugin may watch, and files gone since.
 func moduleFiles(root string, modules []string) ([]string, error) {
 	// Vite names modules by their real paths, such as /private/tmp/app for /tmp/app on macOS.
-	real, err := filepath.EvalSymlinks(root)
+	real, err := realpath.Resolve(root)
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/liustack/tifa/internal/realpath"
 )
 
 // The versions of TanStack Router tifa is tested with. This is the one place that names them:
@@ -32,7 +34,7 @@ const (
 // TestedRouterCore. It looks the packages up the way Node and Vite do, from the real directory of
 // the app.
 func CheckTanStack(root string) error {
-	root, err := filepath.EvalSymlinks(root)
+	root, err := realpath.Resolve(root)
 	if err != nil {
 		return err
 	}
@@ -67,7 +69,7 @@ func findPackage(dir, name string) (string, string, error) {
 			if err := json.Unmarshal(data, &meta, packageJSON); err != nil {
 				return "", "", fmt.Errorf("%s: %w", filepath.Join(pkg, "package.json"), err)
 			}
-			real, err := filepath.EvalSymlinks(pkg)
+			real, err := realpath.Resolve(pkg)
 			return real, meta.Version, err
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -91,7 +93,7 @@ func (e notInstalledError) Error() string {
 // ViteInstalled reports whether Vite resolves from the app at root, in its node_modules or in one
 // above it. It is false for an app whose packages were never installed.
 func ViteInstalled(root string) (bool, error) {
-	root, err := filepath.EvalSymlinks(root)
+	root, err := realpath.Resolve(root)
 	if err != nil {
 		return false, err
 	}

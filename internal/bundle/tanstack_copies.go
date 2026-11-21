@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/liustack/tifa/internal/realpath"
 )
 
 // A Copy is a piece of TanStack source that tifa keeps its own version of. SHA256 is the hash of
@@ -132,7 +134,7 @@ func (c Copy) Hash(source string) (string, error) {
 // CheckTanStack finds them (react-router from the app, the others from react-router), and
 // returns one message for each piece whose hash differs.
 func CheckCopies(root string) ([]string, error) {
-	root, err := filepath.EvalSymlinks(root)
+	root, err := realpath.Resolve(root)
 	if err != nil {
 		return nil, err
 	}
