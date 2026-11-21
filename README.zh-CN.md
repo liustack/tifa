@@ -43,7 +43,7 @@
 | React SSR | TanStack Start | TanStack Router，由 Go 进程内的 [slowjs](https://github.com/liustack/slowjs) 渲染，它是渲染 React 最快的纯 Go JavaScript 引擎 |
 | 缓存 | Redis | 进程内的渲染记忆，想要的话前面放 CDN，以及你放在 Go 内存里的数据 |
 | 队列与定时任务 | BullMQ + cron | 在 `OnStart` 里启动的 goroutine |
-| 数据库 | SQLite | SQLite，用[纯 Go 驱动](https://github.com/liustack/sqlite)，CGO 保持关闭 |
+| 数据库 | SQLite | SQLite，用[全网最快的纯 Go SQLite 驱动](https://github.com/liustack/sqlite)，CGO 保持关闭 |
 
 ## 写起来是什么样
 
