@@ -60,6 +60,17 @@ leftovers() {
 	fi
 }
 
+# running fails unless the app and the driver of Vite show among the processes of the app, so that
+# nothing_left looks where they are.
+running() {
+	local procs
+	procs=$(leftovers)
+	echo "$procs" | grep -q "tifa-dev" || fail "the app is not among the processes of $name:
+$procs"
+	echo "$procs" | grep -q "driver.mjs" || fail "the driver of Vite is not among the processes of $name:
+$procs"
+}
+
 # nothing_left fails when a process of the app still runs or something answers at the address.
 # On Unix a killed tifa dev leaves the app to stop by its lifeline and Vite by its stdin, which
 # takes up to a few seconds, so it waits for them.
@@ -121,6 +132,7 @@ page "<h1>Todos A</h1>" 60
 phase "edit Go"
 perl -pi -e 's#return todos.ListTodos\(c.Context\(\)\)#list, err := todos.ListTodos(c.Context())\n\treturn append(list, todos.Todo{ID: 999, Title: "Added in Go"}), err#' app/route.go
 page "Added in Go" 120
+running
 phase "tifa dev stop"
 go tool tifa dev stop --dir "$root"
 wait "$fg" || fail "tifa dev exited with status $? after tifa dev stop"
@@ -131,6 +143,7 @@ phase "foreground, killed"
 go tool tifa dev --dir "$root" --addr "127.0.0.1:$port" >"$work/killed.log" 2>&1 &
 fg=$!
 page "Added in Go" 300
+running
 pid=$(devpid)
 [ -n "$pid" ] || fail "tifa dev status names no process"
 phase "kill tifa dev (pid $pid)"
@@ -154,6 +167,7 @@ page "Added in Go" 60
 phase "edit the page"
 perl -pi -e 's#<h1>Todos A</h1>#<h1>Todos C</h1>#' app/page.tsx
 page "<h1>Todos C</h1>" 60
+running
 go tool tifa dev logs --dir "$root" -n 200 | grep -q "ready in" || fail "tifa dev logs has no ready line"
 phase "tifa dev stop"
 go tool tifa dev stop --dir "$root"
