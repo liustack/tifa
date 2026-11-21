@@ -204,7 +204,7 @@ func writeSite(c *tifa.Ctx, contentType, body string) error {
 // markdownVersion answers the Markdown version of the page at rest in language: its title as a
 // heading and the Markdown of its content entry.
 func (s *server) markdownVersion(c *tifa.Ctx, language, rest string) error {
-	_, pages, err := s.sitePages(c)
+	sm, pages, err := s.sitePages(c)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func (s *server) markdownVersion(c *tifa.Ctx, language, rest string) error {
 		if p.body == nil || p.language != language || p.path != rest || markdownURL(p.url) != c.Request().URL.EscapedPath() {
 			continue
 		}
-		text, err := pageMarkdown(p)
+		text, err := pageMarkdown(p, s.siteName(sm))
 		if err != nil {
 			return err
 		}
@@ -230,10 +230,14 @@ func markdownURL(u string) string {
 	return u + ".md"
 }
 
-// pageTitle is the title of p, or its path without one.
-func pageTitle(p sitePage) string {
-	if p.title != "" {
+// pageTitle is the title of p. Without one the home page is named after the site, and any other
+// page by its path: what the page says in its head is known only once it renders.
+func pageTitle(p sitePage, siteName string) string {
+	switch {
+	case p.title != "":
 		return oneLine(p.title)
+	case p.path == "/":
+		return siteName
 	}
 	return p.url
 }
@@ -241,12 +245,12 @@ func pageTitle(p sitePage) string {
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // pageMarkdown is the Markdown version of p: its title as a heading, then the Markdown of its entry.
-func pageMarkdown(p sitePage) (string, error) {
+func pageMarkdown(p sitePage, siteName string) (string, error) {
 	md, err := p.body.Markdown()
 	if err != nil {
 		return "", err
 	}
-	return "# " + pageTitle(p) + "\n\n" + md, nil
+	return "# " + pageTitle(p, siteName) + "\n\n" + md, nil
 }
 
 // The kinds of mistakes in what the function of SetSitemap returns. A mistake leaves out the page
@@ -508,6 +512,7 @@ func xmlText(s string) string {
 func (s *server) llmsText(sm tifa.Sitemap, pages []sitePage) string {
 	var b strings.Builder
 	s.llmsHead(&b, sm)
+	name := s.siteName(sm)
 	for _, section := range s.llmsSections(pages) {
 		b.WriteString("\n## " + section.name + "\n\n")
 		for _, p := range section.pages {
@@ -515,7 +520,7 @@ func (s *server) llmsText(sm tifa.Sitemap, pages []sitePage) string {
 			if p.body != nil {
 				link = s.site + markdownURL(p.url)
 			}
-			b.WriteString("- [" + markdownText(pageTitle(p)) + "](" + link + ")")
+			b.WriteString("- [" + markdownText(pageTitle(p, name)) + "](" + link + ")")
 			if d := oneLine(p.description); d != "" {
 				b.WriteString(": " + d)
 			}
@@ -525,14 +530,18 @@ func (s *server) llmsText(sm tifa.Sitemap, pages []sitePage) string {
 	return b.String()
 }
 
+// siteName is the name the app gives its site, or the host of site.url.
+func (s *server) siteName(sm tifa.Sitemap) string {
+	if name := oneLine(sm.Name); name != "" {
+		return name
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(s.site, "https://"), "http://")
+}
+
 // llmsHead writes the heading of llms.txt: the name of the site, or the host of site.url, and the
 // summary.
 func (s *server) llmsHead(b *strings.Builder, sm tifa.Sitemap) {
-	name := oneLine(sm.Name)
-	if name == "" {
-		name = strings.TrimPrefix(strings.TrimPrefix(s.site, "https://"), "http://")
-	}
-	b.WriteString("# " + name + "\n")
+	b.WriteString("# " + s.siteName(sm) + "\n")
 	if summary := oneLine(sm.Summary); summary != "" {
 		b.WriteString("\n> " + summary + "\n")
 	}
@@ -577,6 +586,7 @@ func markdownText(s string) string {
 func (s *server) llmsFull(sm tifa.Sitemap, pages []sitePage) (string, error) {
 	var b strings.Builder
 	s.llmsHead(&b, sm)
+	name := s.siteName(sm)
 	for _, p := range pages {
 		if p.body == nil {
 			continue
@@ -585,7 +595,7 @@ func (s *server) llmsFull(sm tifa.Sitemap, pages []sitePage) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		b.WriteString("\n# " + pageTitle(p) + "\n\nSource: " + s.site + p.url + "\n\n" + md)
+		b.WriteString("\n# " + pageTitle(p, name) + "\n\nSource: " + s.site + p.url + "\n\n" + md)
 	}
 	return b.String(), nil
 }

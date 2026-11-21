@@ -17,6 +17,9 @@
 # Tifa itself). `tifa docs` lists the app docs by default and the dev docs with --all.
 #
 # read_when also accepts the inline form: read_when: [a, b]
+#
+# This script reads the lines with awk and does not parse YAML. A read_when item that starts with a
+# backtick is not valid YAML, so quote it. TestDocFrontMatterIsValidYAML in cmd/tifa parses every doc.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

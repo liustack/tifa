@@ -4,7 +4,7 @@ audience: app
 read_when:
   - Running a Tifa app locally for the first time
   - Changing internal/devserver, the dev command in cmd/tifa, or the dev build in internal/bundle
-  - `tifa dev` did not update the page after a file change, or reports an error you do not understand
+  - '`tifa dev` did not update the page after a file change, or reports an error you do not understand'
   - Checking from a script or a coding agent whether a change broke the build, a request or a page in the browser, or changing `tifa errors`
   - Starting, watching or stopping `tifa dev` from a script or a coding agent, or changing `tifa dev --background`, `status`, `logs` or `stop`
 ---
