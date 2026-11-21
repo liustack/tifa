@@ -42,9 +42,11 @@ func TestAppBuildPrintsNoPluginTimingsAndASaneChunkLimit(t *testing.T) {
 func TestAppBuildKeepsTheChunkLimitAndChecksOfTheApp(t *testing.T) {
 	root := devApp(t)
 	writeTree(t, root, map[string]string{
+		// Whether Rolldown prints its timings depends on how long the build took next to the plugins,
+		// so the test reads the config Vite resolved for each environment instead.
 		"vite.config.ts": "import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
-			"const slow = { name: 'slow', async generateBundle() { await new Promise((r) => setTimeout(r, 3000)) } }\n" +
-			"export default { build: { chunkSizeWarningLimit: 100, rolldownOptions: { checks: { pluginTimings: true } } }, plugins: [tifa(), react(), slow] }\n",
+			"const probe = { name: 'probe', configResolved(c) { for (const e of ['client', 'ssr']) { const b = c.environments[e].build; console.warn(`probe ` + e + ` limit=` + b.chunkSizeWarningLimit + ` timings=` + b.rolldownOptions.checks?.pluginTimings) } } }\n" +
+			"export default { build: { chunkSizeWarningLimit: 100, rolldownOptions: { checks: { pluginTimings: true } } }, plugins: [tifa(), react(), probe] }\n",
 		"app/page/big.ts": "export default '" + strings.Repeat("x", 200_000) + "'\n",
 		".tifa/client.ts": "import View from '../app/page/view'\nimport big from '../app/page/big'\nconsole.log(View, big)\n",
 	})
@@ -54,7 +56,7 @@ func TestAppBuildKeepsTheChunkLimitAndChecksOfTheApp(t *testing.T) {
 	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
-	if !strings.Contains(output.String(), "PLUGIN_TIMINGS") || !strings.Contains(output.String(), "Some chunks are larger than") {
+	if !strings.Contains(output.String(), "probe client limit=100 timings=true") || !strings.Contains(output.String(), "probe ssr limit=100 timings=true") || !strings.Contains(output.String(), "Some chunks are larger than") {
 		t.Errorf("the app's own settings do not apply:\n%s", output.String())
 	}
 }
