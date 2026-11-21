@@ -58,7 +58,9 @@
 #   memory_limit: 64MiB     # bytes the default in-memory session store may hold
 
 # The server of tifa deploy is not set here, because this file is committed. Put
-# DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app (git ignores it), or pass --host.
+# TIFA_DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app (git ignores it), or pass --host.
+# The other inputs of tifa deploy (TIFA_DEPLOY_CF_PURGE_TOKEN, TIFA_DEPLOY_CF_ZONE_ID, TIFA_DEPLOY_GITHUB_TOKEN)
+# are read the same way: the environment, else .env.
 # deploy:
 #   front: none             # what visitors come through before the server: none | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
 #   ssh: direct             # how the GitHub Actions runner reaches the server over ssh: direct, cloudflare or tailscale

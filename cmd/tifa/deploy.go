@@ -248,7 +248,8 @@ When all is right it prints one line and asks nothing. It can run again at any t
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf)
   ci        with deploy.ci github: a key for the repository, secrets, and the workflow (needs
-            gh, and with deploy.ssh cloudflare also cf)
+            gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
+            deploy.ssh cloudflare also cf)
 
 It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
 		Args: cobra.NoArgs,

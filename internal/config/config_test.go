@@ -866,8 +866,8 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 	if len(settings) != 0 {
 		t.Errorf("the program does not read them, but runtime settings are %v", settings)
 	}
-	if _, err := load(t, nil, []string{"DEPLOY_HOST=other"}, "", ""); err != nil {
-		t.Errorf("the program reads DEPLOY_HOST: %v", err)
+	if _, err := load(t, nil, []string{"TIFA_DEPLOY_HOST=other"}, "", ""); err != nil {
+		t.Errorf("the program reads TIFA_DEPLOY_HOST: %v", err)
 	}
 	for yaml, want := range map[string]string{
 		"deploy:\n  front: akamai\n": "deploy.front",
@@ -883,14 +883,14 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 	}
 }
 
-// deploy.host is retired for the project file only. DEPLOY_HOST in the environment or in .env is
+// deploy.host is retired for the project file only. TIFA_DEPLOY_HOST in the environment or in .env is
 // where tifa deploy now reads the server from, so the program must not call it a retired setting.
 func TestDeployHostRetiredInProjectFileOnly(t *testing.T) {
 	ws := ProjectWarnings([]byte("site:\n  url: https://a.com\ndeploy:\n  host: vps\n"))
 	if len(ws) != 1 || ws[0].Key != "deploy.host" || ws[0].Line != 4 {
 		t.Fatalf("project file: %+v", ws)
 	}
-	for _, want := range []string{"DEPLOY_HOST=", ".env", "--host"} {
+	for _, want := range []string{"TIFA_DEPLOY_HOST=", ".env", "--host"} {
 		if !strings.Contains(ws[0].String(), want) {
 			t.Errorf("%q lacks %q", ws[0].String(), want)
 		}
@@ -899,8 +899,8 @@ func TestDeployHostRetiredInProjectFileOnly(t *testing.T) {
 		t.Errorf("a retired key is a warning, not an error: %v", err)
 	}
 	for name, src := range map[string]*Sources{
-		"env":  Read(nil, []string{"DEPLOY_HOST=vps"}, ""),
-		".env": Read(nil, nil, dotenvDir(t, "DEPLOY_HOST=vps\n")),
+		"env":  Read(nil, []string{"TIFA_DEPLOY_HOST=vps"}, ""),
+		".env": Read(nil, nil, dotenvDir(t, "TIFA_DEPLOY_HOST=vps\n")),
 		"flag": Read([]string{"--deploy-host", "vps"}, nil, ""),
 	} {
 		if w := src.RetiredWarnings(); len(w) != 0 {
