@@ -142,9 +142,9 @@ jobs:
         run: go run ./test/compare/cmd/compare build
 
   windows:
-    # A fast subset: everything compiles, a few packages that pass on Windows, and the front end
-    # build of a new app and of the shop, started and asked for a page. The full suite does not run
-    # on Windows yet. See "CI" in docs/testing.md.
+    # A fast subset: everything compiles, a few packages that pass on Windows, the front end build
+    # of a new app and of the shop, started and asked for a page, and tifa dev on a new app. The
+    # full suite does not run on Windows yet. See "CI" in docs/testing.md.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: windows (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -189,3 +189,12 @@ jobs:
         run: go test -count=1 -timeout 10m -run 'FileTypes|Executable|TargetSystem|Output' ./server/ ./cmd/tifa/
       - name: Build a new app and the shop, and ask the programs for a page
         run: scripts/smoke-build.sh
+      # The app of tifa dev, its stop and its job object, the lock, the stop request and the
+      # commands of --background.
+      - name: Test tifa dev
+        run: |
+          go test -count=1 -timeout 10m ./internal/devserver/
+          go test -count=1 -timeout 5m -run 'Lifeline' ./server/
+          go test -count=1 -timeout 10m -run 'Dev|Status|Stop|Logs|Lock|Errors|MoveAside|Background' ./cmd/tifa/
+      - name: Run tifa dev on a new app, edit it, stop it and kill it
+        run: scripts/smoke-dev.sh
