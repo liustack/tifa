@@ -6,14 +6,13 @@
 #
 #   scripts/smoke-build.sh
 #
-# Needs go, node and pnpm on PATH. It works in a temporary folder (RUNNER_TEMP when set) and
-# builds its own programs outside the checkout.
+# Needs go, node and pnpm on PATH. The new app lives in a temporary folder of the system, which
+# on a Windows runner has a short 8.3 name (C:\Users\RUNNER~1), and the programs are built outside
+# the checkout.
 set -euo pipefail
 
 repo=$(pwd -W 2>/dev/null || pwd)
-work=${RUNNER_TEMP:-$(mktemp -d)}
-work=$work/smoke-build
-rm -rf "$work"
+work=$(mktemp -d)
 mkdir -p "$work/bin"
 exe=$(go env GOEXE)
 port=19527
@@ -27,7 +26,7 @@ stop() {
 	wait "$pid" 2>/dev/null || true
 	pid=
 }
-trap stop EXIT
+trap 'stop; rm -rf "$work" 2>/dev/null || true' EXIT
 
 # serve starts the program, waits for the path to answer 200 and checks that it sent a page.
 serve() {
@@ -54,8 +53,7 @@ echo "== tifa"
 go build -o "$work/bin/tifa$exe" ./cmd/tifa
 export PATH="$work/bin:$PATH"
 
-echo "== new app"
-cd "$work"
+echo "== new app in $(pwd -W 2>/dev/null || pwd)"
 tifa new smokeapp
 cd smokeapp
 go mod edit -replace "github.com/liustack/tifa=$repo"

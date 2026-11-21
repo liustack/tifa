@@ -59,10 +59,12 @@ jobs:
             (cd "$dir" && pnpm install --frozen-lockfile)
           done
 
+      # test/compare runs the browse benchmark, which is Unix only (Rlimit, Getrusage, flock). Its files
+      # are bound to the method hash of a result, so they are left out here and not changed.
       - name: Vet
-        run: go vet ./...
+        run: go vet $(go list ./... | grep -v /test/compare)
       - name: Build without cgo
-        run: CGO_ENABLED=0 go build ./...
+        run: CGO_ENABLED=0 go build $(go list ./... | grep -v /test/compare)
       # test/compare plays rounds of the browse run against fake servers on the
       # clock and takes about 6 minutes, internal/bundle runs Vite on Node and
       # takes 6 to 9: too close to the 10 minutes go test gives a package by
