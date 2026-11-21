@@ -1,5 +1,3 @@
-//go:build unix
-
 package main
 
 import (
@@ -142,7 +140,7 @@ func TestErrorsWithoutTifaDev(t *testing.T) {
 		writeFile(t, filepath.Join(root, codegen.Dir, codegen.LockFile), string(data))
 		return root
 	}
-	exited := exec.Command("true")
+	exited := exec.Command(os.Args[0], "-test.run=^$")
 	if err := exited.Run(); err != nil {
 		t.Fatal(err)
 	}
