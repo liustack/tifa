@@ -241,6 +241,22 @@ func TestDeployRemoveWithoutLogins(t *testing.T) {
 	}
 }
 
+// The Tailscale secrets setup set go with the others.
+func TestDeployRemoveTailscaleSecrets(t *testing.T) {
+	root := setupApp(t, "deploy:\n  host: vps\n  ssh: tailscale\n  ci: github\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
+	gh := newFakeGH()
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
+		gh.secrets[n] = "set by setup"
+	}
+	gh.vars[varMarker] = "fingerprint"
+	gh.install(t)
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err != nil || len(gh.secrets) != 0 || len(gh.vars) != 0 {
+		t.Errorf("%v, left %v %v\n%s", err, gh.secrets, gh.vars, out)
+	}
+}
+
 // A first run without cf removed the app from the server. Once cf is logged in, a run again finds
 // the route, the record and the rules of the domain without the app and its port, and the tunnel.
 func TestDeployRemoveCloudflareLater(t *testing.T) {

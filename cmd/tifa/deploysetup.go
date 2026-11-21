@@ -1023,7 +1023,7 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 		return err
 	}
 	var names []string
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
 		if r.ghNames[n] {
 			names = append(names, n)
 		}

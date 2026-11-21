@@ -8,6 +8,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - A retired key in `tifa.yaml` is a warning at its line, such as `tifa.yaml:69: deploy.front is no longer used, ...`, and GitHub Actions marks that line.
 - `tifa deploy env list` says on stderr when `.env` holds no names, and stdout stays empty.
+- With `deploy.ci: none`, `tifa deploy setup` also removes the Tailscale secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` it set.
 
 ## [0.1.11] - 2026-11-21
 
