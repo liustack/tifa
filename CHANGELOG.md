@@ -4,6 +4,11 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- A retired key in `tifa.yaml` is a warning at its line, such as `tifa.yaml:69: deploy.front is no longer used, ...`, and GitHub Actions marks that line.
+- `tifa deploy env list` says on stderr when `.env` holds no names, and stdout stays empty.
+
 ## [0.1.11] - 2026-11-21
 
 ### Added
