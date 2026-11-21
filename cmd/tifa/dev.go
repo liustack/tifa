@@ -414,6 +414,11 @@ func (p *devPipeline) GoBuild(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if runningExeLocked {
+		if err := moveAside(p.exe); err != nil {
+			return err
+		}
+	}
 	printed, err := goBuild(ctx, p.root, p.exe, flags, io.Discard, io.Discard)
 	if err != nil {
 		return fmt.Errorf("%s\n%w", strings.TrimSpace(printed), err)
