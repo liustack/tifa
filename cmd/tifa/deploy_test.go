@@ -284,13 +284,18 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 	tool("ssh", `while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
 HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
-	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log))
+	// show answers with the file .run/show of the home, which a test writes.
+	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log)+`
+case " $* " in *" show "*) cat "$HOME/.run/show" 2>/dev/null ;; esac`)
 	tool("curl", `rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", "exit 0")
 	tool("sleep", "exit 0")
-	tool("journalctl", "echo the app said goodbye")
+	// With -f it says so and waits as the one process of the ssh, so killing the ssh ends it.
+	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`
+case " $* " in *" -f "*) echo following; exec /bin/sleep 30 ;; esac
+echo the app said goodbye`)
 	tool("uname", `case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac`)
 	if _, err := exec.LookPath("sha256sum"); err != nil {
 		tool("sha256sum", `shasum -a 256 "$@"`)
