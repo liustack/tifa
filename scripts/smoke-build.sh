@@ -13,6 +13,9 @@ set -euo pipefail
 
 repo=$(pwd -W 2>/dev/null || pwd)
 work=$(mktemp -d)
+# On Windows use the 8.3 short name of the folder (RUNNER~1 for runneradmin), which a root can have
+# when it comes from %TEMP%, and which Vite and Rolldown never use.
+if command -v cygpath >/dev/null; then work=$(cygpath -d "$work"); fi
 mkdir -p "$work/bin"
 exe=$(go env GOEXE)
 port=19527
@@ -51,10 +54,10 @@ serve() {
 
 echo "== tifa"
 go build -o "$work/bin/tifa$exe" ./cmd/tifa
-export PATH="$work/bin:$PATH"
+export PATH="$(cygpath -u "$work" 2>/dev/null || echo "$work")/bin:$PATH"
 
 cd "$work"
-echo "== new app in $(pwd -W 2>/dev/null || pwd)"
+echo "== new app in $(cygpath -w "$PWD" 2>/dev/null || pwd)"
 tifa new smokeapp
 cd smokeapp
 go mod edit -replace "github.com/liustack/tifa=$repo"
