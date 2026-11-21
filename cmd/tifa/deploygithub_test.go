@@ -108,17 +108,17 @@ func TestGitHubWorkflow(t *testing.T) {
 		t.Error("pnpm version written though package.json names pnpm")
 	}
 
-	// Cloudflare: cloudflared from the signed repository, the token through the variables
-	// cloudflared reads, and nothing about the token on a command line.
+	// Cloudflare: the pinned cloudflared, the token through the variables cloudflared reads, and
+	// nothing about the token on a command line.
 	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
 	_, steps = parseWorkflow(t, cf)
-	for _, want := range []string{cloudflareKey, cloudflareRepo, "ProxyCommand cloudflared access ssh --hostname %h",
+	for _, want := range []string{"ProxyCommand cloudflared access ssh --hostname %h",
 		"TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}", "TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}"} {
 		if !strings.Contains(cf, want) {
 			t.Errorf("cloudflare workflow lacks %q:\n%s", want, cf)
 		}
 	}
-	if strings.Contains(cf, "--service-token") || strings.Contains(cf, "  Port ") {
+	if strings.Contains(cf, "--service-token") || strings.Contains(cf, "  Port ") || strings.Contains(cf, "apt-get") {
 		t.Errorf("cloudflare workflow:\n%s", cf)
 	}
 
@@ -141,6 +141,43 @@ func anyStrings(v any) []string {
 		out = append(out, x.(string))
 	}
 	return out
+}
+
+// CI installs one fixed version of cloudflared, checked against its SHA-256, and not the latest:
+// a release of cloudflared that stops reading service tokens (issue 1673 of cloudflare/cloudflared,
+// 2026.6.0) would break every deploy through the tunnel. The version is raised by hand.
+func TestWorkflowPinsCloudflared(t *testing.T) {
+	if !regexp.MustCompile(`^\d{4}\.\d+\.\d+$`).MatchString(cloudflaredVersion) || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(cloudflaredDebSHA256) {
+		t.Fatalf("version %q, checksum %q", cloudflaredVersion, cloudflaredDebSHA256)
+	}
+	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
+	_, steps := parseWorkflow(t, text)
+	var install string
+	for _, s := range steps {
+		if s["name"] == "Install cloudflared" {
+			install, _ = s["run"].(string)
+		}
+	}
+	for _, want := range []string{
+		"https://github.com/cloudflare/cloudflared/releases/download/" + cloudflaredVersion + "/cloudflared-linux-amd64.deb",
+		cloudflaredDebSHA256 + "  ",
+		"sha256sum -c",
+		"dpkg -i",
+	} {
+		if !strings.Contains(install, want) {
+			t.Errorf("the install step lacks %q:\n%s", want, install)
+		}
+	}
+	// The check comes before the install, and nothing asks for the latest.
+	if strings.Index(install, "sha256sum -c") > strings.Index(install, "dpkg -i") || strings.Contains(install, "apt-get") || strings.Contains(install, "latest") {
+		t.Errorf("install step:\n%s", install)
+	}
+	// Other modes install nothing of it.
+	for _, mode := range []string{connDirect, connTailscale} {
+		if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: mode}), "cloudflared") {
+			t.Errorf("%s workflow mentions cloudflared", mode)
+		}
+	}
 }
 
 // The ssh host name has a random part, so the name of the domain does not tell it. It is still one

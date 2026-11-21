@@ -47,6 +47,18 @@ const (
 	secretPurge      = envPurgeToken
 )
 
+// The cloudflared that CI runs for deploy.ssh cloudflare: one fixed version of the amd64 package
+// of ubuntu-24.04, and its SHA-256. A newer cloudflared once stopped reading service tokens for
+// access ssh (issue 1673 of cloudflare/cloudflared, 2026.6.0), which would break every deploy
+// through the tunnel, so the workflow never asks for the latest. Raise the version only after a
+// deploy through the tunnel passed with it, and take the checksum of the same file from the
+// release page of that version, as digest of cloudflared-linux-amd64.deb.
+const (
+	cloudflaredVersion   = "2026.11.1"
+	cloudflaredDebSHA256 = "744ce90be92adb361103d51c85f78646314c47e4a68bbaadfe12ab5acc16c9b6"
+	cloudflaredDebURL    = "https://github.com/cloudflare/cloudflared/releases/download/" + cloudflaredVersion + "/cloudflared-linux-amd64.deb"
+)
+
 // varMarker is the repository variable setup keeps: it marks the secrets as the ones tifa set, and
 // holds a fingerprint of the connection they describe, so a second run can tell they are current.
 const varMarker = "TIFA_DEPLOY"
@@ -265,13 +277,13 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	}
 	switch s.Mode {
 	case connCloudflare:
+		// A fixed version from the release page of cloudflared, and not Cloudflare's apt
+		// repository: apt lists only the newest, so it cannot be pinned there.
 		w("      - name: Install cloudflared")
 		w("        run: |")
-		w("          sudo install -d -m 755 /usr/share/keyrings")
-		w("          curl -fsSL %s | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null", cloudflareKey)
-		w("          echo '%s' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null", cloudflareRepo)
-		w("          sudo apt-get update -q")
-		w("          sudo apt-get install -y -q cloudflared")
+		w("          curl -fsSL -o \"$RUNNER_TEMP/cloudflared.deb\" %s", cloudflaredDebURL)
+		w("          echo '%s  '\"$RUNNER_TEMP/cloudflared.deb\" | sha256sum -c -", cloudflaredDebSHA256)
+		w("          sudo dpkg -i \"$RUNNER_TEMP/cloudflared.deb\"")
 	case connTailscale:
 		w("      - name: Connect to Tailscale")
 		w("        uses: tailscale/github-action@v4")
