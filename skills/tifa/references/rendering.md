@@ -6,7 +6,7 @@ Full docs (in the folder `go tool tifa docs` prints): `docs/ssr-and-cache.md`, `
 
 ## How it works
 
-Go runs the page's `Load` and every `Layout` function, injects the data, then renders the React tree to complete HTML in a QuickJS VM inside the process. There is no streaming and no React Server Components. Rendering does no application I/O. The browser then hydrates the HTML, and TanStack Router takes over for later navigation.
+Go runs the page's `Load` and every `Layout` function, injects the data, then renders the React tree to complete HTML in a slowjs VM inside the process. There is no streaming and no React Server Components. Rendering does no application I/O. The browser then hydrates the HTML, and TanStack Router takes over for later navigation.
 
 Two consequences drive almost every rendering bug:
 
@@ -153,7 +153,7 @@ const Cache = true             // the page, the same for everyone, a CDN may kee
 const LayoutSSR = false        // the Layout of the folder, default true
 ```
 
-- `SSR = false`: `OnRequest` and every `Load` still run, QuickJS is skipped, and the browser renders a minimal document with the data. `LayoutSSR = false` applies to every page the Layout wraps. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
+- `SSR = false`: `OnRequest` and every `Load` still run, slowjs is skipped, and the browser renders a minimal document with the data. `LayoutSSR = false` applies to every page the Layout wraps. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
 - The render memo is on for every page: the HTML is kept by build, URL, session and the data of the `Load` and Layout functions, which still run on every request. Do not let `Date.now()`, `Math.random()` and the like reach the HTML. `tifa dev` renders each page twice and says when the two differ. A page that shows the time or a random number on purpose writes `Memo = false`, which only accepts `false`. Burst requests for a cold page share one render. `SSR` and `Memo` fail the build in a `route.go` with no `page.tsx`, and the names need their capitals.
 - A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from the render memo. The render memo does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
 - `Cache` (`true`, or a `time.Duration` of at least a second) tells the CDN or proxy in front that a public page is the same for everyone and may be kept for that long (`true` takes `cache.s_maxage`, 1m by default). Tifa keeps nothing of it itself: its `Load`s run on every request. Use it for articles, docs and landing pages. Such a page is anonymous: `Cookie` and `Authorization` are dropped before `OnRequest`, `tifa.Session` is nil, `SetSession` fails, and the build fails when its `Load`, a Layout around it or a function they call reads `c.Cookie`, `c.Header` or `tifa.Session`. Do not use it on pages that depend on who is signed in.  What depends on the visitor, such as a cart or a list of products they looked at, comes from a handler the browser calls after the page has loaded. Add `?_tifa=` data requests to what you check with `curl`. See "Cache for CDNs" in docs/app.md.

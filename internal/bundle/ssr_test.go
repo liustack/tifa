@@ -1186,7 +1186,7 @@ var guardedSwitch = regexp.MustCompile(`if\(\w+\.has\(([\w$]+)\)\)switch\(([\w$]
 // stringsPage serializes with seroval each UTF-16 code unit alone, twice and between two letters,
 // many of them at the end of 63 code units, surrogate pairs, lone surrogates and every character seroval
 // escapes, as values and as keys. Each serialization goes on a line of its own, with each
-// surrogate written as \u and its code, since a lone one does not come out of QuickJS as it is.
+// surrogate written as \u and its code, since a lone one does not come out of slowjs as it is.
 const stringsPage = "import './host'\n" +
 	"import { serialize } from 'seroval'\n" +
 	"const strings: string[] = []\n" +
@@ -1754,7 +1754,7 @@ func TestSSRRejectsNodeAPIsInPageCode(t *testing.T) {
 
 // A dependency that still loads a Node module in the bundle gets a warning at the place it does,
 // with its package, and one that imports a Node module gets a warning with the module and its
-// package. The build goes on: the module may never be used on the server. A require that a typeof require test guards gets none: QuickJS
+// package. The build goes on: the module may never be used on the server. A require that a typeof require test guards gets none: slowjs
 // takes the other branch.
 func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
@@ -1824,7 +1824,7 @@ var esmFS = map[string]string{
 }
 
 // A package may import a Node module it uses only on Node, and a module only an import() reaches,
-// which then runs only when that import runs. QuickJS has no Node modules, and the bundle loads and
+// which then runs only when that import runs. slowjs has no Node modules, and the bundle loads and
 // renders as long as no render uses one: an import of a Node module gives exports that throw only
 // when they are used. The build still names the Node modules that stay in the bundle.
 func TestSSRLoadsAPackageThatImportsANodeModuleItDoesNotUse(t *testing.T) {
@@ -1974,7 +1974,7 @@ func TestSSRRunsTheTopLevelAwaitOfADependency(t *testing.T) {
 
 // The SSR bundle takes the main files of packages and not their browser files. A browser file
 // often takes what the browser has, as abort-controller takes AbortController from self, and
-// QuickJS has none of it: the render would fail where the main file works. Conditional exports
+// slowjs has none of it: the render would fail where the main file works. Conditional exports
 // leave the browser condition out too, a package may export there code that renders only in the
 // browser.
 func TestSSRKeepsTheMainFilesOfPackages(t *testing.T) {
@@ -2123,7 +2123,7 @@ func TestSSRTrimsReactDOMOfOtherVersions(t *testing.T) {
 
 // A server.edge.js of a form the trimming does not know is bundled as it is, with both renderers,
 // and the build says so. The stream renderer needs the host patches to load, which the bundle
-// has, so it still runs in QuickJS.
+// has, so it still runs in slowjs.
 func TestSSRKeepsAReactDOMItCannotTrim(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	fakeReactDOM(t, root, "20.0.0", "'use strict';\n"+
@@ -2150,7 +2150,7 @@ func TestSSRKeepsAReactDOMItCannotTrim(t *testing.T) {
 	}
 }
 
-// A require whose module name is known only at run time stays in the bundle, and QuickJS has no
+// A require whose module name is known only at run time stays in the bundle, and slowjs has no
 // require: the build warns of it at its place, with its package.
 func TestSSRWarnsOfRequireLeftInDependencies(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
@@ -2183,7 +2183,7 @@ func TestSSRWarnsOfRequireOutsideTheBlockThatDeclaresIt(t *testing.T) {
 	}
 }
 
-// No warning for a require the code never reaches in QuickJS: one in dead code such as the branch
+// No warning for a require the code never reaches in slowjs: one in dead code such as the branch
 // of an if (false), one that a typeof require test guards, as UMD and isomorphic packages write
 // it, and one the module declares itself, as a bundle made by browserify does.
 func TestSSRDoesNotWarnOfRequireThatNeverRuns(t *testing.T) {

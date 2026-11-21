@@ -18,7 +18,7 @@ import (
 )
 
 // requireCase is one module of testdata/require-cases.json: a dependency that exports a function
-// of a module name. Runs tells whether calling it in QuickJS, which has no require, runs, or
+// of a module name. Runs tells whether calling it in slowjs, which has no require, runs, or
 // fails because require is missing. A case may fail for another reason and still run in this
 // sense. Post, when set, is code run on the result value.
 type requireCase struct {
@@ -28,7 +28,7 @@ type requireCase struct {
 	Runs bool
 }
 
-// requireLimits are the cases where the build warns otherwise than QuickJS runs, and why. The
+// requireLimits are the cases where the build warns otherwise than slowjs runs, and why. The
 // warning is a hint: most of these get one although they run, the rest none although they fail.
 var requireLimits = map[string]string{
 	// A require the code catches the error of: the check does not follow try.
@@ -97,7 +97,7 @@ func writeRequireCases(t *testing.T, root string, cases []requireCase) {
 }
 
 // checkRequireCases checks, for each case, the warning of the build of root and the render of the
-// case in QuickJS. A case that fails there because require is missing gets a warning at its
+// case in slowjs. A case that fails there because require is missing gets a warning at its
 // place, and the render error says which package called require and what to do. One that runs
 // gets no warning. requireLimits get the warning they say.
 func checkRequireCases(t *testing.T, root string, cases []requireCase, output string) {
@@ -121,8 +121,8 @@ func checkRequireCases(t *testing.T, root string, cases []requireCase, output st
 		_, err := pool.Render(context.Background(), ssr.Input{URL: c.Name})
 		failed := err != nil && strings.Contains(err.Error(), "'require' is not defined")
 		if failed == c.Runs {
-			t.Errorf("%s renders with %v in QuickJS, want runs = %v", c.Name, err, c.Runs)
-		} else if failed && !regexp.MustCompile(`The package cases calls require at `+regexp.QuoteMeta(file)+`:\d+:\d+\. SSR runs in QuickJS`).MatchString(err.Error()) {
+			t.Errorf("%s renders with %v in slowjs, want runs = %v", c.Name, err, c.Runs)
+		} else if failed && !regexp.MustCompile(`The package cases calls require at `+regexp.QuoteMeta(file)+`:\d+:\d+\. SSR runs in slowjs`).MatchString(err.Error()) {
 			t.Errorf("%s: the render error does not name the place of the require:\n%v", c.Name, err)
 		}
 		_, limit := requireLimits[c.Name]
@@ -134,7 +134,7 @@ func checkRequireCases(t *testing.T, root string, cases []requireCase, output st
 	}
 }
 
-// The build warns of each case of testdata/require-cases.json that fails in QuickJS because
+// The build warns of each case of testdata/require-cases.json that fails in slowjs because
 // require is missing, and of none that runs, except requireLimits, and the render of a case that
 // fails says why. Minified as tifa build makes it. The warning does not fail the build.
 func TestSSRRequireCases(t *testing.T) {
@@ -218,7 +218,7 @@ func TestSSRReportsAnUnmappedRequireInTheBundle(t *testing.T) {
 
 // The check takes typeof require to be "undefined" only where require is not declared. Here the
 // test reads a local require, so the code goes on to the require of the host, which fails in
-// QuickJS. Taking the local typeof to be "undefined" too would drop that require.
+// slowjs. Taking the local typeof to be "undefined" too would drop that require.
 func TestSSRKeepsTheTypeofOfALocalRequire(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{

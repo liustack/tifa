@@ -100,7 +100,7 @@ func evalModule(vm *slowjs.VM, code string) error {
 	return err
 }
 
-// evalResult runs a bundle in a fresh QuickJS VM, drains microtasks and returns
+// evalResult runs a bundle in a fresh slowjs VM, drains microtasks and returns
 // globalThis.result.
 func evalResult(t *testing.T, code string) string {
 	t.Helper()
