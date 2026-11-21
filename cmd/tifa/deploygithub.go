@@ -2,9 +2,9 @@ package main
 
 // The GitHub part of tifa deploy setup, for deploy.github: true. It writes the workflow, makes a
 // key that only this repository uses and lets it log in as the deploy user, reads the host keys of
-// the server over the ssh that is trusted already, and sets the secrets of the repository with gh.
-// The private key and the other secrets go from memory to gh on its standard input: never to a
-// file, a command line or the output. deploysetup.go plans and applies it.
+// the server over the ssh that is trusted already, and sets the secrets of the repository through
+// githubAPI (gh, or the REST API with a token). The private key and the other secrets go from
+// memory to GitHub: never to a file, a command line or the output. deploysetup.go plans and applies it.
 
 import (
 	"bytes"
@@ -36,14 +36,14 @@ const (
 
 // Names of the secrets of the repository.
 const (
-	secretSSHKey     = "DEPLOY_SSH_KEY"
-	secretKnownHosts = "DEPLOY_KNOWN_HOSTS"
-	secretHost       = "DEPLOY_HOST"
+	secretSSHKey     = "TIFA_DEPLOY_SSH_KEY"
+	secretKnownHosts = "TIFA_DEPLOY_KNOWN_HOSTS"
+	secretHost       = deployHostEnv
 	secretZoneID     = envZoneID
-	secretCFID       = "CF_ACCESS_CLIENT_ID"
-	secretCFSecret   = "CF_ACCESS_CLIENT_SECRET"
-	secretTSID       = "TS_OAUTH_CLIENT_ID"
-	secretTSSecret   = "TS_OAUTH_SECRET"
+	secretCFID       = "TIFA_DEPLOY_CF_ACCESS_ID"
+	secretCFSecret   = "TIFA_DEPLOY_CF_ACCESS_SECRET"
+	secretTSID       = "TIFA_DEPLOY_TAILSCALE_CLIENT_ID"
+	secretTSSecret   = "TIFA_DEPLOY_TAILSCALE_SECRET"
 	secretPurge      = envPurgeToken
 )
 
@@ -61,7 +61,7 @@ const (
 
 // varMarker is the repository variable setup keeps: it marks the secrets as the ones tifa set, and
 // holds a fingerprint of the connection they describe, so a second run can tell they are current.
-const varMarker = "TIFA_DEPLOY"
+const varMarker = "TIFA_DEPLOY_FINGERPRINT"
 
 // githubWorkflowPath is where the workflow goes, relative to the root of the app.
 const githubWorkflowPath = ".github/workflows/tifa-deploy.yml"
@@ -96,27 +96,6 @@ var repoName = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 type githubRepo struct {
 	Name   string // owner/name
 	Branch string // the default branch
-}
-
-// findGitHubRepo asks gh for the repository the folder belongs to. It stops with the steps to do
-// by hand when gh is missing, not logged in, or the folder is not a GitHub repository.
-func findGitHubRepo(ctx context.Context, dir string) (githubRepo, error) {
-	if !haveGH() {
-		return githubRepo{}, errors.New("gh, the GitHub CLI, is not installed (https://cli.github.com/)")
-	}
-	if _, err := readGH(ctx, dir, nil, "auth", "status"); err != nil {
-		return githubRepo{}, fmt.Errorf("gh is not logged in: run gh auth login (%w)", err)
-	}
-	out, err := readRepoView(ctx, dir)
-	if err != nil {
-		return githubRepo{}, fmt.Errorf("%s is not the folder of a GitHub repository you can use: %w", dir, err)
-	}
-	return parseRepoView(out)
-}
-
-// readRepoView asks gh for the repository of the folder.
-func readRepoView(ctx context.Context, dir string) ([]byte, error) {
-	return readGH(ctx, dir, nil, "repo", "view", "--json", "nameWithOwner,defaultBranchRef")
 }
 
 // parseRepoView reads what gh repo view printed.
@@ -294,13 +273,13 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	}
 	w("      - name: Set up ssh")
 	w("        env:")
-	w("          DEPLOY_SSH_KEY: ${{ secrets.%s }}", secretSSHKey)
-	w("          DEPLOY_KNOWN_HOSTS: ${{ secrets.%s }}", secretKnownHosts)
+	w("          %s: ${{ secrets.%s }}", secretSSHKey, secretSSHKey)
+	w("          %s: ${{ secrets.%s }}", secretKnownHosts, secretKnownHosts)
 	w("        run: |")
 	w("          install -d -m 700 ~/.ssh")
-	w("          printf '%%s\\n' \"$DEPLOY_SSH_KEY\" > ~/.ssh/deploy_key")
+	w("          printf '%%s\\n' \"$TIFA_DEPLOY_SSH_KEY\" > ~/.ssh/deploy_key")
 	w("          chmod 600 ~/.ssh/deploy_key")
-	w("          printf '%%s\\n' \"$DEPLOY_KNOWN_HOSTS\" > ~/.ssh/known_hosts")
+	w("          printf '%%s\\n' \"$TIFA_DEPLOY_KNOWN_HOSTS\" > ~/.ssh/known_hosts")
 	w("          cat > ~/.ssh/config <<'EOF'")
 	w("          Host *")
 	w("            IdentityFile ~/.ssh/deploy_key")
@@ -313,7 +292,7 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("      - name: Deploy")
 	w("        env:")
 	w("          ACTION: ${{ inputs.action }}")
-	w("          DEPLOY_HOST: ${{ secrets.%s }}", secretHost)
+	w("          %s: ${{ secrets.%s }}", deployHostEnv, secretHost)
 	if s.Purge {
 		w("          %s: ${{ secrets.%s }}", envPurgeToken, secretPurge)
 		w("          %s: ${{ secrets.%s }}", envZoneID, secretZoneID)
@@ -325,9 +304,9 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	}
 	w("        run: |")
 	w("          if [ \"$ACTION\" = rollback ]; then")
-	w("            go tool tifa deploy rollback --host \"$DEPLOY_HOST\"")
+	w("            go tool tifa deploy rollback --host \"$TIFA_DEPLOY_HOST\"")
 	w("          else")
-	w("            go tool tifa deploy --host \"$DEPLOY_HOST\"")
+	w("            go tool tifa deploy --host \"$TIFA_DEPLOY_HOST\"")
 	w("          fi")
 	return b.String()
 }

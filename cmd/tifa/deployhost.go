@@ -1,7 +1,7 @@
 package main
 
 // Where tifa deploy finds the server. tifa.yaml is committed, so the server is not written in it:
-// it comes from --host, the environment variable DEPLOY_HOST, or DEPLOY_HOST in the .env of the
+// it comes from --host, the environment variable TIFA_DEPLOY_HOST, or TIFA_DEPLOY_HOST in the .env of the
 // app, which git ignores. The value is what ssh takes as a destination, without a user: a host
 // name or a Host of ~/.ssh/config, or ssh://host[:port].
 
@@ -9,11 +9,8 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
-
-	"github.com/liustack/tifa/internal/config"
 )
 
 // deployHost is a checked value for the server of a deploy.
@@ -91,17 +88,13 @@ func deployHostURL(host string, port int) string {
 	return "ssh://" + host + ":" + strconv.Itoa(port)
 }
 
-// readDeployHost finds the server of the app at root: the flag, else DEPLOY_HOST in the
-// environment, else DEPLOY_HOST in the .env file at the root of the app. It says where it came
+// readDeployHost finds the server of the app at root: the flag, else TIFA_DEPLOY_HOST in the
+// environment, else TIFA_DEPLOY_HOST in the .env file at the root of the app. It says where it came
 // from in an error.
 func readDeployHost(root, flagValue string) (deployHost, error) {
-	value, from := flagValue, "--host"
-	if value == "" {
-		src := config.Read(nil, os.Environ(), root)
-		if err := src.Err(); err != nil {
-			return deployHost{}, err
-		}
-		value, from = src.Lookup(deployHostEnv)
+	value, from, err := readDeployInput(root, "--host", flagValue, deployHostEnv)
+	if err != nil {
+		return deployHost{}, err
 	}
 	if value == "" {
 		return deployHost{}, fmt.Errorf("no server to deploy to: say where it is in one of three ways, the first one found is used:\n"+

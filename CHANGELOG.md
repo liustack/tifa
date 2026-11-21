@@ -4,6 +4,15 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Every name `tifa deploy` reads or sets starts with `TIFA_DEPLOY_`. The inputs are `TIFA_DEPLOY_HOST`, `TIFA_DEPLOY_CF_PURGE_TOKEN` and `TIFA_DEPLOY_CF_ZONE_ID`. The secrets of the workflow are `TIFA_DEPLOY_HOST`, `TIFA_DEPLOY_SSH_KEY`, `TIFA_DEPLOY_KNOWN_HOSTS`, `TIFA_DEPLOY_CF_ZONE_ID`, `TIFA_DEPLOY_CF_PURGE_TOKEN`, `TIFA_DEPLOY_CF_ACCESS_ID`, `TIFA_DEPLOY_CF_ACCESS_SECRET`, `TIFA_DEPLOY_TAILSCALE_CLIENT_ID` and `TIFA_DEPLOY_TAILSCALE_SECRET`, and the marker variable is `TIFA_DEPLOY_FINGERPRINT`. Names that cloudflared and the Tailscale action fix stay. An old input name (`DEPLOY_HOST`, `CF_CACHE_PURGE_TOKEN`, `CF_ZONE_ID`) in `.env`, with the new name missing, stops every `tifa deploy` command with an error that names the new one. In the environment the old names are left alone, since other tools use them. Setup finds the old secrets by the old marker variable `TIFA_DEPLOY`, sets the new ones, and plans to remove the old secrets and the old variable after that. `ci: none` and `tifa deploy remove` take them away too. GitHub does not show a secret, so the purge token and the Tailscale OAuth client are pasted again. Upgrading: rename `DEPLOY_HOST` to `TIFA_DEPLOY_HOST` in `.env` (and `CF_CACHE_PURGE_TOKEN`, `CF_ZONE_ID` if used), and run `go tool tifa deploy setup` again when deploying from CI, then commit and push the workflow it writes.
+
+### Added
+
+- Every input of `tifa deploy` is read the same way: the flag if it has one, else the environment variable, else the `.env` at the root of the app. The purge token and the zone ID were read from the environment only. A machine with no `cf` login can now clear the CDN cache at deploy with `TIFA_DEPLOY_CF_PURGE_TOKEN` and `TIFA_DEPLOY_CF_ZONE_ID` in `.env`. Tifa only reads that file and never writes a token into it.
+- `tifa deploy setup` and `remove` work without gh. With gh installed and logged in they use it as before. Without it they call the GitHub API with a fine-grained token from `TIFA_DEPLOY_GITHUB_TOKEN` (environment or `.env`), limited to the repository with Secrets and Variables set to Read and write. Secrets are sealed with the public key of the repository. With neither, setup lists the GitHub part as something it cannot do and prints a link that opens GitHub's token form with the name, the owner and the permissions filled in.
+
 ## [0.1.13] - 2026-11-21
 
 ### Changed

@@ -194,14 +194,14 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-// The server comes from --host, else DEPLOY_HOST of the environment, else DEPLOY_HOST in the .env
+// The server comes from --host, else TIFA_DEPLOY_HOST of the environment, else TIFA_DEPLOY_HOST in the .env
 // at the root of the app. tifa.yaml has no host: the file is committed.
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n")
 	t.Setenv(deployHostEnv, "")
-	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nDEPLOY_HOST=ssh://203.0.113.7:2222\n")
+	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nTIFA_DEPLOY_HOST=ssh://203.0.113.7:2222\n")
 	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "ssh://203.0.113.7:2222" || d.dest.name != "203.0.113.7" || d.dest.port != 2222 || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
 		t.Errorf(".env: %+v, %v", d, err)
 	}
@@ -220,7 +220,7 @@ func TestDeployHost(t *testing.T) {
 		t.Errorf("bad env: %v", err)
 	}
 	t.Setenv(deployHostEnv, "")
-	writeFile(t, filepath.Join(root, ".env"), "DEPLOY_HOST=tifa@vps\n")
+	writeFile(t, filepath.Join(root, ".env"), "TIFA_DEPLOY_HOST=tifa@vps\n")
 	if _, err := loadDeployTarget(root, ""); err == nil || !strings.Contains(err.Error(), ".env") || !strings.Contains(err.Error(), "user") {
 		t.Errorf("bad .env: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestDeployHost(t *testing.T) {
 	if err == nil {
 		t.Fatal("no server named, and no error")
 	}
-	for _, want := range []string{"--host", "environment variable DEPLOY_HOST", ".env", "DEPLOY_HOST=ssh://"} {
+	for _, want := range []string{"--host", "environment variable TIFA_DEPLOY_HOST", ".env", "TIFA_DEPLOY_HOST=ssh://"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("no host: %q lacks %q", err, want)
 		}
@@ -248,7 +248,7 @@ func TestDeployHostRetired(t *testing.T) {
 	if err == nil {
 		t.Fatal("deploy.host was accepted")
 	}
-	for _, want := range []string{"deploy.host", "line 2", "DEPLOY_HOST=", ".env", "--host"} {
+	for _, want := range []string{"deploy.host", "line 2", "TIFA_DEPLOY_HOST=", ".env", "--host"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("%q lacks %q", err, want)
 		}
@@ -544,7 +544,7 @@ func TestDeployParseProbeFacts(t *testing.T) {
 	}
 }
 
-// In GitHub Actions the log hides the secret DEPLOY_HOST, but ssh prints the address it resolved,
+// In GitHub Actions the log hides the secret TIFA_DEPLOY_HOST, but ssh prints the address it resolved,
 // which is not that exact text. Deploy and rollback first ask the log to hide the host part of
 // the target as well, and never the port.
 func TestDeployMasksTheHostInActions(t *testing.T) {

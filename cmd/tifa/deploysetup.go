@@ -7,7 +7,7 @@ package main
 //
 // It removes only what Tifa made and marked: the authorized_keys lines with the comment
 // "tifa-github <owner>/<repo>", Cloudflare objects whose names start with "tifa", the route and
-// DNS record of a domain it added, the repository variable TIFA_DEPLOY and the secrets it set,
+// DNS record of a domain it added, the repository variable TIFA_DEPLOY_FINGERPRINT and the secrets it set,
 // and the workflow file that starts with the line of tifa.
 
 import (
@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -239,6 +238,7 @@ type setupRun struct {
 	in             io.Reader
 	tunnelID       string
 	repo           githubRepo
+	gh             githubAPI
 	ghNames        map[string]bool
 	ghVars         map[string]string
 	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
@@ -556,59 +556,22 @@ func domainRemoval(host string) string {
 	return fmt.Sprintf("domain: %s, its route, DNS record and rules, which tifa made", host)
 }
 
-// ghSecret sets a secret of the repository. The value goes to gh on its input.
+// ghSecret sets a secret of the repository.
 func (r *setupRun) ghSecret(ctx context.Context, name, value string) error {
-	_, err := runGH(ctx, r.t.root, strings.NewReader(value), "secret", "set", name, "--repo", r.repo.Name)
-	return err
+	return r.gh.SetSecret(ctx, r.repo.Name, name, value)
 }
 
 func (r *setupRun) ghLists(ctx context.Context) error {
-	names, err := ghSecretNames(ctx, r.t.root, r.repo.Name)
+	names, err := r.gh.SecretNames(ctx, r.repo.Name)
 	if err != nil {
 		return err
 	}
-	vars, err := ghVariables(ctx, r.t.root, r.repo.Name)
+	vars, err := r.gh.Variables(ctx, r.repo.Name)
 	if err != nil {
 		return err
 	}
 	r.ghNames, r.ghVars = names, vars
 	return nil
-}
-
-// ghSecretNames lists the names of the secrets of the repository.
-func ghSecretNames(ctx context.Context, dir, repo string) (map[string]bool, error) {
-	out, err := readGH(ctx, dir, nil, "secret", "list", "--repo", repo, "--json", "name")
-	if err != nil {
-		return nil, err
-	}
-	var names []struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(out, &names); err != nil {
-		return nil, fmt.Errorf("gh secret list printed what tifa cannot read: %w", err)
-	}
-	got := map[string]bool{}
-	for _, n := range names {
-		got[n.Name] = true
-	}
-	return got, nil
-}
-
-// ghVariables lists the variables of the repository with their values.
-func ghVariables(ctx context.Context, dir, repo string) (map[string]string, error) {
-	out, err := readGH(ctx, dir, nil, "variable", "list", "--repo", repo, "--json", "name,value")
-	if err != nil {
-		return nil, err
-	}
-	var vars []struct{ Name, Value string }
-	if err := json.Unmarshal(out, &vars); err != nil {
-		return nil, fmt.Errorf("gh variable list printed what tifa cannot read: %w", err)
-	}
-	got := map[string]string{}
-	for _, v := range vars {
-		got[v.Name] = v.Value
-	}
-	return got, nil
 }
 
 func hasMarker(path string) (text string, marked bool, err error) {
@@ -635,9 +598,9 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		return nil
 	}
 	r.progress("GitHub")
-	repo, repoErr := findGitHubRepo(ctx, t.root)
+	api, repo, repoErr := findGitHub(ctx, t.root)
 	if repoErr == nil {
-		r.repo = repo
+		r.gh, r.repo = api, repo
 		if err := r.ghLists(ctx); err != nil {
 			return err
 		}
@@ -660,7 +623,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			return nil
 		}
 	}
-	// connect is the text of the secret DEPLOY_HOST: with a direct login the whole target, port
+	// connect is the text of the secret TIFA_DEPLOY_HOST: with a direct login the whole target, port
 	// included, so the workflow needs no Port line and shows no address. port goes with the host
 	// name into the host keys.
 	connect, hostName, port := "", "", 22
@@ -753,8 +716,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 						return "", err
 					}
 				}
-				_, err = runGH(ctx, t.root, strings.NewReader(fingerprint()), "variable", "set", varMarker, "--repo", repoName)
-				return "", err
+				return "", r.gh.SetVariable(ctx, repoName, varMarker, fingerprint())
 			})
 		}
 	}
@@ -786,7 +748,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
 	}
 	p.steps = append(p.steps, r.afterConnection...)
-	r.removeOldPurge(p)
+	r.removeOldNames(p)
 	if t.domain == "" {
 		if err := r.removePurge(ctx, p); err != nil {
 			return err
@@ -893,7 +855,7 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	case have && !r.purgeToken:
 		p.ok("github: the secret " + secretPurge + ". To replace the token: " + purgeTokenCommand)
 		return nil
-	case !r.purgeToken && r.ghVars[varMarker] != "":
+	case !r.purgeToken && (r.ghVars[varMarker] != "" || r.ghVars[oldVarMarker] != "" && !r.hadOldPurgeToken()):
 		p.notes = append(p.notes, planNote{what: text, why: purgeTokenLater})
 		return nil
 	}
@@ -967,17 +929,53 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// oldSecretPurge is the name the purge secret had before CF_CACHE_PURGE_TOKEN.
-const oldSecretPurge = "CF_PURGE_TOKEN"
+// The names setup used before every name had the prefix TIFA_DEPLOY_. The old variable marked the
+// secrets as tifa's, so a secret under an old name goes only while that variable is there.
+const oldVarMarker = "TIFA_DEPLOY"
 
-// removeOldPurge takes away the purge secret under its old name, which tifa set.
-func (r *setupRun) removeOldPurge(p *setupPlan) {
-	if r.ghVars[varMarker] == "" || !r.ghNames[oldSecretPurge] {
+var oldSecretNames = []string{
+	"DEPLOY_SSH_KEY", "DEPLOY_KNOWN_HOSTS", "DEPLOY_HOST", "CF_ZONE_ID",
+	"CF_CACHE_PURGE_TOKEN", "CF_PURGE_TOKEN",
+	"CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET",
+}
+
+// marked says tifa set secrets in the repository, under the new names or the old ones.
+func (r *setupRun) marked() bool { return r.ghVars[varMarker] != "" || r.ghVars[oldVarMarker] != "" }
+
+// hadOldPurgeToken says the repository has a purge token under an old name, which cannot be read
+// back, so it has to be pasted again.
+func (r *setupRun) hadOldPurgeToken() bool {
+	return r.ghVars[oldVarMarker] != "" && (r.ghNames["CF_CACHE_PURGE_TOKEN"] || r.ghNames["CF_PURGE_TOKEN"])
+}
+
+// removeOldNames plans the removal of the secrets and the variable under the old names, which tifa
+// set. The steps that set the new ones come before it in the plan. The Cloudflare token behind an
+// old purge secret is the developer's: when CI is switched off, the plan says to delete it.
+func (r *setupRun) removeOldNames(p *setupPlan) {
+	if r.ghVars[oldVarMarker] == "" {
 		return
 	}
-	p.add(opRemove, "github: the secret "+oldSecretPurge+", the old name of "+secretPurge, func(ctx context.Context) (string, error) {
-		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", oldSecretPurge, "--repo", r.repo.Name)
-		return "", err
+	var names []string
+	for _, n := range oldSecretNames {
+		if r.ghNames[n] {
+			names = append(names, n)
+		}
+	}
+	text := "github: the variable " + oldVarMarker + ", which tifa set under its old name"
+	if len(names) > 0 {
+		text = "github: the old secrets " + strings.Join(names, ", ") + " and the variable " + oldVarMarker + ", which tifa set under their old names"
+	}
+	if r.hadOldPurgeToken() && !r.t.github {
+		text += fmt.Sprintf(". Tifa cannot delete the Cloudflare token behind the purge secret: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", purgeTokenName(r.repo.Name))
+	}
+	repo := r.repo.Name
+	p.add(opRemove, text, func(ctx context.Context) (string, error) {
+		for _, n := range names {
+			if err := r.gh.DeleteSecret(ctx, repo, n); err != nil {
+				return "", err
+			}
+		}
+		return "", r.gh.DeleteVariable(ctx, repo, oldVarMarker)
 	})
 }
 
@@ -988,8 +986,7 @@ func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
 		return nil
 	}
 	p.add(opRemove, fmt.Sprintf("github: the secret %s, which tifa set. Tifa cannot delete the Cloudflare token behind it: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", secretPurge, purgeTokenName(r.repo.Name)), func(ctx context.Context) (string, error) {
-		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretPurge, "--repo", r.repo.Name)
-		return "", err
+		return "", r.gh.DeleteSecret(ctx, r.repo.Name, secretPurge)
 	})
 	return nil
 }
@@ -1001,15 +998,14 @@ func (r *setupRun) removeZoneSecret(p *setupPlan) {
 		return
 	}
 	p.add(opRemove, "github: the secret "+secretZoneID+", which tifa set", func(ctx context.Context) (string, error) {
-		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretZoneID, "--repo", r.repo.Name)
-		return "", err
+		return "", r.gh.DeleteSecret(ctx, r.repo.Name, secretZoneID)
 	})
 }
 
 // removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.ssh is
 // not cloudflare any more.
 func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) error {
-	if r.t.sshMode == connCloudflare || r.ghVars[varMarker] == "" {
+	if r.t.sshMode == connCloudflare || !r.marked() {
 		return nil
 	}
 	return r.removeAccess(ctx, p)
@@ -1037,7 +1033,7 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 	if len(names) > 0 {
 		p.add(opRemove, "github: the secrets "+strings.Join(names, ", ")+", which tifa set", func(ctx context.Context) (string, error) {
 			for _, n := range names {
-				if _, err := runGH(ctx, r.t.root, nil, "secret", "delete", n, "--repo", r.repo.Name); err != nil {
+				if err := r.gh.DeleteSecret(ctx, r.repo.Name, n); err != nil {
 					return "", err
 				}
 			}
@@ -1066,15 +1062,18 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 			return "", r.t.ssh(ctx, deployUser, revokeScript(repoName), nil, io.Discard, r.stderr)
 		})
 	}
-	if r.ghVars[varMarker] == "" {
+	if !r.marked() {
 		return nil
 	}
-	r.removeOldPurge(p)
+	r.removeOldNames(p)
 	if err := r.removePurge(ctx, p); err != nil {
 		return err
 	}
 	if err := r.removeAccess(ctx, p); err != nil {
 		return err
+	}
+	if r.ghVars[varMarker] == "" {
+		return nil
 	}
 	var names []string
 	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {
@@ -1084,12 +1083,11 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 	}
 	p.add(opRemove, "github: the secrets "+strings.Join(names, ", ")+" and the variable "+varMarker+", which tifa set", func(ctx context.Context) (string, error) {
 		for _, n := range names {
-			if _, err := runGH(ctx, r.t.root, nil, "secret", "delete", n, "--repo", repoName); err != nil {
+			if err := r.gh.DeleteSecret(ctx, repoName, n); err != nil {
 				return "", err
 			}
 		}
-		_, err := runGH(ctx, r.t.root, nil, "variable", "delete", varMarker, "--repo", repoName)
-		return "", err
+		return "", r.gh.DeleteVariable(ctx, repoName, varMarker)
 	})
 	return nil
 }

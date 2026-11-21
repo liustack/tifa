@@ -46,7 +46,7 @@ type Site struct {
 }
 
 // Deploy is read by the tifa CLI only, from the project tifa.yaml, for tifa deploy. The server
-// is not here: tifa.yaml is committed, so tifa deploy takes it from --host, DEPLOY_HOST or .env.
+// is not here: tifa.yaml is committed, so tifa deploy takes it from --host, TIFA_DEPLOY_HOST or .env.
 type Deploy struct {
 	// Front is what visitors come through before the server: none or cloudflare. With cloudflare the domain is the
 	// host of site.url.
@@ -354,7 +354,7 @@ var retiredKeys = []struct {
 	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program", true, false},
 	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false, false},
 	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false, false},
-	{"deploy.host", "tifa.yaml is committed, so the server is not written in it: put DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app, which git ignores, or pass --host to tifa deploy", false, true},
+	{"deploy.host", "tifa.yaml is committed, so the server is not written in it: put TIFA_DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app, which git ignores, or pass --host to tifa deploy", false, true},
 	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false, false},
 	{"deploy.cdn", "it is now deploy.front, with the same values none and cloudflare", false, false},
 	{"deploy.github", "it is now deploy.ci: github for true, none for false", false, false},

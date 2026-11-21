@@ -24,7 +24,7 @@ import (
 
 // deployHostEnv names the server: the environment variable, or the line of the .env at the root
 // of the app, that --host overrides. CI sets it from a secret.
-const deployHostEnv = "DEPLOY_HOST"
+const deployHostEnv = "TIFA_DEPLOY_HOST"
 
 // sshProgram is the ssh the deploy commands run: the one of the system, so ~/.ssh/config,
 // ProxyCommand, agents and Tailscale names work as they do in a terminal. Tests point it at a fake.
@@ -90,7 +90,7 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 }
 
 // loadDeployTarget reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml, and
-// the server from the flag, else DEPLOY_HOST in the environment, else DEPLOY_HOST in .env.
+// the server from the flag, else TIFA_DEPLOY_HOST in the environment, else TIFA_DEPLOY_HOST in .env.
 func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
@@ -117,6 +117,9 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	}
 	domain, err := deployDomain(settings.Deploy, settings.Site.URL)
 	if err != nil {
+		return deployTarget{}, err
+	}
+	if err := checkOldInputNames(root, hostFlag); err != nil {
 		return deployTarget{}, err
 	}
 	h, err := readDeployHost(root, hostFlag)
@@ -212,7 +215,7 @@ func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
-		Long: `deploy builds the app for the system of the server (--host, or DEPLOY_HOST in the environment or
+		Long: `deploy builds the app for the system of the server (--host, or TIFA_DEPLOY_HOST in the environment or
 in the .env of the app), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
@@ -245,7 +248,8 @@ When all is right it prints one line and asks nothing. It can run again at any t
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf)
   ci        with deploy.ci github: a key for the repository, secrets, and the workflow (needs
-            gh, and with deploy.ssh cloudflare also cf)
+            gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
+            deploy.ssh cloudflare also cf)
 
 It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
 		Args: cobra.NoArgs,
@@ -280,7 +284,7 @@ restarts the app through its socket. Run it again to go further back.`,
 }
 
 // maskHost asks the log of GitHub Actions to hide the host part of the target, and not the port.
-// Actions hides the exact text of the secret DEPLOY_HOST, but ssh prints the address it resolved
+// Actions hides the exact text of the secret TIFA_DEPLOY_HOST, but ssh prints the address it resolved
 // in its errors, which is not that text.
 func maskHost(w io.Writer, t deployTarget) {
 	if os.Getenv(envGitHubActions) == "true" {
@@ -329,7 +333,7 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 		return err
 	}
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
-	sum.Cache = clearCache(ctx, t.domain)
+	sum.Cache = clearCache(ctx, t.root, t.domain)
 	printCache(stdout, sum.Cache)
 	return nil
 }
@@ -356,7 +360,7 @@ func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Write
 		return err
 	}
 	fmt.Fprintf(stdout, "rolled back to %s in %s\n", target.ID, time.Since(started).Round(100*time.Millisecond))
-	sum.Cache = clearCache(ctx, t.domain)
+	sum.Cache = clearCache(ctx, t.root, t.domain)
 	printCache(stdout, sum.Cache)
 	return nil
 }

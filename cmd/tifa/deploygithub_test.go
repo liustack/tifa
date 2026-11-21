@@ -73,8 +73,8 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 	runs := stepRuns(steps)
 	for _, want := range []string{
-		`go tool tifa deploy --host "$DEPLOY_HOST"`,
-		`go tool tifa deploy rollback --host "$DEPLOY_HOST"`,
+		`go tool tifa deploy --host "$TIFA_DEPLOY_HOST"`,
+		`go tool tifa deploy rollback --host "$TIFA_DEPLOY_HOST"`,
 		"chmod 600 ~/.ssh/deploy_key",
 		"StrictHostKeyChecking yes",
 	} {
@@ -82,7 +82,7 @@ func TestGitHubWorkflow(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, direct)
 		}
 	}
-	for _, not := range []string{"Port ", "cloudflared", "ssh-keyscan", "pnpm", "CF_ZONE_ID"} {
+	for _, not := range []string{"Port ", "cloudflared", "ssh-keyscan", "pnpm", "TIFA_DEPLOY_CF_ZONE_ID"} {
 		if strings.Contains(direct, not) {
 			t.Errorf("a direct workflow of an app without pages holds %q:\n%s", not, direct)
 		}
@@ -113,7 +113,7 @@ func TestGitHubWorkflow(t *testing.T) {
 	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
 	_, steps = parseWorkflow(t, cf)
 	for _, want := range []string{"ProxyCommand cloudflared access ssh --hostname %h",
-		"TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}", "TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}"} {
+		"TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.TIFA_DEPLOY_CF_ACCESS_ID }}", "TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.TIFA_DEPLOY_CF_ACCESS_SECRET }}"} {
 		if !strings.Contains(cf, want) {
 			t.Errorf("cloudflare workflow lacks %q:\n%s", want, cf)
 		}
@@ -128,7 +128,7 @@ func TestGitHubWorkflow(t *testing.T) {
 	if got := uses(steps); !slices.Contains(got, "tailscale/github-action@v4") {
 		t.Errorf("tailscale uses %v", got)
 	}
-	for _, want := range []string{"oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}", "oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}", "tags: tag:ci"} {
+	for _, want := range []string{"oauth-client-id: ${{ secrets.TIFA_DEPLOY_TAILSCALE_CLIENT_ID }}", "oauth-secret: ${{ secrets.TIFA_DEPLOY_TAILSCALE_SECRET }}", "tags: tag:ci"} {
 		if !strings.Contains(ts, want) {
 			t.Errorf("tailscale workflow lacks %q", want)
 		}
@@ -538,13 +538,13 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if doc["permissions"].(map[string]any)["contents"] != "read" {
 		t.Error("permissions")
 	}
-	for _, want := range []string{"CF_CACHE_PURGE_TOKEN: ${{ secrets.CF_CACHE_PURGE_TOKEN }}", "CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}"} {
+	for _, want := range []string{"TIFA_DEPLOY_CF_PURGE_TOKEN: ${{ secrets.TIFA_DEPLOY_CF_PURGE_TOKEN }}", "TIFA_DEPLOY_CF_ZONE_ID: ${{ secrets.TIFA_DEPLOY_CF_ZONE_ID }}"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
 	}
 	// The zone ID is a secret like the others: the file of a public repository does not show it.
-	if strings.Contains(text, "zone-9") || regexp.MustCompile(`CF_ZONE_ID: [^$]`).MatchString(text) {
+	if strings.Contains(text, "zone-9") || regexp.MustCompile(`TIFA_DEPLOY_CF_ZONE_ID: [^$]`).MatchString(text) {
 		t.Errorf("the zone ID is written in the workflow:\n%s", text)
 	}
 
@@ -554,7 +554,7 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if _, ok := on["push"]; !ok {
 		t.Error("no push trigger without CI")
 	}
-	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "CF_CACHE_PURGE_TOKEN") {
+	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "TIFA_DEPLOY_CF_PURGE_TOKEN") {
 		t.Errorf("fallback:\n%s", push)
 	}
 }
