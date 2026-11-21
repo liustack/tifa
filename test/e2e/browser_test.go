@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -98,7 +97,7 @@ func closeBrowser(t *testing.T, session, dir string) {
 	}
 	for _, pid := range sessionDaemons(session) {
 		t.Errorf("playwright-cli daemon %d of session %s is still running after close, ending it", pid, session)
-		syscall.Kill(pid, syscall.SIGTERM)
+		endProcess(pid)
 	}
 }
 
@@ -121,7 +120,14 @@ func TestBrowserSessionLeavesNoDaemon(t *testing.T) {
 	if pids := sessionDaemons(session); len(pids) > 0 {
 		t.Errorf("daemons left after the test: %v", pids)
 		for _, pid := range pids {
-			syscall.Kill(pid, syscall.SIGTERM)
+			endProcess(pid)
 		}
+	}
+}
+
+// endProcess kills the process pid, which is a daemon that a test left behind.
+func endProcess(pid int) {
+	if p, err := os.FindProcess(pid); err == nil {
+		p.Kill()
 	}
 }

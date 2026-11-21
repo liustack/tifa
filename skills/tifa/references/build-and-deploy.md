@@ -30,7 +30,7 @@ go tool tifa build [--dir app-root] [-o output-path]
 1. Analyzes `app/` and `hooks.go`. A broken convention prints `file:line: reason` and stops.
 2. Writes generated code into `.tifa/`.
 3. Bundles with the app's own Vite on Node into `.tifa/dist/`. An app without pages builds without Node.
-4. `CGO_ENABLED=0 go build` into `bin/<last segment of the module path>` (not counting a major version suffix such as `/v2`), with `.tifa/dist/` embedded and debug info left out (`-ldflags=-w`).
+4. `CGO_ENABLED=0 go build` into `bin/<last segment of the module path>` (not counting a major version suffix such as `/v2`, and with `.exe` added when building for Windows), with `.tifa/dist/` embedded and debug info left out (`-ldflags=-w`).
 
 The output is one executable. It needs no Node, no `node_modules` and no files next to it. Keep `build.debug_info: true` in `tifa.yaml` only if you need Delve.
 

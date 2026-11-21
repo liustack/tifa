@@ -246,7 +246,7 @@ func TestDevLeavesNothingBehind(t *testing.T) {
 			}
 			for _, port := range ports {
 				if reaches(port) {
-					t.Errorf("port %s still accepts connections after %s", port, tc.name)
+					t.Errorf("port %s still accepts connections after %s\n%s", port, tc.name, whoHolds(port))
 				}
 			}
 			if tc.graceful && len(left) == 0 {
@@ -292,4 +292,18 @@ func TestDevKeepsInheritedFilesOutOfItsChildren(t *testing.T) {
 			t.Errorf("%v holds the lock file that tifa dev inherited", p)
 		}
 	}
+}
+
+// whoHolds says which process listens on the port and what runs now, for the message of a test
+// that finds a port still open.
+func whoHolds(port string) string {
+	var out strings.Builder
+	for _, args := range [][]string{
+		{"lsof", "-nP", "-iTCP:" + port},
+		{"ps", "-axo", "pid,ppid,stat,etime,command"},
+	} {
+		b, _ := exec.Command(args[0], args[1:]...).CombinedOutput()
+		fmt.Fprintf(&out, "$ %s\n%s", strings.Join(args, " "), b)
+	}
+	return out.String()
 }

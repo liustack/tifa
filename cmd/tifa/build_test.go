@@ -34,7 +34,7 @@ func TestMissingDependencyHint(t *testing.T) {
 }
 
 func TestExecutablesGoToBin(t *testing.T) {
-	if got := defaultOutput("/app", "example.com/team/shop"); got != filepath.Join("/app", "bin", "shop") {
+	if got := defaultOutput("/app", "example.com/team/shop", "linux"); got != filepath.Join("/app", "bin", "shop") {
 		t.Errorf("tifa build writes %s", got)
 	}
 	if devOutput != "bin" {
@@ -300,7 +300,7 @@ func TestDefaultExecutableNameSkipsTheMajorVersion(t *testing.T) {
 		"gopkg.in/shop.v3":       "shop",
 		"shop":                   "shop",
 	} {
-		if got := defaultOutput("/app", module); got != filepath.Join("/app", "bin", want) {
+		if got := defaultOutput("/app", module, "linux"); got != filepath.Join("/app", "bin", want) {
 			t.Errorf("module %s: tifa build writes %s, want bin/%s", module, got, want)
 		}
 	}
@@ -315,18 +315,44 @@ func TestRelativeOutputIsAgainstTheWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := filepath.Join(cwd, "apps", "shop")
-	got, err := outputPath("out/app", root, "example.com/shop")
+	got, err := outputPath("out/app", root, "example.com/shop", "linux")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(cwd, "out", "app"); got != want {
 		t.Errorf("-o out/app with --dir apps/shop writes %s, want %s", got, want)
 	}
-	got, err = outputPath("", root, "example.com/shop")
+	got, err = outputPath("", root, "example.com/shop", "linux")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(root, "bin", "shop"); got != want {
 		t.Errorf("without -o tifa build writes %s, want %s", got, want)
+	}
+}
+
+// Windows runs a program only when its file name ends in .exe, so a build for Windows writes
+// bin/<name>.exe, and any other system gets the bare name. -o is taken as given.
+func TestDefaultExecutableHasExeOnWindowsOnly(t *testing.T) {
+	for goos, want := range map[string]string{"windows": "shop.exe", "linux": "shop", "darwin": "shop"} {
+		if got := defaultOutput("/app", "example.com/shop", goos); got != filepath.Join("/app", "bin", want) {
+			t.Errorf("GOOS=%s: tifa build writes %s, want bin/%s", goos, got, want)
+		}
+	}
+	got, err := outputPath("out/app", "/app", "example.com/shop", "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(got) != "app" {
+		t.Errorf("-o out/app on windows writes %s, want the name as given", got)
+	}
+}
+
+// The GOOS tifa build targets is the one the go command sees in the app, not the system tifa runs on.
+func TestTargetSystemIsTheOneGoSees(t *testing.T) {
+	t.Setenv("GOOS", "windows")
+	got, err := goEnvOS(t.Context(), t.TempDir())
+	if err != nil || got != "windows" {
+		t.Errorf("GOOS=windows: %q, %v", got, err)
 	}
 }

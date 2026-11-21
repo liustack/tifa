@@ -2154,7 +2154,7 @@ export function lazyRoutes(environments = ['client']) {
     resolveId: {
       filter: { id: /^\.\.\/app\// },
       async handler(source, importer, options) {
-        if (importer !== routes) return null
+        if (!samePath(importer, routes)) return null
         if (options.kind === undefined) {
           // Without the kind of an import, a static one cannot be told from import().
           if (!unknownKind) {
@@ -2169,7 +2169,7 @@ export function lazyRoutes(environments = ['client']) {
         }
         if (options.kind !== 'import-statement') return null
         const resolved = await this.resolve(source, importer, { kind: options.kind, skipSelf: true })
-        if (!resolved || resolved.external || resolved.id === rootLayout) return null
+        if (!resolved || resolved.external || samePath(resolved.id, rootLayout)) return null
         router ??= await this.resolve('@tanstack/react-router', importer, { kind: options.kind, skipSelf: true })
         if (!router) this.error(`@tanstack/react-router does not resolve from ${importer}`)
         return lazyRoute + resolved.id
@@ -2276,7 +2276,9 @@ export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
 function resolveRouteModule(ctx, root, source, importer) {
   const app = path.join(root, 'app')
   const gen = path.join(root, '.tifa')
-  let dir = path.dirname(importer.split('?')[0])
+  // A module id from Rolldown on Windows has forward slashes, and root and the paths below have
+  // backslashes: path.normalize makes them the same.
+  let dir = path.dirname(path.normalize(importer.split('?')[0]))
   // A generated module imports its neighbours the same way, from .tifa/app.
   if (dir === gen || dir.startsWith(gen + path.sep)) dir = path.join(root, path.relative(gen, dir))
   const target = path.join(dir, source).replace(/\.(?:js|ts)$/, '')
@@ -2349,7 +2351,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
     resolveId: {
       order: 'pre',
       async handler(source, importer, extra) {
-        const fromDependency = importer?.includes(`${path.sep}node_modules${path.sep}`)
+        const fromDependency = /[/\\]node_modules[/\\]/.test(importer ?? '')
         // On Node, the helpers of rolldown import createRequire, which polyfillRequire: false
         // leaves unused. Without side effects, the import goes with it.
         if (source === 'node:module' && importer === rolldownRuntime) {
@@ -2379,7 +2381,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         if (
           coreJS &&
           source === '../internals/weak-map-basic-detection' &&
-          importer === path.join(coreJS, 'internals', 'internal-state.js')
+          samePath(importer, path.join(coreJS, 'internals', 'internal-state.js'))
         ) {
           coreJSAdapted = true
           return propertyState
@@ -2463,7 +2465,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       // Select core-js's existing property-backed internal state. Do not replace the global
       // WeakMap or patch generated output.
       if (id === propertyState) return 'module.exports = false'
-      if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
+      if (coreJS && samePath(id, path.join(coreJS, 'internals', 'internal-state.js'))) coreJSState = true
       const lucideFile = lucideModule.exec(id)
       if (lucideFile) {
         const dir = path.dirname(id)
@@ -6541,6 +6543,12 @@ function packageVersion(dir) {
   } catch {
     return '(unknown version)'
   }
+}
+
+// samePath tells whether the module id of Rolldown names the file at path, which path.join made.
+// On Windows an id has forward slashes and such a path has backslashes.
+function samePath(id, file) {
+  return typeof id === 'string' && path.normalize(id) === file
 }
 
 // findPackage returns the real directory of the package name that root resolves, the way Node

@@ -1,7 +1,12 @@
 // The driver: tifa runs it as a file, .tifa/driver-*/driver.mjs, in the application root to use the
 // application's own Vite. It reads one JSON request per line from stdin and writes one JSON
-// answer per line to file descriptor 3, so that what Vite and its plugins print on stdout and
-// stderr stays apart from the answers. Every answer is {id, error} or {id, ...result}.
+// answer per line to a connection on the loopback interface, so that what Vite and its plugins
+// print on stdout and stderr stays apart from the answers. tifa listens on 127.0.0.1 and passes
+// the address in TIFA_DRIVER_ADDR and a secret in TIFA_DRIVER_TOKEN: the first thing the driver
+// sends on the connection is the token and a newline, which tells tifa it is the driver. A file
+// descriptor would do on Unix, and Windows cannot pass one to Node.
+//
+// Every answer is {id, error} or {id, ...result}.
 //
 // Requests:
 //
@@ -57,6 +62,7 @@
 // close timeout stops and exits, which also ends a request that still runs. So a plugin that never
 // ends does not keep the driver and Vite's dev server alive after tifa is gone.
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import readline from 'node:readline'
 import { pathToFileURL } from 'node:url'
@@ -65,7 +71,28 @@ import { Worker } from 'node:worker_threads'
 const closeTimeout = Number(process.argv[2])
 if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[2]} is not a number of milliseconds`)
 
-const answer = (value) => fs.writeSync(3, JSON.stringify(value) + '\n')
+// Connects to tifa. The address and the token leave the environment, which Vite and its plugins
+// hand on to the programs they start.
+const channel = await new Promise((resolve, reject) => {
+  const [host, port] = process.env.TIFA_DRIVER_ADDR.split(':')
+  const token = process.env.TIFA_DRIVER_TOKEN
+  delete process.env.TIFA_DRIVER_ADDR
+  delete process.env.TIFA_DRIVER_TOKEN
+  const socket = net.connect({ host, port: Number(port) }, () => {
+    socket.setNoDelay(true)
+    socket.write(token + '\n')
+    socket.off('error', reject)
+    resolve(socket)
+  })
+  socket.once('error', reject)
+})
+// tifa closed its end, which it does only when it is gone or has ended the driver, and stdin ends
+// too: the close that stdin starts stops Vite's dev server before the process exits. An answer that
+// cannot be written is lost with the reader.
+channel.on('error', () => {})
+const answer = (value) => channel.write(JSON.stringify(value) + '\n')
+// finish sends what is written and closes the connection, before process.exit may drop it.
+const finish = () => (channel.destroyed ? Promise.resolve() : new Promise((resolve) => channel.end(resolve)))
 
 // takeWarnings returns the warnings the tifa plugin of this thread printed since the last call, see
 // warningsPlugin in js/vite/plugin.js. The worker thread of the SSR build runs its source text, so it
@@ -79,6 +106,7 @@ function takeWarnings() {
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number)
 if (!(nodeMajor > 22 || (nodeMajor === 22 && nodeMinor >= 12) || (nodeMajor === 20 && nodeMinor >= 19))) {
   answer({ id: 0, error: `tifa needs Node 20.19, 22.12 or later to run Vite, found Node ${process.versions.node}` })
+  await finish()
   process.exit(0)
 }
 
@@ -93,6 +121,7 @@ try {
       ? 'Vite is not installed in the application, install it with:\n\tpnpm add -D vite @vitejs/plugin-react'
       : `loading Vite: ${message(err)}`,
   })
+  await finish()
   process.exit(0)
 }
 answer({ id: 0, version: vite.version })
@@ -145,7 +174,7 @@ function trackRestart(restart) {
       const files = [...restarts.outside].filter((file) => fs.existsSync(file))
       restarts.outside.clear()
       if (files.length > 0) server.watcher.add(files)
-      fs.writeSync(3, JSON.stringify({ notice: 'restarted' }) + '\n')
+      answer({ notice: 'restarted' })
     })
   restarts.running = tracked
   return run
@@ -851,7 +880,7 @@ function startSSRWorker() {
 // package of the workspace, and the SSR bundle may import it too.
 function changedOutside(event, file) {
   if (!['add', 'change', 'unlink'].includes(event) || !outside(file)) return
-  fs.writeSync(3, JSON.stringify({ notice: 'changed', file }) + '\n')
+  answer({ notice: 'changed', file })
 }
 
 // outside reports whether file is outside the root and outside node_modules.
@@ -885,7 +914,11 @@ function styleLinks(files) {
   const { base, root } = server.config
   let tags = ''
   for (const file of files) {
-    const url = file.startsWith(root + path.sep) ? path.relative(root, file).split(path.sep).join('/') : '@fs' + file
+    // Vite writes root with forward slashes, also on Windows, where a file has backslashes, and
+    // wants /@fs/C:/dir/file for a file outside the root.
+    const rel = path.relative(root, file)
+    const inside = rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
+    const url = inside ? rel.split(path.sep).join('/') : '@fs/' + file.split(path.sep).join('/').replace(/^\//, '')
     tags += `<link rel="stylesheet" href="${attribute(base + encodeURI(url))}" data-vite-dev-id="${attribute(file)}">`
   }
   return tags
@@ -965,6 +998,7 @@ lines.on('close', async () => {
   await server?.close()
   // Node writes to a pipe in the background, and exit drops what it has not written yet.
   await Promise.all([written(process.stdout), written(process.stderr)])
+  await finish()
   process.exit(0)
 })
 

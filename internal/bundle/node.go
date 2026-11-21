@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/foreign"
+	"github.com/liustack/tifa/internal/realpath"
 	"github.com/liustack/tifa/js"
 )
 
@@ -39,7 +40,7 @@ type Node struct {
 	process sync.Mutex // guards the fields below, which start sets and Close reads
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
-	pipe    *os.File      // the read end of file descriptor 3
+	pipe    *channel      // the answers of the driver
 	exited  chan struct{} // closed once the process has exited, waitErr then tells how
 	waitErr error
 	closing bool // Close was called: no request starts the process again
@@ -112,50 +113,53 @@ func (n *Node) start() error {
 	if err != nil {
 		return errors.New("tifa bundles the front end with Vite, which runs on Node, and node is not on PATH")
 	}
-	r, w, err := os.Pipe()
+	dir, err := realpath.Resolve(n.root)
+	if err != nil {
+		return err
+	}
+	ch, err := newChannel()
 	if err != nil {
 		return err
 	}
 	cmd, remove, err := n.driverCommand(node)
 	if err != nil {
-		r.Close()
-		w.Close()
+		ch.Close()
 		return err
 	}
 	defer remove()
-	cmd.Dir = n.root
+	// Vite takes its root from the working directory and Rolldown names modules by their real paths,
+	// so the directory is the real one: on Windows a root with a short name such as RUNNER~1 would
+	// make the keys of Vite's manifest relative paths that start with ../.
+	cmd.Dir = dir
 	// Vite and @vitejs/plugin-react pick the React build and the JSX transform by NODE_ENV, so
 	// tifa sets it rather than take it from the shell.
 	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		return strings.HasPrefix(kv, "NODE_ENV=")
 	}), "NODE_ENV="+n.mode)
+	cmd.Env = append(cmd.Env, ch.env()...)
 	cmd.Stdout, cmd.Stderr = n.output, n.output
-	cmd.ExtraFiles = []*os.File{w} // file descriptor 3
 	// A process Node starts may keep stdout and stderr open after Node exits.
 	cmd.WaitDelay = time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		r.Close()
-		w.Close()
+		ch.Close()
 		return err
 	}
 	n.process.Lock()
 	if n.closing {
 		n.process.Unlock()
-		r.Close()
-		w.Close()
+		ch.Close()
 		return errClosed
 	}
 	err = cmd.Start()
-	// Node has its own copy of the write end now. Closing this one lets reads see Node exit.
-	w.Close()
 	if err != nil {
 		n.process.Unlock()
-		r.Close()
+		ch.Close()
 		return fmt.Errorf("starting node: %w", err)
 	}
 	exited := make(chan struct{})
-	n.cmd, n.stdin, n.pipe, n.exited = cmd, stdin, r, exited
+	n.cmd, n.stdin, n.pipe, n.exited = cmd, stdin, ch, exited
+	ch.exited = exited
 	n.process.Unlock()
 	go func() {
 		err := cmd.Wait()
@@ -164,7 +168,7 @@ func (n *Node) start() error {
 		n.process.Unlock()
 		close(exited)
 	}()
-	n.answers = bufio.NewScanner(r)
+	n.answers = bufio.NewScanner(ch)
 	n.answers.Buffer(nil, 64<<20)
 	var first answer
 	if err := n.read(&first); err != nil {
@@ -351,8 +355,7 @@ func (n *Node) close() error {
 	if cmd == nil || stopped {
 		return nil
 	}
-	// Closing the read end of file descriptor 3 ends a request that still reads it, should a
-	// process Node started keep the write end open.
+	// Closing the channel ends a request that still reads it, should the driver hang.
 	defer pipe.Close()
 	stdin.Close()
 	wait := closeTimeout + time.Second
