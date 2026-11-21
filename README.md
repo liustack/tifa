@@ -1,6 +1,6 @@
 <h1 align="center"><img src="assets/brand/tifa-banner.png" alt="Tifa"></h1>
 
-<p align="center"><b>The full-stack Go framework for Gophers.</b></p>
+<p align="center"><b>Your whole app on one small server.</b></p>
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
@@ -22,7 +22,7 @@
 
 Write the backend in Go and the pages in React. Tifa compiles the whole site into one executable that you copy to a small VPS and run. No Node in production, no process manager, no reverse proxy, no Redis.
 
-It is for Go developers whose business logic and data already live in Go, who want to write pages with the React ecosystem, and who do not want to keep a Node service running in production just for server-side rendering.
+It is for indie hackers and startup teams who want a real React app without running a stack beside it, and for Go developers whose business logic and data already live in Go.
 
 > Tifa is very early. APIs will change, and many compiler optimizations are not done yet.
 
