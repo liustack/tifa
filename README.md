@@ -41,7 +41,7 @@ So I started hacking on Tifa. Once it is done, deploying should mean copying one
 | React SSR | TanStack Start | TanStack Router, rendered inside the Go process by [slowjs](https://github.com/liustack/slowjs), the fastest pure Go JavaScript engine for rendering React |
 | Cache | Redis | An in-process render memo for pages, a CDN in front if you want one, plus whatever you keep in Go memory |
 | Queues and scheduled jobs | BullMQ + cron | Goroutines you start in `OnStart` |
-| Database | SQLite | SQLite, with a [pure Go driver](https://github.com/liustack/sqlite) so CGO stays off |
+| Database | SQLite | SQLite, with [the fastest pure Go SQLite driver](https://github.com/liustack/sqlite), so CGO stays off |
 
 I still do not know what to call it. A React SSR framework with no Node runtime? A React SSR framework with a Go backend? Both sound a little unhinged. Under the hood it is Go, [slowjs](https://github.com/liustack/slowjs) (a pure Go JavaScript engine), and TanStack Router.
 
