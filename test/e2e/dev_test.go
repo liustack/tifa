@@ -777,7 +777,7 @@ func TestDevListsPluginWarnings(t *testing.T) {
 }
 
 // Under tifa dev a page that reads import.meta.env renders what the browser reads: the values of the
-// dev server, so the page hydrates with the same text.
+// dev server (BASE_URL is "/", as in a build), so the page hydrates with the same text.
 func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
@@ -788,6 +788,9 @@ func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
 	d.waitLog(t, 0, ready)
 	mark := d.edit(t, "app/page.tsx", "    <main>\n", "    <main>\n      <p id=\"env\">{`${import.meta.env.MODE} ${import.meta.env.DEV ? 'dev' : 'prod'} ${import.meta.env.BASE_URL}`}</p>\n")
 	d.waitLog(t, mark, ready)
-	waitBody(t, d.base+"/", "development dev /__tifa/vite/", d)
+	waitBody(t, d.base+"/", `development dev /</p>`, d)
+	// The module the browser loads has the same BASE_URL, the site root as in a build, and its own
+	// URL keeps the prefix of Vite's dev server.
+	expectBody(t, d.base+"/__tifa/vite/app/page.tsx", `"BASE_URL": "/"`)
 	expectNoErrors(t, dir, "after a page read import.meta.env")
 }

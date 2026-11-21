@@ -581,3 +581,41 @@ func TestDevLeavesNoSourceMapOfAnEarlierBuild(t *testing.T) {
 		t.Errorf("ssr.js.map of the earlier build: %v, want none", err)
 	}
 }
+
+// import.meta.env.BASE_URL is "/" under tifa dev as it is in a build, so a library that builds
+// URLs of the application from it (a search endpoint, a Markdown link) asks the application and
+// not Vite's module prefix. Vite's own module URLs keep the prefix.
+func TestDevBaseURLIsTheSiteRoot(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/base.ts": "export default import.meta.env.BASE_URL + 'api/search'\n",
+		"app/page/view.ts": "import base from './base'\nexport default base\n",
+		".tifa/client.ts":  "import view from '../app/page/view'\nconsole.log(view)\n",
+		".tifa/server.ts":  "import view from '../app/page/view'\n(globalThis as any).result = view\n",
+	})
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/base.ts", port, DevBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(string(body), `"BASE_URL": "/"`) {
+		t.Errorf("the dev server answers %d, want BASE_URL \"/\":\n%s", res.StatusCode, body)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != "/api/search" {
+		t.Errorf("SSR bundle gives %q, want /api/search", got)
+	}
+}
