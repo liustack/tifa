@@ -63,7 +63,8 @@ cd smokeapp
 go mod edit -replace "github.com/liustack/tifa=$repo"
 go mod tidy
 pnpm install
-go tool tifa build
+# --dir with the short name makes it the root, as a short path in %TEMP% or a script does.
+go tool tifa build --dir "$(cygpath -d "$PWD" 2>/dev/null || echo .)"
 test -f "bin/smokeapp$exe" || { echo "tifa build did not write bin/smokeapp$exe" >&2; ls bin >&2; exit 1; }
 serve "./bin/smokeapp$exe" / "$work/smokeapp.log"
 
