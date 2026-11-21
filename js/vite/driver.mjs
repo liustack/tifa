@@ -694,8 +694,8 @@ async function ssrThread() {
   // The worker builds with NODE_ENV production, which gives React its production build and Vite the
   // env of a build. The browser modules of tifa dev get the env of Vite's dev server, and a page that
   // reads it renders other text on the server than in the browser, so the bundle gets the same values,
-  // BASE_URL among them (DevBase in internal/bundle/dev.go).
-  const devEnv = { 'import.meta.env.MODE': '"development"', 'import.meta.env.DEV': 'true', 'import.meta.env.PROD': 'false', 'import.meta.env.BASE_URL': '"/__tifa/vite/"' }
+  // BASE_URL among them, which the tifa plugin sets to '/' for the dev server, as a build has it.
+  const devEnv = { 'import.meta.env.MODE': '"development"', 'import.meta.env.DEV': 'true', 'import.meta.env.PROD': 'false', 'import.meta.env.BASE_URL': '"/"' }
   const loads = new Map() // the loads the main thread has not answered, by ref
   let nextLoad = 0
   const devAssets = {

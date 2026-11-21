@@ -10,7 +10,7 @@ import (
 )
 
 // Under tifa dev the bundle the server renders with gets the same import.meta.env as the browser
-// modules: MODE, DEV, PROD and BASE_URL of the dev server. Otherwise a page that reads them hydrates with other
+// modules: MODE, DEV, PROD and BASE_URL, which is "/" as in a build. Otherwise a page that reads them hydrates with other
 // text. React still gets the production build.
 func TestDevSSRBundleHasTheEnvOfTheBrowser(t *testing.T) {
 	root := devApp(t)
@@ -30,7 +30,7 @@ func TestDevSSRBundleHasTheEnvOfTheBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`mode=\W*development`, `dev=\W*true`, `prod=\W*false`, `ssr=\W*true`, `base=/__tifa/vite/`} {
+	for _, want := range []string{`mode=\W*development`, `dev=\W*true`, `prod=\W*false`, `ssr=\W*true`, "base=/[\"']"} {
 		if !regexp.MustCompile(want).Match(ssr) {
 			t.Errorf("the SSR bundle lacks %q", want)
 		}

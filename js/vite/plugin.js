@@ -1287,6 +1287,9 @@ export function tifa(settings = {}) {
       const dist = path.join(gen, 'dist')
       return {
         base: command === 'serve' ? devBase : '/',
+        // Vite sets import.meta.env.BASE_URL to base. Under tifa dev that is the module prefix, and a
+        // library that builds URLs of the application from it would ask Vite. A build gives '/'.
+        ...(command === 'serve' ? { define: { 'import.meta.env.BASE_URL': '"/"' } } : {}),
         appType: 'custom',
         publicDir: false,
         // The program reads .env when it starts. A page gets what it needs from its Load.

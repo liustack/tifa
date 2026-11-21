@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- Under `tifa dev`, `import.meta.env.BASE_URL` is `/`, as in a build. It was the prefix of Vite's modules, so a library that builds URLs of the app from it, such as the search of fumadocs-ui, asked a path that does not exist. The URLs of Vite's own modules and the HMR client keep their prefix, and the server render still reads the same value as the browser.
 - Server rendering runs on slowjs v0.31.11. The render timeout, the stop on shutdown and the memory limit now also hold inside `Intl` on very long inputs: case mapping for Turkish, Azerbaijani, Lithuanian and Greek, locale tags with many variants, `Intl.Segmenter` on long Chinese or Japanese text, `Intl.ListFormat` with many items and `Intl.Collator` on long strings that share a start. The HTML of a render is the same, and its instructions are within 0.24% of v0.31.10.
 
 ## [0.1.14] - 2026-11-22
