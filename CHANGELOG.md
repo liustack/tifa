@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- `tifa deploy setup` says what it does not know yet in its plan. The ssh host name for CI shows as `deploy-ssh-<random>.example.com`, since each run draws a new random part and the line that reports the step shows the name it made. A server without the user tifa shows "the user tifa does not exist yet" and no longer prints ssh's `Permission denied (publickey)`. The tunnel shows as `tifa-<machine id>` until the server is read.
 - Server rendering runs on slowjs v0.31.11. The render timeout, the stop on shutdown and the memory limit now also hold inside `Intl` on very long inputs: case mapping for Turkish, Azerbaijani, Lithuanian and Greek, locale tags with many variants, `Intl.Segmenter` on long Chinese or Japanese text, `Intl.ListFormat` with many items and `Intl.Collator` on long strings that share a start. The HTML of a render is the same, and its instructions are within 0.24% of v0.31.10.
 
 ## [0.1.14] - 2026-11-22
