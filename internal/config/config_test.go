@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.host deploy.cdn deploy.ssh deploy.ci"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.host deploy.front deploy.ssh deploy.ci"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -852,14 +852,14 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 // deploy.host is read by tifa deploy from the project file only. The host is
 // handed to ssh, so it is a name and nothing that ssh could read as an option or a user.
 func TestDeployIsAProjectFileSetting(t *testing.T) {
-	if d := Default().Deploy; d != (Deploy{CDN: "none", SSH: "direct", CI: "none"}) {
+	if d := Default().Deploy; d != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
 		t.Fatalf("defaults: %+v", d)
 	}
-	c, settings, err := Project([]byte("deploy:\n  host: shop-vps\n  cdn: Cloudflare\n  ci: GitHub\n"))
+	c, settings, err := Project([]byte("deploy:\n  host: shop-vps\n  front: Cloudflare\n  ci: GitHub\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Deploy.Host != "shop-vps" || c.Deploy.CDN != "cloudflare" || c.Deploy.CI != "github" {
+	if c.Deploy.Host != "shop-vps" || c.Deploy.Front != "cloudflare" || c.Deploy.CI != "github" {
 		t.Errorf("got %+v", c.Deploy)
 	}
 	if len(settings) != 0 {
@@ -878,7 +878,7 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 		"deploy:\n  host: \"-oProxyCommand\"\n": "deploy.host",
 		"deploy:\n  host: \"a b\"\n":            "deploy.host",
 		"deploy:\n  host: ssh://vps\n":          "deploy.host",
-		"deploy:\n  cdn: akamai\n":              "deploy.cdn",
+		"deploy:\n  front: akamai\n":            "deploy.front",
 		"deploy:\n  ci: gitlab\n":               "deploy.ci",
 	} {
 		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
@@ -886,7 +886,7 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 		}
 	}
 	// Empty is not set, as the example file of tifa new shows them.
-	if c, _, err := Project([]byte("deploy:\n  host: \"\"\n  cdn: \"\"\n  ci: \"\"\n")); err != nil || c.Deploy != (Deploy{CDN: "none", SSH: "direct", CI: "none"}) {
+	if c, _, err := Project([]byte("deploy:\n  host: \"\"\n  front: \"\"\n  ci: \"\"\n")); err != nil || c.Deploy != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
 		t.Errorf("empty: %+v, %v", c.Deploy, err)
 	}
 }
@@ -950,8 +950,8 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
 		"s_maxage project file":     {project: "cache_control:\n  s_maxage: 10m\n", want: smax},
 		"s_maxage env":              {environ: []string{"CACHE_CONTROL_S_MAXAGE=10m"}, want: smax},
-		"deploy domain":             {project: "deploy:\n  domain: a.com\n", want: []string{"deploy.domain", "site.url", "deploy.cdn"}},
-		"deploy front":              {project: "deploy:\n  front: cloudflare\n", want: []string{"deploy.front", "deploy.cdn"}},
+		"deploy domain":             {project: "deploy:\n  domain: a.com\n", want: []string{"deploy.domain", "site.url", "deploy.front"}},
+		"deploy cdn":                {project: "deploy:\n  cdn: cloudflare\n", want: []string{"deploy.cdn", "deploy.front"}},
 		"deploy github":             {project: "deploy:\n  github: true\n", want: []string{"deploy.github", "deploy.ci"}},
 		"s_maxage flag":             {args: []string{"--cache-control-s-maxage", "10m"}, want: smax},
 	} {
