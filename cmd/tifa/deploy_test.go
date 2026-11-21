@@ -284,13 +284,18 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 	tool("ssh", `while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
 HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
-	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log))
+	// show answers with the file .run/show of the home, which a test writes.
+	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log)+`
+case " $* " in *" show "*) cat "$HOME/.run/show" 2>/dev/null ;; esac`)
 	tool("curl", `rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", "exit 0")
 	tool("sleep", "exit 0")
-	tool("journalctl", "echo the app said goodbye")
+	// With -f it says so and waits as the one process of the ssh, so killing the ssh ends it.
+	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`
+case " $* " in *" -f "*) echo following; exec /bin/sleep 30 ;; esac
+echo the app said goodbye`)
 	tool("uname", `case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac`)
 	if _, err := exec.LookPath("sha256sum"); err != nil {
 		tool("sha256sum", `shasum -a 256 "$@"`)
@@ -484,7 +489,9 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		"os Linux", "arch aarch64", "home /srv/tifa", "bus yes", "linger yes", "port 9528",
 		"taken 9527", "listen LISTEN 0 4096 127.0.0.1:9600 0.0.0.0:*",
 		"unit-socket aa", "unit-service bb", "tunnel t-1", "machine vps-1234", "cloudflared /usr/bin/cloudflared",
-		"tunnel-active yes", "apt yes", "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA", "ghkey acme/shop", "",
+		"tunnel-active yes", "apt yes", "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA", "ghkey acme/shop",
+		"appdir yes", "other notes", "cloudflared-tifa yes",
+		"unit-active active", "unit-since Fri 2026-11-20 12:00:05 UTC", "unit-rss 38000", "health 200", "",
 	}, "\n")
 	s, err := parseServerState(out)
 	if err != nil {
@@ -493,11 +500,15 @@ func TestDeployParseProbeFacts(t *testing.T) {
 	want := serverState{OS: "Linux", Arch: "aarch64", Home: "/srv/tifa", Bus: true, Linger: true, Port: 9528,
 		Used: []int{9527, 9600}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
 		Cloudflared: "/usr/bin/cloudflared", TunnelActive: true, Apt: true,
-		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"}}
+		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"},
+		AppDir: true, Others: []string{"notes"}, CloudflaredByTifa: true,
+		Active: "active", ActiveSince: "Fri 2026-11-20 12:00:05 UTC", RSS: 38000, Health: "200"}
 	if !reflect.DeepEqual(s, want) || !s.Prepared() {
 		t.Errorf("got %+v", s)
 	}
-	if _, err := parseServerState("hostkey ssh-ed25519 !!!\n"); err == nil {
-		t.Error("a bad host key, no error")
+	for _, bad := range []string{"hostkey ssh-ed25519 !!!\n", "unit-rss many\n", "health x\n"} {
+		if _, err := parseServerState(bad); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
 	}
 }

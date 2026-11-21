@@ -194,6 +194,16 @@ func ensureTunnel(ctx context.Context, known, name string, apply bool) (id, how 
 	return t.ID, "created", nil
 }
 
+// deleteTunnel deletes the tunnel. Cloudflare deletes no tunnel that has connections, so the ones
+// a stopped cloudflared left behind are cleaned up first.
+func deleteTunnel(ctx context.Context, id string) error {
+	if _, err := runCF(ctx, "tunnels", "connections", "cleanup", id, "--force"); err != nil {
+		return err
+	}
+	_, err := runCF(ctx, "tunnels", "delete", id, "--force")
+	return err
+}
+
 // tunnelToken returns the token cloudflared runs the tunnel with. It is a secret: it goes only
 // to the server.
 func tunnelToken(ctx context.Context, id string) (string, error) {
@@ -328,8 +338,9 @@ func removeRoute(ctx context.Context, id, hostname string) error {
 // dnsComment starts the comment of the DNS records tifa makes, so it deletes no other.
 const dnsComment = "tifa deploy setup: "
 
-// removeDNS deletes the CNAME records of hostname that tifa made for the tunnel.
-func removeDNS(ctx context.Context, zone, hostname, target string) error {
+// removeDNS deletes the CNAME records of hostname that tifa made for the tunnel, and says how many
+// it deleted. With apply false it only counts them.
+func removeDNS(ctx context.Context, zone, hostname, target string, apply bool) (int, error) {
 	var records []struct {
 		ID      string `json:"id"`
 		Type    string `json:"type"`
@@ -337,16 +348,38 @@ func removeDNS(ctx context.Context, zone, hostname, target string) error {
 		Comment string `json:"comment"`
 	}
 	if err := cfJSON(ctx, &records, "dns", "records", "list", "-z", zone, "--name", hostname); err != nil {
-		return err
+		return 0, err
 	}
+	n := 0
 	for _, r := range records {
 		if r.Type == "CNAME" && strings.EqualFold(r.Content, target) && strings.HasPrefix(r.Comment, dnsComment) {
-			if _, err := runCF(ctx, "dns", "records", "delete", r.ID, "-z", zone, "--force"); err != nil {
-				return err
+			n++
+			if err := cfWrite(ctx, apply, "dns", "records", "delete", r.ID, "-z", zone, "--force"); err != nil {
+				return n, err
 			}
 		}
 	}
-	return nil
+	return n, nil
+}
+
+// removeDomain takes away what setup made for host: its rules, and with the tunnel id known its
+// DNS record and its route in the tunnel. The route goes last, so a run that stopped halfway finds
+// the domain again.
+func removeDomain(ctx context.Context, id, host string) error {
+	zone, err := findZone(ctx, host)
+	if err != nil {
+		return err
+	}
+	if _, err := removeRules(ctx, zone.Name, host, true); err != nil {
+		return err
+	}
+	if id == "" {
+		return nil
+	}
+	if _, err := removeDNS(ctx, zone.Name, host, id+".cfargotunnel.com", true); err != nil {
+		return err
+	}
+	return removeRoute(ctx, id, host)
 }
 
 // ensureDNS makes hostname a proxied CNAME to target. A record of hostname that points elsewhere

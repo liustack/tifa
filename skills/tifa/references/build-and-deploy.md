@@ -137,6 +137,9 @@ deploy:
 go tool tifa deploy setup      # prints a plan (add, change, remove, a count of what is right, and what you must do), asks, applies. --yes skips the question, --all lists what is right. Exits non-zero when something is left for you. Run it again after changing tifa.yaml
 go tool tifa deploy            # build for the server, upload, restart, check /healthz, clear the CDN cache
 go tool tifa deploy rollback   # back to the release before
+go tool tifa deploy logs       # the journal of the app on the server, -n 500 for more lines, -f to follow until Ctrl-C
+go tool tifa deploy status     # the release that runs and its commit, the releases kept, since when the service runs, GET /healthz now, memory
+go tool tifa deploy remove     # take the app off the server and take back what tifa made for it in Cloudflare and GitHub. Prints a plan, then asks for the name of the app on a terminal. Without a terminal it needs --yes
 ```
 
 - Tifa runs the system `ssh`, so `~/.ssh/config`, a Cloudflare Tunnel `ProxyCommand` and Tailscale names work. `--host` or `DEPLOY_HOST` replace `deploy.host`, such as in CI.
@@ -145,7 +148,8 @@ go tool tifa deploy rollback   # back to the release before
 - With `deploy.ci: github` and gh logged in, setup writes `.github/workflows/tifa-deploy.yml` (after the `CI` workflow of `tifa new` passes, else on a push to the default branch), makes a key for the repository, sets the secrets, and with `cdn: cloudflare` asks you to paste a token that can only clear the cache of the zone, from a prefilled Cloudflare form, and keeps it as `CF_CACHE_PURGE_TOKEN`. The token is optional: without it a page with `Cache` can stay old on the CDN for up to its `Cache` time after a deploy. Setup asks on the first CI setup only. `tifa deploy setup --cache-purge-token` adds or replaces it later. Never tell the user to run gh for it. `ci: none` takes them away. `deploy.ssh` other than `direct` needs `ci: github`, and `cloudflare` needs `cdn: cloudflare`. See `docs/deploy.md#deploy-from-github-actions`.
 - `go tool tifa deploy env set NAME` (value on stdin or a hidden prompt, never an argument), `env unset NAME` and `env list` (names only) edit `/srv/tifa/<app>/shared/.env` on the server, restart the app and check it, and put the old file back when the check fails.
 - A deploy builds on this machine (never on the server), uploads to `releases/<id>/`, switches `current`, restarts through the socket (no request is refused) and asks `GET /healthz` on the server for up to 30 seconds. Below 500 passes, so an app without the route passes with 404. Otherwise it prints the log of the app, starts the release before again and exits with 1. Write a `/healthz` that checks the database.
-- The log of the app: `journalctl --user -u tifa-<app>` as `tifa`. Records: `/srv/tifa/<app>/deploys.log`. The last 5 releases stay.
+- The log of the app: `go tool tifa deploy logs`, which reads it over ssh as `tifa`. Never tell the user to log in to the server for it. Records: `/srv/tifa/<app>/deploys.log`, which `go tool tifa deploy status` reads. The last 5 releases stay.
+- `go tool tifa deploy remove` deletes `/srv/tifa/<app>` with `shared/.env` and the data in `shared/`, so ask the user before you run it with `--yes`. It removes only what Tifa made, the tunnel and cloudflared only with the last app of the server, and keeps `.github/workflows/tifa-deploy.yml`, which fails each push until the user deletes it. Without cf or gh logged in it removes the rest, lists what is left and exits non-zero: run it again after the login. See `docs/deploy.md#logs-status-and-remove`.
 
 See `docs/deploy.md#deploy-with-tifa-deploy`.
 

@@ -110,6 +110,8 @@ script=$3
 case "$script" in
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && exit 255; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
+*'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
+*'disable --quiet $units'*) echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
 *'tifa-$app.socket'*) echo "app $user" >> "$d/calls" ;;
 *'line=$(cat)'*) echo "authorize $user" >> "$d/calls"; cat >> "$d/stdin" ;;
@@ -292,6 +294,10 @@ func (c *cfEverything) applyDelete(args []string) {
 		c.tokens = slices.DeleteFunc(c.tokens, func(r map[string]any) bool { return r["id"] == args[4] })
 	case "zero-trust access policies":
 		c.policies = slices.DeleteFunc(c.policies, func(r map[string]any) bool { return r["id"] == args[4] })
+	}
+	if args[0] == "tunnels" && args[1] == "delete" {
+		delete(c.tunnels, args[2])
+		delete(c.configs, args[2])
 	}
 	if len(args) > 4 && args[2] == "applications" {
 		c.apps = slices.DeleteFunc(c.apps, func(r map[string]any) bool { return r["id"] == args[4] })

@@ -138,6 +138,20 @@ type serverState struct {
 	HostKeys []string
 	// GitHubKeys are the repositories that have a tifa-github line in authorized_keys.
 	GitHubKeys []string
+	// AppDir says the folder of the app is there. Others are the other apps of the deploy user.
+	AppDir bool
+	Others []string
+	// CloudflaredByTifa says setup installed cloudflared: it wrote the apt setting that keeps it
+	// current.
+	CloudflaredByTifa bool
+	// Active is the state systemd gives the service of the app, such as active or failed, and
+	// ActiveSince when it last became active, as systemd prints it in UTC. RSS is the resident
+	// memory of its program in KiB, 0 when it does not run.
+	Active, ActiveSince string
+	RSS                 int64
+	// Health is the status GET healthPath answered just now, 000 for no answer, empty when it was
+	// not asked: only the status script asks, and only an active service.
+	Health string
 }
 
 // Prepared reports whether the server can hold an app: the systemd of the deploy user runs.
@@ -196,6 +210,28 @@ func parseServerState(out string) (serverState, error) {
 			s.HostKeys = append(s.HostKeys, typ+" "+b64)
 		case "ghkey":
 			s.GitHubKeys = append(s.GitHubKeys, strings.TrimSpace(value))
+		case "appdir":
+			s.AppDir = true
+		case "other":
+			s.Others = append(s.Others, strings.TrimSpace(value))
+		case "cloudflared-tifa":
+			s.CloudflaredByTifa = true
+		case "unit-active":
+			s.Active = strings.TrimSpace(value)
+		case "unit-since":
+			s.ActiveSince = strings.TrimSpace(value)
+		case "unit-rss":
+			n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+			if err != nil || n < 0 {
+				return s, fmt.Errorf("the server gave the memory %q", value)
+			}
+			s.RSS = n
+		case "health":
+			v := strings.TrimSpace(value)
+			if _, err := strconv.Atoi(v); err != nil || len(v) != 3 {
+				return s, fmt.Errorf("the server gave the health check status %q", value)
+			}
+			s.Health = v
 		case "current":
 			s.Current = value
 		case "release":
@@ -222,6 +258,16 @@ func (s serverState) good(id string) (deployRecord, bool) {
 		}
 	}
 	return deployRecord{}, false
+}
+
+// latest returns the last record of release id, or none.
+func (s serverState) latest(id string) deployRecord {
+	for _, r := range slices.Backward(s.Records) {
+		if r.ID == id {
+			return r
+		}
+	}
+	return deployRecord{}
 }
 
 // rollbackTarget picks the newest release before the current one that passed its health check
@@ -390,8 +436,9 @@ func appScript(app string, port int) string {
 }
 
 // probeBody runs as the deploy user and prints what parseServerState reads: the system, whether
-// the systemd of the user runs without a login, the app, the ports taken, the tunnel of the server
-// and the keys of its sshd. Every line is optional, and it never fails.
+// the systemd of the user runs without a login, the app and its service, the other apps and the
+// ports taken, the tunnel of the server and the keys of its sshd. With $health set it also asks
+// the service for that path, when it runs. Every line is optional, and it never fails.
 const probeBody = `d="$HOME/$app"
 rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 echo "os $(uname -s)"
@@ -399,10 +446,36 @@ echo "arch $(uname -m)"
 echo "home $HOME"
 if [ -e "$rt/bus" ]; then echo "bus yes"; fi
 echo "linger $(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo no)"
+if [ -d "$d" ]; then echo "appdir yes"; fi
 if [ -f "$d/port" ]; then echo "port $(cat "$d/port")"; fi
 for f in "$HOME"/*/port; do
-	if [ -f "$f" ] && [ "$f" != "$d/port" ]; then echo "taken $(cat "$f")"; fi
+	if [ -f "$f" ] && [ "$f" != "$d/port" ]; then
+		echo "taken $(cat "$f")"
+		echo "other $(basename "$(dirname "$f")")"
+	fi
 done
+if [ -e "$rt/bus" ] && [ -f "$d/port" ]; then
+	# TZ=UTC makes systemd print its times in UTC.
+	props=$(XDG_RUNTIME_DIR="$rt" TZ=UTC systemctl --user show "tifa-$app.service" -p ActiveState -p ActiveEnterTimestamp -p MainPID 2>/dev/null)
+	state=""
+	while IFS='=' read -r k v; do
+		case "$k" in
+		ActiveState) state=$v; echo "unit-active $v" ;;
+		ActiveEnterTimestamp) if [ -n "$v" ]; then echo "unit-since $v"; fi ;;
+		MainPID)
+			if [ -n "$v" ] && [ "$v" != 0 ]; then
+				rss=$(ps -o rss= -p "$v" 2>/dev/null | tr -d ' ')
+				if [ -n "$rss" ]; then echo "unit-rss $rss"; fi
+			fi ;;
+		esac
+	done <<EOF
+$props
+EOF
+	if [ -n "$health" ] && [ "$state" = active ]; then
+		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$(cat "$d/port")$health") || code=000
+		echo "health $code"
+	fi
+fi
 ss -Hltn 2>/dev/null | sed 's/^/listen /'
 u="$HOME/.config/systemd/user"
 for n in socket service; do
@@ -424,11 +497,15 @@ done
 if [ -f "$HOME/.ssh/authorized_keys" ]; then
 	sed -n 's/.* tifa-github \([^ ]*\)$/ghkey \1/p' "$HOME/.ssh/authorized_keys"
 fi
+if [ -f /etc/apt/apt.conf.d/52tifa-cloudflared ]; then echo "cloudflared-tifa yes"; fi
 exit 0
 `
 
 // probeScript is probeBody for app.
-func probeScript(app string) string { return script(probeBody, "app", app) }
+func probeScript(app string) string { return script(probeBody, "app", app, "health", "") }
+
+// statusScript is probeBody for app that also asks the service for healthPath.
+func statusScript(app string) string { return script(probeBody, "app", app, "health", healthPath) }
 
 // uploadBody runs as the deploy user with the program, gzipped, on its input. It writes the new
 // release, and removes it again unless the program arrived whole.

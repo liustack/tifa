@@ -98,6 +98,8 @@ func (f *fakeCF) answer(args []string) (any, error) {
 		id := f.id("tunnel")
 		f.tunnels[id] = args[3]
 		return map[string]any{"id": id, "name": args[3]}, nil
+	case cmd == "tunnels connections cleanup":
+		return map[string]any{}, nil
 	case cmd == "tunnels token get":
 		return fmt.Sprintf("%q", "secret-of-"+args[3]), nil
 	case cmd == "tunnels config get":

@@ -1,5 +1,5 @@
 ---
-summary: 'How to put a Tifa app on a server: the deploy settings of tifa.yaml (host, cdn, ssh, ci), tifa deploy setup with its plan of add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, tifa deploy env for the .env of the app on the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: the deploy settings of tifa.yaml (host, cdn, ssh, ci), tifa deploy setup with its plan of add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale), a second developer machine, tifa deploy env for the .env of the app on the server, tifa deploy logs, status and remove to read the log of the app, see which release runs and take the app off the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
@@ -10,6 +10,7 @@ read_when:
   - A deploy said the CDN cache was not cleared, or you want to add the token CF_CACHE_PURGE_TOKEN
   - Giving a second developer machine access to deploy
   - Setting a secret or a setting in the .env of a deployed app, with tifa deploy env
+  - Reading the log of a deployed app, checking which release runs and whether it is healthy, or taking an app off its server and out of Cloudflare and GitHub, with tifa deploy logs, status or remove
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
@@ -115,7 +116,7 @@ The app listens on the loopback address only, so something on the server must ta
 5. Adds a proxied CNAME record of the domain to `<tunnel ID>.cfargotunnel.com`. A record of the domain that points elsewhere is left alone, and setup stops.
 6. Adds rules that hold for that host name only, as [CDN settings](#cdn-settings) says: a cache rule that caches what the `Cache-Control` of the app allows and nothing without one, a cache rule that never caches `/__tifa/` or navigation data (`?_tifa=`), and a configuration rule that turns off Rocket Loader, Email Address Obfuscation, Cloudflare Fonts, Zaraz and the Web Analytics script, which write into the HTML. Settings of the whole zone are not changed.
 
-To remove the tunnel of a server, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa` and `/etc/systemd/system/tifa-tunnel*` on the server, then delete the tunnel in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
+`tifa deploy remove` of the last app on a server removes the tunnel too (see [Logs, status and remove](#logs-status-and-remove)). To remove it by hand, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa` and `/etc/systemd/system/tifa-tunnel*` on the server, then delete the tunnel in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
 
 **Caddy**, or another proxy that gets certificates, when the server takes visitors itself: leave `cdn` at `none`. A Caddyfile:
 
@@ -219,9 +220,44 @@ go tool tifa deploy env list                               # names only
 
 These edit `/srv/tifa/<app>/shared/.env` over ssh as `tifa`, the file the app reads from the folder it runs in (see [.env](config.md#env)). The value is read from the standard input or a hidden prompt, never from an argument, so it stays out of your shell history and the process list. Nothing prints a value. The file keeps mode 600, and your other lines and comments stay as they are. After a change the app restarts through its socket and must pass the health check of a deploy. If it does not, the old file comes back, the app restarts again, and the command says so and exits with 1. The file is read by the app as configuration only: it is not put into the environment of the process or of systemd, so each app on a server keeps its own.
 
+### Logs, status and remove
+
+```sh
+go tool tifa deploy logs        # the last 100 lines of the log, -n 500 for more
+go tool tifa deploy logs -f     # and then the new ones, until Ctrl-C
+go tool tifa deploy status
+go tool tifa deploy remove
+```
+
+They log in over ssh as `tifa` and find the server the way `tifa deploy` does.
+
+`logs` prints the journal of `tifa-<app>.service` and `tifa-<app>.socket`: what the app printed, and what systemd said about it, such as a start, an exit or a failure. journald keeps these lines in a journal file of the user `tifa` when it keeps the journal on disk, the default of Ubuntu and Debian. A server that keeps its journal in memory only shows `tifa` no lines.
+
+`status` prints the release that runs and its commit, the other releases kept and whether each passed its health check, since when the service runs, what `GET /healthz` answers now, and the memory of the program:
+
+```
+shop on vps, port 9527
+  release  20261120T120000Z  commit ccc333        passed its health check
+  kept     20261120T110000Z  commit bbb222-dirty  failed its health check
+           20261120T100000Z  commit aaa111        passed its health check
+  service  active since 2026-11-20 12:00:05 UTC, 2h3m ago
+  health   GET /healthz answered 200
+  memory   38.7 MB
+```
+
+It asks for `/healthz` only while the service runs, because a request to the socket would start it.
+
+`remove` takes the app off the server and takes back what Tifa made for it, and nothing else:
+
+- On the server, as `tifa`: it stops and disables `tifa-<app>.socket` and `.service`, and deletes their unit files and `/srv/tifa/<app>` with its releases, `shared/.env`, the data in `shared/` and `deploys.log`. Copy the data first if you want to keep it. Other apps, the user `tifa`, the firewall and sshd stay as they are.
+- With `cdn: cloudflare`: the route, the DNS record and the rules of the domain, and with `ssh: cloudflare` the Access application, policy and service token of the repository. The tunnel and cloudflared serve every app of the server, so they go only with the last app of Tifa there: then remove stops cloudflared as root, deletes `/etc/tifa`, uninstalls cloudflared when setup installed it, and deletes the tunnel.
+- With `ci: github`: the key of the repository in `authorized_keys`, and the secrets and the variable `TIFA_DEPLOY` that setup set. `.github/workflows/tifa-deploy.yml` is a file of your repository, so it stays: until you delete it, each push fails to deploy.
+
+Like setup, remove prints a plan first. On a terminal it then asks you to type the name of the app, also with `--yes`. Without a terminal it removes nothing unless you pass `--yes`. What it cannot remove, without a login of cf or gh, is listed last with the login it needs. It removes the rest and exits with an error: log in and run it again. A step that fails does not stop the others, but the tunnel then stays until a run again has removed the rest. A run that finds nothing left says so in one line.
+
 ### On the server
 
-- The log of an app: `journalctl --user -u tifa-<app>` as `tifa` (`sudo -iu tifa`).
+- The log of an app: `go tool tifa deploy logs`, or `journalctl --user -u tifa-<app>` as `tifa` (`sudo -iu tifa`).
 - Start, stop or look at it: `systemctl --user status tifa-<app>.service` as `tifa`. Restart the service, never the socket.
 - The apps start at boot, before the first visitor.
 - Several apps: each has its own folder, port and units. Run `tifa deploy` in each, after one `tifa deploy setup`.
