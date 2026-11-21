@@ -2276,7 +2276,7 @@ export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
 function resolveRouteModule(ctx, root, source, importer) {
   const app = path.join(root, 'app')
   const gen = path.join(root, '.tifa')
-  let dir = path.dirname(importer.split('?')[0])
+  let dir = path.dirname(path.normalize(importer.split('?')[0]))
   // A generated module imports its neighbours the same way, from .tifa/app.
   if (dir === gen || dir.startsWith(gen + path.sep)) dir = path.join(root, path.relative(gen, dir))
   const target = path.join(dir, source).replace(/\.(?:js|ts)$/, '')
@@ -2349,7 +2349,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
     resolveId: {
       order: 'pre',
       async handler(source, importer, extra) {
-        const fromDependency = importer?.includes(`${path.sep}node_modules${path.sep}`)
+        const fromDependency = /[/\\]node_modules[/\\]/.test(importer ?? '')
         // On Node, the helpers of rolldown import createRequire, which polyfillRequire: false
         // leaves unused. Without side effects, the import goes with it.
         if (source === 'node:module' && importer === rolldownRuntime) {
