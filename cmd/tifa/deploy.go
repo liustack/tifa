@@ -180,15 +180,16 @@ func (e *sshLoginError) Unwrap() error { return e.err }
 
 // state asks the server, as the deploy user, about the app.
 func (t deployTarget) state(ctx context.Context, stderr io.Writer) (serverState, error) {
+	return t.probe(ctx, probeScript(t.app), stderr)
+}
+
+// probe runs a script of probeBody as the deploy user and reads what it printed.
+func (t deployTarget) probe(ctx context.Context, script string, stderr io.Writer) (serverState, error) {
 	var out bytes.Buffer
-	if err := t.ssh(ctx, deployUser, probeScript(t.app), nil, &out, stderr); err != nil {
+	if err := t.ssh(ctx, deployUser, script, nil, &out, stderr); err != nil {
 		return serverState{}, err
 	}
-	s, err := parseServerState(out.String())
-	if err != nil {
-		return s, err
-	}
-	return s, nil
+	return parseServerState(out.String())
 }
 
 // createApp makes the folder, port and units of the app on a server that is prepared, as the
@@ -277,7 +278,7 @@ restarts the app through its socket. Run it again to go further back.`,
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
 	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token CI clears the CDN cache with, and replace the one GitHub has")
 	setup.Flags().BoolVar(&sf.tailscaleOAuth, "tailscale-oauth", false, "ask for the OAuth client CI joins your tailnet with, and replace the one GitHub has")
-	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host))
+	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host))
 	return cmd
 }
 

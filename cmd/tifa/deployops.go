@@ -6,9 +6,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/signal"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -56,6 +59,113 @@ func deployLogs(ctx context.Context, t deployTarget, lines int, follow bool, std
 		return nil
 	}
 	return err
+}
+
+// deployStatus prints which release runs, the releases kept, the service, the answer of the
+// health check now and the memory of the program.
+func deployStatus(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error {
+	s, err := t.probe(ctx, statusScript(t.app), stderr)
+	if err != nil {
+		return err
+	}
+	if s.Port == 0 {
+		return fmt.Errorf("%s is not on %s yet: run go tool tifa deploy first", t.app, t.host)
+	}
+	fmt.Fprint(stdout, deployStatusText(t, s, deployNow()))
+	return nil
+}
+
+// deployStatusText is what status prints about the app on the server s at the time now.
+func deployStatusText(t deployTarget, s serverState, now time.Time) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s on %s, port %d\n", t.app, t.host, s.Port)
+	line := func(label, text string) { fmt.Fprintf(&b, "  %-7s  %s\n", label, text) }
+	if s.Current == "" {
+		line("release", "none yet: run go tool tifa deploy")
+	}
+	// The current release first, then the others from the newest.
+	ids := []string{}
+	if s.Current != "" {
+		ids = append(ids, s.Current)
+	}
+	for _, id := range slices.Backward(s.Releases) {
+		if id != s.Current {
+			ids = append(ids, id)
+		}
+	}
+	width := 0
+	for _, id := range ids {
+		width = max(width, len(s.latest(id).Commit))
+	}
+	for i, id := range ids {
+		label := ""
+		switch {
+		case id == s.Current:
+			label = "release"
+		case i == 0 || ids[i-1] == s.Current:
+			label = "kept"
+		}
+		r := s.latest(id)
+		_, passed := s.good(id)
+		switch {
+		case r.ID == "":
+			line(label, id+"  not in deploys.log")
+		case passed:
+			line(label, fmt.Sprintf("%s  commit %-*s  passed its health check", id, width, r.Commit))
+		default:
+			line(label, fmt.Sprintf("%s  commit %-*s  failed its health check", id, width, r.Commit))
+		}
+	}
+	service := s.Active
+	if service == "" {
+		service = "unknown: systemd did not say"
+	}
+	if s.Active == "active" && s.ActiveSince != "" {
+		service = "active since " + s.ActiveSince
+		if since, err := time.Parse("Mon 2006-01-02 15:04:05 MST", s.ActiveSince); err == nil {
+			service = fmt.Sprintf("active since %s, %s ago", since.Format("2006-01-02 15:04:05 MST"), ago(now.Sub(since)))
+		}
+	}
+	line("service", service)
+	switch {
+	case s.Health == "":
+		line("health", "not asked, the service does not run")
+	case s.Health == "000":
+		line("health", "GET "+healthPath+" got no answer within 5 seconds")
+	default:
+		line("health", "GET "+healthPath+" answered "+s.Health)
+	}
+	if s.RSS > 0 {
+		line("memory", fmt.Sprintf("%.1f MB", float64(s.RSS)*1024/1e6))
+	}
+	return b.String()
+}
+
+// ago writes a time that passed in minutes, or in seconds below one.
+func ago(d time.Duration) string {
+	if d < time.Minute {
+		return d.Round(time.Second).String()
+	}
+	return strings.TrimSuffix(d.Round(time.Minute).String(), "0s")
+}
+
+func newDeployStatusCmd(dir, host *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Print which release of the app runs on the server and how it is",
+		Long: `status prints, over ssh as the user tifa, the release that runs and its commit, the earlier
+releases kept and whether each passed its health check, since when the service runs, what
+GET /healthz answers now, and the memory of the program. It asks for /healthz only while the
+service runs, so it starts nothing.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			t, err := loadDeployTarget(*dir, *host)
+			if err != nil {
+				return err
+			}
+			return deployStatus(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	}
 }
 
 func newDeployLogsCmd(dir, host *string) *cobra.Command {
