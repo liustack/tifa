@@ -151,10 +151,17 @@ func retiredDeployKeys(root string) error {
 	return nil
 }
 
+// sshWaitDelay is how long ssh may leave its output open once it has ended.
+const sshWaitDelay = 2 * time.Second
+
 // ssh runs script with sh on the server, logged in as user, with stdin as its input.
 func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Reader, stdout, stderr io.Writer) error {
 	c := exec.CommandContext(ctx, sshProgram, "-l", user, "--", t.host, "sh -c "+shellQuote(script))
 	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, stderr
+	// Killing ssh does not close its output when another process holds it too, such as the
+	// master of an ssh ControlMaster, so Wait would wait for that process. Once ssh has ended,
+	// give the output this long, then close it.
+	c.WaitDelay = sshWaitDelay
 	err := c.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 255 {
