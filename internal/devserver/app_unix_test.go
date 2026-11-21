@@ -1,5 +1,8 @@
 //go:build unix
 
+// Process groups, SIGKILL and a child that leaves the group of the app with Setpgid are Unix things.
+// app_windows_test.go has what Windows has instead.
+
 package devserver
 
 import (
@@ -13,24 +16,6 @@ import (
 	"time"
 )
 
-// waitForPID reads the first line the app printed as a process ID.
-func waitForPID(t *testing.T, out *syncBuffer) int {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if line, _, ok := strings.Cut(out.String(), "\n"); ok {
-			pid, err := strconv.Atoi(strings.TrimSpace(line))
-			if err != nil {
-				t.Fatalf("first line %q is not a PID", line)
-			}
-			return pid
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatal("the app printed no PID within 5s")
-	return 0
-}
-
 func gone(pid int) bool {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -40,19 +25,6 @@ func gone(pid int) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return false
-}
-
-func stopWithin(t *testing.T, a *app, timeout, limit time.Duration) error {
-	t.Helper()
-	stopped := make(chan error, 1)
-	go func() { stopped <- a.stop(timeout) }()
-	select {
-	case err := <-stopped:
-		return err
-	case <-time.After(limit):
-		t.Fatalf("stop still blocked after %s", limit)
-		return nil
-	}
 }
 
 func TestStopKillsTheAppsChildren(t *testing.T) {

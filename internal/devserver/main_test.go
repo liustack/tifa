@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -34,12 +36,36 @@ import (
 //	TIFA_FAKE_APP_PANIC       print this many lines to stderr, then panic deep in the stack
 //	TIFA_FAKE_APP_DETACHED_CHILD start a child outside the process group that keeps stdout open,
 //	                          and print its PID first
+//	TIFA_FAKE_APP_CHILD       start a child that sleeps a minute, and print its PID first
 //
 // GET /fail answers 500 and adds a request error to what GET /__tifa/dev/errors answers, which
 // DELETE empties. POST requests get their body back, GET /exit makes the app print "fatal: the disk is full" to
 // stderr and exit with status 3, GET /pid answers the process ID, GET /cwd the working directory.
 // The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
+	if os.Getenv("TIFA_FAKE_SLEEP") != "" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	if os.Getenv("TIFA_FAKE_BOUND") != "" {
+		// tifa dev with a child, see TestBindChildrenEndsThemWithTheProcess.
+		if err := BindChildren(); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		if err := startSleepingChild(); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	if name := os.Getenv("TIFA_FAKE_WAIT"); name != "" {
+		// A program that waits for the end of its standard input and says so, see startWaiting.
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		fmt.Println(name + " ended")
+		os.Exit(0)
+	}
 	if os.Getenv("TIFA_TEST_FILE_LIMIT") != "" {
 		watchWithFileLimit()
 		os.Exit(0)
@@ -64,6 +90,11 @@ func fakeApp() error {
 		}
 		os.Exit(1)
 	}()
+	if os.Getenv("TIFA_FAKE_APP_CHILD") != "" {
+		if err := startSleepingChild(); err != nil {
+			return err
+		}
+	}
 	if os.Getenv("TIFA_FAKE_APP_DETACHED_CHILD") != "" {
 		if err := startDetachedChild(); err != nil {
 			return err
@@ -138,6 +169,11 @@ func fakeApp() error {
 	}
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
+	// The end of the lifeline counts as an interrupt, as in server.DevMain: on Windows it is how
+	// tifa dev asks the app to stop.
+	if err := watchFakeLifeline(interrupts); err != nil {
+		return err
+	}
 	if delay := os.Getenv("TIFA_FAKE_APP_LISTEN_DELAY"); delay != "" {
 		d, err := time.ParseDuration(delay)
 		if err != nil {
@@ -239,6 +275,52 @@ func fakeApp() error {
 		return err
 	}
 	fmt.Println("shutdown done")
+	return nil
+}
+
+// startSleepingChild starts the test binary as a child that sleeps a minute, in the group of the app,
+// and prints its process ID.
+func startSleepingChild() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), "TIFA_FAKE_SLEEP=1")
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	_, err = fmt.Println(cmd.Process.Pid)
+	return err
+}
+
+// watchFakeLifeline sends an interrupt once the lifeline that the arguments name reaches its end.
+// Without the flag it does nothing.
+func watchFakeLifeline(interrupts chan<- os.Signal) error {
+	i := slices.Index(os.Args, lifelineFlag)
+	if i < 0 || i+1 >= len(os.Args) {
+		return nil
+	}
+	fd, err := strconv.Atoi(os.Args[i+1])
+	if err != nil {
+		return err
+	}
+	f := os.Stdin
+	if fd != 0 {
+		f = os.NewFile(uintptr(fd), "lifeline")
+	}
+	go func() {
+		var b [1]byte
+		for {
+			if _, err := f.Read(b[:]); err != nil {
+				break
+			}
+		}
+		select {
+		case interrupts <- os.Interrupt:
+		default:
+		}
+	}()
 	return nil
 }
 

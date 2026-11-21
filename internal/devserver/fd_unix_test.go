@@ -1,5 +1,8 @@
 //go:build unix
 
+// The limit on open files (RLIMIT_NOFILE) and the watches it bounds are Unix things. Windows has no
+// such limit for the file watcher.
+
 package devserver
 
 import (
