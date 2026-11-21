@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa deploy logs` prints the log of the app on the server over ssh, what it printed and what systemd said about it: the last 100 lines, `-n` for another count, and `-f` to follow until Ctrl-C.
+- `tifa deploy status` prints the release that runs and its commit, the releases kept and whether each passed its health check, since when the service runs, what `GET /healthz` answers now and the memory of the program.
+- `tifa deploy remove` takes the app off the server and takes back what Tifa made for it: its units and its folder with its data, the route, DNS record, rules and Access of Cloudflare, the tunnel and cloudflared with the last app of the server, and the key and secrets of GitHub. It prints a plan and asks for the name of the app, or needs `--yes` without a terminal. The workflow file stays.
+
 ### Fixed
 
 - A retired key in `tifa.yaml` is a warning at its line, such as `tifa.yaml:69: deploy.front is no longer used, ...`, and GitHub Actions marks that line.
