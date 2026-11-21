@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-21
+
 ### Added
 
 - `tifa deploy logs` prints the log of the app on the server over ssh, what it printed and what systemd said about it: the last 100 lines, `-n` for another count, and `-f` to follow until Ctrl-C.
