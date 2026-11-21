@@ -148,3 +148,65 @@ func TestSSRCachesLucideIcons(t *testing.T) {
 		t.Error("the page with Array.prototype.join replaced renders like the others")
 	}
 }
+
+// lucide-react 1.75 joins class names with a Set and splits them with a regular expression, and
+// reads aria props with hasOwnProperty. The plugin knows that form as well: no warning, the cache
+// works, and it steps aside while a page has replaced Set.prototype.add, which mergeClasses uses.
+const lucideSetPage = `import './host'
+import { renderToString } from 'react-dom/server.edge'
+import { House, Icon } from 'lucide-react-1-75-0'
+
+function Page() {
+  return (
+    <div>
+      <House className="  a  b a " />
+      <House className="size-4" aria-label={null} />
+    </div>
+  )
+}
+
+const probes = []
+function Probe() {
+  const element = Icon.render(House.render({ className: 'probe' }, null).props, null)
+  probes.push(element)
+  return element
+}
+
+const html = []
+for (let i = 0; i < 3; i++) html.push(renderToString(<Page />))
+renderToString(<Probe />)
+renderToString(<Probe />)
+const shared = probes[0].props.children[0] === probes[1].props.children[0]
+const add = Set.prototype.add
+Set.prototype.add = function (value) {
+  return add.call(this, value === 'a' ? 'A' : value)
+}
+html.push(renderToString(<Page />))
+Set.prototype.add = add
+globalThis.result = JSON.stringify({ html, shared })
+`
+
+func TestSSRCachesLucideIconsOfTheSetForm(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"lucide.tsx": lucideSetPage})
+	code, printed := buildPrinting(t, root, "lucide.tsx")
+	if strings.Contains(printed, "does not know") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	var r struct {
+		HTML   []string
+		Shared bool
+	}
+	if err := json.Unmarshal([]byte(evalResult(t, code)), &r); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Shared {
+		t.Error("two renders of an icon with the same props do not share its path elements")
+	}
+	if !strings.Contains(r.HTML[0], `class="lucide lucide-house lucide-home a b"`) {
+		t.Errorf("page has no merged class:\n%s", r.HTML[0])
+	}
+	if r.HTML[2] != r.HTML[0] || r.HTML[3] == r.HTML[0] || !strings.Contains(r.HTML[3], "A b") {
+		t.Errorf("a replaced Set.prototype.add is not used:\n%s\n%s", r.HTML[0], r.HTML[3])
+	}
+}
