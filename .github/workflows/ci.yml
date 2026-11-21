@@ -140,3 +140,50 @@ jobs:
       # type checks them. This is the prepare step of the comparison, without any measuring.
       - name: Build the comparison apps
         run: go run ./test/compare/cmd/compare build
+
+  windows:
+    # A fast subset: everything compiles, a few packages that pass on Windows, and the front end
+    # build of a new app and of the shop, started and asked for a page. The full suite does not run
+    # on Windows yet. See "CI" in docs/testing.md.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: windows (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: examples/shop/pnpm-lock.yaml
+
+      - name: Vet
+        run: go vet ./...
+      - name: Build without cgo
+        run: CGO_ENABLED=0 go build ./...
+      # These packages and tests pass on Windows. Add one when it does.
+      - name: Test
+        run: >
+          go test -count=1 -timeout 10m
+          . ./internal/realpath/ ./internal/analyze/ ./internal/config/ ./internal/core/
+          ./internal/foreign/ ./internal/langs/ ./internal/symwalk/ ./internal/content/...
+          ./internal/deverrors/
+        # The files of one package are tested together, which Windows runs in a minute.
+      - name: Test the build path
+        run: go test -count=1 -timeout 10m -run 'FileTypes|Executable|TargetSystem|Output' ./server/ ./cmd/tifa/
+      - name: Build a new app and the shop, and ask the programs for a page
+        run: scripts/smoke-build.sh
