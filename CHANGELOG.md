@@ -7,6 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Added
 
 - `tifa new`, `tifa check` and `tifa build` run on Windows (10 1809 and later, tested on Windows Server 2022 and 2025). `tifa build` writes `bin\<name>.exe` there, since Windows runs only files that end in `.exe`. A build for another system, such as `GOOS=linux` for a server, writes the bare name as before, and `-o` is used as given. `tifa dev` does not run on Windows yet.
+
 ### Changed
 
 - `tifa build` and `tifa deploy` no longer print Rolldown's PLUGIN_TIMINGS lists, and Vite's chunk size warning starts at 1000 kB for the browser bundle (it was 500 kB, which an app with a UI library passes with the one entry file Tifa makes). The app's own `build.chunkSizeWarningLimit` and `build.rolldownOptions.checks` still win.
