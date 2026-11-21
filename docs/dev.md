@@ -1,5 +1,5 @@
 ---
-summary: 'How to use `tifa dev`: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, how `tifa errors` prints the errors since the last build, how an agent or script starts `tifa dev` in the background and reads its state, log and stop (`--background`, `status`, `logs`, `stop`), where dev output goes, and how large apps are watched'
+summary: 'How to use `tifa dev`: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, how `tifa errors` prints the errors since the last build, how an agent or script starts `tifa dev` in the background and reads its state, log and stop (`--background`, `status`, `logs`, `stop`), what differs on Windows, where dev output goes, and how large apps are watched'
 audience: app
 read_when:
   - Running a Tifa app locally for the first time
@@ -7,6 +7,7 @@ read_when:
   - '`tifa dev` did not update the page after a file change, or reports an error you do not understand'
   - Checking from a script or a coding agent whether a change broke the build, a request or a page in the browser, or changing `tifa errors`
   - Starting, watching or stopping `tifa dev` from a script or a coding agent, or changing `tifa dev --background`, `status`, `logs` or `stop`
+  - Running `tifa dev` on Windows, or changing how it starts, stops or ends its children there
 ---
 
 # `tifa dev`
@@ -15,11 +16,11 @@ read_when:
 tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 ```
 
-On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [`tifa build`](build.md), and the first one of an app takes several seconds to a minute, see [Log](#log)) and starts the app. The browser connects to `--addr` only. `tifa dev` forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C, SIGTERM and SIGHUP, which a terminal sends when it closes, stop the app, Vite and `tifa dev`. A `tifa dev` started with `nohup` ignores SIGHUP. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If `tifa dev` itself is killed, the app and Vite stop on their own: the app shuts down as it does on SIGTERM, and Vite within the same 5 seconds. `tifa dev` hands the app and Vite only the files it names for them, not the ones it inherited, such as the lock a script holds with `flock`.
+On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [`tifa build`](build.md), and the first one of an app takes several seconds to a minute, see [Log](#log)) and starts the app. The browser connects to `--addr` only. `tifa dev` forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C, SIGTERM and SIGHUP, which a terminal sends when it closes, stop the app, Vite and `tifa dev`. A `tifa dev` started with `nohup` ignores SIGHUP. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If `tifa dev` itself is killed, the app and Vite stop on their own: the app shuts down as it does on SIGTERM, and Vite within the same 5 seconds (on Windows both end at once, see [On Windows](#on-windows)). `tifa dev` hands the app and Vite only the files it names for them, not the ones it inherited, such as the lock a script holds with `flock`.
 
 An app with a `package.json` needs its npm packages first. Right after a clone, `node_modules` is missing, and `tifa dev` (like `tifa build`) stops before it starts anything and prints the command to run: `pnpm install` when pnpm is on PATH, `npm install` otherwise. An app without pages has no `package.json` and needs no Node.
 
-`tifa dev` does not run on Windows yet. Use WSL.
+`tifa dev` runs on Windows 10 1809 and later as it does elsewhere, `--background` and the commands of [Agents and scripts](#agents-and-scripts) included. [On Windows](#on-windows) has what differs there.
 
 A second `tifa dev` in the same app does not start. It prints `tifa: tifa dev is already running in this app at http://<address> (pid <N>)` and exits with an error, before it starts Vite. `tifa build` stops the same way while a `tifa dev` runs, since both write `.tifa/dist`. The lock is `.tifa/dev.lock`, and it goes away with the process that holds it. Without `--addr`, a taken port 9527 moves `tifa dev` on to 9528 and up, ten ports in all, and the `serving` line names the one it took. With `--addr`, `tifa dev` uses exactly that address and fails when it is taken.
 
@@ -198,7 +199,16 @@ A `tifa dev` runs when it holds the lock `.tifa/dev.lock`, which the system free
 
 `stop` also does not trust the record's process ID by itself. It signals only after the program at the recorded address has answered at `/__tifa/dev/status` with that same process ID in `X-Tifa-Dev-Pid`. A holder that does not answer so, for instance a record that the new holder has not written yet, is left alone: the command says so and exits with status 1. It never touches a `tifa build`, which takes the same lock.
 
-On Windows `tifa dev` does not run yet, so these commands, `--background` included, say so and stop. Use WSL.
+## On Windows
+
+`tifa dev` works the same on Windows, with these differences:
+
+- Ctrl-C, Ctrl-Break and closing the console window stop it. Windows has no signal that one program can send another, so `tifa dev stop` sets an event that `tifa dev` waits on, `Local\tifa-dev-stop-<pid>`. The event belongs to the Windows login session, so `stop` reaches only a `tifa dev` started in the same session.
+- To restart the app, `tifa dev` closes the app's standard input, which the app reads to its end, and then shuts down as it does on SIGTERM: `OnShutdown` runs. The app's code needs nothing for it.
+- `tifa dev` runs in a job object (how Windows treats a group of processes as one), and the app in one of its own inside it. When `tifa dev` is killed, from the Task Manager or `taskkill /F`, Windows ends Node, Vite, `go build`, the app and what the app started, at once. The app gets no `OnShutdown` then.
+- Windows does not let a running program be written over. Before each Go build `tifa dev` renames the program the app runs from, `bin\tifa-dev.exe`, to `bin\tifa-dev.old-<number>.exe`, and deletes the ones earlier builds left once they no longer run.
+- `--background` runs `tifa dev` without a console window. Node, `go` and the app share its hidden console, so no window opens.
+- Without `--addr`, a port that Windows reserves for Hyper-V, WSL or Docker (`netsh interface ipv4 show excludedportrange protocol=tcp`) counts as taken, and `tifa dev` moves on to the next one.
 
 ## Tifa errors
 

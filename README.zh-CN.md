@@ -122,7 +122,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 ## 新建应用
 
-需要 Go 1.27 和 Node 20.19 或 22.12 及以上（Vite 8 的要求）。Node 自带的 npm 就够用，装了 pnpm 的话 `tifa new` 会用 pnpm。页面需要 React 19.3 及以上，`tifa new` 装的就是。Node 只用来构建前端，部署出去的程序不需要它。`tifa new`、`tifa check` 和 `tifa build` 可以在 Windows 上运行，构建出的程序是 `bin\<应用名>.exe`。`tifa dev` 暂不支持 Windows，请用 WSL。
+需要 Go 1.27 和 Node 20.19 或 22.12 及以上（Vite 8 的要求）。Node 自带的 npm 就够用，装了 pnpm 的话 `tifa new` 会用 pnpm。页面需要 React 19.3 及以上，`tifa new` 装的就是。Node 只用来构建前端，部署出去的程序不需要它。`tifa new`、`tifa dev`、`tifa check` 和 `tifa build` 可以在 Windows（10 1809 及以上）上运行，构建出的程序是 `bin\<应用名>.exe`。
 
 ```sh
 go run github.com/liustack/tifa/cmd/tifa@latest new myapp
