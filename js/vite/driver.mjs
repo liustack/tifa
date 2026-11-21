@@ -86,12 +86,13 @@ const channel = await new Promise((resolve, reject) => {
   })
   socket.once('error', reject)
 })
-// tifa closed its end: nothing is left to answer, and stdin ends too.
+// tifa closed its end, which it does only when it is gone or has ended the driver, and stdin ends
+// too: the close that stdin starts stops Vite's dev server before the process exits. An answer that
+// cannot be written is lost with the reader.
 channel.on('error', () => {})
-channel.on('close', () => process.exit(0))
 const answer = (value) => channel.write(JSON.stringify(value) + '\n')
 // finish sends what is written and closes the connection, before process.exit may drop it.
-const finish = () => new Promise((resolve) => channel.end(resolve))
+const finish = () => (channel.destroyed ? Promise.resolve() : new Promise((resolve) => channel.end(resolve)))
 
 // takeWarnings returns the warnings the tifa plugin of this thread printed since the last call, see
 // warningsPlugin in js/vite/plugin.js. The worker thread of the SSR build runs its source text, so it
