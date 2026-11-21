@@ -112,7 +112,7 @@ it and stop it.`,
 				return err
 			}
 			defer front.Close()
-			exe := filepath.Join(root, devOutput, "tifa-dev")
+			exe := filepath.Join(root, devOutput, "tifa-dev"+exeSuffix)
 			return devserver.Run(ctx, ln, devserver.Options{
 				Dir:     root,
 				Ignore:  []string{devOutput},

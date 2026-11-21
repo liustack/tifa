@@ -87,7 +87,11 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return fmt.Errorf("node: %w", err)
 			}
 			// 4. go build, which embeds .tifa/dist.
-			out, err := outputPath(output, root, m.Module)
+			goos, err := goEnvOS(cmd.Context(), root)
+			if err != nil {
+				return err
+			}
+			out, err := outputPath(output, root, m.Module, goos)
 			if err != nil {
 				return err
 			}
@@ -103,7 +107,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<name of the module>)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<name of the module>, with .exe on Windows)")
 	return cmd
 }
 
@@ -388,19 +392,36 @@ func missingDependencyHint(stderr string) string {
 
 // outputPath is where tifa build writes the executable: the value of -o, which when relative is
 // against the working directory (go build runs at the root of the application), or the default.
-func outputPath(output, root, modulePath string) (string, error) {
+func outputPath(output, root, modulePath, goos string) (string, error) {
 	if output == "" {
-		return defaultOutput(root, modulePath), nil
+		return defaultOutput(root, modulePath, goos), nil
 	}
 	return filepath.Abs(output)
 }
 
 // defaultOutput is where tifa build writes the executable without -o: bin/ of the application,
 // named as go build names it, after the last element of the module path that is not a major
-// version (shop for example.com/shop/v2).
-func defaultOutput(root, modulePath string) string {
+// version (shop for example.com/shop/v2), with .exe added when goos, the system the build is for,
+// is windows: Windows does not run a file without it.
+func defaultOutput(root, modulePath, goos string) string {
 	if prefix, _, ok := module.SplitPathVersion(modulePath); ok {
 		modulePath = prefix
 	}
-	return filepath.Join(root, "bin", path.Base(modulePath))
+	name := path.Base(modulePath)
+	if goos == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(root, "bin", name)
+}
+
+// goEnvOS returns GOOS as the go command sees it in root: the environment, or the file go env -w
+// writes, or else the system tifa runs on. It is the system tifa build writes the program for.
+func goEnvOS(ctx context.Context, root string) (string, error) {
+	goenv := exec.CommandContext(ctx, "go", "env", "GOOS")
+	goenv.Dir = root
+	out, err := goenv.Output()
+	if err != nil {
+		return "", fmt.Errorf("go env GOOS: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }

@@ -80,7 +80,7 @@ func cli(t *testing.T) string {
 			cliErr = err
 			return
 		}
-		cliPath = filepath.Join(dir, "tifa")
+		cliPath = filepath.Join(dir, "tifa"+exeSuffix)
 		cmd := exec.Command("go", "build", "-o", cliPath, "./cmd/tifa")
 		cmd.Dir = repoRoot(t)
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
