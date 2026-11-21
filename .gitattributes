@@ -1,0 +1,6 @@
+# Keep LF in the working tree on every system. Tests compare bytes with golden files,
+# templates are embedded with go:embed, and shell scripts must not get CRLF.
+* text=auto eol=lf
+*.avif binary
+*.ico binary
+*.woff2 binary
