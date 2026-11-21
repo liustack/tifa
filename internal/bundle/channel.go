@@ -26,6 +26,8 @@ var channelProofTimeout = 5 * time.Second
 // driver connects and sends the token first. Another program of the machine may connect too, so
 // the channel takes the first connection that sends the right token and drops the others, and
 // stops listening once it has one.
+// A flood of connections from another local user before the driver connects can delay or stall
+// startup: the channel does not limit them.
 //
 // Either side dying ends the reading: the driver's end of the connection closes with its process,
 // and tifa closing the channel closes the other end. The requests still go to the driver's stdin,
@@ -40,9 +42,10 @@ type channel struct {
 	// exited is closed when the driver process has exited. Set it before the first Read.
 	exited <-chan struct{}
 
-	mu   sync.Mutex
-	conn net.Conn // set by Read once ready has one
-	once sync.Once
+	admitting sync.WaitGroup // the accept loop and the admissions in flight
+	mu        sync.Mutex
+	conn      net.Conn // set by Read once ready has one
+	once      sync.Once
 }
 
 func newChannel() (*channel, error) {
@@ -56,6 +59,7 @@ func newChannel() (*channel, error) {
 		return nil, err
 	}
 	c := &channel{ln: ln, token: hex.EncodeToString(secret), timeout: channelProofTimeout, ready: make(chan net.Conn, 1), done: make(chan struct{})}
+	c.admitting.Add(1)
 	go c.accept()
 	return c, nil
 }
@@ -65,13 +69,18 @@ func (c *channel) env() []string {
 	return []string{channelAddrEnv + "=" + c.ln.Addr().String(), channelTokenEnv + "=" + c.token}
 }
 
+// admitHook is set by tests to hold admit between the proof and the publishing.
+var admitHook func()
+
 func (c *channel) accept() {
+	defer c.admitting.Done()
 	for {
 		conn, err := c.ln.Accept()
 		if err != nil {
 			return
 		}
-		go c.admit(conn)
+		c.admitting.Add(1)
+		go func() { defer c.admitting.Done(); c.admit(conn) }()
 	}
 }
 
@@ -86,12 +95,22 @@ func (c *channel) admit(conn net.Conn) {
 		return
 	}
 	conn.SetReadDeadline(time.Time{})
+	if admitHook != nil {
+		admitHook()
+	}
+	// Under the lock, so that a Close that has run is seen and its drain is not missed.
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	won := false
-	c.once.Do(func() {
-		won = true
-		c.ready <- conn
-		c.ln.Close()
-	})
+	select {
+	case <-c.done:
+	default:
+		c.once.Do(func() {
+			won = true
+			c.ready <- conn
+			c.ln.Close()
+		})
+	}
 	if !won {
 		conn.Close()
 	}
@@ -107,6 +126,10 @@ func (c *channel) Read(p []byte) (int, error) {
 		select {
 		case conn = <-c.ready:
 		case <-c.exited:
+			// The driver may have sent its proof and its last answer and exited before admit published
+			// the connection: stop listening and let the admissions in flight finish.
+			c.ln.Close()
+			c.admitting.Wait()
 			select { // it may have connected and then exited
 			case conn = <-c.ready:
 			default:

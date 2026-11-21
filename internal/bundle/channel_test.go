@@ -117,3 +117,46 @@ func TestChannelCloseEndsAWaitingRead(t *testing.T) {
 		t.Fatal("Close did not end the read")
 	}
 }
+
+// setAdmitHook runs f in admit after the proof is checked and before the connection is published.
+func setAdmitHook(t *testing.T, f func()) {
+	t.Helper()
+	admitHook = f
+	t.Cleanup(func() { admitHook = nil })
+}
+
+// A driver that sends its startup error and exits before admit has published the connection must
+// still have its answer read: the user gets the error of Node or Vite, not a bare exit.
+func TestChannelReadsTheAnswerOfADriverThatExitedDuringAdmission(t *testing.T) {
+	reached, release := make(chan struct{}), make(chan struct{})
+	setAdmitHook(t, func() { close(reached); <-release })
+	ch, exited := newTestChannel(t)
+	driver := dial(t, ch)
+	io.WriteString(driver, tokenOf(ch)+"\nstartup error\n")
+	driver.Close()
+	<-reached
+	close(exited)
+	go func() { time.Sleep(100 * time.Millisecond); close(release) }()
+	got, err := io.ReadAll(ch)
+	if err != nil || string(got) != "startup error\n" {
+		t.Errorf("ReadAll = %q, %v, want the startup error", got, err)
+	}
+}
+
+// A connection that proves itself while Close runs is closed, not left open with no reader.
+func TestChannelClosesAConnectionAdmittedAfterClose(t *testing.T) {
+	reached, release := make(chan struct{}), make(chan struct{})
+	setAdmitHook(t, func() { close(reached); <-release })
+	ch, _ := newTestChannel(t)
+	driver := dial(t, ch)
+	io.WriteString(driver, tokenOf(ch)+"\n")
+	<-reached
+	ch.Close()
+	close(release)
+	driver.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := driver.Read(make([]byte, 1)); err == nil {
+		t.Error("the channel kept a connection admitted after Close")
+	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Error("the connection admitted after Close was left open")
+	}
+}
