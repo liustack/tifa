@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -402,5 +403,9 @@ func defaultOutput(root, modulePath string) string {
 	if prefix, _, ok := module.SplitPathVersion(modulePath); ok {
 		modulePath = prefix
 	}
-	return filepath.Join(root, "bin", path.Base(modulePath))
+	name := path.Base(modulePath)
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(root, "bin", name)
 }

@@ -132,7 +132,7 @@ func (c Copy) Hash(source string) (string, error) {
 // CheckTanStack finds them (react-router from the app, the others from react-router), and
 // returns one message for each piece whose hash differs.
 func CheckCopies(root string) ([]string, error) {
-	root, err := filepath.EvalSymlinks(root)
+	root, err := realPath(root)
 	if err != nil {
 		return nil, err
 	}

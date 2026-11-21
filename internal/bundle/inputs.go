@@ -85,7 +85,7 @@ func writeInputs(root, dist, public string, modules []string, incomplete string)
 // which a plugin may watch, and files gone since.
 func moduleFiles(root string, modules []string) ([]string, error) {
 	// Vite names modules by their real paths, such as /private/tmp/app for /tmp/app on macOS.
-	real, err := filepath.EvalSymlinks(root)
+	real, err := realPath(root)
 	if err != nil {
 		return nil, err
 	}

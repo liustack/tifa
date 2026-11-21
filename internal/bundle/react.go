@@ -2,7 +2,6 @@ package bundle
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -16,7 +15,7 @@ const MinReact = "19.3.0"
 // MinReact, a prerelease of it included. It looks the packages up the way Node and Vite do, from
 // the real directory of the app.
 func CheckReact(root string) error {
-	root, err := filepath.EvalSymlinks(root)
+	root, err := realPath(root)
 	if err != nil {
 		return err
 	}

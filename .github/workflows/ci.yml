@@ -230,7 +230,7 @@ jobs:
           echo "== dev --background"; go tool tifa dev --background 2>&1 | tail -20
           echo "== dev status"; go tool tifa dev status 2>&1 | tail -10
           echo "-- curl dev /"; curl -s -o /dev/null -w "%{http_code}\n" --max-time 20 http://127.0.0.1:9527/
-          echo "-- edit page"; sed -i 's/Todos/My todos/' app/page.tsx; sleep 10
+          echo "-- edit page"; sed -i "s#>Todos<#>My todos<#" app/page.tsx; sleep 10
           curl -s --max-time 20 http://127.0.0.1:9527/ | grep -o 'My todos' | head -1
           echo "== dev logs"; go tool tifa dev logs 2>&1 | tail -30
           echo "== dev stop"; go tool tifa dev stop 2>&1 | tail -5
