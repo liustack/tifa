@@ -7,6 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Changed
 
 - `tifa new` pins `github.com/liustack/sqlite` v0.1.8. It runs on windows/arm64, and on a target it does not support the build stops with the list of supported ones, instead of failing when the program opens a database. `PRAGMA optimize` no longer fails with `SQLITE_BUSY` while another connection writes, and `_pragma=optimize` in the DSN is refused: run it with `Exec`. Readers that fill every core no longer wait on each other in the WAL index. An existing app can upgrade with `go get github.com/liustack/sqlite@v0.1.8`.
+- `deploy.cdn` is `deploy.front` again, with the same values `none` and `cloudflare`. The value says what visitors come through before the server: with `cloudflare` that is the Tunnel, DNS, rules, cache clearing and the path `ssh: cloudflare` uses, not only a CDN cache. Upgrading: in `tifa.yaml`, rename `cdn:` under `deploy:` to `front:`. A `cdn` key is a warning at its line, and every `tifa deploy` command stops on it.
 
 ## [0.1.12] - 2026-11-21
 

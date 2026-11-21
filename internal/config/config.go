@@ -49,9 +49,9 @@ type Site struct {
 // server as ssh knows it, a name of ~/.ssh/config or an address, empty when not set.
 type Deploy struct {
 	Host string
-	// CDN is the CDN visitors come through: none or cloudflare. With cloudflare the domain is the
+	// Front is what visitors come through before the server: none or cloudflare. With cloudflare the domain is the
 	// host of site.url.
-	CDN string
+	Front string
 	// SSH is how CI reaches the server: direct, cloudflare or tailscale.
 	SSH string
 	// CI says who deploys automatically: none or github.
@@ -210,7 +210,7 @@ func Default() Config {
 		SSR:     SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
 		Cache:   Cache{SMaxage: time.Minute},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
-		Deploy:  Deploy{CDN: "none", SSH: "direct", CI: "none"},
+		Deploy:  Deploy{Front: "none", SSH: "direct", CI: "none"},
 	}
 }
 
@@ -268,7 +268,7 @@ func fields(c *Config) []field {
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 		{"deploy.host", "Server tifa deploy puts the app on, a host name of ~/.ssh/config or an address", sshHostValue{&c.Deploy.Host}},
-		{"deploy.cdn", "The CDN visitors come through: none or cloudflare, on the host of site.url", cdnValue{&c.Deploy.CDN}},
+		{"deploy.front", "What visitors come through before the server: none or cloudflare, on the host of site.url", frontValue{&c.Deploy.Front}},
 		{"deploy.ssh", "How CI reaches the server over ssh: direct, cloudflare or tailscale", sshModeValue{&c.Deploy.SSH}},
 		{"deploy.ci", "Who deploys automatically: none or github, set up by tifa deploy setup", ciValue{&c.Deploy.CI}},
 	}
@@ -352,8 +352,8 @@ var retiredKeys = []struct {
 	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program", true},
 	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false},
 	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false},
-	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.cdn: cloudflare to use Cloudflare", false},
-	{"deploy.front", "it is now deploy.cdn, with the same values none and cloudflare", false},
+	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false},
+	{"deploy.cdn", "it is now deploy.front, with the same values none and cloudflare", false},
 	{"deploy.github", "it is now deploy.ci: github for true, none for false", false},
 }
 

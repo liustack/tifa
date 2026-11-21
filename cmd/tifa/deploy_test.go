@@ -198,7 +198,7 @@ func TestShellQuote(t *testing.T) {
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: from-yaml\n  cdn: cloudflare\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: from-yaml\n  front: cloudflare\n  ci: github\n")
 	t.Setenv(deployHostEnv, "")
 	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "from-yaml" || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
 		t.Errorf("tifa.yaml: %+v, %v", d, err)
@@ -231,17 +231,17 @@ func TestDeploySettingsChecks(t *testing.T) {
 	for name, tc := range map[string]struct {
 		yaml, want string // want is empty when the settings are fine
 	}{
-		"none":                     {"deploy:\n  host: vps\n", ""},
-		"cdn needs a site url":     {"deploy:\n  host: vps\n  cdn: cloudflare\n", "site.url"},
-		"cdn with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  host: vps\n  cdn: cloudflare\n", "port"},
-		"port without cdn":         {"site:\n  url: http://localhost:8080\ndeploy:\n  host: vps\n", ""},
-		"ssh cloudflare needs cdn": {site + "deploy:\n  host: vps\n  ssh: cloudflare\n  ci: github\n", "deploy.cdn"},
-		"ssh tailscale needs ci":   {site + "deploy:\n  host: vps\n  ssh: tailscale\n", "deploy.ci"},
-		"ssh cloudflare needs ci":  {site + "deploy:\n  host: vps\n  cdn: cloudflare\n  ssh: cloudflare\n", "deploy.ci"},
-		"all set":                  {site + "deploy:\n  host: vps\n  cdn: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
-		"old domain":               {"deploy:\n  host: vps\n  domain: shop.example.com\n", "deploy.cdn"},
-		"old front":                {"deploy:\n  host: vps\n  front: cloudflare\n", "it is now deploy.cdn"},
-		"old github":               {"deploy:\n  host: vps\n  github: true\n", "deploy.ci"},
+		"none":                       {"deploy:\n  host: vps\n", ""},
+		"front needs a site url":     {"deploy:\n  host: vps\n  front: cloudflare\n", "site.url"},
+		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  host: vps\n  front: cloudflare\n", "port"},
+		"port without front":         {"site:\n  url: http://localhost:8080\ndeploy:\n  host: vps\n", ""},
+		"ssh cloudflare needs front": {site + "deploy:\n  host: vps\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
+		"ssh tailscale needs ci":     {site + "deploy:\n  host: vps\n  ssh: tailscale\n", "deploy.ci"},
+		"ssh cloudflare needs ci":    {site + "deploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n", "deploy.ci"},
+		"all set":                    {site + "deploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
+		"old domain":                 {"deploy:\n  host: vps\n  domain: shop.example.com\n", "deploy.front"},
+		"old cdn":                    {"deploy:\n  host: vps\n  cdn: cloudflare\n", "it is now deploy.front"},
+		"old github":                 {"deploy:\n  host: vps\n  github: true\n", "deploy.ci"},
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
@@ -254,7 +254,7 @@ func TestDeploySettingsChecks(t *testing.T) {
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%s: got %v, want %q", name, err, tc.want)
 		}
-		if tc.want == "" && d.domain != map[bool]string{true: "shop.example.com"}[strings.Contains(tc.yaml, "cdn: cloudflare")] {
+		if tc.want == "" && d.domain != map[bool]string{true: "shop.example.com"}[strings.Contains(tc.yaml, "front: cloudflare")] {
 			t.Errorf("%s: domain %q", name, d.domain)
 		}
 	}

@@ -1045,7 +1045,7 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) error {
 	switch {
 	case f.purgeToken && (t.domain == "" || !t.github):
-		return errors.New("--cache-purge-token is for the token CI clears the CDN cache with, which needs deploy.cdn: cloudflare and deploy.ci: github in tifa.yaml")
+		return errors.New("--cache-purge-token is for the token CI clears the CDN cache with, which needs deploy.front: cloudflare and deploy.ci: github in tifa.yaml")
 	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
 		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
 	case (f.purgeToken || f.tailscaleOAuth) && !stdinIsTerminal(in):

@@ -294,7 +294,7 @@ func newDeployRemoveCmd(dir, host *string) *cobra.Command {
 		Use:   "remove",
 		Short: "Take the app off the server, and take back what tifa made for it",
 		Long: `remove stops the app and deletes its units and its folder on the server, with its releases,
-its .env and its data. With deploy.cdn cloudflare it deletes the route, the DNS record and the
+its .env and its data. With deploy.front cloudflare it deletes the route, the DNS record and the
 rules of its domain and the Access of the repository, and the tunnel and cloudflared once no other
 app of the server uses them. With deploy.ci github it deletes the key of the repository on the
 server and the secrets and the variable of the repository. It removes only what Tifa made and

@@ -438,7 +438,7 @@ const tunnelFacts = "tunnel tunnel-1\ncloudflared /usr/bin/cloudflared\ntunnel-a
 // token goes to the server and to nobody else, a second run has nothing to do, and removing the
 // domain removes what was added for it.
 func TestSetupDomain(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, ""))
 	cf := cfSetup(t, "example.com")
 
@@ -532,7 +532,7 @@ func TestSetupLeavesForeignDNS(t *testing.T) {
 
 // Without cf the domain cannot be done, and the plan says so.
 func TestSetupDomainNeedsCF(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, ""))
 	oldHave := haveCF
 	t.Cleanup(func() { haveCF = oldHave })
@@ -543,7 +543,7 @@ func TestSetupDomainNeedsCF(t *testing.T) {
 	}
 }
 
-// purgeSetup is a setup with cdn cloudflare and ci github on a prepared server. Tokens are what
+// purgeSetup is a setup with front cloudflare and ci github on a prepared server. Tokens are what
 // the hidden prompt returns one after the other, and tried is what it was asked. The Cloudflare
 // API accepts the token tok-good and answers 403 to any other.
 type purgeSetup struct {
@@ -558,7 +558,7 @@ type purgeSetup struct {
 
 func newPurgeSetup(t *testing.T, tokens ...string) *purgeSetup {
 	s := &purgeSetup{prompt: tokens}
-	s.root = setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n  ci: github\n", nil)
+	s.root = setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n", nil)
 	s.srv = newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
 	s.cf = cfSetup(t, "example.com")
 	s.cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -675,7 +675,7 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 }
 
 // --cache-purge-token asks for the token even when the secret is there, and replaces it. It needs a
-// terminal, deploy.cdn cloudflare and deploy.ci github.
+// terminal, deploy.front cloudflare and deploy.ci github.
 func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	s := newPurgeSetup(t, "tok-good")
 	s.gh.secrets[secretPurge] = "set earlier"
@@ -687,8 +687,8 @@ func TestSetupCachePurgeTokenFlag(t *testing.T) {
 		t.Errorf("no terminal: %v", err)
 	}
 	writeFile(t, filepath.Join(s.root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n")
-	if _, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "deploy.cdn") {
-		t.Errorf("cdn none: %v", err)
+	if _, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "deploy.front") {
+		t.Errorf("front none: %v", err)
 	}
 }
 
@@ -739,12 +739,12 @@ func TestSetupPurgeTokenOldName(t *testing.T) {
 	}
 }
 
-// Without cdn, or without ci, the secret tifa set goes, and the plan says to delete the token in
+// Without front, or without ci, the secret tifa set goes, and the plan says to delete the token in
 // Cloudflare, which tifa cannot do.
 func TestSetupPurgeTokenRemoved(t *testing.T) {
 	for name, yaml := range map[string]string{
-		"cdn none": "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n",
-		"ci none":  "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n",
+		"front none": "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  ci: github\n",
+		"ci none":    "site:\n  url: https://shop.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n",
 	} {
 		s := newPurgeSetup(t, "tok-good")
 		if _, err := runSetup(t, s.root, true, "", "--yes"); err != nil || s.gh.secrets[secretPurge] != "tok-good" {
@@ -768,7 +768,7 @@ func TestSetupPurgeTokenRemoved(t *testing.T) {
 // deploy.ssh cloudflare: the ssh host name goes on the tunnel with an Access application that
 // admits the token of the repository. Back to direct, the Access objects go.
 func TestSetupCloudflareSSH(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -803,7 +803,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	}
 
 	// Back to direct.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ci: github\n")
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "remove  cloudflare: the Access service token, policy and application of acme/shop") {
@@ -913,7 +913,7 @@ func TestSetupTailscaleOAuthSkippedOrMisused(t *testing.T) {
 
 // While it plans, setup says which part it is reading, on stderr, one line each.
 func TestSetupProgressOnStderr(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cfSetup(t, "example.com")
 	newFakeGH().install(t)
@@ -939,7 +939,7 @@ func TestSetupProgressOnStderr(t *testing.T) {
 
 // One plan reads each thing once, however many steps look at it.
 func TestSetupPlanReadsOnce(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -965,7 +965,7 @@ func TestSetupPlanReadsOnce(t *testing.T) {
 // The reads that do not depend on each other run together: with every call slow, the plan takes
 // far less than all its calls one after the other.
 func TestSetupPlanReadsTogether(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  cdn: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  host: vps\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
