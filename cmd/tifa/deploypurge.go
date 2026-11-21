@@ -4,9 +4,10 @@ package main
 // the domain of the app, and write the result into the summary of a GitHub Actions run.
 //
 // The cache is cleared by host name, never the whole zone. On a machine with cf logged in it is
-// cf that does it. In CI there is no cf: TIFA_DEPLOY_CF_PURGE_TOKEN, a Cloudflare API token that can only
-// purge the cache of one zone, and TIFA_DEPLOY_CF_ZONE_ID, the ID of that zone (not a secret, the workflow
-// carries it), go to the Cloudflare API directly. Tifa keeps neither.
+// cf that does it. Without cf, as in CI, TIFA_DEPLOY_CF_PURGE_TOKEN, a Cloudflare API token that
+// can only purge the cache of one zone, and TIFA_DEPLOY_CF_ZONE_ID, the ID of that zone, go to the
+// Cloudflare API directly. Both are inputs of tifa deploy: the environment, else the .env of the
+// app. Tifa keeps neither.
 
 import (
 	"bytes"
@@ -109,18 +110,26 @@ func (r cacheResult) String() string {
 	return "NOT cleared for " + r.Host + ": " + r.Warning
 }
 
-// clearCache clears the CDN cache of domain, which is empty when the app has no domain.
-func clearCache(ctx context.Context, domain string) cacheResult {
+// clearCache clears the CDN cache of domain, which is empty when the app has no domain. The token
+// and the zone ID are inputs of tifa deploy: the environment, else the .env at root.
+func clearCache(ctx context.Context, root, domain string) cacheResult {
 	r := cacheResult{Host: domain}
 	if domain == "" {
 		return r
 	}
-	var err error
-	switch token := os.Getenv(envPurgeToken); {
+	token, _, err := readDeployInput(root, "", "", envPurgeToken)
+	if err != nil {
+		r.Warning = err.Error()
+		return r
+	}
+	switch {
 	case token != "":
-		zone := os.Getenv(envZoneID)
+		var zone string
+		if zone, _, err = readDeployInput(root, "", "", envZoneID); err != nil {
+			break
+		}
 		if zone == "" {
-			err = fmt.Errorf("%s is set and %s is not, and the workflow written by tifa deploy setup sets both", envPurgeToken, envZoneID)
+			err = fmt.Errorf("%s is set and %s is not: put the ID of the zone in the environment or in the .env at the root of the app (the token only clears the cache, so it cannot read the zone to find it)", envPurgeToken, envZoneID)
 			break
 		}
 		err = purgeWithToken(ctx, token, zone, domain)
@@ -259,4 +268,4 @@ func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
 const noTokenCost = "a page with Cache stays on the CDN until its Cache time runs out. That copy may ask for scripts the new build no longer has"
 
 // noTokenHow says how to have the cache cleared at each deploy.
-const noTokenHow = "To clear it at each deploy: tifa deploy setup --cache-purge-token, or cf auth login on this machine"
+const noTokenHow = "To clear it at each deploy: tifa deploy setup --cache-purge-token, or cf auth login on this machine, or put " + envPurgeToken + " and " + envZoneID + " in the .env of the app"

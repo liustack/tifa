@@ -43,7 +43,7 @@ func TestPurgeRequestShape(t *testing.T) {
 	api.install(t)
 	t.Setenv(envPurgeToken, "tok-123")
 	t.Setenv(envZoneID, "zone-9")
-	r := clearCache(context.Background(), "shop.example.com")
+	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
 	if !r.Cleared || r.Warning != "" {
 		t.Fatalf("result %+v", r)
 	}
@@ -61,16 +61,16 @@ func TestPurgeFailureIsAWarning(t *testing.T) {
 	api.install(t)
 	t.Setenv(envPurgeToken, "tok-secret")
 	t.Setenv(envZoneID, "zone-9")
-	r := clearCache(context.Background(), "shop.example.com")
+	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
 	if r.Cleared || !strings.Contains(r.Warning, "403") || !strings.Contains(r.Warning, "Authentication error") || strings.Contains(r.Warning, "tok-secret") {
 		t.Errorf("result %+v", r)
 	}
 	api.path = ""
-	if r := clearCache(context.Background(), ""); r.Cleared || api.path != "" || r.String() != "not used, deploy.front is not cloudflare" {
+	if r := clearCache(context.Background(), t.TempDir(), ""); r.Cleared || api.path != "" || r.String() != "not used, deploy.front is not cloudflare" {
 		t.Errorf("no domain: %+v, %q", r, api.path)
 	}
 	t.Setenv(envZoneID, "")
-	if r := clearCache(context.Background(), "shop.example.com"); r.Cleared || !strings.Contains(r.Warning, envZoneID) {
+	if r := clearCache(context.Background(), t.TempDir(), "shop.example.com"); r.Cleared || !strings.Contains(r.Warning, envZoneID) {
 		t.Errorf("no zone: %+v", r)
 	}
 }
@@ -82,7 +82,7 @@ func TestNoPurgeTokenIsNoWarning(t *testing.T) {
 	oldHave := haveCF
 	t.Cleanup(func() { haveCF = oldHave })
 	haveCF = func() bool { return false }
-	r := clearCache(context.Background(), "shop.example.com")
+	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
 	if r.Cleared || !r.NoToken || r.Warning != "" {
 		t.Fatalf("result %+v", r)
 	}
@@ -112,7 +112,7 @@ func TestPurgeWithCF(t *testing.T) {
 		}
 		return inner(ctx, args...)
 	}
-	r := clearCache(context.Background(), "shop.example.com")
+	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
 	if !r.Cleared {
 		t.Fatalf("%+v", r)
 	}
@@ -195,5 +195,37 @@ func TestHealthCapture(t *testing.T) {
 	io.WriteString(h, "ck: GET /healthz answered 200\ndone\n")
 	if h.line != "GET /healthz answered 200" || !strings.Contains(out.String(), "starting r") {
 		t.Errorf("line %q, out %q", h.line, out.String())
+	}
+}
+
+// The token and the zone ID are inputs like the server: the environment first, else the .env at the
+// root of the app. A machine without a cf login clears the cache with them.
+func TestPurgeInputsFromEnvFile(t *testing.T) {
+	api := &fakeCloudflareAPI{status: 200}
+	api.install(t)
+	t.Setenv(envPurgeToken, "")
+	t.Setenv(envZoneID, "")
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".env"), "OTHER=1\n"+envPurgeToken+"=tok-file\n"+envZoneID+"=zone-file\n")
+	r := clearCache(context.Background(), root, "shop.example.com")
+	if !r.Cleared || api.path != "POST /zones/zone-file/purge_cache" || api.auth != "Bearer tok-file" {
+		t.Fatalf(".env: %+v, %s, %q", r, api.path, api.auth)
+	}
+	// The environment beats the file, for each input on its own.
+	t.Setenv(envZoneID, "zone-env")
+	if r := clearCache(context.Background(), root, "shop.example.com"); !r.Cleared || api.path != "POST /zones/zone-env/purge_cache" || api.auth != "Bearer tok-file" {
+		t.Errorf("env zone: %+v, %s, %q", r, api.path, api.auth)
+	}
+	// A token without a zone ID: a purge-only token cannot read the zone, so the warning says to give it.
+	writeFile(t, filepath.Join(root, ".env"), envPurgeToken+"=tok-file\n")
+	t.Setenv(envZoneID, "")
+	r = clearCache(context.Background(), root, "shop.example.com")
+	if r.Cleared || !strings.Contains(r.Warning, envZoneID) || !strings.Contains(r.Warning, ".env") || strings.Contains(r.Warning, "tok-file") {
+		t.Errorf("no zone: %+v", r)
+	}
+	// A .env that cannot be read is a warning, not a silent skip.
+	writeFile(t, filepath.Join(root, ".env"), "not a setting\n")
+	if r := clearCache(context.Background(), root, "shop.example.com"); r.Cleared || r.NoToken || !strings.Contains(r.Warning, ".env") {
+		t.Errorf("bad .env: %+v", r)
 	}
 }

@@ -2,6 +2,8 @@ package main
 
 // The inputs of tifa deploy: values that belong to the developer and not to tifa.yaml, which is
 // committed. They share one prefix, TIFA_DEPLOY_. Earlier versions named three of them otherwise.
+// Each one is read the same way: its flag when it has one, else the environment variable, else
+// the line in the .env at the root of the app. Tifa only reads that file and never writes to it.
 
 import (
 	"fmt"
@@ -35,4 +37,20 @@ func checkOldInputNames(root, hostFlag string) error {
 		}
 	}
 	return nil
+}
+
+// readDeployInput finds the input called name for the app at root: flagValue (the flag flagName,
+// which an input without a flag leaves empty), else the environment variable, else the .env file
+// at root. from says where the value came from, for an error. Both are empty when the input is
+// set nowhere.
+func readDeployInput(root, flagName, flagValue, name string) (value, from string, err error) {
+	if flagValue != "" {
+		return flagValue, flagName, nil
+	}
+	src := config.Read(nil, os.Environ(), root)
+	if err := src.Err(); err != nil {
+		return "", "", err
+	}
+	value, from = src.Lookup(name)
+	return value, from, nil
 }

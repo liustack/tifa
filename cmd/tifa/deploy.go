@@ -332,7 +332,7 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 		return err
 	}
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
-	sum.Cache = clearCache(ctx, t.domain)
+	sum.Cache = clearCache(ctx, t.root, t.domain)
 	printCache(stdout, sum.Cache)
 	return nil
 }
@@ -359,7 +359,7 @@ func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Write
 		return err
 	}
 	fmt.Fprintf(stdout, "rolled back to %s in %s\n", target.ID, time.Since(started).Round(100*time.Millisecond))
-	sum.Cache = clearCache(ctx, t.domain)
+	sum.Cache = clearCache(ctx, t.root, t.domain)
 	printCache(stdout, sum.Cache)
 	return nil
 }
