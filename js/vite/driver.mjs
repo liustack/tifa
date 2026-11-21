@@ -885,7 +885,11 @@ function styleLinks(files) {
   const { base, root } = server.config
   let tags = ''
   for (const file of files) {
-    const url = file.startsWith(root + path.sep) ? path.relative(root, file).split(path.sep).join('/') : '@fs' + file
+    // Vite writes root with forward slashes, also on Windows, where a file has backslashes, and
+    // wants /@fs/C:/dir/file for a file outside the root.
+    const rel = path.relative(root, file)
+    const inside = rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
+    const url = inside ? rel.split(path.sep).join('/') : '@fs/' + file.split(path.sep).join('/').replace(/^\//, '')
     tags += `<link rel="stylesheet" href="${attribute(base + encodeURI(url))}" data-vite-dev-id="${attribute(file)}">`
   }
   return tags
