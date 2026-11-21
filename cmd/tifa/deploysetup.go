@@ -786,7 +786,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
 	}
 	p.steps = append(p.steps, r.afterConnection...)
-	r.removeOldPurge(p)
+	r.removeOldNames(p)
 	if t.domain == "" {
 		if err := r.removePurge(ctx, p); err != nil {
 			return err
@@ -893,7 +893,7 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	case have && !r.purgeToken:
 		p.ok("github: the secret " + secretPurge + ". To replace the token: " + purgeTokenCommand)
 		return nil
-	case !r.purgeToken && r.ghVars[varMarker] != "":
+	case !r.purgeToken && (r.ghVars[varMarker] != "" || r.ghVars[oldVarMarker] != "" && !r.hadOldPurgeToken()):
 		p.notes = append(p.notes, planNote{what: text, why: purgeTokenLater})
 		return nil
 	}
@@ -967,16 +967,53 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// oldSecretPurge is the name the purge secret had before it got the prefix TIFA_DEPLOY_.
-const oldSecretPurge = "CF_PURGE_TOKEN"
+// The names setup used before every name had the prefix TIFA_DEPLOY_. The old variable marked the
+// secrets as tifa's, so a secret under an old name goes only while that variable is there.
+const oldVarMarker = "TIFA_DEPLOY"
 
-// removeOldPurge takes away the purge secret under its old name, which tifa set.
-func (r *setupRun) removeOldPurge(p *setupPlan) {
-	if r.ghVars[varMarker] == "" || !r.ghNames[oldSecretPurge] {
+var oldSecretNames = []string{
+	"DEPLOY_SSH_KEY", "DEPLOY_KNOWN_HOSTS", "DEPLOY_HOST", "CF_ZONE_ID",
+	"CF_CACHE_PURGE_TOKEN", "CF_PURGE_TOKEN",
+	"CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET",
+}
+
+// marked says tifa set secrets in the repository, under the new names or the old ones.
+func (r *setupRun) marked() bool { return r.ghVars[varMarker] != "" || r.ghVars[oldVarMarker] != "" }
+
+// hadOldPurgeToken says the repository has a purge token under an old name, which cannot be read
+// back, so it has to be pasted again.
+func (r *setupRun) hadOldPurgeToken() bool {
+	return r.ghVars[oldVarMarker] != "" && (r.ghNames["CF_CACHE_PURGE_TOKEN"] || r.ghNames["CF_PURGE_TOKEN"])
+}
+
+// removeOldNames plans the removal of the secrets and the variable under the old names, which tifa
+// set. The steps that set the new ones come before it in the plan. The Cloudflare token behind an
+// old purge secret is the developer's: when CI is switched off, the plan says to delete it.
+func (r *setupRun) removeOldNames(p *setupPlan) {
+	if r.ghVars[oldVarMarker] == "" {
 		return
 	}
-	p.add(opRemove, "github: the secret "+oldSecretPurge+", the old name of "+secretPurge, func(ctx context.Context) (string, error) {
-		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", oldSecretPurge, "--repo", r.repo.Name)
+	var names []string
+	for _, n := range oldSecretNames {
+		if r.ghNames[n] {
+			names = append(names, n)
+		}
+	}
+	text := "github: the variable " + oldVarMarker + ", which tifa set under its old name"
+	if len(names) > 0 {
+		text = "github: the old secrets " + strings.Join(names, ", ") + " and the variable " + oldVarMarker + ", which tifa set under their old names"
+	}
+	if r.hadOldPurgeToken() && !r.t.github {
+		text += fmt.Sprintf(". Tifa cannot delete the Cloudflare token behind the purge secret: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", purgeTokenName(r.repo.Name))
+	}
+	repo := r.repo.Name
+	p.add(opRemove, text, func(ctx context.Context) (string, error) {
+		for _, n := range names {
+			if _, err := runGH(ctx, r.t.root, nil, "secret", "delete", n, "--repo", repo); err != nil {
+				return "", err
+			}
+		}
+		_, err := runGH(ctx, r.t.root, nil, "variable", "delete", oldVarMarker, "--repo", repo)
 		return "", err
 	})
 }
@@ -1009,7 +1046,7 @@ func (r *setupRun) removeZoneSecret(p *setupPlan) {
 // removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.ssh is
 // not cloudflare any more.
 func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) error {
-	if r.t.sshMode == connCloudflare || r.ghVars[varMarker] == "" {
+	if r.t.sshMode == connCloudflare || !r.marked() {
 		return nil
 	}
 	return r.removeAccess(ctx, p)
@@ -1066,15 +1103,18 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 			return "", r.t.ssh(ctx, deployUser, revokeScript(repoName), nil, io.Discard, r.stderr)
 		})
 	}
-	if r.ghVars[varMarker] == "" {
+	if !r.marked() {
 		return nil
 	}
-	r.removeOldPurge(p)
+	r.removeOldNames(p)
 	if err := r.removePurge(ctx, p); err != nil {
 		return err
 	}
 	if err := r.removeAccess(ctx, p); err != nil {
 		return err
+	}
+	if r.ghVars[varMarker] == "" {
+		return nil
 	}
 	var names []string
 	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {

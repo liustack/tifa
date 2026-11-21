@@ -737,15 +737,16 @@ func TestSetupPurgeTokenPresent(t *testing.T) {
 	}
 }
 
-// A secret under the old name CF_PURGE_TOKEN is removed, and the new one is asked for.
+// A secret under the old name CF_PURGE_TOKEN is removed with the old variable.
 func TestSetupPurgeTokenOldName(t *testing.T) {
 	s := newPurgeSetup(t, "tok-good")
 	if _, err := runSetup(t, s.root, true, "", "--yes"); err != nil {
 		t.Fatal(err)
 	}
 	s.gh.secrets["CF_PURGE_TOKEN"] = "old"
+	s.gh.vars["TIFA_DEPLOY"] = "old fingerprint"
 	out, err := runSetup(t, s.root, true, "", "--yes")
-	if err != nil || !strings.Contains(out, "remove  github: the secret CF_PURGE_TOKEN, the old name of TIFA_DEPLOY_CF_PURGE_TOKEN") {
+	if err != nil || !strings.Contains(out, "remove  github: the old secrets CF_PURGE_TOKEN and the variable TIFA_DEPLOY, which tifa set under their old names") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if _, ok := s.gh.secrets["CF_PURGE_TOKEN"]; ok {
@@ -1194,5 +1195,106 @@ func TestSetupReplacesTheOldSSHHost(t *testing.T) {
 	ingress, _ = json.Marshal(cf.configs["tunnel-1"]["ingress"])
 	if len(cf.apps) != 0 || strings.Contains(string(ingress), "-ssh") {
 		t.Errorf("left: apps %v, ingress %s", cf.apps, ingress)
+	}
+}
+
+// oldNameSecrets are the secrets and the variable earlier versions of setup set.
+var oldNameSecrets = []string{"DEPLOY_SSH_KEY", "DEPLOY_KNOWN_HOSTS", "DEPLOY_HOST", "CF_ZONE_ID", "CF_CACHE_PURGE_TOKEN", "CF_PURGE_TOKEN", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET"}
+
+// Secrets under the old names, vouched for by the old variable TIFA_DEPLOY, are replaced: the new
+// ones are set first, then the plan removes the old secrets and the old variable. A secret of
+// the developer's own stays.
+func TestSetupMigratesOldNames(t *testing.T) {
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+	gh := newFakeGH()
+	for _, n := range oldNameSecrets {
+		gh.secrets[n] = "old " + n
+	}
+	gh.secrets["MY_OWN"] = "mine"
+	gh.vars["TIFA_DEPLOY"] = "old fingerprint"
+	gh.install(t)
+
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, n := range oldNameSecrets {
+		if _, ok := gh.secrets[n]; ok {
+			t.Errorf("the old secret %s is still there", n)
+		}
+	}
+	if _, ok := gh.vars["TIFA_DEPLOY"]; ok {
+		t.Error("the old variable is still there")
+	}
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
+		if gh.secrets[n] == "" || strings.HasPrefix(gh.secrets[n], "old ") {
+			t.Errorf("the new secret %s was not set: %q", n, gh.secrets[n])
+		}
+	}
+	if gh.vars[varMarker] == "" || gh.secrets["MY_OWN"] != "mine" {
+		t.Errorf("vars %v, secrets %v", gh.vars, gh.secrets)
+	}
+	i, j := strings.Index(out, "add     github: where CI logs in"), strings.Index(out, "remove  github: the old secrets")
+	if i < 0 || j < 0 || i > j {
+		t.Errorf("the old names must go after the new ones are set:\n%s", out)
+	}
+	if !strings.Contains(out, "DEPLOY_HOST") || !strings.Contains(out, "the variable TIFA_DEPLOY,") || strings.Contains(out, "MY_OWN") {
+		t.Errorf("plan:\n%s", out)
+	}
+
+	// Nothing is left to do.
+	setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
+	if out, err = runSetup(t, root, false, ""); err != nil || !strings.Contains(out, "matches tifa.yaml") {
+		t.Errorf("second run: %v\n%s", err, out)
+	}
+}
+
+// Old names without the old variable are not Tifa's to remove.
+func TestSetupKeepsOldNamesWithoutTheOldMarker(t *testing.T) {
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
+	gh := newFakeGH()
+	gh.secrets["DEPLOY_HOST"] = "mine"
+	gh.secrets["CF_ZONE_ID"] = "mine"
+	gh.install(t)
+	if out, err := runSetup(t, root, false, "", "--yes"); err != nil || strings.Contains(out, "old secrets") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if gh.secrets["DEPLOY_HOST"] != "mine" || gh.secrets["CF_ZONE_ID"] != "mine" {
+		t.Errorf("secrets %v", gh.secrets)
+	}
+}
+
+// With ci none, setup takes away the old secrets and the old variable, and so does remove for an
+// app with ci github.
+func TestSetupAndRemoveDropOldNames(t *testing.T) {
+	for _, command := range []string{"setup", "remove"} {
+		yaml := "deploy:\n"
+		if command == "remove" {
+			yaml = "deploy:\n  ci: github\n"
+		}
+		root := setupApp(t, yaml, nil)
+		newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+		gh := newFakeGH()
+		for _, n := range oldNameSecrets {
+			gh.secrets[n] = "old"
+		}
+		gh.secrets["MY_OWN"] = "mine"
+		gh.vars["TIFA_DEPLOY"] = "old fingerprint"
+		gh.install(t)
+		var out string
+		var err error
+		if command == "setup" {
+			out, err = runSetup(t, root, false, "", "--yes")
+		} else {
+			out, _, err = runRemove(t, root, false, "", "--yes")
+		}
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", command, err, out)
+		}
+		if len(gh.secrets) != 1 || gh.secrets["MY_OWN"] != "mine" || len(gh.vars) != 0 {
+			t.Errorf("%s: left %v %v\n%s", command, gh.secrets, gh.vars, out)
+		}
 	}
 }
