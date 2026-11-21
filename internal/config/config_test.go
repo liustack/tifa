@@ -962,7 +962,9 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 			if err != nil {
 				t.Errorf("%s: %v", name, err)
 			}
-			warnings = ProjectWarnings([]byte(tc.project))
+			for _, w := range ProjectWarnings([]byte(tc.project)) {
+				warnings = append(warnings, w.String())
+			}
 		default:
 			src := Read(tc.args, tc.environ, "")
 			if tc.dotenv {

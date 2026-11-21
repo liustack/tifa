@@ -358,19 +358,34 @@ var retiredKeys = []struct {
 }
 
 func retiredWarning(where, key, hint string) string {
-	return fmt.Sprintf("config: %s: %s is no longer used, %s", where, key, hint)
+	return fmt.Sprintf("config: %s: %s", where, retiredMsg(key, hint))
+}
+
+func retiredMsg(key, hint string) string { return key + " is no longer used, " + hint }
+
+// ProjectWarning is a retired key that the project tifa.yaml still holds.
+type ProjectWarning struct {
+	Line      int    // the line of the key in tifa.yaml
+	Key, Hint string // the key, such as deploy.front, and what to do instead
+}
+
+// Msg says that the key is no longer used and what to do, without the file and line.
+func (w ProjectWarning) Msg() string { return retiredMsg(w.Key, w.Hint) }
+
+func (w ProjectWarning) String() string {
+	return retiredWarning(fmt.Sprintf("tifa.yaml line %d", w.Line), w.Key, w.Hint)
 }
 
 // ProjectWarnings lists the retired keys the project tifa.yaml still holds, one warning each.
-func ProjectWarnings(data []byte) []string {
+func ProjectWarnings(data []byte) []ProjectWarning {
 	entries, err := yamlEntries(data)
 	if err != nil {
 		return nil // Project reports it
 	}
-	var out []string
+	var out []ProjectWarning
 	for _, r := range retiredKeys {
 		if e, ok := entries[r.key]; ok {
-			out = append(out, retiredWarning(fmt.Sprintf("tifa.yaml line %d", e.line), r.key, r.hint))
+			out = append(out, ProjectWarning{Line: e.line, Key: r.key, Hint: r.hint})
 		}
 	}
 	return out

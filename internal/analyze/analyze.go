@@ -1502,7 +1502,7 @@ func (a *analyzer) retiredWarnings() []Warning {
 	}
 	var out []Warning
 	for _, w := range config.ProjectWarnings(data) {
-		out = append(out, Warning{Pos: token.Position{Filename: "tifa.yaml"}, Msg: w})
+		out = append(out, Warning{Pos: token.Position{Filename: "tifa.yaml", Line: w.Line}, Msg: w.Msg()})
 	}
 	return out
 }
