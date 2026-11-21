@@ -22,8 +22,8 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-// deployHostEnv overrides deploy.host of tifa.yaml, as CI sets it. It is the environment variable
-// the naming rule of settings gives deploy.host.
+// deployHostEnv names the server: the environment variable, or the line of the .env at the root
+// of the app, that --host overrides. CI sets it from a secret.
 const deployHostEnv = "DEPLOY_HOST"
 
 // sshProgram is the ssh the deploy commands run: the one of the system, so ~/.ssh/config,
@@ -53,6 +53,8 @@ type deployTarget struct {
 	root string
 	app  string
 	host string
+	// dest is host checked and taken apart.
+	dest deployHost
 	// domain is the host of site.url when deploy.front is cloudflare, else empty.
 	domain string
 	// sshMode is how CI reaches the server: direct, cloudflare or tailscale. github says
@@ -88,7 +90,7 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 }
 
 // loadDeployTarget reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml, and
-// the host from the flag, else DEPLOY_HOST, else deploy.host.
+// the server from the flag, else DEPLOY_HOST in the environment, else DEPLOY_HOST in .env.
 func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
@@ -117,27 +119,15 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	if err != nil {
 		return deployTarget{}, err
 	}
-	t := deployTarget{root: root, app: app, host: settings.Deploy.Host, domain: domain, sshMode: settings.Deploy.SSH, github: settings.Deploy.CI == "github"}
-	switch env := os.Getenv(deployHostEnv); {
-	case hostFlag != "":
-		if err := config.CheckDeployHost(hostFlag); err != nil {
-			return t, fmt.Errorf("--host: %w", err)
-		}
-		t.host = hostFlag
-	case env != "":
-		if err := config.CheckDeployHost(env); err != nil {
-			return t, fmt.Errorf("%s: %w", deployHostEnv, err)
-		}
-		t.host = env
+	h, err := readDeployHost(root, hostFlag)
+	if err != nil {
+		return deployTarget{}, err
 	}
-	if t.host == "" {
-		return t, fmt.Errorf("no server to deploy to: set deploy.host in tifa.yaml (a host of ~/.ssh/config or an address), or pass --host or %s", deployHostEnv)
-	}
-	return t, nil
+	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, sshMode: settings.Deploy.SSH, github: settings.Deploy.CI == "github"}, nil
 }
 
-// retiredDeployKeys fails when tifa.yaml still has deploy.domain or deploy.github. They are
-// ignored otherwise, and setup would then plan to take away what they asked for.
+// retiredDeployKeys fails when tifa.yaml still has a retired deploy key, such as deploy.host. They
+// are ignored otherwise, and setup would then plan to take away what they asked for.
 func retiredDeployKeys(root string) error {
 	data, err := os.ReadFile(filepath.Join(root, "tifa.yaml"))
 	if err != nil {
@@ -222,8 +212,8 @@ func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
-		Long: `deploy builds the app for the system of the server in deploy.host (tifa.yaml, --host or
-DEPLOY_HOST), uploads the program over ssh as the user tifa into a new release, points current at
+		Long: `deploy builds the app for the system of the server (--host, or DEPLOY_HOST in the environment or
+in the .env of the app), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
 and deploy exits with 1. With deploy.front cloudflare it then clears the CDN cache of the host of site.url.
@@ -239,7 +229,7 @@ app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHu
 		},
 	}
 	cmd.PersistentFlags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.PersistentFlags().StringVar(&host, "host", "", "server to use in place of deploy.host of tifa.yaml and "+deployHostEnv)
+	cmd.PersistentFlags().StringVar(&host, "host", "", "the server: an ssh alias or ssh://host[:port] (default "+deployHostEnv+" of the environment or of .env)")
 
 	setup := &cobra.Command{
 		Use:   "setup",

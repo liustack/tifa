@@ -282,7 +282,7 @@ func githubApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	for name, content := range files {
 		writeFile(t, filepath.Join(root, name), content)
 	}
-	t.Setenv(deployHostEnv, "")
+	t.Setenv(deployHostEnv, "vps")
 	return root
 }
 

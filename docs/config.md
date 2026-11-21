@@ -83,6 +83,7 @@ GREETING="Hello # not a comment\n"
 - Lines starting with `#` and blank lines are skipped. An unquoted value ends at a `#` after a space or a tab and loses the spaces around it, so `TLS_CERT= # none` is empty and `COLOR=#fff` is `#fff`.
 - A value in double quotes may hold `\n`, `\t`, `\"` and `\\`. A value in single quotes is taken as it is. A quoted value stays on one line.
 - A line it cannot read stops the program with its line number.
+- `tifa deploy` reads `DEPLOY_HOST` from this file too, to know the server. The program ignores that name (see [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy)).
 
 `tifa dev` runs the app in the app root, so the app reads the `.env` there, and a change of `.env` starts the app again. Vite does not read `.env` (`envDir: false`): a page gets the values it needs from its `Load`.
 
@@ -140,7 +141,6 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](sessions.md) |
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
-| `deploy.host` | none | project file only, `--host` and `DEPLOY_HOST` of `tifa deploy` | The server `tifa deploy` puts the app on: a Host of `~/.ssh/config` (write an alias, so the address stays out of the repository), a host name or an IP address, without a user and without a port (put it in `~/.ssh/config`). `--host`, then `DEPLOY_HOST`, take its place. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
 | `deploy.front` | `none` | project file only | What visitors come through before the server: `none` or `cloudflare`. With `cloudflare`, `tifa deploy setup` puts the app behind a Cloudflare Tunnel at the host of `site.url` with cf, and `deploy` and `rollback` clear the CDN cache of that host name. Needs `site.url` without a port. See [Set up with a plan](deploy.md#set-up-with-a-plan) |
 | `deploy.ssh` | `direct` | project file only | How CI reaches the ssh of the server: `direct`, `cloudflare` or `tailscale`. Anything but `direct` needs `deploy.ci: github`, and `cloudflare` also needs `deploy.front: cloudflare` |
 | `deploy.ci` | `none` | project file only | Who deploys automatically: `none` or `github`. With `github` the GitHub Actions of the repository deploy the app, which `tifa deploy setup` sets up. See [Deploy from GitHub Actions](deploy.md#deploy-from-github-actions) |
@@ -155,6 +155,7 @@ A setting that Tifa drops is listed here for at least the next minor version. A 
 | `cache.size` (`--cache-size`, `CACHE_SIZE`) | `ssr.memo_size` (`--ssr-memo-size`, `SSR_MEMO_SIZE`) |
 | `cache.whole_page` | None. Pages with `Cache` are no longer kept in the program |
 | `cache.ignore_query` | None. There is no key to clean |
+| `deploy.host` (in `tifa.yaml` only) | `DEPLOY_HOST` in the `.env` of the app, or `--host` of `tifa deploy`. `tifa.yaml` is committed, so it does not hold the server. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
 
 ## Options of the app
 

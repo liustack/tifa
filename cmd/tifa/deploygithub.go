@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/liustack/tifa/internal/config"
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh"
 )
@@ -164,7 +163,7 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 	if r.Host == "" {
 		return r, fmt.Errorf("ssh -G %s gave no host name", host)
 	}
-	if err := config.CheckDeployHost(r.Host); err != nil {
+	if err := checkResolvedHost(r.Host); err != nil {
 		return r, fmt.Errorf("the address of %s: %w", host, err)
 	}
 	return r, nil

@@ -57,8 +57,9 @@
 #   max_age: 720h           # how long a session lasts from the moment tifa.SetSession makes it
 #   memory_limit: 64MiB     # bytes the default in-memory session store may hold
 
+# The server of tifa deploy is not set here, because this file is committed. Put
+# DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app (git ignores it), or pass --host.
 # deploy:
-#   host: ""                # server for tifa deploy: an ssh alias (a Host of ~/.ssh/config, so the address stays on each machine) or an address
 #   front: none             # what visitors come through before the server: none | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
 #   ssh: direct             # how the GitHub Actions runner reaches the server over ssh: direct, cloudflare or tailscale
 #   ci: none                # who deploys automatically: none or github (set up by tifa deploy setup)

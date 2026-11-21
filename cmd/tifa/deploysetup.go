@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -290,12 +289,6 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 	}()
 	r.prefetch(ctx, &reads)
 	var p setupPlan
-	if net.ParseIP(t.host) != nil {
-		p.notes = append(p.notes, planNote{
-			what: "deploy.host is the address " + t.host,
-			why:  "tifa.yaml is committed, and a public repository then shows where your server is. Write an ssh alias instead, a Host of ~/.ssh/config, so the address stays on each machine.",
-		})
-	}
 	r.progress("the server")
 	if err := r.serverSteps(ctx, &p); err != nil {
 		return p, r, err

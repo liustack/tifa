@@ -19,6 +19,9 @@ func AddFlags(fs *pflag.FlagSet) {
 	// A retired flag is still accepted, so that a start script that has it goes on: Sources
 	// reports it as retired.
 	for _, r := range retiredKeys {
+		if r.projectOnly {
+			continue
+		}
 		kind := "string"
 		if r.bool {
 			kind = "bool"

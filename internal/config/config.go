@@ -45,10 +45,9 @@ type Site struct {
 	URL string
 }
 
-// Deploy is read by the tifa CLI only, from the project tifa.yaml, for tifa deploy. Host is the
-// server as ssh knows it, a name of ~/.ssh/config or an address, empty when not set.
+// Deploy is read by the tifa CLI only, from the project tifa.yaml, for tifa deploy. The server
+// is not here: tifa.yaml is committed, so tifa deploy takes it from --host, DEPLOY_HOST or .env.
 type Deploy struct {
-	Host string
 	// Front is what visitors come through before the server: none or cloudflare. With cloudflare the domain is the
 	// host of site.url.
 	Front string
@@ -267,7 +266,6 @@ func fields(c *Config) []field {
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
-		{"deploy.host", "Server tifa deploy puts the app on, a host name of ~/.ssh/config or an address", sshHostValue{&c.Deploy.Host}},
 		{"deploy.front", "What visitors come through before the server: none or cloudflare, on the host of site.url", frontValue{&c.Deploy.Front}},
 		{"deploy.ssh", "How CI reaches the server over ssh: direct, cloudflare or tailscale", sshModeValue{&c.Deploy.SSH}},
 		{"deploy.ci", "Who deploys automatically: none or github, set up by tifa deploy setup", ciValue{&c.Deploy.CI}},
@@ -344,17 +342,22 @@ func Project(data []byte) (Config, map[string]string, error) {
 // goes on. The value of a renamed key is not carried over to its new name, so the hint says to set
 // the new one. Retire a key here in the release that removes it, and keep it for at least the next
 // minor version. bool says the flag takes no value, as a bool setting does.
+//
+// projectOnly keeps a key retired in the project file alone: its environment variable and flag
+// mean something else now, so the program must not warn about them.
 var retiredKeys = []struct {
-	key, hint string
-	bool      bool
+	key, hint   string
+	bool        bool
+	projectOnly bool
 }{
-	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE), and the old value is ignored", false},
-	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program", true},
-	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false},
-	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false},
-	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false},
-	{"deploy.cdn", "it is now deploy.front, with the same values none and cloudflare", false},
-	{"deploy.github", "it is now deploy.ci: github for true, none for false", false},
+	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE), and the old value is ignored", false, false},
+	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program", true, false},
+	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false, false},
+	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false, false},
+	{"deploy.host", "tifa.yaml is committed, so the server is not written in it: put DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app, which git ignores, or pass --host to tifa deploy", false, true},
+	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false, false},
+	{"deploy.cdn", "it is now deploy.front, with the same values none and cloudflare", false, false},
+	{"deploy.github", "it is now deploy.ci: github for true, none for false", false, false},
 }
 
 func retiredWarning(where, key, hint string) string {
@@ -396,6 +399,9 @@ func ProjectWarnings(data []byte) []ProjectWarning {
 func (s *Sources) RetiredWarnings() []string {
 	var out []string
 	for _, r := range retiredKeys {
+		if r.projectOnly {
+			continue
+		}
 		if _, ok := s.file[r.key]; ok {
 			out = append(out, retiredWarning("file "+s.fileName, r.key, r.hint))
 		}
