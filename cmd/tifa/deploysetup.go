@@ -655,9 +655,12 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			return nil
 		}
 	}
-	connect, port := resolved.Host, resolved.Port
-	if t.sshMode == connCloudflare {
-		connect, port = "", 22
+	// connect is the text of the secret DEPLOY_HOST: with a direct login the whole target, port
+	// included, so the workflow needs no Port line and shows no address. port goes with the host
+	// name into the host keys.
+	connect, hostName, port := "", "", 22
+	if t.sshMode != connCloudflare {
+		connect, hostName, port = deployHostURL(resolved.Host, resolved.Port), resolved.Host, resolved.Port
 	}
 	if t.sshMode == connCloudflare {
 		if !r.useCF(ctx) {
@@ -667,6 +670,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		}
 		if r.zone.ID != "" {
 			connect = cloudflareSSHHost(t.domain, r.zone.Name)
+			hostName = connect
 		}
 	}
 	repoName := repo.Name
@@ -693,22 +697,41 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		})
 	}
 
-	// The connection: where CI logs in, and the host keys it trusts.
+	// The connection: where CI logs in, the host keys it trusts, and the zone of the domain.
+	// All of it is a secret: a repository that is public must not show where the server is. The
+	// zone ID is kept with them and not by itself: the one marker below says they are current.
 	if r.haveServer && len(r.st.HostKeys) > 0 || !r.haveServer {
-		hostSecret := func(ctx context.Context) (string, string, error) {
-			if len(r.st.HostKeys) == 0 {
-				return "", "", errors.New("the server has no ssh host keys tifa can read")
+		if t.domain != "" && r.zone.ID == "" && r.useCF(ctx) {
+			// A zone that cf could not find is already a plan line of its own.
+			if zone, err := findZone(ctx, t.domain); err == nil {
+				r.zone = zone
 			}
-			c := connect
-			if t.sshMode == connCloudflare {
-				c = cloudflareSSHHost(t.domain, r.zone.Name)
-			}
-			hosts := strings.Join(knownHostsLines(c, port, r.st.HostKeys), "\n")
-			return c, hosts, nil
 		}
-		fp := sha(strings.Join(append([]string{t.sshMode, connect, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
-		current := r.ghNames[secretKnownHosts] && r.ghNames[secretHost] && r.ghVars[varMarker] == fp && r.haveServer
-		text := fmt.Sprintf("github: where CI logs in (%s) and the host keys it trusts, the secrets %s and %s", t.sshMode, secretHost, secretKnownHosts)
+		zoneID := r.zone.ID
+		secrets := func(ctx context.Context) ([]secret, error) {
+			if len(r.st.HostKeys) == 0 {
+				return nil, errors.New("the server has no ssh host keys tifa can read")
+			}
+			hosts := strings.Join(knownHostsLines(hostName, port, r.st.HostKeys), "\n")
+			out := []secret{{secretKnownHosts, hosts}, {secretHost, connect}}
+			if zoneID != "" {
+				out = append(out, secret{secretZoneID, zoneID})
+			}
+			return out, nil
+		}
+		fingerprint := func() string {
+			return sha(strings.Join(append([]string{t.sshMode, connect, strconv.Itoa(port), zoneID}, r.st.HostKeys...), "|"))
+		}
+		names := []string{secretHost, secretKnownHosts}
+		if zoneID != "" {
+			names = append(names, secretZoneID)
+		}
+		current := r.ghVars[varMarker] == fingerprint() && r.haveServer
+		for _, n := range names {
+			current = current && r.ghNames[n]
+		}
+		what := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+		text := fmt.Sprintf("github: where CI logs in (%s) and the host keys it trusts, the secrets %s", t.sshMode, what)
 		if current {
 			p.ok(text)
 		} else {
@@ -717,17 +740,16 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 				op = opChange
 			}
 			p.add(op, text, func(ctx context.Context) (string, error) {
-				c, hosts, err := hostSecret(ctx)
+				all, err := secrets(ctx)
 				if err != nil {
 					return "", err
 				}
-				for _, s := range []secret{{secretKnownHosts, hosts}, {secretHost, c}} {
+				for _, s := range all {
 					if err := r.ghSecret(ctx, s.name, s.value); err != nil {
 						return "", err
 					}
 				}
-				fp := sha(strings.Join(append([]string{t.sshMode, c, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
-				_, err = runGH(ctx, t.root, strings.NewReader(fp), "variable", "set", varMarker, "--repo", repoName)
+				_, err = runGH(ctx, t.root, strings.NewReader(fingerprint()), "variable", "set", varMarker, "--repo", repoName)
 				return "", err
 			})
 		}
@@ -737,14 +759,14 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 
 	// The token that clears the CDN cache, and the workflow.
-	zoneID := ""
+	purge := false
 	if t.domain != "" {
 		if err := r.purgeSteps(ctx, p); err != nil {
 			return err
 		}
-		zoneID = r.zone.ID
+		purge = r.zone.ID != ""
 	}
-	spec, err := workflowSpec(t, repo, t.sshMode, resolved, zoneID)
+	spec, err := workflowSpec(t, repo, t.sshMode, purge)
 	if err != nil {
 		return err
 	}
@@ -764,6 +786,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		if err := r.removePurge(ctx, p); err != nil {
 			return err
 		}
+		r.removeZoneSecret(p)
 	}
 	return r.removeAccessIfUnwanted(ctx, p)
 }
@@ -945,6 +968,18 @@ func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
 	return nil
 }
 
+// removeZoneSecret takes away the secret that holds the zone ID, which tifa set. The zone is
+// nothing to delete in Cloudflare.
+func (r *setupRun) removeZoneSecret(p *setupPlan) {
+	if r.ghVars[varMarker] == "" || !r.ghNames[secretZoneID] {
+		return
+	}
+	p.add(opRemove, "github: the secret "+secretZoneID+", which tifa set", func(ctx context.Context) (string, error) {
+		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretZoneID, "--repo", r.repo.Name)
+		return "", err
+	})
+}
+
 // removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.ssh is
 // not cloudflare any more.
 func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) error {
@@ -1016,7 +1051,7 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 		return err
 	}
 	var names []string
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {
 		if r.ghNames[n] {
 			names = append(names, n)
 		}

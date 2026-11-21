@@ -246,7 +246,7 @@ func TestDeployRemoveTailscaleSecrets(t *testing.T) {
 	root := setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
 	gh := newFakeGH()
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {
 		gh.secrets[n] = "set by setup"
 	}
 	gh.vars[varMarker] = "fingerprint"

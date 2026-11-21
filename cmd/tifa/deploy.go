@@ -279,7 +279,17 @@ restarts the app through its socket. Run it again to go further back.`,
 	return cmd
 }
 
+// maskHost asks the log of GitHub Actions to hide the host part of the target, and not the port.
+// Actions hides the exact text of the secret DEPLOY_HOST, but ssh prints the address it resolved
+// in its errors, which is not that text.
+func maskHost(w io.Writer, t deployTarget) {
+	if os.Getenv(envGitHubActions) == "true" {
+		fmt.Fprintf(w, "::add-mask::%s\n", t.dest.name)
+	}
+}
+
 func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {
+	maskHost(stdout, t)
 	started := time.Now()
 	sum := deploySummary{App: t.app, Action: "deploy"}
 	health := &healthCapture{w: stdout}
@@ -325,6 +335,7 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 }
 
 func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {
+	maskHost(stdout, t)
 	started := time.Now()
 	sum := deploySummary{App: t.app, Action: "rollback"}
 	health := &healthCapture{w: stdout}

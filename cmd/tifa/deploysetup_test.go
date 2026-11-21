@@ -336,7 +336,7 @@ func TestSetupGitHub(t *testing.T) {
 		}
 	}
 	if !strings.HasPrefix(gh.secrets[secretSSHKey], "-----BEGIN OPENSSH PRIVATE KEY-----") ||
-		gh.secrets[secretHost] != "203.0.113.7" ||
+		gh.secrets[secretHost] != "ssh://203.0.113.7:2222" ||
 		gh.secrets[secretKnownHosts] != "[203.0.113.7]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n[203.0.113.7]:2222 ssh-rsa AAAAB3NzaC1yc2E=" ||
 		gh.vars[varMarker] == "" {
 		t.Errorf("secrets %v, vars %v", gh.secrets, gh.vars)
@@ -350,8 +350,14 @@ func TestSetupGitHub(t *testing.T) {
 		}
 	}
 	text, err := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") || !strings.Contains(string(text), "Port 2222") {
+	if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") {
 		t.Errorf("workflow %v:\n%s", err, text)
+	}
+	// Where the server is stays in the secret: the workflow has neither the address nor the port.
+	for _, not := range []string{"Port ", "203.0.113.7", "2222"} {
+		if strings.Contains(string(text), not) {
+			t.Errorf("the workflow shows %q:\n%s", not, text)
+		}
 	}
 
 	// Again: nothing to do.
@@ -370,7 +376,7 @@ func TestSetupGitHub(t *testing.T) {
 	// A host that moved: the connection changes, the key stays.
 	newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
 	out, _ = runSetup(t, root, false, "")
-	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 1") {
+	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 2") {
 		t.Errorf("moved host:\n%s", out)
 	}
 
@@ -629,8 +635,11 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 		}
 	}
 	text, _ := os.ReadFile(filepath.Join(s.root, githubWorkflowPath))
-	if !strings.Contains(string(text), "CF_ZONE_ID: z") {
-		t.Errorf("workflow:\n%s", text)
+	if !strings.Contains(out, "CF_ZONE_ID") {
+		t.Errorf("the plan does not say the zone ID is kept as a secret:\n%s", out)
+	}
+	if !strings.Contains(string(text), "CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}") || strings.Contains(string(text), "CF_ZONE_ID: z\n") || s.gh.secrets[secretZoneID] != "z" {
+		t.Errorf("zone secret %q, workflow:\n%s", s.gh.secrets[secretZoneID], text)
 	}
 	// The secret is there now, so a second run only says ok and asks nothing.
 	s.asked = len(s.prompt) - 1 // one more ask would fail the test
@@ -765,6 +774,9 @@ func TestSetupPurgeTokenRemoved(t *testing.T) {
 		}
 		if _, ok := s.gh.secrets[secretPurge]; ok {
 			t.Errorf("%s: the secret is still there", name)
+		}
+		if _, ok := s.gh.secrets[secretZoneID]; ok {
+			t.Errorf("%s: the zone secret is still there", name)
 		}
 	}
 }
@@ -1072,5 +1084,31 @@ func TestSetupCannotAfterApply(t *testing.T) {
 	}
 	if strings.Index(out, "  done    app:") < strings.Index(out, "You need to do") || strings.Contains(out, "could not be done") {
 		t.Errorf("out:\n%s", out)
+	}
+}
+
+// DEPLOY_HOST holds the whole target, so the port is written even when it is 22, and the zone ID
+// is a secret that follows the zone: a run after the zone changed sets the secrets again.
+func TestSetupConnectionSecrets(t *testing.T) {
+	s := newPurgeSetup(t, "tok-good")
+	s.srv = newSetupServer(t, "hostname 203.0.113.7\nport 22\n", factsOf("shop", 9531, tunnelFacts))
+	if out, err := runSetup(t, s.root, true, "", "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got := s.gh.secrets[secretHost]; got != "ssh://203.0.113.7:22" {
+		t.Errorf("DEPLOY_HOST %q", got)
+	}
+	if got := s.gh.secrets[secretKnownHosts]; !strings.HasPrefix(got, "203.0.113.7 ssh-ed25519 ") {
+		t.Errorf("known hosts %q", got)
+	}
+	setFacts(t, s.srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	if out, err := runSetup(t, s.root, true, "", "--yes"); err != nil || !strings.Contains(out, "matches tifa.yaml") {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+	s.gh.secrets[secretZoneID] = "an old zone"
+	delete(s.gh.vars, varMarker)
+	out, err := runSetup(t, s.root, true, "", "--yes")
+	if err != nil || s.gh.secrets[secretZoneID] != "z" || !strings.Contains(out, "change  github: where CI logs in (direct)") {
+		t.Errorf("%v, zone secret %q\n%s", err, s.gh.secrets[secretZoneID], out)
 	}
 }

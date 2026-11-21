@@ -39,6 +39,7 @@ const (
 	secretSSHKey     = "DEPLOY_SSH_KEY"
 	secretKnownHosts = "DEPLOY_KNOWN_HOSTS"
 	secretHost       = "DEPLOY_HOST"
+	secretZoneID     = envZoneID
 	secretCFID       = "CF_ACCESS_CLIENT_ID"
 	secretCFSecret   = "CF_ACCESS_CLIENT_SECRET"
 	secretTSID       = "TS_OAUTH_CLIENT_ID"
@@ -173,8 +174,6 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 type githubWorkflowSpec struct {
 	Branch string
 	Mode   string
-	// Port is the port ssh connects to, written when it is not 22. Not used with Cloudflare.
-	Port int
 	// Node is set for an app with pages: it installs the packages with pnpm.
 	Node bool
 	// PnpmVersion is the major version of pnpm when package.json does not say which pnpm to use.
@@ -182,9 +181,9 @@ type githubWorkflowSpec struct {
 	// CIName is the name of the workflow that checks the app. The deploy runs after it passed.
 	// Empty means the app has none, and a push to the default branch deploys.
 	CIName string
-	// ZoneID is the Cloudflare zone of deploy.domain, whose host name the deploy clears from the
-	// CDN cache. Empty means no cache to clear.
-	ZoneID string
+	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
+	// and the zone ID, both from secrets, since a public repository must not show the zone.
+	Purge bool
 }
 
 // workflowMarker is the first line of the workflow tifa writes. A file without it is the
@@ -295,20 +294,17 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("            IdentityFile ~/.ssh/deploy_key")
 	w("            IdentitiesOnly yes")
 	w("            StrictHostKeyChecking yes")
-	switch {
-	case s.Mode == connCloudflare:
+	if s.Mode == connCloudflare {
 		w("            ProxyCommand cloudflared access ssh --hostname %%h")
-	case s.Port != 22:
-		w("            Port %d", s.Port)
 	}
 	w("          EOF")
 	w("      - name: Deploy")
 	w("        env:")
 	w("          ACTION: ${{ inputs.action }}")
 	w("          DEPLOY_HOST: ${{ secrets.%s }}", secretHost)
-	if s.ZoneID != "" {
+	if s.Purge {
 		w("          %s: ${{ secrets.%s }}", envPurgeToken, secretPurge)
-		w("          %s: %s", envZoneID, s.ZoneID)
+		w("          %s: ${{ secrets.%s }}", envZoneID, secretZoneID)
 	}
 	if s.Mode == connCloudflare {
 		// cloudflared reads these two variables for the service token, see its access command.
@@ -399,8 +395,8 @@ func (k deployKey) authorizedLine(repo string) string {
 }
 
 // workflowSpec reads what the workflow needs from the app.
-func workflowSpec(t deployTarget, repo githubRepo, mode string, r sshResolved, zoneID string) (githubWorkflowSpec, error) {
-	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Port: r.Port, ZoneID: zoneID, CIName: ciWorkflowName(t.root)}
+func workflowSpec(t deployTarget, repo githubRepo, mode string, purge bool) (githubWorkflowSpec, error) {
+	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Purge: purge, CIName: ciWorkflowName(t.root)}
 	pkg, err := os.ReadFile(filepath.Join(t.root, "package.json"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):

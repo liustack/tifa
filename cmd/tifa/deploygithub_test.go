@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -54,7 +55,7 @@ func uses(steps []map[string]any) []string {
 // The workflow of each way to connect is YAML, deploys on a push to the default branch and by
 // hand, never cancels a deploy that runs, and gives the secrets to the steps that need them.
 func TestGitHubWorkflow(t *testing.T) {
-	direct := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22})
+	direct := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
 	doc, steps := parseWorkflow(t, direct)
 	on := doc["on"].(map[string]any)
 	if got := on["push"].(map[string]any)["branches"]; !slices.Equal(anyStrings(got), []string{"main"}) {
@@ -81,7 +82,7 @@ func TestGitHubWorkflow(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, direct)
 		}
 	}
-	for _, not := range []string{"Port ", "cloudflared", "ssh-keyscan", "pnpm"} {
+	for _, not := range []string{"Port ", "cloudflared", "ssh-keyscan", "pnpm", "CF_ZONE_ID"} {
 		if strings.Contains(direct, not) {
 			t.Errorf("a direct workflow of an app without pages holds %q:\n%s", not, direct)
 		}
@@ -95,21 +96,21 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 
 	// Pages: pnpm and Node, with the version of pnpm only when package.json has none.
-	pages := githubWorkflow(githubWorkflowSpec{Branch: "release/1", Mode: connDirect, Port: 2222, Node: true, PnpmVersion: "10"})
+	pages := githubWorkflow(githubWorkflowSpec{Branch: "release/1", Mode: connDirect, Node: true, PnpmVersion: "10"})
 	_, steps = parseWorkflow(t, pages)
 	if got := uses(steps); !slices.Equal(got, []string{"actions/checkout@v7", "actions/setup-go@v7", "pnpm/action-setup@v6", "actions/setup-node@v7"}) {
 		t.Errorf("pages use %v", got)
 	}
-	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile --ignore-scripts") || !strings.Contains(pages, "  Port 2222") || !strings.Contains(pages, "version: 10") {
+	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile --ignore-scripts") || strings.Contains(pages, "Port ") || !strings.Contains(pages, "version: 10") {
 		t.Errorf("pages:\n%s", pages)
 	}
-	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22, Node: true}), "          version:") {
+	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Node: true}), "          version:") {
 		t.Error("pnpm version written though package.json names pnpm")
 	}
 
 	// Cloudflare: cloudflared from the signed repository, the token through the variables
 	// cloudflared reads, and nothing about the token on a command line.
-	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare, Port: 22})
+	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
 	_, steps = parseWorkflow(t, cf)
 	for _, want := range []string{cloudflareKey, cloudflareRepo, "ProxyCommand cloudflared access ssh --hostname %h",
 		"TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}", "TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}"} {
@@ -122,7 +123,7 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 
 	// Tailscale.
-	ts := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, Port: 22})
+	ts := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale})
 	_, steps = parseWorkflow(t, ts)
 	if got := uses(steps); !slices.Contains(got, "tailscale/github-action@v4") {
 		t.Errorf("tailscale uses %v", got)
@@ -444,7 +445,7 @@ func ingressOf(cf *fakeAccess, id string) []map[string]any {
 // After the CI workflow, the deploy follows it: only a passed push, on the commit that was
 // checked, from the default branch. Without a CI workflow a push deploys.
 func TestWorkflowAfterCI(t *testing.T) {
-	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22, CIName: "CI", ZoneID: "zone-9"})
+	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, CIName: "CI", Purge: true})
 	doc, steps := parseWorkflow(t, text)
 	if !strings.HasPrefix(text, workflowMarker) {
 		t.Error("no marker line")
@@ -474,13 +475,17 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if doc["permissions"].(map[string]any)["contents"] != "read" {
 		t.Error("permissions")
 	}
-	for _, want := range []string{"CF_CACHE_PURGE_TOKEN: ${{ secrets.CF_CACHE_PURGE_TOKEN }}", "CF_ZONE_ID: zone-9"} {
+	for _, want := range []string{"CF_CACHE_PURGE_TOKEN: ${{ secrets.CF_CACHE_PURGE_TOKEN }}", "CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
 	}
+	// The zone ID is a secret like the others: the file of a public repository does not show it.
+	if strings.Contains(text, "zone-9") || regexp.MustCompile(`CF_ZONE_ID: [^$]`).MatchString(text) {
+		t.Errorf("the zone ID is written in the workflow:\n%s", text)
+	}
 
-	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Port: 22})
+	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
 	doc, _ = parseWorkflow(t, push)
 	on = doc["on"].(map[string]any)
 	if _, ok := on["push"]; !ok {

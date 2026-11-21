@@ -543,3 +543,46 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		}
 	}
 }
+
+// In GitHub Actions the log hides the secret DEPLOY_HOST, but ssh prints the address it resolved,
+// which is not that exact text. Deploy and rollback first ask the log to hide the host part of
+// the target as well, and never the port.
+func TestDeployMasksTheHostInActions(t *testing.T) {
+	mask := func(host string, actions string) string {
+		t.Helper()
+		t.Setenv(envGitHubActions, actions)
+		h, err := parseDeployHost(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b strings.Builder
+		maskHost(&b, deployTarget{host: h.raw, dest: h})
+		return b.String()
+	}
+	for host, want := range map[string]string{
+		"ssh://203.0.113.7:2222":     "::add-mask::203.0.113.7\n",
+		"ssh://[2001:db8::1]:22":     "::add-mask::2001:db8::1\n",
+		"ssh://vps.example.com:22":   "::add-mask::vps.example.com\n",
+		"deploy-a-ssh-x.example.com": "::add-mask::deploy-a-ssh-x.example.com\n",
+	} {
+		if got := mask(host, "true"); got != want {
+			t.Errorf("%s: %q, want %q", host, got, want)
+		}
+	}
+	if got := mask("ssh://203.0.113.7:2222", ""); got != "" {
+		t.Errorf("outside Actions: %q", got)
+	}
+
+	// Before anything reaches the server.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	t.Setenv(deployHostEnv, "ssh://203.0.113.7:2222")
+	t.Setenv(envGitHubActions, "true")
+	fakeServer(t, t.TempDir(), nil)
+	for _, args := range [][]string{{"deploy", "--dir", root}, {"deploy", "rollback", "--dir", root}} {
+		out, _, _ := run(t, args...)
+		if !strings.HasPrefix(out, "::add-mask::203.0.113.7\n") || strings.Contains(out, "::add-mask::203.0.113.7:2222") {
+			t.Errorf("%v: output %q", args, out)
+		}
+	}
+}
