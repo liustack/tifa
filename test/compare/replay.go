@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -941,6 +942,15 @@ func mediaType(v string) string {
 		return m
 	}
 	return v
+}
+
+// selfCPU is the processor time this process has used, in seconds.
+func selfCPU() float64 {
+	var ru syscall.Rusage
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) != nil {
+		return 0
+	}
+	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
 }
 
 // writesOf is the writes that visit seq of the run sends, by the page view they follow. They are
