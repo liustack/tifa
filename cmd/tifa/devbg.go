@@ -13,10 +13,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/liustack/tifa/internal/codegen"
@@ -40,16 +38,6 @@ const (
 // startWait is how long tifa dev stop gives a tifa dev that just started to answer. A variable
 // for the tests.
 var startWait = 15 * time.Second
-
-// errDevSystem says that tifa dev does not run here.
-var errDevSystem = errors.New("tifa dev does not run on Windows yet, use WSL")
-
-func checkDevSystem() error {
-	if runtime.GOOS == "windows" {
-		return errDevSystem
-	}
-	return nil
-}
 
 // devCommand writes a tifa dev command as an agent runs it, for the hints in messages. dir is the
 // --dir the user gave: the hint keeps it, since without it the command looks at the current folder.
@@ -137,9 +125,6 @@ func firstLine(text string) string {
 
 // runBackground starts tifa dev detached from the terminal and returns once the app answers.
 func runBackground(cmd *cobra.Command, dir, root string) error {
-	if err := checkDevSystem(); err != nil {
-		return err
-	}
 	holder, held, err := lockHeld(root)
 	if err != nil {
 		return err
@@ -184,7 +169,11 @@ func runBackground(cmd *cobra.Command, dir, root string) error {
 	case err == nil:
 	case ctx.Err() != nil:
 		// The one who started it does not want it any more.
-		_ = child.Process.Signal(syscall.SIGTERM)
+		release, err := requestStop(child.Process.Pid)
+		if err != nil {
+			return fmt.Errorf("interrupted, and the server (pid %d) could not be asked to stop: %w", child.Process.Pid, err)
+		}
+		defer release()
 		select {
 		case <-exited:
 		case <-time.After(stopWait):
@@ -357,9 +346,6 @@ not count.
 It exits with status 0 when a tifa dev runs and 1 when none does.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := checkDevSystem(); err != nil {
-				return err
-			}
 			root, err := filepath.Abs(*dir)
 			if err != nil {
 				return err
@@ -450,9 +436,6 @@ keeps printing new lines until the tifa dev ends. A tifa dev that ended leaves i
 shows why it stopped. A tifa dev started without --background prints to its terminal and keeps no log.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := checkDevSystem(); err != nil {
-				return err
-			}
 			if lines < 0 {
 				return errors.New("-n must not be negative")
 			}
@@ -552,9 +535,6 @@ the tifa dev of this app. A record left by a tifa dev that ended, with no proces
 signals nothing: it says that no tifa dev runs and exits with status 0.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := checkDevSystem(); err != nil {
-				return err
-			}
 			root, err := filepath.Abs(*dir)
 			if err != nil {
 				return err
@@ -568,13 +548,11 @@ signals nothing: it says that no tifa dev runs and exits with status 0.`,
 				fmt.Fprintln(out, "tifa dev is not running in this app")
 				return nil
 			}
-			proc, err := os.FindProcess(holder.PID)
+			release, err := requestStop(holder.PID)
 			if err != nil {
-				return err
+				return fmt.Errorf("asking tifa dev (pid %d) to stop: %w", holder.PID, err)
 			}
-			if err := proc.Signal(syscall.SIGTERM); err != nil {
-				return fmt.Errorf("signalling tifa dev (pid %d): %w", holder.PID, err)
-			}
+			defer release()
 			deadline := time.Now().Add(stopWait)
 			for {
 				_, held, err := lockHeld(root)

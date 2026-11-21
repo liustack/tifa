@@ -1,5 +1,3 @@
-//go:build unix
-
 package main
 
 import (
@@ -11,13 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -25,6 +21,18 @@ import (
 	"github.com/liustack/tifa/internal/deverrors"
 	"github.com/spf13/pflag"
 )
+
+// startSleeper starts this test binary as a program that sleeps a minute, unless the test ends it.
+func startSleeper(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), sleeperEnv+"=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	return cmd
+}
 
 // fakeStatusDev holds the lock of a new app as tifa dev does, with the address of a server that
 // answers state at deverrors.StatusPath in the name of this process, and returns the app root.
@@ -147,11 +155,7 @@ func TestStatusJSON(t *testing.T) {
 // What the lock does not hold is not running, whatever a file says: no holder, a record of a process
 // that lives, a record of this very process.
 func TestStatusAndStopTrustTheLockNotTheRecord(t *testing.T) {
-	bystander := exec.Command("sleep", "60")
-	if err := bystander.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { bystander.Process.Kill(); bystander.Wait() })
+	bystander := startSleeper(t)
 	answers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(deverrors.PIDHeader, strconv.Itoa(bystander.Process.Pid))
 		_, _ = w.Write([]byte(`{"state":"ok"}`))
@@ -176,8 +180,8 @@ func TestStatusAndStopTrustTheLockNotTheRecord(t *testing.T) {
 		if err != nil || !strings.Contains(out, "not running") {
 			t.Errorf("%s, stop: %v, %q", name, err, out)
 		}
-		if err := bystander.Process.Signal(syscall.Signal(0)); err != nil {
-			t.Errorf("%s: the other process was signalled: %v", name, err)
+		if !processAlive(bystander.Process.Pid) {
+			t.Errorf("%s: the other process was stopped", name)
 		}
 	}
 	// No file at all, and no .tifa made by asking.
@@ -196,11 +200,7 @@ func TestStopDoesNotSignalWhatDoesNotAnswerAsTifaDev(t *testing.T) {
 	was := startWait
 	startWait = 300 * time.Millisecond
 	t.Cleanup(func() { startWait = was })
-	bystander := exec.Command("sleep", "60")
-	if err := bystander.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { bystander.Process.Kill(); bystander.Wait() })
+	bystander := startSleeper(t)
 
 	root := t.TempDir()
 	l, err := lockDev(root)
@@ -220,8 +220,8 @@ func TestStopDoesNotSignalWhatDoesNotAnswerAsTifaDev(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "Nothing was signalled") {
 			t.Errorf("%s: %v", name, err)
 		}
-		if err := bystander.Process.Signal(syscall.Signal(0)); err != nil {
-			t.Errorf("%s: the process of the record was signalled: %v", name, err)
+		if !processAlive(bystander.Process.Pid) {
+			t.Errorf("%s: the process of the record was stopped", name)
 		}
 	}
 }
@@ -245,8 +245,8 @@ func TestStopLeavesTifaBuildAlone(t *testing.T) {
 
 // Stop signals the tifa dev that answers for the lock, and returns once the lock is free.
 func TestStopSignalsTheAnsweringDevAndWaitsForTheLock(t *testing.T) {
-	// A program that holds the lock the way tifa dev does, until it gets SIGTERM, and records
-	// itself. The shell script stands in for it: flock needs a process of its own to be signalled.
+	// A program that holds the lock the way tifa dev does, until it is asked to stop as tifa dev is,
+	// and records itself. The lock needs a process of its own to be asked.
 	if os.Getenv("TIFA_TEST_HELPER_HOLDER") == "1" {
 		root := os.Getenv("TIFA_TEST_HELPER_ROOT")
 		l, err := lockDev(root)
@@ -260,7 +260,10 @@ func TestStopSignalsTheAnsweringDevAndWaitsForTheLock(t *testing.T) {
 		if err := l.SetURL(srv.URL); err != nil {
 			os.Exit(3)
 		}
-		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+		ctx, stop, err := stopContext(context.Background())
+		if err != nil {
+			os.Exit(3)
+		}
 		defer stop()
 		<-ctx.Done()
 		time.Sleep(300 * time.Millisecond) // a shutdown that takes a moment

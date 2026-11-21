@@ -101,7 +101,10 @@ it and stop it.`,
 			if err := closeInheritedOnExec(); err != nil {
 				logger.Printf("the app and Vite may inherit the files tifa dev inherited: %v", err)
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), stopSignals()...)
+			ctx, stop, err := stopContext(cmd.Context())
+			if err != nil {
+				return err
+			}
 			defer stop()
 			// The driver reports changes outside the root and restarts of Vite's dev server from
 			// the goroutine that reads its answers. outside never blocks there, so front.Close can

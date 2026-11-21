@@ -108,7 +108,14 @@ func TestForwardTargetGoWorkFile(t *testing.T) {
 // arguments after "--", as main does, since forward does not return when it works.
 const forwardHelperEnv = "TIFA_TEST_FORWARD_ROOT"
 
+// sleeperEnv makes the test binary sleep a minute and exit, see startSleeper.
+const sleeperEnv = "TIFA_TEST_SLEEPER"
+
 func TestMain(m *testing.M) {
+	if os.Getenv(sleeperEnv) != "" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
 	if root := os.Getenv(forwardHelperEnv); root != "" {
 		args := os.Args[slices.Index(os.Args, "--")+1:]
 		if err := forward(root, args); err != nil {
