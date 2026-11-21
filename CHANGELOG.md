@@ -4,6 +4,14 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa new`, `tifa check` and `tifa build` run on Windows (10 1809 and later, tested on Windows Server 2022 and 2025). `tifa build` writes `bin\<name>.exe` there, since Windows runs only files that end in `.exe`. A build for another system, such as `GOOS=linux` for a server, writes the bare name as before, and `-o` is used as given. `tifa dev` does not run on Windows yet.
+
+### Fixed
+
+- A built program sends `.js` files as `text/javascript` on every system. Go took the type from the Windows registry or from `/etc/mime.types` when the machine had one, and a wrong entry there changed the type the browser was sent.
+
 ## [0.1.14] - 2026-11-22
 
 ### Changed

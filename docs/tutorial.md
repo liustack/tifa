@@ -11,7 +11,7 @@ read_when:
 
 You start from the todo list that `tifa new` writes and make it your own: a page for finished todos, a form that renames a todo and shows field errors from Go, counts in the header, and tests. At the end you build one executable and run it. It takes 30 to 45 minutes. Each step teaches one thing, and the details live in the reference docs it links to.
 
-You need Go 1.27, Node 20.19 or 22.12 and later, and [pnpm](https://pnpm.io). Node only builds the front end. The executable you ship never needs it. `tifa dev` does not run on Windows yet, so use WSL there.
+You need Go 1.27, Node 20.19 or 22.12 and later, and [pnpm](https://pnpm.io). Node only builds the front end. The executable you ship never needs it. `tifa new`, `tifa check` and `tifa build` run on Windows too. `tifa dev` does not run there yet, so use WSL for it.
 
 ## 1. Create the app
 
