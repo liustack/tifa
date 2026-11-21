@@ -241,6 +241,10 @@ type setupRun struct {
 	repo           githubRepo
 	ghNames        map[string]bool
 	ghVars         map[string]string
+	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
+	sshName string
+	// afterConnection are steps that wait until CI has what replaces what they take away.
+	afterConnection []planStep
 	setupFlags
 }
 
@@ -470,7 +474,7 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 		})
 	}
 	routeText := fmt.Sprintf("cloudflare: route %s -> %s", t.domain, r.service())
-	r.hostSteps(ctx, p, zone, t.domain, "route", routeText, "DNS "+t.domain+" CNAME the tunnel, proxied", r.service)
+	r.hostSteps(ctx, p, zone, t.domain, false, routeText, "DNS "+t.domain+" CNAME the tunnel, proxied", r.service)
 	for _, rs := range hostRules(t.domain) {
 		how, err := ensureRules(ctx, zone.Name, rs, false)
 		if err != nil {
@@ -489,10 +493,11 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	return r.removeOldDomains(ctx, p, t.domain)
 }
 
-// hostSteps adds the route and the DNS record of host to the tunnel.
-func (r *setupRun) hostSteps(ctx context.Context, p *setupPlan, zone cfZone, host, _, routeText, dnsText string, service func() string) {
+// hostSteps adds the route and the DNS record of host to the tunnel. fresh says the name was just
+// made, so nothing of it can be there yet and there is nothing to read.
+func (r *setupRun) hostSteps(ctx context.Context, p *setupPlan, zone cfZone, host string, fresh bool, routeText, dnsText string, service func() string) {
 	check := func(ensure func(apply bool) (string, error)) planOp {
-		if r.tunnelID == "" {
+		if r.tunnelID == "" || fresh {
 			return opAdd
 		}
 		how, err := ensure(false)
@@ -668,9 +673,8 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		} else if err := r.accessSteps(ctx, p); err != nil {
 			return err
 		}
-		if r.zone.ID != "" {
-			connect = cloudflareSSHHost(t.domain, r.zone.Name)
-			hostName = connect
+		if r.sshName != "" {
+			connect, hostName = r.sshName, r.sshName
 		}
 	}
 	repoName := repo.Name
@@ -781,6 +785,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	default:
 		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
 	}
+	p.steps = append(p.steps, r.afterConnection...)
 	r.removeOldPurge(p)
 	if t.domain == "" {
 		if err := r.removePurge(ctx, p); err != nil {
@@ -810,8 +815,29 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 		return nil
 	}
 	r.zone = zone
-	host := cloudflareSSHHost(t.domain, zone.Name)
-	r.hostSteps(ctx, p, zone, host, "ssh", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
+	// The name is read back from what an earlier run made, and made new only when there is none.
+	// It is chosen once and kept, so the steps below and the secrets use the same one.
+	found, err := findSSHHosts(ctx, r.tunnelID, t.domain, zone.Name)
+	if err != nil {
+		return err
+	}
+	host := found.host
+	if host == "" {
+		if host, err = newSSHHost(t.domain, zone.Name); err != nil {
+			p.cannot("cloudflare: ssh host name and Access for CI", err.Error())
+			return nil
+		}
+	}
+	r.sshName = host
+	if found.legacy {
+		legacy := legacySSHHost(t.domain, zone.Name)
+		r.afterConnection = append(r.afterConnection, planStep{op: opRemove,
+			text: fmt.Sprintf("cloudflare: the ssh host name %s that anyone can guess from the domain, its route, DNS record and Access application, which tifa made. %s replaces it", legacy, host),
+			do: func(ctx context.Context) (string, error) {
+				return "", removeSSHHost(ctx, r.tunnelID, zone.Name, legacy)
+			}})
+	}
+	r.hostSteps(ctx, p, zone, host, found.host == "", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
 		"DNS "+host+" CNAME the tunnel, proxied", func() string { return sshService })
 	name := accessName(r.repo.Name)
 	ids, err := serviceTokenIDs(ctx, name)

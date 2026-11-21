@@ -143,17 +143,43 @@ func anyStrings(v any) []string {
 	return out
 }
 
+// The ssh host name has a random part, so the name of the domain does not tell it. It is still one
+// label below the rest of the domain, which the free certificate of Cloudflare covers.
 func TestCloudflareSSHHost(t *testing.T) {
-	for _, c := range []struct{ domain, zone, want string }{
-		{"deploy-a.tifago.com", "tifago.com", "deploy-a-ssh.tifago.com"},
-		{"tifago.com", "tifago.com", "ssh.tifago.com"},
-		{"example.co.uk", "example.co.uk", "ssh.example.co.uk"},
-		{"shop.example.co.uk", "example.co.uk", "shop-ssh.example.co.uk"},
-		{"a.b.example.com", "example.com", "a-ssh.b.example.com"},
+	for _, c := range []struct{ domain, zone, pattern, old string }{
+		{"deploy-a.tifago.com", "tifago.com", `^deploy-a-ssh-[a-z2-7]{12}\.tifago\.com$`, "deploy-a-ssh.tifago.com"},
+		{"tifago.com", "tifago.com", `^ssh-[a-z2-7]{12}\.tifago\.com$`, "ssh.tifago.com"},
+		{"example.co.uk", "example.co.uk", `^ssh-[a-z2-7]{12}\.example\.co\.uk$`, "ssh.example.co.uk"},
+		{"shop.example.co.uk", "example.co.uk", `^shop-ssh-[a-z2-7]{12}\.example\.co\.uk$`, "shop-ssh.example.co.uk"},
+		{"a.b.example.com", "example.com", `^a-ssh-[a-z2-7]{12}\.b\.example\.com$`, "a-ssh.b.example.com"},
 	} {
-		if got := cloudflareSSHHost(c.domain, c.zone); got != c.want {
-			t.Errorf("%s in %s: got %s, want %s", c.domain, c.zone, got, c.want)
+		got, err := newSSHHost(c.domain, c.zone)
+		if err != nil || !regexp.MustCompile(c.pattern).MatchString(got) {
+			t.Errorf("%s in %s: got %s, %v, want %s", c.domain, c.zone, got, err, c.pattern)
 		}
+		if !isSSHHost(got, c.domain, c.zone) || isSSHHost(c.old, c.domain, c.zone) || isSSHHost(c.domain, c.domain, c.zone) {
+			t.Errorf("%s: isSSHHost is wrong for %s, %s or %s", c.domain, got, c.old, c.domain)
+		}
+		if legacySSHHost(c.domain, c.zone) != c.old {
+			t.Errorf("%s: legacy name %s, want %s", c.domain, legacySSHHost(c.domain, c.zone), c.old)
+		}
+		again, _ := newSSHHost(c.domain, c.zone)
+		if again == got {
+			t.Errorf("%s: the same name twice: %s", c.domain, got)
+		}
+	}
+	// Another domain's name, and a name of the wrong length, are not ours.
+	for _, host := range []string{"other-ssh-abcdefghijkl.tifago.com", "deploy-a-ssh-abc.tifago.com", "deploy-a-ssh-ABCDEFGHIJKL.tifago.com", "deploy-a-ssh-abcdefghijkl.example.com", "x.deploy-a-ssh-abcdefghijkl.tifago.com"} {
+		if isSSHHost(host, "deploy-a.tifago.com", "tifago.com") {
+			t.Errorf("%s was taken as the ssh host of deploy-a.tifago.com", host)
+		}
+	}
+	if !isSSHHost("deploy-a-ssh-abcdefghijkl.tifago.com", "deploy-a.tifago.com", "tifago.com") {
+		t.Error("a name of the pattern was not taken")
+	}
+	// A first label too long for a DNS label once -ssh- and the random part are added.
+	if _, err := newSSHHost(strings.Repeat("a", 50)+".tifago.com", "tifago.com"); err == nil {
+		t.Error("a label of 67 characters was made")
 	}
 }
 

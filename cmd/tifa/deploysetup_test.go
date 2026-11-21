@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -781,6 +782,8 @@ func TestSetupPurgeTokenRemoved(t *testing.T) {
 	}
 }
 
+var sshHostName = regexp.MustCompile(`^deploy-a-ssh-[a-z2-7]{12}\.example\.com$`)
+
 // deploy.ssh cloudflare: the ssh host name goes on the tunnel with an Access application that
 // admits the token of the repository. Back to direct, the Access objects go.
 func TestSetupCloudflareSSH(t *testing.T) {
@@ -795,27 +798,43 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	if err != nil || !strings.Contains(out, "(optional)") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if gh.secrets[secretHost] != "deploy-a-ssh.example.com" || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
+	host := gh.secrets[secretHost]
+	if !sshHostName.MatchString(host) || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
 		t.Errorf("secrets %v", gh.secrets)
 	}
-	if !strings.Contains(gh.secrets[secretKnownHosts], "deploy-a-ssh.example.com ssh-ed25519") {
+	if !strings.Contains(gh.secrets[secretKnownHosts], host+" ssh-ed25519") {
 		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
 	}
-	if len(cf.apps) != 1 || cf.apps[0]["domain"] != "deploy-a-ssh.example.com" {
+	if len(cf.apps) != 1 || cf.apps[0]["domain"] != host {
 		t.Errorf("apps %v", cf.apps)
 	}
 	text, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if !strings.Contains(string(text), "ProxyCommand cloudflared access ssh") {
+	if !strings.Contains(string(text), "ProxyCommand cloudflared access ssh") || strings.Contains(string(text), host) {
 		t.Errorf("workflow:\n%s", text)
 	}
 
-	// A second run: nothing, and no new token.
+	// A second run: nothing, no new token, and the same name.
 	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	cf.calls = nil
 	secret := gh.secrets[secretCFSecret]
 	out, _ = runSetup(t, root, false, "", "--yes")
-	if gh.secrets[secretCFSecret] != secret || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 8, GitHub 3") {
-		t.Errorf("a second run changed the token:\n%s", out)
+	if gh.secrets[secretCFSecret] != secret || gh.secrets[secretHost] != host || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 8, GitHub 3") {
+		t.Errorf("a second run changed the token or the name:\n%s", out)
+	}
+
+	// The marker and the secret of the host are gone, as when a run stopped halfway: setup reads
+	// the name back from the tunnel and the Access application, and does not make another.
+	delete(gh.vars, varMarker)
+	delete(gh.secrets, secretHost)
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil || gh.secrets[secretHost] != host || len(cf.apps) != 1 || strings.Contains(out, "remove ") {
+		t.Errorf("the name changed to %q from %q: %v\n%s", gh.secrets[secretHost], host, err, out)
+	}
+	// Only the Access application is left of it: the name is read from there.
+	cf.configs["tunnel-1"]["ingress"] = []any{map[string]any{"service": "http_status:404"}}
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil || gh.secrets[secretHost] != host || len(cf.apps) != 1 || !strings.Contains(out, "add     cloudflare: route "+host) {
+		t.Errorf("the name was not read from the application: %v\n%s", err, out)
 	}
 
 	// Back to direct.
@@ -829,7 +848,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 		t.Errorf("left: apps %v tokens %v policies %v secrets %v", cf.apps, cf.tokens, cf.policies, gh.secrets)
 	}
 	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
-	if strings.Contains(string(ingress), "deploy-a-ssh") {
+	if strings.Contains(string(ingress), "-ssh-") {
 		t.Errorf("the ssh route is still there: %s", ingress)
 	}
 }
@@ -1110,5 +1129,70 @@ func TestSetupConnectionSecrets(t *testing.T) {
 	out, err := runSetup(t, s.root, true, "", "--yes")
 	if err != nil || s.gh.secrets[secretZoneID] != "z" || !strings.Contains(out, "change  github: where CI logs in (direct)") {
 		t.Errorf("%v, zone secret %q\n%s", err, s.gh.secrets[secretZoneID], out)
+	}
+}
+
+// An earlier setup made the ssh host name from the domain alone, which anyone can guess. Setup
+// replaces it: the new name gets its route, record and Access application, the old ones go, and
+// the repository gets the new name. Remove finds the new name through the Access application.
+func TestSetupReplacesTheOldSSHHost(t *testing.T) {
+	const old = "deploy-a-ssh.example.com"
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	cf.configs["tunnel-1"] = map[string]any{"ingress": []any{
+		map[string]any{"hostname": old, "service": sshService},
+		map[string]any{"service": "http_status:404"},
+	}}
+	cf.records["example.com"] = []map[string]any{{"id": "record-old", "type": "CNAME", "name": old, "content": "tunnel-1.cfargotunnel.com", "proxied": true, "comment": dnsComment + "shop"}}
+	cf.apps = []map[string]any{{"id": "app-old", "name": accessAppPrefix + old, "type": "self_hosted", "domain": old, "policies": []any{}}}
+	gh := newFakeGH()
+	gh.secrets[secretHost] = old
+	gh.install(t)
+
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	host := gh.secrets[secretHost]
+	if !sshHostName.MatchString(host) {
+		t.Fatalf("DEPLOY_HOST %q\n%s", host, out)
+	}
+	for _, want := range []string{"add     cloudflare: route " + host + " -> ssh://localhost:22", "add     cloudflare: DNS " + host, "remove  cloudflare: the ssh host name " + old} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
+	if strings.Contains(string(ingress), old) || !strings.Contains(string(ingress), host) {
+		t.Errorf("ingress %s", ingress)
+	}
+	if len(cf.apps) != 1 || cf.apps[0]["domain"] != host {
+		t.Errorf("apps %v", cf.apps)
+	}
+	for _, r := range cf.records["example.com"] {
+		if r["name"] == old {
+			t.Errorf("the old record is still there: %v", r)
+		}
+	}
+	if !strings.Contains(gh.secrets[secretKnownHosts], host+" ssh-ed25519") {
+		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
+	}
+	// Run again: nothing to do, and the same name.
+	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil || strings.Contains(out, "  add     ") || strings.Contains(out, "  change  ") || strings.Contains(out, "  remove  ") || gh.secrets[secretHost] != host {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+	// ci none: remove finds the name through the application and takes the route and record too.
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n")
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	ingress, _ = json.Marshal(cf.configs["tunnel-1"]["ingress"])
+	if len(cf.apps) != 0 || strings.Contains(string(ingress), "-ssh") {
+		t.Errorf("left: apps %v, ingress %s", cf.apps, ingress)
 	}
 }

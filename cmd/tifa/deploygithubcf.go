@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,16 +19,151 @@ import (
 // sshService is where the tunnel sends the ssh host name: the sshd of the server.
 const sshService = "ssh://localhost:22"
 
-// cloudflareSSHHost is the host name CI uses to reach ssh through the tunnel. Free certificates
-// cover one level below a zone, so the name of the app gets -ssh and stays at the level it was:
-// deploy-a.example.com becomes deploy-a-ssh.example.com, and the apex example.com becomes
-// ssh.example.com.
-func cloudflareSSHHost(domain, zone string) string {
+// The ssh host name CI uses to reach ssh through the tunnel is made of the name of the domain and
+// a random part, so a public repository, or anyone who knows the domain, cannot guess it. Free
+// certificates cover one level below a zone, so the name stays at the level the domain is:
+// deploy-a.example.com becomes deploy-a-ssh-<random>.example.com, and the apex example.com becomes
+// ssh-<random>.example.com. Before, the name had no random part: deploy-a-ssh.example.com.
+
+// sshHostRandom is how many characters the random part has: 12 of 32 symbols, 60 bits.
+const sshHostRandom = 12
+
+// sshHostAlphabet is lowercase base32, the characters a host name keeps in lower case.
+const sshHostAlphabet = "abcdefghijklmnopqrstuvwxyz234567"
+
+// sshHostParts is what stands before and after the random part.
+func sshHostParts(domain, zone string) (prefix, suffix string) {
+	if domain == zone {
+		return "ssh-", "." + zone
+	}
+	first, rest, _ := strings.Cut(domain, ".")
+	return first + "-ssh-", "." + rest
+}
+
+// newSSHHost makes a new ssh host name for the domain.
+func newSSHHost(domain, zone string) (string, error) {
+	prefix, suffix := sshHostParts(domain, zone)
+	if n := len(prefix) + sshHostRandom; n > 63 {
+		return "", fmt.Errorf("the first part of %s is too long for the ssh host name: a name of the DNS has at most 63 characters before the first dot, and this one would have %d", domain, n)
+	}
+	random := make([]byte, sshHostRandom)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	for i, b := range random {
+		random[i] = sshHostAlphabet[b%32] // 256 is a multiple of 32, so no symbol is likelier
+	}
+	return prefix + string(random) + suffix, nil
+}
+
+// isSSHHost says whether host is a name newSSHHost can make for the domain.
+func isSSHHost(host, domain, zone string) bool {
+	prefix, suffix := sshHostParts(domain, zone)
+	random, ok := strings.CutPrefix(host, prefix)
+	if !ok {
+		return false
+	}
+	random, ok = strings.CutSuffix(random, suffix)
+	return ok && len(random) == sshHostRandom && !strings.ContainsFunc(random, func(r rune) bool { return !strings.ContainsRune(sshHostAlphabet, r) })
+}
+
+// legacySSHHost is the name earlier versions made from the domain alone. Setup replaces it.
+func legacySSHHost(domain, zone string) string {
 	if domain == zone {
 		return "ssh." + zone
 	}
 	first, rest, _ := strings.Cut(domain, ".")
 	return first + "-ssh." + rest
+}
+
+// foundSSHHosts is what the tunnel and Cloudflare Access hold of the ssh host name of a domain.
+type foundSSHHosts struct {
+	// host is the name made by this version, empty when there is none.
+	host string
+	// legacy says that the name of earlier versions is still in use.
+	legacy bool
+}
+
+// findSSHHosts reads the ssh host name back from what setup made: the routes of the tunnel to
+// ssh://localhost:22 and the Access applications that tifa named. Both are looked at, so a name
+// stays when one of them is gone. A name found in both comes first, then the smallest.
+func findSSHHosts(ctx context.Context, tunnelID, domain, zone string) (foundSSHHosts, error) {
+	var found foundSSHHosts
+	legacy := legacySSHHost(domain, zone)
+	inRoute, inApp := map[string]bool{}, map[string]bool{}
+	note := func(set map[string]bool, host string) {
+		switch {
+		case host == legacy:
+			found.legacy = true
+		case isSSHHost(host, domain, zone):
+			set[host] = true
+		}
+	}
+	if tunnelID != "" {
+		_, ingress, err := tunnelIngress(ctx, tunnelID)
+		if err != nil {
+			return found, err
+		}
+		for _, rule := range ingress {
+			if host, _ := rule["hostname"].(string); host != "" && rule["service"] == sshService && rule["path"] == nil {
+				note(inRoute, host)
+			}
+		}
+	}
+	apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list")
+	if err != nil {
+		return found, err
+	}
+	for _, app := range apps {
+		name, _ := app["name"].(string)
+		if host, _ := app["domain"].(string); strings.HasPrefix(name, accessAppPrefix) && name == accessAppPrefix+host {
+			note(inApp, host)
+		}
+	}
+	// A name in both places is surer than one in a single place.
+	var both, one []string
+	for h := range inRoute {
+		if inApp[h] {
+			both = append(both, h)
+		} else {
+			one = append(one, h)
+		}
+	}
+	for h := range inApp {
+		if !inRoute[h] {
+			one = append(one, h)
+		}
+	}
+	slices.Sort(both)
+	slices.Sort(one)
+	if hosts := append(both, one...); len(hosts) > 0 {
+		found.host = hosts[0]
+	}
+	return found, nil
+}
+
+// removeSSHHost takes away the route, the DNS record and the Access application of an ssh host
+// name that tifa made. The route goes last, so a run that stopped halfway finds the name again.
+func removeSSHHost(ctx context.Context, tunnelID, zone, host string) error {
+	apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list", "--domain", host)
+	if err != nil {
+		return err
+	}
+	for _, app := range apps {
+		if name, _ := app["name"].(string); app["domain"] == host && name == accessAppPrefix+host {
+			id, _ := app["id"].(string)
+			if _, err := runCF(ctx, "zero-trust", "access", "applications", "delete", id, "--force"); err != nil {
+				return err
+			}
+		}
+	}
+	if tunnelID == "" {
+		return nil
+	}
+	if _, err := removeDNS(ctx, zone, host, tunnelID+".cfargotunnel.com", true); err != nil {
+		return err
+	}
+	return removeRoute(ctx, tunnelID, host)
 }
 
 // cfPages lists what a cf list command prints, page after page.
