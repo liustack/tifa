@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- The icon cache of lucide-react works again with lucide-react 1.75 and later. Every build and `tifa dev` warned `tifa rewrite not recognized` for it, because 1.75 rewrote `mergeClasses` and `hasA11yProp`, and icons rendered without the cache. The pages render the same.
 - Server rendering runs on slowjs v0.31.11. The render timeout, the stop on shutdown and the memory limit now also hold inside `Intl` on very long inputs: case mapping for Turkish, Azerbaijani, Lithuanian and Greek, locale tags with many variants, `Intl.Segmenter` on long Chinese or Japanese text, `Intl.ListFormat` with many items and `Intl.Collator` on long strings that share a start. The HTML of a render is the same, and its instructions are within 0.24% of v0.31.10.
 
 ## [0.1.14] - 2026-11-22

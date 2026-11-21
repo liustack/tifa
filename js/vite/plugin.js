@@ -140,17 +140,19 @@ const serovalArrays = [
 // lucide-react builds every icon it renders again from the icon's data and props, with object and
 // array spreads that take long in QuickJS. The tifa plugin caches what it built for an icon with
 // the same props, see lucideCache. lucideFiles are the files of lucide-react 1.42 to
-// 1.61 the cache depends on, each with the start of the base64 SHA-256 of its text with the
-// version taken out of its license comment (see lucideText).
+// 1.77 the cache depends on, each with the start of the base64 SHA-256 of its text with the
+// version taken out of its license comment (see lucideFileHash). A file has two hashes where
+// 1.75 changed it: mergeClasses.mjs joins the class names with a Set and a regular expression,
+// and hasA11yProp.mjs reads only the own props that are not null. The cache works with both.
 const lucideModule = /[/\\]lucide-react[/\\]dist[/\\]esm[/\\](Icon|createLucideIcon)\.mjs$/
 const lucideFiles = {
-  'Icon.mjs': 'fSlEepanC8e4JvCZ',
-  'createLucideIcon.mjs': 'EBpPPIf8R/bnOJe7',
-  'shared/src/build/buildLucideIconForReact.mjs': 'kCsZISFzunSDGldZ',
-  'shared/src/build/buildLucideIconNode.mjs': '2ghtU8h+rJ6hPYjs',
-  'shared/src/build/defaultAttributes.mjs': 'NvQmyXYwf1MBgSgm',
-  'shared/src/utils/mergeClasses.mjs': 'VAuAw++Ix73S/b7C',
-  'shared/src/utils/hasA11yProp.mjs': 'gN3CMtFD/5HmcRru',
+  'Icon.mjs': ['fSlEepanC8e4JvCZ'],
+  'createLucideIcon.mjs': ['EBpPPIf8R/bnOJe7'],
+  'shared/src/build/buildLucideIconForReact.mjs': ['kCsZISFzunSDGldZ'],
+  'shared/src/build/buildLucideIconNode.mjs': ['2ghtU8h+rJ6hPYjs'],
+  'shared/src/build/defaultAttributes.mjs': ['NvQmyXYwf1MBgSgm'],
+  'shared/src/utils/mergeClasses.mjs': ['VAuAw++Ix73S/b7C', 'gIxjei6+rXUiW9FW'],
+  'shared/src/utils/hasA11yProp.mjs': ['gN3CMtFD/5HmcRru', '5hm8hzLu57Wvd+hk'],
 }
 const lucideParams = `    const hasAccessibleProp = Boolean(children) || hasA11yProp(rest);
     const [name, svgAttributes, builtIconNode = []] = buildLucideIconForReact(icon, {
@@ -191,11 +193,15 @@ const tifaArrayIterator = Object.getPrototypeOf([][Symbol.iterator]());
 const tifaFilter = tifaArray.filter, tifaMap = tifaArray.map, tifaReduce = tifaArray.reduce, tifaIndexOf = tifaArray.indexOf, tifaJoin = tifaArray.join;
 const tifaValues = tifaArray[Symbol.iterator], tifaNext = tifaArrayIterator.next, tifaTrim = tifaString.trim, tifaSplit = tifaString.split;
 const tifaSplitter = tifaString[Symbol.split], tifaEntries = Object.entries, tifaNumber = Number, tifaBoolean = Boolean, tifaSymbols = Object.getOwnPropertySymbols;
+const tifaSet = Set, tifaSetAdd = Set.prototype.add, tifaSetValues = Set.prototype[Symbol.iterator], tifaRegExpSplit = RegExp.prototype[Symbol.split];
+const tifaSetIterator = Object.getPrototypeOf(new Set()[Symbol.iterator]()), tifaSetIteratorNext = tifaSetIterator.next;
 function tifaBuiltinsKept() {
   return tifaArray.filter === tifaFilter && tifaArray.map === tifaMap && tifaArray.reduce === tifaReduce && tifaArray.indexOf === tifaIndexOf &&
     tifaArray.join === tifaJoin && tifaArray[Symbol.iterator] === tifaValues && tifaArrayIterator.next === tifaNext && tifaString.trim === tifaTrim &&
     tifaString.split === tifaSplit && tifaString[Symbol.split] === tifaSplitter && Object.entries === tifaEntries && Number === tifaNumber &&
-    Boolean === tifaBoolean && Object.getOwnPropertySymbols === tifaSymbols;
+    Boolean === tifaBoolean && Object.getOwnPropertySymbols === tifaSymbols && Set === tifaSet && tifaSet.prototype.add === tifaSetAdd &&
+    tifaSet.prototype[Symbol.iterator] === tifaSetValues && RegExp.prototype[Symbol.split] === tifaRegExpSplit &&
+    tifaSetIterator.next === tifaSetIteratorNext;
 }
 function tifaPrimitive(v) {
   return v === null || (typeof v !== "object" && typeof v !== "function" && typeof v !== "symbol");
@@ -2468,7 +2474,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       if (lucideFile) {
         const dir = path.dirname(id)
         if (!lucide.has(dir)) {
-          const unknown = Object.keys(lucideFiles).find((file) => lucideFileHash(path.join(dir, file)) !== lucideFiles[file])
+          const unknown = Object.keys(lucideFiles).find((file) => !lucideFiles[file].includes(lucideFileHash(path.join(dir, file))))
           if (unknown) {
             this.warn(
               notRecognized +
