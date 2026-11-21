@@ -2,9 +2,9 @@ package main
 
 // The GitHub part of tifa deploy setup, for deploy.github: true. It writes the workflow, makes a
 // key that only this repository uses and lets it log in as the deploy user, reads the host keys of
-// the server over the ssh that is trusted already, and sets the secrets of the repository with gh.
-// The private key and the other secrets go from memory to gh on its standard input: never to a
-// file, a command line or the output. deploysetup.go plans and applies it.
+// the server over the ssh that is trusted already, and sets the secrets of the repository through
+// githubAPI (gh, or the REST API with a token). The private key and the other secrets go from
+// memory to GitHub: never to a file, a command line or the output. deploysetup.go plans and applies it.
 
 import (
 	"bytes"
@@ -96,27 +96,6 @@ var repoName = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 type githubRepo struct {
 	Name   string // owner/name
 	Branch string // the default branch
-}
-
-// findGitHubRepo asks gh for the repository the folder belongs to. It stops with the steps to do
-// by hand when gh is missing, not logged in, or the folder is not a GitHub repository.
-func findGitHubRepo(ctx context.Context, dir string) (githubRepo, error) {
-	if !haveGH() {
-		return githubRepo{}, errors.New("gh, the GitHub CLI, is not installed (https://cli.github.com/)")
-	}
-	if _, err := readGH(ctx, dir, nil, "auth", "status"); err != nil {
-		return githubRepo{}, fmt.Errorf("gh is not logged in: run gh auth login (%w)", err)
-	}
-	out, err := readRepoView(ctx, dir)
-	if err != nil {
-		return githubRepo{}, fmt.Errorf("%s is not the folder of a GitHub repository you can use: %w", dir, err)
-	}
-	return parseRepoView(out)
-}
-
-// readRepoView asks gh for the repository of the folder.
-func readRepoView(ctx context.Context, dir string) ([]byte, error) {
-	return readGH(ctx, dir, nil, "repo", "view", "--json", "nameWithOwner,defaultBranchRef")
 }
 
 // parseRepoView reads what gh repo view printed.

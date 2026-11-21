@@ -57,19 +57,15 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 	repoDone := make(chan struct{})
 	var repo githubRepo
 	var repoErr error
-	if (t.github || marked) && haveGH() {
-		spawn(func() { readGH(ctx, t.root, nil, "auth", "status") })
+	if t.github || marked {
 		spawn(func() {
 			defer close(repoDone)
-			var out []byte
-			if out, repoErr = readRepoView(ctx, t.root); repoErr != nil {
+			var api githubAPI
+			if api, repo, repoErr = findGitHub(ctx, t.root); repoErr != nil {
 				return
 			}
-			if repo, repoErr = parseRepoView(out); repoErr != nil {
-				return
-			}
-			spawn(func() { ghSecretNames(ctx, t.root, repo.Name) })
-			spawn(func() { ghVariables(ctx, t.root, repo.Name) })
+			spawn(func() { api.SecretNames(ctx, repo.Name) })
+			spawn(func() { api.Variables(ctx, repo.Name) })
 		})
 	} else {
 		close(repoDone)

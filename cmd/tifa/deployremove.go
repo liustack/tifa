@@ -110,11 +110,11 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 	}
 	if t.github {
 		r.progress("GitHub")
-		repo, err := findGitHubRepo(ctx, t.root)
+		api, repo, err := findGitHub(ctx, t.root)
 		if err != nil {
 			p.cannot("github: the key, secrets and variable of the repository, which tifa set", err.Error())
 		} else {
-			r.repo = repo
+			r.gh, r.repo = api, repo
 			if err := r.ghLists(ctx); err != nil {
 				return p, err
 			}

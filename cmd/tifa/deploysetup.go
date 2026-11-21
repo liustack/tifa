@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -239,6 +238,7 @@ type setupRun struct {
 	in             io.Reader
 	tunnelID       string
 	repo           githubRepo
+	gh             githubAPI
 	ghNames        map[string]bool
 	ghVars         map[string]string
 	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
@@ -556,59 +556,22 @@ func domainRemoval(host string) string {
 	return fmt.Sprintf("domain: %s, its route, DNS record and rules, which tifa made", host)
 }
 
-// ghSecret sets a secret of the repository. The value goes to gh on its input.
+// ghSecret sets a secret of the repository.
 func (r *setupRun) ghSecret(ctx context.Context, name, value string) error {
-	_, err := runGH(ctx, r.t.root, strings.NewReader(value), "secret", "set", name, "--repo", r.repo.Name)
-	return err
+	return r.gh.SetSecret(ctx, r.repo.Name, name, value)
 }
 
 func (r *setupRun) ghLists(ctx context.Context) error {
-	names, err := ghSecretNames(ctx, r.t.root, r.repo.Name)
+	names, err := r.gh.SecretNames(ctx, r.repo.Name)
 	if err != nil {
 		return err
 	}
-	vars, err := ghVariables(ctx, r.t.root, r.repo.Name)
+	vars, err := r.gh.Variables(ctx, r.repo.Name)
 	if err != nil {
 		return err
 	}
 	r.ghNames, r.ghVars = names, vars
 	return nil
-}
-
-// ghSecretNames lists the names of the secrets of the repository.
-func ghSecretNames(ctx context.Context, dir, repo string) (map[string]bool, error) {
-	out, err := readGH(ctx, dir, nil, "secret", "list", "--repo", repo, "--json", "name")
-	if err != nil {
-		return nil, err
-	}
-	var names []struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(out, &names); err != nil {
-		return nil, fmt.Errorf("gh secret list printed what tifa cannot read: %w", err)
-	}
-	got := map[string]bool{}
-	for _, n := range names {
-		got[n.Name] = true
-	}
-	return got, nil
-}
-
-// ghVariables lists the variables of the repository with their values.
-func ghVariables(ctx context.Context, dir, repo string) (map[string]string, error) {
-	out, err := readGH(ctx, dir, nil, "variable", "list", "--repo", repo, "--json", "name,value")
-	if err != nil {
-		return nil, err
-	}
-	var vars []struct{ Name, Value string }
-	if err := json.Unmarshal(out, &vars); err != nil {
-		return nil, fmt.Errorf("gh variable list printed what tifa cannot read: %w", err)
-	}
-	got := map[string]string{}
-	for _, v := range vars {
-		got[v.Name] = v.Value
-	}
-	return got, nil
 }
 
 func hasMarker(path string) (text string, marked bool, err error) {
@@ -635,9 +598,9 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		return nil
 	}
 	r.progress("GitHub")
-	repo, repoErr := findGitHubRepo(ctx, t.root)
+	api, repo, repoErr := findGitHub(ctx, t.root)
 	if repoErr == nil {
-		r.repo = repo
+		r.gh, r.repo = api, repo
 		if err := r.ghLists(ctx); err != nil {
 			return err
 		}
@@ -753,8 +716,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 						return "", err
 					}
 				}
-				_, err = runGH(ctx, t.root, strings.NewReader(fingerprint()), "variable", "set", varMarker, "--repo", repoName)
-				return "", err
+				return "", r.gh.SetVariable(ctx, repoName, varMarker, fingerprint())
 			})
 		}
 	}
@@ -1009,12 +971,11 @@ func (r *setupRun) removeOldNames(p *setupPlan) {
 	repo := r.repo.Name
 	p.add(opRemove, text, func(ctx context.Context) (string, error) {
 		for _, n := range names {
-			if _, err := runGH(ctx, r.t.root, nil, "secret", "delete", n, "--repo", repo); err != nil {
+			if err := r.gh.DeleteSecret(ctx, repo, n); err != nil {
 				return "", err
 			}
 		}
-		_, err := runGH(ctx, r.t.root, nil, "variable", "delete", oldVarMarker, "--repo", repo)
-		return "", err
+		return "", r.gh.DeleteVariable(ctx, repo, oldVarMarker)
 	})
 }
 
@@ -1025,8 +986,7 @@ func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
 		return nil
 	}
 	p.add(opRemove, fmt.Sprintf("github: the secret %s, which tifa set. Tifa cannot delete the Cloudflare token behind it: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", secretPurge, purgeTokenName(r.repo.Name)), func(ctx context.Context) (string, error) {
-		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretPurge, "--repo", r.repo.Name)
-		return "", err
+		return "", r.gh.DeleteSecret(ctx, r.repo.Name, secretPurge)
 	})
 	return nil
 }
@@ -1038,8 +998,7 @@ func (r *setupRun) removeZoneSecret(p *setupPlan) {
 		return
 	}
 	p.add(opRemove, "github: the secret "+secretZoneID+", which tifa set", func(ctx context.Context) (string, error) {
-		_, err := runGH(ctx, r.t.root, nil, "secret", "delete", secretZoneID, "--repo", r.repo.Name)
-		return "", err
+		return "", r.gh.DeleteSecret(ctx, r.repo.Name, secretZoneID)
 	})
 }
 
@@ -1074,7 +1033,7 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 	if len(names) > 0 {
 		p.add(opRemove, "github: the secrets "+strings.Join(names, ", ")+", which tifa set", func(ctx context.Context) (string, error) {
 			for _, n := range names {
-				if _, err := runGH(ctx, r.t.root, nil, "secret", "delete", n, "--repo", r.repo.Name); err != nil {
+				if err := r.gh.DeleteSecret(ctx, r.repo.Name, n); err != nil {
 					return "", err
 				}
 			}
@@ -1124,12 +1083,11 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 	}
 	p.add(opRemove, "github: the secrets "+strings.Join(names, ", ")+" and the variable "+varMarker+", which tifa set", func(ctx context.Context) (string, error) {
 		for _, n := range names {
-			if _, err := runGH(ctx, r.t.root, nil, "secret", "delete", n, "--repo", repoName); err != nil {
+			if err := r.gh.DeleteSecret(ctx, repoName, n); err != nil {
 				return "", err
 			}
 		}
-		_, err := runGH(ctx, r.t.root, nil, "variable", "delete", varMarker, "--repo", repoName)
-		return "", err
+		return "", r.gh.DeleteVariable(ctx, repoName, varMarker)
 	})
 	return nil
 }

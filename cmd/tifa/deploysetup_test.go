@@ -318,87 +318,89 @@ func setFacts(t *testing.T, srv *setupServer, facts string) {
 // secrets reach gh on its input and nowhere else, and a second run has nothing to do. With github
 // false the plan removes what Tifa made and only that.
 func TestSetupGitHub(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ci: github\n", nil)
-	srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
-	gh := newFakeGH()
-	gh.install(t)
+	eachBackend(t, func(t *testing.T, rest bool) {
+		root := setupApp(t, "deploy:\n  ci: github\n", nil)
+		srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
+		gh := newFakeGH()
+		gh.installBackend(t, rest)
 
-	out, err := runSetup(t, root, false, "", "--yes")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	for _, want := range []string{
-		"add     github: a key for acme/shop that may log in as tifa",
-		"add     github: where CI logs in (direct)",
-		"add     github: .github/workflows/tifa-deploy.yml",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("lacks %q:\n%s", want, out)
+		out, err := runSetup(t, root, false, "", "--yes")
+		if err != nil {
+			t.Fatalf("%v\n%s", err, out)
 		}
-	}
-	if !strings.HasPrefix(gh.secrets[secretSSHKey], "-----BEGIN OPENSSH PRIVATE KEY-----") ||
-		gh.secrets[secretHost] != "ssh://203.0.113.7:2222" ||
-		gh.secrets[secretKnownHosts] != "[203.0.113.7]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n[203.0.113.7]:2222 ssh-rsa AAAAB3NzaC1yc2E=" ||
-		gh.vars[varMarker] == "" {
-		t.Errorf("secrets %v, vars %v", gh.secrets, gh.vars)
-	}
-	if !strings.Contains(srv.stdin(), "restrict ssh-ed25519 ") || !strings.Contains(srv.stdin(), " tifa-github acme/shop") {
-		t.Errorf("authorized line: %q", srv.stdin())
-	}
-	for _, v := range gh.secrets {
-		if strings.Contains(out, v) || strings.Contains(strings.Join(gh.calls, "\n"), v) {
-			t.Errorf("a secret value is in the output or on a command line")
+		for _, want := range []string{
+			"add     github: a key for acme/shop that may log in as tifa",
+			"add     github: where CI logs in (direct)",
+			"add     github: .github/workflows/tifa-deploy.yml",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("lacks %q:\n%s", want, out)
+			}
 		}
-	}
-	text, err := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-	if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") {
-		t.Errorf("workflow %v:\n%s", err, text)
-	}
-	// Where the server is stays in the secret: the workflow has neither the address nor the port.
-	for _, not := range []string{"Port ", "203.0.113.7", "2222"} {
-		if strings.Contains(string(text), not) {
-			t.Errorf("the workflow shows %q:\n%s", not, text)
+		if !strings.HasPrefix(gh.secrets[secretSSHKey], "-----BEGIN OPENSSH PRIVATE KEY-----") ||
+			gh.secrets[secretHost] != "ssh://203.0.113.7:2222" ||
+			gh.secrets[secretKnownHosts] != "[203.0.113.7]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n[203.0.113.7]:2222 ssh-rsa AAAAB3NzaC1yc2E=" ||
+			gh.vars[varMarker] == "" {
+			t.Errorf("secrets %v, vars %v", gh.secrets, gh.vars)
 		}
-	}
+		if !strings.Contains(srv.stdin(), "restrict ssh-ed25519 ") || !strings.Contains(srv.stdin(), " tifa-github acme/shop") {
+			t.Errorf("authorized line: %q", srv.stdin())
+		}
+		for _, v := range gh.secrets {
+			if strings.Contains(out, v) || strings.Contains(strings.Join(gh.calls, "\n"), v) {
+				t.Errorf("a secret value is in the output or on a command line")
+			}
+		}
+		text, err := os.ReadFile(filepath.Join(root, githubWorkflowPath))
+		if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") {
+			t.Errorf("workflow %v:\n%s", err, text)
+		}
+		// Where the server is stays in the secret: the workflow has neither the address nor the port.
+		for _, not := range []string{"Port ", "203.0.113.7", "2222"} {
+			if strings.Contains(string(text), not) {
+				t.Errorf("the workflow shows %q:\n%s", not, text)
+			}
+		}
 
-	// Again: nothing to do.
-	setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
-	gh.calls = nil
-	out, err = runSetup(t, root, false, "")
-	if err != nil || !strings.Contains(out, "matches tifa.yaml") {
-		t.Fatalf("second run: %v\n%s", err, out)
-	}
-	for _, c := range gh.calls {
-		if strings.Contains(c, " set ") {
-			t.Errorf("a second run set %s", c)
+		// Again: nothing to do.
+		setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
+		gh.calls = nil
+		out, err = runSetup(t, root, false, "")
+		if err != nil || !strings.Contains(out, "matches tifa.yaml") {
+			t.Fatalf("second run: %v\n%s", err, out)
 		}
-	}
-
-	// A host that moved: the connection changes, the key stays.
-	newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
-	out, _ = runSetup(t, root, false, "")
-	if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 2") {
-		t.Errorf("moved host:\n%s", out)
-	}
-
-	// github: false takes it away.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
-	srv = newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\nghkey acme/other\n"))
-	out, err = runSetup(t, root, false, "", "--yes")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	for _, want := range []string{"remove  github: .github/workflows/tifa-deploy.yml", "remove  server: the key of acme/shop", "remove  github: the secrets"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("lacks %q:\n%s", want, out)
+		for _, c := range gh.calls {
+			if isWriteCall(c) {
+				t.Errorf("a second run set %s", c)
+			}
 		}
-	}
-	if len(gh.secrets) != 0 || len(gh.vars) != 0 || !strings.Contains(srv.calls(), "revoke tifa") {
-		t.Errorf("left: %v %v\n%s", gh.secrets, gh.vars, srv.calls())
-	}
-	if _, err := os.Stat(filepath.Join(root, githubWorkflowPath)); err == nil {
-		t.Error("the workflow is still there")
-	}
+
+		// A host that moved: the connection changes, the key stays.
+		newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+		out, _ = runSetup(t, root, false, "")
+		if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 2") {
+			t.Errorf("moved host:\n%s", out)
+		}
+
+		// github: false takes it away.
+		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
+		srv = newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\nghkey acme/other\n"))
+		out, err = runSetup(t, root, false, "", "--yes")
+		if err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		for _, want := range []string{"remove  github: .github/workflows/tifa-deploy.yml", "remove  server: the key of acme/shop", "remove  github: the secrets"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("lacks %q:\n%s", want, out)
+			}
+		}
+		if len(gh.secrets) != 0 || len(gh.vars) != 0 || !strings.Contains(srv.calls(), "revoke tifa") {
+			t.Errorf("left: %v %v\n%s", gh.secrets, gh.vars, srv.calls())
+		}
+		if _, err := os.Stat(filepath.Join(root, githubWorkflowPath)); err == nil {
+			t.Error("the workflow is still there")
+		}
+	})
 }
 
 // Only what Tifa made and marked goes: a workflow without the line of tifa, and secrets while the
@@ -426,14 +428,23 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 
 // Without gh logged in the GitHub items cannot be done, and the plan says what is missing.
 func TestSetupGitHubCannot(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ci: github\n", nil)
-	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
-	gh := newFakeGH()
-	gh.loggedIn = false
-	gh.install(t)
-	out, err := runSetup(t, root, false, "")
-	if err == nil || !strings.Contains(out, "1. github: deploys from GitHub Actions") || !strings.Contains(out, "gh is not logged in: run gh auth login") || !strings.Contains(out, "1 thing needs you") && !strings.Contains(err.Error(), "1 thing needs you") {
-		t.Fatalf("%v\n%s", err, out)
+	// gh is not logged in, or not installed, and there is no token: both ways are named.
+	for name, why := range map[string]string{"not logged in": "gh is not logged in: run gh auth login", "not installed": "gh, the GitHub CLI, is not installed"} {
+		t.Run(name, func(t *testing.T) {
+			root := setupApp(t, "deploy:\n  ci: github\n", nil)
+			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+			gh := newFakeGH()
+			gh.loggedIn = false
+			gh.install(t)
+			if name == "not installed" {
+				haveGH = func() bool { return false }
+			}
+			t.Setenv(githubTokenEnv, "")
+			out, err := runSetup(t, root, false, "")
+			if err == nil || !strings.Contains(out, "1. github: deploys from GitHub Actions") || !strings.Contains(out, why) || !strings.Contains(out, githubTokenEnv+"=<token>") || !strings.Contains(err.Error(), "1 thing needs you") {
+				t.Fatalf("%v\n%s", err, out)
+			}
+		})
 	}
 }
 
@@ -1085,8 +1096,8 @@ func TestSetupCannotListedLast(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1 thing needs you, see above") {
 		t.Fatalf("err %v\n%s", err, out)
 	}
-	want := "Plan for shop on vps\n\nAlready right: server 1, app 1 (--all lists them)\n\nYou need to do 1 thing that setup cannot:\n  1. github: deploys from GitHub Actions\n     gh is not logged in: run gh auth login (gh auth status: You are not logged into any GitHub hosts)\n\n"
-	if out != want || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
+	want := "Plan for shop on vps\n\nAlready right: server 1, app 1 (--all lists them)\n\nYou need to do 1 thing that setup cannot:\n  1. github: deploys from GitHub Actions\n     gh is not logged in: run gh auth login (gh auth status: You are not logged into any GitHub hosts).\n     Or without gh: make a fine-grained personal access token.\n     Open https://github.com/settings/personal-access-tokens/new?"
+	if !strings.HasPrefix(out, want) || !strings.HasSuffix(out, "in the .env at the root of the app (git ignores it, and tifa only reads it)\n\n") || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
 		t.Errorf("out:\n%s", out)
 	}
 }
@@ -1205,49 +1216,51 @@ var oldNameSecrets = []string{"DEPLOY_SSH_KEY", "DEPLOY_KNOWN_HOSTS", "DEPLOY_HO
 // ones are set first, then the plan removes the old secrets and the old variable. A secret of
 // the developer's own stays.
 func TestSetupMigratesOldNames(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ci: github\n", nil)
-	srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
-	gh := newFakeGH()
-	for _, n := range oldNameSecrets {
-		gh.secrets[n] = "old " + n
-	}
-	gh.secrets["MY_OWN"] = "mine"
-	gh.vars["TIFA_DEPLOY"] = "old fingerprint"
-	gh.install(t)
-
-	out, err := runSetup(t, root, false, "", "--yes")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	for _, n := range oldNameSecrets {
-		if _, ok := gh.secrets[n]; ok {
-			t.Errorf("the old secret %s is still there", n)
+	eachBackend(t, func(t *testing.T, rest bool) {
+		root := setupApp(t, "deploy:\n  ci: github\n", nil)
+		srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+		gh := newFakeGH()
+		for _, n := range oldNameSecrets {
+			gh.secrets[n] = "old " + n
 		}
-	}
-	if _, ok := gh.vars["TIFA_DEPLOY"]; ok {
-		t.Error("the old variable is still there")
-	}
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
-		if gh.secrets[n] == "" || strings.HasPrefix(gh.secrets[n], "old ") {
-			t.Errorf("the new secret %s was not set: %q", n, gh.secrets[n])
-		}
-	}
-	if gh.vars[varMarker] == "" || gh.secrets["MY_OWN"] != "mine" {
-		t.Errorf("vars %v, secrets %v", gh.vars, gh.secrets)
-	}
-	i, j := strings.Index(out, "add     github: where CI logs in"), strings.Index(out, "remove  github: the old secrets")
-	if i < 0 || j < 0 || i > j {
-		t.Errorf("the old names must go after the new ones are set:\n%s", out)
-	}
-	if !strings.Contains(out, "DEPLOY_HOST") || !strings.Contains(out, "the variable TIFA_DEPLOY,") || strings.Contains(out, "MY_OWN") {
-		t.Errorf("plan:\n%s", out)
-	}
+		gh.secrets["MY_OWN"] = "mine"
+		gh.vars["TIFA_DEPLOY"] = "old fingerprint"
+		gh.installBackend(t, rest)
 
-	// Nothing is left to do.
-	setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
-	if out, err = runSetup(t, root, false, ""); err != nil || !strings.Contains(out, "matches tifa.yaml") {
-		t.Errorf("second run: %v\n%s", err, out)
-	}
+		out, err := runSetup(t, root, false, "", "--yes")
+		if err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		for _, n := range oldNameSecrets {
+			if _, ok := gh.secrets[n]; ok {
+				t.Errorf("the old secret %s is still there", n)
+			}
+		}
+		if _, ok := gh.vars["TIFA_DEPLOY"]; ok {
+			t.Error("the old variable is still there")
+		}
+		for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
+			if gh.secrets[n] == "" || strings.HasPrefix(gh.secrets[n], "old ") {
+				t.Errorf("the new secret %s was not set: %q", n, gh.secrets[n])
+			}
+		}
+		if gh.vars[varMarker] == "" || gh.secrets["MY_OWN"] != "mine" {
+			t.Errorf("vars %v, secrets %v", gh.vars, gh.secrets)
+		}
+		i, j := strings.Index(out, "add     github: where CI logs in"), strings.Index(out, "remove  github: the old secrets")
+		if i < 0 || j < 0 || i > j {
+			t.Errorf("the old names must go after the new ones are set:\n%s", out)
+		}
+		if !strings.Contains(out, "DEPLOY_HOST") || !strings.Contains(out, "the variable TIFA_DEPLOY,") || strings.Contains(out, "MY_OWN") {
+			t.Errorf("plan:\n%s", out)
+		}
+
+		// Nothing is left to do.
+		setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
+		if out, err = runSetup(t, root, false, ""); err != nil || !strings.Contains(out, "matches tifa.yaml") {
+			t.Errorf("second run: %v\n%s", err, out)
+		}
+	})
 }
 
 // Old names without the old variable are not Tifa's to remove.
@@ -1269,32 +1282,34 @@ func TestSetupKeepsOldNamesWithoutTheOldMarker(t *testing.T) {
 // With ci none, setup takes away the old secrets and the old variable, and so does remove for an
 // app with ci github.
 func TestSetupAndRemoveDropOldNames(t *testing.T) {
-	for _, command := range []string{"setup", "remove"} {
-		yaml := "deploy:\n"
-		if command == "remove" {
-			yaml = "deploy:\n  ci: github\n"
+	eachBackend(t, func(t *testing.T, rest bool) {
+		for _, command := range []string{"setup", "remove"} {
+			yaml := "deploy:\n"
+			if command == "remove" {
+				yaml = "deploy:\n  ci: github\n"
+			}
+			root := setupApp(t, yaml, nil)
+			newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+			gh := newFakeGH()
+			for _, n := range oldNameSecrets {
+				gh.secrets[n] = "old"
+			}
+			gh.secrets["MY_OWN"] = "mine"
+			gh.vars["TIFA_DEPLOY"] = "old fingerprint"
+			gh.installBackend(t, rest)
+			var out string
+			var err error
+			if command == "setup" {
+				out, err = runSetup(t, root, false, "", "--yes")
+			} else {
+				out, _, err = runRemove(t, root, false, "", "--yes")
+			}
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", command, err, out)
+			}
+			if len(gh.secrets) != 1 || gh.secrets["MY_OWN"] != "mine" || len(gh.vars) != 0 {
+				t.Errorf("%s: left %v %v\n%s", command, gh.secrets, gh.vars, out)
+			}
 		}
-		root := setupApp(t, yaml, nil)
-		newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
-		gh := newFakeGH()
-		for _, n := range oldNameSecrets {
-			gh.secrets[n] = "old"
-		}
-		gh.secrets["MY_OWN"] = "mine"
-		gh.vars["TIFA_DEPLOY"] = "old fingerprint"
-		gh.install(t)
-		var out string
-		var err error
-		if command == "setup" {
-			out, err = runSetup(t, root, false, "", "--yes")
-		} else {
-			out, _, err = runRemove(t, root, false, "", "--yes")
-		}
-		if err != nil {
-			t.Fatalf("%s: %v\n%s", command, err, out)
-		}
-		if len(gh.secrets) != 1 || gh.secrets["MY_OWN"] != "mine" || len(gh.vars) != 0 {
-			t.Errorf("%s: left %v %v\n%s", command, gh.secrets, gh.vars, out)
-		}
-	}
+	})
 }
