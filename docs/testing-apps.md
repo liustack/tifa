@@ -4,7 +4,7 @@ audience: app
 read_when:
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Testing a whole request in go test, such as signing in and following the redirect, with tifatest.Start or tifatest.StartPages
-  - `tifatest.Start` fails with a message about `.tifa/tifaapp` or `.tifa/dist`
+  - '`tifatest.Start` fails with a message about `.tifa/tifaapp` or `.tifa/dist`'
   - A test needs a fixed time in the render, with `tifa.WithRenderClock`
 ---
 

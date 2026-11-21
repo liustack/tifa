@@ -1,10 +1,14 @@
 package main
 
 import (
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // fakeTifa writes a module that stands in for a downloaded tifa, with docs in every shape the
@@ -191,5 +195,38 @@ func TestEveryDocHasAnAudience(t *testing.T) {
 		if d.audience != audienceApp && d.audience != audienceDev {
 			t.Errorf("%s has audience %q, want %q or %q", d.path, d.audience, audienceApp, audienceDev)
 		}
+	}
+}
+
+// The front matter of every doc is YAML that a YAML parser reads, whatever the readers of Tifa
+// (tifa docs and scripts/docs-list.sh) accept. A read_when item that starts with a backtick is a
+// plain scalar YAML does not allow, and a tool that parses the files with a real parser fails on it.
+func TestDocFrontMatterIsValidYAML(t *testing.T) {
+	root := filepath.Join("..", "..", "docs")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".md" {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(data)
+		if !strings.HasPrefix(text, "---\n") {
+			return nil
+		}
+		block, _, closed := strings.Cut(text[len("---\n"):], "\n---\n")
+		if !closed {
+			t.Errorf("%s: the front matter is not closed with ---", path)
+			return nil
+		}
+		var meta map[string]any
+		if err := yaml.Unmarshal([]byte(block), &meta); err != nil {
+			t.Errorf("%s: the front matter is not valid YAML: %v", path, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
