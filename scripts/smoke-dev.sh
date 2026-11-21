@@ -164,9 +164,12 @@ status=$(go tool tifa dev status --dir "$root") || fail "tifa dev status: not ru
 echo "$status"
 echo "$status" | grep -q "build:   ok" || fail "tifa dev status does not say the build is ok"
 page "Added in Go" 60
-phase "edit the page"
-perl -pi -e 's#<h1>Todos A</h1>#<h1>Todos C</h1>#' app/page.tsx
+# Saved with CRLF line ends, as an editor on Windows may: the page and a Go file.
+phase "edit the page and Go with CRLF line ends"
+perl -pi -e 's#<h1>Todos A</h1>#<h1>Todos C</h1>#; s#\r?\n#\r\n#' app/page.tsx
+perl -pi -e 's#Added in Go#Added in Go with CRLF#; s#\r?\n#\r\n#' app/route.go
 page "<h1>Todos C</h1>" 60
+page "Added in Go with CRLF" 120
 running
 go tool tifa dev logs --dir "$root" -n 200 | grep -q "ready in" || fail "tifa dev logs has no ready line"
 phase "tifa dev stop"
