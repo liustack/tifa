@@ -4,8 +4,8 @@ package main
 // the domain of the app, and write the result into the summary of a GitHub Actions run.
 //
 // The cache is cleared by host name, never the whole zone. On a machine with cf logged in it is
-// cf that does it. In CI there is no cf: CF_CACHE_PURGE_TOKEN, a Cloudflare API token that can only
-// purge the cache of one zone, and CF_ZONE_ID, the ID of that zone (not a secret, the workflow
+// cf that does it. In CI there is no cf: TIFA_DEPLOY_CF_PURGE_TOKEN, a Cloudflare API token that can only
+// purge the cache of one zone, and TIFA_DEPLOY_CF_ZONE_ID, the ID of that zone (not a secret, the workflow
 // carries it), go to the Cloudflare API directly. Tifa keeps neither.
 
 import (
@@ -24,8 +24,8 @@ import (
 
 // Names of the environment variables CI sets for the purge.
 const (
-	envPurgeToken = "CF_CACHE_PURGE_TOKEN"
-	envZoneID     = "CF_ZONE_ID"
+	envPurgeToken = "TIFA_DEPLOY_CF_PURGE_TOKEN"
+	envZoneID     = "TIFA_DEPLOY_CF_ZONE_ID"
 	// envStepSummary is the file GitHub Actions gives a step to write a Markdown summary into.
 	envStepSummary = "GITHUB_STEP_SUMMARY"
 )

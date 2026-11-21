@@ -611,7 +611,7 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"add     cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as CF_CACHE_PURGE_TOKEN",
+		"add     cloudflare: a token that can only clear the cache of shop.example.com, pasted by you and kept as TIFA_DEPLOY_CF_PURGE_TOKEN",
 		"https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22cache%22%2C%22type%22%3A%22purge%22%7D%5D&name=tifa%20cache%20purge%20acme%2Fshop",
 		"Zone Resources",
 		"the token was refused",
@@ -636,16 +636,16 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 		}
 	}
 	text, _ := os.ReadFile(filepath.Join(s.root, githubWorkflowPath))
-	if !strings.Contains(out, "CF_ZONE_ID") {
+	if !strings.Contains(out, "TIFA_DEPLOY_CF_ZONE_ID") {
 		t.Errorf("the plan does not say the zone ID is kept as a secret:\n%s", out)
 	}
-	if !strings.Contains(string(text), "CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}") || strings.Contains(string(text), "CF_ZONE_ID: z\n") || s.gh.secrets[secretZoneID] != "z" {
+	if !strings.Contains(string(text), "TIFA_DEPLOY_CF_ZONE_ID: ${{ secrets.TIFA_DEPLOY_CF_ZONE_ID }}") || strings.Contains(string(text), "TIFA_DEPLOY_CF_ZONE_ID: z\n") || s.gh.secrets[secretZoneID] != "z" {
 		t.Errorf("zone secret %q, workflow:\n%s", s.gh.secrets[secretZoneID], text)
 	}
 	// The secret is there now, so a second run only says ok and asks nothing.
 	s.asked = len(s.prompt) - 1 // one more ask would fail the test
 	out, err = runSetup(t, s.root, true, "", "--yes", "--all")
-	if err != nil || !strings.Contains(out, "ok      github: the secret CF_CACHE_PURGE_TOKEN") || strings.Contains(out, "pasted by you") {
+	if err != nil || !strings.Contains(out, "ok      github: the secret TIFA_DEPLOY_CF_PURGE_TOKEN") || strings.Contains(out, "pasted by you") {
 		t.Errorf("second run: %v\n%s", err, out)
 	}
 }
@@ -732,7 +732,7 @@ func TestSetupPurgeTokenPresent(t *testing.T) {
 	s := newPurgeSetup(t)
 	s.gh.secrets[secretPurge] = "set earlier"
 	out, err := runSetup(t, s.root, true, "", "--yes", "--all")
-	if err != nil || !strings.Contains(out, "ok      github: the secret CF_CACHE_PURGE_TOKEN") || s.gh.secrets[secretPurge] != "set earlier" || s.asked != 0 {
+	if err != nil || !strings.Contains(out, "ok      github: the secret TIFA_DEPLOY_CF_PURGE_TOKEN") || s.gh.secrets[secretPurge] != "set earlier" || s.asked != 0 {
 		t.Errorf("%v\n%s", err, out)
 	}
 }
@@ -745,7 +745,7 @@ func TestSetupPurgeTokenOldName(t *testing.T) {
 	}
 	s.gh.secrets["CF_PURGE_TOKEN"] = "old"
 	out, err := runSetup(t, s.root, true, "", "--yes")
-	if err != nil || !strings.Contains(out, "remove  github: the secret CF_PURGE_TOKEN, the old name of CF_CACHE_PURGE_TOKEN") {
+	if err != nil || !strings.Contains(out, "remove  github: the secret CF_PURGE_TOKEN, the old name of TIFA_DEPLOY_CF_PURGE_TOKEN") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if _, ok := s.gh.secrets["CF_PURGE_TOKEN"]; ok {
@@ -770,7 +770,7 @@ func TestSetupPurgeTokenRemoved(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v\n%s", name, err, out)
 		}
-		if !strings.Contains(out, "remove  github: the secret CF_CACHE_PURGE_TOKEN, which tifa set") || !strings.Contains(out, `delete the token "tifa cache purge acme/shop" in the Cloudflare dashboard`) {
+		if !strings.Contains(out, "remove  github: the secret TIFA_DEPLOY_CF_PURGE_TOKEN, which tifa set") || !strings.Contains(out, `delete the token "tifa cache purge acme/shop" in the Cloudflare dashboard`) {
 			t.Errorf("%s:\n%s", name, out)
 		}
 		if _, ok := s.gh.secrets[secretPurge]; ok {
@@ -859,7 +859,7 @@ func TestSetupSSHModesNeedThings(t *testing.T) {
 	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	out, _ := runSetup(t, root, false, "")
-	if !strings.Contains(out, "1. github: the Tailscale secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET") || !strings.Contains(out, "tifa deploy setup --tailscale-oauth") || strings.Contains(out, "gh secret") {
+	if !strings.Contains(out, "1. github: the Tailscale secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET") || !strings.Contains(out, "tifa deploy setup --tailscale-oauth") || strings.Contains(out, "gh secret") {
 		t.Errorf("out:\n%s", out)
 	}
 }
@@ -1106,7 +1106,7 @@ func TestSetupCannotAfterApply(t *testing.T) {
 	}
 }
 
-// DEPLOY_HOST holds the whole target, so the port is written even when it is 22, and the zone ID
+// TIFA_DEPLOY_HOST holds the whole target, so the port is written even when it is 22, and the zone ID
 // is a secret that follows the zone: a run after the zone changed sets the secrets again.
 func TestSetupConnectionSecrets(t *testing.T) {
 	s := newPurgeSetup(t, "tok-good")
@@ -1115,7 +1115,7 @@ func TestSetupConnectionSecrets(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if got := s.gh.secrets[secretHost]; got != "ssh://203.0.113.7:22" {
-		t.Errorf("DEPLOY_HOST %q", got)
+		t.Errorf("TIFA_DEPLOY_HOST %q", got)
 	}
 	if got := s.gh.secrets[secretKnownHosts]; !strings.HasPrefix(got, "203.0.113.7 ssh-ed25519 ") {
 		t.Errorf("known hosts %q", got)
@@ -1157,7 +1157,7 @@ func TestSetupReplacesTheOldSSHHost(t *testing.T) {
 	}
 	host := gh.secrets[secretHost]
 	if !sshHostName.MatchString(host) {
-		t.Fatalf("DEPLOY_HOST %q\n%s", host, out)
+		t.Fatalf("TIFA_DEPLOY_HOST %q\n%s", host, out)
 	}
 	for _, want := range []string{"add     cloudflare: route " + host + " -> ssh://localhost:22", "add     cloudflare: DNS " + host, "remove  cloudflare: the ssh host name " + old} {
 		if !strings.Contains(out, want) {

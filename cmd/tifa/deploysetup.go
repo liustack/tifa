@@ -7,7 +7,7 @@ package main
 //
 // It removes only what Tifa made and marked: the authorized_keys lines with the comment
 // "tifa-github <owner>/<repo>", Cloudflare objects whose names start with "tifa", the route and
-// DNS record of a domain it added, the repository variable TIFA_DEPLOY and the secrets it set,
+// DNS record of a domain it added, the repository variable TIFA_DEPLOY_FINGERPRINT and the secrets it set,
 // and the workflow file that starts with the line of tifa.
 
 import (
@@ -660,7 +660,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			return nil
 		}
 	}
-	// connect is the text of the secret DEPLOY_HOST: with a direct login the whole target, port
+	// connect is the text of the secret TIFA_DEPLOY_HOST: with a direct login the whole target, port
 	// included, so the workflow needs no Port line and shows no address. port goes with the host
 	// name into the host keys.
 	connect, hostName, port := "", "", 22
@@ -967,7 +967,7 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// oldSecretPurge is the name the purge secret had before CF_CACHE_PURGE_TOKEN.
+// oldSecretPurge is the name the purge secret had before it got the prefix TIFA_DEPLOY_.
 const oldSecretPurge = "CF_PURGE_TOKEN"
 
 // removeOldPurge takes away the purge secret under its old name, which tifa set.
