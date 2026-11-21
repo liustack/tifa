@@ -119,6 +119,9 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	if err != nil {
 		return deployTarget{}, err
 	}
+	if err := checkOldInputNames(root, hostFlag); err != nil {
+		return deployTarget{}, err
+	}
 	h, err := readDeployHost(root, hostFlag)
 	if err != nil {
 		return deployTarget{}, err
