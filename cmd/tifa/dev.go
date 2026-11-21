@@ -101,6 +101,9 @@ it and stop it.`,
 			if err := closeInheritedOnExec(); err != nil {
 				logger.Printf("the app and Vite may inherit the files tifa dev inherited: %v", err)
 			}
+			if err := devserver.BindChildren(); err != nil {
+				logger.Printf("the app and Vite may outlive a tifa dev that is killed: %v", err)
+			}
 			ctx, stop, err := stopContext(cmd.Context())
 			if err != nil {
 				return err
