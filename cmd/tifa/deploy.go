@@ -144,8 +144,8 @@ func retiredDeployKeys(root string) error {
 		return nil // no project file: the defaults apply
 	}
 	for _, w := range config.ProjectWarnings(data) {
-		if strings.Contains(w, ": deploy.") {
-			return errors.New(w)
+		if strings.HasPrefix(w.Key, "deploy.") {
+			return errors.New(w.String())
 		}
 	}
 	return nil

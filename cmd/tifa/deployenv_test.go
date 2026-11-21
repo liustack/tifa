@@ -124,6 +124,14 @@ func TestEnvSetUnsetList(t *testing.T) {
 	if out, err := runEnv(t, "", false, "deploy", "env", "unset", "API_KEY", "--dir", root); err != nil || !strings.Contains(out, "is not set") {
 		t.Errorf("unset again: %v %s", err, out)
 	}
+
+	// With no name left, list says so, where a script that reads the names does not read it.
+	if out, err := runEnv(t, "", false, "deploy", "env", "unset", "A", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if out, err := runEnv(t, "", false, "deploy", "env", "list", "--dir", root); err != nil || !strings.Contains(out, "no names are set in the .env of shop") {
+		t.Errorf("empty list: %v %q", err, out)
+	}
 }
 
 // The value never comes as an argument, and the name must be one .env can hold. On a terminal the
