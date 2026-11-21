@@ -53,6 +53,7 @@ echo "== tifa"
 go build -o "$work/bin/tifa$exe" ./cmd/tifa
 export PATH="$work/bin:$PATH"
 
+cd "$work"
 echo "== new app in $(pwd -W 2>/dev/null || pwd)"
 tifa new smokeapp
 cd smokeapp
