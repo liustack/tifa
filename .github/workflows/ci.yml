@@ -140,3 +140,116 @@ jobs:
       # type checks them. This is the prepare step of the comparison, without any measuring.
       - name: Build the comparison apps
         run: go run ./test/compare/cmd/compare build
+
+  windows-probe:
+    name: windows probe (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            internal/bundle/testdata/pnpm-lock.yaml
+            test/apps/pages/pnpm-lock.yaml
+            js/host/pnpm-lock.yaml
+            examples/shop/pnpm-lock.yaml
+      - name: Machine and tools
+        continue-on-error: true
+        run: |
+          systeminfo | head -4 || true
+          go version; node --version; pnpm --version; git --version; bash --version | head -1
+          where ssh || true
+          ssh -V || true
+          curl --version | head -1
+          powershell -Command "Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH*'" || true
+      - name: Install the packages of the Node tests
+        continue-on-error: true
+        run: |
+          for dir in internal/bundle/testdata test/apps/pages js/host; do
+            (cd "$dir" && pnpm install --frozen-lockfile)
+          done
+      - name: Vet
+        continue-on-error: true
+        run: go vet ./... 2>&1 | tee vet.log
+      - name: Build
+        continue-on-error: true
+        run: CGO_ENABLED=0 go build ./... 2>&1 | tee build.log
+      - name: Test
+        continue-on-error: true
+        run: go test -count=1 -timeout 30m -json ./... > test.json 2> test.err; echo exit=$?; tail -5 test.err
+      - name: Smoke test of the command line
+        continue-on-error: true
+        run: |
+          set +e
+          W="$(pwd)"
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/smoke"
+          go build -o "$RUNNER_TEMP/bin/tifa.exe" ./cmd/tifa 2>&1 || exit 1
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          cd "$RUNNER_TEMP/smoke"
+          echo "== new"; tifa new smokeapp; echo "exit=$?"
+          cd smokeapp
+          go mod edit -replace "github.com/liustack/tifa=$W"
+          echo "== tidy"; go mod tidy 2>&1 | tail -20; echo "exit=${PIPESTATUS[0]}"
+          echo "== pnpm install"; pnpm install 2>&1 | tail -20; echo "exit=${PIPESTATUS[0]}"
+          echo "== check"; go tool tifa check 2>&1 | tail -40; echo "exit=${PIPESTATUS[0]}"
+          echo "== build"; go tool tifa build 2>&1 | tail -40; echo "exit=${PIPESTATUS[0]}"
+          ls -la; ls -la .tifa 2>/dev/null | head -30
+          echo "== run the built program"
+          EXE="$(ls *.exe 2>/dev/null | head -1)"; echo "exe=$EXE"; ls .tifa/ 2>/dev/null
+          if [ -n "$EXE" ]; then
+            ./"$EXE" > run.log 2>&1 &
+            sleep 8
+            echo "-- curl /"; curl -s -i --max-time 10 http://127.0.0.1:9527/ | head -20
+            powershell -Command "(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9527/).StatusCode"
+            taskkill //F //IM "$EXE" || true
+            echo "-- run.log"; cat run.log | tail -30
+          fi
+          echo "== dev --help"; go tool tifa dev --help 2>&1 | head -40
+          echo "== dev"; (timeout 30 go tool tifa dev 2>&1 | tail -40); echo "exit=$?"
+          echo "== dev --background"; go tool tifa dev --background 2>&1 | tail -20
+          echo "== dev stop/status/logs"; go tool tifa dev stop 2>&1 | tail -5
+      - name: Smoke test in PowerShell
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $tifa = Join-Path $env:RUNNER_TEMP 'bin\tifa.exe'
+          & $tifa dev --help
+          & $tifa version
+          & $tifa docs 2>&1 | Select-Object -First 5
+      - name: E2E
+        continue-on-error: true
+        env:
+          TIFA_E2E: "1"
+        run: |
+          for manifest in test/apps/*/package.json examples/shop/package.json; do
+            (cd "$(dirname "$manifest")" && pnpm install --frozen-lockfile) || echo "pnpm install failed in $manifest"
+          done
+          go test -count=1 -timeout 40m -json ./test/e2e/ > e2e.json 2> e2e.err; echo exit=$?; tail -5 e2e.err
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-probe-${{ matrix.os }}
+          path: |
+            vet.log
+            build.log
+            test.json
+            test.err
+            e2e.json
+            e2e.err
