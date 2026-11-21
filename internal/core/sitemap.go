@@ -31,7 +31,8 @@ type SitemapPage struct {
 	Path string
 	// Modified is when the page last changed, the lastmod of the sitemap. Zero leaves it out.
 	Modified time.Time
-	// Title and Description name and describe the page in llms.txt.
+	// Title and Description name and describe the page in llms.txt. Without a Title the home page
+	// is named after the site (Sitemap.Name, else the host of site.url), and any other page by its path.
 	Title       string
 	Description string
 	// Content is the entry of a content collection the page shows, such as a post read from

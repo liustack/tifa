@@ -146,7 +146,7 @@ func TestSitemapOfThePagesWithoutParameters(t *testing.T) {
 
 ## zh-CN
 
-- [/](https://shop.example.com/)
+- [shop.example.com](https://shop.example.com/)
 - [/login](https://shop.example.com/login)
 - [/store](https://shop.example.com/store)
 - [/store/cart](https://shop.example.com/store/cart)
@@ -195,7 +195,7 @@ func TestSitemapOfTheApp(t *testing.T) {
 
 ## zh-CN
 
-- [/](https://shop.example.com/)
+- [Shop](https://shop.example.com/)
 - [/store](https://shop.example.com/store)
 - [/store/cart](https://shop.example.com/store/cart)
 - [你好](https://shop.example.com/store/journal/hello.md): A post: hello
@@ -440,7 +440,7 @@ func TestLargeSitemapIsSplit(t *testing.T) {
 		}
 	}
 	// A site without languages: one section, and the home page has /index.md.
-	if w := get(s, "/llms.txt"); !strings.Contains(w.Body.String(), "# blog.example.com\n\n## Pages\n\n- [/](https://blog.example.com/)\n") {
+	if w := get(s, "/llms.txt"); !strings.Contains(w.Body.String(), "# blog.example.com\n\n## Pages\n\n- [blog.example.com](https://blog.example.com/)\n") {
 		t.Errorf("GET /llms.txt: %s", w.Body.String())
 	}
 }

@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- In `/llms.txt`, the Markdown version of a page and `/llms-full.txt`, a home page with no `Title` in its `SitemapPage` is named after the site (`Sitemap.Name`, else the host of `site.url`) and no longer shows as `[/]`. Other pages without a title still show their path.
 - Server rendering runs on slowjs v0.31.11. The render timeout, the stop on shutdown and the memory limit now also hold inside `Intl` on very long inputs: case mapping for Turkish, Azerbaijani, Lithuanian and Greek, locale tags with many variants, `Intl.Segmenter` on long Chinese or Japanese text, `Intl.ListFormat` with many items and `Intl.Collator` on long strings that share a start. The HTML of a render is the same, and its instructions are within 0.24% of v0.31.10.
 
 ## [0.1.14] - 2026-11-22
