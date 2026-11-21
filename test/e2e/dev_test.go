@@ -231,7 +231,7 @@ func expectBody(t *testing.T, url, want string) {
 func TestDev(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := devApp(t)
 	d := startDev(t, dir)
@@ -465,7 +465,7 @@ func (s *hmrSocket) waitUpdate(t *testing.T, path string) {
 func TestDevExitsWhileOutsideFilesChange(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a file without permissions, so the watcher would not fail")
@@ -583,7 +583,7 @@ func waitBody(t *testing.T, url, want string, d *devRun) {
 func TestDevRebuildsAfterViteRestarts(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := devApp(t)
 	closing := filepath.Join(dir, "closing")
@@ -624,7 +624,7 @@ func TestDevRebuildsAfterViteRestarts(t *testing.T) {
 func TestDevEmbeddedFiles(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := devApp(t)
 	write := func(name, content string) {
@@ -724,7 +724,7 @@ func expectNoErrors(t *testing.T, dir, when string) {
 func TestDevRootLayoutEdit(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := devApp(t)
 	d := startDev(t, dir)
@@ -749,7 +749,7 @@ func TestDevRootLayoutEdit(t *testing.T) {
 func TestDevListsPluginWarnings(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := devApp(t)
 	d := startDev(t, dir)
@@ -781,7 +781,7 @@ func TestDevListsPluginWarnings(t *testing.T) {
 func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := devApp(t)
 	d := startDev(t, dir)

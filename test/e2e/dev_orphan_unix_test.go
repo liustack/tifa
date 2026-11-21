@@ -1,5 +1,8 @@
 //go:build unix
 
+// The tests read the process tree with ps, kill with SIGKILL and pass files by descriptor number:
+// Unix things. scripts/smoke-dev.sh kills tifa dev on Windows and checks that nothing is left.
+
 package e2e
 
 import (
