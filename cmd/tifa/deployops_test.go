@@ -168,3 +168,19 @@ func TestDeployLogsFollowEndsOnCtrlC(t *testing.T) {
 		t.Fatal("logs -f did not end on Ctrl-C")
 	}
 }
+
+// The health line judges the answer the way a deploy does: below 500 passes, and a 404 is an app
+// without a /healthz route.
+func TestHealthLine(t *testing.T) {
+	for code, want := range map[string]string{
+		"":    "not asked, the service does not run",
+		"000": "GET /healthz got no answer within 5 seconds",
+		"200": "GET /healthz answered 200",
+		"404": "GET /healthz answered 404, which passes: the app has no /healthz route",
+		"503": "GET /healthz answered 503, which fails",
+	} {
+		if got := healthLine(code); got != want {
+			t.Errorf("%q: got %q, want %q", code, got, want)
+		}
+	}
+}

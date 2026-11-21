@@ -127,14 +127,7 @@ func deployStatusText(t deployTarget, s serverState, now time.Time) string {
 		}
 	}
 	line("service", service)
-	switch {
-	case s.Health == "":
-		line("health", "not asked, the service does not run")
-	case s.Health == "000":
-		line("health", "GET "+healthPath+" got no answer within 5 seconds")
-	default:
-		line("health", "GET "+healthPath+" answered "+s.Health)
-	}
+	line("health", healthLine(s.Health))
 	if s.RSS > 0 {
 		line("memory", fmt.Sprintf("%.1f MB", float64(s.RSS)*1024/1e6))
 	}
@@ -189,4 +182,20 @@ Ctrl-C.`,
 	cmd.Flags().IntVarP(&lines, "lines", "n", 100, "print this many of the last lines")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "keep printing new lines until Ctrl-C")
 	return cmd
+}
+
+// healthLine says what GET healthPath answered, judged the way a deploy judges it: a status below
+// 500 passes, and an app without the route passes with its 404.
+func healthLine(code string) string {
+	switch {
+	case code == "":
+		return "not asked, the service does not run"
+	case code == "000":
+		return "GET " + healthPath + " got no answer within 5 seconds"
+	case code == "404":
+		return "GET " + healthPath + " answered 404, which passes: the app has no " + healthPath + " route"
+	case code >= "500":
+		return "GET " + healthPath + " answered " + code + ", which fails"
+	}
+	return "GET " + healthPath + " answered " + code
 }
