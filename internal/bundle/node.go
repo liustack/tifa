@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,7 +40,7 @@ type Node struct {
 	process sync.Mutex // guards the fields below, which start sets and Close reads
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
-	pipe    *os.File      // the read end of file descriptor 3
+	pipe    io.Closer     // the read end of file descriptor 3
 	exited  chan struct{} // closed once the process has exited, waitErr then tells how
 	waitErr error
 	closing bool // Close was called: no request starts the process again
@@ -116,6 +117,13 @@ func (n *Node) start() error {
 	if err != nil {
 		return err
 	}
+	var tail *probeTail
+	if runtime.GOOS == "windows" {
+		tail, err = newProbeTail()
+		if err != nil {
+			return err
+		}
+	}
 	cmd, remove, err := n.driverCommand(node)
 	if err != nil {
 		r.Close()
@@ -130,7 +138,11 @@ func (n *Node) start() error {
 		return strings.HasPrefix(kv, "NODE_ENV=")
 	}), "NODE_ENV="+n.mode)
 	cmd.Stdout, cmd.Stderr = n.output, n.output
-	cmd.ExtraFiles = []*os.File{w} // file descriptor 3
+	if tail != nil {
+		cmd.Env = append(cmd.Env, "TIFA_ANSWERS="+tail.path)
+	} else {
+		cmd.ExtraFiles = []*os.File{w} // file descriptor 3
+	}
 	// A process Node starts may keep stdout and stderr open after Node exits.
 	cmd.WaitDelay = time.Second
 	stdin, err := cmd.StdinPipe()
@@ -155,7 +167,12 @@ func (n *Node) start() error {
 		return fmt.Errorf("starting node: %w", err)
 	}
 	exited := make(chan struct{})
-	n.cmd, n.stdin, n.pipe, n.exited = cmd, stdin, r, exited
+	n.cmd, n.stdin, n.pipe, n.exited = cmd, stdin, io.Closer(r), exited
+	var answersIn io.Reader = r
+	if tail != nil {
+		tail.exited = exited
+		n.pipe, answersIn = tail, tail
+	}
 	n.process.Unlock()
 	go func() {
 		err := cmd.Wait()
@@ -164,7 +181,7 @@ func (n *Node) start() error {
 		n.process.Unlock()
 		close(exited)
 	}()
-	n.answers = bufio.NewScanner(r)
+	n.answers = bufio.NewScanner(answersIn)
 	n.answers.Buffer(nil, 64<<20)
 	var first answer
 	if err := n.read(&first); err != nil {

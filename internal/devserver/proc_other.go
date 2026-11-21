@@ -3,7 +3,6 @@
 package devserver
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 )
@@ -12,9 +11,7 @@ import (
 
 func ownGroup(*exec.Cmd) {}
 
-func interruptGroup(*os.Process) error {
-	return errors.New("interrupting a process is not supported here")
-}
+func interruptGroup(p *os.Process) error { return p.Kill() } // probe hack
 
 func killGroup(p *os.Process) error { return p.Kill() }
 

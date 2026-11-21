@@ -1,13 +1,14 @@
-//go:build !unix
+//go:build windows
 
 package main
 
 import (
-	"errors"
 	"os/exec"
+	"syscall"
 )
 
-// detach fails here: tifa dev does not run on these systems.
-func detach(*exec.Cmd) error {
-	return errors.New("tifa dev does not run on this system yet, use WSL")
+// probe hack: detached process with its own group
+func detach(c *exec.Cmd) error {
+	c.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000208}
+	return nil
 }

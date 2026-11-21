@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -48,8 +47,7 @@ func devParent(root string) {
 
 // alive reports whether the process pid exists.
 func alive(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
+	return probeAlive(pid)
 }
 
 // stuckApp returns an application whose SSR build never ends. Its SSR worker writes the pid of
@@ -78,7 +76,7 @@ func driverPid(t *testing.T, marker string) int {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+			t.Cleanup(func() { probeKill(pid) })
 			return pid
 		}
 	}

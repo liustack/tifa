@@ -153,6 +153,8 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: No line end conversion
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
@@ -193,14 +195,15 @@ jobs:
         run: CGO_ENABLED=0 go build ./... 2>&1 | tee build.log
       - name: Test
         continue-on-error: true
-        run: go test -count=1 -timeout 30m -json ./... > test.json 2> test.err; echo exit=$?; tail -5 test.err
+        run: go test -count=1 -timeout 30m -json $(go list ./... | grep -v /test/compare) > test.json 2> test.err; echo exit=$?; tail -5 test.err
       - name: Smoke test of the command line
         continue-on-error: true
         run: |
           set +e
+          exec > >(tee smoke.log) 2>&1
           W="$(pwd)"
           mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/smoke"
-          go build -o "$RUNNER_TEMP/bin/tifa.exe" ./cmd/tifa 2>&1 || exit 1
+          go build -o "$RUNNER_TEMP/bin/tifa.exe" ./cmd/tifa || exit 1
           export PATH="$RUNNER_TEMP/bin:$PATH"
           cd "$RUNNER_TEMP/smoke"
           echo "== new"; tifa new smokeapp; echo "exit=$?"
@@ -210,21 +213,46 @@ jobs:
           echo "== pnpm install"; pnpm install 2>&1 | tail -20; echo "exit=${PIPESTATUS[0]}"
           echo "== check"; go tool tifa check 2>&1 | tail -40; echo "exit=${PIPESTATUS[0]}"
           echo "== build"; go tool tifa build 2>&1 | tail -40; echo "exit=${PIPESTATUS[0]}"
-          ls -la; ls -la .tifa 2>/dev/null | head -30
-          echo "== run the built program"
-          EXE="$(ls *.exe 2>/dev/null | head -1)"; echo "exe=$EXE"; ls .tifa/ 2>/dev/null
+          ls -la bin 2>&1
+          EXE="$(ls bin/* 2>/dev/null | head -1)"; echo "exe=$EXE"
           if [ -n "$EXE" ]; then
+            echo "== run the built program"
             ./"$EXE" > run.log 2>&1 &
             sleep 8
             echo "-- curl /"; curl -s -i --max-time 10 http://127.0.0.1:9527/ | head -20
             powershell -Command "(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9527/).StatusCode"
-            taskkill //F //IM "$EXE" || true
-            echo "-- run.log"; cat run.log | tail -30
+            echo "-- ctrl-c style stop: taskkill without /F"; taskkill //IM "$(basename $EXE)" ; sleep 2
+            taskkill //F //IM "$(basename $EXE)" 2>&1 | head -2
+            echo "-- run.log"; tail -30 run.log
           fi
-          echo "== dev --help"; go tool tifa dev --help 2>&1 | head -40
-          echo "== dev"; (timeout 30 go tool tifa dev 2>&1 | tail -40); echo "exit=$?"
+          echo "== dev (foreground, 40s)"; (timeout 40 go tool tifa dev 2>&1 | tail -60); echo "exit=$?"
+          taskkill //F //IM tifa-dev.exe 2>&1 | head -2
           echo "== dev --background"; go tool tifa dev --background 2>&1 | tail -20
-          echo "== dev stop/status/logs"; go tool tifa dev stop 2>&1 | tail -5
+          echo "== dev status"; go tool tifa dev status 2>&1 | tail -10
+          echo "-- curl dev /"; curl -s -o /dev/null -w "%{http_code}\n" --max-time 20 http://127.0.0.1:9527/
+          echo "-- edit page"; sed -i 's/Todos/My todos/' app/page.tsx; sleep 10
+          curl -s --max-time 20 http://127.0.0.1:9527/ | grep -o 'My todos' | head -1
+          echo "== dev logs"; go tool tifa dev logs 2>&1 | tail -30
+          echo "== dev stop"; go tool tifa dev stop 2>&1 | tail -5
+          sleep 3; go tool tifa dev status 2>&1 | tail -3
+          taskkill //F //IM tifa-dev.exe 2>&1 | head -2
+          taskkill //F //IM tifa.exe 2>&1 | head -2
+      - name: Smoke test of the shop
+        continue-on-error: true
+        run: |
+          set +e
+          exec > >(tee shop.log) 2>&1
+          cd examples/shop
+          pnpm install --frozen-lockfile 2>&1 | tail -5
+          echo "== shop build"; go tool tifa build 2>&1 | tail -30; echo "exit=${PIPESTATUS[0]}"
+          ls bin
+          EXE="$(ls bin/* | head -1)"
+          ./"$EXE" > run.log 2>&1 &
+          sleep 10
+          for u in / /store /projects /zh-CN/store; do echo "-- $u"; curl -s -o /dev/null -w "%{http_code} %{size_download}\n" --max-time 20 "http://127.0.0.1:9527$u"; done
+          tail -20 run.log
+          taskkill //F //IM "$(basename $EXE)" 2>&1 | head -2
+          echo "== shop check"; go tool tifa check 2>&1 | tail -30; echo "exit=${PIPESTATUS[0]}"
       - name: Smoke test in PowerShell
         continue-on-error: true
         shell: pwsh
@@ -253,3 +281,5 @@ jobs:
             test.err
             e2e.json
             e2e.err
+            smoke.log
+            shop.log

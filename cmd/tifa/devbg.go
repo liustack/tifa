@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,9 +44,6 @@ var startWait = 15 * time.Second
 var errDevSystem = errors.New("tifa dev does not run on Windows yet, use WSL")
 
 func checkDevSystem() error {
-	if runtime.GOOS == "windows" {
-		return errDevSystem
-	}
 	return nil
 }
 

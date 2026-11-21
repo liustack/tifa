@@ -65,7 +65,8 @@ import { Worker } from 'node:worker_threads'
 const closeTimeout = Number(process.argv[2])
 if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[2]} is not a number of milliseconds`)
 
-const answer = (value) => fs.writeSync(3, JSON.stringify(value) + '\n')
+const emit = (line) => (process.env.TIFA_ANSWERS ? fs.appendFileSync(process.env.TIFA_ANSWERS, line) : fs.writeSync(3, line))
+const answer = (value) => emit(JSON.stringify(value) + '\n')
 
 // takeWarnings returns the warnings the tifa plugin of this thread printed since the last call, see
 // warningsPlugin in js/vite/plugin.js. The worker thread of the SSR build runs its source text, so it
@@ -145,7 +146,7 @@ function trackRestart(restart) {
       const files = [...restarts.outside].filter((file) => fs.existsSync(file))
       restarts.outside.clear()
       if (files.length > 0) server.watcher.add(files)
-      fs.writeSync(3, JSON.stringify({ notice: 'restarted' }) + '\n')
+      emit(JSON.stringify({ notice: 'restarted' }) + '\n')
     })
   restarts.running = tracked
   return run
@@ -851,7 +852,7 @@ function startSSRWorker() {
 // package of the workspace, and the SSR bundle may import it too.
 function changedOutside(event, file) {
   if (!['add', 'change', 'unlink'].includes(event) || !outside(file)) return
-  fs.writeSync(3, JSON.stringify({ notice: 'changed', file }) + '\n')
+  emit(JSON.stringify({ notice: 'changed', file }) + '\n')
 }
 
 // outside reports whether file is outside the root and outside node_modules.
