@@ -19,12 +19,15 @@ var oldInputNames = []struct{ old, new string }{
 	{"CF_ZONE_ID", envZoneID},
 }
 
-// checkOldInputNames fails when an input is still set under its old name, in the environment or
-// in the .env at root, and the new name is set nowhere. Reading the old name would work, but it
-// would hide that CI and a second machine need the new one, so the error names the new name.
-// hostFlag is the value of --host: it gives the server, so DEPLOY_HOST is left alone then.
+// checkOldInputNames fails when an input is still set under its old name in the .env at root, and
+// the new name is set nowhere. Reading the old name would work, but it would hide that CI and a
+// second machine need the new one, so the error names the new name. Only .env is looked at for
+// the old names: earlier versions told people to write them there, while in the environment
+// they are common names that other tools set (CF_ZONE_ID, DEPLOY_HOST). hostFlag is the value of
+// --host: it gives the server, so DEPLOY_HOST is left alone then.
 func checkOldInputNames(root, hostFlag string) error {
 	src := config.Read(nil, os.Environ(), root)
+	dotenv := config.Read(nil, nil, root)
 	for _, n := range oldInputNames {
 		if n.new == deployHostEnv && hostFlag != "" {
 			continue
@@ -32,7 +35,7 @@ func checkOldInputNames(root, hostFlag string) error {
 		if value, _ := src.Lookup(n.new); value != "" {
 			continue
 		}
-		if value, from := src.Lookup(n.old); value != "" {
+		if value, from := dotenv.Lookup(n.old); value != "" {
 			return fmt.Errorf("%s is set, and %s has been renamed to %s: rename it", from, n.old, n.new)
 		}
 	}

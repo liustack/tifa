@@ -6,26 +6,22 @@ import (
 	"testing"
 )
 
-// An input under its old name, with the new name missing, stops every deploy command and names
-// the new one. It is no silent fallback and no warning.
+// An input under its old name in the .env of the app, with the new name missing, stops every
+// deploy command and names the new one. It is no silent fallback and no warning.
 func TestOldInputNamesAreErrors(t *testing.T) {
 	for _, tc := range []struct{ old, new string }{
 		{"DEPLOY_HOST", "TIFA_DEPLOY_HOST"},
 		{"CF_CACHE_PURGE_TOKEN", "TIFA_DEPLOY_CF_PURGE_TOKEN"},
 		{"CF_ZONE_ID", "TIFA_DEPLOY_CF_ZONE_ID"},
 	} {
-		for _, where := range []string{"environment", ".env"} {
-			t.Run(tc.old+" in "+where, func(t *testing.T) {
-				root := t.TempDir()
-				writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-				for _, n := range []string{"TIFA_DEPLOY_HOST", "TIFA_DEPLOY_CF_PURGE_TOKEN", "TIFA_DEPLOY_CF_ZONE_ID", "DEPLOY_HOST", "CF_CACHE_PURGE_TOKEN", "CF_ZONE_ID"} {
-					t.Setenv(n, "")
-				}
-				if where == "environment" {
-					t.Setenv(tc.old, "vps")
-				} else {
-					writeFile(t, filepath.Join(root, ".env"), tc.old+"=vps\n")
-				}
+		t.Run(tc.old, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+			for _, n := range []string{"TIFA_DEPLOY_HOST", "TIFA_DEPLOY_CF_PURGE_TOKEN", "TIFA_DEPLOY_CF_ZONE_ID", "DEPLOY_HOST", "CF_CACHE_PURGE_TOKEN", "CF_ZONE_ID"} {
+				t.Setenv(n, "")
+			}
+			writeFile(t, filepath.Join(root, ".env"), tc.old+"=vps\n")
+			{
 				// The flag gives the server, so only the other two inputs are in question then.
 				hostFlag := ""
 				if tc.old != "DEPLOY_HOST" {
@@ -51,7 +47,25 @@ func TestOldInputNamesAreErrors(t *testing.T) {
 				if _, err := loadDeployTarget(root, ""); err != nil {
 					t.Errorf("both names set: %v", err)
 				}
-			})
-		}
+			}
+		})
+	}
+}
+
+// The old names are common: other tools read CF_ZONE_ID and DEPLOY_HOST from the environment of a
+// shell or a CI job. Only the .env of the app, which earlier versions of Tifa told people to
+// write, is checked for them.
+func TestOldInputNamesInTheEnvironmentAreLeftAlone(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	for _, n := range []string{"TIFA_DEPLOY_CF_PURGE_TOKEN", "TIFA_DEPLOY_CF_ZONE_ID"} {
+		t.Setenv(n, "")
+	}
+	t.Setenv("TIFA_DEPLOY_HOST", "vps")
+	t.Setenv("DEPLOY_HOST", "other")
+	t.Setenv("CF_CACHE_PURGE_TOKEN", "x")
+	t.Setenv("CF_ZONE_ID", "y")
+	if _, err := loadDeployTarget(root, ""); err != nil {
+		t.Errorf("old names in the environment stopped the deploy: %v", err)
 	}
 }

@@ -69,7 +69,7 @@ deploy:
 | `TIFA_DEPLOY_CF_ZONE_ID` | none | The ID of that zone | environment, `.env` |
 | `TIFA_DEPLOY_GITHUB_TOKEN` | none | A fine-grained GitHub token, for setup and remove when gh is not there | environment, `.env` |
 
-An older name (`DEPLOY_HOST`, `CF_CACHE_PURGE_TOKEN`, `CF_ZONE_ID`) found in the environment or in `.env` while the new one is missing stops every `tifa deploy` command with an error that names the new name. Rename it.
+An older name (`DEPLOY_HOST`, `CF_CACHE_PURGE_TOKEN`, `CF_ZONE_ID`) found in `.env` while the new one is missing stops every `tifa deploy` command with an error that names the new name. Rename it. In the environment the old names are left alone: other tools use them.
 
 What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `ssh: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), logged in (`cf auth login`). For `ci: github`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](#deploy-from-github-actions)).
 
