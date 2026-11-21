@@ -12,6 +12,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -47,6 +48,9 @@ type planStep struct {
 	do func(ctx context.Context) (string, error)
 	// soft makes a failure a warning: setup goes on with the steps after it.
 	soft bool
+	// done is the text of the step once it ran, when it knows more than the plan did: a name
+	// that is made only when the step runs shows as a placeholder in text.
+	done func() string
 }
 
 // planNote is something the developer may want to do, though setup works without it.
@@ -208,6 +212,9 @@ func (p setupPlan) apply(ctx context.Context, w io.Writer) (warnings int, err er
 			continue
 		}
 		res, err := s.do(ctx)
+		if err == nil && s.done != nil {
+			s.text = s.done()
+		}
 		switch {
 		case errors.As(err, new(skipped)):
 			fmt.Fprintf(w, "  skipped %s: %v\n", s.text, err)
@@ -258,8 +265,22 @@ func (r *setupRun) refresh(ctx context.Context) error {
 }
 
 // readState asks the server about the app. Inside a plan it asks once.
+//
+// What ssh says on stderr is kept while the login may fail: a server without the user tifa
+// answers Permission denied, which the plan puts in its own words. Any other answer, and the
+// words of a login that failed for a reason the plan cannot name, go to stderr after all.
 func (r *setupRun) readState(ctx context.Context) (serverState, error) {
-	return memoRead(ctx, "ssh-state", func() (serverState, error) { return r.t.state(ctx, r.stderr) })
+	return memoRead(ctx, "ssh-state", func() (serverState, error) {
+		var said bytes.Buffer
+		st, err := r.t.state(ctx, &said)
+		var login *sshLoginError
+		if errors.As(err, &login) && login.user == deployUser {
+			login.said = strings.TrimSpace(said.String())
+		} else {
+			r.stderr.Write(said.Bytes())
+		}
+		return st, err
+	})
 }
 
 // progress says which part of the plan is being read. Reading takes seconds, and a terminal that
@@ -328,7 +349,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 	case errors.As(err, &login) && login.user == deployUser:
 		var out strings.Builder
 		if rerr := r.t.ssh(ctx, "root", setupProbeScript(), nil, &out, r.stderr); rerr != nil {
-			return fmt.Errorf("cannot log in to %s as %s (%v) or as root: %w", r.t.host, deployUser, err, rerr)
+			return fmt.Errorf("cannot log in to %s as %s (%v: %s) or as root: %w", r.t.host, deployUser, err, login.said, rerr)
 		}
 		s, perr := parseServerState(out.String())
 		if perr != nil {
@@ -337,7 +358,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		if _, _, terr := serverTarget(s.OS, s.Arch); terr != nil {
 			return terr
 		}
-		p.add(opAdd, fmt.Sprintf("server: the user %s (home %s) that logs in with the keys of root, with its systemd running at boot", deployUser, deployHome), r.serverApply)
+		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
 	default:
 		return err
@@ -447,11 +468,17 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	if how == "already there" {
 		p.ok(tunnelText)
 	} else {
-		p.add(opAdd, tunnelText, func(ctx context.Context) (string, error) {
+		// The name has the machine id of the server, which setup reads once the user tifa is there.
+		var done func() string
+		if r.st.Machine == "" {
+			tunnelText = "cloudflare: the tunnel of the server, tifa-<machine id>"
+			done = func() string { return "cloudflare: the tunnel of the server, tifa-" + r.st.Machine }
+		}
+		p.steps = append(p.steps, planStep{op: opAdd, text: tunnelText, done: done, do: func(ctx context.Context) (string, error) {
 			id, _, err := ensureTunnel(ctx, r.st.TunnelID, "tifa-"+r.st.Machine, true)
 			r.tunnelID = id
 			return id, err
-		})
+		}})
 	}
 	serverOp := opAdd
 	if r.st.Cloudflared != "" {
@@ -791,6 +818,22 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 		}
 	}
 	r.sshName = host
+	if found.host == "" {
+		// The random part is drawn again by every run, so a plan shows that it is new and the line
+		// of the step, once it ran, shows the name it made.
+		prefix, suffix := sshHostParts(t.domain, zone.Name)
+		shown := prefix + "<random>" + suffix
+		steps, after := len(p.steps), len(r.afterConnection)
+		defer func() {
+			for _, later := range [][]planStep{p.steps[steps:], r.afterConnection[after:]} {
+				for i := range later {
+					text := later[i].text
+					later[i].text = strings.ReplaceAll(text, host, shown)
+					later[i].done = func() string { return text }
+				}
+			}
+		}()
+	}
 	if found.legacy {
 		legacy := legacySSHHost(t.domain, zone.Name)
 		r.afterConnection = append(r.afterConnection, planStep{op: opRemove,

@@ -109,7 +109,7 @@ user=$2
 while [ "$1" != "--" ]; do shift; done
 script=$3
 case "$script" in
-*ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && exit 255; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
+*ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
 *'disable --quiet $units'*) echo "removeapp $user" >> "$d/calls" ;;
@@ -1171,7 +1171,7 @@ func TestSetupReplacesTheOldSSHHost(t *testing.T) {
 	if !sshHostName.MatchString(host) {
 		t.Fatalf("TIFA_DEPLOY_HOST %q\n%s", host, out)
 	}
-	for _, want := range []string{"add     cloudflare: route " + host + " -> ssh://localhost:22", "add     cloudflare: DNS " + host, "remove  cloudflare: the ssh host name " + old} {
+	for _, want := range []string{"add     cloudflare: route deploy-a-ssh-<random>.example.com -> ssh://localhost:22", "done    cloudflare: route " + host + " -> ssh://localhost:22", "add     cloudflare: DNS deploy-a-ssh-<random>.example.com", "remove  cloudflare: the ssh host name " + old} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -1312,4 +1312,66 @@ func TestSetupAndRemoveDropOldNames(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Without the user tifa, ssh says Permission denied and the plan says why in its own words: the
+// user does not exist yet and setup creates it. The raw line of ssh stays out of the output.
+func TestSetupNoDeployUserYet(t *testing.T) {
+	root := setupApp(t, "deploy:\n", nil)
+	srv := newSetupServer(t, "", freshFacts)
+	srv.deny(t)
+	out, errOut, _ := runSetupIO(t, root, false, "")
+	if strings.Contains(out+errOut, "Permission denied") {
+		t.Errorf("the plan shows what ssh said:\n%s\n%s", out, errOut)
+	}
+	if want := "add     server: the user tifa does not exist yet (ssh cannot log in as it), so setup creates it"; !strings.Contains(out, want) {
+		t.Errorf("plan lacks %q:\n%s", want, out)
+	}
+}
+
+// The tunnel is named after the machine id of the server, which a server without the user tifa
+// cannot tell yet. The plan then shows a placeholder and not a cut name.
+func TestSetupTunnelNameBeforeTheServerIsRead(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
+	srv := newSetupServer(t, "", freshFacts)
+	srv.deny(t)
+	cfSetup(t, "example.com")
+	out, _ := runSetup(t, root, false, "")
+	if want := "add     cloudflare: the tunnel of the server, tifa-<machine id>"; !strings.Contains(out, want) {
+		t.Errorf("plan lacks %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "server, tifa-\n") {
+		t.Errorf("a cut name:\n%s", out)
+	}
+}
+
+// The ssh host name is drawn when setup applies, so the plan of a run that applies nothing says
+// that the random part is new, and the run that applies shows the name it made.
+func TestSetupPlanSaysTheSSHNameIsNew(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	gh := newFakeGH()
+	gh.install(t)
+	random := regexp.MustCompile(`deploy-a-ssh-[a-z2-7]{12}`)
+
+	out, _ := runSetup(t, root, false, "")
+	for _, want := range []string{"add     cloudflare: route deploy-a-ssh-<random>.example.com -> ssh://localhost:22", "add     cloudflare: DNS deploy-a-ssh-<random>.example.com", "the Access application of deploy-a-ssh-<random>.example.com"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plan lacks %q:\n%s", want, out)
+		}
+	}
+	if random.MatchString(out) {
+		t.Errorf("the plan shows a name that the next run does not make:\n%s", out)
+	}
+
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	host := gh.secrets[secretHost]
+	if !strings.Contains(out, "done    cloudflare: route "+host+" -> ssh://localhost:22") {
+		t.Errorf("the done line lacks the name %s:\n%s", host, out)
+	}
 }

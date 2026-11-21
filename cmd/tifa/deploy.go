@@ -171,6 +171,8 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 type sshLoginError struct {
 	user, host, hint string
 	err              error
+	// said is what ssh printed, when the caller kept it.
+	said string
 }
 
 func (e *sshLoginError) Error() string {
