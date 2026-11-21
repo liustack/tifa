@@ -325,7 +325,7 @@ func TestBuildLogsTheProgressOfASlowStep(t *testing.T) {
 			progress = append(progress, line)
 		}
 	}
-	if !regexp.MustCompile(`^go build still running \(\d+s\)\. The first build compiles QuickJS and the other dependencies, later builds use Go's build cache$`).MatchString(progress[0]) {
+	if !regexp.MustCompile(`^go build still running \(\d+s\)\. The first build compiles slowjs and the other dependencies, later builds use Go's build cache$`).MatchString(progress[0]) {
 		t.Errorf("first progress line %q", progress[0])
 	}
 	for _, line := range progress[1:] {

@@ -2942,7 +2942,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       const stubs = nodeModulesLeft(chunk)
       if (stubs.length > 0) {
         this.warn(
-          'the SSR bundle uses Node modules, which QuickJS does not have: in their place it has stand-ins that throw ' +
+          'the SSR bundle uses Node modules, which slowjs does not have: in their place it has stand-ins that throw ' +
             'when a render uses them. The list is a hint, a render may never reach the code that uses them:\n' +
             stubs.join('\n'),
         )

@@ -316,7 +316,7 @@ func (b *builder) progress(name string, start time.Time) func() {
 		defer timer.Stop()
 		why := ""
 		if name == "go build" {
-			why = ". The first build compiles QuickJS and the other dependencies, later builds use Go's build cache"
+			why = ". The first build compiles slowjs and the other dependencies, later builds use Go's build cache"
 		}
 		for {
 			select {
