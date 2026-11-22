@@ -26,11 +26,11 @@ type fakeGH struct {
 	// staleOther is a second account whose token is no longer valid: gh auth status fails unless
 	// it checks only the active account. noActive is a gh too old to know --active.
 	staleOther, noActive bool
-	repo     string
-	branch   string // empty: no default branch yet
-	calls    []string
-	secrets  map[string]string
-	vars     map[string]string
+	repo                 string
+	branch               string // empty: no default branch yet
+	calls                []string
+	secrets              map[string]string
+	vars                 map[string]string
 }
 
 func newFakeGH() *fakeGH {

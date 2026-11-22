@@ -1183,6 +1183,8 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		return err
 	}
 	title := fmt.Sprintf("Plan for %s on %s", t.app, t.host)
+	// toolWarnings counts the steps on this machine that failed: they need the developer too.
+	toolWarnings := 0
 	if plan.then != "" {
 		// cf and gh come first: the rest of the plan reads Cloudflare and GitHub with them. Their
 		// steps may fail without stopping setup, and what failed shows again in the next plan.
@@ -1190,7 +1192,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		if err := confirm(in, stdout, f.yes); err != nil {
 			return err
 		}
-		if _, err := plan.apply(ctx, stdout); err != nil {
+		if toolWarnings, err = plan.apply(ctx, stdout); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout)
@@ -1201,7 +1203,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	cannot := plan.count(opCannot)
 	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !f.all {
 		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
-		return nil
+		return needsYou(toolWarnings)
 	}
 	plan.print(stdout, title, f.all)
 	warnings := 0
@@ -1213,10 +1215,15 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 			return err
 		}
 	}
-	if n := cannot + warnings; n > 0 {
-		return fmt.Errorf("%d %s, see above", n, plural(n, "thing needs you", "things need you"))
+	return needsYou(cannot + warnings + toolWarnings)
+}
+
+// needsYou is the error of a setup that left n things to the developer, nil for none.
+func needsYou(n int) error {
+	if n == 0 {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%d %s, see above", n, plural(n, "thing needs you", "things need you"))
 }
 
 // zoneText names the zone of the domain for the steps a developer follows: its name once cf found

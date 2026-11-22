@@ -22,17 +22,18 @@ type fakeMachine struct {
 	onPath map[string]string
 	// pnpmBin is what pnpm bin --global prints.
 	pnpmBin string
-	// fail makes the command line fail.
-	fail map[string]error
-	ran  []string
-	cf   *fakeCF
-	gh   *fakeGH
+	// fail makes the command line fail. failDone makes it fail after it did its work, as a login
+	// that times out after the browser said yes.
+	fail, failDone map[string]error
+	ran            []string
+	cf             *fakeCF
+	gh             *fakeGH
 }
 
 const fakePNPMBin = "/home/dev/.local/share/pnpm"
 
 func newFakeMachine(goos string, programs ...string) *fakeMachine {
-	m := &fakeMachine{os: goos, files: map[string]bool{}, onPath: map[string]string{}, pnpmBin: fakePNPMBin, fail: map[string]error{}}
+	m := &fakeMachine{os: goos, files: map[string]bool{}, onPath: map[string]string{}, pnpmBin: fakePNPMBin, fail: map[string]error{}, failDone: map[string]error{}}
 	for _, p := range programs {
 		m.onPath[p] = "/usr/local/bin/" + p
 		m.files["/usr/local/bin/"+p] = true
@@ -96,7 +97,7 @@ func (m *fakeMachine) install(t *testing.T) {
 		case strings.HasSuffix(line, " "+strings.Join(ghLoginArgs, " ")) && m.gh != nil:
 			m.gh.loggedIn = true
 		}
-		return nil
+		return m.failDone[line]
 	}
 }
 
@@ -288,6 +289,30 @@ func TestSetupGHChecksOnlyItsAccount(t *testing.T) {
 	}
 }
 
+// A login that failed makes setup exit with an error, even when the plan after it then works: the
+// failure was printed, so the exit code says so too.
+func TestSetupToolWarningFailsTheRun(t *testing.T) {
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	gh := newFakeGH()
+	gh.loggedIn = false
+	gh.install(t)
+	t.Setenv(githubTokenEnv, "")
+	m := newFakeMachine("darwin", "brew", "gh")
+	m.gh = gh
+	m.failDone["gh "+strings.Join(ghLoginArgs, " ")] = errors.New("exit status 1")
+	m.install(t)
+	out, err := runSetup(t, root, true, "y\ny\n")
+	if err == nil || !strings.Contains(out, "warning this machine: log in to gh") || gh.vars[varMarker] == "" {
+		t.Fatalf("%v, vars %v\n%s", err, gh.vars, out)
+	}
+	// Nothing else is left: the plan after it matches.
+	out, err = runSetup(t, root, true, "y\n")
+	if err != nil {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+}
+
 // Without a terminal nothing is installed and nobody logs in, even with --yes: the commands go to
 // the list of what the developer does.
 func TestSetupToolsNoTerminal(t *testing.T) {
@@ -353,7 +378,7 @@ func TestSetupToolInstallFails(t *testing.T) {
 			m.install(t)
 
 			out, err := runSetup(t, root, true, "y\ny\n")
-			if err == nil || !strings.Contains(err.Error(), "needs you") {
+			if err == nil || !strings.Contains(err.Error(), "2 things need you") {
 				t.Fatalf("%v\n%s", err, out)
 			}
 			for _, want := range []string{
