@@ -331,7 +331,7 @@ case " $* " in *" show "*) cat "$HOME/.run/show" 2>/dev/null ;; esac`)
 	tool("curl", `rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
-	tool("flock", "exit 0")
+	tool("flock", `echo "flock $*" >> `+shellQuote(log))
 	tool("sleep", "exit 0")
 	// With -f it says so and waits as the one process of the ssh, so killing the ssh ends it.
 	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`

@@ -257,7 +257,7 @@ func noCF(t *testing.T) {
 // the lines of the other zones stay. Deploy reads it back over ssh. With the last app it goes.
 func TestPurgeFileOnTheServer(t *testing.T) {
 	home := t.TempDir()
-	fakeServer(t, home, nil)
+	calls := fakeServer(t, home, nil)
 	tgt := purgeTarget(t.TempDir(), "shop.example.com")
 	ctx := context.Background()
 	if _, ok, err := tgt.serverPurge(ctx, io.Discard); ok || err != nil {
@@ -289,6 +289,10 @@ func TestPurgeFileOnTheServer(t *testing.T) {
 	if strings.Contains(fakeServerArgv(), "tok-") {
 		t.Errorf("a token is on a command line of ssh:\n%s", fakeServerArgv())
 	}
+	// Two setups on one server do not lose each other's line: each write holds the lock.
+	if n := strings.Count(calls(), "flock -w 60 9"); n != 3 {
+		t.Errorf("%d of 3 writes took the lock:\n%s", n, calls())
+	}
 	for _, bad := range []purgeCred{{"example.com", "z", "tok\tx"}, {"example.com", "z", "tok\nexample.org\tz\tt"}, {"example.com", "z", ""}, {"exa mple.com", "z", "t"}, {"example.com", "", "t"}} {
 		if err := tgt.storePurge(ctx, bad, io.Discard); err == nil {
 			t.Errorf("%q: stored", bad)
@@ -307,6 +311,9 @@ func TestPickPurgeLine(t *testing.T) {
 		"example.org":        "zone-org",
 		"notexample.com":     "",
 		"example.net":        "",
+		// Host names are the same in any case.
+		"www.SHOP.Example.com": "zone-sub",
+		"EXAMPLE.ORG":          "zone-org",
 	} {
 		c, ok, err := pickPurgeLine(text, domain)
 		if err != nil || ok != (want != "") || c.ZoneID != want {
@@ -446,5 +453,70 @@ func TestDeployAndRollbackPurgeWithTheServerToken(t *testing.T) {
 		if strings.Contains(text, "tok-secret") {
 			t.Errorf("the token is in the %s:\n%s", what, text)
 		}
+	}
+}
+
+// Remove decides whether an app is left on the server under the lock of the file, in the script
+// that deletes: an app that came since the plan keeps the file. With none left, the file, its lock
+// and any temporary file a write left go, and the folder with them.
+func TestPurgeForget(t *testing.T) {
+	home := t.TempDir()
+	calls := fakeServer(t, home, nil)
+	tgt := purgeTarget(t.TempDir(), "")
+	writePurgeFile(t, home, purgeFileHeader+"\nexample.com\tzone-com\ttok-com\n")
+	left := filepath.Join(home, filepath.FromSlash(purgeFile)+".Ab12Cd")
+	writeFile(t, left, "example.com\tzone-com\ttok-com\n")
+	writeFile(t, filepath.Join(home, "notes", "port"), "9532\n")
+	var out strings.Builder
+	if err := tgt.ssh(context.Background(), deployUser, purgeForgetBody, nil, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "kept") || !strings.Contains(out.String(), "notes") || !exists(left) || !strings.Contains(calls(), "flock -w 60 9") {
+		t.Fatalf("with notes on the server: %q\n%s", out.String(), calls())
+	}
+	if err := os.RemoveAll(filepath.Join(home, "notes")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := tgt.ssh(context.Background(), deployUser, purgeForgetBody, nil, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(home, filepath.FromSlash(purgeDir))) {
+		entries, _ := os.ReadDir(filepath.Join(home, filepath.FromSlash(purgeDir)))
+		t.Errorf("left %v: %q", entries, out.String())
+	}
+}
+
+// A server file that cannot be read leaves the cf login to clear the cache, as before the file,
+// and one line says the file could not be read. Without cf it is a warning.
+func TestPurgeServerReadFails(t *testing.T) {
+	t.Setenv(envPurgeToken, "")
+	home := t.TempDir()
+	fakeServer(t, home, nil)
+	// A file that cannot be read: cat fails on it.
+	writePurgeFile(t, home, purgeFileHeader+"\nexample.com\tzone-com\ttok-com\n")
+	if err := os.Chmod(filepath.Join(home, filepath.FromSlash(purgeFile)), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(home, filepath.FromSlash(purgeFile)), 0o600) })
+	f := &fakeAccess{fakeCF: newFakeCF("example.com")}
+	f.install(t)
+	inner := runCF
+	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
+		if args[0] == "cache" {
+			return []byte(`{}`), nil
+		}
+		return inner(ctx, args...)
+	}
+	tgt := purgeTarget(t.TempDir(), "shop.example.com")
+	r := clearCache(context.Background(), tgt, io.Discard)
+	var out strings.Builder
+	printCache(&out, r)
+	if !r.Cleared || strings.Count(out.String(), "\n") != 2 || !strings.Contains(out.String(), "could not be read") || !strings.Contains(out.String(), "cache: cleared for shop.example.com") {
+		t.Errorf("with cf: %+v\n%s", r, out.String())
+	}
+	noCF(t)
+	if r := clearCache(context.Background(), tgt, io.Discard); r.Cleared || r.NoToken || !strings.Contains(r.Warning, "could not be read") {
+		t.Errorf("without cf: %+v", r)
 	}
 }

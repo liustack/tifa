@@ -509,8 +509,8 @@ fi
 if [ -f /etc/apt/apt.conf.d/52tifa-cloudflared ]; then echo "cloudflared-tifa yes"; fi
 # The zones of the purge tokens, never a token: only what comes before the first tab of a line.
 f="$HOME/` + purgeFile + `"
+if [ -d "$HOME/` + purgeDir + `" ]; then echo "purge-file yes"; fi
 if [ -f "$f" ]; then
-	echo "purge-file yes"
 	t=$(printf '\t')
 	while IFS= read -r l || [ -n "$l" ]; do
 		case "$l" in '#'*) ;; *"$t"*) echo "purge-zone ${l%%"$t"*}" ;; esac

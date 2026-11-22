@@ -104,6 +104,9 @@ type cacheResult struct {
 	// NoToken is set when there is neither a token nor a cf login. Then the cache is left to run
 	// out, which the developer chose, so it is no warning.
 	NoToken bool
+	// Note says the file of purge tokens on the server could not be read, when cf cleared the
+	// cache instead.
+	Note string
 }
 
 func (r cacheResult) String() string {
@@ -137,9 +140,12 @@ func clearCache(ctx context.Context, t deployTarget, stderr io.Writer) cacheResu
 			err = fmt.Errorf("%s is set and %s is not: put the ID of the zone in the environment or in the .env at the root of the app (the token only clears the cache, so it cannot read the zone to find it)", envPurgeToken, envZoneID)
 		}
 	} else {
-		var c purgeCred
-		var ok bool
-		if c, ok, err = t.serverPurge(ctx, stderr); ok {
+		// A file that cannot be read leaves the cf login to do it, as before there was a file.
+		c, ok, rerr := t.serverPurge(ctx, stderr)
+		switch {
+		case rerr != nil:
+			r.Note = "the token on the server could not be read: " + rerr.Error()
+		case ok:
 			token, zoneID = c.Token, c.ZoneID
 		}
 	}
@@ -152,6 +158,8 @@ func clearCache(ctx context.Context, t deployTarget, stderr io.Writer) cacheResu
 		if zone, err = findZone(ctx, domain); err == nil {
 			_, err = runCF(ctx, "cache", "purge", "-z", zone.Name, "--force", "--body", string(purgeBody(domain)))
 		}
+	case r.Note != "":
+		err = errors.New(r.Note)
 	default:
 		r.NoToken = true
 		return r
@@ -180,7 +188,8 @@ type purgeCred struct{ Zone, ZoneID, Token string }
 
 // purgeStoreBody runs as the deploy user with the line of a zone on its input. It writes the file
 // again with that line in place of the old line of the zone, and the other lines as they were.
-// The token passes through cat and the shell only: it is on no command line.
+// The token passes through cat and the shell only: it is on no command line. It holds the lock of
+// the file, so two setups on one server keep each other's line, and remove waits for it.
 const purgeStoreBody = `set -eu
 line=$(cat)
 zone=${line%%"$tab"*}
@@ -191,8 +200,11 @@ d="$HOME/` + purgeDir + `"
 f="$HOME/` + purgeFile + `"
 mkdir -p "$d"
 chmod 700 "$d"
+exec 9>"$f.lock"
+flock -w 60 9
 tmp=$(mktemp "$f.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
 printf '%s\n' "$header" > "$tmp"
 if [ -f "$f" ]; then
 	while IFS= read -r l || [ -n "$l" ]; do
@@ -212,11 +224,21 @@ f="$HOME/` + purgeFile + `"
 if [ -f "$f" ]; then cat "$f"; fi
 `
 
-// purgeForgetBody runs as the deploy user once no app is left on the server, and deletes the file
-// and its folder.
+// purgeForgetBody runs as the deploy user after remove took an app away. Under the lock of the
+// file it looks whether an app is left, since one may have come after the plan: a write of setup
+// comes after the folder of its app. With none left it deletes the folder of the file, with the
+// lock and any temporary file a write that was killed left.
 const purgeForgetBody = `set -eu
-rm -f "$HOME/` + purgeFile + `"
-rmdir "$HOME/` + purgeDir + `" 2>/dev/null || true
+d="$HOME/` + purgeDir + `"
+f="$HOME/` + purgeFile + `"
+if [ ! -d "$d" ]; then exit 0; fi
+exec 9>"$f.lock"
+flock -w 60 9
+for p in "$HOME"/*/port; do
+	if [ -f "$p" ]; then echo "kept, since the app $(basename "$(dirname "$p")") is on the server now"; exit 0; fi
+done
+rm -f "$f" "$f".*
+rmdir "$d" 2>/dev/null || true
 `
 
 // purgeField says whether s can be a field of the file: not empty, and no space, tab, line end or
@@ -231,7 +253,7 @@ func (t deployTarget) storePurge(ctx context.Context, c purgeCred, stderr io.Wri
 		return errors.New("the zone, its ID and the token must each be one word, with no space or line end")
 	}
 	body := script(purgeStoreBody, "tab", "\t", "header", purgeFileHeader)
-	line := strings.NewReader(c.Zone + "\t" + c.ZoneID + "\t" + c.Token + "\n")
+	line := strings.NewReader(strings.ToLower(c.Zone) + "\t" + c.ZoneID + "\t" + c.Token + "\n")
 	if err := t.ssh(ctx, deployUser, body, line, io.Discard, stderr); err != nil {
 		return fmt.Errorf("keeping the token in ~/%s on the server: %w", purgeFile, err)
 	}
@@ -249,8 +271,10 @@ func (t deployTarget) serverPurge(ctx context.Context, stderr io.Writer) (c purg
 }
 
 // pickPurgeLine finds the line of the zone of domain in the text of the file: the zone that is the
-// domain, or else the longest one the domain ends in. An error never holds a field of a line.
+// domain, or else the longest one the domain ends in, in any case. An error never holds a field of
+// a line.
 func pickPurgeLine(text, domain string) (c purgeCred, ok bool, err error) {
+	domain = strings.ToLower(domain)
 	for i, line := range strings.Split(text, "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -259,7 +283,8 @@ func pickPurgeLine(text, domain string) (c purgeCred, ok bool, err error) {
 		if len(f) != 3 || !purgeField(f[0]) || !purgeField(f[1]) || !purgeField(f[2]) {
 			return purgeCred{}, false, fmt.Errorf("line %d of ~/%s on the server is not a zone, its ID and a token: run go tool tifa deploy setup --cache-purge-token", i+1, purgeFile)
 		}
-		if (domain == f[0] || strings.HasSuffix(domain, "."+f[0])) && len(f[0]) > len(c.Zone) {
+		zone := strings.ToLower(f[0])
+		if (domain == zone || strings.HasSuffix(domain, "."+zone)) && len(zone) > len(c.Zone) {
 			c, ok = purgeCred{Zone: f[0], ZoneID: f[1], Token: f[2]}, true
 		}
 	}
@@ -271,6 +296,9 @@ func printCache(w io.Writer, r cacheResult) {
 	switch {
 	case r.Host == "":
 	case r.Cleared:
+		if r.Note != "" {
+			fmt.Fprintf(w, "cache: %s, so cf cleared it\n", r.Note)
+		}
 		fmt.Fprintf(w, "cache: cleared for %s\n", r.Host)
 	case r.NoToken:
 		fmt.Fprintf(w, "cache: not cleared for %s: %s. %s\n", r.Host, noTokenCost, noTokenHow())

@@ -281,7 +281,8 @@ type setupRun struct {
 	// domainNew says the plan adds the route of the domain: its first setup. purgeOnServer says
 	// the server has the purge token of the zone, purgePlanned that the plan asks for it, and
 	// purgeStored that the step put it there.
-	domainNew, purgeOnServer, purgePlanned, purgeStored bool
+	// purgeVerified says that token works: Cloudflare took it for the zone.
+	domainNew, purgeOnServer, purgeVerified, purgePlanned, purgeStored bool
 	setupFlags
 }
 
@@ -781,24 +782,35 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		r.tailscaleSteps(p)
 	}
 
-	// The workflow. It hands Tifa the purge token and the zone ID of an older setup only while they
-	// cannot move to the server yet.
-	keep := t.domain != "" && r.ghNames[secretPurge] && !r.purgeOnServer && !r.purgePlanned
-	spec, err := workflowSpec(t, repo, t.sshMode, keep)
+	// The workflow. It hands Tifa the purge token and the zone ID of an older setup while the
+	// repository has them and the server has no token that works. The plan expects the paste to
+	// work, and the step writes what came of it: a paste skipped, or a write to the server that
+	// failed, keeps the secrets in the workflow.
+	keep := func(pasted bool) bool {
+		return t.domain != "" && r.ghNames[secretPurge] && !r.purgeVerified && !pasted
+	}
+	spec, err := workflowSpec(t, repo, t.sshMode, keep(r.purgePlanned))
 	if err != nil {
 		return err
 	}
 	text := githubWorkflow(spec)
+	write := r.writeWorkflow(workflow, func() string {
+		spec.Purge = keep(r.purgeStored)
+		return githubWorkflow(spec)
+	})
+	same := strings.ReplaceAll(have, "\r\n", "\n") == text // git on Windows may check it out with CRLF
 	switch {
 	case have == "":
-		p.add(opAdd, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
+		p.add(opAdd, "github: "+githubWorkflowPath+", which you commit and push", write)
 	case !marked:
 		p.ok("github: " + githubWorkflowPath + " has no Tifa line at the top, so it is yours and stays")
-	// git on Windows may check the file out with CRLF line ends, which leave it the same file.
-	case strings.ReplaceAll(have, "\r\n", "\n") == text:
+	case same && r.purgePlanned && keep(false) != keep(true):
+		// Right if the paste works. The step puts the secrets back in when it does not.
+		p.steps = append(p.steps, planStep{op: opOK, text: "github: " + githubWorkflowPath, do: write})
+	case same:
 		p.ok("github: " + githubWorkflowPath)
 	default:
-		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
+		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", write)
 	}
 	p.steps = append(p.steps, r.afterConnection...)
 	r.removeOldNames(p)
@@ -808,18 +820,21 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			return err
 		}
 		r.removeZoneSecret(p)
-	case !keep:
-		r.removeRepoPurge(p)
+	case !keep(r.purgePlanned):
+		if err := r.removeRepoPurge(ctx, p); err != nil {
+			return err
+		}
 	}
 	return r.removeAccessIfUnwanted(ctx, p)
 }
 
-func (r *setupRun) writeWorkflow(path, text string) func(context.Context) (string, error) {
+// writeWorkflow writes the text the workflow has once the steps before it ran.
+func (r *setupRun) writeWorkflow(path string, text func() string) func(context.Context) (string, error) {
 	return func(context.Context) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return "", err
 		}
-		return "", os.WriteFile(path, []byte(text), 0o644)
+		return "", os.WriteFile(path, []byte(text()), 0o644)
 	}
 }
 
@@ -932,14 +947,22 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 	}
 	where := path.Join(r.serverHome(), purgeFile)
 	text := fmt.Sprintf("server: a token that can only clear the cache of %s, pasted by you and kept in %s, which only %s can read", zone, where, deployUser)
-	r.purgeOnServer = r.zone.Name != "" && slices.Contains(r.st.PurgeZones, r.zone.Name)
+	r.purgeOnServer = r.zone.Name != "" && slices.ContainsFunc(r.st.PurgeZones, func(z string) bool { return strings.EqualFold(z, r.zone.Name) })
+	// broken says why the token the server has cannot be trusted. Setup checks it the way it
+	// checks a pasted one.
+	broken := ""
+	if r.purgeOnServer && !r.purgeToken {
+		if broken = r.checkServerPurge(ctx); broken == "" {
+			r.purgeVerified = true
+		}
+	}
 	moving := r.ghNames[secretPurge]
 	firstCI := t.github && r.ghVars[varMarker] == "" && (r.ghVars[oldVarMarker] == "" || r.hadOldPurgeToken())
 	switch {
-	case r.purgeOnServer && !r.purgeToken:
+	case r.purgeVerified:
 		p.ok(fmt.Sprintf("server: the token that clears the cache of %s, in %s", zone, where))
 		return
-	case !r.purgeToken && !r.domainNew && !moving && !firstCI:
+	case !r.purgeToken && broken == "" && !r.domainNew && !moving && !firstCI:
 		// A deploy from a machine with cf clears the cache without it: only CI needs the note.
 		if t.github {
 			p.notes = append(p.notes, planNote{what: text, why: purgeTokenLater})
@@ -949,6 +972,9 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 	// left says why setup cannot ask now: a note on its own, a thing that needs you when the
 	// developer asked with --cache-purge-token.
 	left := func(why string) {
+		if broken != "" {
+			why = broken + ". " + why
+		}
 		if r.purgeToken {
 			p.cannot(text, why)
 			return
@@ -975,6 +1001,26 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 	}
 }
 
+// checkServerPurge reads the token the server has for the zone and checks it against the zone, as
+// a pasted one is checked. It says what is wrong, or nothing when the token works.
+func (r *setupRun) checkServerPurge(ctx context.Context) string {
+	t := r.t
+	t.domain = r.zone.Name
+	c, ok, err := t.serverPurge(ctx, r.stderr)
+	switch {
+	case err != nil:
+		return strings.ReplaceAll(err.Error(), "\n", " ")
+	case !ok:
+		return "the server has no token for " + r.zone.Name + " that tifa can read"
+	case c.ZoneID != r.zone.ID:
+		return "the token the server has for " + r.zone.Name + " is for another zone ID"
+	}
+	if err := checkPurgeToken(ctx, c.Token, c.ZoneID, r.t.domain); err != nil {
+		return fmt.Sprintf("the token the server has for %s does not work: %s", r.zone.Name, strings.ReplaceAll(err.Error(), "\n", " "))
+	}
+	return ""
+}
+
 // serverHome is the home of the deploy user, as the server said, or the one setup gives it.
 func (r *setupRun) serverHome() string {
 	if r.st.Home != "" {
@@ -993,11 +1039,12 @@ func (r *setupRun) keepPurge(ctx context.Context, token string) error {
 }
 
 // removeRepoPurge takes away the purge token and the zone ID an older setup kept as secrets of the
-// repository, once the workflow no longer hands them to Tifa. A purge token stays until the step
-// of this plan that asks for it put one on the server: it cannot be read back from GitHub.
-func (r *setupRun) removeRepoPurge(p *setupPlan) {
+// repository, once the workflow on the default branch no longer hands them to Tifa: CI runs that
+// file, and with an older tifa it has no other way to clear the cache. A purge token stays until a
+// token on the server works: it cannot be read back from GitHub.
+func (r *setupRun) removeRepoPurge(ctx context.Context, p *setupPlan) error {
 	if r.ghVars[varMarker] == "" {
-		return
+		return nil
 	}
 	var names []string
 	for _, n := range []string{secretPurge, secretZoneID} {
@@ -1006,21 +1053,30 @@ func (r *setupRun) removeRepoPurge(p *setupPlan) {
 		}
 	}
 	if len(names) == 0 {
-		return
+		return nil
 	}
-	text := "github: the secret " + names[0]
+	these := "the secret " + names[0]
 	if len(names) == 2 {
-		text = "github: the secrets " + names[0] + " and " + names[1]
+		these = "the secrets " + names[0] + " and " + names[1]
 	}
-	text += ", which tifa set and the workflow no longer uses"
-	token, planned := r.ghNames[secretPurge], r.purgePlanned
+	repo, branch := r.repo.Name, r.repo.Branch
+	onMain, found, err := r.gh.FileOnBranch(ctx, repo, branch, githubWorkflowPath)
+	switch {
+	case err != nil:
+		p.notes = append(p.notes, planNote{what: "github: " + these + " stay", why: fmt.Sprintf("Setup cannot read %s on %s, so it cannot tell whether CI still uses them: %v. Once the workflow on %s no longer has them, run setup again, or delete them by hand", githubWorkflowPath, branch, err, branch)})
+		return nil
+	case found && (strings.Contains(onMain, "secrets."+secretPurge) || strings.Contains(onMain, "secrets."+secretZoneID)):
+		p.notes = append(p.notes, planNote{what: fmt.Sprintf("github: %s stay while the workflow on %s hands them to Tifa", these, branch), why: fmt.Sprintf("Commit and push %s, which no longer does, then run setup again to remove them", githubWorkflowPath)})
+		return nil
+	}
+	text := "github: " + these + ", which tifa set and the workflow no longer uses"
+	token := r.ghNames[secretPurge]
 	if token {
-		text += fmt.Sprintf(". The token is on the server now: when you made a new one for it, delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", repoPurgeTokenName(r.repo.Name))
+		text += fmt.Sprintf(". The token is on the server now: when you made a new one for it, delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", repoPurgeTokenName(repo))
 	}
-	repo := r.repo.Name
 	p.add(opRemove, text, func(ctx context.Context) (string, error) {
-		if token && planned && !r.purgeStored {
-			return "", skipped{"the token did not reach the server, so the secrets stay until it does"}
+		if token && !r.purgeVerified && !r.purgeStored {
+			return "", skipped{"no token on the server works yet, so the secrets stay until one does"}
 		}
 		for _, n := range names {
 			if err := r.gh.DeleteSecret(ctx, repo, n); err != nil {
@@ -1029,6 +1085,7 @@ func (r *setupRun) removeRepoPurge(p *setupPlan) {
 		}
 		return "", nil
 	})
+	return nil
 }
 
 // purgeTokenCommand makes setup ask for the token that clears the CDN cache.
