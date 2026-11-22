@@ -155,7 +155,7 @@ See `docs/deploy.md#deploy-with-tifa-deploy`.
 
 ## Building for Linux and running it
 
-The server render engine runs on linux and darwin, on amd64 and arm64, and windows/amd64. Build on your machine for the server:
+The server render engine runs on linux and darwin, on amd64 and arm64, and windows on amd64 and arm64. Build on your machine for the server:
 
 ```sh
 GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
