@@ -5599,9 +5599,13 @@ export function inlineElements(code, parse) {
     } else if (node.type === 'CallExpression') {
       calls.push(node)
     }
-    for (const value of Object.values(node)) {
-      for (const child of Array.isArray(value) ? value : [value]) {
-        if (child && typeof child.type === 'string') visit(child)
+    for (const key in node) {
+      const value = node[key]
+      if (value === null || typeof value !== 'object') continue
+      if (Array.isArray(value)) {
+        for (const child of value) if (child && typeof child.type === 'string') visit(child)
+      } else if (typeof value.type === 'string') {
+        visit(value)
       }
     }
   }
