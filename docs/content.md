@@ -303,7 +303,7 @@ Each entry goes through these steps in this order:
 3. The `remarkPlugins` of the app.
 4. `remark-rehype` and `rehype-raw`: HTML written in the Markdown stays as it is. The content is part of the repository and is trusted, so nothing is filtered.
 5. HTML comments are removed, so notes for the author stay out of the page.
-6. Each `h1` to `h6` without an `id` gets the one GitHub gives it, the same as `rehype-slug`: the text in lower case without punctuation, spaces become `-`, and a repeat gets `-1`, `-2` and so on. An `id` written in the HTML stays.
+6. Each `h1` to `h6` gets its `id`. A `{#id}` at the end of a heading is the `id` and leaves the text, see [Heading ids](#heading-ids). Without one, a heading gets the id GitHub gives it, the same as `rehype-slug`: the text in lower case without punctuation, spaces become `-`, and a repeat gets `-1`, `-2` and so on. A heading whose HTML has an `id` stays as written.
 7. The `rehypePlugins` of the app. They run after the ids, so a plugin such as `rehype-autolink-headings` can use them.
 8. Relative URLs are rewritten, see [Images and links](#images-and-links).
 9. Root-relative links get a language prefix, see [Links between languages](#links-between-languages).
@@ -342,6 +342,21 @@ export function rehypeLazyImages() {
 - The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, language, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
 - An error a plugin throws fails the build with the file, the place the plugin gives and the name of the plugin. A warning it adds is printed.
 - MDX is not supported: a body is HTML and cannot hold React components. Put components in the page.
+
+### Heading ids
+
+Write the id at the end of a heading, the way Hugo, Docusaurus, VitePress and Pandoc do:
+
+```md
+## 图片和链接 {#images-and-links}
+```
+
+The heading gets `id="images-and-links"`, and `{#images-and-links}` and the space before it leave the text, so `Headings()` returns that id and the text `图片和链接`. A translation that keeps the id of the original keeps links to it and the table of contents working.
+
+- Only a `{#id}` at the very end of the heading counts. The id has letters (of any language), digits, `-`, `_`, `.` and `:`. Anything else, such as `{#bad id}`, stays text, and so does a `{#id}` in inline code or in the middle of the text.
+- Ids written this way are given first. A heading without one gets its GitHub id after them, so an automatic id that would repeat one further down the page gets `-1`, `-2` and so on, and the written id keeps its name.
+- The same rule covers a written id that repeats another: the second gets `-1`.
+- A heading written as HTML with an `id` is left as it is, text and id, and its id is not counted.
 
 ### Images and links
 
