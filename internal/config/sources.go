@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -82,6 +83,11 @@ func (s *Sources) Lookup(name string) (value, from string) {
 		return v, ".env " + name
 	}
 	return "", ""
+}
+
+// DotenvKeys returns the names set in the .env file, sorted. It is empty when there is no file.
+func (s *Sources) DotenvKeys() []string {
+	return slices.Sorted(maps.Keys(s.dotenv))
 }
 
 var (
