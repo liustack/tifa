@@ -1,6 +1,6 @@
 import { Outlet } from '@tanstack/react-router'
 
-export const htmlAttributes = { lang: 'en' }
+export const documentHead = { htmlAttributes: { lang: 'en' } }
 
 export default function Shell() {
   return (

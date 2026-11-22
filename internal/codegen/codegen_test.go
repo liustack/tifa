@@ -185,16 +185,38 @@ func TestRootLayoutDocumentFails(t *testing.T) {
 		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 	}
 	_, err := Generate(root, m, false, fakeExports)
-	if err == nil || !strings.Contains(err.Error(), "htmlAttributes") {
+	if err == nil || !strings.Contains(err.Error(), "documentHead") {
 		t.Fatalf("got %v", err)
 	}
 }
 
-// The entries pass the root Layout's htmlAttributes to the runtime, which writes them on <html>.
+// The htmlAttributes of the root Layout are a key of its documentHead. A separate export of that
+// name would never be read, so the build says where to move it.
+func TestRootLayoutHTMLAttributesExportFails(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\nexport const htmlAttributes = { lang: 'fr' }\n")
+	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
+	m := &analyze.Manifest{
+		Module:  "example.com/x",
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
+		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
+	}
+	_, err := Generate(root, m, false, fakeExports)
+	want := "app/layout.tsx: htmlAttributes is now a key of documentHead: move it into export const documentHead = { htmlAttributes: {...}, ... }"
+	if err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+}
+
+// The entries pass the htmlAttributes of the root Layout's documentHead to the runtime, which
+// writes them on <html>. The root route gets the rest of documentHead as its head.
 func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
 	files := generate(t, "router", false)
-	if !strings.Contains(string(files["routes.tsx"]), "export const htmlAttributes = m1.htmlAttributes\n") {
-		t.Errorf("routes.tsx does not export the root Layout's htmlAttributes:\n%s", files["routes.tsx"])
+	routes := string(files["routes.tsx"])
+	for _, want := range []string{"const rootHead = splitDocumentHead(m1.documentHead)\n", "head: routeHead(() => rootHead.head)", "export const htmlAttributes = rootHead.htmlAttributes\n"} {
+		if !strings.Contains(routes, want) {
+			t.Errorf("routes.tsx lacks %s:\n%s", want, routes)
+		}
 	}
 	for name, call := range map[string]string{"server.ts": "serve(routeTree, htmlAttributes)", "client.ts": "hydrate(routeTree, htmlAttributes)"} {
 		if !strings.Contains(string(files[name]), call) {

@@ -131,11 +131,11 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 - `loaderData` can be undefined when the `Load` failed. Handle it.
 - Share cards: `og:title`, `og:description`, `og:image` and `twitter:card` go in `meta` as `{ property: 'og:image', content }`. `og:image` must be a full URL, 1200x630: write a path such as `/og/a.png` and Tifa puts `site.url` in front of it (also for `og:image:url`, `og:image:secure_url`, `twitter:image`). With `site.url` Tifa writes `og:url` itself. See `docs/guides/seo.md`.
 - `head` may also return `htmlAttributes` for `<html>` (see [i18n.md](i18n.md) for `lang`).
-- The root Layout (`app/layout.tsx`) may export two constants. `htmlAttributes` (default `{ lang: 'en' }`) and `documentHead` (tags every page carries, also for unmatched URLs). Put the site default `title` in `documentHead`:
+- The root Layout (`app/layout.tsx`) may export `documentHead`: the tags every page carries, also for unmatched URLs, and the `htmlAttributes` of `<html>` (default `{ lang: 'en' }`), in the same shape as the return of a `head`. Put the site default `title` in it. A separate `export const htmlAttributes` fails the build:
 
 ```tsx
-export const htmlAttributes = { lang: 'en' }
 export const documentHead = {
+  htmlAttributes: { lang: 'en' },
   meta: [{ title: 'Shop' }, { name: 'theme-color', content: '#f2f4f5' }],
   links: [{ rel: 'icon', href: '/favicon.svg' }],
 }

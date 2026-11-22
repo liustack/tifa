@@ -29,12 +29,12 @@ interface HeadMatch {
 // The meta every page starts from. A route's meta with the same name replaces it.
 const baseMeta: Meta[] = [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }]
 
-// HTMLAttributes are attributes of the <html> element: the htmlAttributes of the root Layout,
-// and those a head function returns. undefined leaves an attribute to the levels above, null
+// HTMLAttributes are attributes of the <html> element: the htmlAttributes of the root Layout's
+// documentHead, and those a head function returns. undefined leaves an attribute to the levels above, null
 // takes it away.
 export type HTMLAttributes = Record<string, unknown>
 
-// The attributes of <html> of an application whose root Layout exports no htmlAttributes.
+// The attributes of <html> of an application whose root Layout's documentHead has no htmlAttributes.
 export const defaultHTMLAttributes: HTMLAttributes = { lang: 'en' }
 
 // TanStack Router keeps only meta, links, scripts and styles of what head returns. routeHead
@@ -70,12 +70,26 @@ export function routeHead<C, R extends HeadResult | Promise<HeadResult>>(head: (
 function withHTMLAttributes(head: HeadResult): unknown {
   if (head?.htmlAttributes === undefined) return head
   const { htmlAttributes, ...rest } = head
+  checkAttributes(htmlAttributes)
+  // A new array: the meta of a head may be a constant that other renders read too.
+  return { ...rest, meta: [...(rest.meta ?? []), { [htmlKey]: htmlAttributes }] }
+}
+
+function checkAttributes(htmlAttributes: unknown): asserts htmlAttributes is HTMLAttributes {
   if (typeof htmlAttributes !== 'object' || htmlAttributes === null || Array.isArray(htmlAttributes)) {
     const kind = htmlAttributes === null ? 'null' : Array.isArray(htmlAttributes) ? 'an array' : typeof htmlAttributes
     throw new Error(`head: htmlAttributes is ${kind}, not an object of attributes`)
   }
-  // A new array: the meta of a head may be a constant that other renders read too.
-  return { ...rest, meta: [...(rest.meta ?? []), { [htmlKey]: htmlAttributes }] }
+}
+
+// splitDocumentHead takes the htmlAttributes out of the documentHead of the root Layout. They are
+// the attributes every page starts from, below those the head functions of its routes return, and
+// the entries pass them to the runtime. The rest is the head of the root route. Without
+// htmlAttributes the page starts from defaultHTMLAttributes.
+export function splitDocumentHead<H extends Exclude<HeadResult, undefined | void>>(documentHead: H) {
+  const { htmlAttributes, ...head } = documentHead
+  if (htmlAttributes !== undefined) checkAttributes(htmlAttributes)
+  return { htmlAttributes: htmlAttributes ?? defaultHTMLAttributes, head: head as Omit<H, 'htmlAttributes'> }
 }
 
 // data-session is kept on <html> by tifa, from the session of the request (session.tsx).
@@ -90,7 +104,7 @@ const reservedLanguage =
 // writes them under the same HTML name, so className and class are one, and Lang and lang. Only
 // own keys count, and __proto__ is none. On a site with languages, language is the language of
 // the page: lang is then that, and an app that sets lang itself fails, apart from the lang of
-// defaultHTMLAttributes, which only stands in for an app that exports no htmlAttributes.
+// defaultHTMLAttributes, which only stands in for an app whose documentHead has no htmlAttributes.
 export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttributes, language = ''): HTMLAttributes {
   // The key and the value of each attribute, by its HTML name in lower case.
   const merged = new Map<string, [string, unknown]>()
@@ -598,7 +612,7 @@ export function noteHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTML
 // router.invalidate() refetches in the background. This is what TanStack's HeadContent reads
 // too. In the browser build TanStack makes the matches a store one can subscribe to, on the
 // server a plain value. The matches are read through router.state. base is the htmlAttributes of
-// the root Layout, language gives the language of the page ("" on a site without languages) and
+// the root Layout's documentHead, language gives the language of the page ("" on a site without languages) and
 // links the tags of its versions.
 export function followHead(
   router: { state: { matches: ReadonlyArray<HeadMatch> }; stores: { matches: object } },

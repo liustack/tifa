@@ -636,9 +636,8 @@ import { SignedIn, SignedOut, useSession } from 'tifa/client'
 import { POST as signOut } from './logout/route.gen'
 import './styles.css'
 
-export const htmlAttributes = { lang: 'en' }
-
 export const documentHead = {
+  htmlAttributes: { lang: 'en' },
   meta: [{ title: 'Sign-in example' }],
   links: [{ rel: 'icon', href: 'data:,' }],
 }

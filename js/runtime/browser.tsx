@@ -92,7 +92,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     return
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here: those
-  // of the root Layout at once, and those of the routes once they have loaded.
+  // of the root Layout's documentHead at once, and those of the routes once they have loaded.
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
   language = input.language ?? ''

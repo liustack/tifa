@@ -2,10 +2,9 @@ import { Link, Outlet } from '@tanstack/react-router'
 import { TifaError } from 'tifa/client'
 import './styles.css'
 
-export const htmlAttributes = { lang: 'en' }
-
-// Head tags of every page. A page's head can set its own title.
+// The attributes of <html> and the head tags of every page. A page's head can set its own title.
 export const documentHead = {
+  htmlAttributes: { lang: 'en' },
   meta: [{ title: '{{.Title}}' }],
   links: [{ rel: 'icon', href: 'data:,' }],
 }

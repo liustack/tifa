@@ -7,7 +7,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
-import { alternateTags, pageOwnTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
+import { alternateTags, pageOwnTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, splitDocumentHead, type Tag } from './.tifa/runtime/head'
 import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { renderQuery } from './.tifa/runtime/alternates'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
@@ -1208,6 +1208,23 @@ test('the app cannot set data-session on <html>', async () => {
       assert(false, 'data-session was accepted')
     } catch (error) {
       assert(error instanceof Error && /data-session/.test(error.message), `error ${error}`)
+    }
+})
+
+test('the documentHead of the root Layout gives the attributes of <html> and the head of the root route', async () => {
+  const attrs = { lang: 'fr', dir: 'ltr' }
+  const meta = [{ title: 'T' }]
+  const split = splitDocumentHead({ htmlAttributes: attrs, meta })
+  assert(split.htmlAttributes === attrs && split.head.meta === meta && !('htmlAttributes' in split.head), `split ${JSON.stringify(split)}`)
+  // Without htmlAttributes the page starts from the default, and the head is the same object's content.
+  const plain = splitDocumentHead({ meta })
+  assert(plain.htmlAttributes === defaultHTMLAttributes && plain.head.meta === meta, `plain ${JSON.stringify(plain)}`)
+  for (const bad of ['en', ['en'], null, 1])
+    try {
+      splitDocumentHead({ htmlAttributes: bad } as never)
+      assert(false, `${JSON.stringify(bad)} was accepted`)
+    } catch (error) {
+      assert(error instanceof Error && /htmlAttributes is .*, not an object of attributes/.test(error.message), `error ${error}`)
     }
 })
 

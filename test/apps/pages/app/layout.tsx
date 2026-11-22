@@ -6,7 +6,7 @@ import './site.css'
 // Read at the top level of the module: setup.ts has run by now, on the server and in the browser.
 const setup = (globalThis as { setupRan?: string }).setupRan ?? 'setup.ts did not run first'
 
-export const htmlAttributes = { lang: 'en' }
+export const documentHead = { htmlAttributes: { lang: 'en' } }
 
 export default function Site() {
   const site = layout.useLoaderData()

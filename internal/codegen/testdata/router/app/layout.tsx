@@ -2,9 +2,11 @@ import { TifaError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import { layout } from './route.gen'
 
-export const htmlAttributes = { lang: 'xx', 'data-theme': 'a"b', className: 'h-full' }
-
-export const documentHead = { meta: [{ name: 'theme-color', content: '#123' }], links: [{ rel: 'icon', href: '/icon.svg' }] }
+export const documentHead = {
+  htmlAttributes: { lang: 'xx', 'data-theme': 'a"b', className: 'h-full' },
+  meta: [{ name: 'theme-color', content: '#123' }],
+  links: [{ rel: 'icon', href: '/icon.svg' }],
+}
 
 export const head = () => ({
   meta: [

@@ -41,7 +41,7 @@ A second `tifa dev` in the same app does not start. It prints `tifa: tifa dev is
 | --- | --- | --- |
 | `.ts`, `.tsx`, `.js`, `.css`, `.json` outside `content/`, such as a component, or a `page.tsx` that exports only its component and `ErrorBoundary` | bundle (the SSR bundle) | Update in place through Vite |
 | A `.css` file that a module of the SSR bundle imports, outside `content/` and the public folder, edited while no error shows, when the SSR bundle imports every stylesheet for its side effect alone (no CSS modules, nothing imported with `?inline`, `?url` or `?raw`) | styles: Vite's dev server compiles the stylesheets the pages link, and a failure shows as a build error. The SSR bundle holds no CSS, so it stays as it is. When the stylesheets now import other files than the last bundle recorded, the bundle runs too | Update in place through Vite |
-| A module that exports more than components, such as a `page.tsx` or `layout.tsx` that exports `head`, or a root `layout.tsx` with `htmlAttributes` or `documentHead` | bundle (the SSR bundle) | Reload, started by Vite |
+| A module that exports more than components, such as a `page.tsx` or `layout.tsx` that exports `head`, or a root `layout.tsx` with `documentHead` | bundle (the SSR bundle) | Reload, started by Vite |
 | A file in the app root that the last SSR bundle read, of any type, such as a Markdown or YAML file imported with `?raw`: edited or removed | bundle (the SSR bundle) | Through Vite, as for any front end change |
 | A file added to the public folder or removed from it | bundle (the code is generated again first) | Through Vite, as for any front end change |
 | `.env` in the app root | none: the app starts again and reads it | Reload |

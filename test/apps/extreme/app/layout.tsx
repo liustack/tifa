@@ -2,9 +2,8 @@ import { TifaError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import './styles.css'
 
-export const htmlAttributes = { lang: 'zh-CN' }
-
 export const documentHead = {
+  htmlAttributes: { lang: 'zh-CN' },
   meta: [
     { title: '极限场景' },
     { name: 'theme-color', content: '#f2f4f5', media: '(prefers-color-scheme: light)' },

@@ -720,7 +720,7 @@ func jsStrings(values []string) string {
 
 // routesModule writes routes.tsx: the routes of tanstackRoutes, the tree, and the router type
 // registration that gives getRouteApi its types. A TSX module is loaded lazily, in its own
-// browser chunk, unless it is the root Layout's, whose htmlAttributes and documentHead the root
+// browser chunk, unless it is the root Layout's, whose documentHead the root
 // route and the entries need, or exports head, which the server render then calls from the
 // module itself. The browser build loads these head modules lazily too: lazyRoutes in
 // js/vite/plugin.js hands routes.tsx a stand-in for each, so only the root Layout is in the
@@ -771,8 +771,11 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 			fmt.Fprintf(&imports, "import type { %s } from %s\n", names, jsString("./"+n.dir+"/route.gen"))
 		}
 	}
+	if app != nil && app.exported("htmlAttributes") {
+		return nil, nil, errors.New("app/layout.tsx: htmlAttributes is now a key of documentHead: move it into export const documentHead = { htmlAttributes: {...}, ... }")
+	}
 	if app != nil && app.exported("Document") {
-		return nil, nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export htmlAttributes for the attributes of <html>, and return the head tags from head")
+		return nil, nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export documentHead with htmlAttributes for the attributes of <html>, and return the head tags from head")
 	}
 	for _, n := range nodes {
 		if n.exported("NotFound") {
@@ -861,7 +864,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 			// and a failed root Load included.
 			if app != nil && app.exported("documentHead") {
 				heads = true
-				n.route.opts = append(n.route.opts, fmt.Sprintf("head: routeHead(() => m%d.documentHead)", appIndex))
+				n.route.opts = append(n.route.opts, "head: routeHead(() => rootHead.head)")
 			}
 			continue
 		}
@@ -974,8 +977,8 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	// The attributes of <html> every page starts from, below those the head functions of its
 	// routes return. The server writes the document around the React root, the browser sets
 	// them on a page rendered without SSR and after each navigation.
-	if app != nil && app.exported("htmlAttributes") {
-		fmt.Fprintf(&body, "export const htmlAttributes = m%d.htmlAttributes\n", appIndex)
+	if app != nil && app.exported("documentHead") {
+		body.WriteString("export const htmlAttributes = rootHead.htmlAttributes\n")
 	} else {
 		body.WriteString("export const htmlAttributes = undefined\n")
 	}
@@ -1002,11 +1005,19 @@ declare module "@tanstack/react-router" {
 	}
 	names = append(names, "type RouterContext")
 	fmt.Fprintf(&out, `import { %s } from "./runtime/router"`+"\n", strings.Join(names, ", "))
-	if heads {
+	rootHead := app != nil && app.exported("documentHead")
+	if heads && rootHead {
+		out.WriteString(`import { routeHead, splitDocumentHead } from "./runtime/head"` + "\n")
+	} else if heads {
 		out.WriteString(`import { routeHead } from "./runtime/head"` + "\n")
 	}
 	out.WriteString(imports.String())
 	out.WriteString("\n")
+	// The htmlAttributes of the root Layout's documentHead are those every page starts from, the
+	// rest is the head of the root route.
+	if rootHead {
+		fmt.Fprintf(&out, "const rootHead = splitDocumentHead(m%d.documentHead)\n\n", appIndex)
+	}
 	out.WriteString(body.String())
 	return []byte(out.String()), routes, nil
 }

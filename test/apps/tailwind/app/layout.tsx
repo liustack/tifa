@@ -2,7 +2,7 @@ import { TifaError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import './site.css'
 
-export const htmlAttributes = { lang: 'en' }
+export const documentHead = { htmlAttributes: { lang: 'en' } }
 
 export default function Site() {
   return (
