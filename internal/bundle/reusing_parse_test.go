@@ -78,6 +78,9 @@ func TestReusingParse(t *testing.T) {
 		{"a line less", []string{base, "var a = 1;\nvar b = 1, c = 2;\nexport { b, c };\n"}, []bool{false}},
 		{"a comment changed", []string{"// one\nvar a = 1;\n", "// two\nvar a = 1;\n"}, []bool{false}},
 		{"a statement that is two lines in one", []string{"var a = 1;\nvar b = 2;\nvar c = 3;\n", "var a = 1; var b = 2;\nvar c = 3;\n"}, []bool{false}},
+		{"a changed statement that a statement without a semicolon runs into", []string{"var a = 1;\nvar g = pick()\nr.jsx();\n", "var a = 1;\nvar g = pick()\n(r.jsx);\n"}, []bool{false}},
+		{"an unchanged statement that a changed one without a semicolon runs into", []string{"var x = 1;\n(a);\nvar y = 1;\n", "var x = 2\n(a);\nvar y = 1;\n"}, []bool{false}},
+		{"a changed statement after a block", []string{"function f() {}\nr.jsx();\n", "function f() {}\nr.jsx(1);\n"}, []bool{true}},
 		{"a different source", []string{base, "let q = 1;\n"}, []bool{false}},
 	}
 	sequences := make([][]string, len(cases))

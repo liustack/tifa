@@ -5061,6 +5061,24 @@ function reparse(old, program, code, parse) {
       runs.push({ from: i, to: i + 1, start: newStarts[first[i]] + (body[i].start - oldStarts[first[i]]), end })
     }
   }
+  // Parsed apart, a statement without a semicolon does not run into the one after it as it does in
+  // code. That needs a statement that ends with something but ";" or "}" before one that starts
+  // with "(", "[", a template or an operator, so the whole code is parsed then.
+  const joins = (end, start) => !';}'.includes(end) && '([`+-/*,.<>=!&|^?:%'.includes(start)
+  for (let n = 0; n < runs.length; n++) {
+    const run = runs[n]
+    const last = code[run.end - 1]
+    if (run.from > 0) {
+      const before = touched[run.from - 1] ? code[runs[n - 1].end - 1] : old[body[run.from - 1].end - 1]
+      if (joins(before, code[run.start])) return null
+    }
+    if (run.to < body.length && !touched[run.to] && joins(last, old[body[run.to].start])) return null
+  }
+  if (tail >= 0 && body.length > 0) {
+    const rest = code.slice(tail).trimStart()
+    const end = touched[body.length - 1] ? code[runs.at(-1).end - 1] : old[body.at(-1).end - 1]
+    if (rest !== '' && joins(end, rest[0])) return null
+  }
   // White space where the other statements are keeps the places of the ones that are parsed.
   let source = ''
   for (const run of runs) source += ' '.repeat(run.start - source.length) + code.slice(run.start, run.end)
