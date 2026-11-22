@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa/internal/bundle"
+	"github.com/liustack/tifa/internal/realpath"
 )
 
 // A copy of test/apps/pages whose @tanstack/react-router says it is 1.171.0 fails to build with
@@ -70,7 +71,7 @@ func TestDevChecksTheTanStackVersion(t *testing.T) {
 func fakeReactRouter(t *testing.T, dir, version string) {
 	t.Helper()
 	modules := filepath.Join(dir, "node_modules")
-	original, err := filepath.EvalSymlinks(modules)
+	original, err := realpath.Resolve(modules)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func fakeReactRouter(t *testing.T, dir, version string) {
 	}
 	linkEntries(t, original, modules, "@tanstack")
 	linkEntries(t, filepath.Join(original, "@tanstack"), filepath.Join(modules, "@tanstack"), "react-router")
-	router, err := filepath.EvalSymlinks(filepath.Join(original, "@tanstack", "react-router"))
+	router, err := realpath.Resolve(filepath.Join(original, "@tanstack", "react-router")) // a junction on Windows, which EvalSymlinks does not follow
 	if err != nil {
 		t.Fatal(err)
 	}
