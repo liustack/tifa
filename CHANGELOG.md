@@ -7,7 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Added
 
 - Apps build for and run on windows/arm64, with slowjs v0.31.12. The CI tests Tifa on a Windows arm64 runner too.
-- `tifa deploy env set` takes the value on a page in your browser when it has neither a terminal nor a pipe or a file on its standard input, as when a coding agent runs it with `/dev/null` there. Tifa serves the page on 127.0.0.1 at a one-time URL, opens it and prints the URL, takes one value and closes, or stops after 10 minutes. The value never passes through the agent. It used to read an empty value from `/dev/null`. On a terminal the hidden prompt stays, and a pipe or a file is read as before.
+- A secret can come in without a terminal, as when a coding agent runs the command, on a page in your browser. `tifa deploy env set` uses it when its standard input is not a terminal, a pipe or a file, such as the `/dev/null` agents give. `tifa deploy setup --cache-purge-token` and `--tailscale-oauth` use it without a terminal, with `--yes` too, and setup without them lists the token with that command. Tifa serves the page on 127.0.0.1 at a one-time URL, opens it and prints the URL, takes one value and closes, or stops after 10 minutes. The value never passes through the agent. Before, these flags needed a terminal, and `env set` read an empty value from `/dev/null`.
 
 ## [0.1.18] - 2026-11-23
 

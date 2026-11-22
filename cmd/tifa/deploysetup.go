@@ -954,8 +954,9 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	switch {
 	case r.zone.ID == "":
 		left("Setup cannot find the zone: " + cfNeed())
-	case !stdinIsTerminal(r.in):
-		left("There is no terminal to paste on")
+	case !stdinIsTerminal(r.in) && !r.purgeToken:
+		// Only the flag waits for a person: a run that does not pass it never waits.
+		left("There is no terminal to paste on. " + purgeTokenPageCommand + " opens a page in your browser for it")
 	default:
 		op := opAdd
 		if have {
@@ -969,14 +970,17 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 // purgeTokenCommand makes setup ask for the token that clears the CDN cache.
 const purgeTokenCommand = "tifa deploy setup --cache-purge-token"
 
+// purgeTokenPageCommand asks for it without a terminal, on a page in the browser.
+const purgeTokenPageCommand = "go tool tifa deploy setup --yes --cache-purge-token"
+
 // purgeTokenLater says what going without the token costs and how to add it.
 const purgeTokenLater = "Without it a deploy still works, but " + noTokenCost + ". To add it: " + purgeTokenCommand
 
 // purgeTokenTries is how many tokens setup takes before it gives up.
 const purgeTokenTries = 3
 
-// pastePurgeToken shows the link, reads the token hidden, checks it against the zone and sets the
-// secret. Setup runs it on a terminal only: without one it needs --yes, which waits on no page. A token that fails the check is asked for again. An empty one skips.
+// pastePurgeToken shows the link, reads the token hidden or on the page, checks it against the zone
+// and sets the secret. Without a terminal setup runs it only for --cache-purge-token. A token that fails the check is asked for again. An empty one skips.
 func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
@@ -1192,8 +1196,6 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		return errors.New("--cache-purge-token is for the token CI clears the CDN cache with, which needs deploy.front: cloudflare and deploy.ci: github in tifa.yaml")
 	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
 		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
-	case (f.purgeToken || f.tailscaleOAuth) && !stdinIsTerminal(in):
-		return errors.New("--cache-purge-token and --tailscale-oauth need a terminal to paste on")
 	}
 	plan, _, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
