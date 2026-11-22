@@ -750,3 +750,29 @@ func TestDevPlainStylesAreModulesOfTheBundle(t *testing.T) {
 		t.Fatalf("PlainStyles: page.css %v, tokens.css %v, want true and false", plain("app/page/page.css"), plain("app/tokens.css"))
 	}
 }
+
+// A plugin may watch a glob, as Tailwind does for the files it scans. Such a name is no file the
+// stylesheets import.
+func TestDevStylesLeavesOutTheGlobsPluginsWatch(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": "import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"const globs = { name: 'globs', transform(code, id) { if (id.endsWith('.css')) this.addWatchFile('*') } }\n" +
+			"export default { plugins: [globs, tifa(), react()] }\n",
+		"app/page/page.css": ".page { color: red }\n",
+		"app/page/view.tsx": "import './page.css'\nexport default function View() { return <p className=\"page\">p</p> }\n",
+		".tifa/server.ts":   "import View from '../app/page/view'\n(globalThis as any).result = String(View)\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	writeTree(t, root, map[string]string{"app/page/page.css": ".page { color: blue }\n"})
+	if rebundle, err := d.Styles(context.Background()); err != nil || rebundle {
+		t.Fatalf("Styles = %v %v, want false and no error", rebundle, err)
+	}
+}

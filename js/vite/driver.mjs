@@ -563,14 +563,16 @@ const ops = {
     if (!server) throw new Error("the stylesheets are checked by Vite's dev server, which is not running")
     await restartsDone()
     const env = server.environments.client
-    // deps are the files the stylesheets import now, as the dev server saw them, see addInput.
+    // deps are the files the stylesheets import now, as the dev server saw them, see addInput. A
+    // plugin may watch a glob relative to the root, as Tailwind does for the files it scans, which
+    // is no file.
     const deps = new Set()
     const seen = new Set()
     const visit = (mod) => {
       for (const dep of mod.importedModules) {
         if (seen.has(dep)) continue
         seen.add(dep)
-        if (dep.file) addInput(deps, dep.file)
+        if (dep.file && path.isAbsolute(dep.file)) addInput(deps, dep.file)
         visit(dep)
       }
     }
