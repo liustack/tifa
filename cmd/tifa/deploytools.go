@@ -6,9 +6,10 @@ package main
 // own, and the developer's y to it is the consent. The rest of the plan reads Cloudflare and
 // GitHub with the tools, so setup plans it after them and asks again.
 //
-// Setup installs only with a package manager that is on the machine already, and only on a
-// terminal, since a login opens a browser. Tifa never downloads a program itself. Otherwise the
-// layer that needs the tool lists the commands among what the developer does.
+// Setup installs only with a package manager that is on the machine already, and only after a y
+// typed on the terminal, since a login opens a browser: --yes installs nothing. Tifa never
+// downloads a program itself. Otherwise the layer that needs the tool lists the commands among
+// what the developer does.
 
 import (
 	"context"
@@ -67,9 +68,10 @@ var ghLoginArgs = []string{"auth", "login", "--hostname", "github.com", "--web",
 const ghLinuxInstall = "https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
 
 // toolSteps plans installing and logging in cf and gh, when tifa.yaml needs them and they are not
-// ready. It sets the line that says the rest comes after them.
+// ready. It sets the line that says the rest comes after them. Only a y typed on the terminal
+// installs or logs in: with --yes, which an agent passes on a terminal too, it plans nothing.
 func (r *setupRun) toolSteps(ctx context.Context, p *setupPlan) {
-	if !stdinIsTerminal(r.in) {
+	if r.yes || !stdinIsTerminal(r.in) {
 		return
 	}
 	var tools, parts []string

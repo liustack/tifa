@@ -284,6 +284,26 @@ func TestSetupToolsNoTerminal(t *testing.T) {
 	}
 }
 
+// --yes on a terminal installs nothing and logs in nobody: only a typed y does. An agent runs setup
+// --yes on a terminal, and must not install global packages or open a browser.
+func TestSetupToolsYesOnATerminal(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	newFakeGH().install(t)
+	t.Setenv(githubTokenEnv, "")
+	m := newFakeMachine("darwin", "pnpm", "brew")
+	m.install(t)
+	out, err := runSetup(t, root, true, "", "--yes")
+	if err == nil || len(m.ran) != 0 || strings.Contains(out, "this machine:") {
+		t.Fatalf("%v, ran %v\n%s", err, m.ran, out)
+	}
+	for _, want := range []string{"cf is not installed: pnpm add --global cf, then cf auth login", "gh, the GitHub CLI, is not installed: install it with brew install gh, then run gh auth login"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 // An install that fails is reported with the way to do it by hand, the login of that tool is
 // skipped, and setup goes on with what does not need it.
 func TestSetupToolInstallFails(t *testing.T) {
