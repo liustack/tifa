@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -75,6 +76,8 @@ type front struct {
 	public fs.FS // dist/public, nil without a public directory
 	render func(context.Context, ssr.Input) (ssr.Page, error)
 	pool   *ssr.Pool // runs render, nil without an SSR bundle or in tests
+	// source is the hash of the ssr.js and the source map pool runs, see openFront.
+	source [sha256.Size]byte
 	// headScripts and headStyles are the hashes of the inline scripts and styles of build.Head,
 	// which every document carries (see renderedPolicy).
 	headScripts, headStyles []string
@@ -222,6 +225,17 @@ func (s *server) openFront(dist fs.FS, cfg config.SSR) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	sum := sourceHash(source, sourceMap)
+	// tifa dev loads the bundle again after every bundle step, and one that changed no byte of the
+	// server code needs no new VMs: the pool that runs it stays.
+	if old := s.front.Load(); old != nil && old.pool != nil && !old.shared && old.source == sum {
+		f, err := s.readFront(dist, old.pool.RenderPage)
+		if err != nil {
+			return err
+		}
+		f.pool, f.source, f.timeout = old.pool, sum, cfg.Timeout
+		return s.swapFront(f)
+	}
 	pool, err := ssr.NewPool(string(source), sourceMap, cfg, s.dev != nil)
 	if err != nil {
 		return err
@@ -230,17 +244,32 @@ func (s *server) openFront(dist fs.FS, cfg config.SSR) error {
 	if err != nil {
 		return errors.Join(err, pool.Close())
 	}
-	f.pool, f.timeout = pool, cfg.Timeout
+	f.pool, f.source, f.timeout = pool, sum, cfg.Timeout
 	return s.swapFront(f)
 }
 
-// swapFront serves f from now on and closes the VM pool of the front end it replaces. It waits
-// for the renders that run on that pool, so no render uses a closed pool.
+// sourceHash is the hash of an SSR bundle and its source map, which a pool runs.
+func sourceHash(source, sourceMap []byte) [sha256.Size]byte {
+	h := sha256.New()
+	for _, part := range [][]byte{source, sourceMap} {
+		var n [8]byte
+		binary.LittleEndian.PutUint64(n[:], uint64(len(part)))
+		h.Write(n[:])
+		h.Write(part)
+	}
+	return [sha256.Size]byte(h.Sum(nil))
+}
+
+// swapFront serves f from now on and closes the VM pool of the front end it replaces, unless f
+// keeps it. It waits for the renders that run on that pool, so no render uses a closed pool.
 func (s *server) swapFront(f *front) error {
 	s.rendering.Lock()
 	old := s.front.Load()
 	s.front.Store(f)
 	s.rendering.Unlock()
+	if old != nil && old.pool != nil && old.pool == f.pool {
+		return nil
+	}
 	return old.close()
 }
 
