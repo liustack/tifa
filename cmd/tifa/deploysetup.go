@@ -444,7 +444,7 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	}
 	what := "domain: " + t.domain + " through the Cloudflare Tunnel of the server (route, DNS, cache rules)"
 	if !r.useCF(ctx) {
-		p.cannot(what, "needs cf logged in: cf auth login")
+		p.cannot(what, cfNeed())
 		return nil
 	}
 	if r.haveServer && r.st.Cloudflared == "" && !r.st.Apt && r.st.TunnelID == "" {
@@ -659,7 +659,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 	if t.sshMode == connCloudflare {
 		if !r.useCF(ctx) {
-			p.cannot("cloudflare: ssh host name and Access for CI", "needs cf logged in: cf auth login")
+			p.cannot("cloudflare: ssh host name and Access for CI", cfNeed())
 		} else if err := r.accessSteps(ctx, p); err != nil {
 			return err
 		}
@@ -922,7 +922,7 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	}
 	switch {
 	case r.zone.ID == "":
-		left("Setup needs cf logged in to find the zone: cf auth login")
+		left("Setup cannot find the zone: " + cfNeed())
 	case !stdinIsTerminal(r.in):
 		left("There is no terminal to paste on")
 	default:

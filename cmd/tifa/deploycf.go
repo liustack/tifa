@@ -100,6 +100,18 @@ func cfJSON(ctx context.Context, v any, args ...string) error {
 	return nil
 }
 
+// cfInstallHow is how to get cf, from the page of Cloudflare: https://developers.cloudflare.com/cf/get-started/
+const cfInstallHow = "pnpm add --global cf"
+
+// cfNeed says what the user needs to do for cf to be usable: install it when it is not on the
+// PATH, log in when it is installed.
+func cfNeed() string {
+	if !haveCF() {
+		return "cf is not installed: " + cfInstallHow + ", then cf auth login"
+	}
+	return "needs cf logged in: cf auth login"
+}
+
 // cfLoggedIn reports whether cf is installed and logged in.
 func cfLoggedIn(ctx context.Context) bool {
 	if !haveCF() {

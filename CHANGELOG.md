@@ -11,6 +11,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Changed
 
 - `tifa build` and `tifa dev` spend about 0.4 to 0.5 s less in the plugin's rewrites of the SSR bundle, which `tifa dev` runs after every save: on the shop, the bundle step after an edit takes 2.3 s in place of 2.9 s. The bundle is the same byte for byte.
+- `tifa deploy setup` and `tifa deploy remove` now say `cf is not installed: pnpm add --global cf, then cf auth login` when cf is not on the PATH. They used to ask for `cf auth login`, which fails with "command not found" when cf is missing. With cf installed but not logged in, the message is the same as before.
 
 ## [0.1.17] - 2026-11-22
 

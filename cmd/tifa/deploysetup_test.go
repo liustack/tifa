@@ -566,7 +566,23 @@ func TestSetupDomainNeedsCF(t *testing.T) {
 	t.Cleanup(func() { haveCF = oldHave })
 	haveCF = func() bool { return false }
 	out, err := runSetup(t, root, false, "")
-	if err == nil || !strings.Contains(out, "1. domain: shop.example.com through the Cloudflare Tunnel") || !strings.Contains(out, "needs cf logged in: cf auth login") {
+	if err == nil || !strings.Contains(out, "1. domain: shop.example.com through the Cloudflare Tunnel") || !strings.Contains(out, "cf is not installed: pnpm add --global cf, then cf auth login") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// With cf installed but not logged in, the plan asks for the login only.
+func TestSetupDomainNeedsCFLogin(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, ""))
+	oldRun, oldHave := runCF, haveCF
+	t.Cleanup(func() { runCF, haveCF = oldRun, oldHave })
+	haveCF = func() bool { return true }
+	runCF = func(_ context.Context, args ...string) ([]byte, error) {
+		return nil, &cfError{args: args, stderr: "not logged in", err: errors.New("exit status 1")}
+	}
+	out, err := runSetup(t, root, false, "")
+	if err == nil || !strings.Contains(out, "needs cf logged in: cf auth login") || strings.Contains(out, "not installed") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
