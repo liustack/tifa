@@ -355,8 +355,30 @@ func (p *devPipeline) Reads() func(string) bool { return p.front.Reads() }
 // PlainStyles says which stylesheet edits leave the last SSR bundle as it is.
 func (p *devPipeline) PlainStyles() func(string) bool { return p.front.PlainStyles() }
 
-// Styles checks the stylesheets after such an edit, see bundle.Dev.Styles.
-func (p *devPipeline) Styles(ctx context.Context) (bool, error) { return p.front.Styles(ctx) }
+// Styles checks the stylesheets after such an edit, see bundle.Dev.Styles. Like Bundle, it looks
+// for the idioms of other frameworks and the public files the code names, which a stylesheet does
+// with url().
+func (p *devPipeline) Styles(ctx context.Context) (bool, error) {
+	settings, err := codegen.BuildSettings(p.root)
+	if err != nil {
+		return false, err
+	}
+	if err := p.checkForeignCode(settings.Public, hasPages(p.files)); err != nil {
+		return false, err
+	}
+	return p.front.Styles(ctx)
+}
+
+// checkForeignCode runs the checks for the idioms of other frameworks and for the public files the
+// code names, and keeps their warnings.
+func (p *devPipeline) checkForeignCode(public string, pages bool) error {
+	return p.collect("foreign code", func(w io.Writer) error {
+		if err := checkForeign(p.root, pages, w, p.front.Foreign); err != nil {
+			return err
+		}
+		return warnPublicImports(p.root, public, pages, w)
+	})
+}
 
 // PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
 func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }
@@ -384,12 +406,7 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := p.collect("foreign code", func(w io.Writer) error {
-		if err := checkForeign(p.root, hasPages(files), w, p.front.Foreign); err != nil {
-			return err
-		}
-		return warnPublicImports(p.root, settings.Public, hasPages(files), w)
-	}); err != nil {
+	if err := p.checkForeignCode(settings.Public, hasPages(files)); err != nil {
 		return "", err
 	}
 	if err := codegen.Write(p.root, files); err != nil {
