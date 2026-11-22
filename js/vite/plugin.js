@@ -2370,6 +2370,12 @@ function resolveRouteModule(ctx, root, source, importer) {
   return module
 }
 
+// plainStylesheet reports whether the module id is a .css file of the disk imported with no query,
+// and no CSS module, which Vite's CSS step makes an empty module with no exports in the SSR build.
+function plainStylesheet(id) {
+  return !id.startsWith('\0') && !id.includes('?') && id.endsWith('.css') && !id.endsWith('.module.css') && path.isAbsolute(id) && fs.existsSync(id)
+}
+
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
 // escapes of that renderer and makes them with replaceAll, joins the chunks it writes, puts Set
@@ -2530,6 +2536,11 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       },
     },
     async load(id) {
+      // A plain stylesheet: Vite's CSS step turns it into an empty module for the SSR build, as the
+      // server needs no CSS, so neither it nor a plugin that compiles CSS, such as Tailwind's, gets
+      // its text. The module stays, with its id, so the stylesheets the pages link are the same.
+      // The browser bundle and Vite's dev server compile it.
+      if (plainStylesheet(id)) return { code: '', map: { mappings: '' } }
       if (id === nodeHelper) return { code: nodeHelperCode, map: { mappings: '' } }
       if (id === asyncHooksHelper) return { code: asyncHooksCode, map: { mappings: '' } }
       if (id.startsWith(nodeStub)) return nodeModuleCode(id, (code) => this.parse(code), this.getModuleInfo(nodeStubImporter(id)))
