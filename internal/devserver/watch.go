@@ -278,6 +278,7 @@ type watcher struct {
 	warn     func(string)
 	warned   map[string]bool   // the warnings given, by their text, to give each once
 	was      map[string]string // while renew runs, the checksums of the files it dropped
+	held     map[string]int    // files another program held when the watcher hashed them, with the tries so far, see holdOn
 	changes  *changes
 	embedded atomic.Pointer[func(string) bool] // says which files the Go code embeds, nil before the first analysis
 	reclass  chan reclassify                   // setEmbedded sends here, so run looks at the directories again
@@ -391,6 +392,9 @@ var testHookLinkPoll func(rel string)
 // testHookChecksum lets tests see each file that is hashed.
 var testHookChecksum func(rel string)
 
+// testHookHeld lets tests see each file the watcher could not hash because another program held it.
+var testHookHeld func(rel string)
+
 // testHookList lets tests see each directory listed after an event.
 var testHookList func(rel string)
 
@@ -420,10 +424,18 @@ func (w *watcher) run(ctx context.Context) error {
 	list.Stop()
 	defer list.Stop()
 	listing := false
+	retry := time.NewTimer(time.Hour)
+	retry.Stop()
+	defer retry.Stop()
+	retrying := false
 	for {
 		if len(w.dirty) > 0 && !listing {
 			listing = true
 			list.Reset(time.Until(w.listAt))
+		}
+		if len(w.held) > 0 && !retrying {
+			retrying = true
+			retry.Reset(heldWait)
 		}
 		select {
 		case <-ctx.Done():
@@ -448,6 +460,11 @@ func (w *watcher) run(ctx context.Context) error {
 			err := w.recover(w.reclassify(r.before))
 			close(r.done)
 			if err != nil {
+				return err
+			}
+		case <-retry.C:
+			retrying = false
+			if err := w.recover(w.retryHeld()); err != nil {
 				return err
 			}
 		case done := <-w.syncs:
@@ -635,10 +652,46 @@ func vanished(err error) bool {
 // moment: the event of the rename follows.
 const errSharingViolation = syscall.Errno(32)
 
-// held reports whether err says that another program holds the file for a moment, see
-// errSharingViolation. Its events follow once it lets go.
+// held reports whether err says that another program holds the file, see errSharingViolation.
 func held(err error) bool {
 	return runtime.GOOS == "windows" && errors.Is(err, errSharingViolation)
+}
+
+// heldWait and heldTries say how the watcher looks again at a file another program held: every
+// heldWait, heldTries times. A rename over the file holds it for well under a millisecond, an
+// antivirus that scans it after a save for longer.
+const (
+	heldWait  = 50 * time.Millisecond
+	heldTries = 5
+)
+
+// holdOn keeps what the snapshot has of rel, which another program held when the watcher hashed
+// it, and has run look at it again after heldWait. Letting it go does not always make an event,
+// as when the program only read it. After heldTries tries the snapshot keeps what it has until
+// the next event of the file.
+func (w *watcher) holdOn(rel string) {
+	if w.held[rel] >= heldTries {
+		delete(w.held, rel)
+		w.warnOnce(fmt.Sprintf("another program holds %s: tifa dev looks at it again once it changes", rel))
+		return
+	}
+	if w.held == nil {
+		w.held = map[string]int{}
+	}
+	w.held[rel]++
+}
+
+// retryHeld looks again at the files another program held, see holdOn.
+func (w *watcher) retryHeld() error {
+	for rel, tries := range w.held {
+		if err := w.handle(w.abs(rel), fsnotify.Write); err != nil {
+			return err
+		}
+		if w.held[rel] == tries {
+			delete(w.held, rel) // not hashed, such as under a directory that is gone now
+		}
+	}
+	return nil
 }
 
 // setLink makes rel a link node if it is a link, and drops it from the snapshot otherwise.
@@ -798,14 +851,22 @@ func (w *watcher) check(rel string, info os.FileInfo, link bool, h how) error {
 		testHookChecksum(rel)
 	}
 	sum, err := checksum(w.abs(rel))
-	if vanished(err) || errors.Is(err, syscall.EISDIR) || held(err) {
-		// Changed again since the stat, or changing now: the events that follow say where to look.
+	if held(err) {
+		if testHookHeld != nil {
+			testHookHeld(rel)
+		}
+		w.holdOn(rel)
+		return nil
+	}
+	if vanished(err) || errors.Is(err, syscall.EISDIR) {
+		// Changed again since the stat: the events that follow say where to look.
 		w.drop(rel)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	delete(w.held, rel)
 	n.info = info
 	if sum != n.sum {
 		old := n.sum
@@ -830,6 +891,7 @@ func (w *watcher) drop(rel string) {
 	switch n.kind {
 	case fileNode:
 		w.unwatchFile(n)
+		delete(w.held, rel)
 		switch {
 		case w.was != nil:
 			w.was[rel] = n.sum
