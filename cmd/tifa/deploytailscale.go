@@ -2,8 +2,8 @@ package main
 
 // With deploy.ssh tailscale, the workflow joins the tailnet with an OAuth client of the developer,
 // kept as two GitHub secrets. Tifa cannot make the client: only the Tailscale admin console can.
-// Setup asks for it on a terminal or on a page in the browser, checks it can make keys for tag:ci,
-// and hands both values to gh on its input. Tifa keeps neither.
+// Setup asks for it on a terminal, checks it can make keys for tag:ci, and hands both values to gh
+// on its input. Tifa keeps neither.
 
 import (
 	"context"
@@ -36,6 +36,9 @@ func (r *setupRun) tailscaleSteps(p *setupPlan) {
 	switch {
 	case have && !r.tailscaleOAuth:
 		p.ok("github: the Tailscale secrets " + secretTSID + " and " + secretTSSecret + ". To replace them: " + tailscaleOAuthCommand)
+	case !stdinIsTerminal(r.in):
+		p.cannot("github: the Tailscale secrets "+secretTSID+" and "+secretTSSecret,
+			tailscaleOAuthHow+". Then run "+tailscaleOAuthCommand+" on a terminal to paste it")
 	default:
 		op := opAdd
 		if have {
@@ -46,8 +49,7 @@ func (r *setupRun) tailscaleSteps(p *setupPlan) {
 	}
 }
 
-// pasteTailscaleOAuth says how to make the client, reads its ID and secret hidden or on the page,
-// checks them and sets the secrets. A client that fails the check is asked for again. An empty ID
+// pasteTailscaleOAuth says how to make the client, reads its ID and secret hidden, checks them and sets the secrets. A client that fails the check is asked for again. An empty ID
 // skips, which leaves CI unable to reach the server, so it is a warning.
 func (r *setupRun) pasteTailscaleOAuth(ctx context.Context) (string, error) {
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }

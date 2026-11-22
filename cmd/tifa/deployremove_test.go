@@ -126,7 +126,6 @@ func cloudSetup(t *testing.T) (root string, srv *setupServer, cf *cfEverything, 
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
 	gh = newFakeGH()
 	gh.install(t)
-	submitValues(t, "") // the cache token is asked for, and skipped
 	if out, err := runSetup(t, root, false, "", "--yes"); err != nil {
 		t.Fatalf("setup: %v\n%s", err, out)
 	}
