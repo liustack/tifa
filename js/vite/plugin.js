@@ -2943,16 +2943,18 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
         const required = reactModule.test(id) && reactHooks.has(id) && typeof module === 'string' ? requireOf(module) : undefined
         if (required) copies.push({ hooks: reactHooks.get(id), required })
       }
-      const hooked = callDispatchers(plain.code, (source) => this.parse(source), copies)
+      // Each of the rewrites below parses the chunk the one before wrote: the parse is shared.
+      const parse = reusingParse((source) => this.parse(source))
+      const hooked = callDispatchers(plain.code, parse, copies)
       // Only with a JSX runtime of which every file is known: with another, the elements might differ.
       const elements =
         jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
-          ? inlineElements(hooked.code, (source) => this.parse(source))
+          ? inlineElements(hooked.code, parse)
           : { code: hooked.code }
       // The calls of small functions, last, so the functions are the ones the rewrites above left.
       let small = { code: elements.code, warning: '' }
       try {
-        small = inlineSmallFunctions(elements.code, (source) => this.parse(source))
+        small = inlineSmallFunctions(elements.code, parse)
       } catch (err) {
         small.warning = `the tifa plugin could not write out the calls of small functions: ${err.stack ?? err}`
       }
@@ -4949,6 +4951,171 @@ function guardable(node) {
   )
 }
 
+// reusingParse returns a function that works like parse, and is for the rewrites that follow one
+// another on a chunk, each a few edits of the code the one before wrote. Parsing a whole chunk is
+// most of what a rewrite costs, and the edits touch a part of its statements, so the function
+// parses only the top-level statements whose lines changed, and keeps the syntax tree of the rest
+// with its places moved. It gives what parse gives for the code. It relies on the rewrites keeping
+// the lines of the code (see renderChunk), and parses the whole code when they did not, or when
+// anything is not as it expects. The tree it gave for the code before is changed to be the new one.
+export function reusingParse(parse) {
+  let last = null // the code that was parsed last, and its syntax tree
+  return (code) => {
+    const program = (last && reparse(last.code, last.program, code, parse)) || parse(code)
+    last = { code, program }
+    return program
+  }
+}
+
+// lineStarts gives where each line of code starts, lines ending at "\n" only: a rewrite keeps these.
+function lineStarts(code) {
+  const starts = [0]
+  for (let at = code.indexOf('\n'); at >= 0; at = code.indexOf('\n', at + 1)) starts.push(at + 1)
+  return starts
+}
+
+// lineOf is the index of the line that holds the offset at in starts, the line starts of a code.
+function lineOf(starts, at) {
+  let low = 0
+  let high = starts.length - 1
+  while (low < high) {
+    const mid = (low + high + 1) >> 1
+    if (starts[mid] <= at) low = mid
+    else high = mid - 1
+  }
+  return low
+}
+
+// moveNodes adds by to the places of node and every node under it. A node is an object with a type.
+function moveNodes(node, by) {
+  node.start += by
+  node.end += by
+  for (const key in node) {
+    const value = node[key]
+    if (value === null || typeof value !== 'object') continue
+    if (Array.isArray(value)) {
+      for (const item of value) if (item !== null && typeof item === 'object' && typeof item.type === 'string') moveNodes(item, by)
+    } else if (typeof value.type === 'string') {
+      moveNodes(value, by)
+    }
+  }
+}
+
+// reparse gives the syntax tree of code, which is old with edits, or null when it cannot tell
+// from the tree of old, program, that it is right. The lines that differ pick the statements to
+// parse again, which are cut out of code and parsed together with white space for the rest, so
+// each place is where it is in code.
+function reparse(old, program, code, parse) {
+  if (code === old) return program
+  if (program.start !== 0 || program.end !== old.length) return null
+  const oldStarts = lineStarts(old)
+  const newStarts = lineStarts(code)
+  const lines = oldStarts.length
+  if (newStarts.length < lines) return null
+  // With more lines, the code has text added at its end, which starts in the last line of old.
+  let tail = -1
+  let compared = lines
+  if (newStarts.length > lines) {
+    const last = old.slice(oldStarts[lines - 1])
+    if (!code.startsWith(last, newStarts[lines - 1])) return null
+    tail = newStarts[lines - 1] + last.length
+    compared = lines - 1
+  }
+  const changed = []
+  for (let i = 0; i < compared; i++) {
+    const oldEnd = i + 1 < oldStarts.length ? oldStarts[i + 1] - 1 : old.length
+    const newEnd = i + 1 < newStarts.length ? newStarts[i + 1] - 1 : code.length
+    if (oldEnd - oldStarts[i] !== newEnd - newStarts[i] || old.slice(oldStarts[i], oldEnd) !== code.slice(newStarts[i], newEnd)) {
+      changed.push(i)
+    }
+  }
+  // The statements with a changed line, in runs of those that share a line: the first starts where
+  // it did in its line, and the last ends where it did counted from the end of its line.
+  const body = program.body
+  const touched = new Array(body.length).fill(false)
+  const first = new Array(body.length)
+  const final = new Array(body.length)
+  const covered = new Set()
+  let next = 0
+  for (let i = 0; i < body.length; i++) {
+    first[i] = lineOf(oldStarts, body[i].start)
+    final[i] = lineOf(oldStarts, body[i].end - 1)
+    while (next < changed.length && changed[next] < first[i]) next++
+    if (next < changed.length && changed[next] <= final[i]) {
+      touched[i] = true
+      for (let n = next; n < changed.length && changed[n] <= final[i]; n++) covered.add(changed[n])
+    }
+  }
+  // A changed line outside every statement is not one of the edits.
+  if (covered.size !== changed.length) return null
+  const lineEnd = (text, starts, i) => (i + 1 < starts.length ? starts[i + 1] - 1 : text.length)
+  const runs = [] // { from, to, start, end }: the statements from to the one before to, and where they are in code
+  for (let i = 0; i < body.length; i++) {
+    if (!touched[i]) continue
+    const end = lineEnd(code, newStarts, final[i]) - (lineEnd(old, oldStarts, final[i]) - body[i].end)
+    const run = runs.at(-1)
+    if (run && run.to === i && final[i - 1] === first[i]) {
+      run.to = i + 1
+      run.end = end
+    } else {
+      runs.push({ from: i, to: i + 1, start: newStarts[first[i]] + (body[i].start - oldStarts[first[i]]), end })
+    }
+  }
+  // Parsed apart, a statement without a semicolon does not run into the one after it as it does in
+  // code. That needs a statement that ends with something but ";" or "}" before one that starts
+  // with "(", "[", a template or an operator, so the whole code is parsed then.
+  const joins = (end, start) => !';}'.includes(end) && '([`+-/*,.<>=!&|^?:%'.includes(start)
+  for (let n = 0; n < runs.length; n++) {
+    const run = runs[n]
+    const last = code[run.end - 1]
+    if (run.from > 0) {
+      const before = touched[run.from - 1] ? code[runs[n - 1].end - 1] : old[body[run.from - 1].end - 1]
+      if (joins(before, code[run.start])) return null
+    }
+    if (run.to < body.length && !touched[run.to] && joins(last, old[body[run.to].start])) return null
+  }
+  if (tail >= 0 && body.length > 0) {
+    const rest = code.slice(tail).trimStart()
+    const end = touched[body.length - 1] ? code[runs.at(-1).end - 1] : old[body.at(-1).end - 1]
+    if (rest !== '' && joins(end, rest[0])) return null
+  }
+  // White space where the other statements are keeps the places of the ones that are parsed.
+  let source = ''
+  for (const run of runs) source += ' '.repeat(run.start - source.length) + code.slice(run.start, run.end)
+  if (tail >= 0) source += ' '.repeat(tail - source.length) + code.slice(tail)
+  let parsed
+  try {
+    parsed = parse(source)
+  } catch {
+    return null
+  }
+  if (parsed.start !== 0 || parsed.end !== source.length) return null
+  const result = []
+  let used = 0
+  const take = (until) => {
+    while (used < parsed.body.length && parsed.body[used].start < until) result.push(parsed.body[used++])
+  }
+  let at = 0
+  for (const run of runs) {
+    for (; at < run.from; at++) {
+      const by = newStarts[first[at]] - oldStarts[first[at]]
+      if (by !== 0) moveNodes(body[at], by)
+      result.push(body[at])
+    }
+    take(run.end)
+    if (result.at(-1).end > run.end) return null
+    at = run.to
+  }
+  for (; at < body.length; at++) {
+    const by = newStarts[first[at]] - oldStarts[first[at]]
+    if (by !== 0) moveNodes(body[at], by)
+    result.push(body[at])
+  }
+  take(Infinity)
+  if (used !== parsed.body.length) return null
+  return { ...program, body: result, end: code.length }
+}
+
 // plainNamespaces returns code, a chunk of the SSR bundle before it is minified, with the ES
 // modules that import a CommonJS module of plainPackages getting a namespace of plain values, and
 // a warning when it cannot do that. modules is chunk.modules, the code rolldown rendered for each
@@ -5450,9 +5617,13 @@ export function inlineElements(code, parse) {
     } else if (node.type === 'CallExpression') {
       calls.push(node)
     }
-    for (const value of Object.values(node)) {
-      for (const child of Array.isArray(value) ? value : [value]) {
-        if (child && typeof child.type === 'string') visit(child)
+    for (const key in node) {
+      const value = node[key]
+      if (value === null || typeof value !== 'object') continue
+      if (Array.isArray(value)) {
+        for (const child of value) if (child && typeof child.type === 'string') visit(child)
+      } else if (typeof value.type === 'string') {
+        visit(value)
       }
     }
   }
