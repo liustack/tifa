@@ -81,7 +81,8 @@ build lf
 
 mv app lf-app
 git clone -q lf-app app
-crlf=$(cd app && git ls-files -z | xargs -0 grep -l $'\r' || true)
+# git ls-files --eol shows the line ends of each file in the index (i/) and in the work tree (w/).
+crlf=$(cd app && git ls-files --eol | grep -E '(^| )w/(crlf|mixed)' || true)
 [ -z "$crlf" ] || { echo "the clone has CRLF line ends in:" >&2; echo "$crlf" >&2; exit 1; }
 echo "the clone has LF line ends"
 build crlf
