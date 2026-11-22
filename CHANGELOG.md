@@ -8,6 +8,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa new` writes a `.gitattributes` with `* text=auto eol=lf`, so git keeps LF line ends on every system. git on Windows checks files out with CRLF by default, and the program embeds some of them, such as `schema.sql` and the hashes of the files in `.tifa/dist/inputs.json`, so a program built there differed from one built elsewhere from the same commit. An app made before can add the same file.
 
+### Changed
+
+- `tifa build` and `tifa dev` spend about 0.4 to 0.5 s less in the plugin's rewrites of the SSR bundle, which `tifa dev` runs after every save: on the shop, the bundle step after an edit takes 2.3 s in place of 2.9 s. The bundle is the same byte for byte.
+
 ### Fixed
 
 - `tifa deploy setup` no longer plans to write `.github/workflows/tifa-deploy.yml` again on every run when git checked the file out with CRLF line ends, as git on Windows does in an app without a `.gitattributes`. A file that differs only in its line ends counts as right.
