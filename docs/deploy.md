@@ -318,7 +318,7 @@ The rest of this page is the way to do it by hand, and what `tifa deploy` does u
 
 ## Build for the server
 
-The server render engine runs on linux and darwin, on amd64 and arm64, and windows/amd64. Build on your machine or in CI with the target set, and copy the file over. Do not build on a small server such as a 1 GB VPS: the build needs more memory than the running app, and it can run out.
+The server render engine runs on linux and darwin, on amd64 and arm64, and windows on amd64 and arm64. Build on your machine or in CI with the target set, and copy the file over. Do not build on a small server such as a 1 GB VPS: the build needs more memory than the running app, and it can run out.
 
 ```sh
 GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
