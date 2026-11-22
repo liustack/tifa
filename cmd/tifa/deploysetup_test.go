@@ -729,6 +729,7 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 		"add     " + purgeItem,
 		"https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22cache%22%2C%22type%22%3A%22purge%22%7D%5D&name=tifa%20cache%20purge%20example.com",
 		"Zone Resources",
+		"Tifa keeps this token on your server vps, readable only by the user tifa, and every deploy to the zone example.com uses it.",
 		"the token was refused",
 		"done    " + purgeItem,
 	} {
@@ -823,8 +824,9 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 	}
 }
 
-// --cache-purge-token asks for the token even when the server has it, and replaces it. It needs a
-// terminal and deploy.front cloudflare, and works without deploy.ci.
+// --cache-purge-token asks for the token even when the server has it, and replaces it, on a
+// terminal or, without one, on the page. It needs deploy.front cloudflare, and works without
+// deploy.ci.
 func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	s := newPurgeSetup(t, "tok-good", "tok-good")
 	setFacts(t, s.srv, factsOf("shop", 9531, tunnelFacts+"purge-file yes\npurge-zone example.com\n"))
@@ -834,8 +836,11 @@ func TestSetupCachePurgeTokenFlag(t *testing.T) {
 		t.Fatalf("%v, stored %q\n%s", err, s.srv.purge(), out)
 	}
 	s.noSecretIn(t, out)
-	if _, err := runSetup(t, s.root, false, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "terminal") {
-		t.Errorf("no terminal: %v", err)
+	// Without a terminal the flag asks on the page, with --yes too.
+	s.srv.havePurge(t, "tok-old")
+	submitValues(t, "tok-good")
+	if out, err := runSetup(t, s.root, false, "", "--yes", "--cache-purge-token"); err != nil || s.srv.purge() != "example.com\tz\ttok-good\n" {
+		t.Errorf("no terminal: %v, stored %q\n%s", err, s.srv.purge(), out)
 	}
 	writeFile(t, filepath.Join(s.root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  ci: github\n")
 	if _, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "deploy.front") {
@@ -882,7 +887,7 @@ func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 	if strings.Contains(out, "gh secret") {
 		t.Errorf("setup tells to run gh:\n%s", out)
 	}
-	for _, want := range []string{"1. " + purgeItem, "(optional)", "Cache time", "tifa deploy setup --cache-purge-token"} {
+	for _, want := range []string{"1. " + purgeItem, "(optional)", "Cache time", "tifa deploy setup --cache-purge-token", "go tool tifa deploy setup --yes --cache-purge-token", "opens a page in your browser"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -890,6 +895,31 @@ func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 	if s.asked != 0 || len(s.checks) != 0 || s.srv.purge() != "" {
 		t.Errorf("asked %d, checks %q, stored %q", s.asked, s.checks, s.srv.purge())
 	}
+}
+
+// Without a terminal, --cache-purge-token asks on the page, with --yes: it shows the link of the
+// Cloudflare form, what to set there and that the token stays on the server. A refused token opens
+// a new page that says why. No output shows a token.
+func TestSetupPurgeTokenPage(t *testing.T) {
+	s := newPurgeSetup(t)
+	pages := submitPages(t, []string{"tok-bad"}, []string{"tok-good"})
+	out, errOut, err := runSetupIO(t, s.root, false, "", "--yes", "--cache-purge-token")
+	if err != nil || s.srv.purge() != "example.com\tz\ttok-good\n" || s.asked != 0 {
+		t.Fatalf("%v, stored %q, asked %d\n%s", err, s.srv.purge(), s.asked, out)
+	}
+	forms := pages.forms()
+	for _, want := range []string{"Zone Resources", "on your server vps, readable only by the user tifa, and every deploy to the zone example.com uses it", "The token was refused", "api-tokens&amp;permissionGroupKeys="} {
+		if !strings.Contains(forms, want) {
+			t.Errorf("the pages lack %q:\n%s", want, forms)
+		}
+	}
+	if strings.Contains(forms, "GitHub secret") {
+		t.Errorf("the page says the token is a GitHub secret:\n%s", forms)
+	}
+	if !strings.Contains(errOut, "http://127.0.0.1:") || strings.Contains(forms, "tok-") {
+		t.Errorf("out:\n%s\n%s", out, errOut)
+	}
+	s.noSecretIn(t, out+errOut)
 }
 
 // v018Repo makes the repository one that setup of v0.1.18 made: the purge token and the zone ID
@@ -1154,7 +1184,7 @@ func TestSetupSSHModesNeedThings(t *testing.T) {
 	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	out, _ := runSetup(t, root, false, "")
-	if !strings.Contains(out, "1. github: the Tailscale secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET") || !strings.Contains(out, "tifa deploy setup --tailscale-oauth") || strings.Contains(out, "gh secret") {
+	if !strings.Contains(out, "1. github: the Tailscale secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET") || !strings.Contains(out, "go tool tifa deploy setup --yes --tailscale-oauth") || strings.Contains(out, "gh secret") {
 		t.Errorf("out:\n%s", out)
 	}
 }
@@ -1225,19 +1255,40 @@ func TestSetupTailscaleOAuth(t *testing.T) {
 }
 
 // An empty client ID skips, which leaves CI unable to reach the server, so the run fails. The flag
-// needs ssh tailscale and a terminal.
+// needs ssh tailscale.
 func TestSetupTailscaleOAuthSkippedOrMisused(t *testing.T) {
 	root, gh, _, _ := tailscaleSetup(t, "")
 	out, err := runSetup(t, root, true, "", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "1 thing needs you") || gh.secrets[secretTSID] != "" || !strings.Contains(out, "tifa deploy setup --tailscale-oauth") {
 		t.Errorf("skipped: %v\n%s", err, out)
 	}
-	if _, err := runSetup(t, root, false, "", "--yes", "--tailscale-oauth"); err == nil || !strings.Contains(err.Error(), "terminal") {
-		t.Errorf("no terminal: %v", err)
-	}
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  ci: github\n")
 	if _, err := runSetup(t, root, true, "", "--yes", "--tailscale-oauth"); err == nil || !strings.Contains(err.Error(), "deploy.ssh") {
 		t.Errorf("ssh direct: %v", err)
+	}
+}
+
+// Without a terminal and without --tailscale-oauth, --yes lists the client with the command that
+// asks on the page and opens none. With the flag, the client ID and secret come from one page.
+func TestSetupTailscaleOAuthPage(t *testing.T) {
+	root, gh, asked, checks := tailscaleSetup(t)
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(out, "go tool tifa deploy setup --yes --tailscale-oauth") || gh.secrets[secretTSID] != "" {
+		t.Fatalf("no flag: %v\n%s", err, out)
+	}
+	pages := submitPages(t, []string{"id-1", "ts-bad"}, []string{"id-1", "ts-good"})
+	out, errOut, err := runSetupIO(t, root, false, "", "--yes", "--tailscale-oauth")
+	if err != nil || gh.secrets[secretTSID] != "id-1" || gh.secrets[secretTSSecret] != "ts-good" || *asked != 0 || len(*checks) != 2 {
+		t.Fatalf("%v, secrets %v, asked %d, checks %d\n%s\n%s", err, gh.secrets, *asked, len(*checks), out, errOut)
+	}
+	forms := pages.forms()
+	for _, want := range []string{"Client ID", "Client secret", "https://console.tailscale.com/admin/settings/trust-credentials", "The client was refused"} {
+		if !strings.Contains(forms, want) {
+			t.Errorf("the pages lack %q:\n%s", want, forms)
+		}
+	}
+	if strings.Contains(out+errOut+forms, "ts-good") || strings.Contains(out+errOut+forms, "ts-bad") {
+		t.Errorf("the secret was shown:\n%s\n%s", out, errOut)
 	}
 }
 

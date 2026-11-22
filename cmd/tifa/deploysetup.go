@@ -989,8 +989,9 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 		left(zoneErr.Error())
 	case r.zone.ID == "":
 		left("Setup cannot find the zone: " + cfNeed())
-	case !stdinIsTerminal(r.in):
-		left("There is no terminal to paste on")
+	case !stdinIsTerminal(r.in) && !r.purgeToken:
+		// Only the flag waits for a person: a run that does not pass it never waits.
+		left("There is no terminal to paste on. " + purgeTokenPageCommand + " opens a page in your browser for it")
 	default:
 		op := opAdd
 		if r.purgeOnServer {
@@ -1091,25 +1092,49 @@ func (r *setupRun) removeRepoPurge(ctx context.Context, p *setupPlan) error {
 // purgeTokenCommand makes setup ask for the token that clears the CDN cache.
 const purgeTokenCommand = "tifa deploy setup --cache-purge-token"
 
+// purgeTokenPageCommand asks for it without a terminal, on a page in the browser.
+const purgeTokenPageCommand = "go tool tifa deploy setup --yes --cache-purge-token"
+
 // purgeTokenLater says what going without the token costs and how to add it.
 const purgeTokenLater = "Without it a deploy still works, but " + noTokenCost + ". To add it: " + purgeTokenCommand
 
 // purgeTokenTries is how many tokens setup takes before it gives up.
 const purgeTokenTries = 3
 
-// pastePurgeToken shows the link, reads the token hidden, checks it against the zone and keeps it
-// on the server. A token that fails the check is asked for again. An empty line skips.
+// pastePurgeToken shows the link, reads the token hidden or on the page, checks it against the zone
+// and keeps it on the server. Without a terminal setup runs it only for --cache-purge-token. A
+// token that fails the check is asked for again. An empty one skips.
 func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
-	say("Open this link, set Zone Resources to %s only, create the token, and paste it here, or press Enter to skip:", r.zoneText())
-	say("%s", purgeTokenLink(r.zone.Name))
+	kept := fmt.Sprintf("Tifa keeps this token on your server %s, readable only by the user tifa, and every deploy to %s uses it", t.host, r.zoneText())
+	who := t.app + " on " + t.host
+	if r.repo.Name != "" {
+		who = t.app + " · " + r.repo.Name
+	}
+	ask := secretAsk{
+		Title: "Cloudflare purge token",
+		For:   who,
+		Why: fmt.Sprintf("Tifa clears the Cloudflare cache of %s after each deploy. %s. "+
+			"In the Cloudflare form, which has the permission Cache Purge filled in, set Zone Resources to %s only, then create the token and paste it below.",
+			t.domain, kept, r.zoneText()),
+		Link:     purgeTokenLink(r.zone.Name),
+		LinkText: "Create the token in Cloudflare",
+		Fields:   []string{"Cloudflare token"},
+		Skip:     "Leave it empty to skip: deploys still work, and a page with Cache can stay old until its Cache time runs out.",
+	}
+	terminal := stdinIsTerminal(r.in)
+	if terminal {
+		say("%s.", kept)
+		say("Open this link, set Zone Resources to %s only, create the token, and paste it here, or press Enter to skip:", r.zoneText())
+		say("%s", ask.Link)
+	}
 	for try := 1; try <= purgeTokenTries; try++ {
-		token, err := promptSecret(r.in, r.stdout, secretPurge)
+		values, err := askSecrets(ctx, r.in, r.errOut, ask)
 		if err != nil {
 			return "", fmt.Errorf("reading the token: %w. To try again: %s", err, purgeTokenCommand)
 		}
-		token = strings.TrimSpace(token)
+		token := strings.TrimSpace(values[0])
 		if token == "" {
 			return "", skipped{purgeTokenLater}
 		}
@@ -1121,7 +1146,10 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 		if try == purgeTokenTries {
 			return "", fmt.Errorf("the token was refused: %s. To try again: %s", why, purgeTokenCommand)
 		}
-		say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
+		ask.Problem = fmt.Sprintf("The token was refused: %s. Paste it again, or leave it empty to skip.", why)
+		if terminal {
+			say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
+		}
 	}
 	return "", nil
 }
@@ -1297,8 +1325,6 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		return errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
 	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
 		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
-	case (f.purgeToken || f.tailscaleOAuth) && !stdinIsTerminal(in):
-		return errors.New("--cache-purge-token and --tailscale-oauth need a terminal to paste on")
 	}
 	plan, _, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {

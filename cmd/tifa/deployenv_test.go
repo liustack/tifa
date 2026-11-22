@@ -158,6 +158,75 @@ func TestEnvSetInput(t *testing.T) {
 	}
 }
 
+// With no terminal and nothing on the standard input, as when an agent runs it, the value comes
+// from the page. Nothing prints it. A value on the standard input opens no page.
+func TestEnvSetFromPage(t *testing.T) {
+	root, home, calls := envApp(t, "200")
+	old := stdinReadable
+	t.Cleanup(func() { stdinReadable = old })
+	stdinReadable = func(io.Reader) bool { return false } // /dev/null, as an agent has
+	s := submitValues(t, "pg-s3cret value")
+	out, err := runEnv(t, "", false, "deploy", "env", "set", "API_KEY", "--dir", root)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if data, _ := os.ReadFile(filepath.Join(home, "shop", "shared", ".env")); !strings.Contains(string(data), `API_KEY="pg-s3cret value"`) {
+		t.Errorf(".env:\n%s", data)
+	}
+	if form := s.forms(); !strings.Contains(form, "API_KEY") || !strings.Contains(form, "shop on vps") {
+		t.Errorf("page:\n%s", form)
+	}
+	if !strings.Contains(out, "http://127.0.0.1:") || !strings.Contains(out, "Received") {
+		t.Errorf("out:\n%s", out)
+	}
+	if strings.Contains(out, "pg-s3cret") || strings.Contains(calls(), "pg-s3cret") {
+		t.Errorf("the value leaked:\n%s\n%s", out, calls())
+	}
+
+	// An empty pipe is a value, the empty one, from a script: no page.
+	stdinReadable = old
+	if out, err := runEnv(t, "", false, "deploy", "env", "set", "API_KEY", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if data, _ := os.ReadFile(filepath.Join(home, "shop", "shared", ".env")); !strings.Contains(string(data), "API_KEY=\n") {
+		t.Errorf(".env:\n%s", data)
+	}
+}
+
+// A pipe and a file are read, empty or not. A character device such as /dev/null, which is what
+// coding agents give, is not: the page asks then.
+func TestStdinReadable(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	w.Close()
+	file, err := os.CreateTemp(t.TempDir(), "in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	for name, c := range map[string]struct {
+		in   io.Reader
+		want bool
+	}{
+		"pipe":        {r, true},
+		"file":        {file, true},
+		os.DevNull:    {null, false},
+		"a Go reader": {strings.NewReader(""), true},
+	} {
+		if got := stdinReadable(c.in); got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+}
+
 func errString(err error) string {
 	if err == nil {
 		return ""
