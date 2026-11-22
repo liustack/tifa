@@ -3,10 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -182,6 +188,45 @@ func TestSecretPageReferrer(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, `<meta name="referrer" content="same-origin">`) || !strings.Contains(body, `rel="noopener noreferrer"`) {
 		t.Errorf("page:\n%s", body)
+	}
+}
+
+// The page carries the logo and icon of assets/brand as they are, with the wordmark in the color of
+// each theme, says which run asks, and runs only its own script, allowed by its hash.
+func TestSecretPageBrand(t *testing.T) {
+	ask := purgeAsk
+	ask.For = "shop · acme/shop"
+	p := newSecretPage(ask, "127.0.0.1:4242", "code")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4242/code", nil))
+	page := w.Body.String()
+	paths := regexp.MustCompile(` d="([^"]+)"`)
+	for _, file := range []string{"tifa-logo.svg", "tifa-logo-dark.svg"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "assets", "brand", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range paths.FindAllStringSubmatch(string(data), -1) {
+			if !strings.Contains(page, m[1]) {
+				t.Errorf("the page lacks a path of %s: %.40s", file, m[1])
+			}
+		}
+	}
+	for _, want := range []string{"--word: #12303a;", "--word: #ffffff;", "shop · acme/shop", "<script>" + secretPageScript + "</script>"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+	icon, _ := os.ReadFile(filepath.Join("..", "..", "assets", "brand", "tifa-icon.svg"))
+	if !bytes.Equal(icon, secretPageIcon) {
+		t.Error("secretpage-icon.svg differs from assets/brand/tifa-icon.svg")
+	}
+	sum := sha256.Sum256([]byte(secretPageScript))
+	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'") || !strings.Contains(csp, "default-src 'none'") {
+		t.Errorf("policy %q", csp)
+	}
+	if regexp.MustCompile(`(src|href)="https?://`).FindString(strings.ReplaceAll(page, html.EscapeString(purgeAsk.Link), "")) != "" || strings.Contains(page, "url(http") {
+		t.Errorf("the page loads something from outside:\n%s", page)
 	}
 }
 

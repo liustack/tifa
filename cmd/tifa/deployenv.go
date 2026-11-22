@@ -170,9 +170,10 @@ var promptSecret = func(in io.Reader, prompt io.Writer, label string) (string, e
 // page asks for it then.
 func readEnvValue(ctx context.Context, in io.Reader, out io.Writer, name string, t deployTarget) (string, error) {
 	ask := secretAsk{
-		Title:  "The value of " + name,
-		Why:    fmt.Sprintf("Tifa sets %s in the .env of %s on %s, then restarts the app. The app reads it as a setting. Tifa never prints it.", name, t.app, t.host),
-		Fields: []string{"Value of " + name},
+		Title:  "Value of " + name,
+		For:    t.app + " on " + t.host,
+		Why:    fmt.Sprintf("Tifa sets %s in the .env of %s on the server %s, then restarts the app, which reads it as a setting.", name, t.app, t.host),
+		Fields: []string{name},
 	}
 	if !stdinIsTerminal(in) {
 		data, err := io.ReadAll(in)

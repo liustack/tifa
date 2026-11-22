@@ -979,13 +979,15 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
 	ask := secretAsk{
-		Title: "A Cloudflare token that clears the cache of " + t.domain,
-		Why: fmt.Sprintf("After each deploy from GitHub Actions, Tifa clears the Cloudflare cache of %s, so visitors get the new pages at once. "+
-			"The link opens the Cloudflare form with the permission Cache Purge filled in. Set Zone Resources to %s only, create the token and paste it here. "+
-			"Tifa checks it and keeps it as the GitHub secret %s.", t.domain, r.zoneText(), secretPurge),
-		Link:   purgeTokenLink(r.repo.Name),
-		Fields: []string{"Cloudflare token"},
-		Skip:   "Leave it empty to skip: deploys still work, and a page with Cache can stay old until its Cache time runs out.",
+		Title: "Cloudflare purge token",
+		For:   t.app + " · " + r.repo.Name,
+		Why: fmt.Sprintf("Tifa clears the Cloudflare cache of %s after each deploy from GitHub Actions, and keeps this token as the GitHub secret %s. "+
+			"In the Cloudflare form, which has the permission Cache Purge filled in, set Zone Resources to %s only, then create the token and paste it below.",
+			t.domain, secretPurge, r.zoneText()),
+		Link:     purgeTokenLink(r.repo.Name),
+		LinkText: "Create the token in Cloudflare",
+		Fields:   []string{"Cloudflare token"},
+		Skip:     "Leave it empty to skip: deploys still work, and a page with Cache can stay old until its Cache time runs out.",
 	}
 	terminal := stdinIsTerminal(r.in)
 	if terminal {

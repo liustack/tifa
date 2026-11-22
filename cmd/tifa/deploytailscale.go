@@ -52,14 +52,15 @@ func (r *setupRun) tailscaleSteps(p *setupPlan) {
 func (r *setupRun) pasteTailscaleOAuth(ctx context.Context) (string, error) {
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
 	ask := secretAsk{
-		Title: "A Tailscale OAuth client for GitHub Actions",
-		Why: "GitHub Actions joins your tailnet with this client to reach the server when it deploys. " +
-			"Make it in the Tailscale admin console under Trust credentials: an OAuth client with the auth_keys scope for the tag " + tailscaleTag +
-			", which your tailnet policy must own and let reach port 22 of the server. Tifa checks it and keeps it as the GitHub secrets " +
-			secretTSID + " and " + secretTSSecret + ".",
-		Link:   "https://console.tailscale.com/admin/settings/trust-credentials",
-		Fields: []string{"Client ID", "Client secret"},
-		Skip:   "Leave them empty to skip: CI cannot reach the server until you add them.",
+		Title: "Tailscale OAuth client",
+		For:   r.t.app + " · " + r.repo.Name,
+		Why: "GitHub Actions joins your tailnet with this client to reach the server, and Tifa keeps it as the GitHub secrets " +
+			secretTSID + " and " + secretTSSecret + ". Make it under Trust credentials with the auth_keys scope for the tag " + tailscaleTag +
+			", which your tailnet policy must own and let reach port 22 of the server.",
+		Link:     "https://console.tailscale.com/admin/settings/trust-credentials",
+		LinkText: "Open Trust credentials in Tailscale",
+		Fields:   []string{"Client ID", "Client secret"},
+		Skip:     "Leave them empty to skip: CI cannot reach the server until you add them.",
 	}
 	terminal := stdinIsTerminal(r.in)
 	if terminal {

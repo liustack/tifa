@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	_ "embed"
 	"encoding/base64"
@@ -31,12 +32,14 @@ import (
 
 // secretAsk says what tifa needs, for the page and the terminal.
 type secretAsk struct {
-	Title   string   // what tifa needs, the heading of the page
-	Why     string   // why, and where to make it
-	Link    string   // where it is made, when there is such a page
-	Fields  []string // a label for each value, asked one after the other
-	Skip    string   // what an empty field does, when it may be empty
-	Problem string   // why the value sent before was refused
+	Title    string   // what tifa needs, short: the heading of the page
+	For      string   // which app and repository or server asks, so the person knows the run
+	Why      string   // one or two sentences: what it is for and where to make it
+	Link     string   // where it is made, when there is such a page
+	LinkText string   // the label of Link
+	Fields   []string // a label for each value, asked one after the other
+	Skip     string   // what an empty field does, when it may be empty
+	Problem  string   // why the value sent before was refused
 }
 
 // askSecrets reads one value for each field: on a terminal with the hidden prompt, else on the page.
@@ -110,7 +113,7 @@ func askOnPage(ctx context.Context, out io.Writer, ask secretAsk) ([]string, err
 	}()
 
 	u := "http://" + page.host + "/" + code
-	fmt.Fprintf(out, "Tifa needs %s. Open this page in a browser on this machine and enter it there:\n  %s\n", lowerFirst(ask.Title), u)
+	fmt.Fprintf(out, "Tifa needs a value (%s). Open this page in a browser on this machine and enter it there:\n  %s\n", ask.Title, u)
 	if err := openBrowser(u); err != nil {
 		fmt.Fprintf(out, "The browser did not open (%v): open the page yourself.\n", err)
 	}
@@ -146,13 +149,6 @@ func waitText(d time.Duration) string {
 	return d.String()
 }
 
-func lowerFirst(s string) string {
-	if s == "" || s[0] < 'A' || s[0] > 'Z' {
-		return s
-	}
-	return string(s[0]+'a'-'A') + s[1:]
-}
-
 func fieldName(i int) string { return fmt.Sprintf("v%d", i) }
 
 // secretPage is the handler of the page: it answers only at its path and Host, and takes one
@@ -173,13 +169,41 @@ func newSecretPage(ask secretAsk, host, code string) *secretPage {
 //go:embed secretpage.html
 var secretPageHTML string
 
+// secretPageIcon is assets/brand/tifa-icon.svg, the favicon of the page.
+//
+//go:embed secretpage-icon.svg
+var secretPageIcon []byte
+
 var secretPageTemplate = template.Must(template.New("page").Parse(secretPageHTML))
+
+// secretPageScript shows and hides a value. The policy of the page allows this script by its hash
+// and no other. Without it the page works, with the values hidden.
+const secretPageScript = `document.querySelectorAll("[data-toggle]").forEach(function (b) {
+  var input = document.getElementById(b.getAttribute("aria-controls"));
+  b.hidden = false;
+  b.addEventListener("click", function () {
+    var show = input.type === "password";
+    input.type = show ? "text" : "password";
+    b.textContent = show ? "Hide" : "Show";
+    input.focus();
+  });
+});`
+
+var secretPagePolicy = func() string {
+	sum := sha256.Sum256([]byte(secretPageScript))
+	return "default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'sha256-" +
+		base64.StdEncoding.EncodeToString(sum[:]) + "'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+}()
+
+var secretPageIconURL = template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(secretPageIcon))
 
 type secretPageData struct {
 	secretAsk
 	Fields []pageField
 	Done   bool
 	Again  bool // the value came before this request
+	Icon   template.URL
+	Script template.JS
 }
 
 type pageField struct{ Name, Label string }
@@ -201,14 +225,14 @@ func (p *secretPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
-	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	h.Set("Content-Security-Policy", secretPagePolicy)
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 		p.mu.Lock()
 		done := p.done
 		p.mu.Unlock()
 		if done {
-			p.render(w, http.StatusGone, secretPageData{Done: true, Again: true})
+			p.render(w, http.StatusGone, secretPageData{secretAsk: secretAsk{For: p.ask.For}, Done: true, Again: true})
 			return
 		}
 		p.render(w, http.StatusOK, p.form())
@@ -225,7 +249,7 @@ func (p *secretPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		if p.done {
 			p.mu.Unlock()
-			p.render(w, http.StatusGone, secretPageData{Done: true, Again: true})
+			p.render(w, http.StatusGone, secretPageData{secretAsk: secretAsk{For: p.ask.For}, Done: true, Again: true})
 			return
 		}
 		p.done = true
@@ -234,7 +258,7 @@ func (p *secretPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for i := range values {
 			values[i] = r.PostForm.Get(fieldName(i))
 		}
-		p.render(w, http.StatusOK, secretPageData{Done: true})
+		p.render(w, http.StatusOK, secretPageData{secretAsk: secretAsk{For: p.ask.For}, Done: true})
 		p.got <- values
 	default:
 		w.Header().Set("Allow", "GET, POST")
@@ -251,6 +275,7 @@ func (p *secretPage) form() secretPageData {
 }
 
 func (p *secretPage) render(w http.ResponseWriter, status int, d secretPageData) {
+	d.Icon, d.Script = secretPageIconURL, template.JS(secretPageScript)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	// An error here is a browser that went away: there is nobody left to tell.
