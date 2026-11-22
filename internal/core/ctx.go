@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -124,7 +125,7 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 	if c.req.body == nil {
 		return nil
 	}
-	if c.req.body.started {
+	if c.req.body.started.Load() {
 		return errors.New("tifa: SetBodyLimit called after the request body was read")
 	}
 	// Every copy made by WithContext reads the same body, so each gets the new reader. A MaxBytesReader
@@ -145,13 +146,19 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 // request. Call it before anything reads the body, on the goroutine that handles the request,
 // usually in OnRequest. Once reading has started it returns an error and the deadline stays as it
 // was. It also returns an error when d is not over 0 or when the response cannot reach the
-// connection, such as behind a middleware of SetHTTPHandler that does not unwrap it. A Ctx a test
-// made with tifatest.NewCtx has no connection, and the call does nothing.
+// connection, such as behind a middleware of SetHTTPHandler that does not unwrap it. A request
+// with no body, such as a GET, keeps its deadlines and the call does nothing. A Ctx a test made
+// with tifatest.NewCtx has no connection, and the call does nothing either.
 func (c *Ctx) SetReadTimeout(d time.Duration) error {
 	if d <= 0 {
 		return fmt.Errorf("tifa: SetReadTimeout needs a duration over 0, got %v", d)
 	}
-	if c.req.body != nil && c.req.body.started {
+	// No body, no read to wait for. A deadline would only reach the background read net/http does
+	// to see the client leave, and cancel the request while the client is still there.
+	if c.req.body == nil {
+		return nil
+	}
+	if c.req.body.started.Load() {
 		return errors.New("tifa: SetReadTimeout called after the request body was read")
 	}
 	if c.req.liftRead == nil {
@@ -241,11 +248,11 @@ func (c *Ctx) Writer() http.ResponseWriter { return c.w }
 // returns. http.MaxBytesReader answers zero-length reads itself, and those consume nothing.
 type watchedBody struct {
 	io.ReadCloser
-	started bool
+	started atomic.Bool // set by the goroutine that reads, read by SetBodyLimit and SetReadTimeout
 }
 
 func (b *watchedBody) Read(p []byte) (int, error) {
-	b.started = true
+	b.started.Store(true)
 	return b.ReadCloser.Read(p)
 }
 

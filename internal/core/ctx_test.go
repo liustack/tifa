@@ -304,6 +304,34 @@ func TestSetReadTimeout(t *testing.T) {
 	}
 }
 
+// A request with no body has nothing to read for the deadline to apply to, and net/http reads the
+// connection in the background to see the client leave: a read deadline then cancels the request.
+func TestSetReadTimeoutLeavesARequestWithoutBodyAlone(t *testing.T) {
+	for _, body := range []io.ReadCloser{nil, http.NoBody} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Body = body
+		c := New(httptest.NewRecorder(), r, "/", 1024)
+		called := false
+		SetReadLift(c, func(time.Duration) error { called = true; return nil })
+		if err := c.SetReadTimeout(time.Minute); err != nil || called {
+			t.Errorf("body %v: error %v, deadlines moved %v", body, err, called)
+		}
+	}
+}
+
+// SetReadTimeout may run while another goroutine starts reading: started is not a plain bool.
+func TestSetReadTimeoutRacesWithTheFirstRead(t *testing.T) {
+	c, _ := newCtx("POST", `{"name":"a"}`, "application/json", 1024)
+	SetReadLift(c, func(time.Duration) error { return nil })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.Request().Body.Read(make([]byte, 1))
+	}()
+	_ = c.SetReadTimeout(time.Minute)
+	<-done
+}
+
 type filter struct {
 	Status string   `json:"status"`
 	Page   int      `json:"page"`

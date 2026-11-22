@@ -1005,7 +1005,7 @@ func (s *server) liftDeadlines(w http.ResponseWriter, read time.Duration) error 
 	now := time.Now()
 	err := rc.SetReadDeadline(now.Add(read))
 	if err == nil && s.cfg.WriteTimeout > 0 {
-		err = rc.SetWriteDeadline(now.Add(read + s.cfg.WriteTimeout))
+		err = rc.SetWriteDeadline(now.Add(read).Add(s.cfg.WriteTimeout))
 	}
 	return err
 }

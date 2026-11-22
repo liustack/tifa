@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -265,6 +266,67 @@ func TestSetReadTimeoutInOnRequest(t *testing.T) {
 	}
 	if status, _, err := postSlowUpload(t, srv, "/quick"); err == nil && status == 200 {
 		t.Errorf("slow upload without SetReadTimeout went through")
+	}
+}
+
+// A GET has no body: SetReadTimeout leaves its deadlines alone. A read deadline of 50 ms would
+// reach the background read net/http does to see the client leave, and cancel the request.
+func TestSetReadTimeoutLeavesAGetAlone(t *testing.T) {
+	cfg := config.Default()
+	app := App{
+		Hooks: Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+			if err := c.SetReadTimeout(50 * time.Millisecond); err != nil {
+				return err
+			}
+			return next(c)
+		}},
+		Routes: []Route{{ID: "app/wait/route", Path: "/wait", GET: func(c *tifa.Ctx) error {
+			select {
+			case <-c.Context().Done():
+				return c.Context().Err()
+			case <-time.After(200 * time.Millisecond):
+				return c.Text(200, "waited")
+			}
+		}}},
+	}
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	srv := httptest.NewServer(s)
+	t.Cleanup(srv.Close)
+	res, err := srv.Client().Get(srv.URL + "/wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 || string(b) != "waited" {
+		t.Errorf("GET after SetReadTimeout: %d %q", res.StatusCode, b)
+	}
+}
+
+// deadlineWriter records the deadlines a ResponseController sets.
+type deadlineWriter struct {
+	http.ResponseWriter
+	read, write time.Time
+}
+
+func (w *deadlineWriter) SetReadDeadline(t time.Time) error  { w.read = t; return nil }
+func (w *deadlineWriter) SetWriteDeadline(t time.Time) error { w.write = t; return nil }
+
+// The write deadline is the read deadline plus server.write_timeout, also when that sum does not
+// fit in a time.Duration.
+func TestLiftDeadlinesDoesNotOverflow(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.WriteTimeout = time.Hour
+	s := newServer(cfg, Hooks{})
+	t.Cleanup(s.close)
+	w := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	if err := s.liftDeadlines(w, time.Duration(math.MaxInt64)); err != nil {
+		t.Fatal(err)
+	}
+	if !w.write.After(w.read) {
+		t.Errorf("write deadline %v is not after read deadline %v", w.write, w.read)
 	}
 }
 
