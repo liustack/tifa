@@ -25,6 +25,8 @@ type fakeCF struct {
 	rulesets map[string]map[string]any // zone and phase to the entry point ruleset
 	calls    []string
 	next     int
+	// loggedOut makes cf auth whoami say nobody is logged in.
+	loggedOut bool
 }
 
 func newFakeCF(zones ...string) *fakeCF {
@@ -74,7 +76,7 @@ func (f *fakeCF) answer(args []string) (any, error) {
 	notFound := fmt.Errorf("[10000] not found\n404 Not Found")
 	switch {
 	case cmd == "auth whoami":
-		return map[string]any{"authenticated": true}, nil
+		return map[string]any{"authenticated": !f.loggedOut}, nil
 	case cmd == "zones list --name":
 		out := []map[string]any{}
 		if slices.Contains(f.zones, args[3]) {

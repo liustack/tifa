@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -159,10 +160,20 @@ func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 		writeFile(t, filepath.Join(root, name), content)
 	}
 	t.Setenv(deployHostEnv, "vps")
-	// No cf unless the test installs one: the real cf is never run.
-	oldHave := haveCF
-	t.Cleanup(func() { haveCF = oldHave })
+	// No cf unless the test installs one: the real cf is never run. Neither is any program of the
+	// machine setup could install or log in with: a test that wants them installs a fakeMachine.
+	oldHave, oldLook, oldRun, oldOut := haveCF, lookProgram, runAttached, programOutput
+	t.Cleanup(func() { haveCF, lookProgram, runAttached, programOutput = oldHave, oldLook, oldRun, oldOut })
 	haveCF = func() bool { return false }
+	lookProgram = func(string) (string, error) { return "", exec.ErrNotFound }
+	runAttached = func(_ context.Context, _ io.Reader, _, _ io.Writer, name string, args ...string) error {
+		t.Errorf("ran %s %v on the terminal", name, args)
+		return errors.New("not in a test")
+	}
+	programOutput = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		t.Errorf("ran %s %v", name, args)
+		return nil, errors.New("not in a test")
+	}
 	return root
 }
 

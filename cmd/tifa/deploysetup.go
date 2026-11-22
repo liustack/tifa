@@ -11,7 +11,6 @@ package main
 // and the workflow file that starts with the line of tifa.
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -59,6 +58,8 @@ type planNote struct{ what, why string }
 type setupPlan struct {
 	steps []planStep
 	notes []planNote
+	// then says what setup does once the steps ran, when it plans again after them.
+	then string
 	// who is the command that makes the plan, setup when empty.
 	who string
 }
@@ -140,6 +141,9 @@ func (p setupPlan) print(w io.Writer, title string, all bool) {
 		}
 		fmt.Fprintf(w, "  %-7s %s\n", s.op, s.text)
 	}
+	if p.then != "" {
+		fmt.Fprintf(w, "\n%s\n", p.then)
+	}
 	if !all && p.count(opOK) > 0 {
 		fmt.Fprintf(w, "\nAlready right: %s (--all lists them)\n", p.alreadyRight())
 	}
@@ -192,11 +196,30 @@ func confirm(in io.Reader, out io.Writer, yes bool) error {
 		flushInput(f)
 	}
 	fmt.Fprint(out, "Apply this plan? [y/N] ")
-	line, _ := bufio.NewReader(in).ReadString('\n')
-	if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+	if a := strings.ToLower(strings.TrimSpace(readLine(in))); a != "y" && a != "yes" {
 		return &exitError{code: 1, err: errors.New("nothing was changed")}
 	}
 	return nil
+}
+
+// readLine reads one line of an answer a byte at a time, so it takes nothing after the line from
+// in: setup may ask again.
+func readLine(in io.Reader) string {
+	var line []byte
+	b := make([]byte, 1)
+	for {
+		n, err := in.Read(b)
+		if n == 1 {
+			if b[0] == '\n' {
+				break
+			}
+			line = append(line, b[0])
+		}
+		if err != nil {
+			break
+		}
+	}
+	return string(line)
 }
 
 // skipped is what a step returns when the developer chose to leave an optional thing out. It is
@@ -243,11 +266,13 @@ type setupRun struct {
 	cfChecked, cf  bool
 	zone           cfZone // of the domain
 	in             io.Reader
-	tunnelID       string
-	repo           githubRepo
-	gh             githubAPI
-	ghNames        map[string]bool
-	ghVars         map[string]string
+	// errOut is the stderr of setup itself, which a program run on the terminal gets.
+	errOut   io.Writer
+	tunnelID string
+	repo     githubRepo
+	gh       githubAPI
+	ghNames  map[string]bool
+	ghVars   map[string]string
 	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
 	sshName string
 	// afterConnection are steps that wait until CI has what replaces what they take away.
@@ -300,10 +325,11 @@ func sha(s string) string {
 }
 
 // buildSetupPlan reads the server, Cloudflare and GitHub, and compares them with tifa.yaml. It
-// changes nothing.
-func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
+// changes nothing. With tools, a plan that installs or logs in cf or gh has only those steps: the
+// rest is read with them.
+func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools bool, in io.Reader, stdout, stderr io.Writer) (setupPlan, *setupRun, error) {
 	// The reads run on several goroutines, and each one may write to stderr.
-	r := &setupRun{t: t, setupFlags: f, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}}
+	r := &setupRun{t: t, setupFlags: f, in: in, stdout: stdout, stderr: &lockedWriter{w: stderr}, errOut: stderr}
 	// The plan reads each thing once. The steps it returns run later, with the context of the
 	// caller, which has no memo, so they see what they changed.
 	ctx, cancel := context.WithCancel(withReadMemo(ctx))
@@ -314,6 +340,11 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 	}()
 	r.prefetch(ctx, &reads)
 	var p setupPlan
+	if tools {
+		if r.toolSteps(ctx, &p); p.todo() > 0 {
+			return p, r, nil
+		}
+	}
 	r.progress("the server")
 	if err := r.serverSteps(ctx, &p); err != nil {
 		return p, r, err
@@ -1147,16 +1178,32 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	case (f.purgeToken || f.tailscaleOAuth) && !stdinIsTerminal(in):
 		return errors.New("--cache-purge-token and --tailscale-oauth need a terminal to paste on")
 	}
-	plan, _, err := buildSetupPlan(ctx, t, f, in, stdout, stderr)
+	plan, _, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
 		return err
+	}
+	title := fmt.Sprintf("Plan for %s on %s", t.app, t.host)
+	if plan.then != "" {
+		// cf and gh come first: the rest of the plan reads Cloudflare and GitHub with them. Their
+		// steps may fail without stopping setup, and what failed shows again in the next plan.
+		plan.print(stdout, title, f.all)
+		if err := confirm(in, stdout, f.yes); err != nil {
+			return err
+		}
+		if _, err := plan.apply(ctx, stdout); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout)
+		if plan, _, err = buildSetupPlan(ctx, t, f, false, in, stdout, stderr); err != nil {
+			return err
+		}
 	}
 	cannot := plan.count(opCannot)
 	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !f.all {
 		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
 		return nil
 	}
-	plan.print(stdout, fmt.Sprintf("Plan for %s on %s", t.app, t.host), f.all)
+	plan.print(stdout, title, f.all)
 	warnings := 0
 	if plan.todo() > 0 {
 		if err := confirm(in, stdout, f.yes); err != nil {

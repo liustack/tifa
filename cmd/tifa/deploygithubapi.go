@@ -53,7 +53,7 @@ func findGitHub(ctx context.Context, dir string) (githubAPI, githubRepo, error) 
 	ghWhy := ""
 	switch {
 	case !haveGH():
-		ghWhy = "gh, the GitHub CLI, is not installed (https://cli.github.com/)"
+		ghWhy = "gh, the GitHub CLI, is not installed: " + ghInstallHow() + ", then run gh auth login"
 	default:
 		if _, err := readGH(ctx, dir, nil, "auth", "status"); err != nil {
 			ghWhy = fmt.Sprintf("gh is not logged in: run gh auth login (%v)", err)

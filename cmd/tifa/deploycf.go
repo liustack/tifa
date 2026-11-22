@@ -22,7 +22,7 @@ import (
 // runCF runs the user's cf with args and returns what it printed. The error holds what cf printed
 // on stderr, never its output, which can be a secret. Tests replace it.
 var runCF = func(ctx context.Context, args ...string) ([]byte, error) {
-	c := exec.CommandContext(ctx, "cf", args...)
+	c := exec.CommandContext(ctx, cfProgram, args...)
 	var stderr bytes.Buffer
 	c.Stderr = &stderr
 	out, err := c.Output()
@@ -32,9 +32,9 @@ var runCF = func(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// haveCF reports whether cf is on the PATH. Tests replace it.
+// haveCF reports whether cf is there: on the PATH, or where setup just installed it. Tests replace it.
 var haveCF = func() bool {
-	_, err := exec.LookPath("cf")
+	_, err := lookProgram(cfProgram)
 	return err == nil
 }
 
