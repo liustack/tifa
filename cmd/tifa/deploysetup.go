@@ -1056,18 +1056,18 @@ func (r *setupRun) removeRepoPurge(ctx context.Context, p *setupPlan) error {
 	if len(names) == 0 {
 		return nil
 	}
-	these := "the secret " + names[0]
+	these, stay, them := "the secret "+names[0], "stays", "it"
 	if len(names) == 2 {
-		these = "the secrets " + names[0] + " and " + names[1]
+		these, stay, them = "the secrets "+names[0]+" and "+names[1], "stay", "them"
 	}
 	repo, branch := r.repo.Name, r.repo.Branch
 	onMain, found, err := r.gh.FileOnBranch(ctx, repo, branch, githubWorkflowPath)
 	switch {
 	case err != nil:
-		p.notes = append(p.notes, planNote{what: "github: " + these + " stay", why: fmt.Sprintf("Setup cannot read %s on %s, so it cannot tell whether CI still uses them: %v. Once the workflow on %s no longer has them, run setup again, or delete them by hand", githubWorkflowPath, branch, err, branch)})
+		p.notes = append(p.notes, planNote{what: "github: " + these + " " + stay, why: fmt.Sprintf("Setup cannot read %s on %s, so it cannot tell whether CI still uses %s: %v. Once the workflow on %s no longer has %s, run setup again, or delete %s by hand", githubWorkflowPath, branch, them, err, branch, them, them)})
 		return nil
 	case found && (strings.Contains(onMain, "secrets."+secretPurge) || strings.Contains(onMain, "secrets."+secretZoneID)):
-		p.notes = append(p.notes, planNote{what: fmt.Sprintf("github: %s stay while the workflow on %s hands them to Tifa", these, branch), why: fmt.Sprintf("Commit and push %s, which no longer does, then run setup again to remove them", githubWorkflowPath)})
+		p.notes = append(p.notes, planNote{what: fmt.Sprintf("github: %s %s while the workflow on %s hands %s to Tifa", these, stay, branch, them), why: fmt.Sprintf("Commit and push %s, which no longer does, then run setup again to remove %s", githubWorkflowPath, them)})
 		return nil
 	}
 	text := "github: " + these + ", which tifa set and the workflow no longer uses"
@@ -1096,7 +1096,7 @@ const purgeTokenCommand = "tifa deploy setup --cache-purge-token"
 const purgeTokenPageCommand = "go tool tifa deploy setup --yes --cache-purge-token"
 
 // purgeTokenLater says what going without the token costs and how to add it.
-const purgeTokenLater = "Without it a deploy still works, but " + noTokenCost + ". To add it: " + purgeTokenCommand
+const purgeTokenLater = "Without it a deploy still works, but " + noTokenCost + ". To add it: " + purgeTokenCommand + " on a terminal, or " + purgeTokenPageCommand + ", which opens a page in your browser"
 
 // purgeTokenTries is how many tokens setup takes before it gives up.
 const purgeTokenTries = 3
