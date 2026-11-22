@@ -105,7 +105,7 @@ func (r cacheResult) String() string {
 	case r.Cleared:
 		return "cleared for " + r.Host
 	case r.NoToken:
-		return "not cleared for " + r.Host + ": " + noTokenCost + ". " + noTokenHow
+		return "not cleared for " + r.Host + ": " + noTokenCost + ". " + noTokenHow()
 	}
 	return "NOT cleared for " + r.Host + ": " + r.Warning
 }
@@ -157,7 +157,7 @@ func printCache(w io.Writer, r cacheResult) {
 	case r.Cleared:
 		fmt.Fprintf(w, "cache: cleared for %s\n", r.Host)
 	case r.NoToken:
-		fmt.Fprintf(w, "cache: not cleared for %s: %s. %s\n", r.Host, noTokenCost, noTokenHow)
+		fmt.Fprintf(w, "cache: not cleared for %s: %s. %s\n", r.Host, noTokenCost, noTokenHow())
 	default:
 		fmt.Fprintf(w, "warning: the CDN cache of %s was not cleared: %s\n", r.Host, r.Warning)
 	}
@@ -268,4 +268,10 @@ func checkPurgeToken(ctx context.Context, token, zoneID, domain string) error {
 const noTokenCost = "a page with Cache stays on the CDN until its Cache time runs out. That copy may ask for scripts the new build no longer has"
 
 // noTokenHow says how to have the cache cleared at each deploy.
-const noTokenHow = "To clear it at each deploy: tifa deploy setup --cache-purge-token, or cf auth login on this machine, or put " + envPurgeToken + " and " + envZoneID + " in the .env of the app"
+func noTokenHow() string {
+	login := "cf auth login on this machine"
+	if !haveCF() {
+		login = "install cf (" + cfInstallHow + ") and run cf auth login on this machine"
+	}
+	return "To clear it at each deploy: tifa deploy setup --cache-purge-token, or " + login + ", or put " + envPurgeToken + " and " + envZoneID + " in the .env of the app"
+}

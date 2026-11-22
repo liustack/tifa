@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `tifa deploy setup` and `tifa deploy remove` now say `cf is not installed: pnpm add --global cf, then cf auth login` when cf is not on the PATH. They used to ask for `cf auth login`, which fails with "command not found" when cf is missing. With cf installed but not logged in, the message is the same as before.
+
 ## [0.1.17] - 2026-11-22
 
 ### Added

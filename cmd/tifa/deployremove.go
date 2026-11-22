@@ -90,7 +90,7 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 		r.progress("Cloudflare")
 		if cf = r.useCF(ctx); !cf {
 			p.cannot("cloudflare: the route, DNS record and rules of "+t.domain+", the Access of the repository, and the tunnel once no other app uses it",
-				"needs cf logged in: cf auth login")
+				cfNeed())
 		} else {
 			// The tunnel of the server, also when an earlier run took it off the server already.
 			id, how, err := ensureTunnel(ctx, st.TunnelID, tunnelName, false)

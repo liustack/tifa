@@ -228,7 +228,7 @@ func TestDeployRemoveWithoutLogins(t *testing.T) {
 	}
 	for _, want := range []string{
 		"You need to do 2 things that remove cannot:",
-		"needs cf logged in: cf auth login",
+		"cf is not installed: pnpm add --global cf, then cf auth login",
 		"gh is not logged in: run gh auth login",
 		"  done    server: stop and disable tifa-shop.socket",
 	} {
@@ -238,6 +238,22 @@ func TestDeployRemoveWithoutLogins(t *testing.T) {
 	}
 	if !strings.Contains(srv.calls(), "removeapp tifa") || strings.Contains(out, "gh secret") || strings.Contains(out, "dashboard") {
 		t.Errorf("calls:\n%s\nout:\n%s", srv.calls(), out)
+	}
+}
+
+// With cf installed but not logged in, remove asks for the login only.
+func TestDeployRemoveCFNotLoggedIn(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n", nil)
+	newSetupServer(t, "", removeFacts(""))
+	oldRun, oldHave := runCF, haveCF
+	t.Cleanup(func() { runCF, haveCF = oldRun, oldHave })
+	haveCF = func() bool { return true }
+	runCF = func(_ context.Context, args ...string) ([]byte, error) {
+		return nil, &cfError{args: args, stderr: "not logged in", err: errors.New("exit status 1")}
+	}
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(out, "needs cf logged in: cf auth login") || strings.Contains(out, "not installed") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }
 
