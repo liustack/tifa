@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -151,9 +150,6 @@ func TestSessionUnderCSP(t *testing.T) {
 // in it, and the pages hydrate with Vite's client running.
 func TestDevUnderCSP(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	t.Setenv("SERVER_CSP", "on")
 	dir := devApp(t)
 	d := startDev(t, dir)

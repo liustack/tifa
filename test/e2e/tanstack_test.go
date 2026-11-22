@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -43,9 +42,6 @@ func TestBuildChecksTheTanStackVersion(t *testing.T) {
 // build.skip_tanstack_check to tifa.yaml while it runs rebuilds and serves the page.
 func TestDevChecksTheTanStackVersion(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := copyApp(t, "pages")
 	fakeReactRouter(t, dir, "1.171.0")
 	d := startDev(t, dir)

@@ -19,7 +19,6 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -114,7 +113,13 @@ func startDevWith(t *testing.T, dir string, extra []*os.File) *devRun {
 		done <- err
 	}()
 	t.Cleanup(func() {
-		_ = cmd.Process.Signal(syscall.SIGINT)
+		// A tifa dev that exited already cannot be asked. One that does not stop fails below.
+		release, err := interruptDev(cmd.Process)
+		if err != nil {
+			t.Logf("asking tifa dev to stop: %v", err)
+		} else {
+			defer release()
+		}
 		select {
 		case err := <-done:
 			if err != nil && !d.stopped {
@@ -122,7 +127,7 @@ func startDevWith(t *testing.T, dir string, extra []*os.File) *devRun {
 			}
 		case <-time.After(30 * time.Second):
 			cmd.Process.Kill()
-			t.Errorf("tifa dev did not stop after SIGINT\n%s", d.log)
+			t.Errorf("tifa dev did not stop after it was asked to\n%s", d.log)
 		}
 	})
 	d.waitLog(t, 0, serving)
@@ -230,9 +235,6 @@ func expectBody(t *testing.T, url, want string) {
 
 func TestDev(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := devApp(t)
 	d := startDev(t, dir)
 
@@ -465,7 +467,7 @@ func (s *hmrSocket) waitUpdate(t *testing.T, path string) {
 func TestDevExitsWhileOutsideFilesChange(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
+		t.Skip("the test makes the watcher fail with a file that its owner cannot read, which chmod cannot make on Windows")
 	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a file without permissions, so the watcher would not fail")
@@ -494,7 +496,7 @@ func OnShutdown(context.Context) error {
 	d.waitLog(t, 0, ready)
 	expectBody(t, d.base+"/", "outside-one")
 	// Loading the module makes Vite's dev server watch it.
-	expectBody(t, d.base+"/__tifa/vite/@fs"+filepath.ToSlash(card), "outside-one")
+	expectBody(t, d.base+"/__tifa/vite/"+viteFS(card), "outside-one")
 
 	d.stopped = true
 	if err := os.Chmod(route, 0); err != nil {
@@ -582,9 +584,6 @@ func waitBody(t *testing.T, url, want string, d *devRun) {
 // same: tifa dev builds the SSR bundle again after each restart.
 func TestDevRebuildsAfterViteRestarts(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := devApp(t)
 	closing := filepath.Join(dir, "closing")
 	card := outsideCard(t, dir, fmt.Sprintf(`{ name: 'control', apply: 'serve',
@@ -601,7 +600,7 @@ func TestDevRebuildsAfterViteRestarts(t *testing.T) {
 	d := startDev(t, dir)
 	d.waitLog(t, 0, ready)
 	expectBody(t, d.base+"/", "outside-one")
-	expectBody(t, d.base+"/__tifa/vite/@fs"+filepath.ToSlash(card), "outside-one")
+	expectBody(t, d.base+"/__tifa/vite/"+viteFS(card), "outside-one")
 
 	expectBody(t, d.base+"/__tifa/vite/__test/enospc", "ok")
 	deadline := time.Now().Add(10 * time.Second)
@@ -623,9 +622,6 @@ func TestDevRebuildsAfterViteRestarts(t *testing.T) {
 // markdown file builds and restarts the app, though no Go source changed.
 func TestDevEmbeddedFiles(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := devApp(t)
 	write := func(name, content string) {
 		t.Helper()
@@ -723,9 +719,6 @@ func expectNoErrors(t *testing.T, dir, when string) {
 // restart of the app and no Go build. The test pins what the page shows after the edit.
 func TestDevRootLayoutEdit(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := devApp(t)
 	d := startDev(t, dir)
 	d.waitLog(t, 0, ready)
@@ -748,9 +741,6 @@ func TestDevRootLayoutEdit(t *testing.T) {
 // tifa errors after the build that printed them, and a build without them drops them.
 func TestDevListsPluginWarnings(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := devApp(t)
 	d := startDev(t, dir)
 	d.waitLog(t, 0, ready)
@@ -780,9 +770,6 @@ func TestDevListsPluginWarnings(t *testing.T) {
 // dev server (BASE_URL is "/", as in a build), so the page hydrates with the same text.
 func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := devApp(t)
 	d := startDev(t, dir)
 	d.waitLog(t, 0, ready)
@@ -793,4 +780,14 @@ func TestDevRendersTheEnvOfTheBrowser(t *testing.T) {
 	// URL keeps the prefix of Vite's dev server.
 	expectBody(t, d.base+"/__tifa/vite/app/page.tsx", `"BASE_URL": "/"`)
 	expectNoErrors(t, dir, "after a page read import.meta.env")
+}
+
+// viteFS is the path under which Vite's dev server serves the file at path, which is outside the
+// root: @fs and the path with forward slashes, @fs/C:/... on Windows.
+func viteFS(path string) string {
+	p := filepath.ToSlash(path)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "@fs" + p
 }
