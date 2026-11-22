@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A page with a canonical link also gets `<meta property="og:url">` with the same URL, in the server render and after a navigation in the browser. An `og:url` in a route's `head` or in `documentHead` wins, and the page has only that one.
+
 ## [0.1.19] - 2026-11-23
 
 ### Added

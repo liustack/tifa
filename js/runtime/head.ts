@@ -493,11 +493,16 @@ function isCanonical(tag: Tag) {
   return tag.tag === 'link' && typeof tag.attrs.rel === 'string' && tag.attrs.rel.toLowerCase().split(/\s+/).includes('canonical')
 }
 
+function isOgUrl(tag: Tag) {
+  return tag.tag === 'meta' && (tag.attrs.property === 'og:url' || tag.attrs.name === 'og:url')
+}
+
 // alternateTags writes the links of a page: for a page that has more than one version, a link for
 // each version with its language and x-default, which is the version in the default language, and
 // for every page found the page itself as its canonical URL, unless the page's own head has a
-// canonical link, which wins. URLs are full, from site. A site that does not say where it is
-// served has none.
+// canonical link, which wins. A page that has a canonical URL also gets og:url with that same URL,
+// unless its own head has an og:url, which then stays alone. URLs are full, from site. A site that
+// does not say where it is served has none.
 export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | undefined, site: string): Tag[] {
   if (!page || !site) return []
   const list = page.list ?? []
@@ -507,7 +512,12 @@ export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | un
     const fallback = list.find((a) => a.language === page.default)
     if (fallback) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: site + fallback.url } })
   }
-  if (page.canonical && !own.some(isCanonical)) tags.push({ tag: 'link', attrs: { rel: 'canonical', href: site + page.canonical } })
+  if (!page.canonical) return tags
+  let url = site + page.canonical
+  const given = own.find(isCanonical)
+  if (given) url = String(given.attrs.href)
+  else tags.push({ tag: 'link', attrs: { rel: 'canonical', href: url } })
+  if (!own.some(isOgUrl)) tags.push({ tag: 'meta', attrs: { property: 'og:url', content: url } })
   return tags
 }
 

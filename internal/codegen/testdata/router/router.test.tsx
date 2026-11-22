@@ -1477,6 +1477,8 @@ test('a page with more than one version links to each, to x-default and to itsel
       '<link rel="canonical" href="https://a.example.com/en-US/langs">',
     ]
     contains(html, ...links)
+    contains(html, '<meta property="og:url" content="https://a.example.com/en-US/langs">')
+    assert(html.split('og:url').length === 2, 'og:url once')
     const head = html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
     assert(head.indexOf(links[0]!) < head.indexOf(links[1]!) && head.indexOf(links[2]!) < head.indexOf(links[3]!), `order in ${head}`)
     // The page and the switch read the same list, and the page carries it to the browser.
@@ -1486,21 +1488,42 @@ test('a page with more than one version links to each, to x-default and to itsel
     lacks(one, 'hreflang')
     contains(one, links[3]!)
     // No alternates, or no site to name in full URLs: no links, but the switch still has its list.
-    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' }), 'hreflang', 'rel="canonical"')
-    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, site: undefined } }), 'hreflang', 'rel="canonical"')
+    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' }), 'hreflang', 'rel="canonical"', 'og:url')
+    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, site: undefined } }), 'hreflang', 'rel="canonical"', 'og:url')
   })
 })
 
 test('a canonical link the app writes wins over the one of the page', async () => {
   const own: Tag[] = [{ tag: 'link', attrs: { rel: 'canonical', href: 'https://a.example.com/the-one' } }]
   const tags = alternateTags(own, versions, versions.site)
-  assert(tags.length === 3 && !tags.some((tag) => tag.attrs.rel === 'canonical'), `tags ${JSON.stringify(tags)}`)
+  assert(tags.length === 4 && !tags.some((tag) => tag.attrs.rel === 'canonical'), `tags ${JSON.stringify(tags)}`)
   // Without x-default when the list has no version in the default language.
   const noDefault = alternateTags([], { ...versions, list: [{ language: 'en-US', url: '/en-US/a' }, { language: 'de', url: '/de/a' }] }, versions.site)
-  assert(!noDefault.some((tag) => tag.attrs.hreflang === 'x-default') && noDefault.length === 3, `tags ${JSON.stringify(noDefault)}`)
+  assert(!noDefault.some((tag) => tag.attrs.hreflang === 'x-default') && noDefault.length === 4, `tags ${JSON.stringify(noDefault)}`)
   // A site without languages: the canonical link alone.
   const plain = alternateTags([], { site: 'https://blog.example.com', canonical: '/posts/a' }, 'https://blog.example.com')
-  assert(JSON.stringify(plain) === '[{"tag":"link","attrs":{"rel":"canonical","href":"https://blog.example.com/posts/a"}}]', `tags ${JSON.stringify(plain)}`)
+  assert(
+    JSON.stringify(plain) ===
+      '[{"tag":"link","attrs":{"rel":"canonical","href":"https://blog.example.com/posts/a"}},{"tag":"meta","attrs":{"property":"og:url","content":"https://blog.example.com/posts/a"}}]',
+    `tags ${JSON.stringify(plain)}`,
+  )
+})
+
+test('every page with a canonical URL gets og:url, unless the app writes one', async () => {
+  const url = 'https://a.example.com/en-US/langs'
+  const ogUrl = (tags: Tag[]) => tags.filter((tag) => tag.tag === 'meta' && tag.attrs.property === 'og:url')
+  // The app's og:url, from any route, stays alone.
+  const own: Tag[] = [{ tag: 'meta', attrs: { property: 'og:url', content: 'https://a.example.com/mine' } }]
+  assert(ogUrl(alternateTags(own, versions, versions.site)).length === 0, 'tifa wrote a second og:url')
+  // The app's canonical link wins, and og:url says the same URL.
+  const canon: Tag[] = [{ tag: 'link', attrs: { rel: 'canonical', href: 'https://a.example.com/the-one' } }]
+  assert(JSON.stringify(ogUrl(alternateTags(canon, versions, versions.site))) === '[{"tag":"meta","attrs":{"property":"og:url","content":"https://a.example.com/the-one"}}]', 'og:url of the app canonical')
+  assert(ogUrl(alternateTags([], versions, versions.site))[0]!.attrs.content === url, 'og:url of the page')
+  // The head of a rendered page has one.
+  const own2 = await render('/a/two', { ...appData, 'app/a/layout': ok('a'), 'app/a/two/route': ok('two') }, undefined, undefined, undefined, { alternates: { site: 'https://a.example.com', canonical: '/a/two' } })
+  assert(own2.split('og:url').length === 2 && own2.includes('https://a.example.com/a/two-share'), 'the page og:url alone')
+  const plain = await render('/a/one', { ...appData, 'app/a/layout': ok('a') }, undefined, undefined, undefined, { alternates: { site: 'https://a.example.com', canonical: '/a/one' } })
+  contains(plain, '<meta property="og:url" content="https://a.example.com/a/one">')
 })
 
 test('a page without a list has an empty switch', async () => {

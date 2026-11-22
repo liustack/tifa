@@ -37,6 +37,8 @@ site:
 
 Every page also gets `<link rel="canonical">` with its full URL: the path and the query parameters its `Load` and Layouts read, the URL the server renders it with (see [Query parameters](../memo.md#query-parameters)). Other parameters are left out. So `/store/products?page=2&utm_source=news` has the canonical URL `/store/products?page=2` when its `Load` reads `page`: page 2 of a list is a page of its own, and a link with a tracking parameter is no copy. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
 
+A page with a canonical URL also gets `<meta property="og:url">` with the same URL, so a shared link points at the page without its tracking parameters. An `og:url` in the `head` of a route, or in the `documentHead` of the root Layout, wins, and the page has only that one. When the page writes its own canonical, `og:url` repeats that URL.
+
 Without `site.url` none of this happens: no canonical link, no sitemap and no `robots.txt`. A file in `public/` or a route of the app at one of these paths wins over Tifa's, so an app that has its own sitemap keeps it.
 
 A site whose pages all have fixed paths, such as `/`, `/about` and `/pricing`, needs nothing more. Its sitemap is complete.
