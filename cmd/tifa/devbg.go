@@ -169,16 +169,7 @@ func runBackground(cmd *cobra.Command, dir, root string) error {
 	case err == nil:
 	case ctx.Err() != nil:
 		// The one who started it does not want it any more.
-		release, err := requestStop(child.Process.Pid)
-		if err != nil {
-			return fmt.Errorf("interrupted, and the server (pid %d) could not be asked to stop: %w", child.Process.Pid, err)
-		}
-		defer release()
-		select {
-		case <-exited:
-		case <-time.After(stopWait):
-		}
-		return errors.New("interrupted, the server was stopped")
+		return abandonStart(dir, child.Process.Pid, exited, stopWait)
 	default:
 		return err
 	}
@@ -599,5 +590,22 @@ func findDev(root string) (lockHolder, bool, error) {
 			return holder, false, fmt.Errorf("a process holds the lock of this app (record: pid %d), but it did not answer as tifa dev: %v. Nothing was signalled", holder.PID, last)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// abandonStart asks the tifa dev with the process ID pid, which --background started and whose
+// start was interrupted, to stop. exited reports its end. It waits up to wait for it and says what
+// became of it.
+func abandonStart(dir string, pid int, exited <-chan error, wait time.Duration) error {
+	release, err := requestStop(pid)
+	if err != nil {
+		return fmt.Errorf("interrupted, and the server (pid %d) could not be asked to stop: %w", pid, err)
+	}
+	defer release()
+	select {
+	case <-exited:
+		return errors.New("interrupted, the server was stopped")
+	case <-time.After(wait):
+		return fmt.Errorf("interrupted, and the server (pid %d) did not stop within %s of being asked to, so it may still be running. Stop it with `%s`", pid, wait, devCommand(dir, "stop"))
 	}
 }

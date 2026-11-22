@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -514,4 +515,40 @@ func TestLockHeldDoesNotBlockOthers(t *testing.T) {
 	}
 	close(stop)
 	<-done
+}
+
+// When the start of --background is interrupted, tifa dev says the server stopped only when it
+// did. A server that is still there after the wait may still run, and tifa dev says how to stop it.
+func TestAbandonedStartSaysWhetherTheServerStopped(t *testing.T) {
+	gone := make(chan error, 1)
+	gone <- nil
+	if err := abandonStart("my app", startSleeper(t).Process.Pid, gone, time.Minute); err == nil || err.Error() != "interrupted, the server was stopped" {
+		t.Errorf("a server that ended: %v", err)
+	}
+
+	// This one ignores SIGTERM on Unix, and never opens its stop event on Windows.
+	deaf := exec.Command(os.Args[0], "-test.run=^$")
+	deaf.Env = append(os.Environ(), sleeperEnv+"=deaf")
+	out, err := deaf.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deaf.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- deaf.Wait() }()
+	defer func() { deaf.Process.Kill(); <-exited }()
+	if line, err := bufio.NewReader(out).ReadString('\n'); err != nil || line != "ready\n" {
+		t.Fatalf("the sleeper: %q, %v", line, err)
+	}
+	err = abandonStart("my app", deaf.Process.Pid, exited, 300*time.Millisecond)
+	pid := strconv.Itoa(deaf.Process.Pid)
+	if err == nil || !strings.Contains(err.Error(), "(pid "+pid+")") || !strings.Contains(err.Error(), "may still be running") ||
+		!strings.Contains(err.Error(), "`go tool tifa dev stop --dir my app`") {
+		t.Errorf("a server that still runs: %v", err)
+	}
+	if !processAlive(deaf.Process.Pid) {
+		t.Error("the server ended, the test proves nothing")
+	}
 }
