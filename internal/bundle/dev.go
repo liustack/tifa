@@ -58,6 +58,12 @@ type Dev struct {
 	public, incomplete   string
 	modules, stylesheets []string
 
+	// What the parses of the driver gave for each file, see parsed. A bundle of tifa dev reads every
+	// page and Layout, and the checks every file of the app, of which a save changes one.
+	exports  parsed[[]string]
+	langKeys parsed[[]LangKey]
+	foreign  parsed[*foreign.Facts]
+
 	mu   sync.Mutex
 	poll bool // PollFiles came before the dev server ran
 	// reads are the files in the root that the last SSR bundle read, see Reads.
@@ -135,16 +141,23 @@ func NewDev(root string, port int, output io.Writer, notices Notices) (*Dev, err
 	}, nil
 }
 
-// LangKeys reads lang keys like Node.LangKeys.
-func (d *Dev) LangKeys(files []string) (map[string][]LangKey, error) { return d.node.LangKeys(files) }
-
-// Foreign reads files like Node.Foreign.
-func (d *Dev) Foreign(files []string) (map[string]*foreign.Facts, error) {
-	return d.node.Foreign(files)
+// LangKeys reads lang keys like Node.LangKeys, and parses only the files that changed since.
+// The result is shared: do not change it.
+func (d *Dev) LangKeys(files []string) (map[string][]LangKey, error) {
+	return d.langKeys.read(files, d.node.LangKeys)
 }
 
-// Exports reads exports like Node.Exports.
-func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.node.Exports(files) }
+// Foreign reads files like Node.Foreign, and parses only the files that changed since. The result
+// is shared: do not change it.
+func (d *Dev) Foreign(files []string) (map[string]*foreign.Facts, error) {
+	return d.foreign.read(files, d.node.Foreign)
+}
+
+// Exports reads exports like Node.Exports, and parses only the files that changed since. The
+// result is shared: do not change it.
+func (d *Dev) Exports(files []string) (map[string][]string, error) {
+	return d.exports.read(files, d.node.Exports)
+}
 
 // PollFiles makes Vite's dev server poll the files instead of watching them with system events,
 // for when the system runs short of watches or file descriptors. A dev server that runs
