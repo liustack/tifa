@@ -169,7 +169,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: examples/shop/pnpm-lock.yaml
+          cache-dependency-path: |
+            examples/shop/pnpm-lock.yaml
+            test/apps/*/pnpm-lock.yaml
 
       # test/compare runs the browse benchmark, which is Unix only (Rlimit, Getrusage, flock). Its files
       # are bound to the method hash of a result, so they are left out here and not changed.
@@ -198,3 +200,14 @@ jobs:
           go test -count=1 -timeout 10m -run 'Dev|Status|Stop|Logs|Lock|Errors|MoveAside|Background' ./cmd/tifa/
       - name: Run tifa dev on a new app, edit it, stop it and kill it
         run: scripts/smoke-dev.sh
+      # The end-to-end tests of tifa dev, on copies of the apps under test/apps that have npm
+      # packages. The ones that test Unix things are in _unix_test.go files and do not build here.
+      - name: Install the packages of the apps that the tifa dev tests use
+        run: |
+          for app in pages content tailwind i18n; do
+            (cd "test/apps/$app" && pnpm install --frozen-lockfile)
+          done
+      - name: Run the end-to-end tests of tifa dev
+        run: go test -count=1 -v -timeout 20m -run '^TestDev' ./test/e2e/
+        env:
+          TIFA_E2E: "1"
