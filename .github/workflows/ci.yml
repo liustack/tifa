@@ -200,6 +200,10 @@ jobs:
           go test -count=1 -timeout 10m -run 'Dev|Status|Stop|Logs|Lock|Errors|MoveAside|Background' ./cmd/tifa/
       - name: Run tifa dev on a new app, edit it, stop it and kill it
         run: scripts/smoke-dev.sh
+      # What tifa deploy runs on this machine: the arguments and the input of ssh, the files it
+      # reads. The tests that run the server scripts need sh and skip here.
+      - name: Test tifa deploy
+        run: go test -count=1 -timeout 10m -run 'Deploy|Setup' ./cmd/tifa/
       # The end-to-end tests of tifa dev, on copies of the apps under test/apps that have npm
       # packages. The ones that test Unix things are in _unix_test.go files and do not build here.
       - name: Install the packages of the apps that the tifa dev tests use
