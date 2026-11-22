@@ -482,11 +482,28 @@ export interface PageAlternates {
   custom?: boolean
 }
 
-// PageLinks gives the tags a page adds after its own head, given those: the links of its versions.
+// PageLinks gives all the tags of a page, given its own head: those with the share images made
+// absolute (see absoluteImages), then the links of its versions.
 export type PageLinks = (own: ReadonlyArray<Tag>) => Tag[]
 
 function withLinks(tags: Tag[], links?: PageLinks): Tag[] {
-  return links ? tags.concat(links(tags)) : tags
+  return links ? links(tags) : tags
+}
+
+const imageNames = ['og:image', 'og:image:url', 'og:image:secure_url', 'twitter:image']
+
+// absoluteImages gives the share images of the head a full URL: a content that starts with one
+// slash is a path on this site, and gets site in front. A protocol-relative URL (//host) and a
+// full URL stay as written, and so does everything when the site is not known.
+export function absoluteImages(own: ReadonlyArray<Tag>, site: string): Tag[] {
+  if (!site) return own.slice()
+  return own.map((tag) => {
+    const name = tag.attrs.property ?? tag.attrs.name
+    const content = tag.attrs.content
+    if (tag.tag !== 'meta' || typeof name !== 'string' || !imageNames.includes(name)) return tag
+    if (typeof content !== 'string' || !content.startsWith('/') || content.startsWith('//')) return tag
+    return { ...tag, attrs: { ...tag.attrs, content: site + content } }
+  })
 }
 
 function isCanonical(tag: Tag) {

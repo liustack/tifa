@@ -1542,6 +1542,24 @@ test('a title and a meta written in a component stay in the body, next to the he
   contains(body, '<div id="tifa-root"><title>INLINE_TITLE</title><meta name="description" content="INLINE_DESCRIPTION"/>')
 })
 
+test('a page og tag replaces the one of the same name from the Layouts above, and an image path gets site.url', async () => {
+  const data = { ...appData, 'app/a/layout': ok('a'), 'app/a/two/route': ok('two') }
+  const alternates = { site: 'https://a.example.com', canonical: '/a/two' }
+  const headOf = (html: string) => html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
+  const two = headOf(await render('/a/two', data, undefined, undefined, undefined, { alternates }))
+  contains(two, '<meta property="og:title" content="TWO_OG_TITLE">', '<meta property="og:image" content="https://a.example.com/two-share.png">')
+  lacks(two, 'APP_OG_TITLE', 'app-share.png')
+  // A protocol-relative URL and a full URL stay as written.
+  contains(two, '<meta name="twitter:image" content="//cdn.example.com/two.png">', '<meta property="og:image:url" content="https://other.example.com/x.png">')
+  // A page without its own tags gets those of the root, with the path made absolute.
+  const one = headOf(await render('/a/one', { ...appData, 'app/a/layout': ok('a') }, undefined, undefined, undefined, { alternates: { site: 'https://a.example.com', canonical: '/a/one' } }))
+  contains(one, '<meta property="og:title" content="APP_OG_TITLE">', '<meta property="og:image" content="https://a.example.com/app-share.png">')
+  // Without site.url the content stays as written.
+  const bare = headOf(await render('/a/two', data))
+  contains(bare, 'content="/two-share.png"')
+  lacks(bare, 'https://a.example.com/two-share.png')
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try {

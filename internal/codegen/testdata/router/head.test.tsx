@@ -467,8 +467,12 @@ test('the links of the versions follow the page the router shows, computed in th
     await router.navigate({ to: '/a/two' })
     await wait(() => ogUrls() === 'https://a.example.com/a/two-share')
     assert(ogUrls() === 'https://a.example.com/a/two-share', `og:url the page writes: ${ogUrls()}`)
+    const share = () => managed().filter((e) => ['og:title', 'og:image', 'twitter:image'].includes(e.getAttribute('property') ?? e.getAttribute('name') ?? '')).map((e) => e.getAttribute('content')).join('|')
+    await wait(() => share().includes('TWO_OG_TITLE'))
+    assert(share() === 'TWO_OG_TITLE|https://a.example.com/two-share.png|//cdn.example.com/two.png', `share tags of /a/two: ${share()}`)
     await router.navigate({ to: '/a/one' })
     await wait(() => ogUrls() === 'https://a.example.com/a/one')
+    assert(share() === 'APP_OG_TITLE|https://a.example.com/app-share.png', `share tags of /a/one: ${share()}`)
 
     // A page whose Load called SetAlternates gets that list for its path, from the data request.
     noteAlternates('/q?q=1', {

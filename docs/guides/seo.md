@@ -49,9 +49,6 @@ A site whose pages all have fixed paths, such as `/`, `/about` and `/pricing`, n
 A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
 
 ```go
-// options.go: the address of the site, set where the program runs (SHARE_ORIGIN=https://shop.example.com)
-var Origin = tifa.String("share.origin", "", "Address of the site, with the scheme and no path")
-
 // app/products/product+/route.go
 type Page struct {
 	Name    string `json:"name"`
@@ -64,7 +61,7 @@ func Load(c *tifa.Ctx) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	return Page{Name: p.Name, Summary: p.Summary, Image: shop.Origin + "/og/" + p.ID + ".png"}, nil
+	return Page{Name: p.Name, Summary: p.Summary, Image: "/og/" + p.ID + ".png"}, nil
 }
 ```
 
@@ -83,11 +80,11 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 })
 ```
 
-- `og:image` must be a full URL with the scheme and host. Crawlers do not resolve a path against the page, and a relative one shows no image. The program does not read `tifa.yaml`, so `site.url` is not there at run time: give the address to an option of your own, as above, and build the URL from it.
+- `og:image` must be a full URL with the scheme and host, since crawlers do not resolve a path against the page. Write a path that starts with one `/`, such as `/og/kettle.png`, and Tifa puts `site.url` in front of it. The same goes for `og:image:url`, `og:image:secure_url` and `twitter:image`, on the server and after a navigation in the browser. A full URL, or one that starts with `//`, stays as you wrote it. Without `site.url` nothing is changed, so a path stays a path.
 - Put a fixed image in `public/`, such as `public/og/default.png`, which is served at `/og/default.png` with the name unchanged. An image that differs per page can be a GET route of the app that writes it. Do not import it, since an imported file gets a hashed name that changes with the build and crawlers keep the old card.
 - Make the image 1200 by 630 pixels, a ratio of about 1.91 to 1. That fills the large card of most apps. PNG or JPEG, under 5 MB.
 - `twitter:card` set to `summary_large_image` asks for the large card. Without it, X shows a small one. Titles and descriptions come from the `og:` tags.
-- The `og:` tags of a route replace those of the same name from the Layouts above it, so put the default card in the root Layout's `documentHead` and let a page override it.
+- A tag of a route replaces the tag of the same `property` or `name` from the Layouts above it. A route that writes several tags of one name, such as two `og:image`, keeps all of them and drops the outer ones. So put the default card in the root Layout's `documentHead` and let a page override it.
 
 ## List the pages with parameters
 

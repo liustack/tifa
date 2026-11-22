@@ -12,7 +12,7 @@
 import { createContext, useContext } from 'react'
 import { LanguageContext } from './language'
 import { useRouter, useRouterState } from '@tanstack/react-router'
-import { alternateTags, type Alternate, type PageAlternates, type PageLinks } from './head'
+import { absoluteImages, alternateTags, type Alternate, type PageAlternates, type PageLinks } from './head'
 
 export type { Alternate, PageAlternates }
 
@@ -161,12 +161,14 @@ function versionsOf(router: Located, language: string): { list: readonly Alterna
   return { list: listed ?? languages.map((l) => ({ language: l, url: pathIn(l) })), canonical: pathIn(language) + query }
 }
 
-// pageLinks gives the head the tags of the versions of the page the router shows. The head is
+// pageLinks gives the head the tags of the page the router shows: its own with the share images
+// made absolute, and the links of its versions. The head is
 // written when the matches of a navigation are committed, and the location is the new one then.
 export function pageLinks(router: Located, language: () => string): PageLinks {
   return (own) => {
     const found = versionsOf(router, language())
-    return found ? alternateTags(own, { default: defaultLanguage, canonical: found.canonical, list: found.list as Alternate[] }, site) : []
+    if (!found) return own.slice()
+    return absoluteImages(own, site).concat(alternateTags(own, { default: defaultLanguage, canonical: found.canonical, list: found.list as Alternate[] }, site))
   }
 }
 
