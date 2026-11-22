@@ -157,7 +157,7 @@ flowchart TD
 ```
 
 - The browser talks only to the proxy. It sends module and hot update requests to Vite, and everything else to the app.
-- A front end change updates open pages through Vite. `tifa dev` also rebuilds `ssr.js`, and the running app loads it in place without a restart, so `OnStart` does not run again.
+- A front end change updates open pages through Vite. `tifa dev` also rebuilds `ssr.js`, and the running app loads it in place without a restart, so `OnStart` does not run again. An `ssr.js` and source map that are byte for byte the ones the app runs keep the VM pool. An edit of a plain stylesheet skips the rebuild: the SSR bundle holds no CSS, and Vite's dev server checks the stylesheets instead.
 - A Go change, or a change of the routes, runs the steps it needs and restarts the app. `.tifa/` content decides whether the route manifest changed, so a change inside a function body skips generation and bundling.
 - A failed step keeps the running app, and the error shows in the terminal and on the page. `tifa errors` prints the same errors.
 - The app under `tifa dev` stops when `tifa dev` ends, because it reads a pipe that `tifa dev` holds (`--lifeline-fd`).

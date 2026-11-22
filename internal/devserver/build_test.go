@@ -24,6 +24,8 @@ type fakePipeline struct {
 	// content is what HasContent returns. contents records the arguments of each Content.
 	content  bool
 	contents []string
+	// rebundle is what Styles returns: the stylesheets import other files than the bundle recorded.
+	rebundle bool
 }
 
 func (p *fakePipeline) step(name string) error {
@@ -425,6 +427,92 @@ func TestPlanLocaleFiles(t *testing.T) {
 }
 
 func (p *fakePipeline) Reads() func(string) bool { return func(string) bool { return false } }
+
+func (p *fakePipeline) Styles(context.Context) (bool, error) { return p.rebundle, p.step("Styles") }
+
+func (p *fakePipeline) PlainStyles() func(string) bool { return func(string) bool { return false } }
+
+// An edit of a stylesheet that the SSR bundle takes for its side effect alone needs the styles step
+// and no bundle. One that appears or goes, one the bundle reads otherwise and one the Go code embeds
+// plan as before.
+func TestSplitStyles(t *testing.T) {
+	plain := func(rel string) bool {
+		return rel == "app/site.css" || rel == "app/theme.css" || rel == "static/site.css" || rel == "content/posts/a/example.css"
+	}
+	embedded := func(rel string) bool { return rel == "app/theme.css" }
+	cases := []struct {
+		name          string
+		changes       []change
+		styles, other []string
+	}{
+		{"edited", []change{{"app/site.css", modified}}, []string{"app/site.css"}, nil},
+		{"created", []change{{"app/site.css", created}}, nil, []string{"app/site.css"}},
+		{"removed", []change{{"app/site.css", removed}}, nil, []string{"app/site.css"}},
+		{"not plain", []change{{"app/card.module.css", modified}}, nil, []string{"app/card.module.css"}},
+		{"embedded", []change{{"app/theme.css", modified}}, nil, []string{"app/theme.css"}},
+		{"with a tsx", []change{{"app/site.css", modified}, {"app/page.tsx", modified}}, []string{"app/site.css"}, []string{"app/page.tsx"}},
+		{"public", []change{{"static/site.css", modified}}, nil, []string{"static/site.css"}},
+		{"content", []change{{"content/posts/a/example.css", modified}}, nil, []string{"content/posts/a/example.css"}},
+	}
+	paths := func(cs []change) []string {
+		var out []string
+		for _, c := range cs {
+			out = append(out, c.path)
+		}
+		return out
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			styles, other := splitStyles(tc.changes, plain, embedded, "static")
+			if !slices.Equal(paths(styles), tc.styles) || !slices.Equal(paths(other), tc.other) {
+				t.Fatalf("got %v and %v, want %v and %v", paths(styles), paths(other), tc.styles, tc.other)
+			}
+		})
+	}
+	if styles, _ := splitStyles([]change{{"app/site.css", modified}}, nil, nil, ""); styles != nil {
+		t.Errorf("without a rule took %v", styles)
+	}
+}
+
+// The styles step runs alone for such an edit, carries over when it fails, and is left out when the
+// bundle runs too, which checks the stylesheets itself.
+func TestStylesStep(t *testing.T) {
+	b, p := built(t)
+	ran, err := b.build(context.Background(), steps{styles: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.calls, []string{"Styles"}) || ran != (steps{styles: true}) || ran.inPlace() {
+		t.Fatalf("ran %v, returned %+v", p.calls, ran)
+	}
+	p.calls, p.fail = nil, "Styles"
+	if _, err := b.build(context.Background(), steps{styles: true}, nil); err == nil || err.Error() != "styles: Styles broke" {
+		t.Fatalf("got %v, want the error of the styles step", err)
+	}
+	p.calls, p.fail = nil, ""
+	if _, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}, nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"Analyze", "Styles", "GoBuild"}; !slices.Equal(p.calls, want) {
+		t.Fatalf("next build ran %v, want %v", p.calls, want)
+	}
+	p.calls = nil
+	if _, err := b.build(context.Background(), steps{bundle: true, styles: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"Bundle"}; !slices.Equal(p.calls, want) {
+		t.Fatalf("with the bundle ran %v, want %v", p.calls, want)
+	}
+	// Stylesheets that now import other files than the bundle recorded take the bundle after all.
+	p.calls, p.rebundle = nil, true
+	ran, err = b.build(context.Background(), steps{styles: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"Styles", "Bundle"}; !slices.Equal(p.calls, want) || ran != (steps{bundle: true}) {
+		t.Fatalf("ran %v, returned %+v, want %v", p.calls, ran, want)
+	}
+}
 
 // The files the SSR bundle read need a new bundle when they change, and nothing else.
 func TestPlanReads(t *testing.T) {

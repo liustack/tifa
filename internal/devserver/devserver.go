@@ -256,6 +256,8 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}
 	d.b.learnReads = func(reads func(string) bool) {
 		d.reads.Store(&reads)
+		plain := o.Pipeline.PlainStyles()
+		d.plain.Store(&plain)
 		w.setEmbedded(d.watchRules())
 	}
 	w.changes.setBuilding(true)
@@ -267,7 +269,15 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
 		d.b.noteContent(batch)
-		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()).or(planReads(batch, d.readsFile)), began)
+		styles, other := splitStyles(batch, d.plainStyle, d.isEmbedded, d.publicDir())
+		if d.hub.current().Error != "" {
+			// A failed build or reload shows its error until a rebuild clears it. The styles step
+			// alone would clear it without the bundle that may show it again.
+			styles, other = nil, batch
+		}
+		s := planApp(other, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()).or(planReads(other, d.readsFile))
+		s.styles = len(styles) > 0
+		d.rebuild(ctx, s, began)
 	})
 
 	d.mu.Lock()
@@ -360,6 +370,9 @@ type dev struct {
 	public atomic.Pointer[string]
 	// reads says which files the last SSR bundle read, see Pipeline.Reads. Nil before the first.
 	reads atomic.Pointer[func(string) bool]
+	// plain says which stylesheets the last SSR bundle leaves alone, see Pipeline.PlainStyles. Nil
+	// before the first.
+	plain atomic.Pointer[func(string) bool]
 	// browser keeps the errors pages reported since the last build started.
 	browser deverrors.BrowserErrors
 
@@ -400,6 +413,12 @@ func (d *dev) isEmbedded(rel string) bool {
 func (d *dev) readsFile(rel string) bool {
 	reads := d.reads.Load()
 	return reads != nil && (*reads)(rel)
+}
+
+// plainStyle reports whether an edit of the stylesheet rel leaves the last SSR bundle as it is.
+func (d *dev) plainStyle(rel string) bool {
+	plain := d.plain.Load()
+	return plain != nil && (*plain)(rel)
 }
 
 // watchRules returns the rule of the files the watcher keeps in its snapshot besides those of a
@@ -522,7 +541,9 @@ func (d *dev) rebuild(ctx context.Context, s steps, began func()) {
 		}
 		return
 	}
-	if ran.inPlace() && d.running() {
+	if ran == (steps{styles: true}) && d.running() {
+		// The app keeps the SSR bundle it has, and Vite updates the stylesheets of open pages.
+	} else if ran.inPlace() && d.running() {
 		if err := d.reload(ctx, ran.bundle, ran.content); err != nil {
 			if ctx.Err() == nil {
 				title := "The app did not load the SSR bundle"
@@ -540,7 +561,7 @@ func (d *dev) rebuild(ctx context.Context, s steps, began func()) {
 			d.mu.Unlock()
 			d.contentLoaded()
 		}
-	} else if err := d.restart(ctx, d.version() == "" || ran != steps{bundle: true}); err != nil {
+	} else if err := d.restart(ctx, d.version() == "" || ran != steps{bundle: true} && ran != steps{styles: true}); err != nil {
 		if ctx.Err() == nil {
 			d.fail("The app did not start", err)
 		}

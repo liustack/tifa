@@ -358,3 +358,40 @@ func TestDevStopsWhenItCannotBindItsChildren(t *testing.T) {
 		t.Errorf("dev built the app: %v", err)
 	}
 }
+
+// The styles step checks the stylesheets for public files again, as a bundle does: a url() of a
+// public file brings its warning, and the warning goes with the url().
+func TestDevStylesWarnsOfPublicFilesInStylesheets(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"app/site.css":    "body { color: red }\n",
+		"public/logo.png": "png",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	front, err := bundle.NewDev(root, 0, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer front.Close()
+	p := &devPipeline{root: root, front: front, files: map[string][]byte{"client.ts": nil}}
+	warned := func() bool { return strings.Contains(strings.Join(p.Warnings(), "\n"), "logo.png") }
+	for _, tc := range []struct {
+		css  string
+		want bool
+	}{{"body { background: url(/logo.png) }\n", true}, {"body { color: red }\n", false}} {
+		if err := os.WriteFile(filepath.Join(root, "app/site.css"), []byte(tc.css), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Without a bundle before, the stylesheets themselves are not checked.
+		_, _ = p.Styles(context.Background())
+		if warned() != tc.want {
+			t.Fatalf("with %q the warnings are %q", tc.css, p.Warnings())
+		}
+	}
+}

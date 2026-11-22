@@ -656,6 +656,59 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 	}
 }
 
+// tifa dev asks the app to load the SSR bundle again after every bundle step. When ssr.js and its
+// source map are the bytes the pool runs, as after an edit that changes no server code, the pool
+// stays: no VM is compiled or warmed again. build.json is read again either way. Other bytes get a
+// new pool.
+func TestOpenFrontKeepsThePoolOfTheSameBundle(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("build.json", `{"buildId":"b1","head":"<script type=\"module\" src=\"/assets/app.js\"></script>"}`)
+	write("ssr.js", "globalThis.startRender = () => { globalThis.renderResult = '<p>one</p>' }")
+	write("ssr.js.map", `{"version":3,"sources":[],"mappings":""}`)
+	s := newAppServer(t, frontApp())
+	open := func() *front {
+		t.Helper()
+		if err := s.openFront(os.DirFS(dir), config.Default().SSR); err != nil {
+			t.Fatal(err)
+		}
+		return s.front.Load()
+	}
+	first := open()
+	t.Cleanup(func() {
+		if err := s.closeFront(); err != nil {
+			t.Error(err)
+		}
+	})
+	write("build.json", `{"buildId":"b1","head":"<link rel=\"stylesheet\" href=\"/a.css\"><script type=\"module\" src=\"/assets/app.js\"></script>"}`)
+	same := open()
+	if same.pool != first.pool {
+		t.Fatal("the same ssr.js and map got a new pool")
+	}
+	if same.build.Head == first.build.Head {
+		t.Fatal("build.json was not read again")
+	}
+	if w := get(s, "/"); w.Code != 200 || w.Body.String() != "<p>one</p>" {
+		t.Fatalf("page on the kept pool: %d %s", w.Code, w.Body.String())
+	}
+	write("ssr.js.map", `{"version":3,"sources":["a.ts"],"mappings":""}`)
+	if mapped := open(); mapped.pool == same.pool {
+		t.Fatal("another source map kept the pool")
+	}
+	write("ssr.js", "globalThis.startRender = () => { globalThis.renderResult = '<p>two</p>' }")
+	if next := open(); next.pool == same.pool {
+		t.Fatal("another ssr.js kept the pool")
+	}
+	if w := get(s, "/"); w.Code != 200 || w.Body.String() != "<p>two</p>" {
+		t.Fatalf("page on the new pool: %d %s", w.Code, w.Body.String())
+	}
+}
+
 // --dist replaces the embedded front end, as tifa dev does to serve the files it rebuilds.
 func TestDistFlagReadsTheFrontEndFromDisk(t *testing.T) {
 	app := frontApp()

@@ -53,10 +53,25 @@ type Dev struct {
 	// loaded last, 0 for none.
 	bodies, last, loaded int
 
+	// What the last Build that worked used, for Styles: the public folder, the files the SSR bundle
+	// read with why they may not be all (see writeInputs), and the stylesheets the pages link.
+	public, incomplete   string
+	modules, stylesheets []string
+
+	// What the parses of the driver gave for each file, see parsed. A bundle of tifa dev reads every
+	// page and Layout, and the checks every file of the app, of which a save changes one.
+	exports  parsed[[]string]
+	langKeys parsed[[]LangKey]
+	foreign  parsed[*foreign.Facts]
+
 	mu   sync.Mutex
 	poll bool // PollFiles came before the dev server ran
 	// reads are the files in the root that the last SSR bundle read, see Reads.
 	reads map[string]bool
+	// plain is set when the last SSR bundle takes every stylesheet for its side effect alone, see
+	// PlainStyles, and styleFiles holds those stylesheets that lie in the root, relative to it.
+	plain      bool
+	styleFiles map[string]bool
 	// warnings are the warnings of the tifa plugin in the last SSR bundle, see Warnings.
 	warnings []string
 }
@@ -70,6 +85,68 @@ func (d *Dev) Reads() func(rel string) bool {
 	reads := d.reads
 	d.mu.Unlock()
 	return func(rel string) bool { return reads[rel] }
+}
+
+// PlainStyles returns whether an edit of the file rel, given relative to the root with forward
+// slashes, leaves the last SSR bundle that Build made as it is. That holds for a plain stylesheet
+// that is a module of the bundle, a .css file that is no CSS module, when the bundle takes every
+// stylesheet for its side effect alone: each is a file imported with no query, not a CSS module,
+// that exports nothing. The SSR build then keeps no text of any stylesheet, and the pages link the
+// same stylesheets, as those are the ones the modules import. A stylesheet that is no module of the
+// bundle, such as one that a plugin reads, is not plain. Before the first Build, and for an app
+// without pages, it is false for every file. The function may be called from any goroutine.
+func (d *Dev) PlainStyles() func(rel string) bool {
+	d.mu.Lock()
+	plain, files := d.plain, d.styleFiles
+	d.mu.Unlock()
+	return func(rel string) bool {
+		return plain && files[rel] && path.Ext(rel) == ".css" && !strings.HasSuffix(rel, ".module.css")
+	}
+}
+
+// Styles is what tifa dev runs in place of Build after an edit that PlainStyles names. It has Vite's
+// dev server transform the stylesheets the pages link, as the browser gets them, and returns the
+// error of the first that fails, as the SSR build would have. Then it writes inputs.json again for
+// the files as they are now.
+//
+// rebundle is true when the stylesheets now import other files than those the last Build recorded:
+// a file they import that the record lacks, or a stylesheet in the record that is no module of the
+// bundle and that they import no more. Only a Build records them right, and Styles writes nothing.
+// It needs a Build that worked before.
+func (d *Dev) Styles(ctx context.Context) (rebundle bool, err error) {
+	stop := context.AfterFunc(ctx, func() { d.Close() })
+	defer stop()
+	if d.modules == nil {
+		return false, errors.New("the stylesheets are checked after the SSR bundle is built")
+	}
+	var result struct {
+		Deps []string `json:"deps"`
+	}
+	if err := d.node.call("styles", map[string]any{"files": d.stylesheets}, &result); err != nil {
+		return false, err
+	}
+	recorded, err := moduleFiles(d.root, d.modules)
+	if err != nil {
+		return false, err
+	}
+	deps, err := moduleFiles(d.root, result.Deps)
+	if err != nil {
+		return false, err
+	}
+	d.mu.Lock()
+	own := d.styleFiles
+	d.mu.Unlock()
+	for _, f := range deps {
+		if !slices.Contains(recorded, f) {
+			return true, nil
+		}
+	}
+	for _, f := range recorded {
+		if path.Ext(f) == ".css" && !own[f] && !slices.Contains(deps, f) {
+			return true, nil
+		}
+	}
+	return false, writeInputs(d.root, d.dist, d.public, d.modules, d.incomplete)
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
@@ -94,16 +171,23 @@ func NewDev(root string, port int, output io.Writer, notices Notices) (*Dev, err
 	}, nil
 }
 
-// LangKeys reads lang keys like Node.LangKeys.
-func (d *Dev) LangKeys(files []string) (map[string][]LangKey, error) { return d.node.LangKeys(files) }
-
-// Foreign reads files like Node.Foreign.
-func (d *Dev) Foreign(files []string) (map[string]*foreign.Facts, error) {
-	return d.node.Foreign(files)
+// LangKeys reads lang keys like Node.LangKeys, and parses only the files that changed since.
+// The result is shared: do not change it.
+func (d *Dev) LangKeys(files []string) (map[string][]LangKey, error) {
+	return d.langKeys.read(files, d.node.LangKeys)
 }
 
-// Exports reads exports like Node.Exports.
-func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.node.Exports(files) }
+// Foreign reads files like Node.Foreign, and parses only the files that changed since. The result
+// is shared: do not change it.
+func (d *Dev) Foreign(files []string) (map[string]*foreign.Facts, error) {
+	return d.foreign.read(files, d.node.Foreign)
+}
+
+// Exports reads exports like Node.Exports, and parses only the files that changed since. The
+// result is shared: do not change it.
+func (d *Dev) Exports(files []string) (map[string][]string, error) {
+	return d.exports.read(files, d.node.Exports)
+}
 
 // PollFiles makes Vite's dev server poll the files instead of watching them with system events,
 // for when the system runs short of watches or file descriptors. A dev server that runs
@@ -154,9 +238,10 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	}
 	ssr := filepath.Join(d.dist, "ssr.js")
 	var b Build
-	var modules []string
+	var modules, stylesheets []string
 	incomplete := ""
 	var warnings []string
+	plain := false
 	if pages {
 		d.mu.Lock()
 		if d.head == "" {
@@ -173,16 +258,19 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 		d.mu.Unlock()
 		for {
 			var result struct {
-				Styles     string   `json:"styles"`
-				Modules    []string `json:"modules"`
-				Incomplete string   `json:"incomplete"`
-				Warnings   []string `json:"warnings"`
+				Styles      string   `json:"styles"`
+				Stylesheets []string `json:"stylesheets"`
+				PlainStyles bool     `json:"plainStyles"`
+				Modules     []string `json:"modules"`
+				Incomplete  string   `json:"incomplete"`
+				Warnings    []string `json:"warnings"`
 			}
 			// Unminified, so that errors in the server render point at readable code.
 			if err := d.node.call("ssr", map[string]any{"assets": d.styles + d.head, "minify": false}, &result); err != nil {
 				return "", err
 			}
 			modules, incomplete = result.Modules, result.Incomplete
+			stylesheets, plain = result.Stylesheets, result.PlainStyles
 			warnings = result.Warnings
 			if result.Styles == d.styles {
 				break
@@ -210,21 +298,35 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	b.ID = hex.EncodeToString(sum[:])[:16]
 	// The browser gets its modules from Vite's dev server and not from dist, so the inputs of what
 	// dist holds are the modules of the SSR bundle.
-	if err := writeInputs(d.root, d.dist, public, modules, incompleteInputs(d.node.output, incomplete)); err != nil {
+	why := incompleteInputs(d.node.output, incomplete)
+	if err := writeInputs(d.root, d.dist, public, modules, why); err != nil {
 		return "", err
 	}
 	read, err := moduleFiles(d.root, modules)
 	if err != nil {
 		return "", err
 	}
+	styleFiles, err := moduleFiles(d.root, stylesheets)
+	if err != nil {
+		return "", err
+	}
+	if err := writeBuild(d.dist, b); err != nil {
+		return "", err
+	}
+	d.public, d.modules, d.incomplete, d.stylesheets = public, append([]string{}, modules...), why, stylesheets
 	d.mu.Lock()
 	d.warnings = warnings
+	d.plain = pages && plain
+	d.styleFiles = map[string]bool{}
+	for _, f := range styleFiles {
+		d.styleFiles[f] = true
+	}
 	d.reads = map[string]bool{}
 	for _, f := range read {
 		d.reads[f] = true
 	}
 	d.mu.Unlock()
-	return b.ID, writeBuild(d.dist, b)
+	return b.ID, nil
 }
 
 // Content brings the content in .tifa/dist up to date with c, the entries of a scan of content/,
