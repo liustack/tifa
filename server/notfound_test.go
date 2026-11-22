@@ -19,10 +19,10 @@ func TestUnmatchedURLShowsItsNotFoundInsideTheDeepestLayout(t *testing.T) {
 	}
 	s := newAppServer(t, App{
 		Layouts: []Layout{
-			{ID: "app/layout", Path: "/", SSR: true},
-			{ID: "app/a/layout", Path: "/a", SSR: true},
-			{ID: "app/teams/team+/layout", Path: "/teams/{team}", SSR: true},
-			{ID: "app/files/path++/layout", Path: "/files/{path...}", SSR: true},
+			{ID: "app/layout", Path: "/"},
+			{ID: "app/a/layout", Path: "/a"},
+			{ID: "app/teams/team+/layout", Path: "/teams/{team}"},
+			{ID: "app/files/path++/layout", Path: "/files/{path...}"},
 		},
 		Routes: []Route{
 			page("app/route", "/", "app/layout"),

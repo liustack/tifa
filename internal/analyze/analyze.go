@@ -583,7 +583,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "Memo", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
+var routeNames = append([]string{"Layout", "Load", "SSR", "Memo", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -622,7 +622,6 @@ var switchSpellings = map[string]string{
 	"memo":        "write Memo = false to turn the render memo off for the page",
 	"rendercache": "RenderCache is now Memo: write Memo = false to turn the render memo off for the page",
 	"ssr":         "write SSR",
-	"layoutssr":   "write LayoutSSR",
 }
 
 // checkSwitchNames reports the constants of route.go that look like a switch spelled wrong, since
@@ -650,14 +649,13 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 }
 
 // switches are the constants of route.go that tifa reads, the ones a typo can be of.
-var switches = []string{"SSR", "Cache", "Memo", "LayoutSSR", "BodyLimit", "ReadTimeout"}
+var switches = []string{"SSR", "Cache", "Memo", "BodyLimit", "ReadTimeout"}
 
-// switchFits reports whether the constant c has a type the switch takes: a bool for SSR, Memo and
-// LayoutSSR, a bool or a time.Duration for Cache, an integer for BodyLimit and a time.Duration
+// switchFits reports whether the constant c has a type the switch takes: a bool for SSR and Memo, a bool or a time.Duration for Cache, an integer for BodyLimit and a time.Duration
 // for ReadTimeout. A constant of another type is the app's own, whatever its name.
 func switchFits(sw string, c *types.Const) bool {
 	switch sw {
-	case "SSR", "Memo", "LayoutSSR":
+	case "SSR", "Memo":
 		return c.Val().Kind() == constant.Bool
 	case "Cache":
 		return c.Val().Kind() == constant.Bool || isNamed(c.Type(), "time", "Duration")
@@ -756,6 +754,9 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if pkg == nil {
 		return nil
 	}
+	if obj := pkg.Types.Scope().Lookup("LayoutSSR"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
+		a.errorAt(obj.Pos(), "LayoutSSR is gone: write const SSR = false in the route.go of each page this Layout wraps")
+	}
 	if obj := pkg.Types.Scope().Lookup("RenderCache"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
 		a.errorAt(obj.Pos(), "RenderCache is now Memo: write const Memo = false to turn the render memo off for this page")
 	}
@@ -766,7 +767,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	}
 	for _, name := range []string{"SSR", "Memo", "Cache"} {
 		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
-			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
+			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout has no switches of its own)", name)
 		}
 	}
 	r.BodyLimit, r.ReadTimeout = a.routeLimits(pkg, declared)
@@ -797,19 +798,18 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 }
 
 // layout reads the Layout of d, nil when d has none. A directory has a Layout when it has
-// layout.tsx or when route.go declares Layout or LayoutSSR. pkg is the package of route.go, nil
+// layout.tsx or when route.go declares Layout. pkg is the package of route.go, nil
 // when it has none or does not type check.
 func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
-	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX || d.replaceTSX, Replace: d.replaces(), SSR: true}, file: "layout.tsx"}
+	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX || d.replaceTSX, Replace: d.replaces()}, file: "layout.tsx"}
 	if d.replaceTSX && !d.layoutTSX {
 		l.file = "layout_.tsx"
 	}
 	if pkg != nil {
 		scope := pkg.Types.Scope()
-		if scope.Lookup("Layout") != nil || scope.Lookup("LayoutSSR") != nil {
+		if scope.Lookup("Layout") != nil {
 			l.file, l.Package = "route.go", pkg.PkgPath
 			l.Load, l.uses = a.readLoad(pkg, d.id, "Layout")
-			l.SSR = a.boolConst(pkg, "LayoutSSR", true)
 			return l
 		}
 	}
@@ -1101,7 +1101,7 @@ func wraps(layouts []*layout, l *layout, dir string) bool {
 
 // linkLayouts fills Layout chains and scopes and checks that every path parameter a Layout
 // function reads lies in the Layout's own path. A chain starts at the deepest layout_.tsx above
-// a route, so the Layouts above it neither wrap the route nor pass it LayoutSSR.
+// a route, so the Layouts above it do not wrap the route.
 func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	for _, l := range layouts {
 		for _, p := range layouts { // sorted by directory, so the last match is the closest
@@ -1147,9 +1147,6 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 		for _, l := range layouts {
 			if wraps(layouts, l, r.Dir) {
 				r.Layouts = append(r.Layouts, l.ID)
-				if !l.SSR {
-					r.SSR = false
-				}
 			}
 		}
 	}

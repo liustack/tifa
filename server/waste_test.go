@@ -76,7 +76,7 @@ func newWorkEnv(t *testing.T, cacheSize int64) *workEnv {
 			e.onError.Add(1)
 			return tifa.Error{Status: 500, Message: "Internal Server Error"}
 		}},
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: load("layout")}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/", Load: load("layout")}},
 		Routes: []Route{
 			page("/plain", nil),
 			page("/live", func(r *Route) { r.NoMemo = true }),

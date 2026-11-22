@@ -181,7 +181,7 @@ func TestRootLayoutDocumentFails(t *testing.T) {
 	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
 	m := &analyze.Manifest{
 		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
 		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 	}
 	_, err := Generate(root, m, false, fakeExports)
@@ -216,8 +216,8 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: scope},
-			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, SSR: true, Routes: scope},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, Routes: scope},
+			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, Routes: scope},
 		},
 		Routes: []analyze.Route{
 			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Uses: []string{project + "/layout"}, Result: str}},
@@ -262,8 +262,8 @@ func TestLayoutAndPageInOneDirectory(t *testing.T) {
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: scope},
-			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, SSR: true, Routes: scope},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: scope},
+			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, Routes: scope},
 		},
 		Routes: []analyze.Route{
 			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: layouts},
@@ -300,9 +300,9 @@ func TestReplaceLayoutHangsFromTheFrameworksRoot(t *testing.T) {
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/route"}},
-			{ID: store + "/layout", Dir: store, Path: "/store/{lang}", TSX: true, Replace: true, SSR: true, Routes: []string{store + "/route", store + "/cart/route"}},
-			{ID: store + "/cart/layout", Dir: store + "/cart", Parent: store + "/layout", Path: "/store/{lang}/cart", TSX: true, SSR: true, Routes: []string{store + "/cart/route"}},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/route"}},
+			{ID: store + "/layout", Dir: store, Path: "/store/{lang}", TSX: true, Replace: true, Routes: []string{store + "/route", store + "/cart/route"}},
+			{ID: store + "/cart/layout", Dir: store + "/cart", Parent: store + "/layout", Path: "/store/{lang}/cart", TSX: true, Routes: []string{store + "/cart/route"}},
 		},
 		Routes: []analyze.Route{
 			{ID: "app/route", Dir: "app", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}},
@@ -405,7 +405,7 @@ func TestNotFoundExportFails(t *testing.T) {
 	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\nexport function NotFound() { return null }\n")
 	m := &analyze.Manifest{
 		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
 		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 	}
 	_, err := Generate(root, m, false, fakeExports)
@@ -423,7 +423,7 @@ func TestErrorExportFails(t *testing.T) {
 		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n"+export+"\n")
 		m := &analyze.Manifest{
 			Module:  "example.com/x",
-			Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
+			Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
 			Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 		}
 		_, err := Generate(root, m, false, fakeExports)
@@ -618,7 +618,7 @@ func TestRouteGenHoldsLayoutAndHandlersOfOneDirectory(t *testing.T) {
 	scope := []string{"app/route", "app/api/route"}
 	m := &analyze.Manifest{
 		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: scope}},
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, Routes: scope}},
 		Routes: []analyze.Route{
 			{ID: "app/route", Dir: "app", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}, Handlers: []analyze.Handler{{Method: "POST"}}},
 		},
@@ -649,7 +649,7 @@ func TestRouteGenHoldsLayoutAndHandlersOfOneDirectory(t *testing.T) {
 
 	// An API route next to a Layout without a page there: layout and handlers, no page.
 	writeFile(t, filepath.Join(root, "app/desk/layout.tsx"), "export default function C() { return null }\n")
-	m.Layouts = append(m.Layouts, analyze.Layout{ID: "app/desk/layout", Dir: "app/desk", Parent: "app/layout", Path: "/desk", TSX: true, SSR: true, Routes: []string{"app/desk/route", "app/desk/inbox/route"}})
+	m.Layouts = append(m.Layouts, analyze.Layout{ID: "app/desk/layout", Dir: "app/desk", Parent: "app/layout", Path: "/desk", TSX: true, Routes: []string{"app/desk/route", "app/desk/inbox/route"}})
 	writeFile(t, filepath.Join(root, "app/desk/inbox/page.tsx"), "export default function C() { return null }\n")
 	m.Routes = append(m.Routes,
 		analyze.Route{ID: "app/desk/route", Dir: "app/desk", Path: "/desk", SSR: true, Layouts: []string{"app/layout", "app/desk/layout"}, Handlers: []analyze.Handler{{Method: "GET"}}},
@@ -790,7 +790,7 @@ func TestHTMLMarksTheLoadAndImportsItsType(t *testing.T) {
 	post := types.NewStruct([]*types.Var{types.NewField(token.NoPos, nil, "Body", html, false)}, []string{`json:"body"`})
 	m := &analyze.Manifest{
 		Module: "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Package: "example.com/x/app", Path: "/", TSX: true, SSR: true,
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Package: "example.com/x/app", Path: "/", TSX: true,
 			Load: &analyze.Load{Result: post, HTML: true}, Routes: []string{"app/news/route", "app/post/route"}}},
 		Routes: []analyze.Route{
 			{ID: "app/news/route", Dir: "app/news", Package: "example.com/x/app/news", Path: "/news", Page: true, SSR: true,
@@ -943,9 +943,9 @@ func TestQueryTableReachesVite(t *testing.T) {
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Load: &analyze.Load{AllQuery: []string{"page"}, Result: str}},
-			{ID: "app/news/layout", Dir: "app/news", Parent: "app/layout", Path: "/news", TSX: true, SSR: true, Load: &analyze.Load{AllQuery: []string{"tab", "page"}, Result: str}},
-			{ID: "app/bare/layout", Dir: "app/bare", Parent: "app/layout", Path: "/bare", TSX: true, SSR: true},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{AllQuery: []string{"page"}, Result: str}},
+			{ID: "app/news/layout", Dir: "app/news", Parent: "app/layout", Path: "/news", TSX: true, Load: &analyze.Load{AllQuery: []string{"tab", "page"}, Result: str}},
+			{ID: "app/bare/layout", Dir: "app/bare", Parent: "app/layout", Path: "/bare", TSX: true},
 		},
 		Routes: []analyze.Route{
 			{ID: "app/news/route", Dir: "app/news", Path: "/news", Page: true, SSR: true, Layouts: []string{"app/layout", "app/news/layout"}, Load: &analyze.Load{AllQuery: []string{"q"}, Result: str}},

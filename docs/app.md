@@ -70,7 +70,7 @@ A folder has at most three convention files:
 
 | File | What it holds |
 | --- | --- |
-| `route.go` | Every Go name of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Memo`, `Cache`, `BodyLimit`, `ReadTimeout` and the method handlers |
+| `route.go` | Every Go name of the folder: `Layout`, `Load`, `SSR`, `Memo`, `Cache`, `BodyLimit`, `ReadTimeout` and the method handlers |
 | `page.tsx` | The page component. A folder with `page.tsx` is a page |
 | `layout.tsx` | The Layout component |
 | `layout_.tsx` | The Layout component in place of `layout.tsx`, shown without the Layouts above it (see [A Layout without the Layouts above](pages.md#a-layout-without-the-layouts-above)) |

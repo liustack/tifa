@@ -57,7 +57,7 @@ func TestRenderURLKeepsTheParametersTheLoadsRead(t *testing.T) {
 func queryApp() App {
 	return App{
 		Layouts: []Layout{
-			{ID: "app/layout", Path: "/", SSR: true, Query: []string{"page"},
+			{ID: "app/layout", Path: "/", Query: []string{"page"},
 				Load: func(c *tifa.Ctx) (any, error) { return c.Query("page"), nil }},
 		},
 		Routes: []Route{

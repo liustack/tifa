@@ -120,7 +120,7 @@ func TestLoadSendsNumbersABrowserReadsAsTheyAre(t *testing.T) {
 
 func TestLayoutRefusesARoundedNumber(t *testing.T) {
 	app, seen := roundedApp(nil)
-	app.Layouts = append(app.Layouts, Layout{ID: "app/big/layout", Path: "/big", SSR: true,
+	app.Layouts = append(app.Layouts, Layout{ID: "app/big/layout", Path: "/big",
 		Load: func(c *tifa.Ctx) (any, error) { return bigRow{ID: 1<<53 + 1}, nil }})
 	app.Routes = append(app.Routes, Route{ID: "app/big/page", Path: "/big", Page: true, SSR: true, Layouts: []string{"app/big/layout"}})
 	s, _ := newFrontServer(t, app)

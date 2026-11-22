@@ -50,7 +50,7 @@ type I18n struct {
 	Languages []string
 }
 
-// Layout is one directory whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.
+// Layout is one directory whose route.go declares Layout, or that holds layout.tsx, or both.
 type Layout struct {
 	// ID is the directory relative to the application root followed by "/layout", such as
 	// "app/projects/project+/layout".
@@ -61,8 +61,6 @@ type Layout struct {
 	Path string
 	// Load returns the result of the Layout function through tifa.Use, nil when the Layout has none.
 	Load func(c *tifa.Ctx) (any, error)
-	// SSR is the Layout's own LayoutSSR constant.
-	SSR bool
 	// HTML is true when the result of the Layout function may hold a tifa.HTML value: a page the
 	// server renders carries its data with a marker in place of each one (see pageText).
 	HTML bool
@@ -147,7 +145,6 @@ func (s *server) register(layouts []Layout, routes []Route) {
 		}
 		var chain []load
 		var query []string
-		ssrOn := true
 		for i, id := range r.Layouts {
 			l, ok := byID[id]
 			if !ok {
@@ -157,9 +154,8 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				chain = append(chain, load{id: l.ID, run: l.Load, html: l.HTML})
 			}
 			query = append(query, l.Query...)
-			ssrOn = ssrOn && l.SSR
 			if _, ok := s.layouts[id]; !ok {
-				s.layouts[id] = layoutChain{chain: slices.Clone(chain), ssr: ssrOn}
+				s.layouts[id] = layoutChain{chain: slices.Clone(chain)}
 				s.modules[id] = slices.Clone(r.Layouts[:i+1])
 				s.query[id] = sortedSet(query)
 			}

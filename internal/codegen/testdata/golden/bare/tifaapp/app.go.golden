@@ -21,7 +21,6 @@ var App = server.App{
 			ID:   "app/docs/layout",
 			Path: "/docs",
 			Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_docs.Layout) },
-			SSR:  true,
 		},
 	},
 	Routes: []server.Route{
@@ -42,5 +41,5 @@ var App = server.App{
 			Query:   []string{"rev"},
 		},
 	},
-	Fingerprint: "6346f5c5b58b4d0c4bd32691c9a40270",
+	Fingerprint: "dffb00bfa46d0a904ade00986443d03b",
 }

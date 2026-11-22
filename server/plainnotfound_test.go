@@ -66,7 +66,7 @@ func TestUnmatchedURLThatNamesAFileGetsAPlainNotFound(t *testing.T) {
 				app.I18n = &I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US"}}
 				langs = []string{"zh-CN", "en-US"}
 			}
-			app.Layouts = []Layout{{ID: "app/layout", Path: "/", SSR: true, Languages: langs,
+			app.Layouts = []Layout{{ID: "app/layout", Path: "/", Languages: langs,
 				Load: func(c *tifa.Ctx) (any, error) { loads.Add(1); return 1, nil }}}
 			app.Routes = []Route{
 				{ID: "app/home", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}, Languages: langs},

@@ -105,7 +105,6 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(l.Load.AllQuery))
 			}
 		}
-		fmt.Fprintf(&app, "SSR: %t,\n", l.SSR)
 		if len(l.Languages) > 0 {
 			fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(l.Languages))
 		}

@@ -32,19 +32,16 @@ var App = server.App{
 			Path:  "/",
 			Load:  func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app.Layout) },
 			Query: []string{"lang"},
-			SSR:   true,
 		},
 		{
 			ID:   "app/auth/layout",
 			Path: "/auth",
-			SSR:  true,
 		},
 		{
 			ID:    "app/projects/projectId+/layout",
 			Path:  "/projects/{projectId}",
 			Load:  func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Layout) },
 			Query: []string{"currency", "lang"},
-			SSR:   true,
 		},
 	},
 	Routes: []server.Route{
@@ -116,5 +113,5 @@ var App = server.App{
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "282b76eb7e45a5e08959ffbfe7487d28",
+	Fingerprint: "430cc75fbeb0f07eedc20b1a695c2203",
 }

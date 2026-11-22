@@ -23,7 +23,7 @@ func secretApp(onRequest func(c *tifa.Ctx, next func(*tifa.Ctx) error) error, on
 				return tifa.Error{Status: 500, Message: "reported"}
 			},
 		},
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: func(c *tifa.Ctx) (any, error) {
+		Layouts: []Layout{{ID: "app/layout", Path: "/", Load: func(c *tifa.Ctx) (any, error) {
 			if c.Query("deny") != "" {
 				return nil, errDenied
 			}
@@ -162,7 +162,7 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 	}
 
 	app := App{
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/"}},
 		Routes: []Route{{ID: "app/projects/orders", Path: "/projects/{project}/orders", Page: true, SSR: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) { return nil, tifa.Redirect("../other/orders", 303) }}},
 	}

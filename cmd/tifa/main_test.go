@@ -33,12 +33,12 @@ func TestRoutesPrintsTable(t *testing.T) {
 	}
 	for _, line := range [][]string{
 		{"ROUTE", "PATH", "LAYOUTS", "METHODS", "SSR", "RENDERCACHE", "CACHE"},
-		{"app/projects/projectId+/orders/orderId+", "/projects/{projectId}/orders/{orderId}", "app > app/projects/projectId+", "page POST DELETE", "false", "true", "-"},
+		{"app/projects/projectId+/orders/orderId+", "/projects/{projectId}/orders/{orderId}", "app > app/projects/projectId+", "page POST DELETE", "true", "true", "-"},
 		{"app/projects/projectId+", "/projects/{projectId}", "app > app/projects/projectId+", "page", "false", "false", "-"},
 		{"app/api/health", "/api/health", "app", "GET", "true", "true", "-"},
 		{"app/auth/register", "/auth/register", "app > app/auth", "page", "true", "true", "10m0s"},
-		{"LAYOUT", "PATH", "PARENT", "SSR"},
-		{"app/projects/projectId+", "/projects/{projectId}", "app", "false"},
+		{"LAYOUT", "PATH", "PARENT"},
+		{"app/projects/projectId+", "/projects/{projectId}", "app"},
 	} {
 		if !hasLine(out, line) {
 			t.Errorf("no line with fields %q in:\n%s", line, out)

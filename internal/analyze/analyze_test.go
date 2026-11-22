@@ -43,21 +43,21 @@ func TestValidApp(t *testing.T) {
 	const project = "app/projects/projectId+"
 	wantLayouts := []struct {
 		id, dir, parent, path, pkg string
-		ssr, tsx, load             bool
+		tsx, load                  bool
 		routes                     []string
 	}{
-		{"app/layout", "app", "", "/", "example.com/valid/app", true, true, true,
+		{"app/layout", "app", "", "/", "example.com/valid/app", true, true,
 			[]string{"app/route", "app/api/health/route", "app/auth/login/route", "app/auth/register/route", "app/files/path++/route",
 				project + "/route", project + "/export/route", project + "/orders/orderId+/route"}},
-		{"app/auth/layout", "app/auth", "app/layout", "/auth", "example.com/valid/app/auth", true, true, true,
+		{"app/auth/layout", "app/auth", "app/layout", "/auth", "example.com/valid/app/auth", true, true,
 			[]string{"app/auth/login/route", "app/auth/register/route"}},
-		{"app/files/layout", "app/files", "app/layout", "/files", "", true, true, false, []string{"app/files/path++/route"}},
-		{project + "/layout", project, "app/layout", "/projects/{projectId}", "example.com/valid/" + project, false, true, true,
+		{"app/files/layout", "app/files", "app/layout", "/files", "", true, false, []string{"app/files/path++/route"}},
+		{project + "/layout", project, "app/layout", "/projects/{projectId}", "example.com/valid/" + project, true, true,
 			[]string{project + "/route", project + "/export/route", project + "/orders/orderId+/route"}},
 	}
 	for _, w := range wantLayouts {
 		l := layouts[w.id]
-		if l.Dir != w.dir || l.Parent != w.parent || l.Path != w.path || l.Package != w.pkg || l.SSR != w.ssr || l.TSX != w.tsx || (l.Load != nil) != w.load {
+		if l.Dir != w.dir || l.Parent != w.parent || l.Path != w.path || l.Package != w.pkg || l.TSX != w.tsx || (l.Load != nil) != w.load {
 			t.Errorf("layout %s = %+v, want %+v", w.id, l, w)
 		}
 		if !reflect.DeepEqual(l.Routes, w.routes) {
@@ -90,11 +90,11 @@ func TestValidApp(t *testing.T) {
 		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, true, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
 		{"app/auth/register/route", "app/auth/register", "/auth/register", true, true, true, nil, []string{"app/layout", "app/auth/layout"}},
 		{project + "/route", project, "/projects/{projectId}", true, false, false, nil, []string{"app/layout", project + "/layout"}},
-		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, false, true,
+		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, true, true,
 			[]string{"POST", "DELETE"}, []string{"app/layout", project + "/layout"}},
 		{"app/files/path++/route", "app/files/path++", "/files/{path...}", true, true, true, nil, []string{"app/layout", "app/files/layout"}},
 		{"app/api/health/route", "app/api/health", "/api/health", false, true, true, []string{"GET"}, []string{"app/layout"}},
-		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, false, true, []string{"GET"}, []string{"app/layout", project + "/layout"}},
+		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, true, true, []string{"GET"}, []string{"app/layout", project + "/layout"}},
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
@@ -591,6 +591,9 @@ func TestViolations(t *testing.T) {
 		{"renamedmemo", [][]string{
 			{"app/page/route.go:3:", "RenderCache is now Memo", "const Memo = false"},
 		}},
+		{"layoutssr", [][]string{
+			{"app/page/route.go:3:", "LayoutSSR is gone", "const SSR = false", "route.go of each page this Layout wraps"},
+		}},
 		{"memovalue", [][]string{
 			{"app/page/route.go:3:", "Memo", "can only be false"},
 			{"app/other/route.go:3:", "Memo", "can only be false"},
@@ -604,9 +607,8 @@ func TestViolations(t *testing.T) {
 		{"switchtypos", [][]string{
 			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
 			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
-			{"app/page/route.go:9:", "LayoutSR is not a switch: did you mean LayoutSSR?"},
-			{"app/page/route.go:11:", "ReadTimout is not a switch: did you mean ReadTimeout?"},
-			{"app/page/route.go:13:", "BodyLmt is not a switch: did you mean BodyLimit?"},
+			{"app/page/route.go:9:", "ReadTimout is not a switch: did you mean ReadTimeout?"},
+			{"app/page/route.go:11:", "BodyLmt is not a switch: did you mean BodyLimit?"},
 			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
 		}},
 		{"oldroute", [][]string{
@@ -995,7 +997,7 @@ func TestModuleLeftOutOfGoWork(t *testing.T) {
 // well, the directory is an API route and has a Layout.
 // A layout_.tsx shows its folder and the folders below it without the Layouts above: their
 // chains start at its Layout, which has no parent, and the Layouts above neither wrap those
-// routes nor pass them LayoutSSR. Layouts below it nest inside it as usual, and a deeper
+// routes. Layouts below it nest inside it as usual, and a deeper
 // layout_.tsx cuts again.
 func TestReplaceLayouts(t *testing.T) {
 	m, err := analyzeApp(t, "replace")

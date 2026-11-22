@@ -4,7 +4,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -71,9 +70,9 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 			dash(strings.Join(methods, " ")), r.SSR, r.Memo, cacheText(r))
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT\tSSR")
+	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT")
 	for _, l := range m.Layouts {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", l.Dir, l.Path, dash(dirs[l.Parent]), strconv.FormatBool(l.SSR))
+		fmt.Fprintf(w, "%s\t%s\t%s\n", l.Dir, l.Path, dash(dirs[l.Parent]))
 	}
 	return w.Flush()
 }

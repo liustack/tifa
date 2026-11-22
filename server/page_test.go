@@ -172,7 +172,7 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 func TestPageGivesTheRenderTheJSONTextOfEachLoadApart(t *testing.T) {
 	tricky := map[string]any{"quote": `a "b"`, "slash": `C:\temp`, "line": "x\u2028y\u2029", "tag": "</script><!--", "emoji": "😀", "amp": "a&b<c>"}
 	app := App{
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tricky, nil }}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/", Load: func(c *tifa.Ctx) (any, error) { return tricky, nil }}},
 		Routes: []Route{
 			{ID: "app/page", Path: "/p", Page: true, SSR: true, Layouts: []string{"app/layout"},
 				Load: func(c *tifa.Ctx) (any, error) { return []string{"</script>", `"`, c.Header("X-Name")}, nil }},
@@ -448,16 +448,6 @@ func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 	// A page without SSR writes them into its document after the head of the build.
 	if body := get(s, "/login").Body.String(); !strings.Contains(body, head+link("/assets/chunk-r.js", "/assets/chunk-l&amp;.js")+"</head>") {
 		t.Errorf("the page without SSR lacks its preload:\n%s", body)
-	}
-}
-
-func TestUnmatchedURLWithoutRootSSRCarriesTheLayoutData(t *testing.T) {
-	app := frontApp()
-	app.Layouts[0].SSR = false
-	s, r := newFrontServer(t, app)
-	w := get(s, "/nowhere")
-	if w.Code != 404 || r.count() != 0 || !strings.Contains(w.Body.String(), `"data":{"app/layout":{"status":200,"json":"{\"name\":\"shop\"}"}}`) {
-		t.Errorf("%d, %d renders: %s", w.Code, r.count(), w.Body.String())
 	}
 }
 

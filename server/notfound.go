@@ -16,10 +16,9 @@ import (
 // router would ask for data of Layouts Go did not load.
 
 // layoutChain is what a URL that shows its 404 inside a Layout loads: the Loads of the Layouts
-// from the root down to it, and whether all of them render on the server.
+// from the root down to it.
 type layoutChain struct {
 	chain []load
-	ssr   bool
 }
 
 // candidate is a route the browser router matches a URL with in part: a Layout, or a page in
@@ -154,7 +153,6 @@ func (s *server) notFoundAt(r *http.Request) string {
 type notFoundPage struct {
 	items  map[string]routeResult
 	loads  time.Time // when the Loads started, see runChain
-	ssr    bool
 	layout string
 	data   bool
 }
@@ -191,11 +189,11 @@ func (s *server) unmatched(c *tifa.Ctx) error {
 		}
 		return &notFoundPage{items: items, data: true}
 	}
-	items, loads, err := runChain(c, at.chain, at.ssr, layout)
+	items, loads, err := runChain(c, at.chain, true, layout)
 	if err != nil {
 		return err
 	}
-	return &notFoundPage{items: items, loads: loads, ssr: at.ssr, layout: layout}
+	return &notFoundPage{items: items, loads: loads, layout: layout}
 }
 
 // errPlainNotFound is what unmatched returns for a URL that asks for a file. Server.fail answers
