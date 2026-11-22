@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -168,7 +169,16 @@ func TestWatcherSyncIgnoresALateEventOfAnEarlierWrite(t *testing.T) {
 				t.Fatal("the late event of the first write ended the second sync")
 			case <-time.After(100 * time.Millisecond):
 			}
-			events <- fsnotify.Event{Name: syncName(), Op: fsnotify.Write}
+			// One event for each write of the sync, see syncRounds. With syncByName each write makes a
+			// new file: sync, sync-2 and so on.
+			for round := 1; round <= syncRounds(); round++ {
+				name := syncName()
+				if round > 1 {
+					time.Sleep(20 * time.Millisecond) // the watcher wrote again
+					name += "-" + strconv.Itoa(round)
+				}
+				events <- fsnotify.Event{Name: name, Op: fsnotify.Write}
+			}
 			select {
 			case <-second:
 			case <-time.After(5 * time.Second):
