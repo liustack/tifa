@@ -1125,7 +1125,8 @@ func TestRunChecksOnlyTheStylesForAStylesheetEdit(t *testing.T) {
 		t.Fatalf("log:\n%s", out)
 	}
 
-	// A styles step that fails shows the error, and the next edit that works clears it.
+	// A styles step that fails shows the error. While it shows, the next edit takes the bundle,
+	// which clears it.
 	d.p.setFail("Styles")
 	writeFile(t, d.dir, "app/site.css", "body { color: }")
 	failed := d.waitStatus(t, func(st status) bool { return st.Error != "" })
@@ -1135,8 +1136,45 @@ func TestRunChecksOnlyTheStylesForAStylesheetEdit(t *testing.T) {
 	d.p.setFail("")
 	writeFile(t, d.dir, "app/site.css", "body { color: green }")
 	d.waitStatus(t, func(st status) bool { return st.Error == "" && st.Version == first.Version })
-	expectSteps(t, d.p, "Styles", "Styles")
+	expectSteps(t, d.p, "Styles", "Bundle")
 	expectPage(t, d.url+"/pid", pid)
+}
+
+// A stylesheet edit never hides an error a bundle would show again: while the app cannot load
+// the SSR bundle, such an edit bundles and reloads, and the error stays.
+func TestRunBundlesAStylesheetEditWhileAnErrorShows(t *testing.T) {
+	d := startDev(t, "", func(p *buildPipeline) {
+		p.plain = func(rel string) bool { return rel == "app/site.css" }
+	})
+	first := d.waitStatus(t, func(st status) bool { return st.Version != "" && st.Error == "" })
+	v1 := first.Version
+	writeFile(t, d.dir, "app/site.css", "body { color: red }")
+	d.waitStatus(t, func(st status) bool { return st.Render == first.Render+1 })
+	d.p.took()
+	d.p.mu.Lock()
+	d.p.broken = true
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	failed := d.waitStatus(t, func(st status) bool { return st.Error != "" })
+	if failed.Title != "The app did not load the SSR bundle" {
+		t.Fatalf("got %+v", failed)
+	}
+	expectSteps(t, d.p, "Bundle")
+	before := strings.Count(d.out.String(), "the app did not load the ssr bundle")
+	writeFile(t, d.dir, "app/site.css", "body { color: blue }")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		out := d.out.String()
+		if strings.Count(out, "the app did not load the ssr bundle") > before || strings.Count(out, "ready in") > 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the stylesheet edit did not rebuild:\n%s", out)
+		}
+	}
+	expectSteps(t, d.p, "Bundle")
+	if again := d.waitStatus(t, func(status) bool { return true }); again.Version != v1 || again.Title != "The app did not load the SSR bundle" {
+		t.Fatalf("got %+v", again)
+	}
 }
 
 // The server may take a connection from the listener after Run closed the unused ones, and

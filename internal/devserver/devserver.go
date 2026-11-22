@@ -269,7 +269,12 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
 		d.b.noteContent(batch)
-		styles, other := splitStyles(batch, d.plainStyle, d.isEmbedded)
+		styles, other := splitStyles(batch, d.plainStyle, d.isEmbedded, d.publicDir())
+		if d.hub.current().Error != "" {
+			// A failed build or reload shows its error until a rebuild clears it. The styles step
+			// alone would clear it without the bundle that may show it again.
+			styles, other = nil, batch
+		}
 		s := planApp(other, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()).or(planReads(other, d.readsFile))
 		s.styles = len(styles) > 0
 		d.rebuild(ctx, s, began)

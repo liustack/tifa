@@ -274,11 +274,13 @@ func planApp(changes []change, embedded func(rel string) bool, public string, pa
 
 // splitStyles takes out of changes the edits of stylesheets that leave the SSR bundle as it is, see
 // Pipeline.PlainStyles. They reach open pages through Vite, and need the styles step alone. A
-// stylesheet that appeared or went, one that plain does not name and one the Go code embeds stay
-// with the other changes. plain and embedded may be nil.
-func splitStyles(changes []change, plain, embedded func(rel string) bool) (styles, other []change) {
+// stylesheet that appeared or went, one that plain does not name, one the Go code embeds, one in
+// the public folder, which the bundle step copies into dist, and one under content/, which the
+// content step may read, stay with the other changes. plain and embedded may be nil.
+func splitStyles(changes []change, plain, embedded func(rel string) bool, public string) (styles, other []change) {
 	for _, c := range changes {
-		if plain != nil && c.op == modified && plain(c.path) && (embedded == nil || !embedded(c.path)) {
+		if plain != nil && c.op == modified && plain(c.path) && (embedded == nil || !embedded(c.path)) &&
+			!inPublic(public, c.path) && kindOf(c.path) != contentFile {
 			styles = append(styles, c)
 		} else {
 			other = append(other, c)

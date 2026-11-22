@@ -434,7 +434,9 @@ func (p *fakePipeline) PlainStyles() func(string) bool { return func(string) boo
 // and no bundle. One that appears or goes, one the bundle reads otherwise and one the Go code embeds
 // plan as before.
 func TestSplitStyles(t *testing.T) {
-	plain := func(rel string) bool { return rel == "app/site.css" || rel == "app/theme.css" }
+	plain := func(rel string) bool {
+		return rel == "app/site.css" || rel == "app/theme.css" || rel == "static/site.css" || rel == "content/posts/a/example.css"
+	}
 	embedded := func(rel string) bool { return rel == "app/theme.css" }
 	cases := []struct {
 		name          string
@@ -447,6 +449,8 @@ func TestSplitStyles(t *testing.T) {
 		{"not plain", []change{{"app/card.module.css", modified}}, nil, []string{"app/card.module.css"}},
 		{"embedded", []change{{"app/theme.css", modified}}, nil, []string{"app/theme.css"}},
 		{"with a tsx", []change{{"app/site.css", modified}, {"app/page.tsx", modified}}, []string{"app/site.css"}, []string{"app/page.tsx"}},
+		{"public", []change{{"static/site.css", modified}}, nil, []string{"static/site.css"}},
+		{"content", []change{{"content/posts/a/example.css", modified}}, nil, []string{"content/posts/a/example.css"}},
 	}
 	paths := func(cs []change) []string {
 		var out []string
@@ -457,13 +461,13 @@ func TestSplitStyles(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			styles, other := splitStyles(tc.changes, plain, embedded)
+			styles, other := splitStyles(tc.changes, plain, embedded, "static")
 			if !slices.Equal(paths(styles), tc.styles) || !slices.Equal(paths(other), tc.other) {
 				t.Fatalf("got %v and %v, want %v and %v", paths(styles), paths(other), tc.styles, tc.other)
 			}
 		})
 	}
-	if styles, _ := splitStyles([]change{{"app/site.css", modified}}, nil, nil); styles != nil {
+	if styles, _ := splitStyles([]change{{"app/site.css", modified}}, nil, nil, ""); styles != nil {
 		t.Errorf("without a rule took %v", styles)
 	}
 }
