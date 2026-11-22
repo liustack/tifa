@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func TestPurgeRequestShape(t *testing.T) {
 	api.install(t)
 	t.Setenv(envPurgeToken, "tok-123")
 	t.Setenv(envZoneID, "zone-9")
-	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
+	r := clearCache(context.Background(), purgeTarget(t.TempDir(), "shop.example.com"), io.Discard)
 	if !r.Cleared || r.Warning != "" {
 		t.Fatalf("result %+v", r)
 	}
@@ -61,16 +62,16 @@ func TestPurgeFailureIsAWarning(t *testing.T) {
 	api.install(t)
 	t.Setenv(envPurgeToken, "tok-secret")
 	t.Setenv(envZoneID, "zone-9")
-	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
+	r := clearCache(context.Background(), purgeTarget(t.TempDir(), "shop.example.com"), io.Discard)
 	if r.Cleared || !strings.Contains(r.Warning, "403") || !strings.Contains(r.Warning, "Authentication error") || strings.Contains(r.Warning, "tok-secret") {
 		t.Errorf("result %+v", r)
 	}
 	api.path = ""
-	if r := clearCache(context.Background(), t.TempDir(), ""); r.Cleared || api.path != "" || r.String() != "not used, deploy.front is not cloudflare" {
+	if r := clearCache(context.Background(), purgeTarget(t.TempDir(), ""), io.Discard); r.Cleared || api.path != "" || r.String() != "not used, deploy.front is not cloudflare" {
 		t.Errorf("no domain: %+v, %q", r, api.path)
 	}
 	t.Setenv(envZoneID, "")
-	if r := clearCache(context.Background(), t.TempDir(), "shop.example.com"); r.Cleared || !strings.Contains(r.Warning, envZoneID) {
+	if r := clearCache(context.Background(), purgeTarget(t.TempDir(), "shop.example.com"), io.Discard); r.Cleared || !strings.Contains(r.Warning, envZoneID) {
 		t.Errorf("no zone: %+v", r)
 	}
 }
@@ -79,10 +80,11 @@ func TestPurgeFailureIsAWarning(t *testing.T) {
 // the line says what it costs and is no warning.
 func TestNoPurgeTokenIsNoWarning(t *testing.T) {
 	t.Setenv(envPurgeToken, "")
+	useRecordingSSH(t) // a server without the file of tokens: it prints nothing
 	oldHave := haveCF
 	t.Cleanup(func() { haveCF = oldHave })
 	haveCF = func() bool { return false }
-	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
+	r := clearCache(context.Background(), purgeTarget(t.TempDir(), "shop.example.com"), io.Discard)
 	if r.Cleared || !r.NoToken || r.Warning != "" {
 		t.Fatalf("result %+v", r)
 	}
@@ -100,6 +102,7 @@ func TestNoPurgeTokenIsNoWarning(t *testing.T) {
 // On a machine with cf logged in, cf clears the cache of the host name.
 func TestPurgeWithCF(t *testing.T) {
 	t.Setenv(envPurgeToken, "")
+	useRecordingSSH(t)
 	f := &fakeAccess{fakeCF: newFakeCF("example.com")}
 	f.install(t)
 	inner := runCF
@@ -112,7 +115,7 @@ func TestPurgeWithCF(t *testing.T) {
 		}
 		return inner(ctx, args...)
 	}
-	r := clearCache(context.Background(), t.TempDir(), "shop.example.com")
+	r := clearCache(context.Background(), purgeTarget(t.TempDir(), "shop.example.com"), io.Discard)
 	if !r.Cleared {
 		t.Fatalf("%+v", r)
 	}
@@ -207,25 +210,241 @@ func TestPurgeInputsFromEnvFile(t *testing.T) {
 	t.Setenv(envZoneID, "")
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".env"), "OTHER=1\n"+envPurgeToken+"=tok-file\n"+envZoneID+"=zone-file\n")
-	r := clearCache(context.Background(), root, "shop.example.com")
+	r := clearCache(context.Background(), purgeTarget(root, "shop.example.com"), io.Discard)
 	if !r.Cleared || api.path != "POST /zones/zone-file/purge_cache" || api.auth != "Bearer tok-file" {
 		t.Fatalf(".env: %+v, %s, %q", r, api.path, api.auth)
 	}
 	// The environment beats the file, for each input on its own.
 	t.Setenv(envZoneID, "zone-env")
-	if r := clearCache(context.Background(), root, "shop.example.com"); !r.Cleared || api.path != "POST /zones/zone-env/purge_cache" || api.auth != "Bearer tok-file" {
+	if r := clearCache(context.Background(), purgeTarget(root, "shop.example.com"), io.Discard); !r.Cleared || api.path != "POST /zones/zone-env/purge_cache" || api.auth != "Bearer tok-file" {
 		t.Errorf("env zone: %+v, %s, %q", r, api.path, api.auth)
 	}
 	// A token without a zone ID: a purge-only token cannot read the zone, so the warning says to give it.
 	writeFile(t, filepath.Join(root, ".env"), envPurgeToken+"=tok-file\n")
 	t.Setenv(envZoneID, "")
-	r = clearCache(context.Background(), root, "shop.example.com")
+	r = clearCache(context.Background(), purgeTarget(root, "shop.example.com"), io.Discard)
 	if r.Cleared || !strings.Contains(r.Warning, envZoneID) || !strings.Contains(r.Warning, ".env") || strings.Contains(r.Warning, "tok-file") {
 		t.Errorf("no zone: %+v", r)
 	}
 	// A .env that cannot be read is a warning, not a silent skip.
 	writeFile(t, filepath.Join(root, ".env"), "not a setting\n")
-	if r := clearCache(context.Background(), root, "shop.example.com"); r.Cleared || r.NoToken || !strings.Contains(r.Warning, ".env") {
+	if r := clearCache(context.Background(), purgeTarget(root, "shop.example.com"), io.Discard); r.Cleared || r.NoToken || !strings.Contains(r.Warning, ".env") {
 		t.Errorf("bad .env: %+v", r)
+	}
+}
+
+// purgeTarget is the app shop on the server vps with the domain of deploy.front cloudflare, or
+// none.
+func purgeTarget(root, domain string) deployTarget {
+	return deployTarget{root: root, app: "shop", host: "vps", domain: domain}
+}
+
+// writePurgeFile puts the file of tokens that setup keeps into the home of a fake server.
+func writePurgeFile(t *testing.T, home, text string) {
+	t.Helper()
+	writeFile(t, filepath.Join(home, filepath.FromSlash(purgeFile)), text)
+}
+
+// noCF makes the machine one without cf.
+func noCF(t *testing.T) {
+	old := haveCF
+	t.Cleanup(func() { haveCF = old })
+	haveCF = func() bool { return false }
+}
+
+// Setup writes the file over ssh as tifa, the token on the input of ssh: the folder only tifa may
+// enter, the file only tifa may read, a line per zone. A zone written again replaces its line, and
+// the lines of the other zones stay. Deploy reads it back over ssh. With the last app it goes.
+func TestPurgeFileOnTheServer(t *testing.T) {
+	home := t.TempDir()
+	fakeServer(t, home, nil)
+	tgt := purgeTarget(t.TempDir(), "shop.example.com")
+	ctx := context.Background()
+	if _, ok, err := tgt.serverPurge(ctx, io.Discard); ok || err != nil {
+		t.Fatalf("no file: %v, %v", ok, err)
+	}
+	for _, c := range []purgeCred{{"example.com", "zone-old", "tok-old"}, {"example.org", "zone-org", "tok-org"}, {"example.com", "zone-com", "tok-com"}} {
+		if err := tgt.storePurge(ctx, c, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(home, filepath.FromSlash(purgeFile))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), purgeFileHeader+"\nexample.org\tzone-org\ttok-org\nexample.com\tzone-com\ttok-com\n"; got != want {
+		t.Errorf("file:\n%q\nwant\n%q", got, want)
+	}
+	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+		t.Errorf("file mode %v", st.Mode().Perm())
+	}
+	if st, _ := os.Stat(filepath.Dir(path)); st.Mode().Perm() != 0o700 {
+		t.Errorf("folder mode %v", st.Mode().Perm())
+	}
+	c, ok, err := tgt.serverPurge(ctx, io.Discard)
+	if err != nil || !ok || c != (purgeCred{"example.com", "zone-com", "tok-com"}) {
+		t.Errorf("read %+v, %v, %v", c, ok, err)
+	}
+	if strings.Contains(fakeServerArgv(), "tok-") {
+		t.Errorf("a token is on a command line of ssh:\n%s", fakeServerArgv())
+	}
+	for _, bad := range []purgeCred{{"example.com", "z", "tok\tx"}, {"example.com", "z", "tok\nexample.org\tz\tt"}, {"example.com", "z", ""}, {"exa mple.com", "z", "t"}, {"example.com", "", "t"}} {
+		if err := tgt.storePurge(ctx, bad, io.Discard); err == nil {
+			t.Errorf("%q: stored", bad)
+		}
+	}
+}
+
+// The line of a domain is the one of its zone: the domain itself or the longest zone it ends in.
+func TestPickPurgeLine(t *testing.T) {
+	text := purgeFileHeader + "\nexample.org\tzone-org\ttok-org\nexample.com\tzone-com\ttok-com\nshop.example.com\tzone-sub\ttok-sub\n"
+	for domain, want := range map[string]string{
+		"example.com":        "zone-com",
+		"www.example.com":    "zone-com",
+		"shop.example.com":   "zone-sub",
+		"a.shop.example.com": "zone-sub",
+		"example.org":        "zone-org",
+		"notexample.com":     "",
+		"example.net":        "",
+	} {
+		c, ok, err := pickPurgeLine(text, domain)
+		if err != nil || ok != (want != "") || c.ZoneID != want {
+			t.Errorf("%s: %+v, %v, %v", domain, c, ok, err)
+		}
+	}
+	if _, _, err := pickPurgeLine("example.com\tzone-com\n", "example.com"); err == nil || strings.Contains(err.Error(), "zone-com") {
+		t.Errorf("a broken line: %v", err)
+	}
+}
+
+// Without the inputs, a deploy reads the token of the zone from the server and clears the cache
+// with it. The inputs win over the file, the file wins over a cf login, and with none of them the
+// line says what to run.
+func TestPurgePrecedence(t *testing.T) {
+	api := &fakeCloudflareAPI{status: 200}
+	api.install(t)
+	t.Setenv(envPurgeToken, "")
+	t.Setenv(envZoneID, "")
+	home := t.TempDir()
+	calls := fakeServer(t, home, nil)
+	writePurgeFile(t, home, purgeFileHeader+"\nexample.com\tzone-srv\ttok-srv\n")
+	f := &fakeAccess{fakeCF: newFakeCF("example.com")}
+	f.install(t)
+	inner := runCF
+	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
+		if args[0] == "cache" {
+			fakeMu.Lock()
+			defer fakeMu.Unlock()
+			f.calls = append(f.calls, strings.Join(args, " "))
+			return []byte(`{}`), nil
+		}
+		return inner(ctx, args...)
+	}
+	cfPurged := func() bool {
+		return slices.ContainsFunc(f.calls, func(c string) bool { return strings.HasPrefix(c, "cache purge") })
+	}
+	ctx := context.Background()
+	tgt := purgeTarget(t.TempDir(), "shop.example.com")
+
+	// 1. The environment, and the server is not asked.
+	t.Setenv(envPurgeToken, "tok-env")
+	t.Setenv(envZoneID, "zone-env")
+	if r := clearCache(ctx, tgt, io.Discard); !r.Cleared || api.path != "POST /zones/zone-env/purge_cache" || api.auth != "Bearer tok-env" || cfPurged() || calls() != "" {
+		t.Fatalf("environment: %+v, %s %q, cf %v, ssh %q", r, api.path, api.auth, f.calls, calls())
+	}
+	// 2. The file on the server, before the cf login.
+	t.Setenv(envPurgeToken, "")
+	t.Setenv(envZoneID, "")
+	if r := clearCache(ctx, tgt, io.Discard); !r.Cleared || api.path != "POST /zones/zone-srv/purge_cache" || api.auth != "Bearer tok-srv" || cfPurged() {
+		t.Fatalf("server: %+v, %s %q, cf %v", r, api.path, api.auth, f.calls)
+	}
+	if api.body != `{"hosts":["shop.example.com"]}` {
+		t.Errorf("body %s", api.body)
+	}
+	// An old workflow hands empty secrets once setup removed them: the server answers.
+	t.Setenv(envZoneID, "")
+	api.path = ""
+	if r := clearCache(ctx, tgt, io.Discard); !r.Cleared || api.path != "POST /zones/zone-srv/purge_cache" {
+		t.Fatalf("empty inputs: %+v, %s", r, api.path)
+	}
+	// 3. No line for the zone: the cf login.
+	writePurgeFile(t, home, purgeFileHeader+"\nexample.org\tzone-org\ttok-org\n")
+	api.path = ""
+	if r := clearCache(ctx, tgt, io.Discard); !r.Cleared || api.path != "" || !cfPurged() {
+		t.Fatalf("cf: %+v, %s, cf %v", r, api.path, f.calls)
+	}
+	// 4. None: not cleared, and the line says to run setup.
+	noCF(t)
+	r := clearCache(ctx, tgt, io.Discard)
+	var out strings.Builder
+	printCache(&out, r)
+	if r.Cleared || !r.NoToken || !strings.Contains(out.String(), "run go tool tifa deploy setup --cache-purge-token") {
+		t.Errorf("none: %+v\n%s", r, out.String())
+	}
+	if strings.Contains(fakeServerArgv(), "tok-") {
+		t.Errorf("a token is on a command line of ssh:\n%s", fakeServerArgv())
+	}
+}
+
+// A file the server cannot read back is a warning, and the deploy still goes through.
+func TestPurgeServerFileBroken(t *testing.T) {
+	t.Setenv(envPurgeToken, "")
+	home := t.TempDir()
+	fakeServer(t, home, nil)
+	writePurgeFile(t, home, "example.com\tzone-srv\n")
+	noCF(t)
+	r := clearCache(context.Background(), purgeTarget(t.TempDir(), "shop.example.com"), io.Discard)
+	if r.Cleared || r.NoToken || !strings.Contains(r.Warning, purgeFile) || strings.Contains(r.Warning, "zone-srv") {
+		t.Errorf("%+v", r)
+	}
+}
+
+// A deploy and a rollback run locally or in CI read the token from the server once the release
+// is live, and clear the cache with it. The token shows in no output, no summary and no command
+// line.
+func TestDeployAndRollbackPurgeWithTheServerToken(t *testing.T) {
+	api := &fakeCloudflareAPI{status: 200}
+	api.install(t)
+	t.Setenv(envPurgeToken, "")
+	t.Setenv(envZoneID, "")
+	noCF(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n")
+	t.Setenv(deployHostEnv, "vps")
+	summary := filepath.Join(t.TempDir(), "summary.md")
+	t.Setenv(envStepSummary, summary)
+	home := t.TempDir()
+	prepareFakeServer(t, home)
+	fakeServer(t, home, nil)
+	writePurgeFile(t, home, purgeFileHeader+"\nexample.com\tzone-com\ttok-secret-com\n")
+	clock := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	oldNow, oldBuild := deployNow, buildForServer
+	t.Cleanup(func() { deployNow, buildForServer = oldNow, oldBuild })
+	deployNow = func() time.Time { c := clock; clock = clock.Add(time.Hour); return c }
+	buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {
+		return os.WriteFile(out, []byte("program"), 0o755)
+	}
+	var all strings.Builder
+	for _, args := range [][]string{{"deploy", "--dir", root}, {"deploy", "--dir", root}, {"deploy", "rollback", "--dir", root}} {
+		api.path = ""
+		out, errOut, err := run(t, args...)
+		all.WriteString(out + errOut)
+		if err != nil {
+			t.Fatalf("%v: %v\n%s%s", args, err, out, errOut)
+		}
+		if !strings.Contains(out, "cache: cleared for shop.example.com") || api.path != "POST /zones/zone-com/purge_cache" || api.auth != "Bearer tok-secret-com" {
+			t.Errorf("%v: %s %q\n%s", args, api.path, api.auth, out)
+		}
+	}
+	data, _ := os.ReadFile(summary)
+	if !strings.Contains(string(data), "### Rollback of shop done") || !strings.Contains(string(data), "| CDN cache | cleared for shop.example.com |") {
+		t.Errorf("summary:\n%s", data)
+	}
+	for what, text := range map[string]string{"output": all.String(), "summary": string(data), "ssh command lines": fakeServerArgv()} {
+		if strings.Contains(text, "tok-secret") {
+			t.Errorf("the token is in the %s:\n%s", what, text)
+		}
 	}
 }

@@ -291,6 +291,9 @@ func TestDeploySettingsChecks(t *testing.T) {
 	}
 }
 
+// fakeServerArgv returns every command line the ssh of the last fakeServer got.
+var fakeServerArgv func() string
+
 // fakeServer makes a folder of programs that stand in for ssh and for the tools the scripts call
 // on the server, so the scripts run on this machine with home as the home of the deploy user.
 // health holds what GET /healthz answers for a release, 404 when it is not listed. calls returns
@@ -312,7 +315,14 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 	for id, code := range health {
 		writeFile(t, filepath.Join(healthDir, id), code)
 	}
-	tool("ssh", `while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
+	argv := log + ".argv"
+	fakeServerArgv = func() string {
+		data, _ := os.ReadFile(argv)
+		return string(data)
+	}
+	// Every argument of ssh is logged whole, so a test can tell no secret is on a command line.
+	tool("ssh", `printf '%s\n' "$*" >> `+shellQuote(argv)+`
+while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
 HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
 	// show answers with the file .run/show of the home, which a test writes.
@@ -522,7 +532,8 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		"unit-socket aa", "unit-service bb", "tunnel t-1", "machine vps-1234", "cloudflared /usr/bin/cloudflared",
 		"tunnel-active yes", "apt yes", "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA", "ghkey acme/shop",
 		"appdir yes", "other notes", "cloudflared-tifa yes",
-		"unit-active active", "unit-since Fri 2026-11-20 12:00:05 UTC", "unit-rss 38000", "health 200", "",
+		"unit-active active", "unit-since Fri 2026-11-20 12:00:05 UTC", "unit-rss 38000", "health 200",
+		"purge-file yes", "purge-zone example.com", "purge-zone example.org", "",
 	}, "\n")
 	s, err := parseServerState(out)
 	if err != nil {
@@ -533,7 +544,8 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		Cloudflared: "/usr/bin/cloudflared", TunnelActive: true, Apt: true,
 		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"},
 		AppDir: true, Others: []string{"notes"}, CloudflaredByTifa: true,
-		Active: "active", ActiveSince: "Fri 2026-11-20 12:00:05 UTC", RSS: 38000, Health: "200"}
+		Active: "active", ActiveSince: "Fri 2026-11-20 12:00:05 UTC", RSS: 38000, Health: "200",
+		PurgeFile: true, PurgeZones: []string{"example.com", "example.org"}}
 	if !reflect.DeepEqual(s, want) || !s.Prepared() {
 		t.Errorf("got %+v", s)
 	}

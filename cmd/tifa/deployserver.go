@@ -10,6 +10,7 @@ package main
 //	<app>/shared/           the folder the app runs in: its .env and its data
 //	<app>/deploys.log       one line per deploy or rollback: time, id, commit, action, result
 //	.config/systemd/user/tifa-<app>.socket and .service
+//	.config/tifa/cloudflare-purge  the purge token of each zone, see deploypurge.go
 //
 // Every script runs under sh -c, so the login shell of the user does not matter.
 
@@ -152,6 +153,10 @@ type serverState struct {
 	// Health is the status GET healthPath answered just now, 000 for no answer, empty when it was
 	// not asked: only the status script asks, and only an active service.
 	Health string
+	// PurgeFile says the server has the file of purge tokens, and PurgeZones are the zones it has
+	// a token for. The probe prints the names only.
+	PurgeFile  bool
+	PurgeZones []string
 }
 
 // Prepared reports whether the server can hold an app: the systemd of the deploy user runs.
@@ -232,6 +237,10 @@ func parseServerState(out string) (serverState, error) {
 				return s, fmt.Errorf("the server gave the health check status %q", value)
 			}
 			s.Health = v
+		case "purge-file":
+			s.PurgeFile = true
+		case "purge-zone":
+			s.PurgeZones = append(s.PurgeZones, strings.TrimSpace(value))
 		case "current":
 			s.Current = value
 		case "release":
@@ -498,6 +507,15 @@ if [ -f "$HOME/.ssh/authorized_keys" ]; then
 	sed -n 's/.* tifa-github \([^ ]*\)$/ghkey \1/p' "$HOME/.ssh/authorized_keys"
 fi
 if [ -f /etc/apt/apt.conf.d/52tifa-cloudflared ]; then echo "cloudflared-tifa yes"; fi
+# The zones of the purge tokens, never a token: only what comes before the first tab of a line.
+f="$HOME/` + purgeFile + `"
+if [ -f "$f" ]; then
+	echo "purge-file yes"
+	t=$(printf '\t')
+	while IFS= read -r l || [ -n "$l" ]; do
+		case "$l" in '#'*) ;; *"$t"*) echo "purge-zone ${l%%"$t"*}" ;; esac
+	done < "$f"
+fi
 exit 0
 `
 
