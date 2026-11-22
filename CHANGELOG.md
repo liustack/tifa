@@ -8,6 +8,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - A page with a canonical link also gets `<meta property="og:url">` with the same URL, in the server render and after a navigation in the browser. An `og:url` in a route's `head` or in `documentHead` wins, and the page has only that one.
 - `tifa check`, `tifa build` and `tifa dev` warn about a `<title>` or `<meta>` written as JSX in a component, with its file and line, and point to the `head` export. Tifa writes the head as a string and React renders only the app root in `<body>`, so such a tag ended up in `<body>`, where crawlers do not read it. A `<title>` inside an `<svg>` and a `<meta itemProp>` are not reported.
+- `c.SetReadTimeout(d)` gives the body of one request `d` to arrive, as the `ReadTimeout` of a route does, and the answer `server.write_timeout` after it. Call it in `OnRequest` next to `c.SetBodyLimit`. The constants `BodyLimit` and `ReadTimeout` keep working in this release, and `OnRequest` is the way to write them now.
 
 ### Changed
 

@@ -354,7 +354,7 @@ func refusedInValidate(fn *types.Func) string {
 	switch fn.Name() {
 	case "JSON", "Text", "NoContent", "SetHeader", "SetCookie", "Writer", "SetAlternates":
 		return "c." + fn.Name() + " changes the response, which cannot be done in Validate or the functions it calls: Validate only checks the input, and what it returns is the answer. Return an error, or tifa.Fields for single fields, and write the response in the method handler"
-	case "Bind", "BindQuery", "SetBodyLimit":
+	case "Bind", "BindQuery", "SetBodyLimit", "SetReadTimeout":
 		return "c." + fn.Name() + " reads or limits the request body, which is already decoded when Validate runs: use the fields of the input"
 	}
 	return ""

@@ -5,6 +5,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -43,6 +44,9 @@ type request struct {
 	// is not the first one here when the server or a middleware handed a copy to New.
 	requests []*http.Request
 	sess     sessionState
+	// liftRead moves the read deadline of the connection, and the write deadline after it, see
+	// SetReadTimeout. The server sets it, a Ctx made by a test has none.
+	liftRead func(d time.Duration) error
 	// language is the language of the route the request matched, see Language.
 	language string
 	// alternates is the list SetAlternates gave, set tells it from a page that gave none.
@@ -135,6 +139,29 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 	c.r.Body = body
 	return nil
 }
+
+// SetReadTimeout gives the body of this request d to arrive, in place of server.read_timeout, and
+// the answer server.write_timeout after that. It is what the ReadTimeout of a route does, for one
+// request. Call it before anything reads the body, on the goroutine that handles the request,
+// usually in OnRequest. Once reading has started it returns an error and the deadline stays as it
+// was. It also returns an error when d is not over 0 or when the response cannot reach the
+// connection, such as behind a middleware of SetHTTPHandler that does not unwrap it. A Ctx a test
+// made with tifatest.NewCtx has no connection, and the call does nothing.
+func (c *Ctx) SetReadTimeout(d time.Duration) error {
+	if d <= 0 {
+		return fmt.Errorf("tifa: SetReadTimeout needs a duration over 0, got %v", d)
+	}
+	if c.req.body != nil && c.req.body.started {
+		return errors.New("tifa: SetReadTimeout called after the request body was read")
+	}
+	if c.req.liftRead == nil {
+		return nil
+	}
+	return c.req.liftRead(d)
+}
+
+// SetReadLift gives c what SetReadTimeout calls to move the deadlines. The server sets it.
+func SetReadLift(c *Ctx, lift func(d time.Duration) error) { c.req.liftRead = lift }
 
 func (c *Ctx) SetHeader(key, value string) {
 	c.req.mu.Lock()

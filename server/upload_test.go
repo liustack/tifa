@@ -195,34 +195,76 @@ func TestRouteReadTimeout(t *testing.T) {
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	post := func(path string) (int, string, error) {
-		body, contentType := multipartBody(t, "Sea", "sea.png", []byte(strings.Repeat("png bytes ", 100)))
-		data := body.Bytes()
-		var parts [][]byte
-		for len(data) > 0 {
-			n := min(len(data), len(data)/4+1)
-			parts = append(parts, data[:n])
-			data = data[n:]
-		}
-		req, err := http.NewRequest("POST", srv.URL+path, &trickleBody{parts: parts, pause: 200 * time.Millisecond})
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Content-Type", contentType)
-		req.Header.Set("Origin", srv.URL)
-		res, err := srv.Client().Do(req)
-		if err != nil {
-			return 0, "", err
-		}
-		defer res.Body.Close()
-		b, err := io.ReadAll(res.Body)
-		return res.StatusCode, string(b), err
-	}
+	post := func(path string) (int, string, error) { return postSlowUpload(t, srv, path) }
 	if status, body, err := post("/slow"); err != nil || status != 200 || !strings.Contains(body, `"title":"Sea"`) {
 		t.Errorf("slow upload to a route with ReadTimeout: %d %s %v", status, body, err)
 	}
 	if status, _, err := post("/quick"); err == nil && status == 200 {
 		t.Errorf("slow upload to a route with server.read_timeout went through")
+	}
+}
+
+// postSlowUpload sends a small upload to path that takes about 800 ms to arrive, in four parts.
+func postSlowUpload(t *testing.T, srv *httptest.Server, path string) (int, string, error) {
+	t.Helper()
+	body, contentType := multipartBody(t, "Sea", "sea.png", []byte(strings.Repeat("png bytes ", 100)))
+	data := body.Bytes()
+	var parts [][]byte
+	for len(data) > 0 {
+		n := min(len(data), len(data)/4+1)
+		parts = append(parts, data[:n])
+		data = data[n:]
+	}
+	req, err := http.NewRequest("POST", srv.URL+path, &trickleBody{parts: parts, pause: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Origin", srv.URL)
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	return res.StatusCode, string(b), err
+}
+
+// c.SetReadTimeout in OnRequest does what the ReadTimeout of a route does: the body of this
+// request gets that long to arrive, and the answer server.write_timeout after it. A route
+// OnRequest leaves alone keeps server.read_timeout.
+func TestSetReadTimeoutInOnRequest(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.ReadTimeout = 300 * time.Millisecond
+	cfg.Server.WriteTimeout = 300 * time.Millisecond
+	app := App{
+		Hooks: Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+			if c.Pattern() == "/slow" {
+				if err := c.SetReadTimeout(5 * time.Second); err != nil {
+					return err
+				}
+			}
+			return next(c)
+		}},
+		Routes: []Route{
+			{ID: "app/slow/route", Path: "/slow", POST: InputOutput(photoHandler, BindForm)},
+			{ID: "app/quick/route", Path: "/quick", POST: InputOutput(photoHandler, BindForm)},
+		},
+	}
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	srv := httptest.NewUnstartedServer(s)
+	srv.Config.ReadTimeout = cfg.Server.ReadTimeout
+	srv.Config.WriteTimeout = cfg.Server.WriteTimeout
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	if status, body, err := postSlowUpload(t, srv, "/slow"); err != nil || status != 200 || !strings.Contains(body, `"title":"Sea"`) {
+		t.Errorf("slow upload after SetReadTimeout: %d %s %v", status, body, err)
+	}
+	if status, _, err := postSlowUpload(t, srv, "/quick"); err == nil && status == 200 {
+		t.Errorf("slow upload without SetReadTimeout went through")
 	}
 }
 

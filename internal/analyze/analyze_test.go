@@ -333,6 +333,7 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:21:", "c.JSON", "Validate"},
 			{"app/api/route.go:28:", "c.Bind", "Validate"},
 			{"app/api/route.go:31:", "c.Writer", "Validate"},
+			{"app/api/route.go:32:", "c.SetReadTimeout", "Validate"},
 			{"app/helper/route.go:11:", "c.SetCookie", "Validate"},
 			{"app/helper/route.go:20:", "assigned to an existing variable", "the Ctx may only be"},
 		}},
