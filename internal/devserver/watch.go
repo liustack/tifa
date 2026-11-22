@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -629,6 +630,17 @@ func vanished(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
 }
 
+// errSharingViolation is ERROR_SHARING_VIOLATION, which Windows returns for a file another program
+// holds without letting others read it. A rename over a file holds the file it replaces so for a
+// moment: the event of the rename follows.
+const errSharingViolation = syscall.Errno(32)
+
+// held reports whether err says that another program holds the file for a moment, see
+// errSharingViolation. Its events follow once it lets go.
+func held(err error) bool {
+	return runtime.GOOS == "windows" && errors.Is(err, errSharingViolation)
+}
+
 // setLink makes rel a link node if it is a link, and drops it from the snapshot otherwise.
 func (w *watcher) setLink(rel string, link bool) {
 	if n := w.nodes[rel]; n != nil && n.kind == linkNode && link {
@@ -786,8 +798,8 @@ func (w *watcher) check(rel string, info os.FileInfo, link bool, h how) error {
 		testHookChecksum(rel)
 	}
 	sum, err := checksum(w.abs(rel))
-	if vanished(err) || errors.Is(err, syscall.EISDIR) {
-		// Changed again since the stat: the events that follow say where to look.
+	if vanished(err) || errors.Is(err, syscall.EISDIR) || held(err) {
+		// Changed again since the stat, or changing now: the events that follow say where to look.
 		w.drop(rel)
 		return nil
 	}

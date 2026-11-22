@@ -11,6 +11,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Fixed
 
 - On Windows, a page request right after a save could get the page without that save: `tifa dev` waits for the watcher to see every save made before the request, but Windows could report the save after the event the wait ended on.
+- On Windows, `tifa dev` could stop with "The process cannot access the file because it is being used by another process" when an editor saved a file by renaming a new one over it while `tifa dev` was reading it.
 
 ## [0.1.17] - 2026-11-22
 
