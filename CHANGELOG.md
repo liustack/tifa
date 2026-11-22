@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-11-22
+
 ### Added
 
 - `tifa dev` runs on Windows (10 1809 and later, tested on Windows Server 2022 and 2025), in the foreground and with `--background`, `dev status`, `dev logs`, `dev stop` and `tifa errors`. Ctrl-C, closing the console window and `tifa dev stop` stop it, the app runs `OnShutdown` on each restart as on Linux and macOS, and a `tifa dev` killed in the Task Manager takes Node, Vite and the app with it. [On Windows](docs/dev.md#on-windows) lists what differs there.
