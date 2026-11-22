@@ -197,7 +197,7 @@ func goRule(name string, fw goFramework) Rule {
 }
 
 // SourceFiles lists the TypeScript and JavaScript files of the app that the check reads: those
-// under app/ and hooks.ts, as absolute paths. Declaration files, tests and node_modules are left out.
+// under app/ and setup.ts, as absolute paths. Declaration files, tests and node_modules are left out.
 func SourceFiles(root string) ([]string, error) {
 	var files []string
 	add := func(p string, d fs.DirEntry) {
@@ -212,8 +212,8 @@ func SourceFiles(root string) ([]string, error) {
 		}
 		files = append(files, p)
 	}
-	if hooks, err := os.Stat(filepath.Join(root, "hooks.ts")); err == nil && !hooks.IsDir() {
-		files = append(files, filepath.Join(root, "hooks.ts"))
+	if setup, err := os.Stat(filepath.Join(root, "setup.ts")); err == nil && !setup.IsDir() {
+		files = append(files, filepath.Join(root, "setup.ts"))
 	}
 	appDir := filepath.Join(root, "app")
 	if info, err := os.Stat(appDir); err != nil || !info.IsDir() {

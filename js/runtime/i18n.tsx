@@ -16,11 +16,9 @@ const defaultNS = 'translation'
 const namespaces = [...new Set(Object.values(locales).flatMap((byNamespace) => Object.keys(byNamespace)))]
 
 // i18n is the instance of the app. Every string is bundled, so init finishes at once and a server
-// render has them all. Formatters go in onStart of hooks.ts, for example
+// render has them all. Formatters go at the top level of setup.ts, for example
 //
-//	export function onStart() {
-//	  i18n.services.formatter?.addCached('currency', (lng, options) => { ... })
-//	}
+//	i18n.services.formatter?.addCached('currency', (lng, options) => { ... })
 //
 // The server keeps the strings it translates (build.i18next_cache), also those that use a
 // formatter of the app, so a formatter must give the same text for the same language, options and

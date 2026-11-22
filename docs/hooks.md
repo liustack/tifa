@@ -1,10 +1,10 @@
 ---
-summary: 'How to set up the whole app in hooks.go (OnStart, OnShutdown, OnRequest, OnError, the log handler, net/http middleware) and in hooks.ts (the setup that runs before the first render), with a pointer to sessions'
+summary: 'How to set up the whole app in hooks.go (OnStart, OnShutdown, OnRequest, OnError, the log handler, net/http middleware) and in setup.ts (the setup that runs before the first render), with a pointer to sessions'
 audience: app
 read_when:
   - Opening a database, starting work or setting a logger when the program starts, or stopping it cleanly
   - Writing `OnRequest` or `OnError`, or wrapping the app in `net/http` middleware with `tifa.SetHTTPHandler`
-  - Setting up something once for the whole app on the JavaScript side, such as i18next formatters or dayjs plugins, in hooks.ts
+  - Setting up something once for the whole app on the JavaScript side, such as i18next formatters or dayjs plugins, in setup.ts
   - Finding out where a resource the whole app shares, such as a database handle, lives
 ---
 
@@ -69,31 +69,30 @@ func OnStart(ctx context.Context) error {
 
 `tifa.SetHTTPHandler(wrap)` gets Tifa's handler and returns the one to serve. The wrapper is outside everything else: static files, the cross-site check and the routes. It sees every request with the original `http.ResponseWriter`, including the 403 of a refused cross-site write. Once the handler it wraps has returned, `r.Pattern` of that request is the route template, the same as `c.Pattern()` (such as `/projects/{project}`, and empty when no route matched), so a metrics middleware can count by route and not by URL. The browser asks for the data of a navigation with the `_tifa` parameter, and `.p` marks a preload. Do not count page views from these requests: a preload can serve a navigation without another request, and a reload adds one. Count the client navigations the browser finishes, plus the full page requests (see [Page requests](build.md#page-requests)). It is plain `net/http`, so `OnRequest`, `OnError` and the cross-site check do not apply to the paths it serves itself, such as `/debug/pprof/` above. Put such paths behind your own check, or keep them on another listener. A shutdown still waits for the requests it wraps. Call it in `OnStart` only: it panics once the server listens. `tifa.SetHTTPHandler(nil)` removes the wrapper. It runs outside the anonymous request of a page with `Cache` (see [Cache for CDNs](ssr-and-cache.md#cache-for-cdns)): the values it puts into the context of the request reach `OnRequest` and `Load` of such a page, so do not recognize visitors in it, do it in `OnRequest`.
 
-## hooks.ts
+## setup.ts
 
-`hooks.ts` in the project root is the JavaScript side of `hooks.go`. It exports one optional function:
+`setup.ts` in the project root is the JavaScript side of `hooks.go`. It is plain top-level code, with no function to export:
 
 ```ts
-// hooks.ts
+// setup.ts
 import { i18n } from 'tifa/i18n'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-export function onStart() {
-  dayjs.extend(relativeTime)
-  i18n.services.formatter?.addCached('currency', (lng, options) => {
-    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
-    return (value) => f.format(value)
-  })
-}
+dayjs.extend(relativeTime)
+i18n.services.formatter?.addCached('currency', (lng, options) => {
+  const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+  return (value) => f.format(value)
+})
 ```
 
-- `onStart` runs once in each JavaScript runtime before any page renders, whatever the page: in each VM of the server when the SSR bundle loads, and in the browser before hydration. It is for what the whole app sets up once, such as i18next formatters, dayjs plugins, chart types or an error reporter.
+- Its top level runs once in each JavaScript runtime before any route module evaluates: in each VM of the server when the SSR bundle loads, and in the browser before hydration. A route module that reads at its own top level what `setup.ts` set sees it. It is for what the whole app sets up once, such as i18next formatters, dayjs plugins, chart types or an error reporter.
 - It runs on both sides, so the server and the browser render with the same setup. Tifa has no JavaScript that runs only on the server: data and I/O are in Go.
 - It is synchronous. Work it starts and does not wait for, such as a dynamic `import()`, may finish after the first render.
 - If it throws on the server, the program stops before it serves. In the browser the page is not hydrated: it stays the HTML the server sent, links load whole pages, and the error is in the console.
-- `hooks.ts` exports nothing else: another export fails the build, naming it, since Tifa would never run it. An app without pages has no JavaScript, and a `hooks.ts` there fails the build too.
-- `hooks.ts` is in the main bundle of the browser, with what it imports. Keep it small.
+- Tifa ignores what it exports. An app without pages has no JavaScript, and a `setup.ts` there fails the build.
+- `hooks.ts` was its name before v0.2.0. A `hooks.ts` at the root fails the build: rename it and move the body of `onStart` to the top level.
+- `setup.ts` is in the main bundle of the browser, with what it imports. Keep it small.
 
 ## Sessions
 

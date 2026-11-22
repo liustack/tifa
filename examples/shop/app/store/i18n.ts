@@ -3,7 +3,7 @@ import { useRouter } from '@tanstack/react-router'
 import { i18n, useTranslation } from 'tifa/i18n'
 
 // The storefront's language, currency and time zone, from the store Layout's data. The formats of
-// money and dates are in onStart of hooks.ts.
+// money and dates are in setup.ts.
 export type Locale = { code: string; currency: string; timeZone: string; other: string }
 
 // The messages of the store are in the namespace of its folder, app/store.

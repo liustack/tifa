@@ -487,7 +487,7 @@ What stays with the app is to leave alone, after the first render, what i18next 
 
 Pages of such an app may show the text from before a change, or the text another request got, until the cache empties for another reason.
 
-On the shop, which uses the one instance of the adapter and gives it formatters of its own for money and dates in `hooks.ts`, the ten storefront pages take 0.778 of the time to render (0.774 to 0.783), each page 0.709 to 0.917, with the same HTML. The same pages, with i18next used the other ways apps use it:
+On the shop, which uses the one instance of the adapter and gives it formatters of its own for money and dates in `setup.ts`, the ten storefront pages take 0.778 of the time to render (0.774 to 0.783), each page 0.709 to 0.917, with the same HTML. The same pages, with i18next used the other ways apps use it:
 
 | How the app uses i18next | Time of the ten pages |
 | --- | --- |
@@ -649,25 +649,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 }
 ```
 
-Formatters go in `onStart` of [hooks.ts](hooks.md#hooksts), which runs before the first render on the server and in the browser. A formatter gets the language as `lng`, so one is enough for every language:
+Formatters go at the top level of [setup.ts](hooks.md#setupts), which runs before the first render on the server and in the browser. A formatter gets the language as `lng`, so one is enough for every language:
 
 ```ts
-// hooks.ts
+// setup.ts
 import { i18n } from 'tifa/i18n'
 
-export function onStart() {
-  i18n.services.formatter?.addCached('currency', (lng, options) => {
-    const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
-    return (value) => f.format(value)
-  })
-}
+i18n.services.formatter?.addCached('currency', (lng, options) => {
+  const f = new Intl.NumberFormat(lng, { currency: 'USD', ...options, style: 'currency' })
+  return (value) => f.format(value)
+})
 ```
 
 | Export | What it does |
 | --- | --- |
 | `I18nProvider` | Gives its children the instance, in the language of `useLanguage()` |
 | `useTranslation`, `Trans` | The ones of react-i18next, unchanged |
-| `i18n` | The instance. For formatters in `onStart`, and for code outside components such as a page title: `i18n.getFixedT(language, 'store')('cart.title')` |
+| `i18n` | The instance. For formatters in `setup.ts`, and for code outside components such as a page title: `i18n.getFixedT(language, 'store')('cart.title')` |
 
 The instance has the strings of every language, `fallbackLng: false`, `load: 'currentOnly'` (en-US never takes the strings of en), `initAsync: false` (it is ready when `init` returns, so the first render has every string) and `interpolation.escapeValue: false` (React escapes). A key with no string gives the key, as i18next does. An area with no strings in a language has none in it. `I18nProvider` switches the instance to the language of the page before a server render. In the browser a document has one language, since a page in another language is another document, so it switches once.
 

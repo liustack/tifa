@@ -102,8 +102,8 @@ func TestParsedReadsOnlyChangedFiles(t *testing.T) {
 }
 
 // A file renamed or deleted leaves no result behind, so the results do not grow with the names a
-// long tifa dev session saw. A file that is only left out of one read stays, as the reads of hooks.ts
-// and of the pages ask for different files.
+// long tifa dev session saw. A file that is only left out of one read stays, since two reads may ask
+// for different files.
 func TestParsedForgetsFilesThatWent(t *testing.T) {
 	dir := t.TempDir()
 	parse := func(files []string) (map[string]string, error) {
@@ -115,7 +115,7 @@ func TestParsedForgetsFilesThatWent(t *testing.T) {
 	}
 	var p parsed[string]
 	name := filepath.Join(dir, "helper0.ts")
-	other := filepath.Join(dir, "hooks.ts")
+	other := filepath.Join(dir, "other.ts")
 	for _, f := range []string{name, other} {
 		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
@@ -139,7 +139,7 @@ func TestParsedForgetsFilesThatWent(t *testing.T) {
 		kept = append(kept, filepath.Base(f))
 	}
 	slices.Sort(kept)
-	if want := []string{"helper3.ts", "hooks.ts"}; !slices.Equal(kept, want) {
+	if want := []string{"helper3.ts", "other.ts"}; !slices.Equal(kept, want) {
 		t.Fatalf("kept %v, want %v", kept, want)
 	}
 }

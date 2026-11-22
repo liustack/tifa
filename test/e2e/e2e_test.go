@@ -522,6 +522,13 @@ func TestPagesApp(t *testing.T) {
 			t.Errorf("page lacks %s:\n%s", want, body)
 		}
 	}
+	// setup.ts at the app root runs before any route module evaluates: the root Layout reads at its
+	// own top level what it set, in the VM and in the browser.
+	_, _, body = get(t, base+"/")
+	if !strings.Contains(body, `<nav data-setup="ran">`) {
+		t.Errorf("the root Layout did not see what setup.ts set:\n%s", body)
+	}
+	expectSetupInBrowser(t, "tifa-e2e-su", base+"/")
 	// Intl formats in the locale and the time zone the page passes, as Chromium does.
 	_, _, body = get(t, base+"/receipt")
 	// A -0 inside the data renders as -¥0.00, and the page carries it as -0, so the browser

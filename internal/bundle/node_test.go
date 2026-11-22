@@ -376,7 +376,7 @@ func TestForeignIdiomsInTypeScriptAreFoundAndLookAlikesAreNot(t *testing.T) {
 		"app/orders/page.tsx:10 warning createFileRoute makes a route by hand in TanStack Router (and Start)",
 		"app/orders/page.tsx:11 error 'use server' marks a server action in React Server Components (Next",
 		"app/util.ts:1 error next/headers is a module of Next",
-		"hooks.ts:1 error @remix-run/node is a module of Remix or React Router",
+		"setup.ts:1 error @remix-run/node is a module of Remix or React Router",
 	}
 	if got := check("tsidioms"); !slices.Equal(got, want) {
 		t.Errorf("tsidioms:\n got %q\nwant %q", got, want)
