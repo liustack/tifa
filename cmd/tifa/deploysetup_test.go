@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -22,11 +23,14 @@ import (
 // fakeGH stands in for gh: one repository, its secrets and variables.
 type fakeGH struct {
 	loggedIn bool
-	repo     string
-	branch   string // empty: no default branch yet
-	calls    []string
-	secrets  map[string]string
-	vars     map[string]string
+	// staleOther is a second account whose token is no longer valid: gh auth status fails unless
+	// it checks only the active account. noActive is a gh too old to know --active.
+	staleOther, noActive bool
+	repo                 string
+	branch               string // empty: no default branch yet
+	calls                []string
+	secrets              map[string]string
+	vars                 map[string]string
 }
 
 func newFakeGH() *fakeGH {
@@ -42,9 +46,15 @@ func (g *fakeGH) install(t *testing.T) {
 		defer fakeMu.Unlock()
 		g.calls = append(g.calls, strings.Join(args, " "))
 		switch {
-		case slices.Equal(args, []string{"auth", "status"}):
-			if !g.loggedIn {
+		case len(args) >= 2 && args[0] == "auth" && args[1] == "status":
+			active := slices.Contains(args, "--active")
+			switch {
+			case active && g.noActive:
+				return nil, errors.New("gh auth status: unknown flag: --active")
+			case !g.loggedIn:
 				return nil, errors.New("gh auth status: You are not logged into any GitHub hosts")
+			case g.staleOther && !active:
+				return nil, errors.New("gh auth status: The token in keyring for other-account is invalid")
 			}
 			return nil, nil
 		case args[0] == "repo" && args[1] == "view":
@@ -159,10 +169,20 @@ func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 		writeFile(t, filepath.Join(root, name), content)
 	}
 	t.Setenv(deployHostEnv, "vps")
-	// No cf unless the test installs one: the real cf is never run.
-	oldHave := haveCF
-	t.Cleanup(func() { haveCF = oldHave })
+	// No cf unless the test installs one: the real cf is never run. Neither is any program of the
+	// machine setup could install or log in with: a test that wants them installs a fakeMachine.
+	oldHave, oldLook, oldRun, oldOut := haveCF, lookProgram, runAttached, programOutput
+	t.Cleanup(func() { haveCF, lookProgram, runAttached, programOutput = oldHave, oldLook, oldRun, oldOut })
 	haveCF = func() bool { return false }
+	lookProgram = func(string) (string, error) { return "", exec.ErrNotFound }
+	runAttached = func(_ context.Context, _ io.Reader, _, _ io.Writer, name string, args ...string) error {
+		t.Errorf("ran %s %v on the terminal", name, args)
+		return errors.New("not in a test")
+	}
+	programOutput = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		t.Errorf("ran %s %v", name, args)
+		return nil, errors.New("not in a test")
+	}
 	return root
 }
 
@@ -176,6 +196,12 @@ func runSetup(t *testing.T, root string, terminal bool, input string, args ...st
 // runSetupIO is runSetup that also returns what went to stderr.
 func runSetupIO(t *testing.T, root string, terminal bool, input string, args ...string) (string, string, error) {
 	t.Helper()
+	return runSetupIn(t, root, terminal, strings.NewReader(input), args...)
+}
+
+// runSetupIn is runSetupIO with the input as a reader.
+func runSetupIn(t *testing.T, root string, terminal bool, in io.Reader, args ...string) (string, string, error) {
+	t.Helper()
 	old := stdinIsTerminal
 	t.Cleanup(func() { stdinIsTerminal = old })
 	stdinIsTerminal = func(io.Reader) bool { return terminal }
@@ -183,7 +209,7 @@ func runSetupIO(t *testing.T, root string, terminal bool, input string, args ...
 	cmd := newRootCmd()
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetIn(strings.NewReader(input))
+	cmd.SetIn(in)
 	cmd.SetArgs(append([]string{"deploy", "setup", "--dir", root}, args...))
 	err := cmd.Execute()
 	return out.String(), errOut.String(), err

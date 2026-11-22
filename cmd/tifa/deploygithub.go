@@ -69,7 +69,7 @@ const githubWorkflowPath = ".github/workflows/tifa-deploy.yml"
 // runGH runs the gh of the user in dir with stdin as its input and returns what it printed. The
 // error holds what gh printed on stderr, never its output. Tests replace it.
 var runGH = func(ctx context.Context, dir string, stdin io.Reader, args ...string) ([]byte, error) {
-	c := exec.CommandContext(ctx, "gh", args...)
+	c := exec.CommandContext(ctx, ghProgram, args...)
 	c.Dir, c.Stdin = dir, stdin
 	var stderr bytes.Buffer
 	c.Stderr = &stderr
@@ -84,9 +84,9 @@ var runGH = func(ctx context.Context, dir string, stdin io.Reader, args ...strin
 	return out, nil
 }
 
-// haveGH reports whether gh is on the PATH. Tests replace it.
+// haveGH reports whether gh is there: on the PATH, or where setup just installed it. Tests replace it.
 var haveGH = func() bool {
-	_, err := exec.LookPath("gh")
+	_, err := lookProgram(ghProgram)
 	return err == nil
 }
 

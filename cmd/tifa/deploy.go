@@ -253,7 +253,8 @@ When all is right it prints one line and asks nothing. It can run again at any t
             gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
             deploy.ssh cloudflare also cf)
 
-It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
+On a terminal, a missing cf or gh comes first: a plan that installs it with pnpm, brew or
+winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			t, err := loadDeployTarget(dir, host)
