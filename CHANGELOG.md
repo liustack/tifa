@@ -8,10 +8,6 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa build` and `tifa dev` spend about 0.4 to 0.5 s less in the plugin's rewrites of the SSR bundle, which `tifa dev` runs after every save: on the shop, the bundle step after an edit takes 2.3 s in place of 2.9 s. The bundle is the same byte for byte.
 
-### Fixed
-
-- On Windows, saving a file while `tifa dev` read it after the last save could fail with "Access is denied" in an editor that saves by writing a new file and renaming it over the old one, or that deletes the file. `tifa dev` now opens the files it reads after each save so that they can be renamed over or deleted meanwhile.
-
 ## [0.1.17] - 2026-11-22
 
 ### Added

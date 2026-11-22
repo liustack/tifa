@@ -1096,7 +1096,7 @@ func (w *watcher) warnOnce(msg string) {
 }
 
 func checksum(name string) (string, error) {
-	f, err := openToHash(name)
+	f, err := os.Open(name)
 	if err != nil {
 		return "", err
 	}
