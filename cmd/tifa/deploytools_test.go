@@ -134,6 +134,10 @@ func TestSetupInstallsCF(t *testing.T) {
 	m := newFakeMachine("darwin", "pnpm")
 	m.cf = cf.fakeCF
 	m.install(t)
+	// The first setup of the domain asks for the purge token: Enter skips it.
+	oldPrompt := promptSecret
+	t.Cleanup(func() { promptSecret = oldPrompt })
+	promptSecret = func(io.Reader, io.Writer, string) (string, error) { return "", nil }
 
 	out, err := runSetup(t, root, true, "y\ny\n")
 	if err != nil {

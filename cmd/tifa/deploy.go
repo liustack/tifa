@@ -221,7 +221,8 @@ func newDeployCmd() *cobra.Command {
 in the .env of the app), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
-and deploy exits with 1. With deploy.front cloudflare it then clears the CDN cache of the host of site.url.
+and deploy exits with 1. With deploy.front cloudflare it then clears the CDN cache of the host of site.url,
+with the token setup keeps on the server.
 It never uploads .env. On a server that setup prepared it makes the folder and units of a new
 app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.`,
 		Args: cobra.NoArgs,
@@ -248,7 +249,8 @@ When all is right it prints one line and asks nothing. It can run again at any t
   server    the user tifa and its systemd at boot, the first time as root
   app       the folder, port and systemd units of this app, as tifa
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
-            the host of site.url (needs cf)
+            the host of site.url (needs cf), and on the server a token that can only clear
+            its cache, which every deploy reads
   ci        with deploy.ci github: a key for the repository, secrets, and the workflow (needs
             gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
             deploy.ssh cloudflare also cf)
@@ -280,7 +282,7 @@ restarts the app through its socket. Run it again to go further back.`,
 	}
 	setup.Flags().BoolVarP(&sf.yes, "yes", "y", false, "apply the plan without asking")
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
-	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token CI clears the CDN cache with, and replace the one GitHub has")
+	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token that clears the CDN cache at each deploy, and replace the one the server has")
 	setup.Flags().BoolVar(&sf.tailscaleOAuth, "tailscale-oauth", false, "ask for the OAuth client CI joins your tailnet with, and replace the one GitHub has")
 	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRemoveCmd(&dir, &host))
 	return cmd
@@ -336,7 +338,7 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 		return err
 	}
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
-	sum.Cache = clearCache(ctx, t.root, t.domain)
+	sum.Cache = clearCache(ctx, t, stderr)
 	printCache(stdout, sum.Cache)
 	return nil
 }
@@ -363,7 +365,7 @@ func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Write
 		return err
 	}
 	fmt.Fprintf(stdout, "rolled back to %s in %s\n", target.ID, time.Since(started).Round(100*time.Millisecond))
-	sum.Cache = clearCache(ctx, t.root, t.domain)
+	sum.Cache = clearCache(ctx, t, stderr)
 	printCache(stdout, sum.Cache)
 	return nil
 }

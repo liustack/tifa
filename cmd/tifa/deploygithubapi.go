@@ -45,6 +45,8 @@ type githubAPI interface {
 	// DeleteSecret and DeleteVariable leave nothing behind, and are no error when it is gone.
 	DeleteSecret(ctx context.Context, repo, name string) error
 	DeleteVariable(ctx context.Context, repo, name string) error
+	// FileOnBranch reads the file at path on branch. found is false when the branch has none.
+	FileOnBranch(ctx context.Context, repo, branch, path string) (text string, found bool, err error)
 }
 
 // findGitHub picks the way to talk to GitHub for the app at dir, and reads its repository. When
@@ -261,6 +263,17 @@ func (g ghCLI) DeleteVariable(ctx context.Context, repo, name string) error {
 	return err
 }
 
+func (g ghCLI) FileOnBranch(ctx context.Context, repo, branch, path string) (string, bool, error) {
+	out, err := runGH(ctx, g.dir, nil, "api", "-H", "Accept: application/vnd.github.raw+json", "repos/"+repo+"/contents/"+path+"?ref="+url.QueryEscape(branch))
+	switch {
+	case err != nil && strings.Contains(err.Error(), "(HTTP 404)"):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	}
+	return string(out), true, nil
+}
+
 // githubREST is githubAPI over the REST API with a fine-grained token. The token needs, on the
 // repository alone: Secrets read and write, Variables read and write, and Metadata read.
 type githubREST struct {
@@ -456,4 +469,25 @@ func (g *githubREST) delete(ctx context.Context, path string) error {
 		return nil
 	}
 	return err
+}
+
+func (g *githubREST) FileOnBranch(ctx context.Context, repo, branch, path string) (string, bool, error) {
+	var file struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	status, err := g.call(ctx, "GET", "/repos/"+repo+"/contents/"+path+"?ref="+url.QueryEscape(branch), nil, &file, 200, 404)
+	switch {
+	case err != nil:
+		return "", false, err
+	case status == 404:
+		return "", false, nil
+	case file.Encoding != "base64":
+		return "", false, fmt.Errorf("GET %s on %s: GitHub sent the file as %q", path, branch, file.Encoding)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(file.Content, "\n", ""))
+	if err != nil {
+		return "", false, fmt.Errorf("GET %s on %s: %w", path, branch, err)
+	}
+	return string(data), true, nil
 }

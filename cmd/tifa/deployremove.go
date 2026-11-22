@@ -3,7 +3,8 @@ package main
 // tifa deploy remove takes the app down and takes back what tifa made for it: on the server its
 // units and its folder, in Cloudflare the route, DNS record and rules of its domain and the Access
 // of the repository, in GitHub the key and the secrets. The tunnel and cloudflared serve every app
-// of the server, so they go only with the last app. Like setup it reads everything first, prints a
+// of the server, so they go only with the last app, and so does the file of purge tokens on the
+// server. Like setup it reads everything first, prints a
 // plan and asks, here for the name of the app, and it removes only what Tifa made and marked. The
 // workflow file is a file of the repository, so it stays.
 
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -176,6 +178,13 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			}))
 		}
 	}
+	// The purge tokens serve every app of the server too, and go with the last one, whatever its
+	// front: they are on the server, so no login of cf is needed.
+	if len(st.Others) == 0 && st.PurgeFile {
+		p.add(opRemove, fmt.Sprintf("server: delete %s, the tokens that clear the CDN cache, which no other app uses", path.Join(st.Home, purgeFile)), afterAll(func(ctx context.Context) (string, error) {
+			return "", t.ssh(ctx, deployUser, purgeForgetBody, nil, io.Discard, r.stderr)
+		}))
+	}
 	for i := range p.steps {
 		p.steps[i].soft = true
 	}
@@ -295,8 +304,8 @@ func newDeployRemoveCmd(dir, host *string) *cobra.Command {
 		Short: "Take the app off the server, and take back what tifa made for it",
 		Long: `remove stops the app and deletes its units and its folder on the server, with its releases,
 its .env and its data. With deploy.front cloudflare it deletes the route, the DNS record and the
-rules of its domain and the Access of the repository, and the tunnel and cloudflared once no other
-app of the server uses them. With deploy.ci github it deletes the key of the repository on the
+rules of its domain and the Access of the repository, and the tunnel, cloudflared and the cache
+tokens on the server once no other app of the server uses them. With deploy.ci github it deletes the key of the repository on the
 server and the secrets and the variable of the repository. It removes only what Tifa made and
 marked, and keeps the workflow file, which is a file of your repository.
 

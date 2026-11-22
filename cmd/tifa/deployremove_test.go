@@ -113,7 +113,7 @@ func TestDeployRemoveYes(t *testing.T) {
 // removeFacts is the probe of a server with the app shop, the tunnel that tifa runs and the key of
 // acme/shop, with more facts after.
 func removeFacts(extra string) string {
-	return factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\nappdir yes\ncloudflared-tifa yes\n"+extra)
+	return factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\nappdir yes\ncloudflared-tifa yes\npurge-file yes\npurge-zone example.com\n"+extra)
 }
 
 // cloudSetup is the app shop with every part of setup in place: the tunnel, the route, the DNS
@@ -154,6 +154,7 @@ func TestDeployRemoveEverything(t *testing.T) {
 		"remove  server: stop and disable tifa-shop.socket and tifa-shop.service",
 		"remove  server: stop cloudflared, the service tifa-tunnel, delete its units and /etc/tifa, and uninstall cloudflared, which setup installed, as root",
 		"remove  cloudflare: the tunnel of the server, tifa-vps-1234, which no other app uses",
+		"remove  server: delete /srv/tifa/.config/tifa/cloudflare-purge, the tokens that clear the CDN cache, which no other app uses",
 		"Kept .github/workflows/tifa-deploy.yml, a file of your repository: the next push fails to deploy until you delete it.",
 	} {
 		if !strings.Contains(out, want) {
@@ -172,7 +173,7 @@ func TestDeployRemoveEverything(t *testing.T) {
 		t.Errorf("left in GitHub: %v %v", gh.secrets, gh.vars)
 	}
 	calls := srv.calls()
-	for _, want := range []string{"revoke tifa", "removeapp tifa", "untunnel root"} {
+	for _, want := range []string{"revoke tifa", "removeapp tifa", "untunnel root", "purgeforget tifa"} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("calls lack %q:\n%s", want, calls)
 		}
@@ -195,7 +196,8 @@ func TestDeployRemoveEverything(t *testing.T) {
 	}
 }
 
-// Another app of tifa on the server keeps the tunnel and cloudflared, which serve it too.
+// Another app of tifa on the server keeps the tunnel and cloudflared, which serve it too, and the
+// file of purge tokens, which it may use.
 func TestDeployRemoveKeepsTheSharedTunnel(t *testing.T) {
 	root, srv, cf, _ := cloudSetup(t)
 	ingress := cf.configs["tunnel-1"]["ingress"].([]any)
@@ -205,7 +207,7 @@ func TestDeployRemoveKeepsTheSharedTunnel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if strings.Contains(out, "tifa-tunnel") || strings.Contains(srv.calls(), "untunnel") || cf.tunnels["tunnel-1"] == "" {
+	if strings.Contains(out, "tifa-tunnel") || strings.Contains(srv.calls(), "untunnel") || cf.tunnels["tunnel-1"] == "" || strings.Contains(out, "cloudflare-purge") || strings.Contains(srv.calls(), "purgeforget") {
 		t.Errorf("the shared tunnel went:\n%s\n%s", out, srv.calls())
 	}
 	routes, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
@@ -332,5 +334,32 @@ func TestDeployRemoveKeepsTheTunnelAfterAFailure(t *testing.T) {
 	}
 	if !strings.Contains(out, "warning cloudflare: the tunnel of the server") {
 		t.Errorf("out:\n%s", out)
+	}
+}
+
+// The last app on the server takes the file of purge tokens with it, as the scripts do it on a
+// server: the file and its folder go, whatever front the app has. Another app keeps it.
+func TestDeployRemoveThePurgeFile(t *testing.T) {
+	root, home, _ := envApp(t, "200")
+	prepareFakeServer(t, home)
+	writePurgeFile(t, home, purgeFileHeader+"\nexample.com\tzone-com\ttok-com\n")
+	writeFile(t, filepath.Join(home, "notes", "port"), "9532\n")
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err != nil || strings.Contains(out, "cloudflare-purge") || !exists(filepath.Join(home, filepath.FromSlash(purgeFile))) {
+		t.Fatalf("another app: %v\n%s", err, out)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "notes")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, "shop", "port"), "9531\n")
+	out, _, err = runRemove(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "done    server: delete "+home+"/.config/tifa/cloudflare-purge, the tokens that clear the CDN cache, which no other app uses") {
+		t.Fatalf("last app: %v\n%s", err, out)
+	}
+	if exists(filepath.Join(home, filepath.FromSlash(purgeFile))) || exists(filepath.Join(home, ".config", "tifa")) {
+		t.Error("the file or its folder is still there")
+	}
+	if strings.Contains(fakeServerArgv(), "tok-com") || strings.Contains(out, "tok-com") {
+		t.Error("the token showed")
 	}
 }
