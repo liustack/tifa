@@ -643,7 +643,7 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 			}
 			continue
 		}
-		if near := nearSwitch(name); near != "" {
+		if near := nearSwitch(c); near != "" {
 			a.errorAt(c.Pos(), "%s is not a switch: did you mean %s?", name, near)
 		}
 	}
@@ -652,11 +652,31 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 // switches are the constants of route.go that tifa reads, the ones a typo can be of.
 var switches = []string{"SSR", "Cache", "Memo", "LayoutSSR", "BodyLimit", "ReadTimeout"}
 
-// nearSwitch returns the switch that name is a typo of, or "" when it is none. Only an exported
-// name of at least three letters can be: tifa reads the names as written, and a short name such
-// as ID or Max is the app's own. It is one edit off a switch when the shorter of the two has up to
-// four letters (Memoo for Memo, but not Mode), and up to two edits off with more (Cahce for Cache).
-func nearSwitch(name string) string {
+// switchFits reports whether the constant c has a type the switch takes: a bool for SSR, Memo and
+// LayoutSSR, a bool or a time.Duration for Cache, an integer for BodyLimit and a time.Duration
+// for ReadTimeout. A constant of another type is the app's own, whatever its name.
+func switchFits(sw string, c *types.Const) bool {
+	switch sw {
+	case "SSR", "Memo", "LayoutSSR":
+		return c.Val().Kind() == constant.Bool
+	case "Cache":
+		return c.Val().Kind() == constant.Bool || isNamed(c.Type(), "time", "Duration")
+	case "BodyLimit":
+		b, ok := c.Type().Underlying().(*types.Basic)
+		return ok && b.Info()&types.IsInteger != 0
+	case "ReadTimeout":
+		return isNamed(c.Type(), "time", "Duration")
+	}
+	return false
+}
+
+// nearSwitch returns the switch that the constant c is a typo of, or "" when it is none. Only an
+// exported name of at least three letters can be: tifa reads the names as written, and a short
+// name such as ID or Max is the app's own. So is a constant whose type the switch does not take
+// (const Demo = "demo"). It is one edit off a switch when the shorter of the two has up to four
+// letters (Memoo for Memo, but not Mode), and up to two edits off with more (Cahce for Cache).
+func nearSwitch(c *types.Const) string {
+	name := c.Name()
 	if len(name) < 3 || name[0] < 'A' || name[0] > 'Z' {
 		return ""
 	}
@@ -670,7 +690,7 @@ func nearSwitch(name string) string {
 		if d == 0 {
 			return ""
 		}
-		if d <= limit && (best == "" || d < bestDist) {
+		if d <= limit && switchFits(s, c) && (best == "" || d < bestDist) {
 			best, bestDist = s, d
 		}
 	}

@@ -13,7 +13,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
-- A constant in `route.go` that is a typo of a switch, such as `Cahce` for `Cache` or `ReadTimout` for `ReadTimeout`, fails the build with `Cahce is not a switch: did you mean Cache?`. Before, it was ignored without a word. Only exported names with at least three letters count, within one edit of a switch name when the shorter name has four letters or fewer, and within two edits above that.
+- A constant in `route.go` that is a typo of a switch, such as `Cahce` for `Cache` or `ReadTimout` for `ReadTimeout`, fails the build with `Cahce is not a switch: did you mean Cache?`. Before, it was ignored without a word. Only exported constants with at least three letters and a type the switch takes count, within one edit of a switch name when the shorter name has four letters or fewer, and within two edits above that.
 
 ## [0.1.19] - 2026-11-23
 
