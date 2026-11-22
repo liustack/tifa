@@ -165,9 +165,24 @@ var promptSecret = func(in io.Reader, prompt io.Writer, label string) (string, e
 	return string(b), err
 }
 
-// readEnvValue takes the value from a hidden prompt on a terminal, else from the standard input,
-// minus one final newline. A standard input with nothing on it, as an agent has, is no value: the
-// page asks for it then.
+// stdinReadable says the standard input is a pipe or a file, which a script fills, empty or not.
+// A character device such as /dev/null, which coding agents give, is not. On Windows Stat reads
+// the kind with GetFileType: a pipe or a disk file is readable, a character device is not. Tests
+// replace it.
+var stdinReadable = func(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return true
+	}
+	st, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return st.Mode().IsRegular() || st.Mode()&os.ModeNamedPipe != 0
+}
+
+// readEnvValue takes the value from a hidden prompt on a terminal, else from a pipe or a file on
+// the standard input, minus one final newline, else from the page.
 func readEnvValue(ctx context.Context, in io.Reader, out io.Writer, name string, t deployTarget) (string, error) {
 	ask := secretAsk{
 		Title:  "Value of " + name,
@@ -175,15 +190,13 @@ func readEnvValue(ctx context.Context, in io.Reader, out io.Writer, name string,
 		Why:    fmt.Sprintf("Tifa sets %s in the .env of %s on the server %s, then restarts the app, which reads it as a setting.", name, t.app, t.host),
 		Fields: []string{name},
 	}
-	if !stdinIsTerminal(in) {
+	if !stdinIsTerminal(in) && stdinReadable(in) {
 		data, err := io.ReadAll(in)
 		if err != nil {
 			return "", err
 		}
-		if len(data) > 0 {
-			v := strings.TrimSuffix(string(data), "\n")
-			return strings.TrimSuffix(v, "\r"), nil
-		}
+		v := strings.TrimSuffix(string(data), "\n")
+		return strings.TrimSuffix(v, "\r"), nil
 	}
 	values, err := askSecrets(ctx, in, out, ask)
 	if err != nil {
@@ -280,9 +293,10 @@ old file comes back.`,
 	set := &cobra.Command{
 		Use:   "set NAME",
 		Short: "Set NAME in .env to a value read from the standard input, a hidden prompt or a page",
-		Long: `set reads the value from the standard input when something is piped in, else from a hidden
-prompt on a terminal. Without either, as when an agent runs it, it opens a page on 127.0.0.1 in
-the browser and prints its URL: the value is typed there and never passes through the agent.`,
+		Long: `set reads the value from a hidden prompt on a terminal, else from a pipe or a file on the
+standard input, empty or not. With neither, such as /dev/null, which is what an agent gives, it
+opens a page on 127.0.0.1 in the browser and prints its URL: the value is typed there and never
+passes through the agent.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkName(args[0]); err != nil {
