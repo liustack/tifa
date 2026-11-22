@@ -80,6 +80,9 @@ func (m *fakeMachine) install(t *testing.T) {
 		defer fakeMu.Unlock()
 		line := strings.Join(append([]string{name}, args...), " ")
 		m.ran = append(m.ran, line)
+		if _, ok := m.onPath[name]; !ok && !m.files[name] {
+			return &exec.Error{Name: name, Err: exec.ErrNotFound}
+		}
 		if err := m.fail[line]; err != nil {
 			return err
 		}
@@ -310,6 +313,40 @@ func TestSetupToolWarningFailsTheRun(t *testing.T) {
 	out, err = runSetup(t, root, true, "y\n")
 	if err != nil {
 		t.Fatalf("second run: %v\n%s", err, out)
+	}
+}
+
+// onRead runs do the first time the developer answers.
+type onRead struct {
+	io.Reader
+	do func()
+}
+
+func (r *onRead) Read(p []byte) (int, error) {
+	if r.do != nil {
+		r.do()
+		r.do = nil
+	}
+	return r.Reader.Read(p)
+}
+
+// A package manager that was there for the plan and is gone when setup applies it is a warning
+// that names it, and setup goes on.
+func TestSetupPackageManagerGoneBeforeApply(t *testing.T) {
+	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	newFakeGH().install(t)
+	t.Setenv(githubTokenEnv, "")
+	m := newFakeMachine("darwin", "brew")
+	m.install(t)
+	in := &onRead{Reader: strings.NewReader("y\nn\n"), do: func() {
+		fakeMu.Lock()
+		defer fakeMu.Unlock()
+		delete(m.onPath, "brew")
+	}}
+	out, _, err := runSetupIn(t, root, true, in)
+	if err == nil || !strings.Contains(out, "warning this machine: install gh with brew install gh: brew install gh failed") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }
 

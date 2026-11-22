@@ -160,7 +160,9 @@ func (r *setupRun) ghSteps(p *setupPlan) bool {
 		if manager == nil {
 			return false
 		}
-		toolStep(p, "install gh with "+strings.Join(manager, " "), r.installGH)
+		toolStep(p, "install gh with "+strings.Join(manager, " "), func(ctx context.Context) (string, error) {
+			return r.installGH(ctx, manager)
+		})
 	}
 	toolStep(p, "log in to gh (opens a browser)", func(ctx context.Context) (string, error) {
 		if !haveGH() {
@@ -196,8 +198,8 @@ func ghInstallHow() string {
 	return "install it from https://cli.github.com/"
 }
 
-func (r *setupRun) installGH(ctx context.Context) (string, error) {
-	manager := ghManager()
+// installGH runs manager, the command the plan found. The plan shows it, so it is not looked up again.
+func (r *setupRun) installGH(ctx context.Context, manager []string) (string, error) {
 	if err := r.install(ctx, manager[0], manager[1:]...); err != nil {
 		return "", fmt.Errorf("%v. To install gh by hand: %s", err, strings.Join(manager, " "))
 	}

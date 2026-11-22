@@ -196,6 +196,12 @@ func runSetup(t *testing.T, root string, terminal bool, input string, args ...st
 // runSetupIO is runSetup that also returns what went to stderr.
 func runSetupIO(t *testing.T, root string, terminal bool, input string, args ...string) (string, string, error) {
 	t.Helper()
+	return runSetupIn(t, root, terminal, strings.NewReader(input), args...)
+}
+
+// runSetupIn is runSetupIO with the input as a reader.
+func runSetupIn(t *testing.T, root string, terminal bool, in io.Reader, args ...string) (string, string, error) {
+	t.Helper()
 	old := stdinIsTerminal
 	t.Cleanup(func() { stdinIsTerminal = old })
 	stdinIsTerminal = func(io.Reader) bool { return terminal }
@@ -203,7 +209,7 @@ func runSetupIO(t *testing.T, root string, terminal bool, input string, args ...
 	cmd := newRootCmd()
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetIn(strings.NewReader(input))
+	cmd.SetIn(in)
 	cmd.SetArgs(append([]string{"deploy", "setup", "--dir", root}, args...))
 	err := cmd.Execute()
 	return out.String(), errOut.String(), err
