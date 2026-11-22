@@ -1533,6 +1533,15 @@ test('a page without a list has an empty switch', async () => {
   })
 })
 
+test('a title and a meta written in a component stay in the body, next to the head of the routes', async () => {
+  const html = await render('/inline', appData)
+  const head = html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
+  const body = html.slice(html.indexOf('<body>'))
+  lacks(head, 'INLINE_TITLE', 'INLINE_DESCRIPTION')
+  contains(head, '<title>APP_TITLE &amp; &lt;x&gt;</title>')
+  contains(body, '<div id="tifa-root"><title>INLINE_TITLE</title><meta name="description" content="INLINE_DESCRIPTION"/>')
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try {

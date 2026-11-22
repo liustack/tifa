@@ -29,6 +29,7 @@ const (
 	docImages   = "docs/app.md#images-and-fonts"
 	docPublic   = "docs/app.md#static-files"
 	docLoading  = "docs/app.md#loading-states"
+	docHead     = "docs/pages.md#title-and-meta-tags"
 )
 
 // The Tifa way to load data, change data and link, which several rules repeat.
@@ -143,6 +144,16 @@ var (
 		Instead: "Tifa has no server actions, and this function would run in the browser: " + insteadHandler,
 		Doc:     docCalling}
 )
+
+// headInComponent is a <title> or <meta> in the JSX of a component. React 19 hoists it into the head
+// in the browser, but Tifa writes the head of the document as a string and React renders only the
+// root in <body>, so the server HTML has the tag in <body>.
+func headInComponent(name string) Rule {
+	return Rule{
+		Says:    "<" + name + "> written in a component lands in <body>, where crawlers do not read it",
+		Instead: "write the title and meta tags in the `export const head` of the page or Layout",
+		Doc:     docHead, Warning: true}
+}
 
 // exportRule is the idiom of one exported name. match, when set, says which values make it the idiom of
 // another framework: a name an app could use for itself speaks only for the kind of value the

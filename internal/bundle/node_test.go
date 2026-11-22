@@ -272,6 +272,44 @@ func TestNodeReadsWhatCodeOfOtherFrameworksLeavesBehind(t *testing.T) {
 	}
 }
 
+// A title or a meta written as JSX in a component is a fact of the file. A title inside an svg is
+// the tooltip of a graphic, a meta with itemProp is microdata, and a component that is called
+// Title is neither.
+func TestNodeReadsTheTitleAndMetaTagsOfComponents(t *testing.T) {
+	root := t.TempDir()
+	if err := symlinkModules(t, root); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{
+		"seo.tsx": "export function Seo() {\n" +
+			"  return (\n" +
+			"    <>\n" +
+			"      <title>Foo</title>\n" +
+			"      <meta name=\"description\" content=\"x\" />\n" +
+			"      <svg><title>Chart</title><g><title>Bar</title></g></svg>\n" +
+			"      <meta itemProp=\"price\" content=\"1\" />\n" +
+			"      <Title />\n" +
+			"      <svg><foreignObject><div><title>Inner</title></div></foreignObject></svg>\n" +
+			"    </>\n" +
+			"  )\n" +
+			"}\n",
+	})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	page := filepath.Join(root, "seo.tsx")
+	got, err := n.Foreign([]string{page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, tag := range got[page].Tags {
+		tags = append(tags, fmt.Sprintf("%s@%d:%d", tag.Name, tag.Line, tag.Column))
+	}
+	if want := []string{"title@4:7", "meta@5:7", "title@9:32"}; !slices.Equal(tags, want) {
+		t.Errorf("tags %q, want %q", tags, want)
+	}
+}
+
 // The idioms of other frameworks in TypeScript, read by the driver and judged by the table of
 // internal/foreign: each is found where it stands, and an app that only looks like them reports nothing.
 func TestForeignIdiomsInTypeScriptAreFoundAndLookAlikesAreNot(t *testing.T) {

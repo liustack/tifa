@@ -109,3 +109,20 @@ func TestNextImageAndFontPointToTheDocOnImagesAndFonts(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckFactsReportsTitleAndMetaWrittenInAComponent(t *testing.T) {
+	f := &Facts{Tags: []Tag{{"title", 3, 5}, {"meta", 4, 5}}}
+	// Any file of the app: a component sits in any of them.
+	got := CheckFacts("app/components/seo.tsx", f)
+	if len(got) != 2 {
+		t.Fatalf("got %v", lines(got))
+	}
+	for i, g := range got {
+		name := f.Tags[i].Name
+		if !g.Warning || g.Line != 3+i || g.Column != 5 ||
+			!strings.HasPrefix(g.Msg, "<"+name+"> written in a component lands in <body>, where crawlers do not read it") ||
+			!strings.Contains(g.Msg, "export const head") || !strings.HasSuffix(g.Msg, "See docs/pages.md#title-and-meta-tags") {
+			t.Errorf("finding %d: %q", i, g.String())
+		}
+	}
+}

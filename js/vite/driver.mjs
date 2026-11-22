@@ -12,8 +12,9 @@
 //
 //	{op: "exports", files}       the names each TypeScript or JavaScript file exports
 //	{op: "foreign", files}       the module names each file imports, its directives, the names it
-//	                             exports with the kind of value, and its calls of imported
-//	                             functions, each with line and column, for tifa check
+//	                             exports with the kind of value, its calls of imported
+//	                             functions, and the <title> and <meta> it writes as JSX outside an
+//	                             <svg>, each with line and column, for tifa check
 //	{op: "htmlLang", files}      where each file sets lang in an htmlAttributes object it writes out:
 //	                             the exported htmlAttributes of a Layout, or the htmlAttributes a
 //	                             head returns, as {line, column} of the lang key
@@ -347,10 +348,10 @@ function langKeys(program) {
 
 // foreignFacts lists what tifa check needs to tell code written for another framework: the module
 // names an app imports, its directives, the names it exports with the kind of value, and the calls
-// of imported functions. Each comes with its line and column. A file that does not parse has none:
+// of imported functions, and the <title> and <meta> elements of JSX. Each comes with its line and column. A file that does not parse has none:
 // the build reports its syntax error.
 function foreignFacts(program, code) {
-  const facts = { imports: [], directives: [], exports: [], calls: [] }
+  const facts = { imports: [], directives: [], exports: [], calls: [], tags: [] }
   const place = (offset) => {
     const before = code.slice(0, offset)
     return { line: before.split('\n').length, column: offset - before.lastIndexOf('\n') }
@@ -377,9 +378,26 @@ function foreignFacts(program, code) {
     }
   }
   const source = (node) => (node?.source && typeof node.source.value === 'string' ? node.source : undefined)
+  // inSvg counts the <svg> elements around the node: a <title> there is the tooltip of a graphic.
+  // An element of HTML inside <foreignObject> is outside the graphic again.
+  let inSvg = 0
+  const jsxName = (element) => {
+    const name = element.openingElement.name
+    return name.type === 'JSXIdentifier' ? name.name : ''
+  }
   const walk = (node) => {
     if (Array.isArray(node)) return node.forEach(walk)
     if (node === null || typeof node !== 'object') return
+    if (node.type === 'JSXElement') {
+      const name = jsxName(node)
+      const isTag = (name === 'title' && inSvg === 0) || (name === 'meta' && !node.openingElement.attributes.some((a) => a.type === 'JSXAttribute' && a.name.name === 'itemProp'))
+      if (isTag) facts.tags.push({ name, ...place(node.start) })
+      const depth = name === 'svg' ? 1 : name === 'foreignObject' ? -inSvg : 0
+      inSvg += depth
+      for (const key in node) if (key !== 'parent') walk(node[key])
+      inSvg -= depth
+      return
+    }
     switch (node.type) {
       case 'ImportDeclaration':
         for (const s of node.specifiers) bound.set(s.local.name, node.source.value)
