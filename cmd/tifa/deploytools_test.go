@@ -236,7 +236,8 @@ func TestSetupInstallsGH(t *testing.T) {
 					t.Errorf("first plan lacks %q:\n%s", want, first)
 				}
 			}
-			login := c.path + " " + strings.Join(ghLoginArgs, " ")
+			// https, so gh leaves the git protocol of the developer's other repositories alone.
+			login := c.path + " auth login --hostname github.com --web --git-protocol https"
 			if want := []string{c.install, login}; !slices.Equal(m.ran, want) {
 				t.Errorf("ran %q, want %q", m.ran, want)
 			}

@@ -54,11 +54,13 @@ var (
 	ghProgram = "gh"
 )
 
-// ghLoginArgs log gh in through the browser without asking anything on the terminal: the host,
-// the way of logging in and the git protocol are given. The protocol is ssh, since with https gh
-// asks whether to set up git as well. The scopes gh asks for by default (repo, read:org, gist)
-// cover the secrets and variables of a repository.
-var ghLoginArgs = []string{"auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "ssh", "--skip-ssh-key"}
+// ghLoginArgs log gh in through the browser. The host, the way of logging in and the git protocol
+// are given, so gh asks only whether to log git in with GitHub too, and either answer works for
+// tifa. The protocol is https: ssh would change how gh clones every other repository, and https
+// is what gh uses when nobody set it. The scopes gh asks for by default (repo, read:org, gist)
+// cover the secrets and variables of a repository. A yes adds workflow, which git needs to push
+// the workflow file with the login of gh.
+var ghLoginArgs = []string{"auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https"}
 
 // ghLinuxInstall is GitHub's page on installing gh on Linux, where it needs root and GitHub's
 // package repository.
