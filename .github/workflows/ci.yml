@@ -143,8 +143,9 @@ jobs:
 
   windows:
     # A fast subset: everything compiles, a few packages that pass on Windows, the front end build
-    # of a new app and of the shop, started and asked for a page, and tifa dev on a new app. The
-    # full suite does not run on Windows yet. See "CI" in docs/testing.md.
+    # of a new app and of the shop, started and asked for a page, tifa dev on a new app and its
+    # end-to-end tests, the deploy tests, and a new app cloned with CRLF line ends. The full suite
+    # does not run on Windows yet. See "CI" in docs/testing.md.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: windows (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -203,7 +204,7 @@ jobs:
       # What tifa deploy runs on this machine: the arguments and the input of ssh, the files it
       # reads. The tests that run the server scripts need sh and skip here.
       - name: Test tifa deploy
-        run: go test -count=1 -timeout 10m -run 'Deploy|Setup' ./cmd/tifa/
+        run: go test -count=1 -v -timeout 10m -run 'Deploy|Setup' ./cmd/tifa/
       # The end-to-end tests of tifa dev, on copies of the apps under test/apps that have npm
       # packages. The ones that test Unix things are in _unix_test.go files and do not build here.
       - name: Install the packages of the apps that the tifa dev tests use
