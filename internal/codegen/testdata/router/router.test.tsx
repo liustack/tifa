@@ -7,7 +7,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
-import { alternateTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
+import { alternateTags, pageOwnTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
 import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { renderQuery } from './.tifa/runtime/alternates'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
@@ -1558,6 +1558,19 @@ test('a page og tag replaces the one of the same name from the Layouts above, an
   const bare = headOf(await render('/a/two', data))
   contains(bare, 'content="/two-share.png"')
   lacks(bare, 'https://a.example.com/two-share.png')
+})
+
+test('a canonical link without an href and an og:url without a content are not the app own', async () => {
+  const bad: Tag[] = [
+    { tag: 'link', attrs: { rel: 'canonical', href: undefined } },
+    { tag: 'meta', attrs: { property: 'og:url', content: undefined } },
+    { tag: 'meta', attrs: { name: 'description', content: 'kept' } },
+  ]
+  assert(JSON.stringify(pageOwnTags(bad, versions.site)) === '[{"tag":"meta","attrs":{"name":"description","content":"kept"}}]', 'the invalid pair is dropped')
+  assert(JSON.stringify(pageOwnTags(bad, '')) === JSON.stringify(pageOwnTags(bad, versions.site)), 'also without a site')
+  const added = alternateTags(bad, versions, versions.site)
+  assert(added.some((t) => t.tag === 'link' && t.attrs.rel === 'canonical' && t.attrs.href === 'https://a.example.com/en-US/langs'), `no canonical in ${JSON.stringify(added)}`)
+  assert(added.some((t) => t.tag === 'meta' && t.attrs.property === 'og:url' && t.attrs.content === 'https://a.example.com/en-US/langs'), `no og:url in ${JSON.stringify(added)}`)
 })
 
 let failed = 0

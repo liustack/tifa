@@ -509,6 +509,8 @@ test('the links of the versions follow the page the router shows, computed in th
     await router.load()
     await wait(() => hreflangs() === '')
     assert(hreflangs() === '', `a page that is not found: ${hreflangs()}`)
+    // Its share image is still absolute, as in the server render: only the links are left out.
+    assert(share() === 'APP_OG_TITLE|https://a.example.com/app-share.png', `share tags of a page that is not found: ${share()}`)
   })
 })
 

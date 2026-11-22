@@ -483,7 +483,7 @@ export interface PageAlternates {
 }
 
 // PageLinks gives all the tags of a page, given its own head: those with the share images made
-// absolute (see absoluteImages), then the links of its versions.
+// absolute (see pageOwnTags), then the links of its versions.
 export type PageLinks = (own: ReadonlyArray<Tag>) => Tag[]
 
 function withLinks(tags: Tag[], links?: PageLinks): Tag[] {
@@ -492,12 +492,15 @@ function withLinks(tags: Tag[], links?: PageLinks): Tag[] {
 
 const imageNames = ['og:image', 'og:image:url', 'og:image:secure_url', 'twitter:image']
 
-// absoluteImages gives the share images of the head a full URL: a content that starts with one
+// pageOwnTags gives the head of the routes as the page writes it. A canonical link without a string
+// href and an og:url without a string content are not the app's own: they are left out, so the
+// page gets the ones tifa computes. The share images get a full URL: a content that starts with one
 // slash is a path on this site, and gets site in front. A protocol-relative URL (//host) and a
 // full URL stay as written, and so does everything when the site is not known.
-export function absoluteImages(own: ReadonlyArray<Tag>, site: string): Tag[] {
-  if (!site) return own.slice()
-  return own.map((tag) => {
+export function pageOwnTags(own: ReadonlyArray<Tag>, site: string): Tag[] {
+  const kept = own.filter((tag) => !(isCanonicalTag(tag) && typeof tag.attrs.href !== 'string') && !(isOgUrl(tag) && typeof tag.attrs.content !== 'string'))
+  if (!site) return kept
+  return kept.map((tag) => {
     const name = tag.attrs.property ?? tag.attrs.name
     const content = tag.attrs.content
     if (tag.tag !== 'meta' || typeof name !== 'string' || !imageNames.includes(name)) return tag
@@ -506,12 +509,22 @@ export function absoluteImages(own: ReadonlyArray<Tag>, site: string): Tag[] {
   })
 }
 
-function isCanonical(tag: Tag) {
+function isCanonicalTag(tag: Tag) {
   return tag.tag === 'link' && typeof tag.attrs.rel === 'string' && tag.attrs.rel.toLowerCase().split(/\s+/).includes('canonical')
+}
+
+// An own canonical link counts when it has an href to point at.
+function isCanonical(tag: Tag) {
+  return isCanonicalTag(tag) && typeof tag.attrs.href === 'string'
 }
 
 function isOgUrl(tag: Tag) {
   return tag.tag === 'meta' && (tag.attrs.property === 'og:url' || tag.attrs.name === 'og:url')
+}
+
+// An own og:url counts when it has a content.
+function hasOgUrl(own: ReadonlyArray<Tag>) {
+  return own.some((tag) => isOgUrl(tag) && typeof tag.attrs.content === 'string')
 }
 
 // alternateTags writes the links of a page: for a page that has more than one version, a link for
@@ -532,9 +545,9 @@ export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | un
   if (!page.canonical) return tags
   let url = site + page.canonical
   const given = own.find(isCanonical)
-  if (given) url = String(given.attrs.href)
+  if (given) url = given.attrs.href as string
   else tags.push({ tag: 'link', attrs: { rel: 'canonical', href: url } })
-  if (!own.some(isOgUrl)) tags.push({ tag: 'meta', attrs: { property: 'og:url', content: url } })
+  if (!hasOgUrl(own)) tags.push({ tag: 'meta', attrs: { property: 'og:url', content: url } })
   return tags
 }
 
