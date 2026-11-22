@@ -128,6 +128,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 - `title` and meta tags with the same name come from the deepest route. Link, style and script tags are deduplicated in route order. A `<meta charset>` and a viewport meta are always added.
 - Tag attributes use React names (`className`, `httpEquiv`, `crossOrigin`). Event attributes (`onClick`), `javascript:` links and the `style` attribute are not allowed in head tags.
 - `loaderData` can be undefined when the `Load` failed. Handle it.
+- Share cards: `og:title`, `og:description`, `og:image` and `twitter:card` go in `meta` as `{ property: 'og:image', content }`. `og:image` must be a full URL, 1200x630, built from an option of the app (the program does not read `site.url`). With `site.url` Tifa writes `og:url` itself. See `docs/guides/seo.md`.
 - `head` may also return `htmlAttributes` for `<html>` (see [i18n.md](i18n.md) for `lang`).
 - The root Layout (`app/layout.tsx`) may export two constants. `htmlAttributes` (default `{ lang: 'en' }`) and `documentHead` (tags every page carries, also for unmatched URLs). Put the site default `title` in `documentHead`:
 

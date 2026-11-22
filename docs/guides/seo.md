@@ -1,7 +1,8 @@
 ---
-summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
+summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, og: tags for share cards, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
 audience: app
 read_when:
+  - Setting the title, description or share card (`og:title`, `og:image`, `twitter:card`) of a page, or a link to the site shows no image in a chat or feed
   - Putting a Tifa site in front of search engines, or adding a sitemap or a robots.txt
   - Letting ChatGPT, Claude and other language models read a site through llms.txt or the Markdown of its pages
   - The log says sitemap.xml lists the pages without parameters only
@@ -42,6 +43,51 @@ A page with a canonical URL also gets `<meta property="og:url">` with the same U
 Without `site.url` none of this happens: no canonical link, no sitemap and no `robots.txt`. A file in `public/` or a route of the app at one of these paths wins over Tifa's, so an app that has its own sitemap keeps it.
 
 A site whose pages all have fixed paths, such as `/`, `/about` and `/pricing`, needs nothing more. Its sitemap is complete.
+
+## Share cards
+
+A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
+
+```go
+// options.go: the address of the site, set where the program runs (SHARE_ORIGIN=https://shop.example.com)
+var Origin = tifa.String("share.origin", "", "Address of the site, with the scheme and no path")
+
+// app/products/product+/route.go
+type Page struct {
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
+	Image   string `json:"image"`
+}
+
+func Load(c *tifa.Ctx) (Page, error) {
+	p, err := catalog.Get(c.Param("product"))
+	if err != nil {
+		return Page{}, err
+	}
+	return Page{Name: p.Name, Summary: p.Summary, Image: shop.Origin + "/og/" + p.ID + ".png"}, nil
+}
+```
+
+```tsx
+// app/products/product+/page.tsx
+export const head = ({ loaderData }: { loaderData?: PageData }) => ({
+  meta: loaderData
+    ? [
+        { title: loaderData.name },
+        { property: 'og:title', content: loaderData.name },
+        { property: 'og:description', content: loaderData.summary },
+        { property: 'og:image', content: loaderData.image },
+        { name: 'twitter:card', content: 'summary_large_image' },
+      ]
+    : [],
+})
+```
+
+- `og:image` must be a full URL with the scheme and host. Crawlers do not resolve a path against the page, and a relative one shows no image. The program does not read `tifa.yaml`, so `site.url` is not there at run time: give the address to an option of your own, as above, and build the URL from it.
+- Put a fixed image in `public/`, such as `public/og/default.png`, which is served at `/og/default.png` with the name unchanged. An image that differs per page can be a GET route of the app that writes it. Do not import it, since an imported file gets a hashed name that changes with the build and crawlers keep the old card.
+- Make the image 1200 by 630 pixels, a ratio of about 1.91 to 1. That fills the large card of most apps. PNG or JPEG, under 5 MB.
+- `twitter:card` set to `summary_large_image` asks for the large card. Without it, X shows a small one. Titles and descriptions come from the `og:` tags.
+- The `og:` tags of a route replace those of the same name from the Layouts above it, so put the default card in the root Layout's `documentHead` and let a page override it.
 
 ## List the pages with parameters
 
