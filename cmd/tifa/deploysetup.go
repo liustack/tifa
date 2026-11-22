@@ -954,8 +954,6 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) error {
 	switch {
 	case r.zone.ID == "":
 		left("Setup cannot find the zone: " + cfNeed())
-	case !stdinIsTerminal(r.in):
-		left("There is no terminal to paste on")
 	default:
 		op := opAdd
 		if have {
@@ -975,19 +973,31 @@ const purgeTokenLater = "Without it a deploy still works, but " + noTokenCost + 
 // purgeTokenTries is how many tokens setup takes before it gives up.
 const purgeTokenTries = 3
 
-// pastePurgeToken shows the link, reads the token hidden, checks it against the zone and sets the
-// secret. A token that fails the check is asked for again. An empty line skips.
+// pastePurgeToken shows the link, reads the token hidden or on the page, checks it against the zone
+// and sets the secret. A token that fails the check is asked for again. An empty one skips.
 func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
-	say("Open this link, set Zone Resources to %s only, create the token, and paste it here, or press Enter to skip:", r.zoneText())
-	say("%s", purgeTokenLink(r.repo.Name))
+	ask := secretAsk{
+		Title: "A Cloudflare token that clears the cache of " + t.domain,
+		Why: fmt.Sprintf("After each deploy from GitHub Actions, Tifa clears the Cloudflare cache of %s, so visitors get the new pages at once. "+
+			"The link opens the Cloudflare form with the permission Cache Purge filled in. Set Zone Resources to %s only, create the token and paste it here. "+
+			"Tifa checks it and keeps it as the GitHub secret %s.", t.domain, r.zoneText(), secretPurge),
+		Link:   purgeTokenLink(r.repo.Name),
+		Fields: []string{"Cloudflare token"},
+		Skip:   "Leave it empty to skip: deploys still work, and a page with Cache can stay old until its Cache time runs out.",
+	}
+	terminal := stdinIsTerminal(r.in)
+	if terminal {
+		say("Open this link, set Zone Resources to %s only, create the token, and paste it here, or press Enter to skip:", r.zoneText())
+		say("%s", ask.Link)
+	}
 	for try := 1; try <= purgeTokenTries; try++ {
-		token, err := promptSecret(r.in, r.stdout, secretPurge)
+		values, err := askSecrets(ctx, r.in, r.errOut, ask)
 		if err != nil {
 			return "", fmt.Errorf("reading the token: %w. To try again: %s", err, purgeTokenCommand)
 		}
-		token = strings.TrimSpace(token)
+		token := strings.TrimSpace(values[0])
 		if token == "" {
 			return "", skipped{purgeTokenLater}
 		}
@@ -999,7 +1009,10 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 		if try == purgeTokenTries {
 			return "", fmt.Errorf("the token was refused: %s. To try again: %s", why, purgeTokenCommand)
 		}
-		say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
+		ask.Problem = fmt.Sprintf("The token was refused: %s. Paste it again, or leave it empty to skip.", why)
+		if terminal {
+			say("the token was refused: %s. Paste it again, or press Enter to skip.", why)
+		}
 	}
 	return "", nil
 }
@@ -1175,8 +1188,6 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		return errors.New("--cache-purge-token is for the token CI clears the CDN cache with, which needs deploy.front: cloudflare and deploy.ci: github in tifa.yaml")
 	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
 		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
-	case (f.purgeToken || f.tailscaleOAuth) && !stdinIsTerminal(in):
-		return errors.New("--cache-purge-token and --tailscale-oauth need a terminal to paste on")
 	}
 	plan, _, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {

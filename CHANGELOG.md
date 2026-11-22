@@ -7,6 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Added
 
 - Apps build for and run on windows/arm64, with slowjs v0.31.12. The CI tests Tifa on a Windows arm64 runner too.
+- Without a terminal, as when a coding agent runs them, `tifa deploy setup` and `tifa deploy env set` take a secret on a page in your browser: the Cloudflare token that clears the cache, the Tailscale OAuth client, or a value for the `.env` on the server. Tifa serves the page on 127.0.0.1 at a one-time URL, opens it and prints the URL, takes one value and closes, or stops after 10 minutes. The secret never passes through the agent. Before, setup listed these for you to do on a terminal, and `--cache-purge-token` and `--tailscale-oauth` refused to run. On a terminal the hidden prompt stays, and a value piped into `env set` still works for scripts.
 
 ## [0.1.18] - 2026-11-23
 

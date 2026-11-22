@@ -747,8 +747,8 @@ func TestSetupPurgeTokenSkippedOrRefused(t *testing.T) {
 	}
 }
 
-// --cache-purge-token asks for the token even when the secret is there, and replaces it. It needs a
-// terminal, deploy.front cloudflare and deploy.ci github.
+// --cache-purge-token asks for the token even when the secret is there, and replaces it, on a
+// terminal or on the page. It needs deploy.front cloudflare and deploy.ci github.
 func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	s := newPurgeSetup(t, "tok-good")
 	s.gh.secrets[secretPurge] = "set earlier"
@@ -756,8 +756,11 @@ func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	if err != nil || !strings.Contains(out, "change  cloudflare: a token that can only clear the cache") || s.gh.secrets[secretPurge] != "tok-good" {
 		t.Fatalf("%v, secret %q\n%s", err, s.gh.secrets[secretPurge], out)
 	}
-	if _, err := runSetup(t, s.root, false, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "terminal") {
-		t.Errorf("no terminal: %v", err)
+	// Without a terminal the page asks.
+	s.gh.secrets[secretPurge] = "set earlier"
+	submitValues(t, "tok-good")
+	if out, err := runSetup(t, s.root, false, "", "--yes", "--cache-purge-token"); err != nil || s.gh.secrets[secretPurge] != "tok-good" {
+		t.Errorf("no terminal: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(s.root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  ci: github\n")
 	if _, err := runSetup(t, s.root, true, "", "--yes", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "deploy.front") {
@@ -765,24 +768,51 @@ func TestSetupCachePurgeTokenFlag(t *testing.T) {
 	}
 }
 
-// Without a terminal there is nobody to paste a token: the plan notes, as optional, how to make it
-// and set it and what going without costs. The run succeeds.
+// Without a terminal, as when an agent runs setup with --yes, the token comes from the page: it
+// shows the link of the Cloudflare form and what to set there. A refused token opens a new page
+// that says why. Neither output shows a token.
 func TestSetupPurgeTokenNoTerminal(t *testing.T) {
 	s := newPurgeSetup(t)
-	out, err := runSetup(t, s.root, false, "", "--yes")
+	pages := submitPages(t, []string{"tok-bad"}, []string{"tok-good"})
+	out, errOut, err := runSetupIO(t, s.root, false, "", "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if strings.Contains(out, "gh secret") {
-		t.Errorf("setup tells to run gh:\n%s", out)
+	if s.gh.secrets[secretPurge] != "tok-good" || s.asked != 0 {
+		t.Errorf("secret %q, asked on a terminal %d", s.gh.secrets[secretPurge], s.asked)
 	}
-	for _, want := range []string{"1. cloudflare: a token that can only clear the cache of shop.example.com", "(optional)", "Cache time", "tifa deploy setup --cache-purge-token"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("lacks %q:\n%s", want, out)
+	forms := pages.forms()
+	for _, want := range []string{
+		"add     cloudflare: a token that can only clear the cache of shop.example.com, pasted by you",
+		"http://127.0.0.1:",
+		"Received",
+	} {
+		if !strings.Contains(out+errOut, want) {
+			t.Errorf("lacks %q:\n%s\n%s", want, out, errOut)
 		}
 	}
-	if s.asked != 0 || len(s.checks) != 0 || s.gh.secrets[secretPurge] != "" {
-		t.Errorf("asked %d, checks %q, secret %q", s.asked, s.checks, s.gh.secrets[secretPurge])
+	for _, want := range []string{
+		"https://dash.cloudflare.com/?to=/:account/api-tokens&amp;permissionGroupKeys=",
+		"Zone Resources",
+		"TIFA_DEPLOY_CF_PURGE_TOKEN",
+		"The token was refused",
+	} {
+		if !strings.Contains(forms, want) {
+			t.Errorf("the pages lack %q:\n%s", want, forms)
+		}
+	}
+	if strings.Contains(out+errOut+forms, "tok-bad") || strings.Contains(out+errOut+forms, "tok-good") {
+		t.Errorf("a token was shown:\n%s\n%s", out, errOut)
+	}
+}
+
+// An empty field on the page skips the token, as an empty line does.
+func TestSetupPurgeTokenPageSkipped(t *testing.T) {
+	s := newPurgeSetup(t)
+	submitValues(t, "")
+	out, err := runSetup(t, s.root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "skipped cloudflare: a token that can only clear the cache") || s.gh.secrets[secretPurge] != "" || len(s.checks) != 0 {
+		t.Errorf("%v, checks %q\n%s", err, s.checks, out)
 	}
 }
 
@@ -853,9 +883,11 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
 	gh := newFakeGH()
 	gh.install(t)
-	// The cache token needs a terminal to paste on. It is optional, so setup only notes it.
+	// The cache token is optional: skipped on its page, here and on the runs below that find no
+	// marker, which ask again as a first setup does.
+	submitPages(t, []string{""}, []string{""}, []string{""}, []string{""}, []string{""}, []string{""})
 	out, err := runSetup(t, root, false, "", "--yes")
-	if err != nil || !strings.Contains(out, "(optional)") {
+	if err != nil || !strings.Contains(out, "skipped cloudflare: a token") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	host := gh.secrets[secretHost]
@@ -913,13 +945,13 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	}
 }
 
-// Tailscale secrets are for the developer to add.
+// Without a terminal the plan asks for the Tailscale OAuth client on a page.
 func TestSetupSSHModesNeedThings(t *testing.T) {
 	root := setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
 	newSetupServer(t, "hostname vps.tail1234.ts.net\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	out, _ := runSetup(t, root, false, "")
-	if !strings.Contains(out, "1. github: the Tailscale secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET") || !strings.Contains(out, "tifa deploy setup --tailscale-oauth") || strings.Contains(out, "gh secret") {
+	if !strings.Contains(out, "add     github: the Tailscale OAuth client, pasted by you and kept as the secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET") || strings.Contains(out, "gh secret") {
 		t.Errorf("out:\n%s", out)
 	}
 }
@@ -990,19 +1022,35 @@ func TestSetupTailscaleOAuth(t *testing.T) {
 }
 
 // An empty client ID skips, which leaves CI unable to reach the server, so the run fails. The flag
-// needs ssh tailscale and a terminal.
+// needs ssh tailscale.
 func TestSetupTailscaleOAuthSkippedOrMisused(t *testing.T) {
 	root, gh, _, _ := tailscaleSetup(t, "")
 	out, err := runSetup(t, root, true, "", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "1 thing needs you") || gh.secrets[secretTSID] != "" || !strings.Contains(out, "tifa deploy setup --tailscale-oauth") {
 		t.Errorf("skipped: %v\n%s", err, out)
 	}
-	if _, err := runSetup(t, root, false, "", "--yes", "--tailscale-oauth"); err == nil || !strings.Contains(err.Error(), "terminal") {
-		t.Errorf("no terminal: %v", err)
-	}
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  ci: github\n")
 	if _, err := runSetup(t, root, true, "", "--yes", "--tailscale-oauth"); err == nil || !strings.Contains(err.Error(), "deploy.ssh") {
 		t.Errorf("ssh direct: %v", err)
+	}
+}
+
+// Without a terminal, the client ID and secret come from one page, the secret never in an output.
+func TestSetupTailscaleOAuthPage(t *testing.T) {
+	root, gh, asked, checks := tailscaleSetup(t)
+	pages := submitPages(t, []string{"id-1", "ts-bad"}, []string{"id-1", "ts-good"})
+	out, errOut, err := runSetupIO(t, root, false, "", "--yes")
+	if err != nil || gh.secrets[secretTSID] != "id-1" || gh.secrets[secretTSSecret] != "ts-good" || *asked != 0 || len(*checks) != 2 {
+		t.Fatalf("%v, secrets %v, asked %d, checks %d\n%s\n%s", err, gh.secrets, *asked, len(*checks), out, errOut)
+	}
+	forms := pages.forms()
+	for _, want := range []string{"Client ID", "Client secret", "https://console.tailscale.com/admin/settings/trust-credentials", "The client was refused"} {
+		if !strings.Contains(forms, want) {
+			t.Errorf("the pages lack %q:\n%s", want, forms)
+		}
+	}
+	if strings.Contains(out+errOut+forms, "ts-good") || strings.Contains(out+errOut+forms, "ts-bad") {
+		t.Errorf("the secret was shown:\n%s\n%s", out, errOut)
 	}
 }
 
@@ -1210,6 +1258,7 @@ func TestSetupReplacesTheOldSSHHost(t *testing.T) {
 	gh := newFakeGH()
 	gh.secrets[secretHost] = old
 	gh.install(t)
+	submitValues(t, "") // no marker, so the cache token is asked for, and skipped
 
 	out, err := runSetup(t, root, false, "", "--yes")
 	if err != nil {
@@ -1414,6 +1463,7 @@ func TestSetupPlanSaysTheSSHNameIsNew(t *testing.T) {
 		t.Errorf("the plan shows a name that the next run does not make:\n%s", out)
 	}
 
+	submitValues(t, "") // the cache token is asked for, and skipped
 	out, err := runSetup(t, root, false, "", "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)

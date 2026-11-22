@@ -2,8 +2,8 @@ package main
 
 // With deploy.ssh tailscale, the workflow joins the tailnet with an OAuth client of the developer,
 // kept as two GitHub secrets. Tifa cannot make the client: only the Tailscale admin console can.
-// Setup asks for it on a terminal, checks it can make keys for tag:ci, and hands both values to gh
-// on its input. Tifa keeps neither.
+// Setup asks for it on a terminal or on a page in the browser, checks it can make keys for tag:ci,
+// and hands both values to gh on its input. Tifa keeps neither.
 
 import (
 	"context"
@@ -36,9 +36,6 @@ func (r *setupRun) tailscaleSteps(p *setupPlan) {
 	switch {
 	case have && !r.tailscaleOAuth:
 		p.ok("github: the Tailscale secrets " + secretTSID + " and " + secretTSSecret + ". To replace them: " + tailscaleOAuthCommand)
-	case !stdinIsTerminal(r.in):
-		p.cannot("github: the Tailscale secrets "+secretTSID+" and "+secretTSSecret,
-			tailscaleOAuthHow+". Then run "+tailscaleOAuthCommand+" on a terminal to paste it")
 	default:
 		op := opAdd
 		if have {
@@ -49,36 +46,48 @@ func (r *setupRun) tailscaleSteps(p *setupPlan) {
 	}
 }
 
-// pasteTailscaleOAuth says how to make the client, reads its ID and secret hidden, checks them and
-// sets the secrets. A client that fails the check is asked for again. An empty ID skips, which
-// leaves CI unable to reach the server, so it is a warning.
+// pasteTailscaleOAuth says how to make the client, reads its ID and secret hidden or on the page,
+// checks them and sets the secrets. A client that fails the check is asked for again. An empty ID
+// skips, which leaves CI unable to reach the server, so it is a warning.
 func (r *setupRun) pasteTailscaleOAuth(ctx context.Context) (string, error) {
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
-	say("%s. Paste its client ID and secret here, or press Enter to skip:", tailscaleOAuthHow)
+	ask := secretAsk{
+		Title: "A Tailscale OAuth client for GitHub Actions",
+		Why: "GitHub Actions joins your tailnet with this client to reach the server when it deploys. " +
+			"Make it in the Tailscale admin console under Trust credentials: an OAuth client with the auth_keys scope for the tag " + tailscaleTag +
+			", which your tailnet policy must own and let reach port 22 of the server. Tifa checks it and keeps it as the GitHub secrets " +
+			secretTSID + " and " + secretTSSecret + ".",
+		Link:   "https://console.tailscale.com/admin/settings/trust-credentials",
+		Fields: []string{"Client ID", "Client secret"},
+		Skip:   "Leave them empty to skip: CI cannot reach the server until you add them.",
+	}
+	terminal := stdinIsTerminal(r.in)
+	if terminal {
+		say("%s. Paste its client ID and secret here, or press Enter to skip:", tailscaleOAuthHow)
+	}
 	for try := 1; try <= purgeTokenTries; try++ {
-		id, err := promptSecret(r.in, r.stdout, "client ID")
+		values, err := askSecrets(ctx, r.in, r.errOut, ask)
 		if err != nil {
-			return "", fmt.Errorf("reading the client ID: %w. To try again: %s", err, tailscaleOAuthCommand)
+			return "", fmt.Errorf("reading the client: %w. To try again: %s", err, tailscaleOAuthCommand)
 		}
-		id = strings.TrimSpace(id)
+		id, secret := strings.TrimSpace(values[0]), strings.TrimSpace(values[1])
 		if id == "" {
 			return "", fmt.Errorf("skipped, and CI cannot reach the server without it. To add it: %s", tailscaleOAuthCommand)
 		}
-		secret, err := promptSecret(r.in, r.stdout, "client secret")
-		if err != nil {
-			return "", fmt.Errorf("reading the client secret: %w. To try again: %s", err, tailscaleOAuthCommand)
-		}
-		err = checkTailscaleOAuth(ctx, id, strings.TrimSpace(secret))
+		err = checkTailscaleOAuth(ctx, id, secret)
 		if err == nil {
 			if err := r.ghSecret(ctx, secretTSID, id); err != nil {
 				return "", err
 			}
-			return "", r.ghSecret(ctx, secretTSSecret, strings.TrimSpace(secret))
+			return "", r.ghSecret(ctx, secretTSSecret, secret)
 		}
 		if try == purgeTokenTries {
 			return "", fmt.Errorf("the client was refused: %v. To try again: %s", err, tailscaleOAuthCommand)
 		}
-		say("the client was refused: %v. Paste it again, or press Enter to skip.", err)
+		ask.Problem = fmt.Sprintf("The client was refused: %v. Paste it again, or leave it empty to skip.", err)
+		if terminal {
+			say("the client was refused: %v. Paste it again, or press Enter to skip.", err)
+		}
 	}
 	return "", nil
 }

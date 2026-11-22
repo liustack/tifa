@@ -153,30 +153,42 @@ exit 3
 const restartFailed = 3
 
 // promptSecret reads a value on a terminal without showing it. Tests replace it.
-var promptSecret = func(in io.Reader, prompt io.Writer, name string) (string, error) {
+var promptSecret = func(in io.Reader, prompt io.Writer, label string) (string, error) {
 	f, ok := in.(*os.File)
 	if !ok {
 		return "", errors.New("no terminal to ask on")
 	}
 	flushInput(f)
-	fmt.Fprintf(prompt, "Value of %s (hidden): ", name)
+	fmt.Fprintf(prompt, "%s (hidden): ", label)
 	b, err := term.ReadPassword(int(f.Fd()))
 	fmt.Fprintln(prompt)
 	return string(b), err
 }
 
 // readEnvValue takes the value from a hidden prompt on a terminal, else from the standard input,
-// minus one final newline.
-func readEnvValue(in io.Reader, prompt io.Writer, name string) (string, error) {
-	if stdinIsTerminal(in) {
-		return promptSecret(in, prompt, name)
+// minus one final newline. A standard input with nothing on it, as an agent has, is no value: the
+// page asks for it then.
+func readEnvValue(ctx context.Context, in io.Reader, out io.Writer, name string, t deployTarget) (string, error) {
+	ask := secretAsk{
+		Title:  "The value of " + name,
+		Why:    fmt.Sprintf("Tifa sets %s in the .env of %s on %s, then restarts the app. The app reads it as a setting. Tifa never prints it.", name, t.app, t.host),
+		Fields: []string{"Value of " + name},
 	}
-	data, err := io.ReadAll(in)
+	if !stdinIsTerminal(in) {
+		data, err := io.ReadAll(in)
+		if err != nil {
+			return "", err
+		}
+		if len(data) > 0 {
+			v := strings.TrimSuffix(string(data), "\n")
+			return strings.TrimSuffix(v, "\r"), nil
+		}
+	}
+	values, err := askSecrets(ctx, in, out, ask)
 	if err != nil {
 		return "", err
 	}
-	v := strings.TrimSuffix(string(data), "\n")
-	return strings.TrimSuffix(v, "\r"), nil
+	return values[0], nil
 }
 
 func (t deployTarget) readEnv(ctx context.Context, stderr io.Writer) (string, error) {
@@ -257,7 +269,7 @@ old file comes back.`,
 	}
 	checkName := func(name string) error {
 		if strings.Contains(name, "=") {
-			return errors.New("give the name only: the value is read from the standard input or a prompt, so it stays out of your shell history and the process list")
+			return errors.New("give the name only: the value is read from the standard input, a hidden prompt or a page in your browser, so it stays out of your shell history and the process list")
 		}
 		if !envName.MatchString(name) {
 			return fmt.Errorf("%q is not a name .env can hold: letters, digits and underscores, not starting with a digit", name)
@@ -266,8 +278,11 @@ old file comes back.`,
 	}
 	set := &cobra.Command{
 		Use:   "set NAME",
-		Short: "Set NAME in .env to a value read from the standard input or a hidden prompt",
-		Args:  cobra.ExactArgs(1),
+		Short: "Set NAME in .env to a value read from the standard input, a hidden prompt or a page",
+		Long: `set reads the value from the standard input when something is piped in, else from a hidden
+prompt on a terminal. Without either, as when an agent runs it, it opens a page on 127.0.0.1 in
+the browser and prints its URL: the value is typed there and never passes through the agent.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkName(args[0]); err != nil {
 				return err
@@ -276,7 +291,7 @@ old file comes back.`,
 			if err != nil {
 				return err
 			}
-			value, err := readEnvValue(cmd.InOrStdin(), cmd.ErrOrStderr(), args[0])
+			value, err := readEnvValue(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), args[0], t)
 			if err != nil {
 				return err
 			}
