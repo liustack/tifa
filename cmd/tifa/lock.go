@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/liustack/tifa/internal/codegen"
@@ -212,7 +211,9 @@ func listenDev(addr string, strict bool) (net.Listener, error) {
 		if err == nil {
 			return ln, nil
 		}
-		if !errors.Is(err, syscall.EADDRINUSE) {
+		// A reserved port is skipped like a taken one, but an address the user named gets the
+		// system's own words for it.
+		if !addrInUse(err) && (strict || !portReserved(err)) {
 			return nil, err
 		}
 	}

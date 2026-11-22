@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -226,5 +227,36 @@ func TestAppAddressIsNotTheOneOfVite(t *testing.T) {
 	}
 	if addr == vite || calls != 2 {
 		t.Fatalf("the app got %s after %d tries, want another address than %s on the second try", addr, calls, vite)
+	}
+}
+
+// waitForPID reads the first line the app printed as a process ID.
+func waitForPID(t *testing.T, out *syncBuffer) int {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if line, _, ok := strings.Cut(out.String(), "\n"); ok {
+			pid, err := strconv.Atoi(strings.TrimSpace(line))
+			if err != nil {
+				t.Fatalf("first line %q is not a PID", line)
+			}
+			return pid
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the app printed no PID within 5s")
+	return 0
+}
+
+func stopWithin(t *testing.T, a *app, timeout, limit time.Duration) error {
+	t.Helper()
+	stopped := make(chan error, 1)
+	go func() { stopped <- a.stop(timeout) }()
+	select {
+	case err := <-stopped:
+		return err
+	case <-time.After(limit):
+		t.Fatalf("stop still blocked after %s", limit)
+		return nil
 	}
 }

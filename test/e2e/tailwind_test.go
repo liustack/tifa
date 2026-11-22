@@ -64,7 +64,7 @@ func TestTailwindApp(t *testing.T) {
 func TestDevTailwind(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	d := startDev(t, copyApp(t, "tailwind"))
 	d.waitLog(t, 0, ready)

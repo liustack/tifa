@@ -23,6 +23,8 @@ const appWaitDelay = time.Second
 // app is one run of the application executable.
 type app struct {
 	cmd  *exec.Cmd
+	life *lifeline     // see newLifeline. On Windows closing it is also how the app is asked to stop
+	grp  *group        // the app and what it starts, see joinGroup
 	done chan struct{} // closed once the process exited
 	err  error         // result of cmd.Wait, read after done is closed
 	gen  int           // counts the apps one Run started, the newest is current
@@ -52,10 +54,18 @@ func startApp(command []string, dir, addr string, stdout, stderr io.Writer) (*ap
 		return nil, fmt.Errorf("starting the app: %w", err)
 	}
 	life.started()
+	a.life = life
+	if a.grp, err = joinGroup(cmd.Process); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		life.close()
+		return nil, fmt.Errorf("starting the app: %w", err)
+	}
 	go func() {
 		a.err = cmd.Wait()
 		// Whatever the app left running in its group goes with it.
-		_ = killGroup(cmd.Process)
+		_ = killGroup(a)
+		a.grp.close()
 		life.close()
 		close(a.done)
 	}()
@@ -119,10 +129,9 @@ func (a *app) waitReady(ctx context.Context, addr string, timeout time.Duration)
 }
 
 // stop interrupts the app's process group so the app runs OnShutdown, and kills the group when
-// the app has not exited after timeout. The interrupt is not available on Windows, Run refuses
-// to start there.
+// the app has not exited after timeout.
 func (a *app) stop(timeout time.Duration) error {
-	if err := interruptGroup(a.cmd.Process); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := interruptGroup(a); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("interrupting the app: %w", err)
 	}
 	select {
@@ -130,7 +139,7 @@ func (a *app) stop(timeout time.Duration) error {
 		return nil
 	case <-time.After(timeout):
 	}
-	if err := killGroup(a.cmd.Process); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := killGroup(a); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("killing the app: %w", err)
 	}
 	<-a.done // Wait gives up on the output appWaitDelay after the exit

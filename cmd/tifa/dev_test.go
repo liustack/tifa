@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -338,5 +340,21 @@ func TestDevGoBuildWritesBackGeneratedFilesChangedOnDisk(t *testing.T) {
 	}
 	if got, err := os.ReadFile(mainGo); err != nil || string(got) != string(want) {
 		t.Errorf(".tifa/main.go = %q, %v, want it written back", got, err)
+	}
+}
+
+// tifa dev does not start anything when it cannot make sure that what it starts ends with it:
+// a fallback would leave go build, Node or the app running after tifa dev is killed.
+func TestDevStopsWhenItCannotBindItsChildren(t *testing.T) {
+	failed := errors.New("AssignProcessToJobObject: Access is denied.")
+	defer func(old func() error) { bindChildren = old }(bindChildren)
+	bindChildren = func() error { return failed }
+	root := t.TempDir()
+	_, _, err := run(t, "dev", "--addr", "127.0.0.1:0", "--dir", root)
+	if !errors.Is(err, failed) || !strings.Contains(err.Error(), "tifa dev could not tie") {
+		t.Fatalf("dev: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, devOutput)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("dev built the app: %v", err)
 	}
 }

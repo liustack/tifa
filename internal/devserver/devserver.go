@@ -81,10 +81,8 @@ var firstBuildWait = 2 * time.Second
 // errors that stop tifa dev itself, such as the file watcher failing.
 func Run(ctx context.Context, ln net.Listener, o Options) error {
 	defer ln.Close()
-	if runtime.GOOS == "windows" {
-		// Restarting relies on an interrupt so the application runs OnShutdown, and Windows
-		// cannot send one to another process.
-		return errors.New("tifa dev: Windows is not supported yet, use WSL")
+	if !supported {
+		return fmt.Errorf("tifa dev does not run on %s", runtime.GOOS)
 	}
 	switch {
 	case o.Dir == "":

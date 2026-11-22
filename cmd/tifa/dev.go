@@ -34,6 +34,9 @@ import (
 // builds. tifa dev does not watch it.
 const devOutput = "bin"
 
+// bindChildren is devserver.BindChildren. A variable for the tests.
+var bindChildren = devserver.BindChildren
+
 func newDevCmd() *cobra.Command {
 	var dir, addr string
 	var background bool
@@ -101,7 +104,15 @@ it and stop it.`,
 			if err := closeInheritedOnExec(); err != nil {
 				logger.Printf("the app and Vite may inherit the files tifa dev inherited: %v", err)
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), stopSignals()...)
+			// Without it go build, Node and the app could outlive a tifa dev that is killed, so tifa dev
+			// does not start them then.
+			if err := bindChildren(); err != nil {
+				return fmt.Errorf("tifa dev could not tie the app, Vite and go build to its own life, so it does not start them: %w", err)
+			}
+			ctx, stop, err := stopContext(cmd.Context())
+			if err != nil {
+				return err
+			}
 			defer stop()
 			// The driver reports changes outside the root and restarts of Vite's dev server from
 			// the goroutine that reads its answers. outside never blocks there, so front.Close can
@@ -407,6 +418,11 @@ func (p *devPipeline) GoBuild(ctx context.Context) error {
 	flags, err := buildFlags(ctx, p.root, config.Build{DebugInfo: true}, languagesLDFlag(p.m))
 	if err != nil {
 		return err
+	}
+	if runningExeLocked {
+		if err := moveAside(p.exe); err != nil {
+			return err
+		}
 	}
 	printed, err := goBuild(ctx, p.root, p.exe, flags, io.Discard, io.Discard)
 	if err != nil {

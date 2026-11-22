@@ -1,5 +1,8 @@
 //go:build unix
 
+// The tests look for the end of the server with kill(pid, 0), a Unix call. scripts/smoke-dev.sh
+// runs --background, status and stop on Windows.
+
 package e2e
 
 import (

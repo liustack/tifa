@@ -44,7 +44,7 @@ func TestBuildChecksTheTanStackVersion(t *testing.T) {
 func TestDevChecksTheTanStackVersion(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	dir := copyApp(t, "pages")
 	fakeReactRouter(t, dir, "1.171.0")

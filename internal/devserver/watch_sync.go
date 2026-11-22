@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -20,11 +22,20 @@ import (
 // lost event costs them that long at most. Tests shorten it.
 var syncWait = time.Second
 
+// syncByName says that a write to an open file is no event the watcher can wait for. Windows
+// reports the change of a file's last write time only once its cache is written to the disk,
+// which may be long after the write, and fsnotify asks for no other change of a file's content.
+// The name of a new file is reported at once. So on Windows each sync makes a new empty file,
+// sync, sync-2 and so on, and waits for the event of its name.
+const syncByName = runtime.GOOS == "windows"
+
 // syncer is the watcher's side of sync. Only run touches it.
 type syncer struct {
-	dir  string          // temporary directory that holds file, "" until the first sync
-	file *os.File        // the file written to, nil until the first sync
-	off  bool            // syncs cannot work, such as without a system watcher: they end at once
+	dir  string   // temporary directory that holds file, "" until the first sync
+	file *os.File // the file written to, nil until the first sync and with syncByName
+	name string   // the name of the event of the last write, "" until the first sync
+	made int      // the files made in dir, with syncByName
+	off  bool     // syncs cannot work, such as without a system watcher: they end at once
 	sent []chan struct{} // the syncs that wait for the event of the last write
 	next []chan struct{} // the syncs that came after that write, which wait for the next one
 	// timeout fires syncWait after the last write, nil while no write waits for its event.
@@ -103,7 +114,7 @@ func (w *watcher) writeSync() {
 	}
 	err := w.openSync()
 	if err == nil {
-		_, err = w.sy.file.WriteAt([]byte{0}, 0)
+		err = w.touchSync()
 	}
 	if err != nil {
 		w.warnOnce(fmt.Sprintf("page requests do not wait for the watcher to see a file saved just before: %v", err))
@@ -119,14 +130,51 @@ func (w *watcher) writeSync() {
 	}
 }
 
+// touchSync makes the change whose event ends the syncs: a write to the file, or with syncByName a
+// new file, after which the one before goes.
+func (w *watcher) touchSync() error {
+	if !syncByName {
+		_, err := w.sy.file.WriteAt([]byte{0}, 0)
+		return err
+	}
+	w.sy.made++
+	name := filepath.Join(w.sy.dir, "sync")
+	if w.sy.made > 1 {
+		name += "-" + strconv.Itoa(w.sy.made)
+	}
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if w.sy.name != "" {
+		// Its event, a removal, names a file that is no longer the one of the sync.
+		if err := os.Remove(w.sy.name); err != nil {
+			return err
+		}
+	}
+	w.sy.name = name
+	return nil
+}
+
 // openSync creates and watches the file on the first sync.
 func (w *watcher) openSync() error {
-	if w.sy.file != nil {
+	if w.sy.dir != "" {
 		return nil
 	}
 	dir, err := os.MkdirTemp("", "tifa-dev-")
 	if err != nil {
 		return err
+	}
+	if syncByName {
+		if err := w.sys.add(dir); err != nil {
+			os.RemoveAll(dir)
+			return err
+		}
+		w.sy.dir = dir
+		return nil
 	}
 	f, err := os.Create(filepath.Join(dir, "sync"))
 	if err == nil {
@@ -144,13 +192,13 @@ func (w *watcher) openSync() error {
 		os.RemoveAll(dir)
 		return err
 	}
-	w.sy.dir, w.sy.file = dir, f
+	w.sy.dir, w.sy.file, w.sy.name = dir, f, f.Name()
 	return nil
 }
 
 // isSync reports whether the event named name is the one of the watcher's own write.
 func (w *watcher) isSync(name string) bool {
-	return w.sy.file != nil && name == w.sy.file.Name()
+	return w.sy.name != "" && name == w.sy.name
 }
 
 // synced ends the syncs that waited for the event of the last write, and writes again for those
@@ -181,7 +229,7 @@ func (w *watcher) endSyncs() {
 // syncWait or when events were lost. That event may still come, and it must not count for the
 // next write: the next sync writes to a new file, and the events of this one are ignored.
 func (w *watcher) dropSync() {
-	if w.sy.file == nil {
+	if w.sy.dir == "" {
 		return
 	}
 	watch := w.sy.dir
@@ -193,9 +241,11 @@ func (w *watcher) dropSync() {
 			w.warnOnce(fmt.Sprintf("removing the watch of %s: %v", watch, err))
 		}
 	}
-	w.sy.file.Close()
+	if w.sy.file != nil {
+		w.sy.file.Close()
+	}
 	os.RemoveAll(w.sy.dir)
-	w.sy.file, w.sy.dir = nil, ""
+	w.sy.file, w.sy.dir, w.sy.name, w.sy.made = nil, "", "", 0
 }
 
 // closeSync removes the file and its directory.
@@ -205,6 +255,8 @@ func (w *watcher) closeSync() {
 	}
 	if w.sy.file != nil {
 		w.sy.file.Close()
+	}
+	if w.sy.dir != "" {
 		os.RemoveAll(w.sy.dir)
 	}
 }

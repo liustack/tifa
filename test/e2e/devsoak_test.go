@@ -129,7 +129,7 @@ func TestDevManyRebuilds(t *testing.T) {
 		t.Skip("long test, set TIFA_DEV_SOAK=1 to run it")
 	}
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	n := 200
 	if v := os.Getenv("TIFA_DEV_SOAK_N"); v != "" {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync/atomic"
 	"syscall"
@@ -150,6 +151,9 @@ func TestWatcherPollsWhenOutOfWatches(t *testing.T) {
 // An atomic save that keeps the size and the modification time is still found in a polled
 // directory: the saved file is a new file.
 func TestWatcherPollFindsAtomicSaves(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.SameFile reads the identity of a Windows file by its path when it compares, so a file renamed over has the identity of the old one. The watcher polls only once the system runs out of watches, which does not happen on Windows")
+	}
 	dir := t.TempDir()
 	writeFile(t, dir, "app/a.tsx", "AAA")
 	w := preparedWatcher(t, dir, func(msg string) { t.Log(msg) })

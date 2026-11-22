@@ -122,7 +122,7 @@ The first three rows are the frameworks as shipped. Each reference row changes o
 
 ## Start an app
 
-You need Go 1.27 and Node 20.19 or 22.12 and later (what Vite 8 asks for). The npm that comes with Node is enough, and `tifa new` uses pnpm when you have it. Pages need React 19.3 or later, which `tifa new` installs. Node only builds the front end: the program you deploy never needs it. `tifa new`, `tifa check` and `tifa build` run on Windows, and the program they build is `bin\<app>.exe`. `tifa dev` does not run on Windows yet, use WSL.
+You need Go 1.27 and Node 20.19 or 22.12 and later (what Vite 8 asks for). The npm that comes with Node is enough, and `tifa new` uses pnpm when you have it. Pages need React 19.3 or later, which `tifa new` installs. Node only builds the front end: the program you deploy never needs it. `tifa new`, `tifa dev`, `tifa check` and `tifa build` run on Windows (10 1809 and later), and the program they build is `bin\<app>.exe`.
 
 ```sh
 go run github.com/liustack/tifa/cmd/tifa@latest new myapp

@@ -27,3 +27,10 @@ func processAlive(pid int) bool {
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
+
+// addrInUse reports whether a listen failed because another socket holds the address.
+func addrInUse(err error) bool { return errors.Is(err, syscall.EADDRINUSE) }
+
+// portReserved reports whether a listen failed because the system keeps the port for itself, which
+// only Windows does.
+func portReserved(error) bool { return false }

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -108,7 +110,19 @@ func TestForwardTargetGoWorkFile(t *testing.T) {
 // arguments after "--", as main does, since forward does not return when it works.
 const forwardHelperEnv = "TIFA_TEST_FORWARD_ROOT"
 
+// sleeperEnv makes the test binary sleep a minute and exit, see startSleeper. With the value
+// "deaf" it first ignores SIGTERM, then prints "ready".
+const sleeperEnv = "TIFA_TEST_SLEEPER"
+
 func TestMain(m *testing.M) {
+	if v := os.Getenv(sleeperEnv); v != "" {
+		if v == "deaf" {
+			signal.Ignore(syscall.SIGTERM)
+			fmt.Println("ready")
+		}
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
 	if root := os.Getenv(forwardHelperEnv); root != "" {
 		args := os.Args[slices.Index(os.Args, "--")+1:]
 		if err := forward(root, args); err != nil {

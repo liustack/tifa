@@ -11,3 +11,7 @@ var exeSuffix = func() string {
 	}
 	return ""
 }()
+
+// runningExeLocked says that the system refuses to write over or delete a program that runs, as
+// Windows does. It lets one be renamed, see moveAside.
+const runningExeLocked = runtime.GOOS == "windows"

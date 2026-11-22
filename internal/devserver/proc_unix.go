@@ -10,12 +10,23 @@ import (
 	"syscall"
 )
 
+// supported says whether Run runs on this system.
+const supported = true
+
 // ownGroup puts the app in a process group of its own, so stopping it reaches every process it started.
 func ownGroup(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
 
-func interruptGroup(p *os.Process) error { return signalGroup(p, syscall.SIGINT) }
+// group is the process group of the app, which Setpgid made when it started: nothing to hold.
+type group struct{}
 
-func killGroup(p *os.Process) error { return signalGroup(p, syscall.SIGKILL) }
+func joinGroup(*os.Process) (*group, error) { return &group{}, nil }
+
+func (*group) close() {}
+
+// interruptGroup sends SIGINT to the group of the app, which runs OnShutdown.
+func interruptGroup(a *app) error { return signalGroup(a.cmd.Process, syscall.SIGINT) }
+
+func killGroup(a *app) error { return signalGroup(a.cmd.Process, syscall.SIGKILL) }
 
 // signalGroup signals the process group led by p. It returns os.ErrProcessDone when the group is empty.
 func signalGroup(p *os.Process, sig syscall.Signal) error {
@@ -62,3 +73,7 @@ func (l *lifeline) close() {
 	l.r.Close()
 	l.w.Close()
 }
+
+// BindChildren does nothing on Unix: the app stops when its lifeline ends, and the driver of Vite
+// when its stdin does, both when tifa dev ends however it ends.
+func BindChildren() error { return nil }

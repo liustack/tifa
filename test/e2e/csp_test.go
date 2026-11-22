@@ -152,7 +152,7 @@ func TestSessionUnderCSP(t *testing.T) {
 func TestDevUnderCSP(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
-		t.Skip("tifa dev needs interrupts, which Windows lacks")
+		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
 	}
 	t.Setenv("SERVER_CSP", "on")
 	dir := devApp(t)

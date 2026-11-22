@@ -3,6 +3,7 @@ package devserver
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -31,6 +32,9 @@ func seeChanges(t *testing.T, w *watcher, want ...change) {
 // A link to a directory another link already covers takes over when that link is pointed
 // elsewhere.
 func TestWatcherTakesOverFromARetargetedLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the test points a link elsewhere by renaming a new link over it, which Windows refuses for a link to a directory")
+	}
 	dir, one, two := t.TempDir(), t.TempDir(), t.TempDir()
 	writeFile(t, one, "x.ts", "one")
 	writeFile(t, two, "x.ts", "two")
