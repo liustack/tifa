@@ -9,6 +9,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - A page with a canonical link also gets `<meta property="og:url">` with the same URL, in the server render and after a navigation in the browser. An `og:url` in a route's `head` or in `documentHead` wins, and the page has only that one.
 - `tifa check`, `tifa build` and `tifa dev` warn about a `<title>` or `<meta>` written as JSX in a component, with its file and line, and point to the `head` export. Tifa writes the head as a string and React renders only the app root in `<body>`, so such a tag ended up in `<body>`, where crawlers do not read it. A `<title>` inside an `<svg>` and a `<meta itemProp>` are not reported.
 
+### Changed
+
+- A constant in `route.go` that is a typo of a switch, such as `Cahce` for `Cache` or `ReadTimout` for `ReadTimeout`, fails the build with `Cahce is not a switch: did you mean Cache?`. Before, it was ignored without a word. Only exported names with at least three letters count, within one edit of a switch name when the shorter name has four letters or fewer, and within two edits above that.
+
 ## [0.1.19] - 2026-11-23
 
 ### Added

@@ -40,6 +40,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 - A folder with a `page.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `page.tsx` alone, without `route.go`.
 - A folder with `route.go` and no `page.tsx` is an API route when it declares a method handler: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page. A `route.go` with only a `Layout` is no API route. It gives the pages below it their Layout data.
 - Everything is package-level functions and constants. Use the global variables the app has set up for dependencies. The framework does no dependency injection.
+- The names of the switches (`SSR`, `Cache`, `Memo`, `LayoutSSR`, `BodyLimit`, `ReadTimeout`) are read as written. A constant in `route.go` that is a switch in lower case, or an exported one that is one or two letters off a switch (`Cahce`), fails the build with the name it probably meant, since it would be ignored otherwise. Short names such as `ID` or `Max`, and names such as `Mode` that are two edits from a four-letter switch, are left alone.
 
 When an error is returned:
 
