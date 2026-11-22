@@ -729,7 +729,7 @@ func TestSetupPurgeTokenTerminal(t *testing.T) {
 		"add     " + purgeItem,
 		"https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22cache%22%2C%22type%22%3A%22purge%22%7D%5D&name=tifa%20cache%20purge%20example.com",
 		"Zone Resources",
-		"Tifa keeps it on your server vps, readable only by the user tifa, and every deploy to the zone example.com uses it.",
+		"Tifa keeps this token on your server vps, readable only by the user tifa, and every deploy to the zone example.com uses it.",
 		"the token was refused",
 		"done    " + purgeItem,
 	} {

@@ -1107,7 +1107,7 @@ const purgeTokenTries = 3
 func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	t := r.t
 	say := func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) }
-	kept := fmt.Sprintf("Tifa keeps it on your server %s, readable only by the user tifa, and every deploy to %s uses it", t.host, r.zoneText())
+	kept := fmt.Sprintf("Tifa keeps this token on your server %s, readable only by the user tifa, and every deploy to %s uses it", t.host, r.zoneText())
 	who := t.app + " on " + t.host
 	if r.repo.Name != "" {
 		who = t.app + " · " + r.repo.Name
