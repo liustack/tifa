@@ -51,6 +51,17 @@ type Pipeline interface {
 	// code lists its files, so one that appears or goes needs a new bundle. Like Embedded it
 	// answers for the last analysis that worked, which reads tifa.yaml.
 	Public() string
+	// Styles checks the stylesheets the pages link through Vite's dev server, as the browser gets
+	// them, and records them as they are now. It runs in place of Bundle after an edit of a
+	// stylesheet that PlainStyles names, which leaves the SSR bundle as it is. rebundle is true when
+	// the stylesheets import other files than the last Bundle recorded: then Bundle runs after all.
+	Styles(ctx context.Context) (rebundle bool, err error)
+	// PlainStyles reports whether an edit of the file rel, given relative to the application
+	// directory with forward slashes, leaves the SSR bundle that the last Bundle built as it is: rel
+	// is a plain stylesheet, and that bundle takes every stylesheet for its side effect alone, with
+	// no CSS modules and no query such as ?inline, so no text of a stylesheet reaches it. False
+	// before the first Bundle. The function is never nil and may be called from any goroutine.
+	PlainStyles() func(rel string) bool
 	// Reads reports whether the SSR bundle that the last Bundle built read the file rel, given
 	// relative to the application directory with forward slashes, whatever its type: a text
 	// file imported with ?raw is one. A change to such a file needs a new bundle. The function is
@@ -84,17 +95,19 @@ type change struct {
 	op   op
 }
 
-// steps is the work one rebuild does. Steps always run in the order of the fields. content
-// converts the entries that changed, contentAll makes it convert every entry. restart builds
-// nothing: the app starts again, as it does after every build but one of the bundle or the content
-// alone, which the running app loads in place.
-type steps struct{ analyze, generate, bundle, content, contentAll, goBuild, restart bool }
+// steps is the work one rebuild does. Steps always run in the order of the fields. styles checks
+// the stylesheets after an edit that leaves the SSR bundle as it is, and is left out when the bundle
+// runs, which reads them itself. content converts the entries that changed, contentAll makes it
+// convert every entry. restart builds nothing: the app starts again, as it does after every build
+// but one of the bundle or the content alone, which the running app loads in place, and one of the
+// styles alone, which leaves the app as it is.
+type steps struct{ analyze, generate, bundle, styles, content, contentAll, goBuild, restart bool }
 
 var everything = steps{analyze: true, generate: true, bundle: true, content: true, contentAll: true, goBuild: true}
 
 func (s steps) or(t steps) steps {
-	return steps{s.analyze || t.analyze, s.generate || t.generate, s.bundle || t.bundle, s.content || t.content,
-		s.contentAll || t.contentAll, s.goBuild || t.goBuild, s.restart || t.restart}
+	return steps{s.analyze || t.analyze, s.generate || t.generate, s.bundle || t.bundle, s.styles || t.styles,
+		s.content || t.content, s.contentAll || t.contentAll, s.goBuild || t.goBuild, s.restart || t.restart}
 }
 
 // inPlace reports whether the running app can load what s built without a restart: a new SSR
@@ -259,6 +272,23 @@ func planApp(changes []change, embedded func(rel string) bool, public string, pa
 	return s
 }
 
+// splitStyles takes out of changes the edits of stylesheets that leave the SSR bundle as it is, see
+// Pipeline.PlainStyles. They reach open pages through Vite, and need the styles step alone. A
+// stylesheet that appeared or went, one that plain does not name, one the Go code embeds, one in
+// the public folder, which the bundle step copies into dist, and one under content/, which the
+// content step may read, stay with the other changes. plain and embedded may be nil.
+func splitStyles(changes []change, plain, embedded func(rel string) bool, public string) (styles, other []change) {
+	for _, c := range changes {
+		if plain != nil && c.op == modified && plain(c.path) && (embedded == nil || !embedded(c.path)) &&
+			!inPublic(public, c.path) && kindOf(c.path) != contentFile {
+			styles = append(styles, c)
+		} else {
+			other = append(other, c)
+		}
+	}
+	return styles, other
+}
+
 // builder runs the steps of each rebuild against the pipeline and remembers what the next one needs.
 type builder struct {
 	p        Pipeline
@@ -408,6 +438,24 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		s.generate = false
 		b.pending = s
 	}
+	if s.styles && !s.bundle {
+		rebundle := false
+		err := b.stepDetail("styles", func() (detail string, err error) {
+			if rebundle, err = b.p.Styles(ctx); rebundle {
+				detail = "the stylesheets import other files now"
+			}
+			return detail, err
+		})
+		if err != nil {
+			return steps{}, err
+		}
+		s.styles = false
+		if rebundle {
+			hold()
+			s.bundle, ran.bundle = true, true
+		}
+		b.pending = s
+	}
 	if s.bundle {
 		if err := b.stepDetail("bundle", func() (string, error) { return b.p.Bundle(ctx) }); err != nil {
 			return steps{}, err
@@ -415,7 +463,8 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		if b.learnReads != nil {
 			b.learnReads(b.p.Reads())
 		}
-		s.bundle = false
+		// The bundle read the stylesheets itself.
+		s.bundle, s.styles, ran.styles = false, false, false
 		b.pending = s
 	}
 	if s.content && (len(b.contentFiles) > 0 || b.p.HasContent()) {

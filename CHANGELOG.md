@@ -19,6 +19,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa deploy` commands now stop when the `.env` of the app sets a `TIFA_DEPLOY_` name that Tifa does not read, such as `TIFA_DEPLOY_CF_CACHE_PURGE_TOKEN`, and name the closest one. They used to ignore the line without a word.
 - `tifa build` and `tifa dev` spend about 0.4 to 0.5 s less in the plugin's rewrites of the SSR bundle, which `tifa dev` runs after every save: on the shop, the bundle step after an edit takes 2.3 s in place of 2.9 s. The bundle is the same byte for byte.
+- `tifa dev` has a page ready sooner after some saves. A save of a plain `.css` file (not a `.module.css`) only compiles the stylesheets again when every stylesheet the pages import is plain: on the shop the page is ready 0.19 s after a save of `app/styles.css`, was 2.67 s. A save that leaves `ssr.js` and its map the same bytes, such as an edit of a comment, keeps the VMs: 2.18 s, was 2.54 s. The checks of exports, `htmlLang` and foreign imports read again only the files that changed, a few tens of milliseconds on each save. Medians of 10 saves on an Apple M4. What dev serves is the same.
 - `tifa deploy setup` and `tifa deploy remove` now say `cf is not installed: pnpm add --global cf, then cf auth login` when cf is not on the PATH. They used to ask for `cf auth login`, which fails with "command not found" when cf is missing. With cf installed but not logged in, the message is the same as before.
 
 ### Fixed
