@@ -211,3 +211,8 @@ jobs:
         run: go test -count=1 -v -timeout 20m -run '^TestDev' ./test/e2e/
         env:
           TIFA_E2E: "1"
+      # Last, since it changes the git config of the runner as git on a Windows desktop has it.
+      - name: Build a new app from a clone made with core.autocrlf true
+        run: |
+          git config --global core.autocrlf true
+          scripts/smoke-crlf.sh
