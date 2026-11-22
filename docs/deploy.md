@@ -71,7 +71,7 @@ deploy:
 
 An older name (`DEPLOY_HOST`, `CF_CACHE_PURGE_TOKEN`, `CF_ZONE_ID`) found in `.env` while the new one is missing stops every `tifa deploy` command with an error that names the new name. Rename it. In the environment the old names are left alone: other tools use them.
 
-What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `ssh: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed (`pnpm add --global cf`) and logged in (`cf auth login`). Setup and remove tell the two apart: without cf on the PATH they say to install it, with cf installed they ask for the login. For `ci: github`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](#deploy-from-github-actions)).
+What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `ssh: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed (`pnpm add --global cf`) and logged in (`cf auth login`). Setup and remove tell the two apart: without cf on the PATH they say to install it, with cf installed they ask for the login. For `ci: github`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](#deploy-from-github-actions)). On a terminal, setup installs and logs in cf and gh for you (see below).
 
 ### Set up with a plan
 
@@ -110,6 +110,21 @@ On a terminal it asks, and only when there is something to change. Without one, 
 ```
 shop on vps matches tifa.yaml: 9 things checked (--all lists them).
 ```
+
+**cf and gh.** When `tifa.yaml` needs cf (`front: cloudflare`) or gh (`ci: github` without `TIFA_DEPLOY_GITHUB_TOKEN`) and it is missing or not logged in, the first plan installs and logs it in, and the rest waits for it, since setup reads Cloudflare and GitHub with them:
+
+```
+Plan for shop on vps
+
+  add     this machine: install cf with pnpm add --global cf
+  add     this machine: log in to cf (opens a browser)
+
+Setup plans the rest, with the Cloudflare part, once cf is ready, and asks again.
+
+Apply this plan? [y/N]
+```
+
+Your y is the consent: setup asks nothing more about it. It installs cf with `pnpm add --global cf`, and gh with `brew install gh` on macOS or `winget install --id GitHub.cli -e` on Windows, then runs `cf auth login` and `gh auth login --web` on your terminal, and each one opens a browser. gh logs in with the git protocol ssh, so it asks no questions on the terminal. Setup uses the program where the package manager put it, even when the PATH of your terminal does not have that folder yet. Then it plans the rest and asks again. It installs only with a package manager the machine has and never downloads a program itself. Without a terminal, even with `--yes`, it installs nothing and logs in nothing, and lists the commands among what you need to do. It does the same without pnpm, without brew or winget, and on Linux, where gh needs root and [GitHub's package repository](https://github.com/cli/cli/blob/trunk/docs/install_linux.md). An install or login that fails is a warning that says how to do it by hand (pnpm needs `pnpm setup` once before it installs anything globally), and setup goes on with what does not need that tool.
 
 Setup exits with an error when an item is left for you or a step that may fail failed (a cache purge token that Cloudflare refused three times), after it did all the rest. An item marked `(optional)`, such as the cache purge token, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. Run it again whenever `tifa.yaml` changes: it only does what differs.
 
