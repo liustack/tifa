@@ -34,6 +34,9 @@ import (
 // builds. tifa dev does not watch it.
 const devOutput = "bin"
 
+// bindChildren is devserver.BindChildren. A variable for the tests.
+var bindChildren = devserver.BindChildren
+
 func newDevCmd() *cobra.Command {
 	var dir, addr string
 	var background bool
@@ -101,8 +104,10 @@ it and stop it.`,
 			if err := closeInheritedOnExec(); err != nil {
 				logger.Printf("the app and Vite may inherit the files tifa dev inherited: %v", err)
 			}
-			if err := devserver.BindChildren(); err != nil {
-				logger.Printf("the app and Vite may outlive a tifa dev that is killed: %v", err)
+			// Without it go build, Node and the app could outlive a tifa dev that is killed, so tifa dev
+			// does not start them then.
+			if err := bindChildren(); err != nil {
+				return fmt.Errorf("tifa dev could not tie the app, Vite and go build to its own life, so it does not start them: %w", err)
 			}
 			ctx, stop, err := stopContext(cmd.Context())
 			if err != nil {

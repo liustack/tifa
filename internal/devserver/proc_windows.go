@@ -70,14 +70,14 @@ func joinGroup(p *os.Process) (*group, error) {
 func newJob() (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		return 0, fmt.Errorf("making a job object: %w", err)
+		return 0, fmt.Errorf("CreateJobObject: %w", err)
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE},
 	}
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
 		windows.CloseHandle(job)
-		return 0, fmt.Errorf("setting up a job object: %w", err)
+		return 0, fmt.Errorf("SetInformationJobObject: %w", err)
 	}
 	return job, nil
 }
@@ -190,7 +190,7 @@ func BindChildren() error {
 	// The handle stays open as long as the process lives.
 	if err := windows.AssignProcessToJobObject(job, windows.CurrentProcess()); err != nil {
 		windows.CloseHandle(job)
-		return fmt.Errorf("putting tifa dev in a job object: %w", err)
+		return fmt.Errorf("AssignProcessToJobObject for tifa dev: %w", err)
 	}
 	return nil
 }
