@@ -482,22 +482,57 @@ export interface PageAlternates {
   custom?: boolean
 }
 
-// PageLinks gives the tags a page adds after its own head, given those: the links of its versions.
+// PageLinks gives all the tags of a page, given its own head: those with the share images made
+// absolute (see pageOwnTags), then the links of its versions.
 export type PageLinks = (own: ReadonlyArray<Tag>) => Tag[]
 
 function withLinks(tags: Tag[], links?: PageLinks): Tag[] {
-  return links ? tags.concat(links(tags)) : tags
+  return links ? links(tags) : tags
 }
 
-function isCanonical(tag: Tag) {
+const imageNames = ['og:image', 'og:image:url', 'og:image:secure_url', 'twitter:image']
+
+// pageOwnTags gives the head of the routes as the page writes it. A canonical link without a string
+// href and an og:url without a string content are not the app's own: they are left out, so the
+// page gets the ones tifa computes. The share images get a full URL: a content that starts with one
+// slash is a path on this site, and gets site in front. A protocol-relative URL (//host) and a
+// full URL stay as written, and so does everything when the site is not known.
+export function pageOwnTags(own: ReadonlyArray<Tag>, site: string): Tag[] {
+  const kept = own.filter((tag) => !(isCanonicalTag(tag) && typeof tag.attrs.href !== 'string') && !(isOgUrl(tag) && typeof tag.attrs.content !== 'string'))
+  if (!site) return kept
+  return kept.map((tag) => {
+    const name = tag.attrs.property ?? tag.attrs.name
+    const content = tag.attrs.content
+    if (tag.tag !== 'meta' || typeof name !== 'string' || !imageNames.includes(name)) return tag
+    if (typeof content !== 'string' || !content.startsWith('/') || content.startsWith('//')) return tag
+    return { ...tag, attrs: { ...tag.attrs, content: site + content } }
+  })
+}
+
+function isCanonicalTag(tag: Tag) {
   return tag.tag === 'link' && typeof tag.attrs.rel === 'string' && tag.attrs.rel.toLowerCase().split(/\s+/).includes('canonical')
+}
+
+// An own canonical link counts when it has an href to point at.
+function isCanonical(tag: Tag) {
+  return isCanonicalTag(tag) && typeof tag.attrs.href === 'string'
+}
+
+function isOgUrl(tag: Tag) {
+  return tag.tag === 'meta' && (tag.attrs.property === 'og:url' || tag.attrs.name === 'og:url')
+}
+
+// An own og:url counts when it has a content.
+function hasOgUrl(own: ReadonlyArray<Tag>) {
+  return own.some((tag) => isOgUrl(tag) && typeof tag.attrs.content === 'string')
 }
 
 // alternateTags writes the links of a page: for a page that has more than one version, a link for
 // each version with its language and x-default, which is the version in the default language, and
 // for every page found the page itself as its canonical URL, unless the page's own head has a
-// canonical link, which wins. URLs are full, from site. A site that does not say where it is
-// served has none.
+// canonical link, which wins. A page that has a canonical URL also gets og:url with that same URL,
+// unless its own head has an og:url, which then stays alone. URLs are full, from site. A site that
+// does not say where it is served has none.
 export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | undefined, site: string): Tag[] {
   if (!page || !site) return []
   const list = page.list ?? []
@@ -507,7 +542,12 @@ export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | un
     const fallback = list.find((a) => a.language === page.default)
     if (fallback) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: site + fallback.url } })
   }
-  if (page.canonical && !own.some(isCanonical)) tags.push({ tag: 'link', attrs: { rel: 'canonical', href: site + page.canonical } })
+  if (!page.canonical) return tags
+  let url = site + page.canonical
+  const given = own.find(isCanonical)
+  if (given) url = given.attrs.href as string
+  else tags.push({ tag: 'link', attrs: { rel: 'canonical', href: url } })
+  if (!hasOgUrl(own)) tags.push({ tag: 'meta', attrs: { property: 'og:url', content: url } })
   return tags
 }
 

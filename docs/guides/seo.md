@@ -1,7 +1,8 @@
 ---
-summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
+summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, og: tags for share cards, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
 audience: app
 read_when:
+  - Setting the title, description or share card (`og:title`, `og:image`, `twitter:card`) of a page, or a link to the site shows no image in a chat or feed
   - Putting a Tifa site in front of search engines, or adding a sitemap or a robots.txt
   - Letting ChatGPT, Claude and other language models read a site through llms.txt or the Markdown of its pages
   - The log says sitemap.xml lists the pages without parameters only
@@ -37,9 +38,53 @@ site:
 
 Every page also gets `<link rel="canonical">` with its full URL: the path and the query parameters its `Load` and Layouts read, the URL the server renders it with (see [Query parameters](../memo.md#query-parameters)). Other parameters are left out. So `/store/products?page=2&utm_source=news` has the canonical URL `/store/products?page=2` when its `Load` reads `page`: page 2 of a list is a page of its own, and a link with a tracking parameter is no copy. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
 
+A page with a canonical URL also gets `<meta property="og:url">` with the same URL, so a shared link points at the page without its tracking parameters. An `og:url` in the `head` of a route, or in the `documentHead` of the root Layout, wins, and the page has only that one. When the page writes its own canonical, `og:url` repeats that URL.
+
 Without `site.url` none of this happens: no canonical link, no sitemap and no `robots.txt`. A file in `public/` or a route of the app at one of these paths wins over Tifa's, so an app that has its own sitemap keeps it.
 
 A site whose pages all have fixed paths, such as `/`, `/about` and `/pricing`, needs nothing more. Its sitemap is complete.
+
+## Share cards
+
+A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
+
+```go
+// app/products/product+/route.go
+type Page struct {
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
+	Image   string `json:"image"`
+}
+
+func Load(c *tifa.Ctx) (Page, error) {
+	p, err := catalog.Get(c.Param("product"))
+	if err != nil {
+		return Page{}, err
+	}
+	return Page{Name: p.Name, Summary: p.Summary, Image: "/og/" + p.ID + ".png"}, nil
+}
+```
+
+```tsx
+// app/products/product+/page.tsx
+export const head = ({ loaderData }: { loaderData?: PageData }) => ({
+  meta: loaderData
+    ? [
+        { title: loaderData.name },
+        { property: 'og:title', content: loaderData.name },
+        { property: 'og:description', content: loaderData.summary },
+        { property: 'og:image', content: loaderData.image },
+        { name: 'twitter:card', content: 'summary_large_image' },
+      ]
+    : [],
+})
+```
+
+- `og:image` must be a full URL with the scheme and host, since crawlers do not resolve a path against the page. Write a path that starts with one `/`, such as `/og/kettle.png`, and Tifa puts `site.url` in front of it. The same goes for `og:image:url`, `og:image:secure_url` and `twitter:image`, on the server and after a navigation in the browser. A full URL, or one that starts with `//`, stays as you wrote it. Without `site.url` nothing is changed, so a path stays a path.
+- Put a fixed image in `public/`, such as `public/og/default.png`, which is served at `/og/default.png` with the name unchanged. An image that differs per page can be a GET route of the app that writes it. Do not import it, since an imported file gets a hashed name that changes with the build and crawlers keep the old card.
+- Make the image 1200 by 630 pixels, a ratio of about 1.91 to 1. That fills the large card of most apps. PNG or JPEG, under 5 MB.
+- `twitter:card` set to `summary_large_image` asks for the large card. Without it, X shows a small one. Titles and descriptions come from the `og:` tags.
+- A tag of a route replaces the tag of the same `property` or `name` from the Layouts above it. A route that writes several tags of one name, such as two `og:image`, keeps all of them and drops the outer ones. So put the default card in the root Layout's `documentHead` and let a page override it.
 
 ## List the pages with parameters
 

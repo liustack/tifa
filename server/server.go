@@ -288,7 +288,9 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 		bodyLimit = limits.body
 	}
 	if limits.read > 0 {
-		s.liftDeadlines(w, r, limits.read)
+		if err := s.liftDeadlines(w, limits.read); err != nil {
+			core.Logger().WarnContext(r.Context(), "tifa: the ReadTimeout of the route could not be set, the request keeps server.read_timeout", "method", r.Method, "path", r.URL.Path, "err", err)
+		}
 	}
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
 	// The same template as c.Pattern(), for a middleware of tifa.SetHTTPHandler that reads it from
@@ -307,6 +309,7 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 		r, anonErr = s.anonymize(r)
 	}
 	c := core.New(tw, r, pattern, bodyLimit)
+	core.SetReadLift(c, func(d time.Duration) error { return s.liftDeadlines(w, d) })
 	if info := langInfoOf(r); info != nil {
 		core.SetLanguage(c, info.lang)
 	}
@@ -996,17 +999,15 @@ type errorBody struct {
 // liftDeadlines gives the request read to read its body, and its answer server.write_timeout after
 // that, since the answer is written once the body is in. A writer that cannot reach the connection,
 // such as one a middleware of tifa.SetHTTPHandler wraps without Unwrap, keeps the deadlines of the
-// settings, which the log says.
-func (s *server) liftDeadlines(w http.ResponseWriter, r *http.Request, read time.Duration) {
+// settings, and the error says so.
+func (s *server) liftDeadlines(w http.ResponseWriter, read time.Duration) error {
 	rc := http.NewResponseController(w)
 	now := time.Now()
 	err := rc.SetReadDeadline(now.Add(read))
 	if err == nil && s.cfg.WriteTimeout > 0 {
-		err = rc.SetWriteDeadline(now.Add(read + s.cfg.WriteTimeout))
+		err = rc.SetWriteDeadline(now.Add(read).Add(s.cfg.WriteTimeout))
 	}
-	if err != nil {
-		core.Logger().WarnContext(r.Context(), "tifa: the ReadTimeout of the route could not be set, the request keeps server.read_timeout", "method", r.Method, "path", r.URL.Path, "err", err)
-	}
+	return err
 }
 
 // clientLeft reports whether err comes from a client that went away: the context of its request

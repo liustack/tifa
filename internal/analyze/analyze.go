@@ -625,20 +625,97 @@ var switchSpellings = map[string]string{
 	"layoutssr":   "write LayoutSSR",
 }
 
-// checkSwitchNames reports the bool constants of route.go that spell a switch in the wrong case,
-// . Such a constant is a mistake rather than an ordinary name, since it would
-// otherwise be skipped without a word. A constant of another type, or one in another file, such
-// as const cache = "redis", is the app's own and is left alone.
+// checkSwitchNames reports the constants of route.go that look like a switch spelled wrong, since
+// such a constant would otherwise be skipped without a word. A bool constant that spells a switch
+// in the wrong case is reported with the advice for it. An exported constant of any type that is
+// one or two letters off a switch, such as Cahce, is reported with the name it probably meant.
+// A constant of another type spelled in lower case, such as const cache = "redis", and one in
+// another file are the app's own and are left alone.
 func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 	for _, name := range scope.Names() {
 		c, ok := scope.Lookup(name).(*types.Const)
-		if !ok || c.Val().Kind() != constant.Bool || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
+		if !ok || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
 			continue
 		}
 		if advice, ok := switchSpellings[name]; ok {
-			a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
+			if c.Val().Kind() == constant.Bool {
+				a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
+			}
+			continue
+		}
+		if near := nearSwitch(c); near != "" {
+			a.errorAt(c.Pos(), "%s is not a switch: did you mean %s?", name, near)
 		}
 	}
+}
+
+// switches are the constants of route.go that tifa reads, the ones a typo can be of.
+var switches = []string{"SSR", "Cache", "Memo", "LayoutSSR", "BodyLimit", "ReadTimeout"}
+
+// switchFits reports whether the constant c has a type the switch takes: a bool for SSR, Memo and
+// LayoutSSR, a bool or a time.Duration for Cache, an integer for BodyLimit and a time.Duration
+// for ReadTimeout. A constant of another type is the app's own, whatever its name.
+func switchFits(sw string, c *types.Const) bool {
+	switch sw {
+	case "SSR", "Memo", "LayoutSSR":
+		return c.Val().Kind() == constant.Bool
+	case "Cache":
+		return c.Val().Kind() == constant.Bool || isNamed(c.Type(), "time", "Duration")
+	case "BodyLimit":
+		b, ok := c.Type().Underlying().(*types.Basic)
+		return ok && b.Info()&types.IsInteger != 0
+	case "ReadTimeout":
+		return isNamed(c.Type(), "time", "Duration")
+	}
+	return false
+}
+
+// nearSwitch returns the switch that the constant c is a typo of, or "" when it is none. Only an
+// exported name of at least three letters can be: tifa reads the names as written, and a short
+// name such as ID or Max is the app's own. So is a constant whose type the switch does not take
+// (const Demo = "demo"). It is one edit off a switch when the shorter of the two has up to four
+// letters (Memoo for Memo, but not Mode), and up to two edits off with more (Cahce for Cache).
+func nearSwitch(c *types.Const) string {
+	name := c.Name()
+	if len(name) < 3 || name[0] < 'A' || name[0] > 'Z' {
+		return ""
+	}
+	best, bestDist := "", 0
+	for _, s := range switches {
+		limit := 2
+		if min(len(name), len(s)) <= 4 {
+			limit = 1
+		}
+		d := editDistance(name, s)
+		if d == 0 {
+			return ""
+		}
+		if d <= limit && switchFits(s, c) && (best == "" || d < bestDist) {
+			best, bestDist = s, d
+		}
+	}
+	return best
+}
+
+// editDistance is the number of single-letter changes that turn a into b.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 
 // routePackage returns the package of the route.go in d, nil without route.go and when the

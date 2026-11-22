@@ -10,6 +10,8 @@ export const head = () => ({
   meta: [
     { title: 'APP_TITLE & <x>' },
     { name: 'description', content: 'say "hi" & </script>' },
+    { property: 'og:title', content: 'APP_OG_TITLE' },
+    { property: 'og:image', content: '/app-share.png' },
   ],
 })
 

@@ -29,6 +29,7 @@ func (Reads) Validate(c *tifa.Ctx) error {
 		return err
 	}
 	_ = c.Writer()
+	_ = c.SetReadTimeout(1)
 	return nil
 }
 

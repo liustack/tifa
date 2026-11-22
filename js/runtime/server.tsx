@@ -15,6 +15,7 @@ import {
   headEnd,
   headHTML,
   headStart,
+  pageOwnTags,
   alternateTags,
   headTags,
   htmlAttributesOf,
@@ -143,7 +144,8 @@ function carried(a: RenderInput['alternates']): RenderInput['alternates'] {
 // the page in other languages.
 function pageHead(matches: Parameters<typeof headTags>[0], input: RenderInput) {
   const own = headTags(matches)
-  return own.concat(alternateTags(own, input.alternates, input.alternates?.site ?? ''))
+  const site = input.alternates?.site ?? ''
+  return pageOwnTags(own, site).concat(alternateTags(own, input.alternates, site))
 }
 
 // canonicalStatus is the status of a redirect the router threw. The router throws one for a URL it

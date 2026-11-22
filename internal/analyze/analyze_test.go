@@ -333,6 +333,7 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:21:", "c.JSON", "Validate"},
 			{"app/api/route.go:28:", "c.Bind", "Validate"},
 			{"app/api/route.go:31:", "c.Writer", "Validate"},
+			{"app/api/route.go:32:", "c.SetReadTimeout", "Validate"},
 			{"app/helper/route.go:11:", "c.SetCookie", "Validate"},
 			{"app/helper/route.go:20:", "assigned to an existing variable", "the Ctx may only be"},
 		}},
@@ -599,6 +600,14 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:5:", "memo", "capital letter", "Memo = false"},
 			{"app/other/route.go:3:", "ssr", "capital letter", "SSR"},
 			// helper.go has const cache = "redis", a string in another file: no error.
+		}},
+		{"switchtypos", [][]string{
+			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
+			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
+			{"app/page/route.go:9:", "LayoutSR is not a switch: did you mean LayoutSSR?"},
+			{"app/page/route.go:11:", "ReadTimout is not a switch: did you mean ReadTimeout?"},
+			{"app/page/route.go:13:", "BodyLmt is not a switch: did you mean BodyLimit?"},
+			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
 		}},
 		{"oldroute", [][]string{
 			{"app/route.tsx:1:", "route.tsx is not a page file any more", "rename it to page.tsx"},

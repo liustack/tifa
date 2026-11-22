@@ -272,6 +272,66 @@ func TestSetBodyLimitFailsOnceReadingStarted(t *testing.T) {
 	}
 }
 
+func TestSetReadTimeout(t *testing.T) {
+	c, _ := newCtx("POST", `{"name":"a"}`, "application/json", 1024)
+	if err := c.SetReadTimeout(time.Minute); err != nil {
+		t.Fatalf("a Ctx without a connection: %v", err)
+	}
+	var got []time.Duration
+	SetReadLift(c, func(d time.Duration) error { got = append(got, d); return nil })
+	if err := c.SetReadTimeout(5 * time.Minute); err != nil || len(got) != 1 || got[0] != 5*time.Minute {
+		t.Fatalf("lifted %v, %v", got, err)
+	}
+	for _, d := range []time.Duration{0, -time.Second} {
+		if err := c.SetReadTimeout(d); err == nil {
+			t.Errorf("SetReadTimeout(%v) must fail", d)
+		}
+	}
+	if len(got) != 1 {
+		t.Errorf("a refused duration moved the deadline: %v", got)
+	}
+	if _, err := c.Request().Body.Read(make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetReadTimeout(time.Hour); err == nil || len(got) != 1 {
+		t.Fatalf("SetReadTimeout after reading started: %v, lifted %v", err, got)
+	}
+	// An error of the connection comes back to the caller.
+	c, _ = newCtx("POST", `{}`, "application/json", 1024)
+	SetReadLift(c, func(time.Duration) error { return http.ErrNotSupported })
+	if err := c.SetReadTimeout(time.Minute); !errors.Is(err, http.ErrNotSupported) {
+		t.Errorf("error of the connection: %v", err)
+	}
+}
+
+// A request with no body has nothing to read for the deadline to apply to, and net/http reads the
+// connection in the background to see the client leave: a read deadline then cancels the request.
+func TestSetReadTimeoutLeavesARequestWithoutBodyAlone(t *testing.T) {
+	for _, body := range []io.ReadCloser{nil, http.NoBody} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Body = body
+		c := New(httptest.NewRecorder(), r, "/", 1024)
+		called := false
+		SetReadLift(c, func(time.Duration) error { called = true; return nil })
+		if err := c.SetReadTimeout(time.Minute); err != nil || called {
+			t.Errorf("body %v: error %v, deadlines moved %v", body, err, called)
+		}
+	}
+}
+
+// SetReadTimeout may run while another goroutine starts reading: started is not a plain bool.
+func TestSetReadTimeoutRacesWithTheFirstRead(t *testing.T) {
+	c, _ := newCtx("POST", `{"name":"a"}`, "application/json", 1024)
+	SetReadLift(c, func(time.Duration) error { return nil })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.Request().Body.Read(make([]byte, 1))
+	}()
+	_ = c.SetReadTimeout(time.Minute)
+	<-done
+}
+
 type filter struct {
 	Status string   `json:"status"`
 	Page   int      `json:"page"`

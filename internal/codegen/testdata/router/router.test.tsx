@@ -7,7 +7,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
-import { alternateTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
+import { alternateTags, pageOwnTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, type Tag } from './.tifa/runtime/head'
 import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { renderQuery } from './.tifa/runtime/alternates'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
@@ -1477,6 +1477,8 @@ test('a page with more than one version links to each, to x-default and to itsel
       '<link rel="canonical" href="https://a.example.com/en-US/langs">',
     ]
     contains(html, ...links)
+    contains(html, '<meta property="og:url" content="https://a.example.com/en-US/langs">')
+    assert(html.split('og:url').length === 2, 'og:url once')
     const head = html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
     assert(head.indexOf(links[0]!) < head.indexOf(links[1]!) && head.indexOf(links[2]!) < head.indexOf(links[3]!), `order in ${head}`)
     // The page and the switch read the same list, and the page carries it to the browser.
@@ -1486,21 +1488,42 @@ test('a page with more than one version links to each, to x-default and to itsel
     lacks(one, 'hreflang')
     contains(one, links[3]!)
     // No alternates, or no site to name in full URLs: no links, but the switch still has its list.
-    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' }), 'hreflang', 'rel="canonical"')
-    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, site: undefined } }), 'hreflang', 'rel="canonical"')
+    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' }), 'hreflang', 'rel="canonical"', 'og:url')
+    lacks(await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US', alternates: { ...versions, site: undefined } }), 'hreflang', 'rel="canonical"', 'og:url')
   })
 })
 
 test('a canonical link the app writes wins over the one of the page', async () => {
   const own: Tag[] = [{ tag: 'link', attrs: { rel: 'canonical', href: 'https://a.example.com/the-one' } }]
   const tags = alternateTags(own, versions, versions.site)
-  assert(tags.length === 3 && !tags.some((tag) => tag.attrs.rel === 'canonical'), `tags ${JSON.stringify(tags)}`)
+  assert(tags.length === 4 && !tags.some((tag) => tag.attrs.rel === 'canonical'), `tags ${JSON.stringify(tags)}`)
   // Without x-default when the list has no version in the default language.
   const noDefault = alternateTags([], { ...versions, list: [{ language: 'en-US', url: '/en-US/a' }, { language: 'de', url: '/de/a' }] }, versions.site)
-  assert(!noDefault.some((tag) => tag.attrs.hreflang === 'x-default') && noDefault.length === 3, `tags ${JSON.stringify(noDefault)}`)
+  assert(!noDefault.some((tag) => tag.attrs.hreflang === 'x-default') && noDefault.length === 4, `tags ${JSON.stringify(noDefault)}`)
   // A site without languages: the canonical link alone.
   const plain = alternateTags([], { site: 'https://blog.example.com', canonical: '/posts/a' }, 'https://blog.example.com')
-  assert(JSON.stringify(plain) === '[{"tag":"link","attrs":{"rel":"canonical","href":"https://blog.example.com/posts/a"}}]', `tags ${JSON.stringify(plain)}`)
+  assert(
+    JSON.stringify(plain) ===
+      '[{"tag":"link","attrs":{"rel":"canonical","href":"https://blog.example.com/posts/a"}},{"tag":"meta","attrs":{"property":"og:url","content":"https://blog.example.com/posts/a"}}]',
+    `tags ${JSON.stringify(plain)}`,
+  )
+})
+
+test('every page with a canonical URL gets og:url, unless the app writes one', async () => {
+  const url = 'https://a.example.com/en-US/langs'
+  const ogUrl = (tags: Tag[]) => tags.filter((tag) => tag.tag === 'meta' && tag.attrs.property === 'og:url')
+  // The app's og:url, from any route, stays alone.
+  const own: Tag[] = [{ tag: 'meta', attrs: { property: 'og:url', content: 'https://a.example.com/mine' } }]
+  assert(ogUrl(alternateTags(own, versions, versions.site)).length === 0, 'tifa wrote a second og:url')
+  // The app's canonical link wins, and og:url says the same URL.
+  const canon: Tag[] = [{ tag: 'link', attrs: { rel: 'canonical', href: 'https://a.example.com/the-one' } }]
+  assert(JSON.stringify(ogUrl(alternateTags(canon, versions, versions.site))) === '[{"tag":"meta","attrs":{"property":"og:url","content":"https://a.example.com/the-one"}}]', 'og:url of the app canonical')
+  assert(ogUrl(alternateTags([], versions, versions.site))[0]!.attrs.content === url, 'og:url of the page')
+  // The head of a rendered page has one.
+  const own2 = await render('/a/two', { ...appData, 'app/a/layout': ok('a'), 'app/a/two/route': ok('two') }, undefined, undefined, undefined, { alternates: { site: 'https://a.example.com', canonical: '/a/two' } })
+  assert(own2.split('og:url').length === 2 && own2.includes('https://a.example.com/a/two-share'), 'the page og:url alone')
+  const plain = await render('/a/one', { ...appData, 'app/a/layout': ok('a') }, undefined, undefined, undefined, { alternates: { site: 'https://a.example.com', canonical: '/a/one' } })
+  contains(plain, '<meta property="og:url" content="https://a.example.com/a/one">')
 })
 
 test('a page without a list has an empty switch', async () => {
@@ -1508,6 +1531,46 @@ test('a page without a list has an empty switch', async () => {
     const html = await render('/langs', appData, undefined, undefined, undefined, { language: 'en-US' })
     contains(html, 'PAGE_LANGS <!-- -->en-US<!-- --> </p>')
   })
+})
+
+test('a title and a meta written in a component stay in the body, next to the head of the routes', async () => {
+  const html = await render('/inline', appData)
+  const head = html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
+  const body = html.slice(html.indexOf('<body>'))
+  lacks(head, 'INLINE_TITLE', 'INLINE_DESCRIPTION')
+  contains(head, '<title>APP_TITLE &amp; &lt;x&gt;</title>')
+  contains(body, '<div id="tifa-root"><title>INLINE_TITLE</title><meta name="description" content="INLINE_DESCRIPTION"/>')
+})
+
+test('a page og tag replaces the one of the same name from the Layouts above, and an image path gets site.url', async () => {
+  const data = { ...appData, 'app/a/layout': ok('a'), 'app/a/two/route': ok('two') }
+  const alternates = { site: 'https://a.example.com', canonical: '/a/two' }
+  const headOf = (html: string) => html.slice(html.indexOf('<!--tifa-head-->'), html.indexOf('<!--/tifa-head-->'))
+  const two = headOf(await render('/a/two', data, undefined, undefined, undefined, { alternates }))
+  contains(two, '<meta property="og:title" content="TWO_OG_TITLE">', '<meta property="og:image" content="https://a.example.com/two-share.png">')
+  lacks(two, 'APP_OG_TITLE', 'app-share.png')
+  // A protocol-relative URL and a full URL stay as written.
+  contains(two, '<meta name="twitter:image" content="//cdn.example.com/two.png">', '<meta property="og:image:url" content="https://other.example.com/x.png">')
+  // A page without its own tags gets those of the root, with the path made absolute.
+  const one = headOf(await render('/a/one', { ...appData, 'app/a/layout': ok('a') }, undefined, undefined, undefined, { alternates: { site: 'https://a.example.com', canonical: '/a/one' } }))
+  contains(one, '<meta property="og:title" content="APP_OG_TITLE">', '<meta property="og:image" content="https://a.example.com/app-share.png">')
+  // Without site.url the content stays as written.
+  const bare = headOf(await render('/a/two', data))
+  contains(bare, 'content="/two-share.png"')
+  lacks(bare, 'https://a.example.com/two-share.png')
+})
+
+test('a canonical link without an href and an og:url without a content are not the app own', async () => {
+  const bad: Tag[] = [
+    { tag: 'link', attrs: { rel: 'canonical', href: undefined } },
+    { tag: 'meta', attrs: { property: 'og:url', content: undefined } },
+    { tag: 'meta', attrs: { name: 'description', content: 'kept' } },
+  ]
+  assert(JSON.stringify(pageOwnTags(bad, versions.site)) === '[{"tag":"meta","attrs":{"name":"description","content":"kept"}}]', 'the invalid pair is dropped')
+  assert(JSON.stringify(pageOwnTags(bad, '')) === JSON.stringify(pageOwnTags(bad, versions.site)), 'also without a site')
+  const added = alternateTags(bad, versions, versions.site)
+  assert(added.some((t) => t.tag === 'link' && t.attrs.rel === 'canonical' && t.attrs.href === 'https://a.example.com/en-US/langs'), `no canonical in ${JSON.stringify(added)}`)
+  assert(added.some((t) => t.tag === 'meta' && t.attrs.property === 'og:url' && t.attrs.content === 'https://a.example.com/en-US/langs'), `no og:url in ${JSON.stringify(added)}`)
 })
 
 let failed = 0

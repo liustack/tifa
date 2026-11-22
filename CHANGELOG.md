@@ -4,6 +4,17 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A page with a canonical link also gets `<meta property="og:url">` with the same URL, in the server render and after a navigation in the browser. An `og:url` in a route's `head` or in `documentHead` wins, and the page has only that one.
+- A share image written as a path in a `head` (`og:image`, `og:image:url`, `og:image:secure_url`, `twitter:image` with a content that starts with one `/`) gets `site.url` in front of it, in the server render and after a navigation, since crawlers need a full URL. A full URL or one that starts with `//` is kept, and without `site.url` nothing changes.
+- `tifa check`, `tifa build` and `tifa dev` warn about a `<title>` or `<meta>` written as JSX in a component, with its file and line, and point to the `head` export. Tifa writes the head as a string and React renders only the app root in `<body>`, so such a tag ended up in `<body>`, where crawlers do not read it. A `<title>` inside an `<svg>` and a `<meta itemProp>` are not reported.
+- `c.SetReadTimeout(d)` gives the body of one request `d` to arrive, as the `ReadTimeout` of a route does, and the answer `server.write_timeout` after it. Call it in `OnRequest` next to `c.SetBodyLimit`. The constants `BodyLimit` and `ReadTimeout` keep working in this release, and `OnRequest` is the way to write them now.
+
+### Changed
+
+- A constant in `route.go` that is a typo of a switch, such as `Cahce` for `Cache` or `ReadTimout` for `ReadTimeout`, fails the build with `Cahce is not a switch: did you mean Cache?`. Before, it was ignored without a word. Only exported constants with at least three letters and a type the switch takes count, within one edit of a switch name when the shorter name has four letters or fewer, and within two edits above that.
+
 ## [0.1.19] - 2026-11-23
 
 ### Added

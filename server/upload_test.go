@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -195,34 +196,137 @@ func TestRouteReadTimeout(t *testing.T) {
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	post := func(path string) (int, string, error) {
-		body, contentType := multipartBody(t, "Sea", "sea.png", []byte(strings.Repeat("png bytes ", 100)))
-		data := body.Bytes()
-		var parts [][]byte
-		for len(data) > 0 {
-			n := min(len(data), len(data)/4+1)
-			parts = append(parts, data[:n])
-			data = data[n:]
-		}
-		req, err := http.NewRequest("POST", srv.URL+path, &trickleBody{parts: parts, pause: 200 * time.Millisecond})
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Content-Type", contentType)
-		req.Header.Set("Origin", srv.URL)
-		res, err := srv.Client().Do(req)
-		if err != nil {
-			return 0, "", err
-		}
-		defer res.Body.Close()
-		b, err := io.ReadAll(res.Body)
-		return res.StatusCode, string(b), err
-	}
+	post := func(path string) (int, string, error) { return postSlowUpload(t, srv, path) }
 	if status, body, err := post("/slow"); err != nil || status != 200 || !strings.Contains(body, `"title":"Sea"`) {
 		t.Errorf("slow upload to a route with ReadTimeout: %d %s %v", status, body, err)
 	}
 	if status, _, err := post("/quick"); err == nil && status == 200 {
 		t.Errorf("slow upload to a route with server.read_timeout went through")
+	}
+}
+
+// postSlowUpload sends a small upload to path that takes about 800 ms to arrive, in four parts.
+func postSlowUpload(t *testing.T, srv *httptest.Server, path string) (int, string, error) {
+	t.Helper()
+	body, contentType := multipartBody(t, "Sea", "sea.png", []byte(strings.Repeat("png bytes ", 100)))
+	data := body.Bytes()
+	var parts [][]byte
+	for len(data) > 0 {
+		n := min(len(data), len(data)/4+1)
+		parts = append(parts, data[:n])
+		data = data[n:]
+	}
+	req, err := http.NewRequest("POST", srv.URL+path, &trickleBody{parts: parts, pause: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Origin", srv.URL)
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	return res.StatusCode, string(b), err
+}
+
+// c.SetReadTimeout in OnRequest does what the ReadTimeout of a route does: the body of this
+// request gets that long to arrive, and the answer server.write_timeout after it. A route
+// OnRequest leaves alone keeps server.read_timeout.
+func TestSetReadTimeoutInOnRequest(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.ReadTimeout = 300 * time.Millisecond
+	cfg.Server.WriteTimeout = 300 * time.Millisecond
+	app := App{
+		Hooks: Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+			if c.Pattern() == "/slow" {
+				if err := c.SetReadTimeout(5 * time.Second); err != nil {
+					return err
+				}
+			}
+			return next(c)
+		}},
+		Routes: []Route{
+			{ID: "app/slow/route", Path: "/slow", POST: InputOutput(photoHandler, BindForm)},
+			{ID: "app/quick/route", Path: "/quick", POST: InputOutput(photoHandler, BindForm)},
+		},
+	}
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	srv := httptest.NewUnstartedServer(s)
+	srv.Config.ReadTimeout = cfg.Server.ReadTimeout
+	srv.Config.WriteTimeout = cfg.Server.WriteTimeout
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	if status, body, err := postSlowUpload(t, srv, "/slow"); err != nil || status != 200 || !strings.Contains(body, `"title":"Sea"`) {
+		t.Errorf("slow upload after SetReadTimeout: %d %s %v", status, body, err)
+	}
+	if status, _, err := postSlowUpload(t, srv, "/quick"); err == nil && status == 200 {
+		t.Errorf("slow upload without SetReadTimeout went through")
+	}
+}
+
+// A GET has no body: SetReadTimeout leaves its deadlines alone. A read deadline of 50 ms would
+// reach the background read net/http does to see the client leave, and cancel the request.
+func TestSetReadTimeoutLeavesAGetAlone(t *testing.T) {
+	cfg := config.Default()
+	app := App{
+		Hooks: Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+			if err := c.SetReadTimeout(50 * time.Millisecond); err != nil {
+				return err
+			}
+			return next(c)
+		}},
+		Routes: []Route{{ID: "app/wait/route", Path: "/wait", GET: func(c *tifa.Ctx) error {
+			select {
+			case <-c.Context().Done():
+				return c.Context().Err()
+			case <-time.After(200 * time.Millisecond):
+				return c.Text(200, "waited")
+			}
+		}}},
+	}
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
+	s.register(app.Layouts, app.Routes)
+	srv := httptest.NewServer(s)
+	t.Cleanup(srv.Close)
+	res, err := srv.Client().Get(srv.URL + "/wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 || string(b) != "waited" {
+		t.Errorf("GET after SetReadTimeout: %d %q", res.StatusCode, b)
+	}
+}
+
+// deadlineWriter records the deadlines a ResponseController sets.
+type deadlineWriter struct {
+	http.ResponseWriter
+	read, write time.Time
+}
+
+func (w *deadlineWriter) SetReadDeadline(t time.Time) error  { w.read = t; return nil }
+func (w *deadlineWriter) SetWriteDeadline(t time.Time) error { w.write = t; return nil }
+
+// The write deadline is the read deadline plus server.write_timeout, also when that sum does not
+// fit in a time.Duration.
+func TestLiftDeadlinesDoesNotOverflow(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.WriteTimeout = time.Hour
+	s := newServer(cfg, Hooks{})
+	t.Cleanup(s.close)
+	w := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	if err := s.liftDeadlines(w, time.Duration(math.MaxInt64)); err != nil {
+		t.Fatal(err)
+	}
+	if !w.write.After(w.read) {
+		t.Errorf("write deadline %v is not after read deadline %v", w.write, w.read)
 	}
 }
 

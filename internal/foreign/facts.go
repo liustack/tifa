@@ -9,6 +9,15 @@ type Facts struct {
 	Directives []Directive `json:"directives"`
 	Exports    []Export    `json:"exports"`
 	Calls      []Call      `json:"calls"`
+	Tags       []Tag       `json:"tags"`
+}
+
+// Tag is a <title> or <meta> written as JSX in a component: not inside an <svg>, whose <title> is
+// the tooltip of a graphic, and not a <meta itemProp>, which is microdata. Name is "title" or "meta".
+type Tag struct {
+	Name   string `json:"name"`
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
 }
 
 // Import is an import or re-export of the module Spec.
@@ -61,6 +70,9 @@ func CheckFacts(file string, f *Facts) []Finding {
 		case "use server":
 			out = append(out, finding(file, d.Line, d.Column, useServer))
 		}
+	}
+	for _, tag := range f.Tags {
+		out = append(out, finding(file, tag.Line, tag.Column, headInComponent(tag.Name)))
 	}
 	if pageFile(path.Base(file)) {
 		for _, e := range f.Exports {
