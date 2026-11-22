@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-11-23
+
 ### Added
 
 - Apps build for and run on windows/arm64, with slowjs v0.31.12. The CI tests Tifa on a Windows arm64 runner too.
