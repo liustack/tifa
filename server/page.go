@@ -1435,6 +1435,11 @@ func (s *server) salvage(ctx context.Context, e tifa.Error, failed *renderError,
 	if failed.f.timeout > 0 {
 		deadline = failed.start.Add(failed.f.timeout)
 	}
+	// An error page has one version and no canonical URL, but it keeps the site and the default language.
+	siteOnly, err := alternatesJSON(s.siteAlternates())
+	if err != nil {
+		return ssr.Page{}, ssr.Input{}, err
+	}
 	var errs []error
 	level := 0
 	if oom {
@@ -1443,7 +1448,7 @@ func (s *server) salvage(ctx context.Context, e tifa.Error, failed *renderError,
 	for level < levels {
 		in := failed.in
 		in.Error, in.Deadline = &ssr.PlacedError{Status: e.Status, Message: e.Message, Level: level}, deadline
-		in.Alternates = nil // an error page has one version
+		in.Alternates = siteOnly
 		page, err := failed.f.render(ctx, in)
 		if err == nil {
 			return page, in, nil

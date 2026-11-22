@@ -92,6 +92,37 @@ func TestFailedRenderShowsTheErrorAtTheFirstLevelThatRenders(t *testing.T) {
 	}
 }
 
+// The page that shows an error has no canonical URL and no versions, but it keeps the site and the
+// default language: the render makes share images absolute with the site, and the browser keeps
+// it for the navigations that follow.
+func TestFailedRenderKeepsTheSiteForTheErrorPage(t *testing.T) {
+	var reported []error
+	s, r := newFrontServer(t, rescueApp(&reported))
+	s.site = "https://a.example.com"
+	r.result = func(in ssr.Input) (string, error) {
+		if in.Error == nil || in.Error.Level == 0 {
+			return "", pageError{levels: 3}
+		}
+		return "<html><body>error</body></html>", nil
+	}
+	if w := get(s, "/projects/p1"); w.Code != 502 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.inputs) != 3 {
+		t.Fatalf("%d renders", len(r.inputs))
+	}
+	if first := string(r.inputs[0].Alternates); !strings.Contains(first, `"canonical"`) {
+		t.Errorf("the first render has %s, want a canonical", first)
+	}
+	for _, in := range r.inputs[1:] {
+		if got := string(in.Alternates); got != `{"site":"https://a.example.com"}` {
+			t.Errorf("the render of the error page has %s, want the site alone", got)
+		}
+	}
+}
+
 // failClock is a clock of the render memo that the test moves.
 type failClock struct {
 	mu  sync.Mutex
