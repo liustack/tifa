@@ -296,6 +296,8 @@ func writeApp(dir string, app newApp) error {
 		switch rel {
 		case "gitignore":
 			rel = ".gitignore"
+		case "gitattributes":
+			rel = ".gitattributes"
 		case "vscode-settings.json":
 			rel = ".vscode/settings.json"
 		case "github-ci.yml":

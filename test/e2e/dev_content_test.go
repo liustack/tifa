@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,9 +13,6 @@ import (
 // a Cache time, which a reload of the content must not hold on to.
 func TestDevContent(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := copyApp(t, "content")
 	d := startDev(t, dir)
 	out := d.waitLog(t, 0, ready)

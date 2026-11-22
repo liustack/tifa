@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -63,9 +62,6 @@ func TestTailwindApp(t *testing.T) {
 // edit adds. The server render follows the edit too.
 func TestDevTailwind(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	d := startDev(t, copyApp(t, "tailwind"))
 	d.waitLog(t, 0, ready)
 	d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" })

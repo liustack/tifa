@@ -123,6 +123,9 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
+	if dir := os.Getenv(recordingSSHEnv); dir != "" {
+		recordSSH(dir)
+	}
 	if root := os.Getenv(forwardHelperEnv); root != "" {
 		args := os.Args[slices.Index(os.Args, "--")+1:]
 		if err := forward(root, args); err != nil {

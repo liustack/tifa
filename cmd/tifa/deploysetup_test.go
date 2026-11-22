@@ -374,6 +374,12 @@ func TestSetupGitHub(t *testing.T) {
 				t.Errorf("a second run set %s", c)
 			}
 		}
+		// The same workflow with CRLF line ends, as git on Windows checks it out without a
+		// .gitattributes, is right too.
+		writeFile(t, filepath.Join(root, githubWorkflowPath), strings.ReplaceAll(string(text), "\n", "\r\n"))
+		if out, err = runSetup(t, root, false, ""); err != nil || !strings.Contains(out, "matches tifa.yaml") {
+			t.Fatalf("a run with CRLF line ends: %v\n%s", err, out)
+		}
 
 		// A host that moved: the connection changes, the key stays.
 		newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))

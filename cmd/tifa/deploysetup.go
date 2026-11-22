@@ -769,7 +769,8 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.add(opAdd, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))
 	case !marked:
 		p.ok("github: " + githubWorkflowPath + " has no Tifa line at the top, so it is yours and stays")
-	case have == text:
+	// git on Windows may check the file out with CRLF line ends, which leave it the same file.
+	case strings.ReplaceAll(have, "\r\n", "\n") == text:
 		p.ok("github: " + githubWorkflowPath)
 	default:
 		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", r.writeWorkflow(workflow, text))

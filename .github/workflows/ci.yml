@@ -143,8 +143,9 @@ jobs:
 
   windows:
     # A fast subset: everything compiles, a few packages that pass on Windows, the front end build
-    # of a new app and of the shop, started and asked for a page, and tifa dev on a new app. The
-    # full suite does not run on Windows yet. See "CI" in docs/testing.md.
+    # of a new app and of the shop, started and asked for a page, tifa dev on a new app and its
+    # end-to-end tests, the deploy tests, and a new app cloned with CRLF line ends. The full suite
+    # does not run on Windows yet. See "CI" in docs/testing.md.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: windows (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -169,7 +170,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: examples/shop/pnpm-lock.yaml
+          cache-dependency-path: |
+            examples/shop/pnpm-lock.yaml
+            test/apps/*/pnpm-lock.yaml
 
       # test/compare runs the browse benchmark, which is Unix only (Rlimit, Getrusage, flock). Its files
       # are bound to the method hash of a result, so they are left out here and not changed.
@@ -198,3 +201,23 @@ jobs:
           go test -count=1 -timeout 10m -run 'Dev|Status|Stop|Logs|Lock|Errors|MoveAside|Background' ./cmd/tifa/
       - name: Run tifa dev on a new app, edit it, stop it and kill it
         run: scripts/smoke-dev.sh
+      # What tifa deploy runs on this machine: the arguments and the input of ssh, the files it
+      # reads. The tests that run the server scripts need sh and skip here.
+      - name: Test tifa deploy
+        run: go test -count=1 -v -timeout 10m -run 'Deploy|Setup' ./cmd/tifa/
+      # The end-to-end tests of tifa dev, on copies of the apps under test/apps that have npm
+      # packages. The ones that test Unix things are in _unix_test.go files and do not build here.
+      - name: Install the packages of the apps that the tifa dev tests use
+        run: |
+          for app in pages content tailwind i18n; do
+            (cd "test/apps/$app" && pnpm install --frozen-lockfile)
+          done
+      - name: Run the end-to-end tests of tifa dev
+        run: go test -count=1 -v -timeout 20m -run '^TestDev' ./test/e2e/
+        env:
+          TIFA_E2E: "1"
+      # Last, since it changes the git config of the runner as git on a Windows desktop has it.
+      - name: Build a new app from a clone made with core.autocrlf true
+        run: |
+          git config --global core.autocrlf true
+          scripts/smoke-crlf.sh

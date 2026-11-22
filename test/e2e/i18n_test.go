@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -571,9 +570,6 @@ func TestI18nBuildFailures(t *testing.T) {
 // removing the file makes it a 404 again.
 func TestDevLocaleFiles(t *testing.T) {
 	skipUnlessEnabled(t)
-	if runtime.GOOS == "windows" {
-		t.Skip("the test stops tifa dev with SIGINT, which Windows cannot send: scripts/smoke-dev.sh runs tifa dev there")
-	}
 	dir := copyApp(t, "i18n")
 	d := startDev(t, dir)
 	d.waitLog(t, 0, ready)
