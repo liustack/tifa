@@ -1,15 +1,18 @@
 package devserver
 
 import (
-	"sync"
-
 	"context"
+	"errors"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // A sync returns once the watcher handled the event of a save made before it, so the change is
@@ -24,15 +27,31 @@ func TestWatcherSyncSeesASaveMadeBefore(t *testing.T) {
 			writeFile(t, dir, "app/page.tsx", fmt.Sprintf("v%d", i+1))
 		} else {
 			writeFile(t, dir, "app/page.tsx.tmp", fmt.Sprintf("v%d", i+1))
-			if err := os.Rename(filepath.Join(dir, "app/page.tsx.tmp"), filepath.Join(dir, "app/page.tsx")); err != nil {
-				t.Fatal(err)
-			}
+			saveOver(t, filepath.Join(dir, "app/page.tsx.tmp"), filepath.Join(dir, "app/page.tsx"))
 		}
 		w.sync(context.Background())
 		if w.changes.outstanding(w.changes.mark()) == nil {
 			t.Fatalf("save %d: after the sync no change waits for a rebuild", i+1)
 		}
 		w.changes.take()
+	}
+}
+
+// saveOver renames tmp over name, as an editor saves atomically. Windows refuses to replace a file
+// another program has open, as the watcher does while it hashes the file after an event: like
+// editors, it tries again.
+func saveOver(t *testing.T, tmp, name string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		err := os.Rename(tmp, name)
+		if err == nil {
+			return
+		}
+		if runtime.GOOS != "windows" || !errors.Is(err, fs.ErrPermission) || time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

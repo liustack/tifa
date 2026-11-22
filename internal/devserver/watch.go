@@ -453,7 +453,7 @@ func (w *watcher) run(ctx context.Context) error {
 			w.addSync(done)
 		case <-w.syncTimeout():
 			w.dropSync()
-			w.synced()
+			w.syncsWaited()
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
 				return err
