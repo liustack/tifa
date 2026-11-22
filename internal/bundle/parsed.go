@@ -2,6 +2,8 @@ package bundle
 
 import (
 	"crypto/sha256"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,6 +27,7 @@ type parsedFile[T any] struct {
 // gives one. It passes parse only the files whose content it has not kept a result for, in their
 // order. As parse stops at the first file that fails, and a file that failed is not kept, the error
 // is the one of a parse of all files. A file that cannot be read goes to parse too, which says why.
+// The results of other files that are gone, renamed or deleted, are dropped.
 func (p *parsed[T]) read(files []string, parse func([]string) (map[string]T, error)) (map[string]T, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -35,11 +38,13 @@ func (p *parsed[T]) read(files []string, parse func([]string) (map[string]T, err
 		hashed    bool
 	}
 	var todo []miss
+	asked := make(map[string]bool, len(files))
 	for _, f := range files {
 		abs, err := filepath.Abs(f)
 		if err != nil {
 			return nil, err
 		}
+		asked[abs] = true
 		data, err := os.ReadFile(f)
 		if err != nil {
 			todo = append(todo, miss{file: f, abs: abs})
@@ -53,6 +58,14 @@ func (p *parsed[T]) read(files []string, parse func([]string) (map[string]T, err
 			continue
 		}
 		todo = append(todo, miss{file: f, abs: abs, sum: sum, hashed: true})
+	}
+	for abs := range p.m {
+		if asked[abs] {
+			continue
+		}
+		if _, err := os.Stat(abs); errors.Is(err, fs.ErrNotExist) {
+			delete(p.m, abs)
+		}
 	}
 	if len(todo) == 0 {
 		return out, nil
