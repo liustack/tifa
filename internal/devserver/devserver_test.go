@@ -1089,7 +1089,7 @@ func (p *buildPipeline) Reads() func(string) bool {
 	return p.reads
 }
 
-func (p *buildPipeline) Styles(context.Context) (string, error) { return "", p.step("Styles") }
+func (p *buildPipeline) Styles(context.Context) (bool, error) { return false, p.step("Styles") }
 
 func (p *buildPipeline) PlainStyles() func(string) bool {
 	if p.plain == nil {

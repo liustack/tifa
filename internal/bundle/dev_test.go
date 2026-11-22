@@ -631,6 +631,7 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 	root := devApp(t)
 	writeTree(t, root, map[string]string{
 		"app/page/theme.css": ".theme { color: red }\n",
+		"app/other.css":      ".other { color: red }\n",
 		"app/page/page.css":  "@import './theme.css';\n.page { color: red }\n",
 		"app/page/view.tsx":  "import './page.css'\nexport default function View() { return <p className=\"page\">p</p> }\n",
 		".tifa/server.ts":    "import View from '../app/page/view'\n(globalThis as any).result = String(View)\n",
@@ -641,14 +642,14 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 	}
 	defer d.Close()
 	dist := filepath.Join(root, ".tifa", "dist")
-	if err := d.Styles(context.Background()); err == nil {
+	if _, err := d.Styles(context.Background()); err == nil {
 		t.Fatal("Styles before a Build worked")
 	}
 	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	plain := d.PlainStyles()
-	for rel, want := range map[string]bool{"app/page/page.css": true, "app/page/theme.css": true, "app/other.css": true, "app/card.module.css": false, "app/page/view.tsx": false, "app/page/page.scss": false} {
+	for rel, want := range map[string]bool{"app/page/page.css": true, "app/page/theme.css": false, "app/other.css": false, "app/card.module.css": false, "app/page/view.tsx": false, "app/page/page.scss": false} {
 		if plain(rel) != want {
 			t.Errorf("PlainStyles(%s) = %v, want %v", rel, !want, want)
 		}
@@ -657,17 +658,20 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{"app/page/page.css", "app/page/theme.css"} {
-		writeTree(t, root, map[string]string{rel: ".edited { color: blue }\n"})
-		if changed, err := ChangedInputs(root, dist); err != nil || !slices.Equal(changed, []string{rel}) {
-			t.Fatalf("before Styles the changed inputs are %v %v", changed, err)
+	styles := func(want bool) {
+		t.Helper()
+		if rebundle, err := d.Styles(context.Background()); err != nil || rebundle != want {
+			t.Fatalf("Styles = %v %v, want %v", rebundle, err, want)
 		}
-		if err := d.Styles(context.Background()); err != nil {
-			t.Fatalf("Styles after an edit of %s: %v", rel, err)
-		}
-		if changed, err := ChangedInputs(root, dist); err != nil || len(changed) > 0 {
-			t.Fatalf("after Styles the changed inputs are %v %v", changed, err)
-		}
+	}
+	rel := "app/page/page.css"
+	writeTree(t, root, map[string]string{rel: "@import './theme.css';\n.edited { color: blue }\n"})
+	if changed, err := ChangedInputs(root, dist); err != nil || !slices.Equal(changed, []string{rel}) {
+		t.Fatalf("before Styles the changed inputs are %v %v", changed, err)
+	}
+	styles(false)
+	if changed, err := ChangedInputs(root, dist); err != nil || len(changed) > 0 {
+		t.Fatalf("after Styles the changed inputs are %v %v", changed, err)
 	}
 	// The SSR build of the edited stylesheets makes the same bundle.
 	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
@@ -676,14 +680,25 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 	if again, err := os.ReadFile(filepath.Join(dist, "ssr.js")); err != nil || !bytes.Equal(again, ssr) {
 		t.Fatalf("the SSR bundle changed with the stylesheets (%v)", err)
 	}
-	writeTree(t, root, map[string]string{"app/page/page.css": "@import './missing.css';\n.page { color: red }\n"})
-	if err := d.Styles(context.Background()); err == nil || !strings.Contains(err.Error(), "missing.css") {
+	// Stylesheets that import other files than the bundle recorded need the bundle, which records
+	// them: a new import, and one gone.
+	inputs, err := os.ReadFile(filepath.Join(dist, InputsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, css := range []string{"@import './theme.css';\n@import '../other.css';\n.page { color: red }\n", ".page { color: red }\n"} {
+		writeTree(t, root, map[string]string{rel: css})
+		styles(true)
+		if again, err := os.ReadFile(filepath.Join(dist, InputsFile)); err != nil || !bytes.Equal(again, inputs) {
+			t.Fatalf("Styles that needs the bundle wrote the inputs (%v)", err)
+		}
+	}
+	writeTree(t, root, map[string]string{rel: "@import './missing.css';\n.page { color: red }\n"})
+	if _, err := d.Styles(context.Background()); err == nil || !strings.Contains(err.Error(), "missing.css") {
 		t.Fatalf("Styles with a missing import: %v", err)
 	}
-	writeTree(t, root, map[string]string{"app/page/page.css": ".page { color: green }\n"})
-	if err := d.Styles(context.Background()); err != nil {
-		t.Fatalf("Styles after the fix: %v", err)
-	}
+	writeTree(t, root, map[string]string{rel: "@import './theme.css';\n.page { color: green }\n"})
+	styles(false)
 
 	for name, view := range map[string]string{
 		"CSS module": "import styles from './card.module.css'\nexport default function View() { return <p className={styles.card}>p</p> }\n",
@@ -697,5 +712,41 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 		if d.PlainStyles()("app/page/page.css") {
 			t.Errorf("%s: an edit of a plain stylesheet leaves the bundle as it is", name)
 		}
+	}
+}
+
+// Only the stylesheets that are modules of the SSR bundle are plain: a stylesheet a plugin reads
+// into a module of the bundle is an input of it, and an edit of it needs the bundle.
+func TestDevPlainStylesAreModulesOfTheBundle(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": "import fs from 'node:fs'\nimport { fileURLToPath } from 'node:url'\n" +
+			"import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"const tokens = {\n  name: 'tokens',\n" +
+			"  resolveId(id) { return id === 'virtual:tokens' ? '\\0virtual:tokens' : null },\n" +
+			"  load(id) {\n    if (id !== '\\0virtual:tokens') return null\n" +
+			"    const file = fileURLToPath(new URL('./app/tokens.css', import.meta.url))\n    this.addWatchFile(file)\n" +
+			"    return 'export const color = ' + JSON.stringify(/color: (\\w+)/.exec(fs.readFileSync(file, 'utf8'))[1])\n  },\n}\n" +
+			"export default { plugins: [tokens, tifa(), react()] }\n",
+		"app/tokens.css":    ":root { color: red }\n",
+		"app/page/page.css": ".page { color: red }\n",
+		"app/page/view.tsx": "import './page.css'\nimport { color } from 'virtual:tokens'\n" +
+			"export default function View() { return <p className=\"page\" style={{ color }}>p</p> }\n",
+		".tifa/server.ts": "import View from '../app/page/view'\n(globalThis as any).result = String(View)\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !d.Reads()("app/tokens.css") {
+		t.Fatal("the bundle did not read app/tokens.css")
+	}
+	plain := d.PlainStyles()
+	if !plain("app/page/page.css") || plain("app/tokens.css") {
+		t.Fatalf("PlainStyles: page.css %v, tokens.css %v, want true and false", plain("app/page/page.css"), plain("app/tokens.css"))
 	}
 }

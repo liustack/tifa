@@ -53,9 +53,9 @@ type Pipeline interface {
 	Public() string
 	// Styles checks the stylesheets the pages link through Vite's dev server, as the browser gets
 	// them, and records them as they are now. It runs in place of Bundle after an edit of a
-	// stylesheet that PlainStyles names, which leaves the SSR bundle as it is. A detail that is not
-	// empty goes at the end of the step's log line.
-	Styles(ctx context.Context) (detail string, err error)
+	// stylesheet that PlainStyles names, which leaves the SSR bundle as it is. rebundle is true when
+	// the stylesheets import other files than the last Bundle recorded: then Bundle runs after all.
+	Styles(ctx context.Context) (rebundle bool, err error)
 	// PlainStyles reports whether an edit of the file rel, given relative to the application
 	// directory with forward slashes, leaves the SSR bundle that the last Bundle built as it is: rel
 	// is a plain stylesheet, and that bundle takes every stylesheet for its side effect alone, with
@@ -438,6 +438,24 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		s.generate = false
 		b.pending = s
 	}
+	if s.styles && !s.bundle {
+		rebundle := false
+		err := b.stepDetail("styles", func() (detail string, err error) {
+			if rebundle, err = b.p.Styles(ctx); rebundle {
+				detail = "the stylesheets import other files now"
+			}
+			return detail, err
+		})
+		if err != nil {
+			return steps{}, err
+		}
+		s.styles = false
+		if rebundle {
+			hold()
+			s.bundle, ran.bundle = true, true
+		}
+		b.pending = s
+	}
 	if s.bundle {
 		if err := b.stepDetail("bundle", func() (string, error) { return b.p.Bundle(ctx) }); err != nil {
 			return steps{}, err
@@ -447,13 +465,6 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		}
 		// The bundle read the stylesheets itself.
 		s.bundle, s.styles, ran.styles = false, false, false
-		b.pending = s
-	}
-	if s.styles {
-		if err := b.stepDetail("styles", func() (string, error) { return b.p.Styles(ctx) }); err != nil {
-			return steps{}, err
-		}
-		s.styles = false
 		b.pending = s
 	}
 	if s.content && (len(b.contentFiles) > 0 || b.p.HasContent()) {

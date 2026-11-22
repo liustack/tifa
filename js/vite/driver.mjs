@@ -563,6 +563,17 @@ const ops = {
     if (!server) throw new Error("the stylesheets are checked by Vite's dev server, which is not running")
     await restartsDone()
     const env = server.environments.client
+    // deps are the files the stylesheets import now, as the dev server saw them, see addInput.
+    const deps = new Set()
+    const seen = new Set()
+    const visit = (mod) => {
+      for (const dep of mod.importedModules) {
+        if (seen.has(dep)) continue
+        seen.add(dep)
+        if (dep.file) addInput(deps, dep.file)
+        visit(dep)
+      }
+    }
     for (const file of files) {
       // The watcher of the dev server may not have seen the edit yet.
       for (const mod of env.moduleGraph.getModulesByFile(file) ?? []) env.moduleGraph.invalidateModule(mod)
@@ -571,8 +582,9 @@ const ops = {
       } catch (err) {
         throw new Error(`${err?.plugin ? `[plugin ${err.plugin}] ` : ''}${err?.id ?? file}\n${message(err)}`)
       }
+      for (const mod of env.moduleGraph.getModulesByFile(file) ?? []) visit(mod)
     }
-    return {}
+    return { deps: [...deps].sort() }
   },
 
   async pollFiles() {

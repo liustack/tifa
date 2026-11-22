@@ -356,7 +356,7 @@ func (p *devPipeline) Reads() func(string) bool { return p.front.Reads() }
 func (p *devPipeline) PlainStyles() func(string) bool { return p.front.PlainStyles() }
 
 // Styles checks the stylesheets after such an edit, see bundle.Dev.Styles.
-func (p *devPipeline) Styles(ctx context.Context) (string, error) { return "", p.front.Styles(ctx) }
+func (p *devPipeline) Styles(ctx context.Context) (bool, error) { return p.front.Styles(ctx) }
 
 // PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
 func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }

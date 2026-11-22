@@ -69,8 +69,9 @@ type Dev struct {
 	// reads are the files in the root that the last SSR bundle read, see Reads.
 	reads map[string]bool
 	// plain is set when the last SSR bundle takes every stylesheet for its side effect alone, see
-	// PlainStyles.
-	plain bool
+	// PlainStyles, and styleFiles holds those stylesheets that lie in the root, relative to it.
+	plain      bool
+	styleFiles map[string]bool
 	// warnings are the warnings of the tifa plugin in the last SSR bundle, see Warnings.
 	warnings []string
 }
@@ -87,36 +88,65 @@ func (d *Dev) Reads() func(rel string) bool {
 }
 
 // PlainStyles returns whether an edit of the file rel, given relative to the root with forward
-// slashes, leaves the last SSR bundle that Build made as it is. That holds for a plain stylesheet, a
-// .css file that is no CSS module, when the bundle takes every stylesheet for its side effect alone:
-// each is a file imported with no query, not a CSS module, that exports nothing. The SSR build then
-// keeps no text of any stylesheet, and the pages link the same stylesheets, as those are the ones
-// the modules import. An @import of another stylesheet changes neither. Before the first Build, and
-// for an app without pages, it is false for every file. The function may be called from any
-// goroutine.
+// slashes, leaves the last SSR bundle that Build made as it is. That holds for a plain stylesheet
+// that is a module of the bundle, a .css file that is no CSS module, when the bundle takes every
+// stylesheet for its side effect alone: each is a file imported with no query, not a CSS module,
+// that exports nothing. The SSR build then keeps no text of any stylesheet, and the pages link the
+// same stylesheets, as those are the ones the modules import. A stylesheet that is no module of the
+// bundle, such as one that a plugin reads, is not plain. Before the first Build, and for an app
+// without pages, it is false for every file. The function may be called from any goroutine.
 func (d *Dev) PlainStyles() func(rel string) bool {
 	d.mu.Lock()
-	plain := d.plain
+	plain, files := d.plain, d.styleFiles
 	d.mu.Unlock()
 	return func(rel string) bool {
-		return plain && path.Ext(rel) == ".css" && !strings.HasSuffix(rel, ".module.css")
+		return plain && files[rel] && path.Ext(rel) == ".css" && !strings.HasSuffix(rel, ".module.css")
 	}
 }
 
 // Styles is what tifa dev runs in place of Build after an edit that PlainStyles names. It has Vite's
 // dev server transform the stylesheets the pages link, as the browser gets them, and returns the
 // error of the first that fails, as the SSR build would have. Then it writes inputs.json again for
-// the files as they are now. It needs a Build that worked before.
-func (d *Dev) Styles(ctx context.Context) error {
+// the files as they are now.
+//
+// rebundle is true when the stylesheets now import other files than those the last Build recorded:
+// a file they import that the record lacks, or a stylesheet in the record that is no module of the
+// bundle and that they import no more. Only a Build records them right, and Styles writes nothing.
+// It needs a Build that worked before.
+func (d *Dev) Styles(ctx context.Context) (rebundle bool, err error) {
 	stop := context.AfterFunc(ctx, func() { d.Close() })
 	defer stop()
 	if d.modules == nil {
-		return errors.New("the stylesheets are checked after the SSR bundle is built")
+		return false, errors.New("the stylesheets are checked after the SSR bundle is built")
 	}
-	if err := d.node.call("styles", map[string]any{"files": d.stylesheets}, nil); err != nil {
-		return err
+	var result struct {
+		Deps []string `json:"deps"`
 	}
-	return writeInputs(d.root, d.dist, d.public, d.modules, d.incomplete)
+	if err := d.node.call("styles", map[string]any{"files": d.stylesheets}, &result); err != nil {
+		return false, err
+	}
+	recorded, err := moduleFiles(d.root, d.modules)
+	if err != nil {
+		return false, err
+	}
+	deps, err := moduleFiles(d.root, result.Deps)
+	if err != nil {
+		return false, err
+	}
+	d.mu.Lock()
+	own := d.styleFiles
+	d.mu.Unlock()
+	for _, f := range deps {
+		if !slices.Contains(recorded, f) {
+			return true, nil
+		}
+	}
+	for _, f := range recorded {
+		if path.Ext(f) == ".css" && !own[f] && !slices.Contains(deps, f) {
+			return true, nil
+		}
+	}
+	return false, writeInputs(d.root, d.dist, d.public, d.modules, d.incomplete)
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
@@ -276,6 +306,10 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	if err != nil {
 		return "", err
 	}
+	styleFiles, err := moduleFiles(d.root, stylesheets)
+	if err != nil {
+		return "", err
+	}
 	if err := writeBuild(d.dist, b); err != nil {
 		return "", err
 	}
@@ -283,6 +317,10 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	d.mu.Lock()
 	d.warnings = warnings
 	d.plain = pages && plain
+	d.styleFiles = map[string]bool{}
+	for _, f := range styleFiles {
+		d.styleFiles[f] = true
+	}
 	d.reads = map[string]bool{}
 	for _, f := range read {
 		d.reads[f] = true
