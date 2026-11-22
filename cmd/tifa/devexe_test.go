@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -49,8 +48,11 @@ func TestMoveAsideFreesTheNameAndDeletesOldOnes(t *testing.T) {
 	if err := moveAside(exe); err != nil {
 		t.Fatal(err)
 	}
+	// The content tells the two programs apart, not the name: on Windows time.Now may return the same
+	// time for both calls, as its clock moves on only every 0.5 to 15.6 ms, and the second program
+	// then gets the name of the first, which is deleted before.
 	second := oldExes(t, dir)
-	if len(second) != 1 || slices.Contains(second, first[0]) {
+	if len(second) != 1 {
 		t.Fatalf("after the second build: %q, want only the second program", second)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, second[0]))
