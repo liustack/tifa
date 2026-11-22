@@ -129,20 +129,24 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 - `ReadTimeout` is a `time.Duration`. The time counts from the moment Tifa matches the route, before `OnRequest`, and holds for this request. The answer then gets `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408.
 - Each can be a constant, which must be over 0, or a variable, such as a [option of the app](config.md#options-of-the-app): `var BodyLimit = uploads.UploadLimit` with `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`. The variable is read once when the app starts. A variable that is 0 keeps the setting, and a negative one stops the app at start.
 - A `route.go` with no method handler that declares either fails the build. A page's `route.go` with a POST may declare them, and they hold for the POST.
-- `OnRequest` is the way to write them now: `c.SetBodyLimit` and `c.SetReadTimeout` set them for one request, before anything reads the body. The constants keep working in this release and go away in the next minor version.
+- `OnRequest` is the way to write them now. Match the method too, since the route constants hold for the method handlers only, and a GET of the same page has no body to wait for: `c.SetBodyLimit` and `c.SetReadTimeout` set them for one request, before anything reads the body. The constants keep working in this release and go away in the next minor version.
 
 ```go
 // hooks.go
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	if c.Pattern() == "/photos" {
-		c.SetBodyLimit(100 << 20)
-		c.SetReadTimeout(5 * time.Minute)
+	if c.Pattern() == "/photos" && c.Request().Method == http.MethodPost {
+		if err := c.SetBodyLimit(100 << 20); err != nil {
+			return err
+		}
+		if err := c.SetReadTimeout(5 * time.Minute); err != nil {
+			return err
+		}
 	}
 	return next(c)
 }
 ```
 
-- `c.SetReadTimeout(d)` does what `ReadTimeout` does for this request: the body gets `d` from now to arrive, and the answer gets `server.write_timeout` after it. Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
+- `c.SetReadTimeout(d)` does what `ReadTimeout` does for this request: the body gets `d` from now to arrive, and the answer gets `server.write_timeout` after it. A request with no body, such as a GET, keeps its deadlines and the call does nothing. Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
 
 ## Ctx
 
