@@ -249,6 +249,86 @@ process.stdout.write(JSON.stringify(ids))
 	}
 }
 
+// A {#id} at the end of a heading is its id and leaves the text. Only letters, digits, - _ . and :
+// count, only at the very end, and not inside code. The ids written this way come before the
+// automatic ones, so an automatic id that would repeat one later in the page gets -1. A repeat
+// follows the rule of the automatic ids. An id written in the HTML stays as it is, as before.
+func TestMarkdownCustomHeadingIDs(t *testing.T) {
+	root := markdownApp(t, nil)
+	body := strings.Join([]string{
+		"## Images and links",
+		"",
+		"## 图片和链接 {#images-and-links}",
+		"",
+		"## 日本語 {#見出し:1.a_b}",
+		"",
+		"## Bad {#bad id}",
+		"",
+		"## Code `{#x}`",
+		"",
+		"## Middle {#mid} text",
+		"",
+		"## *Em* {#em}",
+		"",
+		"## Twice {#dup}",
+		"",
+		"## Twice again {#dup}",
+		"",
+		`<h2 id="own">Own {#ignored}</h2>`,
+		"",
+		"## {#alone}",
+		"",
+	}, "\n")
+	c := convert(t, root, []content.Markdown{markdownEntry("en", "a", "content/blog/en/a.md", "", body)}, `
+markdown = { rehypePlugins: [function rehypeSee() {
+  return (tree) => {
+    const ids = []
+    const visit = (n) => { if (n.type === 'element' && /^h[1-6]$/.test(n.tagName)) ids.push(n.properties.id); (n.children ?? []).forEach(visit) }
+    visit(tree)
+    tree.children.push({ type: 'element', tagName: 'p', properties: {}, children: [{ type: 'text', value: 'plugin saw ' + ids.join(',') }] })
+  }
+}] }
+`)
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	html := c.HTML["content/blog/en/a.html"]
+	for _, want := range []string{
+		`<h2 id="images-and-links-1">Images and links</h2>`,
+		`<h2 id="images-and-links">图片和链接</h2>`,
+		`<h2 id="見出し:1.a_b">日本語</h2>`,
+		`<h2 id="bad-bad-id">Bad {#bad id}</h2>`,
+		`<h2 id="code-x">Code <code>{#x}</code></h2>`,
+		`<h2 id="middle-mid-text">Middle {#mid} text</h2>`,
+		`<h2 id="em"><em>Em</em></h2>`,
+		`<h2 id="dup">Twice</h2>`,
+		`<h2 id="dup-1">Twice again</h2>`,
+		`<h2 id="own">Own {#ignored}</h2>`,
+		`<h2 id="alone">{#alone}</h2>`,
+		`<p>plugin saw images-and-links-1,images-and-links,`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the HTML lacks %s:\n%s", want, html)
+		}
+	}
+	want := []content.Heading{
+		{Depth: 2, ID: "images-and-links-1", Text: "Images and links"},
+		{Depth: 2, ID: "images-and-links", Text: "图片和链接"},
+		{Depth: 2, ID: "見出し:1.a_b", Text: "日本語"},
+		{Depth: 2, ID: "bad-bad-id", Text: "Bad {#bad id}"},
+		{Depth: 2, ID: "code-x", Text: "Code {#x}"},
+		{Depth: 2, ID: "middle-mid-text", Text: "Middle {#mid} text"},
+		{Depth: 2, ID: "em", Text: "Em"},
+		{Depth: 2, ID: "dup", Text: "Twice"},
+		{Depth: 2, ID: "dup-1", Text: "Twice again"},
+		{Depth: 2, ID: "own", Text: "Own {#ignored}"},
+		{Depth: 2, ID: "alone", Text: "{#alone}"},
+	}
+	if got := c.Headings["content/blog/en/a.html"]; !slices.Equal(got, want) {
+		t.Errorf("headings\n%+v\nwant\n%+v", got, want)
+	}
+}
+
 // Relative URLs of img, a, video, audio and source become the URLs of their files, looked for next
 // to the Markdown and then next to the version in the default language. Others stay as written.
 func TestMarkdownRewritesRelativeURLs(t *testing.T) {

@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A Markdown heading can carry its own id at the end: `## 图片和链接 {#images-and-links}` gives the heading `id="images-and-links"` and takes the `{#...}` and the space before it out of the text. `Headings()` returns that id and the shorter text, so a translated heading can keep the id of the original and links between languages and the table of contents keep working. The id has letters, digits, `-`, `_`, `.` and `:`, and only a `{#id}` at the very end counts. Headings without one get their GitHub id after these, so an automatic id that would repeat a written one gets `-1`.
+
 ## [0.1.17] - 2026-11-22
 
 ### Added
