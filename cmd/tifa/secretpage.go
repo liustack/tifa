@@ -65,16 +65,24 @@ func askSecrets(ctx context.Context, in io.Reader, out io.Writer, ask secretAsk)
 // secretPageTimeout is how long the page waits for its value. Tests shorten it.
 var secretPageTimeout = 10 * time.Minute
 
-// openBrowser opens a URL in the browser of this machine. Tests replace it.
-var openBrowser = func(u string) error {
+// openBrowser starts the opener of this machine on a URL. The channel gets what the opener exited
+// with. Tests replace it.
+var openBrowser = func(u string) (<-chan error, error) {
 	args := browserCommand(runtime.GOOS, u)
 	cmd := exec.Command(args[0], args[1:]...)
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
-	go cmd.Wait()
-	return nil
+	// Buffered, so the goroutine ends with the opener even when nobody reads it any more.
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return exited, nil
 }
+
+// listenPage listens for the page. Tests replace it.
+var listenPage = func() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") }
+
+const noBrowser = "could not open a browser: open the address above yourself"
 
 // browserCommand is the opener of each system, with the URL as one argument. On Windows rundll32
 // hands it to the default browser without cmd, which would read & and ^ in a URL.
@@ -91,7 +99,7 @@ func browserCommand(goos, u string) []string {
 
 // askOnPage serves the page until one value comes, the wait runs out or ctx ends.
 func askOnPage(ctx context.Context, out io.Writer, ask secretAsk) ([]string, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := listenPage()
 	if err != nil {
 		return nil, fmt.Errorf("serving the page to enter %s on: %w", ask.Title, err)
 	}
@@ -102,7 +110,8 @@ func askOnPage(ctx context.Context, out io.Writer, ask secretAsk) ([]string, err
 	}
 	page := newSecretPage(ask, ln.Addr().String(), code)
 	srv := &http.Server{Handler: page, ReadHeaderTimeout: 10 * time.Second}
-	go srv.Serve(ln)
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
 	defer func() {
 		// Shutdown lets the answer that says the value came finish first.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -114,21 +123,31 @@ func askOnPage(ctx context.Context, out io.Writer, ask secretAsk) ([]string, err
 
 	u := "http://" + page.host + "/" + code
 	fmt.Fprintf(out, "Tifa needs a value (%s). Open this page in a browser on this machine and enter it there:\n  %s\n", ask.Title, u)
-	if err := openBrowser(u); err != nil {
-		fmt.Fprintf(out, "The browser did not open (%v): open the page yourself.\n", err)
+	opened, err := openBrowser(u)
+	if err != nil {
+		fmt.Fprintln(out, noBrowser)
 	}
 	fmt.Fprintf(out, "Waiting for the page, for up to %s...\n", waitText(secretPageTimeout))
 
 	timer := time.NewTimer(secretPageTimeout)
 	defer timer.Stop()
-	select {
-	case values := <-page.got:
-		fmt.Fprintln(out, "Received from the page.")
-		return values, nil
-	case <-timer.C:
-		return nil, fmt.Errorf("no value came from the page within %s: run the command again for a new page", waitText(secretPageTimeout))
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	for {
+		select {
+		case values := <-page.got:
+			fmt.Fprintln(out, "Received from the page.")
+			return values, nil
+		case err := <-opened:
+			if err != nil {
+				fmt.Fprintln(out, noBrowser)
+			}
+			opened = nil
+		case err := <-served:
+			return nil, fmt.Errorf("serving the page to enter %s on: %w", ask.Title, err)
+		case <-timer.C:
+			return nil, fmt.Errorf("no value came from the page within %s: run the command again for a new page", waitText(secretPageTimeout))
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 

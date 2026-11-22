@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,7 +24,7 @@ import (
 // No test opens a real browser. A test that reaches the page without useBrowser fails here, and
 // a page nobody answers gives up soon.
 func init() {
-	openBrowser = func(u string) error { panic("a test opened a browser at " + u) }
+	openBrowser = func(u string) (<-chan error, error) { panic("a test opened a browser at " + u) }
 	secretPageTimeout = 20 * time.Second
 }
 
@@ -32,9 +34,9 @@ func useBrowser(t *testing.T, visit func(pageURL string)) {
 	t.Helper()
 	old := openBrowser
 	t.Cleanup(func() { openBrowser = old })
-	openBrowser = func(u string) error {
+	openBrowser = func(u string) (<-chan error, error) {
 		go visit(u)
-		return nil
+		return nil, nil
 	}
 }
 
@@ -345,20 +347,54 @@ func TestSecretPageTimeout(t *testing.T) {
 	}
 }
 
-// A browser that does not open is no error: the URL is printed for a person or an agent to open.
+// A browser that does not open is no error: the URL is printed for a person or an agent to open,
+// with one line that says so, whether the opener fails to start or exits with an error later.
 func TestSecretPageNoBrowser(t *testing.T) {
 	old := openBrowser
 	t.Cleanup(func() { openBrowser = old })
-	openBrowser = func(u string) error {
-		go pagePost(u, originOf(u), "v")
-		return io.ErrUnexpectedEOF
-	}
-	var out bytes.Buffer
-	got, err := askSecrets(context.Background(), strings.NewReader(""), &out, purgeAsk)
-	if err != nil || got[0] != "v" || !strings.Contains(out.String(), "browser did not open") {
-		t.Errorf("%q %v\n%s", got, err, out.String())
+	for name, open := range map[string]func(u string) (<-chan error, error){
+		"start": func(u string) (<-chan error, error) {
+			go pagePost(u, originOf(u), "v")
+			return nil, io.ErrUnexpectedEOF
+		},
+		"exit": func(u string) (<-chan error, error) {
+			exited := make(chan error, 1)
+			exited <- errors.New("exit status 3")
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				pagePost(u, originOf(u), "v")
+			}()
+			return exited, nil
+		},
+	} {
+		openBrowser = open
+		var out bytes.Buffer
+		got, err := askSecrets(context.Background(), strings.NewReader(""), &out, purgeAsk)
+		if err != nil || got[0] != "v" || strings.Count(out.String(), "could not open a browser: open the address above yourself") != 1 {
+			t.Errorf("%s: %q %v\n%s", name, got, err, out.String())
+		}
 	}
 }
+
+// When the server stops on its own, the command stops at once with its error, not after the wait.
+func TestSecretPageServeFails(t *testing.T) {
+	old := listenPage
+	t.Cleanup(func() { listenPage = old })
+	listenPage = func() (net.Listener, error) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		return brokenListener{ln}, err
+	}
+	useBrowser(t, func(string) {})
+	start := time.Now()
+	_, err := askSecrets(context.Background(), strings.NewReader(""), io.Discard, purgeAsk)
+	if err == nil || !strings.Contains(err.Error(), "accept broke") || time.Since(start) > 5*time.Second {
+		t.Errorf("after %v: %v", time.Since(start), err)
+	}
+}
+
+type brokenListener struct{ net.Listener }
+
+func (l brokenListener) Accept() (net.Conn, error) { return nil, errors.New("accept broke") }
 
 // On a terminal, the hidden prompt asks for each field in turn, and no page opens.
 func TestSecretPromptOnTerminal(t *testing.T) {
