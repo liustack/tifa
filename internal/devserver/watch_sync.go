@@ -47,14 +47,15 @@ func syncRounds() int {
 
 // syncer is the watcher's side of sync. Only run touches it.
 type syncer struct {
-	dir  string          // temporary directory that holds file, "" until the first sync
-	file *os.File        // the file written to, nil until the first sync and with syncByName
-	name string          // the name of the event of the last write, "" until the first sync
-	made int             // the files made in dir, with syncByName
-	off  bool            // syncs cannot work, such as without a system watcher: they end at once
-	sent []chan struct{} // the syncs that wait for the event of the last write
-	left int             // the writes the syncs in sent still wait for the event of, see syncRounds
-	next []chan struct{} // the syncs that came after that write, which wait for the next one
+	dir      string          // temporary directory that holds file, "" until the first sync
+	file     *os.File        // the file written to, nil until the first sync and with syncByName
+	name     string          // the name of the event of the last write, "" until the first sync
+	made     int             // the files made in dir, with syncByName
+	off      bool            // syncs cannot work, such as without a system watcher: they end at once
+	sent     []chan struct{} // the syncs that wait for the event of the last write
+	left     int             // the writes the syncs in sent still wait for the event of, see syncRounds
+	next     []chan struct{} // the syncs that came after that write, which wait for the next one
+	heldBack bool            // the syncs in sent saw the event of their last write, and wait for held files, see syncsWaited
 	// timeout fires syncWait after the last write, nil while no write waits for its event.
 	timeout *time.Timer
 }
@@ -244,6 +245,13 @@ func (w *watcher) synced() {
 // syncsWaited ends the syncs that waited for the event of the last write, and writes again for
 // those that came since.
 func (w *watcher) syncsWaited() {
+	if len(w.held) > 0 {
+		// A file another program held may have a save the syncs wait for: they wait until the
+		// watcher looked at it again, see holdOn, which run sees by heldBack.
+		w.sy.heldBack = true
+		return
+	}
+	w.sy.heldBack = false
 	for _, done := range w.sy.sent {
 		close(done)
 	}

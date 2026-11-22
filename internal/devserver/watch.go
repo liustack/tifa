@@ -392,8 +392,8 @@ var testHookLinkPoll func(rel string)
 // testHookChecksum lets tests see each file that is hashed.
 var testHookChecksum func(rel string)
 
-// testHookHeld lets tests see each file the watcher could not hash because another program held it.
-var testHookHeld func(rel string)
+// openToHash opens a file to hash. Tests replace it.
+var openToHash = os.Open
 
 // testHookList lets tests see each directory listed after an event.
 var testHookList func(rel string)
@@ -429,6 +429,9 @@ func (w *watcher) run(ctx context.Context) error {
 	defer retry.Stop()
 	retrying := false
 	for {
+		if w.sy.heldBack && len(w.held) == 0 {
+			w.syncsWaited()
+		}
 		if len(w.dirty) > 0 && !listing {
 			listing = true
 			list.Reset(time.Until(w.listAt))
@@ -852,9 +855,6 @@ func (w *watcher) check(rel string, info os.FileInfo, link bool, h how) error {
 	}
 	sum, err := checksum(w.abs(rel))
 	if held(err) {
-		if testHookHeld != nil {
-			testHookHeld(rel)
-		}
 		w.holdOn(rel)
 		return nil
 	}
@@ -1170,7 +1170,7 @@ func (w *watcher) warnOnce(msg string) {
 }
 
 func checksum(name string) (string, error) {
-	f, err := os.Open(name)
+	f, err := openToHash(name)
 	if err != nil {
 		return "", err
 	}
