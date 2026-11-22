@@ -100,11 +100,6 @@ type Route struct {
 	Cache time.Duration `json:"cache"`
 	// CacheDefault is true when route.go writes Cache = true: the time is the setting cache.s_maxage.
 	CacheDefault bool `json:"cacheDefault"`
-	// BodyLimit and ReadTimeout report whether route.go declares them: the body limit and the read
-	// timeout of the requests its method handlers answer, in place of server.body_limit and
-	// server.read_timeout. The generated code refers to them, so a variable set from a setting works.
-	BodyLimit   bool `json:"bodyLimit"`
-	ReadTimeout bool `json:"readTimeout"`
 	// Layouts lists the IDs of the Layouts in Dir and above it, outermost first.
 	// Area is the folder of the _locales folder that gives the route its languages, empty for a
 	// route outside every area, which has none and is never prefixed. Languages are those of the

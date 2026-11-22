@@ -47,6 +47,9 @@ package uploads
 import (
 	"context"
 	"os"
+	"time"
+
+	"github.com/liustack/tifa"
 )
 
 func OnStart(context.Context) error {
@@ -54,27 +57,35 @@ func OnStart(context.Context) error {
 }
 ```
 
-Every request body is limited to `server.body_limit`, 1 MiB by default, and every request has the 10 seconds of `server.read_timeout` to arrive. Raise both for the upload route only, so the other routes keep the small ones. At the top of `app/photos/route.go`:
+Every request body is limited to `server.body_limit`, 1 MiB by default, and every request has the 10 seconds of `server.read_timeout` to arrive. Raise both for the upload route only, so the other routes keep the small ones. `OnRequest` in `hooks.go` does it, for the POST of that route:
 
 ```go
-// BodyLimit lets the requests of this route be as large as upload.limit. The other routes keep
-// server.body_limit.
-var BodyLimit = uploads.UploadLimit
-
-// ReadTimeout gives a phone on a slow line the time to send a large picture.
-const ReadTimeout = 5 * time.Minute
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if c.Request().Method == "POST" && c.Pattern() == "/photos" {
+		// The requests of this route may be as large as upload.limit. The other routes keep
+		// server.body_limit.
+		if err := c.SetBodyLimit(int64(UploadLimit)); err != nil {
+			return err
+		}
+		// A phone on a slow line needs time to send a large picture.
+		if err := c.SetReadTimeout(5 * time.Minute); err != nil {
+			return err
+		}
+	}
+	return next(c)
+}
 ```
 
-- A body over `BodyLimit` is answered with 413 and the handler does not run. The limit counts the whole body: the file, the other fields and the multipart framing. A file a little under the limit can still be refused.
-- `ReadTimeout` counts from the moment the route is matched. A body still coming when it is over is answered with 408. The answer gets `server.write_timeout` after it.
-- Both hold for the requests the method handlers of this `route.go` answer, and the GET of the page keeps the settings. A variable is read once when the app starts, so `--upload-limit 8MiB` works.
+- A body over the limit is answered with 413 and the handler does not run. The limit counts the whole body: the file, the other fields and the multipart framing. A file a little under the limit can still be refused.
+- The read time counts from the moment `SetReadTimeout` is called, before anything reads the body. A body still coming when it is over is answered with 408. The answer gets `server.write_timeout` after it.
+- Both calls return an error once the body is being read, so make them in `OnRequest` and return the error. `UploadLimit` is read when the request comes, so `--upload-limit 8MiB` works.
 - A proxy or CDN in front of the app has a body limit and timeouts of its own. Raise them to match, or the visitor gets its error and not yours.
 
 ### How much memory an upload takes
 
 The form is parsed with the budget of Go's `mime/multipart`. Up to 32 MiB of file content stays in memory, and the text fields and the names and headers of the parts share one budget of about 42 MiB with it. A file that does not fit goes to a temporary file, which Tifa removes when the request ends. A body limit above that is fine: the rest goes to disk.
 
-The budget is not the peak. A file that ends on disk is first read into a buffer of up to 32 MiB, which grows as it fills, so one large file can take about 64 MiB for a moment, and each upload at the same time takes its own. On a machine with little memory, let only a few uploads read their form at once. The rest of `hooks.go`, which also imports `github.com/liustack/tifa`:
+The budget is not the peak. A file that ends on disk is first read into a buffer of up to 32 MiB, which grows as it fills, so one large file can take about 64 MiB for a moment, and each upload at the same time takes its own. On a machine with little memory, let only a few uploads read their form at once. Add this to `hooks.go`, and the wait to the `OnRequest` above:
 
 ```go
 // parsing lets two uploads read their form at a time. The others wait here, before their body is
@@ -83,6 +94,7 @@ var parsing = make(chan struct{}, 2)
 
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if c.Request().Method == "POST" && c.Pattern() == "/photos" {
+		// (SetBodyLimit and SetReadTimeout, as above)
 		select {
 		case parsing <- struct{}{}:
 			defer func() { <-parsing }()
@@ -94,7 +106,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 }
 ```
 
-The time an upload waits here counts toward its `ReadTimeout`, which starts when the route is matched, so leave room for the wait.
+The time an upload waits here counts toward its read time, so leave room for the wait.
 
 
 ## The handler
@@ -114,14 +126,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/liustack/tifa"
 
 	"uploads"
 )
-
-// (BodyLimit and ReadTimeout, as above)
 
 // Photo is one stored picture. ID is also its file name.
 type Photo struct {
@@ -176,7 +185,7 @@ var extensions = map[string]string{
 	"image/gif":  ".gif",
 }
 
-// POST stores the picture. The framework has refused a body over BodyLimit with 413 and run
+// POST stores the picture. The framework has refused a body over upload.limit with 413 and run
 // Validate before this runs.
 func POST(c *tifa.Ctx, in UploadInput) (Photo, error) {
 	file, err := in.File.Open()
@@ -431,7 +440,7 @@ The test calls the handler directly: `Validate`, the body limit and the read tim
 
 **How big.** Pick the smallest limit that fits the use. A profile picture needs 1 or 2 MiB. Show the limit in the form, and check `file.size` in the browser to give a quick message before sending. The server limit is still the one that counts.
 
-**How long.** `ReadTimeout` is how long the slowest visitor you serve may take to send the largest file you accept. 4 MiB over a line of 1 Mbit/s takes about 34 seconds, so 5 minutes leaves room. A long time lets a slow client hold a connection that long, so do not give it to routes that do not need it.
+**How long.** The read time is how long the slowest visitor you serve may take to send the largest file you accept. 4 MiB over a line of 1 Mbit/s takes about 34 seconds, so 5 minutes leaves room. A long time lets a slow client hold a connection that long, so do not give it to routes that do not need it.
 
 **What is accepted.** A list of kinds, decided by the bytes. For documents, do the same with their own types and serve them with `Content-Disposition: attachment` so the browser saves them and does not open them.
 

@@ -119,13 +119,6 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		for _, h := range r.Handlers {
 			fmt.Fprintf(&app, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))
 		}
-		// A variable set from a setting is read when the program starts.
-		if r.BodyLimit {
-			fmt.Fprintf(&app, "BodyLimit: int64(%s.BodyLimit),\n", imports.alias(r.Package, r.Dir))
-		}
-		if r.ReadTimeout {
-			fmt.Fprintf(&app, "ReadTimeout: %s.ReadTimeout,\n", imports.alias(r.Package, r.Dir))
-		}
 		fmt.Fprintf(&app, "SSR: %t,\n", r.SSR)
 		if !r.Memo {
 			app.WriteString("NoMemo: true,\n")

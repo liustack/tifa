@@ -229,8 +229,7 @@ func TestTypedHandlers(t *testing.T) {
 }
 
 // A POST, PUT or PATCH input may hold files as fields of its own. The manifest marks such a
-// handler, whose input is sent as a form, and the routes that set their own body limit and read
-// timeout. In TypeScript a file is a Blob.
+// handler, whose input is sent as a form. In TypeScript a file is a Blob.
 func TestUploadHandlers(t *testing.T) {
 	m, err := analyzeApp(t, "uploads")
 	if err != nil {
@@ -249,11 +248,6 @@ func TestUploadHandlers(t *testing.T) {
 	}
 	if got, want := forms(routes["app/photos/route"]), map[string]bool{"POST": true, "PUT": true, "PATCH": false}; !reflect.DeepEqual(got, want) {
 		t.Errorf("photos forms = %v, want %v", got, want)
-	}
-	for id, want := range map[string]bool{"app/photos/route": true, "app/files/route": true, "app/plain/route": false} {
-		if r := routes[id]; r.BodyLimit != want || r.ReadTimeout != want {
-			t.Errorf("%s BodyLimit, ReadTimeout = %v, %v, want %v", id, r.BodyLimit, r.ReadTimeout, want)
-		}
 	}
 	var inputs []types.Type
 	for _, h := range routes["app/photos/route"].Handlers {
@@ -347,12 +341,14 @@ func TestViolations(t *testing.T) {
 			{"app/texted/route.go:19:", "POST input", "Input.Files", "MarshalText", "UnmarshalText", "file"},
 			{"app/result/route.go:13:", "Load result", "Data.File", "multipart.FileHeader", "input"},
 			{"app/result/route.go:15:", "POST result", "multipart.FileHeader", "input"},
-			{"app/limits/route.go:9:", "BodyLimit", "greater than 0"},
-			{"app/limits/route.go:11:", "ReadTimeout", "time.Duration"},
-			{"app/limits2/route.go:5:", "BodyLimit", "integer"},
-			{"app/limits2/route.go:7:", "ReadTimeout", "time.Duration"},
-			{"app/nolimit/route.go:5:", "BodyLimit", "method handler"},
-			{"app/page/route.go:5:", "ReadTimeout", "method handler"},
+			// BodyLimit and ReadTimeout are gone, whatever their value or type, with or without a handler.
+			{"app/limits/route.go:9:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
+			{"app/limits/route.go:11:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
+			{"app/limits2/route.go:5:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
+			{"app/limits2/route.go:7:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
+			{"app/nolimit/route.go:5:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
+			{"app/page/route.go:5:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
+			// app/limittypes names types BodyLimit and ReadTimeout, which are the domain's own: no error.
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/page.tsx:1:", `"%"`},
@@ -594,6 +590,11 @@ func TestViolations(t *testing.T) {
 		{"layoutssr", [][]string{
 			{"app/page/route.go:3:", "LayoutSSR is gone", "const SSR = false", "route.go of each page this Layout wraps"},
 		}},
+		{"limitsgone", [][]string{
+			{"app/photos/route.go:13:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route", `c.Pattern() == "/photos"`, "c.Request().Method == http.MethodPost", "c.SetBodyLimit("},
+			{"app/photos/route.go:15:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route", `c.Pattern() == "/photos"`, "http.MethodPost", "c.SetReadTimeout("},
+			{"app/projects/projectId+/route.go:5:", "BodyLimit is gone", `c.Pattern() == "/projects/{projectId}"`, "http.MethodPut"},
+		}},
 		{"memovalue", [][]string{
 			{"app/page/route.go:3:", "Memo", "can only be false"},
 			{"app/other/route.go:3:", "Memo", "can only be false"},
@@ -607,8 +608,7 @@ func TestViolations(t *testing.T) {
 		{"switchtypos", [][]string{
 			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
 			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
-			{"app/page/route.go:9:", "ReadTimout is not a switch: did you mean ReadTimeout?"},
-			{"app/page/route.go:11:", "BodyLmt is not a switch: did you mean BodyLimit?"},
+			// ReadTimout and BodyLmt are no typos of a switch: those two are gone, see limitsgone.
 			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
 		}},
 		{"oldroute", [][]string{

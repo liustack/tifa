@@ -3,6 +3,7 @@ package uploads
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/liustack/tifa"
 )
@@ -17,6 +18,14 @@ var parsing = make(chan struct{}, 2)
 
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if c.Request().Method == "POST" && c.Pattern() == "/photos" {
+		// This route lets a request be as large as upload.limit, and gives a phone on a slow line
+		// the time to send a large picture. The other routes keep server.body_limit.
+		if err := c.SetBodyLimit(int64(UploadLimit)); err != nil {
+			return err
+		}
+		if err := c.SetReadTimeout(5 * time.Minute); err != nil {
+			return err
+		}
 		select {
 		case parsing <- struct{}{}:
 			defer func() { <-parsing }()

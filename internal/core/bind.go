@@ -82,8 +82,8 @@ func bodyError(err error, message string) error {
 	case errors.As(err, &tooLarge):
 		return publicError(http.StatusRequestEntityTooLarge, "")
 	case errors.Is(err, os.ErrDeadlineExceeded):
-		// The read deadline passed before the body came: server.read_timeout, or the ReadTimeout of
-		// the route, is too short for it.
+		// The read deadline passed before the body came: server.read_timeout, or what
+		// c.SetReadTimeout gave this request, is too short for it.
 		return publicError(http.StatusRequestTimeout, "")
 	}
 	return publicError(http.StatusBadRequest, message)

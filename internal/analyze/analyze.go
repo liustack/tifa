@@ -11,7 +11,6 @@ import (
 	"go/types"
 	"io"
 	"io/fs"
-	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -517,6 +516,9 @@ func (a *analyzer) build() *Manifest {
 		segs, valid := a.dirPath(d)
 		a.checkPackageNames(d)
 		pkg := a.routePackage(d)
+		if pkg != nil {
+			a.checkGoneLimits(pkg, formatPath(segs))
+		}
 		if l := a.layout(d, pkg); l != nil {
 			l.segs, l.valid, l.Path = segs, valid, formatPath(segs)
 			layouts = append(layouts, l)
@@ -583,7 +585,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "Load", "SSR", "Memo", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
+var routeNames = append([]string{"Layout", "Load", "SSR", "Memo", "Cache"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -605,9 +607,6 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 		}
 		if _, isConst := obj.(*types.Const); name == "Cache" && !isConst {
 			continue // a type or variable named Cache in another file is the domain code's own
-		}
-		if _, isType := obj.(*types.TypeName); isType && (name == "BodyLimit" || name == "ReadTimeout") {
-			continue // a type of that name is the domain code's own
 		}
 		if file := filepath.Base(a.fset.Position(obj.Pos()).Filename); file != "route.go" {
 			a.errorAt(obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
@@ -649,21 +648,17 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 }
 
 // switches are the constants of route.go that tifa reads, the ones a typo can be of.
-var switches = []string{"SSR", "Cache", "Memo", "BodyLimit", "ReadTimeout"}
+var switches = []string{"SSR", "Cache", "Memo"}
 
-// switchFits reports whether the constant c has a type the switch takes: a bool for SSR and Memo, a bool or a time.Duration for Cache, an integer for BodyLimit and a time.Duration
-// for ReadTimeout. A constant of another type is the app's own, whatever its name.
+// switchFits reports whether the constant c has a type the switch takes: a bool for SSR and Memo,
+// a bool or a time.Duration for Cache. A constant of another type is the app's own, whatever its
+// name.
 func switchFits(sw string, c *types.Const) bool {
 	switch sw {
 	case "SSR", "Memo":
 		return c.Val().Kind() == constant.Bool
 	case "Cache":
 		return c.Val().Kind() == constant.Bool || isNamed(c.Type(), "time", "Duration")
-	case "BodyLimit":
-		b, ok := c.Type().Underlying().(*types.Basic)
-		return ok && b.Info()&types.IsInteger != 0
-	case "ReadTimeout":
-		return isNamed(c.Type(), "time", "Duration")
 	}
 	return false
 }
@@ -770,7 +765,6 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout has no switches of its own)", name)
 		}
 	}
-	r.BodyLimit, r.ReadTimeout = a.routeLimits(pkg, declared)
 	if !d.pageTSX && !declared {
 		return nil
 	}
@@ -1484,50 +1478,48 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 	}
 }
 
-// routeLimits reads BodyLimit and ReadTimeout of route.go, which set the body limit and the read
-// timeout of the requests its method handlers answer, in place of server.body_limit and
-// server.read_timeout. Each may be a constant or a package-level variable, such as one set from an
-// option of the app: the generated code refers to it, and the program reads it when it starts.
-// handlers reports whether route.go declares a method handler. Each result reports a name that is
-// declared and valid.
-func (a *analyzer) routeLimits(pkg *packages.Package, handlers bool) (bodyLimit, readTimeout bool) {
-	check := func(name string, typeOK func(types.Type) bool, want string) bool {
-		obj := pkg.Types.Scope().Lookup(name)
-		if obj == nil {
-			return false
+// checkGoneLimits reports BodyLimit and ReadTimeout declared as a constant or a variable in
+// route.go. They set the body limit and the read time of a route before v0.2.0, and are now set per
+// request in OnRequest. path is the path of the route as c.Pattern() gives it. A type of those
+// names is the domain code's own.
+func (a *analyzer) checkGoneLimits(pkg *packages.Package, path string) {
+	scope := pkg.Types.Scope()
+	method := ""
+	for _, m := range methods {
+		if m != "GET" && scope.Lookup(m) != nil {
+			method = m
+			break
 		}
-		c, isConst := obj.(*types.Const)
-		_, isVar := obj.(*types.Var)
-		switch {
-		case !isConst && !isVar:
-			if _, isType := obj.(*types.TypeName); !isType {
-				a.errorAt(obj.Pos(), "%s must be %s", name, want)
-			}
-			return false
-		case !typeOK(obj.Type()):
-			a.errorAt(obj.Pos(), "%s is %s, but it must be %s", name, types.TypeString(obj.Type(), shortQualifier), want)
-			return false
-		case isConst && constant.Sign(c.Val()) <= 0:
-			a.errorAt(obj.Pos(), "%s must be greater than 0", name)
-			return false
-		case isConst && !constant.Compare(c.Val(), token.LEQ, constant.MakeInt64(math.MaxInt64)):
-			a.errorAt(obj.Pos(), "%s is larger than an int64", name)
-			return false
-		case !handlers:
-			a.errorAt(obj.Pos(), "%s applies to the requests the method handlers of route.go answer, and route.go declares no method handler: a page or a Layout reads no request body", name)
-			return false
-		}
-		return true
 	}
-	bodyLimit = check("BodyLimit", func(t types.Type) bool {
-		b, ok := t.Underlying().(*types.Basic)
-		return ok && b.Info()&types.IsInteger != 0
-	}, "an integer constant or variable of bytes, such as const BodyLimit = 8 << 20, or var BodyLimit = UploadLimit for a setting made with tifa.Size")
-	readTimeout = check("ReadTimeout", func(t types.Type) bool {
-		return isNamed(t, "time", "Duration")
-	}, "a time.Duration constant or variable, such as const ReadTimeout = 5 * time.Minute, or var ReadTimeout = UploadTime for a setting made with tifa.Duration")
-	return bodyLimit, readTimeout
+	condition := fmt.Sprintf("c.Pattern() == %q", path)
+	if method != "" {
+		condition += " && c.Request().Method == http." + methodConst[method]
+	}
+	for _, g := range []struct{ name, call, value string }{
+		{"BodyLimit", "SetBodyLimit", "8 << 20"},
+		{"ReadTimeout", "SetReadTimeout", "5 * time.Minute"},
+	} {
+		obj := scope.Lookup(g.name)
+		if obj == nil || filepath.Base(a.fset.Position(obj.Pos()).Filename) != "route.go" {
+			continue
+		}
+		if _, isType := obj.(*types.TypeName); isType {
+			continue
+		}
+		a.errorAt(obj.Pos(), "%s is gone: set it in OnRequest with c.%s for this route, for example in hooks.go:\n"+
+			"\tfunc OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {\n"+
+			"\t\tif %s {\n"+
+			"\t\t\tif err := c.%s(%s); err != nil {\n"+
+			"\t\t\t\treturn err\n"+
+			"\t\t\t}\n"+
+			"\t\t}\n"+
+			"\t\treturn next(c)\n"+
+			"\t}", g.name, g.call, condition, g.call, g.value)
+	}
 }
+
+// methodConst names the net/http constant of each method handler.
+var methodConst = map[string]string{"GET": "MethodGet", "POST": "MethodPost", "PUT": "MethodPut", "PATCH": "MethodPatch", "DELETE": "MethodDelete"}
 
 // checkBindTags reports a form tag in a struct passed to c.Bind or c.BindQuery, as it does for the
 // input of a typed handler: those read a field by its json tag only. The argument is checked by its

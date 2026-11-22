@@ -94,68 +94,12 @@ func TestFileInput(t *testing.T) {
 	}
 }
 
-// BodyLimit of a route replaces server.body_limit for the requests its method handlers answer.
-// OnRequest still sees the request before anything reads the body, so it can change it again.
-func TestRouteBodyLimit(t *testing.T) {
-	read := func(c *tifa.Ctx) error {
-		var in struct {
-			Title string `json:"title"`
-		}
-		if err := c.Bind(&in); err != nil {
-			return err
-		}
-		return c.NoContent(204)
+// bigBodies is an OnRequest that lets a request body be 64 MiB, as an app does for its upload route.
+func bigBodies(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if err := c.SetBodyLimit(64 << 20); err != nil {
+		return err
 	}
-	app := App{
-		Hooks: Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-			if c.Header("X-Small") != "" {
-				if err := c.SetBodyLimit(1024); err != nil {
-					return err
-				}
-			}
-			return next(c)
-		}},
-		Routes: []Route{
-			{ID: "app/big/route", Path: "/big", POST: read, BodyLimit: 2 << 20},
-			{ID: "app/small/route", Path: "/small", POST: read},
-		},
-	}
-	s := newAppServer(t, app)
-	form := func(n int) io.Reader { return strings.NewReader("title=" + strings.Repeat("x", n)) }
-	const urlencoded = "application/x-www-form-urlencoded"
-	if w := sendBody(s, "POST", "/big", urlencoded, form(3<<19)); w.Code != 204 {
-		t.Errorf("1.5 MiB within the limit of the route: %d %s", w.Code, w.Body.String())
-	}
-	if w := sendBody(s, "POST", "/big", urlencoded, form(3<<20)); w.Code != 413 {
-		t.Errorf("3 MiB over the limit of the route: %d", w.Code)
-	}
-	if w := sendBody(s, "POST", "/small", urlencoded, form(3<<19)); w.Code != 413 {
-		t.Errorf("1.5 MiB on a route with server.body_limit: %d", w.Code)
-	}
-	r := httptest.NewRequest("POST", "/big", form(4096))
-	r.Header.Set("Content-Type", urlencoded)
-	r.Header.Set("X-Small", "1")
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, r)
-	if w.Code != 413 {
-		t.Errorf("OnRequest lowered the limit of the route: %d", w.Code)
-	}
-}
-
-func TestRegisterRefusesNegativeLimits(t *testing.T) {
-	for _, r := range []Route{
-		{ID: "app/a/route", Path: "/a", POST: func(*tifa.Ctx) error { return nil }, BodyLimit: -1},
-		{ID: "app/a/route", Path: "/a", POST: func(*tifa.Ctx) error { return nil }, ReadTimeout: -time.Second},
-	} {
-		msg := func() (msg string) {
-			defer func() { msg, _ = recover().(string) }()
-			newAppServer(t, App{Routes: []Route{r}})
-			return ""
-		}()
-		if !strings.Contains(msg, "app/a/route") {
-			t.Errorf("%+v: panic %q", r, msg)
-		}
-	}
+	return next(c)
 }
 
 // trickleBody sends its parts one at a time with a pause before each, like an upload on a slow line.
@@ -175,34 +119,6 @@ func (b *trickleBody) Read(p []byte) (int, error) {
 		b.parts = b.parts[1:]
 	}
 	return n, nil
-}
-
-// ReadTimeout of a route gives the body of its requests that long to arrive, in place of
-// server.read_timeout, and the answer server.write_timeout after that.
-func TestRouteReadTimeout(t *testing.T) {
-	cfg := config.Default()
-	cfg.Server.ReadTimeout = 300 * time.Millisecond
-	cfg.Server.WriteTimeout = 300 * time.Millisecond
-	app := App{Routes: []Route{
-		{ID: "app/slow/route", Path: "/slow", POST: InputOutput(photoHandler, BindForm), ReadTimeout: 5 * time.Second},
-		{ID: "app/quick/route", Path: "/quick", POST: InputOutput(photoHandler, BindForm)},
-	}}
-	s := newServer(cfg, app.Hooks)
-	t.Cleanup(s.close)
-	s.register(app.Layouts, app.Routes)
-	srv := httptest.NewUnstartedServer(s)
-	srv.Config.ReadTimeout = cfg.Server.ReadTimeout
-	srv.Config.WriteTimeout = cfg.Server.WriteTimeout
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	post := func(path string) (int, string, error) { return postSlowUpload(t, srv, path) }
-	if status, body, err := post("/slow"); err != nil || status != 200 || !strings.Contains(body, `"title":"Sea"`) {
-		t.Errorf("slow upload to a route with ReadTimeout: %d %s %v", status, body, err)
-	}
-	if status, _, err := post("/quick"); err == nil && status == 200 {
-		t.Errorf("slow upload to a route with server.read_timeout went through")
-	}
 }
 
 // postSlowUpload sends a small upload to path that takes about 800 ms to arrive, in four parts.
@@ -363,6 +279,9 @@ func TestUploadTemporaryFilesAreRemoved(t *testing.T) {
 	app := App{
 		Hooks: Hooks{
 			OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+				if err := c.SetBodyLimit(64 << 20); err != nil {
+					return err
+				}
 				if c.Header("X-Copy") != "" {
 					return next(c.WithContext(c.Context()))
 				}
@@ -370,7 +289,7 @@ func TestUploadTemporaryFilesAreRemoved(t *testing.T) {
 			},
 			OnError: func(c *tifa.Ctx, err error) tifa.Error { return tifa.Error{Status: 500, Message: "failed"} },
 		},
-		Routes: []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(handler, BindForm), BodyLimit: 64 << 20}},
+		Routes: []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(handler, BindForm)}},
 	}
 	s := newAppServer(t, app)
 	srv := httptest.NewServer(s)
@@ -420,7 +339,8 @@ func TestUploadTemporaryFilesAreRemovedFromCopiedRequests(t *testing.T) {
 	big := bytes.Repeat([]byte("x"), 33<<20) // over the 32 MiB a form keeps in memory
 	app := App{
 		I18n:   &I18n{Default: "en-US", Languages: []string{"en-US", "de"}},
-		Routes: []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(func(*tifa.Ctx, photoInput) error { return nil }, BindForm), BodyLimit: 64 << 20, Languages: []string{"en-US", "de"}}},
+		Hooks:  Hooks{OnRequest: bigBodies},
+		Routes: []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(func(*tifa.Ctx, photoInput) error { return nil }, BindForm), Languages: []string{"en-US", "de"}}},
 	}
 	for _, tc := range []struct {
 		name       string
@@ -433,7 +353,7 @@ func TestUploadTemporaryFilesAreRemovedFromCopiedRequests(t *testing.T) {
 			a := app
 			if !tc.languages {
 				a.I18n = nil
-				a.Routes = []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(func(*tifa.Ctx, photoInput) error { return nil }, BindForm), BodyLimit: 64 << 20}}
+				a.Routes = []Route{{ID: "app/photos/route", Path: "/photos", POST: Input(func(*tifa.Ctx, photoInput) error { return nil }, BindForm)}}
 			}
 			s := newAppServer(t, a)
 			if tc.languages {
