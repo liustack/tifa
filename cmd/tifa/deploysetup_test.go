@@ -23,6 +23,9 @@ import (
 // fakeGH stands in for gh: one repository, its secrets and variables.
 type fakeGH struct {
 	loggedIn bool
+	// staleOther is a second account whose token is no longer valid: gh auth status fails unless
+	// it checks only the active account. noActive is a gh too old to know --active.
+	staleOther, noActive bool
 	repo     string
 	branch   string // empty: no default branch yet
 	calls    []string
@@ -43,9 +46,15 @@ func (g *fakeGH) install(t *testing.T) {
 		defer fakeMu.Unlock()
 		g.calls = append(g.calls, strings.Join(args, " "))
 		switch {
-		case slices.Equal(args, []string{"auth", "status"}):
-			if !g.loggedIn {
+		case len(args) >= 2 && args[0] == "auth" && args[1] == "status":
+			active := slices.Contains(args, "--active")
+			switch {
+			case active && g.noActive:
+				return nil, errors.New("gh auth status: unknown flag: --active")
+			case !g.loggedIn:
 				return nil, errors.New("gh auth status: You are not logged into any GitHub hosts")
+			case g.staleOther && !active:
+				return nil, errors.New("gh auth status: The token in keyring for other-account is invalid")
 			}
 			return nil, nil
 		case args[0] == "repo" && args[1] == "view":

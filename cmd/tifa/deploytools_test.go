@@ -264,6 +264,30 @@ func TestSetupInstallsGH(t *testing.T) {
 	})
 }
 
+// Only the account gh uses on github.com counts: a stale token of another account asks for no
+// login, and a gh too old to know --active still counts as logged in.
+func TestSetupGHChecksOnlyItsAccount(t *testing.T) {
+	for name, set := range map[string]func(*fakeGH){
+		"stale other account": func(g *fakeGH) { g.staleOther = true },
+		"gh without --active": func(g *fakeGH) { g.noActive = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := setupApp(t, "deploy:\n  ci: github\n", nil)
+			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+			gh := newFakeGH()
+			set(gh)
+			gh.install(t)
+			t.Setenv(githubTokenEnv, "")
+			m := newFakeMachine("darwin", "brew", "gh")
+			m.install(t)
+			out, err := runSetup(t, root, true, "y\n")
+			if err != nil || len(m.ran) != 0 || strings.Contains(out, "this machine:") || gh.vars[varMarker] == "" {
+				t.Fatalf("%v, ran %v, vars %v\n%s", err, m.ran, gh.vars, out)
+			}
+		})
+	}
+}
+
 // Without a terminal nothing is installed and nobody logs in, even with --yes: the commands go to
 // the list of what the developer does.
 func TestSetupToolsNoTerminal(t *testing.T) {

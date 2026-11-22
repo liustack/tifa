@@ -55,7 +55,7 @@ func findGitHub(ctx context.Context, dir string) (githubAPI, githubRepo, error) 
 	case !haveGH():
 		ghWhy = "gh, the GitHub CLI, is not installed: " + ghInstallHow() + ", then run gh auth login"
 	default:
-		if _, err := readGH(ctx, dir, nil, "auth", "status"); err != nil {
+		if err := ghAuthStatus(ctx, dir); err != nil {
 			ghWhy = fmt.Sprintf("gh is not logged in: run gh auth login (%v)", err)
 			break
 		}
@@ -84,6 +84,17 @@ func findGitHub(ctx context.Context, dir string) (githubAPI, githubRepo, error) 
 		return nil, githubRepo{}, err
 	}
 	return api, repo, nil
+}
+
+// ghAuthStatus checks the account gh uses on github.com, and no other: a stale token of another
+// account or host must not ask for a login. A gh too old to know --active is asked about the
+// host alone.
+func ghAuthStatus(ctx context.Context, dir string) error {
+	_, err := readGH(ctx, dir, nil, "auth", "status", "--hostname", "github.com", "--active")
+	if err != nil && strings.Contains(err.Error(), "unknown flag: --active") {
+		_, err = readGH(ctx, dir, nil, "auth", "status", "--hostname", "github.com")
+	}
+	return err
 }
 
 // githubTokenHelp says how to make the token that stands in for gh. repo is owner/name, empty

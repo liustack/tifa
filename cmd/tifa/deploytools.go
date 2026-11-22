@@ -149,8 +149,7 @@ func ghLoggedIn(ctx context.Context, dir string) bool {
 	if !haveGH() {
 		return false
 	}
-	_, err := readGH(ctx, dir, nil, "auth", "status")
-	return err == nil
+	return ghAuthStatus(ctx, dir) == nil
 }
 
 // ghSteps plans gh: installed with the package manager of the system, then logged in. It plans
