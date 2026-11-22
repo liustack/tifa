@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -617,5 +619,83 @@ func TestDevBaseURLIsTheSiteRoot(t *testing.T) {
 	}
 	if got := evalResult(t, string(code)); got != "/api/search" {
 		t.Errorf("SSR bundle gives %q, want /api/search", got)
+	}
+}
+
+// An edit of a plain stylesheet leaves the SSR bundle as it is when the bundle takes every
+// stylesheet for its side effect alone. Styles then has the dev server transform the stylesheets
+// the pages link, fails as the SSR build would for one that does not, and brings inputs.json up to
+// date. A CSS module, or a stylesheet imported with a query, may put the text of a stylesheet into
+// the bundle, so then no edit leaves it as it is.
+func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/theme.css": ".theme { color: red }\n",
+		"app/page/page.css":  "@import './theme.css';\n.page { color: red }\n",
+		"app/page/view.tsx":  "import './page.css'\nexport default function View() { return <p className=\"page\">p</p> }\n",
+		".tifa/server.ts":    "import View from '../app/page/view'\n(globalThis as any).result = String(View)\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	dist := filepath.Join(root, ".tifa", "dist")
+	if err := d.Styles(context.Background()); err == nil {
+		t.Fatal("Styles before a Build worked")
+	}
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	plain := d.PlainStyles()
+	for rel, want := range map[string]bool{"app/page/page.css": true, "app/page/theme.css": true, "app/other.css": true, "app/card.module.css": false, "app/page/view.tsx": false, "app/page/page.scss": false} {
+		if plain(rel) != want {
+			t.Errorf("PlainStyles(%s) = %v, want %v", rel, !want, want)
+		}
+	}
+	ssr, err := os.ReadFile(filepath.Join(dist, "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"app/page/page.css", "app/page/theme.css"} {
+		writeTree(t, root, map[string]string{rel: ".edited { color: blue }\n"})
+		if changed, err := ChangedInputs(root, dist); err != nil || !slices.Equal(changed, []string{rel}) {
+			t.Fatalf("before Styles the changed inputs are %v %v", changed, err)
+		}
+		if err := d.Styles(context.Background()); err != nil {
+			t.Fatalf("Styles after an edit of %s: %v", rel, err)
+		}
+		if changed, err := ChangedInputs(root, dist); err != nil || len(changed) > 0 {
+			t.Fatalf("after Styles the changed inputs are %v %v", changed, err)
+		}
+	}
+	// The SSR build of the edited stylesheets makes the same bundle.
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if again, err := os.ReadFile(filepath.Join(dist, "ssr.js")); err != nil || !bytes.Equal(again, ssr) {
+		t.Fatalf("the SSR bundle changed with the stylesheets (%v)", err)
+	}
+	writeTree(t, root, map[string]string{"app/page/page.css": "@import './missing.css';\n.page { color: red }\n"})
+	if err := d.Styles(context.Background()); err == nil || !strings.Contains(err.Error(), "missing.css") {
+		t.Fatalf("Styles with a missing import: %v", err)
+	}
+	writeTree(t, root, map[string]string{"app/page/page.css": ".page { color: green }\n"})
+	if err := d.Styles(context.Background()); err != nil {
+		t.Fatalf("Styles after the fix: %v", err)
+	}
+
+	for name, view := range map[string]string{
+		"CSS module": "import styles from './card.module.css'\nexport default function View() { return <p className={styles.card}>p</p> }\n",
+		"?inline":    "import './page.css'\nimport css from './theme.css?inline'\nexport default function View() { return <style>{css}</style> }\n",
+		"?url":       "import './page.css'\nimport url from './theme.css?url'\nexport default function View() { return <link href={url} /> }\n",
+	} {
+		writeTree(t, root, map[string]string{"app/page/card.module.css": ".card { color: red }\n", "app/page/view.tsx": view})
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+			t.Fatalf("%s: Build: %v", name, err)
+		}
+		if d.PlainStyles()("app/page/page.css") {
+			t.Errorf("%s: an edit of a plain stylesheet leaves the bundle as it is", name)
+		}
 	}
 }

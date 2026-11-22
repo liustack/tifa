@@ -352,6 +352,12 @@ func (p *devPipeline) Public() string { return p.public }
 // Reads says which files the last SSR bundle read.
 func (p *devPipeline) Reads() func(string) bool { return p.front.Reads() }
 
+// PlainStyles says which stylesheet edits leave the last SSR bundle as it is.
+func (p *devPipeline) PlainStyles() func(string) bool { return p.front.PlainStyles() }
+
+// Styles checks the stylesheets after such an edit, see bundle.Dev.Styles.
+func (p *devPipeline) Styles(ctx context.Context) (string, error) { return "", p.front.Styles(ctx) }
+
 // PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
 func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }
 

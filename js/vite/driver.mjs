@@ -25,8 +25,14 @@
 //	                             whose NODE_ENV is not production, such as the one of the dev
 //	                             server, it is built on a worker thread with its own NODE_ENV.
 //	                             There it answers with styles, the tags that link the
-//	                             stylesheets the bundle imports from the dev server. Both
+//	                             stylesheets the bundle imports from the dev server,
+//	                             stylesheets, their files, and plainStyles, whether the bundle
+//	                             takes every stylesheet for its side effect alone, see
+//	                             devStyles. Both
 //	                             answer with modules and incomplete, as client does
+//	{op: "styles", files}        transforms each stylesheet of files, absolute paths, in the client
+//	                             environment of the dev server, as the browser gets it, and fails
+//	                             with the error of the first that does not transform
 //	{op: "serve", port, pollFiles}
 //	                             starts the dev server on 127.0.0.1:port, answers with the tags
 //	                             that load Vite's client and the React refresh runtime. With
@@ -484,10 +490,10 @@ const ops = {
         const worker = ssrWorker
         // A failed build leaves as much behind, so it counts too. A thread that ended, such as by an
         // error a plugin did not catch, would fail every later build with that error.
-        const { styles, modules, incomplete, warnings } = await worker.build({ assets, minify }).finally(() => {
+        const { styles, plainStyles, modules, incomplete, warnings } = await worker.build({ assets, minify }).finally(() => {
           if (++worker.builds === ssrWorkerBuilds || worker.failed) replaceSSRWorker(worker)
         })
-        return { styles: styleLinks(styles), modules, incomplete, warnings }
+        return { styles: styleLinks(styles), stylesheets: styles, plainStyles, modules, incomplete, warnings }
       } catch (err) {
         // A restart came in between: build again once it is done.
         if (restarts.begun === begun && !restarts.running) throw err
@@ -550,6 +556,22 @@ const ops = {
     const plugin = server.config.plugins.find((p) => p.name === 'tifa:markdown')
     if (!plugin) throw new Error('vite.config.ts does not use the tifa plugin, which converts the content')
     for (const warning of await plugin.api.convert({ partial })) logger.warn(warning)
+    return {}
+  },
+
+  async styles({ files }) {
+    if (!server) throw new Error("the stylesheets are checked by Vite's dev server, which is not running")
+    await restartsDone()
+    const env = server.environments.client
+    for (const file of files) {
+      // The watcher of the dev server may not have seen the edit yet.
+      for (const mod of env.moduleGraph.getModulesByFile(file) ?? []) env.moduleGraph.invalidateModule(mod)
+      try {
+        await env.transformRequest(devPath(file))
+      } catch (err) {
+        throw new Error(`${err?.plugin ? `[plugin ${err.plugin}] ` : ''}${err?.id ?? file}\n${message(err)}`)
+      }
+    }
     return {}
   },
 
@@ -742,17 +764,28 @@ async function ssrThread() {
       })
     },
   }
-  // devStyles collects the stylesheets of a build into styles.
-  const devStyles = (styles) => ({
+  // devStyles collects the stylesheets of a build into found.styles, and sets found.plain when the
+  // build takes every stylesheet for its side effect alone: a file imported with no query, not a CSS
+  // module, that exports nothing. No text of a stylesheet then reaches the bundle, and an edit of a
+  // plain one leaves it as it is. Any other stylesheet, such as one imported with ?inline or a CSS
+  // module, may take in the text of the stylesheets it imports, so then no edit does.
+  const devStyles = (found) => ({
     name: 'tifa:dev-styles',
     applyToEnvironment: (env) => env.name === 'ssr',
     generateBundle(_, bundle) {
+      const style = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/
+      found.plain = true
+      for (const id of this.getModuleIds()) {
+        if (!style.test(id)) continue
+        const exports = this.getModuleInfo(id)?.exports
+        if (id.startsWith('\0') || id.includes('?') || /\.module\.[^/\\]*$/.test(id) || !Array.isArray(exports) || exports.length > 0) found.plain = false
+      }
       const entry = Object.values(bundle).find((output) => output.type === 'chunk' && output.isEntry)
       const seen = new Set()
       const visit = (id) => {
         if (seen.has(id)) return
         seen.add(id)
-        if (/\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/.test(id)) styles.push(id)
+        if (/\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/.test(id)) found.styles.push(id)
         const info = this.getModuleInfo(id)
         for (const dep of [...(info?.importedIds ?? []), ...(info?.dynamicallyImportedIds ?? [])]) visit(dep)
       }
@@ -771,10 +804,10 @@ async function ssrThread() {
       return
     }
     try {
-      const styles = []
+      const found = { styles: [], plain: false }
       takeWarnings()
-      const { modules, incomplete } = await buildSSR(createBuilder, await record(), request, [devAssets, devStyles(styles)], devEnv)
-      parentPort.postMessage({ id, styles, modules, incomplete, warnings: takeWarnings() })
+      const { modules, incomplete } = await buildSSR(createBuilder, await record(), request, [devAssets, devStyles(found)], devEnv)
+      parentPort.postMessage({ id, styles: found.styles, plainStyles: found.plain, modules, incomplete, warnings: takeWarnings() })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)
       if (err?.frame && !text.includes(err.frame)) text += '\n' + err.frame
@@ -911,17 +944,21 @@ function watchedOutside() {
 // styleLinks returns the tags that link the stylesheets files from Vite's dev server. Vite's
 // client finds them by data-vite-dev-id and leaves updating them to their own hot updates.
 function styleLinks(files) {
-  const { base, root } = server.config
+  const { base } = server.config
   let tags = ''
   for (const file of files) {
-    // Vite writes root with forward slashes, also on Windows, where a file has backslashes, and
-    // wants /@fs/C:/dir/file for a file outside the root.
-    const rel = path.relative(root, file)
-    const inside = rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
-    const url = inside ? rel.split(path.sep).join('/') : '@fs/' + file.split(path.sep).join('/').replace(/^\//, '')
-    tags += `<link rel="stylesheet" href="${attribute(base + encodeURI(url))}" data-vite-dev-id="${attribute(file)}">`
+    tags += `<link rel="stylesheet" href="${attribute(base + encodeURI(devPath(file).slice(1)))}" data-vite-dev-id="${attribute(file)}">`
   }
   return tags
+}
+
+// devPath returns the path of file on the dev server, below its base.
+function devPath(file) {
+  // Vite writes root with forward slashes, also on Windows, where a file has backslashes, and
+  // wants /@fs/C:/dir/file for a file outside the root.
+  const rel = path.relative(server.config.root, file)
+  const inside = rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
+  return '/' + (inside ? rel.split(path.sep).join('/') : '@fs/' + file.split(path.sep).join('/').replace(/^\//, ''))
 }
 
 function attribute(value) {

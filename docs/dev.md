@@ -40,6 +40,7 @@ A second `tifa dev` in the same app does not start. It prints `tifa: tifa dev is
 | What changed | Steps that run | Open pages |
 | --- | --- | --- |
 | `.ts`, `.tsx`, `.js`, `.css`, `.json` outside `content/`, such as a component, or a `page.tsx` that exports only its component and `ErrorBoundary` | bundle (the SSR bundle) | Update in place through Vite |
+| A `.css` file outside `content/` edited, when the SSR bundle imports every stylesheet for its side effect alone (no CSS modules, nothing imported with `?inline`, `?url` or `?raw`) | styles: Vite's dev server compiles the stylesheets the pages link, and a failure shows as a build error. The SSR bundle holds no CSS, so it stays as it is | Update in place through Vite |
 | A module that exports more than components, such as a `page.tsx` or `layout.tsx` that exports `head`, or a root `layout.tsx` with `htmlAttributes` or `documentHead` | bundle (the SSR bundle) | Reload, started by Vite |
 | A file in the app root that the last SSR bundle read, of any type, such as a Markdown or YAML file imported with `?raw`: edited or removed | bundle (the SSR bundle) | Through Vite, as for any front end change |
 | A file added to the public folder or removed from it | bundle (the code is generated again first) | Through Vite, as for any front end change |
@@ -95,7 +96,7 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 A page the browser opens during the first build (a GET or HEAD that accepts `text/html`) waits 2 seconds for it. If the build is still running, the page answers 503 and says `tifa dev` is building the app, and reloads on its own once the app runs. Other requests, such as a script calling an API, wait for the app as they do while it restarts.
 
-The step names are `static analysis`, `code generation`, `bundle` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only `tifa dev` talks to. Its stderr passes through `tifa dev`, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
+The step names are `static analysis`, `code generation`, `bundle`, `styles` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only `tifa dev` talks to. Its stderr passes through `tifa dev`, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
 
 When a render calls Intl or a `toLocale*` method without a locale, or for a date without a `timeZone`, the app logs a `tifa: ssr:` warning that names the place in your sources, once per place. The page renders as usual. See [Warnings in `tifa dev`](server-render.md#warnings-in-tifa-dev).
 
