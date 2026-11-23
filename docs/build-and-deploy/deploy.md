@@ -1,6 +1,7 @@
 ---
 summary: 'How to put a Tifa app on a server: where the server is named (TIFA_DEPLOY_HOST in .env, never in tifa.yaml, or the server `tifa deploy setup` remembered in ~/.tifa/config.yaml) and the other inputs that are read the same way (flag, environment, .env) and the deploy settings of tifa.yaml (front, connect, and the block auto with its branch and needs), tifa deploy setup with its plan of add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale, with gh or with a fine-grained token), ssh through the Cloudflare Tunnel from your own machine too (the Access policy for your email, cloudflared, the block in ~/.ssh/config, the first browser login, closing the ssh port), the runner joining your Tailscale tailnet with workload identity federation (the Tailscale identity, its two variables, what to make in the Tailscale console), a second developer machine, tifa deploy env for the .env of the app on the server, tifa deploy logs, status and remove to read the log of the app, see which release runs and take the app off the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
+order: 3
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
@@ -28,7 +29,7 @@ read_when:
 
 # Deploying
 
-A Tifa app is one executable. The server needs that file, the settings in its environment, and a folder it may write data to. It needs no Node, no process manager and no Redis. The default session store lives in memory, so for more than one copy of the program give it a [store of your own](sessions.md#where-to-store-sessions).
+A Tifa app is one executable. The server needs that file, the settings in its environment, and a folder it may write data to. It needs no Node, no process manager and no Redis. The default session store lives in memory, so for more than one copy of the program give it a [store of your own](../pages-and-data/sessions.md#where-to-store-sessions).
 
 ## Deploy with tifa deploy
 
@@ -446,15 +447,15 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - Every setting has a flag and an environment variable, and the program also reads a `.env` file of its working folder and a file given with `-c`. [Configuration](config.md) has the list and which source wins. `./myapp config` prints every setting with its value and where it came from, and `./myapp version` prints the versions.
 - Platforms that tell the program its port in `PORT`, such as Cloud Run or Fly, work without more settings (see [PORT and HOST](config.md#port-and-host)).
 - Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (the setting `db.path`) is resolved against the working directory. Back that folder up, or mount it in a container.
-- SIGINT and SIGTERM stop it gracefully: new connections stop, requests in flight get `server.shutdown_timeout` to finish, then `OnShutdown` runs. A stream with no end of its own, such as server-sent events, returns at once when it watches `tifa.ShuttingDown` (see [Streaming](guides/streaming.md#when-the-program-stops)). A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
+- SIGINT and SIGTERM stop it gracefully: new connections stop, requests in flight get `server.shutdown_timeout` to finish, then `OnShutdown` runs. A stream with no end of its own, such as server-sent events, returns at once when it watches `tifa.ShuttingDown` (see [Streaming](../guides/streaming.md#when-the-program-stops)). A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
 - A `FROM scratch` container works. The program holds the time zone data its renders need.
-- Size the machine with [Performance](performance.md#sizing-a-machine). `ssr.vms` follows the CPU limit of a container, up to 4 VMs. On more CPUs, set it.
+- Size the machine with [Performance](../reference/performance.md#sizing-a-machine). `ssr.vms` follows the CPU limit of a container, up to 4 VMs. On more CPUs, set it.
 
 ## Restart without dropping requests
 
 A restart stops the program, and the next one prewarms its VMs before it listens. A connection that arrives in between is refused, unless systemd holds the socket: with socket activation, systemd listens on the port and hands the socket to the program, and keeps it open while the program restarts. The system takes the connections that arrive meanwhile, and the next program answers them. A visitor only waits a little longer: on an M4 Mac, the program of the example shop answers its first page 0.42 seconds after it starts with 10 VMs, and 0.27 seconds with `ssr.vms: 1`. The first start after a build, with the file not yet in the cache of the system, took 0.79 seconds. On a Linux machine with systemd 261, the 300 requests a small app got every 10 ms while `systemctl restart` ran all answered 200, the slowest in 0.14 seconds.
 
-Users stay signed in across the restart only when sessions are kept outside the program. The default store lives in memory, so every restart signs everyone out (see [Where to store sessions](sessions.md#where-to-store-sessions)). An app from `tifa new` keeps them in its SQLite database (`sessions.go`).
+Users stay signed in across the restart only when sessions are kept outside the program. The default store lives in memory, so every restart signs everyone out (see [Where to store sessions](../pages-and-data/sessions.md#where-to-store-sessions)). An app from `tifa new` keeps them in its SQLite database (`sessions.go`).
 
 Two units, for an app behind a proxy, or served over plain HTTP:
 
@@ -539,8 +540,8 @@ In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` add
 - **Compression.** The program compresses text answers itself. When the CDN or proxy compresses (brotli, for example), set `server.compress` to `false`. CloudFront, Cloudflare and Google Cloud CDN all leave an answer that already has a `Content-Encoding` alone. See [Compression](build.md#compression).
 - **Caching.** Pages, navigation data and handler answers are `private, no-cache` by default, so a CDN does not store them. Keep it that way. Let the CDN cache these:
   - `/assets/`: content-hashed, `public, max-age=31536000, immutable`.
-  - The files in `public/`: `no-cache` with an ETag, so the CDN asks and gets a 304. They keep fixed names, so only files that need one belong there. Import the rest to get `/assets/` (see [Static files](app.md#static-files)).
-  - Pages with `Cache`: they are anonymous and carry `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. A CDN that follows the origin's `Cache-Control` keeps a page for the time of `Cache` and no longer. See [Cache for CDNs](ssr-and-cache.md#cache-for-cdns).
+  - The files in `public/`: `no-cache` with an ETag, so the CDN asks and gets a 304. They keep fixed names, so only files that need one belong there. Import the rest to get `/assets/` (see [Static files](../start/app.md#static-files)).
+  - Pages with `Cache`: they are anonymous and carry `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. A CDN that follows the origin's `Cache-Control` keeps a page for the time of `Cache` and no longer. See [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns).
 - **Do not make the CDN ignore the origin's cache headers.** Use a cache setting that follows them, and never one that forces a time or caches everything. The settings for each CDN are in [CDN settings](#cdn-settings).
 - **The navigation data of a page with `Cache` is not shared.** It is the page URL plus `?_tifa=...`, it carries the session of the browser, and it is always `private, no-cache`. The cache key must include the query string (at least `_tifa`), or the CDN must skip the cache for requests with `_tifa`. Drop cookies by path only for the HTML of the page, never for the same path with `_tifa`.
 - **Do not cache `/__tifa/session`.** It answers per visitor and is `private, no-store`.
@@ -585,7 +586,7 @@ Tifa has no health route or metrics route of its own. Add the ones you need as A
 
 ### Health check
 
-A `GET` that answers 204 while the program can serve. Check what it cannot work without, such as the database of [the database guide](guides/database.md), and answer 503 when that is down:
+A `GET` that answers 204 while the program can serve. Check what it cannot work without, such as the database of [the database guide](../guides/database.md), and answer 503 when that is down:
 
 ```go
 // app/healthz/route.go
@@ -655,11 +656,11 @@ What to read, and what to change:
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
-| `tifa_renders_rejected_total` grows | Renders found the queue full or waited past `ssr.wait_timeout`, and got 503 | More CPU and `ssr.vms`, or fewer renders (see [Sizing a machine](performance.md#sizing-a-machine) and [Render queue](config.md#render-queue)) |
+| `tifa_renders_rejected_total` grows | Renders found the queue full or waited past `ssr.wait_timeout`, and got 503 | More CPU and `ssr.vms`, or fewer renders (see [Sizing a machine](../reference/performance.md#sizing-a-machine) and [Render queue](config.md#render-queue)) |
 | `tifa_vms_busy` is `tifa_vms` most of the time, `tifa_renders_queued` above 0 | Every VM renders and others wait | The same: the program is at its limit |
 | `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | The mean time of a render | When it grows, find the page that got slower |
 | `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
-| `tifa_vms_memory_bytes` keeps climbing, or `tifa_vms_replaced_total` grows | The VMs hold more after each collection. A VM that holds more than half of `ssr.vm_memory` is replaced | Find what the pages keep, or the leak in the app. If VMs are replaced again within minutes, raise `ssr.vm_memory` (see [Memory](performance.md#memory)) |
+| `tifa_vms_memory_bytes` keeps climbing, or `tifa_vms_replaced_total` grows | The VMs hold more after each collection. A VM that holds more than half of `ssr.vm_memory` is replaced | Find what the pages keep, or the leak in the app. If VMs are replaced again within minutes, raise `ssr.vm_memory` (see [Memory](../reference/performance.md#memory)) |
 | Hits low next to misses, `tifa_memo_evictions_total` grows, `tifa_memo_bytes` near `tifa_memo_size_bytes` | The render memo drops pages before they are asked for again | A larger `ssr.memo_size` |
 
 ## After a deploy

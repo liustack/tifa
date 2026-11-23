@@ -19,7 +19,7 @@ const (
 )
 
 // extremePages are the sizes of each scenario of test/apps/extreme and texts their HTML must have.
-// The sizes are those of the table in docs/testing.md, which also says why each ends as it does.
+// The sizes are those of the table in docs/internals/testing.md, which also says why each ends as it does.
 var extremePages = []struct {
 	url   string
 	want  outcome
@@ -110,7 +110,7 @@ func TestExtremeApp(t *testing.T) {
 				t.Errorf("%s: failed after %s, want within %s", page.url, took, budget)
 			}
 			// The VM that failed is replaced, and the next page renders. The render memo keeps
-			// pages by URL and data (docs/ssr-and-cache.md), so / alone would be a hit:
+			// pages by URL and data (docs/pages-and-data/ssr-and-cache.md), so / alone would be a hit:
 			// a query of its own gives each check a URL the cache has not seen.
 			renderedPage(t, base+"/?after="+url.QueryEscape(page.url))
 		default:

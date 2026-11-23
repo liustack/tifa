@@ -394,10 +394,10 @@ process.stdout.write(attrs.get("data-session") ?? "")`
 	}
 }
 
-// The CSP hashes in docs/sessions.md are those of the script and the style the server writes. This
+// The CSP hashes in docs/pages-and-data/sessions.md are those of the script and the style the server writes. This
 // fails when either changes, so the docs get the new hashes.
 func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
-	doc, err := os.ReadFile("../docs/sessions.md")
+	doc, err := os.ReadFile("../docs/pages-and-data/sessions.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
 			sum := sha256.Sum256([]byte(text))
 			hash := "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
 			if !strings.Contains(string(doc), hash) {
-				t.Errorf("docs/sessions.md lacks %s of %.60s", hash, text)
+				t.Errorf("docs/pages-and-data/sessions.md lacks %s of %.60s", hash, text)
 			}
 		}
 	}

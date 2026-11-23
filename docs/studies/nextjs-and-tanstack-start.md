@@ -12,9 +12,9 @@ versions: 'Next.js 16.4.6 (App Router, Turbopack build), TanStack Start 1.169.3 
 
 # Tifa against Next.js and TanStack Start
 
-[Performance](../performance.md#against-nextjs-and-tanstack-start) has the summary. This page has the method and the full numbers of the comparison where every request renders. The comparison of whole visits, with each framework as shipped, is in [Capacity measurements](capacity.md#whole-visits-the-traffic-and-the-method).
+[Performance](../reference/performance.md#against-nextjs-and-tanstack-start) has the summary. This page has the method and the full numbers of the comparison where every request renders. The comparison of whole visits, with each framework as shipped, is in [Capacity measurements](capacity.md#whole-visits-the-traffic-and-the-method).
 
-The apps and the commands are in the repository: `test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, a Next.js app and a TanStack Start app, checks that they show the same pages, and measures them. [Testing](../testing.md#comparison-with-nextjs-and-tanstack-start-testcompare) says how to run it.
+The apps and the commands are in the repository: `test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, a Next.js app and a TanStack Start app, checks that they show the same pages, and measures them. [Testing](../internals/testing.md#comparison-with-nextjs-and-tanstack-start-testcompare) says how to run it.
 
 ## Question
 
@@ -59,7 +59,7 @@ Next.js pages are 5.8 to 6.4 KB larger than Tifa's, mostly its RSC payload. Star
 
 ## How it was measured
 
-`go run ./test/compare/cmd/compare measure -config engine -servers tifa-nocache,nextjs,start -rounds 2 -steady 20s -cold 300 -server-cpus 0 -load-cpus 2 -accept-encoding identity -unique-urls`. [Testing](../testing.md#measure-whole-requests) explains each part.
+`go run ./test/compare/cmd/compare measure -config engine -servers tifa-nocache,nextjs,start -rounds 2 -steady 20s -cold 300 -server-cpus 0 -load-cpus 2 -accept-encoding identity -unique-urls`. [Testing](../internals/testing.md#measure-whole-requests) explains each part.
 
 - **Machine:** a Google Cloud `t2d-standard-4` VM, 4 cores of an AMD EPYC 7B13 with no hyperthreads, Linux 7.0. The server is pinned to cpu 0 and the client to cpu 2, so they share no core.
 - **Load:** the command is the client, one request in flight, the six pages in turn, `Accept-Encoding: identity`. Every request has a query of its own, so no two requests share a render. Each server starts fresh for each round and is timed from the start of its process, with no warm-up: 300 requests of a cold part, then 20 seconds of a steady part. Two rounds, with the order of the servers rotated.
@@ -121,11 +121,11 @@ The three servers answer the same six pages with the same text, query the orders
 - **Threads.** The cpu pinning holds every thread of a process, so Node's garbage collector and compiler threads share the one core with the main thread, and Tifa's Go runtime threads share it with its one VM. Peak memory is of the whole process tree.
 - **The storefront.** Tifa's bundle also holds it, and the runs do not request it. That costs Tifa start-up time and memory per VM, not render time on the workbench pages.
 - **Handlers.** Not ported for the workbench pages. The storefront is in all three apps with its writes. Where an app differs from Tifa there: Next.js writes at URLs of its own because a route with a page answers a POST or PATCH with the page, Next.js 16.4.2 answers a 404 below a language with its error document and draws the not-found page in the browser (those 404 pages are not the same work as Tifa's, so they must stay out of any page set a benchmark compares), Next.js answers a trailing slash with its own 308 (the path as the body), and the apps read JSON bodies where Tifa also reads forms. Start runs a request middleware on every request to send a trailing slash away like Tifa.
-- **Whole visits.** Not in the runs on this page, which time one page at a time. The comparison of whole visits ([its numbers](../performance.md#whole-visits-to-the-shop-2026-11-18), [its rules](../testing.md#whole-visits-compare-plans-record-links-deps-and-browse)) has one thing of its own that is not equal. The recording keeps the pointer off the page but for its clicks, so Tifa and TanStack Start, which preload the link a pointer lies on, preload nothing there, while Next.js prefetches the links that come into view, with no pointer, and all of that is recorded and replayed. It leans towards Tifa and TanStack Start, by an amount that was not measured.
+- **Whole visits.** Not in the runs on this page, which time one page at a time. The comparison of whole visits ([its numbers](../reference/performance.md#whole-visits-to-the-shop-2026-11-18), [its rules](../internals/testing.md#whole-visits-compare-plans-record-links-deps-and-browse)) has one thing of its own that is not equal. The recording keeps the pointer off the page but for its clicks, so Tifa and TanStack Start, which preload the link a pointer lies on, preload nothing there, while Next.js prefetches the links that come into view, with no pointer, and all of that is recorded and replayed. It leans towards Tifa and TanStack Start, by an amount that was not measured.
 
 ## What it means for Tifa
 
-- The comparison is in [Performance](../performance.md#at-a-glance), with the gap stated plainly.
+- The comparison is in [Performance](../reference/performance.md#at-a-glance), with the gap stated plainly.
 - Tifa does not try to close the gap to Node with JIT: an interpreter cannot. Work goes into render time, which every request pays (see [Where to continue](optimizations.md#where-to-continue)), and the numbers here are run again when it changes.
 - Memory, start-up, scaling and one file to deploy are where Tifa is ahead, and they are what Tifa is built for.
 

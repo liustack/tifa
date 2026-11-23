@@ -1,6 +1,7 @@
 ---
 summary: 'A getting-started tutorial: start an app with `tifa new`, run it with `tifa dev`, add a page, a form with field errors, Layout data and tests, then build one executable and run it'
 audience: app
+order: 1
 read_when:
   - Using Tifa for the first time and looking for a first walk through an app
   - Writing or checking the steps a new user follows from `tifa new` to a running executable
@@ -24,7 +25,7 @@ pnpm install
 
 On a machine that has never built a Tifa app, `go mod tidy`, `pnpm install` and the first `go tool tifa dev` or `go tool tifa build` download Go and npm packages and compile Tifa, which can take a few minutes. Later runs use the caches and take seconds.
 
-`tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [`tifa new`](build.md#tifa-new).
+`tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [`tifa new`](../build-and-deploy/build.md#tifa-new).
 
 ## 2. Run it and look around
 
@@ -77,7 +78,7 @@ Look at `AddTodo` in `app/page.tsx`. After `POST` succeeds it calls `router.inva
       await router.invalidate({ sync: true })
 ```
 
-This is the rule to remember: Tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](pages.md#calling-method-handlers-from-the-browser).
+This is the rule to remember: Tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](../pages-and-data/pages.md#calling-method-handlers-from-the-browser).
 
 ## 3. Add a page
 
@@ -164,7 +165,7 @@ In `app/layout.tsx`, add a link to the nav:
 
 Save `page.tsx` before or together with `route.go`. A `route.go` with a `Load` and no `page.tsx` fails the build with `Load is not allowed without page.tsx`, and `tifa dev` prints that line until the page exists.
 
-Open `/todos/1`, mark the todo done, then press Done in the nav. The todo is there. `page.useLoaderData()` is typed from what `Load` returns. Step 7 shows what happens when the Go type changes. See [route.go](routes.md#routego) and [page.tsx](pages.md#pagetsx).
+Open `/todos/1`, mark the todo done, then press Done in the nav. The todo is there. `page.useLoaderData()` is typed from what `Load` returns. Step 7 shows what happens when the Go type changes. See [route.go](../pages-and-data/routes.md#routego) and [page.tsx](../pages-and-data/pages.md#pagetsx).
 
 ## 4. A form with field errors
 
@@ -286,7 +287,7 @@ function RenameForm() {
 
 On `/todos/1`, clear the box and press Save: "Write what needs doing." shows under it. Type "Buy oat milk" and press Save: the heading changes. The browser shows the 422 in its console, which is the answer working as designed.
 
-A `tifa.Fields` reaches the browser as a `TifaError` whose `fields` hold the messages. Any other error from `Validate` is a 400 with its text in `message`. See [Method handlers with input and result](routes.md#method-handlers-with-input-and-result).
+A `tifa.Fields` reaches the browser as a `TifaError` whose `fields` hold the messages. Any other error from `Validate` is a 400 with its text in `message`. See [Method handlers with input and result](../pages-and-data/routes.md#method-handlers-with-input-and-result).
 
 ## 5. Data in the Layout
 
@@ -341,7 +342,7 @@ And read it in `app/layout.tsx`:
 
 Add a todo and watch the nav: `Todos (1)`. Mark it done: `Todos (0)` and `Done (1)`. The numbers move because of the `router.invalidate` calls from step 2, which load the Layouts again too.
 
-If `tifa dev` prints a long "Hydration failed" message right after you save `layout.tsx`, it came from the tab that was open during the change. Reload the page and it is gone. See [Layout](pages.md#layout) and [Log](dev.md#log).
+If `tifa dev` prints a long "Hydration failed" message right after you save `layout.tsx`, it came from the tab that was open during the change. Reload the page and it is gone. See [Layout](../pages-and-data/pages.md#layout) and [Log](../build-and-deploy/dev.md#log).
 
 ## 6. Tests
 
@@ -458,7 +459,7 @@ ok  	tutorial-app/app/todos	1.611s
 ok  	tutorial-app/app/todos/todo+	1.302s
 ```
 
-These tests check what a function returns. The 422 for a blank title, the JSON and the redirects come from the server, so you see them in the browser or against the built app. See [Testing](testing-apps.md#testing).
+These tests check what a function returns. The 422 for a blank title, the JSON and the redirects come from the server, so you see them in the browser or against the built app. See [Testing](../pages-and-data/testing-apps.md#testing).
 
 ## 7. Check, build and run one file
 
@@ -502,10 +503,10 @@ The program keeps its data in `app.db` in the folder it runs in, so run from the
 
 ## Where to go next
 
-- Put it on a server: [Deploying](deploy.md) covers building for Linux, running the program, containers, ports and HTTPS, and what to set behind a proxy or CDN.
-- Settings, HTTPS, the cache of rendered pages: [Configuration](config.md).
-- Sign users in: [Sessions](sessions.md). The app keeps sessions in `app.db` (`sessions.go`), so a restart signs nobody out.
-- Styles and shadcn/ui: [Styles](styles.md). A site in several languages: [Writing an app](app.md#a-site-in-several-languages). Caching a page: [Render switches and caches](ssr-and-cache.md#cache-for-cdns).
-- A bigger app to read: [examples/shop](../examples/shop).
-- How `tifa dev` reacts to each change, and how to read its log: [Dev server](dev.md).
+- Put it on a server: [Deploying](../build-and-deploy/deploy.md) covers building for Linux, running the program, containers, ports and HTTPS, and what to set behind a proxy or CDN.
+- Settings, HTTPS, the cache of rendered pages: [Configuration](../build-and-deploy/config.md).
+- Sign users in: [Sessions](../pages-and-data/sessions.md). The app keeps sessions in `app.db` (`sessions.go`), so a restart signs nobody out.
+- Styles and shadcn/ui: [Styles](../pages-and-data/styles.md). A site in several languages: [Writing an app](app.md#a-site-in-several-languages). Caching a page: [Render switches and caches](../pages-and-data/ssr-and-cache.md#cache-for-cdns).
+- A bigger app to read: [examples/shop](../../examples/shop).
+- How `tifa dev` reacts to each change, and how to read its log: [Dev server](../build-and-deploy/dev.md).
 - Why the folders look the way they do: [Structuring an app](structure.md) and [Philosophy](philosophy.md).

@@ -1,6 +1,7 @@
 ---
 summary: 'Commit rules: commit message format, the type list, atomic commits, branches and worktrees'
 audience: dev
+order: 2
 read_when:
   - Getting ready to commit
   - Writing a commit message

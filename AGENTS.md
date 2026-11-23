@@ -19,6 +19,7 @@ The example app `examples/shop` is a shop written by tifa conventions: an order 
 ## Docs (`docs/`)
 
 1. Every doc starts with front matter: `summary` (one sentence saying what question the doc answers), `audience` (`app` for the docs that help write, run or deploy an app, `dev` for the docs about developing Tifa itself, which `tifa docs` lists only with `--all`) and `read_when` (when to read it). See the comment at the top of [scripts/docs-list.sh](scripts/docs-list.sh) for the format.
+   Layout: a doc lives in a section folder, `docs/start/`, `docs/pages-and-data/`, `docs/guides/`, `docs/build-and-deploy/`, `docs/reference/` (all `audience: app`) or `docs/internals/` (`audience: dev`), and `docs/studies/` and `docs/research/` stay as they are. Each doc has `order: <n>` in its front matter, its place in the folder (own number, no number prefixes in file names), and each section folder has an `index.md` (and an `index.zh-CN.md` for app sections) with `title`, `order`, `audience` and one sentence on what the section holds. A test (`TestDocLayoutOfTheRepository`) fails when a doc is in the wrong folder for its audience, has no `order` or shares one, or a section has no index. The site builds its sidebar from these folders, titles and orders.
 2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
 3. `docs/research/` is left out of the index. It holds exploratory material. Outdated docs are deleted, not archived: git history keeps them.
 4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.
@@ -31,7 +32,7 @@ Plans, design drafts, experiment notes and raw measurement data go in the reposi
 
 ## Verification and commits
 
-- See [docs/testing.md](docs/testing.md) for verification commands and [docs/commit.md](docs/commit.md) for commit rules.
+- See [docs/internals/testing.md](docs/internals/testing.md) for verification commands and [docs/internals/commit.md](docs/internals/commit.md) for commit rules.
 - Add files to a commit by name, never with `git add -A` or `git add .`, and build programs with `go build -o` outside the checkout. A 41 MB binary once went into a release this way.
 - For new behavior, write a failing test first, then implement. For a bug, find the root cause before changing code, and do not hide it with fallback values.
 - When merging a branch that changes what apps or their users can see, add it to CHANGELOG.md. If an app must change its code because of it, end the entry with "Upgrading:" and say exactly what to change. Entries that need nothing say nothing.

@@ -20,6 +20,7 @@ func fakeTifa(t *testing.T) string {
 	docs := filepath.Join(dir, "docs")
 	writeFile(t, filepath.Join(docs, "app.md"), "---\nsummary: 'Writing an app: layout, routes and pages'\naudience: app\nread_when:\n  - Writing a page\n  - \"Adding a route\"\n---\n\n# App\n")
 	writeFile(t, filepath.Join(docs, "config.md"), "---\nsummary: Settings\naudience: app\nread_when: [Changing a setting, 'Reading tifa.yaml']\nsomething_else: 1\n---\n")
+	writeFile(t, filepath.Join(docs, "guides", "index.md"), "---\ntitle: Guides\norder: 3\naudience: app\n---\n\n# Guides\n")
 	writeFile(t, filepath.Join(docs, "no-front-matter.md"), "# Nothing\n")
 	writeFile(t, filepath.Join(docs, "research", "idea.md"), "---\nsummary: Idea\n---\n")
 	writeFile(t, filepath.Join(docs, "studies", "speed.md"), "---\nsummary: 'How fast it is'\naudience: dev\n---\n")

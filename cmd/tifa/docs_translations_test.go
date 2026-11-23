@@ -73,6 +73,7 @@ func TestTranslationCheckNamesEachProblem(t *testing.T) {
 	writeFile(t, stale, appFront)
 	writeFile(t, strings.TrimSuffix(stale, ".md")+".zh-CN.md", zhDoc("000000000000"))
 	writeFile(t, filepath.Join(root, "docs/orphan.zh-CN.md"), zhDoc("000000000000"))
+	writeFile(t, filepath.Join(root, "docs/sec/index.md"), "---\ntitle: Sec\norder: 1\naudience: app\n---\n")
 	dev := filepath.Join(root, "docs/dev.md")
 	writeFile(t, dev, "---\nsummary: Dev\naudience: dev\n---\n")
 	writeFile(t, filepath.Join(root, "docs/dev.zh-CN.md"), zhDoc(docHash(t, root, dev)))
@@ -83,6 +84,7 @@ func TestTranslationCheckNamesEachProblem(t *testing.T) {
 	for _, want := range []string{
 		"docs/missing.md has no Chinese partner docs/missing.zh-CN.md",
 		"docs/sub/stale.zh-CN.md: translatedFrom is 000000000000 but docs/sub/stale.md hashes to " + docHash(t, root, stale),
+		"docs/sec/index.md has no Chinese partner docs/sec/index.zh-CN.md",
 		"docs/orphan.zh-CN.md has no English file docs/orphan.md",
 		"docs/dev.zh-CN.md: docs/dev.md is for audience dev and stays English only",
 		"Update the Chinese in the same commit",

@@ -23,7 +23,7 @@ import (
 // constants, install it in the apps of this repository, and run TestTanStackMembersStay and
 // TestGeneratedRouterIDsMatchGo in internal/codegen and TestTanStackCopiesAreUnchanged in this
 // package: the first names each member that is gone, the last the Tifa function to compare again
-// with the new source. docs/build.md has the steps.
+// with the new source. docs/build-and-deploy/build.md has the steps.
 const (
 	TestedReactRouter = "1.170.46"
 	TestedRouterCore  = "1.171.39"

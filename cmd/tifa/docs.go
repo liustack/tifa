@@ -117,6 +117,13 @@ type docEntry struct {
 	audience string
 }
 
+// isSectionIndex says whether the doc at path is the index.md of a section folder, which holds the
+// title and the order of the section and is not a doc to list.
+func isSectionIndex(path string) bool {
+	base := filepath.Base(path)
+	return base == "index.md" || base == "index.zh-CN.md"
+}
+
 // zhCN is the language of the Chinese docs, whose files end in .zh-CN.md beside the English ones.
 const zhCN = "zh-CN"
 
@@ -145,7 +152,7 @@ func readDocs(dir, lang string) (docs []docEntry, warnings []string, err error) 
 			if p == "docs/research" {
 				return fs.SkipDir
 			}
-		case strings.HasSuffix(p, ".md"):
+		case strings.HasSuffix(p, ".md") && !isSectionIndex(p):
 			paths = append(paths, p)
 		}
 		return nil

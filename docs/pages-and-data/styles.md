@@ -1,6 +1,7 @@
 ---
 summary: 'How to add CSS, Tailwind CSS and shadcn/ui to an app'
 audience: app
+order: 3
 read_when:
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Putting a font or an image in a stylesheet, and whether it goes in `public/`
@@ -9,7 +10,7 @@ read_when:
 
 # Styles
 
-Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Vite builds it: every page links one stylesheet with all the CSS of the app, and fonts and images that CSS references get a content hash in their names under `/assets/` (small ones go inline). A URL that starts with `/`, such as `/logo.svg`, is left as it is and names a file of the public folder. Use a relative URL such as `url(./font.woff2)` for what the page uses, and keep the public folder for files with a fixed name (see [Static files](app.md#static-files)). Under `tifa dev` the CSS goes through Vite's dev server and updates in place, see [dev.md](dev.md).
+Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Vite builds it: every page links one stylesheet with all the CSS of the app, and fonts and images that CSS references get a content hash in their names under `/assets/` (small ones go inline). A URL that starts with `/`, such as `/logo.svg`, is left as it is and names a file of the public folder. Use a relative URL such as `url(./font.woff2)` for what the page uses, and keep the public folder for files with a fixed name (see [Static files](../start/app.md#static-files)). Under `tifa dev` the CSS goes through Vite's dev server and updates in place, see [dev.md](../build-and-deploy/dev.md).
 
 ## Tailwind CSS
 
@@ -66,5 +67,5 @@ Then point the aliases of `components.json` into `components/`, so the app root 
 
 `add` places files and rewrites their imports by these aliases: `add sidebar` writes `components/hooks/use-mobile.ts`. When `lib/utils.ts` only re-exports `cn` from the `cn` package, as with shadcn 4, delete it and import `cn` from `cn` in page code too, as the components do. Otherwise move it to `components/lib/utils.ts`.
 
-`@/` is the app root, set by `paths` in the app's tsconfig (see [build.md](build.md#the-apps-tsconfig-and-vite-config)). Components render on the server like any other React code.
+`@/` is the app root, set by `paths` in the app's tsconfig (see [build.md](../build-and-deploy/build.md#the-apps-tsconfig-and-vite-config)). Components render on the server like any other React code.
 

@@ -2,7 +2,7 @@
 
 Contents: URLs from folders, `route.go`, `Load`, Layouts and `tifa.Use`, method handlers, `Ctx`, what `Load` may do with `Ctx`, the page side (`route.gen`), JSON rules, `hooks.go`, sessions.
 
-Full docs (in the folder `go tool tifa docs` prints): `docs/app.md`, `docs/routes.md`, `docs/pages.md`, `docs/hooks.md`.
+Full docs (in the folder `go tool tifa docs` prints): `docs/start/app.md`, `docs/pages-and-data/routes.md`, `docs/pages-and-data/pages.md`, `docs/pages-and-data/hooks.md`.
 
 ## URLs come from folders
 
@@ -87,7 +87,7 @@ export default function ProjectLayout() {
 - Moving between pages under one Layout keeps the Layout mounted and its state. When a path parameter the Layout function reads changes, it remounts. A query parameter only loads the data again: state set from `Load` data needs a `key` or an effect to follow it.
 - `tifa.Use(c, project.Layout)` gives a `Load` or `Layout` the result of a Layout above it (same folder or an ancestor), for the current request. It runs once per request however many callers ask. The argument must be a package-level `Layout` function of a Layout that wraps the caller. Anything else fails the build.
 - On browser navigation only the `Load` and `Layout` of routes not already loaded run. A Layout whose data is cached does not run. Never rely on a Layout alone for a permission check. Put it in `OnRequest`, or make the page's `Load` call `tifa.Use` on the checking Layout so the check runs on every request.
-- Name the file `layout_.tsx` to show a section without any Layout above it, for example a storefront inside a site that has an admin shell. Details in `docs/pages.md#a-layout-without-the-layouts-above`.
+- Name the file `layout_.tsx` to show a section without any Layout above it, for example a storefront inside a site that has an admin shell. Details in `docs/pages-and-data/pages.md#a-layout-without-the-layouts-above`.
 
 ## Method handlers with input and result
 
@@ -143,7 +143,7 @@ func page(c *tifa.Ctx, tab string) (Page, error) { return build(c.Context(), c.P
 func param(c *tifa.Ctx, name string) string { return c.Param(name) }
 ```
 
-Full rules: `docs/routes.md#how-load-may-use-ctx`.
+Full rules: `docs/pages-and-data/routes.md#how-load-may-use-ctx`.
 
 ## The page side
 
@@ -305,4 +305,4 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - On a page with `Cache`, `tifa.Session` is nil whoever asks, `SetSession` and `ClearSession` fail (sign-in and OAuth callbacks belong on routes without `Cache`), and the HTML carries no session. The browser gets it after the page has loaded: `useSession`, `<SignedIn>` and `<SignedOut>` follow the copy in `localStorage`, and the navigation data of the page carries the session of that browser. Known limits: the render memo keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
 - `docs/guides/sign-in.md` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `SignedIn` and `SignedOut`).
 
-Full docs (in the folder `go tool tifa docs` prints): Sessions (`docs/sessions.md`).
+Full docs (in the folder `go tool tifa docs` prints): Sessions (`docs/pages-and-data/sessions.md`).

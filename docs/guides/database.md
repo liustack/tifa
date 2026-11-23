@@ -1,6 +1,7 @@
 ---
 summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, rejecting a duplicate row, a backup, testing on a temporary database, and when to move to Postgres'
 audience: app
+order: 2
 read_when:
   - Adding a database to a Tifa app, or growing the one `tifa new` wrote
   - Changing a table of an app that is already running
@@ -10,13 +11,13 @@ read_when:
 
 # Keeping data in SQLite
 
-Tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.
+Tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build-and-deploy/build.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.
 
-The code is from a scratch app made with `tifa new`, module `example.com/notes`. Where the files go is in [Structuring an app](../structure.md#2-shared-resources-and-other-dependencies).
+The code is from a scratch app made with `tifa new`, module `example.com/notes`. Where the files go is in [Structuring an app](../start/structure.md#2-shared-resources-and-other-dependencies).
 
 ## The driver
 
-Use [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite). It runs SQLite as Go code, so the app still builds with `CGO_ENABLED=0` into one file ([Philosophy](../philosophy.md#do-things-the-go-way)). The cgo driver `github.com/mattn/go-sqlite3` needs a C compiler and breaks that. In the driver's own [benchmarks](https://github.com/liustack/sqlite#benchmarks) it reads faster than the cgo driver and than the other pure Go drivers, and loses on work that stays inside SQLite, such as a join. It supports Linux, macOS and Windows, on amd64 and arm64. `tifa new` already pins a version in `go.mod`. Each release names the Go versions it was tested with and refuses to build with a newer one, so after upgrading Go, upgrade the driver too.
+Use [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite). It runs SQLite as Go code, so the app still builds with `CGO_ENABLED=0` into one file ([Philosophy](../start/philosophy.md#do-things-the-go-way)). The cgo driver `github.com/mattn/go-sqlite3` needs a C compiler and breaks that. In the driver's own [benchmarks](https://github.com/liustack/sqlite#benchmarks) it reads faster than the cgo driver and than the other pure Go drivers, and loses on work that stays inside SQLite, such as a join. It supports Linux, macOS and Windows, on amd64 and arm64. `tifa new` already pins a version in `go.mod`. Each release names the Go versions it was tested with and refuses to build with a newer one, so after upgrading Go, upgrade the driver too.
 
 Two habits differ from other drivers. Parameters in the DSN other than `_pragma` and `_txlock` are an error, so the `_foreign_keys=1` style of other drivers does not work. And double quotes in SQL only name columns and tables, so write string values in single quotes. Do not import another driver named `sqlite` (such as `modernc.org/sqlite`) in the same program, because the two register the same name and the program panics at start.
 
@@ -79,7 +80,7 @@ The parameters after `?` are read by the driver ([its README](https://github.com
 
 ## Where the file lives
 
-The path is an option of the app, in `options.go` ([Options of the app](../config.md#options-of-the-app)):
+The path is an option of the app, in `options.go` ([Options of the app](../build-and-deploy/config.md#options-of-the-app)):
 
 ```go
 // options.go
@@ -87,7 +88,7 @@ var DBPath = tifa.String("db.path", "app.db", "SQLite database file")
 ```
 
 - A relative path is resolved against the folder the program runs in. That is the app root under `tifa dev`, and the folder you start the program from on a server.
-- On a server, put the file in a folder meant for data and name it with the environment: `DB_PATH=/var/lib/notes/app.db`. [Deploying](../deploy.md#run-it) says to back that folder up or mount it in a container.
+- On a server, put the file in a folder meant for data and name it with the environment: `DB_PATH=/var/lib/notes/app.db`. [Deploying](../build-and-deploy/deploy.md#run-it) says to back that folder up or mount it in a container.
 - SQLite in WAL mode keeps two more files next to it, `app.db-wal` and `app.db-shm`. Do not copy the three by hand while the app runs, see the backup below. Keep all three out of git (the `.gitignore` of `tifa new` does).
 - One program owns the file. Two copies of the app on the same file work for a short overlap during a deploy, but a second server needs [Postgres](#when-to-use-postgres).
 
@@ -192,7 +193,7 @@ How it behaves:
 - **Before the first request.** `OnStart` finishes before the app listens, so no request sees a half-changed table. A slow change delays the start by as long as it takes.
 - **Never edit a file that has run.** Add the next number instead. The runner cannot tell that an old file changed.
 - **No down files.** To go back, restore the backup taken before the deploy. A program that finds a database from a newer version refuses to start instead of guessing.
-- **The build does not run migrations.** `tifa build` only reads your code ([Philosophy](../philosophy.md#do-things-the-go-way)), so it needs no database.
+- **The build does not run migrations.** `tifa build` only reads your code ([Philosophy](../start/philosophy.md#do-things-the-go-way)), so it needs no database.
 
 Why not a library? [goose](https://github.com/pressly/goose) is a Go library that applies embedded SQL files through `database/sql`, with SQLite and Postgres. Take it when you want down files or expect to move to Postgres. For one SQLite file, the runner above is less to learn and fits on a page. Both need the same habit: one numbered file per change.
 
@@ -223,7 +224,7 @@ func Load(c *tifa.Ctx) (todos.Todo, error) {
 }
 ```
 
-- A missing row becomes `tifa.ErrNotFound`, which answers 404 ([route.go](../routes.md#routego)).
+- A missing row becomes `tifa.ErrNotFound`, which answers 404 ([route.go](../pages-and-data/routes.md#routego)).
 - `Load` only reads. A `Load` can run more than once for one visit (navigation, the page cache), so writes belong in `POST`, `PUT`, `PATCH` and `DELETE` handlers.
 - Use `?` placeholders for every value that comes from a request. Never build SQL with string concatenation.
 - `QueryRowContext` with `RETURNING` does an insert and reads the new row in one call, as `AddTodo` in the `tifa new` app does.
@@ -279,7 +280,7 @@ The file is a complete database, safe to move off the machine. `VACUUM INTO` fai
 
 ## Test on a temporary database
 
-Tests replace the variable ([Structuring an app](../structure.md#2-shared-resources-and-other-dependencies)). Settings keep their defaults in `go test`, so a test opens its own database in a temporary folder. Put the helper in a small package so every domain can use it, and import it from test files only:
+Tests replace the variable ([Structuring an app](../start/structure.md#2-shared-resources-and-other-dependencies)). Settings keep their defaults in `go test`, so a test opens its own database in a temporary folder. Put the helper in a small package so every domain can use it, and import it from test files only:
 
 ```go
 // testdb/testdb.go
@@ -338,7 +339,7 @@ func TestOpenDBMigratesOnce(t *testing.T) {
 }
 ```
 
-The root package cannot import `testdb` in its own tests (the import would loop back), so its tests keep a three-line helper of their own. Route code is tested with `tifatest.NewCtx`, see [Testing](../testing-apps.md#testing).
+The root package cannot import `testdb` in its own tests (the import would loop back), so its tests keep a three-line helper of their own. Route code is tested with `tifatest.NewCtx`, see [Testing](../pages-and-data/testing-apps.md#testing).
 
 ## When to use Postgres
 
@@ -362,4 +363,4 @@ func OpenDB(ctx context.Context, url string) (*sql.DB, error) {
 
 Everything else in this guide keeps its shape: a `DB` variable opened in `OnStart`, an option for the address (`db.url`, now a `tifa.Secret` since it holds the password, see [Sending email](email.md#settings)), queries through `database/sql`. What changes: placeholders are `$1`, `$2`, the pragmas go away, and the migration runner above is SQLite's, so use a library such as goose. Tests then need a real Postgres, so give them one through a setting and skip when it is not set.
 
-Sessions can live in the same database: [Sessions](../sessions.md#where-to-store-sessions).
+Sessions can live in the same database: [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).

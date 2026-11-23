@@ -2,7 +2,7 @@
 # Print the value for `translatedFrom` in the front matter of a Chinese doc: the first 12 hex
 # digits of the SHA-256 of the English file it translates.
 #
-#   scripts/doc-hash.sh docs/app.md
+#   scripts/doc-hash.sh docs/start/app.md
 #
 # Run it after the last edit of the English file, and put the result in docs/app.zh-CN.md.
 set -euo pipefail

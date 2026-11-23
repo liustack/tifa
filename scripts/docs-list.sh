@@ -18,7 +18,10 @@
 # audience says who the doc is for: app (writing, running or deploying an app) or dev (developing
 # Tifa itself). `tifa docs` lists the app docs by default and the dev docs with --all.
 #
-# A doc with audience: app has a Chinese partner beside it, docs/<path>/<name>.zh-CN.md, with the same
+# Docs are in section folders (docs/start, docs/internals and so on). A section folder has an index.md
+# with its title and order. It is not listed and holds no summary.
+#
+# A doc with audience: app has a Chinese partner beside it, docs/<section>/<name>.zh-CN.md, with the same
 # front matter keys and one more: translatedFrom, the value `scripts/doc-hash.sh docs/<path>/<name>.md`
 # prints. A change to the English file changes that hash, so the check fails until the Chinese file is
 # updated and carries the new hash. A doc with audience: dev has no Chinese partner. The index lists
@@ -47,7 +50,7 @@ if [ ! -d "$docs" ]; then
 fi
 
 # Research notes are not part of the index.
-files="$(cd "$root" && find docs -type f -name '*.md' -not -path 'docs/research/*' -not -name '*.zh-CN.md' | LC_ALL=C sort)"
+files="$(cd "$root" && find docs -type f -name '*.md' -not -path 'docs/research/*' -not -name '*.zh-CN.md' -not -name index.md | LC_ALL=C sort)"
 
 # fm_key prints the value of a key of the front matter of a file.
 fm_key() {

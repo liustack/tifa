@@ -18,4 +18,4 @@ After cloning, run `{{.Install}}` (`node_modules` is not in git), then `go tool 
 - The root folder holds what the whole app shares: `db.go` opens the database, `schema.sql` holds its tables, `sessions.go` keeps the sessions of signed-in users in it, so a restart signs nobody out, and `hooks.go` opens the database when the app starts and closes it when it stops.
 - The database is `app.db` in the folder the app runs in. Set `DB_PATH` (or pass `--db-path`) to put it elsewhere: it is the option `db.path` of `options.go`.
 
-See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/app.md) and [Structuring an app](https://github.com/liustack/tifa/blob/main/docs/structure.md).
+See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/start/app.md) and [Structuring an app](https://github.com/liustack/tifa/blob/main/docs/start/structure.md).

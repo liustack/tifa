@@ -1,6 +1,7 @@
 ---
 summary: 'What the server render has and lacks: the browser and Node APIs in the slowjs VM, packages that import Node modules, libraries that render differently there, components to load only in the browser, and how to use Intl and Temporal so hydration matches'
 audience: app
+order: 7
 read_when:
   - A page fails to render on the server or does not hydrate, and you want to know which browser APIs and library features the server has
   - A component shows nothing until the browser draws it, such as a chart or a map, and you wonder whether to render it on the server
@@ -143,7 +144,7 @@ With `locale: 'zh-CN'`, `timeZone: 'Asia/Shanghai'` and `paidAt: '2025-08-16T20:
 
 ### Warnings in `tifa dev`
 
-Under [`tifa dev`](dev.md), a render that calls an Intl constructor or a `toLocale*` method without a locale, or a date one without a `timeZone`, logs a warning with the place of the call in your sources and its stack:
+Under [`tifa dev`](../build-and-deploy/dev.md), a render that calls an Intl constructor or a `toLocale*` method without a locale, or a date one without a `timeZone`, logs a warning with the place of the call in your sources and its stack:
 
 ```text
 2026/10/16 08:00:00 tifa: ssr: Number.prototype.toLocaleString without a locale at app/orders/order+/items.tsx:12:7. The server formats in en-US and UTC, a browser in the language and time zone of its user, so the text can differ from the HTML and React reports a hydration mismatch. Pass the locale and, for a date, the timeZone, from data Load returns, as in toLocaleDateString('zh-CN', {timeZone: 'Asia/Shanghai'}), or format in a useEffect.
@@ -155,7 +156,7 @@ Each place is logged once, and again after `tifa dev` reloads the SSR bundle. Th
 
 ### Cost
 
-A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses it, which adds about 30 to 45 KB to that VM. A VM of the example shop takes about 11 MB, so that is under 1% of it. Under `tifa dev` every VM pays this at once, because the warnings need Intl installed. Each language is read into memory once per process, 100 to 180 KB, plus about 1 MB shared by all languages the first time any is used. The locale data makes the program about 1.7 MB larger, and the time zone database the generated `main.go` embeds about 450 KB more. The locale data comes with a license notice to ship with the program, see [Notices to ship with the program](build.md#notices-to-ship-with-the-program).
+A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses it, which adds about 30 to 45 KB to that VM. A VM of the example shop takes about 11 MB, so that is under 1% of it. Under `tifa dev` every VM pays this at once, because the warnings need Intl installed. Each language is read into memory once per process, 100 to 180 KB, plus about 1 MB shared by all languages the first time any is used. The locale data makes the program about 1.7 MB larger, and the time zone database the generated `main.go` embeds about 450 KB more. The locale data comes with a license notice to ship with the program, see [Notices to ship with the program](../build-and-deploy/build.md#notices-to-ship-with-the-program).
 
 ## Temporal in server rendering
 
@@ -174,5 +175,5 @@ return <time>{Temporal.PlainDate.from(day).toLocaleString(locale, { dateStyle: '
 
 This renders `October 22, 2026`. Do not put `Temporal.Now` results into hydrated HTML: the browser runs later and its default zone can differ. Compute a fixed value in `Load`, or show the current time after hydration in an effect. Browser locale data can differ, as described under Intl. Tifa provides Temporal only to the server VM, not a browser polyfill or TypeScript declarations. Browsers that lack Temporal need a polyfill loaded before the page code, or the page must avoid it there.
 
-Temporal is installed lazily per VM on the first read of `Temporal` or call to `toTemporalInstant`. Pages that do not use it keep only the stand-ins. The bytecode used to install it is compiled once per process. See [Memory](performance.md#memory) for measured size, VM memory and first-use costs. The existing [six notice files](build.md#notices-to-ship-with-the-program) cover Temporal too.
+Temporal is installed lazily per VM on the first read of `Temporal` or call to `toTemporalInstant`. Pages that do not use it keep only the stand-ins. The bytecode used to install it is compiled once per process. See [Memory](../reference/performance.md#memory) for measured size, VM memory and first-use costs. The existing [six notice files](../build-and-deploy/build.md#notices-to-ship-with-the-program) cover Temporal too.
 

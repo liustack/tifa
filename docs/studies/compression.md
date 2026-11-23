@@ -11,7 +11,7 @@ versions: 'Tifa from 6723300 to f8c3283, quickjs v0.26.14, github.com/klauspost/
 
 # Compression
 
-[Compression in Build](../build.md#compression) says what `server.compress` does. [Compression in Performance](../performance.md#compression) has the summary and the whole request table. This page adds every input, the CPU per request and the cache before and after.
+[Compression in Build](../build-and-deploy/build.md#compression) says what `server.compress` does. [Compression in Performance](../reference/performance.md#compression) has the summary and the whole request table. This page adds every input, the CPU per request and the cache before and after.
 
 ## Question
 
@@ -75,7 +75,7 @@ Server CPU per request in ms, two rounds. zstd is what `gzip, zstd` gets:
 | Main chunk | 1 | 0.495 to 0.588 | the `.gz` file: 0.224 to 0.242 | the same file |
 | Main chunk | 64 | 0.389 to 0.515 | the `.gz` file: 0.162 to 0.171 | the same file |
 
-Requests a second, P50 and P99 are in [Performance](../performance.md#compression).
+Requests a second, P50 and P99 are in [Performance](../reference/performance.md#compression).
 
 Cached order pages, before and after the cache kept the compressed forms:
 
@@ -112,4 +112,4 @@ The pages are 38,467 to 38,471 bytes as HTML, 8,607 to 8,610 with zstd and 8,317
 - The version of the brotli encoder was not written down.
 - The identity rows of the main chunk spread from 3,854 to 5,105 answers a second between the two rounds.
 - HTTP/2 and TLS: the server answered plain HTTP/1.1.
-- Memory per encoder is in [Memory](../performance.md#memory), not here.
+- Memory per encoder is in [Memory](../reference/performance.md#memory), not here.

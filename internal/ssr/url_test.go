@@ -10,7 +10,7 @@ import (
 
 // URL and URLSearchParams of a server render come from the engine's package url, which Load
 // registers before the bundle runs. The core-js in the host script finds them good and installs
-// nothing of its own. docs/server-render.md says the same in "What the server render has".
+// nothing of its own. docs/pages-and-data/server-render.md says the same in "What the server render has".
 
 func TestURLComesFromTheEngine(t *testing.T) {
 	// Without the host script, the engine's URL is there.

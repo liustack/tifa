@@ -229,7 +229,7 @@ func TestWithRoute(t *testing.T) {
 }
 
 // Every rule names the host, so no other site of the zone changes, and the cache rules follow
-// the CDN settings of docs/deploy.md.
+// the CDN settings of docs/build-and-deploy/deploy.md.
 func TestHostRules(t *testing.T) {
 	sets := hostRules("shop.example.com")
 	for _, rs := range sets {

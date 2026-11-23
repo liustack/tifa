@@ -38,7 +38,7 @@ type App struct {
 	Fingerprint string
 }
 
-// I18n is what tifa build found about the languages of the app, see docs/app.md.
+// I18n is what tifa build found about the languages of the app, see docs/start/app.md.
 type I18n struct {
 	// Default is the default language, which has no prefix unless Always is set.
 	Default string

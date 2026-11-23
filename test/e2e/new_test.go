@@ -140,7 +140,7 @@ func TestNewApp(t *testing.T) {
 	}
 	// tifa docs finds the docs of the checkout the app replaces tifa with.
 	docs, err := exec.Command(cli(t), "docs", "--dir", dir).CombinedOutput()
-	if err != nil || !strings.Contains(string(docs), "Docs: "+filepath.Join(repoRoot(t), "docs")) || !strings.Contains(string(docs), "docs/app.md - ") {
+	if err != nil || !strings.Contains(string(docs), "Docs: "+filepath.Join(repoRoot(t), "docs")) || !strings.Contains(string(docs), "docs/start/app.md - ") {
 		t.Fatalf("tifa docs: %v\n%s", err, docs)
 	}
 	typecheck(t, dir)

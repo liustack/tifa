@@ -1,6 +1,6 @@
 package ssr_test
 
-// The extreme scenarios of test/apps/extreme, each at the sizes of its table in docs/testing.md.
+// The extreme scenarios of test/apps/extreme, each at the sizes of its table in docs/internals/testing.md.
 // They skip unless TIFA_SSR_EXTREME=1. Build the app first, then run:
 //
 //	cd test/apps/extreme && pnpm install --frozen-lockfile && go tool tifa build

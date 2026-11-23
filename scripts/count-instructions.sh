@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # count-instructions.sh: the instructions one render of each page of the example shop takes,
 # counted by callgrind. Linux on amd64 only, with valgrind installed. See "Counting instructions"
-# in docs/testing.md.
+# in docs/internals/testing.md.
 #
 #   count-instructions.sh run OUT.tsv [REPO]
 #       count the shop built in REPO/examples/shop (default: the repository of this script)

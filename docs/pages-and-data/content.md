@@ -1,6 +1,7 @@
 ---
 summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, drafts and entries that come out at their date, what `tifa dev` does, what `tifa build` writes, how to read content in tests, and the errors and warnings'
 audience: app
+order: 4
 read_when:
   - Adding a blog, docs or other Markdown content to a Tifa app
   - Writing or changing content.go, or a schema type that embeds content.Entry
@@ -25,7 +26,7 @@ Four steps put an entry on a page:
 3. Read them in a `Load` with the methods of the collection.
 4. Show the body with `<HTML>`.
 
-The code in this page is from [test/apps/content](../test/apps/content), an app with a blog and docs in two languages.
+The code in this page is from [test/apps/content](../../test/apps/content), an app with a blog and docs in two languages.
 
 ## Declaring a collection
 
@@ -78,7 +79,7 @@ The build reads `content.go` without running it, so:
 - Two collections cannot read the same `Dir`.
 - Every folder under `content/` needs a collection, also in an app without `content.go`. A folder that no collection reads fails the build, which catches a typo in a folder name. Folders whose names start with `.` or `_` are left alone.
 
-The root package does not import the packages under `app/` (see [Structure](structure.md)), so the schema types live in `content.go` or in a shared package that imports no domain. The queries of a collection (`Published`, `BySlug` and the like) live in the domain package, which reads `contenttest.Blog` the way it reads `contenttest.DB`.
+The root package does not import the packages under `app/` (see [Structure](../start/structure.md)), so the schema types live in `content.go` or in a shared package that imports no domain. The queries of a collection (`Published`, `BySlug` and the like) live in the domain package, which reads `contenttest.Blog` the way it reads `contenttest.DB`.
 
 ## Which files are entries
 
@@ -123,7 +124,7 @@ With `Languages`, every entry is in a language folder, the default language too.
 
 The versions of one entry in different languages share a translation key: the `translationKey` of the front matter, or the ID. So files with the same path are translations of each other, and `translationKey` links files with different paths, such as `launch` in the test app. One language has each key once. `Entry.Translations` lists the versions that can be seen now, in the order of `Languages`, the entry itself included, each as `{Lang, ID, Slug, Path}`. Links between languages and `hreflang` come from there.
 
-On a site with languages (see [A site in several languages](guides/i18n.md)), write `Languages: tifa.Languages()` and the collection has the languages of the site, the default first. The folders under `content/<Dir>/` are named after them. An entry with no version in some language has no page in it: `Get` returns `tifa.ErrNotFound` for that language, so a `Load` that returns the error shows a 404, and nothing falls back to another language. A page of an entry passes `entry.Translations` to `c.SetAlternates` so that the `hreflang` links list only the versions that exist.
+On a site with languages (see [A site in several languages](../guides/i18n.md)), write `Languages: tifa.Languages()` and the collection has the languages of the site, the default first. The folders under `content/<Dir>/` are named after them. An entry with no version in some language has no page in it: `Get` returns `tifa.ErrNotFound` for that language, so a `Load` that returns the error shows a 404, and nothing falls back to another language. A page of an entry passes `entry.Translations` to `c.SetAlternates` so that the `hreflang` links list only the versions that exist.
 
 An entry with no version in some language is fine. The build prints one line per collection and missing language:
 
@@ -408,7 +409,7 @@ One request that reads a collection several times may see both sides of that mom
 
 ## `tifa dev`
 
-`tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](dev.md#what-each-change-triggers)):
+`tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](../build-and-deploy/dev.md#what-each-change-triggers)):
 
 - A Markdown file changed, added or removed, its body or its front matter: `tifa dev` scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, and open pages reload.
 - Another file under `content/`, such as an image: the entries in its folder are converted again, and the translations that fall back to that folder.
@@ -425,7 +426,7 @@ One request that reads a collection several times may see both sides of that mom
 | --- | --- |
 | `dist/content.json` | The entries of every collection that are not drafts: the fields of `content.Entry`, the translation key, the file of the body, its headings and the front matter converted to JSON by the schema |
 | `dist/content/<collection>/<language>/<ID>.html` | The body of each entry, without the language folder for a collection without languages. The server does not serve these files and the build does not compress them. A draft is never converted, so its text is not in the program |
-| `dist/content/<collection>/<language>/<ID>.md` | The Markdown of each entry next to its body, with the URLs of the HTML, written in full when the app has `site.url`, and without comments. It is the [Markdown version](guides/seo.md#markdown-versions) of the page that lists the entry as its `Content`. Drafts are left out here too |
+| `dist/content/<collection>/<language>/<ID>.md` | The Markdown of each entry next to its body, with the URLs of the HTML, written in full when the app has `site.url`, and without comments. It is the [Markdown version](../guides/seo.md#markdown-versions) of the page that lists the entry as its `Content`. Drafts are left out here too |
 | `dist/assets/<name>-<hash>.<ext>` | The files the bodies refer to |
 
 An ID whose body file `go:embed` would refuse, such as one with `'` in it, fails the build, and so does an entry whose body file would sit below the body file of another, such as `a.html/b.md` next to `a.md`. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.

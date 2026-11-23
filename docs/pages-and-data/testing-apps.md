@@ -1,6 +1,7 @@
 ---
 summary: 'How to test an app with go test: calling Load, a method handler or OnRequest with a Ctx from tifatest.NewCtx, testing a whole request with tifatest.Start, and fixing the clock of a render'
 audience: app
+order: 9
 read_when:
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Testing a whole request in go test, such as signing in and following the redirect, with tifatest.Start or tifatest.StartPages

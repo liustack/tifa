@@ -1,6 +1,7 @@
 ---
 summary: 'How to do work outside a request in a Tifa app: a loop that runs every minute from a package the root can import, goroutines started in OnStart that stop cleanly with OnShutdown, what Tifa does when it is told to stop, tasks that run on a timer, a jobs table in SQLite for work that must survive a restart and be retried, and what not to do inside a request'
 audience: app
+order: 6
 read_when:
   - Sending mail, calling a slow service or doing any work that should not make a visitor wait
   - Running something every minute, hour or day in a Tifa app
@@ -11,7 +12,7 @@ read_when:
 
 # Background work
 
-A Tifa app is one program, so background work is a goroutine of that program. There is no queue service to run. The app starts its goroutines in `OnStart` and stops them in `OnShutdown`, like any other shared resource ([Structuring an app](../structure.md#2-shared-resources-and-other-dependencies)).
+A Tifa app is one program, so background work is a goroutine of that program. There is no queue service to run. The app starts its goroutines in `OnStart` and stops them in `OnShutdown`, like any other shared resource ([Structuring an app](../start/structure.md#2-shared-resources-and-other-dependencies)).
 
 There are three cases, and each one needs a little more than the one before:
 
@@ -100,7 +101,7 @@ If the function needs code of a domain under `app/`, the root cannot import that
 
 ## What Tifa does when it stops
 
-On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeout`](../config.md#settings) is 10 seconds by default):
+On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeout`](../build-and-deploy/config.md#settings) is 10 seconds by default):
 
 1. It closes the channel of `tifa.ShuttingDown`, which streams watch to end at once ([Streaming](streaming.md#when-the-program-stops)), stops accepting connections and waits up to `shutdown_timeout` for the requests in flight.
 2. If some are still running, it cancels their contexts and waits up to `shutdown_timeout` again.
@@ -108,7 +109,7 @@ On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeou
 
 Tifa knows nothing of the goroutines you start. Two things follow:
 
-- **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives stays valid, but it is done as soon as the stop signal comes, while the last requests are still running (see [hooks.go](../hooks.md#hooksgo)). A goroutine on its own context keeps working while those requests finish, and one of them may still queue a job.
+- **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives stays valid, but it is done as soon as the stop signal comes, while the last requests are still running (see [hooks.go](../pages-and-data/hooks.md#hooksgo)). A goroutine on its own context keeps working while those requests finish, and one of them may still queue a job.
 - **Catch their panics.** Tifa turns a panic in a request into a 500 and goes on. A panic in your own goroutine ends the whole program. Every loop below recovers.
 
 ## The pieces
@@ -213,7 +214,7 @@ CREATE INDEX jobs_due ON jobs (state, run_at);
 
 ### The package
 
-`jobs/jobs.go` knows nothing of the rest of the app, so any domain may import it ([which way imports go](../structure.md#which-way-imports-go)). It takes the database as an argument and does not import the root package.
+`jobs/jobs.go` knows nothing of the rest of the app, so any domain may import it ([which way imports go](../start/structure.md#which-way-imports-go)). It takes the database as an argument and does not import the root package.
 
 ```go
 // Package jobs is a small queue of background work kept in the SQLite database. A job is a row:
@@ -450,7 +451,7 @@ func digestJob(ctx context.Context, _ []byte) error {
 
 ### A job that needs code of a domain
 
-`worker.go` is in the root package. Say a job needs code of the domain `app/issues`, which imports the root for `DB`. The root cannot import `issues`: the go command stops with `import cycle not allowed` ([which way imports go](../structure.md#which-way-imports-go)). So the domain registers its own handler. `jobs.Handle` only puts a function in a map and reads no resource, so it may run in `init`, the way a `database/sql` driver registers itself:
+`worker.go` is in the root package. Say a job needs code of the domain `app/issues`, which imports the root for `DB`. The root cannot import `issues`: the go command stops with `import cycle not allowed` ([which way imports go](../start/structure.md#which-way-imports-go)). So the domain registers its own handler. `jobs.Handle` only puts a function in a map and reads no resource, so it may run in `init`, the way a `database/sql` driver registers itself:
 
 ```go
 // app/issues/digest.go
@@ -536,7 +537,7 @@ func TestRunDoesAJobAndRetriesAFailure(t *testing.T) {
 }
 ```
 
-The same file tests a job that panics, `EnqueueOnce` with a taken key, a job left `running` by a crash, a stop in the middle of a job (it goes back to `queued` with no attempt used), and `Every` after a panic. The hooks are tested together: `OnStart` with a temporary `DBPath`, then `OnShutdown`, which must return without error and leave the database closed. See [Testing](../testing-apps.md#testing) for tests of route code.
+The same file tests a job that panics, `EnqueueOnce` with a taken key, a job left `running` by a crash, a stop in the middle of a job (it goes back to `queued` with no attempt used), and `Every` after a panic. The hooks are tested together: `OnStart` with a temporary `DBPath`, then `OnShutdown`, which must return without error and leave the database closed. See [Testing](../pages-and-data/testing-apps.md#testing) for tests of route code.
 
 ## Check it on the real program
 

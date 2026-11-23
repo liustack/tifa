@@ -11,7 +11,7 @@
 //
 // tifa build reads content/blog, checks the front matter of each entry against Post and embeds the
 // entries in the program, which loads them before OnStart. Load functions and handlers read them
-// with the methods of the collection. See docs/content.md.
+// with the methods of the collection. See docs/pages-and-data/content.md.
 package content
 
 import (

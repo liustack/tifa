@@ -2,7 +2,7 @@
 # Checks tifa deploy against a real server: setup, a deploy, a second deploy while the server
 # asks the app for a page every 10 ms (no request may fail), and a rollback. It needs a Linux
 # server with systemd that `ssh root@<host>` reaches, and changes it: it creates the user tifa
-# and the folder and units of the app. CI does not run it. See docs/testing.md.
+# and the folder and units of the app. CI does not run it. See docs/internals/testing.md.
 #
 #   scripts/deploy-check.sh <host> <app root> [path to ask for, default /]
 #
