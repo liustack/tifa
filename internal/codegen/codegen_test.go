@@ -190,24 +190,6 @@ func TestRootLayoutDocumentFails(t *testing.T) {
 	}
 }
 
-// The htmlAttributes of the root Layout are a key of its documentHead. A separate export of that
-// name would never be read, so the build says where to move it.
-func TestRootLayoutHTMLAttributesExportFails(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\nexport const htmlAttributes = { lang: 'fr' }\n")
-	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
-	m := &analyze.Manifest{
-		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
-		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
-	}
-	_, err := Generate(root, m, false, fakeExports)
-	want := "app/layout.tsx: htmlAttributes is now a key of documentHead: move it into export const documentHead = { htmlAttributes: {...}, ... }"
-	if err == nil || err.Error() != want {
-		t.Fatalf("got %v, want %q", err, want)
-	}
-}
-
 // The entries pass the htmlAttributes of the root Layout's documentHead to the runtime, which
 // writes them on <html>. The root route gets the rest of documentHead as its head.
 func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
@@ -483,7 +465,7 @@ func TestProjectSettingsGoIntoTheMain(t *testing.T) {
 	}
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "server:\n  port: 80\nshop:\n  open: true\n")
-	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err != nil {
+	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil || !strings.Contains(err.Error(), "tifa.yaml line 2: server.port is not a setting of tifa.yaml") {
 		t.Errorf("keys that are not settings of tifa: %v", err)
 	}
 	bad := t.TempDir()

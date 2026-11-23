@@ -369,7 +369,7 @@ func TestPurgePrecedence(t *testing.T) {
 	if api.body != `{"hosts":["shop.example.com"]}` {
 		t.Errorf("body %s", api.body)
 	}
-	// An old workflow hands empty secrets once setup removed them: the server answers.
+	// An empty zone ID input is no input: the server answers.
 	t.Setenv(envZoneID, "")
 	api.path = ""
 	if r := clearCache(ctx, tgt, io.Discard); !r.Cleared || api.path != "POST /zones/zone-srv/purge_cache" {

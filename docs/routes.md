@@ -139,7 +139,6 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - `c.SetBodyLimit(n)` is a number of bytes. A body over it is answered with 413 before the handler runs. The limit counts the whole body: the files, the other fields and the multipart framing. Take the number from an [option of the app](config.md#options-of-the-app) if it should change without a build: `c.SetBodyLimit(int64(UploadLimit))` with `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`.
 - `c.SetReadTimeout(d)` gives the body `d` from now to arrive, and the answer `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408. A request with no body, such as a GET, keeps its deadlines and the call does nothing.
 - Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
-- `BodyLimit` and `ReadTimeout` as constants in `route.go` are gone: declaring one fails the build and shows this `OnRequest` for the route.
 
 ## Ctx
 

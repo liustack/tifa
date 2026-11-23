@@ -89,7 +89,6 @@ func (r *setupRun) tailscaleRunKind() string {
 func (r *setupRun) tailscaleIdentitySteps(p *setupPlan) {
 	have := r.identitySet()
 	given := strings.TrimSpace(r.tailscaleClientID)
-	legacy := r.ghNames[secretTSID] && r.ghNames[secretTSSecret]
 	text := "github: the Tailscale identity CI joins your tailnet with, the variables " + varTSClient + " and " + varTSAudience
 	switch {
 	case have && (given == "" || given == r.ghVars[varTSClient]):
@@ -98,19 +97,12 @@ func (r *setupRun) tailscaleIdentitySteps(p *setupPlan) {
 	case given == "" && r.ghVars[varTSClient] != "":
 		// Half written: the audience is missing or is not the one of the client ID. The client ID is
 		// there, so the audience is made again from it, which needs nothing from you.
-		r.tailscalePlanned = true
 		p.steps = append(p.steps, planStep{op: opChange, text: "github: the audience of the Tailscale identity, the variable " + varTSAudience + ", made again from the client ID in " + varTSClient, do: func(ctx context.Context) (string, error) {
 			if err := r.gh.SetVariable(ctx, r.repo.Name, varTSAudience, tailscaleAudience(r.ghVars[varTSClient])); err != nil {
 				return "", err
 			}
-			r.tailscaleSet = true
 			return "", nil
 		}})
-		return
-	case given == "" && !stdinIsTerminal(r.in) && legacy:
-		// CI keeps joining with the OAuth client of an older setup, which the workflow still hands over.
-		p.notes = append(p.notes, planNote{what: text, why: "CI still joins with the OAuth secrets " + secretTSID + " and " + secretTSSecret + ", which hold a long-lived secret. " +
-			r.tailscaleIdentityHow() + ". Then run " + tailscaleClientCommand + ", and setup writes the workflow for it and removes the two secrets"})
 		return
 	case given == "" && !stdinIsTerminal(r.in):
 		p.cannot(text, r.tailscaleIdentityHow()+". Then run "+tailscaleClientCommand+": the client ID is not secret, so it may be given on a command line")
@@ -120,7 +112,6 @@ func (r *setupRun) tailscaleIdentitySteps(p *setupPlan) {
 	if have {
 		op = opChange
 	}
-	r.tailscalePlanned = true
 	p.steps = append(p.steps, planStep{op: op, text: text, soft: true, do: r.setTailscaleIdentity})
 }
 
@@ -145,14 +136,7 @@ func (r *setupRun) setTailscaleIdentity(ctx context.Context) (string, error) {
 	if err := r.gh.SetVariable(ctx, r.repo.Name, varTSAudience, tailscaleAudience(id)); err != nil {
 		return "", err
 	}
-	r.tailscaleSet = true
 	return "", nil
-}
-
-// legacyTailscale says the workflow keeps joining with the OAuth client of an older setup: the
-// repository has its two secrets and no identity yet, and none was set by this run.
-func (r *setupRun) legacyTailscale(set bool) bool {
-	return r.ghNames[secretTSID] && r.ghNames[secretTSSecret] && !r.identitySet() && !set
 }
 
 // identitySet says the repository has the identity: the client ID, and the audience made from it.
@@ -162,65 +146,25 @@ func (r *setupRun) identitySet() bool {
 	return id != "" && r.ghVars[varTSAudience] == tailscaleAudience(id)
 }
 
-// oldTailscaleSteps takes away the OAuth secrets of an older setup once the workflow on the default
-// branch no longer hands them to the Tailscale action, and the identity variables when deploy.connect
-// is not tailscale any more. CI runs the workflow of the default branch, so the secrets stay until
-// that file stops using them.
-func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
-	if r.ghVars[varMarker] == "" {
+// tailscaleVariableSteps takes away the identity variables when deploy.connect is not tailscale
+// any more.
+func (r *setupRun) tailscaleVariableSteps(p *setupPlan) {
+	if r.ghVars[varMarker] == "" || r.t.connectMode == connTailscale {
 		return
 	}
-	t := r.t
-	repo, branch := r.repo.Name, r.repo.Branch
+	repo := r.repo.Name
 	var vars []string
-	if t.connectMode != connTailscale {
-		for _, n := range []string{varTSClient, varTSAudience} {
-			if r.ghVars[n] != "" {
-				vars = append(vars, n)
-			}
+	for _, n := range []string{varTSClient, varTSAudience} {
+		if r.ghVars[n] != "" {
+			vars = append(vars, n)
 		}
 	}
-	var secrets []string
-	for _, n := range []string{secretTSID, secretTSSecret} {
-		if r.ghNames[n] {
-			secrets = append(secrets, n)
-		}
-	}
-	if len(vars) > 0 {
-		p.add(opRemove, "github: the variables "+strings.Join(vars, " and ")+", which tifa set and deploy.connect no longer needs", func(ctx context.Context) (string, error) {
-			for _, n := range vars {
-				if err := r.gh.DeleteVariable(ctx, repo, n); err != nil {
-					return "", err
-				}
-			}
-			return "", nil
-		})
-	}
-	if len(secrets) == 0 {
+	if len(vars) == 0 {
 		return
 	}
-	these := "the secrets " + strings.Join(secrets, " and ")
-	if len(secrets) == 1 {
-		these = "the secret " + secrets[0]
-	}
-	if t.connectMode == connTailscale && !r.tailscalePlanned && !r.identitySet() {
-		return // CI still joins with them: the note of the identity says what to do
-	}
-	onMain, found, err := r.gh.FileOnBranch(ctx, repo, branch, githubWorkflowPath)
-	switch {
-	case err != nil:
-		p.notes = append(p.notes, planNote{what: "github: " + these + " stay", why: fmt.Sprintf("Setup cannot read %s on %s, so it cannot tell whether CI still uses them: %v. Once the workflow on %s no longer has them, run setup again, or delete them by hand", githubWorkflowPath, branch, err, branch)})
-		return
-	case found && (strings.Contains(onMain, "secrets."+secretTSID) || strings.Contains(onMain, "secrets."+secretTSSecret)):
-		p.notes = append(p.notes, planNote{what: fmt.Sprintf("github: %s stay while the workflow on %s hands them to the Tailscale action", these, branch), why: fmt.Sprintf("Commit and push %s, which no longer does, then run setup again to remove them", githubWorkflowPath)})
-		return
-	}
-	p.add(opRemove, "github: "+these+", the OAuth client of an older setup, which the workflow no longer uses. Delete the OAuth client itself in Tailscale, Trust credentials, when nothing else uses it", func(ctx context.Context) (string, error) {
-		if t.connectMode == connTailscale && !r.tailscaleSet && !r.identitySet() {
-			return "", skipped{"no identity is set yet, so the secrets stay until one is"}
-		}
-		for _, n := range secrets {
-			if err := r.gh.DeleteSecret(ctx, repo, n); err != nil {
+	p.add(opRemove, "github: the variables "+strings.Join(vars, " and ")+", which tifa set and deploy.connect no longer needs", func(ctx context.Context) (string, error) {
+		for _, n := range vars {
+			if err := r.gh.DeleteVariable(ctx, repo, n); err != nil {
 				return "", err
 			}
 		}

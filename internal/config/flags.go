@@ -16,19 +16,6 @@ func AddFlags(fs *pflag.FlagSet) {
 	for _, f := range runtimeFields(&d) {
 		addFlag(fs, FlagName(f.key), f.value.kind(), fmt.Sprintf("%s (default %s)", f.help, f.value))
 	}
-	// A retired flag is still accepted, so that a start script that has it goes on: Sources
-	// reports it as retired.
-	for _, r := range retiredKeys {
-		if r.projectOnly {
-			continue
-		}
-		kind := "string"
-		if r.bool {
-			kind = "bool"
-		}
-		addFlag(fs, FlagName(r.key), kind, "retired, no longer used")
-		fs.MarkHidden(FlagName(r.key))
-	}
 	for _, s := range AppSettings() {
 		addFlag(fs, FlagName(s.Key), s.Kind, s.Help)
 	}

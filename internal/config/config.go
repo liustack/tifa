@@ -351,38 +351,99 @@ func Project(data []byte) (Config, map[string]string, error) {
 		}
 	}
 	errs = append(errs, projectDeploy(entries, &c)...)
+	errs = append(errs, unknownKeys(entries, fields(&c))...)
 	return c, settings, errors.Join(errs...)
+}
+
+// unknownKeys reports the keys of tifa.yaml that are no setting of Tifa and no section of one. The
+// file holds only the settings of Tifa, so a key of the app is one too: its value is read from
+// .env, the environment, a flag or the file of -c. A key below an unknown section is not named
+// again, and the keys below deploy.auto are checked by projectDeploy.
+func unknownKeys(entries map[string]entry, fs []field) (errs []error) {
+	known := map[string]bool{}
+	for _, f := range fs {
+		known[f.key] = true
+		for i := range f.key {
+			if f.key[i] == '.' {
+				known[f.key[:i]] = true
+			}
+		}
+	}
+	var unknown []string
+	for key := range entries {
+		if !known[key] && !strings.HasPrefix(key, "deploy.auto.") {
+			unknown = append(unknown, key)
+		}
+	}
+	slices.SortFunc(unknown, func(a, b string) int { return entries[a].line - entries[b].line })
+	for _, key := range unknown {
+		if slices.ContainsFunc(unknown, func(o string) bool { return strings.HasPrefix(key, o+".") }) {
+			continue
+		}
+		parent, name := "", key
+		if i := strings.LastIndex(key, "."); i >= 0 {
+			parent, name = key[:i+1], key[i+1:]
+		}
+		var siblings []string
+		for _, f := range fs {
+			if rest, ok := strings.CutPrefix(f.key, parent); ok {
+				if first, _, _ := strings.Cut(rest, "."); !slices.Contains(siblings, first) {
+					siblings = append(siblings, first)
+				}
+			}
+		}
+		msg := fmt.Sprintf("config: tifa.yaml line %d: %s is not a setting of tifa.yaml", entries[key].line, key)
+		if near := nearName(name, siblings); near != "" {
+			msg += ": did you mean " + parent + near + "?"
+		}
+		if parent != "" && len(siblings) > 0 {
+			msg += fmt.Sprintf(" (the settings of %s are %s)", strings.TrimSuffix(parent, "."), strings.Join(siblings, ", "))
+		}
+		msg += ". tifa.yaml holds only the settings of Tifa: the options of the app go in .env, the environment, a flag or the file of -c"
+		errs = append(errs, errors.New(msg))
+	}
+	return errs
+}
+
+// nearName returns the name in names that is one or two letters from name (one letter for names of
+// four letters or fewer), or "" when none is close.
+func nearName(name string, names []string) string {
+	best, bestDist := "", 0
+	for _, n := range names {
+		limit := 2
+		if min(len(name), len(n)) <= 4 {
+			limit = 1
+		}
+		if d := EditDistance(name, n); d <= limit && (best == "" || d < bestDist) {
+			best, bestDist = n, d
+		}
+	}
+	return best
+}
+
+// EditDistance is the number of single-letter changes that turn a into b.
+func EditDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 
 // DefaultNeeds is the workflow deploy.auto waits for when it names none.
 const DefaultNeeds = "ci.yml"
-
-// renamedDeployKeys are the deploy keys of an earlier version that tifa.yaml may not have any
-// more: unlike a retired key, one of them stops the project file, because the new form means what
-// the old one did and a program that ignored it would deploy differently. hint gets the old value,
-// lowercased and trimmed.
-var renamedDeployKeys = []struct {
-	key  string
-	hint func(old string) string
-}{
-	{"deploy.ssh", func(old string) string {
-		// The old value is only echoed when it is one of the words: a file that is committed should
-		// hold none, but a mistake in it may be anything, even a secret pasted on the wrong line.
-		if slices.Contains([]string{"direct", "cloudflare", "tailscale"}, old) {
-			return "deploy.ssh is now deploy.connect: write connect: " + old
-		}
-		return "deploy.ssh is now deploy.connect: write connect as direct, cloudflare or tailscale"
-	}},
-	{"deploy.ci", func(old string) string {
-		switch old {
-		case "none", "":
-			return "deploy.ci is now the block deploy.auto: delete the line ci: none"
-		case "github":
-			return "deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"
-		}
-		return "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"
-	}},
-}
 
 // emptyHints say what to write for a key of deploy.auto that is there with nothing after it,
 // where the generic message would only say it got null.
@@ -394,15 +455,9 @@ var emptyHints = map[string]string{
 // autoKeys are the keys of the block deploy.auto.
 var autoKeys = []string{"branch", "needs"}
 
-// projectDeploy checks what the field loop of Project cannot: the old names of the deploy keys,
-// and the block deploy.auto, which is there when its key is, whatever its keys say.
+// projectDeploy checks what the field loop of Project cannot: the block deploy.auto, which is there when its key is, whatever its keys say.
 func projectDeploy(entries map[string]entry, c *Config) (errs []error) {
 	where := func(e entry) string { return fmt.Sprintf("config: tifa.yaml line %d: ", e.line) }
-	for _, r := range renamedDeployKeys {
-		if e, ok := entries[r.key]; ok {
-			errs = append(errs, errors.New(where(e)+r.hint(strings.ToLower(strings.TrimSpace(e.raw)))))
-		}
-	}
 	// The keys of the block can be written in any form YAML has for a nested key: a mapping, or
 	// dotted keys such as deploy.auto.branch. Any of them turns the block on, as the mapping does.
 	var below []string
@@ -430,86 +485,4 @@ func projectDeploy(entries map[string]entry, c *Config) (errs []error) {
 		}
 	}
 	return errs
-}
-
-// retiredKeys are settings that existed in an earlier version and are gone. A retired key in the
-// project file, the file of -c, .env or the environment, or a retired flag, gets one warning
-// ("no longer used", with what to do) and is otherwise ignored: the program starts and the build
-// goes on. The value of a renamed key is not carried over to its new name, so the hint says to set
-// the new one. Retire a key here in the release that removes it, and keep it for at least the next
-// minor version. bool says the flag takes no value, as a bool setting does.
-//
-// projectOnly keeps a key retired in the project file alone: its environment variable and flag
-// mean something else now, so the program must not warn about them.
-var retiredKeys = []struct {
-	key, hint   string
-	bool        bool
-	projectOnly bool
-}{
-	{"cache.size", "it is now ssr.memo_size (--ssr-memo-size, SSR_MEMO_SIZE), and the old value is ignored", false, false},
-	{"cache.whole_page", "it was removed: pages with Cache are no longer kept in the program", true, false},
-	{"cache.ignore_query", "it was removed: pages with Cache are no longer kept in the program, so there is no key to clean", false, false},
-	{"cache_control.s_maxage", "it is now cache.s_maxage (--cache-s-maxage, CACHE_S_MAXAGE), and the old value is ignored, so a page with `const Cache = true` uses 1m until the new key is set", false, false},
-	{"deploy.host", "tifa.yaml is committed, so the server is not written in it: put TIFA_DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app, which git ignores, or pass --host to tifa deploy", false, true},
-	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false, false},
-	{"deploy.cdn", "it is now deploy.front, with the same values none and cloudflare", false, false},
-	{"deploy.github", "it is now the block deploy.auto: write auto: {} for true, and for false leave deploy.auto out", false, false},
-}
-
-func retiredWarning(where, key, hint string) string {
-	return fmt.Sprintf("config: %s: %s", where, retiredMsg(key, hint))
-}
-
-func retiredMsg(key, hint string) string { return key + " is no longer used, " + hint }
-
-// ProjectWarning is a retired key that the project tifa.yaml still holds.
-type ProjectWarning struct {
-	Line      int    // the line of the key in tifa.yaml
-	Key, Hint string // the key, such as deploy.front, and what to do instead
-}
-
-// Msg says that the key is no longer used and what to do, without the file and line.
-func (w ProjectWarning) Msg() string { return retiredMsg(w.Key, w.Hint) }
-
-func (w ProjectWarning) String() string {
-	return retiredWarning(fmt.Sprintf("tifa.yaml line %d", w.Line), w.Key, w.Hint)
-}
-
-// ProjectWarnings lists the retired keys the project tifa.yaml still holds, one warning each.
-func ProjectWarnings(data []byte) []ProjectWarning {
-	entries, err := yamlEntries(data)
-	if err != nil {
-		return nil // Project reports it
-	}
-	var out []ProjectWarning
-	for _, r := range retiredKeys {
-		if e, ok := entries[r.key]; ok {
-			out = append(out, ProjectWarning{Line: e.line, Key: r.key, Hint: r.hint})
-		}
-	}
-	return out
-}
-
-// RetiredWarnings lists the retired settings that the file of -c, .env, the environment and the
-// command line still name, one warning each.
-func (s *Sources) RetiredWarnings() []string {
-	var out []string
-	for _, r := range retiredKeys {
-		if r.projectOnly {
-			continue
-		}
-		if _, ok := s.file[r.key]; ok {
-			out = append(out, retiredWarning("file "+s.fileName, r.key, r.hint))
-		}
-		if _, ok := s.env[EnvName(r.key)]; ok {
-			out = append(out, retiredWarning("env "+EnvName(r.key), r.key, r.hint))
-		}
-		if _, ok := s.dotenv[EnvName(r.key)]; ok {
-			out = append(out, retiredWarning(".env "+EnvName(r.key), r.key, r.hint))
-		}
-		if _, ok, _ := s.flag(FlagName(r.key), r.bool); ok {
-			out = append(out, retiredWarning("flag --"+FlagName(r.key), r.key, r.hint))
-		}
-	}
-	return out
 }

@@ -240,23 +240,6 @@ func TestDeployHost(t *testing.T) {
 	}
 }
 
-// A tifa.yaml that still has deploy.host stops every deploy command, and says where the server goes.
-func TestDeployHostRetired(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n")
-	t.Setenv(deployHostEnv, "vps")
-	_, err := loadTarget(root, "vps")
-	if err == nil {
-		t.Fatal("deploy.host was accepted")
-	}
-	for _, want := range []string{"deploy.host", "line 2", "TIFA_DEPLOY_HOST=", ".env", "--host"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("%q lacks %q", err, want)
-		}
-	}
-}
-
 // The deploy settings are checked against each other where the target is loaded, so every deploy
 // command refuses a mix that cannot work, and says what to change.
 func TestDeploySettingsChecks(t *testing.T) {
@@ -272,9 +255,6 @@ func TestDeploySettingsChecks(t *testing.T) {
 		"ssh tailscale needs ci":     {site + "deploy:\n  connect: tailscale\n", "deploy.auto"},
 		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n", ""},
 		"all set":                    {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", ""},
-		"old domain":                 {"deploy:\n  domain: shop.example.com\n", "deploy.front"},
-		"old cdn":                    {"deploy:\n  cdn: cloudflare\n", "it is now deploy.front"},
-		"old github":                 {"deploy:\n  github: true\n", "deploy.auto"},
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
@@ -597,25 +577,6 @@ func TestDeployMasksTheHostInActions(t *testing.T) {
 		out, _, _ := run(t, args...)
 		if !strings.HasPrefix(out, "::add-mask::203.0.113.7\n") || strings.Contains(out, "::add-mask::203.0.113.7:2222") {
 			t.Errorf("%v: output %q", args, out)
-		}
-	}
-}
-
-// deploy.ssh and deploy.ci are gone from tifa.yaml. check, build and every deploy command stop at
-// the line and say what to write instead.
-func TestDeployOldNamesStopEveryCommand(t *testing.T) {
-	for name, tc := range map[string]struct{ yaml, want string }{
-		"ssh": {"deploy:\n  front: none\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
-		"ci":  {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
-	} {
-		dir := apiApp(t)
-		writeFile(t, filepath.Join(dir, "tifa.yaml"), tc.yaml)
-		t.Setenv(deployHostEnv, "vps")
-		for _, args := range [][]string{{"check"}, {"build", "-o", filepath.Join(t.TempDir(), "app")}, {"deploy", "status"}, {"deploy", "setup", "--yes"}, {"deploy", "remove", "--yes"}} {
-			out, stderr, err := run(t, append(args, "--dir", dir)...)
-			if got := out + stderr; err == nil || !strings.Contains(got+err.Error(), tc.want) {
-				t.Errorf("%s: tifa %s: err %v, output %q, want %q", name, strings.Join(args, " "), err, got, tc.want)
-			}
 		}
 	}
 }

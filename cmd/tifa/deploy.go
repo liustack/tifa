@@ -135,14 +135,11 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 	if err != nil {
 		return deployTarget{}, err
 	}
-	if err := retiredDeployKeys(root); err != nil {
-		return deployTarget{}, err
-	}
 	domain, err := deployDomain(settings.Deploy, settings.Site.URL)
 	if err != nil {
 		return deployTarget{}, err
 	}
-	if err := checkOldInputNames(root, hostFlag); err != nil {
+	if err := checkUnknownInputNames(root); err != nil {
 		return deployTarget{}, err
 	}
 	h, err := readDeployHost(root, app, hostFlag, notice)
@@ -150,21 +147,6 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 		return deployTarget{}, err
 	}
 	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, connectMode: settings.Deploy.Connect, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
-}
-
-// retiredDeployKeys fails when tifa.yaml still has a retired deploy key, such as deploy.host. They
-// are ignored otherwise, and setup would then plan to take away what they asked for.
-func retiredDeployKeys(root string) error {
-	data, err := os.ReadFile(filepath.Join(root, "tifa.yaml"))
-	if err != nil {
-		return nil // no project file: the defaults apply
-	}
-	for _, w := range config.ProjectWarnings(data) {
-		if strings.HasPrefix(w.Key, "deploy.") {
-			return errors.New(w.String())
-		}
-	}
-	return nil
 }
 
 // sshWaitDelay is how long ssh may leave its output open once it has ended.

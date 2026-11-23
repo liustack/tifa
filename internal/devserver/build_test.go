@@ -105,7 +105,6 @@ func TestRebuildMatrix(t *testing.T) {
 		{"removed setup.ts", []change{{"setup.ts", removed}}, "v1", all},
 		{"setup.ts", []change{{"setup.ts", modified}}, "v1", []string{"Bundle"}},
 		{"setup.ts in a folder", []change{{"app/orders/setup.ts", created}}, "v1", []string{"Bundle"}},
-		{"new hooks.ts, which the build rejects", []change{{"hooks.ts", created}}, "v1", all},
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
 		{"env", []change{{".env", modified}}, "v1", nil},
 		{"loaded from outside the root", []change{{"../shared/value.txt", modified}}, "v1", []string{"Bundle"}},

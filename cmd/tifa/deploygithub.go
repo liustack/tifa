@@ -38,16 +38,12 @@ const (
 	secretSSHKey     = "TIFA_DEPLOY_SSH_KEY"
 	secretKnownHosts = "TIFA_DEPLOY_KNOWN_HOSTS"
 	secretHost       = deployHostEnv
-	secretZoneID     = envZoneID
 	secretCFID       = "TIFA_DEPLOY_CF_ACCESS_ID"
 	secretCFSecret   = "TIFA_DEPLOY_CF_ACCESS_SECRET"
-	secretTSID       = "TIFA_DEPLOY_TAILSCALE_CLIENT_ID"
-	secretTSSecret   = "TIFA_DEPLOY_TAILSCALE_SECRET"
-	secretPurge      = envPurgeToken
 )
 
 // Names of the variables of the repository that hold the Tailscale identity of CI. Neither value
-// is secret. The OAuth secrets above are what an older setup kept.
+// is secret.
 const (
 	varTSClient   = "TIFA_DEPLOY_TAILSCALE_ID"
 	varTSAudience = "TIFA_DEPLOY_TAILSCALE_AUDIENCE"
@@ -181,12 +177,6 @@ type githubWorkflowSpec struct {
 	// CIFile is the base name of that workflow's file. Two workflows can have one name, so the job
 	// also checks the file of the run it follows.
 	CIFile string
-	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
-	// and the zone ID, both from secrets, since a public repository must not show the zone.
-	Purge bool
-	// TailscaleOAuth keeps the OAuth client of an older setup for the Tailscale step, until the
-	// identity of workload identity federation is set.
-	TailscaleOAuth bool
 }
 
 // workflowMarker is the first line of the workflow tifa writes. A file without it is the
@@ -234,7 +224,7 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("")
 	w("permissions:")
 	w("  contents: read")
-	if s.Mode == connTailscale && !s.TailscaleOAuth {
+	if s.Mode == connTailscale {
 		// The Tailscale action asks GitHub for a token that says which repository this is.
 		w("  id-token: write")
 	}
@@ -290,13 +280,8 @@ func githubWorkflow(s githubWorkflowSpec) string {
 		w("      - name: Connect to Tailscale")
 		w("        uses: tailscale/github-action@v4")
 		w("        with:")
-		if s.TailscaleOAuth {
-			w("          oauth-client-id: ${{ secrets.%s }}", secretTSID)
-			w("          oauth-secret: ${{ secrets.%s }}", secretTSSecret)
-		} else {
-			w("          oauth-client-id: ${{ vars.%s }}", varTSClient)
-			w("          audience: ${{ vars.%s }}", varTSAudience)
-		}
+		w("          oauth-client-id: ${{ vars.%s }}", varTSClient)
+		w("          audience: ${{ vars.%s }}", varTSAudience)
 		w("          tags: %s", tailscaleTag)
 	}
 	w("      - name: Set up ssh")
@@ -321,10 +306,6 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("        env:")
 	w("          ACTION: ${{ inputs.action }}")
 	w("          %s: ${{ secrets.%s }}", deployHostEnv, secretHost)
-	if s.Purge {
-		w("          %s: ${{ secrets.%s }}", envPurgeToken, secretPurge)
-		w("          %s: ${{ secrets.%s }}", envZoneID, secretZoneID)
-	}
 	if s.Mode == connCloudflare {
 		// cloudflared reads these two variables for the service token, see its access command.
 		w("          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.%s }}", secretCFID)
@@ -415,8 +396,8 @@ func (k deployKey) authorizedLine(repo string) string {
 
 // workflowSpec reads what the workflow needs from the app. branch is the one that deploys and
 // ciName the name of the workflow it waits for, empty to wait for none.
-func workflowSpec(t deployTarget, branch, ciName, mode string, purge bool) (githubWorkflowSpec, error) {
-	s := githubWorkflowSpec{Branch: branch, Mode: mode, Purge: purge, CIName: ciName}
+func workflowSpec(t deployTarget, branch, ciName, mode string) (githubWorkflowSpec, error) {
+	s := githubWorkflowSpec{Branch: branch, Mode: mode, CIName: ciName}
 	if ciName != "" {
 		s.CIFile = t.auto.Needs
 	}

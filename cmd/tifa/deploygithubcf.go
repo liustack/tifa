@@ -70,21 +70,10 @@ func isSSHHost(host, domain, zone string) bool {
 	return ok && len(random) == sshHostRandom && !strings.ContainsFunc(random, func(r rune) bool { return !strings.ContainsRune(sshHostAlphabet, r) })
 }
 
-// legacySSHHost is the name earlier versions made from the domain alone. Setup replaces it.
-func legacySSHHost(domain, zone string) string {
-	if domain == zone {
-		return "ssh." + zone
-	}
-	first, rest, _ := strings.Cut(domain, ".")
-	return first + "-ssh." + rest
-}
-
 // foundSSHHosts is what the tunnel and Cloudflare Access hold of the ssh host name of a domain.
 type foundSSHHosts struct {
 	// host is the name made by this version, empty when there is none.
 	host string
-	// legacy says that the name of earlier versions is still in use.
-	legacy bool
 }
 
 // findSSHHosts reads the ssh host name back from what setup made: the routes of the tunnel to
@@ -92,13 +81,9 @@ type foundSSHHosts struct {
 // stays when one of them is gone. A name found in both comes first, then the smallest.
 func findSSHHosts(ctx context.Context, tunnelID, domain, zone string) (foundSSHHosts, error) {
 	var found foundSSHHosts
-	legacy := legacySSHHost(domain, zone)
 	inRoute, inApp := map[string]bool{}, map[string]bool{}
 	note := func(set map[string]bool, host string) {
-		switch {
-		case host == legacy:
-			found.legacy = true
-		case isSSHHost(host, domain, zone):
+		if isSSHHost(host, domain, zone) {
 			set[host] = true
 		}
 	}
@@ -143,30 +128,6 @@ func findSSHHosts(ctx context.Context, tunnelID, domain, zone string) (foundSSHH
 		found.host = hosts[0]
 	}
 	return found, nil
-}
-
-// removeSSHHost takes away the route, the DNS record and the Access application of an ssh host
-// name that tifa made. The route goes last, so a run that stopped halfway finds the name again.
-func removeSSHHost(ctx context.Context, tunnelID, zone, host string) error {
-	apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list", "--domain", host)
-	if err != nil {
-		return err
-	}
-	for _, app := range apps {
-		if name, _ := app["name"].(string); app["domain"] == host && name == accessAppPrefix+host {
-			id, _ := app["id"].(string)
-			if _, err := runCF(ctx, "zero-trust", "access", "applications", "delete", id, "--force"); err != nil {
-				return err
-			}
-		}
-	}
-	if tunnelID == "" {
-		return nil
-	}
-	if _, err := removeDNS(ctx, zone, host, tunnelID+".cfargotunnel.com", true); err != nil {
-		return err
-	}
-	return removeRoute(ctx, tunnelID, host)
 }
 
 // cfPages lists what a cf list command prints, page after page.
@@ -273,7 +234,7 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 	var mine []target
 	seen := map[string]bool{}
 	ownHost := func(host string) bool {
-		return zoneName != "" && (isSSHHost(host, domain, zoneName) || host == legacySSHHost(domain, zoneName))
+		return zoneName != "" && isSSHHost(host, domain, zoneName)
 	}
 	for _, app := range apps {
 		appName, _ := app["name"].(string)

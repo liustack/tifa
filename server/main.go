@@ -188,9 +188,6 @@ func withoutHTTPS(c config.Server) config.Server {
 // the app started.
 func loadConfig(app App, src *config.Sources) (config.Config, map[string]string, error) {
 	cfg, from, err := config.Load(src, app.Settings)
-	for _, w := range src.RetiredWarnings() {
-		core.Logger().Warn(w)
-	}
 	return cfg, from, errors.Join(src.Err(), err, config.AppErr())
 }
 

@@ -35,9 +35,11 @@ From highest to lowest priority:
 5. The project file `tifa.yaml` in the app root. `tifa build` reads it and builds its values into the program.
 6. The defaults: those in the table below for the settings of Tifa, those in `options.go` for the [options of the app](#options-of-the-app).
 
-A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of Tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
+A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of the file of `-c` and other environment variables are left alone. `tifa.yaml` is stricter, see below. A flag that is neither a setting of Tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
 `tifa.yaml` holds values of the settings of Tifa. `build.*`, `i18n.*`, `site.*` and `deploy.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
+
+`tifa.yaml` holds only the settings of Tifa, and no key of your app. A key in it that is not a setting of Tifa, such as `deploy.ssh` or a misspelt `server.adr`, fails `tifa check`, `tifa build`, `tifa dev` and the deploy commands at its line, with the closest name when one is near. The options of your app, even one that sits in a section of Tifa such as `server.name`, are set in a flag, an environment variable, `.env` or the file of `-c`, and never in `tifa.yaml`.
 
 ```yaml
 # tifa.yaml
@@ -148,20 +150,6 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 
 The block `deploy.auto` turns deploys from GitHub Actions on by being there: `auto: {}` takes the defaults, and a key it does not know, or `auto:` with nothing after it, is an error. Without the block there are no deploys from GitHub Actions. `tifa deploy setup` sets them up.
 
-### Retired settings
-
-A setting that Tifa drops is listed here for at least the next minor version. A program or a build that still gets one, from a flag, an environment variable, `.env`, the file of `-c` or `tifa.yaml`, prints one warning, "no longer used", with what to do instead. It starts and builds all the same, and the value is not used: a renamed setting does not carry its value over, so set the new name or its default applies.
-
-| Retired | Instead |
-| --- | --- |
-| `cache_control.s_maxage` (`--cache-control-s-maxage`, `CACHE_CONTROL_S_MAXAGE`) | `cache.s_maxage` (`--cache-s-maxage`, `CACHE_S_MAXAGE`) |
-| `cache.size` (`--cache-size`, `CACHE_SIZE`) | `ssr.memo_size` (`--ssr-memo-size`, `SSR_MEMO_SIZE`) |
-| `cache.whole_page` | None. Pages with `Cache` are no longer kept in the program |
-| `cache.ignore_query` | None. There is no key to clean |
-| `deploy.host` (in `tifa.yaml` only) | `TIFA_DEPLOY_HOST` in the `.env` of the app, `--host` of `tifa deploy`, or the server in `~/.tifa/config.yaml`. `tifa.yaml` is committed, so it does not hold the server. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
-
-`deploy.ssh` and `deploy.ci` of an earlier version are not retired but renamed, and the project file stops with the new form at their line: `deploy.ssh` is `deploy.connect` with the same values, and `ci: github` is `auto: {}` (delete `ci: none`).
-
 ## Options of the app
 
 An app defines its own options in `options.go` at its root, as package-level variables:
@@ -188,7 +176,7 @@ var (
 ```
 
 - The arguments are the key, the default and a line of help. Each returns a plain value: read `shop.DBURL`, and a test sets `shop.DBURL = "test.db"`.
-- The value comes from the same sources as the settings of Tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of Tifa.
+- The value comes from the same sources as the settings of Tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of Tifa: an app key written there fails the build.
 - The types: `String` (`string`), `Strings` (`[]string`), `Int` (`int`), `Bool` (`bool`), `Duration` (`time.Duration`) and `Size` (`int64` bytes). Their values are written as for the settings of Tifa, see [Value formats](#value-formats). `Strings` is comma-separated text, such as `FEED_HOSTS=a.example,b.example`.
 - `Secret` (`string`) is for a password, a token or a key. It has no default and is empty when no source sets it. It comes from the environment variable, `.env` or the file of `-c`, and not from a flag: a flag shows in the process list to every user of the machine, so the program refuses one and says where to put the value. `./bin/app config` writes where it came from and leaves the value out, as the comment `# api_key: (hidden)`. An error about a secret, such as an unquoted number in the file, names the key and the source but not the value. Put a secret that starts with `*`, `!`, `&` or another YAML sign in quotes.
 - Values are single values. Structured data goes into a file of the app, and an option holds its path.
