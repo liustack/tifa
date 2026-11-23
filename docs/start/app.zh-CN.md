@@ -2,7 +2,7 @@
 summary: '怎样开始写一个 Tifa 应用：文件夹布局、文件夹怎样变成 URL、一个文件夹里的文件（route.go、page.tsx、layout.tsx）、检查器对其他框架写法（Next.js、Remix、React Router、TanStack Start、SvelteKit、其他 Go Web 框架）的提示以及在 Tifa 里该怎么写、多语言站点、哪些静态文件要导入、哪些放在 `public/`，并链接到各部分的文档'
 audience: app
 order: 2
-translatedFrom: 5ea8abd3d27d
+translatedFrom: eb3c4c6c00d6
 read_when:
   - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'
@@ -12,6 +12,8 @@ read_when:
 ---
 
 # 写一个应用 {#writing-an-app}
+
+这一篇讲 Tifa 应用怎么组织：`app/` 下的文件夹怎样变成 URL，Tifa 读哪些文件，静态文件怎么提供，以及其他框架的习惯在 Tifa 里该怎么写。
 
 完整的例子见 [examples/shop](../../examples/shop)。构建、生成的文件和怎么设置 go.mod，见 [build.md](../build-and-deploy/build.zh-CN.md)。
 
@@ -44,7 +46,7 @@ myapp/
 ```
 
 - 代码按域分组，一个域就是 `app/` 下的一个文件夹：它的类型、存储和规则和它的页面放在一起，有列表、并且每项一个页面时，就放在列表文件夹里。页面导入它们所显示的域的包。根包只放 hooks 和整个应用共享的资源。没有一个装着所有表的共享 `models/` 或 `db/` 包。见 [structure.md](structure.zh-CN.md)。
-- 跨页面共享的组件和样式放在 `app/` 根目录。
+- 跨页面共享的组件放在用到它们的页面旁边，几个区域都用时放在 `app/` 旁边的文件夹里，比如 `components/`。见 [structure.md](structure.zh-CN.md)。
 - 不要写 main。`tifa build` 会在 `.tifa/` 里生成 main 和路由注册代码，`go vet ./...` 和 `go test ./...` 不会扫描那里。
 
 ## URL 来自文件夹 {#urls-come-from-folders}
@@ -116,7 +118,7 @@ Vite 说的是同一件事：优先导入资源，`public/` 给源码里从不�
 
 ## 从别的框架过来 {#coming-from-another-framework}
 
-`tifa check`、`tifa build` 和 `tifa dev` 能识别为 Next.js、Remix、React Router、TanStack Start 和 SvelteKit 写的代码，也能识别 Go 的 Web 框架。每个发现占一行：`<file>:<line>: <what it is>. In Tifa: <what to write>. See <doc>`。错误会让命令停止。警告以 `(warning)` 结尾，不会让任何东西停下：代码能构建，只是 Tifa 永远不会用它。
+`tifa check`、`tifa build` 和 `tifa dev` 能识别为 Next.js、Remix、React Router、TanStack Start、SvelteKit 和 Astro 写的代码，也能识别 Go 的 Web 框架。每个发现占一行：`<file>:<line>: <what it is>. In Tifa: <what to write>. See <doc>`。错误会让命令停止。警告以 `(warning)` 结尾，不会让任何东西停下：代码能构建，只是 Tifa 永远不会用它。
 
 | 你写的 | 在 Tifa 里 | |
 | --- | --- | --- |
