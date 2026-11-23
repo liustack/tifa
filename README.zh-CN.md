@@ -45,6 +45,8 @@
 | 队列与定时任务 | BullMQ + cron | 在 `OnStart` 里启动的 goroutine |
 | 数据库 | SQLite | SQLite，用[全网最快的纯 Go SQLite 驱动](https://github.com/liustack/sqlite)，CGO 保持关闭 |
 
+Go 加 React 服务端渲染以前有人做过：[go-starter-kit](https://github.com/olebedev/go-starter-kit) 已归档，[go-react-ssr](https://github.com/natewong1313/go-react-ssr) 2024 年就停了，而且要开 CGO 用 C 写的 QuickJS 渲染。Tifa 是围绕同一个想法做完的框架：Go 管路由、数据加载、缓存和后台任务，React 由纯 Go 引擎渲染、不开 CGO，浏览器里由 TanStack Router 接管，再加上 `tifa deploy`，全在一个可执行文件里。
+
 ## 写起来是什么样
 
 每个页面一个目录，Go 负责取数，React 负责显示：
