@@ -336,6 +336,9 @@ func Project(data []byte) (Config, map[string]string, error) {
 		}
 		where := fmt.Sprintf("tifa.yaml line %d", e.line)
 		if err := e.check(f.value.kind(), false); err != nil {
+			if hint, ok := emptyHints[f.key]; ok && e.typ == "null" && e.err == nil {
+				err = errors.New(hint)
+			}
 			errs = append(errs, fmt.Errorf("config: %s: %s: %w", where, f.key, err))
 			continue
 		}
@@ -379,6 +382,13 @@ var renamedDeployKeys = []struct {
 		}
 		return "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"
 	}},
+}
+
+// emptyHints say what to write for a key of deploy.auto that is there with nothing after it,
+// where the generic message would only say it got null.
+var emptyHints = map[string]string{
+	"deploy.auto.needs":  "write a workflow file such as ci.yml, or none",
+	"deploy.auto.branch": "write a branch name, or leave branch out for the default branch",
 }
 
 // autoKeys are the keys of the block deploy.auto.

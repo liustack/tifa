@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/config"
 )
 
 // The app is named after its module, as tifa build names the program, so one server tells the
@@ -614,6 +616,56 @@ func TestDeployOldNamesStopEveryCommand(t *testing.T) {
 			if got := out + stderr; err == nil || !strings.Contains(got+err.Error(), tc.want) {
 				t.Errorf("%s: tifa %s: err %v, output %q, want %q", name, strings.Join(args, " "), err, got, tc.want)
 			}
+		}
+	}
+}
+
+// check, build and dev stop on deploy settings that cannot work together, with the messages the
+// deploy commands give, and on a needs file that is missing, has no name or does not run on a push
+// to the branch tifa.yaml names. None of it needs the network.
+func TestCheckRunsTheDeployChecks(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml  string
+		files map[string]string
+		want  string
+	}{
+		"tailscale without auto":        {"deploy:\n  connect: tailscale\n", nil, "deploy.connect is tailscale, which is how GitHub Actions reaches the server"},
+		"cloudflare without front":      {"deploy:\n  connect: cloudflare\n", nil, "deploy.connect is cloudflare, and the ssh host name is made from the domain of site.url"},
+		"front without site url":        {"deploy:\n  front: cloudflare\n", nil, "deploy.front is cloudflare, which needs site.url"},
+		"needs missing":                 {"deploy:\n  auto: {}\n", nil, ".github/workflows/ci.yml does not exist"},
+		"needs without name":            {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "on: push\n"}, "has no name: line"},
+		"needs not on push":             {"deploy:\n  auto:\n    branch: main\n", map[string]string{testCIPath: "name: CI\non: pull_request\n"}, "does not run on a push to main"},
+		"needs not on the named branch": {"deploy:\n  auto:\n    branch: release\n", map[string]string{testCIPath: testCI}, "does not run on a push to release"},
+	} {
+		dir := apiApp(t)
+		writeFile(t, filepath.Join(dir, "tifa.yaml"), tc.yaml)
+		for f, text := range tc.files {
+			writeFile(t, filepath.Join(dir, f), text)
+		}
+		out, stderr, err := run(t, "check", "--dir", dir)
+		if got := out + stderr; err == nil || !strings.Contains(got+err.Error(), tc.want) {
+			t.Errorf("%s: err %v, output %q, want %q", name, err, got, tc.want)
+		}
+	}
+	// With the default branch the push is not checked, since the branch is on GitHub. A file that
+	// is there with a name passes.
+	dir := apiApp(t)
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "deploy:\n  auto: {}\n")
+	writeFile(t, filepath.Join(dir, testCIPath), "name: CI\non: pull_request\n")
+	if out, stderr, err := run(t, "check", "--dir", dir); err != nil {
+		t.Errorf("default branch: %v\n%s%s", err, out, stderr)
+	}
+}
+
+// An empty value of a key of deploy.auto says what to write.
+func TestEmptyAutoKeysSayWhatToWrite(t *testing.T) {
+	for yaml, want := range map[string]string{
+		"deploy:\n  auto:\n    needs:\n":  "deploy.auto.needs: write a workflow file such as ci.yml, or none",
+		"deploy:\n  auto:\n    branch:\n": "deploy.auto.branch: write a branch name, or leave branch out for the default branch",
+	} {
+		_, _, err := config.Project([]byte(yaml))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v", yaml, err)
 		}
 	}
 }

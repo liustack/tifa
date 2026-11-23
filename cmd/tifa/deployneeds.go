@@ -21,7 +21,8 @@ import (
 const workflowsDir = ".github/workflows"
 
 // resolveNeeds returns the name of the workflow file needs, which the deploy workflow waits for, or
-// "" for needs none. It fails, with what to do, when the file is missing, has no name or does not
+// "" for needs none. An empty branch skips the check of the push, for the default branch of the
+// repository is known to GitHub only. It fails, with what to do, when the file is missing, has no name or does not
 // run on a push to branch.
 func resolveNeeds(root, needs, branch string) (string, error) {
 	if needs == "none" {
@@ -47,7 +48,7 @@ func resolveNeeds(root, needs, branch string) (string, error) {
 	if strings.TrimSpace(doc.Name) == "" {
 		return "", errors.New(rel + " has no name: line, and the deploy workflow finds the workflow it waits for by its name. Give it one, such as name: CI." + fix)
 	}
-	if ok, why := pushRunsOn(data, branch); !ok {
+	if ok, why := pushRunsOn(data, branch); branch != "" && !ok {
 		return "", fmt.Errorf("%s does not run on a push to %s (%s), so a deploy would wait for a run that never comes.%s", rel, branch, why, fix)
 	}
 	return doc.Name, nil

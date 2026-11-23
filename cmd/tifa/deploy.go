@@ -90,6 +90,27 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 	return domain, nil
 }
 
+// checkDeploySettings runs the checks of the deploy settings that need no network, which tifa
+// check, build and dev run so a setting that cannot work is found before a deploy: the settings
+// against each other, and with the block deploy.auto the workflow in needs.
+func checkDeploySettings(root string) error {
+	settings, err := codegen.ProjectSettings(root)
+	if err != nil {
+		return err
+	}
+	d := settings.Deploy
+	if _, err := deployDomain(d, settings.Site.URL); err != nil {
+		return err
+	}
+	if d.Auto.On {
+		// The branch is checked when tifa.yaml names it. Without it the default branch is on GitHub.
+		if _, err := resolveNeeds(root, d.Auto.Needs, d.Auto.Branch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // loadDeployTarget reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml, and
 // the server from the flag, else TIFA_DEPLOY_HOST in the environment, else TIFA_DEPLOY_HOST in .env,
 // else the servers of ~/.tifa. A server taken from there is announced on notice.
