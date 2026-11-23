@@ -136,7 +136,16 @@ func TestMain(m *testing.M) {
 	// The tests of tifa run in GitHub Actions too, where tifa would add workflow commands to what
 	// they read. A test that wants them sets the variable itself.
 	os.Unsetenv(envGitHubActions)
-	os.Exit(m.Run())
+	// The servers of ~/.tifa are never the real ones: a test that needs its own sets TIFA_HOME.
+	home, err := os.MkdirTemp("", "tifa-home")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Setenv(tifaHomeEnv, filepath.Join(home, ".tifa"))
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
 }
 
 // forwardHelper starts this test binary forwarding args to the app at root, with a fake go first

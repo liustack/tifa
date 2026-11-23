@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -204,5 +205,117 @@ func TestPickServer(t *testing.T) {
 	both := []knownServer{two[0], {ID: "hz-2", Host: "h", Apps: []string{"blog"}}}
 	if _, ok := pickServer(both, "blog"); ok {
 		t.Error("an app on two servers is not a choice setup made")
+	}
+}
+
+// loadTarget is loadDeployTarget with its one-line notice thrown away.
+func loadTarget(dir, hostFlag string) (deployTarget, error) {
+	return loadDeployTarget(dir, hostFlag, io.Discard)
+}
+
+// shopApp is a bare app called shop.
+func shopApp(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	t.Setenv(deployHostEnv, "")
+	return root
+}
+
+// The server comes from the flag, the environment and .env before ~/.tifa. With no server named,
+// the only server of ~/.tifa is used, and a line says so and what to write to choose.
+func TestDeployHostFromHome(t *testing.T) {
+	homeOf(t)
+	root := shopApp(t)
+	if err := rememberServer("vps-1a2b3c4d", "ssh://203.0.113.7:22", "blog"); err != nil {
+		t.Fatal(err)
+	}
+	var said strings.Builder
+	d, err := loadDeployTarget(root, "", &said)
+	if err != nil || d.host != "ssh://203.0.113.7:22" || d.dest.port != 22 {
+		t.Fatalf("%+v, %v", d, err)
+	}
+	line := strings.TrimSpace(said.String())
+	for _, want := range []string{"No server is named for shop", "vps", "ssh://203.0.113.7:22", "config.yaml", "TIFA_DEPLOY_HOST=ssh://203.0.113.7:22", ".env", "--host"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line lacks %q: %s", want, line)
+		}
+	}
+	if strings.Contains(line, "\n") {
+		t.Errorf("more than one line: %q", line)
+	}
+
+	// Anything named wins, and then nothing is said.
+	said.Reset()
+	if d, err := loadDeployTarget(root, "from-flag", &said); err != nil || d.host != "from-flag" || said.Len() != 0 {
+		t.Errorf("flag: %+v, %v, %q", d, err, said.String())
+	}
+	t.Setenv(deployHostEnv, "from-env")
+	if d, err := loadDeployTarget(root, "", &said); err != nil || d.host != "from-env" || said.Len() != 0 {
+		t.Errorf("env: %+v, %v, %q", d, err, said.String())
+	}
+	t.Setenv(deployHostEnv, "")
+	writeFile(t, filepath.Join(root, ".env"), "TIFA_DEPLOY_HOST=from-dotenv\n")
+	if d, err := loadDeployTarget(root, "", &said); err != nil || d.host != "from-dotenv" || said.Len() != 0 {
+		t.Errorf(".env: %+v, %v, %q", d, err, said.String())
+	}
+}
+
+// With several servers and none named, the command stops and lists them, unless the app is on one.
+func TestDeployHostSeveralInHome(t *testing.T) {
+	homeOf(t)
+	root := shopApp(t)
+	for _, s := range []struct{ id, host, app string }{
+		{"vps-1a2b3c4d", "ssh://203.0.113.7:22", "blog"},
+		{"hz-99998888", "vps-ssh-k3j9.example.com", "notes"},
+	} {
+		if err := rememberServer(s.id, s.host, s.app); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := loadTarget(root, "")
+	if err == nil {
+		t.Fatal("two servers, none named, and no error")
+	}
+	for _, want := range []string{"shop", "vps", "ssh://203.0.113.7:22", "apps: blog", "hz", "vps-ssh-k3j9.example.com", "apps: notes", "TIFA_DEPLOY_HOST=ssh://203.0.113.7:22", ".env", "--host"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q:\n%s", want, err)
+		}
+	}
+	// An app that setup put on one of them goes there, without a question.
+	if err := rememberServer("hz-99998888", "vps-ssh-k3j9.example.com", "shop"); err != nil {
+		t.Fatal(err)
+	}
+	var said strings.Builder
+	d, err := loadDeployTarget(root, "", &said)
+	if err != nil || d.host != "vps-ssh-k3j9.example.com" || !strings.Contains(said.String(), "shop is set up on hz") {
+		t.Errorf("%+v, %v, %q", d, err, said.String())
+	}
+}
+
+// With none, the error says where to name the server and that setup remembers it.
+func TestDeployHostNoneInHome(t *testing.T) {
+	homeOf(t)
+	_, err := loadTarget(shopApp(t), "")
+	if err == nil {
+		t.Fatal("no server")
+	}
+	for _, want := range []string{"no server to deploy to", "--host", "TIFA_DEPLOY_HOST=ssh://203.0.113.7:22", "deploy setup", "config.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q:\n%s", want, err)
+		}
+	}
+}
+
+// A file of ~/.tifa that cannot be read stops the command and names the file, when it is needed.
+func TestDeployHostBadHomeFile(t *testing.T) {
+	dir := homeOf(t)
+	writeFile(t, filepath.Join(dir, "config.yaml"), "servers: [")
+	root := shopApp(t)
+	if _, err := loadTarget(root, ""); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("got %v", err)
+	}
+	if d, err := loadTarget(root, "vps"); err != nil || d.host != "vps" {
+		t.Errorf("a named server does not read the file: %+v, %v", d, err)
 	}
 }

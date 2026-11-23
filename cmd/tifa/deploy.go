@@ -90,8 +90,9 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 }
 
 // loadDeployTarget reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml, and
-// the server from the flag, else TIFA_DEPLOY_HOST in the environment, else TIFA_DEPLOY_HOST in .env.
-func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
+// the server from the flag, else TIFA_DEPLOY_HOST in the environment, else TIFA_DEPLOY_HOST in .env,
+// else the servers of ~/.tifa. A server taken from there is announced on notice.
+func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
 		return deployTarget{}, err
@@ -122,7 +123,7 @@ func loadDeployTarget(dir, hostFlag string) (deployTarget, error) {
 	if err := checkOldInputNames(root, hostFlag); err != nil {
 		return deployTarget{}, err
 	}
-	h, err := readDeployHost(root, hostFlag)
+	h, err := readDeployHost(root, app, hostFlag, notice)
 	if err != nil {
 		return deployTarget{}, err
 	}
@@ -218,7 +219,7 @@ func newDeployCmd() *cobra.Command {
 		Use:   "deploy",
 		Short: "Build the app for its server, put it live over ssh and check it",
 		Long: `deploy builds the app for the system of the server (--host, or TIFA_DEPLOY_HOST in the environment or
-in the .env of the app), uploads the program over ssh as the user tifa into a new release, points current at
+in the .env of the app, else the only server of ~/.tifa/config.yaml), uploads the program over ssh as the user tifa into a new release, points current at
 it and restarts the app through its systemd socket, so no request is refused. On the server it then
 asks GET /healthz until the answer is below 500. When that fails, the release before runs again
 and deploy exits with 1. With deploy.front cloudflare it then clears the CDN cache of the host of site.url,
@@ -227,7 +228,7 @@ It never uploads .env. On a server that setup prepared it makes the folder and u
 app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(dir, host)
+			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -235,7 +236,7 @@ app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHu
 		},
 	}
 	cmd.PersistentFlags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.PersistentFlags().StringVar(&host, "host", "", "the server: an ssh alias or ssh://host[:port] (default "+deployHostEnv+" of the environment or of .env)")
+	cmd.PersistentFlags().StringVar(&host, "host", "", "the server: an ssh alias or ssh://host[:port] (default "+deployHostEnv+" of the environment or of .env, else the server in ~/.tifa)")
 
 	setup := &cobra.Command{
 		Use:   "setup",
@@ -264,7 +265,7 @@ On a terminal, a missing cf or gh comes first: a plan that installs it with pnpm
 winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(dir, host)
+			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -278,7 +279,7 @@ winget and logs it in, then the plan of the rest. It removes only what Tifa made
 restarts the app through its socket. Run it again to go further back.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(dir, host)
+			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}

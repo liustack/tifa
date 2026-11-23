@@ -202,32 +202,32 @@ func TestDeployHost(t *testing.T) {
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n")
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nTIFA_DEPLOY_HOST=ssh://203.0.113.7:2222\n")
-	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "ssh://203.0.113.7:2222" || d.dest.name != "203.0.113.7" || d.dest.port != 2222 || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
+	if d, err := loadTarget(root, ""); err != nil || d.host != "ssh://203.0.113.7:2222" || d.dest.name != "203.0.113.7" || d.dest.port != 2222 || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
 		t.Errorf(".env: %+v, %v", d, err)
 	}
 	t.Setenv(deployHostEnv, "from-env")
-	if d, err := loadDeployTarget(root, ""); err != nil || d.host != "from-env" {
+	if d, err := loadTarget(root, ""); err != nil || d.host != "from-env" {
 		t.Errorf("env beats .env: %+v, %v", d, err)
 	}
-	if d, err := loadDeployTarget(root, "from-flag"); err != nil || d.host != "from-flag" {
+	if d, err := loadTarget(root, "from-flag"); err != nil || d.host != "from-flag" {
 		t.Errorf("flag beats env: %+v, %v", d, err)
 	}
-	if _, err := loadDeployTarget(root, "root@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
+	if _, err := loadTarget(root, "root@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
 		t.Errorf("bad flag: %v", err)
 	}
 	t.Setenv(deployHostEnv, "-oProxyCommand=x")
-	if _, err := loadDeployTarget(root, ""); err == nil || !strings.Contains(err.Error(), deployHostEnv) {
+	if _, err := loadTarget(root, ""); err == nil || !strings.Contains(err.Error(), deployHostEnv) {
 		t.Errorf("bad env: %v", err)
 	}
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "TIFA_DEPLOY_HOST=tifa@vps\n")
-	if _, err := loadDeployTarget(root, ""); err == nil || !strings.Contains(err.Error(), ".env") || !strings.Contains(err.Error(), "user") {
+	if _, err := loadTarget(root, ""); err == nil || !strings.Contains(err.Error(), ".env") || !strings.Contains(err.Error(), "user") {
 		t.Errorf("bad .env: %v", err)
 	}
 	if err := os.Remove(filepath.Join(root, ".env")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := loadDeployTarget(root, "")
+	_, err := loadTarget(root, "")
 	if err == nil {
 		t.Fatal("no server named, and no error")
 	}
@@ -244,7 +244,7 @@ func TestDeployHostRetired(t *testing.T) {
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  host: vps\n")
 	t.Setenv(deployHostEnv, "vps")
-	_, err := loadDeployTarget(root, "vps")
+	_, err := loadTarget(root, "vps")
 	if err == nil {
 		t.Fatal("deploy.host was accepted")
 	}
@@ -278,7 +278,7 @@ func TestDeploySettingsChecks(t *testing.T) {
 		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
 		writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
 		t.Setenv(deployHostEnv, "vps")
-		d, err := loadDeployTarget(root, "")
+		d, err := loadTarget(root, "")
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%s: %v", name, err)

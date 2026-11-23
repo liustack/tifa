@@ -374,7 +374,7 @@ Without a terminal, pass --yes. What it cannot remove, such as without a login o
 listed at the end, the rest is removed, and it exits with an error. Running it again is safe.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host)
+			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}

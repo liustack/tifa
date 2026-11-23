@@ -27,7 +27,7 @@ func TestOldInputNamesAreErrors(t *testing.T) {
 				if tc.old != "DEPLOY_HOST" {
 					hostFlag = "vps"
 				}
-				_, err := loadDeployTarget(root, hostFlag)
+				_, err := loadTarget(root, hostFlag)
 				if err == nil {
 					t.Fatalf("%s was accepted", tc.old)
 				}
@@ -37,14 +37,14 @@ func TestOldInputNamesAreErrors(t *testing.T) {
 					}
 				}
 				if tc.old == "DEPLOY_HOST" {
-					if _, err := loadDeployTarget(root, "vps"); err != nil {
+					if _, err := loadTarget(root, "vps"); err != nil {
 						t.Errorf("--host gives the server, the old name is left alone: %v", err)
 					}
 				}
 				// Once the new name is there too, the old one is only leftover text.
 				t.Setenv(tc.new, "vps")
 				t.Setenv(deployHostEnv, "vps")
-				if _, err := loadDeployTarget(root, ""); err != nil {
+				if _, err := loadTarget(root, ""); err != nil {
 					t.Errorf("both names set: %v", err)
 				}
 			}
@@ -65,7 +65,7 @@ func TestOldInputNamesInTheEnvironmentAreLeftAlone(t *testing.T) {
 	t.Setenv("DEPLOY_HOST", "other")
 	t.Setenv("CF_CACHE_PURGE_TOKEN", "x")
 	t.Setenv("CF_ZONE_ID", "y")
-	if _, err := loadDeployTarget(root, ""); err != nil {
+	if _, err := loadTarget(root, ""); err != nil {
 		t.Errorf("old names in the environment stopped the deploy: %v", err)
 	}
 }

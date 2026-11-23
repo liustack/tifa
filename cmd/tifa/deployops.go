@@ -152,7 +152,7 @@ GET /healthz answers now, and the memory of the program. It asks for /healthz on
 service runs, so it starts nothing.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host)
+			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -172,7 +172,7 @@ systemd said about it, over ssh as the user tifa. With -f it then keeps printing
 Ctrl-C.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host)
+			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
