@@ -3,14 +3,16 @@ package main
 // The block that tifa deploy setup keeps in the ~/.ssh/config of the developer, so ssh reaches the
 // server through the Cloudflare Tunnel (deploy.ssh cloudflare):
 //
-//	# tifa shop: through the Cloudflare tunnel (written by tifa deploy setup)
+//	# tifa shop <ssh host>: through the Cloudflare tunnel (written by tifa deploy setup)
 //	Host <ssh host>
 //	  ProxyCommand <cloudflared> access ssh --hostname %h
 //	  StrictHostKeyChecking accept-new
 //	Match all
-//	# end tifa shop
+//	# end tifa shop <ssh host>
 //
-// Tifa owns the lines from the first marker to the last and nothing else in the file. Every other
+// Tifa owns the lines from the first marker to the last and nothing else in the file. The markers
+// name the app and the ssh host, and are matched whole: another comment that starts with "# tifa"
+// is the person's. Every other
 // byte stays as it was, the line endings of the file included. The block goes to the top of the
 // file, because ssh takes the first value it sees for an option: a Host * further down cannot
 // replace the ProxyCommand. Match all closes the block, so the lines of the person that were
@@ -40,27 +42,43 @@ func sshConfigPath() (string, error) {
 	return filepath.Join(home, ".ssh", "config"), nil
 }
 
-func sshBlockBegin(app string) string {
-	return "# tifa " + app + ": through the Cloudflare tunnel (written by tifa deploy setup)"
+// sshBeginWords is what follows the app and the ssh host in the first line of the block.
+const sshBeginWords = ": through the Cloudflare tunnel (written by tifa deploy setup)"
+
+// The block is named by the app and the ssh host name, so two apps with one name, or one app with
+// two hosts, keep their own blocks.
+func sshBlockBegin(app, host string) string { return "# tifa " + app + " " + host + sshBeginWords }
+
+func sshBlockEnd(app, host string) string { return "# end tifa " + app + " " + host }
+
+// parseSSHBegin reads the first line of a block, exactly as tifa writes it. Any other comment
+// that begins with "# tifa" is the person's own.
+func parseSSHBegin(line string) (app, host string, ok bool) {
+	rest, ok := strings.CutPrefix(line, "# tifa ")
+	if !ok {
+		return "", "", false
+	}
+	rest, ok = strings.CutSuffix(rest, sshBeginWords)
+	if !ok {
+		return "", "", false
+	}
+	app, host, ok = strings.Cut(rest, " ")
+	if !ok || app == "" || host == "" || strings.ContainsAny(host, " \t") {
+		return "", "", false
+	}
+	return app, host, true
 }
-
-func sshBlockEnd(app string) string { return "# end tifa " + app }
-
-// sshBlockStart is how the first line of the block of app starts, whatever words follow.
-func sshBlockStart(app string) string { return "# tifa " + app + ":" }
 
 // proxyProgram writes the program of a ProxyCommand: bare when its path needs no quoting, else
 // in the quotes the shell that runs it reads. ssh runs the command with sh on Unix and with
 // cmd.exe on Windows. A % is doubled, since ssh reads %h and the like in the line.
 func proxyProgram(path, goos string) string {
-	path = strings.ReplaceAll(path, "%", "%%")
 	if goos == "windows" {
-		// cmd.exe reads quotes as they are. A path cannot hold a quote there.
-		if strings.ContainsAny(path, " \t&()^") {
-			return `"` + path + `"`
-		}
-		return path
+		// Windows OpenSSH runs the command with cmd.exe, and Git for Windows ssh with sh. Both read
+		// C:/Tools/cloudflared.exe, and neither reads a backslash the same way.
+		path = strings.ReplaceAll(path, `\`, "/")
 	}
+	path = strings.ReplaceAll(path, "%", "%%")
 	if !strings.ContainsAny(path, " \t\"'\\$`&|;<>()*?[]{}!#~^") {
 		return path
 	}
@@ -70,12 +88,12 @@ func proxyProgram(path, goos string) string {
 // sshBlock is the text of the block, with eol after each line.
 func sshBlock(app, host, cloudflared, goos, eol string) string {
 	lines := []string{
-		sshBlockBegin(app),
+		sshBlockBegin(app, host),
 		"Host " + host,
 		"  ProxyCommand " + proxyProgram(cloudflared, goos) + " access ssh --hostname %h",
 		"  StrictHostKeyChecking accept-new",
 		"Match all",
-		sshBlockEnd(app),
+		sshBlockEnd(app, host),
 	}
 	return strings.Join(lines, eol) + eol
 }
@@ -95,52 +113,79 @@ func fileEOL(content, goos string) string {
 	return "\n"
 }
 
-// cutSSHBlock takes the block of app out of content. It returns the rest and whether the block
-// was there. A block that starts and does not end, or ends twice, is an error: the file is the
-// person's and tifa does not guess what to cut.
-func cutSSHBlock(content, app string) (rest string, found bool, err error) {
-	start, end := sshBlockStart(app), sshBlockEnd(app)
+// cutSSHBlocks takes the blocks of tifa that match out of content, and returns the rest and the
+// hosts of the blocks it cut. Every block of tifa is checked, also the ones that stay: a block
+// whose first line is not followed by its Host line, that starts inside another block or that
+// never ends is an error that names the line, and nothing is cut. The file is the person's and
+// tifa does not guess what to delete.
+func cutSSHBlocks(content string, match func(app, host string) bool) (rest string, hosts []string, err error) {
 	var out strings.Builder
+	var cur struct {
+		app, host string
+		start     int
+		cut       bool
+		hostLine  bool
+	}
 	inBlock := false
-	for len(content) > 0 {
+	for n := 1; len(content) > 0; n++ {
 		line, next, _ := strings.Cut(content, "\n")
 		whole := content[:len(content)-len(next)]
 		if next == "" && !strings.HasSuffix(whole, "\n") {
 			whole = line // the last line has no ending
 		}
 		trimmed := strings.TrimRight(line, "\r")
+		app, host, begins := parseSSHBegin(trimmed)
 		switch {
-		case !inBlock && strings.HasPrefix(trimmed, start):
-			if found {
-				return "", false, fmt.Errorf("ssh config has the block of tifa %s twice: delete one of them", app)
+		case begins && inBlock:
+			return "", nil, fmt.Errorf("ssh config line %d starts a block of tifa inside the block that starts at line %d: delete one of them, and run setup again", n, cur.start)
+		case begins:
+			inBlock = true
+			cur.app, cur.host, cur.start, cur.hostLine = app, host, n, false
+			cur.cut = match(app, host)
+			if cur.cut {
+				hosts = append(hosts, host)
 			}
-			inBlock, found = true, true
-		case inBlock && trimmed == end:
+		case inBlock && !cur.hostLine:
+			if trimmed != "Host "+cur.host {
+				return "", nil, fmt.Errorf("ssh config line %d: the block of tifa %s that starts at line %d must go on with %q, and has %q: delete the block, and run setup again", n, cur.app, cur.start, "Host "+cur.host, trimmed)
+			}
+			cur.hostLine = true
+		case inBlock && trimmed == sshBlockEnd(cur.app, cur.host):
 			inBlock = false
-		case inBlock:
-		default:
+			if !cur.cut {
+				out.WriteString(whole)
+			}
+			content = next
+			continue
+		}
+		if !(inBlock && cur.cut) {
 			out.WriteString(whole)
 		}
 		content = next
 	}
 	if inBlock {
-		return "", false, fmt.Errorf("ssh config has a block that starts with %q and never ends with %q: delete it, and run setup again", start, end)
+		return "", nil, fmt.Errorf("ssh config line %d starts a block of tifa that never ends with %q: delete it, and run setup again", cur.start, sshBlockEnd(cur.app, cur.host))
 	}
-	return out.String(), found, nil
+	return out.String(), hosts, nil
 }
 
-// withSSHBlock returns content with the block of app first and nothing else changed.
+// exactBlock matches the block of one app and one ssh host name.
+func exactBlock(app, host string) func(string, string) bool {
+	return func(a, h string) bool { return a == app && h == host }
+}
+
+// domainBlocks matches the blocks of an app for the ssh host names of a domain.
+func domainBlocks(app, domain string) func(string, string) bool {
+	return func(a, h string) bool { return a == app && looksLikeSSHHost(h, domain) }
+}
+
+// withSSHBlock returns content with the block of app and host first and nothing else changed.
 func withSSHBlock(content, app, host, cloudflared, goos string) (string, error) {
-	rest, _, err := cutSSHBlock(content, app)
+	rest, _, err := cutSSHBlocks(content, exactBlock(app, host))
 	if err != nil {
 		return "", err
 	}
 	return sshBlock(app, host, cloudflared, goos, fileEOL(content, goos)) + rest, nil
-}
-
-// withoutSSHBlock returns content without the block of app, and whether it was there.
-func withoutSSHBlock(content, app string) (string, bool, error) {
-	return cutSSHBlock(content, app)
 }
 
 // readSSHConfig reads the file, or "" when there is none.
@@ -152,24 +197,24 @@ func readSSHConfig(path string) (string, error) {
 	return string(data), err
 }
 
-// sshBlockState says what the file has of the block of app: whether the file holds exactly the
-// text withSSHBlock would give, and whether it holds a block at all.
+// sshBlockState says what the file has of the block of app and host: whether the file holds
+// exactly the text withSSHBlock would give, and whether it holds the block at all.
 func sshBlockState(path, app, host, cloudflared string) (same, present bool, err error) {
 	content, err := readSSHConfig(path)
 	if err != nil {
 		return false, false, err
 	}
-	_, present, err = cutSSHBlock(content, app)
+	_, hosts, err := cutSSHBlocks(content, exactBlock(app, host))
 	if err != nil {
 		return false, false, err
 	}
 	want, err := withSSHBlock(content, app, host, cloudflared, toolOS)
-	return want == content, present, err
+	return want == content, len(hosts) > 0, err
 }
 
-// writeSSHBlock puts the block of app at the top of the file at path. A file that is not there is
-// made with mode 0600, and the folder with 0700. A file that is there keeps its mode, and is
-// written in place, so a link to a file of a dotfiles folder stays a link.
+// writeSSHBlock puts the block of app and host at the top of the file at path. A file that is
+// not there is made with mode 0600, and the folder with 0700. A file that is there keeps its
+// mode, and is written in place, so a link to a file of a dotfiles folder stays a link.
 func writeSSHBlock(path, app, host, cloudflared string) error {
 	content, err := readSSHConfig(path)
 	if err != nil {
@@ -188,25 +233,25 @@ func writeSSHBlock(path, app, host, cloudflared string) error {
 	return os.WriteFile(path, []byte(text), 0o600)
 }
 
-// removeSSHBlock deletes the block of app from the file, and says whether it was there.
-func removeSSHBlock(path, app string) (bool, error) {
+// sshBlocksFor lists the ssh host names of the blocks of app for the domain.
+func sshBlocksFor(path, app, domain string) ([]string, error) {
 	content, err := readSSHConfig(path)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	rest, found, err := withoutSSHBlock(content, app)
-	if err != nil || !found {
-		return false, err
-	}
-	return true, os.WriteFile(path, []byte(rest), 0o600)
+	_, hosts, err := cutSSHBlocks(content, domainBlocks(app, domain))
+	return hosts, err
 }
 
-// hasSSHBlock says whether the file at path holds the block of app.
-func hasSSHBlock(path, app string) (bool, error) {
+// removeSSHBlocks deletes the blocks of app for the domain from the file, and lists their hosts.
+func removeSSHBlocks(path, app, domain string) ([]string, error) {
 	content, err := readSSHConfig(path)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	_, found, err := cutSSHBlock(content, app)
-	return found, err
+	rest, hosts, err := cutSSHBlocks(content, domainBlocks(app, domain))
+	if err != nil || len(hosts) == 0 {
+		return nil, err
+	}
+	return hosts, os.WriteFile(path, []byte(rest), 0o600)
 }
