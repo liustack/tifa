@@ -8,6 +8,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - The docs for writing an app now have a Chinese version beside each English file (`docs/guides/forms.zh-CN.md` beside `docs/guides/forms.md`), shipped in the module. `go tool tifa docs --lang zh-CN` lists them with their Chinese summaries. Without `--lang` the English docs are listed, and the language is never chosen for you.
 
+### Changed
+
+- The docs of Tifa are grouped in folders by what they are for: `docs/start/`, `docs/pages-and-data/`, `docs/guides/`, `docs/build-and-deploy/` and `docs/reference/` for writing and running an app, and `docs/internals/` for developing Tifa. `go tool tifa docs` prints the new paths, such as `docs/start/app.md` where it printed `docs/app.md`. Upgrading: run `go tool tifa agents` so the notes and the skill of your app name the new paths.
+
 ## [0.4.0] - 2026-11-23
 
 ### Changed
