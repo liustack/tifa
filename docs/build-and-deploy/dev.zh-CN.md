@@ -2,7 +2,7 @@
 summary: '怎样使用 `tifa dev`：每种改动之后页面怎样更新、运行哪些步骤、Vite 怎样配合、怎样读日志、构建失败时页面和应用怎么办、浏览器的错误怎样显示、`tifa errors` 怎样打印上次构建以来的错误、agent 或脚本怎样在后台启动 `tifa dev` 并读取它的状态、日志和停止它（`--background`、`status`、`logs`、`stop`）、Windows 上有什么不同、dev 的输出放在哪里，以及大型应用怎样监视'
 audience: app
 order: 1
-translatedFrom: b9bdd65bf56c
+translatedFrom: 320c0f0c52da
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'
@@ -190,7 +190,7 @@ tifa dev is running in this app
 
 ### 日志 {#logs}
 
-`tifa dev logs` 打印 `.tifa/dev.log` 的最后 100 行，用 `-n <lines>` 可以指定行数。带 `-f` 时，它接着在新行出现时打印，并在 `tifa dev` 结束时结束。服务器结束后日志仍在，所以 `tifa dev logs` 也能告诉你它为什么停了。没有用 `--background` 启动的 `tifa dev` 打印到它的终端，不留日志：`logs` 会这样告诉你。
+`tifa dev logs` 打印 `.tifa/dev.log` 的最后 100 行，用 `-n <lines>` 可以指定行数。带 `-f` 时，它接着在新行出现时打印，并在 `tifa dev` 结束时结束。服务器结束后日志仍在，所以 `tifa dev logs` 也能告诉你它为什么停了。没有用 `--background` 启动的 `tifa dev` 打印到它的终端，不留日志：`logs` 会这样告诉你。应用在这里写什么，以及怎样设置它的格式和级别，见[日志](../guides/logs.zh-CN.md)。
 
 ### 停止 {#stop}
 

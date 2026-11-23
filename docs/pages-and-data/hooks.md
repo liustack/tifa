@@ -31,16 +31,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 
 ### Changing the log handler
 
-Tifa logs its own messages with `log/slog`, at a level and with fields: a failed request is `ERROR` with `method`, `path` and `err`, a refused cross-site write is `WARN`, the address it listens on is `INFO`. The lines about startup, such as the address, are written after `OnStart` returns, so a handler set there already gets them. To change where they go, set the default handler in `OnStart`:
-
-```go
-func OnStart(ctx context.Context) error {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	return nil
-}
-```
-
-Tifa looks up `slog.Default()` for each message, so a later `slog.SetDefault` also works.
+Tifa logs with `log/slog` and looks up `slog.Default()` for each message, so `slog.SetDefault` in `OnStart` changes where its lines go and in what format. See [Logs](../guides/logs.md) for what Tifa logs, the format and the level, and logging each request.
 
 ### Setting up in OnStart
 
