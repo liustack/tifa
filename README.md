@@ -45,6 +45,8 @@ So I started hacking on Tifa. Once it is done, deploying should mean copying one
 
 I still do not know what to call it. A React SSR framework with no Node runtime? A React SSR framework with a Go backend? Both sound a little unhinged. Under the hood it is Go, [slowjs](https://github.com/liustack/slowjs) (a pure Go JavaScript engine), and TanStack Router.
 
+Go + React SSR has been tried before: [go-starter-kit](https://github.com/olebedev/go-starter-kit) is archived, and [go-react-ssr](https://github.com/natewong1313/go-react-ssr) stopped in 2024 and renders through C QuickJS with CGO. Tifa is a finished framework around the same idea: Go routing, data loading, caching and background jobs, React rendered by a pure Go engine with CGO off, TanStack Router in the browser, and `tifa deploy`, all in one executable.
+
 ## What it looks like
 
 One folder per page. Go loads the data, React shows it:
