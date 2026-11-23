@@ -2,7 +2,7 @@
 summary: '入门教程：用 `tifa new` 新建应用，用 `tifa dev` 运行，加一个页面、一个会显示字段错误的表单、布局数据和测试，最后构建出一个可执行文件并运行'
 audience: app
 order: 1
-translatedFrom: f6e410f4eb79
+translatedFrom: fb5a9b2c0265
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'
@@ -49,7 +49,7 @@ tifa dev: 19:48:20 ready in 2.147s, open http://127.0.0.1:9527
 1. 输入框为空时按 Add。输入框下面会出现消息 "Write what needs doing."。这条消息是 Go 发来的，见第 4 步。
 2. 添加 "Buy milk"。它马上出现在列表里。这个待办链接到它自己的页面 `/todos/1`，页面上有一个把它标为完成的按钮。
 3. 打开 http://127.0.0.1:9527/nope 和 http://127.0.0.1:9527/todos/99。两个都显示 404 页面，前者来自根布局，后者来自单个待办的页面。
-4. 把 `app/page.tsx` 里的标题从 `Todos` 改成 `My todos` 并保存。终端会显示 `tifa dev` 做了什么，刷新后能看到新标题。再改回去。
+4. 把 `app/page.tsx` 里的标题从 `Todos` 改成 `My todos` 并保存。终端会显示 `tifa dev` 做了什么，已打开的页面会原地更新。刷新后，服务器渲染出来的也是新标题。再改回去。
 
 ```text
 tifa dev: 19:57:43 app/page.tsx modified

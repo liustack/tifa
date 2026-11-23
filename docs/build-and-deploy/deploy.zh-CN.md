@@ -2,7 +2,7 @@
 summary: '怎样把 Tifa 应用放到服务器上：服务器在哪里指定（.env 里的 TIFA_DEPLOY_HOST，永远不写在 tifa.yaml 里，或者 `tifa deploy setup` 记在 ~/.tifa/config.yaml 里的服务器）和以同样方式读取的其他输入（命令行参数、环境变量、.env）以及 tifa.yaml 里的部署设置（front、connect，以及带 branch 和 needs 的 auto 块）、带有增加、修改和删除各行计划的 tifa deploy setup、通过 ssh 向带 systemd 的 Linux 服务器执行的 tifa deploy 和 tifa deploy rollback、每次部署时清除域名的 Cloudflare CDN 缓存、在 CI 工作流之后通过 GitHub Actions 部署（密钥、主机密钥、secrets、直接连接或经由 Cloudflare 或 Tailscale、用 gh 或用细粒度令牌）、从你自己的机器也通过 Cloudflare Tunnel 走 ssh（针对你的邮箱的 Access 策略、cloudflared、~/.ssh/config 里的块、第一次浏览器登录、关闭 ssh 端口）、运行器用工作负载身份联合加入你的 Tailscale tailnet（Tailscale 身份、它的两个变量、要在 Tailscale 控制台里建什么）、第二台开发机、用 tifa deploy env 管理服务器上应用的 .env、用 tifa deploy logs、status 和 remove 读取应用的日志、查看哪个版本在运行以及把应用从服务器上拿掉、一台服务器上放多个应用、前面放 Cloudflare Tunnel 或 Caddy，以及手工部署：为 Linux 构建、带着它的设置和数据文件夹运行、干净地停下、在 systemd 下重启而不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设置什么（Host 和 Origin、压缩、缓存哪些响应）、健康检查路由、来自 tifa.Stats 的 Prometheus 指标和该看什么，以及部署时打开着的页面会怎样'
 audience: app
 order: 3
-translatedFrom: e930d334bf90
+translatedFrom: 9dfcffdcf154
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -562,9 +562,9 @@ WantedBy=sockets.target
 
 **Cloudflare**
 
-`tifa deploy setup` 带 cf 时，会自己为它的域名添加这些规则（见[按方案设置](#set-up-with-a-plan)）。在 2026-11-20，通过 tunnel 访问示例 shop 时，它们的效果是：`/assets/` 文件从第二或第三个请求起 `HIT`，页面 `BYPASS`，`/__tifa/session` `DYNAMIC`。
+`tifa deploy setup` 带 cf 时，会自己为它的域名添加这些规则（见[按方案设置](#set-up-with-a-plan)）。
 
-- **缓存。** HTML 和 JSON 默认不缓存，因为 Cloudflare 按文件扩展名来决定（[默认缓存行为](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)）。要缓存带 `Cache` 的页面，请为它们的路径添加一条 Cache Rule，选 "Eligible for cache"，并把 Edge TTL 设为 "Use cache-control header if present, bypass cache if not"。绝不要选 "Ignore cache-control header and use this TTL"（[缓存规则设置](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/)）。在同一条规则里把 Browser TTL 设为 "Respect origin TTL"：否则 zone 的 Browser Cache TTL（默认 4 小时），会在浏览器拿到的内容里替换掉带 `Cache` 的页面的 `max-age=0` 和 public 文件的 `no-cache`，浏览器就会把它们保存那么久，任何清除都够不到那里（2026-11-20 见过：`max-age=14400`）。
+- **缓存。** HTML 和 JSON 默认不缓存，因为 Cloudflare 按文件扩展名来决定（[默认缓存行为](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)）。要缓存带 `Cache` 的页面，请为它们的路径添加一条 Cache Rule，选 "Eligible for cache"，并把 Edge TTL 设为 "Use cache-control header if present, bypass cache if not"。绝不要选 "Ignore cache-control header and use this TTL"（[缓存规则设置](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/)）。在同一条规则里把 Browser TTL 设为 "Respect origin TTL"：否则 zone 的 Browser Cache TTL（默认 4 小时），会在浏览器拿到的内容里替换掉带 `Cache` 的页面的 `max-age=0` 和 public 文件的 `no-cache`，浏览器就会把它们保存那么久，任何清除都够不到那里。
 - **`private` 和 `no-store`** 从不缓存。`s-maxage` 会被遵守。文档没有说明 `s-maxage=N` 和 `max-age=0`（带 `Cache` 的页面发的就是这个）放在一起时怎么工作，所以请检查这样的页面第二次请求是不是缓存命中（[Cache-Control 指令](https://developers.cloudflare.com/cache/concepts/cache-control/)）。`stale-if-error` 对 5xx 响应有效。
 - **缓存键。** 默认的键包含协议、主机和带查询字符串的 URI，所以导航数据（`?_tifa=...`）和页面是不同的条目（[缓存键](https://developers.cloudflare.com/cache/how-to/cache-keys/)）。
 - **Host。** 不要用 Origin Rule 的 "Override Host header" 来改写它（仅限 Enterprise 套餐）（[Origin Rules](https://developers.cloudflare.com/rules/origin-rules/)）。

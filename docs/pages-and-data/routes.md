@@ -154,6 +154,8 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 | `c.Context()`, `c.WithContext(ctx)` | The request context, and a copy of `c` that carries another one, to store request-scoped values. `c` itself does not change |
 | `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
 | `c.Path()` | The path of the page as the visitor sees it in the address bar: escaped, with the language prefix, without the query, such as `/en-US/store/items/a%20b`. The same for a page load and for the data request of a navigation. In a method handler it is the path of the handler. Not allowed in a `Layout`, see [How Load may use Ctx](#how-load-may-use-ctx) |
+| `c.Language()` | The language of the route being answered: the language in the URL, the default language when the URL has none, `""` on a site without languages. See [The language in code](../guides/i18n.md#the-language-in-code) |
+| `c.SetAlternates(list)` | Replaces the versions of the page in other languages, for `hreflang` and the sitemap. Call it in a `Load`. See [What search engines get](../guides/i18n.md#what-search-engines-get) |
 | `c.IsDataRequest()` | Whether this is a navigation data request of the browser router rather than a page load |
 | `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |

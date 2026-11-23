@@ -52,7 +52,7 @@ var (
 )
 
 func OnStart(ctx context.Context) error {
-	db, err := OpenDB(DBPath)
+	db, err := OpenDB(ctx, DBPath)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeou
 
 1. It closes the channel of `tifa.ShuttingDown`, which streams watch to end at once ([Streaming](streaming.md#when-the-program-stops)), stops accepting connections and waits up to `shutdown_timeout` for the requests in flight.
 2. If some are still running, it cancels their contexts and waits up to `shutdown_timeout` again.
-3. It calls `OnShutdown`, which gets a context with its own `shutdown_timeout`. If a request never returned, `OnShutdown` is skipped, and the program exits with an error.
+3. It calls `OnShutdown`, which gets a context with its own `shutdown_timeout`. If a request never returned, `OnShutdown` is skipped. If some requests were still running after the first wait, the program exits with an error, also when they returned after the cancel.
 
 Tifa knows nothing of the goroutines you start. Two things follow:
 

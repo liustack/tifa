@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里做请求之外的工作：根包可以导入的某个包里每分钟运行一次的循环、在 OnStart 里启动并随 OnShutdown 干净停下的 goroutine、Tifa 被告知停止时做什么、定时运行的任务、在 SQLite 里放一张 jobs 表来保存必须撑过重启并且可以重试的工作，以及在请求里不要做什么'
 audience: app
 order: 6
-translatedFrom: 72043643f2cc
+translatedFrom: 2e91ea5d1476
 read_when:
   - '发邮件、调用慢的服务，或者做任何不该让访客等待的工作'
   - '在 Tifa 应用里每分钟、每小时或每天运行某件事'
@@ -106,7 +106,7 @@ func every(ctx context.Context, d time.Duration, fn func(context.Context) error)
 
 1. 它关闭 `tifa.ShuttingDown` 的 channel，让监听它的流立即结束（[流式传输](streaming.zh-CN.md#when-the-program-stops)），停止接受连接，并最多等 `shutdown_timeout` 让正在处理的请求完成。
 2. 如果还有请求在运行，它会取消它们的 context，再最多等一个 `shutdown_timeout`。
-3. 它调用 `OnShutdown`，后者会得到一个带自己的 `shutdown_timeout` 的 context。如果有请求始终没有返回，`OnShutdown` 会被跳过，程序以错误退出。
+3. 它调用 `OnShutdown`，后者会得到一个带自己的 `shutdown_timeout` 的 context。如果有请求始终没有返回，`OnShutdown` 会被跳过。如果第一次等待结束时仍有请求在运行，程序以错误退出，即使它们在取消之后返回了也一样。
 
 Tifa 对你启动的 goroutine 一无所知。由此得出两点：
 

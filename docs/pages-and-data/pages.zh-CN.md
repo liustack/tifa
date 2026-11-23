@@ -1,8 +1,8 @@
 ---
-summary: '怎样写路由的 React 部分：page.tsx 和 route.gen 模块、Link 和 navigate 的查询参数类型、用 tifa.HTML 显示应用信任的 HTML、在浏览器里调用方法处理函数、布局和去掉上层布局的 layout_.tsx、head 和 htmlAttributes、404 页面，以及 Error 导出'
+summary: '怎样写路由的 React 部分：page.tsx 和 route.gen 模块、Link 和 navigate 的查询参数类型、用 tifa.HTML 显示应用信任的 HTML、在浏览器里调用方法处理函数、布局和去掉上层布局的 layout_.tsx、head 和 htmlAttributes、404 页面，以及 ErrorBoundary 导出'
 audience: app
 order: 2
-translatedFrom: 946a78431b3f
+translatedFrom: 9a74481d215f
 read_when:
   - '编写 page.tsx 或 layout.tsx，或者使用 `./route.gen` 导出的东西'
   - '给 `Link`、`navigate` 或 `useSearch` 传页面读取的查询参数，或者遇到关于 `search` 的类型错误'
@@ -32,7 +32,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 
 - 只管 UI，不加载数据。`./route.gen` 是生成的模块，每个文件夹一个，导出 `page` 和 `layout`（页面和布局的 TanStack 路由，只在文件夹里有它们时才有）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`PageSearch` 和 `LayoutSearch`（它们读取的查询参数，见 [Link 和 navigate 里的查询参数](#query-parameters-in-link-and-navigate)）、`Params`，以及每个方法处理函数对应的一个函数。同一文件夹里的子组件也从 `./route.gen` 导入。布局的数据来自它所在文件夹的 `route.gen`：`layout.tsx` 从 `'./route.gen'` 导入 `layout`，页面则用 `'../../route.gen'` 里的 `layout` 读取它的项目布局，举例来说。有人导入某个文件夹的 `route.gen`，而该文件夹没有生成的模块时，构建会失败。
 - 默认导出是页面组件。可选的导出有 `head` 和 `ErrorBoundary`。404 也显示在 `ErrorBoundary` 里（见 [404](#404)），导出 `NotFound` 会让构建失败。
-- 在浏览器里，每个 `page.tsx`，以及除根布局外的每个 `layout.tsx` 或 `layout_.tsx`，都是自成一体的分块，带着它导入的所有东西，包括 `head`。它在第一次需要它的路由时加载，路由器会等它加载完，才显示页面或运行 `head`。页面的 HTML 会预加载它的布局和路由的分块，所以它们和入口脚本一起到达。文件顶层的代码（包括只为副作用的导入）在那时运行，而不是在应用启动时，所以每个页面都需要的初始化，要放进根布局或它导入的某个模块里。见[浏览器里的路由模块](../build-and-deploy/build.zh-CN.md#route-modules-in-the-browser)。
+- 在浏览器里，每个 `page.tsx`，以及除根布局外的每个 `layout.tsx` 或 `layout_.tsx`，都是自成一体的分块，带着它导入的所有东西，包括 `head`。它在第一次需要它的路由时加载，路由器会等它加载完，才显示页面或运行 `head`。页面的 HTML 会预加载它的布局和路由的分块，所以它们和入口脚本一起到达。文件顶层的代码（包括只为副作用的导入）在那时运行，而不是在应用启动时，所以每个页面都需要的初始化，要放进 [`setup.ts`](hooks.zh-CN.md#setupts)，它在任何路由模块之前运行。见[浏览器里的路由模块](../build-and-deploy/build.zh-CN.md#route-modules-in-the-browser)。
 - Go 的切片和 map 永远不会是 `null`：nil 切片到达时是 `[]`，nil map 是 `{}`，它们的 TypeScript 类型里没有 `| null`（见 [JSON 规则](routes.zh-CN.md#json-rules)）。
 - 需要在模块顶层使用浏览器功能的组件，放进 `.client.tsx` 文件，用 `tifa/client` 的 `clientOnly` 懒加载它们。它们不会进入 SSR 包，首次绘制时显示占位内容。会渲染、但在浏览器绘制之前什么也不显示的组件也属于这里，见[只在浏览器里绘制的组件](server-render.zh-CN.md#components-that-draw-only-in-the-browser)：
 
@@ -230,7 +230,7 @@ app/
 
 - 它下面的页面，更深层的也一样，不会渲染它上面的布局，上面那些布局的 `Layout` 函数也不会为它们运行：不为页面，不为浏览器的导航数据请求，也不为它下面没有页面的 URL 的 404。所以它们的数据永远到不了这些页面。
 - 同一文件夹 `route.go` 里的 `Layout` 照常给它数据。它下面的文件夹照常嵌套：更深一层的 `layout.tsx` 显示在它里面，它的 `Layout` 会运行。更深一层的 `layout_.tsx` 则依次把它连同它上面的一切都去掉。
-- 属于文档的东西仍然适用：根布局的 `documentHead`（连同它的 `htmlAttributes`），以及 `OnRequest`。属于上层布局的则不适用：它们的 `head` 和它们的 `ErrorBoundary`。当 `layout_.tsx` 的 `Layout` 失败，或返回 `tifa.ErrNotFound` 时，它上面没有布局来显示错误，所以显示框架的默认页面。它自己的 `ErrorBoundary` 显示它下面失败的东西，和任何布局一样。要在那个 `Layout` 失败时显示你自己的页面，把 `layout_.tsx` 放高一层文件夹，带上 `<Outlet />` 和 `ErrorBoundary`，就像 shop 在 `app/store` 里做的那样。
+- 属于文档的东西仍然适用：根布局的 `documentHead`（连同它的 `htmlAttributes`），以及 `OnRequest`。属于上层布局的则不适用：它们的 `head` 和它们的 `ErrorBoundary`。当 `layout_.tsx` 的 `Layout` 失败，或返回 `tifa.ErrNotFound` 时，它上面没有布局来显示错误，所以显示框架的默认页面。它自己的 `ErrorBoundary` 显示它下面失败的东西，和任何布局一样。要在那个 `Layout` 失败时显示你自己的页面，把 `layout_.tsx` 放高一层文件夹，带上 `<Outlet />` 和 `ErrorBoundary`。
 - 在浏览器里，从它下面的页面移到它外面的页面，会换掉整个框架，新页面的布局在路由器还没有它们的数据时加载数据。
 - 构建会在这些情况下失败：`app/` 里有 `layout_.tsx`（它上面没有布局），同一文件夹里同时有 `layout.tsx` 和 `layout_.tsx`，以及它下面的页面或布局对被某个 `layout_.tsx` 去掉的布局使用 `tifa.Use`。它也会在一个布局的页面全都在某个 `layout_.tsx` 下面时失败，因为它一个也没有包住。
 - React Router 和 TanStack Router 也用 `_` 结尾的名字来让路由不进入某个布局，但只是不进入它前一段的布局：根路由和更上层的布局仍然包着它。Tifa 的 `layout_.tsx` 会去掉它上面的每个布局，根布局也不例外。

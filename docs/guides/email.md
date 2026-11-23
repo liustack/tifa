@@ -243,7 +243,7 @@ func TestAddTodoQueuesAMailOnlyWhenAskedTo(t *testing.T) {
 }
 ```
 
-**2. The job.** Replace `SendMail` and run the worker, as `TestMailJobSendsWhatWasQueued` does in the scratch app. Put the replacement in the `testdb` package of the database guide so every test can use it:
+**2. The job.** Replace `SendMail`, queue a mail and run the worker, then check that the mail was sent. Put the replacement in the `testdb` package of the database guide so every test can use it:
 
 ```go
 // testdb/testdb.go
@@ -344,4 +344,4 @@ This test does not cover the login or TLS, since the sink speaks neither. Check 
 
 ## Try it
 
-Run the same sink as a small program on port 2525, start the built app with `SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_TLS=none MAIL_NOTIFY=me@example.com`, and add a todo. The sink prints the message, with the subject encoded as `=?UTF-8?q?...?=` and the body as quoted-printable. Stop the sink, add another todo, and the log says `jobs: will retry ... connection refused`. Stop and start the app, bring the sink back, and the mail arrives after its retry time.
+Run a sink like it as a small program on port 2525, one that keeps accepting messages, start the built app with `SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_TLS=none MAIL_NOTIFY=me@example.com`, and add a todo. The sink prints the message, with the subject encoded as `=?UTF-8?q?...?=` and the body as quoted-printable. Stop the sink, add another todo, and the log says `jobs: will retry ... connection refused`. Stop and start the app, bring the sink back, and the mail arrives after its retry time.

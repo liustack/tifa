@@ -2,7 +2,7 @@
 summary: '怎样使用 `tifa dev`：每种改动之后页面怎样更新、运行哪些步骤、Vite 怎样配合、怎样读日志、构建失败时页面和应用怎么办、浏览器的错误怎样显示、`tifa errors` 怎样打印上次构建以来的错误、agent 或脚本怎样在后台启动 `tifa dev` 并读取它的状态、日志和停止它（`--background`、`status`、`logs`、`stop`）、Windows 上有什么不同、dev 的输出放在哪里，以及大型应用怎样监视'
 audience: app
 order: 1
-translatedFrom: 320c0f0c52da
+translatedFrom: 3ffd0df5edc2
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'
@@ -98,7 +98,7 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 浏览器在第一次构建期间打开的页面（接受 `text/html` 的 GET 或 HEAD）会等它 2 秒。如果构建还在跑，页面会返回 503，并说明 `tifa dev` 正在构建应用，应用跑起来后会自己重新加载。其他请求，比如脚本调用 API，会像应用重启时那样等应用。
 
-步骤的名字是 `static analysis`、`code generation`、`bundle`、`styles` 和 `go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也会打印成 `tifa dev:` 行。应用自己的输出照常打印，但没有构建出来的程序那行 `tifa: listening on`，因为应用监听的端口只有 `tifa dev` 会连。它的 stderr 经过 `tifa dev`，`tifa dev` 会留下最后几行用于覆盖层（见下），所以只在终端里才给输出上色的日志库，在这里写的是纯文本。
+步骤的名字是 `static analysis`、`code generation`、`bundle`、`styles`、`content` 和 `go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也会打印成 `tifa dev:` 行。应用自己的输出照常打印，但没有构建出来的程序那行 `tifa: listening on`，因为应用监听的端口只有 `tifa dev` 会连。它的 stderr 经过 `tifa dev`，`tifa dev` 会留下最后几行用于覆盖层（见下），所以只在终端里才给输出上色的日志库，在这里写的是纯文本。
 
 当一次渲染不带 locale 调用 Intl 或 `toLocale*` 方法，或者对日期不带 `timeZone` 时，应用会记一条 `tifa: ssr:` 警告，写出你源码里的位置，每个位置一次。页面照常渲染。见 [`tifa dev` 里的警告](../pages-and-data/server-render.zh-CN.md#warnings-in-tifa-dev)。
 
@@ -143,6 +143,8 @@ go tool tifa dev status [--json] # is it running, where, and did the last build 
 go tool tifa dev logs [-n 100] [-f]
 go tool tifa dev stop
 ```
+
+`status`、`logs` 和 `stop` 也接受 `--dir app-root`。
 
 编码智能体或脚本没法让 `tifa dev` 一直开在终端里。`tifa dev --background` 会让它脱离终端启动，在构建结束且 `GET /` 有响应后返回。它打印地址和进程 ID，然后是怎么看日志、怎么停止：
 

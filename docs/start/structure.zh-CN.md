@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的文件放在哪里：每个领域一个文件夹，放在 app/ 下紧挨着它的页面，根目录只放 hooks 和共享资源，包之间谁可以导入谁，共享资源怎样设置和使用'
 audience: app
 order: 4
-translatedFrom: 74712b0f0fbb
+translatedFrom: 18c286df2ac9
 read_when:
   - '新建 Tifa 应用'
   - '决定一个类型、一条查询或一个共享资源放在哪里'
@@ -44,7 +44,7 @@ myapp/
             route.go  page.tsx
 ```
 
-- **代码放哪里。** 一个域在它的文件夹里有一个以它命名的文件：`app/projects/project.go` 里是 `package projects`。当一个域有列表页和每项一个页面时，它的代码放在列表文件夹（`orders/`）里，不放在单个条目的文件夹（`order+/`）里。列表文件夹不需要有页面：在 [examples/shop](../../examples/shop) 里，订单列在项目页面上，`orders/` 里只有域。
+- **代码放哪里。** 一个域在它的文件夹里有一个以它命名的文件：`app/projects/project.go` 里是 `package projects`。当一个域有列表页和每项一个页面时，它的代码放在列表文件夹（`orders/`）里，不放在单个条目的文件夹（`order+/`）里。列表文件夹不需要有页面：在 [examples/shop](../../examples/shop) 里，订单列在项目页面上，`orders/` 里有这个域，以及创建订单的 `POST`。
 - **包名。** 字面的文件夹用它自己的名字（`projects`、`orders`）。参数文件夹用参数名（`project+` 里是 `package project`），和 [app.md](app.zh-CN.md#urls-come-from-folders) 里一样。
 - **页面使用域。** 同一个文件夹里的页面是同一个包，直接调用域。下面的页面则导入它：
 
@@ -109,7 +109,7 @@ Go 的规则：包不能依赖它自己。如果包 A 直接或通过别的包�
 
   ```go
   // hooks.go
-  func OnStart(ctx context.Context) error    { return openDB(ctx) }
+  func OnStart(ctx context.Context) error    { return openDB() }
   func OnShutdown(ctx context.Context) error { return DB.Close() }
   ```
 

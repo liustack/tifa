@@ -2,7 +2,7 @@
 summary: '怎样用 Tifa 会话让用户登录和登出：登录表单、用 argon2id 保存和检查密码、SetSession、在 Load 和处理函数里读取用户、把未登录的访客送到登录页并用 c.Path() 送回来的守卫、保护页面、登出、在浏览器里显示谁已登录，以及一种减缓密码猜测的办法'
 audience: app
 order: 3
-translatedFrom: 987ed5d285f1
+translatedFrom: 28e5be7f52f6
 read_when:
   - '给应用加登录和登出，或者把一些页面放在登录之后'
   - '选择怎样保存和检查密码'
@@ -796,7 +796,7 @@ func TestSignInAndOut(t *testing.T) {
 
 ## 需要决定的事 {#decisions}
 
-**会话放在内存还是放在存储里。** 没有存储时，会话存在进程的内存里，重启会让所有人退出登录。刚开始这样就行。等它变得要紧时，给 `OnStart` 设置一个存储（见[会话存在哪里](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)）。
+**会话放在内存还是放在存储里。** 用 `tifa new` 做的应用已经把会话存在它的 SQLite 数据库里（`sessions.go`）。没有存储时，会话存在进程的内存里，重启会让所有人退出登录。刚开始这样就行。想把会话放到别处，就给 `OnStart` 设置一个存储（见[会话存在哪里](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)）。
 
 **会话持续多久。** 从登录起 30 天，由 `session.max_age` 设置。它不会续期。对涉及钱或私人数据的应用，请把它缩短。
 

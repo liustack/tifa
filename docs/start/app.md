@@ -12,6 +12,8 @@ read_when:
 
 # Writing an app
 
+This page covers how a Tifa app is laid out: how folders under `app/` become URLs, which files Tifa reads, how static files are served, and what to write in place of habits from other frameworks.
+
 For a complete example, see [examples/shop](../../examples/shop). For the build, the generated files and how to set up go.mod, see [build.md](../build-and-deploy/build.md).
 
 ## Folders
@@ -43,7 +45,7 @@ myapp/
 ```
 
 - Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
-- Components and styles shared across pages go in the `app/` root.
+- Components shared across pages sit next to the pages that use them, or in a folder beside `app/` such as `components/` when several areas use them. See [structure.md](structure.md).
 - Do not write a main. `tifa build` generates main and the route registration code in `.tifa/`, which `go vet ./...` and `go test ./...` do not scan.
 
 ## URLs come from folders
@@ -115,7 +117,7 @@ Vite says the same: prefer importing assets, and use `public/` for files never r
 
 ## Coming from another framework
 
-`tifa check`, `tifa build` and `tifa dev` recognize code written for Next.js, Remix, React Router, TanStack Start and SvelteKit, and for Go web frameworks. Each finding is one line: `<file>:<line>: <what it is>. In Tifa: <what to write>. See <doc>`. An error stops the command. A warning ends in `(warning)` and stops nothing: the code builds, and Tifa never uses it.
+`tifa check`, `tifa build` and `tifa dev` recognize code written for Next.js, Remix, React Router, TanStack Start, SvelteKit and Astro, and for Go web frameworks. Each finding is one line: `<file>:<line>: <what it is>. In Tifa: <what to write>. See <doc>`. An error stops the command. A warning ends in `(warning)` and stops nothing: the code builds, and Tifa never uses it.
 
 | You wrote | In Tifa | |
 | --- | --- | --- |

@@ -2,7 +2,7 @@
 summary: '服务端渲染有什么、缺什么：slowjs 虚拟机里的浏览器和 Node API、导入 Node 模块的包、在那里渲染结果不同的库、只在浏览器里加载的组件，以及怎样使用 Intl 和 Temporal 让水合结果一致'
 audience: app
 order: 7
-translatedFrom: 8b1e74d71cdf
+translatedFrom: b4f1a98fe1fc
 read_when:
   - '页面在服务端渲染失败或没有水合，想知道服务端有哪些浏览器 API 和库的功能'
   - '某个组件在浏览器画出来之前什么都不显示（比如图表或地图），想知道要不要在服务端渲染它'
@@ -33,7 +33,7 @@ read_when:
 它没有：
 
 - 定时器：`setTimeout`、`setInterval`、`requestAnimationFrame`、`requestIdleCallback`。渲染在微任务用完时结束，没有东西会等时间。
-- `performance` 和 `crypto.subtle`。
+- `performance` 里除 `now()` 和 `timeOrigin` 以外的部分，以及 `crypto.subtle`。
 - 浏览器：`window`、`document`、`navigator`、`self`、`location`、`localStorage`、`matchMedia`、`ResizeObserver`、`Event`、`Blob`、`FormData` 等等。
 - I/O：`fetch`、`XMLHttpRequest`、`WebSocket`、`require`、`process`、`Buffer`。构建会替换包里的 `process.env.NODE_ENV`，所以只读它的代码可以工作。
 

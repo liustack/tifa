@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="./README.md">English</a> ·
-  <a href="docs/start/app.md">应用怎么写</a> ·
-  <a href="docs/build-and-deploy/build.md">构建与运行</a> ·
-  <a href="docs/build-and-deploy/dev.md">开发服务器</a> ·
+  <a href="docs/start/app.zh-CN.md">应用怎么写</a> ·
+  <a href="docs/build-and-deploy/build.zh-CN.md">构建与运行</a> ·
+  <a href="docs/build-and-deploy/dev.zh-CN.md">开发服务器</a> ·
   <a href="examples/shop/README.zh-CN.md">示例应用</a>
 </p>
 
@@ -83,7 +83,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 ## 特点
 
 - **部署只有一个文件。** 纯 Go，`CGO_ENABLED=0`，和普通 Go 程序一样交叉编译。浏览器包、样式和服务端渲染器都嵌在可执行文件里。
-- **push 就上线。** `tifa deploy setup` 一条命令配好服务器、Cloudflare 和 GitHub Actions，之后每次 push 自动检查、上线，健康检查不通过就自动回滚。见[部署](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy)。
+- **push 就上线。** `tifa deploy setup` 一条命令配好服务器、Cloudflare 和 GitHub Actions，之后每次 push 自动检查、上线，健康检查不通过就自动回滚。见[部署](docs/build-and-deploy/deploy.zh-CN.md#deploy-with-tifa-deploy)。
 - **第一次请求就是完整 HTML。** Go 先跑完页面的 `Load` 和各层 `Layout` 函数，再在进程内用 slowjs（纯 Go 写的 JavaScript 引擎）把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。每个页面一次渲染完整，不做流式渲染，也没有 React Server Components。
 - **前端工具照常用。** Vite、Tailwind、shadcn 在开发机上照常工作，服务器上只跑一个 Go 文件，不装 Node。
 - **类型从 Go 一路到 React。** 每个页面数据的 TypeScript 类型由 Go `Load` 的返回值生成。
@@ -92,7 +92,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 ## 一台小服务器就够
 
-**[渲染记忆](docs/reference/memo.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
+**[渲染记忆](docs/reference/memo.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
 
 整站访问，用真实浏览器在示例商店上录下来再回放：顾客、员工和爬虫同时访问同一台服务器，每个服务器都是出厂设置，先吃同样的预热（2026-11-18）。
 
@@ -120,7 +120,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 | 参考：TanStack Start 开 gzip | 40.7 / 107 ms | 4.3 / 37 ms |
 | 参考：Next.js 关掉预取 | 36.2 / 108 ms | 7.7 / 59 ms |
 
-前三行是出厂设置的框架。参考行各改一个设置，说明这个默认设置花掉或换来多少。版本：Tifa v0.1.0，slowjs v0.31.6，Next.js 16.4.6，TanStack Start 1.169.3，Node 24.13.0。每个服务器只用 Google Cloud `t2d-standard-4` 虚拟机（AMD EPYC 7B13）的一个核。访问配比、各家默认设置的代价和这些数字的含义见[整站访问](docs/reference/performance.md#whole-visits-to-the-shop-2026-11-18)。
+前三行是出厂设置的框架。参考行各改一个设置，说明这个默认设置花掉或换来多少。版本：Tifa v0.1.0，slowjs v0.31.6，Next.js 16.4.6，TanStack Start 1.169.3，Node 24.13.0。每个服务器只用 Google Cloud `t2d-standard-4` 虚拟机（AMD EPYC 7B13）的一个核。访问配比、各家默认设置的代价和这些数字的含义见[整站访问](docs/reference/performance.zh-CN.md#whole-visits-to-the-shop-2026-11-18)。
 
 ## 新建应用
 
@@ -151,7 +151,7 @@ go tool tifa build
 
 ## 配合编程 agent 使用
 
-[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。在你的应用里，按应用所用的 Tifa 版本把它写进 `.claude/skills/tifa/`。新应用已经带着它，`go tool tifa upgrade` 把应用升到新版 Tifa 时会重新写一遍，不升级时 `go tool tifa agents` 也能做同样的事：
+[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。在你的应用里，按应用所用的 Tifa 版本把它写进 `.claude/skills/tifa/`，同时刷新 `AGENTS.md` 里由 Tifa 管理的那部分。新应用已经带着这两样，`go tool tifa upgrade` 把应用升到新版 Tifa 时会重新写一遍，不升级时 `go tool tifa agents` 也能做同样的事：
 
 ```sh
 go tool tifa agents
@@ -163,21 +163,22 @@ go tool tifa agents
 
 | 文档 | 什么时候读 |
 | :-- | :-- |
-| [教程](docs/start/tutorial.md) | 第一次用 Tifa，想从第一个目录做到一个能跑的小应用 |
-| 做法：[表单](docs/guides/forms.md)、[上传](docs/guides/uploads.md)、[登录](docs/guides/sign-in.md)、[数据库](docs/guides/database.md)、[后台任务](docs/guides/jobs.md)、[邮件](docs/guides/email.md)、[多语言](docs/guides/i18n.md)、[搜索引擎和大模型](docs/guides/seo.md)、[流式输出](docs/guides/streaming.md)、[环境变量的值](docs/guides/environment.md) | 要加一个常见功能，想要一套实测过的写法 |
-| [哲学](docs/start/philosophy.md) | 想知道 Tifa 应用为什么这样组织 |
-| [应用的代码结构](docs/start/structure.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
-| [应用怎么写](docs/start/app.md) | 安排目录，弄清目录怎么变成 URL，以及接下来该读哪篇 |
-| 应用的各个部分：[路由](docs/pages-and-data/routes.md)、[页面](docs/pages-and-data/pages.md)、[渲染开关与缓存](docs/pages-and-data/ssr-and-cache.md)、[服务端渲染](docs/pages-and-data/server-render.md)、[样式](docs/pages-and-data/styles.md)、[钩子](docs/pages-and-data/hooks.md)、[测试](docs/pages-and-data/testing-apps.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码和 Go 测试 |
-| [会话](docs/pages-and-data/sessions.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
-| [内容](docs/pages-and-data/content.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
-| [构建与运行](docs/build-and-deploy/build.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
-| [开发服务器](docs/build-and-deploy/dev.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
-| [部署](docs/build-and-deploy/deploy.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
-| [配置](docs/build-and-deploy/config.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
-| [内部结构](docs/internals/architecture.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的 |
-| [渲染记忆](docs/reference/memo.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
-| [性能](docs/reference/performance.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
+| [教程](docs/start/tutorial.zh-CN.md) | 第一次用 Tifa，想从第一个目录做到一个能跑的小应用 |
+| 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md)、[搜索引擎和大模型](docs/guides/seo.zh-CN.md)、[流式输出](docs/guides/streaming.zh-CN.md)、[环境变量的值](docs/guides/environment.zh-CN.md)、[日志](docs/guides/logs.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
+| [哲学](docs/start/philosophy.zh-CN.md) | 想知道 Tifa 应用为什么这样组织 |
+| [应用的代码结构](docs/start/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
+| [应用怎么写](docs/start/app.zh-CN.md) | 安排目录，弄清目录怎么变成 URL，以及接下来该读哪篇 |
+| 应用的各个部分：[路由](docs/pages-and-data/routes.zh-CN.md)、[页面](docs/pages-and-data/pages.zh-CN.md)、[渲染开关与缓存](docs/pages-and-data/ssr-and-cache.zh-CN.md)、[服务端渲染](docs/pages-and-data/server-render.zh-CN.md)、[样式](docs/pages-and-data/styles.zh-CN.md)、[钩子](docs/pages-and-data/hooks.zh-CN.md)、[测试](docs/pages-and-data/testing-apps.zh-CN.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码和 Go 测试 |
+| [会话](docs/pages-and-data/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
+| [内容](docs/pages-and-data/content.zh-CN.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
+| [构建与运行](docs/build-and-deploy/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
+| [开发服务器](docs/build-and-deploy/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
+| [部署](docs/build-and-deploy/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
+| [配置](docs/build-and-deploy/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
+| [内部结构](docs/internals/architecture.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的（英文） |
+| [渲染记忆](docs/reference/memo.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
+| [兼容性](docs/reference/compatibility.zh-CN.md) | 想知道升级 Tifa 会不会弄坏你的应用，哪些接口是稳定的 |
+| [性能](docs/reference/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/internals/testing.md) | 参与 Tifa 本身的开发（英文） |
 
@@ -210,6 +211,6 @@ Tifa 不接受 pull request。这类框架同时牵动编译器、打包、服�
 
 ## 许可证
 
-[MIT](LICENSE)。用 Tifa 构建的程序嵌入了来自 Unicode CLDR、ICU 和 go-intl 的语言数据和时区数据，分发程序时要附上它们的声明，见 [docs/build-and-deploy/build.md](docs/build-and-deploy/build.md#notices-to-ship-with-the-program)。
+[MIT](LICENSE)。用 Tifa 构建的程序嵌入了来自 Unicode CLDR、ICU 和 go-intl 的语言数据和时区数据，分发程序时要附上它们的声明，见 [docs/build-and-deploy/build.zh-CN.md](docs/build-and-deploy/build.zh-CN.md#notices-to-ship-with-the-program)。
 
 横幅里的地鼠是重新绘制的 [Go gopher](https://go.dev/blog/gopher)，原作者 Renee French，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权使用。

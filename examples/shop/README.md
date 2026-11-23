@@ -49,6 +49,7 @@ To look at the workbench without signing in, start the program with `SHOP_OPEN=1
 
 ```text
 options.go                     the option shop.open
+setup.ts                       the currency and date formats of the storefront texts, run before the first render in the server and in the browser
 hooks.go                       OnStart sets the sitemap, OnRequest keeps visitors who are not signed in out of the workbench and the metrics, OnError logs unexpected errors
 sitemap.go                     the products, the journal posts and the storefront sections for /sitemap.xml and /llms.txt, without the workbench, the cart and the checkout
 session.go                     the session type, the demo account and the password check
@@ -72,6 +73,7 @@ app/
         order.go  shipping.go  order domain: list, details, shipping and recipient rules
         storage.go             the orders in memory, with the indexes and running totals the pages read
         stats.go               sales of the last thirty days, and how each carrier did
+        route.go               /projects/{project}/orders: POST places an order
         order+/                /projects/{project}/orders/{order}: order details, POST ships, PATCH changes the recipient, PUT puts a note on it
           ship-form.tsx  recipient-dialog.tsx  items.tsx  notes.tsx  activity.tsx  side-cards.tsx
         detail.go              what an order page shows beside the order: payment, log, notes, packing list
@@ -108,7 +110,7 @@ app/
       post+/                   /store/journal/{post}
 ```
 
-Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks, the session and the option `shop.open`. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/start/philosophy.md) for why, and [Structuring an app](../../docs/start/structure.md) for which way imports may go.
+Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks, the session and the option `shop.open`. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. A folder under `app/` with a `route.go`, `page.tsx` or `layout.tsx` is a segment of the URL. The others, such as `storekit/`, `_locales/` and `images/`, hold code and files for the rest. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/start/philosophy.md) for why, and [Structuring an app](../../docs/start/structure.md) for which way imports may go.
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 

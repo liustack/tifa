@@ -2,7 +2,7 @@
 summary: '页面怎样渲染和保存：route.go 里的 SSR、Memo 和 Cache 开关、渲染记忆和 ETag、服务端渲染能看到哪些查询参数、Cache 让 CDN 保存什么以及哪些内容会变成匿名，以及怎样让私有数据不进入共享页面'
 audience: app
 order: 8
-translatedFrom: 17ac62f26e3b
+translatedFrom: a307b817df16
 read_when:
   - '用 `SSR`、`Memo` 或 `Cache` 给某个页面打开或关闭服务端渲染、渲染记忆或 `Cache`'
   - '用 `const Cache` 让 CDN 保存一个公开页面几分钟，了解哪些内容会变成匿名，或者遇到在这种页面里读取 Cookie 或会话的构建错误'
@@ -61,7 +61,7 @@ const Cache = 10 * time.Minute // its own time
 - **构建会检查。** 这种页面的 `Load`、它外面某个布局的 `Layout` 函数，或它们调用的函数读取了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就会失败并给出行号，因为这样的读取只能看到匿名请求。对 `c.Header`，错误信息会说明那里有哪几个头。需要知道谁已登录的页面不要用 `Cache`。把取决于访客的内容放到浏览器里，它在页面加载之后就能读到（见 [在浏览器里](sessions.zh-CN.md#in-the-browser)）。带 `Cache` 的页面外面的布局，只放对所有人都一样的数据。
 - **`OnRequest` 能做什么。** 它对每个请求都运行，看到的是匿名请求。用它做取决于路径的事：重定向、安全头、日志、计数、按地址限速。它看不到谁已登录，所以按登录状态重定向的 `OnRequest` 要放在不带 `Cache` 的路由上，而没看到 cookie 就设置 cookie 的，会在每次导航时都设置。它设置在 HTML 上的 cookie 会被删掉。
 - **语言。** 多语言页面每种语言一个 URL，所以 CDN 会把各语言分开保存。从 cookie 或 `Accept-Language` 选语言再重定向的入口，是不带 `Cache` 的路由上的 GET 处理函数（带 `Cache` 的页面两者都读不到），它引导到的页面把语言写在 URL 里（见 [多语言站点](../start/app.zh-CN.md#a-site-in-several-languages)）。
-- **响应头。** 页面的 HTML 带 `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。浏览器每次都来问，ETag 匹配时得到 304，所以部署后马上就能看到。共享缓存按 `s-maxage` 的秒数保存页面，程序出故障时可以用它的副本再撑一天（`stale-if-error`）。如果 `OnRequest`、`Load` 或 `Layout` 设置了含 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或设置了 `Accept-Encoding` 之外的 `Vary`，页面就不是给所有人的了，你的头会原样发出。导航数据仍然是 `private, no-cache`。CDN 里要怎么设，见 Tifa skill 的部署说明。
+- **响应头。** 页面的 HTML 带 `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。浏览器每次都来问，ETag 匹配时得到 304，所以部署后马上就能看到。共享缓存按 `s-maxage` 的秒数保存页面，程序出故障时可以用它的副本再撑一天（`stale-if-error`）。如果 `OnRequest`、`Load` 或 `Layout` 设置了含 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或设置了 `Accept-Encoding` 之外的 `Vary`，页面就不是给所有人的了，你的头会原样发出。导航数据仍然是 `private, no-cache`。CDN 里要怎么设，见 [CDN 设置](../build-and-deploy/deploy.zh-CN.md#cdn-settings)。
 
 要在 CDN 的副本到期之前就让变化显示出来，请在 CDN 里清除它。Tifa 没有需要让它过期的副本。
 
@@ -75,4 +75,4 @@ const Cache = 10 * time.Minute // its own time
 
 别的系统也划同一条线：HTTP 缓存叫它 `public` 对 `private`，Magento 叫它 private content，donut caching 则把共享的页面整个保留，再把「洞」填上。
 
-第三种数据，做一个 API 路由（有 `GET` 处理函数、没有 `page.tsx` 的 `route.go`）。它生成的 `GET` 函数有类型，可以在浏览器里用。页面需要数据时再调用它：页面加载之后、面板打开时，或悬停时提前取。如果应用想要缓存，生成的函数可以直接接进 TanStack Query。`examples/shop/app/store/mine.ts` 是一个完整的例子：店面页面的数据（商品、杂志、菜单）对所有人都一样，这个模块在页面加载之后调用 `/store/{lang}/mine` 的 `GET`，填上购物车和访客最近看过的商品，写入之后再调用一次。
+第三种数据，做一个 API 路由（有 `GET` 处理函数、没有 `page.tsx` 的 `route.go`）。它生成的 `GET` 函数有类型，可以在浏览器里用。页面需要数据时再调用它：页面加载之后、面板打开时，或悬停时提前取。如果应用想要缓存，生成的函数可以直接接进 TanStack Query。`examples/shop/app/store/mine.ts` 是一个完整的例子：店面页面的数据（商品、杂志、菜单）对所有人都一样，这个模块在页面加载之后调用 `/store/mine`（带着当前页面的语言前缀） 的 `GET`，填上购物车和访客最近看过的商品，写入之后再调用一次。

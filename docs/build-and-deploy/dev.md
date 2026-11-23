@@ -97,7 +97,7 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 A page the browser opens during the first build (a GET or HEAD that accepts `text/html`) waits 2 seconds for it. If the build is still running, the page answers 503 and says `tifa dev` is building the app, and reloads on its own once the app runs. Other requests, such as a script calling an API, wait for the app as they do while it restarts.
 
-The step names are `static analysis`, `code generation`, `bundle`, `styles` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only `tifa dev` talks to. Its stderr passes through `tifa dev`, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
+The step names are `static analysis`, `code generation`, `bundle`, `styles`, `content` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only `tifa dev` talks to. Its stderr passes through `tifa dev`, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
 
 When a render calls Intl or a `toLocale*` method without a locale, or for a date without a `timeZone`, the app logs a `tifa: ssr:` warning that names the place in your sources, once per place. The page renders as usual. See [Warnings in `tifa dev`](../pages-and-data/server-render.md#warnings-in-tifa-dev).
 
@@ -142,6 +142,8 @@ go tool tifa dev status [--json] # is it running, where, and did the last build 
 go tool tifa dev logs [-n 100] [-f]
 go tool tifa dev stop
 ```
+
+`status`, `logs` and `stop` take `--dir app-root` too.
 
 A coding agent or a script cannot keep `tifa dev` open in a terminal. `tifa dev --background` starts it detached from the terminal and returns once the build ended and `GET /` answers. It prints the address and the process ID, then how to read the log and how to stop it:
 

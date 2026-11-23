@@ -2,7 +2,7 @@
 summary: 'Tifa 应用里的会话怎样工作：在 Go 里登录和登出、会话 Cookie、内存存储，以及怎样用自己写的存储把会话放在 Redis 或 SQL 里、各个调用可以在哪里使用、构建时的检查、浏览器怎样显示谁已登录、怎样测试，以及每种错误是什么意思'
 audience: app
 order: 5
-translatedFrom: f3d5685e54ee
+translatedFrom: 278d5953fca0
 read_when:
   - '让用户登录和登出，或者读取谁已登录'
   - '把会话放在 Redis、SQL 或文件里，而不是进程的内存里，或者为 tifa.SetSessionStore 写一个存储'
@@ -121,7 +121,7 @@ func TestRedisStoreIsAValidStore(t *testing.T) {
 - `t` 可以是 `*testing.T` 或 `*testing.B`。它用 `t.Errorf` 报告每一项失败的检查，所以一次运行会列出所有问题。第一次 `Put` 失败时，它用 `t.Fatalf` 停下。
 - 它测试的是一个进程。两台服务器能不能看到相同的记录，或数据库挂了会怎样，要你自己测试。
 
-每条失败消息都会点出规则。上面那个文件存储，如果去掉每个方法开头的 `ctx.Err()` 检查，会这样失败：
+每条失败消息都会点出规则。如果存储的每个方法开头没有 `ctx.Err()` 检查（比如把记录放在文件里的存储），会这样失败：
 
 ```
 --- FAIL: TestFileStoreIsAValidStore (0.45s)
@@ -132,7 +132,7 @@ func TestRedisStoreIsAValidStore(t *testing.T) {
     Delete with a canceled context deleted the record
 ```
 
-基于接受 `ctx` 的数据库客户端的存储，会自己返回这些错误。测试应用在 `hooks_test.go` 里对它的文件存储运行了这个测试。
+基于接受 `ctx` 的数据库客户端的存储，会自己返回这些错误。测试应用 [test/apps/session](../../test/apps/session/hooks_test.go) 对一个把记录放在文件里的存储运行了这个测试。
 
 ## 在哪里调用什么 {#where-to-call-what}
 

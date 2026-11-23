@@ -795,7 +795,7 @@ func TestSignInAndOut(t *testing.T) {
 
 ## Decisions
 
-**Sessions in memory or in a store.** Without a store, sessions live in the memory of the process and a restart signs everyone out. That is fine to start with. When it matters, give `OnStart` a store (see [Where to store sessions](../pages-and-data/sessions.md#where-to-store-sessions)).
+**Sessions in memory or in a store.** An app made with `tifa new` already keeps sessions in its SQLite database (`sessions.go`). Without a store, sessions live in the memory of the process and a restart signs everyone out. That is fine to start with. To keep them somewhere else, give `OnStart` a store (see [Where to store sessions](../pages-and-data/sessions.md#where-to-store-sessions)).
 
 **How long a session lasts.** 30 days from sign-in, set by `session.max_age`. It does not renew. Shorten it for an app with money or private data in it.
 

@@ -2,7 +2,7 @@
 summary: '环境里的值（比如公钥或 API 基础地址）怎样到达 Tifa 应用的页面：设置留在 Go 程序里，页面从 Load 拿到它们、为什么不为此使用 `import.meta.env.VITE_*` 和 `process.env`（Vite 和 Next.js 里是这样用的）、import.meta.env 还能给什么，以及针对 `import.meta.env.VITE_*` 的构建警告'
 audience: app
 order: 10
-translatedFrom: 236ec90ff65d
+translatedFrom: 275f01924132
 read_when:
   - '你来自 Next.js 或 Vite，在页面里习惯性地用 `import.meta.env.VITE_*`、`NEXT_PUBLIC_*` 或 `process.env`'
   - '构建警告说 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -12,7 +12,7 @@ read_when:
 
 # 来自环境的值 {#values-from-the-environment}
 
-在 Tifa 里，环境和密钥都留在 Go 进程里。程序启动时读取它的设置：命令行参数、环境变量、`.env` 和 `tifa.yaml`（见[配置](../build-and-deploy/config.zh-CN.md)）。前端构建看不到这些。Vite 不读 `.env`（`envDir: false`），而且同一个应用的构建要能在每个环境里运行。
+在 Tifa 里，环境和密钥都留在 Go 进程里。程序启动时读取它的设置：命令行参数、环境变量、`.env` 和 `-c` 指定的文件，Tifa 自己的设置还可以写在 `tifa.yaml` 里（见[配置](../build-and-deploy/config.zh-CN.md)）。前端构建看不到这些。Vite 不读 `.env`（`envDir: false`），而且同一个应用的构建要能在每个环境里运行。
 
 想把一个值交给浏览器，就从 `Load` 返回它，或者从 `Layout` 返回，这样它下面的每个页面都能拿到。这行 Go 是值到达页面的唯一途径，所以一定是你有意写的，也很容易找到。
 
@@ -25,7 +25,7 @@ read_when:
 var PublicKey = tifa.String("stripe.public_key", "", "Public key the browser uses")
 ```
 
-在程序运行的地方设置它：`STRIPE_PUBLIC_KEY=pk_live_... ./bin/app`，或者 `.env` 里的一行，或者 `--stripe-public-key`。从 `Load` 返回它：
+在程序运行的地方设置它：`STRIPE_PUBLIC_KEY=pk_live_... ./bin/app`，或者 `.env` 里的一行，或者 `-c` 指定的文件，或者 `--stripe-public-key`。从 `Load` 返回它：
 
 ```go
 // app/checkout/route.go
