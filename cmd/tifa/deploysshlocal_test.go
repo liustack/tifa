@@ -136,6 +136,26 @@ func TestSetupSSHLocalCheckFails(t *testing.T) {
 	}
 }
 
+// The key hint is for ssh that got to authentication. A connection that closed before that says
+// what ssh printed and does not blame the key.
+func TestSetupSSHLocalCheckFailsBeforeAuth(t *testing.T) {
+	l := newLocalSSH(t, "TIFA_DEPLOY_HOST=vps\n")
+	l.srv.closeCheck(t)
+	out, errOut, err := runSetupIO(t, l.root, false, "", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "needs you") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "through the tunnel failed (exit status 255), see above. Run go tool tifa deploy setup again once it works") {
+		t.Errorf("message:\n%s", out)
+	}
+	if strings.Contains(out, "authorized_keys") || strings.Contains(out, "ssh key") {
+		t.Errorf("blames the key:\n%s", out)
+	}
+	if !strings.Contains(errOut, "Connection closed by UNKNOWN") || l.env(t) != "TIFA_DEPLOY_HOST=vps\n" {
+		t.Errorf("output not shown or .env changed:\n%s", errOut)
+	}
+}
+
 // A TIFA_DEPLOY_HOST from the environment or --host is not setup's to change, but the tunnel is
 // checked all the same. Only once the check passed does setup say what to set, with the real name.
 func TestSetupSSHLocalHostFromEnvironment(t *testing.T) {
