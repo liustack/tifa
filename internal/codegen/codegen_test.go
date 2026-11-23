@@ -465,7 +465,7 @@ func TestProjectSettingsGoIntoTheMain(t *testing.T) {
 	}
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "server:\n  port: 80\nshop:\n  open: true\n")
-	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err != nil {
+	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil || !strings.Contains(err.Error(), "tifa.yaml line 2: server.port is not a setting of tifa.yaml") {
 		t.Errorf("keys that are not settings of tifa: %v", err)
 	}
 	bad := t.TempDir()

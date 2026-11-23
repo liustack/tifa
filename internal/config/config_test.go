@@ -967,9 +967,48 @@ func TestCacheControlSMaxage(t *testing.T) {
 	}
 }
 
-// The keys of an app stay its own: tifa reads the ones it knows and leaves the rest.
+// The keys of an app stay its own: a flag, the environment and the file of -c may carry them, also
+// in a section of Tifa. tifa.yaml may not.
 func TestKeysOfAnAppAreLeftAlone(t *testing.T) {
-	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "tifa.yaml", "cache:\n  ttl: 5\n"); err != nil {
+	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "", ""); err != nil {
 		t.Errorf("a key of the app: %v", err)
+	}
+}
+
+// tifa.yaml holds only the settings of Tifa. A key that is none of them fails at its line, whatever
+// section it is in, with the nearest name when one is close and where the options of an app go.
+func TestUnknownKeyInTifaYamlFails(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml  string
+		want  []string
+		avoid []string
+	}{
+		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, connect, auto"}, []string{"did you mean"}},
+		"typo":             {"deploy:\n  conect: direct\n", []string{"tifa.yaml line 2: deploy.conect is not a setting of tifa.yaml: did you mean deploy.connect?"}, nil},
+		"dotted":           {"server.adr: :8080\n", []string{"tifa.yaml line 1: server.adr is not a setting of tifa.yaml: did you mean server.addr?"}, nil},
+		"unknown section":  {"servr:\n  addr: :8080\n", []string{"tifa.yaml line 1: servr is not a setting of tifa.yaml: did you mean server?"}, []string{"servr.addr"}},
+		"app option":       {"db:\n  url: x.db\n", []string{"tifa.yaml line 1: db is not a setting of tifa.yaml"}, []string{"db.url is not"}},
+		"in a section":     {"session:\n  shards: 4\n", []string{"tifa.yaml line 2: session.shards is not a setting of tifa.yaml"}, nil},
+		"where options go": {"x: 1\n", []string{".env, the environment, a flag or the file of -c"}, nil},
+	} {
+		_, _, err := Project([]byte(tc.yaml))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %q lacks %q", name, err, w)
+			}
+		}
+		for _, w := range tc.avoid {
+			if strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %q has %q", name, err, w)
+			}
+		}
+	}
+	// Every key Tifa knows, and the block deploy.auto, stay fine.
+	if _, _, err := Project([]byte("server:\n  addr: :8080\nssr:\n  vms: 2\ndeploy:\n  front: none\n  auto:\n    branch: main\n")); err != nil {
+		t.Errorf("known keys: %v", err)
 	}
 }

@@ -351,7 +351,95 @@ func Project(data []byte) (Config, map[string]string, error) {
 		}
 	}
 	errs = append(errs, projectDeploy(entries, &c)...)
+	errs = append(errs, unknownKeys(entries, fields(&c))...)
 	return c, settings, errors.Join(errs...)
+}
+
+// unknownKeys reports the keys of tifa.yaml that are no setting of Tifa and no section of one. The
+// file holds only the settings of Tifa, so a key of the app is one too: its value is read from
+// .env, the environment, a flag or the file of -c. A key below an unknown section is not named
+// again, and the keys below deploy.auto are checked by projectDeploy.
+func unknownKeys(entries map[string]entry, fs []field) (errs []error) {
+	known := map[string]bool{}
+	for _, f := range fs {
+		known[f.key] = true
+		for i := range f.key {
+			if f.key[i] == '.' {
+				known[f.key[:i]] = true
+			}
+		}
+	}
+	var unknown []string
+	for key := range entries {
+		if !known[key] && !strings.HasPrefix(key, "deploy.auto.") {
+			unknown = append(unknown, key)
+		}
+	}
+	slices.SortFunc(unknown, func(a, b string) int { return entries[a].line - entries[b].line })
+	for _, key := range unknown {
+		if slices.ContainsFunc(unknown, func(o string) bool { return strings.HasPrefix(key, o+".") }) {
+			continue
+		}
+		parent, name := "", key
+		if i := strings.LastIndex(key, "."); i >= 0 {
+			parent, name = key[:i+1], key[i+1:]
+		}
+		var siblings []string
+		for _, f := range fs {
+			if rest, ok := strings.CutPrefix(f.key, parent); ok {
+				if first, _, _ := strings.Cut(rest, "."); !slices.Contains(siblings, first) {
+					siblings = append(siblings, first)
+				}
+			}
+		}
+		msg := fmt.Sprintf("config: tifa.yaml line %d: %s is not a setting of tifa.yaml", entries[key].line, key)
+		if near := nearName(name, siblings); near != "" {
+			msg += ": did you mean " + parent + near + "?"
+		}
+		if parent != "" && len(siblings) > 0 {
+			msg += fmt.Sprintf(" (the settings of %s are %s)", strings.TrimSuffix(parent, "."), strings.Join(siblings, ", "))
+		}
+		msg += ". tifa.yaml holds only the settings of Tifa: the options of the app go in .env, the environment, a flag or the file of -c"
+		errs = append(errs, errors.New(msg))
+	}
+	return errs
+}
+
+// nearName returns the name in names that is one or two letters from name (one letter for names of
+// four letters or fewer), or "" when none is close.
+func nearName(name string, names []string) string {
+	best, bestDist := "", 0
+	for _, n := range names {
+		limit := 2
+		if min(len(name), len(n)) <= 4 {
+			limit = 1
+		}
+		if d := editDistance(name, n); d <= limit && (best == "" || d < bestDist) {
+			best, bestDist = n, d
+		}
+	}
+	return best
+}
+
+// editDistance is the number of single-letter changes that turn a into b.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 
 // DefaultNeeds is the workflow deploy.auto waits for when it names none.

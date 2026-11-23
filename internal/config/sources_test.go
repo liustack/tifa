@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// Only the keys of tifa are read: other keys of files, variables and flags are left alone,
-// the prefix TIFA_ included.
+// Only the keys of tifa are read: other keys of the file of -c, variables and flags are left alone,
+// the prefix TIFA_ included. tifa.yaml is stricter, see TestUnknownKeyInTifaYamlFails.
 func TestUnknownNamesAreLeftAlone(t *testing.T) {
 	file := writeFile(t, "prod.yaml", "sever:\n  addr: :1\nserver:\n  adr: :1\n  vms: x\ndb:\n  url: app.db\n")
 	environ := []string{"SERVER_ADR=:1", "TIFA_SSR_VMS=nope", "TIFA_E2E=1", "DB_URL=x"}
-	c, err := load(t, []string{"serve", "-test.v", "--server-adr=:1", "--db-url", "x", "-c", file}, environ, "tifa.yaml", "server:\n  port: 80\nshop:\n  open: true\n")
+	c, err := load(t, []string{"serve", "-test.v", "--server-adr=:1", "--db-url", "x", "-c", file}, environ, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestEveryErrorIsReported(t *testing.T) {
 }
 
 func TestProjectGivesTheRuntimeKeysAsText(t *testing.T) {
-	c, settings, err := Project([]byte("build:\n  target: es2022\nserver:\n  addr: 0.0.0.0:1\n  compress: false\nshop:\n  open: true\n"))
+	c, settings, err := Project([]byte("build:\n  target: es2022\nserver:\n  addr: 0.0.0.0:1\n  compress: false\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
