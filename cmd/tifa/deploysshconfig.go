@@ -1,7 +1,7 @@
 package main
 
 // The block that tifa deploy setup keeps in the ~/.ssh/config of the developer, so ssh reaches the
-// server through the Cloudflare Tunnel (deploy.ssh cloudflare):
+// server through the Cloudflare Tunnel (deploy.connect cloudflare):
 //
 //	# tifa shop <ssh host>: through the Cloudflare tunnel (written by tifa deploy setup)
 //	Host <ssh host>

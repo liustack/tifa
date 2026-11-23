@@ -64,5 +64,7 @@
 # are read the same way: the environment, else .env.
 # deploy:
 #   front: none             # what visitors come through before the server: none | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
-#   ssh: direct             # how ssh reaches the server: direct, cloudflare (through the Cloudflare Tunnel, for CI and this machine) or tailscale (for CI)
-#   ci: none                # who deploys automatically: none or github (set up by tifa deploy setup)
+#   connect: direct         # how deploys reach the server over ssh: direct | cloudflare (through the Cloudflare Tunnel) | tailscale (CI joins your tailnet)
+#   auto:                   # deploy by itself from GitHub Actions. Leave the block out to deploy by hand only
+#     branch: main          # the branch that deploys. Left out: the default branch of the repository on GitHub
+#     needs: ci.yml         # the workflow file in .github/workflows that must pass first. Left out: ci.yml. none: do not wait

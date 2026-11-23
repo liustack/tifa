@@ -1,8 +1,8 @@
 package main
 
-// The Cloudflare part of deploy.ssh cloudflare in tifa deploy setup: the ssh of the server is
+// The Cloudflare part of deploy.connect cloudflare in tifa deploy setup: the ssh of the server is
 // reached through the Cloudflare Tunnel of the server, and Cloudflare Access decides who may open
-// it: the service token of the repository when deploy.ci is github, and the people whose email
+// it: the service token of the repository when the block deploy.auto is there, and the people whose email
 // setup adds, each from their own cf login. The application and its names belong to the ssh host
 // name, which belongs to the domain, so they are the same with and without CI.
 // Like deploycf.go it does everything with the cf of the user, and keeps no Cloudflare token. The
@@ -236,7 +236,7 @@ func policyByName(ctx context.Context, name string) (*cfPolicy, error) {
 // The service token and the policy of repo (when repo is not empty) always go, and leave the
 // applications they were attached to. Unless keepApp, the applications of the ssh host name of
 // domain go too, each with its people policy, its route in the tunnel and its DNS record, once no
-// other policy is attached to it. keepApp is for deploy.ssh cloudflare staying on while CI goes:
+// other policy is attached to it. keepApp is for deploy.connect cloudflare staying on while CI goes:
 // the people who deploy from their machines still need the application. It reports whether there
 // was anything, and with apply false it changes nothing.
 func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp, apply bool, say func(string, ...any)) (bool, error) {

@@ -199,7 +199,7 @@ func TestShellQuote(t *testing.T) {
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n")
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nTIFA_DEPLOY_HOST=ssh://203.0.113.7:2222\n")
 	if d, err := loadTarget(root, ""); err != nil || d.host != "ssh://203.0.113.7:2222" || d.dest.name != "203.0.113.7" || d.dest.port != 2222 || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
@@ -266,13 +266,13 @@ func TestDeploySettingsChecks(t *testing.T) {
 		"front needs a site url":     {"deploy:\n  front: cloudflare\n", "site.url"},
 		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  front: cloudflare\n", "port"},
 		"port without front":         {"site:\n  url: http://localhost:8080", ""},
-		"ssh cloudflare needs front": {site + "deploy:\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
-		"ssh tailscale needs ci":     {site + "deploy:\n  ssh: tailscale\n", "deploy.ci"},
-		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n", ""},
-		"all set":                    {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
+		"ssh cloudflare needs front": {site + "deploy:\n  connect: cloudflare\n  auto: {}\n", "deploy.front"},
+		"ssh tailscale needs ci":     {site + "deploy:\n  connect: tailscale\n", "deploy.auto"},
+		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n", ""},
+		"all set":                    {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", ""},
 		"old domain":                 {"deploy:\n  domain: shop.example.com\n", "deploy.front"},
 		"old cdn":                    {"deploy:\n  cdn: cloudflare\n", "it is now deploy.front"},
-		"old github":                 {"deploy:\n  github: true\n", "deploy.ci"},
+		"old github":                 {"deploy:\n  github: true\n", "deploy.auto"},
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
@@ -595,6 +595,25 @@ func TestDeployMasksTheHostInActions(t *testing.T) {
 		out, _, _ := run(t, args...)
 		if !strings.HasPrefix(out, "::add-mask::203.0.113.7\n") || strings.Contains(out, "::add-mask::203.0.113.7:2222") {
 			t.Errorf("%v: output %q", args, out)
+		}
+	}
+}
+
+// deploy.ssh and deploy.ci are gone from tifa.yaml. check, build and every deploy command stop at
+// the line and say what to write instead.
+func TestDeployOldNamesStopEveryCommand(t *testing.T) {
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"ssh": {"deploy:\n  front: none\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
+		"ci":  {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
+	} {
+		dir := apiApp(t)
+		writeFile(t, filepath.Join(dir, "tifa.yaml"), tc.yaml)
+		t.Setenv(deployHostEnv, "vps")
+		for _, args := range [][]string{{"check"}, {"build", "-o", filepath.Join(t.TempDir(), "app")}, {"deploy", "status"}, {"deploy", "setup", "--yes"}, {"deploy", "remove", "--yes"}} {
+			out, stderr, err := run(t, append(args, "--dir", dir)...)
+			if got := out + stderr; err == nil || !strings.Contains(got+err.Error(), tc.want) {
+				t.Errorf("%s: tifa %s: err %v, output %q, want %q", name, strings.Join(args, " "), err, got, tc.want)
+			}
 		}
 	}
 }

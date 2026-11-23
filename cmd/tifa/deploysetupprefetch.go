@@ -47,7 +47,7 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 	stateDone := make(chan struct{})
 	var stateErr error
 	var st serverState
-	if t.sshMode == connCloudflare && looksLikeSSHHost(t.dest.name, t.domain) && !r.tunnelReady() {
+	if t.connectMode == connCloudflare && looksLikeSSHHost(t.dest.name, t.domain) && !r.tunnelReady() {
 		stateErr = errNoPrefetch
 		close(stateDone)
 	} else {
@@ -107,7 +107,7 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 		for _, rs := range hostRules(t.domain) {
 			spawn(func() { ensureRules(ctx, zone.Name, rs, false) })
 		}
-		if t.sshMode != connCloudflare {
+		if t.connectMode != connCloudflare {
 			return
 		}
 		spawn(func() {

@@ -1,6 +1,6 @@
 package main
 
-// deploy.ssh tailscale: the runner of GitHub Actions joins the tailnet, and only it does. Your own
+// deploy.connect tailscale: the runner of GitHub Actions joins the tailnet, and only it does. Your own
 // machine reaches the server however it already does, with the address in TIFA_DEPLOY_HOST.
 //
 // CI joins with Tailscale workload identity federation: the runner gets a token from GitHub that
@@ -117,7 +117,7 @@ func (r *setupRun) legacyTailscale(set bool) bool {
 }
 
 // oldTailscaleSteps takes away the OAuth secrets of an older setup once the workflow on the default
-// branch no longer hands them to the Tailscale action, and the identity variables when deploy.ssh
+// branch no longer hands them to the Tailscale action, and the identity variables when deploy.connect
 // is not tailscale any more. CI runs the workflow of the default branch, so the secrets stay until
 // that file stops using them.
 func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
@@ -127,7 +127,7 @@ func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
 	t := r.t
 	repo, branch := r.repo.Name, r.repo.Branch
 	var vars []string
-	if t.sshMode != connTailscale {
+	if t.connectMode != connTailscale {
 		for _, n := range []string{varTSClient, varTSAudience} {
 			if r.ghVars[n] != "" {
 				vars = append(vars, n)
@@ -141,7 +141,7 @@ func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
 		}
 	}
 	if len(vars) > 0 {
-		p.add(opRemove, "github: the variables "+strings.Join(vars, " and ")+", which tifa set and deploy.ssh no longer needs", func(ctx context.Context) (string, error) {
+		p.add(opRemove, "github: the variables "+strings.Join(vars, " and ")+", which tifa set and deploy.connect no longer needs", func(ctx context.Context) (string, error) {
 			for _, n := range vars {
 				if err := r.gh.DeleteVariable(ctx, repo, n); err != nil {
 					return "", err
@@ -157,7 +157,7 @@ func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
 	if len(secrets) == 1 {
 		these = "the secret " + secrets[0]
 	}
-	if t.sshMode == connTailscale && !r.tailscalePlanned && (r.ghVars[varTSClient] == "" || r.ghVars[varTSAudience] == "") {
+	if t.connectMode == connTailscale && !r.tailscalePlanned && (r.ghVars[varTSClient] == "" || r.ghVars[varTSAudience] == "") {
 		return // CI still joins with them: the note of the identity says what to do
 	}
 	onMain, found, err := r.gh.FileOnBranch(ctx, repo, branch, githubWorkflowPath)
@@ -170,7 +170,7 @@ func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
 		return
 	}
 	p.add(opRemove, "github: "+these+", the OAuth client of an older setup, which the workflow no longer uses. Delete the OAuth client itself in Tailscale, Trust credentials, when nothing else uses it", func(ctx context.Context) (string, error) {
-		if t.sshMode == connTailscale && !r.tailscaleSet && r.ghVars[varTSClient] == "" {
+		if t.connectMode == connTailscale && !r.tailscaleSet && r.ghVars[varTSClient] == "" {
 			return "", skipped{"no identity is set yet, so the secrets stay until one is"}
 		}
 		for _, n := range secrets {

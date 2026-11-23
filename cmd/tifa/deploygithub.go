@@ -1,6 +1,6 @@
 package main
 
-// The GitHub part of tifa deploy setup, for deploy.github: true. It writes the workflow, makes a
+// The GitHub part of tifa deploy setup, for deploy.auto. It writes the workflow, makes a
 // key that only this repository uses and lets it log in as the deploy user, reads the host keys of
 // the server over the ssh that is trusted already, and sets the secrets of the repository through
 // githubAPI (gh, or the REST API with a token). The private key and the other secrets go from
@@ -54,7 +54,7 @@ const (
 	varTSAudience = "TIFA_DEPLOY_TAILSCALE_AUDIENCE"
 )
 
-// The cloudflared that CI runs for deploy.ssh cloudflare: one fixed version of the amd64 package
+// The cloudflared that CI runs for deploy.connect cloudflare: one fixed version of the amd64 package
 // of ubuntu-24.04, and its SHA-256. A newer cloudflared once stopped reading service tokens for
 // access ssh (issue 1673 of cloudflare/cloudflared, 2026.6.0), which would break every deploy
 // through the tunnel, so the workflow never asks for the latest. Raise the version only after a
@@ -155,7 +155,7 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 			r.Port = p
 		case "proxyjump", "proxycommand":
 			if value != "" && value != "none" {
-				return r, fmt.Errorf("%s reaches the server through a %s in your ssh configuration, which GitHub cannot copy: set deploy.ssh to cloudflare or tailscale, or use a host that ssh reaches directly", host, word)
+				return r, fmt.Errorf("%s reaches the server through a %s in your ssh configuration, which GitHub cannot copy: set deploy.connect to cloudflare or tailscale, or use a host that ssh reaches directly", host, word)
 			}
 		}
 	}

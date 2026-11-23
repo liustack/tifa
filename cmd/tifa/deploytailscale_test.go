@@ -17,7 +17,7 @@ type tsApp struct {
 
 func newTSApp(t *testing.T, ci bool) *tsApp {
 	t.Helper()
-	a := &tsApp{root: setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)}
+	a := &tsApp{root: setupApp(t, "deploy:\n  connect: tailscale\n  auto: {}\n", nil)}
 	a.srv = newSetupServer(t, "hostname vps.tail1234.ts.net\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
 	a.gh = newFakeGH()
 	a.gh.install(t)
@@ -118,8 +118,8 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "no spaces"); err == nil || !strings.Contains(err.Error(), "not a client ID") {
 		t.Errorf("spaces: %v", err)
 	}
-	writeFile(t, filepath.Join(a.root, "tifa.yaml"), "deploy:\n  ci: github\n")
-	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "k1"); err == nil || !strings.Contains(err.Error(), "deploy.ssh") {
+	writeFile(t, filepath.Join(a.root, "tifa.yaml"), "deploy:\n  auto: {}\n")
+	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "k1"); err == nil || !strings.Contains(err.Error(), "deploy.connect") {
 		t.Errorf("ssh direct: %v", err)
 	}
 	if len(a.gh.vars) != 0 {
@@ -180,7 +180,7 @@ func TestSetupTailscaleFromOAuthSecrets(t *testing.T) {
 
 // Remove takes the identity variables away with the secrets setup set.
 func TestRemoveTailscaleIdentity(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  connect: tailscale\n  auto: {}\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
 	gh := newFakeGH()
 	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {

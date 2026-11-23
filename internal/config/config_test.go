@@ -295,7 +295,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.ssh deploy.ci"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.auto.branch deploy.auto.needs"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -850,17 +850,18 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	}
 }
 
-// deploy.front, deploy.ssh and deploy.ci are read by tifa deploy from the project file only.
-// deploy.host is retired: the server is not written in a file that is committed.
+// deploy.front, deploy.connect and the block deploy.auto are read by tifa deploy from the project
+// file only. deploy.host is retired: the server is not written in a file that is committed.
 func TestDeployIsAProjectFileSetting(t *testing.T) {
-	if d := Default().Deploy; d != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
+	off := Deploy{Front: "none", Connect: "direct", Auto: Auto{Needs: "ci.yml"}}
+	if d := Default().Deploy; d != off {
 		t.Fatalf("defaults: %+v", d)
 	}
-	c, settings, err := Project([]byte("deploy:\n  front: Cloudflare\n  ci: GitHub\n"))
+	c, settings, err := Project([]byte("deploy:\n  front: Cloudflare\n  auto: {}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Deploy.Front != "cloudflare" || c.Deploy.CI != "github" {
+	if c.Deploy.Front != "cloudflare" || c.Deploy.Auto != (Auto{On: true, Needs: "ci.yml"}) {
 		t.Errorf("got %+v", c.Deploy)
 	}
 	if len(settings) != 0 {
@@ -869,17 +870,83 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 	if _, err := load(t, nil, []string{"TIFA_DEPLOY_HOST=other"}, "", ""); err != nil {
 		t.Errorf("the program reads TIFA_DEPLOY_HOST: %v", err)
 	}
-	for yaml, want := range map[string]string{
-		"deploy:\n  front: akamai\n": "deploy.front",
-		"deploy:\n  ci: gitlab\n":    "deploy.ci",
-	} {
-		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: got %v", yaml, err)
-		}
+	if _, _, err := Project([]byte("deploy:\n  front: akamai\n")); err == nil || !strings.Contains(err.Error(), "deploy.front") {
+		t.Errorf("front: got %v", err)
 	}
 	// Empty is not set, as the example file of tifa new shows them.
-	if c, _, err := Project([]byte("deploy:\n  front: \"\"\n  ci: \"\"\n")); err != nil || c.Deploy != (Deploy{Front: "none", SSH: "direct", CI: "none"}) {
+	if c, _, err := Project([]byte("deploy:\n  front: \"\"\n  connect: \"\"\n")); err != nil || c.Deploy != off {
 		t.Errorf("empty: %+v, %v", c.Deploy, err)
+	}
+}
+
+// deploy.connect is the one path ssh takes to the server, one of three words.
+func TestDeployConnect(t *testing.T) {
+	for in, want := range map[string]string{"Cloudflare": "cloudflare", "direct": "direct", "tailscale": "tailscale", "": "direct"} {
+		c, _, err := Project([]byte("deploy:\n  connect: \"" + in + "\"\n"))
+		if err != nil || c.Deploy.Connect != want {
+			t.Errorf("connect %q: %q, %v", in, c.Deploy.Connect, err)
+		}
+	}
+	if _, _, err := Project([]byte("deploy:\n  connect: proxy\n")); err == nil || !strings.Contains(err.Error(), "deploy.connect") {
+		t.Errorf("got %v", err)
+	}
+}
+
+// The block deploy.auto turns deploys from GitHub Actions on, and its keys are branch and needs.
+func TestDeployAuto(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		want Auto
+	}{
+		"empty block":  {"deploy:\n  auto: {}\n", Auto{On: true, Needs: "ci.yml"}},
+		"block lines":  {"deploy:\n  auto:\n    branch: release\n    needs: checks.yaml\n", Auto{On: true, Branch: "release", Needs: "checks.yaml"}},
+		"needs none":   {"deploy:\n  auto:\n    needs: none\n", Auto{On: true, Needs: "none"}},
+		"empty values": {"deploy:\n  auto:\n    branch: \"\"\n    needs: \"\"\n", Auto{On: true, Needs: "ci.yml"}},
+		"no block":     {"deploy:\n  front: none\n", Auto{Needs: "ci.yml"}},
+	} {
+		c, _, err := Project([]byte(tc.yaml))
+		if err != nil || c.Deploy.Auto != tc.want {
+			t.Errorf("%s: %+v, %v", name, c.Deploy.Auto, err)
+		}
+	}
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"null":            {"deploy:\n  auto:\n", "tifa.yaml line 2: deploy.auto: write auto: {} to turn it on with the defaults, or give it the keys branch and needs"},
+		"null with keys":  {"deploy:\n  auto: ~\n", "write auto: {}"},
+		"a word":          {"deploy:\n  auto: github\n", "deploy.auto is a block"},
+		"a list":          {"deploy:\n  auto: [main]\n", "deploy.auto is a block"},
+		"unknown key":     {"deploy:\n  auto:\n    branch: main\n    from: github\n", "tifa.yaml line 4: deploy.auto.from is not a key of deploy.auto: use branch or needs"},
+		"unknown nested":  {"deploy:\n  auto:\n    x:\n      y: 1\n", "deploy.auto.x is not a key"},
+		"branch list":     {"deploy:\n  auto:\n    branch: [main, dev]\n", "deploy.auto.branch"},
+		"branch glob":     {"deploy:\n  auto:\n    branch: release/*\n", "deploy.auto.branch"},
+		"branch ref":      {"deploy:\n  auto:\n    branch: refs/heads/main\n", "write the branch name"},
+		"branch space":    {"deploy:\n  auto:\n    branch: my branch\n", "deploy.auto.branch"},
+		"needs path":      {"deploy:\n  auto:\n    needs: .github/workflows/ci.yml\n", "deploy.auto.needs"},
+		"needs extension": {"deploy:\n  auto:\n    needs: ci\n", "deploy.auto.needs"},
+		"needs hidden":    {"deploy:\n  auto:\n    needs: ..yml\n", "deploy.auto.needs"},
+		"needs list":      {"deploy:\n  auto:\n    needs: [ci.yml]\n", "deploy.auto.needs"},
+	} {
+		_, _, err := Project([]byte(tc.yaml))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
+// deploy.ssh and deploy.ci are gone. They stop the project file with the new form, at their line:
+// the answer is exact, so nothing is guessed from the old value.
+func TestDeployOldNamesFail(t *testing.T) {
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"ssh cloudflare": {"deploy:\n  front: cloudflare\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
+		"ssh quoted":     {"deploy:\n  ssh: \"Tailscale\"\n", "deploy.ssh is now deploy.connect: write connect: tailscale"},
+		"ssh other":      {"deploy:\n  ssh: proxy\n", "deploy.ssh is now deploy.connect: write connect: proxy"},
+		"ci github":      {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
+		"ci none":        {"deploy:\n  ci: none\n", "deploy.ci is now the block deploy.auto: delete the line ci: none"},
+		"ci other":       {"deploy:\n  ci: gitlab\n", "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"},
+	} {
+		_, _, err := Project([]byte(tc.yaml))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want %q", name, err, tc.want)
+		}
 	}
 }
 
@@ -973,7 +1040,7 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 		"s_maxage env":              {environ: []string{"CACHE_CONTROL_S_MAXAGE=10m"}, want: smax},
 		"deploy domain":             {project: "deploy:\n  domain: a.com\n", want: []string{"deploy.domain", "site.url", "deploy.front"}},
 		"deploy cdn":                {project: "deploy:\n  cdn: cloudflare\n", want: []string{"deploy.cdn", "deploy.front"}},
-		"deploy github":             {project: "deploy:\n  github: true\n", want: []string{"deploy.github", "deploy.ci"}},
+		"deploy github":             {project: "deploy:\n  github: true\n", want: []string{"deploy.github", "deploy.auto"}},
 		"s_maxage flag":             {args: []string{"--cache-control-s-maxage", "10m"}, want: smax},
 	} {
 		var warnings []string
@@ -1014,35 +1081,5 @@ func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
 	// The other keys of an app stay its own.
 	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "tifa.yaml", "cache:\n  ttl: 5\n"); err != nil {
 		t.Errorf("a key of the app: %v", err)
-	}
-}
-
-// deploy.ssh says how CI reaches the server and deploy.ci says who deploys. Both are project file
-// settings, and ssh is one of three words.
-func TestDeploySSHAndCI(t *testing.T) {
-	c, _, err := Project([]byte("deploy:\n  ssh: Cloudflare\n  ci: github\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Deploy.SSH != "cloudflare" || c.Deploy.CI != "github" {
-		t.Errorf("got %+v", c.Deploy)
-	}
-	for _, mode := range []string{"direct", "tailscale", ""} {
-		c, _, err := Project([]byte("deploy:\n  ssh: \"" + mode + "\"\n"))
-		want := mode
-		if mode == "" {
-			want = "direct"
-		}
-		if err != nil || c.Deploy.SSH != want {
-			t.Errorf("ssh %q: %q, %v", mode, c.Deploy.SSH, err)
-		}
-	}
-	for yaml, want := range map[string]string{
-		"deploy:\n  ssh: proxy\n": "deploy.ssh",
-		"deploy:\n  ci: maybe\n":  "deploy.ci",
-	} {
-		if _, _, err := Project([]byte(yaml)); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: got %v", yaml, err)
-		}
 	}
 }

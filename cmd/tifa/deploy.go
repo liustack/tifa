@@ -57,10 +57,11 @@ type deployTarget struct {
 	dest deployHost
 	// domain is the host of site.url when deploy.front is cloudflare, else empty.
 	domain string
-	// sshMode is how CI reaches the server: direct, cloudflare or tailscale. github says
-	// deploy.ci is github: the GitHub Actions of the repository deploy the app.
-	sshMode string
-	github  bool
+	// connectMode is how ssh reaches the server: direct, cloudflare or tailscale. github says
+	// the block deploy.auto is there: the GitHub Actions of the repository deploy the app, as auto says.
+	connectMode string
+	github      bool
+	auto        config.Auto
 }
 
 // deployDomain checks the deploy settings against each other and returns the domain of the app:
@@ -81,10 +82,10 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 		domain = u.Hostname()
 	}
 	switch {
-	case d.SSH == "cloudflare" && d.Front != "cloudflare":
-		return "", errors.New("deploy.ssh is cloudflare, and the ssh host name is made from the domain of site.url: set deploy.front to cloudflare")
-	case d.SSH == "tailscale" && d.CI != "github":
-		return "", errors.New("deploy.ssh is tailscale, which is how GitHub Actions reaches the server: set deploy.ci to github, or deploy.ssh to direct")
+	case d.Connect == "cloudflare" && d.Front != "cloudflare":
+		return "", errors.New("deploy.connect is cloudflare, and the ssh host name is made from the domain of site.url: set deploy.front to cloudflare")
+	case d.Connect == "tailscale" && !d.Auto.On:
+		return "", errors.New("deploy.connect is tailscale, which is how GitHub Actions reaches the server: add the block deploy.auto (auto: {}), or set deploy.connect to direct")
 	}
 	return domain, nil
 }
@@ -127,7 +128,7 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 	if err != nil {
 		return deployTarget{}, err
 	}
-	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, sshMode: settings.Deploy.SSH, github: settings.Deploy.CI == "github"}, nil
+	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, connectMode: settings.Deploy.Connect, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
 }
 
 // retiredDeployKeys fails when tifa.yaml still has a retired deploy key, such as deploy.host. They
@@ -266,10 +267,10 @@ When all is right it prints one line and asks nothing. It can run again at any t
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
             its cache, which every deploy reads
-  ci        with deploy.ci github: a key for the repository, secrets, and the workflow (needs
+  auto      with deploy.auto: a key for the repository, secrets, and the workflow (needs
             gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
-            deploy.ssh cloudflare also cf)
-  ssh       with deploy.ssh cloudflare: an ssh host name on the tunnel and its Access
+            deploy.connect cloudflare also cf)
+  ssh       with deploy.connect cloudflare: an ssh host name on the tunnel and its Access
             application, which admits the email of your cf login. On this machine: cloudflared
             (installed with brew or winget when missing), a block in ~/.ssh/config, a check
             that ssh gets through (the first time it opens the Access login in your browser),

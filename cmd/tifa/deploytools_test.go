@@ -200,7 +200,7 @@ func TestSetupNoPNPM(t *testing.T) {
 
 // ci: github with TIFA_DEPLOY_GITHUB_TOKEN: the token does the work, and gh is not mentioned.
 func TestSetupTokenNeedsNoGH(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	g := newFakeGH()
 	g.installREST(t)
@@ -225,7 +225,7 @@ func TestSetupInstallsGH(t *testing.T) {
 		{"windows", "winget", "winget install --id GitHub.cli -e", filepath.Join(`C:\Program Files`, "GitHub CLI", "gh.exe")},
 	} {
 		t.Run(c.os, func(t *testing.T) {
-			root := setupApp(t, "deploy:\n  ci: github\n", nil)
+			root := setupApp(t, "deploy:\n  auto: {}\n", nil)
 			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 			gh := newFakeGH()
 			gh.loggedIn = false
@@ -263,7 +263,7 @@ func TestSetupInstallsGH(t *testing.T) {
 		})
 	}
 	t.Run("linux", func(t *testing.T) {
-		root := setupApp(t, "deploy:\n  ci: github\n", nil)
+		root := setupApp(t, "deploy:\n  auto: {}\n", nil)
 		newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 		newFakeGH().install(t)
 		t.Setenv(githubTokenEnv, "")
@@ -285,7 +285,7 @@ func TestSetupGHChecksOnlyItsAccount(t *testing.T) {
 		"gh without --active": func(g *fakeGH) { g.noActive = true },
 	} {
 		t.Run(name, func(t *testing.T) {
-			root := setupApp(t, "deploy:\n  ci: github\n", nil)
+			root := setupApp(t, "deploy:\n  auto: {}\n", nil)
 			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 			gh := newFakeGH()
 			set(gh)
@@ -304,7 +304,7 @@ func TestSetupGHChecksOnlyItsAccount(t *testing.T) {
 // A login that failed makes setup exit with an error, even when the plan after it then works: the
 // failure was printed, so the exit code says so too.
 func TestSetupToolWarningFailsTheRun(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -342,7 +342,7 @@ func (r *onRead) Read(p []byte) (int, error) {
 // A package manager that was there for the plan and is gone when setup applies it is a warning
 // that names it, and setup goes on.
 func TestSetupPackageManagerGoneBeforeApply(t *testing.T) {
-	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	t.Setenv(githubTokenEnv, "")
@@ -362,7 +362,7 @@ func TestSetupPackageManagerGoneBeforeApply(t *testing.T) {
 // Without a terminal nothing is installed and nobody logs in, even with --yes: the commands go to
 // the list of what the developer does.
 func TestSetupToolsNoTerminal(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	t.Setenv(githubTokenEnv, "")
@@ -382,7 +382,7 @@ func TestSetupToolsNoTerminal(t *testing.T) {
 // --yes on a terminal installs nothing and logs in nobody: only a typed y does. An agent runs setup
 // --yes on a terminal, and must not install global packages or open a browser.
 func TestSetupToolsYesOnATerminal(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n", nil)
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	newFakeGH().install(t)
 	t.Setenv(githubTokenEnv, "")
@@ -410,7 +410,7 @@ func TestSetupToolInstallFails(t *testing.T) {
 		{"no global bin", "", "pnpm has no global bin directory: run pnpm setup, open a new terminal and run tifa deploy setup again. Or install cf by hand: pnpm add --global cf", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+			root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n", nil)
 			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 			gh := newFakeGH()
 			gh.loggedIn = false

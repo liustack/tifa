@@ -78,7 +78,7 @@ func TestSetupRememberedLine(t *testing.T) {
 // --host finds the same server.
 func TestDeployRemoveKeepsTheEntryAfterAWarning(t *testing.T) {
 	homeOf(t)
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n", nil)
 	newSetupServer(t, "", removeFacts(""))
 	gh := newFakeGH()
 	gh.loggedIn = false
