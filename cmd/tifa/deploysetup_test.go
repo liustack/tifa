@@ -1461,6 +1461,10 @@ func TestSetupAllListsOKLines(t *testing.T) {
 // Everything is right and nobody has to do anything: one line, no plan, no question.
 func TestSetupAllInOrderOneLine(t *testing.T) {
 	root := setupApp(t, "deploy:\n", nil)
+	homeOf(t)
+	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
+		t.Fatal(err)
+	}
 	newSetupServer(t, "", factsOf("shop", 9531, ""))
 	out, err := runSetup(t, root, true, "")
 	if err != nil {
@@ -1475,6 +1479,10 @@ func TestSetupAllInOrderOneLine(t *testing.T) {
 // non-zero, after everything else was done.
 func TestSetupCannotListedLast(t *testing.T) {
 	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	homeOf(t)
+	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
+		t.Fatal(err)
+	}
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
