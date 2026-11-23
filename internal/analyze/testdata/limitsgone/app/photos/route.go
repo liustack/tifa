@@ -10,6 +10,6 @@ func Load(c *tifa.Ctx) (string, error) { return "", nil }
 
 func POST(c *tifa.Ctx) error { return nil }
 
-const BodyLimit = 8 << 20
+const BodyLimit = 4 << 20
 
-var ReadTimeout = 5 * time.Minute
+var ReadTimeout = 2 * time.Minute
