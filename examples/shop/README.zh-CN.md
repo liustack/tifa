@@ -49,6 +49,7 @@ go tool tifa check
 
 ```text
 options.go                     选项 shop.open
+setup.ts                       店面文本的货币和日期格式，在服务器和浏览器里第一次渲染之前运行
 hooks.go                       OnStart 设好站点地图，OnRequest 把没登录的访客挡在工作台和指标外，OnError 记录意外错误
 sitemap.go                     给 /sitemap.xml 和 /llms.txt 列出商品、手记文章和店面栏目，不含工作台、购物车和结账
 session.go                     会话类型、演示账号和密码校验
@@ -72,6 +73,7 @@ app/
         order.go  shipping.go  订单领域：列表、详情、发货和收货信息的规则
         storage.go             内存里的订单，连同页面要读的索引和随写入更新的合计
         stats.go               近 30 天的销售，以及各家快递的表现
+        route.go               /projects/{project}/orders：POST 下一个订单
         order+/                /projects/{project}/orders/{order}：订单详情，POST 发货，PATCH 改收货信息，PUT 加备注
           ship-form.tsx  recipient-dialog.tsx  items.tsx  notes.tsx  activity.tsx  side-cards.tsx
         detail.go              订单页除订单本身外要显示的东西：付款、操作记录、备注、拣货单
@@ -108,7 +110,7 @@ app/
       post+/                   /store/journal/{post}
 ```
 
-每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子、会话和选项 `shop.open`。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/start/philosophy.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/start/structure.md)。
+每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子、会话和选项 `shop.open`。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下带 `route.go`、`page.tsx` 或 `layout.tsx` 的目录是 URL 的一段，其余的如 `storekit/`、`_locales/` 和 `images/` 放的是给其他目录用的代码和文件。`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/start/philosophy.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/start/structure.md)。
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 
