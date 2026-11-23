@@ -49,7 +49,7 @@ func tailscaleAudience(id string) string { return "api.tailscale.com/" + id }
 
 // tailscaleIdentityHow says how to make the identity, which only the admin console can do.
 func (r *setupRun) tailscaleIdentityHow() string {
-	return fmt.Sprintf("In Tailscale, open %s, choose Credential, then OpenID Connect. Pick the GitHub issuer (%s), set the subject to repo:%s:ref:refs/heads/%s, "+
+	return fmt.Sprintf("In Tailscale, open %s, choose Credential, then OpenID Connect. Pick the GitHub issuer (%s), set the subject to repo:%s:ref:refs/heads/%s (GitHub gives a run started by the CI workflow, and a manual run on the default branch, that ref), "+
 		"give it the scope auth_keys for the tag %s, and generate it. Copy its client ID: neither it nor the audience is a secret. "+
 		"Your tailnet policy must have %s in tagOwners and let it reach the server on its ssh port",
 		tailscaleConsole, githubIssuer, r.repo.Name, r.repo.Branch, tailscaleTag, tailscaleTag)
