@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -36,14 +37,24 @@ const serversFileName = "config.yaml"
 const serversHeader = "# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.\n" +
 	"# No secrets are kept here. To forget a server, delete its entry."
 
+// knownApp is an app setup put on a server from this machine. It is known by the folder of its
+// checkout, so two checkouts that share a name are two apps. The name is for messages.
+type knownApp struct {
+	Name string `yaml:"name"`
+	Path string `yaml:"path"`
+	// Host is what ssh took as the destination for this app, the one that last worked. With ssh
+	// through the tunnel it is the ssh host name of the app's domain, which differs per app.
+	Host string `yaml:"host"`
+}
+
 // knownServer is one entry of the file.
 type knownServer struct {
 	// ID is the host name of the server and the start of its machine ID, as setup reads them.
 	ID string `yaml:"id"`
-	// Host is what ssh takes as the destination, the one that last worked.
+	// Host is the one a new app uses: the host that worked last.
 	Host string `yaml:"host"`
 	// Apps are the apps setup put on the server from this machine.
-	Apps []string `yaml:"apps"`
+	Apps []knownApp `yaml:"apps"`
 }
 
 // name is the host name of the server, the ID without its machine ID part.
@@ -52,6 +63,35 @@ func (s knownServer) name() string {
 		return s.ID[:i]
 	}
 	return s.ID
+}
+
+// appNames lists the names of the apps, for messages.
+func (s knownServer) appNames() string {
+	if len(s.Apps) == 0 {
+		return "none"
+	}
+	names := make([]string, len(s.Apps))
+	for i, a := range s.Apps {
+		names[i] = a.Name
+	}
+	return strings.Join(names, ", ")
+}
+
+// samePath says two folders of this machine are the same. Windows paths ignore case.
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func (s knownServer) appAt(path string) (knownApp, bool) {
+	for _, a := range s.Apps {
+		if samePath(a.Path, path) {
+			return a, true
+		}
+	}
+	return knownApp{}, false
 }
 
 // tifaHome is the folder of the config: TIFA_HOME, else .tifa in the home folder of the user.
@@ -109,70 +149,90 @@ func readServers() ([]knownServer, error) {
 	return tree.servers(path)
 }
 
-// pickServer chooses the server of an app that names none: the one that lists the app, else the
-// only one there is. It reports false when there is none, or no way to tell.
-func pickServer(servers []knownServer, app string) (knownServer, bool) {
+// pickServer chooses the server of the app whose checkout is at path, and the host to reach it
+// by: the server that lists the folder, with the host that worked for that app, else the only
+// server there is, with its host. It reports false when there is none, or no way to tell.
+func pickServer(servers []knownServer, path string) (s knownServer, host string, ok bool) {
 	var has []knownServer
-	for _, s := range servers {
-		if slices.Contains(s.Apps, app) {
-			has = append(has, s)
+	for _, c := range servers {
+		if _, found := c.appAt(path); found {
+			has = append(has, c)
 		}
 	}
 	switch {
 	case len(has) == 1:
-		return has[0], true
+		a, _ := has[0].appAt(path)
+		return has[0], a.Host, true
 	case len(has) == 0 && len(servers) == 1:
-		return servers[0], true
+		return servers[0], servers[0].Host, true
 	}
-	return knownServer{}, false
+	return knownServer{}, "", false
 }
 
-// rememberServer records that app is set up on the server id, reached by host. It adds the entry
-// or updates it, and drops any other entry with the same host: that place holds one server. It
-// reports whether the file changed.
-func rememberServer(id, host, app string) (changed bool, err error) {
-	return changeServers(true, func(t *serversTree, path string) error {
-		list, err := t.servers(path)
-		if err != nil {
-			return err
-		}
-		for i := len(list) - 1; i >= 0; i-- {
-			if list[i].ID != id && list[i].Host == host {
-				t.drop(i)
+// rememberServer records that app is set up on the server id, reached by host. The server's host
+// becomes this one, for the next new app. The app keeps its own host. Any other entry with the
+// same host goes, since that place holds one server, and the app leaves any other server it was
+// on. It reports whether the file changed.
+func rememberServer(id, host string, app knownApp) (changed bool, err error) {
+	app.Host = host
+	return changeServers(true, func(list []knownServer) []knownServer {
+		var out []knownServer
+		found := false
+		for _, s := range list {
+			if s.ID != id && s.Host == host {
+				continue
 			}
+			s.Apps = slices.DeleteFunc(slices.Clone(s.Apps), func(a knownApp) bool { return s.ID != id && samePath(a.Path, app.Path) })
+			if s.ID != id {
+				if len(s.Apps) == 0 {
+					continue
+				}
+				out = append(out, s)
+				continue
+			}
+			found = true
+			s.Host = host
+			if i := slices.IndexFunc(s.Apps, func(a knownApp) bool { return samePath(a.Path, app.Path) }); i >= 0 {
+				s.Apps[i] = app
+			} else {
+				s.Apps = append(s.Apps, app)
+			}
+			out = append(out, s)
 		}
-		t.upsert(id, host, app)
-		return nil
+		if !found {
+			out = append(out, knownServer{ID: id, Host: host, Apps: []knownApp{app}})
+		}
+		return out
 	})
 }
 
-// forgetServerApp drops app from the server id, and the server with its last app. A server or a
-// file that is not there is not an error.
-func forgetServerApp(id, app string) error {
-	_, err := changeServers(false, func(t *serversTree, path string) error {
-		list, err := t.servers(path)
-		if err != nil {
-			return err
-		}
-		for i, s := range list {
-			if s.ID != id {
-				continue
+// forgetServerApp drops the app at path from the server id, and the server with its last app. When
+// the server's host was the one of that app, it becomes the host of an app that stays, so the next
+// new app is not sent to a host that is gone. A server or a file that is not there is not an error.
+func forgetServerApp(id, path string) error {
+	_, err := changeServers(false, func(list []knownServer) []knownServer {
+		var out []knownServer
+		for _, s := range list {
+			if s.ID == id {
+				gone, ok := s.appAt(path)
+				s.Apps = slices.DeleteFunc(slices.Clone(s.Apps), func(a knownApp) bool { return samePath(a.Path, path) })
+				if len(s.Apps) == 0 {
+					continue
+				}
+				if ok && s.Host == gone.Host && !slices.ContainsFunc(s.Apps, func(a knownApp) bool { return a.Host == s.Host }) {
+					s.Host = s.Apps[len(s.Apps)-1].Host
+				}
 			}
-			apps := slices.DeleteFunc(slices.Clone(s.Apps), func(a string) bool { return a == app })
-			if len(apps) == 0 {
-				t.drop(i)
-			} else {
-				t.setApps(i, apps)
-			}
+			out = append(out, s)
 		}
-		return nil
+		return out
 	})
 	return err
 }
 
 // changeServers runs edit on the file under the lock and writes the result. With create false a
 // missing file stays missing. It reports whether the file was written.
-func changeServers(create bool, edit func(t *serversTree, path string) error) (bool, error) {
+func changeServers(create bool, edit func([]knownServer) []knownServer) (bool, error) {
 	path, err := serversPath()
 	if err != nil {
 		return false, err
@@ -202,9 +262,11 @@ func changeServers(create bool, edit func(t *serversTree, path string) error) (b
 	if err != nil {
 		return false, err
 	}
-	if err := edit(tree, path); err != nil {
+	list, err := tree.servers(path)
+	if err != nil {
 		return false, err
 	}
+	tree.apply(edit(list))
 	after, err := tree.encode()
 	if err != nil {
 		return false, err
@@ -262,9 +324,19 @@ func (t *serversTree) servers(path string) ([]knownServer, error) {
 	if err := t.seq.Decode(&list); err != nil {
 		return nil, fmt.Errorf("%s: servers: %w", path, err)
 	}
+	seen := map[string]bool{}
 	for i, s := range list {
-		if s.ID == "" || s.Host == "" {
+		switch {
+		case s.ID == "" || s.Host == "":
 			return nil, fmt.Errorf("%s: server %d needs an id and a host", path, i+1)
+		case seen[s.ID]:
+			return nil, fmt.Errorf("%s: the id %s is listed twice: delete one entry", path, s.ID)
+		}
+		seen[s.ID] = true
+		for _, a := range s.Apps {
+			if a.Name == "" || a.Path == "" || a.Host == "" {
+				return nil, fmt.Errorf("%s: an app of %s needs a name, a path and a host", path, s.ID)
+			}
 		}
 	}
 	return list, nil
@@ -283,13 +355,6 @@ func (t *serversTree) encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (t *serversTree) drop(i int) {
-	t.seq.Content = slices.Delete(t.seq.Content, i, i+1)
-	if len(t.seq.Content) == 0 {
-		t.seq.Style = yaml.FlowStyle
-	}
-}
-
 // field returns the value node of key in an entry, adding it when missing.
 func field(m *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
@@ -302,39 +367,46 @@ func field(m *yaml.Node, key string) *yaml.Node {
 	return v
 }
 
+func str(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
 func setString(m *yaml.Node, key, value string) {
 	v := field(m, key)
 	*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, LineComment: v.LineComment}
 }
 
-func (t *serversTree) setApps(i int, apps []string) {
-	v := field(t.seq.Content[i], "apps")
-	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle, LineComment: v.LineComment}
-	for _, a := range apps {
-		seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: a})
-	}
-	*v = *seq
-}
-
-// upsert sets the host of the entry id and adds app to it, making the entry when it is new.
-func (t *serversTree) upsert(id, host, app string) {
-	t.seq.Style = 0
-	for i, item := range t.seq.Content {
+// apply makes the entries of the tree the list: an entry that was there keeps its place and what
+// else a person wrote in it, a new one is added, one that is not in the list goes.
+func (t *serversTree) apply(list []knownServer) {
+	old := map[string]*yaml.Node{}
+	for _, item := range t.seq.Content {
 		var s knownServer
-		if err := item.Decode(&s); err != nil || s.ID != id {
-			continue
+		if item.Decode(&s) == nil {
+			old[s.ID] = item
 		}
-		setString(item, "host", host)
-		if !slices.Contains(s.Apps, app) {
-			t.setApps(i, append(s.Apps, app))
-		}
-		return
 	}
-	item := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	t.seq.Content = append(t.seq.Content, item)
-	setString(item, "id", id)
-	setString(item, "host", host)
-	t.setApps(len(t.seq.Content)-1, []string{app})
+	var content []*yaml.Node
+	for _, s := range list {
+		item := old[s.ID]
+		if item == nil {
+			item = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			setString(item, "id", s.ID)
+		}
+		setString(item, "host", s.Host)
+		apps := field(item, "apps")
+		*apps = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", LineComment: apps.LineComment}
+		for _, a := range s.Apps {
+			apps.Content = append(apps.Content, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle,
+				Content: []*yaml.Node{str("name"), str(a.Name), str("path"), str(a.Path), str("host"), str(a.Host)}})
+		}
+		content = append(content, item)
+	}
+	t.seq.Content = content
+	t.seq.Style = 0
+	if len(content) == 0 {
+		t.seq.Style = yaml.FlowStyle
+	}
 }
 
 // writeFileAtomic writes data to path through a temporary file in the same folder and a rename.

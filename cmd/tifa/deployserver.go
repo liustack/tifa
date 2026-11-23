@@ -377,6 +377,7 @@ for c in systemctl loginctl runuser useradd curl flock gzip sha256sum ss; do
 done
 echo "os $(uname -s)"
 echo "arch $(uname -m)"
+echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
 `
 
 // setupProbeScript is setupProbeBody.

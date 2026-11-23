@@ -11,7 +11,7 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"slices"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -27,6 +27,8 @@ type deployHost struct {
 	from string
 	// fromHome says the value came from the servers of ~/.tifa.
 	fromHome bool
+	// knownID is the ID of the server ~/.tifa remembers at this host: what its machine must say.
+	knownID string
 }
 
 // dotenvHostFrom is what from holds for a host read from the .env file at the root of the app.
@@ -128,7 +130,10 @@ func readDeployHost(root, app, flagValue string, notice io.Writer) (deployHost, 
 		return deployHost{}, err
 	}
 	if value == "" {
-		return homeDeployHost(app, notice)
+		if os.Getenv(envGitHubActions) == "true" {
+			return deployHost{}, fmt.Errorf("%s is empty: the secret %[1]s is missing in the repository. Run go tool tifa deploy setup on your machine to set it", deployHostEnv)
+		}
+		return homeDeployHost(root, app, notice)
 	}
 	h, err := parseDeployHost(value)
 	if err != nil {
@@ -151,25 +156,25 @@ func noServerError() error {
 
 // homeDeployHost takes the server from the file of ~/.tifa when nothing else names one: the server
 // that lists the app, else the only one. With several and no way to tell, it stops and lists them.
-func homeDeployHost(app string, notice io.Writer) (deployHost, error) {
+func homeDeployHost(root, app string, notice io.Writer) (deployHost, error) {
 	servers, err := readServers()
 	if err != nil {
 		return deployHost{}, fmt.Errorf("no server is named for %s, and ~/.tifa could not be read: %w\nName one with the flag --host or a line %s=<host> in the .env at the root of the app", app, err, deployHostEnv)
 	}
 	where := shownServersPath()
-	switch s, ok := pickServer(servers, app); {
+	switch s, host, ok := pickServer(servers, root); {
 	case ok:
-		h, err := parseDeployHost(s.Host)
+		h, err := parseDeployHost(host)
 		if err != nil {
 			return deployHost{}, fmt.Errorf("%s: the host of %s: %w", where, s.ID, err)
 		}
-		h.from, h.fromHome = where, true
-		if slices.Contains(s.Apps, app) {
+		h.from, h.fromHome, h.knownID = where, true, s.ID
+		if _, listed := s.appAt(root); listed {
 			fmt.Fprintf(notice, "%s is set up on %s (%s), from %s. To use another server for it, put %s=<host> in the .env at the root of the app, or pass --host.\n",
-				app, s.name(), s.Host, where, deployHostEnv)
+				app, s.name(), host, where, deployHostEnv)
 		} else {
 			fmt.Fprintf(notice, "No server is named for %s, so tifa uses %s (%s) from %s. To name one yourself, put %s=%s (or another host) in the .env at the root of the app, or pass --host.\n",
-				app, s.name(), s.Host, where, deployHostEnv, s.Host)
+				app, s.name(), host, where, deployHostEnv, host)
 		}
 		return h, nil
 	case len(servers) == 0:
@@ -178,13 +183,9 @@ func homeDeployHost(app string, notice io.Writer) (deployHost, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "no server is named for %s, and %s lists several:\n", app, where)
 	for _, s := range servers {
-		apps := "none"
-		if len(s.Apps) > 0 {
-			apps = strings.Join(s.Apps, ", ")
-		}
-		fmt.Fprintf(&b, "  %s  %s  apps: %s\n", s.name(), s.Host, apps)
+		fmt.Fprintf(&b, "  %s  %s  apps: %s\n", s.name(), s.Host, s.appNames())
 	}
-	fmt.Fprintf(&b, "Pick one: put a line such as %s=%s in the .env at the root of the app (git ignores it), or pass --host", deployHostEnv, servers[0].Host)
+	fmt.Fprintf(&b, "Pick one: put the line %s=<host> in the .env at the root of the app (git ignores it), with the host of one of them, or pass --host", deployHostEnv)
 	return deployHost{}, errors.New(b.String())
 }
 

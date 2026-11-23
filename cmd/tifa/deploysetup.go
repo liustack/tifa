@@ -459,6 +459,9 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		if _, _, terr := serverTarget(s.OS, s.Arch); terr != nil {
 			return terr
 		}
+		if merr := r.t.checkMachine(s.Machine); merr != nil {
+			return merr
+		}
 		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
 	default:
@@ -1552,13 +1555,17 @@ func (r *setupRun) remember(stdout, stderr io.Writer) {
 	if r.tunnelHost != "" {
 		host = r.tunnelHost
 	}
-	changed, err := rememberServer(r.st.Machine, host, r.t.app)
+	changed, err := rememberServer(r.st.Machine, host, knownApp{Name: r.t.app, Path: r.t.root})
 	switch {
 	case err != nil:
 		fmt.Fprintf(stderr, "Could not remember the server in %s: %v\n", shownServersPath(), err)
 	case changed:
 		s := knownServer{ID: r.st.Machine}
-		fmt.Fprintf(stdout, "Remembered %s (%s) in %s, so the next app on this machine needs no %s.\n", s.name(), host, shownServersPath(), deployHostEnv)
+		line := fmt.Sprintf("Remembered %s (%s) in %s", s.name(), host, shownServersPath())
+		if all, err := readServers(); err == nil && len(all) == 1 {
+			line += fmt.Sprintf(", so the next app on this machine needs no %s", deployHostEnv)
+		}
+		fmt.Fprintln(stdout, line+".")
 	}
 }
 

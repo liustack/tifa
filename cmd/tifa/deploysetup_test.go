@@ -134,7 +134,7 @@ script=$3
 case "$script" in
 true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
-*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
+*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
 *'disable --quiet $units'*) [ -f "$d/removefail" ] && { echo "tifa: cannot stop the units" >&2; exit 1; }; echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;

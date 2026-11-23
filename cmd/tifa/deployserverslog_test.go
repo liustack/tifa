@@ -17,7 +17,7 @@ func TestSetupRemembersTheServer(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	got, err := readServers()
-	if err != nil || len(got) != 1 || got[0].ID != "vps-1234" || got[0].Host != "ssh://203.0.113.7:22" || strings.Join(got[0].Apps, ",") != "shop" {
+	if err != nil || len(got) != 1 || got[0].ID != "vps-1234" || got[0].Host != "ssh://203.0.113.7:22" || len(got[0].Apps) != 1 || got[0].Apps[0].Name != "shop" || got[0].Apps[0].Path != root || got[0].Apps[0].Host != "ssh://203.0.113.7:22" {
 		t.Fatalf("recorded %+v, %v", got, err)
 	}
 	if !strings.Contains(out, "Remembered vps (") || !strings.Contains(out, "config.yaml") {
@@ -56,5 +56,41 @@ func TestSetupFailedRecordsNothing(t *testing.T) {
 	}
 	if got, _ := readServers(); len(got) != 0 {
 		t.Errorf("recorded %+v", got)
+	}
+}
+
+// The line after remembering promises "no host for the next app" only while there is one server.
+func TestSetupRememberedLine(t *testing.T) {
+	homeOf(t)
+	if _, err := rememberServer("hz-2", "ssh://198.51.100.4:22", app("notes")); err != nil {
+		t.Fatal(err)
+	}
+	root := setupApp(t, "deploy:\n", nil)
+	newSetupServer(t, "", factsOf("shop", 9531, "appdir yes\n"))
+	t.Setenv(deployHostEnv, "ssh://203.0.113.7:22")
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "Remembered vps (ssh://203.0.113.7:22) in ") || strings.Contains(out, "needs no") {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+// Remove that leaves something for the developer keeps the app in the file, so a retry without
+// --host finds the same server.
+func TestDeployRemoveKeepsTheEntryAfterAWarning(t *testing.T) {
+	homeOf(t)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+	newSetupServer(t, "", removeFacts(""))
+	gh := newFakeGH()
+	gh.loggedIn = false
+	gh.install(t)
+	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err == nil {
+		t.Fatalf("no warning:\n%s", out)
+	}
+	if got, _ := readServers(); len(got) != 1 || len(got[0].Apps) != 1 {
+		t.Errorf("forgotten after a warning: %+v", got)
 	}
 }

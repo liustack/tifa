@@ -337,7 +337,7 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 			places = append(places, "in GitHub")
 		}
 		fmt.Fprintf(stdout, "Nothing of %s is left to remove %s.\n", t.app, strings.Join(places, ", "))
-		forgetApp(plan.machine, t.app, stderr)
+		forgetApp(plan.machine, t.root, stderr)
 		return nil
 	}
 	plan.print(stdout, fmt.Sprintf("Plan to remove %s from %s%s", t.app, t.host, t.dest.fromHomeNote()), false)
@@ -349,7 +349,6 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 		if warnings, err = plan.apply(ctx, stdout); err != nil {
 			return err
 		}
-		forgetApp(plan.machine, t.app, stderr)
 		if _, err := os.Stat(filepath.Join(t.root, filepath.FromSlash(githubWorkflowPath))); err == nil {
 			fmt.Fprintf(stdout, "Kept %s, a file of your repository: the next push fails to deploy until you delete it.\n", githubWorkflowPath)
 		}
@@ -357,17 +356,20 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 	if n := cannot + warnings; n > 0 {
 		return fmt.Errorf("%d %s, see above", n, plural(n, "thing needs you", "things need you"))
 	}
+	// Only a clean finish forgets the app: after a warning something of it may still be on the
+	// server, and a retry without --host must find the same server.
+	forgetApp(plan.machine, t.root, stderr)
 	return nil
 }
 
 // forgetApp takes the app off the entry of the server in ~/.tifa, once the server no longer has
 // it. The entry goes with its last app. A file that cannot be written is a warning: remove did
 // what it was asked to.
-func forgetApp(machine, app string, stderr io.Writer) {
+func forgetApp(machine, path string, stderr io.Writer) {
 	if machine == "" {
 		return
 	}
-	if err := forgetServerApp(machine, app); err != nil {
+	if err := forgetServerApp(machine, path); err != nil {
 		fmt.Fprintf(stderr, "Could not update %s: %v\n", shownServersPath(), err)
 	}
 }

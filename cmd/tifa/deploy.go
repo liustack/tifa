@@ -192,7 +192,21 @@ func (t deployTarget) probe(ctx context.Context, script string, stderr io.Writer
 	if err := t.ssh(ctx, deployUser, script, nil, &out, stderr); err != nil {
 		return serverState{}, err
 	}
-	return parseServerState(out.String())
+	st, err := parseServerState(out.String())
+	if err != nil {
+		return st, err
+	}
+	return st, t.checkMachine(st.Machine)
+}
+
+// checkMachine stops a command whose server came from ~/.tifa when the machine at that host is not
+// the one setup recorded: an ssh alias or an address can come to point at another server.
+func (t deployTarget) checkMachine(got string) error {
+	if t.dest.knownID == "" || got == t.dest.knownID {
+		return nil
+	}
+	return fmt.Errorf("%s is not the server %s remembers: %s says it is %q, and the entry is %q. The host now points at another machine. Name the right server with --host or %s in .env, or delete the entry from that file",
+		t.host, t.dest.from, t.host, got, t.dest.knownID, deployHostEnv)
 }
 
 // createApp makes the folder, port and units of the app on a server that is prepared, as the
