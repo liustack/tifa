@@ -1,6 +1,6 @@
 <h1 align="center"><img src="assets/brand/tifa-banner.png" alt="Tifa"></h1>
 
-<p align="center"><b>Your whole app on one small server.</b></p>
+<p align="center"><b>The full-stack Go web framework, with React pages.</b></p>
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·

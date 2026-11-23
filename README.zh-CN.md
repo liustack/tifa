@@ -1,6 +1,6 @@
 <h1 align="center"><img src="assets/brand/tifa-banner.png" alt="Tifa"></h1>
 
-<p align="center"><b>一台小服务器，装下你的整个应用。</b></p>
+<p align="center"><b>Go 全栈 Web 框架，页面用 React 写。</b></p>
 
 <p align="center">
   <a href="./README.md">English</a> ·
