@@ -59,6 +59,7 @@
 
 # The server of tifa deploy is not set here, because this file is committed. Put
 # TIFA_DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app (git ignores it), or pass --host.
+# With none of these, tifa deploy uses the only server that tifa deploy setup remembered in ~/.tifa/config.yaml.
 # The other inputs of tifa deploy (TIFA_DEPLOY_CF_PURGE_TOKEN, TIFA_DEPLOY_CF_ZONE_ID, TIFA_DEPLOY_GITHUB_TOKEN)
 # are read the same way: the environment, else .env.
 # deploy:

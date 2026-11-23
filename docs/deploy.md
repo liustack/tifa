@@ -1,10 +1,10 @@
 ---
-summary: 'How to put a Tifa app on a server: where the server is named (TIFA_DEPLOY_HOST in .env, never in tifa.yaml) and the other inputs that are read the same way (flag, environment, .env) and the deploy settings of tifa.yaml (front, ssh, ci), tifa deploy setup with its plan of add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale, with gh or with a fine-grained token), ssh through the Cloudflare Tunnel from your own machine too (the Access policy for your email, cloudflared, the block in ~/.ssh/config, the first browser login, closing the ssh port), a second developer machine, tifa deploy env for the .env of the app on the server, tifa deploy logs, status and remove to read the log of the app, see which release runs and take the app off the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a Tifa app on a server: where the server is named (TIFA_DEPLOY_HOST in .env, never in tifa.yaml, or the server `tifa deploy setup` remembered in ~/.tifa/config.yaml) and the other inputs that are read the same way (flag, environment, .env) and the deploy settings of tifa.yaml (front, ssh, ci), tifa deploy setup with its plan of add, change and remove lines, tifa deploy and tifa deploy rollback over ssh to a Linux server with systemd, clearing the Cloudflare CDN cache of the domain on each deploy, deploys from GitHub Actions after the CI workflow (key, host keys, secrets, directly or through Cloudflare or Tailscale, with gh or with a fine-grained token), ssh through the Cloudflare Tunnel from your own machine too (the Access policy for your email, cloudflared, the block in ~/.ssh/config, the first browser login, closing the ssh port), a second developer machine, tifa deploy env for the .env of the app on the server, tifa deploy logs, status and remove to read the log of the app, see which release runs and take the app off the server, several apps on one server, a Cloudflare Tunnel or Caddy in front, and by hand: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 audience: app
 read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
-  - Naming the server of tifa deploy with TIFA_DEPLOY_HOST, or choosing deploy.front, deploy.ssh or deploy.ci in tifa.yaml
+  - Naming the server of tifa deploy with TIFA_DEPLOY_HOST, or finding out which server it uses when you named none (~/.tifa/config.yaml, TIFA_HOME), or choosing deploy.front, deploy.ssh or deploy.ci in tifa.yaml
   - Deploying on every push with GitHub Actions after CI, or taking away the key CI deploys with
   - Putting an app behind a Cloudflare Tunnel with cf, or finding what tifa deploy setup changed in Cloudflare and how to remove it
   - A deploy said the CDN cache was not cleared, or you want to add or replace the token that clears it, which setup keeps on the server
@@ -51,13 +51,14 @@ deploy:
   1. the flag `--host`
   2. the environment variable `TIFA_DEPLOY_HOST`
   3. `TIFA_DEPLOY_HOST` in the file `.env` at the root of the app, which git ignores (see [.env](config.md#env). The program itself takes no notice of that name)
+  4. the servers `tifa deploy setup` remembered in `~/.tifa/config.yaml` (see [The servers Tifa remembers](#the-servers-tifa-remembers))
 
   ```sh
   # .env
   TIFA_DEPLOY_HOST=ssh://203.0.113.7:2222
   ```
 
-  The value is what `ssh` takes as a destination, without a user: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the first setup and `tifa` after, so a user, a path, a query or another scheme is refused. With none of the three set, every `tifa deploy` command stops and says so. A `deploy.host` still in `tifa.yaml` is a warning at its line, and every `tifa deploy` command stops on it.
+  The value is what `ssh` takes as a destination, without a user: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the first setup and `tifa` after, so a user, a path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so. A `deploy.host` still in `tifa.yaml` is a warning at its line, and every `tifa deploy` command stops on it.
 - `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the server takes visitors another way, such as Caddy, and no cache is cleared.
 - `ssh` is how ssh reaches the server. With `direct`, ssh uses the address you gave, from your machine and from CI. With `cloudflare`, both your machine and the GitHub Actions runner go through the Cloudflare Tunnel, so the server needs no open ssh port (see [`ssh: cloudflare`](#ssh-cloudflare)). It needs `front: cloudflare`, because the ssh host name is made from the domain, and no CI. With `tailscale`, the runner joins your tailnet, and it needs `ci: github`.
 - `ci: github` turns the deploys from GitHub Actions on.
@@ -66,7 +67,7 @@ deploy:
 
 | Input | Flag | What it is | Comes from |
 | --- | --- | --- | --- |
-| `TIFA_DEPLOY_HOST` | `--host` | Where the server is | flag, environment, `.env` |
+| `TIFA_DEPLOY_HOST` | `--host` | Where the server is | flag, environment, `.env`, then `~/.tifa` |
 | `TIFA_DEPLOY_CF_PURGE_TOKEN` | none | A Cloudflare token that can only clear the cache of one zone. Overrides the one setup keeps on the server (see [Clearing the CDN cache](#clearing-the-cdn-cache)) | environment, `.env` |
 | `TIFA_DEPLOY_CF_ZONE_ID` | none | The ID of that zone, needed with the token above | environment, `.env` |
 | `TIFA_DEPLOY_GITHUB_TOKEN` | none | A fine-grained GitHub token, for setup and remove when gh is not there | environment, `.env` |
@@ -280,7 +281,7 @@ The workflow installs one fixed version of cloudflared from its release page and
 
    Every other line of the file stays as it is, with its line endings (a file with CRLF gets a block with CRLF). The block goes first, because ssh keeps the first value it finds, so a `Host *` of yours further down cannot replace the ProxyCommand. `Match all` ends the block, so an `Include` or a global option of yours at the top stays global. Setup writes the full path of cloudflared, in quotes when it has spaces, and on Windows with forward slashes (`C:/Tools/cloudflared.exe`), which both Windows OpenSSH and the ssh of Git for Windows read. The markers name the app and the ssh host and are matched whole: a comment of yours that only starts with `# tifa` is yours. A block that starts inside another, that never ends, or whose `Host` line differs from its first line is an error that names the line, and setup writes nothing. `StrictHostKeyChecking accept-new` is there because the first connection through the tunnel has no known host key and ssh cannot ask without a terminal. A key that changes later is refused. There is no `User` line: Tifa picks the user, root for the first setup and `tifa` after. A later run replaces only this block, and `tifa deploy remove` deletes it.
 3. Checks that `ssh tifa@<ssh host> true` works through the block. **The first time, cloudflared opens the Cloudflare Access login in your browser and waits for you**, up to 4 minutes. Setup says so before it starts. cloudflared also prints the login address, which a coding agent can show you when no browser opened. Logging in is the only step that is yours. Your public key must also be on the server (the login of Access lets you reach sshd, and sshd still checks your key: see [More developers](#more-developers)).
-4. Only then points `TIFA_DEPLOY_HOST` at the ssh host. The first setup of a fresh server still needs the address you gave, to log in as root before the tunnel exists, so the move comes last. When the value is a line of the `.env` of the app, setup changes that line (the plan shows `TIFA_DEPLOY_HOST in .env, vps -> <ssh host>`, and every other line of the file stays) and from then on `tifa deploy`, `logs`, `status` and `env` go through the tunnel. Only the value changes: an `export` in front, the quotes, a comment after it, the line endings and a missing final newline stay. The check runs whatever the source of `TIFA_DEPLOY_HOST` is. When the value comes from the environment or the flag `--host`, setup changes nothing, and after a check that passed it tells you what to set. If the check fails, nothing changes, setup says why, and the next run tries again.
+4. Only then points `TIFA_DEPLOY_HOST` at the ssh host. The first setup of a fresh server still needs the address you gave, to log in as root before the tunnel exists, so the move comes last. When the value is a line of the `.env` of the app, setup changes that line (the plan shows `TIFA_DEPLOY_HOST in .env, vps -> <ssh host>`, and every other line of the file stays) and from then on `tifa deploy`, `logs`, `status` and `env` go through the tunnel. Only the value changes: an `export` in front, the quotes, a comment after it, the line endings and a missing final newline stay. The check runs whatever the source of `TIFA_DEPLOY_HOST` is. When the value comes from the environment or the flag `--host`, setup changes nothing, and after a check that passed it tells you what to set. When it comes from `~/.tifa`, setup records the ssh host there itself, once the check passed. If the check fails, nothing changes, setup says why, and the next run tries again.
 
 A server you reach by its ssh host name, with this machine not set up yet (another person, a new checkout), needs the block before setup can read anything. Setup plans that first: the Access policy, cloudflared and the block, then asks again for the rest. Without a login of cf it says to log in first (on a terminal it logs cf in for you), and does not try to read the server.
 
@@ -292,6 +293,25 @@ The workflow joins your tailnet with `tailscale/github-action`, and `TIFA_DEPLOY
 
 In Actions, `tifa deploy` and `rollback` write a short summary to the run page when the variable `GITHUB_STEP_SUMMARY` is set: the app, release, commit, time, the health check and whether the cache was cleared.
 
+### The servers Tifa remembers
+
+After a setup that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%USERPROFILE%\.tifa\config.yaml` on Windows), so the next app on this machine needs no `TIFA_DEPLOY_HOST`. The file holds no secret, only the servers this machine has set up:
+
+```yaml
+# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.
+# No secrets are kept here. To forget a server, delete its entry.
+servers:
+  - id: vultr-1a2b3c4d
+    host: ssh://203.0.113.7:22
+    apps: [shop, blog]
+```
+
+- `id` is the host name of the server and the start of its machine ID, which setup reads from it. A server keeps its entry when the way to reach it changes. `host` is the one that worked last: with `ssh: cloudflare`, the ssh host name once the check through the tunnel passed, else the address you gave. `apps` are the apps setup put there from this machine.
+- When an app names no server (flag, environment and `.env` come first), Tifa uses the only server in the file and prints one line that says which one, and what to put in `.env` to name another. An app listed under one server goes to that server, even when there are several. With several servers and an app that is on none, the command stops, lists them and says to set `TIFA_DEPLOY_HOST` in `.env` or pass `--host`. The plan of `setup` and `remove` shows the file as the source of the server.
+- `tifa deploy remove` takes the app off its entry, and the entry goes with its last app.
+- `TIFA_HOME` moves the folder. The file is mode 0600 in a folder of mode 0700, written through a temporary file and a rename, and a lock file next to it keeps two Tifa commands from losing each other's entry. A comment you add stays.
+- To forget a server by hand, delete its entry, or the whole file. Nothing else depends on it. CI never reads it: the workflow gets its server from the secret `TIFA_DEPLOY_HOST`.
+
 ### More developers
 
 Every machine that deploys needs its own access to the server, and setup does not carry it over. From a machine that can log in, add the public key of the new machine to the user `tifa` (with `ssh: cloudflare`, use the ssh host name, which goes through the tunnel):
@@ -300,7 +320,7 @@ Every machine that deploys needs its own access to the server, and setup does no
 ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
 ```
 
-With `ssh: cloudflare`, the new person also runs `go tool tifa deploy setup` with their own cf login, with `TIFA_DEPLOY_HOST=<ssh host>` in their `.env`: setup adds their email to the Access policy, installs cloudflared and writes the block of their `~/.ssh/config`, and the first ssh opens the Access login in their browser. The ssh host name is the one in the `.env` of the first person, or the one the plan of their setup printed. The new machine also needs to know where the server is: put `TIFA_DEPLOY_HOST=` in the `.env` of its checkout (or pass `--host`), and `TIFA_DEPLOY_GITHUB_TOKEN=` there too when it runs setup without gh, and when the value is an alias, the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
+With `ssh: cloudflare`, the new person also runs `go tool tifa deploy setup` with their own cf login, with `TIFA_DEPLOY_HOST=<ssh host>` in their `.env`: setup adds their email to the Access policy, installs cloudflared and writes the block of their `~/.ssh/config`, and the first ssh opens the Access login in their browser. The ssh host name is the one in the `.env` of the first person, or the one the plan of their setup printed. The new machine also needs to know where the server is: put `TIFA_DEPLOY_HOST=` in the `.env` of its checkout (or pass `--host`, or run setup once, which remembers the server in `~/.tifa`), and `TIFA_DEPLOY_GITHUB_TOKEN=` there too when it runs setup without gh, and when the value is an alias, the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
 
 ### Settings and secrets on the server
 
