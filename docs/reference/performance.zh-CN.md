@@ -2,7 +2,7 @@
 summary: 'Tifa 应用在一个核上能提供多少，与 Next.js 和 TanStack Start 比较，以及怎样为它定 CPU、ssr.vms 和内存的大小，包括过载时会怎样和压缩要花多少'
 audience: app
 order: 2
-translatedFrom: c6d8ec690659
+translatedFrom: c4728bafbc3b
 read_when:
   - '决定 Tifa 应用需要多少 CPU 和内存，或者设置 `ssr.vms`'
   - '请求到达的速度比页面渲染的速度快，或者需要给渲染队列定大小'
@@ -12,7 +12,7 @@ read_when:
 
 # 性能 {#performance}
 
-Tifa 在 slowjs 里渲染页面，slowjs 是一个纯 Go 的 JavaScript 引擎。它没有 JIT，所以一次渲染比在 Node 里花的时间长。这篇文档给出为机器定大小用的数字。完整的表格和方法见 [容量测量](../studies/capacity.md)，渲染是怎么变快的见 [优化](../studies/optimizations.md)。
+这篇文档给出为机器定大小用的数字：一个 Tifa 应用每核能回答多少请求、要多少内存，以及在同一个应用上和 Next.js、TanStack Start 比如何。完整的表格和方法见 [容量测量](../studies/capacity.md)，渲染是怎么变快的见 [优化](../studies/optimizations.md)。
 
 ## 概览 {#at-a-glance}
 
@@ -60,6 +60,8 @@ shop 用三种方式构建：Tifa，以及 Next.js 和 TanStack Start 应用，�
 ## 为机器定大小 {#sizing-a-machine}
 
 ### CPU 和 `ssr.vms` {#cpu-and-ssrvms}
+
+整页加载的 CPU 大部分花在渲染上，而一次渲染比在 Node 里慢：Tifa 在 slowjs 里渲染，slowjs 是一个没有 JIT 的纯 Go JavaScript 引擎。
 
 - [`ssr.vms`](../build-and-deploy/config.zh-CN.md#settings) 默认是 Go 看到的 CPU 数，最多 4。超过 4 个 CPU 时，内存够的话就把它设成 CPU 数。
 - 对像 shop 工作台这样的页面，每个物理核心每秒大约按 42 个页面请求来规划，并关掉渲染记忆 memo 让每个请求都渲染。吞吐量跟着核数走：两核是 1.99 倍，三核是 2.94 倍。

@@ -11,7 +11,7 @@ read_when:
 
 # Performance
 
-Tifa renders pages in slowjs, a pure Go JavaScript engine. It has no JIT, so one render takes longer than in Node. This doc has the numbers for sizing a machine. The full tables and methods are in [Capacity measurements](../studies/capacity.md), and how rendering got faster in [Optimizations](../studies/optimizations.md).
+This doc has the numbers for sizing a machine: how many requests a Tifa app answers per core, how much memory it needs, and how it compares with Next.js and TanStack Start on the same app. The full tables and methods are in [Capacity measurements](../studies/capacity.md), and how rendering got faster in [Optimizations](../studies/optimizations.md).
 
 ## At a glance
 
@@ -59,6 +59,8 @@ Latency at 2.75 visits a second, P50 / P99 of one round of 3,060 visits:
 ## Sizing a machine
 
 ### CPU and `ssr.vms`
+
+A full page load spends most of its CPU on rendering, and one render takes longer than in Node: Tifa renders in slowjs, a pure Go JavaScript engine with no JIT.
 
 - [`ssr.vms`](../build-and-deploy/config.md#settings) defaults to the CPU count Go sees, at most 4. On more than 4 CPUs set it to the CPU count when the memory allows.
 - Plan on about 42 page requests a second per physical core for pages like the shop's workbench, with the render memo off so that every request renders. Throughput follows the cores: 1.99 times on two and 2.94 times on three.
