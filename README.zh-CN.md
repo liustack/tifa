@@ -20,9 +20,9 @@
   <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
 </p>
 
-用 Go 写后端、React 写页面，整个网站编译成一个可执行文件，拷到一台小 VPS 上直接运行。线上不需要 Node，不需要进程管理器、反向代理和 Redis。
+用 Go 写后端、React 写页面。Tifa 在 Go 进程里渲染 React，把整个网站编译成一个可执行文件，拷到一台小 VPS 上直接运行，或者用 `tifa deploy` 部署上去。线上不需要 Node，不需要进程管理器、反向代理和 Redis。
 
-适合独立开发者和初创团队：想要一个真正的 React 应用，又不想在旁边养一整套服务。也适合业务逻辑和数据都在 Go 里的 Go 开发者。
+适合业务逻辑和数据都在 Go 里的 Go 开发者。也适合独立开发者和初创团队：想要一个真正的 React 应用，又不想在旁边养一整套服务。
 
 > Tifa 还在非常早期的阶段，接口会变，很多编译器优化还没做。
 
