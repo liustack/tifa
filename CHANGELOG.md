@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-23
+
 ### Changed
 
 - The build errors for the removed `LayoutSSR`, `BodyLimit` and `ReadTimeout` say more of what to write. The one for `LayoutSSR` lists the `route.go` of each page the Layout wraps. The example for `BodyLimit` and `ReadTimeout` passes the app's own value, such as `c.SetBodyLimit(4 << 20)`, where it showed a made-up one, and the exact number when the value names a constant of the package.
