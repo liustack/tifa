@@ -299,7 +299,7 @@ Switching `connect` back to `direct` while `TIFA_DEPLOY_HOST` is the ssh host na
 
 #### connect: tailscale
 
-For a server that is on your tailnet and reached by GitHub Actions through it. Setup does nothing about Tailscale on your machine, and only the runner joins the tailnet for CI. It needs the block `auto` and no `front`.
+For a server that is on your tailnet and reached by GitHub Actions through it. Setup does nothing about Tailscale on your machine, and only the runner joins the tailnet for CI. It needs the block `auto`, and works with either `front`: visitors may come through Cloudflare while ssh goes over the tailnet.
 
 You set up Tailscale yourself, on the server and in your tailnet: Tifa installs and changes nothing of it. `TIFA_DEPLOY_HOST` must be an address the runner can reach on the tailnet, such as the MagicDNS name of the server (`ssh://vps.tail1234.ts.net:22`). Tifa uses ssh to it as for any other server, and setup copies the same value, with the port, into the secret `TIFA_DEPLOY_HOST` of CI.
 

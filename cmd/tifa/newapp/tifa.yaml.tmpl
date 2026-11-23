@@ -67,4 +67,4 @@
 #   connect: direct         # how deploys reach the server over ssh: direct | cloudflare (through the Cloudflare Tunnel) | tailscale (CI joins your tailnet)
 #   auto:                   # deploy by itself from GitHub Actions. Leave the block out to deploy by hand only
 #     branch: main          # the branch that deploys. Left out: the default branch of the repository on GitHub
-#     needs: ci.yml         # the workflow file in .github/workflows that must pass first. Left out: ci.yml. none: do not wait
+#     needs: ci.yml         # the workflow file in .github/workflows that must pass first, so it must run on pushes to that branch (the ci.yml of tifa new runs on main). Left out: ci.yml. none: do not wait
