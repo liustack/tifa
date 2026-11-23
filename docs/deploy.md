@@ -303,14 +303,18 @@ After a setup that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%US
 servers:
   - id: vultr-1a2b3c4d
     host: ssh://203.0.113.7:22
-    apps: [shop, blog]
+    apps:
+      - {name: shop, path: /Users/me/shop, host: 'ssh://203.0.113.7:22'}
+      - {name: blog, path: /Users/me/blog, host: 'ssh://203.0.113.7:22'}
 ```
 
-- `id` is the host name of the server and the start of its machine ID, which setup reads from it. A server keeps its entry when the way to reach it changes. `host` is the one that worked last: with `ssh: cloudflare`, the ssh host name once the check through the tunnel passed, else the address you gave. `apps` are the apps setup put there from this machine.
-- When an app names no server (flag, environment and `.env` come first), Tifa uses the only server in the file and prints one line that says which one, and what to put in `.env` to name another. An app listed under one server goes to that server, even when there are several. With several servers and an app that is on none, the command stops, lists them and says to set `TIFA_DEPLOY_HOST` in `.env` or pass `--host`. The plan of `setup` and `remove` shows the file as the source of the server.
-- `tifa deploy remove` takes the app off its entry, and the entry goes with its last app.
-- `TIFA_HOME` moves the folder. The file is mode 0600 in a folder of mode 0700, written through a temporary file and a rename, and a lock file next to it keeps two Tifa commands from losing each other's entry. A comment you add stays.
-- To forget a server by hand, delete its entry, or the whole file. Nothing else depends on it. CI never reads it: the workflow gets its server from the secret `TIFA_DEPLOY_HOST`.
+- `id` is the host name of the server and the start of its machine ID, which setup reads from it. A server keeps its entry when the way to reach it changes. `host` is the one a new app uses: the one that worked last.
+- An app is the folder of its checkout on this machine (`path`), and `name` is only for messages. Another checkout of an app with the same name counts as a new app. Each app keeps the host that worked for it: with `ssh: cloudflare` that is the ssh host name of the app's domain, once the check through the tunnel passed, else the address you gave. `remove` moves the `host` of the server to an app that stays when it was the host of the app that went.
+- When an app names no server (flag, environment and `.env` come first), Tifa uses the only server in the file and prints one line that says which one, and what to put in `.env` to name another. An app whose folder is listed under one server goes to that server, even when there are several. With several servers and an app that is on none, the command stops, lists them and says to set `TIFA_DEPLOY_HOST=<host>` in `.env` or pass `--host`. The plan of `setup` and `remove` shows the file as the source of the server.
+- A host taken from the file is checked in the first thing the command asks the server: if the machine there is not the one in the entry (an alias or an address that now points elsewhere), the command stops and names both IDs and the host. `tifa deploy logs` asks nothing first, so it does not check.
+- `tifa deploy remove` takes the app off its entry, and the entry goes with its last app. It does so only when remove finished with nothing left for you, so a retry finds the same server.
+- `TIFA_HOME` moves the folder. The file is mode 0600 in a folder of mode 0700, written through a temporary file and a rename, and a lock file next to it keeps two Tifa commands from losing each other's entry. A comment you add stays. A server listed twice (same `id`) is an error that names the file.
+- To forget a server by hand, delete its entry, or the whole file. Nothing else depends on it. CI never reads it: in GitHub Actions a missing `TIFA_DEPLOY_HOST` is an error about the secret, and the workflow gets its server from that secret.
 
 ### More developers
 
