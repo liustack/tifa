@@ -5,7 +5,7 @@ import "testing"
 func TestCtxHasTheLanguageOfItsPath(t *testing.T) {
 	site := []string{"zh-CN", "en-US"}
 	for _, tc := range []struct {
-		languages []string
+		languages  []string
 		path, want string
 	}{
 		{site, "/en-US/store/mine", "en-US"},

@@ -117,10 +117,10 @@ func (s *scanner) undeclared(declared []string) {
 
 // candidate is a Markdown file that may be an entry.
 type candidate struct {
-	language   string
-	rel    string // below the language folder, or the collection folder without languages
-	file   string // relative to the app root, such as content/blog/en/a/index.md
-	bundle bool   // index.md of a folder of its own
+	language string
+	rel      string // below the language folder, or the collection folder without languages
+	file     string // relative to the app root, such as content/blog/en/a/index.md
+	bundle   bool   // index.md of a folder of its own
 }
 
 // abs returns the file of p, a path relative to the app root with forward slashes.
@@ -443,7 +443,7 @@ func (s *scanner) missing(c Collection, recs []content.Record) {
 		return
 	}
 	languages := map[string]map[string]bool{} // by group
-	first := map[string]string{}          // the ID of the first version of each group
+	first := map[string]string{}              // the ID of the first version of each group
 	var order []string
 	for _, r := range recs {
 		if languages[r.Group] == nil {
