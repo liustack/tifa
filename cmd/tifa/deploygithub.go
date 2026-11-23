@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -176,8 +175,8 @@ type githubWorkflowSpec struct {
 	Node bool
 	// PnpmVersion is the major version of pnpm when package.json does not say which pnpm to use.
 	PnpmVersion string
-	// CIName is the name of the workflow that checks the app. The deploy runs after it passed.
-	// Empty means the app has none, and a push to the default branch deploys.
+	// CIName is the name of the workflow that checks the app (deploy.auto.needs). The deploy runs
+	// after it passed. Empty means the deploy waits for none, and a push to Branch deploys.
 	CIName string
 	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
 	// and the zone ID, both from secrets, since a public repository must not show the zone.
@@ -207,8 +206,8 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("on:")
 	if s.CIName != "" {
 		// A push is deployed once the workflow that checks it has passed. GitHub starts this only
-		// from the file on the default branch, and runs it on the last commit of that branch, so
-		// the steps below check out the commit that was checked.
+		// from the file on the default branch, and runs it on the last commit of that branch,
+		// whatever branch Branch is, so the steps below check out the commit that was checked.
 		w("  workflow_run:")
 		w("    workflows: [%s]", strconv.Quote(s.CIName))
 		w("    types: [completed]")
@@ -404,9 +403,10 @@ func (k deployKey) authorizedLine(repo string) string {
 	return "restrict " + k.Public + " " + githubComment(repo)
 }
 
-// workflowSpec reads what the workflow needs from the app.
-func workflowSpec(t deployTarget, repo githubRepo, mode string, purge bool) (githubWorkflowSpec, error) {
-	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Purge: purge, CIName: ciWorkflowName(t.root)}
+// workflowSpec reads what the workflow needs from the app. branch is the one that deploys and
+// ciName the name of the workflow it waits for, empty to wait for none.
+func workflowSpec(t deployTarget, branch, ciName, mode string, purge bool) (githubWorkflowSpec, error) {
+	s := githubWorkflowSpec{Branch: branch, Mode: mode, Purge: purge, CIName: ciName}
 	pkg, err := os.ReadFile(filepath.Join(t.root, "package.json"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -433,22 +433,6 @@ func workflowSpec(t deployTarget, repo githubRepo, mode string, purge bool) (git
 
 // secret is a repository secret: never printed.
 type secret struct{ name, value string }
-
-// ciWorkflowName is the name of the workflow tifa new writes to check the app, read from the file,
-// or empty when the app has none, or one without a name.
-func ciWorkflowName(root string) string {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ciPath)))
-	if err != nil {
-		return ""
-	}
-	var doc struct {
-		Name string `yaml:"name"`
-	}
-	if yaml.Unmarshal(data, &doc) != nil {
-		return ""
-	}
-	return doc.Name
-}
 
 // revokeBody runs as the deploy user and writes authorized_keys again without the line of the
 // repository whose comment is $comment. Other lines stay as they are.

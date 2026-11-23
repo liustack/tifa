@@ -261,7 +261,10 @@ func (p setupPlan) apply(ctx context.Context, w io.Writer) (warnings int, err er
 
 // setupRun holds what the steps of one setup share.
 type setupRun struct {
-	t              deployTarget
+	t deployTarget
+	// branch is the branch that deploys from GitHub Actions: deploy.auto.branch, else the default
+	// branch of the repository. Set once the repository is known.
+	branch         string
 	stdout, stderr io.Writer
 	st             serverState
 	haveServer     bool // tifa logs in to the server
@@ -752,6 +755,16 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.cannot("github: deploys from GitHub Actions", repoErr.Error())
 		return nil
 	}
+	// The branch that deploys, and the workflow it waits for, which must exist and run on a push to it.
+	r.branch = t.auto.Branch
+	if r.branch == "" {
+		r.branch = repo.Branch
+	}
+	ciName, err := resolveNeeds(t.root, t.auto.Needs, r.branch)
+	if err != nil {
+		p.cannot("github: deploys from GitHub Actions on "+r.branch+" after "+t.auto.Needs+" passed", err.Error())
+		return nil
+	}
 	if r.haveServer && len(r.st.HostKeys) == 0 {
 		p.cannot("github: deploys from GitHub Actions", "the server has no /etc/ssh/ssh_host_*_key.pub file, so tifa cannot tell CI which server to trust")
 		return nil
@@ -856,7 +869,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	keep := func(pasted bool) bool {
 		return t.domain != "" && r.ghNames[secretPurge] && !r.purgeVerified && !pasted
 	}
-	spec, err := workflowSpec(t, repo, t.connectMode, keep(r.purgePlanned))
+	spec, err := workflowSpec(t, r.branch, ciName, t.connectMode, keep(r.purgePlanned))
 	if err != nil {
 		return err
 	}
@@ -870,9 +883,14 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		return githubWorkflow(spec)
 	})
 	same := strings.ReplaceAll(have, "\r\n", "\n") == text // git on Windows may check it out with CRLF
+	commit := ", which you commit and push"
+	if ciName != "" && r.branch != repo.Branch {
+		// GitHub starts a workflow_run workflow only from the file on the default branch.
+		commit = ", which you commit and push to " + repo.Branch + ", the default branch: GitHub runs a workflow that waits for another only from the file there, whatever branch deploys"
+	}
 	switch {
 	case have == "":
-		p.add(opAdd, "github: "+githubWorkflowPath+", which you commit and push", write)
+		p.add(opAdd, "github: "+githubWorkflowPath+commit, write)
 	case !marked:
 		p.ok("github: " + githubWorkflowPath + " has no Tifa line at the top, so it is yours and stays")
 	case same && (r.purgePlanned && keep(false) != keep(true) || r.tailscalePlanned && r.legacyTailscale(false) != r.legacyTailscale(true)):
@@ -881,7 +899,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	case same:
 		p.ok("github: " + githubWorkflowPath)
 	default:
-		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", write)
+		p.add(opChange, "github: "+githubWorkflowPath+commit, write)
 	}
 	p.steps = append(p.steps, r.afterConnection...)
 	r.removeOldNames(p)

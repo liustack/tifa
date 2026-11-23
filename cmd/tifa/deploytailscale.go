@@ -47,12 +47,31 @@ func checkTailscaleClientID(id string) error {
 // tailscaleAudience is the audience of an identity, as Tailscale makes it from the client ID.
 func tailscaleAudience(id string) string { return "api.tailscale.com/" + id }
 
+// tailscaleRef is the branch the runner has as its ref when a deploy starts by itself, which is the
+// branch in the subject of the identity. A run of workflow_run has the default branch as its ref,
+// whichever branch was checked. A run of push, which is what deploy.auto.needs: none makes, has
+// the branch that was pushed.
+func (r *setupRun) tailscaleRef() string {
+	if r.t.auto.Needs == "none" {
+		return r.branch
+	}
+	return r.repo.Branch
+}
+
 // tailscaleIdentityHow says how to make the identity, which only the admin console can do.
 func (r *setupRun) tailscaleIdentityHow() string {
-	return fmt.Sprintf("In Tailscale, open %s, choose Credential, then OpenID Connect. Pick the GitHub issuer (%s), set the subject to repo:%s:ref:refs/heads/%s (GitHub gives a run started by the CI workflow, and a manual run on the default branch, that ref), "+
+	return fmt.Sprintf("In Tailscale, open %s, choose Credential, then OpenID Connect. Pick the GitHub issuer (%s), set the subject to repo:%s:ref:refs/heads/%s (%s, and a manual run on that branch), "+
 		"give it the scope auth_keys for the tag %s, and generate it. Copy its client ID: neither it nor the audience is a secret. "+
 		"Your tailnet policy must have %s in tagOwners and let it reach the server on its ssh port",
-		tailscaleConsole, githubIssuer, r.repo.Name, r.repo.Branch, tailscaleTag, tailscaleTag)
+		tailscaleConsole, githubIssuer, r.repo.Name, r.tailscaleRef(), r.tailscaleRunKind(), tailscaleTag, tailscaleTag)
+}
+
+// tailscaleRunKind says why the subject has the ref of tailscaleRef.
+func (r *setupRun) tailscaleRunKind() string {
+	if r.t.auto.Needs == "none" {
+		return "GitHub gives a run started by a push to " + r.branch + " that ref"
+	}
+	return "GitHub gives the run that starts after " + r.t.auto.Needs + " passed (workflow_run) the default branch as its ref, whatever branch was checked"
 }
 
 // tailscaleIdentitySteps plans the identity CI joins the tailnet with: the two repository

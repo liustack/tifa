@@ -133,7 +133,7 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 func TestSetupTailscaleFromOAuthSecrets(t *testing.T) {
 	a := newTSApp(t, true)
 	workflow := filepath.Join(a.root, githubWorkflowPath)
-	oldFlow := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true})
+	oldFlow := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true, CIName: testCIName})
 	writeFile(t, workflow, oldFlow)
 	a.gh.files = map[string]string{githubWorkflowPath: oldFlow}
 	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {

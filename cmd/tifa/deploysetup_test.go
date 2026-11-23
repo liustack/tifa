@@ -222,6 +222,13 @@ func factsOf(app string, port int, extra string) string {
 
 const freshFacts = "os Linux\narch x86_64\nhome /srv/tifa\nmachine vps-1234\napt yes\n" + hostKeysFact
 
+// testCI is the workflow setupApp gives an app: named CI, run on a push to main, the branch of fakeGH.
+const (
+	testCIPath = ".github/workflows/ci.yml"
+	testCIName = "CI"
+	testCI     = "name: CI\non:\n  push:\n    branches: [main]\n"
+)
+
 func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -229,6 +236,10 @@ func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	writeFile(t, filepath.Join(root, "tifa.yaml"), tifaYAML)
 	for name, content := range files {
 		writeFile(t, filepath.Join(root, name), content)
+	}
+	// The check workflow that deploy.auto waits for unless a test says another or needs: none.
+	if _, ok := files[testCIPath]; !ok {
+		writeFile(t, filepath.Join(root, testCIPath), testCI)
 	}
 	t.Setenv(deployHostEnv, "vps")
 	// No cf unless the test installs one: the real cf is never run. Neither is any program of the
@@ -451,7 +462,7 @@ func TestSetupGitHub(t *testing.T) {
 			}
 		}
 		text, err := os.ReadFile(filepath.Join(root, githubWorkflowPath))
-		if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "push:") {
+		if err != nil || !strings.HasPrefix(string(text), workflowMarker) || !strings.Contains(string(text), "workflow_run:") {
 			t.Errorf("workflow %v:\n%s", err, text)
 		}
 		// Where the server is stays in the secret: the workflow has neither the address nor the port.
@@ -971,7 +982,7 @@ func (s *purgeSetup) v018Repo(t *testing.T) {
 	}
 	s.gh.secrets[secretPurge] = "set by v0.1.18"
 	s.gh.secrets[secretZoneID] = "z"
-	spec, err := workflowSpec(deployTarget{root: s.root}, githubRepo{Name: "acme/shop", Branch: "main"}, connDirect, true)
+	spec, err := workflowSpec(deployTarget{root: s.root}, "main", testCIName, connDirect, true)
 	if err != nil {
 		t.Fatal(err)
 	}

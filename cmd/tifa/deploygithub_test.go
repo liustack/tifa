@@ -578,15 +578,3 @@ func TestWorkflowAfterCI(t *testing.T) {
 		t.Errorf("fallback:\n%s", push)
 	}
 }
-
-// The name of the CI workflow comes from the file of the app.
-func TestCIWorkflowName(t *testing.T) {
-	root := t.TempDir()
-	if got := ciWorkflowName(root); got != "" {
-		t.Errorf("no file: %q", got)
-	}
-	writeFile(t, filepath.Join(root, ciPath), "name: Checks\non: push\n")
-	if got := ciWorkflowName(root); got != "Checks" {
-		t.Errorf("got %q", got)
-	}
-}
