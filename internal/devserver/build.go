@@ -191,6 +191,10 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 				s.analyze = true
 			}
 		}
+		if isWorkflowFile(c.path) {
+			// The analysis reads the workflow that deploy.auto waits for, to warn when it cannot work.
+			s.analyze = true
+		}
 		switch kindOf(c.path) {
 		case goSource:
 			s.analyze, s.goBuild = true, true
@@ -212,6 +216,13 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 		}
 	}
 	return s
+}
+
+// isWorkflowFile reports whether rel is a workflow file of GitHub Actions, in .github/workflows
+// of the application directory.
+func isWorkflowFile(rel string) bool {
+	dir, name := path.Split(rel)
+	return dir == ".github/workflows/" && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml"))
 }
 
 // isLocaleFile reports whether rel, relative to the application directory, is a file of a _locales

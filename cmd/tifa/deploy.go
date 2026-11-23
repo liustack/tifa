@@ -91,8 +91,8 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 }
 
 // checkDeploySettings runs the checks of the deploy settings that need no network, which tifa
-// check, build and dev run so a setting that cannot work is found before a deploy: the settings
-// against each other, and with the block deploy.auto the workflow in needs.
+// check and build run so a setting that cannot work is found before a deploy, and tifa dev shows as
+// warnings: the settings against each other, and with the block deploy.auto the workflow in needs.
 func checkDeploySettings(root string) error {
 	settings, err := codegen.ProjectSettings(root)
 	if err != nil {

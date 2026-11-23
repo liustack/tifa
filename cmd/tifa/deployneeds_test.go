@@ -122,3 +122,24 @@ func TestResolveNeeds(t *testing.T) {
 		}
 	}
 }
+
+// Without a branch, some push is enough: matching the default branch waits for setup, which asks GitHub.
+func TestResolveNeedsWithoutBranch(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		ok   bool
+	}{
+		"push":              {"name: CI\non: push\n", true},
+		"other branches":    {"name: CI\non:\n  push:\n    branches: [develop]\n", true},
+		"ignored branches":  {"name: CI\non:\n  push:\n    branches-ignore: [main]\n", true},
+		"pull request only": {"name: CI\non: pull_request\n", false},
+		"tags only":         {"name: CI\non:\n  push:\n    tags: ['v*']\n", false},
+	} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, ".github", "workflows", "ci.yml"), tc.text)
+		_, err := resolveNeeds(root, "ci.yml", "")
+		if (err == nil) != tc.ok || (err != nil && !strings.Contains(err.Error(), "does not run on a push (")) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

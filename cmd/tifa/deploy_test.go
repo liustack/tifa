@@ -635,6 +635,8 @@ func TestCheckRunsTheDeployChecks(t *testing.T) {
 		"needs missing":                 {"deploy:\n  auto: {}\n", nil, ".github/workflows/ci.yml does not exist"},
 		"needs without name":            {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "on: push\n"}, "has no name: line"},
 		"needs not on push":             {"deploy:\n  auto:\n    branch: main\n", map[string]string{testCIPath: "name: CI\non: pull_request\n"}, "does not run on a push to main"},
+		"needs on no push at all":       {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "name: CI\non: pull_request\n"}, "does not run on a push (its on: has no push)"},
+		"needs on tag pushes only":      {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "name: CI\non:\n  push:\n    tags: ['v*']\n"}, "does not run on a push"},
 		"needs not on the named branch": {"deploy:\n  auto:\n    branch: release\n", map[string]string{testCIPath: testCI}, "does not run on a push to release"},
 	} {
 		dir := apiApp(t)
@@ -647,11 +649,10 @@ func TestCheckRunsTheDeployChecks(t *testing.T) {
 			t.Errorf("%s: err %v, output %q, want %q", name, err, got, tc.want)
 		}
 	}
-	// With the default branch the push is not checked, since the branch is on GitHub. A file that
-	// is there with a name passes.
+	// With the default branch the branch is not matched, since it is on GitHub: some push is enough.
 	dir := apiApp(t)
 	writeFile(t, filepath.Join(dir, "tifa.yaml"), "deploy:\n  auto: {}\n")
-	writeFile(t, filepath.Join(dir, testCIPath), "name: CI\non: pull_request\n")
+	writeFile(t, filepath.Join(dir, testCIPath), "name: CI\non:\n  push:\n    branches: [develop]\n")
 	if out, stderr, err := run(t, "check", "--dir", dir); err != nil {
 		t.Errorf("default branch: %v\n%s%s", err, out, stderr)
 	}
@@ -667,5 +668,50 @@ func TestEmptyAutoKeysSayWhatToWrite(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v", yaml, err)
 		}
+	}
+}
+
+// tifa routes and tifa gen read the app, not its deploy settings: they run with settings the deploy
+// checks would stop.
+func TestRoutesIgnoresDeploySettings(t *testing.T) {
+	dir := apiApp(t)
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "deploy:\n  connect: tailscale\n")
+	if out, stderr, err := run(t, "routes", "--dir", dir); err != nil {
+		t.Fatalf("%v\n%s%s", err, out, stderr)
+	}
+}
+
+// tifa dev shows the deploy problems as warnings, once, and keeps running: they do not touch the
+// running app. They come again when the settings or the needs file change to another problem, and
+// go when fixed. tifa.yaml values that do not parse are still errors, and stop dev before.
+func TestDevWarnsOfDeploySettings(t *testing.T) {
+	dir := apiApp(t)
+	var out strings.Builder
+	p := &devPipeline{root: dir, warn: &out}
+	tifaYAML := filepath.Join(dir, "tifa.yaml")
+	writeFile(t, tifaYAML, "deploy:\n  connect: tailscale\n")
+	for range 2 {
+		if err := p.checkDeploy(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Count(out.String(), "deploy.connect is tailscale"); got != 1 || !strings.Contains(out.String(), "(warning)") {
+		t.Fatalf("printed %d times:\n%s", got, out.String())
+	}
+	if w := strings.Join(p.Warnings(), "\n"); !strings.Contains(w, "deploy.connect is tailscale") {
+		t.Errorf("Warnings: %q", w)
+	}
+	writeFile(t, tifaYAML, "deploy:\n  auto: {}\n")
+	if err := p.checkDeploy(); err != nil || !strings.Contains(out.String(), ".github/workflows/ci.yml does not exist") {
+		t.Errorf("needs missing: %v\n%s", err, out.String())
+	}
+	writeFile(t, filepath.Join(dir, testCIPath), testCI)
+	if err := p.checkDeploy(); err != nil || len(p.Warnings()) != 0 {
+		t.Errorf("fixed: %v, %q", err, p.Warnings())
+	}
+	writeFile(t, filepath.Join(dir, testCIPath), "on: push\n")
+	before := out.Len()
+	if err := p.checkDeploy(); err != nil || !strings.Contains(out.String()[before:], "has no name: line") {
+		t.Errorf("again: %v\n%s", err, out.String()[before:])
 	}
 }

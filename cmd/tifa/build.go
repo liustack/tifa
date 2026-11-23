@@ -40,6 +40,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return err
 			}
 			// 1. Static analysis. It only reads, so a failed one leaves no .tifa behind.
+			if err := checkDeploySettings(root); err != nil {
+				return err
+			}
 			m, err := analyzeApp(cmd, root)
 			if err != nil {
 				return err
@@ -169,9 +172,6 @@ func checkReact(root string, pages bool) error {
 // the warnings about the content, such as entries without a translation, and the entries that
 // wait for their date.
 func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
-	if err := checkDeploySettings(root); err != nil {
-		return nil, err
-	}
 	// Idioms of other frameworks come first: they name the Tifa way, where the analysis only
 	// says that a name or a signature is wrong.
 	foreignErrs, err := scanForeign(root, cmd.ErrOrStderr())

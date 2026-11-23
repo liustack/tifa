@@ -21,8 +21,8 @@ import (
 const workflowsDir = ".github/workflows"
 
 // resolveNeeds returns the name of the workflow file needs, which the deploy workflow waits for, or
-// "" for needs none. An empty branch skips the check of the push, for the default branch of the
-// repository is known to GitHub only. It fails, with what to do, when the file is missing, has no name or does not
+// "" for needs none. With an empty branch, the default branch of the repository, which only GitHub
+// knows, the file must still run on some push, and which branches waits for setup. It fails, with what to do, when the file is missing, has no name or does not
 // run on a push to branch.
 func resolveNeeds(root, needs, branch string) (string, error) {
 	if needs == "none" {
@@ -48,13 +48,18 @@ func resolveNeeds(root, needs, branch string) (string, error) {
 	if strings.TrimSpace(doc.Name) == "" {
 		return "", errors.New(rel + " has no name: line, and the deploy workflow finds the workflow it waits for by its name. Give it one, such as name: CI." + fix)
 	}
-	if ok, why := pushRunsOn(data, branch); branch != "" && !ok {
-		return "", fmt.Errorf("%s does not run on a push to %s (%s), so a deploy would wait for a run that never comes.%s", rel, branch, why, fix)
+	if ok, why := pushRunsOn(data, branch); !ok {
+		push := "a push"
+		if branch != "" {
+			push += " to " + branch
+		}
+		return "", fmt.Errorf("%s does not run on %s (%s), so a deploy would wait for a run that never comes.%s", rel, push, why, fix)
 	}
 	return doc.Name, nil
 }
 
-// pushRunsOn reports whether the workflow in data runs on a push to branch, and if not, why. The
+// pushRunsOn reports whether the workflow in data runs on a push to branch, and if not, why. An empty
+// branch asks for a push to some branch: the branch filters are not matched. The
 // on: key has three forms, a string, a list and a mapping of events (GitHub: workflow syntax, on).
 // A paths filter is not looked at: it depends on the commit.
 func pushRunsOn(data []byte, branch string) (bool, string) {
@@ -118,11 +123,11 @@ func pushFilter(n *yaml.Node, branch string) (bool, string) {
 	case haveBranches && haveIgnore:
 		return false, "GitHub does not allow both branches and branches-ignore for push"
 	case haveBranches:
-		if !branchFilterMatch(branches, branch) {
+		if branch != "" && !branchFilterMatch(branches, branch) {
 			return false, "its push branches are " + strings.Join(branches, ", ")
 		}
 	case haveIgnore:
-		if branchFilterMatch(ignore, branch) {
+		if branch != "" && branchFilterMatch(ignore, branch) {
 			return false, "its push branches-ignore has " + branch
 		}
 	case haveTags || haveTagsIgnore:

@@ -211,6 +211,20 @@ func TestPlanIgnoresOtherFiles(t *testing.T) {
 	}
 }
 
+// A workflow file changes what tifa dev warns of in the deploy settings, which the analysis step reads.
+func TestPlanWorkflowFiles(t *testing.T) {
+	for _, path := range []string{".github/workflows/ci.yml", ".github/workflows/checks.yaml"} {
+		if s := plan([]change{{path, modified}}, nil); s != (steps{analyze: true}) {
+			t.Errorf("%s planned %+v, want the analysis", path, s)
+		}
+	}
+	for _, path := range []string{".github/dependabot.yml", ".github/workflows/README.md", "docs/.github/workflows/ci.yml"} {
+		if s := plan([]change{{path, modified}}, nil); s != (steps{}) {
+			t.Errorf("%s planned %+v, want nothing", path, s)
+		}
+	}
+}
+
 func TestFailedStepsCarryOver(t *testing.T) {
 	cases := []struct {
 		name    string
