@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的每一项设置和应用怎样定义自己的设置，以及每个响应都带的安全头，其中包括 server.csp 的 Content-Security-Policy：每一项可以在哪里设置（命令行参数、环境变量、.env、-c 指定的文件、tifa.yaml）、哪个来源优先、PORT 和 HOST 怎样读取、默认值、参数和环境变量的名字、值的格式和错误的值会给出什么错误、需要更久的处理函数怎样放宽读写超时、怎样用程序自己拿到的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从其他站点发来的写请求，和怎样放行指定的来源或路径'
 audience: app
 order: 4
-translatedFrom: d42fc8ed6152
+translatedFrom: a60c7630f50a
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -113,7 +113,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `build.skip_tanstack_check` | `false` | 仅项目文件 | `true` 会构建 TanStack Router 不是 Tifa 测试过的版本的应用，这可能让页面在浏览器里变成空白。见 [build.md](build.zh-CN.md#the-apps-tsconfig-and-vite-config) |
 | `build.debug_info` | `false` | 仅项目文件 | `true` 把 DWARF 调试信息留在程序里，供 Delve 这样的调试器使用。不设时，`tifa build` 用 `-ldflags=-w` 去掉调试信息，这让示例 shop 的程序小约 20%。无论哪种，panic 仍然会给出每一帧的文件和行号。`tifa dev` 始终保留它。见 [build.md](build.zh-CN.md#debug-info) |
 | `build.i18next_cache` | `true` | 仅项目文件 | 服务端渲染会保留 i18next 翻译出来的字符串，同样的键和选项再来时直接给出，所以每次渲染都翻译同样文本的页面耗时更少：shop 的店面页面只要它的 0.778。`false` 会关掉它。应用的 formatter 和后处理器对同样的输入必须给出同样的文本。应用在第一次渲染之后不通过 i18next 的 API 改动 i18next 的资源或选项，或者给 i18next 传了读取请求内容的其他函数时，请关掉它，否则页面可能显示过期的翻译。见 [build.md](build.zh-CN.md#i18next-cache) |
-| `i18n.default` | 无 | 仅项目文件 | 带 `_locales/` 文件夹的应用的默认语言，是常见写法的 BCP 47 标签，比如 `zh-CN` 或 `en-US`。这种语言的 URL 没有前缀（除非 `i18n.prefix` 是 `always`），它在 `tifa.Languages()` 里排第一。只有一种语言的应用可以省略它。有多种语言时，没有它 `tifa build` 会失败，没有任何区域有它的文件时也会失败。每个区域都必须有默认语言。见[多语言网站](../start/app.zh-CN.md#a-site-in-several-languages) |
+| `i18n.default` | 无 | 仅项目文件 | 带 `_locales/` 文件夹的应用的默认语言，是常见写法的 BCP 47 标签，比如 `zh-CN` 或 `en-US`。这种语言的 URL 没有前缀（除非 `i18n.prefix` 是 `always`），它在 `tifa.Languages()` 里排第一。只有一种语言的应用可以省略它。有多种语言时，没有它 `tifa build` 会失败，没有任何区域有它的文件时也会失败。每个区域都必须有默认语言。见[多语言站点](../guides/i18n.zh-CN.md) |
 | `i18n.prefix` | `off` | 仅项目文件 | `always` 会把语言放进每个有语言的路由的 URL，默认语言也不例外：`/store` 会以 308 跳转到 `/zh-CN/store`。`off` 让默认语言没有前缀。不在任何区域里的路由，两种模式下都没有前缀 |
 | `site.url` | 无 | 仅项目文件 | 站点对外提供服务的协议和主机，比如 `https://shop.example.com`，不带路径。有多种语言的站点需要它，没有它 `tifa build` 会失败。它把站点标记为公开：每个页面得到一个 canonical 链接和一个 `og:url` meta，程序提供 `/sitemap.xml`、默认的 `/robots.txt`、`/llms.txt`、`/llms-full.txt` 和内容页面的 Markdown 版本。没有它就没有这些。见[搜索引擎与语言模型](../guides/seo.zh-CN.md) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听的地址。在容器里用 `0.0.0.0:9527`。开启 [HTTPS](#https) 时，它提供的是 HTTPS，必须设置，通常是 `:443` |
@@ -229,7 +229,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - 请求自己的截止时间早于 `ssr.wait_timeout` 时，失败的是那个截止时间，不是 `tifa.ErrSSRBusy`。客户端走掉会得到 `context.Canceled`。
 - 原样返回错误可以保留默认的响应：503、`Retry-After: 1` 和 `Cache-Control: no-store`。如果你改为返回自己的 `tifa.Error`，响应就用你的状态和消息，不会加默认的头。你要的头用 `c.SetHeader` 设置。
 
-测试应用 `testdata/overloadapp` 改了响应，并自己设置 `Retry-After`：
+要改变这个响应并自己设置 `Retry-After`：
 
 ```go
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {

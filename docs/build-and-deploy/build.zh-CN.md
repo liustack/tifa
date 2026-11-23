@@ -2,7 +2,7 @@
 summary: '`tifa new` 怎样开始一个应用、`tifa build` 做什么、`tifa check` 运行什么、`tifa gen` 写什么、Tifa docs 打印什么、`tifa upgrade` 怎样把应用升到更新的 Tifa、`tifa agents` 写什么（技能和 AGENTS.md 里由它管理的那一块）以及怎样让它们保持最新、它在 .tifa/ 里生成哪些文件和输出、怎样设置应用的 tsconfig 和 go.mod、前端为什么用 Vite 构建、生成的程序怎样启动并回答页面请求、为什么去掉调试信息，以及随程序要附上哪些许可证声明'
 audience: app
 order: 2
-translatedFrom: 45afc9740f7b
+translatedFrom: 98d67170ddcc
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -19,6 +19,8 @@ read_when:
 ---
 
 # 构建与生成的代码 {#build-and-generated-code}
+
+这一篇讲 `tifa` 的各个命令，`tifa build` 在 `.tifa/` 里生成的文件，以及构建出的程序怎样回答页面请求和静态文件请求。
 
 ## `tifa new` {#tifa-new}
 
@@ -221,10 +223,10 @@ pnpm 和 npm 会在 `pnpm install` 和 `npm install` 之后运行项目的 `prep
 ## Tifa docs {#tifa-docs}
 
 ```sh
-tifa docs [--dir app-root] [--all] [--when]
+tifa docs [--dir app-root] [--all] [--when] [--lang zh-CN]
 ```
 
-打印应用所用 Tifa 版本的文档在哪里，然后是它们的索引。默认列出用于编写应用的文档，每篇一行，包括路径和摘要的第一句，总共约 2 KB。`--when` 会加上 `read_when` 行，`--all` 还会在各自的标题下列出关于开发 Tifa 本身的文档（发布、提交、测试、Tifa 内部如何工作、研究）。`tifa new` 写出的 `AGENTS.md` 会告诉编码 agent 先运行它，这样 agent 读到的是应用构建所用版本的文档，而不是 GitHub 上 main 分支的文档。
+打印应用所用 Tifa 版本的文档在哪里，然后是它们的索引。默认列出用于编写应用的文档，每篇一行，包括路径和摘要的第一句，总共约 2 KB。`--lang zh-CN` 列出中文文档，而不是英文文档。`--when` 会加上 `read_when` 行，`--all` 还会在各自的标题下列出关于开发 Tifa 本身的文档（发布、提交、测试、Tifa 内部如何工作、研究）。`tifa new` 写出的 `AGENTS.md` 会告诉编码 agent 先运行它，这样 agent 读到的是应用构建所用版本的文档，而不是 GitHub 上 main 分支的文档。
 
 Tifa 在应用根目录里向 go 命令查询（`go list -m -json github.com/liustack/tifa`），所以用的是 `go.mod` 解析出的那个文件夹：已发布版本对应模块缓存，`replace` 指令则对应它指向的文件夹。还没下载的模块会失败，并提示要运行的步骤 `go mod download github.com/liustack/tifa`。
 
@@ -343,7 +345,7 @@ tifa routes [--dir app-root] [--json]
 
 运行和 `tifa build` 相同的静态分析，不生成也不构建任何东西，并打印路由：文件夹、URL、布局、方法（页面用 `page`），以及 `SSR` 和 `Memo` 开关，然后是各个布局。违反约定的错误和 `tifa build` 的打印方式相同。`--json` 改为打印路由清单，其中有每个 `Load` 结果以及每个处理函数的输入和结果的 Go 类型。
 
-### go.mod {#gomod}
+## go.mod {#gomod}
 
 应用把 Tifa 命令注册为 Go 工具：
 
@@ -398,7 +400,7 @@ go tool tifa build
 
 SSR 包一开始会导入 `runtime/host.js`，它补上 slowjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/slowjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本由 `go generate ./js` 从 `js/host/host.ts` 预先打包，并提交进仓库。它的依赖版本锁定在 `js/host/package.json` 和 `pnpm-lock.yaml` 里。要升级，在 `js/host` 里运行 `pnpm install --frozen-lockfile`（改了版本之后则运行 `pnpm install`），再运行 `go generate ./js`。`internal/bundle` 里的 `TestHostScriptIsUpToDate` 会检查重新生成的结果和已提交的文件一致，当 `js/host/node_modules` 不存在时会跳过。所以应用不需要安装这些 polyfill 包。`abort-controller` 和它的依赖 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml` 里）：每个对象把它的内部状态放在对象自己的一个 symbol 属性里，而不是 WeakMap 里。这个属性在对象创建时定义一次，之后不再重新定义，所以当应用把 signal 封存或冻结时，取消仍然有效（`TestHostScriptAbortsFrozenSignals`）。之后唯一会变的状态，即 signal 的 aborted 标志，放在一个盒子里，只有盒子里的值会变。其余状态没有装盒：把每一份状态都装盒会让 P99 增加约 1.5 ms。slowjs 需要好几轮 GC 才能回收经过 WeakMap 值的死循环引用，有些循环引用始终收不掉。所以每次渲染留下的路由、AbortController 和监听器要等好几轮 GC，VM 的堆就会增长。改用属性后，一次 GC 就能把它们全部收掉，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守着这一点。
 
-Tifa 插件会改写 SSR 包里的十一个 npm 包。它按代码的形态或文本找到要改的代码，而不是按包的版本，所以 `pnpm update` 不会弄坏构建。当某个发布版本改变了那段代码时，构建会打印一条警告，带上包的版本和文件，并让那段代码保持原样。页面仍然能渲染。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，所以 `grep` 能找到所有的警告，`internal/bundle` 和 `test/e2e` 会因它而失败（见[测试](../internals/testing.md#ci)），用最新 React 构建的定时 CI 任务也一样。对 React DOM 的改动让它每个文件的每一行都留在原处，所以渲染错误的堆栈跟踪给出的 React DOM 行号，就是它在 `node_modules` 里的行号。没有设置可以关闭这些改动：它们没有一个会改变 HTML，除了下面一个 server action 的键，而 Tifa 没有 server action。
+Tifa 插件会改写 SSR 包里的许多 npm 包。它按代码的形态或文本找到要改的代码，而不是按包的版本，所以 `pnpm update` 不会弄坏构建。当某个发布版本改变了那段代码时，构建会打印一条警告，带上包的版本和文件，并让那段代码保持原样。页面仍然能渲染。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，所以 `grep` 能找到所有的警告，`internal/bundle` 和 `test/e2e` 会因它而失败（见[测试](../internals/testing.md#ci)），用最新 React 构建的定时 CI 任务也一样。对 React DOM 的改动让它每个文件的每一行都留在原处，所以渲染错误的堆栈跟踪给出的 React DOM 行号，就是它在 `node_modules` 里的行号。没有设置可以关闭这些改动：它们没有一个会改变 HTML，除了下面一个 server action 的键，而 Tifa 没有 server action。
 
 - React DOM 有十四处改动：
   - `react-dom/server.edge` 会加载 React 的两个服务端渲染器。插件读取那个文件的形态，只保留 Tifa 使用的字符串渲染器。在示例应用上，这让包小了 25%，4 个 VM 的池启动用 63 毫秒，而不是 117 毫秒，渲染耗时则不变。没有这处改动时，包里会保留两个渲染器。
@@ -592,7 +594,7 @@ export default defineConfig({
 - `@vitejs/plugin-react` 编译 JSX，并在 `tifa dev` 下加上 React Fast Refresh。把其他 Vite 插件加在这两个之后，比如 `@tailwindcss/vite`（见 [styles.md](../pages-and-data/styles.zh-CN.md#tailwind-css)）。入口、`base`、输出和 `ssr` 环境请留给 Tifa。
 - `vite.config.ts` 导入 `./.tifa/vite.js`，所以在 Tifa 生成了 `.tifa/` 之后它就能通过类型检查。`tifa build` 和 `tifa dev` 在 Vite 读取配置之前就会生成它。
 
-应用的 `package.json` 需要 React、React DOM 和 TanStack Router，并且开发依赖里要有 `vite` 和 `@vitejs/plugin-react`。类型检查还需要 `typescript`、`@types/react` 和 `@types/react-dom`。可以参考 `test/apps/pages/package.json`，Tailwind CSS 则参考 `test/apps/tailwind/package.json`。
+应用的 `package.json` 需要 React、React DOM 和 TanStack Router，并且开发依赖里要有 `vite` 和 `@vitejs/plugin-react`。类型检查还需要 `typescript`、`@types/react` 和 `@types/react-dom`。`tifa new` 写出的 `package.json` 里就有这些。Tailwind CSS 见[样式](../pages-and-data/styles.zh-CN.md)。
 
 TanStack Router 必须是这个 Tifa 测试过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。Tifa 通过 TanStack Router 的一个在 TanStack Start 之外没有文档的选项把页面数据交给浏览器（见[数据协议](#data-protocol)），别的版本可能不再在浏览器里读它。那样，每个带对象数据的页面都会保持空白。所以 `tifa build` 和 `tifa dev` 会按 Node 解析它们的方式读取这两个包的已安装版本，并以一个点出已安装版本和测试过的版本的错误停止。要换到更新的 TanStack Router，请升级 Tifa。想要无论如何都用另一个版本来构建，风险自负，请在 `tifa.yaml` 里设置 `build.skip_tanstack_check: true`（见 [config.md](config.zh-CN.md)）。没有页面的应用不检查。
 
@@ -628,7 +630,7 @@ Tifa 用应用自己的 Vite 打包前端，因为有页面的应用是一个 Re
 
 ## i18next 适配器 {#the-i18next-adapter}
 
-`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打包进来，为所有语言做一个 i18next 实例，并给页面提供常用的 react-i18next hook。应用自己安装 `i18next` 和 `react-i18next`（端到端测试用 i18next 27.1.2 和 react-i18next 18.0.1 运行它），并且它的 tsconfig 在 `paths` 里有 `"tifa/i18n": ["./.tifa/runtime/i18n.tsx"]`。Tifa 只为带 `_locales` 文件夹的应用写出 `runtime/i18n.tsx`，因为 TypeScript 会检查 `.tifa/` 的全部内容，而没有翻译的应用没有 i18next 可导入。
+`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打包进来，为所有语言做一个 i18next 实例，并给页面提供常用的 react-i18next hook。应用自己安装 `i18next` 和 `react-i18next`（端到端测试用 i18next 27.1.2 和 react-i18next 18.0.1 运行它），并且它的 tsconfig 在 `paths` 里有 `"tifa/*": ["./.tifa/tifa/*"]`（`tifa new` 就是这样写的）。Tifa 只为带 `_locales` 文件夹的应用写出 `tifa/i18n.ts` 和 `runtime/i18n.tsx`，因为 TypeScript 会检查 `.tifa/` 的全部内容，而没有翻译的应用没有 i18next 可导入。
 
 字符串放在 `app/` 的各个文件夹里的 `_locales/<language>.json` 中。`<language>.draft.json` 不会发布，文件夹里的其他文件也都不算。一个文件夹的命名空间就是它相对于 `app/` 的路径：`app/store/_locales` 是 `store`，`app/admin/store/_locales` 是 `admin/store`，`app/_locales` 是默认命名空间。Vite 插件把这些文件变成一个模块，所以服务端渲染和浏览器都有每一个字符串，不用获取任何东西。
 
@@ -741,7 +743,7 @@ i18n.services.formatter?.addCached('currency', (lng, options) => {
 - `OnRequest` 返回了另一个错误：中间件说了算，这个错误按它自己的方式处理（重定向、`ErrNotFound` 和 `tifa.Error` 被直接处理，其他任何错误交给 `OnError`）。整页请求得到由 Go 写出的简单错误页面。数据请求得到 `{"error": message}` 和状态码，没有每个路由的数据。如果 `OnRequest` 自己写了响应，框架就不再写任何东西。
 - 当数据请求遇到针对整个请求的重定向时（`OnRequest` 返回 `tifa.Redirect`，或 URL 写成了非规范的形式），它回答 200 和 `{"redirect", "status"}`，不发送 3xx。这个 JSON 里的 URL，以及 `Load` 要求重定向的路由的 `location`，就是 3xx 会带的那个：像 `../list` 这样的相对 URL 会相对于请求的路径解析，和 `http.Redirect` 做的一样。
 - 不匹配的 URL，对有页面的应用的 GET 或 HEAD：Go 找到这个 URL 所匹配的最深的布局（规则见 [404](../pages-and-data/pages.zh-CN.md#404)），并把它的路径的参数设置到请求上。`next(c)` 从根布局一路运行 `Layout` 函数到它，并返回 `tifa.ErrNotFound`。整页请求用它们的结果和状态 404 渲染，或者在某个布局失败时用那个布局的状态，和在页面上一样。导航数据请求运行其中被列出的那些，并以 404 回答它们的结果，当其中一个失败时回答 200，和在页面上一样。列出不在其中的路由会回答 400。其他方法，以及没有页面的应用，得到 JSON 404。
-- VM 渲染失败（包括组件在渲染时抛出异常：字符串渲染器把它吞进 Suspense 边界，并留下一个 `<!--$!-->` 标记，SSR 入口看到这个标记时就认为渲染失败了）算作意外错误。它会交给 `OnError` 一次，并且从不存进渲染 memo。然后页面会把错误放进路由树里再渲染一次，见下一点。当没有任何尝试渲染成功时，Go 写出一个简单的错误页面，带状态和公开的消息，不暴露内部的错误。在 `tifa dev`（`DevMain`）下，这个页面还会点出请求，显示完整的错误，并加载开发客户端，一旦重新构建提供了修复，它就会重新加载一次。`OnError` 得到的错误就是代码抛出的那个，即使 React 把它吞掉了也一样，它的堆栈跟踪的前 64 帧由 `dist/ssr.js.map` 给出源文件里的位置。当代码调用了 slowjs 没有的 `require` 时，错误还会点出这个包和位置，并说明该怎么做：从 `.client` 文件导入这个包，在 `useEffect` 里调用它，或使用这个包的一个不需要 Node 的构建。当包在加载时就失败了，也就是在任何页面渲染之前，导入本身就失败，把调用移进 `useEffect` 没有用，所以预热的错误会说要从 `.client` 文件导入这个包，或使用另一个构建。一个会挂起的组件，不管是抛出 promise，还是作为尚未加载的 `React.lazy` 组件，都会以同样的方式让渲染失败，因为 `renderToString` 不等待。它的错误会说要用 `Load` 把数据给页面，并且以静态方式导入组件，或者设置 `SSR = false`。服务器看不到某个懒导入为什么失败。显示它的 `Load` 函数的错误（包括 404）的页面，在它的渲染失败时，也会经过同样的几次尝试。
+- VM 渲染失败（包括组件在渲染时抛出异常：字符串渲染器把它吞进 Suspense 边界，并留下一个 `<!--$!-->` 标记，SSR 入口看到这个标记时就认为渲染失败了）算作意外错误。它会交给 `OnError` 一次，并且从不存进渲染 memo。然后页面会把错误放进路由树里再渲染一次，见下一点。当没有任何尝试渲染成功时，Go 写出一个简单的错误页面，带状态和公开的消息，不暴露内部的错误。在 `tifa dev`（`DevMain`）下，这个页面还会点出请求，显示完整的错误，并加载开发客户端，一旦重新构建提供了修复，它就会重新加载一次。`OnError` 得到的错误就是代码抛出的那个，即使 React 把它吞掉了也一样，它的堆栈跟踪的前 64 帧由 `dist/ssr.js.map` 给出源文件里的位置。当代码调用了 slowjs 没有的 `require` 时，错误还会点出这个包和位置，并说明该怎么做：从 `.client` 文件导入这个包，在 `useEffect` 里调用它，或使用这个包的一个不需要 Node 的构建。当包在加载时就失败了，也就是在任何页面渲染之前，导入本身就失败，把调用移进 `useEffect` 没有用，所以预热的错误会说要从 `.client` 文件导入这个包，或使用另一个构建。一个会因一直不会完成的工作而挂起的组件，不管是抛出 promise，还是作为加载不了的 `React.lazy` 组件，都会以同样的方式让渲染失败，因为服务器没有定时器，也不做 I/O。它的错误会说要用 `Load` 把数据给页面，并且以静态方式导入组件，或者设置 `SSR = false`。服务器看不到某个懒导入为什么失败。显示它的 `Load` 函数的错误（包括 404）的页面，在它的渲染失败时，也会经过同样的几次尝试。
 - 出现失败时，SSR 入口会报告 `levels`：匹配的路由里，从它显示到的最深的那个一直到根路由，有多少个能显示这个错误。服务器会再次渲染，输入里带着 `error: {status, message, level}`，也就是 `OnError` 给出的状态和公开消息。然后入口在路由器脱水之前，把在显示到的最深路由之上 `level` 层的匹配，换成一个持有 `TifaError` 的失败的匹配，这样那个路由的 `errorComponent` 就会显示这个错误，浏览器会水合同样的树。第一次尝试的 level 是 0，每次失败的尝试向上移一层。响应带 `OnError` 的状态、`Cache-Control: no-store`，没有 ETag。在 `tifa dev` 下，开发客户端会把错误显示在页面上。失败的渲染会让它的 VM 退役，所以每次尝试都在一个全新的 VM 上运行。所有的尝试共享第一次渲染开始之后 `ssr.timeout` 的期限，当其中一次用完了时间、发现每个 VM 都忙，或请求被取消时，它们就会停止，第一次渲染也一样。用光了 `ssr.vm_memory` 的渲染不报告 levels，所以服务器会尝试页面有多少个路由就尝试多少次，再加上根路由和一个添加的路由的两次。两者都不是的失败会立刻停止。
 - 当路由器把 URL 写成不同的样子时（`/%61` 写成 `/a`），VM 返回一个重定向，服务器用状态 308 回答那个重定向，不带 ETag。当 URL 匹配某个页面时，渲染 memo 会像保存页面那样保存这个重定向，所以对这个 URL 的下一个请求不用渲染。这个重定向会把渲染没有看到的查询参数按请求里的样子放回去。末尾的斜杠（`/a/` 对应 `/a`）也会被重定向，但这样的 URL 不匹配任何页面，会渲染某个布局的 404，所以它的重定向不会被保存，和 404 一样。这个 URL 只是页面的另一种写法，所以重定向是永久的：搜索引擎把永久重定向当作规范的 URL，而不是临时的，并且 308 保留请求方法。ServeMux 对它清理过的路径（`/a//b`、`/a/./b`）或补上斜杠的路径写 307，服务器对这些也回答 308。`Load` 或 `OnRequest` 用 `tifa.Redirect` 要求的重定向保留它给出的状态。渲染只取决于构建 ID、SSR 包、它渲染的 URL 和数据，所以同一个 ETag 永远不会既属于 200 又属于重定向，客户端也永远不会得到会把这个重定向变成 304 的 ETag。
 - 非 GET 请求、API 路由和没有页面的应用仍然回答 JSON。
