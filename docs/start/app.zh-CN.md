@@ -4,7 +4,7 @@ audience: app
 order: 2
 translatedFrom: 5ea8abd3d27d
 read_when:
-  - '新建 Tifa 应用，或给应用加页面、Layout 或 API 路由'
+  - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'
   - '检查、构建或 dev 报出其他框架的写法，或者你正要凭 Next.js、Remix、React Router、TanStack Start、SvelteKit 的习惯写 Tifa 应用，或者在找静态生成、预渲染、`next/image`、`next/font`、`loading.tsx`'
   - '决定一个路由放在哪个文件夹，或者构建拒绝了某个文件夹名或两条重叠的路由'

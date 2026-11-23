@@ -1,5 +1,5 @@
 ---
-summary: '怎样在 route.go 里写路由的 Go 部分：Load、带类型输入和结果的方法处理函数、它们返回的错误、输入里的文件、路由的请求体上限和读取时间、Ctx 的方法、Load 和 Layout 里哪里可以用 Ctx，以及数据、输入和结果的 JSON 规则'
+summary: '怎样在 route.go 里写路由的 Go 部分：Load、带类型输入和结果的方法处理函数、它们返回的错误、输入里的文件、路由的请求体上限和读取时间、Ctx 的方法、Load 和布局里哪里可以用 Ctx，以及数据、输入和结果的 JSON 规则'
 audience: app
 order: 1
 translatedFrom: df3c79ab586f

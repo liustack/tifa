@@ -4,7 +4,7 @@ audience: app
 order: 9
 translatedFrom: 17908dad1da9
 read_when:
-  - '为 Load、Layout 函数、方法处理函数或 OnRequest 写 Go 测试'
+  - '为 Load、布局函数、方法处理函数或 OnRequest 写 Go 测试'
   - '在 go test 里用 tifatest.Start 或 tifatest.StartPages 测试一次完整的请求，比如登录后跟随重定向'
   - '`tifatest.Start` 失败，报错提到 `.tifa/tifaapp` 或 `.tifa/dist`'
   - '测试需要在渲染里使用固定的时间，用 `tifa.WithRenderClock`'
