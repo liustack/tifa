@@ -562,6 +562,13 @@ func TestI18nBuildFailures(t *testing.T) {
 			if err == nil || !strings.Contains(string(out), tc.want) {
 				t.Errorf("tifa build: %v\n%s\nwant %q", err, out, tc.want)
 			}
+			// tifa check stops at the same place, before it runs go vet and the tests.
+			if strings.HasPrefix(name, "lang in") {
+				out, err := exec.Command(cli(t), "check", "--dir", dir).CombinedOutput()
+				if err == nil || !strings.Contains(string(out), tc.want) {
+					t.Errorf("tifa check: %v\n%s\nwant %q", err, out, tc.want)
+				}
+			}
 		})
 	}
 }

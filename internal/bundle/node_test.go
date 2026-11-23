@@ -116,7 +116,7 @@ func TestNodeFindsTheLangKeysOfHTMLAttributes(t *testing.T) {
 		// The old place of the attributes is no longer read: the build refuses it elsewhere.
 		"old.tsx": "export const htmlAttributes = { lang: 'en' }\nexport default function O() { return null }\n",
 		// Nothing a static read can see: a name, a spread, a computed key, a local of the same name.
-		"clean.tsx": "const shared = { lang: 'en' }\nexport const documentHead = { htmlAttributes: shared }\nexport const head = () => ({ htmlAttributes: { ...shared, ['lang']: 'x' } })\n" +
+		"clean.tsx": "const shared = { lang: 'en' }\nexport const documentHead = { htmlAttributes: shared, meta: [{ htmlAttributes: { lang: 'deep' } }] }\nexport const head = () => ({ htmlAttributes: { ...shared, ['lang']: 'x' } })\n" +
 			"function f() { const htmlAttributes = { lang: 'x' }; return htmlAttributes }\nexport default function C() { return null }\n" +
 			// An object that only has a property of that name, outside the export and outside head.
 			"const example = { htmlAttributes: { lang: 'fr' } }\nexport function other() { return { htmlAttributes: { lang: 'x' } } }\n",
