@@ -142,7 +142,7 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
 | `deploy.front` | `none` | project file only | What visitors come through before the server: `none` or `cloudflare`. With `cloudflare`, `tifa deploy setup` puts the app behind a Cloudflare Tunnel at the host of `site.url` with cf, and `deploy` and `rollback` clear the CDN cache of that host name. Needs `site.url` without a port. See [Set up with a plan](deploy.md#set-up-with-a-plan) |
-| `deploy.ssh` | `direct` | project file only | How CI reaches the ssh of the server: `direct`, `cloudflare` or `tailscale`. Anything but `direct` needs `deploy.ci: github`, and `cloudflare` also needs `deploy.front: cloudflare` |
+| `deploy.ssh` | `direct` | project file only | How ssh reaches the server: `direct`, `cloudflare` (through the Cloudflare Tunnel, for CI and for your machine) or `tailscale` (for CI). `cloudflare` needs `deploy.front: cloudflare`, and `tailscale` needs `deploy.ci: github` |
 | `deploy.ci` | `none` | project file only | Who deploys automatically: `none` or `github`. With `github` the GitHub Actions of the repository deploy the app, which `tifa deploy setup` sets up. See [Deploy from GitHub Actions](deploy.md#deploy-from-github-actions) |
 
 ### Retired settings
