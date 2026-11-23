@@ -95,7 +95,7 @@ export default function StatsPage() {
 - Nothing the `.client.tsx` file imports reaches the SSR bundle. In the browser it is a chunk of its own, fetched the first time the component renders, also when the page itself is part of the entry script (the root Layout is).
 - The component shows a moment after the rest of the page, since its code is fetched after hydration. If the fetch fails, the component throws and the nearest `ErrorBoundary` shows.
 
-What this saved on the two charts of the example shop's stats page, with the two builds measured in turns on one machine: the SSR bundle went from 1.15 MB to 0.77 MB (a third less), compiling it when the program starts took 40% less time, loading each VM 24% less, each VM held 3.8 MB (a third) less memory after rendering, and the stats page rendered 21% faster. The browser entry script went from 1.08 MB to 0.70 MB, and the 0.38 MB of chart code is fetched only when a stats page opens.
+Keeping a browser-only library out of the SSR bundle this way made the bundle of the example shop a third smaller and its stats page render 21% faster. [Optimizations](../studies/optimizations.md#build) has the full numbers.
 
 ## Intl in server rendering
 
