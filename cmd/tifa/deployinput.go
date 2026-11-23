@@ -56,7 +56,7 @@ func closestInputName(key string) string {
 			}
 		}
 		score := float64(shared) / float64(len(a)+len(b)-shared)
-		dist := editDistance(key, name)
+		dist := config.EditDistance(key, name)
 		if score < 0.6 && dist > 2 {
 			continue
 		}
@@ -65,27 +65,6 @@ func closestInputName(key string) string {
 		}
 	}
 	return best
-}
-
-// editDistance is the number of single-letter changes that turn a into b.
-func editDistance(a, b string) int {
-	prev := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(a); i++ {
-		cur := make([]int, len(b)+1)
-		cur[0] = i
-		for j := 1; j <= len(b); j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev = cur
-	}
-	return prev[len(b)]
 }
 
 // readDeployInput finds the input called name for the app at root: flagValue (the flag flagName,

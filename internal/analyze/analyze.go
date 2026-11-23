@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"github.com/liustack/tifa/internal/config"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -667,7 +668,7 @@ func nearSwitch(c *types.Const) string {
 		if min(len(name), len(s)) <= 4 {
 			limit = 1
 		}
-		d := editDistance(name, s)
+		d := config.EditDistance(name, s)
 		if d == 0 {
 			return ""
 		}
@@ -676,27 +677,6 @@ func nearSwitch(c *types.Const) string {
 		}
 	}
 	return best
-}
-
-// editDistance is the number of single-letter changes that turn a into b.
-func editDistance(a, b string) int {
-	prev := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(a); i++ {
-		cur := make([]int, len(b)+1)
-		cur[0] = i
-		for j := 1; j <= len(b); j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev = cur
-	}
-	return prev[len(b)]
 }
 
 // routePackage returns the package of the route.go in d, nil without route.go and when the

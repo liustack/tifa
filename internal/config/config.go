@@ -414,15 +414,15 @@ func nearName(name string, names []string) string {
 		if min(len(name), len(n)) <= 4 {
 			limit = 1
 		}
-		if d := editDistance(name, n); d <= limit && (best == "" || d < bestDist) {
+		if d := EditDistance(name, n); d <= limit && (best == "" || d < bestDist) {
 			best, bestDist = n, d
 		}
 	}
 	return best
 }
 
-// editDistance is the number of single-letter changes that turn a into b.
-func editDistance(a, b string) int {
+// EditDistance is the number of single-letter changes that turn a into b.
+func EditDistance(a, b string) int {
 	prev := make([]int, len(b)+1)
 	for j := range prev {
 		prev[j] = j
