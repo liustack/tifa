@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A guide to logs, [Logs](docs/guides/logs.md): where the logs of an app are in `tifa dev`, on a server and in a container, what Tifa itself logs, how to log from your code with `log/slog`, how to set the format and the level, and a request log made with `tifa.SetHTTPHandler`.
+
 ## [0.4.1] - 2026-11-23
 
 ### Added

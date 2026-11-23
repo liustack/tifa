@@ -392,7 +392,7 @@ go tool tifa deploy remove
 
 They log in over ssh as `tifa` and find the server the way `tifa deploy` does.
 
-`logs` prints the journal of `tifa-<app>.service` and `tifa-<app>.socket`: what the app printed, and what systemd said about it, such as a start, an exit or a failure. journald keeps these lines in a journal file of the user `tifa` when it keeps the journal on disk, the default of Ubuntu and Debian. A server that keeps its journal in memory only shows `tifa` no lines.
+`logs` prints the journal of `tifa-<app>.service` and `tifa-<app>.socket`: what the app printed, and what systemd said about it, such as a start, an exit or a failure. journald keeps these lines in a journal file of the user `tifa` when it keeps the journal on disk, the default of Ubuntu and Debian. A server that keeps its journal in memory only shows `tifa` no lines. What the app logs, how to set the format and level, and how long journald keeps the lines are in [Logs](../guides/logs.md).
 
 `status` prints the release that runs and its commit, the other releases kept and whether each passed its health check, since when the service runs, what `GET /healthz` answers now, and the memory of the program:
 

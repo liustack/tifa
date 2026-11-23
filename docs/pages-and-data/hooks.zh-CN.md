@@ -2,7 +2,7 @@
 summary: '怎样在 hooks.go（OnStart、OnShutdown、OnRequest、OnError、日志处理器、net/http 中间件）和 setup.ts（首次渲染前运行的初始化）里设置整个应用，并指向会话文档'
 audience: app
 order: 6
-translatedFrom: 39b37e1b5b32
+translatedFrom: de0696eb589b
 read_when:
   - '在程序启动时打开数据库、开始工作或设置日志，或者让程序干净地停下'
   - '编写 `OnRequest` 或 `OnError`，或者用 `tifa.SetHTTPHandler` 给应用包一层 `net/http` 中间件'
@@ -32,16 +32,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 
 ### 更换日志 handler {#changing-the-log-handler}
 
-Tifa 用 `log/slog` 记录自己的消息，有级别也有字段：失败的请求是带 `method`、`path` 和 `err` 的 `ERROR`，被拒绝的跨站写请求是 `WARN`，监听的地址是 `INFO`。启动相关的行，比如地址，在 `OnStart` 返回之后才写，所以在那里设置的 handler 已经能收到它们。要改它们的去向，在 `OnStart` 里设置默认 handler：
-
-```go
-func OnStart(ctx context.Context) error {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	return nil
-}
-```
-
-Tifa 每条消息都会去查 `slog.Default()`，所以之后再调用 `slog.SetDefault` 也有效。
+Tifa 用 `log/slog` 记日志，每条消息都会去查 `slog.Default()`，所以在 `OnStart` 里调用 `slog.SetDefault` 就能改变它的日志去向和格式。Tifa 记哪些日志、格式和级别怎么设、怎样记录每个请求，见[日志](../guides/logs.md)。
 
 ### 在 OnStart 里设置 {#setting-up-in-onstart}
 

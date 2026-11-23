@@ -189,7 +189,7 @@ tifa dev is running in this app
 
 ### Logs
 
-`tifa dev logs` prints the last 100 lines of `.tifa/dev.log`, `-n <lines>` as many as you say. With `-f` it then prints new lines as they come, and ends when the `tifa dev` ends. The log stays after the server ended, so `tifa dev logs` also tells why it stopped. A `tifa dev` that was not started with `--background` prints to its terminal and keeps no log: `logs` says so.
+`tifa dev logs` prints the last 100 lines of `.tifa/dev.log`, `-n <lines>` as many as you say. With `-f` it then prints new lines as they come, and ends when the `tifa dev` ends. The log stays after the server ended, so `tifa dev logs` also tells why it stopped. A `tifa dev` that was not started with `--background` prints to its terminal and keeps no log: `logs` says so. What the app writes there, and how to set its format and level, is in [Logs](../guides/logs.md).
 
 ### Stop
 
