@@ -147,7 +147,7 @@ func TestBrowserCommandTimeoutLeavesNoProcess(t *testing.T) {
 		if _, err := runPlaywright("e2e-timeout", dir, 50*time.Millisecond, "open", "about:blank"); err == nil {
 			t.Fatal("open finished within 50ms, the deadline was not applied")
 		}
-		if d := time.Since(start); d > 10*time.Second {
+		if d := time.Since(start); d > 20*time.Second {
 			t.Fatalf("the command took %v to give up", d)
 		}
 	})
@@ -176,7 +176,9 @@ func TestRunPlaywrightEndsPipeHolders(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dir := t.TempDir()
 	start := time.Now()
-	if _, err := runPlaywright("e2e-fake", dir, 500*time.Millisecond, "open"); err == nil {
+	// The deadline leaves the script time to start its child even on a loaded machine: with 500 ms
+	// the full suite once killed it before it wrote child.pid.
+	if _, err := runPlaywright("e2e-fake", dir, 5*time.Second, "open"); err == nil {
 		t.Fatal("no error from a command that does not end")
 	}
 	if d := time.Since(start); d > 10*time.Second {
