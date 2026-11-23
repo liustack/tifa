@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -149,7 +150,8 @@ func branchFilterMatch(patterns []string, name string) bool {
 // filterRegexp turns a filter pattern into a regular expression for the whole name. * matches
 // anything but /, ** anything, ? and + repeat the character before them (zero or one, one or
 // more), and [] is a set of letters, digits and ranges of them. Any other character is itself.
-func filterRegexp(p string) *regexp.Regexp {
+func filterRegexp(pattern string) *regexp.Regexp {
+	p := []rune(pattern) // a branch name may have any character, so the pattern is read by character
 	var b strings.Builder
 	b.WriteString("^")
 	atoms := 0 // how many characters the pattern has put down so far, for ? and + to repeat
@@ -168,14 +170,14 @@ func filterRegexp(p string) *regexp.Regexp {
 				b.WriteString(regexp.QuoteMeta(string(c)))
 				atoms++
 			} else {
-				b.WriteByte(c)
+				b.WriteRune(c)
 			}
 		case '[':
-			end := strings.IndexByte(p[i:], ']')
-			if end < 0 || !setBody.MatchString(p[i+1:i+end]) {
+			end := slices.Index(p[i:], ']')
+			if end < 0 || !setBody.MatchString(string(p[i+1:i+end])) {
 				b.WriteString(`\[`)
 			} else {
-				b.WriteString("[" + p[i+1:i+end] + "]")
+				b.WriteString("[" + string(p[i+1:i+end]) + "]")
 				i += end
 			}
 			atoms++
