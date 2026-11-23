@@ -3,6 +3,8 @@
 #
 #   scripts/docs-list.sh           print the index
 #   scripts/docs-list.sh --check   also fail when a doc has no summary or no audience
+#   scripts/docs-list.sh --check-translations
+#                                  fail when the Chinese partners of the app docs are missing or stale
 #
 # Front matter format:
 #
@@ -16,6 +18,12 @@
 # audience says who the doc is for: app (writing, running or deploying an app) or dev (developing
 # Tifa itself). `tifa docs` lists the app docs by default and the dev docs with --all.
 #
+# A doc with audience: app has a Chinese partner beside it, docs/<path>/<name>.zh-CN.md, with the same
+# front matter keys and one more: translatedFrom, the value `scripts/doc-hash.sh docs/<path>/<name>.md`
+# prints. A change to the English file changes that hash, so the check fails until the Chinese file is
+# updated and carries the new hash. A doc with audience: dev has no Chinese partner. The index lists
+# the English files only.
+#
 # read_when also accepts the inline form: read_when: [a, b]
 #
 # This script reads the lines with awk and does not parse YAML. A read_when item that starts with a
@@ -25,10 +33,12 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 docs="$root/docs"
 check=false
+translations=false
 case "${1:-}" in
   "") ;;
   --check) check=true ;;
-  *) echo "usage: $0 [--check]" >&2; exit 2 ;;
+  --check-translations) translations=true ;;
+  *) echo "usage: $0 [--check|--check-translations]" >&2; exit 2 ;;
 esac
 
 if [ ! -d "$docs" ]; then
@@ -37,7 +47,49 @@ if [ ! -d "$docs" ]; then
 fi
 
 # Research notes are not part of the index.
-files="$(cd "$root" && find docs -type f -name '*.md' -not -path 'docs/research/*' | LC_ALL=C sort)"
+files="$(cd "$root" && find docs -type f -name '*.md' -not -path 'docs/research/*' -not -name '*.zh-CN.md' | LC_ALL=C sort)"
+
+# fm_key prints the value of a key of the front matter of a file.
+fm_key() {
+  awk -v key="$2" 'NR == 1 { next } $0 == "---" { exit } index($0, key ":") == 1 { sub(/^[^:]*:[ \t]*/, ""); gsub(/^["\x27]|["\x27]$/, ""); print; exit }' "$1"
+}
+
+if $translations; then
+  bad=0
+  problem() { echo "$1" >&2; bad=$((bad + 1)); }
+  all="$(cd "$root" && find docs -type f -name '*.md' -not -path 'docs/research/*' | LC_ALL=C sort)"
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    case "$file" in
+      *.zh-CN.md)
+        en="${file%.zh-CN.md}.md"
+        if [ ! -f "$root/$en" ]; then
+          problem "$file has no English file $en. Delete it or move it beside its English file."
+        elif [ "$(fm_key "$root/$en" audience)" != app ]; then
+          problem "$file: $en is for audience dev and stays English only. Delete the Chinese file."
+        else
+          want="$("$root/scripts/doc-hash.sh" "$root/$en")"
+          have="$(fm_key "$root/$file" translatedFrom)"
+          if [ "$have" != "$want" ]; then
+            problem "$file: translatedFrom is ${have:-missing} but $en hashes to $want. The English changed: update the Chinese in the same commit, then set translatedFrom to $want (scripts/doc-hash.sh $en)."
+          fi
+        fi
+        ;;
+      *)
+        if [ "$(fm_key "$root/$file" audience)" = app ] && [ ! -f "$root/${file%.md}.zh-CN.md" ]; then
+          problem "$file has no Chinese partner ${file%.md}.zh-CN.md. Write the Chinese in the same commit as the English."
+        fi
+        ;;
+    esac
+  done <<LIST
+$all
+LIST
+  if [ "$bad" -gt 0 ]; then
+    echo "$bad problem(s) with the Chinese docs. Update the Chinese in the same commit as the English." >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 missing=0
 listed=0
