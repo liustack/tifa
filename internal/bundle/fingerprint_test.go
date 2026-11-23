@@ -173,7 +173,7 @@ func TestReactDOMUnitsIncludeTheOrderOfTheTopLevel(t *testing.T) {
 }
 
 // Lists the parts of the React DOM that is installed whose fingerprints are not in reviewedReactDOM
-// of the plugin, with the lines they are on, for a review of a new release (docs/build-and-deploy/build.md). It
+// of the plugin, with the lines they are on, for a review of a new release (docs/internals/ssr-bundle-rewrites.md). It
 // prints nothing to fail on and is skipped unless TIFA_REACT_UNITS=1:
 //
 //	TIFA_REACT_UNITS=1 go test -run TestListUnreviewedReactDOMUnits -v ./internal/bundle
@@ -222,7 +222,7 @@ func TestListUnreviewedReactDOMUnits(t *testing.T) {
 	version := installedVersion(t, "react-dom")
 	if len(listed.Emit) > 0 {
 		t.Logf("react-dom %s: the engine does not write the start and end tags, since these parts differ from reviewedEmitPieces: %s. "+
-			"The C functions of slowjs must do what they do before the table takes their new fingerprints (docs/build-and-deploy/build.md)", version, strings.Join(listed.Emit, ", "))
+			"The C functions of slowjs must do what they do before the table takes their new fingerprints (docs/internals/ssr-bundle-rewrites.md)", version, strings.Join(listed.Emit, ", "))
 	}
 	var lines []string
 	for _, u := range units {
@@ -247,5 +247,5 @@ func TestListUnreviewedReactDOMUnits(t *testing.T) {
 		t.Logf("react-dom %s: every part is in reviewedReactDOM", version)
 		return
 	}
-	t.Logf("react-dom %s: %d parts to read. Read them for what they do with a key path (docs/build-and-deploy/build.md), then add these lines to reviewedReactDOM in js/vite/plugin.js:\n%s", version, len(lines), strings.Join(lines, "\n"))
+	t.Logf("react-dom %s: %d parts to read. Read them for what they do with a key path (docs/internals/ssr-bundle-rewrites.md), then add these lines to reviewedReactDOM in js/vite/plugin.js:\n%s", version, len(lines), strings.Join(lines, "\n"))
 }

@@ -76,7 +76,7 @@ jobs:
 
       # What a reviewer reads when a release changes React DOM: the parts of its string renderer that
       # the table of the plugin does not have, with their lines and the lines to add to the table.
-      # See "Reviewing a new React" in docs/build-and-deploy/build.md. It never fails the job: the build below does.
+      # See "Reviewing a new React" in docs/internals/ssr-bundle-rewrites.md. It never fails the job: the build below does.
       - name: List the parts of the new React DOM to read
         run: TIFA_REACT_UNITS=1 go test -count=1 -run TestListUnreviewedReactDOMUnits -v ./internal/bundle
 
