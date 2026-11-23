@@ -11,9 +11,9 @@ versions: 'Each section says what it was measured with: Tifa c729ad2 with quickj
 
 # Capacity measurements
 
-[Performance](../performance.md) has the conclusions for sizing a machine. This study keeps the tables and methods behind them, each with the date and versions it was measured with. Later releases change the numbers: read a ratio from one table, not across tables.
+[Performance](../reference/performance.md) has the conclusions for sizing a machine. This study keeps the tables and methods behind them, each with the date and versions it was measured with. Later releases change the numbers: read a ratio from one table, not across tables.
 
-quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](optimizations.md#engine)). Most of the render numbers below were measured on 2026-10-24 with quickjs v0.28.6, the engine before it, so each Tifa time in them is now about 15% lower. [Against Next.js and TanStack Start](../performance.md#against-nextjs-and-tanstack-start) (2026-11-06, quickjs v0.30.1), [How it scales with cores](#how-it-scales-with-cores) (2026-11-06, quickjs v0.30.1), the redesigned shop, [Memory](#memory), [Extreme pages](optimizations.md#extreme-pages) and the profile were measured with the C engine.
+quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](optimizations.md#engine)). Most of the render numbers below were measured on 2026-10-24 with quickjs v0.28.6, the engine before it, so each Tifa time in them is now about 15% lower. [Against Next.js and TanStack Start](../reference/performance.md#against-nextjs-and-tanstack-start) (2026-11-06, quickjs v0.30.1), [How it scales with cores](#how-it-scales-with-cores) (2026-11-06, quickjs v0.30.1), the redesigned shop, [Memory](#memory), [Extreme pages](optimizations.md#extreme-pages) and the profile were measured with the C engine.
 
 The example shop was redesigned on 2026-10-28 and its pages got heavier. Only the comparison below, the render times in [The redesigned shop](optimizations.md#the-redesigned-shop) and the memory numbers use the new pages. Every other number here was measured on the pages from before.
 
@@ -67,9 +67,9 @@ The MUI rows were measured again with the C engine (quickjs 0cc6d332, 2026-10-29
 
 ## Whole visits: the traffic and the method
 
-The numbers are in [Performance](../performance.md#whole-visits-to-the-shop-2026-11-18).
+The numbers are in [Performance](../reference/performance.md#whole-visits-to-the-shop-2026-11-18).
 
-[Testing](../testing.md#whole-visits-compare-plans-record-links-deps-and-browse) has every rule with where it is checked.
+[Testing](../internals/testing.md#whole-visits-compare-plans-record-links-deps-and-browse) has every rule with where it is checked.
 
 - **Visits.** A shopper visit is 4 page views on average, one landing and three actions on the page. An action is a click on a link, a search, filters, a sort or the next page of a list, done in a real browser with the control of the page. 6.6% of shopper visits add to the cart and 1.3% check out (medians of 438 Shopify stores, [Littledata](https://www.littledata.io/benchmarks)). 20% are returning visitors with a cart of their own, and 2% of all visits are staff. Writes are 2.1% of the actions.
 - **Warm-up.** Every server gets the same warm-up before the clock of each round: visits of the mix with their writes, as many as the longest round of any server. Tifa's render memo is empty before the warm-up, and the Node apps get no other warm-up.
@@ -81,7 +81,7 @@ The numbers are in [Performance](../performance.md#whole-visits-to-the-shop-2026
 
 ## How it scales with cores
 
-Measured on 2026-11-06 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. This is render capacity: every cache is off (`ssr.memo_size` 0), there is one request in flight per VM, and every URL is unique so that no two requests share a render. [Sizing a machine](#sizing-a-machine) sizes with it. The render memo raises what a core serves a lot, and [the comparison](../performance.md#against-nextjs-and-tanstack-start) shows it on one core. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
+Measured on 2026-11-06 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. This is render capacity: every cache is off (`ssr.memo_size` 0), there is one request in flight per VM, and every URL is unique so that no two requests share a render. [Sizing a machine](#sizing-a-machine) sizes with it. The render memo raises what a core serves a lot, and [the comparison](../reference/performance.md#against-nextjs-and-tanstack-start) shows it on one core. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
 
 The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `GOMAXPROCS`). The client ran on cpu 3, the fourth physical core, with its sibling idle. All four core pairs were locked for the whole run. Each cell is the median of three rounds with fresh servers, 30 s steady after 1,000 cold requests per connection, with the range in brackets.
 
@@ -102,7 +102,7 @@ The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `
 
 ### CPU and `ssr.vms`
 
-- [`ssr.vms`](../config.md#settings) defaults to the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit, at most 4: 1, 2, 4 and 4 VMs on 1, 2, 4 and 8 CPUs. Up to 4 CPUs leave it. On more CPUs, set it to the CPU count, such as `--ssr-vms 8` or `SSR_VMS=8`, when the memory allows (see [Memory](#memory)).
+- [`ssr.vms`](../build-and-deploy/config.md#settings) defaults to the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit, at most 4: 1, 2, 4 and 4 VMs on 1, 2, 4 and 8 CPUs. Up to 4 CPUs leave it. On more CPUs, set it to the CPU count, such as `--ssr-vms 8` or `SSR_VMS=8`, when the memory allows (see [Memory](#memory)).
 - Plan on about 42 page requests a second per physical core for pages like the shop's workbench, about 24 ms of a core each with HTTP, measured with the render memo off ([how it scales](#how-it-scales-with-cores)). The storefront took about 29 ms a request, so about 34 a second, on 2026-10-24 before the redesign. Pages with a different render time scale with it.
 - A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.6 of a physical core per vCPU: 6 busy hyperthreads answered 153 requests a second, 26 per vCPU, against 42 on a physical core. Renders are then about 1.65 times slower: a P50 of 32.5 ms against 19.4 ms.
 - More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, with the shop's pages of 2026-10-24, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.
@@ -122,13 +122,13 @@ Only a full page load renders. Navigating in the browser fetches JSON that Go wr
 
 Much of their cost was the app's: when this was measured, the shop's `Load` functions copied and sorted every order on each request. They now read indexes and running totals that the writes keep. The `PATCH` row may be limited by the load tool, which used a whole CPU.
 
-Requests for a page that miss the cache at the same time share one render (see [SSR and cache](../ssr-and-cache.md#ssr-and-cache)), so a burst on a cold page, such as right after a deploy, costs one render instead of one per request. 50 requests at once for a cold order page, a fresh process each round, five rounds: one render each round, and all 50 answered in 32.5 to 33.2 ms with 10 VMs on 8 CPUs, and in 30.9 to 38.0 ms with 2 VMs on 2 CPUs. The one render is the first in a fresh VM, which is slower than a warm one.
+Requests for a page that miss the cache at the same time share one render (see [SSR and cache](../pages-and-data/ssr-and-cache.md#ssr-and-cache)), so a burst on a cold page, such as right after a deploy, costs one render instead of one per request. 50 requests at once for a cold order page, a fresh process each round, five rounds: one render each round, and all 50 answered in 32.5 to 33.2 ms with 10 VMs on 8 CPUs, and in 30.9 to 38.0 ms with 2 VMs on 2 CPUs. The one render is the first in a fresh VM, which is slower than a warm one.
 
 ### Overload
 
 Keep the usual arrival rate below measured render capacity. At capacity, small changes in render time can grow a queue. More VMs than the CPUs can run do not fix sustained overload.
 
-The defaults allow 32 renders to wait for a VM, each for at most 3 seconds. A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`. The answer comes from Go and uses no VM. These are expected rejections and do not call `OnError`. See [Render queue](../config.md#render-queue).
+The defaults allow 32 renders to wait for a VM, each for at most 3 seconds. A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`. The answer comes from Go and uses no VM. These are expected rejections and do not call `OnError`. See [Render queue](../build-and-deploy/config.md#render-queue).
 
 Both bounds matter. A time limit alone still lets the number waiting grow with the arrival rate. A count limit alone can leave requests waiting while every VM is slow or being replaced. With the shop's capacity, 32 waiting renders are about a third of a second of work. The 3 second wait equals the default render time limit (`ssr.timeout`), so a request waits at most 3 seconds and then renders at most 3 seconds, 6 seconds in all for the SSR part, inside the 10 second HTTP write timeout. `OnRequest`, `Load`, encoding, compression and writing the answer share that timeout, so leave room for them when you raise either value. When 32 waiting renders would need more than 3 seconds of VM time (renders over about 100 ms on one VM), the time limit comes first. Otherwise the count limit comes first and the wait limit only matters when VMs are slow or being replaced. On one core with the six workbench pages (about 11 ms a render), a wait limit of 1 second and of 3 seconds showed no measurable difference in throughput, 503 count or latency under twice the capacity for 40 seconds. For pages with a different cost, set `ssr.queue_limit` and `ssr.wait_timeout` from their measured capacity and acceptable wait. `ssr.queue_limit: 0` rejects whenever no VM is idle.
 
@@ -188,11 +188,11 @@ The pool replaces a VM in the background when its live size after a full collect
 - A failed load keeps the old VM serving and retries after 1 second, doubling up to 30 seconds, with one warning until recovery. Each successful swap logs the baseline, old live size, bound and new live size, and increments the pool's replacement counter. Shutdown waits for loading and closes any unused spare. Module state in a replaced VM is lost, as after a failed render. Persistent application state belongs in Go.
 - A VM left in an unknown state by an exception, timeout, memory failure or panic still leaves service at once, and the pool runs one VM short until its replacement has loaded. Replacement in the background only handles VMs whose renders have succeeded.
 
-`ssr.vm_memory` (128 MiB per VM by default) is far above this. One case needs room on top, described in [Stack depth](../config.md#stack-depth), which says how to lower it on a small machine: code that recurses without end can add up to about 26 MB per VM for a moment.
+`ssr.vm_memory` (128 MiB per VM by default) is far above this. One case needs room on top, described in [Stack depth](../build-and-deploy/config.md#stack-depth), which says how to lower it on a small machine: code that recurses without end can add up to about 26 MB per VM for a moment.
 
 ## Compression
 
-With [`server.compress`](../config.md#settings) on, the default (see [Compression](../build.md#compression)), compressing a page costs 1% to 2% of its render time, and the browser bundle goes out as the gzip files the build wrote, at no CPU.
+With [`server.compress`](../build-and-deploy/config.md#settings) on, the default (see [Compression](../build-and-deploy/build.md#compression)), compressing a page costs 1% to 2% of its render time, and the browser bundle goes out as the gzip files the build wrote, at no CPU.
 
 What compressing one page takes, on one core, with the encoders reused as the server reuses them, the mean of 200 runs, next to the render P50 from [How fast a page renders](#how-fast-a-page-renders):
 
@@ -232,11 +232,11 @@ Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and o
 
 ## Content-Security-Policy
 
-With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](../config.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render memo keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
+With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](../build-and-deploy/config.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render memo keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
 
 ## Measuring again
 
-[Testing](../testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](../testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale. Rules that keep numbers comparable:
+[Testing](../internals/testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](../internals/testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale. Rules that keep numbers comparable:
 
 - Compare on the same machine, alternating between the old and new build, round after round. Only ratios from the same rounds compare: a busy machine can change absolute times several times over.
 - Pin each run to one core and keep its hyperthread sibling idle. On Linux, `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` names the sibling. Note the load of the machine during each round, and run again when other work used more than about 10% of the CPU.
@@ -245,6 +245,6 @@ With `server.csp` on, Go takes the marks out of each page the VM renders and has
 
 Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --ssr-memo-size 0` with `SHOP_OPEN=1` in its environment, pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
 
-Next.js and TanStack Start: `go run ./test/compare/cmd/compare measure` builds the apps and runs this method with the cores as flags (see [Testing](../testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)).
+Next.js and TanStack Start: `go run ./test/compare/cmd/compare measure` builds the apps and runs this method with the cores as flags (see [Testing](../internals/testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)).
 
 Node: copy the same `.tifa/dist/ssr.js` to `ssr.mjs` and load it with `import()`, since the bundle is an ES module, render the same inputs, warm up for several hundred renders, and run once with JIT and once with `--jitless` on the same core as the QuickJS benchmark. Before the import, make the getters Node has on `globalThis`, such as `crypto` and `navigator`, plain values, since the bundle assigns them, and add `Iterator.concat`, which TanStack Router calls and Node 24.13 lacks. To find what to change next, compare the time each function takes in QuickJS with the time it takes in Node with `--jitless`: a function far slower than the average ratio is a candidate.

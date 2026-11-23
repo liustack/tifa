@@ -13,7 +13,7 @@ It does not do: streaming SSR, React Server Components, or rendering that waits 
 
 ## Docs of the installed version
 
-Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and one line on each doc for writing an app (`--when` adds when to read each, `--all` lists the docs about developing Tifa too). The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
+Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and one line on each doc for writing an app (`--when` adds when to read each, `--all` lists the docs about developing Tifa too, `--lang zh-CN` lists the Chinese docs). The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
 
 ## Commands
 
@@ -91,7 +91,7 @@ Sessions (see `references/routing-and-data.md`):
 - Rolling your own session cookie. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, and `tifa.SetSessionStore` in `OnStart` moves the record from memory to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`. Sign out with `func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }`.
 - Showing who is signed in from the data of a `Load`. Use `useSession()`, `<SignedIn>` and `<SignedOut>` from `tifa/client`, which wrap one element each and are right from the first paint. Give the session type an `Exposed()` method that returns only what the browser may keep, and read it as `data`. A page with `const Cache` is made once for everyone, so its `Load` and Layouts see no cookie, header or session (the build fails when they read one). Take the user, and anything else the visitor owns such as a cart, from `useSession` or from a handler the browser calls after the page has loaded.
 
-Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/app.md#coming-from-another-framework`).
+Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/start/app.md#coming-from-another-framework`).
 
 Names the build rejects: exporting `NotFound`, `Document` or `Error` (rename it to `ErrorBoundary`), declaring `const Path`, a `form` struct tag (also in a struct passed to `c.Bind` or `c.BindQuery`), `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `ErrorBoundary` export, with a check `error instanceof TifaError && error.status === 404`.
 

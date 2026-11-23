@@ -194,7 +194,7 @@ Intro with Upgrading: in prose that is no entry.
 ### Changed
 
 - Plain change.
-- Pages render faster. Upgrading: read the parameter in the ` + "`Load`" + `. See [docs](docs/app.md).
+- Pages render faster. Upgrading: read the parameter in the ` + "`Load`" + `. See [docs](docs/start/app.md).
   It goes on in the next line.
 - Another one. Upgrading from v0.0.4: rename ` + "`A`" + ` to ` + "`B`" + `.
 
@@ -213,7 +213,7 @@ Intro with Upgrading: in prose that is no entry.
 func TestUpgradingNotes(t *testing.T) {
 	got := upgradingNotes(sampleChangelog, "v0.0.4", "v0.0.6")
 	want := []upgradeNote{
-		{"v0.0.6", "read the parameter in the `Load`. See [docs](docs/app.md). It goes on in the next line."},
+		{"v0.0.6", "read the parameter in the `Load`. See [docs](docs/start/app.md). It goes on in the next line."},
 		{"v0.0.6", "rename `A` to `B`."},
 		{"v0.0.5", "run `go tool tifa agents`."},
 	}

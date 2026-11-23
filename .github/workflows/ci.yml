@@ -1,4 +1,4 @@
-# What runs on every push and pull request. See "CI" in docs/testing.md for what
+# What runs on every push and pull request. See "CI" in docs/internals/testing.md for what
 # it covers and what it leaves out.
 name: ci
 
@@ -66,10 +66,10 @@ jobs:
       # test/compare plays rounds of the browse run against fake servers on the
       # clock and takes about 6 minutes, internal/bundle runs Vite on Node and
       # takes 6 to 9: too close to the 10 minutes go test gives a package by
-      # default. See "CI" in docs/testing.md.
+      # default. See "CI" in docs/internals/testing.md.
       - name: Test
         run: go test -count=1 -timeout 20m ./...
-      - name: Docs have a summary
+      - name: Docs have a summary and a Chinese partner
         run: scripts/docs-list.sh --check
       # A binary built in the checkout and committed by mistake goes into every
       # module download.
@@ -145,7 +145,7 @@ jobs:
     # A fast subset: everything compiles, a few packages that pass on Windows, the front end build
     # of a new app and of the shop, started and asked for a page, tifa dev on a new app and its
     # end-to-end tests, the deploy tests, and a new app cloned with CRLF line ends. The full suite
-    # does not run on Windows yet. See "CI" in docs/testing.md.
+    # does not run on Windows yet. See "CI" in docs/internals/testing.md.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: windows (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

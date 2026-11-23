@@ -34,7 +34,7 @@ var sshProgram = "ssh"
 var deployNow = time.Now
 
 // buildForServer builds the app at root for goos/goarch into out. It runs this tifa again as tifa
-// build with GOOS and GOARCH set, as docs/build.md says to build for another system, so the
+// build with GOOS and GOARCH set, as docs/build-and-deploy/build.md says to build for another system, so the
 // analysis and go build pick the files of the target. Tests replace it.
 var buildForServer = func(ctx context.Context, root, goos, goarch, out string, stdout, stderr io.Writer) error {
 	exe, err := os.Executable()

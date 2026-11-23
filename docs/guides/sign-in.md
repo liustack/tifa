@@ -1,6 +1,7 @@
 ---
 summary: 'How to sign users in and out in a Tifa app with Tifa sessions: a sign-in form, keeping and checking passwords with argon2id, SetSession, reading the user in Load and handlers, a guard that sends a signed-out visitor to the sign-in page and back with c.Path(), guarding pages, signing out, showing who is signed in in the browser, and one way to slow down password guessing'
 audience: app
+order: 3
 read_when:
   - Adding sign-in and sign-out to an app, or putting some pages behind a login
   - Choosing how to store and check passwords
@@ -12,7 +13,7 @@ read_when:
 
 Visitors sign in with an e-mail and a password, see an account page that only they can open, and sign out. Tifa keeps the session: the random token, the cookie and the expiry. Your code does three things: keep and check the passwords, say when someone is signed in or out, and decide who may see what.
 
-The code was run as written (with `go tool tifa check` and in a browser). What each session call does, and what the cookie is, is in [Sessions](../sessions.md). This guide does not repeat it.
+The code was run as written (with `go tool tifa check` and in a browser). What each session call does, and what the cookie is, is in [Sessions](../pages-and-data/sessions.md). This guide does not repeat it.
 
 ## Who is signed in
 
@@ -36,7 +37,7 @@ type Me struct {
 func (s Session) Exposed() Me { return Me{Name: s.Name} }
 ```
 
-One session type for the whole app. `Exposed` is the part that goes to the browser, where it is kept on the visitor's device. Put nothing secret in it (see [the browser side](../sessions.md#in-the-browser)).
+One session type for the whole app. `Exposed` is the part that goes to the browser, where it is kept on the visitor's device. Put nothing secret in it (see [the browser side](../pages-and-data/sessions.md#in-the-browser)).
 
 ## Passwords
 
@@ -299,7 +300,7 @@ func SignInRedirect(next string) error {
 
 `c.Path()` is the path of the page as the visitor sees it in the address bar: the language prefix is in it, and the query is not. It is the same when the page is loaded whole and when a link click asks for its data, and for a handler it is the path of the handler. `c.Request()` is not for this: `Load` may not call it, and on a link click the request is a data request, not the page. `RequireUser` works in `OnRequest`, in a `Load` and in the functions they call.
 
-The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../routes.md#how-load-may-use-ctx)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
+The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../pages-and-data/routes.md#how-load-may-use-ctx)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
 
 ## The hooks
 
@@ -428,11 +429,11 @@ func safeNext(next string) string {
 }
 ```
 
-- Sign in in a method handler, not in a `Load`. A `Load` runs for a GET, which must not change anything, and `SetSession` returns an error there (see [where to call what](../sessions.md#where-to-call-what)).
+- Sign in in a method handler, not in a `Load`. A `Load` runs for a GET, which must not change anything, and `SetSession` returns an error there (see [where to call what](../pages-and-data/sessions.md#where-to-call-what)).
 - `SetSession` makes a new random token on every call and drops the session the request came with, so a sign-in never keeps a token someone else chose.
 - An unexpected error (a database that is down) goes to `OnError`. A wrong password is a `tifa.Error` with a status, which does not.
 - `next` comes from the URL, so anyone can put anything in it. `safeNext` keeps it to a path on this site. Without it your sign-in page would send visitors to any site an attacker names. Do not drop it.
-- The handler returns `tifa.Redirect(..., 303)`. The page's call follows it through the router, and the copy of the session in the browser is updated by the same answer (see [the browser side](../sessions.md#in-the-browser)).
+- The handler returns `tifa.Redirect(..., 303)`. The page's call follows it through the router, and the copy of the session in the browser is updated by the same answer (see [the browser side](../pages-and-data/sessions.md#in-the-browser)).
 
 ## The sign-in page
 
@@ -557,7 +558,7 @@ func POST(c *tifa.Ctx, in RenameInput) error {
 - **Read the session, then the database.** Take the ID from the session and load the rest. The session is a copy made at sign-in. A name changed later, a role taken away or a disabled account is not in it.
 - **Guard in two places.** `OnRequest` turns visitors away from a whole area before any `Load` runs, for page loads and link clicks alike. A handler is a URL of its own and can be called without its page, so each handler that needs a user checks the session itself. A `Load` that returns a user's data should do the same, with `RequireUser`.
 - **Keep the copy in step.** When something in the session changes, call `SetSession` again, as `POST` does. The call brings the new session to the browser, so the header follows at once.
-- **Pages with `Cache`.** On a page with `Cache`, `Session` is nil for everyone, so such a page cannot be private (see [Cache for CDNs](../ssr-and-cache.md#cache-for-cdns)).
+- **Pages with `Cache`.** On a page with `Cache`, `Session` is nil for everyone, so such a page cannot be private (see [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns)).
 
 `app/account/page.tsx`:
 
@@ -622,9 +623,9 @@ func POST(c *tifa.Ctx) error {
 }
 ```
 
-`ClearSession` deletes the record on the server and drops the cookie, so the old cookie is of no use even if someone kept a copy. It does nothing when nobody is signed in. Sign out with a POST and never a GET: a link or an image on another site would otherwise do it (see [Sign-in libraries](../sessions.md#sign-in-libraries)).
+`ClearSession` deletes the record on the server and drops the cookie, so the old cookie is of no use even if someone kept a copy. It does nothing when nobody is signed in. Sign out with a POST and never a GET: a link or an image on another site would otherwise do it (see [Sign-in libraries](../pages-and-data/sessions.md#sign-in-libraries)).
 
-The page needs to hear that the session ended: the copy of it in the browser drives `SignedIn`, `SignedOut` and `useSession`. Tifa puts the new session in the answer of the call, so the header follows at once. This holds for a handler that redirects, as above, and for one that ends with `return tifa.ClearSession(c)` and has no input and no result. Only a handler that writes its own response with `c.JSON` or `c.Text` cannot carry it (see [the browser side](../sessions.md#in-the-browser)).
+The page needs to hear that the session ended: the copy of it in the browser drives `SignedIn`, `SignedOut` and `useSession`. Tifa puts the new session in the answer of the call, so the header follows at once. This holds for a handler that redirects, as above, and for one that ends with `return tifa.ClearSession(c)` and has no input and no result. Only a handler that writes its own response with `c.JSON` or `c.Text` cannot carry it (see [the browser side](../pages-and-data/sessions.md#in-the-browser)).
 
 ## The browser side
 
@@ -683,7 +684,7 @@ function Account() {
 - `SignedIn` and `SignedOut` show their one child by the session. The server marks the page, so the first paint is right and nothing flashes.
 - `data` is the `Exposed` part of the session, typed from Go. It is for showing, not for deciding what someone may do. Go decides that.
 - `router.clearCache()` after signing out drops the pages the router kept in memory, so the next person on this browser does not see the last one's data.
-- A `fetch` of your own that signs someone in or out is unknown to Tifa. Use the generated function, or call `router.invalidate()` after it (see the end of [the browser side](../sessions.md#in-the-browser)).
+- A `fetch` of your own that signs someone in or out is unknown to Tifa. Use the generated function, or call `router.invalidate()` after it (see the end of [the browser side](../pages-and-data/sessions.md#in-the-browser)).
 
 ## Test it
 
@@ -734,7 +735,7 @@ func TestSignIn(t *testing.T) {
 }
 ```
 
-`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.SignIn` (see [Testing sessions](../sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../testing-apps.md#testing-a-whole-request)).
+`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../pages-and-data/sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.SignIn` (see [Testing sessions](../pages-and-data/sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../pages-and-data/testing-apps.md#testing-a-whole-request)).
 
 `app/account/request_test.go` walks the whole path as a browser does, with `tifatest.Start`: the guard, the sign-in, the page, the sign-out and the guard again. It is in a package of its own because `tifaapp` imports every route:
 
@@ -790,15 +791,15 @@ func TestSignInAndOut(t *testing.T) {
 }
 ```
 
-`Start` runs `OnStart`, so the demo account exists. `client` keeps the session cookie from the sign-in and sends it on the next request, and the sign-out drops it. The test fails with a message to run `go tool tifa check` when `.tifa/tifaapp` is out of date (see [Testing a whole request](../testing-apps.md#testing-a-whole-request)).
+`Start` runs `OnStart`, so the demo account exists. `client` keeps the session cookie from the sign-in and sends it on the next request, and the sign-out drops it. The test fails with a message to run `go tool tifa check` when `.tifa/tifaapp` is out of date (see [Testing a whole request](../pages-and-data/testing-apps.md#testing-a-whole-request)).
 
 ## Decisions
 
-**Sessions in memory or in a store.** Without a store, sessions live in the memory of the process and a restart signs everyone out. That is fine to start with. When it matters, give `OnStart` a store (see [Where to store sessions](../sessions.md#where-to-store-sessions)).
+**Sessions in memory or in a store.** Without a store, sessions live in the memory of the process and a restart signs everyone out. That is fine to start with. When it matters, give `OnStart` a store (see [Where to store sessions](../pages-and-data/sessions.md#where-to-store-sessions)).
 
 **How long a session lasts.** 30 days from sign-in, set by `session.max_age`. It does not renew. Shorten it for an app with money or private data in it.
 
-**OAuth, magic links, two-step codes.** They replace the password check, not the rest. When the check succeeds, call `tifa.SetSession` as above. The temporary state of those flows goes in a short cookie of the library's own (see [Sign-in libraries](../sessions.md#sign-in-libraries)).
+**OAuth, magic links, two-step codes.** They replace the password check, not the rest. When the check succeeds, call `tifa.SetSession` as above. The temporary state of those flows goes in a short cookie of the library's own (see [Sign-in libraries](../pages-and-data/sessions.md#sign-in-libraries)).
 
 **Registration and password reset.** Not shown. Both end in `HashPassword` and a write to your users table.
 

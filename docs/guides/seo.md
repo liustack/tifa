@@ -1,6 +1,7 @@
 ---
 summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, og: tags for share cards, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
 audience: app
+order: 8
 read_when:
   - Setting the title, description or share card (`og:title`, `og:image`, `twitter:card`) of a page, or a link to the site shows no image in a chat or feed
   - Putting a Tifa site in front of search engines, or adding a sitemap or a robots.txt
@@ -36,7 +37,7 @@ site:
 | `/llms-full.txt` | The Markdown of every page that shows a content entry, one after the other |
 | `<path>.md` | The Markdown version of a page that shows a content entry, such as `/blog/hello.md` |
 
-Every page also gets `<link rel="canonical">` with its full URL: the path and the query parameters its `Load` and Layouts read, the URL the server renders it with (see [Query parameters](../memo.md#query-parameters)). Other parameters are left out. So `/store/products?page=2&utm_source=news` has the canonical URL `/store/products?page=2` when its `Load` reads `page`: page 2 of a list is a page of its own, and a link with a tracking parameter is no copy. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
+Every page also gets `<link rel="canonical">` with its full URL: the path and the query parameters its `Load` and Layouts read, the URL the server renders it with (see [Query parameters](../reference/memo.md#query-parameters)). Other parameters are left out. So `/store/products?page=2&utm_source=news` has the canonical URL `/store/products?page=2` when its `Load` reads `page`: page 2 of a list is a page of its own, and a link with a tracking parameter is no copy. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
 
 A page with a canonical URL also gets `<meta property="og:url">` with the same URL, so a shared link points at the page without its tracking parameters. An `og:url` in the `head` of a route, or in the `documentHead` of the root Layout, wins, and the page has only that one. When the page writes its own canonical, `og:url` repeats that URL.
 
@@ -46,7 +47,7 @@ A site whose pages all have fixed paths, such as `/`, `/about` and `/pricing`, n
 
 ## Share cards
 
-A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
+A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages-and-data/pages.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
 
 ```go
 // app/products/product+/route.go
@@ -131,7 +132,7 @@ func sitemap(c *tifa.Ctx) (tifa.Sitemap, error) {
 
 The function runs on each request for `/sitemap.xml`, `/llms.txt`, `/llms-full.txt` and a `.md` path, so a post that comes out at its date is in the sitemap from that moment. Keep it fast: read what is in memory, such as a content collection, or run one query. `SetSitemap` panics once the server listens, like `SetHTTPHandler`.
 
-The function lives in the root package, next to `hooks.go`. It can read a collection of `content.go` directly. To read a domain under `app/`, the root package must be able to import it: see [which way imports go](../structure.md#which-way-imports-go).
+The function lives in the root package, next to `hooks.go`. It can read a collection of `content.go` directly. To read a domain under `app/`, the root package must be able to import it: see [which way imports go](../start/structure.md#which-way-imports-go).
 
 ### `tifa.Sitemap`
 
@@ -233,7 +234,7 @@ A page with `Content` has a Markdown version at its URL with `.md`: `/blog/hello
 [news](https://i18n.example.com/en-US/store/news) [projects](https://i18n.example.com/projects) [icon](https://i18n.example.com/favicon.svg)
 ```
 
-- `tifa build` keeps the Markdown of each entry next to its HTML, drafts excepted, as it keeps the HTML. The links and images point where those of the HTML point, written in full with `site.url`: images go to their file under `/assets/`, and root-relative links get the language prefix of the entry (see [Images and links](../content.md#images-and-links)). Under `tifa dev` they stay local paths.
+- `tifa build` keeps the Markdown of each entry next to its HTML, drafts excepted, as it keeps the HTML. The links and images point where those of the HTML point, written in full with `site.url`: images go to their file under `/assets/`, and root-relative links get the language prefix of the entry (see [Images and links](../pages-and-data/content.md#images-and-links)). Under `tifa dev` they stay local paths.
 - HTML comments are left out. Front matter is not there: what a reader needs from it goes in the title.
 - The answer has `Content-Type: text/markdown; charset=utf-8` and a `Link` header with the canonical URL of the page, so a search engine does not take it for a copy.
 - Only the URL of a listed page with `Content` answers. Another path that ends in `.md` goes to the routes as before, and a page without `Content` has no Markdown version.
@@ -292,7 +293,7 @@ func TestSitemapListsTheStorefront(t *testing.T) {
 }
 ```
 
-An error of the function fails the test with 500. A mistake in what it returns shows in the log of the test, and in a missing `<loc>`. An entry that a test sets with `tifatest` has a placeholder for its body (see [Tests](../content.md#tests)), and its Markdown version holds a placeholder too.
+An error of the function fails the test with 500. A mistake in what it returns shows in the log of the test, and in a missing `<loc>`. An entry that a test sets with `tifatest` has a placeholder for its body (see [Tests](../pages-and-data/content.md#tests)), and its Markdown version holds a placeholder too.
 
 ## What Tifa does not do
 

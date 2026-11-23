@@ -1,6 +1,7 @@
 ---
 summary: 'How a value from the environment, such as a public key or an API base URL, reaches a page of a Tifa app: settings stay in the Go program and the page gets them from Load, why `import.meta.env.VITE_*` and `process.env` are not used for this (as in Vite and Next.js), what import.meta.env still gives, and the build warning for `import.meta.env.VITE_*`'
 audience: app
+order: 10
 read_when:
   - You come from Next.js or Vite and reach for `import.meta.env.VITE_*`, `NEXT_PUBLIC_*` or `process.env` in a page
   - The build warns that `import.meta.env.VITE_*` is fixed when the build runs
@@ -10,13 +11,13 @@ read_when:
 
 # Values from the environment
 
-In Tifa the environment and the secrets stay in the Go process. The program reads its settings when it starts: flags, environment variables, `.env` and `tifa.yaml` (see [Configuration](../config.md)). The front-end build never sees them. Vite does not read `.env` (`envDir: false`), and the build of one app runs in every environment.
+In Tifa the environment and the secrets stay in the Go process. The program reads its settings when it starts: flags, environment variables, `.env` and `tifa.yaml` (see [Configuration](../build-and-deploy/config.md)). The front-end build never sees them. Vite does not read `.env` (`envDir: false`), and the build of one app runs in every environment.
 
 To give a value to the browser, return it from `Load`, or from a `Layout` for every page below it. That line of Go is the only way a value reaches a page, so it is always written on purpose and easy to find.
 
 ## An example
 
-Define the option with the app settings (see [Options of the app](../config.md#options-of-the-app)):
+Define the option with the app settings (see [Options of the app](../build-and-deploy/config.md#options-of-the-app)):
 
 ```go
 // options.go

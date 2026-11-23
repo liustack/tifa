@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
-  <a href="docs/app.md">Writing an app</a> ·
-  <a href="docs/build.md">Build and run</a> ·
-  <a href="docs/dev.md">Dev server</a> ·
+  <a href="docs/start/app.md">Writing an app</a> ·
+  <a href="docs/build-and-deploy/build.md">Build and run</a> ·
+  <a href="docs/build-and-deploy/dev.md">Dev server</a> ·
   <a href="examples/shop">Example app</a>
 </p>
 
@@ -81,7 +81,7 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 ## Highlights
 
 - **One file to deploy.** Pure Go, `CGO_ENABLED=0`, cross-compiles like any Go program. The browser bundle, styles and server renderer are embedded in the executable.
-- **Live on every push.** `tifa deploy setup` sets up the server, Cloudflare and GitHub Actions in one command. After that every push is checked and goes live, and a release that fails its health check rolls back by itself. See [Deploying](docs/deploy.md#deploy-with-tifa-deploy).
+- **Live on every push.** `tifa deploy setup` sets up the server, Cloudflare and GitHub Actions in one command. After that every push is checked and goes live, and a release that fails its health check rolls back by itself. See [Deploying](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy).
 - **Real HTML on the first request.** Go runs the page's `Load` and every `Layout` function first, then renders React to complete HTML inside the process with slowjs, a pure Go JavaScript engine. Search engines and link previews see the content, title and meta tags. Each page renders whole in one pass: there is no streaming and there are no React Server Components.
 - **Your frontend tools keep working.** Vite, Tailwind and shadcn work as usual on your machine. The server runs one Go file and never installs Node.
 - **Types from Go to React.** The TypeScript type of each page's data is generated from what its Go `Load` returns.
@@ -90,7 +90,7 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 
 ## One small server is enough
 
-The **[render memo](docs/memo.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
+The **[render memo](docs/reference/memo.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
 
 Whole visits, played back from real browsers on the example shop: shoppers, staff and crawlers on one server at once, every server as shipped and warmed up with the same visits first (2026-11-18).
 
@@ -118,7 +118,7 @@ Latency at 2.75 visits a second, half of what Next.js sustains, one round:
 | For reference: TanStack Start with gzip | 40.7 / 107 ms | 4.3 / 37 ms |
 | For reference: Next.js with prefetch off | 36.2 / 108 ms | 7.7 / 59 ms |
 
-The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Versions: Tifa v0.1.0, slowjs v0.31.6, Next.js 16.4.6, TanStack Start 1.169.3, Node 24.13.0. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/performance.md#whole-visits-to-the-shop-2026-11-18) has the mix, what each default costs and what the numbers mean.
+The first three rows are the frameworks as shipped. Each reference row changes one setting, to show what that default costs or buys. Versions: Tifa v0.1.0, slowjs v0.31.6, Next.js 16.4.6, TanStack Start 1.169.3, Node 24.13.0. Each server on one core of a Google Cloud `t2d-standard-4` VM (AMD EPYC 7B13). [Whole visits](docs/reference/performance.md#whole-visits-to-the-shop-2026-11-18) has the mix, what each default costs and what the numbers mean.
 
 ## Start an app
 
@@ -161,23 +161,23 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 
 | Doc | Read it when |
 | :-- | :-- |
-| [Tutorial](docs/tutorial.md) | You are new to Tifa and want to build a small app from the first folder to a running program |
+| [Tutorial](docs/start/tutorial.md) | You are new to Tifa and want to build a small app from the first folder to a running program |
 | Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [search engines and language models](docs/guides/seo.md), [streaming](docs/guides/streaming.md), [values from the environment](docs/guides/environment.md) | Adding a common feature and you want a tested way to do it |
-| [Philosophy](docs/philosophy.md) | You want to know why a Tifa app is organized the way it is |
-| [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
-| [Writing an app](docs/app.md) | Laying out folders, how they become URLs, and which doc to read next |
-| The parts of an app: [routes](docs/routes.md), [pages](docs/pages.md), [render switches and caches](docs/ssr-and-cache.md), [server render](docs/server-render.md), [styles](docs/styles.md), [hooks](docs/hooks.md), [testing](docs/testing-apps.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code and Go tests |
-| [Sessions](docs/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
-| [Content](docs/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
-| [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
-| [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
-| [Deploying](docs/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
-| [Configuration](docs/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
-| [Architecture](docs/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the render memo work inside |
-| [Render memo](docs/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |
-| [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
+| [Philosophy](docs/start/philosophy.md) | You want to know why a Tifa app is organized the way it is |
+| [Structuring an app](docs/start/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
+| [Writing an app](docs/start/app.md) | Laying out folders, how they become URLs, and which doc to read next |
+| The parts of an app: [routes](docs/pages-and-data/routes.md), [pages](docs/pages-and-data/pages.md), [render switches and caches](docs/pages-and-data/ssr-and-cache.md), [server render](docs/pages-and-data/server-render.md), [styles](docs/pages-and-data/styles.md), [hooks](docs/pages-and-data/hooks.md), [testing](docs/pages-and-data/testing-apps.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code and Go tests |
+| [Sessions](docs/pages-and-data/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
+| [Content](docs/pages-and-data/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
+| [Build and run](docs/build-and-deploy/build.md) | You want to know what `tifa build` generates and how the program answers requests |
+| [Dev server](docs/build-and-deploy/dev.md) | Running `tifa dev` locally, or a change did not reload |
+| [Deploying](docs/build-and-deploy/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
+| [Configuration](docs/build-and-deploy/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
+| [Architecture](docs/internals/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the render memo work inside |
+| [Render memo](docs/reference/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |
+| [Performance](docs/reference/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
-| [Testing](docs/testing.md) | Contributing to Tifa itself |
+| [Testing](docs/internals/testing.md) | Contributing to Tifa itself |
 
 ## Talk to us
 
@@ -208,6 +208,6 @@ Tifa does not accept pull requests. A framework like this touches the compiler, 
 
 ## License
 
-[MIT](LICENSE). A program built with Tifa embeds locale data and time zones from Unicode CLDR, ICU and go-intl, whose notices go with the program when you distribute it, see [docs/build.md](docs/build.md#notices-to-ship-with-the-program).
+[MIT](LICENSE). A program built with Tifa embeds locale data and time zones from Unicode CLDR, ICU and go-intl, whose notices go with the program when you distribute it, see [docs/build-and-deploy/build.md](docs/build-and-deploy/build.md#notices-to-ship-with-the-program).
 
 The gopher in the banner is a redrawn [Go gopher](https://go.dev/blog/gopher), originally designed by Renee French and used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

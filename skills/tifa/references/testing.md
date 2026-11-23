@@ -2,7 +2,7 @@
 
 Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML.
 
-Full docs (in the folder `go tool tifa docs` prints): `docs/testing-apps.md#testing`. The `docs/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
+Full docs (in the folder `go tool tifa docs` prints): `docs/pages-and-data/testing-apps.md#testing`. The `docs/internals/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
 
 ## The check command
 
@@ -124,7 +124,7 @@ It covers `Date`, `Temporal.Now` and Intl formatting without a date for the whol
 `tifatest` cannot render. To see the HTTP answer, hydration and navigation:
 
 1. `go tool tifa build`, then run `./bin/<app> --server-addr 127.0.0.1:9600` in the background and note its PID. Or use `go tool tifa dev --background` and `go tool tifa dev stop` when done. Only stop what you started.
-2. `curl -si http://127.0.0.1:9600/path` shows the status, headers (`ETag`, `X-Tifa-Render`, and `Cache-Control` with `s-maxage` on a page with `Cache`) and the HTML a crawler sees. For the navigation data a page fetches, add the query parameter `_tifa=<build ID>.<digits>` to the page URL, with a digit for each `Load` on the chain of the page from the root Layout down (`1` asks for it, `011` skips the root Layout). The build ID is in `.tifa/dist/build.json`. The answer is `{"routes": {route ID: result}}`, with a `session` next to `routes` in an app that has sessions (see the data protocol in `docs/build.md#data-protocol`).
+2. `curl -si http://127.0.0.1:9600/path` shows the status, headers (`ETag`, `X-Tifa-Render`, and `Cache-Control` with `s-maxage` on a page with `Cache`) and the HTML a crawler sees. For the navigation data a page fetches, add the query parameter `_tifa=<build ID>.<digits>` to the page URL, with a digit for each `Load` on the chain of the page from the root Layout down (`1` asks for it, `011` skips the root Layout). The build ID is in `.tifa/dist/build.json`. The answer is `{"routes": {route ID: result}}`, with a `session` next to `routes` in an app that has sessions (see the data protocol in `docs/build-and-deploy/build.md#data-protocol`).
 3. For hydration and clicks, open the page in a browser tool and watch the console. A hydration mismatch is reported there.
 4. A POST from `curl` has no `Sec-Fetch-Site` or `Origin`, so it passes the cross-site check. A POST from a page on another origin gets 403.
 

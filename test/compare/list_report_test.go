@@ -198,7 +198,7 @@ func TestTheClicksAreAlsoTimedByHowTheBrowserDidThem(t *testing.T) {
 }
 
 // The report says what the recording leaves out of the pointer, and which way that leans, where it
-// says how the visits were recorded: in the words of docs/testing.md.
+// says how the visits were recorded: in the words of docs/internals/testing.md.
 func TestTheReportSaysWhatTheRecordingDoesNotDoWithThePointer(t *testing.T) {
 	for _, want := range []string{
 		"the pointer off the page but for its clicks",

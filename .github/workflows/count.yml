@@ -1,5 +1,5 @@
 # Instructions of one render of each page of the example shop (or the MUI test app) at two refs, counted by
-# callgrind on the same runner. Started by hand. See "Counting instructions" in docs/testing.md.
+# callgrind on the same runner. Started by hand. See "Counting instructions" in docs/internals/testing.md.
 name: count
 
 on:

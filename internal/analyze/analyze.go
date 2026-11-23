@@ -486,7 +486,7 @@ type layout struct {
 // usedLoads maps a Load to the import paths of the packages whose Layout function it passes to tifa.Use.
 type usedLoads map[*Load][]string
 
-// reservedQuery is the query parameter of the navigation data requests (see docs/build.md). The
+// reservedQuery is the query parameter of the navigation data requests (see docs/build-and-deploy/build.md). The
 // server takes it off the URL, so a Load could never read it.
 const reservedQuery = "_tifa"
 

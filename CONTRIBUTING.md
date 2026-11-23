@@ -35,12 +35,12 @@ The example app is [examples/shop](examples/shop), a separate Go module that poi
 
 - New behavior comes with a test that fails first. A bug fix comes with a test that reproduces it, in the same commit.
 - Packages with concurrency also run under `go test -race`.
-- End-to-end tests, the long SSR tests and the comparison with other frameworks are off by default. [docs/testing.md](docs/testing.md) says how to turn them on and when they are needed.
+- End-to-end tests, the long SSR tests and the comparison with other frameworks are off by default. [docs/internals/testing.md](docs/internals/testing.md) says how to turn them on and when they are needed.
 
 ## Commits
 
 - `type(scope): imperative summary`, at most 72 characters, no period at the end.
 - One commit does one thing, and the tree builds and passes its tests after each. Keep a refactor or a reformat apart from a change of behavior.
-- Docs are written in English. Only the READMEs have a Chinese version (`README.zh-CN.md`), which changes with them.
+- Docs for app authors are written in English and Chinese in the same commit (`<name>.zh-CN.md` beside `<name>.md`), the docs about developing Tifa in English only. The READMEs have a Chinese version too (`README.zh-CN.md`), which changes with them. See "Docs" in AGENTS.md.
 
-The full rules are in [docs/commit.md](docs/commit.md).
+The full rules are in [docs/internals/commit.md](docs/internals/commit.md).

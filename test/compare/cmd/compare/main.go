@@ -9,7 +9,7 @@
 // build installs and builds the shop and the Node apps. measure builds first unless -skip-build is
 // given, then times every server from the start of its process and prints the tables. report prints
 // the tables of a saved run again. diff exits with status 1 when a Tifa metric got worse by more
-// than max(2%, the A/A spread). docs/testing.md explains the method and what the numbers mean.
+// than max(2%, the A/A spread). docs/internals/testing.md explains the method and what the numbers mean.
 package main
 
 import (

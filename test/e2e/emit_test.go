@@ -40,7 +40,7 @@ var (
 )
 
 // The start and end tags that the engine writes in place of React DOM's functions (see
-// docs/build.md) are React's own. Each app is built twice: with the test hook of the tags
+// docs/build-and-deploy/build.md) are React's own. Each app is built twice: with the test hook of the tags
 // (TIFA_EMIT_CHECK=1 and the Go build tag tifa_emit_check), in which React writes every page while
 // the engine writes each tag again to compare, and as it is deployed, in which the engine writes
 // the tags. Every page of the two programs must be the same byte for byte, but for the shop's times

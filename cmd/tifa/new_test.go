@@ -599,7 +599,7 @@ func TestNewWritesAgentNotes(t *testing.T) {
 	if strings.Contains(text, "blob/main") {
 		t.Error("AGENTS.md links to the docs on the main branch")
 	}
-	refs := regexp.MustCompile("`(docs/[a-z-]+\\.md)`").FindAllStringSubmatch(text, -1)
+	refs := regexp.MustCompile("`(docs/[a-z/-]+\\.md)`").FindAllStringSubmatch(text, -1)
 	if len(refs) == 0 {
 		t.Fatal("AGENTS.md names no doc")
 	}

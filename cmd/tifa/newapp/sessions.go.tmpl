@@ -9,7 +9,7 @@ import (
 
 // sessionStore keeps the sessions of tifa.SetSession in the sessions table of the database, so a
 // restart or a deploy signs nobody out. OnStart hands it to tifa.SetSessionStore. Its test runs
-// tifatest.TestSessionStore, which checks the rules of a store in docs/sessions.md.
+// tifatest.TestSessionStore, which checks the rules of a store in docs/pages-and-data/sessions.md.
 type sessionStore struct{ db *sql.DB }
 
 // Get returns the record of key. A key that is missing or has expired is not found, with no error.

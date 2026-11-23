@@ -104,7 +104,7 @@ func TestNextImageAndFontPointToTheDocOnImagesAndFonts(t *testing.T) {
 		t.Fatalf("got %d findings, want 4:\n%s", len(got), strings.Join(lines(got), "\n"))
 	}
 	for _, f := range got {
-		if !strings.HasSuffix(f.Msg, "See docs/app.md#images-and-fonts") {
+		if !strings.HasSuffix(f.Msg, "See docs/start/app.md#images-and-fonts") {
 			t.Errorf("%q", f.String())
 		}
 	}
@@ -121,7 +121,7 @@ func TestCheckFactsReportsTitleAndMetaWrittenInAComponent(t *testing.T) {
 		name := f.Tags[i].Name
 		if !g.Warning || g.Line != 3+i || g.Column != 5 ||
 			!strings.HasPrefix(g.Msg, "<"+name+"> written in a component lands in <body>, where crawlers do not read it") ||
-			!strings.Contains(g.Msg, "export const head") || !strings.HasSuffix(g.Msg, "See docs/pages.md#title-and-meta-tags") {
+			!strings.Contains(g.Msg, "export const head") || !strings.HasSuffix(g.Msg, "See docs/pages-and-data/pages.md#title-and-meta-tags") {
 			t.Errorf("finding %d: %q", i, g.String())
 		}
 	}

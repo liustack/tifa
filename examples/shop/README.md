@@ -59,7 +59,7 @@ app/
   account.tsx                  who is signed in, in the top bar, and the sign-out button
   login/                       /login: layout_.tsx without the workbench around it, the form, and the POST that signs in
   logout/                      /logout: the POST that signs out
-  metrics/                     /metrics: tifa.Stats for Prometheus, as docs/deploy.md of Tifa writes it, for signed-in staff
+  metrics/                     /metrics: tifa.Stats for Prometheus, as docs/build-and-deploy/deploy.md of Tifa writes it, for signed-in staff
   styles.css                   Tailwind CSS and the shop's theme
   format.ts                    money and times in English, in the shop's time zone
   animated-number.tsx          numbers that tween when the data changes
@@ -108,7 +108,7 @@ app/
       post+/                   /store/journal/{post}
 ```
 
-Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks, the session and the option `shop.open`. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
+Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks, the session and the option `shop.open`. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/start/philosophy.md) for why, and [Structuring an app](../../docs/start/structure.md) for which way imports may go.
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 
@@ -118,7 +118,7 @@ Tifa writes `<html lang>`, so the root Layout sets no `lang`. It also links each
 
 ## The storefront and the render memo
 
-The data of the storefront pages (products, journal, menu) is the same for every visitor, so the render memo (see [Render memo](../../docs/memo.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (which lets a CDN keep a page).
+The data of the storefront pages (products, journal, menu) is the same for every visitor, so the render memo (see [Render memo](../../docs/reference/memo.md)) reuses them: when the data of a page is the same as for an earlier request, the program skips the React render and sends the kept HTML. The `Load` still runs on every request, and the page does not use `const Cache` (which lets a CDN keep a page).
 
 What belongs to one visitor is not in the page. The storefront Layout holds only the language, the menu and the price from which delivery is free. The cart in the header and the "recently viewed" rows come from `/store/mine`, which the browser asks for after the page has loaded and again after each change. A product page tells that route which product is open with a POST.
 
@@ -152,4 +152,4 @@ The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: memo`.
 - Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the render memo.
 - Open a journal article. The code blocks are highlighted in the HTML the server sends.
 
-For more conventions, see [Build and generated code](../../docs/build.md) and [Writing an app](../../docs/app.md).
+For more conventions, see [Build and generated code](../../docs/build-and-deploy/build.md) and [Writing an app](../../docs/start/app.md).

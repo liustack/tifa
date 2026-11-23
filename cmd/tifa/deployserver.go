@@ -322,7 +322,7 @@ func pruneReleases(releases []string, current, next string, keep int) []string {
 // unitName is the name of the systemd units of an app, without the suffix.
 func unitName(app string) string { return "tifa-" + app }
 
-// socketUnit holds the port of the app while the program restarts, see docs/deploy.md.
+// socketUnit holds the port of the app while the program restarts, see docs/build-and-deploy/deploy.md.
 func socketUnit(app string, port int) string {
 	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]

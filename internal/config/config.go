@@ -33,7 +33,7 @@ type Config struct {
 }
 
 // I18n is read by the tifa CLI only, from the project tifa.yaml. Default names the default language,
-// empty when the app has no more than one. Prefix is "off" or "always", see docs/config.md.
+// empty when the app has no more than one. Prefix is "off" or "always", see docs/build-and-deploy/config.md.
 type I18n struct {
 	Default string
 	Prefix  string
@@ -81,7 +81,7 @@ type Build struct {
 	// as Delve. Without it the program is built with -ldflags=-w.
 	DebugInfo bool
 	// I18nextCache makes the tifa Vite plugin add a cache of translations to i18next in the SSR
-	// bundle, see docs/build.md. It is on by default.
+	// bundle, see docs/build-and-deploy/build.md. It is on by default.
 	I18nextCache bool
 }
 
