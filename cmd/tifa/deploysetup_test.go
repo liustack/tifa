@@ -132,7 +132,7 @@ user=$2
 while [ "$1" != "--" ]; do shift; done
 script=$3
 case "$script" in
-true) echo "check $user" >> "$d/calls"; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
+true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
@@ -166,6 +166,10 @@ func (s *setupServer) failRemoveApp(t *testing.T) {
 
 // failCheck makes the ssh to the ssh host through the tunnel fail, as a key the server does not know.
 func (s *setupServer) failCheck(t *testing.T) { writeFile(t, filepath.Join(s.dir, "checkfail"), "") }
+
+// closeCheck makes the ssh to the ssh host through the tunnel end before it gets to the server, so
+// that it prints nothing about keys.
+func (s *setupServer) closeCheck(t *testing.T) { writeFile(t, filepath.Join(s.dir, "checkclosed"), "") }
 
 // watchSSHConfig makes the fake ssh note, at each call, whether the file at path was there.
 func (s *setupServer) watchSSHConfig(t *testing.T, path string) {

@@ -63,5 +63,5 @@
 # are read the same way: the environment, else .env.
 # deploy:
 #   front: none             # what visitors come through before the server: none | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
-#   ssh: direct             # how the GitHub Actions runner reaches the server over ssh: direct, cloudflare or tailscale
+#   ssh: direct             # how ssh reaches the server: direct, cloudflare (through the Cloudflare Tunnel, for CI and this machine) or tailscale (for CI)
 #   ci: none                # who deploys automatically: none or github (set up by tifa deploy setup)
