@@ -1167,7 +1167,7 @@ const reviewedJsxPieces = new Map([
 // emitInEngine changes, pushStartInstance and renderElement, and pushSelfClosing, whose first line it
 // changes too for an engine with modes. The C functions were written from these
 // texts, so the plugin changes the calls only when each part is the one here. See "Reviewing a new
-// React" in docs/build-and-deploy/build.md.
+// React" in docs/internals/ssr-bundle-rewrites.md.
 const reviewedEmitPieces = new Map([
   ['var hasOwnProperty', '3666fc74894c'],
   ['var VALID_ATTRIBUTE_NAME_REGEX', 'f78b6d778ddc'],
@@ -2795,7 +2795,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
                   ? `has ${emitUnread.length} parts that differ from those the engine's start and end tags were written from: ${namesOfUnits(emitUnread)}`
                   : 'has no calls of pushStartGenericElement and endChunkForTag in the form the tifa plugin knows'
               }, so the tifa plugin does not ask the engine to write the start and end tags of elements. Pages render ` +
-              'the same, but take longer to render. docs/build-and-deploy/build.md says how to read a new release',
+              'the same, but take longer to render. docs/internals/ssr-bundle-rewrites.md says how to read a new release',
           )
         }
         const joined = joinSegmentChunks(source)
@@ -2841,7 +2841,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             notRecognized +
               `${react} has ${unread.length > 0 ? `${unread.length} parts the tifa plugin has not read: ${namesOfUnits(unread)}` : unreadable.join(', ')}, ` +
               'so the tifa plugin does not leave the names of components or the key paths out of the elements. Pages render the ' +
-              'same, but take longer to render. docs/build-and-deploy/build.md says how to read a new release',
+              'same, but take longer to render. docs/internals/ssr-bundle-rewrites.md says how to read a new release',
           )
         } else {
           const read = keyPathNamesRead(parse(source))
@@ -3593,7 +3593,7 @@ function askPluginsForArrays(source) {
 // function is either as the plugin knows it and changed, or left as React has it. __tifa_copy_props
 // is the loop written in C in the engine: it does what the loop does, for a config where nothing
 // can make the two differ, and answers false, having changed nothing, for any other (see
-// docs/build-and-deploy/build.md). The lines stay where they were.
+// docs/internals/ssr-bundle-rewrites.md). The lines stay where they were.
 function nativeCopyProps(source) {
   const missing = []
   let out = source
@@ -7847,7 +7847,7 @@ function writeOutSmallFunctions(source, parse) {
 // only when every part of the file is in it, so a release that changes a function, adds one or
 // changes the order of the top of the file keeps both. A comment, white space, brackets, quotes and
 // the names a part declares inside it do not change a fingerprint. The name of a part itself and the
-// names of the other parts it uses are in it as they are. See "Reviewing a new React" in docs/build-and-deploy/build.md.
+// names of the other parts it uses are in it as they are. See "Reviewing a new React" in docs/internals/ssr-bundle-rewrites.md.
 const reviewedReactDOM = `
 5f9a49f5957c ExpressionStatement
 cabd180d5036 var React
