@@ -53,10 +53,6 @@ func (a *analyzer) settings() []string {
 				}
 				call, ok := allowed[id]
 				if !ok {
-					if filepath.Dir(name) == a.root && filepath.Base(name) == "config.go" {
-						a.errorAt(id.Pos(), "tifa.%s defines an option of the app, which is written in options.go, no longer in config.go: rename config.go to options.go", id.Name)
-						return true
-					}
 					a.errorAt(id.Pos(), "tifa.%s defines an option of the app, which is written only in a package-level var of options.go in the root of the app, such as var DBURL = tifa.String(\"db.url\", \"app.db\", \"Database file\")", id.Name)
 					return true
 				}

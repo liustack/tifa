@@ -64,18 +64,6 @@ func TestEntriesWithoutSetup(t *testing.T) {
 	}
 }
 
-// A hooks.ts at the app root is the old name of setup.ts, and the build says how to move it.
-func TestHooksTsFails(t *testing.T) {
-	root := t.TempDir()
-	m := pageApp(t, root)
-	writeFile(t, filepath.Join(root, "hooks.ts"), "export function onStart() {}\n")
-	_, err := Generate(root, m, false, fakeExports)
-	want := "hooks.ts is now setup.ts: rename it and move the body of onStart to the top level of the file"
-	if err == nil || err.Error() != want {
-		t.Fatalf("got %v, want %q", err, want)
-	}
-}
-
 // An app without pages has no JavaScript to run setup.ts in, so the build says so.
 func TestSetupWithoutPagesFails(t *testing.T) {
 	root := t.TempDir()

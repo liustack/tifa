@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/langs"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
@@ -148,11 +147,10 @@ type analyzer struct {
 }
 
 // dirInfo records the convention files found in one directory under app/. replaceTSX is a
-// layout_.tsx, a Layout shown without the Layouts above it. oldRouteTSX is a route.tsx, the name
-// pages had before they were page.tsx: it is reported and nothing more.
+// layout_.tsx, a Layout shown without the Layouts above it.
 type dirInfo struct {
-	id                                                   string
-	routeGo, pageTSX, layoutTSX, replaceTSX, oldRouteTSX bool
+	id                                      string
+	routeGo, pageTSX, layoutTSX, replaceTSX bool
 }
 
 // replaces reports whether the Layout of d drops the Layouts above it. A layout_.tsx in app/, or
@@ -160,9 +158,8 @@ type dirInfo struct {
 func (d *dirInfo) replaces() bool { return d.replaceTSX && !d.layoutTSX && d.id != "app" }
 
 // conventionFiles are the files that make a directory under app/ a page, a Layout or an API
-// route. route.tsx is no longer one, but a page left under that name would silently become a
-// plain component, so the scan reports it.
-var conventionFiles = []string{"route.go", "page.tsx", "layout.tsx", "layout_.tsx", "route.tsx"}
+// route.
+var conventionFiles = []string{"route.go", "page.tsx", "layout.tsx", "layout_.tsx"}
 
 // scan walks app/ and records which convention files exist. The go command skips directories
 // whose name starts with "." or "_" and directories named testdata, so a convention file below
@@ -216,9 +213,6 @@ func (a *analyzer) scan() error {
 			info.layoutTSX = true
 		case "layout_.tsx":
 			info.replaceTSX = true
-		case "route.tsx":
-			info.oldRouteTSX = true
-			a.errorInFile(id, name, "route.tsx is not a page file any more: rename it to page.tsx")
 		}
 		return nil
 	})
@@ -516,9 +510,6 @@ func (a *analyzer) build() *Manifest {
 		segs, valid := a.dirPath(d)
 		a.checkPackageNames(d)
 		pkg := a.routePackage(d)
-		if pkg != nil {
-			a.checkGoneLimits(pkg, formatPath(segs), d.pageTSX)
-		}
 		if l := a.layout(d, pkg); l != nil {
 			l.segs, l.valid, l.Path = segs, valid, formatPath(segs)
 			layouts = append(layouts, l)
@@ -547,7 +538,7 @@ func (a *analyzer) build() *Manifest {
 	for _, r := range routes {
 		m.Routes = append(m.Routes, r.Route)
 	}
-	m.Warnings = append(a.retiredWarnings(), a.bigSourceWarnings(m)...)
+	m.Warnings = a.bigSourceWarnings(m)
 	return m
 }
 
@@ -558,8 +549,6 @@ func (d *dirInfo) firstFile() string {
 		return "route.go"
 	case d.pageTSX:
 		return "page.tsx"
-	case d.oldRouteTSX:
-		return "route.tsx"
 	case d.layoutTSX:
 		return "layout.tsx"
 	}
@@ -617,10 +606,9 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":       "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and Memo = false to turn the render memo off for it",
-	"memo":        "write Memo = false to turn the render memo off for the page",
-	"rendercache": "RenderCache is now Memo: write Memo = false to turn the render memo off for the page",
-	"ssr":         "write SSR",
+	"cache": "write Cache = true or Cache = 10 * time.Minute to let a shared cache keep the page, and Memo = false to turn the render memo off for it",
+	"memo":  "write Memo = false to turn the render memo off for the page",
+	"ssr":   "write SSR",
 }
 
 // checkSwitchNames reports the constants of route.go that look like a switch spelled wrong, since
@@ -748,12 +736,6 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	}
 	if pkg == nil {
 		return nil
-	}
-	if obj := pkg.Types.Scope().Lookup("LayoutSSR"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
-		a.errorAt(obj.Pos(), "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps: %s", strings.Join(a.wrappedPages(d.id), ", "))
-	}
-	if obj := pkg.Types.Scope().Lookup("RenderCache"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
-		a.errorAt(obj.Pos(), "RenderCache is now Memo: write const Memo = false to turn the render memo off for this page")
 	}
 	scope := pkg.Types.Scope()
 	declared := slices.ContainsFunc(methods, func(m string) bool { return scope.Lookup(m) != nil })
@@ -1478,54 +1460,6 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 	}
 }
 
-// checkGoneLimits reports BodyLimit and ReadTimeout declared as a constant or a variable in
-// route.go. They set the body limit and the read time of a route before v0.2.0, and are now set per
-// request in OnRequest. path is the path of the route as c.Pattern() gives it, and page says whether the folder has a page.tsx. A type of those
-// names is the domain code's own.
-func (a *analyzer) checkGoneLimits(pkg *packages.Package, path string, page bool) {
-	scope := pkg.Types.Scope()
-	// The handlers of the route, but not the GET of a page: it reads no body.
-	var matches []string
-	for _, m := range methods {
-		if scope.Lookup(m) != nil && !(m == "GET" && page) {
-			matches = append(matches, "c.Request().Method == http."+methodConst[m])
-		}
-	}
-	condition := fmt.Sprintf("c.Pattern() == %q", path)
-	switch len(matches) {
-	case 0:
-	case 1:
-		condition += " && " + matches[0]
-	default:
-		condition += " && (" + strings.Join(matches, " || ") + ")"
-	}
-	for _, g := range []struct{ name, call, value string }{
-		{"BodyLimit", "SetBodyLimit", "8 << 20"},
-		{"ReadTimeout", "SetReadTimeout", "5 * time.Minute"},
-	} {
-		obj := scope.Lookup(g.name)
-		if obj == nil || filepath.Base(a.fset.Position(obj.Pos()).Filename) != "route.go" {
-			continue
-		}
-		if _, isType := obj.(*types.TypeName); isType {
-			continue
-		}
-		value := declaredValue(pkg, obj, g.value)
-		a.errorAt(obj.Pos(), "%s is gone: set it in OnRequest with c.%s for this route, for example in hooks.go:\n"+
-			"\tfunc OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {\n"+
-			"\t\tif %s {\n"+
-			"\t\t\tif err := c.%s(%s); err != nil {\n"+
-			"\t\t\t\treturn err\n"+
-			"\t\t\t}\n"+
-			"\t\t}\n"+
-			"\t\treturn next(c)\n"+
-			"\t}", g.name, g.call, condition, g.call, value)
-	}
-}
-
-// methodConst names the net/http constant of each method handler.
-var methodConst = map[string]string{"GET": "MethodGet", "POST": "MethodPost", "PUT": "MethodPut", "PATCH": "MethodPatch", "DELETE": "MethodDelete"}
-
 // checkBindTags reports a form tag in a struct passed to c.Bind or c.BindQuery, as it does for the
 // input of a typed handler: those read a field by its json tag only. The argument is checked by its
 // static type, so a value behind an interface or built by reflection is not seen.
@@ -1563,88 +1497,4 @@ func (a *analyzer) checkBindTags() {
 			})
 		}
 	}
-}
-
-// retiredWarnings reports the retired keys that tifa.yaml still holds. They do not stop the build.
-func (a *analyzer) retiredWarnings() []Warning {
-	data, err := os.ReadFile(filepath.Join(a.root, "tifa.yaml"))
-	if err != nil {
-		return nil
-	}
-	var out []Warning
-	for _, w := range config.ProjectWarnings(data) {
-		out = append(out, Warning{Pos: token.Position{Filename: "tifa.yaml", Line: w.Line}, Msg: w.Msg()})
-	}
-	return out
-}
-
-// wrappedPages lists the route.go of each page the Layout in directory dir wraps: dir and the
-// directories below it that have a page.tsx, unless a layout_.tsx between drops the Layout. A page
-// without a route.go is listed too, since that is where its SSR goes.
-func (a *analyzer) wrappedPages(dir string) []string {
-	var pages []string
-	for id, info := range a.dirs {
-		if !info.pageTSX || !covers(dir, id) {
-			continue
-		}
-		dropped := false
-		for rid, r := range a.dirs {
-			if r.replaces() && isAncestor(dir, rid) && covers(rid, id) {
-				dropped = true
-				break
-			}
-		}
-		if !dropped {
-			pages = append(pages, id+"/route.go")
-		}
-	}
-	slices.Sort(pages)
-	return pages
-}
-
-// declaredValue returns the Go source of the value obj was declared with, such as 4 << 20, so a
-// message can repeat the app's own value. It returns fallback when the declaration has no value of
-// its own, as with iota or a var with only a type.
-func declaredValue(pkg *packages.Package, obj types.Object, fallback string) string {
-	value := fallback
-	for _, f := range pkg.Syntax {
-		ast.Inspect(f, func(n ast.Node) bool {
-			spec, ok := n.(*ast.ValueSpec)
-			if !ok {
-				return true
-			}
-			for i, name := range spec.Names {
-				if name.Pos() == obj.Pos() && i < len(spec.Values) {
-					value = types.ExprString(spec.Values[i])
-					if c, isConst := obj.(*types.Const); isConst && !standalone(spec.Values[i]) {
-						value = c.Val().ExactString()
-						if isNamed(c.Type(), "time", "Duration") {
-							value = "time.Duration(" + value + ")"
-						}
-					}
-				}
-			}
-			return false
-		})
-	}
-	return value
-}
-
-// standalone reports whether the expression x names nothing of its package, only literals and the
-// time package, so it means the same written in hooks.go.
-func standalone(x ast.Expr) bool {
-	ok := true
-	ast.Inspect(x, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.SelectorExpr:
-			if id, isIdent := n.X.(*ast.Ident); !isIdent || id.Name != "time" {
-				ok = false
-			}
-			return false
-		case *ast.Ident:
-			ok = false
-		}
-		return ok
-	})
-	return ok
 }

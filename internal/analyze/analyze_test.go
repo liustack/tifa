@@ -341,14 +341,6 @@ func TestViolations(t *testing.T) {
 			{"app/texted/route.go:19:", "POST input", "Input.Files", "MarshalText", "UnmarshalText", "file"},
 			{"app/result/route.go:13:", "Load result", "Data.File", "multipart.FileHeader", "input"},
 			{"app/result/route.go:15:", "POST result", "multipart.FileHeader", "input"},
-			// BodyLimit and ReadTimeout are gone, whatever their value or type, with or without a handler.
-			{"app/limits/route.go:9:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
-			{"app/limits/route.go:11:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
-			{"app/limits2/route.go:5:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
-			{"app/limits2/route.go:7:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
-			{"app/nolimit/route.go:5:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
-			{"app/page/route.go:5:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
-			// app/limittypes names types BodyLimit and ReadTimeout, which are the domain's own: no error.
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/page.tsx:1:", `"%"`},
@@ -584,17 +576,6 @@ func TestViolations(t *testing.T) {
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
-		{"renamedmemo", [][]string{
-			{"app/page/route.go:3:", "RenderCache is now Memo", "const Memo = false"},
-		}},
-		{"layoutssr", [][]string{
-			{"app/page/route.go:3:", "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps: app/page/route.go, app/page/sub/route.go"},
-		}},
-		{"limitsgone", [][]string{
-			{"app/photos/route.go:13:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route", `c.Pattern() == "/photos"`, "c.Request().Method == http.MethodPost", "c.SetBodyLimit(4 << 20)"},
-			{"app/photos/route.go:15:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route", `c.Pattern() == "/photos"`, "http.MethodPost", "c.SetReadTimeout(2 * time.Minute)"},
-			{"app/projects/projectId+/route.go:7:", "BodyLimit is gone", `c.Pattern() == "/projects/{projectId}"`, "(c.Request().Method == http.MethodPut || c.Request().Method == http.MethodDelete)", "c.SetBodyLimit(1048576)"},
-		}},
 		{"memovalue", [][]string{
 			{"app/page/route.go:3:", "Memo", "can only be false"},
 			{"app/other/route.go:3:", "Memo", "can only be false"},
@@ -608,11 +589,7 @@ func TestViolations(t *testing.T) {
 		{"switchtypos", [][]string{
 			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
 			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
-			// ReadTimout and BodyLmt are no typos of a switch: those two are gone, see limitsgone.
 			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
-		}},
-		{"oldroute", [][]string{
-			{"app/route.tsx:1:", "route.tsx is not a page file any more", "rename it to page.tsx"},
 		}},
 		{"structure", [][]string{
 			{"app/empty/route.go:5:", "Path is not declared"},
@@ -1243,20 +1220,6 @@ func TestSettingsBreakingTheRules(t *testing.T) {
 		"other.go:5:", "internal/store/store.go:5:",
 		"only in a package-level var of options.go in the root of the app",
 	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error lacks %q:\n%v", want, err)
-		}
-	}
-}
-
-// An app made before the options file was renamed still has tifa.String in config.go. The build
-// fails and says to rename the file, rather than ignoring the options or defining them silently.
-func TestOptionsInOldConfigGoFile(t *testing.T) {
-	_, err := analyzeApp(t, "oldconfigname")
-	if err == nil {
-		t.Fatal("no error")
-	}
-	for _, want := range []string{"config.go:5:", "rename config.go to options.go"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
 		}
