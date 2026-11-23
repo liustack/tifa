@@ -25,9 +25,9 @@ func TestSetupIsTheFirstImportOfTheEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, first := range map[string]string{"server.ts": `import "./runtime/host"`, "client.ts": `import "../setup"`} {
+	for name, first := range map[string]string{"server.ts": `import "./runtime/host"`, "client.ts": `import "../setup.ts"`} {
 		text := string(files[name])
-		setup := strings.Index(text, `import "../setup"`)
+		setup := strings.Index(text, `import "../setup.ts"`)
 		routes := strings.Index(text, `from "./routes"`)
 		if setup < 0 || routes < 0 || setup > routes {
 			t.Errorf("%s does not import setup.ts before the routes:\n%s", name, text)
@@ -41,7 +41,7 @@ func TestSetupIsTheFirstImportOfTheEntries(t *testing.T) {
 	}
 	// The host comes first in the server entry, as the runtime needs its globals.
 	server := string(files["server.ts"])
-	if strings.Index(server, `import "./runtime/host"`) > strings.Index(server, `import "../setup"`) {
+	if strings.Index(server, `import "./runtime/host"`) > strings.Index(server, `import "../setup.ts"`) {
 		t.Errorf("server.ts imports setup.ts before the host:\n%s", server)
 	}
 	// What setup.ts exports is not Tifa's business.

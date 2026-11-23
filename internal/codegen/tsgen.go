@@ -236,7 +236,7 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 	// sets up the globals every module may use.
 	imports := ""
 	if setup {
-		imports = `import "../setup"` + "\n"
+		imports = `import "../setup.ts"` + "\n"
 	}
 	files["server.ts"] = []byte(tsHeader + `import "./runtime/host"
 ` + imports + `import { serve } from "./runtime/server"

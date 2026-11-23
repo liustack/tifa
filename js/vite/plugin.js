@@ -1354,6 +1354,19 @@ export function tifa(settings = {}) {
         },
       }
     },
+    // setup.ts at the app root is imported for its top level alone. An app whose package.json says
+    // "sideEffects": false would have the import dropped, so the module is marked as one that has
+    // them, in the browser build and the SSR build.
+    resolveId: {
+      order: 'pre',
+      filter: { id: /setup\.ts$/ },
+      async handler(source, importer, options) {
+        if (!importer) return null
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+        if (resolved && !resolved.external && resolved.id === path.join(root, 'setup.ts')) return { ...resolved, moduleSideEffects: true }
+        return null
+      },
+    },
     configureServer(server) {
       const state = devState()
       server.watcher.on('all', (event, file) => state.changed?.(event, file))

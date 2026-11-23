@@ -91,7 +91,6 @@ i18n.services.formatter?.addCached('currency', (lng, options) => {
 - It is synchronous. Work it starts and does not wait for, such as a dynamic `import()`, may finish after the first render.
 - If it throws on the server, the program stops before it serves. In the browser the page is not hydrated: it stays the HTML the server sent, links load whole pages, and the error is in the console.
 - Tifa ignores what it exports. An app without pages has no JavaScript, and a `setup.ts` there fails the build.
-- `hooks.ts` was its name before v0.2.0. A `hooks.ts` at the root fails the build: rename it and move the body of `onStart` to the top level.
 - `setup.ts` is in the main bundle of the browser, with what it imports. Keep it small.
 
 ## Sessions
