@@ -2,7 +2,7 @@
 summary: 'Tifa 应用在一个核上能提供多少，与 Next.js 和 TanStack Start 比较，以及怎样为它定 CPU、ssr.vms 和内存的大小，包括过载时会怎样和压缩要花多少'
 audience: app
 order: 2
-translatedFrom: c4728bafbc3b
+translatedFrom: 74747690ea76
 read_when:
   - '决定 Tifa 应用需要多少 CPU 和内存，或者设置 `ssr.vms`'
   - '请求到达的速度比页面渲染的速度快，或者需要给渲染队列定大小'
@@ -80,7 +80,7 @@ shop 用三种方式构建：Tifa，以及 Next.js 和 TanStack Start 应用，�
 
 - **进程**：启动后带一个 VM 时大约 47 MiB，每多一个 VM 多 9 MiB。
 - **VM 渲染的页面种类越多就越大，然后稳定下来。** shop 的一个 VM 加载后占 9 MB，渲染完它所有页面之后占 17 到 25 MB，每次渲染的数据都是新的时最多占 39 MB。页面很多的应用，每个 VM 按最多 40 MiB 来规划。
-- **实测**：一个 VM 以每秒 58 个请求服务 shop 的 525 个页面，持续 40 分钟，进程的内存稳定在大约 105 MiB（Tifa v0.0.13）。在一个核心满负载下，整次访问的测试里，带渲染记忆 memo 时峰值是 256 MiB，不带时是 111 MiB。
+- **实测**：一个 VM 以每秒 58 个请求服务 shop 的 525 个页面，持续 40 分钟，进程的内存稳定在大约 105 MiB（Tifa v0.0.13）。在一个核心满负载下，整次访问的测试里，带渲染记忆 memo 时峰值是 245 MiB，不带时是 84 MiB。
 - **渲染记忆 memo** 最多保存 [`ssr.memo_size`](../build-and-deploy/config.zh-CN.md#settings)，默认 64 MiB。
 - **`ssr.vm_memory`**（默认 128 MiB）限制每个 VM。一次回收之后，VM 占用超过它的一半时，池会在后台替换这个 VM，所以泄漏内存的应用，每个 VM 里最多保留 64 MiB。设得更低，就会更早替换。如果日志说新的 VM 放不下，就把它调高。
 - **空闲的 VM 会把空闲内存还给系统**，在一秒没有渲染之后。
