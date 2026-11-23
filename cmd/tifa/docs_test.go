@@ -184,7 +184,7 @@ func TestFirstSentence(t *testing.T) {
 // lists it in one of the two groups. A new doc without an audience fails here and in
 // scripts/docs-list.sh --check.
 func TestEveryDocHasAnAudience(t *testing.T) {
-	docs, warnings, err := readDocs(filepath.Join("..", ".."))
+	docs, warnings, err := readDocs(filepath.Join("..", ".."), "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,7 @@ import (
 func newDocsCmd() *cobra.Command {
 	var dir string
 	var all, when bool
+	var lang string
 	cmd := &cobra.Command{
 		Use:   "docs",
 		Short: "Print where the docs of the tifa version this app uses are, and what each one covers",
@@ -25,9 +26,15 @@ func newDocsCmd() *cobra.Command {
 directive works too) and prints the folder that holds its docs, then one line for each doc about
 writing an app: its path and what it covers. --when adds when to read each, and --all also lists the
 docs about developing tifa itself. The docs are those of the tifa version the application builds with, not those of the
-main branch.`,
+main branch.
+
+The docs for apps also exist in Chinese: --lang zh-CN lists those files instead, with their Chinese
+summaries. The language is never chosen for you, and without --lang the English docs are listed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if lang != "" && lang != zhCN {
+				return fmt.Errorf("--lang %q is not available, the only value is %s (the docs are in English when it is not set)", lang, zhCN)
+			}
 			root, err := filepath.Abs(dir)
 			if err != nil {
 				return err
@@ -36,9 +43,12 @@ main branch.`,
 			if err != nil {
 				return err
 			}
-			docs, warnings, err := readDocs(mod.Dir)
+			docs, warnings, err := readDocs(mod.Dir, lang)
 			if err != nil {
 				return err
+			}
+			if lang == zhCN && !slices.ContainsFunc(docs, func(d docEntry) bool { return strings.HasSuffix(d.path, ".zh-CN.md") }) {
+				return fmt.Errorf("%s %s has no Chinese docs", tifaModule, mod.Version)
 			}
 			for _, w := range warnings {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
@@ -55,6 +65,7 @@ main branch.`,
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
 	cmd.Flags().BoolVar(&all, "all", false, "also list the docs about developing tifa itself")
+	cmd.Flags().StringVar(&lang, "lang", "", "list the docs in this language: zh-CN lists the Chinese docs (English when not set)")
 	cmd.Flags().BoolVar(&when, "when", false, "also print when to read each doc")
 	return cmd
 }
@@ -106,9 +117,24 @@ type docEntry struct {
 	audience string
 }
 
+// zhCN is the language of the Chinese docs, whose files end in .zh-CN.md beside the English ones.
+const zhCN = "zh-CN"
+
+// wantedInLang says whether the doc at path is listed for lang. In English, the .zh-CN.md files are
+// left out so each doc shows once. In Chinese, the Chinese file stands for its English one, and the
+// docs for developing tifa, which have no Chinese file, stay in English.
+func wantedInLang(path, audience, lang string) bool {
+	chinese := strings.HasSuffix(path, ".zh-CN.md")
+	if lang == zhCN {
+		return chinese || audience == audienceDev
+	}
+	return !chinese
+}
+
 // readDocs reads the front matter of every Markdown file under docs/ in dir but docs/research,
-// in byte order of the paths. A doc without a summary is left out, and a warning says so.
-func readDocs(dir string) (docs []docEntry, warnings []string, err error) {
+// in byte order of the paths. lang is "" for the English docs or zhCN for the Chinese ones.
+// A doc without a summary is left out, and a warning says so.
+func readDocs(dir, lang string) (docs []docEntry, warnings []string, err error) {
 	var paths []string
 	err = fs.WalkDir(os.DirFS(dir), "docs", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -138,7 +164,9 @@ func readDocs(dir string) (docs []docEntry, warnings []string, err error) {
 			warnings = append(warnings, p+" has no front matter summary")
 			continue
 		}
-		docs = append(docs, docEntry{p, meta.summary, meta.when, meta.audience})
+		if wantedInLang(p, meta.audience, lang) {
+			docs = append(docs, docEntry{p, meta.summary, meta.when, meta.audience})
+		}
 	}
 	return docs, warnings, nil
 }
@@ -146,7 +174,7 @@ func readDocs(dir string) (docs []docEntry, warnings []string, err error) {
 // docsIndex lists the docs of the tifa module in dir like scripts/docs-list.sh: a line with the
 // path and the summary of each, and a line with when to read it.
 func docsIndex(dir string) (index string, warnings []string, err error) {
-	docs, warnings, err := readDocs(dir)
+	docs, warnings, err := readDocs(dir, "")
 	if err != nil {
 		return "", nil, err
 	}
@@ -213,9 +241,12 @@ func firstSentence(s string) string {
 	if i := strings.Index(s, ": "); i > 0 {
 		s = s[:i]
 	}
+	if i := strings.Index(s, "："); i > 0 {
+		s = s[:i]
+	}
 	if r := []rune(s); len(r) > maxSummary {
 		cut := string(r[:maxSummary])
-		if i := strings.LastIndex(cut, ", "); i > 0 {
+		if i := max(strings.LastIndex(cut, ", "), strings.LastIndex(cut, "，")); i > 0 {
 			return cut[:i]
 		}
 		if i := strings.LastIndex(cut, " "); i > 0 {

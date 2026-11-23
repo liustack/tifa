@@ -71,6 +71,7 @@ func TestDocLinksToHeadingsFindThem(t *testing.T) {
 var (
 	linkTarget = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 	htmlID     = regexp.MustCompile(`\sid="([^"]+)"`)
+	explicitID = regexp.MustCompile(`\s\{#([A-Za-z0-9_-]+)\}$`)
 )
 
 // docLinks returns the targets of the Markdown links of a text, outside code.
@@ -97,7 +98,12 @@ func headingIDs(text string) map[string]bool {
 		if hashes == 0 || hashes > 6 || !strings.HasPrefix(line[hashes:], " ") {
 			continue
 		}
-		id := githubID(strings.TrimSpace(line[hashes:]))
+		text := strings.TrimSpace(line[hashes:])
+		if m := explicitID.FindStringSubmatch(text); m != nil {
+			ids[m[1]] = true
+			continue
+		}
+		id := githubID(text)
 		if n := seen[id]; n > 0 {
 			seen[id] = n + 1
 			id += "-" + strconv.Itoa(n)
@@ -159,4 +165,52 @@ func withoutInlineCode(line string) string {
 		}
 	}
 	return b.String()
+}
+
+// A heading that ends in {#id} has that id, which is how a Chinese doc keeps the ids of its English
+// partner. The text of the heading does not make an id then.
+func TestHeadingIDsReadTheExplicitID(t *testing.T) {
+	ids := headingIDs("# 标题 {#title}\n\n## 文件夹 {#folders}\n\n## 没有写 id\n")
+	for _, want := range []string{"title", "folders", "没有写-id"} {
+		if !ids[want] {
+			t.Errorf("no id %q in %v", want, ids)
+		}
+	}
+	if ids["文件夹-folders"] || ids["标题-title"] {
+		t.Errorf("the id text was taken from the heading: %v", ids)
+	}
+}
+
+// Every .zh-CN.md doc has the headings of its English file, with the same ids.
+func TestChineseDocsKeepTheIDsOfTheEnglishHeadings(t *testing.T) {
+	root := filepath.Join("..", "..", "docs")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".zh-CN.md") {
+			return err
+		}
+		zh, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		en, err := os.ReadFile(strings.TrimSuffix(path, ".zh-CN.md") + ".md")
+		if err != nil {
+			t.Errorf("%s: %v", path, err)
+			return nil
+		}
+		zhIDs, enIDs := headingIDs(string(zh)), headingIDs(string(en))
+		for id := range enIDs {
+			if !zhIDs[id] {
+				t.Errorf("%s has no heading with the id %s of its English file", path, id)
+			}
+		}
+		for id := range zhIDs {
+			if !enIDs[id] {
+				t.Errorf("%s has a heading with the id %s, which its English file has not", path, id)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

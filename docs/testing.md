@@ -38,6 +38,8 @@ CGO_ENABLED=0 go build ./...
 
 `go test ./cmd/tifa -run TestAgentTexts` checks that every command, flag, `tifa.X`, `c.X`, `tifa/client` name, doc link and anchor and reference file that `skills/tifa` and the notes template of `tifa new` name exists, and fails with the file, the line and what is missing. Fix the text, not the test.
 
+`scripts/docs-list.sh --check-translations` fails when a doc with `audience: app` has no `.zh-CN.md` partner, when the `translatedFrom` of a partner is not what `scripts/doc-hash.sh <english file>` prints for the English file (the English changed, so the Chinese must change in the same commit), when a `.zh-CN.md` has no English file, or when a doc with `audience: dev` has one. `go test ./cmd/tifa -run 'TestHeadingIDs|TestChineseDocs'` checks that a Chinese doc has the heading ids of its English file.
+
 `test/compare` takes about 6 minutes even without `TIFA_COMPARE` (see [the comparison](#check-that-the-pages-are-the-same)) and `internal/bundle` 6 to 9 minutes on CI, which leaves little of the 10 minutes `go test` gives a package by default. Hence `-timeout`, which CI uses too.
 
 For packages with concurrency (request context, `tifa.Use`, config loading, the server), also run the race detector:

@@ -13,7 +13,7 @@ It does not do: streaming SSR, React Server Components, or rendering that waits 
 
 ## Docs of the installed version
 
-Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and one line on each doc for writing an app (`--when` adds when to read each, `--all` lists the docs about developing Tifa too). The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
+Run `go tool tifa docs` first. It prints the folder with the docs of the Tifa version in `go.mod` and one line on each doc for writing an app (`--when` adds when to read each, `--all` lists the docs about developing Tifa too, `--lang zh-CN` lists the Chinese docs). The `docs/...` paths in these files are in that folder. Do not read the docs on GitHub: they are those of `main`. `go tool tifa agents` wrote this skill from that version and refreshes it after an upgrade.
 
 ## Commands
 
