@@ -142,8 +142,11 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 | `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
 | `deploy.front` | `none` | project file only | What visitors come through before the server: `none` or `cloudflare`. With `cloudflare`, `tifa deploy setup` puts the app behind a Cloudflare Tunnel at the host of `site.url` with cf, and `deploy` and `rollback` clear the CDN cache of that host name. Needs `site.url` without a port. See [Set up with a plan](deploy.md#set-up-with-a-plan) |
-| `deploy.ssh` | `direct` | project file only | How ssh reaches the server: `direct`, `cloudflare` (through the Cloudflare Tunnel, for CI and for your machine) or `tailscale` (for CI). `cloudflare` needs `deploy.front: cloudflare`, and `tailscale` needs `deploy.ci: github` |
-| `deploy.ci` | `none` | project file only | Who deploys automatically: `none` or `github`. With `github` the GitHub Actions of the repository deploy the app, which `tifa deploy setup` sets up. See [Deploy from GitHub Actions](deploy.md#deploy-from-github-actions) |
+| `deploy.connect` | `direct` | project file only | How deploys reach the server over ssh, from your machine and from CI: `direct`, `cloudflare` (through the Cloudflare Tunnel) or `tailscale` (the CI runner joins your tailnet). `cloudflare` needs `deploy.front: cloudflare`, and `tailscale` needs the block `deploy.auto` |
+| `deploy.auto.branch` | the default branch of the repository | project file only | With the block `deploy.auto`: the branch that deploys from GitHub Actions. See [Deploy from GitHub Actions](deploy.md#deploy-from-github-actions) |
+| `deploy.auto.needs` | `ci.yml` | project file only | With the block `deploy.auto`: the file in `.github/workflows` that must pass before a deploy, such as `ci.yml`, or `none` to wait for nothing |
+
+The block `deploy.auto` turns deploys from GitHub Actions on by being there: `auto: {}` takes the defaults, and a key it does not know, or `auto:` with nothing after it, is an error. Without the block there are no deploys from GitHub Actions. `tifa deploy setup` sets them up.
 
 ### Retired settings
 
@@ -156,6 +159,8 @@ A setting that Tifa drops is listed here for at least the next minor version. A 
 | `cache.whole_page` | None. Pages with `Cache` are no longer kept in the program |
 | `cache.ignore_query` | None. There is no key to clean |
 | `deploy.host` (in `tifa.yaml` only) | `TIFA_DEPLOY_HOST` in the `.env` of the app, `--host` of `tifa deploy`, or the server in `~/.tifa/config.yaml`. `tifa.yaml` is committed, so it does not hold the server. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
+
+`deploy.ssh` and `deploy.ci` of an earlier version are not retired but renamed, and the project file stops with the new form at their line: `deploy.ssh` is `deploy.connect` with the same values, and `ci: github` is `auto: {}` (delete `ci: none`).
 
 ## Options of the app
 

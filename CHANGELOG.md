@@ -4,6 +4,16 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `deploy.auto.branch` and `deploy.auto.needs` choose what deploys from GitHub Actions. `branch` is the branch whose pushes deploy, and left out it is the default branch of the repository as before. `needs` is the file in `.github/workflows` that must pass first, and left out it is `ci.yml`. `needs: none` deploys every push to the branch without waiting. `tifa deploy setup` reads the file: it must exist, have a `name:` line (GitHub's `workflow_run` finds a workflow by its name) and run on a push to the branch (`on:` as a word, a list or a mapping, with the `branches` and `branches-ignore` filters of GitHub). Otherwise the plan lists it as something for you and setup exits with an error that says to fix the file, change `needs` or write `needs: none`. GitHub starts a workflow that waits for another only from the file on the default branch, so with another `branch` the plan says to commit the workflow to the default branch. The subject of the Tailscale identity that setup prints now has the ref the deploy job runs with: the default branch after `needs` passed, and `branch` with `needs: none`.
+
+### Changed
+
+- **Breaking:** `deploy.ssh` is now `deploy.connect`, with the same values `direct`, `cloudflare` and `tailscale` and the same meaning: the one path ssh takes to the server, from your machine and from the runner. `deploy.ssh` in `tifa.yaml` stops `tifa check`, `build`, `dev` and every `tifa deploy` command at its line with `deploy.ssh is now deploy.connect: write connect: <the value>`. Upgrading: in the `deploy` section of `tifa.yaml`, change `ssh:` to `connect:`.
+- **Breaking:** `deploy.ci` is replaced by the block `deploy.auto`. The block being there turns deploys from GitHub Actions on, `auto: {}` takes the defaults, and `auto:` with nothing after it, or a key other than `branch` and `needs`, is an error. `deploy.ci` in `tifa.yaml` stops the same commands with `deploy.ci is now the block deploy.auto: replace ci: github with auto: {}`. A repository with `ci: github` and no `ci.yml` used to deploy on every push: it now needs `ci.yml` with a `name:` or `needs: none`. Upgrading: replace `ci: github` with `auto: {}`, and delete `ci: none`. If the app has no `.github/workflows/ci.yml`, or yours has another file name, write `auto:` with `needs: <file>` (or `needs: none`) under it.
+- The `tifa.yaml` that `tifa new` writes shows `connect: direct` and the block `auto` with `branch` and `needs`, commented out.
+
 ## [0.2.2] - 2026-11-23
 
 ### Added
