@@ -28,7 +28,7 @@ type Clock struct {
 // Shown is an entry that can be seen from now on.
 type Shown struct {
 	Collection, Language, ID string
-	Date                 time.Time
+	Date                     time.Time
 }
 
 var realClock = Clock{Now: time.Now, AfterFunc: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }}

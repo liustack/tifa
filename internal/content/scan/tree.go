@@ -62,7 +62,7 @@ type Problem struct {
 // reserved are the json names of content.Entry, with what Entry uses each for.
 var reserved = map[string]string{
 	"id":           "for the ID of an entry, which its path gives",
-	"language":         "for the language of an entry",
+	"language":     "for the language of an entry",
 	"slug":         "for the last segment of the URL of an entry",
 	"path":         "for the ID of an entry with its slug",
 	"date":         "for the time an entry is published",

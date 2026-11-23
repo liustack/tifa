@@ -129,9 +129,9 @@ type Heading struct {
 // Translation is one version of an entry.
 type Translation struct {
 	Language string `json:"language"`
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-	Path string `json:"path"`
+	ID       string `json:"id"`
+	Slug     string `json:"slug"`
+	Path     string `json:"path"`
 }
 
 // Collection holds the entries of one collection. Its methods are safe to call from any goroutine.
@@ -154,9 +154,9 @@ type data[T any] struct {
 
 // view holds the entries that can be seen at one time, with their Translations.
 type view[T any] struct {
-	all    []T
+	all        []T
 	byLanguage map[string][]T
-	index  map[[2]string]int // by language and ID, into all
+	index      map[[2]string]int // by language and ID, into all
 }
 
 var dirName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -340,7 +340,9 @@ func (c *Collection[T]) show(t time.Time) ([]content.Shown, time.Time) {
 	}
 }
 
-func (c *Collection[T]) languageIndex(language string) int { return slices.Index(c.src.Languages, language) }
+func (c *Collection[T]) languageIndex(language string) int {
+	return slices.Index(c.src.Languages, language)
+}
 
 // makeView returns the entries that can be seen at t, with their Translations: an entry whose
 // date comes after t is left out.
@@ -356,7 +358,9 @@ func (c *Collection[T]) makeView(items []item[T], t time.Time) *view[T] {
 		groups[it.group] = append(groups[it.group], Translation{Language: e.Language, ID: e.ID, Slug: e.Slug, Path: e.Path})
 	}
 	for _, g := range groups {
-		slices.SortStableFunc(g, func(a, b Translation) int { return cmp.Compare(c.languageIndex(a.Language), c.languageIndex(b.Language)) })
+		slices.SortStableFunc(g, func(a, b Translation) int {
+			return cmp.Compare(c.languageIndex(a.Language), c.languageIndex(b.Language))
+		})
 	}
 	v := &view[T]{all: make([]T, 0, len(visible)), byLanguage: map[string][]T{}, index: map[[2]string]int{}}
 	for _, it := range visible {
