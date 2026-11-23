@@ -288,6 +288,10 @@ type setupRun struct {
 	// tunnelHost is the ssh host name of the tunnel once the check that ssh reaches the server
 	// through it passed: the host ~/.tifa keeps then.
 	tunnelHost string
+	// tailscalePlanned says the plan asks for the client ID of the Tailscale identity of CI, and
+	// tailscaleSet that the step set it.
+	tailscalePlanned bool
+	tailscaleSet     bool
 	// hostAdvice is what setup tells the developer to set when TIFA_DEPLOY_HOST comes from a
 	// place it does not change, once the ssh host name exists.
 	hostAdvice string
@@ -761,7 +765,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 	// connect is the text of the secret TIFA_DEPLOY_HOST: with a direct login the whole target, port
 	// included, so the workflow needs no Port line and shows no address. port goes with the host
-	// name into the host keys.
+	// name into the host keys. With tailscale the host is the one the runner reaches on the tailnet.
 	connect, hostName, port := "", "", 22
 	if t.sshMode != connCloudflare {
 		connect, hostName, port = deployHostURL(resolved.Host, resolved.Port), resolved.Host, resolved.Port
@@ -842,7 +846,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		}
 	}
 	if t.sshMode == connTailscale {
-		r.tailscaleSteps(p)
+		r.tailscaleIdentitySteps(p)
 	}
 
 	// The workflow. It hands Tifa the purge token and the zone ID of an older setup while the
@@ -856,9 +860,13 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	if err != nil {
 		return err
 	}
+	// The identity of Tailscale replaces the OAuth secrets of an older setup. The workflow keeps
+	// the secrets until the identity is set, as it keeps the purge secrets.
+	spec.TailscaleOAuth = r.legacyTailscale(r.tailscalePlanned)
 	text := githubWorkflow(spec)
 	write := r.writeWorkflow(workflow, func() string {
 		spec.Purge = keep(r.purgeStored)
+		spec.TailscaleOAuth = r.legacyTailscale(r.tailscaleSet)
 		return githubWorkflow(spec)
 	})
 	same := strings.ReplaceAll(have, "\r\n", "\n") == text // git on Windows may check it out with CRLF
@@ -867,7 +875,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.add(opAdd, "github: "+githubWorkflowPath+", which you commit and push", write)
 	case !marked:
 		p.ok("github: " + githubWorkflowPath + " has no Tifa line at the top, so it is yours and stays")
-	case same && r.purgePlanned && keep(false) != keep(true):
+	case same && (r.purgePlanned && keep(false) != keep(true) || r.tailscalePlanned && r.legacyTailscale(false) != r.legacyTailscale(true)):
 		// Right if the paste works. The step puts the secrets back in when it does not.
 		p.steps = append(p.steps, planStep{op: opOK, text: "github: " + githubWorkflowPath, do: write})
 	case same:
@@ -877,6 +885,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 	p.steps = append(p.steps, r.afterConnection...)
 	r.removeOldNames(p)
+	r.oldTailscaleSteps(ctx, p)
 	switch {
 	case t.domain == "":
 		if err := r.removePurge(ctx, p); err != nil {
@@ -1473,9 +1482,25 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 			names = append(names, n)
 		}
 	}
-	p.add(opRemove, "github: the secrets "+strings.Join(names, ", ")+" and the variable "+varMarker+", which tifa set", func(ctx context.Context) (string, error) {
+	// The variables of the Tailscale identity go before the marker, which says they are tifa's.
+	var vars []string
+	for _, n := range []string{varTSClient, varTSAudience} {
+		if r.ghVars[n] != "" {
+			vars = append(vars, n)
+		}
+	}
+	what := "the secrets " + strings.Join(names, ", ")
+	if len(vars) > 0 {
+		what += ", the variables " + strings.Join(vars, ", ")
+	}
+	p.add(opRemove, "github: "+what+" and the variable "+varMarker+", which tifa set", func(ctx context.Context) (string, error) {
 		for _, n := range names {
 			if err := r.gh.DeleteSecret(ctx, repoName, n); err != nil {
+				return "", err
+			}
+		}
+		for _, n := range vars {
+			if err := r.gh.DeleteVariable(ctx, repoName, n); err != nil {
 				return "", err
 			}
 		}
@@ -1490,8 +1515,12 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	switch {
 	case f.purgeToken && t.domain == "":
 		return errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
-	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
-		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
+	case f.tailscaleClientID != "" && (t.sshMode != connTailscale || !t.github):
+		return errors.New("--tailscale-client-id is for the identity CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
+	case f.tailscaleClientID != "":
+		if err := checkTailscaleClientID(strings.TrimSpace(f.tailscaleClientID)); err != nil {
+			return fmt.Errorf("--tailscale-client-id: %w", err)
+		}
 	}
 	plan, run, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
@@ -1589,9 +1618,12 @@ func (r *setupRun) zoneText() string {
 // setupFlags are the flags of tifa deploy setup.
 type setupFlags struct {
 	yes, all bool
-	// purgeToken (--cache-purge-token) and tailscaleOAuth (--tailscale-oauth) ask for that
-	// secret even when GitHub has it, and replace it.
-	purgeToken, tailscaleOAuth bool
+	// purgeToken (--cache-purge-token) asks for that secret even when the server has it, and
+	// replaces it.
+	purgeToken bool
+	// tailscaleClientID (--tailscale-client-id) is the client ID of the Tailscale identity CI joins
+	// the tailnet with. It is not secret.
+	tailscaleClientID string
 	// skipMachine leaves out the first plan for this machine: setup already made it twice.
 	skipMachine bool
 }

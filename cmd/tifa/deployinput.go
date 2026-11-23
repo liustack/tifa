@@ -27,7 +27,7 @@ var oldInputNames = []struct{ old, new string }{
 // the secrets and variables it sets on GitHub, and the marker. A new one is added here.
 var deployInputNames = []string{
 	deployHostEnv, secretSSHKey, secretKnownHosts, secretCFID, secretCFSecret, secretTSID,
-	secretTSSecret, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
+	secretTSSecret, varTSClient, varTSAudience, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
 }
 
 const deployPrefix = "TIFA_DEPLOY_"

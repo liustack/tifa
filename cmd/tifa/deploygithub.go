@@ -47,6 +47,13 @@ const (
 	secretPurge      = envPurgeToken
 )
 
+// Names of the variables of the repository that hold the Tailscale identity of CI. Neither value
+// is secret. The OAuth secrets above are what an older setup kept.
+const (
+	varTSClient   = "TIFA_DEPLOY_TAILSCALE_ID"
+	varTSAudience = "TIFA_DEPLOY_TAILSCALE_AUDIENCE"
+)
+
 // The cloudflared that CI runs for deploy.ssh cloudflare: one fixed version of the amd64 package
 // of ubuntu-24.04, and its SHA-256. A newer cloudflared once stopped reading service tokens for
 // access ssh (issue 1673 of cloudflare/cloudflared, 2026.6.0), which would break every deploy
@@ -175,6 +182,9 @@ type githubWorkflowSpec struct {
 	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
 	// and the zone ID, both from secrets, since a public repository must not show the zone.
 	Purge bool
+	// TailscaleOAuth keeps the OAuth client of an older setup for the Tailscale step, until the
+	// identity of workload identity federation is set.
+	TailscaleOAuth bool
 }
 
 // workflowMarker is the first line of the workflow tifa writes. A file without it is the
@@ -222,6 +232,10 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("")
 	w("permissions:")
 	w("  contents: read")
+	if s.Mode == connTailscale && !s.TailscaleOAuth {
+		// The Tailscale action asks GitHub for a token that says which repository this is.
+		w("  id-token: write")
+	}
 	w("")
 	w("jobs:")
 	w("  deploy:")
@@ -267,9 +281,14 @@ func githubWorkflow(s githubWorkflowSpec) string {
 		w("      - name: Connect to Tailscale")
 		w("        uses: tailscale/github-action@v4")
 		w("        with:")
-		w("          oauth-client-id: ${{ secrets.%s }}", secretTSID)
-		w("          oauth-secret: ${{ secrets.%s }}", secretTSSecret)
-		w("          tags: tag:ci")
+		if s.TailscaleOAuth {
+			w("          oauth-client-id: ${{ secrets.%s }}", secretTSID)
+			w("          oauth-secret: ${{ secrets.%s }}", secretTSSecret)
+		} else {
+			w("          oauth-client-id: ${{ vars.%s }}", varTSClient)
+			w("          audience: ${{ vars.%s }}", varTSAudience)
+		}
+		w("          tags: %s", tailscaleTag)
 	}
 	w("      - name: Set up ssh")
 	w("        env:")

@@ -21,6 +21,8 @@ func TestDeployNamesShareOnePrefix(t *testing.T) {
 		{secretCFSecret, "TIFA_DEPLOY_CF_ACCESS_SECRET"},
 		{secretTSID, "TIFA_DEPLOY_TAILSCALE_CLIENT_ID"},
 		{secretTSSecret, "TIFA_DEPLOY_TAILSCALE_SECRET"},
+		{varTSClient, "TIFA_DEPLOY_TAILSCALE_ID"},
+		{varTSAudience, "TIFA_DEPLOY_TAILSCALE_AUDIENCE"},
 		{varMarker, "TIFA_DEPLOY_FINGERPRINT"},
 	} {
 		if name, want := c[0], c[1]; name != want {
@@ -52,7 +54,7 @@ func TestWorkflowUsesNewNames(t *testing.T) {
 		}
 	}
 	ts := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale})
-	for _, want := range []string{"oauth-client-id: ${{ secrets.TIFA_DEPLOY_TAILSCALE_CLIENT_ID }}", "oauth-secret: ${{ secrets.TIFA_DEPLOY_TAILSCALE_SECRET }}"} {
+	for _, want := range []string{"oauth-client-id: ${{ vars.TIFA_DEPLOY_TAILSCALE_ID }}", "audience: ${{ vars.TIFA_DEPLOY_TAILSCALE_AUDIENCE }}"} {
 		if !strings.Contains(ts, want) {
 			t.Errorf("workflow lacks %q", want)
 		}

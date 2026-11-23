@@ -303,7 +303,7 @@ restarts the app through its socket. Run it again to go further back.`,
 	setup.Flags().BoolVarP(&sf.yes, "yes", "y", false, "apply the plan without asking")
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
 	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token that clears the CDN cache at each deploy, and replace the one the server has")
-	setup.Flags().BoolVar(&sf.tailscaleOAuth, "tailscale-oauth", false, "ask for the OAuth client CI joins your tailnet with, and replace the one GitHub has")
+	setup.Flags().StringVar(&sf.tailscaleClientID, "tailscale-client-id", "", "the client ID of the Tailscale identity CI joins your tailnet with (not secret)")
 	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRemoveCmd(&dir, &host))
 	return cmd
 }
