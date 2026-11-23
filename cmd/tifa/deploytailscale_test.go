@@ -63,9 +63,6 @@ func TestSetupTailscaleCI(t *testing.T) {
 	if a.gh.vars[varTSClient] != "k1b2CNTRL" || a.gh.vars[varTSAudience] != "api.tailscale.com/k1b2CNTRL" {
 		t.Errorf("variables %v", a.gh.vars)
 	}
-	if a.gh.secrets[secretTSID] != "" || a.gh.secrets[secretTSSecret] != "" {
-		t.Errorf("a Tailscale secret was set: %v", a.gh.secrets)
-	}
 	if a.gh.secrets[secretHost] != "ssh://vps.tail1234.ts.net:2222" || !strings.HasPrefix(a.gh.secrets[secretKnownHosts], "[vps.tail1234.ts.net]:2222 ssh-ed25519 ") {
 		t.Errorf("connection: %q, %q", a.gh.secrets[secretHost], a.gh.secrets[secretKnownHosts])
 	}
@@ -125,57 +122,6 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 	}
 	if len(a.gh.vars) != 0 {
 		t.Errorf("variables %v", a.gh.vars)
-	}
-}
-
-// An app set up by v0.2.x joins with the OAuth secrets. Setup leaves that working until the
-// identity is there, then writes the workflow for it, and takes the secrets away only once the
-// workflow on the default branch no longer uses them.
-func TestSetupTailscaleFromOAuthSecrets(t *testing.T) {
-	a := newTSApp(t, true)
-	workflow := filepath.Join(a.root, githubWorkflowPath)
-	oldFlow := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true, CIName: testCIName, CIFile: "ci.yml"})
-	writeFile(t, workflow, oldFlow)
-	a.gh.files = map[string]string{githubWorkflowPath: oldFlow}
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
-		a.gh.secrets[n] = "set by v0.2"
-	}
-	a.gh.vars[varMarker] = "old"
-
-	// Without the client ID the old workflow stays, and the secrets with it.
-	out, err := runSetup(t, a.root, false, "", "--yes")
-	if err != nil && !strings.Contains(err.Error(), "needs you") {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	wantAll(t, out, "the Tailscale identity CI joins your tailnet with", "CI still joins with the OAuth secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET")
-	if data, _ := os.ReadFile(workflow); string(data) != oldFlow || a.gh.secrets[secretTSID] == "" {
-		t.Errorf("setup changed what CI joins with:\n%s\n%v", data, a.gh.secrets)
-	}
-
-	// With it, the workflow is written for the identity. The secrets stay while main still has the old one.
-	out, err = runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "k1b2CNTRL")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	newFlow, _ := os.ReadFile(workflow)
-	wantAll(t, string(newFlow), "vars.TIFA_DEPLOY_TAILSCALE_ID", "id-token: write")
-	wantAll(t, out, "github: the secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET stay while the workflow on main hands them to the Tailscale action")
-	if a.gh.secrets[secretTSID] == "" || a.gh.secrets[secretTSSecret] == "" {
-		t.Errorf("the secrets went too early: %v", a.gh.secrets)
-	}
-
-	// Once the new workflow is on main, the next run removes them.
-	a.gh.files[githubWorkflowPath] = string(newFlow)
-	out, err = runSetup(t, a.root, false, "", "--yes")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	wantAll(t, out, "remove  github: the secrets TIFA_DEPLOY_TAILSCALE_CLIENT_ID and TIFA_DEPLOY_TAILSCALE_SECRET, the OAuth client of an older setup, which the workflow no longer uses")
-	if _, ok := a.gh.secrets[secretTSID]; ok {
-		t.Errorf("secrets %v", a.gh.secrets)
-	}
-	if _, ok := a.gh.secrets[secretTSSecret]; ok {
-		t.Errorf("secrets %v", a.gh.secrets)
 	}
 }
 

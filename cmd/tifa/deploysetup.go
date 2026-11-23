@@ -291,10 +291,6 @@ type setupRun struct {
 	// tunnelHost is the ssh host name of the tunnel once the check that ssh reaches the server
 	// through it passed: the host ~/.tifa keeps then.
 	tunnelHost string
-	// tailscalePlanned says the plan asks for the client ID of the Tailscale identity of CI, and
-	// tailscaleSet that the step set it.
-	tailscalePlanned bool
-	tailscaleSet     bool
 	// hostAdvice is what setup tells the developer to set when TIFA_DEPLOY_HOST comes from a
 	// place it does not change, once the ssh host name exists.
 	hostAdvice string
@@ -303,10 +299,9 @@ type setupRun struct {
 	// afterConnection are steps that wait until CI has what replaces what they take away.
 	afterConnection []planStep
 	// domainNew says the plan adds the route of the domain: its first setup. purgeOnServer says
-	// the server has the purge token of the zone, purgePlanned that the plan asks for it, and
-	// purgeStored that the step put it there.
-	// purgeVerified says that token works: Cloudflare took it for the zone.
-	domainNew, purgeOnServer, purgeVerified, purgePlanned, purgeStored bool
+	// the server has the purge token of the zone. purgeVerified says that token works: Cloudflare
+	// took it for the zone.
+	domainNew, purgeOnServer, purgeVerified bool
 	setupFlags
 }
 
@@ -862,26 +857,13 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		r.tailscaleIdentitySteps(p)
 	}
 
-	// The workflow. It hands Tifa the purge token and the zone ID of an older setup while the
-	// repository has them and the server has no token that works. The plan expects the paste to
-	// work, and the step writes what came of it: a paste skipped, or a write to the server that
-	// failed, keeps the secrets in the workflow.
-	keep := func(pasted bool) bool {
-		return t.domain != "" && r.ghNames[secretPurge] && !r.purgeVerified && !pasted
-	}
-	spec, err := workflowSpec(t, r.branch, ciName, t.connectMode, keep(r.purgePlanned))
+	// The workflow.
+	spec, err := workflowSpec(t, r.branch, ciName, t.connectMode)
 	if err != nil {
 		return err
 	}
-	// The identity of Tailscale replaces the OAuth secrets of an older setup. The workflow keeps
-	// the secrets until the identity is set, as it keeps the purge secrets.
-	spec.TailscaleOAuth = r.legacyTailscale(r.tailscalePlanned)
 	text := githubWorkflow(spec)
-	write := r.writeWorkflow(workflow, func() string {
-		spec.Purge = keep(r.purgeStored)
-		spec.TailscaleOAuth = r.legacyTailscale(r.tailscaleSet)
-		return githubWorkflow(spec)
-	})
+	write := r.writeWorkflow(workflow, func() string { return text })
 	same := strings.ReplaceAll(have, "\r\n", "\n") == text // git on Windows may check it out with CRLF
 	commit := ", which you commit and push"
 	if ciName != "" && r.branch != repo.Branch {
@@ -893,28 +875,13 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.add(opAdd, "github: "+githubWorkflowPath+commit, write)
 	case !marked:
 		p.ok("github: " + githubWorkflowPath + " has no Tifa line at the top, so it is yours and stays")
-	case same && (r.purgePlanned && keep(false) != keep(true) || r.tailscalePlanned && r.legacyTailscale(false) != r.legacyTailscale(true)):
-		// Right if the paste works. The step puts the secrets back in when it does not.
-		p.steps = append(p.steps, planStep{op: opOK, text: "github: " + githubWorkflowPath, do: write})
 	case same:
 		p.ok("github: " + githubWorkflowPath)
 	default:
 		p.add(opChange, "github: "+githubWorkflowPath+commit, write)
 	}
 	p.steps = append(p.steps, r.afterConnection...)
-	r.removeOldNames(p)
-	r.oldTailscaleSteps(ctx, p)
-	switch {
-	case t.domain == "":
-		if err := r.removePurge(ctx, p); err != nil {
-			return err
-		}
-		r.removeZoneSecret(p)
-	case !keep(r.purgePlanned):
-		if err := r.removeRepoPurge(ctx, p); err != nil {
-			return err
-		}
-	}
+	r.tailscaleVariableSteps(p)
 	return r.removeAccessIfUnwanted(ctx, p)
 }
 
@@ -967,14 +934,6 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 				}
 			}
 		}()
-	}
-	if found.legacy {
-		legacy := legacySSHHost(t.domain, zone.Name)
-		r.afterConnection = append(r.afterConnection, planStep{op: opRemove,
-			text: fmt.Sprintf("cloudflare: the ssh host name %s that anyone can guess from the domain, its route, DNS record and Access application, which tifa made. %s replaces it", legacy, host),
-			do: func(ctx context.Context) (string, error) {
-				return "", removeSSHHost(ctx, r.tunnelID, zone.Name, legacy)
-			}})
 	}
 	// Access comes before the route: nothing is published until the application and a policy
 	// that lets someone in are made, so the ssh host name is never open to everyone. The steps
@@ -1106,7 +1065,7 @@ func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) (
 // purgeSteps plans the token that clears the CDN cache of the domain at each deploy. It lives on
 // the server, one for each zone, so every app of the server on that zone uses it, and a zone the
 // server has needs nothing. The token is optional, so setup asks for it on the first setup of the
-// domain or of CI, and to move one from the secret an older setup set, and later notes the command
+// domain or of CI, and later notes the command
 // that adds it when CI needs it. With --cache-purge-token it asks every time and replaces it.
 func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 	t := r.t
@@ -1129,13 +1088,12 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 			r.purgeVerified = true
 		}
 	}
-	moving := r.ghNames[secretPurge]
-	firstCI := t.github && r.ghVars[varMarker] == "" && (r.ghVars[oldVarMarker] == "" || r.hadOldPurgeToken())
+	firstCI := t.github && r.ghVars[varMarker] == ""
 	switch {
 	case r.purgeVerified:
 		p.ok(fmt.Sprintf("server: the token that clears the cache of %s, in %s", zone, where))
 		return
-	case !r.purgeToken && broken == "" && !r.domainNew && !moving && !firstCI:
+	case !r.purgeToken && broken == "" && !r.domainNew && !firstCI:
 		// A deploy from a machine with cf clears the cache without it: only CI needs the note.
 		if t.github {
 			p.notes = append(p.notes, planNote{what: text, why: purgeTokenLater})
@@ -1151,9 +1109,6 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 		if r.purgeToken {
 			p.cannot(text, why)
 			return
-		}
-		if moving {
-			why += fmt.Sprintf(". Until then CI clears the cache with the secrets %s and %s", secretPurge, secretZoneID)
 		}
 		p.notes = append(p.notes, planNote{what: text, why: why + ". " + purgeTokenLater})
 	}
@@ -1171,7 +1126,6 @@ func (r *setupRun) purgeSteps(ctx context.Context, p *setupPlan) {
 			op = opChange
 		}
 		p.steps = append(p.steps, planStep{op: op, text: text, soft: true, do: r.pastePurgeToken})
-		r.purgePlanned = true
 	}
 }
 
@@ -1205,61 +1159,7 @@ func (r *setupRun) serverHome() string {
 
 // keepPurge puts the token of the zone on the server.
 func (r *setupRun) keepPurge(ctx context.Context, token string) error {
-	if err := r.t.storePurge(ctx, purgeCred{Zone: r.zone.Name, ZoneID: r.zone.ID, Token: token}, r.stderr); err != nil {
-		return err
-	}
-	r.purgeStored = true
-	return nil
-}
-
-// removeRepoPurge takes away the purge token and the zone ID an older setup kept as secrets of the
-// repository, once the workflow on the default branch no longer hands them to Tifa: CI runs that
-// file, and with an older tifa it has no other way to clear the cache. A purge token stays until a
-// token on the server works: it cannot be read back from GitHub.
-func (r *setupRun) removeRepoPurge(ctx context.Context, p *setupPlan) error {
-	if r.ghVars[varMarker] == "" {
-		return nil
-	}
-	var names []string
-	for _, n := range []string{secretPurge, secretZoneID} {
-		if r.ghNames[n] {
-			names = append(names, n)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	these, stay, them := "the secret "+names[0], "stays", "it"
-	if len(names) == 2 {
-		these, stay, them = "the secrets "+names[0]+" and "+names[1], "stay", "them"
-	}
-	repo, branch := r.repo.Name, r.repo.Branch
-	onMain, found, err := r.gh.FileOnBranch(ctx, repo, branch, githubWorkflowPath)
-	switch {
-	case err != nil:
-		p.notes = append(p.notes, planNote{what: "github: " + these + " " + stay, why: fmt.Sprintf("Setup cannot read %s on %s, so it cannot tell whether CI still uses %s: %v. Once the workflow on %s no longer has %s, run setup again, or delete %s by hand", githubWorkflowPath, branch, them, err, branch, them, them)})
-		return nil
-	case found && (strings.Contains(onMain, "secrets."+secretPurge) || strings.Contains(onMain, "secrets."+secretZoneID)):
-		p.notes = append(p.notes, planNote{what: fmt.Sprintf("github: %s %s while the workflow on %s hands %s to Tifa", these, stay, branch, them), why: fmt.Sprintf("Commit and push %s, which no longer does, then run setup again to remove %s", githubWorkflowPath, them)})
-		return nil
-	}
-	text := "github: " + these + ", which tifa set and the workflow no longer uses"
-	token := r.ghNames[secretPurge]
-	if token {
-		text += fmt.Sprintf(". The token is on the server now: when you made a new one for it, delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", repoPurgeTokenName(repo))
-	}
-	p.add(opRemove, text, func(ctx context.Context) (string, error) {
-		if token && !r.purgeVerified && !r.purgeStored {
-			return "", skipped{"no token on the server works yet, so the secrets stay until one does"}
-		}
-		for _, n := range names {
-			if err := r.gh.DeleteSecret(ctx, repo, n); err != nil {
-				return "", err
-			}
-		}
-		return "", nil
-	})
-	return nil
+	return r.t.storePurge(ctx, purgeCred{Zone: r.zone.Name, ZoneID: r.zone.ID, Token: token}, r.stderr)
 }
 
 // purgeTokenCommand makes setup ask for the token that clears the CDN cache.
@@ -1327,83 +1227,10 @@ func (r *setupRun) pastePurgeToken(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// The names setup used before every name had the prefix TIFA_DEPLOY_. The old variable marked the
-// secrets as tifa's, so a secret under an old name goes only while that variable is there.
-const oldVarMarker = "TIFA_DEPLOY"
-
-var oldSecretNames = []string{
-	"DEPLOY_SSH_KEY", "DEPLOY_KNOWN_HOSTS", "DEPLOY_HOST", "CF_ZONE_ID",
-	"CF_CACHE_PURGE_TOKEN", "CF_PURGE_TOKEN",
-	"CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET",
-}
-
-// marked says tifa set secrets in the repository, under the new names or the old ones.
-func (r *setupRun) marked() bool { return r.ghVars[varMarker] != "" || r.ghVars[oldVarMarker] != "" }
-
-// hadOldPurgeToken says the repository has a purge token under an old name, which cannot be read
-// back, so it has to be pasted again.
-func (r *setupRun) hadOldPurgeToken() bool {
-	return r.ghVars[oldVarMarker] != "" && (r.ghNames["CF_CACHE_PURGE_TOKEN"] || r.ghNames["CF_PURGE_TOKEN"])
-}
-
-// removeOldNames plans the removal of the secrets and the variable under the old names, which tifa
-// set. The steps that set the new ones come before it in the plan. The Cloudflare token behind an
-// old purge secret is the developer's: when CI is switched off, the plan says to delete it.
-func (r *setupRun) removeOldNames(p *setupPlan) {
-	if r.ghVars[oldVarMarker] == "" {
-		return
-	}
-	var names []string
-	for _, n := range oldSecretNames {
-		if r.ghNames[n] {
-			names = append(names, n)
-		}
-	}
-	text := "github: the variable " + oldVarMarker + ", which tifa set under its old name"
-	if len(names) > 0 {
-		text = "github: the old secrets " + strings.Join(names, ", ") + " and the variable " + oldVarMarker + ", which tifa set under their old names"
-	}
-	if r.hadOldPurgeToken() && !r.t.github {
-		text += fmt.Sprintf(". Tifa cannot delete the Cloudflare token behind the purge secret: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", repoPurgeTokenName(r.repo.Name))
-	}
-	repo := r.repo.Name
-	p.add(opRemove, text, func(ctx context.Context) (string, error) {
-		for _, n := range names {
-			if err := r.gh.DeleteSecret(ctx, repo, n); err != nil {
-				return "", err
-			}
-		}
-		return "", r.gh.DeleteVariable(ctx, repo, oldVarMarker)
-	})
-}
-
-// removePurge takes away the purge secret. The token behind it is the developer's: tifa cannot
-// delete it, so the plan says to.
-func (r *setupRun) removePurge(ctx context.Context, p *setupPlan) error {
-	if r.ghVars[varMarker] == "" || !r.ghNames[secretPurge] {
-		return nil
-	}
-	p.add(opRemove, fmt.Sprintf("github: the secret %s, which tifa set. Tifa cannot delete the Cloudflare token behind it: delete the token %q in the Cloudflare dashboard, Manage Account, Account API Tokens", secretPurge, repoPurgeTokenName(r.repo.Name)), func(ctx context.Context) (string, error) {
-		return "", r.gh.DeleteSecret(ctx, r.repo.Name, secretPurge)
-	})
-	return nil
-}
-
-// removeZoneSecret takes away the secret that holds the zone ID, which tifa set. The zone is
-// nothing to delete in Cloudflare.
-func (r *setupRun) removeZoneSecret(p *setupPlan) {
-	if r.ghVars[varMarker] == "" || !r.ghNames[secretZoneID] {
-		return
-	}
-	p.add(opRemove, "github: the secret "+secretZoneID+", which tifa set", func(ctx context.Context) (string, error) {
-		return "", r.gh.DeleteSecret(ctx, r.repo.Name, secretZoneID)
-	})
-}
-
 // removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.connect is
 // not cloudflare any more.
 func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) error {
-	if r.t.connectMode == connCloudflare || !r.marked() {
+	if r.t.connectMode == connCloudflare || r.ghVars[varMarker] == "" {
 		return nil
 	}
 	return r.removeAccess(ctx, p)
@@ -1481,21 +1308,14 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 			return "", r.t.ssh(ctx, deployUser, revokeScript(repoName), nil, io.Discard, r.stderr)
 		})
 	}
-	if !r.marked() {
+	if r.ghVars[varMarker] == "" {
 		return nil
-	}
-	r.removeOldNames(p)
-	if err := r.removePurge(ctx, p); err != nil {
-		return err
 	}
 	if err := r.removeAccess(ctx, p); err != nil {
 		return err
 	}
-	if r.ghVars[varMarker] == "" {
-		return nil
-	}
 	var names []string
-	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {
+	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
 		if r.ghNames[n] {
 			names = append(names, n)
 		}

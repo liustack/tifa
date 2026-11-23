@@ -6,70 +6,6 @@ import (
 	"testing"
 )
 
-// An input under its old name in the .env of the app, with the new name missing, stops every
-// deploy command and names the new one. It is no silent fallback and no warning.
-func TestOldInputNamesAreErrors(t *testing.T) {
-	for _, tc := range []struct{ old, new string }{
-		{"DEPLOY_HOST", "TIFA_DEPLOY_HOST"},
-		{"CF_CACHE_PURGE_TOKEN", "TIFA_DEPLOY_CF_PURGE_TOKEN"},
-		{"CF_ZONE_ID", "TIFA_DEPLOY_CF_ZONE_ID"},
-	} {
-		t.Run(tc.old, func(t *testing.T) {
-			root := t.TempDir()
-			writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-			for _, n := range []string{"TIFA_DEPLOY_HOST", "TIFA_DEPLOY_CF_PURGE_TOKEN", "TIFA_DEPLOY_CF_ZONE_ID", "DEPLOY_HOST", "CF_CACHE_PURGE_TOKEN", "CF_ZONE_ID"} {
-				t.Setenv(n, "")
-			}
-			writeFile(t, filepath.Join(root, ".env"), tc.old+"=vps\n")
-			{
-				// The flag gives the server, so only the other two inputs are in question then.
-				hostFlag := ""
-				if tc.old != "DEPLOY_HOST" {
-					hostFlag = "vps"
-				}
-				_, err := loadTarget(root, hostFlag)
-				if err == nil {
-					t.Fatalf("%s was accepted", tc.old)
-				}
-				for _, want := range []string{tc.old, tc.new, "rename"} {
-					if !strings.Contains(err.Error(), want) {
-						t.Errorf("%q lacks %q", err, want)
-					}
-				}
-				if tc.old == "DEPLOY_HOST" {
-					if _, err := loadTarget(root, "vps"); err != nil {
-						t.Errorf("--host gives the server, the old name is left alone: %v", err)
-					}
-				}
-				// Once the new name is there too, the old one is only leftover text.
-				t.Setenv(tc.new, "vps")
-				t.Setenv(deployHostEnv, "vps")
-				if _, err := loadTarget(root, ""); err != nil {
-					t.Errorf("both names set: %v", err)
-				}
-			}
-		})
-	}
-}
-
-// The old names are common: other tools read CF_ZONE_ID and DEPLOY_HOST from the environment of a
-// shell or a CI job. Only the .env of the app, which earlier versions of Tifa told people to
-// write, is checked for them.
-func TestOldInputNamesInTheEnvironmentAreLeftAlone(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	for _, n := range []string{"TIFA_DEPLOY_CF_PURGE_TOKEN", "TIFA_DEPLOY_CF_ZONE_ID"} {
-		t.Setenv(n, "")
-	}
-	t.Setenv("TIFA_DEPLOY_HOST", "vps")
-	t.Setenv("DEPLOY_HOST", "other")
-	t.Setenv("CF_CACHE_PURGE_TOKEN", "x")
-	t.Setenv("CF_ZONE_ID", "y")
-	if _, err := loadTarget(root, ""); err != nil {
-		t.Errorf("old names in the environment stopped the deploy: %v", err)
-	}
-}
-
 // A TIFA_DEPLOY_ line in the .env of the app that tifa deploy does not read is a mistake, since the
 // prefix is Tifa's. The error names the key and the closest name, and never prints a value.
 func TestUnknownDeployNameInDotenvIsAnError(t *testing.T) {
@@ -77,7 +13,7 @@ func TestUnknownDeployNameInDotenvIsAnError(t *testing.T) {
 		t.Helper()
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, ".env"), dotenv)
-		return checkOldInputNames(root, "")
+		return checkUnknownInputNames(root)
 	}
 	t.Run("old name with the new prefix", func(t *testing.T) {
 		err := check(t, "TIFA_DEPLOY_CF_CACHE_PURGE_TOKEN=secret-value\n")

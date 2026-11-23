@@ -7,8 +7,7 @@ package main
 //
 //  1. TIFA_DEPLOY_CF_PURGE_TOKEN, a Cloudflare API token that can only purge the cache of one
 //     zone, and TIFA_DEPLOY_CF_ZONE_ID, the ID of that zone: inputs of tifa deploy, from the
-//     environment, else the .env of the app. They override the server, and an older workflow
-//     still hands them from secrets of the repository.
+//     environment, else the .env of the app. They override the server.
 //  2. The file of purge tokens on the server, which setup writes: a token and the zone ID for
 //     each zone, readable only by the deploy user. Deploy reads it over its own ssh, so a deploy
 //     from CI and from a machine without cf clear the cache alike.
@@ -391,10 +390,6 @@ func (h *healthCapture) Write(p []byte) (int, error) {
 
 // purgeTokenName is the name the form of the token suggests, after the zone it may clear.
 func purgeTokenName(zone string) string { return "tifa cache purge " + zone }
-
-// repoPurgeTokenName is the name an earlier setup suggested, for the token it kept as a secret of
-// the repository.
-func repoPurgeTokenName(repo string) string { return "tifa cache purge " + repo }
 
 // purgeTokenLink is the Cloudflare form of an account API token with the permission Cache Purge,
 // filled in. https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/

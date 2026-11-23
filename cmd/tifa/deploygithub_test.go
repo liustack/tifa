@@ -135,17 +135,7 @@ func TestGitHubWorkflow(t *testing.T) {
 			t.Errorf("tailscale workflow lacks %q:\n%s", want, ts)
 		}
 	}
-	if strings.Contains(ts, "oauth-secret") || strings.Contains(ts, "TAILSCALE_SECRET") || strings.Contains(ts, "TAILSCALE_CLIENT_ID") {
-		t.Errorf("tailscale workflow still hands over an OAuth secret:\n%s", ts)
-	}
-	// Until the identity is set, a workflow keeps what v0.2.x wrote: the OAuth secrets, and no id-token.
-	old := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true})
-	for _, want := range []string{"oauth-client-id: ${{ secrets.TIFA_DEPLOY_TAILSCALE_CLIENT_ID }}", "oauth-secret: ${{ secrets.TIFA_DEPLOY_TAILSCALE_SECRET }}"} {
-		if !strings.Contains(old, want) {
-			t.Errorf("legacy tailscale workflow lacks %q", want)
-		}
-	}
-	if strings.Contains(old, "id-token") || strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect}), "id-token") {
+	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect}), "id-token") {
 		t.Error("id-token is asked for where nothing needs it")
 	}
 }
@@ -211,9 +201,6 @@ func TestCloudflareSSHHost(t *testing.T) {
 		}
 		if !isSSHHost(got, c.domain, c.zone) || isSSHHost(c.old, c.domain, c.zone) || isSSHHost(c.domain, c.domain, c.zone) {
 			t.Errorf("%s: isSSHHost is wrong for %s, %s or %s", c.domain, got, c.old, c.domain)
-		}
-		if legacySSHHost(c.domain, c.zone) != c.old {
-			t.Errorf("%s: legacy name %s, want %s", c.domain, legacySSHHost(c.domain, c.zone), c.old)
 		}
 		again, _ := newSSHHost(c.domain, c.zone)
 		if again == got {
@@ -528,7 +515,7 @@ func ingressOf(cf *fakeAccess, id string) []map[string]any {
 // After the CI workflow, the deploy follows it: only a passed push, on the commit that was
 // checked, from the default branch. Without a CI workflow a push deploys.
 func TestWorkflowAfterCI(t *testing.T) {
-	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, CIName: "CI", Purge: true})
+	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, CIName: "CI"})
 	doc, steps := parseWorkflow(t, text)
 	if !strings.HasPrefix(text, workflowMarker) {
 		t.Error("no marker line")
@@ -558,16 +545,6 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if doc["permissions"].(map[string]any)["contents"] != "read" {
 		t.Error("permissions")
 	}
-	for _, want := range []string{"TIFA_DEPLOY_CF_PURGE_TOKEN: ${{ secrets.TIFA_DEPLOY_CF_PURGE_TOKEN }}", "TIFA_DEPLOY_CF_ZONE_ID: ${{ secrets.TIFA_DEPLOY_CF_ZONE_ID }}"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("lacks %q:\n%s", want, text)
-		}
-	}
-	// The zone ID is a secret like the others: the file of a public repository does not show it.
-	if strings.Contains(text, "zone-9") || regexp.MustCompile(`TIFA_DEPLOY_CF_ZONE_ID: [^$]`).MatchString(text) {
-		t.Errorf("the zone ID is written in the workflow:\n%s", text)
-	}
-
 	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
 	doc, _ = parseWorkflow(t, push)
 	on = doc["on"].(map[string]any)

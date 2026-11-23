@@ -1,7 +1,7 @@
 package main
 
 // The inputs of tifa deploy: values that belong to the developer and not to tifa.yaml, which is
-// committed. They share one prefix, TIFA_DEPLOY_. Earlier versions named three of them otherwise.
+// committed. They share one prefix, TIFA_DEPLOY_.
 // Each one is read the same way: its flag when it has one, else the environment variable, else
 // the line in the .env at the root of the app. Tifa reads that file. The one thing setup writes
 // to it is TIFA_DEPLOY_HOST, when deploy.connect cloudflare moves it to the ssh host name, and only
@@ -16,18 +16,11 @@ import (
 	"github.com/liustack/tifa/internal/config"
 )
 
-// oldInputNames maps the old name of an input to its new one.
-var oldInputNames = []struct{ old, new string }{
-	{"DEPLOY_HOST", deployHostEnv},
-	{"CF_CACHE_PURGE_TOKEN", envPurgeToken},
-	{"CF_ZONE_ID", envZoneID},
-}
-
 // deployInputNames is every name with the prefix TIFA_DEPLOY_ that tifa deploy reads: the inputs,
 // the secrets and variables it sets on GitHub, and the marker. A new one is added here.
 var deployInputNames = []string{
-	deployHostEnv, secretSSHKey, secretKnownHosts, secretCFID, secretCFSecret, secretTSID,
-	secretTSSecret, varTSClient, varTSAudience, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
+	deployHostEnv, secretSSHKey, secretKnownHosts, secretCFID, secretCFSecret,
+	varTSClient, varTSAudience, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
 }
 
 const deployPrefix = "TIFA_DEPLOY_"
@@ -93,32 +86,6 @@ func editDistance(a, b string) int {
 		prev = cur
 	}
 	return prev[len(b)]
-}
-
-// checkOldInputNames fails when an input is still set under its old name in the .env at root, and
-// the new name is set nowhere. Reading the old name would work, but it would hide that CI and a
-// second machine need the new one, so the error names the new name. Only .env is looked at for
-// the old names: earlier versions told people to write them there, while in the environment
-// they are common names that other tools set (CF_ZONE_ID, DEPLOY_HOST). hostFlag is the value of
-// --host: it gives the server, so DEPLOY_HOST is left alone then.
-func checkOldInputNames(root, hostFlag string) error {
-	if err := checkUnknownInputNames(root); err != nil {
-		return err
-	}
-	src := config.Read(nil, os.Environ(), root)
-	dotenv := config.Read(nil, nil, root)
-	for _, n := range oldInputNames {
-		if n.new == deployHostEnv && hostFlag != "" {
-			continue
-		}
-		if value, _ := src.Lookup(n.new); value != "" {
-			continue
-		}
-		if value, from := dotenv.Lookup(n.old); value != "" {
-			return fmt.Errorf("%s is set, and %s has been renamed to %s: rename it", from, n.old, n.new)
-		}
-	}
-	return nil
 }
 
 // readDeployInput finds the input called name for the app at root: flagValue (the flag flagName,
