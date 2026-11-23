@@ -750,7 +750,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		return nil
 	}
 	if obj := pkg.Types.Scope().Lookup("LayoutSSR"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
-		a.errorAt(obj.Pos(), "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps")
+		a.errorAt(obj.Pos(), "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps: %s", strings.Join(a.wrappedPages(d.id), ", "))
 	}
 	if obj := pkg.Types.Scope().Lookup("RenderCache"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
 		a.errorAt(obj.Pos(), "RenderCache is now Memo: write const Memo = false to turn the render memo off for this page")
@@ -1510,6 +1510,7 @@ func (a *analyzer) checkGoneLimits(pkg *packages.Package, path string, page bool
 		if _, isType := obj.(*types.TypeName); isType {
 			continue
 		}
+		value := declaredValue(pkg, obj, g.value)
 		a.errorAt(obj.Pos(), "%s is gone: set it in OnRequest with c.%s for this route, for example in hooks.go:\n"+
 			"\tfunc OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {\n"+
 			"\t\tif %s {\n"+
@@ -1518,7 +1519,7 @@ func (a *analyzer) checkGoneLimits(pkg *packages.Package, path string, page bool
 			"\t\t\t}\n"+
 			"\t\t}\n"+
 			"\t\treturn next(c)\n"+
-			"\t}", g.name, g.call, condition, g.call, g.value)
+			"\t}", g.name, g.call, condition, g.call, value)
 	}
 }
 
@@ -1575,4 +1576,75 @@ func (a *analyzer) retiredWarnings() []Warning {
 		out = append(out, Warning{Pos: token.Position{Filename: "tifa.yaml", Line: w.Line}, Msg: w.Msg()})
 	}
 	return out
+}
+
+// wrappedPages lists the route.go of each page the Layout in directory dir wraps: dir and the
+// directories below it that have a page.tsx, unless a layout_.tsx between drops the Layout. A page
+// without a route.go is listed too, since that is where its SSR goes.
+func (a *analyzer) wrappedPages(dir string) []string {
+	var pages []string
+	for id, info := range a.dirs {
+		if !info.pageTSX || !covers(dir, id) {
+			continue
+		}
+		dropped := false
+		for rid, r := range a.dirs {
+			if r.replaces() && isAncestor(dir, rid) && covers(rid, id) {
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			pages = append(pages, id+"/route.go")
+		}
+	}
+	slices.Sort(pages)
+	return pages
+}
+
+// declaredValue returns the Go source of the value obj was declared with, such as 4 << 20, so a
+// message can repeat the app's own value. It returns fallback when the declaration has no value of
+// its own, as with iota or a var with only a type.
+func declaredValue(pkg *packages.Package, obj types.Object, fallback string) string {
+	value := fallback
+	for _, f := range pkg.Syntax {
+		ast.Inspect(f, func(n ast.Node) bool {
+			spec, ok := n.(*ast.ValueSpec)
+			if !ok {
+				return true
+			}
+			for i, name := range spec.Names {
+				if name.Pos() == obj.Pos() && i < len(spec.Values) {
+					value = types.ExprString(spec.Values[i])
+					if c, isConst := obj.(*types.Const); isConst && !standalone(spec.Values[i]) {
+						value = c.Val().ExactString()
+						if isNamed(c.Type(), "time", "Duration") {
+							value = "time.Duration(" + value + ")"
+						}
+					}
+				}
+			}
+			return false
+		})
+	}
+	return value
+}
+
+// standalone reports whether the expression x names nothing of its package, only literals and the
+// time package, so it means the same written in hooks.go.
+func standalone(x ast.Expr) bool {
+	ok := true
+	ast.Inspect(x, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.SelectorExpr:
+			if id, isIdent := n.X.(*ast.Ident); !isIdent || id.Name != "time" {
+				ok = false
+			}
+			return false
+		case *ast.Ident:
+			ok = false
+		}
+		return ok
+	})
+	return ok
 }

@@ -2,7 +2,9 @@ package project
 
 import "github.com/liustack/tifa"
 
-const BodyLimit = 1 << 20
+const maxBody = 1 << 20
+
+const BodyLimit = maxBody
 
 func PUT(c *tifa.Ctx) error { return nil }
 
