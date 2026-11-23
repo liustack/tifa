@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 
 - `deploy.auto.branch` and `deploy.auto.needs` choose what deploys from GitHub Actions. `branch` is the branch whose pushes deploy, and left out it is the default branch of the repository as before. `needs` is the file in `.github/workflows` that must pass first, and left out it is `ci.yml`. `needs: none` deploys every push to the branch without waiting. `tifa deploy setup` reads the file: it must exist, have a `name:` line (GitHub's `workflow_run` finds a workflow by its name) and run on a push to the branch (`on:` as a word, a list or a mapping, with the `branches` and `branches-ignore` filters of GitHub). Otherwise the plan lists it as something for you and setup exits with an error that says to fix the file, change `needs` or write `needs: none`. GitHub starts a workflow that waits for another only from the file on the default branch, so with another `branch` the plan says to commit the workflow to the default branch. The deploy job also checks that the workflow run it follows came from the file in `needs`, since two workflows can share a name. The subject of the Tailscale identity that setup prints now has the ref the deploy job runs with: the default branch after `needs` passed, and `branch` with `needs: none`. It prints both forms of the subject, the one with the owner and repository IDs that GitHub sends for repositories made after July 15, 2026, and says how to see which one is sent. An identity whose audience variable is missing or is not the one of the client ID is made right from the client ID in the repository, and any `deploy.auto.*` key, written dotted or in a block, turns `deploy.auto` on.
