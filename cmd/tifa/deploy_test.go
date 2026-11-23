@@ -268,7 +268,7 @@ func TestDeploySettingsChecks(t *testing.T) {
 		"port without front":         {"site:\n  url: http://localhost:8080", ""},
 		"ssh cloudflare needs front": {site + "deploy:\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
 		"ssh tailscale needs ci":     {site + "deploy:\n  ssh: tailscale\n", "deploy.ci"},
-		"ssh cloudflare needs ci":    {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n", "deploy.ci"},
+		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n", ""},
 		"all set":                    {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
 		"old domain":                 {"deploy:\n  domain: shop.example.com\n", "deploy.front"},
 		"old cdn":                    {"deploy:\n  cdn: cloudflare\n", "it is now deploy.front"},

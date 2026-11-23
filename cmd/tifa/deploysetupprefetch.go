@@ -42,14 +42,20 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 		}()
 	}
 
-	// The server.
+	// The server. A server that is named by its ssh host is reached through the tunnel, and the
+	// ssh of this machine may not know the way yet: setup plans that first, and reads then.
 	stateDone := make(chan struct{})
 	var stateErr error
 	var st serverState
-	spawn(func() {
-		defer close(stateDone)
-		st, stateErr = r.readState(ctx)
-	})
+	if t.sshMode == connCloudflare && looksLikeSSHHost(t.dest.name, t.domain) && !r.tunnelReady() {
+		stateErr = errNoPrefetch
+		close(stateDone)
+	} else {
+		spawn(func() {
+			defer close(stateDone)
+			st, stateErr = r.readState(ctx)
+		})
+	}
 
 	// GitHub, when the plan will ask: it is wanted, or Tifa wrote the workflow. A key on the
 	// server that would also make it ask is known only after the server answered.
@@ -101,7 +107,19 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 		for _, rs := range hostRules(t.domain) {
 			spawn(func() { ensureRules(ctx, zone.Name, rs, false) })
 		}
-		if !t.github || t.sshMode != connCloudflare {
+		if t.sshMode != connCloudflare {
+			return
+		}
+		spawn(func() {
+			found, err := findSSHHosts(ctx, id, t.domain, zone.Name)
+			if err != nil || found.host == "" {
+				return
+			}
+			spawn(func() { ensureDNS(ctx, zone.Name, found.host, target, t.app, false) })
+			spawn(func() { ensureSSHApp(ctx, found.host, "", true, false) })
+			spawn(func() { peopleOf(ctx, peopleName(found.host)) })
+		})
+		if !t.github {
 			return
 		}
 		<-repoDone
@@ -109,14 +127,6 @@ func (r *setupRun) prefetch(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 		name := accessName(repo.Name)
-		spawn(func() {
-			found, err := findSSHHosts(ctx, id, t.domain, zone.Name)
-			if err != nil || found.host == "" {
-				return
-			}
-			spawn(func() { ensureDNS(ctx, zone.Name, found.host, target, t.app, false) })
-			spawn(func() { ensureSSHApp(ctx, found.host, "", false) })
-		})
 		spawn(func() { serviceTokenIDs(ctx, name) })
 		spawn(func() { policyByName(ctx, name) })
 	})

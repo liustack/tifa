@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -164,7 +163,7 @@ func sshBlockState(path, app, host, cloudflared string) (same, present bool, err
 	if err != nil {
 		return false, false, err
 	}
-	want, err := withSSHBlock(content, app, host, cloudflared, runtime.GOOS)
+	want, err := withSSHBlock(content, app, host, cloudflared, toolOS)
 	return want == content, present, err
 }
 
@@ -176,7 +175,7 @@ func writeSSHBlock(path, app, host, cloudflared string) error {
 	if err != nil {
 		return err
 	}
-	text, err := withSSHBlock(content, app, host, cloudflared, runtime.GOOS)
+	text, err := withSSHBlock(content, app, host, cloudflared, toolOS)
 	if err != nil {
 		return err
 	}
@@ -200,4 +199,14 @@ func removeSSHBlock(path, app string) (bool, error) {
 		return false, err
 	}
 	return true, os.WriteFile(path, []byte(rest), 0o600)
+}
+
+// hasSSHBlock says whether the file at path holds the block of app.
+func hasSSHBlock(path, app string) (bool, error) {
+	content, err := readSSHConfig(path)
+	if err != nil {
+		return false, err
+	}
+	_, found, err := cutSSHBlock(content, app)
+	return found, err
 }

@@ -363,3 +363,71 @@ func TestDeployRemoveThePurgeFile(t *testing.T) {
 		t.Error("the token showed")
 	}
 }
+
+// Without CI, remove still takes the Access application of the ssh host name with its people
+// policy, route and record. They go after the steps on the server, which may reach it through
+// that very host name.
+func TestDeployRemoveSSHWithoutCI(t *testing.T) {
+	root := setupApp(t, sshCloudflareNoCI, nil)
+	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	if out, err := runSetup(t, root, false, "", "--yes"); err != nil && !strings.Contains(err.Error(), "needs you") {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if len(cf.apps) != 1 || len(cf.policies) != 1 {
+		t.Fatalf("setup made apps %v policies %v", cf.apps, cf.policies)
+	}
+	host := cf.apps[0]["domain"].(string)
+	// The developer has the block of setup next to lines of their own.
+	cfg, _ := sshConfigPath()
+	writeFile(t, cfg, "Host mine\n  User me\n")
+	if err := writeSSHBlock(cfg, "shop", host, fakeCloudflared); err != nil {
+		t.Fatal(err)
+	}
+	setFacts(t, srv, removeFacts(""))
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if data, _ := os.ReadFile(cfg); string(data) != "Host mine\n  User me\n" || !strings.Contains(out, "remove  this machine: the block of tifa shop in "+cfg) {
+		t.Errorf("the block of the ssh config is not gone:\n%s\n%s", data, out)
+	}
+	access := strings.Index(out, "remove  cloudflare: the Access application of the ssh host name of deploy-a.example.com")
+	server := strings.Index(out, "remove  server: stop and disable tifa-shop")
+	if access < 0 || server < 0 || access < server {
+		t.Errorf("the Access application must go after the app (%d, %d):\n%s", access, server, out)
+	}
+	ingress, _ := json.Marshal(cf.configs["tunnel-1"])
+	if len(cf.apps) != 0 || len(cf.policies) != 0 || strings.Contains(string(ingress), host) {
+		t.Errorf("left: apps %v policies %v config %s", cf.apps, cf.policies, ingress)
+	}
+	for _, r := range cf.records["example.com"] {
+		t.Errorf("a record is left: %v", r)
+	}
+}
+
+// When the developer reaches the server through the tunnel, the step that stops the tunnel would cut
+// its own connection: it runs detached, a few seconds after ssh left, and remove waits before it
+// asks Cloudflare to delete the tunnel.
+func TestDeployRemoveThroughTheTunnel(t *testing.T) {
+	root := setupApp(t, sshCloudflareNoCI, nil)
+	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	if out, err := runSetup(t, root, false, "", "--yes"); err != nil && !strings.Contains(err.Error(), "needs you") {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	t.Setenv(deployHostEnv, cf.apps[0]["domain"].(string))
+	old := untunnelWait
+	untunnelWait = 0
+	t.Cleanup(func() { untunnelWait = old })
+	setFacts(t, srv, removeFacts(""))
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(srv.argv(), "TIFA_DETACHED_EOF") || len(cf.tunnels) != 0 {
+		t.Errorf("the tunnel was stopped on the connection that rides it:\n%s\ntunnels %v", srv.argv(), cf.tunnels)
+	}
+}

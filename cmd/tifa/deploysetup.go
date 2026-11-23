@@ -276,6 +276,18 @@ type setupRun struct {
 	ghVars   map[string]string
 	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
 	sshName string
+	// removing says this is tifa deploy remove, not setup. Its steps in Cloudflare that cut the
+	// ssh through the tunnel wait in late until the steps on the server ran.
+	removing bool
+	late     []planStep
+	// cloudflaredAt is where setup installed cloudflared on this machine, which the PATH of this
+	// process may not find.
+	cloudflaredAt string
+	// hostAdvice is what setup tells the developer to set when TIFA_DEPLOY_HOST comes from a
+	// place it does not change, once the ssh host name exists.
+	hostAdvice string
+	// accessRemovalPlanned says the plan already takes the Access of the ssh host name away.
+	accessRemovalPlanned bool
 	// afterConnection are steps that wait until CI has what replaces what they take away.
 	afterConnection []planStep
 	// domainNew says the plan adds the route of the domain: its first setup. purgeOnServer says
@@ -350,6 +362,14 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 		if r.toolSteps(ctx, &p); p.todo() > 0 {
 			return p, r, nil
 		}
+		// A server that is named by its ssh host is reached through the tunnel: this machine
+		// needs cloudflared, its place in the ssh config and its Access policy first.
+		if err := r.machineFirst(ctx, &p); err != nil {
+			return p, r, err
+		}
+		if p.todo() > 0 {
+			return p, r, nil
+		}
 	}
 	r.progress("the server")
 	if err := r.serverSteps(ctx, &p); err != nil {
@@ -371,8 +391,25 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 	if err := r.githubSteps(ctx, &p); err != nil {
 		return p, r, err
 	}
+	// With CI, the GitHub part plans the ssh host name too: it needs the repository for the
+	// token. Without CI the ssh host name is for the machines of the people alone.
+	switch {
+	case t.sshMode == connCloudflare && !t.github:
+		if !r.useCF(ctx) {
+			p.cannot(sshAccessWhat, cfNeed())
+		} else if err := r.accessSteps(ctx, &p); err != nil {
+			return p, r, err
+		}
+	case t.sshMode != connCloudflare && t.domain != "" && !r.accessRemovalPlanned && r.useCF(ctx):
+		if err := r.removeAccess(ctx, &p); err != nil {
+			return p, r, err
+		}
+	}
 	return p, r, nil
 }
+
+// sshAccessWhat names the ssh host name and its Access application in the plan, when it cannot do them.
+const sshAccessWhat = "cloudflare: the ssh host name and its Access application"
 
 // useCF says whether cf is installed and logged in. It asks once, and only when a step needs it.
 func (r *setupRun) useCF(ctx context.Context) bool {
@@ -705,7 +742,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 	if t.sshMode == connCloudflare {
 		if !r.useCF(ctx) {
-			p.cannot("cloudflare: ssh host name and Access for CI", cfNeed())
+			p.cannot(sshAccessWhat, cfNeed())
 		} else if err := r.accessSteps(ctx, p); err != nil {
 			return err
 		}
@@ -844,7 +881,7 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
 	zone, err := findZone(ctx, t.domain)
 	if err != nil {
-		p.cannot("cloudflare: ssh host name and Access for CI", err.Error())
+		p.cannot(sshAccessWhat, err.Error())
 		return nil
 	}
 	r.zone = zone
@@ -857,16 +894,18 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 	host := found.host
 	if host == "" {
 		if host, err = newSSHHost(t.domain, zone.Name); err != nil {
-			p.cannot("cloudflare: ssh host name and Access for CI", err.Error())
+			p.cannot(sshAccessWhat, err.Error())
 			return nil
 		}
 	}
 	r.sshName = host
+	shownHost := host
 	if found.host == "" {
 		// The random part is drawn again by every run, so a plan shows that it is new and the line
 		// of the step, once it ran, shows the name it made.
 		prefix, suffix := sshHostParts(t.domain, zone.Name)
 		shown := prefix + "<random>" + suffix
+		shownHost = shown
 		steps, after := len(p.steps), len(r.afterConnection)
 		defer func() {
 			for _, later := range [][]planStep{p.steps[steps:], r.afterConnection[after:]} {
@@ -888,6 +927,22 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 	}
 	r.hostSteps(ctx, p, zone, host, found.host == "", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
 		"DNS "+host+" CNAME the tunnel, proxied", func() string { return sshService })
+	if t.github && r.repo.Name != "" {
+		if err := r.tokenSteps(ctx, p, host); err != nil {
+			return err
+		}
+	}
+	if err := r.peopleSteps(ctx, p, host); err != nil {
+		return err
+	}
+	// The ssh of this machine goes through the tunnel too.
+	r.localSSHSteps(p, host, shownHost, true)
+	return nil
+}
+
+// tokenSteps lets the repository in: a service token that does not expire, kept as secrets of the
+// repository, and its policy on the Access application of the ssh host name.
+func (r *setupRun) tokenSteps(ctx context.Context, p *setupPlan, host string) error {
 	name := accessName(r.repo.Name)
 	ids, err := serviceTokenIDs(ctx, name)
 	if err != nil {
@@ -900,7 +955,7 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 			if pol, _ := policyByName(ctx, name); pol != nil {
 				policyID = pol.ID
 			}
-			if how, err := ensureSSHApp(ctx, host, policyID, false); err == nil && how == "already there" {
+			if how, err := ensureSSHApp(ctx, host, policyID, false, false); err == nil && how == "already there" {
 				p.ok(text)
 				return nil
 			}
@@ -919,13 +974,68 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 		if err != nil {
 			return "", err
 		}
-		if _, err := ensureSSHApp(ctx, host, policyID, true); err != nil {
+		if _, err := ensureSSHApp(ctx, host, policyID, false, true); err != nil {
 			return "", err
 		}
 		if err := r.ghSecret(ctx, secretCFID, clientID); err != nil {
 			return "", err
 		}
 		return how, r.ghSecret(ctx, secretCFSecret, clientSecret)
+	})
+	return nil
+}
+
+// peopleSteps lets the person of the cf login in: their email goes into the policy of the people
+// of the ssh host name, on the Access application tifa made for it. The emails that are there stay,
+// so a second person who runs setup with their own login is added next to the first. Nothing
+// outside that application and its policy changes.
+func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) error {
+	email, err := cfEmail(ctx)
+	if err != nil {
+		return err
+	}
+	if email == "" {
+		const why = "cf does not tell your email, so setup cannot let you in: it is logged in with an API token. Log in with cf auth login"
+		what := "cloudflare: the Access application of " + host + " admits you"
+		if r.t.github {
+			// CI has its token: only this machine goes without.
+			p.notes = append(p.notes, planNote{what: what, why: why + ", then run setup again to reach the server from this machine"})
+		} else {
+			p.cannot(what, why)
+		}
+		return nil
+	}
+	name := peopleName(host)
+	id, emails, found, err := peopleOf(ctx, name)
+	if err != nil {
+		return err
+	}
+	attached := false
+	if found {
+		how, err := ensureSSHApp(ctx, host, id, true, false)
+		attached = err == nil && how == "already there"
+	}
+	text := fmt.Sprintf("cloudflare: the Access application of %s admits %s", host, email)
+	if found && hasEmail(emails, email) && attached {
+		p.ok(text)
+		return nil
+	}
+	op := opAdd
+	if found {
+		op = opChange
+		if kept := slices.DeleteFunc(slices.Clone(emails), func(e string) bool { return strings.EqualFold(e, email) }); len(kept) > 0 {
+			text += ", and keeps " + strings.Join(kept, ", ")
+		}
+	}
+	p.add(op, text, func(ctx context.Context) (string, error) {
+		id, how, err := ensurePeoplePolicy(ctx, name, email, true)
+		if err != nil {
+			return "", err
+		}
+		if _, err := ensureSSHApp(ctx, host, id, true, true); err != nil {
+			return "", err
+		}
+		return how, nil
 	})
 	return nil
 }
@@ -1237,16 +1347,33 @@ func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) err
 }
 
 func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
+	r.accessRemovalPlanned = true
+	repo := r.repo.Name
+	// With ssh still cloudflare, only the token of the repository goes: the people who deploy from
+	// their machines keep the application. Remove takes it all.
+	keepApp := r.t.sshMode == connCloudflare && !r.removing
 	if r.useCF(ctx) {
-		found, err := removeSSHAccess(ctx, r.repo.Name, r.st.TunnelID, false, nil)
+		found, err := removeSSHAccess(ctx, repo, r.t.domain, r.st.TunnelID, keepApp, false, nil)
 		if err != nil {
 			return err
 		}
 		if found {
-			p.add(opRemove, "cloudflare: the Access service token, policy and application of "+r.repo.Name+", and the route and DNS record of the ssh host name once no repository uses it, which tifa made", func(ctx context.Context) (string, error) {
-				_, err := removeSSHAccess(ctx, r.repo.Name, r.st.TunnelID, true, func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) })
+			text := "cloudflare: the Access application of the ssh host name of " + r.t.domain + ", its policies, route and DNS record, which tifa made"
+			switch {
+			case repo != "" && keepApp:
+				text = "cloudflare: the Access service token and policy of " + repo + ", which tifa made. The Access application stays for the people who deploy from their machines"
+			case repo != "":
+				text = "cloudflare: the Access service token, policy and application of " + repo + ", and the route and DNS record of the ssh host name once no repository uses it, which tifa made"
+			}
+			step := planStep{op: opRemove, text: text, do: func(ctx context.Context) (string, error) {
+				_, err := removeSSHAccess(ctx, repo, r.t.domain, r.st.TunnelID, keepApp, true, func(f string, a ...any) { fmt.Fprintf(r.stdout, "          "+f+"\n", a...) })
 				return "", err
-			})
+			}}
+			if r.removing {
+				r.late = append(r.late, step)
+			} else {
+				p.steps = append(p.steps, step)
+			}
 		}
 	}
 	var names []string
@@ -1326,7 +1453,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
 		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
 	}
-	plan, _, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
+	plan, run, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
 		return err
 	}
@@ -1344,7 +1471,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 			return err
 		}
 		fmt.Fprintln(stdout)
-		if plan, _, err = buildSetupPlan(ctx, t, f, false, in, stdout, stderr); err != nil {
+		if plan, run, err = buildSetupPlan(ctx, t, f, false, in, stdout, stderr); err != nil {
 			return err
 		}
 	}
@@ -1361,6 +1488,9 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		}
 		if warnings, err = plan.apply(ctx, stdout); err != nil {
 			return err
+		}
+		if run.hostAdvice != "" {
+			fmt.Fprintln(stdout, run.hostAdvice)
 		}
 	}
 	return needsYou(cannot + warnings + toolWarnings)

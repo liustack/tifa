@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -76,7 +77,7 @@ echo "$did"
 // buildRemovePlan reads the server, Cloudflare and GitHub, and plans to remove what tifa made for
 // the app there. It changes nothing.
 func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (setupPlan, error) {
-	r := &setupRun{t: t, stdout: stdout, stderr: stderr}
+	r := &setupRun{t: t, stdout: stdout, stderr: stderr, removing: true}
 	p := setupPlan{who: "remove"}
 	// The plan reads each thing once. The steps run later with the context of the caller.
 	ctx = withReadMemo(ctx)
@@ -110,6 +111,14 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			}
 		}
 	}
+	// The ssh host name of the domain, which the machines of the people reach the server by, goes
+	// with the app, with or without CI. The steps that cut it wait until the server ran its own.
+	viaTunnel := false
+	if cf && t.domain != "" {
+		if zone, err := findZone(ctx, t.domain); err == nil {
+			viaTunnel = t.sshMode == connCloudflare && isSSHHost(t.dest.name, t.domain, zone.Name)
+		}
+	}
 	if t.github {
 		r.progress("GitHub")
 		api, repo, err := findGitHub(ctx, t.root)
@@ -126,6 +135,11 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			}
 		}
 	}
+	if cf && t.domain != "" && !r.accessRemovalPlanned {
+		if err := r.removeAccess(ctx, &p); err != nil {
+			return p, err
+		}
+	}
 	app := t.app
 	if st.AppDir || st.SocketSum != "" || st.ServiceSum != "" {
 		text := fmt.Sprintf("server: stop and disable tifa-%[1]s.socket and tifa-%[1]s.service, delete their unit files and %[2]s/%[1]s with its releases, shared/.env, the data in shared/ and deploys.log", app, st.Home)
@@ -133,6 +147,7 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			return "", t.ssh(ctx, deployUser, script(removeAppBody, "app", app), nil, io.Discard, r.stderr)
 		})
 	}
+	p.steps = append(p.steps, r.late...)
 	// A step that fails does not stop the others: they do not depend on it, and the next run finds
 	// what is left. Only the tunnel waits for them all, since what is left may lead to it.
 	type step = func(context.Context) (string, error)
@@ -165,8 +180,17 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			}
 			p.add(opRemove, text, afterAll(func(ctx context.Context) (string, error) {
 				var out strings.Builder
-				if err := t.ssh(ctx, "root", untunnelBody, nil, &out, r.stderr); err != nil {
+				body := untunnelBody
+				if viaTunnel {
+					// This ssh goes through the tunnel the script stops: it would cut its own
+					// connection. The script runs on its own a few seconds later, after ssh left.
+					body = detached(untunnelBody)
+				}
+				if err := t.ssh(ctx, "root", body, nil, &out, r.stderr); err != nil {
 					return "", err
+				}
+				if viaTunnel {
+					time.Sleep(untunnelWait)
 				}
 				return strings.TrimSpace(out.String()), nil
 			}))
@@ -185,10 +209,33 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			return "", t.ssh(ctx, deployUser, purgeForgetBody, nil, io.Discard, r.stderr)
 		}))
 	}
+	// The block of the ssh config goes last: the steps above may need the tunnel it leads to, and
+	// a run that stopped halfway is run again through it.
+	if path, err := sshConfigPath(); err == nil {
+		if present, err := hasSSHBlock(path, app); err != nil {
+			p.cannot("this machine: the block of tifa "+app+" in "+path, err.Error())
+		} else if present {
+			p.add(opRemove, "this machine: the block of tifa "+app+" in "+path+", which tifa wrote", afterAll(func(context.Context) (string, error) {
+				_, err := removeSSHBlock(path, app)
+				return "", err
+			}))
+		}
+	}
 	for i := range p.steps {
 		p.steps[i].soft = true
 	}
 	return p, nil
+}
+
+// untunnelWait is how long remove waits after it scheduled the stop of the tunnel through the
+// tunnel, so the connections are gone when it asks Cloudflare to delete it. Tests set it.
+var untunnelWait = 8 * time.Second
+
+// detached wraps a script so that it runs on the server on its own, after ssh has left.
+func detached(body string) string {
+	return "f=$(mktemp)\ncat > \"$f\" <<'TIFA_DETACHED_EOF'\n" + body + "TIFA_DETACHED_EOF\n" +
+		"( sleep 3; sh \"$f\"; rm -f \"$f\" ) </dev/null >/dev/null 2>&1 &\n" +
+		"echo \"scheduled: the tunnel stops in a few seconds\"\n"
 }
 
 // removeDomainSteps plans the removal of what setup made for the domain of the app. It finds them
