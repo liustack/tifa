@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -165,6 +165,9 @@ func TestBrowserCommandTimeoutLeavesNoProcess(t *testing.T) {
 // TestRunPlaywrightEndsPipeHolders checks the deadline against a command that leaves a child
 // holding its output, which makes a plain CombinedOutput wait for as long as the child lives.
 func TestRunPlaywrightEndsPipeHolders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake command is a shell script")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\nsleep 300 &\necho $! > \"$PWD/child.pid\"\nsleep 300\n"
 	if err := os.WriteFile(bin+"/playwright-cli", []byte(script), 0o755); err != nil {
@@ -185,7 +188,7 @@ func TestRunPlaywrightEndsPipeHolders(t *testing.T) {
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if syscall.Kill(pid, 0) != nil {
+		if !processAlive(pid) {
 			return
 		}
 	}
@@ -211,8 +214,7 @@ func runPlaywright(session, dir string, timeout time.Duration, args ...string) (
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "playwright-cli", append([]string{"-s=" + session}, args...)...)
 	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	killWithGroup(cmd)
 	cmd.WaitDelay = 3 * time.Second
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
@@ -222,30 +224,4 @@ func runPlaywright(session, dir string, timeout time.Duration, args ...string) (
 		return string(out), fmt.Errorf("no answer after %v: %w", timeout, ctx.Err())
 	}
 	return string(out), err
-}
-
-// endProcessTree kills the process pid, a daemon that a test left behind, and everything below
-// it, which is the Chrome with its helpers.
-func endProcessTree(pid int) {
-	out, _ := exec.Command("ps", "-axo", "pid=,ppid=").Output()
-	children := map[int][]int{}
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) != 2 {
-			continue
-		}
-		c, err1 := strconv.Atoi(f[0])
-		p, err2 := strconv.Atoi(f[1])
-		if err1 == nil && err2 == nil {
-			children[p] = append(children[p], c)
-		}
-	}
-	var kill func(int)
-	kill = func(p int) {
-		for _, c := range children[p] {
-			kill(c)
-		}
-		syscall.Kill(p, syscall.SIGKILL)
-	}
-	kill(pid)
 }
