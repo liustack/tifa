@@ -128,8 +128,9 @@ func pickServer(servers []knownServer, app string) (knownServer, bool) {
 }
 
 // rememberServer records that app is set up on the server id, reached by host. It adds the entry
-// or updates it, and drops any other entry with the same host: that place holds one server.
-func rememberServer(id, host, app string) error {
+// or updates it, and drops any other entry with the same host: that place holds one server. It
+// reports whether the file changed.
+func rememberServer(id, host, app string) (changed bool, err error) {
 	return changeServers(true, func(t *serversTree, path string) error {
 		list, err := t.servers(path)
 		if err != nil {
@@ -148,7 +149,7 @@ func rememberServer(id, host, app string) error {
 // forgetServerApp drops app from the server id, and the server with its last app. A server or a
 // file that is not there is not an error.
 func forgetServerApp(id, app string) error {
-	return changeServers(false, func(t *serversTree, path string) error {
+	_, err := changeServers(false, func(t *serversTree, path string) error {
 		list, err := t.servers(path)
 		if err != nil {
 			return err
@@ -166,51 +167,52 @@ func forgetServerApp(id, app string) error {
 		}
 		return nil
 	})
+	return err
 }
 
 // changeServers runs edit on the file under the lock and writes the result. With create false a
-// missing file stays missing.
-func changeServers(create bool, edit func(t *serversTree, path string) error) error {
+// missing file stays missing. It reports whether the file was written.
+func changeServers(create bool, edit func(t *serversTree, path string) error) (bool, error) {
 	path, err := serversPath()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !create {
 		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return false, nil
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return false, err
 	}
 	unlock, err := lockFile(path + ".lock")
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer unlock()
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return false, err
 	}
 	tree, err := parseServers(path, data)
 	if err != nil {
-		return err
+		return false, err
 	}
 	before, err := tree.encode()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := edit(tree, path); err != nil {
-		return err
+		return false, err
 	}
 	after, err := tree.encode()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if data != nil && bytes.Equal(before, after) {
-		return nil
+		return false, nil
 	}
-	return writeFileAtomic(path, after)
+	return true, writeFileAtomic(path, after)
 }
 
 // serversTree is the YAML of the file as a tree, so comments and other keys survive an edit.

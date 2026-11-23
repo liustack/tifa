@@ -43,6 +43,14 @@ func (h deployHost) fromText() string {
 	return h.from
 }
 
+// fromHomeNote is the words that follow the host in a title when it came from ~/.tifa, else none.
+func (h deployHost) fromHomeNote() string {
+	if h.fromHome {
+		return " (from " + h.from + ")"
+	}
+	return ""
+}
+
 // parseDeployHost checks a value for the server. The user is Tifa's to choose (root for setup,
 // tifa after), so a value with one is refused. Text that ssh could read as an option or as a
 // second argument is refused too.

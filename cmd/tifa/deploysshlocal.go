@@ -167,7 +167,8 @@ func (r *setupRun) hostSwitchSteps(p *setupPlan, host string) {
 				return "", err
 			}
 			checked = true
-			if t.dest.from != dotenvHostFrom {
+			r.tunnelHost = host
+			if t.dest.from != dotenvHostFrom && !t.dest.fromHome {
 				// The environment and a flag are not setup's to change: tell the developer, now
 				// that there is a tunnel to point at.
 				r.hostAdvice = fmt.Sprintf("To deploy from this machine through the tunnel, set TIFA_DEPLOY_HOST=%s (yours comes from the %s, which setup does not change). Then the server needs no open ssh port.", host, t.dest.fromText())

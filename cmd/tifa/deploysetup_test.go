@@ -1148,6 +1148,7 @@ var sshHostName = regexp.MustCompile(`^deploy-a-ssh-[a-z2-7]{12}\.example\.com$`
 // deploy.ssh cloudflare: the ssh host name goes on the tunnel with an Access application that
 // admits the token of the repository. Back to direct, the Access objects go.
 func TestSetupCloudflareSSH(t *testing.T) {
+	homeOf(t)
 	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
@@ -1162,6 +1163,10 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	host := gh.secrets[secretHost]
 	if !sshHostName.MatchString(host) || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
 		t.Errorf("secrets %v", gh.secrets)
+	}
+	// ~/.tifa keeps the host that works from here: the tunnel, once the check passed.
+	if known, err := readServers(); err != nil || len(known) != 1 || known[0].ID != "vps-1234" || known[0].Host != host {
+		t.Errorf("recorded %+v, %v, want the ssh host %s", known, err, host)
 	}
 	if !strings.Contains(gh.secrets[secretKnownHosts], host+" ssh-ed25519") {
 		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
@@ -1211,6 +1216,10 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	}
 	if len(cf.apps) != 0 || len(cf.tokens) != 0 || len(cf.policies) != 0 || gh.secrets[secretCFID] != "" {
 		t.Errorf("left: apps %v tokens %v policies %v secrets %v", cf.apps, cf.tokens, cf.policies, gh.secrets)
+	}
+	// Back to the address that works without the tunnel.
+	if known, _ := readServers(); len(known) != 1 || known[0].Host != "vps" {
+		t.Errorf("recorded %+v, want the direct host vps", known)
 	}
 	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
 	if strings.Contains(string(ingress), "-ssh-") {

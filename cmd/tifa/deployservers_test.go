@@ -50,7 +50,7 @@ func TestServersRemember(t *testing.T) {
 	if got, err := readServers(); err != nil || len(got) != 0 {
 		t.Fatalf("no file yet: %v, %v", got, err)
 	}
-	if err := rememberServer("vps-1a2b3c4d", "ssh://203.0.113.7:22", "shop"); err != nil {
+	if _, err := rememberServer("vps-1a2b3c4d", "ssh://203.0.113.7:22", "shop"); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "config.yaml")
@@ -70,7 +70,7 @@ func TestServersRemember(t *testing.T) {
 
 	// The same server again: its host is the one that worked last, and the apps add up once.
 	for _, app := range []string{"blog", "shop"} {
-		if err := rememberServer("vps-1a2b3c4d", "vps-ssh-k3j9.example.com", app); err != nil {
+		if _, err := rememberServer("vps-1a2b3c4d", "vps-ssh-k3j9.example.com", app); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,10 +83,10 @@ func TestServersRemember(t *testing.T) {
 	}
 
 	// Another server. One that moved to the host of this one is the same place, so it goes.
-	if err := rememberServer("hz-99998888", "ssh://198.51.100.4:22", "notes"); err != nil {
+	if _, err := rememberServer("hz-99998888", "ssh://198.51.100.4:22", "notes"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rememberServer("new-11112222", "ssh://198.51.100.4:22", "notes"); err != nil {
+	if _, err := rememberServer("new-11112222", "ssh://198.51.100.4:22", "notes"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = readServers()
@@ -102,7 +102,7 @@ func TestServersKeepComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(dir, "config.yaml"), "# mine\nother: 1\nservers:\n  # the small one\n  - id: vps-1\n    host: vps\n    apps: [shop]\n")
-	if err := rememberServer("vps-1", "vps", "blog"); err != nil {
+	if _, err := rememberServer("vps-1", "vps", "blog"); err != nil {
 		t.Fatal(err)
 	}
 	text := readFileText(t, filepath.Join(dir, "config.yaml"))
@@ -117,7 +117,7 @@ func TestServersKeepComments(t *testing.T) {
 func TestServersForget(t *testing.T) {
 	dir := homeOf(t)
 	for _, app := range []string{"shop", "blog"} {
-		if err := rememberServer("vps-1", "vps", app); err != nil {
+		if _, err := rememberServer("vps-1", "vps", app); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -158,7 +158,7 @@ func TestServersBadFile(t *testing.T) {
 		if _, err := readServers(); err == nil || !strings.Contains(err.Error(), path) {
 			t.Errorf("%q read: %v", bad, err)
 		}
-		if err := rememberServer("vps-1", "vps", "shop"); err == nil {
+		if _, err := rememberServer("vps-1", "vps", "shop"); err == nil {
 			t.Errorf("%q written over", bad)
 		}
 		if readFileText(t, path) != bad {
@@ -175,7 +175,7 @@ func TestServersConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := rememberServer(fmt.Sprintf("vps-%d", i), fmt.Sprintf("10.0.0.%d", i), "app"); err != nil {
+			if _, err := rememberServer(fmt.Sprintf("vps-%d", i), fmt.Sprintf("10.0.0.%d", i), "app"); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -227,7 +227,7 @@ func shopApp(t *testing.T) string {
 func TestDeployHostFromHome(t *testing.T) {
 	homeOf(t)
 	root := shopApp(t)
-	if err := rememberServer("vps-1a2b3c4d", "ssh://203.0.113.7:22", "blog"); err != nil {
+	if _, err := rememberServer("vps-1a2b3c4d", "ssh://203.0.113.7:22", "blog"); err != nil {
 		t.Fatal(err)
 	}
 	var said strings.Builder
@@ -269,7 +269,7 @@ func TestDeployHostSeveralInHome(t *testing.T) {
 		{"vps-1a2b3c4d", "ssh://203.0.113.7:22", "blog"},
 		{"hz-99998888", "vps-ssh-k3j9.example.com", "notes"},
 	} {
-		if err := rememberServer(s.id, s.host, s.app); err != nil {
+		if _, err := rememberServer(s.id, s.host, s.app); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -283,7 +283,7 @@ func TestDeployHostSeveralInHome(t *testing.T) {
 		}
 	}
 	// An app that setup put on one of them goes there, without a question.
-	if err := rememberServer("hz-99998888", "vps-ssh-k3j9.example.com", "shop"); err != nil {
+	if _, err := rememberServer("hz-99998888", "vps-ssh-k3j9.example.com", "shop"); err != nil {
 		t.Fatal(err)
 	}
 	var said strings.Builder
