@@ -3,7 +3,9 @@ package main
 // The inputs of tifa deploy: values that belong to the developer and not to tifa.yaml, which is
 // committed. They share one prefix, TIFA_DEPLOY_. Earlier versions named three of them otherwise.
 // Each one is read the same way: its flag when it has one, else the environment variable, else
-// the line in the .env at the root of the app. Tifa only reads that file and never writes to it.
+// the line in the .env at the root of the app. Tifa reads that file. The one thing setup writes
+// to it is TIFA_DEPLOY_HOST, when deploy.ssh cloudflare moves it to the ssh host name, and only
+// when the value came from there. It never writes a token.
 
 import (
 	"fmt"

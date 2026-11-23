@@ -19,6 +19,23 @@ type deployHost struct {
 	name string // the host name or address, without the port
 	port int    // 0 when the value has none
 	url  bool   // ssh://host[:port]
+	// from says where the value was read, as readDeployInput words it: the flag, the environment
+	// variable or the line of .env. Empty for a value built in code.
+	from string
+}
+
+// dotenvHostFrom is what from holds for a host read from the .env file at the root of the app.
+const dotenvHostFrom = ".env " + deployHostEnv
+
+// fromText says where the host came from, for a sentence.
+func (h deployHost) fromText() string {
+	switch h.from {
+	case "":
+		return "place it came from"
+	case "--host":
+		return "flag --host"
+	}
+	return h.from
 }
 
 // parseDeployHost checks a value for the server. The user is Tifa's to choose (root for setup,
@@ -107,6 +124,7 @@ func readDeployHost(root, flagValue string) (deployHost, error) {
 	if err != nil {
 		return deployHost{}, fmt.Errorf("%s: %w", from, err)
 	}
+	h.from = from
 	return h, nil
 }
 

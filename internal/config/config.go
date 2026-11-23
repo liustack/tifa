@@ -267,7 +267,7 @@ func fields(c *Config) []field {
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 		{"deploy.front", "What visitors come through before the server: none or cloudflare, on the host of site.url", frontValue{&c.Deploy.Front}},
-		{"deploy.ssh", "How CI reaches the server over ssh: direct, cloudflare or tailscale", sshModeValue{&c.Deploy.SSH}},
+		{"deploy.ssh", "How ssh reaches the server: direct, cloudflare (through the Cloudflare Tunnel, for CI and this machine) or tailscale (for CI)", sshModeValue{&c.Deploy.SSH}},
 		{"deploy.ci", "Who deploys automatically: none or github, set up by tifa deploy setup", ciValue{&c.Deploy.CI}},
 	}
 }

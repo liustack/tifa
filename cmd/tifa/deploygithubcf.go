@@ -1,7 +1,10 @@
 package main
 
-// The Cloudflare part of deploy.ssh cloudflare in tifa deploy setup: CI reaches the ssh of the server through the Cloudflare
-// Tunnel of the server, and Cloudflare Access lets only the service token of one repository in.
+// The Cloudflare part of deploy.ssh cloudflare in tifa deploy setup: the ssh of the server is
+// reached through the Cloudflare Tunnel of the server, and Cloudflare Access decides who may open
+// it: the service token of the repository when deploy.ci is github, and the people whose email
+// setup adds, each from their own cf login. The application and its names belong to the ssh host
+// name, which belongs to the domain, so they are the same with and without CI.
 // Like deploycf.go it does everything with the cf of the user, and keeps no Cloudflare token. The
 // secret of the service token goes from cf to the caller, which hands it to gh.
 
@@ -228,46 +231,105 @@ func policyByName(ctx context.Context, name string) (*cfPolicy, error) {
 	return nil, nil
 }
 
-// removeSSHAccess takes away what one repository owns in Cloudflare: its policy leaves the Access
-// applications, and an application that has no policy left goes with its route in the tunnel and
-// its DNS record. Then the policy and the service token go. It reports whether there was anything
-// of the repository, and with apply false it changes nothing.
-func removeSSHAccess(ctx context.Context, repo, tunnelID string, apply bool, say func(string, ...any)) (bool, error) {
-	name := accessName(repo)
-	ids, err := serviceTokenIDs(ctx, name)
+// removeSSHAccess takes away what tifa made in Cloudflare Access for the ssh of the domain.
+//
+// The service token and the policy of repo (when repo is not empty) always go, and leave the
+// applications they were attached to. Unless keepApp, the applications of the ssh host name of
+// domain go too, each with its people policy, its route in the tunnel and its DNS record, once no
+// other policy is attached to it. keepApp is for deploy.ssh cloudflare staying on while CI goes:
+// the people who deploy from their machines still need the application. It reports whether there
+// was anything, and with apply false it changes nothing.
+func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp, apply bool, say func(string, ...any)) (bool, error) {
+	var ids []string
+	var policy *cfPolicy
+	if repo != "" {
+		var err error
+		if ids, err = serviceTokenIDs(ctx, accessName(repo)); err != nil {
+			return false, err
+		}
+		if policy, err = policyByName(ctx, accessName(repo)); err != nil {
+			return false, err
+		}
+	}
+	zoneName := ""
+	if domain != "" && !keepApp {
+		zone, err := findZone(ctx, domain)
+		if err != nil {
+			return false, err
+		}
+		zoneName = zone.Name
+	}
+	apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list")
 	if err != nil {
 		return false, err
 	}
-	policy, err := policyByName(ctx, name)
-	if err != nil {
-		return false, err
+	// The ssh host names this call is about, each with its application when it has one. The route
+	// of the tunnel names them too, so a run after a partial failure finds a host whose
+	// application is already gone.
+	type target struct {
+		host string
+		app  map[string]any
 	}
-	if len(ids) == 0 && policy == nil {
+	var mine []target
+	seen := map[string]bool{}
+	ownHost := func(host string) bool {
+		return zoneName != "" && (isSSHHost(host, domain, zoneName) || host == legacySSHHost(domain, zoneName))
+	}
+	for _, app := range apps {
+		appName, _ := app["name"].(string)
+		host, _ := app["domain"].(string)
+		if !strings.HasPrefix(appName, accessAppPrefix) {
+			continue
+		}
+		policies, _ := app["policies"].([]any)
+		if (policy != nil && attachedPolicy(policies, policy.ID)) || ownHost(host) {
+			mine = append(mine, target{host, app})
+			seen[host] = true
+		}
+	}
+	if zoneName != "" && tunnelID != "" {
+		_, ingress, err := tunnelIngress(ctx, tunnelID)
+		if err != nil {
+			return false, err
+		}
+		for _, rule := range ingress {
+			if host, _ := rule["hostname"].(string); host != "" && !seen[host] && rule["service"] == sshService && rule["path"] == nil && ownHost(host) {
+				mine = append(mine, target{host, nil})
+			}
+		}
+	}
+	if len(ids) == 0 && policy == nil && len(mine) == 0 {
 		return false, nil
 	}
 	if !apply {
 		return true, nil
 	}
-	if policy != nil {
-		apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list")
+	for _, tg := range mine {
+		host, app := tg.host, tg.app
+		people, err := policyByName(ctx, peopleName(host))
 		if err != nil {
 			return true, err
 		}
-		for _, app := range apps {
-			appName, _ := app["name"].(string)
-			policies, _ := app["policies"].([]any)
-			if !strings.HasPrefix(appName, accessAppPrefix) || !attachedPolicy(policies, policy.ID) {
+		var policies []any
+		id := ""
+		if app != nil {
+			policies, _ = app["policies"].([]any)
+			id, _ = app["id"].(string)
+		}
+		var rest []map[string]any
+		others := false
+		for _, p := range policies {
+			m, ok := p.(map[string]any)
+			if !ok || (policy != nil && m["id"] == policy.ID) {
 				continue
 			}
-			id, _ := app["id"].(string)
-			host, _ := app["domain"].(string)
-			var rest []map[string]any
-			for _, p := range policies {
-				if m, ok := p.(map[string]any); ok && m["id"] != policy.ID {
-					rest = append(rest, map[string]any{"id": m["id"], "precedence": len(rest) + 1})
-				}
+			if people == nil || m["id"] != people.ID {
+				others = true
 			}
-			if len(rest) > 0 {
+			rest = append(rest, map[string]any{"id": m["id"], "precedence": len(rest) + 1})
+		}
+		if keepApp || others {
+			if app != nil && policy != nil && attachedPolicy(policies, policy.ID) {
 				for _, k := range []string{"id", "aud", "created_at", "updated_at"} {
 					delete(app, k)
 				}
@@ -277,36 +339,48 @@ func removeSSHAccess(ctx context.Context, repo, tunnelID string, apply bool, say
 					return true, err
 				}
 				say("Access application %s no longer admits the token of %s", host, repo)
-				continue
 			}
+			continue
+		}
+		// The route and the record go first: whatever a partial failure leaves, the host name is
+		// never reachable without its Access application.
+		if tunnelID != "" {
+			if err := removeRoute(ctx, tunnelID, host); err != nil {
+				return true, err
+			}
+			zone, err := findZone(ctx, host)
+			if err != nil {
+				return true, err
+			}
+			if _, err := removeDNS(ctx, zone.Name, host, tunnelID+".cfargotunnel.com", true); err != nil {
+				return true, err
+			}
+			say("route and DNS of %s removed", host)
+		}
+		if app != nil {
 			if _, err := runCF(ctx, "zero-trust", "access", "applications", "delete", id, "--force"); err != nil {
 				return true, err
 			}
 			say("Access application %s removed", host)
-			if tunnelID != "" {
-				if err := removeRoute(ctx, tunnelID, host); err != nil {
-					return true, err
-				}
-				zone, err := findZone(ctx, host)
-				if err != nil {
-					return true, err
-				}
-				if _, err := removeDNS(ctx, zone.Name, host, tunnelID+".cfargotunnel.com", true); err != nil {
-					return true, err
-				}
-				say("route and DNS of %s removed", host)
-			}
 		}
+		if people != nil {
+			if _, err := runCF(ctx, "zero-trust", "access", "policies", "delete", people.ID, "--force"); err != nil {
+				return true, err
+			}
+			say("policy %s removed", peopleName(host))
+		}
+	}
+	if policy != nil {
 		if _, err := runCF(ctx, "zero-trust", "access", "policies", "delete", policy.ID, "--force"); err != nil {
 			return true, err
 		}
-		say("policy %s removed", name)
+		say("policy %s removed", accessName(repo))
 	}
 	for _, id := range ids {
 		if _, err := runCF(ctx, "zero-trust", "access", "service-tokens", "delete", id, "--force"); err != nil {
 			return true, err
 		}
-		say("service token %s removed", name)
+		say("service token %s removed", accessName(repo))
 	}
 	return true, nil
 }
@@ -397,8 +471,9 @@ func ensureTokenPolicy(ctx context.Context, name, tokenID string, apply bool) (i
 }
 
 // ensureSSHApp makes the self-hosted Access application of the ssh host name and attaches the
-// policy to it, keeping the policies of other repositories that are attached.
-func ensureSSHApp(ctx context.Context, host, policyID string, apply bool) (string, error) {
+// policy to it, keeping the policies that are attached. The policy of the people goes last and
+// the policies of service tokens first: a token has no login to wait for.
+func ensureSSHApp(ctx context.Context, host, policyID string, people, apply bool) (string, error) {
 	apps, err := cfPages[map[string]any](ctx, "zero-trust", "access", "applications", "list", "--domain", host)
 	if err != nil {
 		return "", err
@@ -444,7 +519,15 @@ func ensureSSHApp(ctx context.Context, host, policyID string, apply bool) (strin
 			attached = append(attached, map[string]any{"id": m["id"], "precedence": len(attached) + 1})
 		}
 	}
-	app["policies"] = append(attached, map[string]any{"id": policyID, "precedence": len(attached) + 1})
+	if people {
+		attached = append(attached, map[string]any{"id": policyID})
+	} else {
+		attached = append([]map[string]any{{"id": policyID}}, attached...)
+	}
+	for i := range attached {
+		attached[i]["precedence"] = i + 1
+	}
+	app["policies"] = attached
 	body, err := json.Marshal(app)
 	if err != nil {
 		return "", err
@@ -453,4 +536,109 @@ func ensureSSHApp(ctx context.Context, host, policyID string, apply bool) (strin
 		return "", err
 	}
 	return "policy added", nil
+}
+
+// peopleName names the policy that admits the people who open the ssh of one ssh host name. It
+// belongs to the Access application of that host name and to no one else.
+func peopleName(host string) string { return "tifa-people-" + host }
+
+// cfEmail reads the email of the cf login. cf auth whoami only reads.
+func cfEmail(ctx context.Context) (string, error) {
+	var who struct {
+		Email string `json:"email"`
+	}
+	if err := cfJSON(ctx, &who, "auth", "whoami"); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(who.Email), nil
+}
+
+// includeEmails lists the emails of the entries of a policy that name one.
+func includeEmails(include []map[string]any) []string {
+	var out []string
+	for _, in := range include {
+		if e, ok := in["email"].(map[string]any); ok {
+			if addr, _ := e["email"].(string); addr != "" {
+				out = append(out, addr)
+			}
+		}
+	}
+	return out
+}
+
+func hasEmail(emails []string, email string) bool {
+	return slices.ContainsFunc(emails, func(e string) bool { return strings.EqualFold(e, email) })
+}
+
+// policyWritable are the fields of a policy that an update takes. The others (the ID, the dates, the
+// version) are set by Cloudflare.
+var policyWritable = []string{"name", "decision", "include", "exclude", "require", "session_duration",
+	"approval_required", "approval_groups", "isolation_required", "purpose_justification_required", "purpose_justification_prompt"}
+
+// ensurePeoplePolicy makes the policy called name admit email: it creates the policy, or adds the
+// email to the entries it has and keeps every other entry and field. It returns the ID of the
+// policy and what it did, "already there" when the email was in already.
+func ensurePeoplePolicy(ctx context.Context, name, email string, apply bool) (id, how string, err error) {
+	entry := map[string]any{"email": map[string]any{"email": email}}
+	policies, err := cfPages[map[string]any](ctx, "zero-trust", "access", "policies", "list")
+	if err != nil {
+		return "", "", err
+	}
+	var have map[string]any
+	for _, p := range policies {
+		if p["name"] == name {
+			have = p
+			break
+		}
+	}
+	if have == nil {
+		body, _ := json.Marshal(map[string]any{"name": name, "decision": "allow", "include": []map[string]any{entry}})
+		if !apply {
+			return "", "created", nil
+		}
+		var made struct {
+			ID string `json:"id"`
+		}
+		if err := cfJSON(ctx, &made, "zero-trust", "access", "policies", "create", "--body", string(body)); err != nil {
+			return "", "", err
+		}
+		if made.ID == "" {
+			return "", "", errors.New("cf zero-trust access policies create gave no policy ID")
+		}
+		return made.ID, "created", nil
+	}
+	id, _ = have["id"].(string)
+	include, _ := have["include"].([]any)
+	var entries []map[string]any
+	var emails []string
+	for _, in := range include {
+		if m, ok := in.(map[string]any); ok {
+			entries = append(entries, m)
+		}
+	}
+	emails = includeEmails(entries)
+	if hasEmail(emails, email) {
+		return id, "already there", nil
+	}
+	body := map[string]any{}
+	for _, k := range policyWritable {
+		if v := have[k]; v != nil {
+			body[k] = v
+		}
+	}
+	body["include"] = append(entries, entry)
+	b, _ := json.Marshal(body)
+	if err := cfWrite(ctx, apply, "zero-trust", "access", "policies", "update", id, "--body", string(b)); err != nil {
+		return "", "", err
+	}
+	return id, "email added", nil
+}
+
+// peopleOf reads who the policy called name admits: its ID and emails, and whether it exists.
+func peopleOf(ctx context.Context, name string) (id string, emails []string, found bool, err error) {
+	p, err := policyByName(ctx, name)
+	if err != nil || p == nil {
+		return "", nil, false, err
+	}
+	return p.ID, includeEmails(p.Include), true, nil
 }

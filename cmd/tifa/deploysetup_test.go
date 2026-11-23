@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"slices"
@@ -126,14 +127,16 @@ func newSetupServer(t *testing.T, cfg, facts string) *setupServer {
 d=`+shellQuote(dir)+`
 if [ "$1" = -G ]; then cat "$d/cfg"; exit 0; fi
 printf '%s\n' "$*" >> "$d/argv"
+if [ -f "$d/sshcfg" ]; then if [ -f "$(cat "$d/sshcfg")" ]; then echo present >> "$d/cfgseen"; else echo missing >> "$d/cfgseen"; fi; fi
 user=$2
 while [ "$1" != "--" ]; do shift; done
 script=$3
 case "$script" in
+true) echo "check $user" >> "$d/calls"; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
-*'disable --quiet $units'*) echo "removeapp $user" >> "$d/calls" ;;
+*'disable --quiet $units'*) [ -f "$d/removefail" ] && { echo "tifa: cannot stop the units" >&2; exit 1; }; echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
 *'tifa-$app.socket'*) echo "app $user" >> "$d/calls" ;;
 *'line=$(cat)'*cloudflare-purge*) echo "purgestore $user" >> "$d/calls"; line=$(cat); [ -f "$d/storefail" ] && { echo "tifa: disk full" >&2; exit 1; }; z=${line%%	*}; touch "$d/purge"; grep -v "^$z	" "$d/purge" > "$d/purge.new" || true; printf '%s\n' "$line" >> "$d/purge.new"; mv "$d/purge.new" "$d/purge"; printf 'purge-file yes\npurge-zone %s\n' "$z" >> "$d/facts" ;;
@@ -155,6 +158,25 @@ esac
 }
 
 func (s *setupServer) deny(t *testing.T) { writeFile(t, filepath.Join(s.dir, "denied"), "") }
+
+// failRemoveApp makes the step that removes the app on the server fail.
+func (s *setupServer) failRemoveApp(t *testing.T) {
+	writeFile(t, filepath.Join(s.dir, "removefail"), "")
+}
+
+// failCheck makes the ssh to the ssh host through the tunnel fail, as a key the server does not know.
+func (s *setupServer) failCheck(t *testing.T) { writeFile(t, filepath.Join(s.dir, "checkfail"), "") }
+
+// watchSSHConfig makes the fake ssh note, at each call, whether the file at path was there.
+func (s *setupServer) watchSSHConfig(t *testing.T, path string) {
+	writeFile(t, filepath.Join(s.dir, "sshcfg"), path)
+}
+
+// configSeen says what the file of the ssh config looked like at each ssh call: present or missing.
+func (s *setupServer) configSeen() []string {
+	data, _ := os.ReadFile(filepath.Join(s.dir, "cfgseen"))
+	return strings.Fields(string(data))
+}
 func (s *setupServer) calls() string {
 	data, _ := os.ReadFile(filepath.Join(s.dir, "calls"))
 	return string(data)
@@ -183,6 +205,9 @@ func (s *setupServer) stdin() string {
 	return string(data)
 }
 
+// fakeCloudflared is where the cloudflared of the tests is.
+const fakeCloudflared = "/usr/local/bin/cloudflared"
+
 const hostKeysFact = "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\nhostkey ssh-rsa AAAAB3NzaC1yc2E=\n"
 
 // factsOf is the probe output of a prepared server with the app set up on port.
@@ -204,10 +229,21 @@ func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	t.Setenv(deployHostEnv, "vps")
 	// No cf unless the test installs one: the real cf is never run. Neither is any program of the
 	// machine setup could install or log in with: a test that wants them installs a fakeMachine.
-	oldHave, oldLook, oldRun, oldOut := haveCF, lookProgram, runAttached, programOutput
-	t.Cleanup(func() { haveCF, lookProgram, runAttached, programOutput = oldHave, oldLook, oldRun, oldOut })
+	// cloudflared is there, and the home of the developer is a temporary folder: the real ssh
+	// config is never read or written.
+	oldHave, oldLook, oldRun, oldOut, oldHome := haveCF, lookProgram, runAttached, programOutput, sshHome
+	t.Cleanup(func() {
+		haveCF, lookProgram, runAttached, programOutput, sshHome = oldHave, oldLook, oldRun, oldOut, oldHome
+	})
 	haveCF = func() bool { return false }
-	lookProgram = func(string) (string, error) { return "", exec.ErrNotFound }
+	lookProgram = func(name string) (string, error) {
+		if name == "cloudflared" {
+			return fakeCloudflared, nil
+		}
+		return "", exec.ErrNotFound
+	}
+	home := t.TempDir()
+	sshHome = func() (string, error) { return home, nil }
 	runAttached = func(_ context.Context, _ io.Reader, _, _ io.Writer, name string, args ...string) error {
 		t.Errorf("ran %s %v on the terminal", name, args)
 		return errors.New("not in a test")
@@ -1133,6 +1169,10 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	if len(cf.apps) != 1 || cf.apps[0]["domain"] != host {
 		t.Errorf("apps %v", cf.apps)
 	}
+	// The Access application admits the token first and the person of the cf login after it.
+	if got := policyIDs(cf.apps[0]); len(got) != 2 || got[1] != policyNamed(t, cf.fakeAccess, peopleName(host)) {
+		t.Errorf("policies of the application: %v", cf.apps[0]["policies"])
+	}
 	text, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
 	if !strings.Contains(string(text), "ProxyCommand cloudflared access ssh") || strings.Contains(string(text), host) {
 		t.Errorf("workflow:\n%s", text)
@@ -1143,7 +1183,7 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	cf.calls = nil
 	secret := gh.secrets[secretCFSecret]
 	out, _ = runSetup(t, root, false, "", "--yes")
-	if gh.secrets[secretCFSecret] != secret || gh.secrets[secretHost] != host || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 8, GitHub 3") {
+	if gh.secrets[secretCFSecret] != secret || gh.secrets[secretHost] != host || !strings.Contains(out, "Already right: server 2, app 1, Cloudflare 9, this machine 2, GitHub 3") {
 		t.Errorf("a second run changed the token or the name:\n%s", out)
 	}
 
@@ -1531,7 +1571,7 @@ func TestSetupReplacesTheOldSSHHost(t *testing.T) {
 	// Run again: nothing to do, and the same name.
 	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
-	if err != nil || strings.Contains(out, "  add     ") || strings.Contains(out, "  change  ") || strings.Contains(out, "  remove  ") || gh.secrets[secretHost] != host {
+	if plain := withoutTunnelCheck(out); err != nil || strings.Contains(plain, "  add     ") || strings.Contains(plain, "  change  ") || strings.Contains(plain, "  remove  ") || gh.secrets[secretHost] != host {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
 	// ci none: remove finds the name through the application and takes the route and record too.
@@ -1711,4 +1751,200 @@ func TestSetupPlanSaysTheSSHNameIsNew(t *testing.T) {
 	if !strings.Contains(out, "done    cloudflare: route "+host+" -> ssh://localhost:22") {
 		t.Errorf("the done line lacks the name %s:\n%s", host, out)
 	}
+}
+
+// policyIDs lists the IDs of the policies an Access application has, in order.
+func policyIDs(app map[string]any) []string {
+	var ids []string
+	for _, p := range app["policies"].([]any) {
+		ids = append(ids, p.(map[string]any)["id"].(string))
+	}
+	return ids
+}
+
+// policyNamed returns the ID of the policy with the name, or fails the test.
+func policyNamed(t *testing.T, cf *fakeAccess, name string) string {
+	t.Helper()
+	for _, p := range cf.policies {
+		if p["name"] == name {
+			return p["id"].(string)
+		}
+	}
+	t.Fatalf("no policy %s in %v", name, cf.policies)
+	return ""
+}
+
+// emailsOf lists the emails of a policy.
+func emailsOf(p map[string]any) []string {
+	var include []map[string]any
+	for _, in := range p["include"].([]any) {
+		include = append(include, in.(map[string]any))
+	}
+	return includeEmails(include)
+}
+
+func policyByNameIn(cf *fakeAccess, name string) map[string]any {
+	for _, p := range cf.policies {
+		if p["name"] == name {
+			return p
+		}
+	}
+	return nil
+}
+
+const sshCloudflareNoCI = "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n"
+
+// deploy.ssh cloudflare needs no CI: the ssh host name, its route and record and its Access
+// application are made for the machines of the people, and the application admits the email of
+// the cf login. A second run changes nothing, a second person's email joins the first in the same
+// policy, and the plan says so.
+func TestSetupCloudflareSSHWithoutCI(t *testing.T) {
+	root := setupApp(t, sshCloudflareNoCI, nil)
+	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "(optional)") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"add     cloudflare: route deploy-a-ssh-<random>.example.com -> ssh://localhost:22",
+		"add     cloudflare: DNS deploy-a-ssh-<random>.example.com CNAME the tunnel, proxied",
+		"add     cloudflare: the Access application of deploy-a-ssh-<random>.example.com admits dev@example.com",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+	if len(cf.apps) != 1 || !sshHostName.MatchString(cf.apps[0]["domain"].(string)) {
+		t.Fatalf("apps %v", cf.apps)
+	}
+	host := cf.apps[0]["domain"].(string)
+	if len(cf.tokens) != 0 || len(cf.secrets) != 0 {
+		t.Errorf("a service token was made without CI: %v", cf.tokens)
+	}
+	people := policyByNameIn(cf.fakeAccess, peopleName(host))
+	if people == nil || people["decision"] != "allow" || !reflect.DeepEqual(emailsOf(people), []string{"dev@example.com"}) {
+		t.Fatalf("people policy %v", people)
+	}
+	if got := policyIDs(cf.apps[0]); len(got) != 1 || got[0] != people["id"] {
+		t.Errorf("the application has %v", cf.apps[0]["policies"])
+	}
+	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
+	if !strings.Contains(string(ingress), host) {
+		t.Errorf("ingress %s", ingress)
+	}
+
+	// A second run with the same login changes nothing in Cloudflare.
+	cf.calls = nil
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil && !strings.Contains(err.Error(), "needs you") {
+		t.Fatal(err)
+	}
+	if plain := withoutTunnelCheck(out); len(cf.writes()) != 0 || strings.Contains(plain, "  add     ") || strings.Contains(plain, "  change  ") {
+		t.Errorf("a second run wrote %v:\n%s", cf.writes(), out)
+	}
+
+	// Another person with another login is added to the same policy, and the first stays.
+	cf.email = "ana@example.com"
+	out, _ = runSetup(t, root, false, "", "--yes", "--all")
+	_ = out
+	cf.calls = nil
+	cf.email = "bo@example.com"
+	out, _ = runSetup(t, root, false, "", "--yes")
+	want := "change  cloudflare: the Access application of " + host + " admits bo@example.com, and keeps dev@example.com, ana@example.com"
+	if !strings.Contains(out, want) {
+		t.Errorf("lacks %q:\n%s", want, out)
+	}
+	people = policyByNameIn(cf.fakeAccess, peopleName(host))
+	if got := emailsOf(people); !reflect.DeepEqual(got, []string{"dev@example.com", "ana@example.com", "bo@example.com"}) {
+		t.Errorf("emails %v", got)
+	}
+	if len(cf.policies) != 1 || len(cf.apps) != 1 {
+		t.Errorf("policies %d, apps %d", len(cf.policies), len(cf.apps))
+	}
+	_ = srv
+
+	// Back to direct: the Access application, its policy, its route and its record go.
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n")
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, tunnelFacts))
+	out, err = runSetup(t, root, false, "", "--yes")
+	if err != nil && !strings.Contains(err.Error(), "needs you") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "remove  cloudflare: the Access application of the ssh host name of deploy-a.example.com") {
+		t.Errorf("no removal in:\n%s", out)
+	}
+	ingress, _ = json.Marshal(cf.configs["tunnel-1"]["ingress"])
+	if len(cf.apps) != 0 || len(cf.policies) != 0 || strings.Contains(string(ingress), "-ssh-") {
+		t.Errorf("left: apps %v policies %v ingress %s", cf.apps, cf.policies, ingress)
+	}
+}
+
+// An app set up by v0.2.1 with CI has the application, the token and its policy. Running setup
+// again adds the people policy and nothing else: no new token, and the application stays.
+func TestSetupCloudflareSSHKeepsAV021App(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	gh := newFakeGH()
+	gh.install(t)
+	if _, err := runSetup(t, root, false, "", "--yes"); err != nil && !strings.Contains(err.Error(), "needs you") {
+		t.Fatal(err)
+	}
+	host := gh.secrets[secretHost]
+	// Take away what v0.2.1 did not make: the people policy and its link.
+	for i, p := range cf.policies {
+		if p["name"] == peopleName(host) {
+			cf.policies = append(cf.policies[:i], cf.policies[i+1:]...)
+			break
+		}
+	}
+	cf.apps[0]["policies"] = cf.apps[0]["policies"].([]any)[:1]
+	secret := gh.secrets[secretCFSecret]
+	appID := cf.apps[0]["id"]
+	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
+	cf.calls = nil
+	out, _ := runSetup(t, root, false, "", "--yes")
+	if !strings.Contains(out, "add     cloudflare: the Access application of "+host+" admits dev@example.com") {
+		t.Errorf("no people line:\n%s", out)
+	}
+	if gh.secrets[secretCFSecret] != secret || cf.apps[0]["id"] != appID || len(cf.apps) != 1 || len(cf.tokens) != 1 {
+		t.Errorf("the token or the application was replaced: %v %v", cf.tokens, cf.apps)
+	}
+	for _, w := range cf.writes() {
+		if strings.Contains(w, "service-tokens") || strings.Contains(w, "applications delete") || strings.Contains(w, "applications create") || strings.Contains(w, "rotate") {
+			t.Errorf("wrote %s", w)
+		}
+	}
+	if got := policyIDs(cf.apps[0]); len(got) != 2 {
+		t.Errorf("policies %v", cf.apps[0]["policies"])
+	}
+}
+
+// cf logged in with an API token has no email: without CI that is something for the person to do,
+// with CI it is only a note, since CI has its token.
+func TestSetupCloudflareSSHNoEmail(t *testing.T) {
+	root := setupApp(t, sshCloudflareNoCI, nil)
+	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
+	cf := cfSetup(t, "example.com")
+	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
+	cf.email = ""
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(out, "does not tell your email") || len(cf.policies) != 0 {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+// withoutTunnelCheck drops the lines of the check of the tunnel, which a setup whose
+// TIFA_DEPLOY_HOST comes from the environment runs each time.
+func withoutTunnelCheck(out string) string {
+	var keep []string
+	for _, l := range strings.Split(out, "\n") {
+		if !strings.Contains(l, "this machine: check that ssh reaches") {
+			keep = append(keep, l)
+		}
+	}
+	return strings.Join(keep, "\n")
 }

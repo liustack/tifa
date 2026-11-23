@@ -83,8 +83,8 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 	switch {
 	case d.SSH == "cloudflare" && d.Front != "cloudflare":
 		return "", errors.New("deploy.ssh is cloudflare, and the ssh host name is made from the domain of site.url: set deploy.front to cloudflare")
-	case d.SSH != "direct" && d.CI != "github":
-		return "", fmt.Errorf("deploy.ssh is %s, which is how GitHub Actions reaches the server: set deploy.ci to github, or deploy.ssh to direct (deploys from this machine use ~/.ssh/config)", d.SSH)
+	case d.SSH == "tailscale" && d.CI != "github":
+		return "", errors.New("deploy.ssh is tailscale, which is how GitHub Actions reaches the server: set deploy.ci to github, or deploy.ssh to direct")
 	}
 	return domain, nil
 }
@@ -254,6 +254,11 @@ When all is right it prints one line and asks nothing. It can run again at any t
   ci        with deploy.ci github: a key for the repository, secrets, and the workflow (needs
             gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
             deploy.ssh cloudflare also cf)
+  ssh       with deploy.ssh cloudflare: an ssh host name on the tunnel and its Access
+            application, which admits the email of your cf login. On this machine: cloudflared
+            (installed with brew or winget when missing), a block in ~/.ssh/config, a check
+            that ssh gets through (the first time it opens the Access login in your browser),
+            and then TIFA_DEPLOY_HOST in .env is the ssh host
 
 On a terminal, a missing cf or gh comes first: a plan that installs it with pnpm, brew or
 winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,

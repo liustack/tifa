@@ -588,7 +588,7 @@ func (v sharedAgeValue) Set(s string) error {
 func (v sharedAgeValue) String() string { return v.p.String() }
 func (v sharedAgeValue) kind() string   { return "duration" }
 
-// sshModeValue is deploy.ssh: how CI reaches the server. Empty means direct.
+// sshModeValue is deploy.ssh: how ssh reaches the server. Empty means direct.
 type sshModeValue struct{ p *string }
 
 func (v sshModeValue) Set(s string) error {

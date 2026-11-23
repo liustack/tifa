@@ -27,11 +27,13 @@ type fakeCF struct {
 	next     int
 	// loggedOut makes cf auth whoami say nobody is logged in.
 	loggedOut bool
+	// email is the email of the login. Empty is a login with an API token, which has none.
+	email string
 }
 
 func newFakeCF(zones ...string) *fakeCF {
 	return &fakeCF{zones: zones, tunnels: map[string]string{}, configs: map[string]map[string]any{},
-		records: map[string][]map[string]any{}, rulesets: map[string]map[string]any{}}
+		records: map[string][]map[string]any{}, rulesets: map[string]map[string]any{}, email: "dev@example.com"}
 }
 
 func (f *fakeCF) id(kind string) string { f.next++; return fmt.Sprintf("%s-%d", kind, f.next) }
@@ -76,7 +78,11 @@ func (f *fakeCF) answer(args []string) (any, error) {
 	notFound := fmt.Errorf("[10000] not found\n404 Not Found")
 	switch {
 	case cmd == "auth whoami":
-		return map[string]any{"authenticated": !f.loggedOut}, nil
+		who := map[string]any{"authenticated": !f.loggedOut}
+		if f.email != "" {
+			who["email"] = f.email
+		}
+		return who, nil
 	case cmd == "zones list --name":
 		out := []map[string]any{}
 		if slices.Contains(f.zones, args[3]) {

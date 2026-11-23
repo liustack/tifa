@@ -359,6 +359,8 @@ type fakeAccess struct {
 	policies []map[string]any
 	apps     []map[string]any
 	secrets  []string // client secrets made
+	// failPolicyCreate makes the creation of a policy fail.
+	failPolicyCreate bool
 }
 
 func (a *fakeAccess) install(t *testing.T) {
@@ -440,6 +442,9 @@ func (a *fakeAccess) answer2(args []string) (any, error) {
 	case strings.HasPrefix(cmd, "zero-trust access policies list"):
 		return page(a.policies, args), nil
 	case strings.HasPrefix(cmd, "zero-trust access policies create"):
+		if a.failPolicyCreate {
+			return nil, errors.New("[12000] access.api.error.policy_limit")
+		}
 		b := body(args)
 		b["id"] = a.id("pol")
 		a.policies = append(a.policies, b)

@@ -4,6 +4,15 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `deploy.ssh: cloudflare` now takes your own machine through the Cloudflare Tunnel too, so the server needs no open ssh port for anyone. `tifa deploy setup` adds the email of your cf login to a policy of the Access application it made for the ssh host name (a second person's setup adds theirs next to it), installs cloudflared when it is missing (`brew install cloudflared` on macOS, `winget install --id Cloudflare.cloudflared -e` on Windows, a link elsewhere), writes a marked block at the top of `~/.ssh/config`, checks that `ssh tifa@<ssh host>` works (the first time cloudflared opens the Cloudflare Access login in your browser and waits for you, up to 4 minutes), and then moves `TIFA_DEPLOY_HOST` to the ssh host. `tifa deploy remove` takes the policy and the block away. Tifa does not change the firewall of the server: close its ssh port yourself once a deploy through the tunnel worked. Setup makes the Access application and a policy before it publishes the route and record of the ssh host name, and publishes nothing when no policy can be made. Upgrading: nothing is required. An app already set up with `ssh: cloudflare` and `ci: github` keeps its Access application and token, and the next `go tool tifa deploy setup` adds the items for your machine.
+
+### Changed
+
+- `deploy.ssh: cloudflare` no longer needs `deploy.ci: github`. The ssh host name, its route, its DNS record and its Access application are made without CI. `deploy.ssh: tailscale` still needs it.
+- `tifa deploy setup` writes one line of the `.env` of the app: `TIFA_DEPLOY_HOST` becomes the ssh host name once ssh through the tunnel works, and only when the value was read from `.env`. When it comes from the environment or `--host`, setup says what to set and changes nothing.
+
 ## [0.2.1] - 2026-11-23
 
 ### Changed

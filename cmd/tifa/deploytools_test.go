@@ -53,6 +53,7 @@ func (m *fakeMachine) install(t *testing.T) {
 	})
 	toolOS = m.os
 	t.Setenv("ProgramFiles", `C:\Program Files`)
+	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
 	lookProgram = func(name string) (string, error) {
 		fakeMu.Lock()
 		defer fakeMu.Unlock()
@@ -91,6 +92,10 @@ func (m *fakeMachine) install(t *testing.T) {
 			m.files[filepath.Join(m.pnpmBin, "cf")] = true
 		case "brew install gh":
 			m.files[filepath.Join("/opt/homebrew", "bin", "gh")] = true
+		case "brew install cloudflared":
+			m.files[filepath.Join("/opt/homebrew", "bin", "cloudflared")] = true
+		case "winget install --id Cloudflare.cloudflared -e":
+			m.files[filepath.Join(`C:\Program Files (x86)`, "cloudflared", "cloudflared.exe")] = true
 		case "winget install --id GitHub.cli -e":
 			m.files[filepath.Join(`C:\Program Files`, "GitHub CLI", "gh.exe")] = true
 		}
