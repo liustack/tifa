@@ -16,6 +16,8 @@ read_when:
 
 A collection is a folder of Markdown files under `content/` that the app reads in Go as typed values: a blog, a set of docs, release notes. The build reads the files, checks every front matter against a Go struct, turns each body into HTML and puts the result into the program. At run time a `Load` or a handler reads the entries like any other data, and nothing is parsed.
 
+**How much it is for.** Collections suit up to about 1,000 entries per app. At 1,000 entries of about 10 KB each, the program grows by about 10 MB and the build converts them in about 2 seconds. Every image a body uses goes into the program too, so put large or many images in object storage and link them by URL. For more than 1,000 entries, or writing that people edit while the site runs, keep it in a database and build the editing pages with Tifa, as a small CMS.
+
 Four steps put an entry on a page:
 
 1. Declare the collection in `content.go` (the struct is the schema of the front matter).
