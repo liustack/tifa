@@ -115,7 +115,8 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "secret") || strings.Contains(err.Error()+out, "SECRETSECRET") {
 		t.Errorf("a key: %v\n%s", err, out)
 	}
-	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "no spaces"); err == nil || !strings.Contains(err.Error(), "not a client ID") {
+	// What was refused is not printed, since it may be a secret that is not a key either.
+	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "no spaces"); err == nil || !strings.Contains(err.Error(), "not a client ID") || strings.Contains(err.Error(), "no spaces") {
 		t.Errorf("spaces: %v", err)
 	}
 	writeFile(t, filepath.Join(a.root, "tifa.yaml"), "deploy:\n  auto: {}\n")
@@ -133,7 +134,7 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 func TestSetupTailscaleFromOAuthSecrets(t *testing.T) {
 	a := newTSApp(t, true)
 	workflow := filepath.Join(a.root, githubWorkflowPath)
-	oldFlow := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true, CIName: testCIName})
+	oldFlow := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true, CIName: testCIName, CIFile: "ci.yml"})
 	writeFile(t, workflow, oldFlow)
 	a.gh.files = map[string]string{githubWorkflowPath: oldFlow}
 	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretTSID, secretTSSecret} {
@@ -192,4 +193,34 @@ func TestRemoveTailscaleIdentity(t *testing.T) {
 	if err != nil || len(gh.secrets) != 0 || len(gh.vars) != 0 {
 		t.Errorf("%v, left %v %v\n%s", err, gh.secrets, gh.vars, out)
 	}
+}
+
+// The identity is set only when the audience is the one made from the client ID. A half-written one
+// (the audience missing or another) is put right from the client ID the repository has, and a plan
+// without it never says the identity is right.
+func TestSetupTailscaleHalfWrittenIdentity(t *testing.T) {
+	for name, audience := range map[string]string{"audience missing": "", "audience of another id": "api.tailscale.com/other"} {
+		a := newTSApp(t, true)
+		a.gh.vars[varTSClient] = "k1b2CNTRL"
+		if audience != "" {
+			a.gh.vars[varTSAudience] = audience
+		}
+		out, err := runSetup(t, a.root, false, "", "--yes")
+		if err != nil || a.gh.vars[varTSAudience] != "api.tailscale.com/k1b2CNTRL" || a.gh.vars[varTSClient] != "k1b2CNTRL" {
+			t.Errorf("%s: %v, %v\n%s", name, err, a.gh.vars, out)
+		}
+	}
+}
+
+// The subject depends on when the repository was made: GitHub gives repositories made after
+// July 15, 2026, and any that opted in, the owner and repository IDs in it. Setup says both forms and
+// how to see which one GitHub sends.
+func TestSetupTailscaleSubjectBothForms(t *testing.T) {
+	a := newTSApp(t, true)
+	out, _ := runSetup(t, a.root, false, "", "--yes")
+	wantAll(t, out, "repo:acme/shop:ref:refs/heads/main",
+		"repo:acme@<owner ID>/shop@<repository ID>:ref:refs/heads/main",
+		"gh api repos/acme/shop --jq '.owner.id, .id'",
+		"actions/oidc/customization/sub",
+		"github/actions-oidc-debugger")
 }

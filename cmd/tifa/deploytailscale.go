@@ -39,7 +39,8 @@ func checkTailscaleClientID(id string) error {
 	case strings.HasPrefix(id, "tskey-"):
 		return fmt.Errorf("that is a Tailscale key, which is a secret and which tifa does not take. The client ID of a federated identity is not secret: copy it from the page of the credential")
 	case !tailscaleClientID.MatchString(id):
-		return fmt.Errorf("%q is not a client ID: it is letters, digits, dots, hyphens and underscores", id)
+		// The value is not printed: what was refused may be a secret that is not a Tailscale key.
+		return fmt.Errorf("that is not a client ID: it is letters, digits, dots, hyphens and underscores")
 	}
 	return nil
 }
@@ -58,12 +59,20 @@ func (r *setupRun) tailscaleRef() string {
 	return r.repo.Branch
 }
 
-// tailscaleIdentityHow says how to make the identity, which only the admin console can do.
+// tailscaleIdentityHow says how to make the identity, which only the admin console can do. GitHub
+// has two forms of the subject, and no field says for sure which one a repository gets: the
+// immutable form (with the IDs of the owner and the repository) is the default for repositories made
+// after July 15, 2026, and for renames and transfers after it, and older ones opt in. So both forms
+// are given, with how to see which one GitHub sends.
 func (r *setupRun) tailscaleIdentityHow() string {
-	return fmt.Sprintf("In Tailscale, open %s, choose Credential, then OpenID Connect. Pick the GitHub issuer (%s), set the subject to repo:%s:ref:refs/heads/%s (%s, and a manual run on that branch), "+
-		"give it the scope auth_keys for the tag %s, and generate it. Copy its client ID: neither it nor the audience is a secret. "+
+	owner, name, _ := strings.Cut(r.repo.Name, "/")
+	ref := "ref:refs/heads/" + r.tailscaleRef()
+	return fmt.Sprintf("In Tailscale, open %s, choose Credential, then OpenID Connect. Pick the GitHub issuer (%s), set the subject to repo:%s:%s (%s, and a manual run on that branch). "+
+		"That is the form GitHub sends for a repository made before July 15, 2026. A repository made after that date, one that opted in to immutable subject claims, and one renamed or transferred after the date send repo:%s@<owner ID>/%s@<repository ID>:%s instead: "+
+		"get the IDs with gh api repos/%s --jq '.owner.id, .id', and see which form GitHub sends by running github/actions-oidc-debugger in a workflow, or by reading use_immutable_subject at GET /repos/%s/actions/oidc/customization/sub (it tells whether the repository opted in). "+
+		"Give the credential the scope auth_keys for the tag %s, and generate it. Copy its client ID: neither it nor the audience is a secret. "+
 		"Your tailnet policy must have %s in tagOwners and let it reach the server on its ssh port",
-		tailscaleConsole, githubIssuer, r.repo.Name, r.tailscaleRef(), r.tailscaleRunKind(), tailscaleTag, tailscaleTag)
+		tailscaleConsole, githubIssuer, r.repo.Name, ref, r.tailscaleRunKind(), owner, name, ref, r.repo.Name, r.repo.Name, tailscaleTag, tailscaleTag)
 }
 
 // tailscaleRunKind says why the subject has the ref of tailscaleRef.
@@ -78,13 +87,25 @@ func (r *setupRun) tailscaleRunKind() string {
 // variables. They are not secret, so the plan can read what GitHub has, and a client ID given with
 // the flag that differs from it is a change.
 func (r *setupRun) tailscaleIdentitySteps(p *setupPlan) {
-	have := r.ghVars[varTSClient] != "" && r.ghVars[varTSAudience] != ""
+	have := r.identitySet()
 	given := strings.TrimSpace(r.tailscaleClientID)
 	legacy := r.ghNames[secretTSID] && r.ghNames[secretTSSecret]
 	text := "github: the Tailscale identity CI joins your tailnet with, the variables " + varTSClient + " and " + varTSAudience
 	switch {
 	case have && (given == "" || given == r.ghVars[varTSClient]):
 		p.ok("github: the Tailscale identity, the variables " + varTSClient + " and " + varTSAudience)
+		return
+	case given == "" && r.ghVars[varTSClient] != "":
+		// Half written: the audience is missing or is not the one of the client ID. The client ID is
+		// there, so the audience is made again from it, which needs nothing from you.
+		r.tailscalePlanned = true
+		p.steps = append(p.steps, planStep{op: opChange, text: "github: the audience of the Tailscale identity, the variable " + varTSAudience + ", made again from the client ID in " + varTSClient, do: func(ctx context.Context) (string, error) {
+			if err := r.gh.SetVariable(ctx, r.repo.Name, varTSAudience, tailscaleAudience(r.ghVars[varTSClient])); err != nil {
+				return "", err
+			}
+			r.tailscaleSet = true
+			return "", nil
+		}})
 		return
 	case given == "" && !stdinIsTerminal(r.in) && legacy:
 		// CI keeps joining with the OAuth client of an older setup, which the workflow still hands over.
@@ -131,8 +152,14 @@ func (r *setupRun) setTailscaleIdentity(ctx context.Context) (string, error) {
 // legacyTailscale says the workflow keeps joining with the OAuth client of an older setup: the
 // repository has its two secrets and no identity yet, and none was set by this run.
 func (r *setupRun) legacyTailscale(set bool) bool {
-	haveIdentity := r.ghVars[varTSClient] != "" && r.ghVars[varTSAudience] != ""
-	return r.ghNames[secretTSID] && r.ghNames[secretTSSecret] && !haveIdentity && !set
+	return r.ghNames[secretTSID] && r.ghNames[secretTSSecret] && !r.identitySet() && !set
+}
+
+// identitySet says the repository has the identity: the client ID, and the audience made from it.
+// An audience that is missing or is another one is a half written identity, which does not join.
+func (r *setupRun) identitySet() bool {
+	id := r.ghVars[varTSClient]
+	return id != "" && r.ghVars[varTSAudience] == tailscaleAudience(id)
 }
 
 // oldTailscaleSteps takes away the OAuth secrets of an older setup once the workflow on the default
@@ -176,7 +203,7 @@ func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
 	if len(secrets) == 1 {
 		these = "the secret " + secrets[0]
 	}
-	if t.connectMode == connTailscale && !r.tailscalePlanned && (r.ghVars[varTSClient] == "" || r.ghVars[varTSAudience] == "") {
+	if t.connectMode == connTailscale && !r.tailscalePlanned && !r.identitySet() {
 		return // CI still joins with them: the note of the identity says what to do
 	}
 	onMain, found, err := r.gh.FileOnBranch(ctx, repo, branch, githubWorkflowPath)
@@ -189,7 +216,7 @@ func (r *setupRun) oldTailscaleSteps(ctx context.Context, p *setupPlan) {
 		return
 	}
 	p.add(opRemove, "github: "+these+", the OAuth client of an older setup, which the workflow no longer uses. Delete the OAuth client itself in Tailscale, Trust credentials, when nothing else uses it", func(ctx context.Context) (string, error) {
-		if t.connectMode == connTailscale && !r.tailscaleSet && r.ghVars[varTSClient] == "" {
+		if t.connectMode == connTailscale && !r.tailscaleSet && !r.identitySet() {
 			return "", skipped{"no identity is set yet, so the secrets stay until one is"}
 		}
 		for _, n := range secrets {
