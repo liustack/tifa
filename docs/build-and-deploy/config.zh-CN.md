@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的每一项设置和应用怎样定义自己的设置，以及每个响应都带的安全头，其中包括 server.csp 的 Content-Security-Policy：每一项可以在哪里设置（命令行参数、环境变量、.env、-c 指定的文件、tifa.yaml）、哪个来源优先、PORT 和 HOST 怎样读取、默认值、参数和环境变量的名字、值的格式和错误的值会给出什么错误、需要更久的处理函数怎样放宽读写超时、怎样用程序自己拿到的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从其他站点发来的写请求，和怎样放行指定的来源或路径'
 audience: app
 order: 4
-translatedFrom: a60c7630f50a
+translatedFrom: ec04021ee122
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -141,7 +141,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`SSR_QUEUE_LIMIT` | 允许等待 VM 的渲染数，不含已经在运行的渲染。`0` 表示没有空闲 VM 时立刻拒绝。队列满了会以 503 回答，带 `Retry-After: 1` |
 | `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`、`SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。到期会以 503 回答，带 `Retry-After: 1`，不启动也不替换 VM。它和 `ssr.timeout` 是分开的，后者在拿到 VM 之后才开始计时 |
 | `ssr.memo_size` | `64MiB` | `--ssr-memo-size`、`SSR_MEMO_SIZE` | 渲染记忆 memo 的大小，按它保存的字节数算：每个页面一种形式，开了 `server.compress` 时是它的 gzip 形式，否则是它的 HTML（见[压缩](build.zh-CN.md#compression)）。满了之后最近最少使用的页面会被丢掉。`0` 会关掉它，不过同时没命中同一个页面的请求仍然共用一次渲染。memo 是什么、为什么安全：[渲染记忆 memo](../reference/memo.zh-CN.md)。页面可以用 `Memo = false` 为自己关掉 memo（见 [SSR 与缓存](../pages-and-data/ssr-and-cache.zh-CN.md#ssr-and-cache)） |
-| `cache.s_maxage` | `1m` | `--cache-s-maxage`、`CACHE_S_MAXAGE` | 写了 `const Cache = true` 的页面的 `s-maxage`：程序前面的共享缓存（比如 CDN）可以保存它多久。至少一秒。写了 `const Cache = 10 * time.Minute` 的页面用它自己的时间。见[给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns) |
+| `cache.s_maxage` | `1m` | `--cache-s-maxage`、`CACHE_S_MAXAGE` | 写了 `const Cache = true` 的页面的 `s-maxage`：程序前面的共享缓存（比如 CDN）可以保存它多久。见[给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns) |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`SESSION_COOKIE` | 会话 cookie 的名字。在 `tifa dev` 下会去掉 `__Host-` 前缀，见[会话](../pages-and-data/sessions.zh-CN.md) |
 | `session.max_age` | `720h` | `--session-max-age`、`SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建它的那一刻起能持续多久，至少一秒。它不会续期 |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`SESSION_MEMORY_LIMIT` | 内存会话存储最多能保存的字节数，在 `OnStart` 没有用 `tifa.SetSessionStore` 设置存储时使用。存储满了会丢掉最先过期的会话 |

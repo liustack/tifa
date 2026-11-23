@@ -2,7 +2,7 @@
 summary: '`tifa new` 怎样开始一个应用、`tifa build` 做什么、`tifa check` 运行什么、`tifa gen` 写什么、Tifa docs 打印什么、`tifa upgrade` 怎样把应用升到更新的 Tifa、`tifa agents` 写什么（技能和 AGENTS.md 里由它管理的那一块）以及怎样让它们保持最新、它在 .tifa/ 里生成哪些文件和输出、怎样设置应用的 tsconfig 和 go.mod、前端为什么用 Vite 构建、生成的程序怎样启动并回答页面请求、为什么去掉调试信息，以及随程序要附上哪些许可证声明'
 audience: app
 order: 2
-translatedFrom: 98d67170ddcc
+translatedFrom: bfb9a83bbcca
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -718,23 +718,13 @@ i18n.services.formatter?.addCached('currency', (lng, options) => {
 
 | 请求 | 响应 |
 | --- | --- |
-| 没有 `_tifa` | 并发运行匹配的链上的每个 `Load`。ETag 是下面这些的哈希：构建 ID、SSR 包、路径连同 `Load` 读取的查询参数（VM 渲染的那个 URL，见[服务端渲染里的查询参数](../pages-and-data/ssr-and-cache.zh-CN.md#query-parameters-in-the-server-render)）、访问者的会话和结果，带有匹配的 `If-None-Match` 的请求得到 304。会先检查渲染 memo，除了 `Memo = false` 的页面和带有渲染时钟的请求之外的每个页面都查（一个按字节计大小的 LRU，容量是 `ssr.memo_size`，0 表示关闭），只有未命中时才运行 VM，并且同一时刻对同一个键未命中的所有请求只运行一次。键和 ETag 是同一个哈希，`Memo = false` 的页面和带渲染时钟的请求得不到它 |
+| 没有 `_tifa` | 并发运行匹配的链上的每个 `Load`。然后由渲染 memo 和 ETag 决定 VM 要不要运行：匹配的 `If-None-Match` 得到 304，memo 命中就发出保存的页面，没命中就渲染一次，同时没命中同一个键的所有请求共用这一次（见 [渲染记忆 memo](../reference/memo.zh-CN.md)，VM 渲染的那个 URL 见 [查询参数](../reference/memo.zh-CN.md#query-parameters)） |
 | 同上，但匹配的链上有 `SSR = false` | 跳过 VM，返回一个最小的文档：资源标签和注入的数据（每个 `Load` 的结果，各带它的 JSON 文本放在 `json` 里，以及访问者的会话放在 `session` 里），放在 `<script type="application/json" id="tifa-data">` 里。浏览器渲染它，不用再请求数据 |
 | 带有 `_tifa=<build ID>.<digits>[.p]` | 只运行数字为 `1` 的路由的 `Load` 或 `Layout`（`tifa.Use` 在请求内会去重），并以 200 回答 `{"routes": {route ID: result}, "session": ...}`，每个路由有它自己的状态。当构建 ID 不是当前的构建时回答 409，当值不是这个形式，或数字的个数和匹配的链上 `Load` 的个数不一样时回答 400。错误和重定向在下面说明 |
 
-在 `route.go` 里有 `Cache` 的页面（见[给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)）和任何页面一样被回答，只有两处不同。GET、HEAD 和带 `_tifa` 的请求是匿名的：`Cookie` 和 `Authorization` 在 `OnRequest` 之前被丢掉，HTML 也没有了它的 `Set-Cookie`。并且 HTML 会说明程序前面的共享缓存可以保存什么：
+在 `route.go` 里有 `Cache` 的页面和任何页面一样被回答，只是 GET、HEAD 和带 `_tifa` 的请求是匿名的，并且 HTML 会说明程序前面的共享缓存可以保存什么。`Load` 仍然在每个请求上运行，`X-Tifa-Render` 和 ETag 是渲染 memo 的。规则见 [给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)，每种响应的头见 [响应的 Cache-Control](../pages-and-data/ssr-and-cache.zh-CN.md#cache-control-of-an-answer)。框架在最终的头发出时，只在一个地方加上默认的 `Cache-Control`。
 
-| 响应 | `Cache-Control` |
-| --- | --- |
-| HTML、304 和 HEAD | `public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。秒数是 `Cache` 的值，对 `Cache = true` 则是 `cache.s_maxage`。这个响应没有 `Age` 和 `Cache-Status`：Tifa 不保存页面的任何东西 |
-| `OnRequest`、某个 `Load` 或某个 `Layout` 设置了 `private`、`no-store` 或 `no-cache`，或设置了 `Accept-Encoding` 之外的 `Vary` 时的 HTML | 应用设置了什么就是什么，和没有 `Cache` 的页面一样 |
-| 数据请求（`_tifa`） | 总是 `private, no-cache` |
-
-`Load` 在每个请求上都运行。`X-Tifa-Render` 和 ETag 是渲染 memo 的。
-
-每个经过路由的响应，包括整页、304、数据请求、方法处理函数和重定向，都带 `Cache-Control: private, no-cache`，除非应用自己在 `OnRequest`、`Load`、`Layout` 或处理函数里设置了 `Cache-Control`。导航数据的响应（带 `_tifa` 的请求，不管它的状态是什么，包括 409 和重定向）是例外：它从不是公开的，所以应用设置的值如果不是 `no-store` 或带 `no-cache` 的 `private`，就会被替换成 `private, no-cache`。框架在一个地方添加它，就是在最终的头发出的时候。JSON 错误、纯错误页面、带错误的页面和繁忙响应都是 `no-store`，除非应用在错误之前设置了 `Cache-Control`。应用的 404 页面保留默认值。
-
-页面和它的导航数据有不同的 URL，所以只按 URL 作键的缓存会把它们分开保存，不需要为它加 `Vary`。响应保留应用设置的 `Vary`（比如在 `OnRequest` 里设置的 `Vary: Cookie`）。`X-Tifa-Render: vm|shared|memo|none` 说明这个响应是由 VM 渲染的，还是来自另一个请求在同一时刻开始的渲染，还是由渲染 memo 提供的，还是没有经过 VM。页面和 JSON 响应在不压缩发出时带 `Content-Length`。
+页面和 JSON 响应在不压缩发出时带 `Content-Length`。
 
 关于错误，`Load` 的错误会先通过 `next` 回到 `OnRequest`，框架只在 `OnRequest` 返回之后才处理它：
 

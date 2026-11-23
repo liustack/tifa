@@ -1,5 +1,5 @@
 ---
-summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, its limits, why a page has one key that is also its ETag, and how to see it work'
+summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, how requests that miss together share one render, its limits, why a page has one key that is also its ETag, and how to see it work'
 audience: app
 order: 1
 read_when:
@@ -8,7 +8,8 @@ read_when:
   - Deciding whether a page needs `Memo = false` or `Cache`
   - Setting Cache-Control on a page, a Load or a handler of an app that has signed-in pages
   - Reading cookies or the Authorization header in your own code instead of using Tifa sessions
-  - A page shows a stale time or random value, or you want to know why a request did or did not hit the memo
+  - A page shows a stale time or random value, or you want to know why a request did or did not hit the memo or got no ETag
+  - Wondering what happens to requests that wait for one render, or how a failed render reaches `OnError`
   - A component reads a query parameter and the page hydrates differently, or you wonder whether tracking parameters cost renders
   - Wondering why a write to Layout data makes other pages render again, or whether parts of a page could be kept
 ---
@@ -63,26 +64,15 @@ A page sees the query parameters that its `Load` and the Layout functions above 
 
 A cart, a bill or an account page is memoized the same way. Another visitor has other data or another session, which is another key, so they never get this page. The memo lives in the memory of the process, and it is never sent to a CDN.
 
-What goes on the wire is the `Cache-Control` of the answer:
-
-| Answer | `Cache-Control` sent | Can the app change it |
-|---|---|---|
-| Page, 304, a 404 page of the app, redirect, method handler | `private, no-cache` when the app sets none | Yes. If it carries the session, see the next row |
-| Answer that carries the session (an app that uses Tifa sessions) | `private, no-cache` when the app sets none | Only to `no-store`, or `private` with `no-cache`. Anything else is an error, and the answer goes out `no-store` |
-| Answer that sets or clears the session cookie | `no-store`, without `ETag` or `Last-Modified` | No |
-| Navigation data (the requests with `_tifa`) | `private, no-cache` | Only to `no-store`, or `private` with `no-cache`. Anything else is replaced by `private, no-cache` |
-| `/__tifa/session` | `private, no-store`, without `ETag` or `Last-Modified` | No |
-| Page with `Cache` | `public, max-age=0, s-maxage=<Cache in seconds>, stale-if-error=86400` | A `Load` or Layout can make it `private`, `no-store` or `no-cache`, and then the page is not shared |
-
-With the default, a CDN or proxy does not store the answer, because `private` says it may be for one visitor. A browser may keep it, but `no-cache` makes it ask again every time. The page carries an `ETag`, so an unchanged page ends in a 304 with no body. An answer that sets the session cookie is never turned into a 304, so the cookie always reaches the browser.
+What goes on the wire is the `Cache-Control` of the answer. With the default, a CDN or proxy does not store it, and a browser asks again with the `ETag`. [Cache-Control of an answer](../pages-and-data/ssr-and-cache.md#cache-control-of-an-answer) lists every case.
 
 ### Tifa sessions
 
-In an app that uses Tifa sessions, an answer that carries the session must not be shareable. Leave `Cache-Control` alone, or set `no-store`, or `private` with `no-cache`, both without a list of fields. If `OnRequest`, a `Load` or a handler sets anything else, such as `public, max-age=60`, the request fails with an error through `OnError`. You find out when you try the page. See [Sessions](../pages-and-data/sessions.md#in-the-browser).
+In an app that uses Tifa sessions, an answer that carries the session must not be shareable, and a shareable `Cache-Control` on it is an error. See [Sessions](../pages-and-data/sessions.md#in-the-browser).
 
 ### Pages with `Cache`
 
-The only way a page is shared between visitors is `Cache`, and it is off until you write it. A CDN or proxy in front keeps the page, never Tifa. Tifa then makes the request anonymous so the page cannot depend on who asks. It loses every header except `Host`, `Accept-Encoding`, `If-None-Match`, `If-Modified-Since`, `Cache-Control`, `Pragma`, `Content-Length`, `Connection`, `Origin` and `Sec-Fetch-*`, so `Cookie` and `Authorization` are gone. `tifa.Session` returns nil. The build fails if the `Load` or Layout reads a cookie, a header or the session. A `Set-Cookie` on the HTML is dropped. A page that shows who is signed in does not use `Cache`: see [User-independent pages and private data](../pages-and-data/ssr-and-cache.md#user-independent-pages-and-private-data).
+The only way a page is shared between visitors is `Cache`, and it is off until you write it. A CDN or proxy in front keeps the page, never Tifa, and Tifa makes the request anonymous so the page cannot depend on who asks. A page that shows who is signed in does not use `Cache`. See [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns) and [User-independent pages and private data](../pages-and-data/ssr-and-cache.md#user-independent-pages-and-private-data).
 
 ### Cookies and Authorization that your code reads
 
@@ -92,15 +82,23 @@ There is one way to leak. If you set a shareable `Cache-Control`, such as `publi
 
 Behind a CDN, keep the defaults and let it follow the headers of the origin. See [Behind a CDN or proxy](../build-and-deploy/deploy.md#behind-a-cdn-or-proxy).
 
+## Requests that miss together
+
+When requests miss the memo at the same time with the same build version, URL and data, such as a burst of visitors right after a deploy, they share one render. Each request still runs its middleware and `Load`s, keeps the headers they set, such as `Set-Cookie` and `Vary`, and gets the encoding it accepts. This also holds with `ssr.memo_size` 0, for a page too large for the memo, and under `tifa dev`. Requests with other data or another session render on their own, and a page with `Memo = false` renders for every request.
+
+When that shared render fails, every request that waited for it gets the same error and goes to `OnError`, a panic included. Nothing is kept, so the next request renders again, unless a component threw or the render used up `ssr.vm_memory`: the built app then remembers the failure for 5 seconds (see [Errors on a page](../pages-and-data/pages.md#errors-on-a-page)). A request whose client goes away stops waiting at once and its connection is cut, with no answer sent: `next(c)` in `OnRequest` returns an error that matches `context.Canceled`, but `OnError` is not called and nothing is logged. The render goes on for the others. A request whose own deadline passes while it waits fails like any other error. Once no request waits, a render still waiting for a VM is dropped, and one that already runs finishes and goes into the memo. If it fails then, no request reports it to `OnError`, so the error is logged.
+
 ## Limits
 
-- **A component that reads the time or a random number** (`Date.now()`, `Math.random()`) puts a value into the HTML that is not in the input, and so not in the key, and the memo would give it to later visitors. `tifa dev` renders each page twice and warns when the two differ. For a page that must show such a value, write `const Memo = false` in its `route.go`: it renders for every request and gets no `ETag`.
-- **A request with a render clock** (`tifa.WithRenderClock`) neither reads nor stores a page.
+- **A component that reads the time or a random number** (`Date.now()`, `Math.random()`) puts a value into the HTML that is not in the input, and so not in the key, and the memo would give it to later visitors. Hydration needs the same. Under `tifa dev` every page is rendered a second time with the clock 36 hours on. When the two differ, the terminal and the dev overlay say so, show the first place where they part and list the places in your code that read the time or a random number. The page is not memoized until it is fixed. The check does not run in a built app. For a page that must show such a value on purpose, such as the time of the server, write `const Memo = false` in its `route.go`: it renders for every request and gets no `ETag`.
+- **A request with a render clock** (`tifa.WithRenderClock`) neither reads nor stores a page, because its HTML depends on a time the key does not hold. It gets no `ETag`.
 - **`ssr.memo_size`** is the memory of the render memo, 64 MiB by default. When it is full the least recently used pages go. `0` turns it off, and requests that miss the same page at the same time still share one render. See [Configuration](../build-and-deploy/config.md).
 
 ## One key per page
 
 A page has one key, and that key is also its `ETag`. Tifa does not key the data of a Layout apart from the data of its page, and it does not keep parts of a page. So one hash decides both when a render is reused and when a browser gets a 304, and the app writes nothing for either.
+
+Every page response carries the `ETag`. A second request with `If-None-Match` gets 304 when the key did not change, without a render and before the memo is asked. The `ETag` saves the transfer to a browser that has the page, the memo saves the render for everyone else. A page with `Memo = false` and a request with a render clock get no `ETag`, since their HTML is not a function of the key, and always render. A 404 page and the page of a failed `Load` get none either: a 304 only stands for a 200 (see [Why it is safe on every page](#why-it-is-safe-on-every-page)).
 
 What it costs: a write that changes the data of a Layout, such as a count in the header of a project, makes every page under that Layout render again on its next request. A write that leaves the Layout data alone makes only the pages whose `Load` data it changes render again.
 
@@ -109,7 +107,7 @@ The memo keeps one gzip form of each page and sends it in the encoding each visi
 ## Seeing it work
 
 - `X-Tifa-Render` on a page: `vm` is a render for this request, `memo` a hit, `shared` a render another request started at the same time, `none` a 304 or an answer that did not go through the VM.
-- A request with `If-None-Match` gets 304 when the inputs did not change, before the memo is asked. The ETag saves the transfer to a browser that has the page, the memo saves the render for everyone else.
+- A request with `If-None-Match` gets 304 when the key did not change, before the memo is asked.
 - `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped, least recently used first, to make room for another), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](../build-and-deploy/deploy.md) for a route that writes them for Prometheus.
 
 For numbers, see [Performance](performance.md).

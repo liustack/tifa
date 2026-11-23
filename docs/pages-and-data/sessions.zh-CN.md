@@ -2,7 +2,7 @@
 summary: 'Tifa 应用里的会话怎样工作：在 Go 里登录和登出、会话 Cookie、内存存储，以及怎样用自己写的存储把会话放在 Redis 或 SQL 里、各个调用可以在哪里使用、构建时的检查、浏览器怎样显示谁已登录、怎样测试，以及每种错误是什么意思'
 audience: app
 order: 5
-translatedFrom: 278d5953fca0
+translatedFrom: a1e7f3efede2
 read_when:
   - '让用户登录和登出，或者读取谁已登录'
   - '把会话放在 Redis、SQL 或文件里，而不是进程的内存里，或者为 tifa.SetSessionStore 写一个存储'
@@ -146,7 +146,7 @@ func TestRedisStoreIsAValidStore(t *testing.T) {
 
 `Load` 为 GET 运行，而 GET 不能改变任何东西，所以登录应该放在方法处理函数或 `OnRequest` 里。
 
-在带 `Cache` 的页面上，GET 和 HEAD 请求是匿名的：不管是谁在请求，那里的 `Session` 都是 nil，`SetSession` 和 `ClearSession` 会返回错误。这个承诺针对的是 Tifa 交给你的代码的请求头。通过 `tifa.SetHTTPHandler` 加的 `net/http` 中间件放进 context 的值仍然会到达，所以要在 `OnRequest` 里识别访问者，不要在那个中间件里（见[给 CDN 的缓存](ssr-and-cache.zh-CN.md#cache-for-cdns)）。
+在带 `Cache` 的页面上，GET 和 HEAD 请求是匿名的：不管是谁在请求，那里的 `Session` 都是 nil，`SetSession` 和 `ClearSession` 会返回错误。Tifa 在那里承诺什么，以及通过 `tifa.SetHTTPHandler` 加的 `net/http` 中间件放在哪里，见 [给 CDN 用的缓存](ssr-and-cache.zh-CN.md#cache-for-cdns)。
 
 ## 登录库 {#sign-in-libraries}
 

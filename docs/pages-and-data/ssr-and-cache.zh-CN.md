@@ -1,13 +1,12 @@
 ---
-summary: '页面怎样渲染和保存：route.go 里的 SSR、Memo 和 Cache 开关、渲染记忆和 ETag、服务端渲染能看到哪些查询参数、Cache 让 CDN 保存什么以及哪些内容会变成匿名，以及怎样让私有数据不进入共享页面'
+summary: '页面怎样渲染和保存：route.go 里的 SSR、Memo 和 Cache 开关、每个响应的 Cache-Control、Cache 让 CDN 保存什么以及哪些内容会变成匿名，以及怎样让私有数据不进入共享页面'
 audience: app
 order: 8
-translatedFrom: a307b817df16
+translatedFrom: d7350cdee9dd
 read_when:
   - '用 `SSR`、`Memo` 或 `Cache` 给某个页面打开或关闭服务端渲染、渲染记忆或 `Cache`'
   - '用 `const Cache` 让 CDN 保存一个公开页面几分钟，了解哪些内容会变成匿名，或者遇到在这种页面里读取 Cookie 或会话的构建错误'
   - '页面显示过期或随机的值，或者想知道一个请求保留什么、重新渲染什么'
-  - '组件读取了查询参数，页面水合的结果不同，或者 `tifa build` 对此发出警告'
   - '给某个响应设置 Cache-Control，或者在 CDN 保存的页面上显示私有数据'
 ---
 
@@ -25,25 +24,30 @@ const Cache = true             // the page, the same for everyone, a CDN may kee
 `SSR`、`Memo` 和 `Cache` 作用于 `page.tsx` 的页面。在没有 `page.tsx` 的 `route.go` 里写它们，构建会失败。`Memo` 只能是 `false`：渲染记忆 memo 默认就是开的，所以永远不用写 `true`。`Cache` 可以是 `true`、`false`，或不小于一秒的 `time.Duration` 常量，见 [给 CDN 用的缓存](#cache-for-cdns)。名字要按上面的大小写写。名为 `ssr`、`cache` 或 `memo` 的常量会让构建失败，因为它会被忽略。布局没有自己的开关：想让一个布局下的页面只在浏览器里渲染，就在每个这样的页面的 `route.go` 里写 `const SSR = false`。
 
 - `SSR = false`：中间件和每个 `Load` 照常运行，但跳过 slowjs。响应是一个带数据的最小文档，由浏览器来渲染。
-- 渲染记忆 memo 对每个页面都是开的（为什么叫 memo、为什么对已登录页面也安全、它不覆盖什么，见 [渲染记忆 memo](../reference/memo.zh-CN.md)）。每个请求都会运行自己的中间件、`Load` 和布局。渲染出的 HTML 会存进一块大小为 `ssr.memo_size` 的 memo（见 [config.md](../build-and-deploy/config.zh-CN.md)），键由这些内容组成：构建版本、SSR 包、路径、`Load` 读取的查询参数（见 [服务端渲染里的查询参数](#query-parameters-in-the-server-render)）、每个 `Load` 和布局的数据，以及浏览器拿到的会话。这些都没变时，直接返回 HTML，不再渲染。响应会说明是哪种情况：`X-Tifa-Render` 为 `vm` 表示本次请求渲染了一次，`memo` 表示命中，`shared` 表示用了另一个请求发起的渲染（见 [页面请求](../build-and-deploy/build.zh-CN.md#page-requests)）。把 `ssr.memo_size` 设为 0 会关掉 memo，共享渲染仍然保留。
-- 组件不能把每次渲染都会变的值放进 HTML，比如 `Date.now()` 或 `Math.random()`。水合也要求这样，而且 memo 会把这种值冻住，之后的访客看到的都是旧值。在 `tifa dev` 下，每个页面都会再渲染一次，时钟拨快 36 小时，两次结果不同时，终端和开发浮层会告诉你，指出第一处不同的位置，并列出你代码里读取时间或随机数的地方。在修好之前，这个页面不会被 memo 记住。如果页面确实要显示这样的值，比如服务器的时间，就在它的 `route.go` 里写 `const Memo = false`。这个页面会对每个请求都渲染。构建好的应用不做这项检查。
-- 带渲染时钟（`tifa.WithRenderClock`）的请求会跳过 memo：既不读也不存页面，因为它的 HTML 取决于键里没有的时间。
-- 多个请求同时没命中 memo，而且构建版本、URL 和数据都一样时（比如部署后一下子涌进来一批访客），它们共用一次渲染。每个请求仍然运行自己的中间件和 `Load`，保留它们设置的头（如 `Set-Cookie` 和 `Vary`），并拿到自己接受的编码。`ssr.memo_size` 为 0、页面太大放不进 memo、以及 `tifa dev` 下，这一点同样成立。数据不同或会话不同的请求各自渲染，`Memo = false` 的页面对每个请求都渲染。
-- 共享的那次渲染失败时，所有等它的请求都会得到同一个错误，并进入 `OnError`，panic 也一样。什么都不会保存，所以下一个请求会重新渲染。例外是组件抛了错，或渲染用光了 `ssr.vm_memory`：构建好的应用会把这次失败记住 5 秒（见 [页面上的错误](pages.zh-CN.md#errors-on-a-page)）。客户端走掉的请求会立刻停止等待，连接被切断，不发送任何响应：`OnRequest` 里的 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不会调用 `OnError`，也不记日志。渲染继续为其他请求进行。自己的截止时间在等待中到期的请求，和其他错误一样失败。没有任何请求在等之后，还在等 VM 的渲染会被丢弃，已经在运行的会跑完并存入 memo。如果这时它失败了，没有请求会把错误报给 `OnError`，所以会写日志。
-- 每个页面响应都带一个 ETag，它是对 memo 键里同样那些内容的哈希。第二次请求带 `If-None-Match`，只要这些内容都没变，就得到 304，不渲染，也不先去问 memo。ETag 和 memo 是两回事：ETag 为已经有这个页面的浏览器省掉传输，memo 为其他所有人省掉渲染。`Memo = false` 的页面和带渲染时钟的请求没有 ETag，因为它们的 HTML 不是这些内容的函数，总是要渲染。404 页面和 `Load` 失败的页面每次请求都重新渲染，从不保存，所以编造出来的 URL 不会把 memo 填满。同一个 URL 同时到达的请求仍然共用一次渲染。它们没有 ETag：304 只对应 200。
+- 渲染记忆 memo 对每个页面都是开的。每个请求都会运行自己的中间件、`Load` 和布局，只有渲染所依据的内容都没变时，才会复用 HTML（键、它不覆盖什么、等同一次渲染的请求和 ETag，见 [渲染记忆 memo](../reference/memo.zh-CN.md)）。`X-Tifa-Render` 说明一个响应是怎么来的，见 [看它怎么工作](../reference/memo.zh-CN.md#seeing-it-work)。`ssr.memo_size` 是 memo 的大小，设为 0 会关掉 memo，共享渲染仍然保留（见 [config.md](../build-and-deploy/config.zh-CN.md)）。
+- `const Memo = false` 为一个页面关掉 memo，这个页面对每个请求都渲染，也没有 ETag。页面确实要显示每次渲染都会变的值时用它，比如服务器的时间。除此之外，组件不能把这样的值放进 HTML：水合也要求这样，而且 memo 会把它冻住，见 [限制](../reference/memo.zh-CN.md#limits)。
 - 页面不带数据加载的时间，所以同样的数据总是得到同样的 HTML。取而代之的是，应用的页面响应（一次渲染、一个 304、应用的一个 404 页面）带 `Server-Timing: tifa-age;dur=<ms>`，表示它的数据最多有多旧，从它第一个 `Load` 开始算起。只有任何缓存在不再问服务器就不能复用的响应才带它：它的 `Cache-Control` 含 `no-cache` 或 `no-store`，默认的 `private, no-cache` 就是这样。带 `Cache` 的页面，或你把 `Cache-Control` 设成允许缓存保存的页面（如 `public, max-age=60`），不带它，因为缓存之后会发出同一个年龄。浏览器路由把浏览器发出请求的时间减去这个年龄，当作数据加载的时间，`staleTime` 和 `gcTime` 都从它开始算。它在页面第一次加载或预加载之前，才把这个时间设到页面的匹配项上，所以在那之前它们的 `updatedAt` 是 0，和服务器渲染时一样，显示它的组件水合时就不会不一致。如果响应没有年龄，或浏览器读不到（纯 HTTP 下的 Firefox，来自前进后退历史的页面），数据就算旧的，回到该页面时会重新加载。导航数据不带它：路由会自己记下它取到数据的时间。
-- 应用的每个响应（页面、304、404 页面、导航数据、方法处理函数、重定向）都带 `Cache-Control: private, no-cache`，除非你自己设了 `Cache-Control`。带 `Cache` 的页面是例外，见 [给 CDN 用的缓存](#cache-for-cdns)。CDN 或代理不会存它，因为页面可能只给一个访客看。浏览器可以保存它，并带着 ETag 再来问，所以没变的页面以 304 结束。要改它，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")` 设置这个头。你的值原样发出，只有导航数据（带 `_tifa` 的请求）例外，它永远不是公开的：不是 `no-store`，也不是 `private` 加 `no-cache` 的值，会被换成 `private, no-cache`。JSON 错误（包括 405 和服务器关闭期间的 503）、Go 给出的纯错误页、服务器带着错误重新渲染的页面，以及忙碌的响应，都是 `no-store`，除非你在错误发生之前设了 `Cache-Control`。应用渲染的 404 页面保持默认值。`/assets/` 下的文件保持它们的长缓存，`public/` 里的文件保持 `no-cache`（见 [页面请求](../build-and-deploy/build.zh-CN.md#page-requests)）。渲染 memo 只在进程内保存渲染结果，不改变这个头。
+
+### 响应的 Cache-Control {#cache-control-of-an-answer}
+
+应用的每个响应（页面、304、404 页面、导航数据、方法处理函数、重定向）都带 `Cache-Control: private, no-cache`，除非你自己设了 `Cache-Control`。带 `Cache` 的页面是例外，见 [给 CDN 用的缓存](#cache-for-cdns)。CDN 或代理不会存默认值的响应，因为页面可能只给一个访客看。浏览器可以保存它，并带着 ETag 再来问，所以没变的页面以 304 结束。要改它，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")` 设置这个头。渲染 memo 只在进程内保存渲染结果，不改变这个头。
+
+| 响应 | 发出的 `Cache-Control` | 应用能不能改 |
+|---|---|---|
+| 页面、304、应用的 404 页面、重定向、方法处理函数 | 应用没设置时是 `private, no-cache` | 能，值原样发出。如果它带着会话，见下一行 |
+| 带着会话的响应（使用 Tifa 会话的应用） | 应用没设置时是 `private, no-cache` | 只能改成 `no-store`，或 `private` 加 `no-cache`。其他任何值都是错误，响应会以 `no-store` 发出（见 [会话](sessions.zh-CN.md#in-the-browser)） |
+| 设置或清除会话 cookie 的响应 | `no-store`，没有 `ETag` 或 `Last-Modified` | 不能 |
+| 导航数据（带 `_tifa` 的请求，不论状态，409 和重定向也算） | `private, no-cache` | 只能改成 `no-store`，或 `private` 加 `no-cache`。其他任何值会被换成 `private, no-cache`，响应带着会话时则是错误 |
+| JSON 错误（包括 405 和服务器关闭期间的 503）、Go 给出的纯错误页、服务器带着错误重新渲染的页面、忙碌的响应 | `no-store` | 能：你在错误发生之前设的 `Cache-Control` 会保留 |
+| `/__tifa/session` | `private, no-store`，没有 `ETag` 或 `Last-Modified` | 不能 |
+| `/assets/` 下的文件、`public/` 里的文件 | `public, max-age=31536000, immutable`，以及带 ETag 的 `no-cache`（见 [页面请求](../build-and-deploy/build.zh-CN.md#page-requests)） | 不能 |
+| 带 `Cache` 的页面 | `public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` | `Load` 或布局可以把它改成 `private`、`no-store` 或 `no-cache`，这样页面就不再被共享。见 [给 CDN 用的缓存](#cache-for-cdns) |
+
+页面和它的导航数据 URL 不同，所以只按 URL 做键的缓存会把它们分开，不需要为此加 `Vary`。响应保留应用设置的 `Vary`，比如 `OnRequest` 里设置的 `Vary: Cookie`。
 
 ### 服务端渲染里的查询参数 {#query-parameters-in-the-server-render}
 
-页面能看到的查询参数，是它的 `Load` 和上面的布局用 `c.Query` 或 `c.QueryValues` 读取的那些，由 `tifa build` 找出来。服务器渲染时只用路径和这些参数，按名字排序，同名参数的多个值保持请求里的顺序，memo 键里放的也是同样的内容。其他参数在渲染之前就被丢掉，也不进键。地址栏里每个参数都保持访客写的样子（`a%20b` 还是 `a%20b`），不管是一种语言还是几种。`OnRequest`、每个 `Load` 和方法处理函数仍然能看到完整的请求。
-
-- 跟踪参数不会给 memo 增加键，也不会触发服务端渲染。`?utm_source=mail`、`?fbclid=...` 或 `?x=random` 和不带它们的页面得到同一个键，所以 memo 能直接回答。`Load` 仍然在每个请求上运行。参数顺序不同，键也相同。
-- 要按某个参数来渲染，就在 `Load` 里读它。没有任何 `Load` 读的参数改变不了数据，所以渲染不需要它。在组件里按名字读，比如用 `route.gen` 里该路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带有 `Load` 读取的那些参数的类型，同时放行其他任何参数，所以它不会让别的参数变得安全，见 [Link 和 navigate 里的查询参数](pages.zh-CN.md#query-parameters-in-link-and-navigate)。
-- 在渲染时读取其他参数的组件，水合时结果会不同：服务器渲染时没有它，浏览器里有，React 会报水合错误，并在浏览器里把这部分重新渲染。`tifa build` 会发出警告，带上文件和行号，指出这些渲染时的读取：服务器渲染那段代码时没有的参数，按名字通过 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 读取，以及读取位置的整个 `search`、`searchStr` 或 `href`。它拿 `page.tsx` 和 `layout.tsx` 对照它们自己的参数检查，对其他模块里的每一处这样的读取都警告，因为那些模块可能在任何页面下渲染。在 `useEffect` 或 `useLayoutEffect` 里读取只在浏览器里运行，可以通过。这项检查一次只看一个模块，所以它调用的辅助函数里的读取看不到。这样的参数要在 `Load` 里读，或者只有浏览器需要时在 effect 里读。
-- memo 不保存 404 页面和 `Load` 失败的页面，所以随机参数和随机的 slug 不会让它变大。
-- 路由把一个 URL 的另一种写法（如 `/%6Eews` 或 `/news/`）重定向到它自己的写法时，重定向会把被丢掉的参数补回去。
-- `SSR = false` 的页面不在服务器上渲染，它的文档带着原样的 URL。
+服务器渲染页面时只用路径，以及它的 `Load` 和上面的布局用 `c.Query` 或 `c.QueryValues` 读取的查询参数，不用别的。跟踪参数（如 `?utm_source=mail`）不会给 memo 增加键，也不会触发服务端渲染。怎样在组件里读参数，以及 `tifa build` 对读取后水合结果不同的警告，见 [查询参数](../reference/memo.zh-CN.md#query-parameters)。
 
 ### 给 CDN 用的缓存 {#cache-for-cdns}
 
@@ -61,7 +65,7 @@ const Cache = 10 * time.Minute // its own time
 - **构建会检查。** 这种页面的 `Load`、它外面某个布局的 `Layout` 函数，或它们调用的函数读取了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就会失败并给出行号，因为这样的读取只能看到匿名请求。对 `c.Header`，错误信息会说明那里有哪几个头。需要知道谁已登录的页面不要用 `Cache`。把取决于访客的内容放到浏览器里，它在页面加载之后就能读到（见 [在浏览器里](sessions.zh-CN.md#in-the-browser)）。带 `Cache` 的页面外面的布局，只放对所有人都一样的数据。
 - **`OnRequest` 能做什么。** 它对每个请求都运行，看到的是匿名请求。用它做取决于路径的事：重定向、安全头、日志、计数、按地址限速。它看不到谁已登录，所以按登录状态重定向的 `OnRequest` 要放在不带 `Cache` 的路由上，而没看到 cookie 就设置 cookie 的，会在每次导航时都设置。它设置在 HTML 上的 cookie 会被删掉。
 - **语言。** 多语言页面每种语言一个 URL，所以 CDN 会把各语言分开保存。从 cookie 或 `Accept-Language` 选语言再重定向的入口，是不带 `Cache` 的路由上的 GET 处理函数（带 `Cache` 的页面两者都读不到），它引导到的页面把语言写在 URL 里（见 [多语言站点](../start/app.zh-CN.md#a-site-in-several-languages)）。
-- **响应头。** 页面的 HTML 带 `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。浏览器每次都来问，ETag 匹配时得到 304，所以部署后马上就能看到。共享缓存按 `s-maxage` 的秒数保存页面，程序出故障时可以用它的副本再撑一天（`stale-if-error`）。如果 `OnRequest`、`Load` 或 `Layout` 设置了含 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或设置了 `Accept-Encoding` 之外的 `Vary`，页面就不是给所有人的了，你的头会原样发出。导航数据仍然是 `private, no-cache`。CDN 里要怎么设，见 [CDN 设置](../build-and-deploy/deploy.zh-CN.md#cdn-settings)。
+- **响应头。** 页面的 HTML 带 `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。浏览器每次都来问，ETag 匹配时得到 304，所以部署后马上就能看到。共享缓存按 `s-maxage` 的秒数保存页面，程序出故障时可以用它的副本再撑一天（`stale-if-error`）。响应没有 `Age` 和 `Cache-Status`，因为 Tifa 自己不保存页面。如果 `OnRequest`、`Load` 或 `Layout` 设置了含 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或设置了 `Accept-Encoding` 之外的 `Vary`，页面就不是给所有人的了，你的头会原样发出。导航数据仍然是 `private, no-cache`（见 [响应的 Cache-Control](#cache-control-of-an-answer)）。CDN 里要怎么设，见 [CDN 设置](../build-and-deploy/deploy.zh-CN.md#cdn-settings)。
 
 要在 CDN 的副本到期之前就让变化显示出来，请在 CDN 里清除它。Tifa 没有需要让它过期的副本。
 

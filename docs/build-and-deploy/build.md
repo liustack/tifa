@@ -717,23 +717,13 @@ A GET for a page URL, after `OnRequest`:
 
 | Request | Answer |
 | --- | --- |
-| No `_tifa` | Runs every `Load` on the matched chain concurrently. The ETag is a hash of the build ID, the SSR bundle, the path with the query parameters the `Load`s read (the URL the VM renders, see [Query parameters in the server render](../pages-and-data/ssr-and-cache.md#query-parameters-in-the-server-render)), the session of the visitor and the results, and a matching `If-None-Match` gets 304. The render memo is checked first, for every page except one with `Memo = false` and a request that carries a render clock (an LRU sized in bytes, capacity `ssr.memo_size`, 0 turns it off), and the VM runs only on a miss, once for all requests that miss the same key at the same time. The key is the same hash as the ETag, which a page with `Memo = false` and a request with a render clock do not get |
+| No `_tifa` | Runs every `Load` on the matched chain concurrently. Then the render memo and the ETag decide whether the VM runs: a matching `If-None-Match` gets 304, a memo hit sends the kept page, and a miss renders once for all requests that miss the same key at the same time (see [The render memo](../reference/memo.md), and [Query parameters](../reference/memo.md#query-parameters) for the URL the VM renders) |
 | As above, with `SSR = false` on the matched chain | Skips the VM and returns a minimal document: asset tags and the injected data (the results of the `Load`s, each with its JSON text in `json`, and the session of the visitor in `session`), in `<script type="application/json" id="tifa-data">`. The browser renders it without requesting data again |
 | Has `_tifa=<build ID>.<digits>[.p]` | Runs only the `Load` or `Layout` of the routes with a `1` (`tifa.Use` is deduplicated within the request) and answers 200 with `{"routes": {route ID: result}, "session": ...}`, each route with its own status. Answers 409 when the build ID is not the current build, and 400 when the value is not of this form or the digits are not as many as the `Load`s on the matched chain. Errors and redirects are described below |
 
-A page with `Cache` in its `route.go` (see [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns)) is answered like any page, with two differences. GET, HEAD and the requests with `_tifa` are anonymous: `Cookie` and `Authorization` are dropped before `OnRequest`, and the HTML loses its `Set-Cookie`. And the HTML says what a shared cache in front of the program may keep:
+A page with `Cache` in its `route.go` is answered like any page, except that GET, HEAD and the requests with `_tifa` are anonymous and the HTML says what a shared cache in front of the program may keep. The `Load`s still run on every request, and `X-Tifa-Render` and the ETag are those of the render memo. See [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns) for the rules and [Cache-Control of an answer](../pages-and-data/ssr-and-cache.md#cache-control-of-an-answer) for the header of each kind of answer. The framework adds the default `Cache-Control` in one place, when the final header goes out.
 
-| Answer | `Cache-Control` |
-| --- | --- |
-| The HTML, a 304 and HEAD | `public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`. The seconds are `Cache`, or `cache.s_maxage` for `Cache = true`. The answer has no `Age` and no `Cache-Status`: Tifa keeps nothing of the page |
-| The HTML when `OnRequest`, a `Load` or a `Layout` set `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding` | What the app set, as for a page without `Cache` |
-| Data request (`_tifa`) | Always `private, no-cache` |
-
-The `Load`s run on every request. `X-Tifa-Render` and the ETag are those of the render memo.
-
-Every answer that goes through routing, full pages, 304s, data requests, method handlers and redirects included, carries `Cache-Control: private, no-cache` unless the app set `Cache-Control` itself in `OnRequest`, a `Load`, a `Layout` or a handler. A navigation data answer (a request with `_tifa`, whatever its status, 409 and redirects included) is the exception: it is never public, so a value the app set that is not `no-store` or `private` with `no-cache` is replaced by `private, no-cache`. The framework adds it in one place, when the final header goes out. JSON errors, the plain error page, the page with an error and the busy answer say `no-store` unless the app set `Cache-Control` before the error. The 404 page of the app keeps the default.
-
-A page and its navigation data have different URLs, so a cache that keys by URL alone keeps them apart and no `Vary` is needed for it. The answer keeps the `Vary` the app set (such as `Vary: Cookie` in `OnRequest`). `X-Tifa-Render: vm|shared|memo|none` says whether this response was rendered by the VM, came from a render another request started at the same time, was served from the render memo, or did not go through the VM. Pages and JSON answers carry `Content-Length` when they go out uncompressed.
+Pages and JSON answers carry `Content-Length` when they go out uncompressed.
 
 On errors, a `Load` error first goes back to `OnRequest` through `next`, and the framework handles it only after `OnRequest` returns:
 

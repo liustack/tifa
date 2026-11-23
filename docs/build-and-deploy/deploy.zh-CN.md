@@ -2,7 +2,7 @@
 summary: '怎样把 Tifa 应用放到服务器上：服务器在哪里指定（.env 里的 TIFA_DEPLOY_HOST，永远不写在 tifa.yaml 里，或者 `tifa deploy setup` 记在 ~/.tifa/config.yaml 里的服务器）和以同样方式读取的其他输入（命令行参数、环境变量、.env）以及 tifa.yaml 里的部署设置（front、connect，以及带 branch 和 needs 的 auto 块）、带有增加、修改和删除各行计划的 tifa deploy setup、通过 ssh 向带 systemd 的 Linux 服务器执行的 tifa deploy 和 tifa deploy rollback、每次部署时清除域名的 Cloudflare CDN 缓存、在 CI 工作流之后通过 GitHub Actions 部署（密钥、主机密钥、secrets、直接连接或经由 Cloudflare 或 Tailscale、用 gh 或用细粒度令牌）、从你自己的机器也通过 Cloudflare Tunnel 走 ssh（针对你的邮箱的 Access 策略、cloudflared、~/.ssh/config 里的块、第一次浏览器登录、关闭 ssh 端口）、运行器用工作负载身份联合加入你的 Tailscale tailnet（Tailscale 身份、它的两个变量、要在 Tailscale 控制台里建什么）、第二台开发机、用 tifa deploy env 管理服务器上应用的 .env、用 tifa deploy logs、status 和 remove 读取应用的日志、查看哪个版本在运行以及把应用从服务器上拿掉、一台服务器上放多个应用、前面放 Cloudflare Tunnel 或 Caddy，以及手工部署：为 Linux 构建、带着它的设置和数据文件夹运行、干净地停下、在 systemd 下重启而不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设置什么（Host 和 Origin、压缩、缓存哪些响应）、健康检查路由、来自 tifa.Stats 的 Prometheus 指标和该看什么，以及部署时打开着的页面会怎样'
 audience: app
 order: 3
-translatedFrom: 9dfcffdcf154
+translatedFrom: 61131fa6f997
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -540,7 +540,7 @@ WantedBy=sockets.target
 - **缓存。** 页面、导航数据和处理函数的响应默认是 `private, no-cache`，所以 CDN 不会保存它们。请保持这样。让 CDN 缓存这些：
   - `/assets/`：内容带哈希，`public, max-age=31536000, immutable`。
   - `public/` 里的文件：`no-cache` 加 ETag，所以 CDN 来问，得到 304。它们的名字是固定的，所以只有需要固定名字的文件才属于那里。其余的请导入，得到 `/assets/`（见[静态文件](../start/app.zh-CN.md#static-files)）。
-  - 带 `Cache` 的页面：它们是匿名的，带 `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。遵循源站 `Cache-Control` 的 CDN，会把页面保存 `Cache` 的时间，不会更久。见[给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)。
+  - 带 `Cache` 的页面：它们是匿名的，带 `public` 的 `Cache-Control` 和一个 `s-maxage`（确切的值见 [响应的 Cache-Control](../pages-and-data/ssr-and-cache.zh-CN.md#cache-control-of-an-answer)）。遵循源站 `Cache-Control` 的 CDN，会把页面保存 `Cache` 的时间，不会更久。见[给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)。
 - **不要让 CDN 忽略源站的缓存头。** 用遵循它们的缓存设置，绝不要用强制一个时间或缓存一切的设置。每个 CDN 的设置在 [CDN 设置](#cdn-settings)里。
 - **带 `Cache` 的页面的导航数据不共享。** 它是页面 URL 加 `?_tifa=...`，带着浏览器的会话，并且始终是 `private, no-cache`。缓存键必须包含查询字符串（至少 `_tifa`），否则 CDN 必须对带 `_tifa` 的请求跳过缓存。只对页面的 HTML 按路径丢弃 cookie，绝不对带 `_tifa` 的同一路径这样做。
 - **不要缓存 `/__tifa/session`。** 它按访客回答，是 `private, no-store`。

@@ -145,7 +145,7 @@ A store on a database client that takes a `ctx` returns these errors by itself. 
 
 A `Load` runs for a GET, which must not change anything, so signing in belongs in a method handler or in `OnRequest`.
 
-On a page with `Cache` the GET and HEAD requests are anonymous: `Session` is nil there whoever asks, and `SetSession` and `ClearSession` return an error. The promise is about the request headers Tifa hands to your code. A value that a `net/http` middleware from `tifa.SetHTTPHandler` put into the context still arrives, so recognize visitors in `OnRequest` and not in that middleware (see [Cache for CDNs](ssr-and-cache.md#cache-for-cdns)).
+On a page with `Cache` the GET and HEAD requests are anonymous: `Session` is nil there whoever asks, and `SetSession` and `ClearSession` return an error. What Tifa promises there, and where a `net/http` middleware from `tifa.SetHTTPHandler` fits in, is in [Cache for CDNs](ssr-and-cache.md#cache-for-cdns).
 
 ## Sign-in libraries
 
