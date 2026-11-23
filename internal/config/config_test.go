@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -851,7 +850,7 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 }
 
 // deploy.front, deploy.connect and the block deploy.auto are read by tifa deploy from the project
-// file only. deploy.host is retired: the server is not written in a file that is committed.
+// file only.
 func TestDeployIsAProjectFileSetting(t *testing.T) {
 	off := Deploy{Front: "none", Connect: "direct", Auto: Auto{Needs: "ci.yml"}}
 	if d := Default().Deploy; d != off {
@@ -936,54 +935,6 @@ func TestDeployAuto(t *testing.T) {
 	}
 }
 
-// deploy.ssh and deploy.ci are gone. They stop the project file with the new form, at their line:
-// the answer is exact, so nothing is guessed from the old value.
-func TestDeployOldNamesFail(t *testing.T) {
-	for name, tc := range map[string]struct{ yaml, want string }{
-		"ssh secret-looking": {"deploy:\n  ssh: tskey-abc\n", "write connect as direct"},
-		"ssh cloudflare":     {"deploy:\n  front: cloudflare\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
-		"ssh quoted":         {"deploy:\n  ssh: \"Tailscale\"\n", "deploy.ssh is now deploy.connect: write connect: tailscale"},
-		"ssh other":          {"deploy:\n  ssh: proxy\n", "deploy.ssh is now deploy.connect: write connect as direct, cloudflare or tailscale"},
-		"ci github":          {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
-		"ci none":            {"deploy:\n  ci: none\n", "deploy.ci is now the block deploy.auto: delete the line ci: none"},
-		"ci other":           {"deploy:\n  ci: gitlab\n", "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"},
-	} {
-		_, _, err := Project([]byte(tc.yaml))
-		if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "tskey") {
-			t.Errorf("%s: got %v, want %q", name, err, tc.want)
-		}
-	}
-}
-
-// deploy.host is retired for the project file only. TIFA_DEPLOY_HOST in the environment or in .env is
-// where tifa deploy now reads the server from, so the program must not call it a retired setting.
-func TestDeployHostRetiredInProjectFileOnly(t *testing.T) {
-	ws := ProjectWarnings([]byte("site:\n  url: https://a.com\ndeploy:\n  host: vps\n"))
-	if len(ws) != 1 || ws[0].Key != "deploy.host" || ws[0].Line != 4 {
-		t.Fatalf("project file: %+v", ws)
-	}
-	for _, want := range []string{"TIFA_DEPLOY_HOST=", ".env", "--host"} {
-		if !strings.Contains(ws[0].String(), want) {
-			t.Errorf("%q lacks %q", ws[0].String(), want)
-		}
-	}
-	if _, _, err := Project([]byte("deploy:\n  host: vps\n")); err != nil {
-		t.Errorf("a retired key is a warning, not an error: %v", err)
-	}
-	for name, src := range map[string]*Sources{
-		"env":  Read(nil, []string{"TIFA_DEPLOY_HOST=vps"}, ""),
-		".env": Read(nil, nil, dotenvDir(t, "TIFA_DEPLOY_HOST=vps\n")),
-		"flag": Read([]string{"--deploy-host", "vps"}, nil, ""),
-	} {
-		if w := src.RetiredWarnings(); len(w) != 0 {
-			t.Errorf("%s: %q", name, w)
-		}
-	}
-	if slices.Contains(Keys(), "deploy.host") {
-		t.Error("deploy.host is still a setting")
-	}
-}
-
 // cache.s_maxage is the time of a page that writes const Cache = true: 1m by default, and
 // at least a second.
 func TestCacheControlSMaxage(t *testing.T) {
@@ -1016,74 +967,8 @@ func TestCacheControlSMaxage(t *testing.T) {
 	}
 }
 
-// The settings that were retired or renamed are warnings in every place they could be given, and
-// say what to do. A program with one still starts, and the old value is not used.
-func TestRetiredSettingsWarnAndDoNotFail(t *testing.T) {
-	size := []string{"cache.size", "no longer used", "ssr.memo_size", "--ssr-memo-size", "SSR_MEMO_SIZE"}
-	whole := []string{"cache.whole_page", "no longer used"}
-	ignore := []string{"cache.ignore_query", "no longer used"}
-	smax := []string{"cache_control.s_maxage", "no longer used", "cache.s_maxage", "--cache-s-maxage", "CACHE_S_MAXAGE"}
-	dir := dotenvDir(t, "CACHE_SIZE=0\n")
-	for name, tc := range map[string]struct {
-		args, environ []string
-		project       string
-		dotenv        bool
-		want          []string
-	}{
-		"size in the project file":  {project: "cache:\n  size: 1MiB\n", want: size},
-		"size env":                  {environ: []string{"CACHE_SIZE=0"}, want: size},
-		"size in the file of -c":    {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  size: 1MiB\n")}, want: size},
-		"size in .env":              {dotenv: true, want: size},
-		"size flag":                 {args: []string{"--cache-size", "0"}, want: size},
-		"size flag with equals":     {args: []string{"--cache-size=0"}, want: size},
-		"whole_page project file":   {project: "cache:\n  whole_page: false\n", want: whole},
-		"whole_page env":            {environ: []string{"CACHE_WHOLE_PAGE=false"}, want: whole},
-		"whole_page flag no value":  {args: []string{"--cache-whole-page"}, want: whole},
-		"ignore_query project file": {project: "cache:\n  ignore_query: ref\n", want: ignore},
-		"ignore_query env":          {environ: []string{"CACHE_IGNORE_QUERY=ref"}, want: ignore},
-		"s_maxage project file":     {project: "cache_control:\n  s_maxage: 10m\n", want: smax},
-		"s_maxage env":              {environ: []string{"CACHE_CONTROL_S_MAXAGE=10m"}, want: smax},
-		"deploy domain":             {project: "deploy:\n  domain: a.com\n", want: []string{"deploy.domain", "site.url", "deploy.front"}},
-		"deploy cdn":                {project: "deploy:\n  cdn: cloudflare\n", want: []string{"deploy.cdn", "deploy.front"}},
-		"deploy github":             {project: "deploy:\n  github: true\n", want: []string{"deploy.github", "deploy.auto"}},
-		"s_maxage flag":             {args: []string{"--cache-control-s-maxage", "10m"}, want: smax},
-	} {
-		var warnings []string
-		switch {
-		case tc.project != "":
-			_, _, err := Project([]byte(tc.project))
-			if err != nil {
-				t.Errorf("%s: %v", name, err)
-			}
-			for _, w := range ProjectWarnings([]byte(tc.project)) {
-				warnings = append(warnings, w.String())
-			}
-		default:
-			src := Read(tc.args, tc.environ, "")
-			if tc.dotenv {
-				src = Read(nil, nil, dir)
-			}
-			if _, _, err := Load(src, nil); err != nil {
-				t.Errorf("%s: %v", name, err)
-			}
-			warnings = src.RetiredWarnings()
-		}
-		if len(warnings) != 1 {
-			t.Errorf("%s: %d warnings %q", name, len(warnings), warnings)
-			continue
-		}
-		for _, w := range tc.want {
-			if !strings.Contains(warnings[0], w) {
-				t.Errorf("%s: %q lacks %q", name, warnings[0], w)
-			}
-		}
-	}
-	// A renamed key does not carry its value over.
-	c, err := load(t, nil, []string{"CACHE_CONTROL_S_MAXAGE=10m"}, "", "")
-	if err != nil || c.Cache.SMaxage != time.Minute {
-		t.Errorf("the old key applied: %v, %v", c.Cache.SMaxage, err)
-	}
-	// The other keys of an app stay its own.
+// The keys of an app stay its own: tifa reads the ones it knows and leaves the rest.
+func TestKeysOfAnAppAreLeftAlone(t *testing.T) {
 	if _, err := load(t, []string{"--cache-ttl=5"}, []string{"CACHE_TTL=5"}, "tifa.yaml", "cache:\n  ttl: 5\n"); err != nil {
 		t.Errorf("a key of the app: %v", err)
 	}
