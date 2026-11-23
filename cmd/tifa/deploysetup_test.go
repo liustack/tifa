@@ -134,7 +134,7 @@ script=$3
 case "$script" in
 true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
-*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
+*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
 *'disable --quiet $units'*) [ -f "$d/removefail" ] && { echo "tifa: cannot stop the units" >&2; exit 1; }; echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
@@ -1152,6 +1152,7 @@ var sshHostName = regexp.MustCompile(`^deploy-a-ssh-[a-z2-7]{12}\.example\.com$`
 // deploy.ssh cloudflare: the ssh host name goes on the tunnel with an Access application that
 // admits the token of the repository. Back to direct, the Access objects go.
 func TestSetupCloudflareSSH(t *testing.T) {
+	homeOf(t)
 	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf := cfSetup(t, "example.com")
@@ -1166,6 +1167,10 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	host := gh.secrets[secretHost]
 	if !sshHostName.MatchString(host) || gh.secrets[secretCFID] == "" || gh.secrets[secretCFSecret] == "" {
 		t.Errorf("secrets %v", gh.secrets)
+	}
+	// ~/.tifa keeps the host that works from here: the tunnel, once the check passed.
+	if known, err := readServers(); err != nil || len(known) != 1 || known[0].ID != "vps-1234" || known[0].Host != host {
+		t.Errorf("recorded %+v, %v, want the ssh host %s", known, err, host)
 	}
 	if !strings.Contains(gh.secrets[secretKnownHosts], host+" ssh-ed25519") {
 		t.Errorf("known hosts %q", gh.secrets[secretKnownHosts])
@@ -1215,6 +1220,10 @@ func TestSetupCloudflareSSH(t *testing.T) {
 	}
 	if len(cf.apps) != 0 || len(cf.tokens) != 0 || len(cf.policies) != 0 || gh.secrets[secretCFID] != "" {
 		t.Errorf("left: apps %v tokens %v policies %v secrets %v", cf.apps, cf.tokens, cf.policies, gh.secrets)
+	}
+	// Back to the address that works without the tunnel.
+	if known, _ := readServers(); len(known) != 1 || known[0].Host != "vps" {
+		t.Errorf("recorded %+v, want the direct host vps", known)
 	}
 	ingress, _ := json.Marshal(cf.configs["tunnel-1"]["ingress"])
 	if strings.Contains(string(ingress), "-ssh-") {
@@ -1452,6 +1461,10 @@ func TestSetupAllListsOKLines(t *testing.T) {
 // Everything is right and nobody has to do anything: one line, no plan, no question.
 func TestSetupAllInOrderOneLine(t *testing.T) {
 	root := setupApp(t, "deploy:\n", nil)
+	homeOf(t)
+	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
+		t.Fatal(err)
+	}
 	newSetupServer(t, "", factsOf("shop", 9531, ""))
 	out, err := runSetup(t, root, true, "")
 	if err != nil {
@@ -1466,6 +1479,10 @@ func TestSetupAllInOrderOneLine(t *testing.T) {
 // non-zero, after everything else was done.
 func TestSetupCannotListedLast(t *testing.T) {
 	root := setupApp(t, "deploy:\n  ci: github\n", nil)
+	homeOf(t)
+	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
+		t.Fatal(err)
+	}
 	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false

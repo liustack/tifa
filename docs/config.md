@@ -83,7 +83,7 @@ GREETING="Hello # not a comment\n"
 - Lines starting with `#` and blank lines are skipped. An unquoted value ends at a `#` after a space or a tab and loses the spaces around it, so `TLS_CERT= # none` is empty and `COLOR=#fff` is `#fff`.
 - A value in double quotes may hold `\n`, `\t`, `\"` and `\\`. A value in single quotes is taken as it is. A quoted value stays on one line.
 - A line it cannot read stops the program with its line number.
-- `tifa deploy` reads its inputs from this file too, `TIFA_DEPLOY_HOST` to know the server and the other names that start with `TIFA_DEPLOY_`. The program ignores them (see [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy)).
+- `tifa deploy` reads its inputs from this file too, `TIFA_DEPLOY_HOST` to know the server and the other names that start with `TIFA_DEPLOY_`. The program ignores them. Without `TIFA_DEPLOY_HOST`, `tifa deploy` uses the server it remembered in `~/.tifa/config.yaml`, and `TIFA_HOME` moves that folder (see [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy)).
 
 `tifa dev` runs the app in the app root, so the app reads the `.env` there, and a change of `.env` starts the app again. Vite does not read `.env` (`envDir: false`): a page gets the values it needs from its `Load`.
 
@@ -155,7 +155,7 @@ A setting that Tifa drops is listed here for at least the next minor version. A 
 | `cache.size` (`--cache-size`, `CACHE_SIZE`) | `ssr.memo_size` (`--ssr-memo-size`, `SSR_MEMO_SIZE`) |
 | `cache.whole_page` | None. Pages with `Cache` are no longer kept in the program |
 | `cache.ignore_query` | None. There is no key to clean |
-| `deploy.host` (in `tifa.yaml` only) | `TIFA_DEPLOY_HOST` in the `.env` of the app, or `--host` of `tifa deploy`. `tifa.yaml` is committed, so it does not hold the server. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
+| `deploy.host` (in `tifa.yaml` only) | `TIFA_DEPLOY_HOST` in the `.env` of the app, `--host` of `tifa deploy`, or the server in `~/.tifa/config.yaml`. `tifa.yaml` is committed, so it does not hold the server. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
 
 ## Options of the app
 

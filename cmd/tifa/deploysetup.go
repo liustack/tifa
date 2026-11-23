@@ -63,6 +63,8 @@ type setupPlan struct {
 	then string
 	// who is the command that makes the plan, setup when empty.
 	who string
+	// machine is the ID of the server the plan read, which ~/.tifa knows it by. Remove sets it.
+	machine string
 }
 
 func (p *setupPlan) add(op planOp, text string, do func(context.Context) (string, error)) {
@@ -283,6 +285,9 @@ type setupRun struct {
 	// cloudflaredAt is where setup installed cloudflared on this machine, which the PATH of this
 	// process may not find.
 	cloudflaredAt string
+	// tunnelHost is the ssh host name of the tunnel once the check that ssh reaches the server
+	// through it passed: the host ~/.tifa keeps then.
+	tunnelHost string
 	// hostAdvice is what setup tells the developer to set when TIFA_DEPLOY_HOST comes from a
 	// place it does not change, once the ssh host name exists.
 	hostAdvice string
@@ -453,6 +458,9 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		}
 		if _, _, terr := serverTarget(s.OS, s.Arch); terr != nil {
 			return terr
+		}
+		if merr := r.t.checkMachine(s.Machine); merr != nil {
+			return merr
 		}
 		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
@@ -1489,7 +1497,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	if err != nil {
 		return err
 	}
-	title := fmt.Sprintf("Plan for %s on %s", t.app, t.host)
+	title := fmt.Sprintf("Plan for %s on %s%s", t.app, t.host, t.dest.fromHomeNote())
 	// toolWarnings counts the steps on this machine that failed: they need the developer too.
 	toolWarnings := 0
 	for round := 0; plan.then != ""; round++ {
@@ -1515,6 +1523,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	cannot := plan.count(opCannot)
 	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !f.all {
 		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
+		run.remember(stdout, stderr)
 		return needsYou(toolWarnings)
 	}
 	plan.print(stdout, title, f.all)
@@ -1530,7 +1539,34 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 			fmt.Fprintln(stdout, run.hostAdvice)
 		}
 	}
+	run.remember(stdout, stderr)
 	return needsYou(cannot + warnings + toolWarnings)
+}
+
+// remember records the server in ~/.tifa after a setup that reached it and prepared it: the host
+// that worked, which with ssh through the tunnel is the ssh host name once the check passed, and
+// the app. It says so when that changed the file. A file it cannot write is a warning: the server
+// is set up all the same, and the next deploy only needs the host named.
+func (r *setupRun) remember(stdout, stderr io.Writer) {
+	if !r.haveServer || !r.st.Prepared() || r.st.Machine == "" {
+		return
+	}
+	host := r.t.host
+	if r.tunnelHost != "" {
+		host = r.tunnelHost
+	}
+	changed, err := rememberServer(r.st.Machine, host, knownApp{Name: r.t.app, Path: r.t.root})
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "Could not remember the server in %s: %v\n", shownServersPath(), err)
+	case changed:
+		s := knownServer{ID: r.st.Machine}
+		line := fmt.Sprintf("Remembered %s (%s) in %s", s.name(), host, shownServersPath())
+		if all, err := readServers(); err == nil && len(all) == 1 {
+			line += fmt.Sprintf(", so the next app on this machine needs no %s", deployHostEnv)
+		}
+		fmt.Fprintln(stdout, line+".")
+	}
 }
 
 // needsYou is the error of a setup that left n things to the developer, nil for none.

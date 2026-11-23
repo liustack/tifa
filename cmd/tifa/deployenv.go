@@ -269,7 +269,9 @@ environment of the process or of systemd. A value is never an argument and never
 change the app restarts through its socket and must pass the same health check as a deploy, or the
 old file comes back.`,
 	}
-	load := func() (deployTarget, error) { return loadDeployTarget(*dir, *host) }
+	load := func(cmd *cobra.Command) (deployTarget, error) {
+		return loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
+	}
 	state := func(ctx context.Context, t deployTarget, stderr io.Writer) (serverState, string, error) {
 		s, err := t.state(ctx, stderr)
 		if err != nil {
@@ -302,7 +304,7 @@ passes through the agent.`,
 			if err := checkName(args[0]); err != nil {
 				return err
 			}
-			t, err := load()
+			t, err := load(cmd)
 			if err != nil {
 				return err
 			}
@@ -325,7 +327,7 @@ passes through the agent.`,
 			if err := checkName(args[0]); err != nil {
 				return err
 			}
-			t, err := load()
+			t, err := load(cmd)
 			if err != nil {
 				return err
 			}
@@ -346,7 +348,7 @@ passes through the agent.`,
 		Short: "Print the names set in .env, never the values",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := load()
+			t, err := load(cmd)
 			if err != nil {
 				return err
 			}

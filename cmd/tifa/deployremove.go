@@ -86,6 +86,7 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 		return p, err
 	}
 	st := r.st
+	p.machine = st.Machine
 	cf := false
 	tunnelName := "tifa-" + st.Machine
 	tunnelFound := false
@@ -336,9 +337,10 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 			places = append(places, "in GitHub")
 		}
 		fmt.Fprintf(stdout, "Nothing of %s is left to remove %s.\n", t.app, strings.Join(places, ", "))
+		forgetApp(plan.machine, t.root, stderr)
 		return nil
 	}
-	plan.print(stdout, fmt.Sprintf("Plan to remove %s from %s", t.app, t.host), false)
+	plan.print(stdout, fmt.Sprintf("Plan to remove %s from %s%s", t.app, t.host, t.dest.fromHomeNote()), false)
 	warnings := 0
 	if plan.todo() > 0 {
 		if err := confirmName(in, stdout, t.app, yes); err != nil {
@@ -354,7 +356,22 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 	if n := cannot + warnings; n > 0 {
 		return fmt.Errorf("%d %s, see above", n, plural(n, "thing needs you", "things need you"))
 	}
+	// Only a clean finish forgets the app: after a warning something of it may still be on the
+	// server, and a retry without --host must find the same server.
+	forgetApp(plan.machine, t.root, stderr)
 	return nil
+}
+
+// forgetApp takes the app off the entry of the server in ~/.tifa, once the server no longer has
+// it. The entry goes with its last app. A file that cannot be written is a warning: remove did
+// what it was asked to.
+func forgetApp(machine, path string, stderr io.Writer) {
+	if machine == "" {
+		return
+	}
+	if err := forgetServerApp(machine, path); err != nil {
+		fmt.Fprintf(stderr, "Could not update %s: %v\n", shownServersPath(), err)
+	}
 }
 
 func newDeployRemoveCmd(dir, host *string) *cobra.Command {
@@ -374,7 +391,7 @@ Without a terminal, pass --yes. What it cannot remove, such as without a login o
 listed at the end, the rest is removed, and it exits with an error. Running it again is safe.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host)
+			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
