@@ -23,7 +23,7 @@ Every message starts with `tifa:`. The fields are the `slog` attributes of the l
 - `WARN` `tifa: refused a cross-site write`, with `method`, `path`, `reason`, `origin`, `sec_fetch_site` and `host`. See [Cross-site writes](../build-and-deploy/config.md#cross-site-writes).
 - `WARN` `tifa: dropping a session`, with `why`, `method` and `path`: the stored session of a request could not be used (it expired, is damaged or does not fit the type that reads it), so the visitor is signed out.
 - `WARN` once, when a sign-in comes over plain HTTP and the browser will drop the Secure cookie.
-- `WARN` lines from the render (`tifa: ssr:`): a call to `Intl` without a locale (see [Warnings in `tifa dev`](../pages-and-data/server-render.md#warnings-in-tifa-dev)), and a VM that was replaced, with the reason.
+- `WARN` and `ERROR` lines from the render (`tifa: ssr:`): `WARN` for a call to `Intl` without a locale (see [Warnings in `tifa dev`](../pages-and-data/server-render.md#warnings-in-tifa-dev)) and for a VM that was replaced, with the reason. `ERROR` when the garbage collection of a VM failed, or a VM could not be replaced.
 - `WARN` and `INFO` lines about HTTPS: the certificate that was obtained or loaded (`domain`, `valid_until`), a certificate that is not there yet, and HTTPS on a loopback address.
 - `INFO` `tifa: listening on <address>`. It comes after `OnStart` returns, so a handler set there gets it. Under `tifa dev` the app does not print it.
 - `INFO` one-time notes: sessions are kept in memory, `sitemap.xml` lists only pages without parameters, and a page of `content/` was published.

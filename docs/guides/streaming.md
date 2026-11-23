@@ -227,7 +227,7 @@ function Ask() {
 }
 ```
 
-- The generated `POST` function of a handler that writes its own answer sends no input, so a question goes through `fetch`, as an upload does.
+- The generated `POST` function of a handler that writes its own answer sends no input, so a question goes through `fetch`.
 - A `fetch` to your own site is a same-origin write, so the [cross-site check](../build-and-deploy/config.md#cross-site-writes) lets it through.
 - A stream that breaks halfway throws in `reader.read()`. The page keeps what it has and says it was cut off.
 

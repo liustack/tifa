@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的日志在 `tifa dev`、服务器和容器里分别在哪，Tifa 自己记了什么，怎样用 `log/slog` 在自己的代码里记日志，怎样设置格式和级别，以及怎样用 `tifa.SetHTTPHandler` 记录每个请求'
 audience: app
 order: 11
-translatedFrom: e117ee9e3581
+translatedFrom: 59a111752d65
 read_when:
   - '想找应用的日志，在 `tifa dev`、服务器或容器里'
   - '想知道 Tifa 自己记了什么，或者为什么一个请求没留下日志行'
@@ -24,7 +24,7 @@ Tifa 用 `log/slog` 写自己的消息，你的代码用同一个 logger。在 `
 - `WARN` `tifa: refused a cross-site write`，带 `method`、`path`、`reason`、`origin`、`sec_fetch_site` 和 `host`。见[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes)。
 - `WARN` `tifa: dropping a session`，带 `why`、`method` 和 `path`：请求里存下来的会话用不了（已过期、已损坏，或和读它的类型对不上），访客因此被退出登录。
 - `WARN`，只记一次：登录请求走的是明文 HTTP，浏览器会丢掉 Secure cookie。
-- 渲染产生的 `WARN` 行（`tifa: ssr:`）：调用 `Intl` 时没有给 locale（见[`tifa dev` 里的警告](../pages-and-data/server-render.zh-CN.md#warnings-in-tifa-dev)），以及某个 VM 被替换了，带原因。
+- 渲染产生的 `WARN` 和 `ERROR` 行（`tifa: ssr:`）：调用 `Intl` 时没有给 locale（见[`tifa dev` 里的警告](../pages-and-data/server-render.zh-CN.md#warnings-in-tifa-dev)），以及某个 VM 被替换了（带原因），是 `WARN`。某个 VM 的垃圾回收失败，或者 VM 没能替换，是 `ERROR`。
 - 关于 HTTPS 的 `WARN` 和 `INFO` 行：拿到或加载了证书（`domain`、`valid_until`），证书还没有，以及 HTTPS 监听在回环地址上。
 - `INFO` `tifa: listening on <address>`。它在 `OnStart` 返回之后才写，所以在 `OnStart` 里设置的 handler 能收到它。在 `tifa dev` 下，应用不打印这一行。
 - 一次性的 `INFO` 提示：会话放在内存里，`sitemap.xml` 只列出没有参数的页面，以及 `content/` 里的某个页面发布了。
