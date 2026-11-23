@@ -515,7 +515,7 @@ func TestStdRootsListTheStandardLibrary(t *testing.T) {
 }
 
 // tifa.yaml lists every setting commented out, so as written it loads the defaults. Turned on, it
-// loads them too, except ssr.vms, whose default depends on the machine and which shows an example.
+// loads them too, except ssr.vms, whose default depends on the machine and which shows an example, and the block deploy.auto, which is on once it is there.
 func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
 	if _, _, err := run(t, "new", dir); err != nil {
@@ -528,19 +528,29 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	if c, _, err := config.Project(data); err != nil || !reflect.DeepEqual(c, config.Default()) {
 		t.Fatalf("tifa.yaml as written: %+v, %v, want the defaults", c, err)
 	}
-	setting := regexp.MustCompile(`^# ( *)([a-z0-9_]+):`)
+	settingLine := regexp.MustCompile(`^# ( *)([a-z0-9_]+):`)
 	var lines, keys []string
-	section := ""
+	var found []struct {
+		indent int
+		name   string
+	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if m := setting.FindStringSubmatch(line); m != nil {
+		if m := settingLine.FindStringSubmatch(line); m != nil {
 			line = strings.TrimPrefix(line, "# ")
-			if m[1] == "" {
-				section = m[2]
-			} else {
-				keys = append(keys, section+"."+m[2])
-			}
+			found = append(found, struct {
+				indent int
+				name   string
+			}{len(m[1]), m[2]})
 		}
 		lines = append(lines, line)
+	}
+	// A key is a setting when no deeper key follows it, and its path is the keys above it.
+	var path []string
+	for i, f := range found {
+		path = append(path[:f.indent/2], f.name)
+		if i+1 == len(found) || found[i+1].indent <= f.indent {
+			keys = append(keys, strings.Join(path, "."))
+		}
 	}
 	if !reflect.DeepEqual(keys, config.Keys()) {
 		t.Fatalf("tifa.yaml lists %q, want %q", keys, config.Keys())
@@ -552,6 +562,8 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	// ssr.vms defaults to GOMAXPROCS, at most 4, so the file shows an example.
 	want := config.Default()
 	want.SSR.VMs = c.SSR.VMs
+	// The block deploy.auto turns deploys on by being there, with the branch the file shows.
+	want.Deploy.Auto = config.Auto{On: true, Branch: "main", Needs: "ci.yml"}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("tifa.yaml with the settings turned on: %+v, want the defaults %+v", c, want)
 	}

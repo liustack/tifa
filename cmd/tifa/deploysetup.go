@@ -261,7 +261,10 @@ func (p setupPlan) apply(ctx context.Context, w io.Writer) (warnings int, err er
 
 // setupRun holds what the steps of one setup share.
 type setupRun struct {
-	t              deployTarget
+	t deployTarget
+	// branch is the branch that deploys from GitHub Actions: deploy.auto.branch, else the default
+	// branch of the repository. Set once the repository is known.
+	branch         string
 	stdout, stderr io.Writer
 	st             serverState
 	haveServer     bool // tifa logs in to the server
@@ -276,7 +279,7 @@ type setupRun struct {
 	gh       githubAPI
 	ghNames  map[string]bool
 	ghVars   map[string]string
-	// sshName is the ssh host name of the domain for deploy.ssh cloudflare, once chosen.
+	// sshName is the ssh host name of the domain for deploy.connect cloudflare, once chosen.
 	sshName string
 	// removing says this is tifa deploy remove, not setup. Its steps in Cloudflare that cut the
 	// ssh through the tunnel wait in late until the steps on the server ran.
@@ -288,6 +291,10 @@ type setupRun struct {
 	// tunnelHost is the ssh host name of the tunnel once the check that ssh reaches the server
 	// through it passed: the host ~/.tifa keeps then.
 	tunnelHost string
+	// tailscalePlanned says the plan asks for the client ID of the Tailscale identity of CI, and
+	// tailscaleSet that the step set it.
+	tailscalePlanned bool
+	tailscaleSet     bool
 	// hostAdvice is what setup tells the developer to set when TIFA_DEPLOY_HOST comes from a
 	// place it does not change, once the ssh host name exists.
 	hostAdvice string
@@ -403,13 +410,13 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 	// With CI, the GitHub part plans the ssh host name too: it needs the repository for the
 	// token. Without CI the ssh host name is for the machines of the people alone.
 	switch {
-	case t.sshMode == connCloudflare && !t.github:
+	case t.connectMode == connCloudflare && !t.github:
 		if !r.useCF(ctx) {
 			p.cannot(sshAccessWhat, cfNeed())
 		} else if err := r.accessSteps(ctx, &p); err != nil {
 			return p, r, err
 		}
-	case t.sshMode != connCloudflare && t.domain != "":
+	case t.connectMode != connCloudflare && t.domain != "":
 		if !r.accessRemovalPlanned && r.useCF(ctx) {
 			if err := r.removeAccess(ctx, &p); err != nil {
 				return p, r, err
@@ -421,7 +428,7 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 			if hosts, err := sshBlocksFor(path, t.app, t.domain); err != nil {
 				p.cannot("this machine: the block of tifa "+t.app+" in "+path, err.Error())
 			} else if len(hosts) > 0 {
-				p.add(opRemove, "this machine: the block of tifa "+t.app+" in "+path+", which tifa wrote, since deploy.ssh is not cloudflare any more", func(context.Context) (string, error) {
+				p.add(opRemove, "this machine: the block of tifa "+t.app+" in "+path+", which tifa wrote, since deploy.connect is not cloudflare any more", func(context.Context) (string, error) {
 					_, err := removeSSHBlocks(path, t.app, t.domain)
 					return "", err
 				})
@@ -748,12 +755,22 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.cannot("github: deploys from GitHub Actions", repoErr.Error())
 		return nil
 	}
+	// The branch that deploys, and the workflow it waits for, which must exist and run on a push to it.
+	r.branch = t.auto.Branch
+	if r.branch == "" {
+		r.branch = repo.Branch
+	}
+	ciName, err := resolveNeeds(t.root, t.auto.Needs, r.branch)
+	if err != nil {
+		p.cannot("github: deploys from GitHub Actions on "+r.branch+" after "+t.auto.Needs+" passed", err.Error())
+		return nil
+	}
 	if r.haveServer && len(r.st.HostKeys) == 0 {
 		p.cannot("github: deploys from GitHub Actions", "the server has no /etc/ssh/ssh_host_*_key.pub file, so tifa cannot tell CI which server to trust")
 		return nil
 	}
 	var resolved sshResolved
-	if t.sshMode != connCloudflare {
+	if t.connectMode != connCloudflare {
 		if resolved, err = resolveSSH(ctx, t.host); err != nil {
 			p.cannot("github: deploys from GitHub Actions", err.Error())
 			return nil
@@ -761,12 +778,12 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	}
 	// connect is the text of the secret TIFA_DEPLOY_HOST: with a direct login the whole target, port
 	// included, so the workflow needs no Port line and shows no address. port goes with the host
-	// name into the host keys.
+	// name into the host keys. With tailscale the host is the one the runner reaches on the tailnet.
 	connect, hostName, port := "", "", 22
-	if t.sshMode != connCloudflare {
+	if t.connectMode != connCloudflare {
 		connect, hostName, port = deployHostURL(resolved.Host, resolved.Port), resolved.Host, resolved.Port
 	}
-	if t.sshMode == connCloudflare {
+	if t.connectMode == connCloudflare {
 		if !r.useCF(ctx) {
 			p.cannot(sshAccessWhat, cfNeed())
 		} else if err := r.accessSteps(ctx, p); err != nil {
@@ -811,7 +828,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			return []secret{{secretKnownHosts, hosts}, {secretHost, connect}}, nil
 		}
 		fingerprint := func() string {
-			return sha(strings.Join(append([]string{t.sshMode, connect, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
+			return sha(strings.Join(append([]string{t.connectMode, connect, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
 		}
 		names := []string{secretHost, secretKnownHosts}
 		current := r.ghVars[varMarker] == fingerprint() && r.haveServer
@@ -819,7 +836,7 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			current = current && r.ghNames[n]
 		}
 		what := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
-		text := fmt.Sprintf("github: where CI logs in (%s) and the host keys it trusts, the secrets %s", t.sshMode, what)
+		text := fmt.Sprintf("github: where CI logs in (%s) and the host keys it trusts, the secrets %s", t.connectMode, what)
 		if current {
 			p.ok(text)
 		} else {
@@ -841,8 +858,8 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			})
 		}
 	}
-	if t.sshMode == connTailscale {
-		r.tailscaleSteps(p)
+	if t.connectMode == connTailscale {
+		r.tailscaleIdentitySteps(p)
 	}
 
 	// The workflow. It hands Tifa the purge token and the zone ID of an older setup while the
@@ -852,31 +869,41 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	keep := func(pasted bool) bool {
 		return t.domain != "" && r.ghNames[secretPurge] && !r.purgeVerified && !pasted
 	}
-	spec, err := workflowSpec(t, repo, t.sshMode, keep(r.purgePlanned))
+	spec, err := workflowSpec(t, r.branch, ciName, t.connectMode, keep(r.purgePlanned))
 	if err != nil {
 		return err
 	}
+	// The identity of Tailscale replaces the OAuth secrets of an older setup. The workflow keeps
+	// the secrets until the identity is set, as it keeps the purge secrets.
+	spec.TailscaleOAuth = r.legacyTailscale(r.tailscalePlanned)
 	text := githubWorkflow(spec)
 	write := r.writeWorkflow(workflow, func() string {
 		spec.Purge = keep(r.purgeStored)
+		spec.TailscaleOAuth = r.legacyTailscale(r.tailscaleSet)
 		return githubWorkflow(spec)
 	})
 	same := strings.ReplaceAll(have, "\r\n", "\n") == text // git on Windows may check it out with CRLF
+	commit := ", which you commit and push"
+	if ciName != "" && r.branch != repo.Branch {
+		// GitHub starts a workflow_run workflow only from the file on the default branch.
+		commit = ", which you commit and push to " + repo.Branch + ", the default branch: GitHub runs a workflow that waits for another only from the file there, whatever branch deploys"
+	}
 	switch {
 	case have == "":
-		p.add(opAdd, "github: "+githubWorkflowPath+", which you commit and push", write)
+		p.add(opAdd, "github: "+githubWorkflowPath+commit, write)
 	case !marked:
 		p.ok("github: " + githubWorkflowPath + " has no Tifa line at the top, so it is yours and stays")
-	case same && r.purgePlanned && keep(false) != keep(true):
+	case same && (r.purgePlanned && keep(false) != keep(true) || r.tailscalePlanned && r.legacyTailscale(false) != r.legacyTailscale(true)):
 		// Right if the paste works. The step puts the secrets back in when it does not.
 		p.steps = append(p.steps, planStep{op: opOK, text: "github: " + githubWorkflowPath, do: write})
 	case same:
 		p.ok("github: " + githubWorkflowPath)
 	default:
-		p.add(opChange, "github: "+githubWorkflowPath+", which you commit and push", write)
+		p.add(opChange, "github: "+githubWorkflowPath+commit, write)
 	}
 	p.steps = append(p.steps, r.afterConnection...)
 	r.removeOldNames(p)
+	r.oldTailscaleSteps(ctx, p)
 	switch {
 	case t.domain == "":
 		if err := r.removePurge(ctx, p); err != nil {
@@ -1373,10 +1400,10 @@ func (r *setupRun) removeZoneSecret(p *setupPlan) {
 	})
 }
 
-// removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.ssh is
+// removeAccessIfUnwanted takes away the Cloudflare Access of the repository when deploy.connect is
 // not cloudflare any more.
 func (r *setupRun) removeAccessIfUnwanted(ctx context.Context, p *setupPlan) error {
-	if r.t.sshMode == connCloudflare || !r.marked() {
+	if r.t.connectMode == connCloudflare || !r.marked() {
 		return nil
 	}
 	return r.removeAccess(ctx, p)
@@ -1387,10 +1414,10 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 	repo := r.repo.Name
 	// With ssh still cloudflare, only the token of the repository goes: the people who deploy from
 	// their machines keep the application. Remove takes it all.
-	keepApp := r.t.sshMode == connCloudflare && !r.removing
-	if !r.removing && r.t.sshMode != connCloudflare && looksLikeSSHHost(r.t.dest.name, r.t.domain) {
+	keepApp := r.t.connectMode == connCloudflare && !r.removing
+	if !r.removing && r.t.connectMode != connCloudflare && looksLikeSSHHost(r.t.dest.name, r.t.domain) {
 		// The developer reaches the server by the ssh host name that this would take away.
-		p.cannot("cloudflare: the ssh host name "+r.t.dest.name+", its route, DNS record and Access application, which tifa made and deploy.ssh no longer asks for",
+		p.cannot("cloudflare: the ssh host name "+r.t.dest.name+", its route, DNS record and Access application, which tifa made and deploy.connect no longer asks for",
 			"TIFA_DEPLOY_HOST is that host name, and removing it would cut the way setup reaches the server. Set TIFA_DEPLOY_HOST to the address of the server (its ssh port must be open to you), and run setup again: it then removes them, and the block of your ssh config")
 	} else if r.useCF(ctx) {
 		found, err := removeSSHAccess(ctx, repo, r.t.domain, r.st.TunnelID, keepApp, false, nil)
@@ -1435,7 +1462,7 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 	return nil
 }
 
-// githubRemovals plans what to take away when deploy.ci is none.
+// githubRemovals plans what to take away when the block deploy.auto is not there.
 func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow string, marked bool, repoErr error) error {
 	if marked {
 		p.add(opRemove, "github: "+githubWorkflowPath+", which tifa wrote", func(context.Context) (string, error) {
@@ -1473,9 +1500,25 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 			names = append(names, n)
 		}
 	}
-	p.add(opRemove, "github: the secrets "+strings.Join(names, ", ")+" and the variable "+varMarker+", which tifa set", func(ctx context.Context) (string, error) {
+	// The variables of the Tailscale identity go before the marker, which says they are tifa's.
+	var vars []string
+	for _, n := range []string{varTSClient, varTSAudience} {
+		if r.ghVars[n] != "" {
+			vars = append(vars, n)
+		}
+	}
+	what := "the secrets " + strings.Join(names, ", ")
+	if len(vars) > 0 {
+		what += ", the variables " + strings.Join(vars, ", ")
+	}
+	p.add(opRemove, "github: "+what+" and the variable "+varMarker+", which tifa set", func(ctx context.Context) (string, error) {
 		for _, n := range names {
 			if err := r.gh.DeleteSecret(ctx, repoName, n); err != nil {
+				return "", err
+			}
+		}
+		for _, n := range vars {
+			if err := r.gh.DeleteVariable(ctx, repoName, n); err != nil {
 				return "", err
 			}
 		}
@@ -1490,8 +1533,12 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	switch {
 	case f.purgeToken && t.domain == "":
 		return errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
-	case f.tailscaleOAuth && (t.sshMode != connTailscale || !t.github):
-		return errors.New("--tailscale-oauth is for the OAuth client CI joins your tailnet with, which needs deploy.ssh: tailscale and deploy.ci: github in tifa.yaml")
+	case f.tailscaleClientID != "" && (t.connectMode != connTailscale || !t.github):
+		return errors.New("--tailscale-client-id is for the identity CI joins your tailnet with, which needs deploy.connect: tailscale and the block deploy.auto in tifa.yaml")
+	case f.tailscaleClientID != "":
+		if err := checkTailscaleClientID(strings.TrimSpace(f.tailscaleClientID)); err != nil {
+			return fmt.Errorf("--tailscale-client-id: %w", err)
+		}
 	}
 	plan, run, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
@@ -1589,9 +1636,12 @@ func (r *setupRun) zoneText() string {
 // setupFlags are the flags of tifa deploy setup.
 type setupFlags struct {
 	yes, all bool
-	// purgeToken (--cache-purge-token) and tailscaleOAuth (--tailscale-oauth) ask for that
-	// secret even when GitHub has it, and replace it.
-	purgeToken, tailscaleOAuth bool
+	// purgeToken (--cache-purge-token) asks for that secret even when the server has it, and
+	// replaces it.
+	purgeToken bool
+	// tailscaleClientID (--tailscale-client-id) is the client ID of the Tailscale identity CI joins
+	// the tailnet with. It is not secret.
+	tailscaleClientID string
 	// skipMachine leaves out the first plan for this machine: setup already made it twice.
 	skipMachine bool
 }

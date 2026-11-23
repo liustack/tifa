@@ -588,10 +588,10 @@ func (v sharedAgeValue) Set(s string) error {
 func (v sharedAgeValue) String() string { return v.p.String() }
 func (v sharedAgeValue) kind() string   { return "duration" }
 
-// sshModeValue is deploy.ssh: how ssh reaches the server. Empty means direct.
-type sshModeValue struct{ p *string }
+// connectValue is deploy.connect: how deploys reach the server over ssh. Empty means direct.
+type connectValue struct{ p *string }
 
-func (v sshModeValue) Set(s string) error {
+func (v connectValue) Set(s string) error {
 	switch m := strings.ToLower(s); m {
 	case "":
 		*v.p = "direct"
@@ -602,8 +602,8 @@ func (v sshModeValue) Set(s string) error {
 	}
 	return nil
 }
-func (v sshModeValue) String() string { return *v.p }
-func (v sshModeValue) kind() string   { return "string" }
+func (v connectValue) String() string { return *v.p }
+func (v connectValue) kind() string   { return "string" }
 
 // frontValue is deploy.front: what visitors come through before the server. Empty means none.
 type frontValue struct{ p *string }
@@ -622,19 +622,41 @@ func (v frontValue) Set(s string) error {
 func (v frontValue) String() string { return *v.p }
 func (v frontValue) kind() string   { return "string" }
 
-// ciValue is deploy.ci: who deploys automatically. Empty means none.
-type ciValue struct{ p *string }
+// branchValue is deploy.auto.branch: one branch name. Empty means the default branch of the repository.
+type branchValue struct{ p *string }
 
-func (v ciValue) Set(s string) error {
-	switch m := strings.ToLower(s); m {
-	case "":
-		*v.p = "none"
-	case "none", "github":
-		*v.p = m
+func (v branchValue) Set(s string) error {
+	switch {
+	case s == "":
+	case strings.HasPrefix(s, "refs/"):
+		return fmt.Errorf("%q: write the branch name, such as main", s)
+	case strings.HasPrefix(s, "-") || strings.HasPrefix(s, "/") || strings.HasSuffix(s, "/") || strings.HasSuffix(s, ".") || strings.Contains(s, "..") || strings.Contains(s, "//") || strings.Contains(s, "@{") || strings.ContainsFunc(s, func(r rune) bool {
+		return r <= ' ' || r == 0x7f || strings.ContainsRune("~^:?*[\\,", r)
+	}):
+		return fmt.Errorf("%q is not one branch name: write one name, such as main or release/1", s)
+	}
+	*v.p = s
+	return nil
+}
+func (v branchValue) String() string { return *v.p }
+func (v branchValue) kind() string   { return "string" }
+
+// needsValue is deploy.auto.needs: the base name of a workflow file in .github/workflows, or none.
+// Empty means DefaultNeeds.
+type needsValue struct{ p *string }
+
+func (v needsValue) Set(s string) error {
+	switch {
+	case s == "":
+		*v.p = DefaultNeeds
+	case s == "none":
+		*v.p = s
+	case strings.ContainsAny(s, "/\\") || strings.HasPrefix(s, ".") || !(strings.HasSuffix(s, ".yml") || strings.HasSuffix(s, ".yaml")) || strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' }):
+		return fmt.Errorf("%q: write the name of a file in .github/workflows that ends in .yml or .yaml, such as ci.yml, or none", s)
 	default:
-		return fmt.Errorf("%q: use none or github", s)
+		*v.p = s
 	}
 	return nil
 }
-func (v ciValue) String() string { return *v.p }
-func (v ciValue) kind() string   { return "string" }
+func (v needsValue) String() string { return *v.p }
+func (v needsValue) kind() string   { return "string" }

@@ -4,7 +4,7 @@ package main
 // committed. They share one prefix, TIFA_DEPLOY_. Earlier versions named three of them otherwise.
 // Each one is read the same way: its flag when it has one, else the environment variable, else
 // the line in the .env at the root of the app. Tifa reads that file. The one thing setup writes
-// to it is TIFA_DEPLOY_HOST, when deploy.ssh cloudflare moves it to the ssh host name, and only
+// to it is TIFA_DEPLOY_HOST, when deploy.connect cloudflare moves it to the ssh host name, and only
 // when the value came from there. It never writes a token.
 
 import (
@@ -27,7 +27,7 @@ var oldInputNames = []struct{ old, new string }{
 // the secrets and variables it sets on GitHub, and the marker. A new one is added here.
 var deployInputNames = []string{
 	deployHostEnv, secretSSHKey, secretKnownHosts, secretCFID, secretCFSecret, secretTSID,
-	secretTSSecret, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
+	secretTSSecret, varTSClient, varTSAudience, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
 }
 
 const deployPrefix = "TIFA_DEPLOY_"

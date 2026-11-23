@@ -120,7 +120,7 @@ func removeFacts(extra string) string {
 // record and rules of its domain, ssh through Cloudflare with Access, and GitHub.
 func cloudSetup(t *testing.T) (root string, srv *setupServer, cf *cfEverything, gh *fakeGH) {
 	t.Helper()
-	root = setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", nil)
+	root = setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", nil)
 	srv = newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
 	cf = cfSetup(t, "example.com")
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
@@ -219,7 +219,7 @@ func TestDeployRemoveKeepsTheSharedTunnel(t *testing.T) {
 // Without the logins of cf and gh, what needs them is listed with the login to run, the server
 // part is still removed, and remove then fails.
 func TestDeployRemoveWithoutLogins(t *testing.T) {
-	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n", nil)
+	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n", nil)
 	srv := newSetupServer(t, "", removeFacts(""))
 	gh := newFakeGH()
 	gh.loggedIn = false
@@ -262,7 +262,7 @@ func TestDeployRemoveCFNotLoggedIn(t *testing.T) {
 // The Tailscale secrets setup set go with the others.
 func TestDeployRemoveTailscaleSecrets(t *testing.T) {
 	eachBackend(t, func(t *testing.T, rest bool) {
-		root := setupApp(t, "deploy:\n  ssh: tailscale\n  ci: github\n", nil)
+		root := setupApp(t, "deploy:\n  connect: tailscale\n  auto: {}\n", nil)
 		newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
 		gh := newFakeGH()
 		for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost, secretZoneID, secretTSID, secretTSSecret} {

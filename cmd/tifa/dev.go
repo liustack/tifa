@@ -172,6 +172,8 @@ type devPipeline struct {
 	// warned holds the warnings of the analysis that were printed, so that a save which changes
 	// nothing about them does not print them again.
 	warned map[string]bool
+	// deployWarned is the warning about the deploy settings that was printed last, if any.
+	deployWarned []string
 	// steps holds the current warnings of each step, for Warnings (tifa errors lists them).
 	stepsMu sync.Mutex
 	steps   map[string][]string
@@ -220,6 +222,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 		return "", err
 	}
 	p.m, p.files, p.public = m, files, publicDir(settings.Public)
+	if err := p.checkDeploy(); err != nil {
+		return "", err
+	}
 	p.printWarnings(m.Warnings)
 	p.setWarnings("analysis", analysisWarnings(m))
 	return fingerprint(files), nil
@@ -235,6 +240,27 @@ func (p *devPipeline) printWarnings(warnings []analyze.Warning) {
 		}
 	}
 	p.warned = now
+}
+
+// checkDeploy shows the problems of the deploy settings as warnings, for they do not touch the
+// running app and a person working on pages should not be stopped by them. A problem is printed when
+// it is new, so a save that changes nothing about it prints nothing, and goes from Warnings once
+// fixed. The error is for a tifa.yaml that cannot be read.
+func (p *devPipeline) checkDeploy() error {
+	var lines []string
+	if err := checkDeploySettings(p.root); err != nil {
+		// A tifa.yaml that does not parse is an error, and the analysis stopped on it before.
+		if _, perr := codegen.ProjectSettings(p.root); perr != nil {
+			return perr
+		}
+		lines = []string{"tifa: deploy: " + err.Error() + " (warning)"}
+	}
+	if len(lines) > 0 && (len(p.deployWarned) == 0 || p.deployWarned[0] != lines[0]) && p.warn != nil {
+		fmt.Fprintln(p.warn, lines[0])
+	}
+	p.deployWarned = lines
+	p.setWarnings("deploy", lines)
+	return nil
 }
 
 // analysisWarnings lists the warnings of an analysis as `tifa build` prints them.
@@ -259,7 +285,7 @@ func contentWarnings(c *analyze.Content) []string {
 }
 
 // stepOrder is the order of Warnings.
-var stepOrder = []string{"foreign files", "analysis", "foreign code", "build plugins", "content"}
+var stepOrder = []string{"foreign files", "analysis", "deploy", "foreign code", "build plugins", "content"}
 
 // setWarnings replaces the warnings of a step.
 func (p *devPipeline) setWarnings(step string, lines []string) {

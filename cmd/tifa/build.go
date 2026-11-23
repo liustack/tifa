@@ -40,6 +40,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return err
 			}
 			// 1. Static analysis. It only reads, so a failed one leaves no .tifa behind.
+			if err := checkDeploySettings(root); err != nil {
+				return err
+			}
 			m, err := analyzeApp(cmd, root)
 			if err != nil {
 				return err

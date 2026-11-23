@@ -1,7 +1,7 @@
 package main
 
 // tifa deploy setup installs and logs in cf and gh on this machine, when tifa.yaml needs them:
-// cf for deploy.front cloudflare (which deploy.ssh cloudflare needs too), and gh for deploy.ci
+// cf for deploy.front cloudflare (which deploy.connect cloudflare needs too), and gh for deploy.auto
 // github without TIFA_DEPLOY_GITHUB_TOKEN. Installing and logging in are steps of a plan of their
 // own, and the developer's y to it is the consent. The rest of the plan reads Cloudflare and
 // GitHub with the tools, so setup plans it after them and asks again.
@@ -134,7 +134,7 @@ func (r *setupRun) installCF(ctx context.Context) (string, error) {
 	return path, nil
 }
 
-// needGH says the GitHub part needs gh: deploy.ci is github, and no token stands in for gh.
+// needGH says the GitHub part needs gh: the block deploy.auto is there, and no token stands in for gh.
 func (r *setupRun) needGH() bool {
 	if !r.t.github {
 		return false

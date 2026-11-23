@@ -128,10 +128,25 @@ func TestGitHubWorkflow(t *testing.T) {
 	if got := uses(steps); !slices.Contains(got, "tailscale/github-action@v4") {
 		t.Errorf("tailscale uses %v", got)
 	}
-	for _, want := range []string{"oauth-client-id: ${{ secrets.TIFA_DEPLOY_TAILSCALE_CLIENT_ID }}", "oauth-secret: ${{ secrets.TIFA_DEPLOY_TAILSCALE_SECRET }}", "tags: tag:ci"} {
+	// The runner joins with the identity of workload identity federation: two variables, no secret,
+	// and the permission that lets the action ask GitHub for a token.
+	for _, want := range []string{"oauth-client-id: ${{ vars.TIFA_DEPLOY_TAILSCALE_ID }}", "audience: ${{ vars.TIFA_DEPLOY_TAILSCALE_AUDIENCE }}", "tags: tag:ci", "  id-token: write\n"} {
 		if !strings.Contains(ts, want) {
-			t.Errorf("tailscale workflow lacks %q", want)
+			t.Errorf("tailscale workflow lacks %q:\n%s", want, ts)
 		}
+	}
+	if strings.Contains(ts, "oauth-secret") || strings.Contains(ts, "TAILSCALE_SECRET") || strings.Contains(ts, "TAILSCALE_CLIENT_ID") {
+		t.Errorf("tailscale workflow still hands over an OAuth secret:\n%s", ts)
+	}
+	// Until the identity is set, a workflow keeps what v0.2.x wrote: the OAuth secrets, and no id-token.
+	old := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale, TailscaleOAuth: true})
+	for _, want := range []string{"oauth-client-id: ${{ secrets.TIFA_DEPLOY_TAILSCALE_CLIENT_ID }}", "oauth-secret: ${{ secrets.TIFA_DEPLOY_TAILSCALE_SECRET }}"} {
+		if !strings.Contains(old, want) {
+			t.Errorf("legacy tailscale workflow lacks %q", want)
+		}
+	}
+	if strings.Contains(old, "id-token") || strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect}), "id-token") {
+		t.Error("id-token is asked for where nothing needs it")
 	}
 }
 
@@ -561,17 +576,5 @@ func TestWorkflowAfterCI(t *testing.T) {
 	}
 	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "TIFA_DEPLOY_CF_PURGE_TOKEN") {
 		t.Errorf("fallback:\n%s", push)
-	}
-}
-
-// The name of the CI workflow comes from the file of the app.
-func TestCIWorkflowName(t *testing.T) {
-	root := t.TempDir()
-	if got := ciWorkflowName(root); got != "" {
-		t.Errorf("no file: %q", got)
-	}
-	writeFile(t, filepath.Join(root, ciPath), "name: Checks\non: push\n")
-	if got := ciWorkflowName(root); got != "Checks" {
-		t.Errorf("got %q", got)
 	}
 }

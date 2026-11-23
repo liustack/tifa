@@ -51,10 +51,23 @@ type Deploy struct {
 	// Front is what visitors come through before the server: none or cloudflare. With cloudflare the domain is the
 	// host of site.url.
 	Front string
-	// SSH is how CI reaches the server: direct, cloudflare or tailscale.
-	SSH string
-	// CI says who deploys automatically: none or github.
-	CI string
+	// Connect is the one path ssh takes to the server, from this machine and from CI: direct,
+	// cloudflare or tailscale.
+	Connect string
+	// Auto says when the GitHub Actions of the repository deploy the app. The block is not there: no
+	// deploys from GitHub Actions.
+	Auto Auto
+}
+
+// Auto is the block deploy.auto of tifa.yaml.
+type Auto struct {
+	// On says the block is there.
+	On bool
+	// Branch is the branch that deploys. Empty is the default branch of the repository on GitHub.
+	Branch string
+	// Needs is the workflow file in .github/workflows that must pass first, or none to wait for
+	// nothing. Without the key it is ci.yml.
+	Needs string
 }
 
 // Build is read by the tifa CLI only. It may appear in the project tifa.yaml and nowhere else.
@@ -209,7 +222,7 @@ func Default() Config {
 		SSR:     SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
 		Cache:   Cache{SMaxage: time.Minute},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
-		Deploy:  Deploy{Front: "none", SSH: "direct", CI: "none"},
+		Deploy:  Deploy{Front: "none", Connect: "direct", Auto: Auto{Needs: DefaultNeeds}},
 	}
 }
 
@@ -267,8 +280,9 @@ func fields(c *Config) []field {
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 		{"deploy.front", "What visitors come through before the server: none or cloudflare, on the host of site.url", frontValue{&c.Deploy.Front}},
-		{"deploy.ssh", "How ssh reaches the server: direct, cloudflare (through the Cloudflare Tunnel, for CI and this machine) or tailscale (for CI)", sshModeValue{&c.Deploy.SSH}},
-		{"deploy.ci", "Who deploys automatically: none or github, set up by tifa deploy setup", ciValue{&c.Deploy.CI}},
+		{"deploy.connect", "How deploys reach the server over ssh, from this machine and from CI: direct, cloudflare (through the Cloudflare Tunnel) or tailscale", connectValue{&c.Deploy.Connect}},
+		{"deploy.auto.branch", "With the block deploy.auto, the branch that deploys from GitHub Actions, the default branch of the repository when left out", branchValue{&c.Deploy.Auto.Branch}},
+		{"deploy.auto.needs", "With the block deploy.auto, the workflow file in .github/workflows that must pass before a deploy (ci.yml when left out), or none to wait for nothing", needsValue{&c.Deploy.Auto.Needs}},
 	}
 }
 
@@ -322,6 +336,9 @@ func Project(data []byte) (Config, map[string]string, error) {
 		}
 		where := fmt.Sprintf("tifa.yaml line %d", e.line)
 		if err := e.check(f.value.kind(), false); err != nil {
+			if hint, ok := emptyHints[f.key]; ok && e.typ == "null" && e.err == nil {
+				err = errors.New(hint)
+			}
 			errs = append(errs, fmt.Errorf("config: %s: %s: %w", where, f.key, err))
 			continue
 		}
@@ -333,7 +350,86 @@ func Project(data []byte) (Config, map[string]string, error) {
 			settings[f.key] = e.raw
 		}
 	}
+	errs = append(errs, projectDeploy(entries, &c)...)
 	return c, settings, errors.Join(errs...)
+}
+
+// DefaultNeeds is the workflow deploy.auto waits for when it names none.
+const DefaultNeeds = "ci.yml"
+
+// renamedDeployKeys are the deploy keys of an earlier version that tifa.yaml may not have any
+// more: unlike a retired key, one of them stops the project file, because the new form means what
+// the old one did and a program that ignored it would deploy differently. hint gets the old value,
+// lowercased and trimmed.
+var renamedDeployKeys = []struct {
+	key  string
+	hint func(old string) string
+}{
+	{"deploy.ssh", func(old string) string {
+		// The old value is only echoed when it is one of the words: a file that is committed should
+		// hold none, but a mistake in it may be anything, even a secret pasted on the wrong line.
+		if slices.Contains([]string{"direct", "cloudflare", "tailscale"}, old) {
+			return "deploy.ssh is now deploy.connect: write connect: " + old
+		}
+		return "deploy.ssh is now deploy.connect: write connect as direct, cloudflare or tailscale"
+	}},
+	{"deploy.ci", func(old string) string {
+		switch old {
+		case "none", "":
+			return "deploy.ci is now the block deploy.auto: delete the line ci: none"
+		case "github":
+			return "deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"
+		}
+		return "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"
+	}},
+}
+
+// emptyHints say what to write for a key of deploy.auto that is there with nothing after it,
+// where the generic message would only say it got null.
+var emptyHints = map[string]string{
+	"deploy.auto.needs":  "write a workflow file such as ci.yml, or none",
+	"deploy.auto.branch": "write a branch name, or leave branch out for the default branch",
+}
+
+// autoKeys are the keys of the block deploy.auto.
+var autoKeys = []string{"branch", "needs"}
+
+// projectDeploy checks what the field loop of Project cannot: the old names of the deploy keys,
+// and the block deploy.auto, which is there when its key is, whatever its keys say.
+func projectDeploy(entries map[string]entry, c *Config) (errs []error) {
+	where := func(e entry) string { return fmt.Sprintf("config: tifa.yaml line %d: ", e.line) }
+	for _, r := range renamedDeployKeys {
+		if e, ok := entries[r.key]; ok {
+			errs = append(errs, errors.New(where(e)+r.hint(strings.ToLower(strings.TrimSpace(e.raw)))))
+		}
+	}
+	// The keys of the block can be written in any form YAML has for a nested key: a mapping, or
+	// dotted keys such as deploy.auto.branch. Any of them turns the block on, as the mapping does.
+	var below []string
+	for key := range entries {
+		if strings.HasPrefix(key, "deploy.auto.") {
+			below = append(below, key)
+		}
+	}
+	slices.SortFunc(below, func(a, b string) int { return entries[a].line - entries[b].line })
+	block, ok := entries["deploy.auto"]
+	switch {
+	case ok && !block.mapping && block.typ == "null" && block.err == nil:
+		errs = append(errs, errors.New(where(block)+"deploy.auto: write auto: {} to turn it on with the defaults, or give it the keys branch and needs, or delete the line"))
+	case ok && !block.mapping:
+		errs = append(errs, errors.New(where(block)+"deploy.auto is a block: write auto: {} to turn it on with the defaults, or give it the keys branch and needs"))
+	case ok || len(below) > 0:
+		c.Deploy.Auto.On = true
+		seen := map[string]bool{}
+		for _, key := range below {
+			name := "deploy.auto." + strings.Split(strings.TrimPrefix(key, "deploy.auto."), ".")[0]
+			if !slices.Contains(autoKeys, strings.TrimPrefix(name, "deploy.auto.")) && !seen[name] {
+				seen[name] = true
+				errs = append(errs, errors.New(where(entries[key])+name+" is not a key of deploy.auto: use branch or needs"))
+			}
+		}
+	}
+	return errs
 }
 
 // retiredKeys are settings that existed in an earlier version and are gone. A retired key in the
@@ -357,7 +453,7 @@ var retiredKeys = []struct {
 	{"deploy.host", "tifa.yaml is committed, so the server is not written in it: put TIFA_DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app, which git ignores, or pass --host to tifa deploy", false, true},
 	{"deploy.domain", "the domain is now the host of site.url: set site.url, and deploy.front: cloudflare to use Cloudflare", false, false},
 	{"deploy.cdn", "it is now deploy.front, with the same values none and cloudflare", false, false},
-	{"deploy.github", "it is now deploy.ci: github for true, none for false", false, false},
+	{"deploy.github", "it is now the block deploy.auto: write auto: {} for true, and for false leave deploy.auto out", false, false},
 }
 
 func retiredWarning(where, key, hint string) string {

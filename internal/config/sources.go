@@ -259,6 +259,8 @@ type entry struct {
 	raw, typ string
 	line     int
 	err      error
+	// mapping says the value is a mapping: its own keys are entries too.
+	mapping bool
 }
 
 // check reports why the entry cannot set a setting of the given kind, with the value unless the
@@ -332,7 +334,7 @@ func yamlEntries(data []byte) (map[string]entry, error) {
 			switch v.Kind {
 			case yaml.MappingNode:
 				// A section is no setting, so its entry counts only when its key is one.
-				entries[key] = entry{line: k.Line, err: errors.New("expected a single value")}
+				entries[key] = entry{line: k.Line, err: errors.New("expected a single value"), mapping: true}
 				walk(key+".", v)
 			case yaml.ScalarNode:
 				entries[key] = entry{raw: v.Value, typ: yamlType(v.ShortTag()), line: k.Line}

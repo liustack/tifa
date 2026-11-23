@@ -1,6 +1,6 @@
 package main
 
-// What tifa deploy setup does on the machine of the developer for deploy.ssh cloudflare, so the
+// What tifa deploy setup does on the machine of the developer for deploy.connect cloudflare, so the
 // ssh of this machine goes through the Cloudflare Tunnel and the server needs no open ssh port
 // for anyone. The steps are items of the plan, applied with the answer to the plan:
 //
@@ -322,7 +322,7 @@ func (r *setupRun) tunnelReady() bool {
 // machine cannot reach the server, and setup cannot yet make it able to.
 func (r *setupRun) machineFirst(ctx context.Context, p *setupPlan) (stop bool, err error) {
 	t := r.t
-	if t.sshMode != connCloudflare || !looksLikeSSHHost(t.dest.name, t.domain) {
+	if t.connectMode != connCloudflare || !looksLikeSSHHost(t.dest.name, t.domain) {
 		return false, nil
 	}
 	if !r.useCF(ctx) {

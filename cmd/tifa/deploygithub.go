@@ -1,6 +1,6 @@
 package main
 
-// The GitHub part of tifa deploy setup, for deploy.github: true. It writes the workflow, makes a
+// The GitHub part of tifa deploy setup, for deploy.auto. It writes the workflow, makes a
 // key that only this repository uses and lets it log in as the deploy user, reads the host keys of
 // the server over the ssh that is trusted already, and sets the secrets of the repository through
 // githubAPI (gh, or the REST API with a token). The private key and the other secrets go from
@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -47,7 +46,14 @@ const (
 	secretPurge      = envPurgeToken
 )
 
-// The cloudflared that CI runs for deploy.ssh cloudflare: one fixed version of the amd64 package
+// Names of the variables of the repository that hold the Tailscale identity of CI. Neither value
+// is secret. The OAuth secrets above are what an older setup kept.
+const (
+	varTSClient   = "TIFA_DEPLOY_TAILSCALE_ID"
+	varTSAudience = "TIFA_DEPLOY_TAILSCALE_AUDIENCE"
+)
+
+// The cloudflared that CI runs for deploy.connect cloudflare: one fixed version of the amd64 package
 // of ubuntu-24.04, and its SHA-256. A newer cloudflared once stopped reading service tokens for
 // access ssh (issue 1673 of cloudflare/cloudflared, 2026.6.0), which would break every deploy
 // through the tunnel, so the workflow never asks for the latest. Raise the version only after a
@@ -148,7 +154,7 @@ func parseSSHConfig(host, out string) (sshResolved, error) {
 			r.Port = p
 		case "proxyjump", "proxycommand":
 			if value != "" && value != "none" {
-				return r, fmt.Errorf("%s reaches the server through a %s in your ssh configuration, which GitHub cannot copy: set deploy.ssh to cloudflare or tailscale, or use a host that ssh reaches directly", host, word)
+				return r, fmt.Errorf("%s reaches the server through a %s in your ssh configuration, which GitHub cannot copy: set deploy.connect to cloudflare or tailscale, or use a host that ssh reaches directly", host, word)
 			}
 		}
 	}
@@ -169,12 +175,18 @@ type githubWorkflowSpec struct {
 	Node bool
 	// PnpmVersion is the major version of pnpm when package.json does not say which pnpm to use.
 	PnpmVersion string
-	// CIName is the name of the workflow that checks the app. The deploy runs after it passed.
-	// Empty means the app has none, and a push to the default branch deploys.
+	// CIName is the name of the workflow that checks the app (deploy.auto.needs). The deploy runs
+	// after it passed. Empty means the deploy waits for none, and a push to Branch deploys.
 	CIName string
+	// CIFile is the base name of that workflow's file. Two workflows can have one name, so the job
+	// also checks the file of the run it follows.
+	CIFile string
 	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
 	// and the zone ID, both from secrets, since a public repository must not show the zone.
 	Purge bool
+	// TailscaleOAuth keeps the OAuth client of an older setup for the Tailscale step, until the
+	// identity of workload identity federation is set.
+	TailscaleOAuth bool
 }
 
 // workflowMarker is the first line of the workflow tifa writes. A file without it is the
@@ -197,8 +209,8 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("on:")
 	if s.CIName != "" {
 		// A push is deployed once the workflow that checks it has passed. GitHub starts this only
-		// from the file on the default branch, and runs it on the last commit of that branch, so
-		// the steps below check out the commit that was checked.
+		// from the file on the default branch, and runs it on the last commit of that branch,
+		// whatever branch Branch is, so the steps below check out the commit that was checked.
 		w("  workflow_run:")
 		w("    workflows: [%s]", strconv.Quote(s.CIName))
 		w("    types: [completed]")
@@ -222,12 +234,23 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("")
 	w("permissions:")
 	w("  contents: read")
+	if s.Mode == connTailscale && !s.TailscaleOAuth {
+		// The Tailscale action asks GitHub for a token that says which repository this is.
+		w("  id-token: write")
+	}
 	w("")
 	w("jobs:")
 	w("  deploy:")
 	if s.CIName != "" {
-		// Only a push that passed: a run from a fork has the name of a branch too.
-		w("    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')")
+		// Only a push that passed: a run from a fork has the name of a branch too. And only the
+		// file that was named, since another workflow may have the same name. The path of a run is
+		// the file, and may have @ref after it: both are accepted.
+		file := ""
+		if s.CIFile != "" {
+			path := strings.ReplaceAll(workflowsDir+"/"+s.CIFile, "'", "''")
+			file = fmt.Sprintf(" && (github.event.workflow_run.path == '%s' || startsWith(github.event.workflow_run.path, '%s@'))", path, path)
+		}
+		w("    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'%s)", file)
 	}
 	w("    runs-on: ubuntu-24.04")
 	w("    timeout-minutes: 30")
@@ -267,9 +290,14 @@ func githubWorkflow(s githubWorkflowSpec) string {
 		w("      - name: Connect to Tailscale")
 		w("        uses: tailscale/github-action@v4")
 		w("        with:")
-		w("          oauth-client-id: ${{ secrets.%s }}", secretTSID)
-		w("          oauth-secret: ${{ secrets.%s }}", secretTSSecret)
-		w("          tags: tag:ci")
+		if s.TailscaleOAuth {
+			w("          oauth-client-id: ${{ secrets.%s }}", secretTSID)
+			w("          oauth-secret: ${{ secrets.%s }}", secretTSSecret)
+		} else {
+			w("          oauth-client-id: ${{ vars.%s }}", varTSClient)
+			w("          audience: ${{ vars.%s }}", varTSAudience)
+		}
+		w("          tags: %s", tailscaleTag)
 	}
 	w("      - name: Set up ssh")
 	w("        env:")
@@ -385,9 +413,13 @@ func (k deployKey) authorizedLine(repo string) string {
 	return "restrict " + k.Public + " " + githubComment(repo)
 }
 
-// workflowSpec reads what the workflow needs from the app.
-func workflowSpec(t deployTarget, repo githubRepo, mode string, purge bool) (githubWorkflowSpec, error) {
-	s := githubWorkflowSpec{Branch: repo.Branch, Mode: mode, Purge: purge, CIName: ciWorkflowName(t.root)}
+// workflowSpec reads what the workflow needs from the app. branch is the one that deploys and
+// ciName the name of the workflow it waits for, empty to wait for none.
+func workflowSpec(t deployTarget, branch, ciName, mode string, purge bool) (githubWorkflowSpec, error) {
+	s := githubWorkflowSpec{Branch: branch, Mode: mode, Purge: purge, CIName: ciName}
+	if ciName != "" {
+		s.CIFile = t.auto.Needs
+	}
 	pkg, err := os.ReadFile(filepath.Join(t.root, "package.json"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -414,22 +446,6 @@ func workflowSpec(t deployTarget, repo githubRepo, mode string, purge bool) (git
 
 // secret is a repository secret: never printed.
 type secret struct{ name, value string }
-
-// ciWorkflowName is the name of the workflow tifa new writes to check the app, read from the file,
-// or empty when the app has none, or one without a name.
-func ciWorkflowName(root string) string {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ciPath)))
-	if err != nil {
-		return ""
-	}
-	var doc struct {
-		Name string `yaml:"name"`
-	}
-	if yaml.Unmarshal(data, &doc) != nil {
-		return ""
-	}
-	return doc.Name
-}
 
 // revokeBody runs as the deploy user and writes authorized_keys again without the line of the
 // repository whose comment is $comment. Other lines stay as they are.

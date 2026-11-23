@@ -50,6 +50,9 @@ func runCheck(cmd *cobra.Command, root string) error {
 		run  func() error
 	}{
 		{"analyze", func() (err error) {
+			if err := checkDeploySettings(root); err != nil {
+				return err
+			}
 			manifest, err = analyzeApp(cmd, root)
 			return err
 		}},

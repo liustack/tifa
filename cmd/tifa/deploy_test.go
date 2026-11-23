@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/config"
 )
 
 // The app is named after its module, as tifa build names the program, so one server tells the
@@ -199,7 +201,7 @@ func TestShellQuote(t *testing.T) {
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  ci: github\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n")
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nTIFA_DEPLOY_HOST=ssh://203.0.113.7:2222\n")
 	if d, err := loadTarget(root, ""); err != nil || d.host != "ssh://203.0.113.7:2222" || d.dest.name != "203.0.113.7" || d.dest.port != 2222 || d.app != "shop" || d.domain != "shop.example.com" || !d.github {
@@ -266,13 +268,13 @@ func TestDeploySettingsChecks(t *testing.T) {
 		"front needs a site url":     {"deploy:\n  front: cloudflare\n", "site.url"},
 		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  front: cloudflare\n", "port"},
 		"port without front":         {"site:\n  url: http://localhost:8080", ""},
-		"ssh cloudflare needs front": {site + "deploy:\n  ssh: cloudflare\n  ci: github\n", "deploy.front"},
-		"ssh tailscale needs ci":     {site + "deploy:\n  ssh: tailscale\n", "deploy.ci"},
-		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n", ""},
-		"all set":                    {site + "deploy:\n  front: cloudflare\n  ssh: cloudflare\n  ci: github\n", ""},
+		"ssh cloudflare needs front": {site + "deploy:\n  connect: cloudflare\n  auto: {}\n", "deploy.front"},
+		"ssh tailscale needs ci":     {site + "deploy:\n  connect: tailscale\n", "deploy.auto"},
+		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n", ""},
+		"all set":                    {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", ""},
 		"old domain":                 {"deploy:\n  domain: shop.example.com\n", "deploy.front"},
 		"old cdn":                    {"deploy:\n  cdn: cloudflare\n", "it is now deploy.front"},
-		"old github":                 {"deploy:\n  github: true\n", "deploy.ci"},
+		"old github":                 {"deploy:\n  github: true\n", "deploy.auto"},
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
@@ -596,5 +598,120 @@ func TestDeployMasksTheHostInActions(t *testing.T) {
 		if !strings.HasPrefix(out, "::add-mask::203.0.113.7\n") || strings.Contains(out, "::add-mask::203.0.113.7:2222") {
 			t.Errorf("%v: output %q", args, out)
 		}
+	}
+}
+
+// deploy.ssh and deploy.ci are gone from tifa.yaml. check, build and every deploy command stop at
+// the line and say what to write instead.
+func TestDeployOldNamesStopEveryCommand(t *testing.T) {
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"ssh": {"deploy:\n  front: none\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
+		"ci":  {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
+	} {
+		dir := apiApp(t)
+		writeFile(t, filepath.Join(dir, "tifa.yaml"), tc.yaml)
+		t.Setenv(deployHostEnv, "vps")
+		for _, args := range [][]string{{"check"}, {"build", "-o", filepath.Join(t.TempDir(), "app")}, {"deploy", "status"}, {"deploy", "setup", "--yes"}, {"deploy", "remove", "--yes"}} {
+			out, stderr, err := run(t, append(args, "--dir", dir)...)
+			if got := out + stderr; err == nil || !strings.Contains(got+err.Error(), tc.want) {
+				t.Errorf("%s: tifa %s: err %v, output %q, want %q", name, strings.Join(args, " "), err, got, tc.want)
+			}
+		}
+	}
+}
+
+// check, build and dev stop on deploy settings that cannot work together, with the messages the
+// deploy commands give, and on a needs file that is missing, has no name or does not run on a push
+// to the branch tifa.yaml names. None of it needs the network.
+func TestCheckRunsTheDeployChecks(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml  string
+		files map[string]string
+		want  string
+	}{
+		"tailscale without auto":        {"deploy:\n  connect: tailscale\n", nil, "deploy.connect is tailscale, which is how GitHub Actions reaches the server"},
+		"cloudflare without front":      {"deploy:\n  connect: cloudflare\n", nil, "deploy.connect is cloudflare, and the ssh host name is made from the domain of site.url"},
+		"front without site url":        {"deploy:\n  front: cloudflare\n", nil, "deploy.front is cloudflare, which needs site.url"},
+		"needs missing":                 {"deploy:\n  auto: {}\n", nil, ".github/workflows/ci.yml does not exist"},
+		"needs without name":            {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "on: push\n"}, "has no name: line"},
+		"needs not on push":             {"deploy:\n  auto:\n    branch: main\n", map[string]string{testCIPath: "name: CI\non: pull_request\n"}, "does not run on a push to main"},
+		"needs on no push at all":       {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "name: CI\non: pull_request\n"}, "does not run on a push (its on: has no push)"},
+		"needs on tag pushes only":      {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "name: CI\non:\n  push:\n    tags: ['v*']\n"}, "does not run on a push"},
+		"needs not on the named branch": {"deploy:\n  auto:\n    branch: release\n", map[string]string{testCIPath: testCI}, "does not run on a push to release"},
+	} {
+		dir := apiApp(t)
+		writeFile(t, filepath.Join(dir, "tifa.yaml"), tc.yaml)
+		for f, text := range tc.files {
+			writeFile(t, filepath.Join(dir, f), text)
+		}
+		out, stderr, err := run(t, "check", "--dir", dir)
+		if got := out + stderr; err == nil || !strings.Contains(got+err.Error(), tc.want) {
+			t.Errorf("%s: err %v, output %q, want %q", name, err, got, tc.want)
+		}
+	}
+	// With the default branch the branch is not matched, since it is on GitHub: some push is enough.
+	dir := apiApp(t)
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "deploy:\n  auto: {}\n")
+	writeFile(t, filepath.Join(dir, testCIPath), "name: CI\non:\n  push:\n    branches: [develop]\n")
+	if out, stderr, err := run(t, "check", "--dir", dir); err != nil {
+		t.Errorf("default branch: %v\n%s%s", err, out, stderr)
+	}
+}
+
+// An empty value of a key of deploy.auto says what to write.
+func TestEmptyAutoKeysSayWhatToWrite(t *testing.T) {
+	for yaml, want := range map[string]string{
+		"deploy:\n  auto:\n    needs:\n":  "deploy.auto.needs: write a workflow file such as ci.yml, or none",
+		"deploy:\n  auto:\n    branch:\n": "deploy.auto.branch: write a branch name, or leave branch out for the default branch",
+	} {
+		_, _, err := config.Project([]byte(yaml))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v", yaml, err)
+		}
+	}
+}
+
+// tifa routes and tifa gen read the app, not its deploy settings: they run with settings the deploy
+// checks would stop.
+func TestRoutesIgnoresDeploySettings(t *testing.T) {
+	dir := apiApp(t)
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "deploy:\n  connect: tailscale\n")
+	if out, stderr, err := run(t, "routes", "--dir", dir); err != nil {
+		t.Fatalf("%v\n%s%s", err, out, stderr)
+	}
+}
+
+// tifa dev shows the deploy problems as warnings, once, and keeps running: they do not touch the
+// running app. They come again when the settings or the needs file change to another problem, and
+// go when fixed. tifa.yaml values that do not parse are still errors, and stop dev before.
+func TestDevWarnsOfDeploySettings(t *testing.T) {
+	dir := apiApp(t)
+	var out strings.Builder
+	p := &devPipeline{root: dir, warn: &out}
+	tifaYAML := filepath.Join(dir, "tifa.yaml")
+	writeFile(t, tifaYAML, "deploy:\n  connect: tailscale\n")
+	for range 2 {
+		if err := p.checkDeploy(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Count(out.String(), "deploy.connect is tailscale"); got != 1 || !strings.Contains(out.String(), "(warning)") {
+		t.Fatalf("printed %d times:\n%s", got, out.String())
+	}
+	if w := strings.Join(p.Warnings(), "\n"); !strings.Contains(w, "deploy.connect is tailscale") {
+		t.Errorf("Warnings: %q", w)
+	}
+	writeFile(t, tifaYAML, "deploy:\n  auto: {}\n")
+	if err := p.checkDeploy(); err != nil || !strings.Contains(out.String(), ".github/workflows/ci.yml does not exist") {
+		t.Errorf("needs missing: %v\n%s", err, out.String())
+	}
+	writeFile(t, filepath.Join(dir, testCIPath), testCI)
+	if err := p.checkDeploy(); err != nil || len(p.Warnings()) != 0 {
+		t.Errorf("fixed: %v, %q", err, p.Warnings())
+	}
+	writeFile(t, filepath.Join(dir, testCIPath), "on: push\n")
+	before := out.Len()
+	if err := p.checkDeploy(); err != nil || !strings.Contains(out.String()[before:], "has no name: line") {
+		t.Errorf("again: %v\n%s", err, out.String()[before:])
 	}
 }
