@@ -11,6 +11,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- When the check of ssh through the tunnel at the end of `tifa deploy setup` fails, it says the key must be in `/srv/tifa/.ssh/authorized_keys` only if ssh got to authentication (`Permission denied`). Any other failure shows the output and does not blame the key.
+- The commented `deploy.ssh` line of the `tifa.yaml` that `tifa new` writes says ssh through Cloudflare covers CI and this machine.
 - `deploy.ssh: cloudflare` no longer needs `deploy.ci: github`. The ssh host name, its route, its DNS record and its Access application are made without CI. `deploy.ssh: tailscale` still needs it.
 - `tifa deploy setup` writes one line of the `.env` of the app: `TIFA_DEPLOY_HOST` becomes the ssh host name once ssh through the tunnel works, and only when the value was read from `.env`. When it comes from the environment or `--host`, setup says what to set and changes nothing.
 

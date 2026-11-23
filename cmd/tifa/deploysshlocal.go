@@ -197,8 +197,9 @@ func (r *setupRun) checkTunnel(ctx context.Context, host string) error {
 		deployUser, host, tunnelCheckTimeout)
 	ctx, cancel := context.WithTimeout(ctx, tunnelCheckTimeout)
 	defer cancel()
+	var seen strings.Builder
 	c := exec.CommandContext(ctx, sshProgram, "-l", deployUser, "-o", "BatchMode=yes", "--", host, "true")
-	c.Stdout, c.Stderr = io.Discard, r.errOut
+	c.Stdout, c.Stderr = io.Discard, io.MultiWriter(r.errOut, &seen)
 	c.WaitDelay = sshWaitDelay
 	err := c.Run()
 	switch {
@@ -206,8 +207,11 @@ func (r *setupRun) checkTunnel(ctx context.Context, host string) error {
 		return nil
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return fmt.Errorf("no answer from %s in %s: finish the Cloudflare Access login in your browser, then run go tool tifa deploy setup again", host, tunnelCheckTimeout)
+	case strings.Contains(seen.String(), "Permission denied"):
+		// ssh got to authentication, so the tunnel works and sshd refused the key.
+		return fmt.Errorf("ssh %s@%s through the tunnel was refused (%v), see above. The Access login does not put your ssh key on the server: it must be in /srv/tifa/.ssh/authorized_keys. Run go tool tifa deploy setup again once it works", deployUser, host, err)
 	}
-	return fmt.Errorf("ssh %s@%s through the tunnel failed (%v), see above. The Access login does not put your ssh key on the server: it must be in /srv/tifa/.ssh/authorized_keys. Run go tool tifa deploy setup again once it works", deployUser, host, err)
+	return fmt.Errorf("ssh %s@%s through the tunnel failed (%v), see above. Run go tool tifa deploy setup again once it works", deployUser, host, err)
 }
 
 // setEnvHost sets TIFA_DEPLOY_HOST in the .env at path, keeping everything else of the file.
