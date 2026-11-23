@@ -2,7 +2,7 @@
 summary: '应用怎样把文章、文档和其他文字作为 Markdown 文件放在 content/ 下，并在 Go 里读取：在 content.go 里声明集合、哪些文件是条目、ID、slug、路径和翻译、schema 结构体允许的 front matter 键、正文怎样变成 HTML（各个步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它、草稿和到日期才出现的条目、`tifa dev` 做什么、`tifa build` 写什么、测试里怎样读内容，以及错误和警告'
 audience: app
 order: 4
-translatedFrom: 5919cfac2cbe
+translatedFrom: 42b15782d92d
 read_when:
   - '给 Tifa 应用加博客、文档或其他 Markdown 内容'
   - '编写或修改 content.go，或者嵌入 content.Entry 的 schema 类型'
@@ -121,9 +121,9 @@ content/
 - **Slug**：front matter 里的 `slug`，或者 ID 的最后一段。它必须是 URL 的一段：不能为空，不能是 `.` 或 `..`，不能有 `/`、`?`、`#`、`%`、空格或控制字符。其他语言的文字是可以的。
 - **路径**：把 ID 的最后一段换成 slug 之后的结果，没有 `slug` 时就是 ID 本身。集合的一种语言里每个路径只出现一次。slug 可以重复（`guide/install` 和 `api/install` 的 slug 都是 `install`）。URL 用 slug 的博客，会在测试里检查它的 slug 不重复，就像 `app/blog/post_test.go` 里的 `TestSlugsAreUnique` 那样。
 
-设置了 `Languages` 时，每个条目都在某个语言文件夹里，默认语言也一样。第一层里不是语言的文件夹，或者直接放在集合文件夹里的 `.md` 文件，会让构建失败。没有文件夹的语言就没有条目。没有 `Languages` 时没有语言这一层，`Entry.Lang` 是 `""`。
+设置了 `Languages` 时，每个条目都在某个语言文件夹里，默认语言也一样。第一层里不是语言的文件夹，或者直接放在集合文件夹里的 `.md` 文件，会让构建失败。没有文件夹的语言就没有条目。没有 `Languages` 时没有语言这一层，`Entry.Language` 是 `""`。
 
-同一个条目在不同语言里的各个版本共用一个翻译键：front matter 里的 `translationKey`，或者 ID。所以路径相同的文件互为翻译，而 `translationKey` 把路径不同的文件连起来，比如测试应用里的 `launch`。一种语言里每个键只出现一次。`Entry.Translations` 列出现在能看到的版本，按 `Languages` 的顺序，包括条目自己，每个写成 `{Lang, ID, Slug, Path}`。语言之间的链接和 `hreflang` 就来自这里。
+同一个条目在不同语言里的各个版本共用一个翻译键：front matter 里的 `translationKey`，或者 ID。所以路径相同的文件互为翻译，而 `translationKey` 把路径不同的文件连起来，比如测试应用里的 `launch`。一种语言里每个键只出现一次。`Entry.Translations` 列出现在能看到的版本，按 `Languages` 的顺序，包括条目自己，每个写成 `{Language, ID, Slug, Path}`。语言之间的链接和 `hreflang` 就来自这里。
 
 在有多语言的站点上（见[多语言站点](../guides/i18n.zh-CN.md)），写 `Languages: tifa.Languages()`，这个集合就有站点的语言，默认语言排第一。`content/<Dir>/` 下的文件夹就以它们命名。某个语言里没有版本的条目，在那个语言里就没有页面：对那个语言，`Get` 返回 `tifa.ErrNotFound`，所以返回这个错误的 `Load` 会显示 404，也不会回退到别的语言。条目的页面把 `entry.Translations` 传给 `c.SetAlternates`，这样 `hreflang` 链接只列出存在的版本。
 
@@ -271,7 +271,7 @@ export default function PostPage() {
     <article>
       <h1 id="title">{post.title}</h1>
       <nav id="toc">
-        {(headings ?? [])
+        {headings
           .filter((h) => h.depth === 2)
           .map((h) => (
             <a key={h.id} href={`#${h.id}`}>

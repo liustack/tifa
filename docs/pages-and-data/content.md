@@ -120,9 +120,9 @@ For the front page of a group of docs, write a file named like the folder (`guid
 - **Slug**: the `slug` of the front matter, or the last segment of the ID. It must be one URL segment: not empty, not `.` or `..`, no `/`, `?`, `#`, `%`, spaces or control characters. Letters of other languages are fine.
 - **Path**: the ID with its last segment replaced by the slug, so the ID itself when there is no `slug`. One language of a collection has each path once. Slugs may repeat (`guide/install` and `api/install` are both `install`). A blog whose URLs use the slug checks in a test that its slugs do not repeat, as `TestSlugsAreUnique` in `app/blog/post_test.go` does.
 
-With `Languages`, every entry is in a language folder, the default language too. A first-level folder that is not a language, or a `.md` file right in the collection folder, fails the build. A language without a folder has no entries. Without `Languages` there is no language level and `Entry.Lang` is `""`.
+With `Languages`, every entry is in a language folder, the default language too. A first-level folder that is not a language, or a `.md` file right in the collection folder, fails the build. A language without a folder has no entries. Without `Languages` there is no language level and `Entry.Language` is `""`.
 
-The versions of one entry in different languages share a translation key: the `translationKey` of the front matter, or the ID. So files with the same path are translations of each other, and `translationKey` links files with different paths, such as `launch` in the test app. One language has each key once. `Entry.Translations` lists the versions that can be seen now, in the order of `Languages`, the entry itself included, each as `{Lang, ID, Slug, Path}`. Links between languages and `hreflang` come from there.
+The versions of one entry in different languages share a translation key: the `translationKey` of the front matter, or the ID. So files with the same path are translations of each other, and `translationKey` links files with different paths, such as `launch` in the test app. One language has each key once. `Entry.Translations` lists the versions that can be seen now, in the order of `Languages`, the entry itself included, each as `{Language, ID, Slug, Path}`. Links between languages and `hreflang` come from there.
 
 On a site with languages (see [A site in several languages](../guides/i18n.md)), write `Languages: tifa.Languages()` and the collection has the languages of the site, the default first. The folders under `content/<Dir>/` are named after them. An entry with no version in some language has no page in it: `Get` returns `tifa.ErrNotFound` for that language, so a `Load` that returns the error shows a 404, and nothing falls back to another language. A page of an entry passes `entry.Translations` to `c.SetAlternates` so that the `hreflang` links list only the versions that exist.
 
@@ -270,7 +270,7 @@ export default function PostPage() {
     <article>
       <h1 id="title">{post.title}</h1>
       <nav id="toc">
-        {(headings ?? [])
+        {headings
           .filter((h) => h.depth === 2)
           .map((h) => (
             <a key={h.id} href={`#${h.id}`}>

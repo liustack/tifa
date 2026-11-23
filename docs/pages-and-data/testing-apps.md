@@ -99,5 +99,5 @@ Without `WithRenderClock` the clock stays live. A fixed clock does not make a re
 
 Module top-level code runs during VM prewarming, before a request, on the live clock. Time values captured there are not recomputed. A Date.now function, Temporal.Now method or Intl formatter saved at module load reads the current render's clock when called during that render.
 
-The clock is not a cache key, so a request with a clock skips the render memo and shared renders and gets no ETag: it always renders with its own clock. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Call `OnRequest` with a closure for `next` to test middleware passing this context, and use server requests to check full HTML.
+The clock is not a cache key, so a request with a clock skips the render memo and shared renders and gets no ETag: it always renders with its own clock. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Call `OnRequest` with a closure for `next` to test middleware passing this context, and use `tifatest.StartPages` to check full rendered HTML.
 

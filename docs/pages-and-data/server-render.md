@@ -32,7 +32,7 @@ Pages render on the server in a slowjs VM, not in Node or a browser. The VM has 
 It does not have:
 
 - Timers: `setTimeout`, `setInterval`, `requestAnimationFrame`, `requestIdleCallback`. A render ends when its microtasks run out, nothing waits for time.
-- `performance` and `crypto.subtle`.
+- The rest of `performance` (beyond `now()` and `timeOrigin`) and `crypto.subtle`.
 - The browser: `window`, `document`, `navigator`, `self`, `location`, `localStorage`, `matchMedia`, `ResizeObserver`, `Event`, `Blob`, `FormData` and the like.
 - I/O: `fetch`, `XMLHttpRequest`, `WebSocket`, `require`, `process`, `Buffer`. The build replaces `process.env.NODE_ENV` in the bundle, so code that reads only that works.
 
