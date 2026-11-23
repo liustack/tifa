@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
 ### Changed
 
 - `hooks.ts` at the app root is now `setup.ts`, plain top-level code with no function to export. Both entries import it before the routes, so its top level runs once per JavaScript runtime, in each VM of the server and in the browser, before any route module evaluates, and a route module that reads at its own top level what `setup.ts` set sees it. What `setup.ts` exports is ignored. The `onStart` parameter of `serve` and `hydrate` in the runtime is gone. A `hooks.ts` at the root fails the build with `hooks.ts is now setup.ts: rename it and move the body of onStart to the top level of the file`. `tifa dev` picks up an edit of `setup.ts` as it did one of `hooks.ts`. Upgrading: rename `hooks.ts` to `setup.ts`, delete the line `export function onStart() {` and its closing `}`, and move the body of the function to the top level of the file. If the body returns early, keep it as a local function and call it once at the top level.
