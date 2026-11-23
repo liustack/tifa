@@ -109,3 +109,18 @@ func TestDocsListSkipsChinesePartners(t *testing.T) {
 		t.Errorf("listing:\n%s", out)
 	}
 }
+
+// --check, which CI runs, includes the check of the Chinese partners.
+func TestCheckFailsForAMissingChinesePartner(t *testing.T) {
+	root := docsTree(t)
+	writeFile(t, filepath.Join(root, "docs/sec/a.md"), appFront)
+	out, err := exec.Command("bash", filepath.Join(root, "scripts", "docs-list.sh"), "--check").CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "docs/sec/a.md has no Chinese partner docs/sec/a.zh-CN.md") {
+		t.Errorf("--check: %v\n%s", err, out)
+	}
+	en := filepath.Join(root, "docs/sec/a.md")
+	writeFile(t, strings.TrimSuffix(en, ".md")+".zh-CN.md", zhDoc(docHash(t, root, en)))
+	if out, err := exec.Command("bash", filepath.Join(root, "scripts", "docs-list.sh"), "--check").CombinedOutput(); err != nil {
+		t.Errorf("--check with the partner: %v\n%s", err, out)
+	}
+}

@@ -69,7 +69,7 @@ jobs:
       # default. See "CI" in docs/internals/testing.md.
       - name: Test
         run: go test -count=1 -timeout 20m ./...
-      - name: Docs have a summary
+      - name: Docs have a summary and a Chinese partner
         run: scripts/docs-list.sh --check
       # A binary built in the checkout and committed by mistake goes into every
       # module download.

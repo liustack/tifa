@@ -2,9 +2,10 @@
 # List docs/ with the summary and read_when from each file's front matter.
 #
 #   scripts/docs-list.sh           print the index
-#   scripts/docs-list.sh --check   also fail when a doc has no summary or no audience
+#   scripts/docs-list.sh --check   also fail when a doc has no summary or no audience, or when the
+#                                  Chinese partners of the app docs are missing or stale
 #   scripts/docs-list.sh --check-translations
-#                                  fail when the Chinese partners of the app docs are missing or stale
+#                                  only the check of the Chinese partners
 #
 # Front matter format:
 #
@@ -57,7 +58,7 @@ fm_key() {
   awk -v key="$2" 'NR == 1 { next } $0 == "---" { exit } index($0, key ":") == 1 { sub(/^[^:]*:[ \t]*/, ""); gsub(/^["\x27]|["\x27]$/, ""); print; exit }' "$1"
 }
 
-if $translations; then
+check_translations() {
   bad=0
   problem() { echo "$1" >&2; bad=$((bad + 1)); }
   all="$(cd "$root" && find docs -type f -name '*.md' -not -path 'docs/research/*' | LC_ALL=C sort)"
@@ -89,9 +90,14 @@ $all
 LIST
   if [ "$bad" -gt 0 ]; then
     echo "$bad problem(s) with the Chinese docs. Update the Chinese in the same commit as the English." >&2
-    exit 1
+    return 1
   fi
-  exit 0
+  return 0
+}
+
+if $translations; then
+  check_translations
+  exit $?
 fi
 
 missing=0
@@ -152,6 +158,9 @@ fi
 echo
 echo 'Reminder: before coding, check the "Read when" hints above and read the docs that apply.'
 
+if $check; then
+  check_translations || missing=$((missing + 1))
+fi
 if $check && [ "$missing" -gt 0 ]; then
   exit 1
 fi
