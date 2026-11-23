@@ -97,7 +97,7 @@ func (r *setupRun) installCloudflared(manager []string) func(context.Context) (s
 // localSSHSteps plans cloudflared and the block of the ssh config for host, and, unless switching
 // is false, the check of the tunnel and the move of TIFA_DEPLOY_HOST. It returns false when the
 // machine cannot be made ready by setup: the plan then holds what the developer does.
-func (r *setupRun) localSSHSteps(p *setupPlan, host, shown string, switching bool) {
+func (r *setupRun) localSSHSteps(p *setupPlan, host string, switching bool) {
 	t := r.t
 	path, have := r.cloudflaredNow()
 	switch manager := cloudflaredManager(); {
@@ -132,7 +132,7 @@ func (r *setupRun) localSSHSteps(p *setupPlan, host, shown string, switching boo
 			op = opChange
 		}
 	default:
-		if present, err := hasSSHBlock(cfgPath, t.app); err == nil && present {
+		if _, present, err := sshBlockState(cfgPath, t.app, host, ""); err == nil && present {
 			op = opChange
 		}
 	}
@@ -148,25 +148,17 @@ func (r *setupRun) localSSHSteps(p *setupPlan, host, shown string, switching boo
 	if !switching {
 		return
 	}
-	r.hostSwitchSteps(p, host, shown)
+	r.hostSwitchSteps(p, host)
 }
 
 // hostSwitchSteps plans the check of the tunnel and the move of TIFA_DEPLOY_HOST to the ssh host.
-func (r *setupRun) hostSwitchSteps(p *setupPlan, host, shown string) {
+func (r *setupRun) hostSwitchSteps(p *setupPlan, host string) {
 	t := r.t
 	if t.dest.name == host {
 		p.ok("this machine: TIFA_DEPLOY_HOST is the ssh host, so deploys go through the tunnel")
 		return
 	}
-	if t.dest.from != dotenvHostFrom {
-		// The environment and a flag are not setup's to change.
-		p.notes = append(p.notes, planNote{
-			what: "this machine: set TIFA_DEPLOY_HOST=" + shown + " to deploy through the tunnel",
-			why:  fmt.Sprintf("Your TIFA_DEPLOY_HOST comes from the %s, which setup does not change. Set it to %s, or write it in the .env at the root of the app. Then the server needs no open ssh port", t.dest.fromText(), shown),
-		})
-		r.hostAdvice = fmt.Sprintf("To deploy from this machine through the tunnel, set TIFA_DEPLOY_HOST=%s (yours comes from the %s, which setup does not change).", host, t.dest.fromText())
-		return
-	}
+	// The check runs whatever the source of TIFA_DEPLOY_HOST is: it says whether the tunnel works.
 	checked := false
 	p.steps = append(p.steps, planStep{op: opAdd, soft: true,
 		text: fmt.Sprintf("this machine: check that ssh reaches %s@%s through the tunnel (the first time, cloudflared opens the Cloudflare Access login in your browser and waits for you)", deployUser, host),
@@ -175,8 +167,16 @@ func (r *setupRun) hostSwitchSteps(p *setupPlan, host, shown string) {
 				return "", err
 			}
 			checked = true
+			if t.dest.from != dotenvHostFrom {
+				// The environment and a flag are not setup's to change: tell the developer, now
+				// that there is a tunnel to point at.
+				r.hostAdvice = fmt.Sprintf("To deploy from this machine through the tunnel, set TIFA_DEPLOY_HOST=%s (yours comes from the %s, which setup does not change). Then the server needs no open ssh port.", host, t.dest.fromText())
+			}
 			return "", nil
 		}})
+	if t.dest.from != dotenvHostFrom {
+		return
+	}
 	p.steps = append(p.steps, planStep{op: opChange, soft: true,
 		text: fmt.Sprintf("this machine: TIFA_DEPLOY_HOST in .env, %s -> %s", t.host, host),
 		do: func(context.Context) (string, error) {
@@ -209,18 +209,85 @@ func (r *setupRun) checkTunnel(ctx context.Context, host string) error {
 	return fmt.Errorf("ssh %s@%s through the tunnel failed (%v), see above. The Access login does not put your ssh key on the server: it must be in /srv/tifa/.ssh/authorized_keys. Run go tool tifa deploy setup again once it works", deployUser, host, err)
 }
 
-// setEnvHost sets TIFA_DEPLOY_HOST in the .env at path, keeping every other line and the line
-// endings of the file.
+// setEnvHost sets TIFA_DEPLOY_HOST in the .env at path, keeping everything else of the file.
 func setEnvHost(path, host string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	out := withEnv(string(data), deployHostEnv, host)
-	if strings.Contains(string(data), "\r\n") {
-		out = strings.ReplaceAll(out, "\n", "\r\n")
+	return os.WriteFile(path, []byte(setDotenvValue(string(data), deployHostEnv, host)), 0o600)
+}
+
+// setDotenvValue changes the value of the line that sets name, the last one, which is the one the
+// program reads. It touches nothing else: not an export in front, not the quotes around the value,
+// not a comment after it, not the line ending of that line or of any other, and not a missing
+// final newline. A name that is not set is added at the end.
+func setDotenvValue(data, name, value string) string {
+	lines := strings.SplitAfter(data, "\n")
+	last := -1
+	for i, l := range lines {
+		if envLineName(strings.TrimRight(l, "\r\n")) == name {
+			last = i
+		}
 	}
-	return os.WriteFile(path, []byte(out), 0o600)
+	if last < 0 {
+		eol := "\n"
+		if strings.Contains(data, "\r\n") {
+			eol = "\r\n"
+		}
+		if data != "" && !strings.HasSuffix(data, "\n") {
+			data += eol
+		}
+		return data + envLine(name, value) + eol
+	}
+	line := lines[last]
+	body := strings.TrimRight(line, "\r\n")
+	term := line[len(body):]
+	lines[last] = replaceEnvValue(body, name, value) + term
+	return strings.Join(lines, "")
+}
+
+// replaceEnvValue rewrites the value in one line of .env that sets name.
+func replaceEnvValue(line, name, value string) string {
+	i := strings.Index(line, name)
+	j := i + len(name)
+	for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+		j++
+	}
+	j++ // the =
+	for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+		j++
+	}
+	head, v := line[:j], line[j:]
+	bare := envLine(name, value)[len(name)+1:]
+	switch {
+	case strings.HasPrefix(v, `"`):
+		end := 1
+		for end < len(v) && v[end] != '"' {
+			if v[end] == '\\' {
+				end++
+			}
+			end++
+		}
+		if end < len(v) {
+			quoted := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\t", `\t`, "\r", `\r`).Replace(value)
+			return head + `"` + quoted + `"` + v[end+1:]
+		}
+	case strings.HasPrefix(v, "'"):
+		if end := strings.IndexByte(v[1:], '\''); end >= 0 && !strings.ContainsAny(value, "'\n") {
+			return head + "'" + value + "'" + v[end+2:]
+		}
+	}
+	// A bare value ends at a comment: a # after a space or a tab. The spaces before it stay.
+	end := len(v)
+	for k := 1; k < len(v); k++ {
+		if v[k] == '#' && (v[k-1] == ' ' || v[k-1] == '\t') {
+			end = k
+			break
+		}
+	}
+	val := strings.TrimRight(v[:end], " \t")
+	return head + bare + v[len(val):]
 }
 
 // looksLikeSSHHost says host is a name of the kind setup makes for the ssh host of domain, without
@@ -239,34 +306,43 @@ func (r *setupRun) tunnelReady() bool {
 	if err != nil {
 		return false
 	}
-	present, err := hasSSHBlock(path, r.t.app)
-	return err == nil && present
+	hosts, err := sshBlocksFor(path, r.t.app, r.t.domain)
+	return err == nil && len(hosts) > 0
 }
 
 // machineFirst plans, ahead of everything else, what this machine needs to reach a server that
 // the developer already names by its ssh host: another person's setup, or a second run. Without
 // it the first ssh of setup could not get through the tunnel. It plans nothing when the target is
-// not the ssh host of Cloudflare.
-func (r *setupRun) machineFirst(ctx context.Context, p *setupPlan) error {
+// not the ssh host of Cloudflare. It reports that the plan is all there is to say for now: this
+// machine cannot reach the server, and setup cannot yet make it able to.
+func (r *setupRun) machineFirst(ctx context.Context, p *setupPlan) (stop bool, err error) {
 	t := r.t
-	if t.sshMode != connCloudflare || !looksLikeSSHHost(t.dest.name, t.domain) || !r.useCF(ctx) {
-		return nil
+	if t.sshMode != connCloudflare || !looksLikeSSHHost(t.dest.name, t.domain) {
+		return false, nil
+	}
+	if !r.useCF(ctx) {
+		if r.tunnelReady() {
+			return false, nil
+		}
+		p.cannot("this machine: a way to reach "+t.dest.name+" through the tunnel",
+			cfNeed()+". Setup then adds your email to the Access policy, installs cloudflared, writes the block of your ssh config, and reads the server")
+		return true, nil
 	}
 	zone, err := findZone(ctx, t.domain)
 	if err != nil {
-		return nil
+		return false, nil
 	}
 	found, err := findSSHHosts(ctx, "", t.domain, zone.Name)
 	if err != nil || found.host != t.dest.name {
-		return nil
+		return false, nil
 	}
 	r.sshName = found.host
-	if err := r.peopleSteps(ctx, p, found.host); err != nil {
-		return err
+	if _, err := r.peopleSteps(ctx, p, found.host); err != nil {
+		return false, err
 	}
-	r.localSSHSteps(p, found.host, found.host, false)
+	r.localSSHSteps(p, found.host, false)
 	if p.todo() > 0 {
 		p.then = "Setup plans the rest once this machine can reach the server through the tunnel, and asks again."
 	}
-	return nil
+	return false, nil
 }

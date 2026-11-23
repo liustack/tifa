@@ -263,8 +263,18 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 	if err != nil {
 		return false, err
 	}
-	// The applications this call is about.
-	var mine []map[string]any
+	// The ssh host names this call is about, each with its application when it has one. The route
+	// of the tunnel names them too, so a run after a partial failure finds a host whose
+	// application is already gone.
+	type target struct {
+		host string
+		app  map[string]any
+	}
+	var mine []target
+	seen := map[string]bool{}
+	ownHost := func(host string) bool {
+		return zoneName != "" && (isSSHHost(host, domain, zoneName) || host == legacySSHHost(domain, zoneName))
+	}
 	for _, app := range apps {
 		appName, _ := app["name"].(string)
 		host, _ := app["domain"].(string)
@@ -272,8 +282,20 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 			continue
 		}
 		policies, _ := app["policies"].([]any)
-		if (policy != nil && attachedPolicy(policies, policy.ID)) || (zoneName != "" && (isSSHHost(host, domain, zoneName) || host == legacySSHHost(domain, zoneName))) {
-			mine = append(mine, app)
+		if (policy != nil && attachedPolicy(policies, policy.ID)) || ownHost(host) {
+			mine = append(mine, target{host, app})
+			seen[host] = true
+		}
+	}
+	if zoneName != "" && tunnelID != "" {
+		_, ingress, err := tunnelIngress(ctx, tunnelID)
+		if err != nil {
+			return false, err
+		}
+		for _, rule := range ingress {
+			if host, _ := rule["hostname"].(string); host != "" && !seen[host] && rule["service"] == sshService && rule["path"] == nil && ownHost(host) {
+				mine = append(mine, target{host, nil})
+			}
 		}
 	}
 	if len(ids) == 0 && policy == nil && len(mine) == 0 {
@@ -282,13 +304,17 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 	if !apply {
 		return true, nil
 	}
-	for _, app := range mine {
-		policies, _ := app["policies"].([]any)
-		id, _ := app["id"].(string)
-		host, _ := app["domain"].(string)
+	for _, tg := range mine {
+		host, app := tg.host, tg.app
 		people, err := policyByName(ctx, peopleName(host))
 		if err != nil {
 			return true, err
+		}
+		var policies []any
+		id := ""
+		if app != nil {
+			policies, _ = app["policies"].([]any)
+			id, _ = app["id"].(string)
 		}
 		var rest []map[string]any
 		others := false
@@ -303,7 +329,7 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 			rest = append(rest, map[string]any{"id": m["id"], "precedence": len(rest) + 1})
 		}
 		if keepApp || others {
-			if policy != nil && attachedPolicy(policies, policy.ID) {
+			if app != nil && policy != nil && attachedPolicy(policies, policy.ID) {
 				for _, k := range []string{"id", "aud", "created_at", "updated_at"} {
 					delete(app, k)
 				}
@@ -316,16 +342,8 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 			}
 			continue
 		}
-		if _, err := runCF(ctx, "zero-trust", "access", "applications", "delete", id, "--force"); err != nil {
-			return true, err
-		}
-		say("Access application %s removed", host)
-		if people != nil {
-			if _, err := runCF(ctx, "zero-trust", "access", "policies", "delete", people.ID, "--force"); err != nil {
-				return true, err
-			}
-			say("policy %s removed", peopleName(host))
-		}
+		// The route and the record go first: whatever a partial failure leaves, the host name is
+		// never reachable without its Access application.
 		if tunnelID != "" {
 			if err := removeRoute(ctx, tunnelID, host); err != nil {
 				return true, err
@@ -338,6 +356,18 @@ func removeSSHAccess(ctx context.Context, repo, domain, tunnelID string, keepApp
 				return true, err
 			}
 			say("route and DNS of %s removed", host)
+		}
+		if app != nil {
+			if _, err := runCF(ctx, "zero-trust", "access", "applications", "delete", id, "--force"); err != nil {
+				return true, err
+			}
+			say("Access application %s removed", host)
+		}
+		if people != nil {
+			if _, err := runCF(ctx, "zero-trust", "access", "policies", "delete", people.ID, "--force"); err != nil {
+				return true, err
+			}
+			say("policy %s removed", peopleName(host))
 		}
 	}
 	if policy != nil {

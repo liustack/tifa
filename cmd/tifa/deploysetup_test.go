@@ -136,7 +136,7 @@ true) echo "check $user" >> "$d/calls"; [ -f "$d/checkfail" ] && { echo "Permiss
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\n' ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
-*'disable --quiet $units'*) echo "removeapp $user" >> "$d/calls" ;;
+*'disable --quiet $units'*) [ -f "$d/removefail" ] && { echo "tifa: cannot stop the units" >&2; exit 1; }; echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
 *'tifa-$app.socket'*) echo "app $user" >> "$d/calls" ;;
 *'line=$(cat)'*cloudflare-purge*) echo "purgestore $user" >> "$d/calls"; line=$(cat); [ -f "$d/storefail" ] && { echo "tifa: disk full" >&2; exit 1; }; z=${line%%	*}; touch "$d/purge"; grep -v "^$z	" "$d/purge" > "$d/purge.new" || true; printf '%s\n' "$line" >> "$d/purge.new"; mv "$d/purge.new" "$d/purge"; printf 'purge-file yes\npurge-zone %s\n' "$z" >> "$d/facts" ;;
@@ -158,6 +158,11 @@ esac
 }
 
 func (s *setupServer) deny(t *testing.T) { writeFile(t, filepath.Join(s.dir, "denied"), "") }
+
+// failRemoveApp makes the step that removes the app on the server fail.
+func (s *setupServer) failRemoveApp(t *testing.T) {
+	writeFile(t, filepath.Join(s.dir, "removefail"), "")
+}
 
 // failCheck makes the ssh to the ssh host through the tunnel fail, as a key the server does not know.
 func (s *setupServer) failCheck(t *testing.T) { writeFile(t, filepath.Join(s.dir, "checkfail"), "") }
@@ -1566,7 +1571,7 @@ func TestSetupReplacesTheOldSSHHost(t *testing.T) {
 	// Run again: nothing to do, and the same name.
 	setFacts(t, srv, factsOf("shop", 9531, tunnelFacts+"ghkey acme/shop\n"))
 	out, err = runSetup(t, root, false, "", "--yes")
-	if err != nil || strings.Contains(out, "  add     ") || strings.Contains(out, "  change  ") || strings.Contains(out, "  remove  ") || gh.secrets[secretHost] != host {
+	if plain := withoutTunnelCheck(out); err != nil || strings.Contains(plain, "  add     ") || strings.Contains(plain, "  change  ") || strings.Contains(plain, "  remove  ") || gh.secrets[secretHost] != host {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
 	// ci none: remove finds the name through the application and takes the route and record too.
@@ -1836,8 +1841,8 @@ func TestSetupCloudflareSSHWithoutCI(t *testing.T) {
 	if err != nil && !strings.Contains(err.Error(), "needs you") {
 		t.Fatal(err)
 	}
-	if w := cf.writes(); len(w) != 0 || strings.Contains(out, "  add     ") || strings.Contains(out, "  change  ") {
-		t.Errorf("a second run wrote %v:\n%s", w, out)
+	if plain := withoutTunnelCheck(out); len(cf.writes()) != 0 || strings.Contains(plain, "  add     ") || strings.Contains(plain, "  change  ") {
+		t.Errorf("a second run wrote %v:\n%s", cf.writes(), out)
 	}
 
 	// Another person with another login is added to the same policy, and the first stays.
@@ -1930,4 +1935,16 @@ func TestSetupCloudflareSSHNoEmail(t *testing.T) {
 	if err == nil || !strings.Contains(out, "does not tell your email") || len(cf.policies) != 0 {
 		t.Errorf("%v\n%s", err, out)
 	}
+}
+
+// withoutTunnelCheck drops the lines of the check of the tunnel, which a setup whose
+// TIFA_DEPLOY_HOST comes from the environment runs each time.
+func withoutTunnelCheck(out string) string {
+	var keep []string
+	for _, l := range strings.Split(out, "\n") {
+		if !strings.Contains(l, "this machine: check that ssh reaches") {
+			keep = append(keep, l)
+		}
+	}
+	return strings.Join(keep, "\n")
 }

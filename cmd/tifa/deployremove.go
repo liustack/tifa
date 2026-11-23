@@ -147,7 +147,6 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			return "", t.ssh(ctx, deployUser, script(removeAppBody, "app", app), nil, io.Discard, r.stderr)
 		})
 	}
-	p.steps = append(p.steps, r.late...)
 	// A step that fails does not stop the others: they do not depend on it, and the next run finds
 	// what is left. Only the tunnel waits for them all, since what is left may lead to it.
 	type step = func(context.Context) (string, error)
@@ -172,6 +171,15 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			return do(ctx)
 		})
 	}
+	// Everything that needs ssh comes first, the purge tokens too: when the developer reaches the
+	// server through the tunnel, the steps below take that way away.
+	// The purge tokens serve every app of the server too, and go with the last one, whatever its
+	// front: they are on the server, so no login of cf is needed.
+	if len(st.Others) == 0 && st.PurgeFile {
+		p.add(opRemove, fmt.Sprintf("server: delete %s, the tokens that clear the CDN cache, which no other app uses", path.Join(st.Home, purgeFile)), afterAll(func(ctx context.Context) (string, error) {
+			return "", t.ssh(ctx, deployUser, purgeForgetBody, nil, io.Discard, r.stderr)
+		}))
+	}
 	if cf && len(st.Others) == 0 {
 		if st.TunnelID != "" || st.TunnelActive || st.CloudflaredByTifa {
 			text := "server: stop cloudflared, the service tifa-tunnel, and delete its units and /etc/tifa, as root"
@@ -195,28 +203,33 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 				return strings.TrimSpace(out.String()), nil
 			}))
 		}
-		if tunnelFound {
-			id := r.st.TunnelID
-			p.add(opRemove, "cloudflare: the tunnel of the server, "+tunnelName+", which no other app uses", afterAll(func(ctx context.Context) (string, error) {
-				return "", deleteTunnel(ctx, id)
-			}))
-		}
 	}
-	// The purge tokens serve every app of the server too, and go with the last one, whatever its
-	// front: they are on the server, so no login of cf is needed.
-	if len(st.Others) == 0 && st.PurgeFile {
-		p.add(opRemove, fmt.Sprintf("server: delete %s, the tokens that clear the CDN cache, which no other app uses", path.Join(st.Home, purgeFile)), afterAll(func(ctx context.Context) (string, error) {
-			return "", t.ssh(ctx, deployUser, purgeForgetBody, nil, io.Discard, r.stderr)
+	// The ssh host name of the app goes after the last ssh, and only when the steps before it
+	// worked: its route is the way in for a run that has to be run again.
+	for _, s := range r.late {
+		s.do = afterAll(s.do)
+		p.steps = append(p.steps, s)
+	}
+	if cf && len(st.Others) == 0 && tunnelFound {
+		id := r.st.TunnelID
+		p.add(opRemove, "cloudflare: the tunnel of the server, "+tunnelName+", which no other app uses", afterAll(func(ctx context.Context) (string, error) {
+			return "", deleteTunnel(ctx, id)
 		}))
 	}
 	// The block of the ssh config goes last: the steps above may need the tunnel it leads to, and
-	// a run that stopped halfway is run again through it.
-	if path, err := sshConfigPath(); err == nil {
-		if present, err := hasSSHBlock(path, app); err != nil {
+	// a run that stopped halfway is run again through it. When the developer reaches the server
+	// by the ssh host name and cf cannot take that name away, the block stays.
+	if path, err := sshConfigPath(); err == nil && t.domain != "" {
+		hosts, err := sshBlocksFor(path, app, t.domain)
+		switch {
+		case err != nil:
 			p.cannot("this machine: the block of tifa "+app+" in "+path, err.Error())
-		} else if present {
+		case len(hosts) > 0 && !cf && looksLikeSSHHost(t.dest.name, t.domain):
+			p.notes = append(p.notes, planNote{what: "this machine: the block of tifa " + app + " in " + path + " stays",
+				why: "You reach the server by " + t.dest.name + ", which setup cannot take away without cf, and ssh needs the block for it. Log in to cf and run remove again, which then removes the block"})
+		case len(hosts) > 0:
 			p.add(opRemove, "this machine: the block of tifa "+app+" in "+path+", which tifa wrote", afterAll(func(context.Context) (string, error) {
-				_, err := removeSSHBlock(path, app)
+				_, err := removeSSHBlocks(path, app, t.domain)
 				return "", err
 			}))
 		}

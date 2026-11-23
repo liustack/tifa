@@ -362,12 +362,16 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 		if r.toolSteps(ctx, &p); p.todo() > 0 {
 			return p, r, nil
 		}
-		// A server that is named by its ssh host is reached through the tunnel: this machine
-		// needs cloudflared, its place in the ssh config and its Access policy first.
-		if err := r.machineFirst(ctx, &p); err != nil {
+	}
+	// A server that is named by its ssh host is reached through the tunnel: this machine needs
+	// cloudflared, its place in the ssh config and its Access policy first, also once cf and gh
+	// were made ready by the round before.
+	if !f.skipMachine {
+		stop, err := r.machineFirst(ctx, &p)
+		if err != nil {
 			return p, r, err
 		}
-		if p.todo() > 0 {
+		if stop || p.todo() > 0 {
 			return p, r, nil
 		}
 	}
@@ -400,9 +404,23 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 		} else if err := r.accessSteps(ctx, &p); err != nil {
 			return p, r, err
 		}
-	case t.sshMode != connCloudflare && t.domain != "" && !r.accessRemovalPlanned && r.useCF(ctx):
-		if err := r.removeAccess(ctx, &p); err != nil {
-			return p, r, err
+	case t.sshMode != connCloudflare && t.domain != "":
+		if !r.accessRemovalPlanned && r.useCF(ctx) {
+			if err := r.removeAccess(ctx, &p); err != nil {
+				return p, r, err
+			}
+		}
+		// What this machine holds for the ssh host name goes with it, unless the developer still
+		// reaches the server by that name: removeAccess said what to do then.
+		if path, err := sshConfigPath(); err == nil && !looksLikeSSHHost(t.dest.name, t.domain) {
+			if hosts, err := sshBlocksFor(path, t.app, t.domain); err != nil {
+				p.cannot("this machine: the block of tifa "+t.app+" in "+path, err.Error())
+			} else if len(hosts) > 0 {
+				p.add(opRemove, "this machine: the block of tifa "+t.app+" in "+path+", which tifa wrote, since deploy.ssh is not cloudflare any more", func(context.Context) (string, error) {
+					_, err := removeSSHBlocks(path, t.app, t.domain)
+					return "", err
+				})
+			}
 		}
 	}
 	return p, r, nil
@@ -899,13 +917,11 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 		}
 	}
 	r.sshName = host
-	shownHost := host
 	if found.host == "" {
 		// The random part is drawn again by every run, so a plan shows that it is new and the line
 		// of the step, once it ran, shows the name it made.
 		prefix, suffix := sshHostParts(t.domain, zone.Name)
 		shown := prefix + "<random>" + suffix
-		shownHost = shown
 		steps, after := len(p.steps), len(r.afterConnection)
 		defer func() {
 			for _, later := range [][]planStep{p.steps[steps:], r.afterConnection[after:]} {
@@ -925,28 +941,40 @@ func (r *setupRun) accessSteps(ctx context.Context, p *setupPlan) error {
 				return "", removeSSHHost(ctx, r.tunnelID, zone.Name, legacy)
 			}})
 	}
-	r.hostSteps(ctx, p, zone, host, found.host == "", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
-		"DNS "+host+" CNAME the tunnel, proxied", func() string { return sshService })
+	// Access comes before the route: nothing is published until the application and a policy
+	// that lets someone in are made, so the ssh host name is never open to everyone. The steps
+	// run in the order of the plan, and a failed one stops the rest.
+	admits := false
 	if t.github && r.repo.Name != "" {
-		if err := r.tokenSteps(ctx, p, host); err != nil {
+		ok, err := r.tokenSteps(ctx, p, host)
+		if err != nil {
 			return err
 		}
+		admits = ok
 	}
-	if err := r.peopleSteps(ctx, p, host); err != nil {
+	people, err := r.peopleSteps(ctx, p, host)
+	if err != nil {
 		return err
 	}
+	if !admits && !people {
+		p.cannot("cloudflare: the route and DNS record of "+host+", which the ssh of the server goes through",
+			"Nothing admits anyone to the Access application yet, so setup does not publish them: a route without Access would be open to everyone. Fix what the item above says, and run setup again")
+		return nil
+	}
+	r.hostSteps(ctx, p, zone, host, found.host == "", fmt.Sprintf("cloudflare: route %s -> %s", host, sshService),
+		"DNS "+host+" CNAME the tunnel, proxied", func() string { return sshService })
 	// The ssh of this machine goes through the tunnel too.
-	r.localSSHSteps(p, host, shownHost, true)
+	r.localSSHSteps(p, host, true)
 	return nil
 }
 
 // tokenSteps lets the repository in: a service token that does not expire, kept as secrets of the
 // repository, and its policy on the Access application of the ssh host name.
-func (r *setupRun) tokenSteps(ctx context.Context, p *setupPlan, host string) error {
+func (r *setupRun) tokenSteps(ctx context.Context, p *setupPlan, host string) (bool, error) {
 	name := accessName(r.repo.Name)
 	ids, err := serviceTokenIDs(ctx, name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	text := fmt.Sprintf("cloudflare: the Access application of %s admits the service token %s, kept as %s and %s", host, name, secretCFID, secretCFSecret)
 	if len(ids) == 1 && r.ghNames[secretCFID] && r.ghNames[secretCFSecret] {
@@ -957,7 +985,7 @@ func (r *setupRun) tokenSteps(ctx context.Context, p *setupPlan, host string) er
 			}
 			if how, err := ensureSSHApp(ctx, host, policyID, false, false); err == nil && how == "already there" {
 				p.ok(text)
-				return nil
+				return true, nil
 			}
 		}
 	}
@@ -982,17 +1010,17 @@ func (r *setupRun) tokenSteps(ctx context.Context, p *setupPlan, host string) er
 		}
 		return how, r.ghSecret(ctx, secretCFSecret, clientSecret)
 	})
-	return nil
+	return true, nil
 }
 
 // peopleSteps lets the person of the cf login in: their email goes into the policy of the people
 // of the ssh host name, on the Access application tifa made for it. The emails that are there stay,
 // so a second person who runs setup with their own login is added next to the first. Nothing
 // outside that application and its policy changes.
-func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) error {
+func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) (bool, error) {
 	email, err := cfEmail(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if email == "" {
 		const why = "cf does not tell your email, so setup cannot let you in: it is logged in with an API token. Log in with cf auth login"
@@ -1003,12 +1031,12 @@ func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) e
 		} else {
 			p.cannot(what, why)
 		}
-		return nil
+		return false, nil
 	}
 	name := peopleName(host)
 	id, emails, found, err := peopleOf(ctx, name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	attached := false
 	if found {
@@ -1018,7 +1046,7 @@ func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) e
 	text := fmt.Sprintf("cloudflare: the Access application of %s admits %s", host, email)
 	if found && hasEmail(emails, email) && attached {
 		p.ok(text)
-		return nil
+		return true, nil
 	}
 	op := opAdd
 	if found {
@@ -1037,7 +1065,7 @@ func (r *setupRun) peopleSteps(ctx context.Context, p *setupPlan, host string) e
 		}
 		return how, nil
 	})
-	return nil
+	return true, nil
 }
 
 // purgeSteps plans the token that clears the CDN cache of the domain at each deploy. It lives on
@@ -1352,7 +1380,11 @@ func (r *setupRun) removeAccess(ctx context.Context, p *setupPlan) error {
 	// With ssh still cloudflare, only the token of the repository goes: the people who deploy from
 	// their machines keep the application. Remove takes it all.
 	keepApp := r.t.sshMode == connCloudflare && !r.removing
-	if r.useCF(ctx) {
+	if !r.removing && r.t.sshMode != connCloudflare && looksLikeSSHHost(r.t.dest.name, r.t.domain) {
+		// The developer reaches the server by the ssh host name that this would take away.
+		p.cannot("cloudflare: the ssh host name "+r.t.dest.name+", its route, DNS record and Access application, which tifa made and deploy.ssh no longer asks for",
+			"TIFA_DEPLOY_HOST is that host name, and removing it would cut the way setup reaches the server. Set TIFA_DEPLOY_HOST to the address of the server (its ssh port must be open to you), and run setup again: it then removes them, and the block of your ssh config")
+	} else if r.useCF(ctx) {
 		found, err := removeSSHAccess(ctx, repo, r.t.domain, r.st.TunnelID, keepApp, false, nil)
 		if err != nil {
 			return err
@@ -1460,18 +1492,23 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	title := fmt.Sprintf("Plan for %s on %s", t.app, t.host)
 	// toolWarnings counts the steps on this machine that failed: they need the developer too.
 	toolWarnings := 0
-	if plan.then != "" {
-		// cf and gh come first: the rest of the plan reads Cloudflare and GitHub with them. Their
+	for round := 0; plan.then != ""; round++ {
+		// cf and gh come first: the rest of the plan reads Cloudflare and GitHub with them. Then
+		// this machine, when the server is named by its ssh host and it cannot reach it yet. Their
 		// steps may fail without stopping setup, and what failed shows again in the next plan.
 		plan.print(stdout, title, f.all)
 		if err := confirm(in, stdout, f.yes); err != nil {
 			return err
 		}
-		if toolWarnings, err = plan.apply(ctx, stdout); err != nil {
+		warnings, err := plan.apply(ctx, stdout)
+		if err != nil {
 			return err
 		}
+		toolWarnings += warnings
 		fmt.Fprintln(stdout)
-		if plan, run, err = buildSetupPlan(ctx, t, f, false, in, stdout, stderr); err != nil {
+		next := f
+		next.skipMachine = round >= 1
+		if plan, run, err = buildSetupPlan(ctx, t, next, false, in, stdout, stderr); err != nil {
 			return err
 		}
 	}
@@ -1519,4 +1556,6 @@ type setupFlags struct {
 	// purgeToken (--cache-purge-token) and tailscaleOAuth (--tailscale-oauth) ask for that
 	// secret even when GitHub has it, and replace it.
 	purgeToken, tailscaleOAuth bool
+	// skipMachine leaves out the first plan for this machine: setup already made it twice.
+	skipMachine bool
 }
