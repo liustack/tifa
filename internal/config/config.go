@@ -363,7 +363,12 @@ var renamedDeployKeys = []struct {
 	hint func(old string) string
 }{
 	{"deploy.ssh", func(old string) string {
-		return "deploy.ssh is now deploy.connect: write connect: " + old
+		// The old value is only echoed when it is one of the words: a file that is committed should
+		// hold none, but a mistake in it may be anything, even a secret pasted on the wrong line.
+		if slices.Contains([]string{"direct", "cloudflare", "tailscale"}, old) {
+			return "deploy.ssh is now deploy.connect: write connect: " + old
+		}
+		return "deploy.ssh is now deploy.connect: write connect as direct, cloudflare or tailscale"
 	}},
 	{"deploy.ci", func(old string) string {
 		switch old {
@@ -388,28 +393,31 @@ func projectDeploy(entries map[string]entry, c *Config) (errs []error) {
 			errs = append(errs, errors.New(where(e)+r.hint(strings.ToLower(strings.TrimSpace(e.raw)))))
 		}
 	}
+	// The keys of the block can be written in any form YAML has for a nested key: a mapping, or
+	// dotted keys such as deploy.auto.branch. Any of them turns the block on, as the mapping does.
+	var below []string
+	for key := range entries {
+		if strings.HasPrefix(key, "deploy.auto.") {
+			below = append(below, key)
+		}
+	}
+	slices.SortFunc(below, func(a, b string) int { return entries[a].line - entries[b].line })
 	block, ok := entries["deploy.auto"]
 	switch {
-	case !ok:
-	case block.mapping:
+	case ok && !block.mapping && block.typ == "null" && block.err == nil:
+		errs = append(errs, errors.New(where(block)+"deploy.auto: write auto: {} to turn it on with the defaults, or give it the keys branch and needs, or delete the line"))
+	case ok && !block.mapping:
+		errs = append(errs, errors.New(where(block)+"deploy.auto is a block: write auto: {} to turn it on with the defaults, or give it the keys branch and needs"))
+	case ok || len(below) > 0:
 		c.Deploy.Auto.On = true
-		var unknown []string
-		for key := range entries {
-			if rest, ok := strings.CutPrefix(key, "deploy.auto."); ok && !slices.Contains(autoKeys, strings.Split(rest, ".")[0]) {
-				unknown = append(unknown, key)
-			}
-		}
-		slices.SortFunc(unknown, func(a, b string) int { return entries[a].line - entries[b].line })
-		for _, key := range unknown {
+		seen := map[string]bool{}
+		for _, key := range below {
 			name := "deploy.auto." + strings.Split(strings.TrimPrefix(key, "deploy.auto."), ".")[0]
-			if key == name {
+			if !slices.Contains(autoKeys, strings.TrimPrefix(name, "deploy.auto.")) && !seen[name] {
+				seen[name] = true
 				errs = append(errs, errors.New(where(entries[key])+name+" is not a key of deploy.auto: use branch or needs"))
 			}
 		}
-	case block.typ == "null" && block.err == nil:
-		errs = append(errs, errors.New(where(block)+"deploy.auto: write auto: {} to turn it on with the defaults, or give it the keys branch and needs, or delete the line"))
-	default:
-		errs = append(errs, errors.New(where(block)+"deploy.auto is a block: write auto: {} to turn it on with the defaults, or give it the keys branch and needs"))
 	}
 	return errs
 }

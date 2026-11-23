@@ -899,6 +899,9 @@ func TestDeployAuto(t *testing.T) {
 		want Auto
 	}{
 		"empty block":  {"deploy:\n  auto: {}\n", Auto{On: true, Needs: "ci.yml"}},
+		"dotted key":   {"deploy.auto.branch: release\n", Auto{On: true, Branch: "release", Needs: "ci.yml"}},
+		"dotted needs": {"deploy:\n  auto.needs: none\n", Auto{On: true, Needs: "none"}},
+		"flow block":   {"deploy: {auto: {branch: release}}\n", Auto{On: true, Branch: "release", Needs: "ci.yml"}},
 		"block lines":  {"deploy:\n  auto:\n    branch: release\n    needs: checks.yaml\n", Auto{On: true, Branch: "release", Needs: "checks.yaml"}},
 		"needs none":   {"deploy:\n  auto:\n    needs: none\n", Auto{On: true, Needs: "none"}},
 		"empty values": {"deploy:\n  auto:\n    branch: \"\"\n    needs: \"\"\n", Auto{On: true, Needs: "ci.yml"}},
@@ -915,6 +918,7 @@ func TestDeployAuto(t *testing.T) {
 		"a word":          {"deploy:\n  auto: github\n", "deploy.auto is a block"},
 		"a list":          {"deploy:\n  auto: [main]\n", "deploy.auto is a block"},
 		"unknown key":     {"deploy:\n  auto:\n    branch: main\n    from: github\n", "tifa.yaml line 4: deploy.auto.from is not a key of deploy.auto: use branch or needs"},
+		"unknown dotted":  {"deploy.auto.from: github\n", "deploy.auto.from is not a key of deploy.auto"},
 		"unknown nested":  {"deploy:\n  auto:\n    x:\n      y: 1\n", "deploy.auto.x is not a key"},
 		"branch list":     {"deploy:\n  auto:\n    branch: [main, dev]\n", "deploy.auto.branch"},
 		"branch glob":     {"deploy:\n  auto:\n    branch: release/*\n", "deploy.auto.branch"},
@@ -936,15 +940,16 @@ func TestDeployAuto(t *testing.T) {
 // the answer is exact, so nothing is guessed from the old value.
 func TestDeployOldNamesFail(t *testing.T) {
 	for name, tc := range map[string]struct{ yaml, want string }{
-		"ssh cloudflare": {"deploy:\n  front: cloudflare\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
-		"ssh quoted":     {"deploy:\n  ssh: \"Tailscale\"\n", "deploy.ssh is now deploy.connect: write connect: tailscale"},
-		"ssh other":      {"deploy:\n  ssh: proxy\n", "deploy.ssh is now deploy.connect: write connect: proxy"},
-		"ci github":      {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
-		"ci none":        {"deploy:\n  ci: none\n", "deploy.ci is now the block deploy.auto: delete the line ci: none"},
-		"ci other":       {"deploy:\n  ci: gitlab\n", "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"},
+		"ssh secret-looking": {"deploy:\n  ssh: tskey-abc\n", "write connect as direct"},
+		"ssh cloudflare":     {"deploy:\n  front: cloudflare\n  ssh: cloudflare\n", "tifa.yaml line 3: deploy.ssh is now deploy.connect: write connect: cloudflare"},
+		"ssh quoted":         {"deploy:\n  ssh: \"Tailscale\"\n", "deploy.ssh is now deploy.connect: write connect: tailscale"},
+		"ssh other":          {"deploy:\n  ssh: proxy\n", "deploy.ssh is now deploy.connect: write connect as direct, cloudflare or tailscale"},
+		"ci github":          {"deploy:\n  ci: github\n", "tifa.yaml line 2: deploy.ci is now the block deploy.auto: replace ci: github with auto: {}"},
+		"ci none":            {"deploy:\n  ci: none\n", "deploy.ci is now the block deploy.auto: delete the line ci: none"},
+		"ci other":           {"deploy:\n  ci: gitlab\n", "deploy.ci is now the block deploy.auto: replace ci: github with auto: {} (ci: none: delete the line)"},
 	} {
 		_, _, err := Project([]byte(tc.yaml))
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
+		if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "tskey") {
 			t.Errorf("%s: got %v, want %q", name, err, tc.want)
 		}
 	}
