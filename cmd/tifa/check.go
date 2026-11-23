@@ -67,6 +67,9 @@ func runCheck(cmd *cobra.Command, root string) error {
 			if err := checkForeign(root, pages, stderr, node.Foreign); err != nil {
 				return err
 			}
+			if err := checkLangAttribute(root, manifest, node.LangKeys); err != nil {
+				return err
+			}
 			if err := node.Close(); err != nil {
 				return fmt.Errorf("node: %w", err)
 			}

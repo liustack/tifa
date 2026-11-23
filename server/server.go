@@ -54,8 +54,6 @@ type server struct {
 	shared map[string]time.Duration
 	// sharedDefault is the time of a page that writes const Cache = true (cache.s_maxage).
 	sharedDefault time.Duration
-	// limits holds the BodyLimit and ReadTimeout of the routes that set them, by path.
-	limits map[string]routeLimits
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
 	// and by the ID of a Layout, the IDs of the Layouts from the root down to it.
 	modules map[string][]string
@@ -98,7 +96,7 @@ type server struct {
 func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, query: map[string][]string{}, shared: map[string]time.Duration{}, limits: map[string]routeLimits{},
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, query: map[string][]string{}, shared: map[string]time.Duration{},
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, memo: newRenderMemo(cfg.SSR.MemoSize),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
@@ -158,13 +156,7 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.methods != nil && h.s.answerLanguage(w, r, h.s.langs[h.pattern]) {
 		return
 	}
-	// The limits of route.go hold for the requests its method handlers answer, not for the GET of
-	// a page and its navigation data, which read no body.
-	var limits routeLimits
-	if h.methods != nil && !(h.s.pages[h.pattern] && (r.Method == "GET" || r.Method == "HEAD")) {
-		limits = h.s.limits[h.pattern]
-	}
-	h.s.serveLimited(w, r, h.pattern, h.methods == nil || h.s.pages[h.pattern], limits, func(c *tifa.Ctx) error {
+	h.s.serve(w, r, h.pattern, h.methods == nil || h.s.pages[h.pattern], func(c *tifa.Ctx) error {
 		if h.methods == nil {
 			return h.s.unmatched(c)
 		}
@@ -267,31 +259,10 @@ func (s *server) redirectLocation(r *http.Request, url string, code int) string 
 	return s.withLanguage(r, probe.header.Get("Location"))
 }
 
-// routeLimits are the BodyLimit and ReadTimeout of a route, zero for the settings.
-type routeLimits struct {
-	body int64
-	read time.Duration
-}
-
 // serve runs one request: OnRequest around route, then the error flow. pattern is empty when no
 // route matched. page reports whether a GET of this URL is answered with a page: the route is a
 // page, or no route matched.
 func (s *server) serve(w http.ResponseWriter, r *http.Request, pattern string, page bool, route func(*tifa.Ctx) error) {
-	s.serveLimited(w, r, pattern, page, routeLimits{}, route)
-}
-
-// serveLimited is serve with the limits of the route: its body limit, and its read timeout, which
-// moves the read deadline and the write deadline before OnRequest runs.
-func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern string, page bool, limits routeLimits, route func(*tifa.Ctx) error) {
-	bodyLimit := s.cfg.BodyLimit
-	if limits.body > 0 {
-		bodyLimit = limits.body
-	}
-	if limits.read > 0 {
-		if err := s.liftDeadlines(w, limits.read); err != nil {
-			core.Logger().WarnContext(r.Context(), "tifa: the ReadTimeout of the route could not be set, the request keeps server.read_timeout", "method", r.Method, "path", r.URL.Path, "err", err)
-		}
-	}
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
 	// The same template as c.Pattern(), for a middleware of tifa.SetHTTPHandler that reads it from
 	// the request it passed on. ServeMux sets its own spelling, such as /{$} for the home page.
@@ -308,7 +279,7 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 	if anon {
 		r, anonErr = s.anonymize(r)
 	}
-	c := core.New(tw, r, pattern, bodyLimit)
+	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	core.SetReadLift(c, func(d time.Duration) error { return s.liftDeadlines(w, d) })
 	if info := langInfoOf(r); info != nil {
 		core.SetLanguage(c, info.lang)
@@ -455,7 +426,7 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	case failure != nil:
 		s.errorPage(c, e, err, items, failure.loads, failure.ssr, failure.key)
 	case missing != nil:
-		s.errorPage(c, e, err, missing.items, missing.loads, missing.ssr, missing.layout)
+		s.errorPage(c, e, err, missing.items, missing.loads, true, missing.layout)
 	default:
 		s.errorPage(c, e, err, nil, time.Time{}, false, "")
 	}

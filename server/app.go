@@ -50,7 +50,7 @@ type I18n struct {
 	Languages []string
 }
 
-// Layout is one directory whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.
+// Layout is one directory whose route.go declares Layout, or that holds layout.tsx, or both.
 type Layout struct {
 	// ID is the directory relative to the application root followed by "/layout", such as
 	// "app/projects/project+/layout".
@@ -61,8 +61,6 @@ type Layout struct {
 	Path string
 	// Load returns the result of the Layout function through tifa.Use, nil when the Layout has none.
 	Load func(c *tifa.Ctx) (any, error)
-	// SSR is the Layout's own LayoutSSR constant.
-	SSR bool
 	// HTML is true when the result of the Layout function may hold a tifa.HTML value: a page the
 	// server renders carries its data with a marker in place of each one (see pageText).
 	HTML bool
@@ -97,12 +95,6 @@ type Route struct {
 	Cache time.Duration
 	// CacheDefault is true for const Cache = true: the time is cache.s_maxage.
 	CacheDefault bool
-	// BodyLimit and ReadTimeout are route.go's BodyLimit and ReadTimeout: the body limit and the read
-	// timeout of the requests the method handlers of the route answer, in place of
-	// server.body_limit and server.read_timeout. The answer then gets server.write_timeout after
-	// ReadTimeout. Zero keeps the setting, so an option of the app that is 0 means the default.
-	BodyLimit   int64
-	ReadTimeout time.Duration
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
 	// HTML is true when the result of Load may hold a tifa.HTML value, as Layout.HTML.
@@ -139,15 +131,8 @@ func (s *server) register(layouts []Layout, routes []Route) {
 		if len(r.Languages) > 0 {
 			s.langs[r.Path] = r.Languages
 		}
-		if r.BodyLimit < 0 || r.ReadTimeout < 0 {
-			panic(fmt.Sprintf("tifa: route %s has a negative BodyLimit or ReadTimeout", r.ID))
-		}
-		if r.BodyLimit > 0 || r.ReadTimeout > 0 {
-			s.limits[r.Path] = routeLimits{body: r.BodyLimit, read: r.ReadTimeout}
-		}
 		var chain []load
 		var query []string
-		ssrOn := true
 		for i, id := range r.Layouts {
 			l, ok := byID[id]
 			if !ok {
@@ -157,9 +142,8 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				chain = append(chain, load{id: l.ID, run: l.Load, html: l.HTML})
 			}
 			query = append(query, l.Query...)
-			ssrOn = ssrOn && l.SSR
 			if _, ok := s.layouts[id]; !ok {
-				s.layouts[id] = layoutChain{chain: slices.Clone(chain), ssr: ssrOn}
+				s.layouts[id] = layoutChain{chain: slices.Clone(chain)}
 				s.modules[id] = slices.Clone(r.Layouts[:i+1])
 				s.query[id] = sortedSet(query)
 			}

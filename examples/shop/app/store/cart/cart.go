@@ -322,7 +322,7 @@ var deliveries = []deliveryRecord{
 //
 // A date is a calendar day of the store: noon, in the time zone of the locale, of the day of now plus
 // the days the way takes (so "next day" is tomorrow on the store's calendar). The pages show only
-// the month and the day, in that same zone (hooks.ts formats dates with the zone of the language, on
+// the month and the day, in that same zone (setup.ts formats dates with the zone of the language, on
 // the server and in the browser, so both show the same day). With the time of the request in it, the
 // data of a page would be new on every request and the render memo could never reuse the page.
 func Deliveries(cart Cart, now time.Time, l storekit.Locale) []Delivery {

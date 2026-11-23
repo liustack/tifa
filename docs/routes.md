@@ -5,7 +5,7 @@ read_when:
   - Writing the route.go of a page or an API route: Load, a method handler, or the errors they return such as `tifa.Fields` and `tifa.Redirect`
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
-  - Taking files in a method handler, or giving a route a body limit or read time of its own with `BodyLimit` and `ReadTimeout`
+  - Taking files in a method handler, or giving a route a body limit or read time of its own with `c.SetBodyLimit` and `c.SetReadTimeout`
   - Looking up what a method of `*tifa.Ctx` does
   - Deciding which Go types a Load or a handler may take and return, or the build rejects one
 ---
@@ -40,7 +40,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 - A folder with a `page.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `page.tsx` alone, without `route.go`.
 - A folder with `route.go` and no `page.tsx` is an API route when it declares a method handler: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page. A `route.go` with only a `Layout` is no API route. It gives the pages below it their Layout data.
 - Everything is package-level functions and constants. Use the global variables the app has set up for dependencies. The framework does no dependency injection.
-- The names of the switches (`SSR`, `Cache`, `Memo`, `LayoutSSR`, `BodyLimit`, `ReadTimeout`) are read as written, so a misspelled one would be ignored. The build fails on a bool constant in `route.go` named `cache`, `memo`, `ssr` or `layoutssr` in lower case, and on an exported constant that is one or two letters off a switch (`Cahce`, `ReadTimout`) and has a type that switch takes: a bool for `SSR`, `Memo` and `LayoutSSR`, a bool or a `time.Duration` for `Cache`, an integer for `BodyLimit` and a `time.Duration` for `ReadTimeout`. The message names the switch it probably meant. Constants of other types, such as `const Demo = "demo"`, short names such as `ID` or `Max`, and names such as `Mode` that are two edits from a four-letter switch, are left alone.
+- The names of the switches (`SSR`, `Cache`, `Memo`) are read as written, so a misspelled one would be ignored. The build fails on a bool constant in `route.go` named `cache`, `memo` or `ssr` in lower case, and on an exported constant that is one or two letters off a switch (`Cahce`, `Memoo`) and has a type that switch takes: a bool for `SSR` and `Memo`, a bool or a `time.Duration` for `Cache`. The message names the switch it probably meant. Constants of other types, such as `const Demo = "demo"`, short names such as `ID` or `Max`, and names such as `Mode` that are two edits from a four-letter switch, are left alone.
 
 When an error is returned:
 
@@ -82,10 +82,6 @@ A field of the input of a POST, PUT or PATCH handler of type `*multipart.FileHea
 ```go
 package photos
 
-// BodyLimit and ReadTimeout hold for the requests the method handlers of this route.go answer.
-const BodyLimit = 20 << 20          // 20 MiB, in place of server.body_limit
-const ReadTimeout = 5 * time.Minute // in place of server.read_timeout
-
 type UploadInput struct {
 	Title  string                  `json:"title"`
 	Photo  *multipart.FileHeader   `json:"photo"`
@@ -123,13 +119,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 
 ### Body limit and read time of a route
 
-`BodyLimit` and `ReadTimeout` in a `route.go` replace `server.body_limit` and `server.read_timeout` for the requests its method handlers answer, any method. The GET of a page and its navigation data keep the settings, since they read no body.
-
-- `BodyLimit` is a number of bytes, of any integer type. A body over it is answered with 413 before the handler runs. The limit counts the whole body: the files, the other fields and the multipart framing.
-- `ReadTimeout` is a `time.Duration`. The time counts from the moment Tifa matches the route, before `OnRequest`, and holds for this request. The answer then gets `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408.
-- Each can be a constant, which must be over 0, or a variable, such as a [option of the app](config.md#options-of-the-app): `var BodyLimit = uploads.UploadLimit` with `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`. The variable is read once when the app starts. A variable that is 0 keeps the setting, and a negative one stops the app at start.
-- A `route.go` with no method handler that declares either fails the build. A page's `route.go` with a POST may declare them, and they hold for the POST.
-- `OnRequest` is the way to write them now. Match the method too, since the route constants hold for the method handlers only, and a GET of the same page has no body to wait for: `c.SetBodyLimit` and `c.SetReadTimeout` set them for one request, before anything reads the body. The constants keep working in this release and go away in the next minor version.
+Every request body is limited to `server.body_limit`, and every request has `server.read_timeout` to send it. A route that takes uploads needs more of both. Set them in `OnRequest`, for the requests that need them, before anything reads the body. Match the method too: a GET of a page has no body to wait for.
 
 ```go
 // hooks.go
@@ -146,7 +136,10 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 }
 ```
 
-- `c.SetReadTimeout(d)` does what `ReadTimeout` does for this request: the body gets `d` from now to arrive, and the answer gets `server.write_timeout` after it. A request with no body, such as a GET, keeps its deadlines and the call does nothing. Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
+- `c.SetBodyLimit(n)` is a number of bytes. A body over it is answered with 413 before the handler runs. The limit counts the whole body: the files, the other fields and the multipart framing. Take the number from an [option of the app](config.md#options-of-the-app) if it should change without a build: `c.SetBodyLimit(int64(UploadLimit))` with `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`.
+- `c.SetReadTimeout(d)` gives the body `d` from now to arrive, and the answer `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408. A request with no body, such as a GET, keeps its deadlines and the call does nothing.
+- Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
+- `BodyLimit` and `ReadTimeout` as constants in `route.go` are gone: declaring one fails the build and shows this `OnRequest` for the route.
 
 ## Ctx
 
@@ -165,8 +158,8 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 | `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above. Not allowed in `Load` |
-| `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default, or the `BodyLimit` of the route, see [Body limit and read time of a route](#body-limit-and-read-time-of-a-route)). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
-| `c.SetReadTimeout(d)` | Gives the body of this request `d` to arrive, in place of `server.read_timeout`, and the answer `server.write_timeout` after it (the `ReadTimeout` of the route does the same for every request of it). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
+| `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default, see [Body limit and read time of a route](#body-limit-and-read-time-of-a-route)). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
+| `c.SetReadTimeout(d)` | Gives the body of this request `d` to arrive, in place of `server.read_timeout`, and the answer `server.write_timeout` after it. Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
 | `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
 
 ## How Load may use Ctx

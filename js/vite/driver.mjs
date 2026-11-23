@@ -16,7 +16,7 @@
 //	                             functions, and the <title> and <meta> it writes as JSX outside an
 //	                             <svg>, each with line and column, for tifa check
 //	{op: "htmlLang", files}      where each file sets lang in an htmlAttributes object it writes out:
-//	                             the exported htmlAttributes of a Layout, or the htmlAttributes a
+//	                             the htmlAttributes of the exported documentHead of a Layout, or those a
 //	                             head returns, as {line, column} of the lang key
 //	{op: "client"}               builds the browser bundle, answers with modules, the files
 //	                             the build read outside node_modules, and incomplete, why those
@@ -312,10 +312,10 @@ logger.error = (msg, options) => {
 }
 
 // langKeys returns the offsets of the lang keys of the object literals a program writes out as
-// htmlAttributes: the object that `export const htmlAttributes` is, and the value of a property
-// named htmlAttributes inside the exported head. A name for the object, a spread, a computed key
-// or a head exported under another name is out of reach of a static read, and tifa fails the
-// render that sets lang there. An object of the page's own that has such a property is no head.
+// htmlAttributes: the value of the htmlAttributes key of the exported documentHead, and of a
+// property named htmlAttributes inside the exported head. A name for the object, a spread, a computed key or a head exported under
+// another name is out of reach of a static read, and tifa fails the render that sets lang there. An
+// object of the page's own that has such a property is no head.
 function langKeys(program) {
   const offsets = []
   const keyName = (property) => {
@@ -337,7 +337,9 @@ function langKeys(program) {
     if (node.type === 'ExportNamedDeclaration') exported = true
     else if (node.type !== 'VariableDeclaration' && node.type !== 'VariableDeclarator' && node.type !== 'FunctionDeclaration') exported = false
     const named = (name) => exported && node.id?.type === 'Identifier' && node.id.name === name
-    if (node.type === 'VariableDeclarator' && named('htmlAttributes')) check(node.init)
+    // documentHead is an object: only its own htmlAttributes key counts.
+    if (node.type === 'VariableDeclarator' && named('documentHead'))
+      for (const property of literal(node.init)?.properties ?? []) if (keyName(property) === 'htmlAttributes') check(property.value)
     if ((node.type === 'VariableDeclarator' || node.type === 'FunctionDeclaration') && named('head')) head = true
     if (head && node.type === 'Property' && keyName(node) === 'htmlAttributes') check(node.value)
     for (const key in node) if (key !== 'parent') walk(node[key], exported, head)

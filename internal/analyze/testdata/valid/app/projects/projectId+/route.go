@@ -5,7 +5,10 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Memo = false
+const (
+	SSR  = false
+	Memo = false
+)
 
 // The page in the Layout's own directory uses the Layout function of its own package.
 func Load(c *tifa.Ctx) ([]string, error) {
@@ -15,8 +18,6 @@ func Load(c *tifa.Ctx) ([]string, error) {
 	}
 	return []string{p.ID, c.Query("sort"), c.Query("page"), c.Query("page")}, nil
 }
-
-const LayoutSSR = false
 
 func Layout(c *tifa.Ctx) (Project, error) {
 	site, err := tifa.Use(c, app.Layout)

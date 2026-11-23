@@ -59,7 +59,7 @@ func TestPageSendsTheAgeOfItsData(t *testing.T) {
 			}
 			return next(c)
 		}},
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, slowLayout) }}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/", Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, slowLayout) }}},
 		Routes: []Route{
 			{ID: "app/page", Path: "/p", Page: true, SSR: true, Layouts: []string{"app/layout"},
 				Load: func(c *tifa.Ctx) (any, error) { return 1, nil }},
@@ -130,7 +130,7 @@ func TestPageWithCacheSendsNoAge(t *testing.T) {
 func TestPageSendsItsAgeOnlyWhenEveryCacheAsksAgain(t *testing.T) {
 	var cacheControl string
 	app := App{
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/"}},
 		Routes: []Route{{ID: "app/page", Path: "/p", Page: true, SSR: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) {
 				if cacheControl != "" {

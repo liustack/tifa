@@ -16,7 +16,7 @@ const i18nAdapterPage = `import './host'
 import { renderToString } from 'react-dom/server.edge'
 import { I18nProvider, i18n, useTranslation } from './runtime/i18n'
 
-// As onStart of hooks.ts adds a formatter: once, for every language, which it gets as lng.
+// As the top level of setup.ts adds a formatter: once, for every language, which it gets as lng.
 i18n.services.formatter?.addCached('shout', (lng) => (value: string) => value.toUpperCase() + (lng === 'zh-CN' ? '！' : '!'))
 
 function Page() {

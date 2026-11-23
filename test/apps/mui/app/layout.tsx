@@ -29,9 +29,7 @@ import BarChartIcon from '@mui/icons-material/BarChart'
 import { layout } from './route.gen'
 import { theme } from './theme'
 
-export const htmlAttributes = { lang: 'en' }
-
-export const documentHead = { meta: [{ title: 'Northwind admin' }] }
+export const documentHead = { htmlAttributes: { lang: 'en' }, meta: [{ title: 'Northwind admin' }] }
 
 const width = 240
 

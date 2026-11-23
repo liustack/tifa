@@ -75,7 +75,7 @@ var importRules = []importRule{
 		Doc:     docLink}},
 	{names: []string{"next/head", "next/document"}, Rule: Rule{
 		Says:    "{module} is a module of Next.js",
-		Instead: "a page exports head, such as export const head = () => ({ meta: [{ title: 'Orders' }] }), and the root layout.tsx exports htmlAttributes and documentHead for the document",
+		Instead: "a page exports head, such as export const head = () => ({ meta: [{ title: 'Orders' }] }), and the root layout.tsx exports documentHead, with htmlAttributes in it, for the document",
 		Doc:     docLayout}},
 	{names: []string{"next/image"}, Rule: Rule{
 		Says:    "{module} is a module of Next.js",

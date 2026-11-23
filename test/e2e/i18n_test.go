@@ -547,7 +547,7 @@ func TestI18nBuildFailures(t *testing.T) {
 		"default no area has":                           {"i18n:\n  default: fr\nsite:\n  url: https://i18n.example.com\n", nil, `i18n.default is "fr"`},
 		"area without the default":                      {ok, map[string]string{"app/admin/_locales/en-US.json": "{}", "app/admin/page.tsx": "export default function A() { return null }\n"}, "app/admin/_locales: the default language zh-CN has no file here"},
 		"invalid tag":                                   {ok, map[string]string{"app/store/_locales/en_US.json": "{}"}, "app/store/_locales/en_US.json"},
-		"lang in the htmlAttributes of the root Layout": {ok, map[string]string{"app/layout.tsx": "import { Outlet } from '@tanstack/react-router'\nexport const htmlAttributes = { lang: 'zh-CN' }\nexport default function Shell() { return <Outlet /> }\n"}, "app/layout.tsx:2:"},
+		"lang in the documentHead of the root Layout": {ok, map[string]string{"app/layout.tsx": "import { Outlet } from '@tanstack/react-router'\nexport const documentHead = { htmlAttributes: { lang: 'zh-CN' } }\nexport default function Shell() { return <Outlet /> }\n"}, "app/layout.tsx:2:"},
 		"lang in the htmlAttributes of a head":          {ok, map[string]string{"app/projects/page.tsx": "export const head = () => ({ htmlAttributes: { lang: 'en' } })\nexport default function P() { return null }\n"}, "app/projects/page.tsx:1:"},
 		"top level folder like a language":              {ok, map[string]string{"app/en-US/page.tsx": "export default function A() { return null }\n"}, "app/en-US: the folder is named like the language en-US"},
 	} {
@@ -561,6 +561,13 @@ func TestI18nBuildFailures(t *testing.T) {
 			out, err := cmd.CombinedOutput()
 			if err == nil || !strings.Contains(string(out), tc.want) {
 				t.Errorf("tifa build: %v\n%s\nwant %q", err, out, tc.want)
+			}
+			// tifa check stops at the same place, before it runs go vet and the tests.
+			if strings.HasPrefix(name, "lang in") {
+				out, err := exec.Command(cli(t), "check", "--dir", dir).CombinedOutput()
+				if err == nil || !strings.Contains(string(out), tc.want) {
+					t.Errorf("tifa check: %v\n%s\nwant %q", err, out, tc.want)
+				}
 			}
 		})
 	}

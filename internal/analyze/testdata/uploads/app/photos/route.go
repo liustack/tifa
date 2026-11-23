@@ -4,13 +4,6 @@ import (
 	"mime/multipart"
 
 	"github.com/liustack/tifa"
-
-	"example.com/uploads"
-)
-
-var (
-	BodyLimit   = uploads.UploadLimit
-	ReadTimeout = uploads.UploadTime
 )
 
 type Photo struct {

@@ -10,19 +10,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/liustack/tifa"
 
 	"uploads"
 )
-
-// BodyLimit lets the requests of this route be as large as upload.limit. The other routes keep
-// server.body_limit.
-var BodyLimit = uploads.UploadLimit
-
-// ReadTimeout gives a phone on a slow line the time to send a large picture.
-const ReadTimeout = 5 * time.Minute
 
 // Photo is one stored picture. ID is also its file name.
 type Photo struct {
@@ -77,7 +69,7 @@ var extensions = map[string]string{
 	"image/gif":  ".gif",
 }
 
-// POST stores the picture. The framework has refused a body over BodyLimit with 413 and run
+// POST stores the picture. The framework has refused a body over upload.limit with 413 and run
 // Validate before this runs.
 func POST(c *tifa.Ctx, in UploadInput) (Photo, error) {
 	file, err := in.File.Open()

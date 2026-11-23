@@ -3,13 +3,16 @@ import { Link, Outlet } from '@tanstack/react-router'
 import { layout } from './route.gen'
 import './site.css'
 
-export const htmlAttributes = { lang: 'en' }
+// Read at the top level of the module: setup.ts has run by now, on the server and in the browser.
+const setup = (globalThis as { setupRan?: string }).setupRan ?? 'setup.ts did not run first'
+
+export const documentHead = { htmlAttributes: { lang: 'en' } }
 
 export default function Site() {
   const site = layout.useLoaderData()
   return (
     <div lang={site.lang}>
-      <nav>
+      <nav data-setup={setup}>
         <Link to="/">{site.name}</Link>
       </nav>
       <Outlet />

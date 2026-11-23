@@ -179,7 +179,7 @@ func htmlServer(t *testing.T) *server {
 	plain := route("app/plain", "/plain", true)
 	plain.SSR = false
 	s := newAppServer(t, App{
-		Layouts: []Layout{{ID: "app/layout", Path: "/", Load: load("LAYOUT_BODY"), SSR: true, HTML: true}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/", Load: load("LAYOUT_BODY"), HTML: true}},
 		Routes:  []Route{route("app/p", "/p", true), route("app/unmarked", "/unmarked", false), cached, plain, route("app/boom", "/boom", true)},
 	})
 	if err := s.openFront(os.DirFS(dir), config.Default().SSR); err != nil {

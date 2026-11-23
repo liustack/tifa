@@ -131,11 +131,11 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 - `loaderData` can be undefined when the `Load` failed. Handle it.
 - Share cards: `og:title`, `og:description`, `og:image` and `twitter:card` go in `meta` as `{ property: 'og:image', content }`. `og:image` must be a full URL, 1200x630: write a path such as `/og/a.png` and Tifa puts `site.url` in front of it (also for `og:image:url`, `og:image:secure_url`, `twitter:image`). With `site.url` Tifa writes `og:url` itself. See `docs/guides/seo.md`.
 - `head` may also return `htmlAttributes` for `<html>` (see [i18n.md](i18n.md) for `lang`).
-- The root Layout (`app/layout.tsx`) may export two constants. `htmlAttributes` (default `{ lang: 'en' }`) and `documentHead` (tags every page carries, also for unmatched URLs). Put the site default `title` in `documentHead`:
+- The root Layout (`app/layout.tsx`) may export `documentHead`: the tags every page carries, also for unmatched URLs, and the `htmlAttributes` of `<html>` (default `{ lang: 'en' }`), in the same shape as the return of a `head`. Put the site default `title` in it. A separate `export const htmlAttributes` fails the build:
 
 ```tsx
-export const htmlAttributes = { lang: 'en' }
 export const documentHead = {
+  htmlAttributes: { lang: 'en' },
   meta: [{ title: 'Shop' }, { name: 'theme-color', content: '#f2f4f5' }],
   links: [{ rel: 'icon', href: '/favicon.svg' }],
 }
@@ -152,10 +152,9 @@ const SSR = false              // the page, default true
 const Memo = false             // the page, turns the render memo off, default on
 const Cache = true             // the page, the same for everyone, a CDN may keep it for cache.s_maxage, default off
 // const Cache = 10 * time.Minute  // the same, with its own time
-const LayoutSSR = false        // the Layout of the folder, default true
 ```
 
-- `SSR = false`: `OnRequest` and every `Load` still run, slowjs is skipped, and the browser renders a minimal document with the data. `LayoutSSR = false` applies to every page the Layout wraps. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
+- `SSR = false`: `OnRequest` and every `Load` still run, slowjs is skipped, and the browser renders a minimal document with the data. A Layout has no switch of its own: write `SSR = false` in the `route.go` of each page under it. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
 - The render memo is on for every page: the HTML is kept by build, URL, session and the data of the `Load` and Layout functions, which still run on every request. Do not let `Date.now()`, `Math.random()` and the like reach the HTML. `tifa dev` renders each page twice and says when the two differ. A page that shows the time or a random number on purpose writes `Memo = false`, which only accepts `false`. Burst requests for a cold page share one render. `SSR` and `Memo` fail the build in a `route.go` with no `page.tsx`, and the names need their capitals.
 - A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from the render memo. The render memo does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
 - `Cache` (`true`, or a `time.Duration` of at least a second) tells the CDN or proxy in front that a public page is the same for everyone and may be kept for that long (`true` takes `cache.s_maxage`, 1m by default). Tifa keeps nothing of it itself: its `Load`s run on every request. Use it for articles, docs and landing pages. Such a page is anonymous: `Cookie` and `Authorization` are dropped before `OnRequest`, `tifa.Session` is nil, `SetSession` fails, and the build fails when its `Load`, a Layout around it or a function they call reads `c.Cookie`, `c.Header` or `tifa.Session`. Do not use it on pages that depend on who is signed in.  What depends on the visitor, such as a cart or a list of products they looked at, comes from a handler the browser calls after the page has loaded. Add `?_tifa=` data requests to what you check with `curl`. See "Cache for CDNs" in docs/app.md.

@@ -1354,6 +1354,19 @@ export function tifa(settings = {}) {
         },
       }
     },
+    // setup.ts at the app root is imported for its top level alone. An app whose package.json says
+    // "sideEffects": false would have the import dropped, so the module is marked as one that has
+    // them, in the browser build and the SSR build.
+    resolveId: {
+      order: 'pre',
+      filter: { id: /setup\.ts$/ },
+      async handler(source, importer, options) {
+        if (!importer) return null
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+        if (resolved && !resolved.external && resolved.id === path.join(root, 'setup.ts')) return { ...resolved, moduleSideEffects: true }
+        return null
+      },
+    },
     configureServer(server) {
       const state = devState()
       server.watcher.on('all', (event, file) => state.changed?.(event, file))
@@ -2190,8 +2203,8 @@ const lazyRoute = '\0tifa-lazy-route:'
  * exports, made with lazyRouteComponent from an import() of the module, and a head that loads
  * the module and calls its head. TanStack Router accepts a head that returns a promise, and it
  * loads the chunk of a route before it runs head, so the module is there by then. The root
- * Layout stays in the entry script: the root route needs its documentHead, and the entries its
- * htmlAttributes. tifa dev serves each module on its own and keeps the static imports.
+ * Layout stays in the entry script: the root route needs its documentHead, and the entries the
+ * htmlAttributes in it. tifa dev serves each module on its own and keeps the static imports.
  *
  * environments are the Vite environments it applies to.
  */

@@ -142,9 +142,8 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 }
 
 // SetReadTimeout gives the body of this request d to arrive, in place of server.read_timeout, and
-// the answer server.write_timeout after that. It is what the ReadTimeout of a route does, for one
-// request. Call it before anything reads the body, on the goroutine that handles the request,
-// usually in OnRequest. Once reading has started it returns an error and the deadline stays as it
+// the answer server.write_timeout after that. Call it before anything reads the body, on the
+// goroutine that handles the request, usually in OnRequest. Once reading has started it returns an error and the deadline stays as it
 // was. It also returns an error when d is not over 0 or when the response cannot reach the
 // connection, such as behind a middleware of SetHTTPHandler that does not unwrap it. A request
 // with no body, such as a GET, keeps its deadlines and the call does nothing. A Ctx a test made

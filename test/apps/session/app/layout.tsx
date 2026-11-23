@@ -4,7 +4,7 @@ import { layout } from './route.gen'
 import { POST as signOut } from './logout/route.gen'
 import { POST as quit } from './quit/route.gen'
 
-export const htmlAttributes = { lang: 'en' }
+export const documentHead = { htmlAttributes: { lang: 'en' } }
 
 export default function Shell() {
   const site = layout.useLoaderData()

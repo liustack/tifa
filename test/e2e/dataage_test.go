@@ -117,3 +117,25 @@ func expectBigIDInBrowser(t *testing.T, name, url string) {
 		t.Errorf("%s in a browser: %s", url, out)
 	}
 }
+
+// expectSetupInBrowser opens url in a browser and checks that the root Layout, whose module reads
+// at its top level what setup.ts set, saw it there: the server wrote it, and the browser
+// hydrates the same value without a warning.
+func expectSetupInBrowser(t *testing.T, name, url string) {
+	t.Helper()
+	if _, err := exec.LookPath("playwright-cli"); err != nil {
+		t.Log("playwright-cli is not installed: setup.ts is not checked in a browser")
+		return
+	}
+	pw, _ := openBrowser(t, name)
+	pw("open", url)
+	waitFor(t, "the page to hydrate", func() bool {
+		return strings.Contains(pw("eval", `() => document.readyState === "complete" && window.__TSR_ROUTER__?.stores.matches.get().length > 0`), "true")
+	})
+	if out := pw("eval", `() => document.querySelector("nav").dataset.setup`); !strings.Contains(out, `"ran"`) {
+		t.Errorf("%s in a browser: %s", url, out)
+	}
+	if out := pw("console", "warning"); strings.Contains(strings.ToLower(out), "hydrat") || strings.Contains(out, "did not match") || strings.Contains(out, "Minified React error") {
+		t.Errorf("console of %s: %s", url, out)
+	}
+}

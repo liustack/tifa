@@ -44,11 +44,8 @@ export const rootOptions = {
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
-// way the head and the attributes of <html> follow the matched routes from then on. onStart, the
-// one of hooks.ts at the app root, runs first. When it throws, the page is not hydrated and stays
-// the HTML the server sent.
-export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes, onStart?: () => void) {
-  onStart?.()
+// way the head and the attributes of <html> follow the matched routes from then on.
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
@@ -95,7 +92,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     return
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here: those
-  // of the root Layout at once, and those of the routes once they have loaded.
+  // of the root Layout's documentHead at once, and those of the routes once they have loaded.
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
   language = input.language ?? ''

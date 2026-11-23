@@ -1,9 +1,7 @@
 import { TifaError } from 'tifa/client'
 import { Link, Outlet } from '@tanstack/react-router'
 
-export const htmlAttributes = { lang: 'en' }
-
-export const documentHead = { meta: [{ title: 'Library pages' }] }
+export const documentHead = { htmlAttributes: { lang: 'en' }, meta: [{ title: 'Library pages' }] }
 
 export default function Root() {
   return (

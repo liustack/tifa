@@ -33,7 +33,7 @@ func siteApp() App {
 	return App{
 		SiteURL: "https://shop.example.com/",
 		I18n:    &I18n{Default: "zh-CN", Languages: both},
-		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/"}},
 		Routes: []Route{
 			page("app/route", "/", nil),
 			page("app/store/route", "/store", both),

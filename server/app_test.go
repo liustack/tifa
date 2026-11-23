@@ -54,9 +54,9 @@ func loadOrders(c *tifa.Ctx) ([]string, error) {
 func testApp() App {
 	return App{
 		Layouts: []Layout{
-			{ID: "app/layout", Path: "/", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadSite) }},
-			{ID: "app/projects", Path: "/projects/{projectId}", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadProject) }},
-			{ID: "app/plain", Path: "/plain", SSR: true},
+			{ID: "app/layout", Path: "/", Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadSite) }},
+			{ID: "app/projects", Path: "/projects/{projectId}", Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadProject) }},
+			{ID: "app/plain", Path: "/plain"},
 		},
 		Routes: []Route{
 			{ID: "app/home", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}},

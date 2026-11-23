@@ -55,7 +55,7 @@ myapp/
 
 | File | Holds |
 | --- | --- |
-| `route.go` | All Go names of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Memo`, `Cache`, `BodyLimit`, `ReadTimeout` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
+| `route.go` | All Go names of the folder: `Layout`, `Load`, `SSR`, `Memo`, `Cache` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
 | `page.tsx` | The page component (default export), and optional `head` and `ErrorBoundary` exports |
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |

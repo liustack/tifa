@@ -43,21 +43,21 @@ func TestValidApp(t *testing.T) {
 	const project = "app/projects/projectId+"
 	wantLayouts := []struct {
 		id, dir, parent, path, pkg string
-		ssr, tsx, load             bool
+		tsx, load                  bool
 		routes                     []string
 	}{
-		{"app/layout", "app", "", "/", "example.com/valid/app", true, true, true,
+		{"app/layout", "app", "", "/", "example.com/valid/app", true, true,
 			[]string{"app/route", "app/api/health/route", "app/auth/login/route", "app/auth/register/route", "app/files/path++/route",
 				project + "/route", project + "/export/route", project + "/orders/orderId+/route"}},
-		{"app/auth/layout", "app/auth", "app/layout", "/auth", "example.com/valid/app/auth", true, true, true,
+		{"app/auth/layout", "app/auth", "app/layout", "/auth", "example.com/valid/app/auth", true, true,
 			[]string{"app/auth/login/route", "app/auth/register/route"}},
-		{"app/files/layout", "app/files", "app/layout", "/files", "", true, true, false, []string{"app/files/path++/route"}},
-		{project + "/layout", project, "app/layout", "/projects/{projectId}", "example.com/valid/" + project, false, true, true,
+		{"app/files/layout", "app/files", "app/layout", "/files", "", true, false, []string{"app/files/path++/route"}},
+		{project + "/layout", project, "app/layout", "/projects/{projectId}", "example.com/valid/" + project, true, true,
 			[]string{project + "/route", project + "/export/route", project + "/orders/orderId+/route"}},
 	}
 	for _, w := range wantLayouts {
 		l := layouts[w.id]
-		if l.Dir != w.dir || l.Parent != w.parent || l.Path != w.path || l.Package != w.pkg || l.SSR != w.ssr || l.TSX != w.tsx || (l.Load != nil) != w.load {
+		if l.Dir != w.dir || l.Parent != w.parent || l.Path != w.path || l.Package != w.pkg || l.TSX != w.tsx || (l.Load != nil) != w.load {
 			t.Errorf("layout %s = %+v, want %+v", w.id, l, w)
 		}
 		if !reflect.DeepEqual(l.Routes, w.routes) {
@@ -90,11 +90,11 @@ func TestValidApp(t *testing.T) {
 		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, true, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
 		{"app/auth/register/route", "app/auth/register", "/auth/register", true, true, true, nil, []string{"app/layout", "app/auth/layout"}},
 		{project + "/route", project, "/projects/{projectId}", true, false, false, nil, []string{"app/layout", project + "/layout"}},
-		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, false, true,
+		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, true, true,
 			[]string{"POST", "DELETE"}, []string{"app/layout", project + "/layout"}},
 		{"app/files/path++/route", "app/files/path++", "/files/{path...}", true, true, true, nil, []string{"app/layout", "app/files/layout"}},
 		{"app/api/health/route", "app/api/health", "/api/health", false, true, true, []string{"GET"}, []string{"app/layout"}},
-		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, false, true, []string{"GET"}, []string{"app/layout", project + "/layout"}},
+		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, true, true, []string{"GET"}, []string{"app/layout", project + "/layout"}},
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
@@ -229,8 +229,7 @@ func TestTypedHandlers(t *testing.T) {
 }
 
 // A POST, PUT or PATCH input may hold files as fields of its own. The manifest marks such a
-// handler, whose input is sent as a form, and the routes that set their own body limit and read
-// timeout. In TypeScript a file is a Blob.
+// handler, whose input is sent as a form. In TypeScript a file is a Blob.
 func TestUploadHandlers(t *testing.T) {
 	m, err := analyzeApp(t, "uploads")
 	if err != nil {
@@ -249,11 +248,6 @@ func TestUploadHandlers(t *testing.T) {
 	}
 	if got, want := forms(routes["app/photos/route"]), map[string]bool{"POST": true, "PUT": true, "PATCH": false}; !reflect.DeepEqual(got, want) {
 		t.Errorf("photos forms = %v, want %v", got, want)
-	}
-	for id, want := range map[string]bool{"app/photos/route": true, "app/files/route": true, "app/plain/route": false} {
-		if r := routes[id]; r.BodyLimit != want || r.ReadTimeout != want {
-			t.Errorf("%s BodyLimit, ReadTimeout = %v, %v, want %v", id, r.BodyLimit, r.ReadTimeout, want)
-		}
 	}
 	var inputs []types.Type
 	for _, h := range routes["app/photos/route"].Handlers {
@@ -347,12 +341,14 @@ func TestViolations(t *testing.T) {
 			{"app/texted/route.go:19:", "POST input", "Input.Files", "MarshalText", "UnmarshalText", "file"},
 			{"app/result/route.go:13:", "Load result", "Data.File", "multipart.FileHeader", "input"},
 			{"app/result/route.go:15:", "POST result", "multipart.FileHeader", "input"},
-			{"app/limits/route.go:9:", "BodyLimit", "greater than 0"},
-			{"app/limits/route.go:11:", "ReadTimeout", "time.Duration"},
-			{"app/limits2/route.go:5:", "BodyLimit", "integer"},
-			{"app/limits2/route.go:7:", "ReadTimeout", "time.Duration"},
-			{"app/nolimit/route.go:5:", "BodyLimit", "method handler"},
-			{"app/page/route.go:5:", "ReadTimeout", "method handler"},
+			// BodyLimit and ReadTimeout are gone, whatever their value or type, with or without a handler.
+			{"app/limits/route.go:9:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
+			{"app/limits/route.go:11:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
+			{"app/limits2/route.go:5:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
+			{"app/limits2/route.go:7:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
+			{"app/nolimit/route.go:5:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route"},
+			{"app/page/route.go:5:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route"},
+			// app/limittypes names types BodyLimit and ReadTimeout, which are the domain's own: no error.
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/page.tsx:1:", `"%"`},
@@ -591,6 +587,14 @@ func TestViolations(t *testing.T) {
 		{"renamedmemo", [][]string{
 			{"app/page/route.go:3:", "RenderCache is now Memo", "const Memo = false"},
 		}},
+		{"layoutssr", [][]string{
+			{"app/page/route.go:3:", "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps"},
+		}},
+		{"limitsgone", [][]string{
+			{"app/photos/route.go:13:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route", `c.Pattern() == "/photos"`, "c.Request().Method == http.MethodPost", "c.SetBodyLimit("},
+			{"app/photos/route.go:15:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route", `c.Pattern() == "/photos"`, "http.MethodPost", "c.SetReadTimeout("},
+			{"app/projects/projectId+/route.go:5:", "BodyLimit is gone", `c.Pattern() == "/projects/{projectId}"`, "(c.Request().Method == http.MethodPut || c.Request().Method == http.MethodDelete)"},
+		}},
 		{"memovalue", [][]string{
 			{"app/page/route.go:3:", "Memo", "can only be false"},
 			{"app/other/route.go:3:", "Memo", "can only be false"},
@@ -604,9 +608,7 @@ func TestViolations(t *testing.T) {
 		{"switchtypos", [][]string{
 			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
 			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
-			{"app/page/route.go:9:", "LayoutSR is not a switch: did you mean LayoutSSR?"},
-			{"app/page/route.go:11:", "ReadTimout is not a switch: did you mean ReadTimeout?"},
-			{"app/page/route.go:13:", "BodyLmt is not a switch: did you mean BodyLimit?"},
+			// ReadTimout and BodyLmt are no typos of a switch: those two are gone, see limitsgone.
 			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
 		}},
 		{"oldroute", [][]string{
@@ -995,7 +997,7 @@ func TestModuleLeftOutOfGoWork(t *testing.T) {
 // well, the directory is an API route and has a Layout.
 // A layout_.tsx shows its folder and the folders below it without the Layouts above: their
 // chains start at its Layout, which has no parent, and the Layouts above neither wrap those
-// routes nor pass them LayoutSSR. Layouts below it nest inside it as usual, and a deeper
+// routes. Layouts below it nest inside it as usual, and a deeper
 // layout_.tsx cuts again.
 func TestReplaceLayouts(t *testing.T) {
 	m, err := analyzeApp(t, "replace")

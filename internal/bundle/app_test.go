@@ -512,3 +512,36 @@ func TestAppReadsNoDotenv(t *testing.T) {
 		t.Fatal("the SSR bundle holds a value of .env")
 	}
 }
+
+// An app whose package.json says "sideEffects": false still runs its setup.ts: the entries import
+// it for its top level, and the bundler would drop such an import of a module marked pure.
+func TestSetupSurvivesSideEffectsFalse(t *testing.T) {
+	root := fakeApp(t, `["es2022"]`)
+	writeTree(t, root, map[string]string{
+		"package.json": `{"name":"app","sideEffects":false}` + "\n",
+		"setup.ts":     "(globalThis as any).setupRan = 'yes-ran'\n",
+		".tifa/client.ts": "import '../setup.ts'\n" +
+			"import('../app/page/page').then((m) => console.log(m.default))\n",
+		".tifa/server.ts": "declare const __TIFA_ASSETS__: string\n" +
+			"import '../setup.ts'\n" +
+			"import route from '../app/page/page'\n(globalThis as any).result = route + ' ' + __TIFA_ASSETS__\n",
+	})
+	buildApp(t, root)
+	ssr, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ssr), "yes-ran") {
+		t.Errorf("the SSR bundle lacks setup.ts: %s", ssr)
+	}
+	found := false
+	files, _ := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "*.js"))
+	for _, f := range files {
+		if data, err := os.ReadFile(f); err == nil && strings.Contains(string(data), "yes-ran") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the browser bundle lacks setup.ts")
+	}
+}

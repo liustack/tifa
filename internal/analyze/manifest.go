@@ -44,7 +44,7 @@ type Manifest struct {
 	Routes []Route `json:"routes"`
 }
 
-// Layout is a directory under app/ whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.
+// Layout is a directory under app/ whose route.go declares Layout, or that holds layout.tsx, or both.
 type Layout struct {
 	// ID is Dir followed by "/layout", such as "app/projects/project+/layout". The root Layout is
 	// "app/layout". A route in the same directory has the ID Dir followed by "/route", whether it is a
@@ -52,7 +52,7 @@ type Layout struct {
 	ID string `json:"id"`
 	// Dir is the directory relative to the application root with forward slashes, such as "app/projects/project+".
 	Dir string `json:"dir"`
-	// Package is the import path of the package of route.go when it declares Layout or LayoutSSR, empty when the Layout has only layout.tsx.
+	// Package is the import path of the package of route.go when it declares Layout, empty when the Layout has only layout.tsx.
 	Package string `json:"package"`
 	// Parent is the ID of the Layout in the closest directory above Dir, empty for the outermost one.
 	Parent string `json:"parent"`
@@ -66,8 +66,6 @@ type Layout struct {
 	Replace bool `json:"replace"`
 	// Load describes the Layout function, nil when the Layout has none.
 	Load *Load `json:"load"`
-	// SSR is the Layout's own LayoutSSR constant, true when absent.
-	SSR bool `json:"ssr"`
 	// Routes lists the IDs of the routes in Dir and below it, API routes included, sorted.
 	Routes []string `json:"routes"`
 	// Area is the folder of the _locales folder that gives the Layout its languages, empty outside
@@ -102,11 +100,6 @@ type Route struct {
 	Cache time.Duration `json:"cache"`
 	// CacheDefault is true when route.go writes Cache = true: the time is the setting cache.s_maxage.
 	CacheDefault bool `json:"cacheDefault"`
-	// BodyLimit and ReadTimeout report whether route.go declares them: the body limit and the read
-	// timeout of the requests its method handlers answer, in place of server.body_limit and
-	// server.read_timeout. The generated code refers to them, so a variable set from a setting works.
-	BodyLimit   bool `json:"bodyLimit"`
-	ReadTimeout bool `json:"readTimeout"`
 	// Layouts lists the IDs of the Layouts in Dir and above it, outermost first.
 	// Area is the folder of the _locales folder that gives the route its languages, empty for a
 	// route outside every area, which has none and is never prefixed. Languages are those of the

@@ -19,7 +19,7 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                          process and request hooks (optional)
-  hooks.ts                          onStart, run before the first render on the server and in the browser (optional)
+  setup.ts                          top-level code, run before the first render on the server and in the browser (optional)
   options.go                        options of the app, see Configuration (optional)
   db.go                             resources the whole app shares: package-level variables and functions (optional)
   app/
@@ -70,7 +70,7 @@ A folder has at most three convention files:
 
 | File | What it holds |
 | --- | --- |
-| `route.go` | Every Go name of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Memo`, `Cache`, `BodyLimit`, `ReadTimeout` and the method handlers |
+| `route.go` | Every Go name of the folder: `Layout`, `Load`, `SSR`, `Memo`, `Cache` and the method handlers |
 | `page.tsx` | The page component. A folder with `page.tsx` is a page |
 | `layout.tsx` | The Layout component |
 | `layout_.tsx` | The Layout component in place of `layout.tsx`, shown without the Layouts above it (see [A Layout without the Layouts above](pages.md#a-layout-without-the-layouts-above)) |
@@ -135,7 +135,7 @@ Vite says the same: prefer importing assets, and use `public/` for files never r
 | `middleware.ts`, and `loading`, `error` or `not-found` files in a route folder | `OnRequest` in `hooks.go`, and the `ErrorBoundary` export (see [404](pages.md#404)) | warning |
 | In `route.go`, a function `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `Load` or `Layout` that takes `http.ResponseWriter`, `*http.Request`, `*gin.Context`, `echo.Context` or `*fiber.Ctx` | `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`, or `func POST(c *tifa.Ctx) error` with `c.Writer()` and `c.Request()` (see [Method handlers with input and result](routes.md#method-handlers-with-input-and-result)) | error |
 
-What Tifa allows is not reported. `@tanstack/react-router` and `@tanstack/react-query` are fine. A page may export `action`, `loader`, `metadata`, `revalidate` or `dynamic` for its own use when the value is not what the other framework writes (a function for `loader` and `action`, an object for `metadata`, a number or `false` for `revalidate`, one of `auto`, `force-dynamic`, `error` and `force-static` for `dynamic`). The exports and calls are read in `page.tsx`, `layout.tsx` and `layout_.tsx` only. Imports and directives are read in every TypeScript file of `app/` and in `hooks.ts`, except tests.
+What Tifa allows is not reported. `@tanstack/react-router` and `@tanstack/react-query` are fine. A page may export `action`, `loader`, `metadata`, `revalidate` or `dynamic` for its own use when the value is not what the other framework writes (a function for `loader` and `action`, an object for `metadata`, a number or `false` for `revalidate`, one of `auto`, `force-dynamic`, `error` and `force-static` for `dynamic`). The exports and calls are read in `page.tsx`, `layout.tsx` and `layout_.tsx` only. Imports and directives are read in every TypeScript file of `app/` and in `setup.ts`, except tests.
 
 ### No static generation
 
@@ -179,6 +179,6 @@ The [guide](guides/i18n.md) goes through all of it: translating, the language sw
 - [Render switches and caches](ssr-and-cache.md): `SSR`, `Memo`, `Cache`, and query parameters in the server render.
 - [The server render](server-render.md): what the server has, components to load only in the browser, Intl and Temporal.
 - [Styles](styles.md): CSS, Tailwind CSS and shadcn/ui.
-- [Hooks](hooks.md): `hooks.go` and `hooks.ts`.
+- [Hooks](hooks.md): `hooks.go` and `setup.ts`.
 - [Testing](testing-apps.md): tests with `go test` and `tifatest`.
 - [Deploying](deploy.md): what pages open in a browser do when you deploy a new version.

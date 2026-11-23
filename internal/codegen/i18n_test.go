@@ -17,8 +17,8 @@ func i18nManifest() *analyze.Manifest {
 		I18n: &analyze.I18n{Default: "zh-CN", Languages: both,
 			Areas: []analyze.Area{{Dir: "app/store", Languages: both}}},
 		Layouts: []analyze.Layout{
-			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/projects/route", "app/store/route"}},
-			{ID: "app/store/layout", Dir: "app/store", Path: "/store", TSX: true, SSR: true, Parent: "app/layout", Area: "app/store", Languages: both, Routes: []string{"app/store/route"}},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/projects/route", "app/store/route"}},
+			{ID: "app/store/layout", Dir: "app/store", Path: "/store", TSX: true, Parent: "app/layout", Area: "app/store", Languages: both, Routes: []string{"app/store/route"}},
 		},
 		Routes: []analyze.Route{
 			{ID: "app/projects/route", Dir: "app/projects", Path: "/projects", Page: true, SSR: true, Memo: true, Layouts: []string{"app/layout"}},

@@ -1333,7 +1333,7 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 		loads = time.Now()
 		key = s.notFoundAt(c.Request())
 		at := s.layouts[key]
-		items, ssrOn = make(map[string]routeResult, len(at.chain)), at.ssr
+		items, ssrOn = make(map[string]routeResult, len(at.chain)), true
 		for _, l := range at.chain {
 			items[l.id] = routeResult{Status: e.Status, Error: e.Message}
 		}
