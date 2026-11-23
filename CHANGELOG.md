@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-23
+
 ### Added
 
 - `tifa deploy setup` remembers the servers it sets up in `~/.tifa/config.yaml` (`TIFA_HOME` moves the folder, and the file holds no secret): the server's host name and machine ID, the host a new app uses, and the apps, each by the folder of its checkout with the host that worked for it (with `ssh: cloudflare`, the ssh host name of its domain once the tunnel check passed). An app that names no server through `--host`, `TIFA_DEPLOY_HOST` or `.env` now uses the only server in the file, or the one that lists its folder, and `tifa deploy` prints one line that says which and what to put in `.env` to name another. With several servers and no way to tell, it stops, lists them and says to set `TIFA_DEPLOY_HOST=<host>` in `.env` or pass `--host`. A host taken from the file is checked against the machine ID the server reports in the command's first probe, and a mismatch stops the command. `tifa deploy remove` takes the app off the file once it finished with nothing left for you. A second app on the same machine needs no `TIFA_DEPLOY_HOST` any more. GitHub Actions never reads the file.
