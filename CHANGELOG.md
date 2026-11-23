@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
 ### Changed
 
 - **Breaking:** a key in `tifa.yaml` that is not a setting of Tifa now fails `tifa check`, `build`, `dev` and the deploy commands at its line, such as `tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml`, with `did you mean` when a name is close, the settings of its section, and where the options of an app go. Before, such a key was ignored without a word, so a leftover `deploy.ssh: cloudflare` deployed as `direct`. `tifa.yaml` holds only the settings of Tifa, and the options of an app, also in a section of Tifa such as `server.name`, go in a flag, an environment variable, `.env` or the file of `-c`. `-c` files, `.env` and the environment are not checked. Upgrading: delete the keys that are not settings of Tifa from `tifa.yaml`, and move the options of your app to `.env`, the environment or a flag.
