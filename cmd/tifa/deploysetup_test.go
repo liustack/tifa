@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/config"
 )
 
 // fakeGH stands in for gh: one repository, its secrets and variables.
@@ -982,7 +984,7 @@ func (s *purgeSetup) v018Repo(t *testing.T) {
 	}
 	s.gh.secrets[secretPurge] = "set by v0.1.18"
 	s.gh.secrets[secretZoneID] = "z"
-	spec, err := workflowSpec(deployTarget{root: s.root}, "main", testCIName, connDirect, true)
+	spec, err := workflowSpec(deployTarget{root: s.root, auto: config.Auto{Needs: "ci.yml"}}, "main", testCIName, connDirect, true)
 	if err != nil {
 		t.Fatal(err)
 	}

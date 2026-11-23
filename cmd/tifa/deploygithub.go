@@ -178,6 +178,9 @@ type githubWorkflowSpec struct {
 	// CIName is the name of the workflow that checks the app (deploy.auto.needs). The deploy runs
 	// after it passed. Empty means the deploy waits for none, and a push to Branch deploys.
 	CIName string
+	// CIFile is the base name of that workflow's file. Two workflows can have one name, so the job
+	// also checks the file of the run it follows.
+	CIFile string
 	// Purge says the deploy clears the CDN cache of the domain: the workflow hands Tifa the token
 	// and the zone ID, both from secrets, since a public repository must not show the zone.
 	Purge bool
@@ -239,8 +242,15 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	w("jobs:")
 	w("  deploy:")
 	if s.CIName != "" {
-		// Only a push that passed: a run from a fork has the name of a branch too.
-		w("    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')")
+		// Only a push that passed: a run from a fork has the name of a branch too. And only the
+		// file that was named, since another workflow may have the same name. The path of a run is
+		// the file, and may have @ref after it: both are accepted.
+		file := ""
+		if s.CIFile != "" {
+			path := strings.ReplaceAll(workflowsDir+"/"+s.CIFile, "'", "''")
+			file = fmt.Sprintf(" && (github.event.workflow_run.path == '%s' || startsWith(github.event.workflow_run.path, '%s@'))", path, path)
+		}
+		w("    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'%s)", file)
 	}
 	w("    runs-on: ubuntu-24.04")
 	w("    timeout-minutes: 30")
@@ -407,6 +417,9 @@ func (k deployKey) authorizedLine(repo string) string {
 // ciName the name of the workflow it waits for, empty to wait for none.
 func workflowSpec(t deployTarget, branch, ciName, mode string, purge bool) (githubWorkflowSpec, error) {
 	s := githubWorkflowSpec{Branch: branch, Mode: mode, Purge: purge, CIName: ciName}
+	if ciName != "" {
+		s.CIFile = t.auto.Needs
+	}
 	pkg, err := os.ReadFile(filepath.Join(t.root, "package.json"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):

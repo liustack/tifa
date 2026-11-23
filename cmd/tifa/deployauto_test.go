@@ -128,3 +128,20 @@ func TestSetupAutoTailscaleSubject(t *testing.T) {
 		}
 	}
 }
+
+// Two workflows can share a name, so the deploy job also checks the file of the run that finished.
+func TestSetupAutoBindsNeedsToTheFile(t *testing.T) {
+	out, err, root, _ := autoSetup(t, "  auto:\n    needs: checks.yml\n", map[string]string{".github/workflows/checks.yml": "name: Checks\non: push\n"})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	text, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath))
+	want := "(github.event.workflow_run.path == '.github/workflows/checks.yml' || startsWith(github.event.workflow_run.path, '.github/workflows/checks.yml@'))"
+	if !strings.Contains(string(text), want) {
+		t.Errorf("the job's if lacks the file:\n%s", text)
+	}
+	_, err, root, _ = autoSetup(t, "  auto:\n    needs: none\n", nil)
+	if text, _ := os.ReadFile(filepath.Join(root, githubWorkflowPath)); err != nil || strings.Contains(string(text), "workflow_run.path") {
+		t.Errorf("needs none has no workflow_run: %v\n%s", err, text)
+	}
+}
