@@ -588,12 +588,12 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:3:", "RenderCache is now Memo", "const Memo = false"},
 		}},
 		{"layoutssr", [][]string{
-			{"app/page/route.go:3:", "LayoutSSR is gone", "const SSR = false", "route.go of each page this Layout wraps"},
+			{"app/page/route.go:3:", "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps"},
 		}},
 		{"limitsgone", [][]string{
 			{"app/photos/route.go:13:", "BodyLimit is gone: set it in OnRequest with c.SetBodyLimit for this route", `c.Pattern() == "/photos"`, "c.Request().Method == http.MethodPost", "c.SetBodyLimit("},
 			{"app/photos/route.go:15:", "ReadTimeout is gone: set it in OnRequest with c.SetReadTimeout for this route", `c.Pattern() == "/photos"`, "http.MethodPost", "c.SetReadTimeout("},
-			{"app/projects/projectId+/route.go:5:", "BodyLimit is gone", `c.Pattern() == "/projects/{projectId}"`, "http.MethodPut"},
+			{"app/projects/projectId+/route.go:5:", "BodyLimit is gone", `c.Pattern() == "/projects/{projectId}"`, "(c.Request().Method == http.MethodPut || c.Request().Method == http.MethodDelete)"},
 		}},
 		{"memovalue", [][]string{
 			{"app/page/route.go:3:", "Memo", "can only be false"},

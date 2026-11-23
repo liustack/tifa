@@ -5,3 +5,5 @@ import "github.com/liustack/tifa"
 const BodyLimit = 1 << 20
 
 func PUT(c *tifa.Ctx) error { return nil }
+
+func DELETE(c *tifa.Ctx) error { return nil }

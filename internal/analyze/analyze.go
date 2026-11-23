@@ -517,7 +517,7 @@ func (a *analyzer) build() *Manifest {
 		a.checkPackageNames(d)
 		pkg := a.routePackage(d)
 		if pkg != nil {
-			a.checkGoneLimits(pkg, formatPath(segs))
+			a.checkGoneLimits(pkg, formatPath(segs), d.pageTSX)
 		}
 		if l := a.layout(d, pkg); l != nil {
 			l.segs, l.valid, l.Path = segs, valid, formatPath(segs)
@@ -750,7 +750,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		return nil
 	}
 	if obj := pkg.Types.Scope().Lookup("LayoutSSR"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
-		a.errorAt(obj.Pos(), "LayoutSSR is gone: write const SSR = false in the route.go of each page this Layout wraps")
+		a.errorAt(obj.Pos(), "LayoutSSR is gone: delete it. If it was false, write const SSR = false in the route.go of each page this Layout wraps")
 	}
 	if obj := pkg.Types.Scope().Lookup("RenderCache"); obj != nil && filepath.Base(a.fset.Position(obj.Pos()).Filename) == "route.go" {
 		a.errorAt(obj.Pos(), "RenderCache is now Memo: write const Memo = false to turn the render memo off for this page")
@@ -1480,20 +1480,24 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 
 // checkGoneLimits reports BodyLimit and ReadTimeout declared as a constant or a variable in
 // route.go. They set the body limit and the read time of a route before v0.2.0, and are now set per
-// request in OnRequest. path is the path of the route as c.Pattern() gives it. A type of those
+// request in OnRequest. path is the path of the route as c.Pattern() gives it, and page says whether the folder has a page.tsx. A type of those
 // names is the domain code's own.
-func (a *analyzer) checkGoneLimits(pkg *packages.Package, path string) {
+func (a *analyzer) checkGoneLimits(pkg *packages.Package, path string, page bool) {
 	scope := pkg.Types.Scope()
-	method := ""
+	// The handlers of the route, but not the GET of a page: it reads no body.
+	var matches []string
 	for _, m := range methods {
-		if m != "GET" && scope.Lookup(m) != nil {
-			method = m
-			break
+		if scope.Lookup(m) != nil && !(m == "GET" && page) {
+			matches = append(matches, "c.Request().Method == http."+methodConst[m])
 		}
 	}
 	condition := fmt.Sprintf("c.Pattern() == %q", path)
-	if method != "" {
-		condition += " && c.Request().Method == http." + methodConst[method]
+	switch len(matches) {
+	case 0:
+	case 1:
+		condition += " && " + matches[0]
+	default:
+		condition += " && (" + strings.Join(matches, " || ") + ")"
 	}
 	for _, g := range []struct{ name, call, value string }{
 		{"BodyLimit", "SetBodyLimit", "8 << 20"},
