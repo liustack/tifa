@@ -151,7 +151,7 @@ go tool tifa build
 
 ## Use it with a coding agent
 
-[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. In your app, write it into `.claude/skills/tifa/` from the Tifa version the app uses. A new app already has it, and `go tool tifa upgrade` writes it again when it moves the app to a newer Tifa, and `go tool tifa agents` does the same without an upgrade:
+[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. In your app, write it into `.claude/skills/tifa/` from the Tifa version the app uses. This also refreshes the notes Tifa manages in `AGENTS.md`. A new app already has both, and `go tool tifa upgrade` writes them again when it moves the app to a newer Tifa, and `go tool tifa agents` does the same without an upgrade:
 
 ```sh
 go tool tifa agents
@@ -164,7 +164,7 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | Doc | Read it when |
 | :-- | :-- |
 | [Tutorial](docs/start/tutorial.md) | You are new to Tifa and want to build a small app from the first folder to a running program |
-| Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [search engines and language models](docs/guides/seo.md), [streaming](docs/guides/streaming.md), [values from the environment](docs/guides/environment.md) | Adding a common feature and you want a tested way to do it |
+| Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [search engines and language models](docs/guides/seo.md), [streaming](docs/guides/streaming.md), [values from the environment](docs/guides/environment.md), [logs](docs/guides/logs.md) | Adding a common feature and you want a tested way to do it |
 | [Philosophy](docs/start/philosophy.md) | You want to know why a Tifa app is organized the way it is |
 | [Structuring an app](docs/start/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
 | [Writing an app](docs/start/app.md) | Laying out folders, how they become URLs, and which doc to read next |
@@ -177,6 +177,7 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | [Configuration](docs/build-and-deploy/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
 | [Architecture](docs/internals/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the render memo work inside |
 | [Render memo](docs/reference/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |
+| [Compatibility](docs/reference/compatibility.md) | You want to know whether a Tifa upgrade can break your app, and what stays stable |
 | [Performance](docs/reference/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
 | [Testing](docs/internals/testing.md) | Contributing to Tifa itself |
