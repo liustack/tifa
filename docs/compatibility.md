@@ -22,7 +22,7 @@ From v0.1, a change that breaks anything on the stable list below ships in a min
 
 **Commands and flags.** The commands of `go tool tifa` (`new`, `build`, `dev`, `gen`, `check`, `routes`, `errors`, `docs`, `agents`, `upgrade`) with their flags. The built program's `serve`, `config` and `version`, `-c/--config`, and one flag for every setting.
 
-**`tifa.yaml` keys.** Every key in [config.md](config.md), with its flag and environment variable, its type and its default. A key Tifa drops is first listed as retired, and a retired key only prints a warning. The next minor version may remove it.
+**`tifa.yaml` keys.** Every key in [config.md](config.md), with its flag and environment variable, its type and its default. A key Tifa drops goes in a minor version, and the changelog says what to write instead.
 
 **HTTP names that apps and CDNs touch.**
 

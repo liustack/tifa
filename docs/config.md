@@ -148,20 +148,6 @@ Settings that hold a size (`server.body_limit`, `ssr.vm_memory`, `ssr.memo_size`
 
 The block `deploy.auto` turns deploys from GitHub Actions on by being there: `auto: {}` takes the defaults, and a key it does not know, or `auto:` with nothing after it, is an error. Without the block there are no deploys from GitHub Actions. `tifa deploy setup` sets them up.
 
-### Retired settings
-
-A setting that Tifa drops is listed here for at least the next minor version. A program or a build that still gets one, from a flag, an environment variable, `.env`, the file of `-c` or `tifa.yaml`, prints one warning, "no longer used", with what to do instead. It starts and builds all the same, and the value is not used: a renamed setting does not carry its value over, so set the new name or its default applies.
-
-| Retired | Instead |
-| --- | --- |
-| `cache_control.s_maxage` (`--cache-control-s-maxage`, `CACHE_CONTROL_S_MAXAGE`) | `cache.s_maxage` (`--cache-s-maxage`, `CACHE_S_MAXAGE`) |
-| `cache.size` (`--cache-size`, `CACHE_SIZE`) | `ssr.memo_size` (`--ssr-memo-size`, `SSR_MEMO_SIZE`) |
-| `cache.whole_page` | None. Pages with `Cache` are no longer kept in the program |
-| `cache.ignore_query` | None. There is no key to clean |
-| `deploy.host` (in `tifa.yaml` only) | `TIFA_DEPLOY_HOST` in the `.env` of the app, `--host` of `tifa deploy`, or the server in `~/.tifa/config.yaml`. `tifa.yaml` is committed, so it does not hold the server. See [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy) |
-
-`deploy.ssh` and `deploy.ci` of an earlier version are not retired but renamed, and the project file stops with the new form at their line: `deploy.ssh` is `deploy.connect` with the same values, and `ci: github` is `auto: {}` (delete `ci: none`).
-
 ## Options of the app
 
 An app defines its own options in `options.go` at its root, as package-level variables:

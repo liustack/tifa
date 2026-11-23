@@ -93,7 +93,7 @@ Sessions (see `references/routing-and-data.md`):
 
 Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/app.md#coming-from-another-framework`).
 
-Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFound`, `Document` or `Error` (rename it to `ErrorBoundary`), declaring `const Path`, a `form` struct tag (also in a struct passed to `c.Bind` or `c.BindQuery`), `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `ErrorBoundary` export, with a check `error instanceof TifaError && error.status === 404`.
+Names the build rejects: exporting `NotFound`, `Document` or `Error` (rename it to `ErrorBoundary`), declaring `const Path`, a `form` struct tag (also in a struct passed to `c.Bind` or `c.BindQuery`), `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `ErrorBoundary` export, with a check `error instanceof TifaError && error.status === 404`.
 
 Build and deploy:
 
