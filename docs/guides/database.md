@@ -264,7 +264,16 @@ SQLite lets one write in at a time. The driver queues the writes of the app in t
 - **A transaction that does not take the write lock when it starts.** Without `_txlock=immediate`, `BEGIN` takes no lock. The transaction reads, another request writes and commits, and the first write of the transaction then fails, however long `busy_timeout` is. SQLite refuses it to keep what the transaction read consistent, and waiting longer or trying the statement again does not help. Open the database with `_txlock=immediate`, as `OpenDB` above and the `db.go` of `tifa new` do: every transaction then takes the write lock at `BEGIN` and waits its turn there.
 - **Writes that come faster than the disk can commit them.** A write then waits longer than `busy_timeout` (5 seconds by default) and fails. Keep transactions short, as above, before you raise the timeout.
 
-A transaction that only reads needs no write lock. Start it with `db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})`, so it does not wait behind the writes. A query outside a transaction needs neither.
+A transaction that only reads needs no write lock. Start it with `db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})`, so it does not wait behind the writes. A query outside a transaction needs neither. A write outside a transaction, a plain `db.ExecContext`, needs nothing either: the driver queues it with the others and may commit several in one go, each with its own result.
+
+To tell this error from others, read its code:
+
+```go
+var e *sqlite.Error
+if errors.As(err, &e) && e.Code() == sqlite.BUSY {
+	// database is locked
+}
+```
 
 Another process that writes the same file, such as a script or the `sqlite3` shell, is not in the queue of the driver: it meets the app at the lock of SQLite, as with any driver.
 
@@ -285,7 +294,16 @@ if err != nil {
 }
 ```
 
-The driver exports no error type, so there is nothing for `errors.As` to find, unlike `modernc.org/sqlite`. A failed constraint comes back as an error whose text is the message and the extended result code, such as `sqlite: UNIQUE constraint failed: bookings.slot (2067)`. Where `ON CONFLICT` does not fit, for example an `UPDATE`, match on that text with `strings.Contains(err.Error(), "UNIQUE constraint failed")`.
+A failed constraint comes back as a `*sqlite.Error` with the extended code `sqlite.CONSTRAINT_UNIQUE`. Where `ON CONFLICT` does not fit, for example an `UPDATE`, check for it:
+
+```go
+var e *sqlite.Error
+if errors.As(err, &e) && e.ExtendedCode() == sqlite.CONSTRAINT_UNIQUE {
+	return tifa.Fields{"slot": "That slot is taken."}
+}
+```
+
+Import the driver by name for this, `"github.com/liustack/sqlite"`, instead of with `_`.
 
 ## Back it up
 

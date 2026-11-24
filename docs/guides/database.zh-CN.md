@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里用 SQLite 保存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放在哪里以及怎样设置路径、用启动时运行的带编号迁移修改表、在 Load 和处理函数里使用、事务、写入为什么会报 `database is locked` 以及 `_txlock=immediate` 怎样避免它、拒绝重复的行、用选项 `db.backup` 把每次提交复制到 Cloudflare R2 或其他 S3 存储，并在新机器上或者回到一次错误部署前一秒恢复数据库、这在 R2 上花多少钱、用 `VACUUM INTO` 做一次性副本、在临时数据库上测试，以及什么时候该换成 Postgres'
 audience: app
 order: 2
-translatedFrom: 98af850bde01
+translatedFrom: 296ef0a82a90
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
@@ -265,7 +265,16 @@ SQLite 同一时间只让一个写入进来。驱动把应用里的写入按到�
 - **事务开始时没有拿写锁。** 不加 `_txlock=immediate` 时，`BEGIN` 不拿任何锁。事务先读，另一个请求写入并提交，这个事务接下来的第一次写入就会失败，`busy_timeout` 设多长都一样。这是 SQLite 为了让事务读到的数据前后一致而拒绝它，多等一会儿或者重试这条语句都没用。用 `_txlock=immediate` 打开数据库，就像上面的 `OpenDB` 和 `tifa new` 写出的 `db.go` 那样：每个事务在 `BEGIN` 时就拿写锁，在那里排队等。
 - **写入来得比磁盘提交得还快。** 这时一个写入等的时间超过 `busy_timeout`（默认 5 秒）就会失败。先像上面说的那样让事务保持很短，再考虑调大这个时间。
 
-只读的事务不需要写锁。用 `db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})` 开始它，它就不会排在写入后面等。不在事务里的查询两样都不需要。
+只读的事务不需要写锁。用 `db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})` 开始它，它就不会排在写入后面等。不在事务里的查询两样都不需要。不在事务里的写入，也就是直接 `db.ExecContext`，同样什么都不用做：驱动把它和别的写入一起排队，可能把几个合成一次提交，每个照样拿到自己的结果。
+
+要把这个错误和别的错误分开，看它的代码：
+
+```go
+var e *sqlite.Error
+if errors.As(err, &e) && e.Code() == sqlite.BUSY {
+	// database is locked
+}
+```
 
 另一个写同一个文件的进程，比如脚本或者 `sqlite3` 命令行，不在驱动的队列里：它和应用在 SQLite 自己的锁上相遇，换哪个驱动都一样。
 
@@ -286,7 +295,16 @@ if err != nil {
 }
 ```
 
-这个驱动不导出错误类型，所以 `errors.As` 没有东西可找，这一点和 `modernc.org/sqlite` 不同。约束失败时返回的错误，它的文字是消息加上扩展结果码，比如 `sqlite: UNIQUE constraint failed: bookings.slot (2067)`。在 `ON CONFLICT` 不适用的地方，比如 `UPDATE`，用 `strings.Contains(err.Error(), "UNIQUE constraint failed")` 来匹配这段文字。
+约束失败时返回的是一个 `*sqlite.Error`，扩展结果码是 `sqlite.CONSTRAINT_UNIQUE`。在 `ON CONFLICT` 不适用的地方，比如 `UPDATE`，这样判断：
+
+```go
+var e *sqlite.Error
+if errors.As(err, &e) && e.ExtendedCode() == sqlite.CONSTRAINT_UNIQUE {
+	return tifa.Fields{"slot": "That slot is taken."}
+}
+```
+
+为此要按名字导入驱动，写 `"github.com/liustack/sqlite"`，而不是用 `_`。
 
 ## 备份 {#back-it-up}
 
