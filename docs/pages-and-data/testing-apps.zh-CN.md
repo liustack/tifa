@@ -1,8 +1,8 @@
 ---
-summary: '怎样用 go test 测试应用：用 tifatest.NewCtx 给出的 Ctx 调用 Load、方法处理函数或 OnRequest，用 tifatest.Start 测试一次完整的请求，以及固定一次渲染的时钟'
+summary: '怎样用 go test 测试应用：tifatest.NewCtx、tifatest.Start、Load、OnRequest、时钟'
 audience: app
 order: 9
-translatedFrom: 52b165b380cf
+translatedFrom: c5dfb7397fba
 read_when:
   - '为 Load、布局函数、方法处理函数或 OnRequest 写 Go 测试'
   - '在 go test 里用 tifatest.Start 或 tifatest.StartPages 测试一次完整的请求，比如登录后跟随重定向'

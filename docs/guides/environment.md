@@ -1,5 +1,5 @@
 ---
-summary: 'How a value from the environment, such as a public key or an API base URL, reaches a page of a Tifa app: settings stay in the Go program and the page gets them from Load, why `import.meta.env.VITE_*` and `process.env` are not used for this (as in Vite and Next.js), what import.meta.env still gives, and the build warning for `import.meta.env.VITE_*`'
+summary: 'How a value from the environment reaches a page: Load, `import.meta.env.VITE_*`, `process.env`'
 audience: app
 order: 10
 read_when:

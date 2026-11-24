@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa v0.1 对应用保持稳定的东西（包、文件约定、生成的路径、命令、设置、HTTP 名称），以及哪些东西在任何版本里都可能改变'
+summary: 'Tifa v0.1 对应用保持稳定的东西，以及哪些可能变：包、文件约定、命令、设置、HTTP 名称'
 audience: app
 order: 3
-translatedFrom: 5f64614a074c
+translatedFrom: 839d668c100c
 read_when:
   - '判断升级 Tifa 会不会弄坏你的应用'
   - '在 Tifa 程序前面放 CDN、代理或监控'

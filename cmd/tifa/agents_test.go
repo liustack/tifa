@@ -452,8 +452,8 @@ func TestAgentsKeepsCRLFLineEnds(t *testing.T) {
 var testNotesApp = newApp{Module: "example.com/shop", Package: "shop", Install: "pnpm install", Run: "pnpm", Written: "Tifa v9.9.9"}
 
 // The managed block holds an index of the docs for writing an app, made from the docs of this
-// version: a line per section folder, then one line per doc with its file name and the first clause
-// of its summary, as tifa docs prints it. Docs about developing Tifa are left out.
+// version: a line per section folder, then one line per doc with its file name and its whole summary.
+// Docs about developing Tifa are left out.
 func TestNotesIndexTheAppDocs(t *testing.T) {
 	block, err := notesBlock(testNotesApp)
 	if err != nil {
@@ -474,7 +474,7 @@ func TestNotesIndexTheAppDocs(t *testing.T) {
 		}
 		app++
 		head := "`" + section + "`"
-		line := "- `" + name + "`: " + firstSentence(d.summary)
+		line := "- `" + name + "`: " + strings.Join(strings.Fields(d.summary), " ")
 		i, j := strings.Index(block, "\n"+head+"\n"), strings.Index(block, "\n"+line+"\n")
 		if i < 0 || j < i {
 			t.Errorf("the block has no line %q under %q", line, head)
@@ -495,8 +495,8 @@ func TestNotesBlockIsSmall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(block); n > 11*1024 {
-		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 11 KB: move details to the docs and leave the path", n)
+	if n := len(block); n > 12*1024 {
+		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 12 KB: move details to the docs and leave the path", n)
 	}
 }
 

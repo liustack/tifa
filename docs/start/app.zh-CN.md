@@ -1,8 +1,8 @@
 ---
-summary: '怎样开始写一个 Tifa 应用：文件夹布局、文件夹怎样变成 URL、一个文件夹里的文件（route.go、page.tsx、layout.tsx）、检查器对其他框架写法（Next.js、Remix、React Router、TanStack Start、SvelteKit、其他 Go Web 框架）的提示以及在 Tifa 里该怎么写、多语言站点、哪些静态文件要导入、哪些放在 `public/`，并链接到各部分的文档'
+summary: '怎样开始写一个 Tifa 应用：route.go、page.tsx、layout.tsx、URL、`public/`、Next.js 或 Remix 代码'
 audience: app
 order: 2
-translatedFrom: eb3c4c6c00d6
+translatedFrom: e6e2b01ae052
 read_when:
   - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'

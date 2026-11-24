@@ -1,8 +1,8 @@
 ---
-summary: '应用怎样把文章、文档和其他文字作为 Markdown 文件放在 content/ 下，并在 Go 里读取：在 content.go 里声明集合、哪些文件是条目、ID、slug、路径和翻译、schema 结构体允许的 front matter 键、正文怎样变成 HTML（各个步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它、草稿和到日期才出现的条目、`tifa dev` 做什么、`tifa build` 写什么、测试里怎样读内容，以及错误和警告'
+summary: '应用怎样把文字作为 Markdown 放在 content/ 下：content.go、front matter、slug、草稿、remark、`tifa build`'
 audience: app
 order: 4
-translatedFrom: 42b15782d92d
+translatedFrom: 304ec71c49c0
 read_when:
   - '给 Tifa 应用加博客、文档或其他 Markdown 内容'
   - '编写或修改 content.go，或者嵌入 content.Entry 的 schema 类型'

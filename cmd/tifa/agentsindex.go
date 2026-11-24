@@ -13,7 +13,7 @@ import (
 
 // appDocsIndex lists the docs for writing an app that this tifa carries, for the managed block of
 // AGENTS.md: a line with each section folder, in the order of its index.md, then one line per doc
-// in its order with the file name and the first clause of the summary, as tifa docs prints it.
+// in its order with the file name and the whole summary, so an agent sees the head and the keywords after it.
 func appDocsIndex() (string, error) {
 	return docsIndexOf(tifadocs.FS)
 }
@@ -57,7 +57,7 @@ func docsIndexOf(files fs.FS) (string, error) {
 		if meta.summary == "" {
 			return fmt.Errorf("docs/%s has no summary in its front matter", p)
 		}
-		s.docs = append(s.docs, doc{name, firstSentence(meta.summary), meta.order})
+		s.docs = append(s.docs, doc{name, strings.Join(strings.Fields(meta.summary), " "), meta.order})
 		return nil
 	})
 	if err != nil {

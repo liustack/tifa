@@ -1,8 +1,8 @@
 ---
-summary: '服务端渲染有什么、缺什么：beastjs 虚拟机里的浏览器和 Node API、导入 Node 模块的包、在那里渲染结果不同的库、只在浏览器里加载的组件，以及怎样使用 Intl 和 Temporal 让水合结果一致'
+summary: '服务端渲染有什么、缺什么：beastjs 的 API、Node 模块、Intl、Temporal、水合'
 audience: app
 order: 7
-translatedFrom: 251220614700
+translatedFrom: 378015887c0e
 read_when:
   - '页面在服务端渲染失败或没有水合，想知道服务端有哪些浏览器 API 和库的功能'
   - '某个组件在浏览器画出来之前什么都不显示（比如图表或地图），想知道要不要在服务端渲染它'

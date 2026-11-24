@@ -1,5 +1,5 @@
 ---
-summary: 'A getting-started tutorial: start an app with `tifa new`, run it with `tifa dev`, add a page, a form with field errors, Layout data and tests, then build one executable and run it'
+summary: 'A getting-started tutorial: `tifa new`, `tifa dev`, a page, a form, tests, one executable'
 audience: app
 order: 1
 read_when:

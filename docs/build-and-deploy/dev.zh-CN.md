@@ -1,8 +1,8 @@
 ---
-summary: '怎样使用 `tifa dev`：每种改动之后页面怎样更新、运行哪些步骤、Vite 怎样配合、怎样读日志、构建失败时页面和应用怎么办、浏览器的错误怎样显示、`tifa errors` 怎样打印上次构建以来的错误、agent 或脚本怎样在后台启动 `tifa dev` 并读取它的状态、日志和停止它（`--background`、`status`、`logs`、`stop`）、Windows 上有什么不同、dev 的输出放在哪里，以及大型应用怎样监视'
+summary: '怎样使用 `tifa dev`：页面、构建错误、`tifa errors`、`--background`、`status`、`logs`、`stop`'
 audience: app
 order: 1
-translatedFrom: 214e35341c48
+translatedFrom: ea765c14e00f
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'

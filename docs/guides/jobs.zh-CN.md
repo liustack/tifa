@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里做请求之外的工作：根包可以导入的某个包里每分钟运行一次的循环、在 OnStart 里启动并随 OnShutdown 干净停下的 goroutine、Tifa 被告知停止时做什么、定时运行的任务、在 SQLite 里放一张 jobs 表来保存必须撑过重启并且可以重试的工作，以及在请求里不要做什么'
+summary: '怎样在 Tifa 应用里做请求之外的工作：OnStart 里的循环、OnShutdown、定时器、会重试的 SQLite jobs 表'
 audience: app
 order: 6
-translatedFrom: 2e91ea5d1476
+translatedFrom: 94fee4658df7
 read_when:
   - '发邮件、调用慢的服务，或者做任何不该让访客等待的工作'
   - '在 Tifa 应用里每分钟、每小时或每天运行某件事'

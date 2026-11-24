@@ -1,5 +1,5 @@
 ---
-summary: 'The ideas behind how a Tifa app is organized and what each one gives you: group code by domain, wire dependencies by hand, start small, do things the Go way'
+summary: 'The ideas behind how a Tifa app is organized and what each one gives you: domains, hand-wired dependencies, small starts'
 audience: app
 order: 3
 read_when:

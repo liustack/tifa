@@ -1,5 +1,5 @@
 ---
-summary: 'What the server render has and lacks: the browser and Node APIs in the beastjs VM, packages that import Node modules, libraries that render differently there, components to load only in the browser, and how to use Intl and Temporal so hydration matches'
+summary: 'What the server render has and lacks: beastjs APIs, Node modules, Intl, Temporal, hydration'
 audience: app
 order: 7
 read_when:

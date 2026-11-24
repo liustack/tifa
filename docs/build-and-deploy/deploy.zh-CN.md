@@ -1,8 +1,8 @@
 ---
-summary: '怎样把 Tifa 应用放到服务器上：服务器在哪里指定（.env 里的 TIFA_DEPLOY_HOST，永远不写在 tifa.yaml 里，或者 `tifa deploy setup` 记在 ~/.tifa/config.yaml 里的服务器）和以同样方式读取的其他输入（命令行参数、环境变量、.env）以及 tifa.yaml 里的部署设置（front、connect，以及带 branch 和 needs 的 auto 块）、带有增加、修改和删除各行计划的 tifa deploy setup、通过 ssh 向带 systemd 的 Linux 服务器执行的 tifa deploy 和 tifa deploy rollback、每次部署时清除域名的 Cloudflare CDN 缓存、在 CI 工作流之后通过 GitHub Actions 部署（密钥、主机密钥、secrets、直接连接或经由 Cloudflare 或 Tailscale、用 gh 或用细粒度令牌）、从你自己的机器也通过 Cloudflare Tunnel 走 ssh（针对你的邮箱的 Access 策略、cloudflared、~/.ssh/config 里的块、第一次浏览器登录、关闭 ssh 端口）、运行器用工作负载身份联合加入你的 Tailscale tailnet（Tailscale 身份、它的两个变量、要在 Tailscale 控制台里建什么）、第二台开发机、用 tifa deploy env 管理服务器上应用的 .env、用 tifa deploy logs、status 和 remove 读取应用的日志、查看哪个版本在运行以及把应用从服务器上拿掉、一台服务器上放多个应用、应用自己在 80 和 443 端口上接待访客并用自己的 HTTPS（一台服务器一个应用，经你同意开放 ufw，服务商的防火墙由你管）或者前面放 Cloudflare Tunnel，以及手工部署：为 Linux 构建、带着它的设置和数据文件夹运行、干净地停下、在 systemd 下重启而不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设置什么（Host 和 Origin、压缩、缓存哪些响应）、健康检查路由、来自 tifa.Stats 的 Prometheus 指标和该看什么，以及部署时打开着的页面会怎样'
+summary: '怎样把 Tifa 应用放到服务器上：`tifa deploy`、ssh、systemd、GitHub Actions、Cloudflare、健康检查、Prometheus'
 audience: app
 order: 3
-translatedFrom: 47843ec49af0
+translatedFrom: f224a4fb8d11
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'

@@ -1,5 +1,5 @@
 ---
-summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, why a write gets `database is locked` and how `_txlock=immediate` prevents it, rejecting a duplicate row, copying every commit to Cloudflare R2 or another S3 store with the option `db.backup` and restoring the database on a new machine or to the second before a bad deploy, what that costs on R2, a one-off copy with `VACUUM INTO`, testing on a temporary database, and when to move to Postgres'
+summary: 'How to keep data in a Tifa app with SQLite: migrations, `database is locked`, `db.backup` to R2 or S3, Postgres'
 audience: app
 order: 2
 read_when:

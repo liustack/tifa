@@ -1,5 +1,5 @@
 ---
-summary: 'How to build a form in a Tifa app: post it to a Go method handler through the generated function, show the field errors from tifa.Fields next to each input, disable the button while it sends, reload the page data after success and show the new row before the answer comes (React 19 useActionState, useFormStatus and useOptimistic)'
+summary: 'How to build a form in a Tifa app: method handler, tifa.Fields errors, useActionState, useOptimistic'
 audience: app
 order: 1
 read_when:

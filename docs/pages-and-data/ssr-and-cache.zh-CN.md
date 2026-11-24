@@ -1,8 +1,8 @@
 ---
-summary: '页面怎样渲染和保存：route.go 里的 SSR、Memo 和 Cache 开关、每个响应的 Cache-Control、Cache 让 CDN 保存什么以及哪些内容会变成匿名，以及怎样让私有数据不进入共享页面'
+summary: '页面怎样渲染和保存：SSR、Memo、Cache、Cache-Control、CDN、私有页面'
 audience: app
 order: 8
-translatedFrom: 59fcdbc4f46d
+translatedFrom: 86da700687b1
 read_when:
   - '用 `SSR`、`Memo` 或 `Cache` 给某个页面打开或关闭服务端渲染、渲染记忆或 `Cache`'
   - '用 `const Cache` 让 CDN 保存一个公开页面几分钟，了解哪些内容会变成匿名，或者遇到在这种页面里读取 Cookie 或会话的构建错误'

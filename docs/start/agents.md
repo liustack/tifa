@@ -1,5 +1,5 @@
 ---
-summary: 'How to work on a Tifa app with a coding agent: the AGENTS.md and the Tifa skill an app gets, which agents read the skill where (Claude Code, Cursor, GitHub Copilot, Codex, Gemini CLI), how to write them into an older app or keep them current, and the commands an agent uses to run the app and see its errors'
+summary: 'How to work on a Tifa app with a coding agent: AGENTS.md, Tifa skill, Claude Code, Cursor, Codex, `tifa agents`, `tifa dev --background`'
 audience: app
 order: 5
 read_when:

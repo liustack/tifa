@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 应用里的会话怎样工作：在 Go 里登录和登出、会话 Cookie、内存存储，以及怎样用自己写的存储把会话放在 Redis 或 SQL 里、各个调用可以在哪里使用、构建时的检查、浏览器怎样显示谁已登录、怎样测试，以及每种错误是什么意思'
+summary: 'Tifa 应用里的会话怎样工作：cookie、内存存储、Redis 或 SQL 存储、`tifa.SetSessionStore`'
 audience: app
 order: 5
-translatedFrom: a1e7f3efede2
+translatedFrom: b5fa75603d85
 read_when:
   - '让用户登录和登出，或者读取谁已登录'
   - '把会话放在 Redis、SQL 或文件里，而不是进程的内存里，或者为 tifa.SetSessionStore 写一个存储'

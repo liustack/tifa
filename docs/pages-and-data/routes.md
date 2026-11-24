@@ -1,5 +1,5 @@
 ---
-summary: 'How to write the Go side of a route in route.go: Load, method handlers with typed input and result, the errors they return, files in the input, the body limit and read time of a route, the methods of Ctx, where Load and Layout may use Ctx, and the JSON rules for data, inputs and results'
+summary: 'How to write the Go side of a route in route.go: Load, method handlers, typed input, errors, Ctx, JSON rules'
 audience: app
 order: 1
 read_when:

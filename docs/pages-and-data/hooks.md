@@ -1,5 +1,5 @@
 ---
-summary: 'How to set up the whole app in hooks.go (OnStart, OnShutdown, OnRequest, OnError, the log handler, net/http middleware) and in setup.ts (the setup that runs before the first render), with a pointer to sessions'
+summary: 'How to set up the whole app in hooks.go and setup.ts: OnStart, OnShutdown, OnRequest, OnError, middleware'
 audience: app
 order: 6
 read_when:

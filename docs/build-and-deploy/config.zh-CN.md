@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 应用的每一项设置和应用怎样定义自己的设置，以及每个响应都带的安全头，其中包括 server.csp 的 Content-Security-Policy：每一项可以在哪里设置（命令行参数、环境变量、.env、-c 指定的文件、tifa.yaml）、哪个来源优先、PORT 和 HOST 怎样读取、默认值、参数和环境变量的名字、值的格式和错误的值会给出什么错误、需要更久的处理函数怎样放宽读写超时、怎样用程序自己拿到的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从其他站点发来的写请求，和怎样放行指定的来源或路径'
+summary: 'Tifa 应用每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: f5ed262cf642
+translatedFrom: 1a8e6b2e5f61
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'

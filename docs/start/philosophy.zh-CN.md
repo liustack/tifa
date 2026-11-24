@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 应用这样组织背后的想法，以及每一条能给你什么：按领域分组代码、手工接线依赖、从小处开始、按 Go 的方式做事'
+summary: 'Tifa 应用这样组织背后的想法，以及每一条能给你什么：领域、手工装配依赖、从小处开始'
 audience: app
 order: 3
-translatedFrom: c799b5b48eca
+translatedFrom: da8108fc496e
 read_when:
   - '新建 Tifa 应用，想知道它为什么是这样的布局'
   - '在新增一层、一个包或一个辅助函数之前，对照 Tifa 应用应有的样子权衡'

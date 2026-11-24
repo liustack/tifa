@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里边生成边发送答复：用服务端推送事件做实时更新、流式答复（比如语言模型的回复）、Go 处理函数和它放宽的期限、浏览器怎样读取每一种、它们怎样与渲染记忆和 `Cache` 相处、压缩和代理，以及程序停止时打开的流会怎样'
+summary: '怎样在 Tifa 应用里边生成边发送答复：server-sent events、流式答复、Memo、Cache'
 audience: app
 order: 9
-translatedFrom: 9c37d3eacf92
+translatedFrom: c9506dc26395
 read_when:
   - '向打开的页面推送实时更新，比如时钟、计数器或新订单'
   - '把语言模型的回复一个词一个词地显示出来'

@@ -1,8 +1,8 @@
 ---
-summary: '怎样和编程 agent 一起开发 Tifa 应用：应用自带的 AGENTS.md 和 Tifa skill，各个 agent 从哪里读 skill（Claude Code、Cursor、GitHub Copilot、Codex、Gemini CLI），怎样给旧应用写上它们并保持最新，以及 agent 用来运行应用、查看错误的命令'
+summary: '怎样和编程 agent 一起开发 Tifa 应用：AGENTS.md、Tifa skill、Claude Code、Cursor、Codex、`tifa agents`、`tifa dev --background`'
 audience: app
 order: 5
-translatedFrom: e646b92cd705
+translatedFrom: 80c57ffacfed
 read_when:
   - '用编程 agent 新建 Tifa 应用，或者把一个早先建的应用交给 agent'
   - 'agent 好像不知道 Tifa 的约定'

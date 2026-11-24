@@ -1,5 +1,5 @@
 ---
-summary: 'Every setting of a Tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'What each setting of a Tifa app means and where to set it: tifa.yaml, flags, environment, .env, server.csp, HTTPS, cross-origin writes'
 audience: app
 order: 4
 read_when:

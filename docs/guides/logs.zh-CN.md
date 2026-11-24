@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 应用的日志在 `tifa dev`、服务器和容器里分别在哪，Tifa 自己记了什么，怎样用 `log/slog` 在自己的代码里记日志，怎样设置格式和级别，以及怎样用 `tifa.SetHTTPHandler` 记录每个请求'
+summary: 'Tifa 应用的日志在哪里，以及怎样写日志：`tifa dev`、`log/slog`、格式、级别、`tifa.SetHTTPHandler`'
 audience: app
 order: 11
-translatedFrom: 59a111752d65
+translatedFrom: 419f827725b5
 read_when:
   - '想找应用的日志，在 `tifa dev`、服务器或容器里'
   - '想知道 Tifa 自己记了什么，或者为什么一个请求没留下日志行'
