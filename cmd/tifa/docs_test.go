@@ -174,6 +174,9 @@ func TestFirstSentence(t *testing.T) {
 		"How to write a Tifa app: folder layout, routes": "How to write a Tifa app",
 		"Settings": "Settings",
 		long:       "How tifa new starts an app, what tifa build does, what tifa check runs, what tifa gen writes",
+		// A cut inside parentheses ends before them, so no parenthesis is left open.
+		"How to set up the whole app in hooks.go (OnStart, OnShutdown, OnRequest, OnError, the log handler, net/http middleware) and in setup.ts": "How to set up the whole app in hooks.go",
+		"What Tifa keeps stable (packages, conventions) and what may change, which this sentence makes long enough to be cut somewhere":           "What Tifa keeps stable (packages, conventions) and what may change",
 	} {
 		if got := firstSentence(in); got != want {
 			t.Errorf("firstSentence(%q) = %q, want %q", in, got, want)

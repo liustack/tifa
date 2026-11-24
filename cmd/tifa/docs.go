@@ -243,7 +243,8 @@ const maxSummary = 110
 
 // firstSentence cuts a summary to its first clause: up to the first colon, since a summary says
 // what the doc is and then, after the colon, what it covers. Without a colon, or when the clause
-// is still long, it ends at the last comma before maxSummary characters.
+// is still long, it ends at the last comma before maxSummary characters, or before an opening
+// parenthesis that the cut leaves open.
 func firstSentence(s string) string {
 	if i := strings.Index(s, ": "); i > 0 {
 		s = s[:i]
@@ -254,11 +255,14 @@ func firstSentence(s string) string {
 	if r := []rune(s); len(r) > maxSummary {
 		cut := string(r[:maxSummary])
 		if i := max(strings.LastIndex(cut, ", "), strings.LastIndex(cut, "，")); i > 0 {
-			return cut[:i]
+			cut = cut[:i]
+		} else if i := strings.LastIndex(cut, " "); i > 0 {
+			cut = cut[:i]
 		}
-		if i := strings.LastIndex(cut, " "); i > 0 {
-			return cut[:i]
+		if open := max(strings.LastIndex(cut, "("), strings.LastIndex(cut, "（")); open > strings.LastIndexAny(cut, ")）") {
+			cut = strings.TrimRight(cut[:open], " ")
 		}
+		return cut
 	}
 	return s
 }
