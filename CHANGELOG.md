@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- The managed block of `AGENTS.md` that `tifa new` and `tifa agents` write ends with an index of the docs for apps of the Tifa version in use: one line per doc with its path and the first clause of its summary, grouped by section folder, and where the folder is. A coding agent sees which doc to open without running `go tool tifa docs` first. `go tool tifa upgrade` and `go tool tifa agents` write it.
+
 ### Changed
 
 - `tifa dev` and `tifa build` no longer compile plain stylesheets (a `.css` file imported for its side effect) for the server render, which has no use for CSS. Tailwind and Vite's CSS step now run for the browser only. A save of a `.ts` or `.tsx` file in `examples/shop` takes about 2.1 s for the bundle step instead of 2.4 s (median of 12 saves each, on an Apple M4). `dist/ssr.js` and its map are byte for byte the same. A stylesheet that does not compile still fails the bundle step. `.tifa/dist/inputs.json` lists fewer files under `tifa dev`: not the files a stylesheet imports nor the ones Tailwind scans.

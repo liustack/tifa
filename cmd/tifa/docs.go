@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -272,9 +273,10 @@ type docMeta struct {
 	summary  string
 	when     []string
 	audience string
+	order    int // the place of the doc in its section folder, 0 when the front matter has none
 }
 
-// frontMatter reads the summary, read_when and audience of the front matter that starts text, in
+// frontMatter reads the summary, read_when, audience and order of the front matter that starts text, in
 // the two forms scripts/docs-list.sh reads: a list of "- item" lines, or [a, b] on the key's line.
 // ok is false when there is no front matter or no summary.
 func frontMatter(text string) (meta docMeta, ok bool) {
@@ -294,6 +296,9 @@ func frontMatter(text string) (meta docMeta, ok bool) {
 			inList = false
 		case strings.HasPrefix(line, "audience:"):
 			meta.audience = unquote(strings.TrimPrefix(line, "audience:"))
+			inList = false
+		case strings.HasPrefix(line, "order:"):
+			meta.order, _ = strconv.Atoi(unquote(strings.TrimPrefix(line, "order:")))
 			inList = false
 		case strings.HasPrefix(line, "read_when:"):
 			rest := unquote(strings.TrimPrefix(line, "read_when:"))
