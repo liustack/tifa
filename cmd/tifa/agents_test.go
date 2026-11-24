@@ -489,6 +489,17 @@ func TestNotesIndexTheAppDocs(t *testing.T) {
 	}
 }
 
+// Long context files lower the success of coding agents, so the block stays small.
+func TestNotesBlockIsSmall(t *testing.T) {
+	block, err := notesBlock(testNotesApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(block); n > 10*1024 {
+		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 10 KB: move details to the docs and leave the path", n)
+	}
+}
+
 // The docs that tifa carries for the index are the English docs for apps, every one of them and
 // nothing else.
 func TestEmbeddedDocsAreTheAppDocs(t *testing.T) {
