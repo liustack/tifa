@@ -2,7 +2,7 @@
 summary: '怎样在 hooks.go（OnStart、OnShutdown、OnRequest、OnError、日志处理器、net/http 中间件）和 setup.ts（首次渲染前运行的初始化）里设置整个应用，并指向会话文档'
 audience: app
 order: 6
-translatedFrom: de0696eb589b
+translatedFrom: ad11428ffeaf
 read_when:
   - '在程序启动时打开数据库、开始工作或设置日志，或者让程序干净地停下'
   - '编写 `OnRequest` 或 `OnError`，或者用 `tifa.SetHTTPHandler` 给应用包一层 `net/http` 中间件'
@@ -64,7 +64,7 @@ func OnStart(ctx context.Context) error {
 
 ## setup.ts {#setupts}
 
-项目根目录里的 `setup.ts` 是 `hooks.go` 在 JavaScript 一侧的对应物。它就是普通的顶层代码，不用导出函数：
+项目根目录里的 `setup.ts` 是 `hooks.go` 在 JavaScript 一侧的对应物。它是可选的：没有它时，应用的渲染和有一个空的 `setup.ts` 一样。它就是普通的顶层代码，不用导出函数：
 
 ```ts
 // setup.ts

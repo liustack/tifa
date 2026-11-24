@@ -63,7 +63,7 @@ func OnStart(ctx context.Context) error {
 
 ## setup.ts
 
-`setup.ts` in the project root is the JavaScript side of `hooks.go`. It is plain top-level code, with no function to export:
+`setup.ts` in the project root is the JavaScript side of `hooks.go`. It is optional: without it, the app renders as it would with an empty one. It is plain top-level code, with no function to export:
 
 ```ts
 // setup.ts
