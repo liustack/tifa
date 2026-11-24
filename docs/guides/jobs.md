@@ -1,5 +1,5 @@
 ---
-summary: 'How to do work outside a request in a Tifa app: a loop that runs every minute from a package the root can import, goroutines started in OnStart that stop cleanly with OnShutdown, what Tifa does when it is told to stop, tasks that run on a timer, a jobs table in SQLite for work that must survive a restart and be retried, and what not to do inside a request'
+summary: 'How to do work outside a request in a Tifa app: OnStart loops, OnShutdown, timers, SQLite jobs table with retries'
 audience: app
 order: 6
 read_when:

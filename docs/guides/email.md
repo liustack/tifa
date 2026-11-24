@@ -1,5 +1,5 @@
 ---
-summary: 'How to send email from a Tifa app over SMTP with a pure Go library: the settings for the server and its password, one mail.go that queues a mail in the same transaction as the change and sends it from a background job, why a request never waits for the mail server, and how to test without sending'
+summary: 'How to send email from a Tifa app over SMTP with a pure Go library: SMTP, mail.go, background job, same transaction'
 audience: app
 order: 5
 read_when:

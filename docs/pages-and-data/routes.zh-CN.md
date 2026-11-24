@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 route.go 里写路由的 Go 部分：Load、带类型输入和结果的方法处理函数、它们返回的错误、输入里的文件、路由的请求体上限和读取时间、Ctx 的方法、Load 和布局里哪里可以用 Ctx，以及数据、输入和结果的 JSON 规则'
+summary: '怎样在 route.go 里写路由的 Go 部分：Load、方法处理函数、带类型的输入、错误、Ctx、JSON 规则'
 audience: app
 order: 1
-translatedFrom: d94df610294b
+translatedFrom: 4a2cbeeb1f82
 read_when:
   - '编写页面或 API 路由的 route.go：Load、方法处理函数，以及它们返回的 `tifa.Fields`、`tifa.Redirect` 之类的错误'
   - '构建报出关于 Ctx 用法或 Load 返回类型的错误，想把它修好'

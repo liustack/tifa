@@ -1,5 +1,5 @@
 ---
-summary: 'What the render memo is, why it is a memo and not a cache, how it differs from the Cache-Control of a page with `const Cache`, why it is safe to keep on for every page, how signed-in pages stay private under it and under Cache-Control, which query parameters a render sees, how requests that miss together share one render, its limits, why a page has one key that is also its ETag, and how to see it work'
+summary: 'What the render memo is and how it differs from Cache: `ssr.memo_size`, ETag, query parameters, signed-in pages, limits'
 audience: app
 order: 1
 read_when:

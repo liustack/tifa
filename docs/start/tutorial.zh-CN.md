@@ -1,8 +1,8 @@
 ---
-summary: '入门教程：用 `tifa new` 新建应用，用 `tifa dev` 运行，加一个页面、一个会显示字段错误的表单、布局数据和测试，最后构建出一个可执行文件并运行'
+summary: '入门教程：`tifa new`、`tifa dev`、页面、表单、测试、一个可执行文件'
 audience: app
 order: 1
-translatedFrom: fb5a9b2c0265
+translatedFrom: e32e66887fed
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'

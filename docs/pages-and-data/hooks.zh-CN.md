@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 hooks.go（OnStart、OnShutdown、OnRequest、OnError、日志处理器、net/http 中间件）和 setup.ts（首次渲染前运行的初始化）里设置整个应用，并指向会话文档'
+summary: '怎样在 hooks.go 和 setup.ts 里设置整个应用：OnStart、OnShutdown、OnRequest、OnError、中间件'
 audience: app
 order: 6
-translatedFrom: ad11428ffeaf
+translatedFrom: 49d2dbb2c051
 read_when:
   - '在程序启动时打开数据库、开始工作或设置日志，或者让程序干净地停下'
   - '编写 `OnRequest` 或 `OnError`，或者用 `tifa.SetHTTPHandler` 给应用包一层 `net/http` 中间件'

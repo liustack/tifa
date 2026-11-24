@@ -1,5 +1,5 @@
 ---
-summary: 'What Tifa v0.1 keeps stable for apps (packages, file conventions, generated paths, commands, settings, HTTP names) and what may change in any release'
+summary: 'What Tifa v0.1 keeps stable for apps and what may change: packages, file conventions, commands, settings, HTTP names'
 audience: app
 order: 3
 read_when:

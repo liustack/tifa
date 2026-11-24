@@ -1,5 +1,5 @@
 ---
-summary: 'Where the logs of a Tifa app are in `tifa dev`, on a server and in a container, what Tifa itself logs, how to log from your own code with `log/slog`, how to set the format and the level, and how to log each request with `tifa.SetHTTPHandler`'
+summary: 'Where the logs of a Tifa app are and how to write them: `tifa dev`, `log/slog`, format, level, `tifa.SetHTTPHandler`'
 audience: app
 order: 11
 read_when:

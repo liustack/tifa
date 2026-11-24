@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 应用在一个核上能提供多少，与 Next.js 和 TanStack Start 比较，以及怎样为它定 CPU、ssr.vms 和内存的大小，包括过载时会怎样和压缩要花多少'
+summary: 'Tifa 应用在一个核上能提供多少，以及怎样估算资源：Next.js、TanStack Start、CPU、`ssr.vms`、内存、过载、压缩'
 audience: app
 order: 2
-translatedFrom: e01d0b930956
+translatedFrom: b488f8d2fecf
 read_when:
   - '决定 Tifa 应用需要多少 CPU 和内存，或者设置 `ssr.vms`'
   - '请求到达的速度比页面渲染的速度快，或者需要给渲染队列定大小'

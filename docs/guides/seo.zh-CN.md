@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 站点怎样被搜索引擎找到、被语言模型读到：site.url 会给每个页面加上 canonical 链接，并打开 /sitemap.xml、默认的 /robots.txt、/llms.txt、/llms-full.txt，以及每个显示内容条目的页面的 Markdown 版本、分享卡片用的 og: 标签、tifa.SetSitemap 怎样列出带参数的页面、排除页面、补上标题、日期和翻译、列表里出错会怎样，以及怎样测试'
+summary: 'Tifa 站点怎样被搜索引擎找到、被语言模型读到：site.url、/sitemap.xml、/robots.txt、/llms.txt、og 标签、`tifa.SetSitemap`'
 audience: app
 order: 8
-translatedFrom: 4fb07e9412ed
+translatedFrom: d5275982e054
 read_when:
   - '设置页面的标题、描述或分享卡片（`og:title`、`og:image`、`twitter:card`），或者站点链接在聊天或信息流里不显示图片'
   - '让搜索引擎收录 Tifa 站点，或者添加 sitemap 或 robots.txt'

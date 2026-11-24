@@ -1,8 +1,8 @@
 ---
-summary: '环境里的值（比如公钥或 API 基础地址）怎样到达 Tifa 应用的页面：设置留在 Go 程序里，页面从 Load 拿到它们、为什么不为此使用 `import.meta.env.VITE_*` 和 `process.env`（Vite 和 Next.js 里是这样用的）、import.meta.env 还能给什么，以及针对 `import.meta.env.VITE_*` 的构建警告'
+summary: '环境里的值怎样到达页面：Load、`import.meta.env.VITE_*`、`process.env`'
 audience: app
 order: 10
-translatedFrom: 275f01924132
+translatedFrom: d4c2aa469f11
 read_when:
   - '你来自 Next.js 或 Vite，在页面里习惯性地用 `import.meta.env.VITE_*`、`NEXT_PUBLIC_*` 或 `process.env`'
   - '构建警告说 `import.meta.env.VITE_*` 在构建时就固定了'

@@ -1,5 +1,5 @@
 ---
-summary: 'How to test an app with go test: calling Load, a method handler or OnRequest with a Ctx from tifatest.NewCtx, testing a whole request with tifatest.Start, and fixing the clock of a render'
+summary: 'How to test an app with go test: tifatest.NewCtx, tifatest.Start, Load, OnRequest, clock'
 audience: app
 order: 9
 read_when:

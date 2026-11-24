@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里用 SQLite 保存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放在哪里以及怎样设置路径、用启动时运行的带编号迁移修改表、在 Load 和处理函数里使用、事务、写入为什么会报 `database is locked` 以及 `_txlock=immediate` 怎样避免它、拒绝重复的行、用选项 `db.backup` 把每次提交复制到 Cloudflare R2 或其他 S3 存储，并在新机器上或者回到一次错误部署前一秒恢复数据库、这在 R2 上花多少钱、用 `VACUUM INTO` 做一次性副本、在临时数据库上测试，以及什么时候该换成 Postgres'
+summary: '怎样在 Tifa 应用里用 SQLite 保存数据：迁移、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: baec91926c98
+translatedFrom: 0986a43e4479
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'

@@ -1,5 +1,5 @@
 ---
-summary: 'What a Tifa app serves on one core against Next.js and TanStack Start, and how to size CPUs, ssr.vms and memory for it, with what happens under overload and what compression costs'
+summary: 'What a Tifa app serves on one core and how to size it: Next.js, TanStack Start, CPUs, `ssr.vms`, memory, overload, compression'
 audience: app
 order: 2
 read_when:

@@ -1,5 +1,5 @@
 ---
-summary: 'Where the files of a Tifa app go: each domain in its folder under app/ next to its pages, only hooks and shared resources at the root, which way packages may import each other, how shared resources are set up and used'
+summary: 'Where the files of a Tifa app go: app/ domains, hooks, shared resources, package imports'
 audience: app
 order: 4
 read_when:

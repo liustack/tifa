@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里做一个表单：通过生成的函数把它提交给 Go 方法处理函数、在每个输入框旁边显示 tifa.Fields 给出的字段错误、发送期间禁用按钮、成功后重新加载页面数据，并在答复回来之前先显示新的一行（React 19 的 useActionState、useFormStatus 和 useOptimistic）'
+summary: '怎样在 Tifa 应用里做一个表单：方法处理函数、tifa.Fields 错误、useActionState、useOptimistic'
 audience: app
 order: 1
-translatedFrom: 70bc003be3ff
+translatedFrom: af03d9f15173
 read_when:
   - '添加一个创建或修改数据的表单，想要从输入框到屏幕上错误信息的完整路径'
   - '表单不显示字段错误、按钮可以点两次，或者表单发送后列表没有变化'

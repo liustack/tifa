@@ -1,8 +1,8 @@
 ---
-summary: '怎样写路由的 React 部分：page.tsx 和 route.gen 模块、Link 和 navigate 的查询参数类型、用 tifa.HTML 显示应用信任的 HTML、在浏览器里调用方法处理函数、布局和去掉上层布局的 layout_.tsx、head 和 htmlAttributes、404 页面，以及 ErrorBoundary 导出'
+summary: '怎样写路由的 React 部分：page.tsx、route.gen、Link 类型、head、404、ErrorBoundary'
 audience: app
 order: 2
-translatedFrom: 9a74481d215f
+translatedFrom: ba7f0927b81e
 read_when:
   - '编写 page.tsx 或 layout.tsx，或者使用 `./route.gen` 导出的东西'
   - '给 `Link`、`navigate` 或 `useSearch` 传页面读取的查询参数，或者遇到关于 `search` 的类型错误'

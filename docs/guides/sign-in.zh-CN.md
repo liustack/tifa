@@ -1,8 +1,8 @@
 ---
-summary: '怎样用 Tifa 会话让用户登录和登出：登录表单、用 argon2id 保存和检查密码、SetSession、在 Load 和处理函数里读取用户、把未登录的访客送到登录页并用 c.Path() 送回来的守卫、保护页面、登出、在浏览器里显示谁已登录，以及一种减缓密码猜测的办法'
+summary: '怎样用 Tifa 会话让用户登录和登出：argon2id、SetSession、保护页面、登出'
 audience: app
 order: 3
-translatedFrom: 28e5be7f52f6
+translatedFrom: c1856ff63b3a
 read_when:
   - '给应用加登录和登出，或者把一些页面放在登录之后'
   - '选择怎样保存和检查密码'

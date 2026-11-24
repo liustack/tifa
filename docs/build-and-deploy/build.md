@@ -1,5 +1,5 @@
 ---
-summary: 'How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes, what Tifa docs prints, how `tifa upgrade` moves an app to a newer Tifa, what `tifa agents` writes (the skill and the managed block of AGENTS.md) and how it keeps them current, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, why the front end builds with Vite, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How to create, build, check and upgrade an app with `tifa` commands: `tifa new`, `build`, `check`, `gen`, `upgrade`, `agents`, .tifa/, go.mod'
 audience: app
 order: 2
 read_when:
@@ -328,7 +328,7 @@ The part of `AGENTS.md` that Tifa writes sits between two marker lines:
 ## This app
 ```
 
-Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is Tifa's: the commands, the conventions, and an index of the docs for apps of that Tifa version, one line per doc with its path and the first clause of its summary, grouped by section folder. The index comes from the docs the command carries inside it, so it always matches the version. `tifa agents` replaces that part with the one of the Tifa version in use and leaves every other byte of the file as it was. Put the notes about the app itself outside the markers (`tifa new` starts them with `## This app`).
+Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is Tifa's: the commands, the conventions, and an index of the docs for apps of that Tifa version, one line per doc with its path and its whole summary, grouped by section folder. The index comes from the docs the command carries inside it, so it always matches the version. `tifa agents` replaces that part with the one of the Tifa version in use and leaves every other byte of the file as it was. Put the notes about the app itself outside the markers (`tifa new` starts them with `## This app`).
 
 - With no `AGENTS.md`, it writes one with a title and the block.
 - With an `AGENTS.md` that has no markers, it appends the block at the end and says so. Put the markers around the block to have it refreshed in place later.

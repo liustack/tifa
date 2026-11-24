@@ -1,5 +1,5 @@
 ---
-summary: 'How to write the React side of a route: page.tsx and the route.gen module, query parameter types for Link and navigate, showing HTML the app trusts with tifa.HTML, calling method handlers from the browser, Layouts and the layout_.tsx that drops the Layouts above it, head and htmlAttributes, 404s, and the ErrorBoundary export'
+summary: 'How to write the React side of a route: page.tsx, route.gen, Link types, head, 404s, ErrorBoundary'
 audience: app
 order: 2
 read_when:

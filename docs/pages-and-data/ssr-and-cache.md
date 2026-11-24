@@ -1,5 +1,5 @@
 ---
-summary: 'How a page is rendered and kept: the SSR, Memo and Cache switches in route.go, the Cache-Control of every answer, what Cache lets a CDN keep and what becomes anonymous on it, and how to keep private data out of a shared page'
+summary: 'How a page is rendered and kept: SSR, Memo, Cache, Cache-Control, CDN, private pages'
 audience: app
 order: 8
 read_when:

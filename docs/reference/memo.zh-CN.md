@@ -1,8 +1,8 @@
 ---
-summary: '渲染记忆是什么、为什么它是记忆而不是缓存、它与带 `const Cache` 的页面的 Cache-Control 有什么不同、为什么可以对每个页面都开着、已登录的页面在它之下和在 Cache-Control 之下怎样保持私有、渲染能看到哪些查询参数、同时没命中的请求怎样共用一次渲染、它的限制、为什么一个页面只有一个键并且它也是 ETag，以及怎样看到它在工作'
+summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面、限制'
 audience: app
 order: 1
-translatedFrom: 84ca3b6e4db8
+translatedFrom: fe93ce00edaf
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道被记住的页面会不会把一位访客的数据显示给另一位，或者到达 CDN'

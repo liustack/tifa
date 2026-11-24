@@ -1,5 +1,5 @@
 ---
-summary: 'How to use `tifa dev`: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, how `tifa errors` prints the errors since the last build, how an agent or script starts `tifa dev` in the background and reads its state, log and stop (`--background`, `status`, `logs`, `stop`), what differs on Windows, where dev output goes, and how large apps are watched'
+summary: 'How to use `tifa dev`: pages, build errors, `tifa errors`, `--background`, `status`, `logs`, `stop`'
 audience: app
 order: 1
 read_when:

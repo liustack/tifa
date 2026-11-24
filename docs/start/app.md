@@ -1,5 +1,5 @@
 ---
-summary: 'How to start a Tifa app: folder layout, how folders become URLs, the files of a folder (route.go, page.tsx, layout.tsx), what the check says about code written for another framework (Next.js, Remix, React Router, TanStack Start, SvelteKit, other Go web frameworks) and what to write in Tifa instead, a site in several languages, which static files to import and which to keep in `public/`, with links to the docs for each part'
+summary: 'How to start a Tifa app: route.go, page.tsx, layout.tsx, URLs, `public/`, Next.js or Remix code'
 audience: app
 order: 2
 read_when:

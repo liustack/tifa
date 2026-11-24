@@ -1,5 +1,5 @@
 ---
-summary: 'How a Tifa site gets found by search engines and read by language models: site.url turns on a canonical link on every page, /sitemap.xml, a default /robots.txt, /llms.txt, /llms-full.txt and a Markdown version of each page that shows a content entry, og: tags for share cards, how tifa.SetSitemap lists the pages with parameters, leaves pages out and adds titles, dates and translations, what happens to a mistake in the list, and how to test it'
+summary: 'How a Tifa site gets found by search engines and read by language models: site.url, /sitemap.xml, /robots.txt, /llms.txt, og tags, `tifa.SetSitemap`'
 audience: app
 order: 8
 read_when:
