@@ -214,7 +214,11 @@ func (r *setupRun) ufwRun(body string) func(context.Context) (string, error) {
 // active and no rule allows them yet, and delete the rules setup added for it on ports it no
 // longer serves. It reads ufw, as root, only when ufw is on and the app serves visitors, or when
 // ufw is installed and the app gives up a port it served on.
-func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) {
+//
+// The caller plans it before the app moves, since an app restarted on 443 gets no certificate
+// until Let's Encrypt reaches it, and its health check fails until then. The rules of the ports
+// the app gives up go after the move, in the step that the returned function adds, nil when none.
+func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (after func()) {
 	app := r.t.app
 	need := visitorPorts(port)
 	var gone []int
@@ -283,7 +287,10 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) {
 			drop = append(drop, q)
 		}
 	}
-	if len(drop) > 0 {
+	if len(drop) == 0 {
+		return nil
+	}
+	return func() {
 		p.add(opRemove, fmt.Sprintf("firewall: the rules of ufw for %s (tcp) with the comment '%s', which %s no longer needs, as root", portList(drop), ufwComment(app), app),
 			r.ufwRun(ufwScript("delete from ufw", "delete allow", app, drop)))
 	}

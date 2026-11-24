@@ -495,7 +495,7 @@ func (r *setupRun) serverApply(ctx context.Context) (string, error) {
 // appSteps plans the folder, port and units of the app. With deploy.front none the app serves
 // visitors itself on port 80, and with a domain on 443 too: setup stops before it changes anything
 // when something else listens there, and lets the systemd of the deploy user open them, as root.
-// Then it plans ufw for those ports, see firewallSteps.
+// It plans ufw for those ports before the app moves, see firewallSteps.
 func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
 	port, err := t.visitorPort(r.st)
@@ -556,6 +556,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 		return lines[len(lines)-1], r.refresh(ctx)
 	}
+	after := r.firewallSteps(ctx, p, port)
 	switch {
 	case r.st.Port == 0:
 		p.add(opAdd, fmt.Sprintf("app: %s/%s with an empty shared/.env, %s, the systemd %s and service tifa-%s", deployHome, app, serves, pick(u.http != "", "sockets", "socket"), app), apply)
@@ -570,7 +571,9 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	default:
 		p.ok(fmt.Sprintf("app: %s/%s, %s, systemd units", deployHome, app, portsText(port)))
 	}
-	r.firewallSteps(ctx, p, port)
+	if after != nil {
+		after()
+	}
 	return nil
 }
 
