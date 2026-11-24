@@ -112,3 +112,27 @@ func TestMoveAsideMakesRoomWhileTheProgramRuns(t *testing.T) {
 		t.Fatalf("left after the program ended: %q", got)
 	}
 }
+
+// A program moved aside earlier may be held open by another program when the next call deletes it.
+// That is no error of the build: the file stays for a later call.
+func TestMoveAsideLeavesAnOldProgramThatAnotherProgramHolds(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "tifa-dev.exe")
+	old := filepath.Join(dir, "tifa-dev.old-1.exe")
+	writeFile(t, old, "old")
+	f, err := os.Open(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := os.Remove(old); !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("deleting a file held open: %v, want a sharing violation: the test proves nothing", err)
+	}
+	writeFile(t, exe, "new")
+	if err := moveAside(exe); err != nil {
+		t.Fatalf("moveAside: %v", err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatalf("the held program is gone: %v", err)
+	}
+}

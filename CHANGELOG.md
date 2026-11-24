@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- `tifa dev` on Windows no longer fails a rebuild when another program holds an old copy of the app open. When the app does not answer in time, the log now says what the last check saw and whether the app process still ran.
+
 ## [0.5.1] - 2026-11-24
 
 ### Added
