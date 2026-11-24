@@ -45,7 +45,7 @@ Tifa itself keeps nothing for a page with `Cache`. Its `Load`s run on every requ
 
 ## Why it is safe on every page
 
-Tifa reuses a render only when every input is the same: the build, the SSR bundle, the URL the render sees (see [Query parameters](#query-parameters)), the data of every `Load` and Layout, and the session the browser gets (with `server.csp`, also the policy). The React render cannot read cookies or headers and does no I/O. Everything it shows comes from Go, through that data. So a reused render is byte for byte what a new render would give for that request.
+Tifa reuses a render only when every input is the same: the build, the SSR bundle, the URL the render sees (see [Query parameters](#query-parameters)), the data of every `Load` and Layout, the language of the page and the addresses of its other languages, and the session the browser gets (with `server.csp`, also the policy). The React render cannot read cookies or headers and does no I/O. Everything it shows comes from Go, through that data. So a reused render is byte for byte what a new render would give for that request.
 
 The 404 page and the page a failed `Load` shows are rendered for every request and never kept, so URLs a visitor makes up, such as a random slug, do not fill the memo. Requests for one of them at the same time still share one render. The status and public message of each failed `Load` are part of the data, and `OnError` still sees every failure. They carry no `ETag`, since a 304 only stands for a 200. A redirect the router makes while rendering a page, such as `/%61` to `/a`, is kept.
 
