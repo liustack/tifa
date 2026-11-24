@@ -136,9 +136,9 @@ func TestNewWritesAnApp(t *testing.T) {
 	if want := `"prepare": "go tool tifa gen"`; !strings.Contains(read("package.json"), want) {
 		t.Errorf("package.json does not have %s:\n%s", want, read("package.json"))
 	}
-	// The database the app opens by default, and the account cache cf writes into the folder it
-	// runs in, stay out of version control.
-	for _, pattern := range []string{"*.db\n", "*.db-wal\n", "*.db-shm\n", ".cloudflare/\n"} {
+	// The database the app opens by default, the staging folder of its backup, and the account
+	// cache cf writes into the folder it runs in, stay out of version control.
+	for _, pattern := range []string{"*.db\n", "*.db-wal\n", "*.db-shm\n", "*.db-replica/\n", ".cloudflare/\n"} {
 		if !strings.Contains(read(".gitignore"), pattern) {
 			t.Errorf(".gitignore does not ignore %q:\n%s", pattern, read(".gitignore"))
 		}

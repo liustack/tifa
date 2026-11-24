@@ -2,7 +2,7 @@
 summary: '`tifa new` 怎样开始一个应用、`tifa build` 做什么、`tifa check` 运行什么、`tifa gen` 写什么、Tifa docs 打印什么、`tifa upgrade` 怎样把应用升到更新的 Tifa、`tifa agents` 写什么（技能和 AGENTS.md 里由它管理的那一块）以及怎样让它们保持最新、它在 .tifa/ 里生成哪些文件和输出、怎样设置应用的 tsconfig 和 go.mod、前端为什么用 Vite 构建、生成的程序怎样启动并回答页面请求、为什么去掉调试信息，以及随程序要附上哪些许可证声明'
 audience: app
 order: 2
-translatedFrom: 47390e876c94
+translatedFrom: cba1812fc39b
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -31,8 +31,8 @@ tifa new <dir> [--module module-path] [--empty]
 | 文件 | 内容 |
 | --- | --- |
 | `go.mod` | Tifa，作为工具的 Tifa 命令，`github.com/liustack/sqlite`（一个纯 Go 的 SQLite 驱动），以及 `ignore node_modules` |
-| `db.go`, `schema.sql` | 都在根目录。`var DB`，开启了 WAL、`busy_timeout` 和外键的 `OpenDB`，以及所有领域的表，每次启动时用 `CREATE TABLE IF NOT EXISTS` 创建。数据库文件是应用运行目录里的 `app.db`，也可以用设置 `db.path`（`DB_PATH`、`--db-path`）指定 |
-| `options.go` | 在根目录。应用的选项，`var DBPath = tifa.String("db.path", "app.db", ...)`，见[应用的选项](config.zh-CN.md#options-of-the-app) |
+| `db.go`, `schema.sql` | 都在根目录。`var DB`，开启了 WAL、`busy_timeout` 和外键的 `OpenDB`，以及所有领域的表，每次启动时用 `CREATE TABLE IF NOT EXISTS` 创建。数据库文件是应用运行目录里的 `app.db`，也可以用设置 `db.path`（`DB_PATH`、`--db-path`）指定。设置了 `db.backup` 时，`StartBackup` 把每次提交复制到 S3 或 R2，见[备份](../guides/database.zh-CN.md#back-it-up) |
+| `options.go` | 在根目录。应用的选项：`DBPath = tifa.String("db.path", "app.db", ...)`，`DBBackup`（`db.backup`，默认为空）和它的存储的密钥，见[应用的选项](config.zh-CN.md#options-of-the-app) |
 | `sessions.go` | 在根目录。一个把会话存进 SQLite 数据库的会话存储，在 `OnStart` 里用 `tifa.SetSessionStore` 设置，所以重启不会让任何人退出登录（见[会话](../pages-and-data/sessions.zh-CN.md)） |
 | `hooks.go` | `OnStart` 打开数据库，`OnShutdown` 关闭数据库。`OnRequest` 和 `OnError` 只在注释里说明，因为写了 `OnError` 就会替换掉默认行为 |
 | `app/layout.tsx`, `app/styles.css` | 带导航的根布局，一个同时负责显示未知 URL 的 404 的 `ErrorBoundary`，以及它引入的样式 |

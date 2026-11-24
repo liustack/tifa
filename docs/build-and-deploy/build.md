@@ -30,8 +30,8 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | File | What it holds |
 | --- | --- |
 | `go.mod` | Tifa, the Tifa command as a tool, `github.com/liustack/sqlite`, a SQLite driver in pure Go, and `ignore node_modules` |
-| `db.go`, `schema.sql` | At the root: `var DB`, `OpenDB` with WAL, `busy_timeout` and foreign keys turned on, and the tables of every domain, created at every start with `CREATE TABLE IF NOT EXISTS`. The file is `app.db` in the folder the app runs in, or the setting `db.path` (`DB_PATH`, `--db-path`) |
-| `options.go` | At the root: the options of the app, `var DBPath = tifa.String("db.path", "app.db", ...)`, see [Options of the app](config.md#options-of-the-app) |
+| `db.go`, `schema.sql` | At the root: `var DB`, `OpenDB` with WAL, `busy_timeout` and foreign keys turned on, and the tables of every domain, created at every start with `CREATE TABLE IF NOT EXISTS`. The file is `app.db` in the folder the app runs in, or the setting `db.path` (`DB_PATH`, `--db-path`). `StartBackup` copies every commit to S3 or R2 when `db.backup` is set, see [Back it up](../guides/database.md#back-it-up) |
+| `options.go` | At the root: the options of the app, `DBPath = tifa.String("db.path", "app.db", ...)`, `DBBackup` (`db.backup`, empty by default) and the keys of its store, see [Options of the app](config.md#options-of-the-app) |
 | `sessions.go` | At the root: a session store that keeps sessions in the SQLite database, set with `tifa.SetSessionStore` in `OnStart`, so a restart signs nobody out (see [Sessions](../pages-and-data/sessions.md)) |
 | `hooks.go` | `OnStart` opens the database, `OnShutdown` closes it. `OnRequest` and `OnError` are described in comments only, since writing an `OnError` replaces the default |
 | `app/layout.tsx`, `app/styles.css` | The root Layout with a nav, and an `ErrorBoundary` that also shows the 404 of unknown URLs, and the styles it imports |
