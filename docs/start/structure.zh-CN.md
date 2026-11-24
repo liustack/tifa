@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的文件放在哪里：每个领域一个文件夹，放在 app/ 下紧挨着它的页面，根目录只放 hooks 和共享资源，包之间谁可以导入谁，共享资源怎样设置和使用'
 audience: app
 order: 4
-translatedFrom: 2bbb8b5a977b
+translatedFrom: 6d52daa1f3eb
 read_when:
   - '新建 Tifa 应用'
   - '决定一个类型、一条查询或一个共享资源放在哪里'
@@ -102,7 +102,7 @@ Go 的规则：包不能依赖它自己。如果包 A 直接或通过别的包�
   var DB *sql.DB
 
   func openDB() (err error) {
-  	DB, err = sql.Open("sqlite", "file:app.db?_txlock=immediate") // see the guide on SQLite
+  	DB, err = sql.Open("sqlite", "file:app.db?_pragma=journal_mode(WAL)&_txlock=immediate") // see the guide on SQLite
   	return err
   }
   ```
