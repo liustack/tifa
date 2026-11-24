@@ -19,6 +19,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- The `db.go` that `tifa new` writes opens SQLite with `_txlock=immediate`, so a transaction takes the write lock at `BEGIN` and waits its turn there, instead of failing with `database is locked` when another request writes between its first read and its first write. A transaction that only reads should start with `sql.TxOptions{ReadOnly: true}`. An app made earlier can add `&_txlock=immediate` to the address in its `db.go`. See [When a write gets `database is locked`](docs/guides/database.md#when-a-write-gets-database-is-locked).
 - On Windows, a rebuild of `tifa dev` right after the app started could fail with "rename ... bin\tifa-dev.exe ...: The process cannot access the file because it is being used by another process" while another program, such as a virus scanner, read the new program. `tifa dev` now waits up to 2 seconds for it, as the go command does.
 
 ## [0.4.2] - 2026-11-24

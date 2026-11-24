@@ -1,13 +1,14 @@
 ---
-summary: '怎样在 Tifa 应用里用 SQLite 保存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放在哪里以及怎样设置路径、用启动时运行的带编号迁移修改表、在 Load 和处理函数里使用、事务、拒绝重复的行、备份、在临时数据库上测试，以及什么时候该换成 Postgres'
+summary: '怎样在 Tifa 应用里用 SQLite 保存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放在哪里以及怎样设置路径、用启动时运行的带编号迁移修改表、在 Load 和处理函数里使用、事务、写入为什么会报 `database is locked` 以及 `_txlock=immediate` 怎样避免它、拒绝重复的行、备份、在临时数据库上测试，以及什么时候该换成 Postgres'
 audience: app
 order: 2
-translatedFrom: d04949d1ca08
+translatedFrom: 31950ccd3c0b
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
   - '为 Tifa 应用在 SQLite 和 Postgres 之间做选择'
   - '为读写数据库的代码写 Go 测试'
+  - '写入时报 `database is locked` 或 `SQLITE_BUSY`'
 ---
 
 # 在 SQLite 里保存数据 {#keeping-data-in-sqlite}
@@ -249,6 +250,17 @@ return t, tx.Commit()
 ```
 
 事务要保持很短。SQLite 同一时间只让一个写入者进入，其他的等待，最多等 `busy_timeout`。事务开着的时候，不要调用别的服务，也不要等访客。
+
+### 写入报 `database is locked` 时 {#when-a-write-gets-database-is-locked}
+
+SQLite 同一时间只让一个写入进来。驱动把应用里的写入按到达顺序排队，所以一个写入会等前面的写入做完，而不是直接失败。但有两种情况仍然会以 `database is locked`（`SQLITE_BUSY`）结束：
+
+- **事务开始时没有拿写锁。** 不加 `_txlock=immediate` 时，`BEGIN` 不拿任何锁。事务先读，另一个请求写入并提交，这个事务接下来的第一次写入就会失败，`busy_timeout` 设多长都一样。这是 SQLite 为了让事务读到的数据前后一致而拒绝它，多等一会儿或者重试这条语句都没用。用 `_txlock=immediate` 打开数据库，就像上面的 `OpenDB` 和 `tifa new` 写出的 `db.go` 那样：每个事务在 `BEGIN` 时就拿写锁，在那里排队等。
+- **写入来得比磁盘提交得还快。** 这时一个写入等的时间超过 `busy_timeout`（默认 5 秒）就会失败。先像上面说的那样让事务保持很短，再考虑调大这个时间。
+
+只读的事务不需要写锁。用 `db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})` 开始它，它就不会排在写入后面等。不在事务里的查询两样都不需要。
+
+另一个写同一个文件的进程，比如脚本或者 `sqlite3` 命令行，不在驱动的队列里：它和应用在 SQLite 自己的锁上相遇，换哪个驱动都一样。
 
 ### 拒绝重复 {#reject-a-duplicate}
 
